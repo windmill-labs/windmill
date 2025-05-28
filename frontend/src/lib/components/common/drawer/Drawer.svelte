@@ -3,6 +3,7 @@
 	import { BROWSER } from 'esm-env'
 	import Disposable from './Disposable.svelte'
 	import ConditionalPortal from './ConditionalPortal.svelte'
+	import { globalChatOpen } from '$lib/stores'
 
 	export let open = false
 	export let duration = 0.3
@@ -12,6 +13,7 @@
 	export let shouldUsePortal: boolean = true
 	export let offset: number = 0
 	export let preventEscape = false
+	export let disableClickOutside = $globalChatOpen
 
 	let disposable: Disposable | undefined = undefined
 
@@ -40,7 +42,9 @@
 	let mounted = false
 	const dispatch = createEventDispatcher()
 
-	$: style = `--duration: ${duration}s; --size: ${size};`
+	// Calculate adjusted offset based on global chat status
+	$: adjustedOffset = $globalChatOpen && placement === 'right' ? 200 : 0
+	$: style = `--duration: ${duration}s; --size: ${size}; --adjusted-offset: ${adjustedOffset}px;`
 
 	function scrollLock(open: boolean) {
 		if (BROWSER) {
@@ -76,14 +80,18 @@
 	>
 		<aside
 			class="drawer windmill-app windmill-drawer {$$props.class ?? ''} {$$props.positionClass ??
-				''}"
+				''} {$globalChatOpen ? 'respect-global-chat' : ''}"
 			class:open
 			class:close={!open && timeout}
+			class:global-chat-open={$globalChatOpen}
 			style={`${style}; --zIndex: ${zIndex};`}
 		>
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
-			<div class="overlay {$$props.positionClass ?? ''}" on:click={handleClickAway}></div>
+			<div
+				class="overlay {$$props.positionClass ?? ''}"
+				on:click={disableClickOutside ? () => {} : handleClickAway}
+			></div>
 			<div class="panel {placement} {$$props.positionClass}" class:size>
 				{#if open || !timeout || alwaysOpen}
 					<slot {open} />
@@ -110,6 +118,8 @@
 		height: 100%;
 		width: 100%;
 		z-index: var(--zIndex);
+		right: 0;
+		width: calc(100% - var(--adjusted-offset));
 		transition: z-index var(--duration) step-start;
 		pointer-events: auto;
 	}
@@ -126,6 +136,12 @@
 		transition: opacity var(--duration) ease;
 	}
 
+	.drawer.respect-global-chat.global-chat-open > .overlay {
+		width: calc(100% - var(--adjusted-offset));
+		right: var(--adjusted-offset);
+		left: auto;
+	}
+
 	.drawer.open > .overlay {
 		opacity: 1;
 	}
@@ -140,7 +156,9 @@
 		width: 100%;
 		@apply bg-surface;
 		z-index: 3;
-		transition: transform var(--duration) ease, max-width var(--duration) ease,
+		transition:
+			transform var(--duration) ease,
+			max-width var(--duration) ease,
 			max-height var(--duration) ease;
 		height: 100%;
 	}
@@ -153,6 +171,10 @@
 	.panel.right {
 		right: 0;
 		transform: translate(100%, 0);
+	}
+
+	.drawer.respect-global-chat.global-chat-open > .panel.right {
+		right: var(--adjusted-offset);
 	}
 
 	.panel.top {

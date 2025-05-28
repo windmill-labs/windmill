@@ -293,6 +293,8 @@
 
 		{#if dropdownItems && dropdownItems.length > 0}
 			<Dropdown
+				aiId={aiId ? `${aiId}-dropdown` : undefined}
+				aiDescription={aiDescription ? `${aiDescription} dropdown` : undefined}
 				items={computeDropdowns(dropdownItems)}
 				class="h-full w-fit"
 				hidePopup={hideDropdown}

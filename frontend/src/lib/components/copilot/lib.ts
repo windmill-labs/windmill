@@ -457,6 +457,7 @@ export async function getCompletion(
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
 ) {
 	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
+	console.log('config', config)
 	const openaiClient = workspaceAIClients.getOpenaiClient()
 	const completion = await openaiClient.chat.completions.create(config, {
 		signal: abortController.signal,

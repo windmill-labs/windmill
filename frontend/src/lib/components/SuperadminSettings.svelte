@@ -133,9 +133,17 @@
 			</div>
 			<div class="pt-4 h-full">
 				<Tabs bind:selected={tab}>
-					<Tab value="users">Users</Tab>
+					<Tab value="users" aiId="instance-settings-users" aiDescription="Instance users settings"
+						>Users</Tab
+					>
 					{#each settingsKeys as category}
-						<Tab value={category}>{category}</Tab>
+						<Tab
+							value={category}
+							aiId={`instance-settings-${category}`}
+							aiDescription={`Instance ${category} settings`}
+						>
+							{category}
+						</Tab>
 					{/each}
 					<svelte:fragment slot="content">
 						<div class="pt-4"></div>

@@ -48,9 +48,9 @@
 	}
 </script>
 
-<div class="flex flex-col h-full bg-surface">
+<div class="flex flex-col h-full bg-surface z-10">
 	<!-- Chat Messages -->
-	<div bind:this={chatContainer} class="flex-1 overflow-y-auto p-4 space-y-4">
+	<div bind:this={chatContainer} class="flex-1 overflow-y-auto p-4 space-y-4 z-10">
 		{#each messages as msg}
 			<div class={twMerge('flex flex-col', msg.role === 'user' ? 'items-end' : 'items-start')}>
 				<div
@@ -90,7 +90,7 @@
 					}
 				}}
 				placeholder="Type your message..."
-				class="flex-1 resize-none border border-gray-300 dark:border-gray-600 rounded-lg p-3 text-sm bg-surface text-primary focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px] max-h-32"
+				class="flex-1 resize-none border border-gray-300 dark:border-gray-600 rounded-lg p-3 text-sm bg-surface text-primary focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px] max-h-32 z-10"
 				rows="1"
 				disabled={isSubmitting}
 			></textarea>
