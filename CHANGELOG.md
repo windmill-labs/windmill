@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.493.2](https://github.com/windmill-labs/windmill/compare/v1.493.1...v1.493.2) (2025-05-28)
+
+
+### Bug Fixes
+
+* improve monaco editor memory leak ([e0f4f83](https://github.com/windmill-labs/windmill/commit/e0f4f83ebf4416c3bcc24433a7bf606349e1f75a))
+* improve monaco javascript extra lib refresh ([7b70348](https://github.com/windmill-labs/windmill/commit/7b70348b4bba3726e3fb26c964219a5a2aa6af55))
+
 ## [1.493.1](https://github.com/windmill-labs/windmill/compare/v1.493.0...v1.493.1) (2025-05-28)
 
 
