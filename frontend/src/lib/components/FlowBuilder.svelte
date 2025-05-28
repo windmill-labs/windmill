@@ -48,7 +48,6 @@
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
 	import { cleanInputs, emptyFlowModuleState } from './flows/utils'
 	import { Calendar, Pen, Save, DiffIcon, HistoryIcon, FileJson, type Icon } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import {
@@ -102,6 +101,24 @@
 	export let setSavedraftCb: ((cb: () => void) => void) | undefined = undefined
 	export let draftTriggersFromUrl: Trigger[] | undefined = undefined
 	export let selectedTriggerIndexFromUrl: number | undefined = undefined
+	export let onevent: {
+		deploy?: (path: string) => void
+		deployError?: (error: Error) => void
+		saveInitial?: (path: string) => void
+		saveDraft?: ({
+			path,
+			savedAtNewPath,
+			newFlow
+		}: {
+			path: string
+			savedAtNewPath: boolean
+			newFlow: boolean
+		}) => void
+		saveDraftError?: (error: Error) => void
+		saveDraftOnlyAtNewPath?: ({ path, selectedId }: { path: string; selectedId: string }) => void
+		seeDetails?: (path: string) => void
+		historyRestore?: () => void
+	} = {}
 
 	let initialPathStore = writable(initialPath)
 	$: initialPathStore.set(initialPath)
@@ -164,8 +181,6 @@
 			onLatest = true
 		}
 	}
-
-	const dispatch = createEventDispatcher()
 
 	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule) // kept for legacy reasons
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
@@ -288,18 +303,19 @@
 
 			let savedAtNewPath = false
 			if (newFlow) {
-				dispatch('saveInitial', $pathStore)
+				onevent.saveInitial?.($pathStore)
 			} else if (savedFlow?.draft_only && $pathStore !== initialPath) {
 				savedAtNewPath = true
 				initialPath = $pathStore
 				// this is so we can use the flow builder outside of sveltekit
-				dispatch('saveDraftOnlyAtNewPath', { path: $pathStore, selectedId: getSelectedId() })
+				onevent.saveDraftOnlyAtNewPath?.({ path: $pathStore, selectedId: getSelectedId() })
 			}
-			dispatch('saveDraft', { path: $pathStore, savedAtNewPath, newFlow })
+
+			onevent.saveDraft?.({ path: $pathStore, savedAtNewPath, newFlow })
 			sendUserToast('Saved as draft')
 		} catch (error) {
 			sendUserToast(`Error while saving the flow as a draft: ${error.body || error.message}`, true)
-			dispatch('saveDraftError', error)
+			onevent.saveDraftError?.(error)
 		}
 		loadingDraft = false
 	}
@@ -463,9 +479,9 @@
 			} as Flow
 			setDraftTriggers([])
 			loadingSave = false
-			dispatch('deploy', $pathStore)
+			onevent.deploy?.($pathStore)
 		} catch (err) {
-			dispatch('deployError', err)
+			onevent.deployError?.(err)
 			sendUserToast(`The flow could not be saved: ${err.body}`, true)
 			loadingSave = false
 		}
@@ -662,7 +678,7 @@
 		if (savedFlow?.draft_only === false || savedFlow?.draft_only === undefined) {
 			dropdownItems.push({
 				label: 'Exit & see details',
-				onClick: () => dispatch('details', $pathStore)
+				onClick: () => onevent.seeDetails?.($pathStore)
 			})
 		}
 
@@ -1262,7 +1278,11 @@
 	{#if !$userStore?.operator}
 		<FlowCopilotDrawer {getHubCompletions} {genFlow} bind:flowCopilotMode />
 		{#if $pathStore}
-			<FlowHistory bind:this={flowHistory} path={$pathStore} on:historyRestore />
+			<FlowHistory
+				bind:this={flowHistory}
+				path={$pathStore}
+				onHistoryRestore={() => onevent.historyRestore?.()}
+			/>
 		{/if}
 		<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 		<FlowImportExportMenu bind:drawer={jsonViewerDrawer} />

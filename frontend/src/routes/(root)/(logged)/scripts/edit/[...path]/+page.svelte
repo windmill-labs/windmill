@@ -27,7 +27,6 @@
 
 	let scriptLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
-
 	let script: (NewScript & { draft_triggers?: Trigger[] }) | undefined = undefined
 
 	let initialPath: string = ''
@@ -218,19 +217,18 @@
 		{diffDrawer}
 		{savedPrimarySchedule}
 		searchParams={$page.url.searchParams}
-		on:deploy={(e) => {
-			let newHash = e.detail
-			goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
+		onevent={{
+			deploy: (newHash) => {
+				goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
+			},
+			saveInitial: (path) => {
+				goto(`/scripts/edit/${path}`)
+			},
+			saveDraft: ({ path, savedAtNewPath, script }) => {
+				goto(`/scripts/edit/${path}`)
+			}
 		}}
 		bind:getInitialAndModifiedValues
-		on:saveInitial={(e) => {
-			let path = e.detail
-			goto(`/scripts/edit/${path}`)
-		}}
-		on:seeDetails={(e) => {
-			let path = e.detail
-			goto(`/scripts/get/${path}?workspace=${$workspaceStore}`)
-		}}
 		replaceStateFn={(path) => {
 			replaceState(path, $page.state)
 		}}

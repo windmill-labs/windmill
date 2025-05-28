@@ -79,6 +79,10 @@
 		path: string,
 		opt?: Record<string, any>
 	) => window.history.pushState(null, '', path)
+	export let onevent: {
+		savedNewAppPath?: (path: string) => void
+		restore?: (app: App) => void
+	} = {}
 
 	migrateApp(app)
 
@@ -785,8 +789,7 @@
 	$: forceDeactivatePanzoom = isModifierKeyPressed && handMode
 </script>
 
-<svelte:head>
-</svelte:head>
+<svelte:head></svelte:head>
 
 <DarkModeObserver on:change={onThemeChange} />
 
@@ -806,7 +809,7 @@
 		<AppEditorHeader
 			{newPath}
 			{newApp}
-			on:restore
+			on:restore={(e) => onevent.restore?.(e.detail)}
 			{policy}
 			{fromHub}
 			bind:this={appEditorHeader}
@@ -816,7 +819,7 @@
 			leftPanelHidden={leftPanelSize === 0}
 			rightPanelHidden={rightPanelSize === 0}
 			bottomPanelHidden={runnablePanelSize === 0}
-			on:savedNewAppPath
+			on:savedNewAppPath={(e) => onevent.savedNewAppPath?.(e.detail)}
 			on:showLeftPanel={() => showLeftPanel()}
 			on:showRightPanel={() => showRightPanel()}
 			on:hideLeftPanel={() => hideLeftPanel()}

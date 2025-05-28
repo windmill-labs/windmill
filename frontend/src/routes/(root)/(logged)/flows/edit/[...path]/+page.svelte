@@ -244,18 +244,19 @@
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
 <FlowBuilder
-	on:deploy={(e) => {
-		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
-	}}
-	on:details={(e) => {
-		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
-	}}
-	on:saveDraftOnlyAtNewPath={(e) => {
-		const { path, selectedId } = e.detail
-		goto(`/flows/edit/${path}?selected=${selectedId}`)
-	}}
-	on:historyRestore={() => {
-		loadFlow()
+	onevent={{
+		deploy: (path) => {
+			goto(`/flows/get/${path}?workspace=${$workspaceStore}`)
+		},
+		seeDetails: (path) => {
+			goto(`/flows/get/${path}?workspace=${$workspaceStore}`)
+		},
+		saveDraftOnlyAtNewPath: ({ path, selectedId }) => {
+			goto(`/flows/edit/${path}?selected=${selectedId}`)
+		},
+		historyRestore: () => {
+			loadFlow()
+		}
 	}}
 	{flowStore}
 	{flowStateStore}

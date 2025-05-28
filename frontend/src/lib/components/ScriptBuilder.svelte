@@ -67,7 +67,7 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { createEventDispatcher, onMount, setContext } from 'svelte'
+	import { onMount, setContext } from 'svelte'
 	import Summary from './Summary.svelte'
 	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
@@ -111,6 +111,22 @@
 	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
 	export let functionExports: ((exports: ScriptBuilderFunctionExports) => void) | undefined =
 		undefined
+	export let onevent: {
+		deploy?: (newHash: string) => void
+		deployError?: (error: Error) => void
+		saveInitial?: (path: string) => void
+		saveDraft?: ({
+			path,
+			savedAtNewPath,
+			script
+		}: {
+			path: string
+			savedAtNewPath: boolean
+			script: NewScript
+		}) => void
+		saveDraftError?: (error: Error) => void
+		seeDetails?: (path: string) => void
+	} = {}
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
 		return {
@@ -181,8 +197,6 @@
 		])
 		loadTriggers()
 	}
-
-	const dispatch = createEventDispatcher()
 
 	$: initialPath != '' && loadTriggers()
 
@@ -565,10 +579,10 @@
 				script.parent_hash = newHash
 				sendUserToast('Deployed')
 			} else {
-				dispatch('deploy', newHash)
+				onevent.deploy?.(newHash)
 			}
 		} catch (error) {
-			dispatch('deployError', error)
+			onevent.deployError?.(error)
 			sendUserToast(`Error while saving the script: ${error.body || error.message}`, true)
 		}
 		loadingSave = false
@@ -700,9 +714,9 @@
 			if (initialPath == '' || (savedScript?.draft_only && script.path !== initialPath)) {
 				savedAtNewPath = true
 				initialPath = script.path
-				dispatch('saveInitial', script.path)
+				onevent.saveInitial?.(script.path)
 			}
-			dispatch('saveDraft', { path: script.path, savedAtNewPath, script })
+			onevent.saveDraft?.({ path: script.path, savedAtNewPath, script })
 
 			sendUserToast('Saved as draft')
 		} catch (error) {
@@ -710,7 +724,7 @@
 				`Error while saving the script as a draft: ${error.body || error.message}`,
 				true
 			)
-			dispatch('saveDraftError', error)
+			onevent.saveDraftError?.(error)
 		}
 		loadingDraft = false
 	}
@@ -768,7 +782,7 @@
 									{
 										label: 'Exit & See details',
 										onClick: () => {
-											dispatch('seeDetails', initialPath)
+											onevent.seeDetails?.(initialPath)
 										}
 									}
 								]

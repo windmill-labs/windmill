@@ -1,3 +1,14 @@
+// Check if this script is being run from the package root
+const isTopLevel = !process.env.npm_config_global && process.env.INIT_CWD === process.cwd()
+
+if (isTopLevel) {
+	console.log('Running postinstall: direct install')
+	// Your postinstall logic here
+} else {
+	console.log('Skipping postinstall: installed as dependency')
+	process.exit(0)
+}
+
 import path from 'path'
 import fs from 'fs'
 
@@ -17,17 +28,6 @@ const __dirname = dirname(__filename)
 const response = await fetch(tarUrl)
 const buffer = await response.arrayBuffer()
 await fs.promises.writeFile(outputTarPath, Buffer.from(buffer))
-
-// Check if this script is being run from the package root
-const isRootInstall = process.cwd() + '/scripts' === __dirname
-
-if (isRootInstall) {
-	console.log('Running postinstall: direct install')
-	// Your postinstall logic here
-} else {
-	console.log('Skipping postinstall: installed as dependency')
-	process.exit(0)
-}
 
 // Create extract directory if it doesn't exist
 try {

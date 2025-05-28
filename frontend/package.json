@@ -1,11 +1,10 @@
 {
 	"name": "windmill-components",
-	"version": "1.493.2",
+	"version": "1.493.10",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
 		"preview": "vite preview",
-		"postinstall": "node scripts/untar_ui_builder.js && node scripts/patch_files.js",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --threshold warning",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --ignore-path .gitignore --check --plugin-search-dir=. . && eslint --ignore-path .gitignore .",
@@ -155,7 +154,7 @@
 		"zod": "^3.24.2"
 	},
 	"peerDependencies": {
-		"svelte": "^4.0.0"
+		"svelte": "^5.0.0"
 	},
 	"exports": {
 		"./package.json": "./package.json",
@@ -375,11 +374,16 @@
 		"./tailwindUtils": {
 			"types": "./package/components/apps/editor/componentsPanel/tailwindUtils.d.ts",
 			"default": "./package/components/apps/editor/componentsPanel/tailwindUtils.js"
+		},
+		"./components/custom_ui": {
+			"types": "./package/components/custom_ui.d.ts",
+			"default": "./package/components/custom_ui.js"
 		}
 	},
 	"files": [
 		"dist",
-		"package"
+		"package",
+		"scripts"
 	],
 	"license": "AGPL-3.0",
 	"svelte": "./dist/index.js",
@@ -513,6 +517,9 @@
 			],
 			"tailwindUtils": [
 				"./package/components/apps/editor/componentsPanel/tailwindUtils.d.ts"
+			],
+			"components/custom_ui": [
+				"./package/components/custom_ui.d.ts"
 			]
 		}
 	},

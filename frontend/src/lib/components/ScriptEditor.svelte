@@ -13,7 +13,7 @@
 	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from './EditorBar.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import { onDestroy, onMount } from 'svelte'
 	import { Button } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
@@ -43,7 +43,6 @@
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
 	import { base } from '$lib/base'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/core'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -73,6 +72,7 @@
 	export let stablePathForCaptures: string = ''
 	export let lastSavedCode: string | undefined = undefined
 	export let lastDeployedCode: string | undefined = undefined
+	export let 
 
 	let showHistoryDrawer = false
 
@@ -87,8 +87,6 @@
 		shellcheck: false
 	}
 
-	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	$: watchChanges &&
 		(code != undefined || schema != undefined) &&

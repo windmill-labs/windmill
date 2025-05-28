@@ -165,14 +165,16 @@
 <!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
 
 <FlowBuilder
-	on:saveInitial={(e) => {
-		goto(`/flows/edit/${e.detail}?selected=${getSelectedId?.()}`)
-	}}
-	on:deploy={(e) => {
-		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
-	}}
-	on:details={(e) => {
-		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
+	onevent={{
+		saveInitial: (path) => {
+			goto(`/flows/edit/${path}?selected=${getSelectedId?.()}`)
+		},
+		deploy: (path) => {
+			goto(`/flows/get/${path}?workspace=${$workspaceStore}`)
+		},
+		seeDetails: (path) => {
+			goto(`/flows/get/${path}?workspace=${$workspaceStore}`)
+		}
 	}}
 	{initialPath}
 	{pathStoreInit}
