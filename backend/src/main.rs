@@ -15,7 +15,6 @@ use monitor::{
     send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
-use serde_json::{Map, Value};
 use sqlx::postgres::PgListener;
 use std::{
     collections::HashMap,
@@ -49,13 +48,10 @@ use windmill_common::{
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
         TIMEOUT_WAIT_RESULT_SETTING,
     },
-    jwt::decode_without_verify,
     scripts::ScriptLang,
     stats_ee::schedule_stats,
     triggers::TriggerKind,
-    utils::{
-        rd_string, Mode, AGENT_JWT_PREFIX, AGENT_TOKEN, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS,
-    },
+    utils::{rd_string, Mode, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS},
     worker::{
         reload_custom_tags_setting, Connection, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
     },
@@ -76,11 +72,12 @@ static GLOBAL: Jemalloc = Jemalloc;
 use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 
 use windmill_worker::{
-    get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR,
-    DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR,
-    JAVA_CACHE_DIR, NU_CACHE_DIR, POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR,
-    PY312_CACHE_DIR, PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR, TAR_PY310_CACHE_DIR,
-    TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR, TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
+    get_hub_script_content_and_requirements, result_processor::start_interactive_worker_shell,
+    BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS,
+    DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR, JAVA_CACHE_DIR, NU_CACHE_DIR,
+    POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR, PY313_CACHE_DIR,
+    RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR, TAR_PY310_CACHE_DIR, TAR_PY311_CACHE_DIR,
+    TAR_PY312_CACHE_DIR, TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -680,26 +677,13 @@ Windmill Community Edition {GIT_VERSION}
                 if worker_mode {
                     let mut workers = vec![];
 
-                    let suffix_to_append = match mode {
-                        Mode::Agent => {
-                            let decoded_token = decode_without_verify::<Map<String, Value>>(
-                                AGENT_TOKEN.trim_start_matches(AGENT_JWT_PREFIX),
-                            )?;
-                            let suffix_to_append = decoded_token["suffix"].as_str();
-                            suffix_to_append.map(|s| s.to_owned())
-                        }
-                        _ => None,
-                    };
-
                     for i in 0..num_workers {
-                        let mut suffix = if i == 0 && first_suffix.is_some() {
+                        let suffix = if i == 0 && first_suffix.is_some() {
                             first_suffix.as_ref().unwrap().clone()
                         } else {
                             windmill_common::utils::worker_suffix(&hostname, &rd_string(5))
                         };
-                        if let Some(suffix_to_append) = suffix_to_append.as_ref() {
-                            suffix = format!("{}_{}", suffix, &suffix_to_append);
-                        }
+
                         let worker_conn = WorkerConn {
                             conn: if i == 0 || mode != Mode::Agent {
                                 conn.clone()

@@ -7,7 +7,6 @@
 	import TagsToListenTo from './TagsToListenTo.svelte'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import CollapseLink from './CollapseLink.svelte'
-	import AgentWorkerExtraBehavior from './AgentWorkerExtraBehavior.svelte'
 
 	type Props = {
 		customTags: string[] | undefined
@@ -17,15 +16,12 @@
 	let workerGroup: string = $state('agent')
 	let token: string = $state('')
 
-	let suffix: string | undefined = $state(undefined)
-
-	async function refreshToken(workerGroup: string, selectedTags: string[], suffix?: string) {
+	async function refreshToken(workerGroup: string, selectedTags: string[]) {
 		try {
 			const newToken = await AgentWorkersService.createAgentToken({
 				requestBody: {
 					worker_group: workerGroup,
 					tags: selectedTags,
-					suffix,
 					exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365 * 3 // 3 years
 				}
 			})
@@ -38,7 +34,7 @@
 
 	$effect(() => {
 		if (selectedTags.length > 0 && $superadmin) {
-			refreshToken(workerGroup, selectedTags, suffix)
+			refreshToken(workerGroup, selectedTags)
 		}
 	})
 </script>
@@ -65,16 +61,13 @@
 		<TagsToListenTo disabled={!$enterpriseLicense} bind:worker_tags={selectedTags} {customTags} />
 	</Section>
 
-	<Section label="Extra behavior" headless eeOnly>
+	<Section label="Generated JWT token" primary>
 		{#if !$enterpriseLicense}
 			<div class="text-sm text-secondary mb-2 max-w-md">
 				Agent workers are only available in the enterprise edition. For evaluation purposes, you can
 				only use the tag `agent_test` tag and it is limited to 100 jobs.
 			</div>
 		{/if}
-		<AgentWorkerExtraBehavior bind:suffix />
-	</Section>
-	<Section label="Generated JWT token" primary>
 		<div class="relative max-w-md group">
 			<!-- svelte-ignore event_directive_deprecated -->
 			<input

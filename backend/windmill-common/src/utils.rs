@@ -136,29 +136,6 @@ lazy_static::lazy_static! {
     pub static ref AGENT_TOKEN: String = std::env::var("AGENT_TOKEN").unwrap_or_default();
 }
 
-#[derive(Clone, Debug, PartialEq)]
-#[non_exhaustive]
-pub enum AgentWorkerSuffix {
-    EnableLiveShell,
-}
-
-impl TryFrom<&str> for AgentWorkerSuffix {
-    type Error = Error;
-    fn try_from(value: &str) -> std::result::Result<Self, Self::Error> {
-        let suffix = match value {
-            "enable.live.shell" => AgentWorkerSuffix::EnableLiveShell,
-            suffix => {
-                return Err(Error::Anyhow {
-                    error: anyhow::anyhow!("Unknown suffix: {}", suffix),
-                    location: "utils.rs@149".to_string(),
-                })
-            }
-        };
-
-        Ok(suffix)
-    }
-}
-
 #[derive(Clone)]
 pub struct ModeAndAddons {
     pub indexer: bool,
@@ -218,17 +195,6 @@ fn instance_name(hostname: &str) -> String {
 
 pub fn worker_suffix(hostname: &str, rd_string: &str) -> String {
     format!("{}-{}", instance_name(hostname), rd_string)
-}
-
-pub fn check_if_ag_worker_has_specific_suffix(
-    suffix_to_check: AgentWorkerSuffix,
-    suffix: &str,
-) -> bool {
-    suffix
-        .split('_')
-        .step_by(1)
-        .filter_map(|sub_suffix| TryInto::<AgentWorkerSuffix>::try_into(sub_suffix).ok())
-        .any(|parsed_suffix| parsed_suffix == suffix_to_check)
 }
 
 pub fn worker_name_with_suffix(is_agent: bool, worker_group: &str, suffix: &str) -> String {

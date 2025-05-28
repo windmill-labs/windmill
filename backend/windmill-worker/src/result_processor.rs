@@ -49,7 +49,7 @@ use crate::{
     otel_ee::add_root_flow_job_to_otlp,
     worker_flow::update_flow_status_after_job_completion,
     AuthedClient, JobCompletedReceiver, JobCompletedSender, NextJob, SameWorkerSender, SendResult,
-    UpdateFlow, INIT_SCRIPT_TAG, KEEP_JOB_DIR, SAME_WORKER_REQUIREMENTS, SLEEP_QUEUE,
+    UpdateFlow, INIT_SCRIPT_TAG, SAME_WORKER_REQUIREMENTS, SLEEP_QUEUE,
 };
 
 async fn process_jc(
@@ -108,7 +108,7 @@ async fn process_jc(
         jc,
         &base_internal_url,
         &db,
-        &worker_dir,
+        worker_dir,
         same_worker_tx,
         &worker_name,
         job_completed_sender.clone(),
@@ -137,75 +137,13 @@ pub fn start_interactive_worker_shell(
     hostname: String,
     worker_name: String,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    job_completed_tx: JobCompletedSender,
     base_internal_url: String,
     worker_dir: String,
 ) {
     tokio::spawn(async move {
         let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
-        let mut has_been_killed = false;
 
-        let (job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 10);
-        if let Some(db) = conn.as_sql() {
-            let db = db.clone();
-            let job_completed_tx = job_completed_tx.clone();
-            let worker_name = worker_name.clone();
-            let base_internal_url = base_internal_url.clone();
-            let worker_dir = worker_dir.clone();
-            tokio::spawn(async move {
-                let job_completed_rx = job_completed_rx.unwrap();
-                let JobCompletedReceiver { bounded_rx, mut killpill_rx, unbounded_rx } =
-                    job_completed_rx;
-                while let Some(sr) = {
-                    if has_been_killed {
-                        unbounded_rx
-                            .try_recv()
-                            .ok()
-                            .map(JobCompletedRx::JobCompleted)
-                            .or_else(|| {
-                                bounded_rx.try_recv().ok().map(JobCompletedRx::JobCompleted)
-                            })
-                    } else {
-                        tokio::select! {
-                            biased;
-                            result = unbounded_rx.recv_async() => {
-                                result.ok().map(JobCompletedRx::JobCompleted)
-                            }
-                            result = bounded_rx.recv_async() => {
-                                result.ok().map(JobCompletedRx::JobCompleted)
-                            }
-
-                            _ = killpill_rx.recv() => {
-                                Some(JobCompletedRx::Killpill)
-                            }
-                        }
-                    }
-                } {
-                    #[cfg(feature = "benchmark")]
-                    let mut bench = BenchmarkIter::new();
-
-                    match sr {
-                        JobCompletedRx::JobCompleted(SendResult::JobCompleted(jc)) => {
-                            process_jc(
-                                jc,
-                                &worker_name,
-                                &base_internal_url,
-                                &db,
-                                &worker_dir,
-                                None,
-                                &job_completed_tx,
-                                #[cfg(feature = "benchmark")]
-                                &mut bench,
-                            )
-                            .await;
-                        }
-                        JobCompletedRx::Killpill => {
-                            has_been_killed = true;
-                        }
-                        _ => {}
-                    }
-                }
-            });
-        }
         let mut killpill_rx2 = killpill_rx.resubscribe();
         let mut last_executed_job: Option<Instant> =
             Instant::now().checked_sub(Duration::from_millis(2500));
@@ -244,17 +182,10 @@ pub fn start_interactive_worker_shell(
                         job.map(|x| x.job.map(NextJob::Sql))
                     }
                     Connection::Http(client) => {
-                        let header_map = from_iter_to_header_map([(
-                            AGENT_WORKER_SHELL_TAG_HEADER_NAME,
-                            hostname.as_str(),
-                        )])
-                        .ok();
+                        let header_map =
+                            from_iter_to_header_map([(AGENT_WORKER_SHELL_TAG_HEADER_NAME, "true")])
+                                .ok();
 
-                        if header_map.is_none() {
-                            tracing::error!(
-                                "An error has occurred header map is none, it should not happen"
-                            );
-                        }
                         crate::agent_workers::pull_job(&client, header_map)
                             .await
                             .map_err(|e| error::Error::InternalErr(e.to_string()))
@@ -272,14 +203,6 @@ pub fn start_interactive_worker_shell(
                             .create(&job_dir)
                             .await
                             .expect("could not create job dir");
-
-                        let target = &format!("{job_dir}/shared");
-
-                        DirBuilder::new()
-                            .recursive(true)
-                            .create(target)
-                            .await
-                            .expect("could not create shared dir");
 
                         let JobAndPerms {
                             job,
@@ -299,7 +222,6 @@ pub fn start_interactive_worker_shell(
                             (NextJob::Http(job), _) => job,
                         };
 
-                        // let token = create_token(&db, &job, job_perms).await;
                         let authed_client = AuthedClient {
                             base_internal_url: base_internal_url.to_string(),
                             token,
@@ -308,14 +230,12 @@ pub fn start_interactive_worker_shell(
                         };
 
                         let arc_job = Arc::new(job);
-                        add_time!(bench, "handle_queued_job START");
 
                         let span = tracing::span!(tracing::Level::INFO, "job",
                                     job_id = %arc_job.id, workspace_id = %arc_job.workspace_id,  worker = %worker_name, hostname = %hostname, tag = %arc_job.tag,
                                     language = "bash", otel.name = "job");
 
                         windmill_common::otel_ee::set_span_parent(&span, &arc_job.id);
-                        // span.context().span().add_event_with_timestamp("job created".to_string(), arc_job.created_at.into(), vec![]);
 
                         match handle_queued_job(
                             arc_job.clone(),
@@ -379,10 +299,6 @@ pub fn start_interactive_worker_shell(
                                 }
                             },
                             _ => {}
-                        }
-
-                        if !KEEP_JOB_DIR.load(Ordering::Relaxed) && !arc_job.same_worker {
-                            let _ = tokio::fs::remove_dir_all(job_dir).await;
                         }
 
                         last_executed_job = Some(Instant::now());

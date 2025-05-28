@@ -17,9 +17,7 @@ use windmill_common::{
     cache::{future::FutureCachedExt, ScriptData, ScriptMetadata},
     schema::{should_validate_schema, SchemaValidator},
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
-    utils::{
-        check_if_ag_worker_has_specific_suffix, AgentWorkerSuffix, WarnAfterExt, WORKER_NAME_PREFIX,
-    },
+    utils::WarnAfterExt,
     worker::{
         write_file, Connection, HttpClient, MAX_TIMEOUT, ROOT_CACHE_DIR, ROOT_CACHE_NOMOUNT_DIR,
         TMP_DIR,
@@ -1155,29 +1153,6 @@ pub async fn run_worker(
     let job_completed_processor_is_done =
         Arc::new(AtomicBool::new(matches!(conn, Connection::Http(_))));
 
-    let is_agent_worker_allowed_to_enable_live_shell = || {
-        worker_name
-            .split("-")
-            .last()
-            .map(|suffix| {
-                check_if_ag_worker_has_specific_suffix(AgentWorkerSuffix::EnableLiveShell, suffix)
-            })
-            .unwrap_or(false)
-    };
-
-    
-    if worker_name.starts_with(WORKER_NAME_PREFIX) || is_agent_worker_allowed_to_enable_live_shell() {
-        tracing::debug!("Worker {} now listening for host tag", &worker_name);
-        start_interactive_worker_shell(
-            conn.clone(),
-            hostname.to_owned(),
-            worker_name.clone(),
-            killpill_rx.resubscribe(),
-            base_internal_url.to_owned(),
-            worker_dir.clone(),
-        );
-    }
-
     let send_result = match (conn, job_completed_rx) {
         (Connection::Sql(db), Some(job_completed_receiver)) => Some(start_background_processor(
             job_completed_receiver,
@@ -1194,6 +1169,22 @@ pub async fn run_worker(
         )),
         _ => None,
     };
+
+    //if we're the first worker to run then only run another background process that will specifically
+    //listen for tags that will only associated to jobs with bash as scriplang and thus specific tags
+    //for agent worker the tag will be the worker named suffixed by ssh and for normal worker it will
+    //be the hostname``
+    if i_worker == 1 {
+        start_interactive_worker_shell(
+            conn.clone(),
+            hostname.to_owned(),
+            worker_name.clone(),
+            killpill_rx.resubscribe(),
+            job_completed_tx.clone(),
+            base_internal_url.to_owned(),
+            worker_dir.clone(),
+        );
+    }
 
     let mut last_executed_job: Option<Instant> = None;
 
