@@ -80,9 +80,9 @@
 	{/if}
 	<input
 		type="text"
-		bind:value={() => search || valueEntry?.label || '', (v) => (search = v)}
-		{placeholder}
-		class={open ? '' : 'cursor-pointer'}
+		bind:value={() => search, (v) => (search = v)}
+		placeholder={valueEntry?.label ?? placeholder}
+		class={twMerge(open ? '' : 'cursor-pointer', valueEntry ? 'placeholder-primary' : '')}
 		autocomplete="off"
 		onfocus={() => (open = true)}
 	/>
