@@ -33,7 +33,6 @@
 	export let extraProps: Record<string, any> = {}
 	export let disabled: boolean = false
 	export let documentationLink: string | undefined = undefined
-	export let forceContentToTriggerWidth = false
 
 	let fullScreen = false
 	const dispatch = createEventDispatcher()
@@ -98,11 +97,6 @@
 	async function getMenuElements(): Promise<HTMLElement[]> {
 		return Array.from(document.querySelectorAll('[data-popover]')) as HTMLElement[]
 	}
-
-	let triggerWidth = 0
-	$: triggerBtnEl &&
-		new ResizeObserver((l) => (triggerWidth = l[0].target.clientWidth)).observe(triggerBtnEl)
-	let triggerBtnEl: HTMLButtonElement | null = null
 </script>
 
 <button
@@ -125,7 +119,6 @@
 	}}
 	data-popover
 	on:click
-	bind:this={triggerBtnEl}
 >
 	<slot name="trigger" {isOpen} />
 </button>
@@ -148,8 +141,7 @@
 		)}
 		data-popover
 		{...extraProps}
-		style={(forceContentToTriggerWidth ? `width: ${triggerWidth}px !important; ` : '') +
-			(fullScreen ? `width: 90vw; max-width: 800px; height: 90vh;` : contentStyle)}
+		style={fullScreen ? `width: 90vw; max-width: 800px; height: 90vh;` : contentStyle}
 	>
 		{#if displayArrow}
 			<div use:melt={$arrow}></div>
