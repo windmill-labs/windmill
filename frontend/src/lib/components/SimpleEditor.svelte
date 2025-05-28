@@ -545,7 +545,6 @@
 				previousExtraLib = extraLib
 			}
 			languages.typescript.javascriptDefaults.setExtraLibs(libs)
-			setDiagnosticsOptions()
 		}
 	}
 
