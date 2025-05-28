@@ -525,6 +525,7 @@
 		})
 	}
 
+	let previousExtraLib = undefined
 	function loadExtraLib() {
 		if (lang == 'javascript') {
 			const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
@@ -538,6 +539,10 @@
 					content: extraLib,
 					filePath: 'windmill.d.ts'
 				})
+				if (previousExtraLib == extraLib) {
+					return
+				}
+				previousExtraLib = extraLib
 			}
 			languages.typescript.javascriptDefaults.setExtraLibs(libs)
 			setDiagnosticsOptions()
