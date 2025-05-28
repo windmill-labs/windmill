@@ -2,6 +2,7 @@
 	import { clickOutside } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import CloseButton from './common/CloseButton.svelte'
+	import Portal from './Portal.svelte'
 
 	type Value = Item['value']
 
@@ -26,6 +27,7 @@
 	let search = $state<string>('')
 	let open = $state<boolean>(false)
 	let keyArrowPos = $state<number | undefined>()
+	let inputEl: HTMLInputElement | undefined = $state()
 
 	$effect(() => {
 		;[search, open, processedItems]
@@ -79,6 +81,20 @@
 
 		return JSON.stringify(item.value)
 	}
+
+	function computeDropdownPos(): { width: number; x: number; y: number } {
+		if (!inputEl) return { width: 0, x: 0, y: 0 }
+		const r = inputEl?.getBoundingClientRect()
+		return { width: r.width, x: r.x, y: r.y + r.height }
+	}
+	let dropdownPos = $state(computeDropdownPos())
+	$effect(() => {
+		function updateDropdownPos() {
+			dropdownPos = computeDropdownPos()
+			if (open) requestAnimationFrame(updateDropdownPos)
+		}
+		if (open) updateDropdownPos()
+	})
 </script>
 
 <svelte:window
@@ -115,36 +131,40 @@
 		class={twMerge(open ? '' : 'cursor-pointer', valueEntry ? '!placeholder-primary' : '')}
 		autocomplete="off"
 		onpointerdown={() => (open = true)}
+		bind:this={inputEl}
 	/>
 
-	{#if open}
-		<div
-			class="flex flex-col absolute z-50 max-h-64 overflow-y-scroll w-full bg-surface text-tertiary text-sm select-none border rounded-lg"
-		>
-			{#each processedItems ?? [] as item, itemIndex}
-				{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1]?.__select_group !== item.__select_group}
-					<div
+	<Portal name="select-dropdown">
+		{#if open}
+			<div
+				class="flex flex-col absolute z-[5001] max-h-64 overflow-y-scroll bg-surface text-tertiary text-sm select-none border rounded-lg"
+				style="top: {dropdownPos.y}px; left: {dropdownPos.x}px; width: {dropdownPos.width}px;"
+			>
+				{#each processedItems ?? [] as item, itemIndex}
+					{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1]?.__select_group !== item.__select_group}
+						<div
+							class={twMerge(
+								'mx-4 pb-1 mb-2 text-xs font-semibold text-secondary border-b',
+								itemIndex === 0 ? 'mt-3' : 'mt-6'
+							)}
+						>
+							{item.__select_group}
+						</div>
+					{/if}
+					<button
 						class={twMerge(
-							'mx-4 pb-1 mb-2 text-xs font-semibold text-secondary border-b',
-							itemIndex === 0 ? 'mt-3' : 'mt-6'
+							'py-2 px-4 w-full font-normal text-left',
+							itemIndex === keyArrowPos ? 'bg-surface-hover' : '',
+							item.value === value
+								? 'bg-surface-selected-inverse text-primary-inverse'
+								: 'hover:bg-surface-hover'
 						)}
+						onclick={() => setValue(item)}
 					>
-						{item.__select_group}
-					</div>
-				{/if}
-				<button
-					class={twMerge(
-						'py-2 px-4 w-full font-normal text-left',
-						itemIndex === keyArrowPos ? 'bg-surface-hover' : '',
-						item.value === value
-							? 'bg-surface-selected-inverse text-primary-inverse'
-							: 'hover:bg-surface-hover'
-					)}
-					onclick={() => setValue(item)}
-				>
-					{item.label}
-				</button>
-			{/each}
-		</div>
-	{/if}
+						{item.label}
+					</button>
+				{/each}
+			</div>
+		{/if}
+	</Portal>
 </div>
