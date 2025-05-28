@@ -14,20 +14,19 @@ use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
 use crate::DB;
 use anyhow::Context;
-use axum::http::{HeaderName, HeaderValue};
 use gethostname::gethostname;
 use git_version::git_version;
 
 use chrono::Utc;
 use croner::Cron;
-use hyper::HeaderMap;
 use rand::{distr::Alphanumeric, rng, Rng};
 use reqwest::Client;
 use semver::Version;
 use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
-use std::str::FromStr;
+use std::{fs::DirBuilder as SyncDirBuilder, str::FromStr};
+use tokio::fs::DirBuilder as AsyncDirBuilder;
 
 pub const MAX_PER_PAGE: usize = 10000;
 pub const DEFAULT_PER_PAGE: usize = 1000;
@@ -228,6 +227,21 @@ pub async fn now_from_db<'c, E: sqlx::PgExecutor<'c>>(
         .fetch_one(db)
         .await?
         .unwrap())
+}
+
+pub async fn create_directory_async(directory_path: &str) {
+    AsyncDirBuilder::new()
+        .recursive(true)
+        .create(directory_path)
+        .await
+        .expect("could not create dir");
+}
+
+pub fn create_directory_sync(directory_path: &str) {
+    SyncDirBuilder::new()
+        .recursive(true)
+        .create(directory_path)
+        .expect("could not create dir");
 }
 
 pub fn not_found_if_none<T, U: AsRef<str>>(opt: Option<T>, kind: &str, name: U) -> Result<T> {
@@ -753,19 +767,4 @@ impl<F: Future> Future for WarnAfterFuture<F> {
             Poll::Pending => Poll::Pending,
         }
     }
-}
-
-pub fn from_iter_to_header_map<'header_name, 'header_value, T>(headers: T) -> Result<HeaderMap>
-where
-    T: IntoIterator<Item = (&'header_name str, &'header_value str)>,
-{
-    let mut map = HeaderMap::new();
-
-    for (name_str, value_str) in headers {
-        let name = HeaderName::from_str(name_str).map_err(to_anyhow)?;
-        let value = HeaderValue::from_str(value_str).map_err(to_anyhow)?;
-        map.insert(name, value);
-    }
-
-    Ok(map)
 }

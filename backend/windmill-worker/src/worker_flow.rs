@@ -89,6 +89,7 @@ pub async fn update_flow_status_after_job_completion(
 ) -> error::Result<Option<Arc<MiniPulledJob>>> {
     // this is manual tailrecursion because async_recursion blows up the stack
     potentially_crash_for_testing();
+
     let mut rec = RecUpdateFlowStatusAfterJobCompletion {
         flow,
         job_id_for_status: job_id_for_status.clone(),
@@ -147,6 +148,7 @@ pub async fn update_flow_status_after_job_completion(
             }
         };
         unrecoverable = false;
+
         match nrec {
             UpdateFlowStatusAfterJobCompletion::Done(job) => {
                 add_time!(bench, "update flow status internal END");

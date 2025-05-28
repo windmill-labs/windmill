@@ -1,6 +1,10 @@
 use reqwest::header::HeaderMap;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use windmill_common::{agent_workers::QueueInitJob, worker::HttpClient};
+use windmill_common::{
+    agent_workers::{AgentWorkerData, QueueInitJob},
+    worker::HttpClient,
+};
 use windmill_queue::{JobAndPerms, JobCompleted};
 
 pub async fn queue_init_job(client: &HttpClient, content: &str) -> anyhow::Result<Uuid> {
@@ -17,21 +21,37 @@ pub async fn queue_init_job(client: &HttpClient, content: &str) -> anyhow::Resul
 pub async fn pull_job(
     client: &HttpClient,
     headers: Option<HeaderMap>,
+    body: Option<AgentWorkerData>,
 ) -> anyhow::Result<Option<JobAndPerms>> {
     client
-        .post("/api/agent_workers/pull_job", headers, &())
+        .post("/api/agent_workers/pull_job", headers, &body)
         .await
 }
 
-pub async fn send_result(client: &HttpClient, jc: JobCompleted) -> anyhow::Result<String> {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProcessAgentWorkerResult {
+    pub job_completed: JobCompleted,
+    pub agent_worker_data: Option<AgentWorkerData>,
+}
+
+impl ProcessAgentWorkerResult {
+    pub fn new(job_completed: JobCompleted, agent_worker_data: Option<AgentWorkerData>) -> Self {
+        Self { job_completed, agent_worker_data }
+    }
+}
+
+pub async fn send_result(
+    client: &HttpClient,
+    data: ProcessAgentWorkerResult,
+) -> anyhow::Result<String> {
     client
         .post(
             &format!(
                 "/api/w/{}/agent_workers/send_result/{}",
-                jc.job.workspace_id, jc.job.id
+                data.job_completed.job.workspace_id, data.job_completed.job.id
             ),
             None,
-            &jc,
+            &data,
         )
         .await
 }

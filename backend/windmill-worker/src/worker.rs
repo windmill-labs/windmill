@@ -12,15 +12,15 @@
 use anyhow::anyhow;
 use futures::TryFutureExt;
 use windmill_common::{
-    agent_workers::DECODED_AGENT_TOKEN,
+    agent_workers::{AgentWorkerData, DECODED_AGENT_TOKEN},
     apps::AppScriptId,
     cache::{future::FutureCachedExt, ScriptData, ScriptMetadata},
     schema::{should_validate_schema, SchemaValidator},
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
-    utils::WarnAfterExt,
+    utils::{create_directory_async, WarnAfterExt, AGENT_WORKER_NAME_PREFIX},
     worker::{
-        write_file, Connection, HttpClient, MAX_TIMEOUT, ROOT_CACHE_DIR, ROOT_CACHE_NOMOUNT_DIR,
-        TMP_DIR,
+        make_pull_query, write_file, Connection, HttpClient, MAX_TIMEOUT, ROOT_CACHE_DIR,
+        ROOT_CACHE_NOMOUNT_DIR, TMP_DIR,
     },
     KillpillSender,
 };
@@ -33,7 +33,7 @@ use const_format::concatcp;
 #[cfg(feature = "prometheus")]
 use prometheus::IntCounter;
 
-use tracing::{field, Instrument};
+use tracing::{field, Instrument, Span};
 #[cfg(feature = "prometheus")]
 use windmill_common::METRICS_DEBUG_ENABLED;
 #[cfg(feature = "prometheus")]
@@ -44,7 +44,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::types::Json;
 use std::{
     collections::HashMap,
-    fs::DirBuilder,
+    fmt::Display,
     sync::{
         atomic::{AtomicBool, AtomicU16, Ordering},
         Arc,
@@ -84,6 +84,7 @@ use tokio::fs::symlink;
 use tokio::fs::symlink_file as symlink;
 
 use tokio::{
+    fs::DirBuilder,
     sync::{
         broadcast,
         mpsc::{self, Receiver, Sender},
@@ -96,7 +97,7 @@ use tokio::{
 use rand::Rng;
 
 use crate::{
-    agent_workers::queue_init_job,
+    agent_workers::{queue_init_job, ProcessAgentWorkerResult},
     bash_executor::{handle_bash_job, handle_powershell_job},
     bun_executor::handle_bun_job,
     common::{
@@ -112,9 +113,7 @@ use crate::{
     job_logger::NO_LOGS_AT_ALL,
     js_eval::{eval_fetch_timeout, transpile_ts},
     pg_executor::do_postgresql,
-    result_processor::{
-        process_result, start_background_processor, start_interactive_worker_shell,
-    },
+    result_processor::{process_result, start_background_processor},
     schema::schema_validator_from_main_arg_sig,
     worker_flow::handle_flow,
     worker_lockfiles::{
@@ -208,6 +207,9 @@ const NUM_SECS_PING: u64 = 5;
 const NUM_SECS_READINGS: u64 = 60;
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
+
+const WORKER_SHELL_NAP_TIME_DURATION: u64 = 15;
+const TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION: u64 = 2 * 60;
 
 pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
 
@@ -624,7 +626,11 @@ pub struct SameWorkerSender(pub Sender<SameWorkerPayload>, pub Arc<AtomicU16>);
 #[derive(Clone)]
 pub enum JobCompletedSender {
     Sql(SqlJobCompletedSender),
-    Http(HttpClient),
+    //For now AgentWorkerData struct only contains a boolean which is cheap to clone and dont need to be mutated for its use right now
+    // If more fields are added in the future and cloning becomes expensive, consider wrapping it in Arc<Option<AgentWorkerData>>
+    // (for shared ownership) or Arc<Mutex<AgentWorkerData>> if interior mutability is needed.
+    // or anything equivalent.
+    Http((HttpClient, Option<AgentWorkerData>)),
     NeverUsed,
 }
 
@@ -652,20 +658,40 @@ impl JobCompletedReceiver {
 }
 
 impl JobCompletedSender {
-    pub fn new(conn: &Connection, buffer_size: u8) -> (Self, Option<JobCompletedReceiver>) {
+    pub fn new_job_completed_sender_http(
+        http_client: HttpClient,
+        agent_worker_data: Option<AgentWorkerData>,
+    ) -> Self {
+        Self::Http((http_client, agent_worker_data))
+    }
+
+    pub fn new_job_completed_sender_sql(buffer_size: u8) -> (Self, JobCompletedReceiver) {
+        let (sender, receiver) = flume::bounded::<SendResult>(buffer_size as usize);
+        let (unbounded_sender, unbounded_rx) = flume::unbounded::<SendResult>();
+        let (killpill_tx, killpill_rx) = broadcast::channel::<()>(10);
+        (
+            Self::Sql(SqlJobCompletedSender { sender, unbounded_sender, killpill_tx }),
+            JobCompletedReceiver { bounded_rx: receiver, killpill_rx, unbounded_rx },
+        )
+    }
+
+    pub fn new(
+        conn: &Connection,
+        buffer_size: u8,
+        agent_worker_data: Option<AgentWorkerData>,
+    ) -> (Self, Option<JobCompletedReceiver>) {
         match conn {
             Connection::Sql(_) => {
-                let (sender, receiver) = flume::bounded::<SendResult>(buffer_size as usize);
-                let (unbounded_sender, unbounded_rx) = flume::unbounded::<SendResult>();
-                let (killpill_tx, killpill_rx) = broadcast::channel::<()>(10);
-                (
-                    Self::Sql(SqlJobCompletedSender { sender, unbounded_sender, killpill_tx }),
-                    Some(JobCompletedReceiver { bounded_rx: receiver, killpill_rx, unbounded_rx }),
-                )
+                let result = Self::new_job_completed_sender_sql(buffer_size);
+                (result.0, Some(result.1))
             }
-            Connection::Http(client) => (Self::Http(client.clone()), None),
+            Connection::Http(client) => (
+                Self::new_job_completed_sender_http(client.clone(), agent_worker_data),
+                None,
+            ),
         }
     }
+
     pub fn new_never_used() -> (Self, Option<Receiver<SendResult>>) {
         (Self::NeverUsed, None)
     }
@@ -684,8 +710,12 @@ impl JobCompletedSender {
                     anyhow::anyhow!("Failed to send job completed to background processor")
                 })
             }
-            Self::Http(client) => {
-                crate::agent_workers::send_result(client, jc).await?;
+            Self::Http((client, agent_worker_data)) => {
+                crate::agent_workers::send_result(
+                    client,
+                    ProcessAgentWorkerResult::new(jc, agent_worker_data.to_owned()),
+                )
+                .await?;
                 Ok(())
             }
             Self::NeverUsed => {
@@ -843,6 +873,297 @@ fn add_outstanding_wait_time(
     }
 }
 
+async fn extract_job_and_perms(job: NextJob, conn: &Connection) -> JobAndPerms {
+    match (job, conn) {
+        (NextJob::Sql(job), Connection::Sql(db)) => job.get_job_and_perms(db).await,
+        (NextJob::Sql(_), Connection::Http(_)) => panic!("sql job on http connection"),
+        (NextJob::Http(job), _) => job,
+    }
+}
+
+fn build_authed_client(base_internal_url: &str, token: String, workspace_id: &str) -> AuthedClient {
+    AuthedClient {
+        base_internal_url: base_internal_url.to_string(),
+        token,
+        workspace: workspace_id.to_string(),
+        force_client: None,
+    }
+}
+
+fn create_span(arc_job: &Arc<MiniPulledJob>, worker_name: &str, hostname: &str) -> Span {
+    let span = tracing::span!(tracing::Level::INFO, "job",
+        job_id = %arc_job.id, root_job = field::Empty, workspace_id = %arc_job.workspace_id,  worker = %worker_name, hostname = %hostname, tag = %arc_job.tag,
+        language = field::Empty,
+        script_path = field::Empty, flow_step_id = field::Empty, parent_job = field::Empty,
+        otel.name = field::Empty);
+
+    let rj = arc_job.flow_innermost_root_job.unwrap_or(arc_job.id);
+
+    if let Some(lg) = arc_job.script_lang.as_ref() {
+        span.record("language", lg.as_str());
+    }
+    if let Some(step_id) = arc_job.flow_step_id.as_ref() {
+        span.record("otel.name", format!("job {}", step_id).as_str());
+        span.record("flow_step_id", step_id.as_str());
+    } else {
+        span.record("otel.name", "job");
+    }
+    if let Some(parent_job) = arc_job.parent_job.as_ref() {
+        span.record("parent_job", parent_job.to_string().as_str());
+    }
+    if let Some(script_path) = arc_job.runnable_path.as_ref() {
+        span.record("script_path", script_path.as_str());
+    }
+    if let Some(root_job) = arc_job.flow_innermost_root_job.as_ref() {
+        span.record("root_job", root_job.to_string().as_str());
+    }
+
+    windmill_common::otel_ee::set_span_parent(&span, &rj);
+    span
+}
+
+pub async fn handle_job_execution(
+    job: NextJob,
+    conn: &Connection,
+    base_internal_url: &str,
+    hostname: &str,
+    worker_name: &str,
+    worker_dir: &str,
+    job_dir: &str,
+    same_worker_tx: Option<SameWorkerSender>,
+    job_completed_tx: JobCompletedSender,
+    occupancy_metrics: &mut OccupancyMetrics,
+    killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
+    with_span: bool,
+    #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
+) -> Result<bool, ()> {
+    let JobAndPerms {
+        job,
+        raw_code,
+        raw_lock,
+        raw_flow,
+        parent_runnable_path,
+        token,
+        precomputed_agent_info: precomputed_bundle,
+    } = extract_job_and_perms(job, &conn).await;
+
+    let authed_client = build_authed_client(base_internal_url, token, &job.workspace_id);
+
+    let arc_job = Arc::new(job);
+
+    let fut = handle_queued_job(
+        arc_job.clone(),
+        raw_code,
+        raw_lock,
+        raw_flow,
+        parent_runnable_path,
+        &conn,
+        &authed_client,
+        hostname,
+        worker_name,
+        worker_dir,
+        job_dir,
+        same_worker_tx.clone(),
+        base_internal_url,
+        job_completed_tx.clone(),
+        occupancy_metrics,
+        killpill_rx,
+        precomputed_bundle,
+        #[cfg(feature = "benchmark")]
+        bench,
+    );
+
+    let job_result = if with_span {
+        let span = create_span(&arc_job, worker_name, hostname);
+        fut.instrument(span).await
+    } else {
+        fut.await
+    };
+
+    match job_result {
+        Err(err) => {
+            handle_all_job_kind_error(
+                &conn,
+                &authed_client,
+                arc_job.clone(),
+                err,
+                same_worker_tx.as_ref(),
+                worker_dir,
+                worker_name,
+                job_completed_tx.clone(),
+                #[cfg(feature = "benchmark")]
+                bench,
+            )
+            .await;
+            return Err(());
+        }
+        Ok(success) => return Ok(success),
+    }
+}
+
+pub async fn handle_all_job_kind_error(
+    conn: &Connection,
+    authed_client: &AuthedClient,
+    job: Arc<MiniPulledJob>,
+    err: Error,
+    same_worker_tx: Option<&SameWorkerSender>,
+    worker_dir: &str,
+    worker_name: &str,
+    job_completed_tx: JobCompletedSender,
+    #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
+) {
+    match conn {
+        Connection::Sql(db) => {
+            handle_job_error(
+                db,
+                authed_client,
+                job.as_ref(),
+                0,
+                None,
+                err,
+                false,
+                same_worker_tx,
+                &worker_dir,
+                &worker_name,
+                job_completed_tx.clone(),
+                #[cfg(feature = "benchmark")]
+                bench,
+            )
+            .await;
+        }
+        Connection::Http(_) => {
+            job_completed_tx
+                .send_job(
+                    JobCompleted {
+                        preprocessed_args: None,
+                        job: job.clone(),
+                        result: Arc::new(windmill_common::worker::to_raw_value(&error_to_value(
+                            err,
+                        ))),
+                        result_columns: None,
+                        mem_peak: 0,
+                        canceled_by: None,
+                        success: false,
+                        cached_res_path: None,
+                        token: authed_client.token.clone(),
+                        duration: None,
+                    },
+                    false,
+                )
+                .await
+                .expect("send job completed");
+        }
+    }
+}
+
+pub fn start_interactive_worker_shell(
+    conn: Connection,
+    hostname: String,
+    worker_name: String,
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    job_completed_tx: JobCompletedSender,
+    base_internal_url: String,
+    worker_dir: String,
+) {
+    tokio::spawn(async move {
+        let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
+
+        let mut last_executed_job: Option<Instant> =
+            Instant::now().checked_sub(Duration::from_millis(2500));
+
+        loop {
+            if let Ok(_) = killpill_rx.try_recv() {
+                break;
+            } else {
+                let pulled_job = match &conn {
+                    Connection::Sql(db) => {
+                        let query = ("".to_string(), make_pull_query(&[hostname.to_owned()]));
+
+                        #[cfg(feature = "benchmark")]
+                        let mut bench = windmill_common::bench::BenchmarkIter::new();
+                        let job = pull(
+                            &db,
+                            false,
+                            &worker_name,
+                            Some(&query),
+                            #[cfg(feature = "benchmark")]
+                            &mut bench,
+                        )
+                        .await;
+
+                        job.map(|x| x.job.map(NextJob::Sql))
+                    }
+                    Connection::Http(client) => crate::agent_workers::pull_job(
+                        &client,
+                        None,
+                        Some(AgentWorkerData::new(Some(true))),
+                    )
+                    .await
+                    .map_err(|e| error::Error::InternalErr(e.to_string()))
+                    .map(|x| x.map(|y| NextJob::Http(y))),
+                };
+
+                match pulled_job {
+                    Ok(Some(job)) => {
+                        tracing::debug!(worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
+
+                        let job_dir = create_job_dir(&worker_dir, job.id).await;
+
+                        let _ = handle_job_execution(
+                            job,
+                            &conn,
+                            &base_internal_url,
+                            &hostname,
+                            &worker_name,
+                            &worker_dir,
+                            &job_dir,
+                            None,
+                            job_completed_tx.clone(),
+                            &mut occupancy_metrics,
+                            &mut killpill_rx,
+                            false,
+                            #[cfg(feature = "benchmark")]
+                            bench,
+                        )
+                        .await;
+
+                        last_executed_job = Some(Instant::now());
+                    }
+                    Ok(None) => {
+                        let now = Instant::now();
+                        match last_executed_job {
+                            Some(last)
+                                if now.duration_since(last).as_secs()
+                                    > TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION =>
+                            {
+                                tokio::time::sleep(Duration::from_secs(
+                                    WORKER_SHELL_NAP_TIME_DURATION,
+                                ))
+                                .await;
+                            }
+                            _ => {
+                                tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE)).await;
+                            }
+                        }
+                    }
+
+                    Err(err) => {
+                        tracing::error!(worker = %worker_name, hostname = %hostname, "Failed to pull jobs: {}", err);
+                    }
+                };
+            }
+        }
+    });
+}
+
+async fn create_job_dir(worker_directory: &str, job_id: impl Display) -> String {
+    let job_dir_path = format!("{}/{}", worker_directory, job_id);
+
+    create_directory_async(&job_dir_path).await;
+
+    job_dir_path
+}
+
 pub async fn run_worker(
     conn: &Connection,
     hostname: &str,
@@ -910,6 +1231,7 @@ pub async fn run_worker(
     DirBuilder::new()
         .recursive(true)
         .create(&worker_dir)
+        .await
         .expect("could not create initial worker dir");
 
     if !*DISABLE_NSJAIL {
@@ -1146,7 +1468,7 @@ pub async fn run_worker(
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<SameWorkerPayload>(5);
 
-    let (job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 10);
+    let (job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 10, None);
 
     let same_worker_queue_size = Arc::new(AtomicU16::new(0));
     let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());
@@ -1169,18 +1491,25 @@ pub async fn run_worker(
         )),
         _ => None,
     };
-
-    //if we're the first worker to run then only run another background process that will specifically
-    //listen for tags that will only associated to jobs with bash as scriplang and thus specific tags
-    //for agent worker the tag will be the worker named suffixed by ssh and for normal worker it will
-    //be the hostname``
+    // If we're the first worker to run, we start another background process that listens for a specific tag.
+    // This tag is associated only with jobs using Bash as the script language.
+    // For agent workers, the expected tag format is the worker name suffixed with "-ssh".
+    // For regular workers, the tag is simply the machine's hostname and if not found the randomly generated hostname.
     if i_worker == 1 {
+        let (worker_name, job_completed_tx) = if worker_name.starts_with(AGENT_WORKER_NAME_PREFIX) {
+            let (job_completed_tx, _) =
+                JobCompletedSender::new(&conn, 10, Some(AgentWorkerData::new(Some(true))));
+            (format!("{}/ssh", &worker_name), job_completed_tx)
+        } else {
+            (worker_name.clone(), job_completed_tx.clone())
+        };
+        
         start_interactive_worker_shell(
             conn.clone(),
             hostname.to_owned(),
-            worker_name.clone(),
+            worker_name,
             killpill_rx.resubscribe(),
-            job_completed_tx.clone(),
+            job_completed_tx,
             base_internal_url.to_owned(),
             worker_dir.clone(),
         );
@@ -1511,7 +1840,7 @@ pub async fn run_worker(
                         }
                         job.map(|x| x.job.map(NextJob::Sql))
                     }
-                    Connection::Http(client) => crate::agent_workers::pull_job(&client, None)
+                    Connection::Http(client) => crate::agent_workers::pull_job(&client, None, None)
                         .await
                         .map_err(|e| error::Error::InternalErr(e.to_string()))
                         .map(|x| x.map(|y| NextJob::Http(y))),
@@ -1641,12 +1970,7 @@ pub async fn run_worker(
                       // fields macro we can make a job id that only appears when
                       // the job is defined?
 
-                    let job_dir = format!("{worker_dir}/{}", job.id);
-
-                    DirBuilder::new()
-                        .recursive(true)
-                        .create(&job_dir)
-                        .expect("could not create job dir");
+                    let job_dir = create_job_dir(&worker_dir, job.id).await;
 
                     let same_worker = job.same_worker;
 
@@ -1654,6 +1978,7 @@ pub async fn run_worker(
                         DirBuilder::new()
                             .recursive(true)
                             .create(&format!("{job_dir}/go"))
+                            .await
                             .expect("could not create go dir");
                         "/go"
                     } else {
@@ -1669,6 +1994,7 @@ pub async fn run_worker(
                             DirBuilder::new()
                                 .recursive(true)
                                 .create(&parent_shared_dir)
+                                .await
                                 .expect("could not create parent shared dir");
 
                             symlink(&parent_shared_dir, target)
@@ -1679,6 +2005,7 @@ pub async fn run_worker(
                         DirBuilder::new()
                             .recursive(true)
                             .create(target)
+                            .await
                             .expect("could not create shared dir");
                     }
 
@@ -1686,140 +2013,35 @@ pub async fn run_worker(
                     let tag = job.tag.clone();
 
                     let is_init_script: bool = job.tag.as_str() == INIT_SCRIPT_TAG;
-                    let JobAndPerms {
+                    let is_flow = job.is_flow();
+                    let job_id = job.id;
+
+                    let result = handle_job_execution(
                         job,
-                        raw_code,
-                        raw_lock,
-                        raw_flow,
-                        parent_runnable_path,
-                        token,
-                        precomputed_agent_info: precomputed_bundle,
-                    } = match (job, &conn) {
-                        (NextJob::Sql(job), Connection::Sql(db)) => job.get_job_and_perms(db).await,
-                        (NextJob::Sql(_), Connection::Http(_)) => {
-                            panic!("sql job on http connection")
-                        }
-                        (NextJob::Http(job), _) => job,
-                    };
-
-                    // let token = create_token(&db, &job, job_perms).await;
-                    let authed_client = AuthedClient {
-                        base_internal_url: base_internal_url.to_string(),
-                        token,
-                        workspace: job.workspace_id.to_string(),
-                        force_client: None,
-                    };
-
-                    let arc_job = Arc::new(job);
-                    add_time!(bench, "handle_queued_job START");
-
-                    let span = tracing::span!(tracing::Level::INFO, "job",
-                            job_id = %arc_job.id, root_job = field::Empty, workspace_id = %arc_job.workspace_id,  worker = %worker_name, hostname = %hostname, tag = %arc_job.tag,
-                            language = field::Empty,
-                            script_path = field::Empty, flow_step_id = field::Empty, parent_job = field::Empty,
-                            otel.name = field::Empty);
-                    let rj = if let Some(root_job) = arc_job.flow_innermost_root_job {
-                        root_job
-                    } else {
-                        arc_job.id
-                    };
-                    if let Some(lg) = arc_job.script_lang.as_ref() {
-                        span.record("language", lg.as_str());
-                    }
-                    if let Some(step_id) = arc_job.flow_step_id.as_ref() {
-                        span.record("otel.name", format!("job {}", step_id).as_str());
-                        span.record("flow_step_id", step_id.as_str());
-                    } else {
-                        span.record("otel.name", "job");
-                    }
-                    if let Some(parent_job) = arc_job.parent_job.as_ref() {
-                        span.record("parent_job", parent_job.to_string().as_str());
-                    }
-                    if let Some(script_path) = arc_job.runnable_path.as_ref() {
-                        span.record("script_path", script_path.as_str());
-                    }
-                    if let Some(root_job) = arc_job.flow_innermost_root_job.as_ref() {
-                        span.record("root_job", root_job.to_string().as_str());
-                    }
-
-                    windmill_common::otel_ee::set_span_parent(&span, &rj);
-                    // span.context().span().add_event_with_timestamp("job created".to_string(), arc_job.created_at.into(), vec![]);
-
-                    match handle_queued_job(
-                        arc_job.clone(),
-                        raw_code,
-                        raw_lock,
-                        raw_flow,
-                        parent_runnable_path,
                         conn,
-                        &authed_client,
-                        &hostname,
+                        base_internal_url,
+                        hostname,
                         &worker_name,
                         &worker_dir,
                         &job_dir,
                         Some(same_worker_tx.clone()),
-                        base_internal_url,
                         job_completed_tx.clone(),
                         &mut occupancy_metrics,
                         &mut killpill_rx2,
-                        precomputed_bundle,
+                        true,
                         #[cfg(feature = "benchmark")]
-                        &mut bench,
+                        bench,
                     )
-                    .instrument(span)
-                    .await
-                    {
-                        Err(err) => {
-                            match conn {
-                                Connection::Sql(db) => {
-                                    handle_job_error(
-                                        db,
-                                        &authed_client,
-                                        arc_job.as_ref(),
-                                        0,
-                                        None,
-                                        err,
-                                        false,
-                                        Some(&same_worker_tx),
-                                        &worker_dir,
-                                        &worker_name,
-                                        job_completed_tx.clone(),
-                                        #[cfg(feature = "benchmark")]
-                                        &mut bench,
-                                    )
-                                    .await;
-                                }
-                                Connection::Http(_) => {
-                                    job_completed_tx
-                                        .send_job(
-                                            JobCompleted {
-                                                preprocessed_args: None,
-                                                job: arc_job.clone(),
-                                                result: Arc::new(
-                                                    windmill_common::worker::to_raw_value(
-                                                        &error_to_value(err),
-                                                    ),
-                                                ),
-                                                result_columns: None,
-                                                mem_peak: 0,
-                                                canceled_by: None,
-                                                success: false,
-                                                cached_res_path: None,
-                                                token: authed_client.token.clone(),
-                                                duration: None,
-                                            },
-                                            false,
-                                        )
-                                        .await
-                                        .expect("send job completed");
-                                }
-                            }
+                    .await;
+
+                    match result {
+                        Err(_) => {
                             if is_init_script {
                                 tracing::error!("init script job failed (in handler), exiting");
                                 update_worker_ping_for_failed_init_script(
                                     conn,
                                     &worker_name,
-                                    arc_job.id,
+                                    job_id,
                                 )
                                 .await;
                                 break;
@@ -1827,12 +2049,8 @@ pub async fn run_worker(
                         }
                         Ok(false) if is_init_script => {
                             tracing::error!("init script job failed, exiting");
-                            update_worker_ping_for_failed_init_script(
-                                conn,
-                                &worker_name,
-                                arc_job.id,
-                            )
-                            .await;
+                            update_worker_ping_for_failed_init_script(conn, &worker_name, job_id)
+                                .await;
                             break;
                         }
                         _ => {}
@@ -1859,8 +2077,7 @@ pub async fn run_worker(
                         .await;
                     }
 
-                    if !KEEP_JOB_DIR.load(Ordering::Relaxed) && !(arc_job.is_flow() && same_worker)
-                    {
+                    if !KEEP_JOB_DIR.load(Ordering::Relaxed) && !(is_flow && same_worker) {
                         let _ = tokio::fs::remove_dir_all(job_dir).await;
                     }
                 }
@@ -2048,7 +2265,7 @@ pub async fn handle_queued_job(
     occupancy_metrics: &mut OccupancyMetrics,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
-    #[cfg(feature = "benchmark")] _bench: &mut BenchmarkIter,
+    #[cfg(feature = "benchmark")] _bench: &mut Option<BenchmarkIter>,
 ) -> windmill_common::error::Result<bool> {
     // Extract the active span from the context
 

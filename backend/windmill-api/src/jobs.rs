@@ -3149,26 +3149,21 @@ async fn check_tag_available_for_workspace(
     authed: &ApiAuthed,
 ) -> error::Result<()> {
     if let Some(tag) = tag {
-        if tag == "" {
+        if tag.is_empty() {
             return Ok(());
         }
-        
-        let is_super_admin = is_super_admin_email(db, &authed.email).await?;
+
         let tags = get_scope_tags(authed);
+        let mut is_tag_availabe_in_workspace = None;
+        let mut is_tag_in_workspace_custom_tags = false;
 
-        if let Some(tags) = tags {
-
-            if !is_super_admin && !tags.contains(&tag.as_str()) {
-                return Err(Error::BadRequest(format!(
-                    "Tag '{tag}' is not available in your scope. Only super admin can use tags outside of the allowed set: {:?}",
-                    tags
-                )));
-            }
+        if let Some(tags) = tags.as_ref() {
+            is_tag_availabe_in_workspace = Some(tags.contains(&tag.as_str()));
         }
 
         let custom_tags_per_w = CUSTOM_TAGS_PER_WORKSPACE.read().await;
         if custom_tags_per_w.0.contains(&tag.to_string()) {
-            Ok(())
+            is_tag_in_workspace_custom_tags = true;
         } else if custom_tags_per_w.1.contains_key(tag)
             && custom_tags_per_w
                 .1
@@ -3176,19 +3171,33 @@ async fn check_tag_available_for_workspace(
                 .unwrap()
                 .contains(&w_id.to_string())
         {
-            Ok(())
-        } else if !is_super_admin {
-            return Err(error::Error::BadRequest(format!(
-                "Tag '{tag}' cannot be used on workspace '{w_id}' by non-admin users. \
-                Only super admin are allowed to use tags that are not included in the allowed CUSTOM_TAGS: {:?}",
-                custom_tags_per_w.0
-            )));
-        } else {
-            Ok(())
+            is_tag_in_workspace_custom_tags = true;
         }
-    } else {
-        Ok(())
+
+        match is_tag_availabe_in_workspace {
+            Some(true) | None => {
+                if is_tag_in_workspace_custom_tags {
+                    return Ok(());
+                }
+            }
+            _ => {}
+        }
+
+        if !is_super_admin_email(db, &authed.email).await? {
+            if tags.is_some() && is_tag_availabe_in_workspace.is_some() {
+                return Err(Error::BadRequest(format!(
+                    "Tag {tag} is not available in your scope"
+                )));
+            }
+
+            return Err(error::Error::BadRequest(format!(
+                "Tag {tag} cannot be used on workspace {w_id}: (CUSTOM_TAGS: {:?})",
+                custom_tags_per_w
+            )));
+        }
     }
+
+    return Ok(());
 }
 
 #[cfg(feature = "enterprise")]

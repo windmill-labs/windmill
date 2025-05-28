@@ -36,6 +36,7 @@ pub struct AgentAuth {
 }
 
 pub const AGENT_JWT_PREFIX: &str = "jwt_agent_";
+
 pub fn build_agent_http_client(worker_suffix: &str) -> HttpClient {
     let client = ClientBuilder::new(
         reqwest::Client::builder()
@@ -88,3 +89,14 @@ pub struct PingJobStatusResponse {
 // pub struct PullJobRequest {
 //     pub worker_name: String,
 // }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AgentWorkerData {
+    pub is_wk_shell: Option<bool>,
+}
+
+impl AgentWorkerData {
+    pub fn new(is_wk_shell: Option<bool>) -> AgentWorkerData {
+        AgentWorkerData { is_wk_shell }
+    }
+}

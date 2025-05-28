@@ -24,15 +24,7 @@
 		userWorkspaces
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import {
-		AGENT_WORKER_NAME_PREFIX,
-		AgentKnownSuffix,
-		checkIfWorkerHasSpecificSuffix,
-		displayDate,
-		groupBy,
-		pluralize,
-		truncate
-	} from '$lib/utils'
+	import { displayDate, groupBy, pluralize, truncate } from '$lib/utils'
 	import { AlertTriangle, LineChart, List, Plus, Search, Terminal } from 'lucide-svelte'
 	import { getContext, onDestroy, onMount } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
@@ -714,19 +706,6 @@
 														size="xs"
 														color="light"
 														on:click={() => {
-															if (
-																worker.startsWith(AGENT_WORKER_NAME_PREFIX) &&
-																!checkIfWorkerHasSpecificSuffix(
-																	AgentKnownSuffix.ENABLE_LIVE_SHELL,
-																	worker
-																)
-															) {
-																sendUserToast(
-																	`Worker ${worker} has no right to open live shell with his host machine, please create a new token and enable live shell to be able to use this feature`,
-																	true
-																)
-																return
-															}
 															tag = hostname
 															replForWorkerDrawer?.openDrawer?.()
 														}}
