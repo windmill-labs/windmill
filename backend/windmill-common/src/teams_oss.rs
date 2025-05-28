@@ -1,0 +1,1 @@
+// Empty OSS implementation for teams_ee
