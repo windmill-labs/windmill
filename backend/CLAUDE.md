@@ -42,6 +42,7 @@ Windmill uses a workspace-based architecture with multiple crates:
 - Group related routes together
 - Use consistent response formats (JSON)
 - Follow proper authentication and authorization patterns
+- Do not forget to update backend/windmill-api/openapi.yaml after modifying an api endpoint
 
 ## Performance Optimizations
 
