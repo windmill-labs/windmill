@@ -12,6 +12,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import { getTabStateContext, type TabsState } from './tabsState.svelte'
 
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
@@ -25,10 +26,13 @@
 	export let style = ''
 	export let hashNavigation = false
 	export let values: string[] | undefined = undefined
+	export let id: string | undefined = undefined // if provided, the tabs state will be stored in a parent context
 
 	$: selected && updateSelected()
 
 	const selectedStore = writable(selected)
+
+	let tabsState: TabsState | undefined = undefined
 
 	$: $selectedStore && dispatchIfMounted('selected', $selectedStore)
 
@@ -44,6 +48,9 @@
 
 	function updateSelected() {
 		selectedStore.set(selected)
+		if (tabsState && id) {
+			tabsState.setSelected(id, selected)
+		}
 	}
 
 	function hashChange() {
@@ -54,6 +61,15 @@
 				selectedStore.set(id)
 				selected = id
 			}
+		}
+	}
+
+	if (id) {
+		tabsState = getTabStateContext()
+		console.log('dbg tabsState', tabsState)
+		const tabState = tabsState?.getSelected(id)
+		if (tabState) {
+			selected = tabState
 		}
 	}
 </script>

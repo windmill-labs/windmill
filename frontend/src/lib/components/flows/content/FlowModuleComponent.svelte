@@ -456,7 +456,7 @@
 						<Pane minSize={20} index={1} defaultSize={panesSizes[1]}>
 							<Splitpanes id={`flow-editor-step-input-${flowModule.id}`}>
 								<Pane minSize={36} index={0} defaultSize={selected === 'inputs' ? 100 : 50}>
-									<Tabs bind:selected>
+									<Tabs bind:selected id={`flow-editor-step-input-${flowModule.id}`}>
 										{#if !preprocessorModule}
 											<Tab value="inputs">Step Input</Tab>
 										{/if}
@@ -512,7 +512,10 @@
 												bind:scriptProgress
 											/>
 										{:else if selected === 'advanced'}
-											<Tabs bind:selected={advancedSelected}>
+											<Tabs
+												bind:selected={advancedSelected}
+												id={`flow-editor-step-advanced-${flowModule.id}`}
+											>
 												<Tab value="retries" active={flowModule.retry !== undefined}>Retries</Tab>
 												{#if !$selectedId.includes('failure')}
 													<Tab value="runtime">Runtime</Tab>
@@ -536,7 +539,10 @@
 												{/if}
 											</Tabs>
 											{#if advancedSelected === 'runtime'}
-												<Tabs bind:selected={advancedRuntimeSelected}>
+												<Tabs
+													bind:selected={advancedRuntimeSelected}
+													id={`flow-editor-step-advanced-runtime-${flowModule.id}`}
+												>
 													<Tab value="concurrency">Concurrency</Tab>
 													<Tab value="timeout">Timeout</Tab>
 													<Tab value="priority">Priority</Tab>

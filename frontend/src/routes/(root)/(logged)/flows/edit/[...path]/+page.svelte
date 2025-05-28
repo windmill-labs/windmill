@@ -65,6 +65,7 @@
 	let draftTriggersFromUrl: Trigger[] | undefined = undefined
 	let selectedTriggerIndexFromUrl: number | undefined = undefined
 	let splitPanesLayoutFromUrl: Record<string, PanesLayout> | undefined = undefined
+	let tabsStateFromUrl: Record<string, string> | undefined = undefined
 
 	let flowBuilder: FlowBuilder | undefined = undefined
 
@@ -96,9 +97,11 @@
 			draftTriggersFromUrl = stateLoadedFromUrl.draft_triggers
 			selectedTriggerIndexFromUrl = stateLoadedFromUrl.selected_trigger
 			splitPanesLayoutFromUrl = stateLoadedFromUrl.split_panes_layout
+			tabsStateFromUrl = stateLoadedFromUrl.tabs_state
 			flowBuilder?.setSplitPanesLayout(splitPanesLayoutFromUrl)
 			flowBuilder?.setDraftTriggers(draftTriggersFromUrl)
 			flowBuilder?.setSelectedTriggerIndex(selectedTriggerIndexFromUrl)
+			flowBuilder?.setTabsState(stateLoadedFromUrl.tabs_state)
 			const selectedId = stateLoadedFromUrl?.selectedId ?? 'settings-metadata'
 			const reloadAction = () => {
 				stateLoadedFromUrl = undefined
@@ -275,6 +278,7 @@
 	{savedPrimarySchedule}
 	{draftTriggersFromUrl}
 	{selectedTriggerIndexFromUrl}
+	{tabsStateFromUrl}
 	bind:version
 	bind:getInitialAndModifiedValues
 >
