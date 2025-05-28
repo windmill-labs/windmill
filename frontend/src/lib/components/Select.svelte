@@ -176,6 +176,9 @@
 					? `width: ${dropdownPos.width}px;`
 					: ''}"
 			>
+				{#if processedItems?.length === 0}
+					<div class="py-8 px-4 text-center text-secondary">No items</div>
+				{/if}
 				{#each processedItems ?? [] as item, itemIndex}
 					{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1]?.__select_group !== item.__select_group}
 						<div
