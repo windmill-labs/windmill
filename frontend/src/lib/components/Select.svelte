@@ -113,7 +113,7 @@
 		type="text"
 		bind:value={() => search, (v) => (search = v)}
 		placeholder={valueEntry?.label ?? placeholder}
-		class={twMerge(open ? '' : 'cursor-pointer', valueEntry ? 'placeholder-primary' : '')}
+		class={twMerge(open ? '' : 'cursor-pointer', valueEntry ? '!placeholder-primary' : '')}
 		autocomplete="off"
 		onpointerdown={() => (open = true)}
 	/>
