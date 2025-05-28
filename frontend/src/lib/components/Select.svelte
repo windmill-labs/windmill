@@ -25,6 +25,16 @@
 
 	let search = $state<string>('')
 	let open = $state<boolean>(false)
+	let keyArrowPos = $state<number | undefined>()
+
+	$effect(() => {
+		;[search, open, processedItems]
+		keyArrowPos = undefined
+	})
+
+	$effect(() => {
+		if (search) open = true
+	})
 
 	let processedItems: (Item & { __select_group?: string; label: string })[] = $derived.by(() => {
 		let items2 =
@@ -72,6 +82,27 @@
 	}
 </script>
 
+<svelte:window
+	on:keydown={(e) => {
+		console.log('keypress', e.key)
+		if (e.key === 'ArrowUp' && keyArrowPos !== undefined && processedItems?.length > 0) {
+			keyArrowPos = keyArrowPos <= 0 ? undefined : keyArrowPos - 1
+		} else if (e.key === 'ArrowDown' && processedItems?.length > 0) {
+			if (keyArrowPos === undefined) {
+				keyArrowPos = 0
+			} else {
+				keyArrowPos = Math.min(processedItems.length - 1, keyArrowPos + 1)
+			}
+		} else if (e.key === 'Enter' && keyArrowPos !== undefined && processedItems?.[keyArrowPos]) {
+			setValue(processedItems[keyArrowPos])
+		} else {
+			keyArrowPos = undefined
+			return
+		}
+		e.preventDefault()
+	}}
+/>
+
 <div class={`relative ${className}`} use:clickOutside={{ onClickOutside: () => (open = false) }}>
 	{#if clearable && value !== undefined}
 		<div class="absolute z-10 right-2 h-full flex items-center">
@@ -84,7 +115,7 @@
 		placeholder={valueEntry?.label ?? placeholder}
 		class={twMerge(open ? '' : 'cursor-pointer', valueEntry ? 'placeholder-primary' : '')}
 		autocomplete="off"
-		onfocus={() => (open = true)}
+		onpointerdown={() => (open = true)}
 	/>
 	<div class="relative w-full">
 		{#if open}
@@ -105,6 +136,7 @@
 					<button
 						class={twMerge(
 							'py-2 px-4 w-full font-normal text-left',
+							itemIndex === keyArrowPos ? 'bg-surface-hover' : '',
 							item.value === value
 								? 'bg-surface-selected-inverse text-primary-inverse'
 								: 'hover:bg-surface-hover'
