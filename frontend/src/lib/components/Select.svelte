@@ -29,7 +29,7 @@
 
 	$effect(() => {
 		;[search, open, processedItems]
-		keyArrowPos = undefined
+		keyArrowPos = open ? 0 : undefined
 	})
 
 	$effect(() => {
@@ -44,7 +44,6 @@
 			})) ?? []
 		if (search) {
 			items2 = items2.filter((item) => item.label.toLowerCase().includes(search.toLowerCase()))
-			console.log('search', items2)
 		}
 		if (groupBy) {
 			items2 =
@@ -84,10 +83,10 @@
 
 <svelte:window
 	on:keydown={(e) => {
-		console.log('keypress', e.key)
-		if (e.key === 'ArrowUp' && keyArrowPos !== undefined && processedItems?.length > 0) {
+		if (!open || !processedItems?.length) return
+		if (e.key === 'ArrowUp' && keyArrowPos !== undefined && processedItems.length > 0) {
 			keyArrowPos = keyArrowPos <= 0 ? undefined : keyArrowPos - 1
-		} else if (e.key === 'ArrowDown' && processedItems?.length > 0) {
+		} else if (e.key === 'ArrowDown') {
 			if (keyArrowPos === undefined) {
 				keyArrowPos = 0
 			} else {
@@ -117,36 +116,35 @@
 		autocomplete="off"
 		onpointerdown={() => (open = true)}
 	/>
-	<div class="relative w-full">
-		{#if open}
-			<div
-				class="absolute z-10 max-h-64 overflow-y-scroll w-full bg-surface text-tertiary text-sm select-none border rounded-lg"
-			>
-				{#each processedItems ?? [] as item, itemIndex}
-					{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1].__select_group !== item.__select_group}
-						<div
-							class={twMerge(
-								'mx-4 pb-1 mb-2 text-xs font-semibold text-secondary border-b',
-								itemIndex === 0 ? 'mt-3' : 'mt-6'
-							)}
-						>
-							{item.__select_group}
-						</div>
-					{/if}
-					<button
+
+	{#if open}
+		<div
+			class="flex flex-col absolute z-50 max-h-64 overflow-y-scroll w-full bg-surface text-tertiary text-sm select-none border rounded-lg"
+		>
+			{#each processedItems ?? [] as item, itemIndex}
+				{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1]?.__select_group !== item.__select_group}
+					<div
 						class={twMerge(
-							'py-2 px-4 w-full font-normal text-left',
-							itemIndex === keyArrowPos ? 'bg-surface-hover' : '',
-							item.value === value
-								? 'bg-surface-selected-inverse text-primary-inverse'
-								: 'hover:bg-surface-hover'
+							'mx-4 pb-1 mb-2 text-xs font-semibold text-secondary border-b',
+							itemIndex === 0 ? 'mt-3' : 'mt-6'
 						)}
-						onclick={() => setValue(item)}
 					>
-						{item.label}
-					</button>
-				{/each}
-			</div>
-		{/if}
-	</div>
+						{item.__select_group}
+					</div>
+				{/if}
+				<button
+					class={twMerge(
+						'py-2 px-4 w-full font-normal text-left',
+						itemIndex === keyArrowPos ? 'bg-surface-hover' : '',
+						item.value === value
+							? 'bg-surface-selected-inverse text-primary-inverse'
+							: 'hover:bg-surface-hover'
+					)}
+					onclick={() => setValue(item)}
+				>
+					{item.label}
+				</button>
+			{/each}
+		</div>
+	{/if}
 </div>
