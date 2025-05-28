@@ -7,7 +7,6 @@ import type {
 	ChatCompletionTool
 } from 'openai/resources/index.mjs'
 import { triggerablesByAI } from '$lib/stores'
-import OpenAI from 'openai'
 
 // System prompt for the LLM
 export const CHAT_SYSTEM_PROMPT = `
@@ -152,21 +151,27 @@ function triggerComponent(args: { id: string; value: string }): string {
 }
 
 async function getDocumentation(args: { request: string }): Promise<string | null> {
-	const client = new OpenAI({
-		apiKey: import.meta.env.VITE_INKEEP_API_KEY,
-		baseURL: 'https://api.inkeep.com/v1',
-		dangerouslyAllowBrowser: true
+	const retrieval = await fetch('https://api.inkeep.com/v1/chat/completions', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${import.meta.env.VITE_INKEEP_API_KEY}`
+		},
+		body: JSON.stringify({
+			model: 'inkeep-rag',
+			messages: [{ role: 'user', content: args.request }],
+			response_format: {
+				type: 'json_object'
+			}
+		})
 	})
-	const retrieval = await client.chat.completions.create({
-		model: 'inkeep-rag',
-		messages: [{ role: 'user', content: args.request }]
-	})
-	if (!retrieval.choices[0].message.content) {
+	const data = await retrieval.json()
+	if (!data.choices?.[0]?.message?.content) {
 		return null
 	}
 
 	// Parse the raw response
-	const raw = retrieval.choices[0].message.content
+	const raw = data.choices[0].message.content
 	const parsed = JSON.parse(raw)
 
 	// Clean up the response to include only essential information
@@ -182,7 +187,7 @@ async function getDocumentation(args: { request: string }): Promise<string | nul
 		return stringified
 	}
 
-	return retrieval.choices[0].message.content
+	return data.choices[0].message.content
 }
 
 // Process tool calls from the LLM
