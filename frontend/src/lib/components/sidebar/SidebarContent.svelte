@@ -65,15 +65,36 @@
 	export let numUnacknowledgedCriticalAlerts = 0
 
 	$: mainMenuLinks = [
-		{ label: 'Home', href: `${base}/`, icon: Home },
-		{ label: 'Runs', href: `${base}/runs`, icon: Play },
+		{
+			label: 'Home',
+			href: `${base}/`,
+			icon: Home,
+			aiId: 'sidebar-menu-link-home',
+			aiDescription: 'Button to navigate to home'
+		},
+		{
+			label: 'Runs',
+			href: `${base}/runs`,
+			icon: Play,
+			aiId: 'sidebar-menu-link-runs',
+			aiDescription: 'Button to navigate to runs'
+		},
 		{
 			label: 'Variables',
 			href: `${base}/variables`,
 			icon: DollarSign,
-			disabled: $userStore?.operator
+			disabled: $userStore?.operator,
+			aiId: 'sidebar-menu-link-variables',
+			aiDescription: 'Button to navigate to variables'
 		},
-		{ label: 'Resources', href: `${base}/resources`, icon: Boxes, disabled: $userStore?.operator }
+		{
+			label: 'Resources',
+			href: `${base}/resources`,
+			icon: Boxes,
+			disabled: $userStore?.operator,
+			aiId: 'sidebar-menu-link-resources',
+			aiDescription: 'Button to navigate to resources'
+		}
 	]
 
 	$: triggerMenuLinks = [
@@ -81,7 +102,9 @@
 			label: 'Schedules',
 			href: `${base}/schedules`,
 			icon: Calendar,
-			disabled: !SIDEBAR_SHOW_SCHEDULES || $userStore?.operator
+			disabled: !SIDEBAR_SHOW_SCHEDULES || $userStore?.operator,
+			aiId: 'sidebar-menu-link-schedules',
+			aiDescription: 'Button to navigate to schedules'
 		},
 		...defaultExtraTriggerLinks.filter(
 			(link) => $usedTriggerKinds.includes(link.kind) || $page.url.pathname.includes(link.href)
@@ -100,56 +123,72 @@
 			href: '/routes',
 			icon: Route,
 			disabled: $userStore?.operator,
-			kind: 'http'
+			kind: 'http',
+			aiId: 'sidebar-menu-link-http',
+			aiDescription: 'Button to navigate to http routes'
 		},
 		{
 			label: 'WebSockets',
 			href: '/websocket_triggers',
 			icon: Unplug,
 			disabled: $userStore?.operator,
-			kind: 'ws'
+			kind: 'ws',
+			aiId: 'sidebar-menu-link-ws',
+			aiDescription: 'Button to navigate to websocket triggers'
 		},
 		{
 			label: 'Postgres',
 			href: '/postgres_triggers',
 			icon: Database,
 			disabled: $userStore?.operator,
-			kind: 'postgres'
+			kind: 'postgres',
+			aiId: 'sidebar-menu-link-postgres',
+			aiDescription: 'Button to navigate to postgres triggers'
 		},
 		{
 			label: 'Kafka' + ($enterpriseLicense ? '' : ' (EE)'),
 			href: '/kafka_triggers',
 			icon: KafkaIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
-			kind: 'kafka'
+			kind: 'kafka',
+			aiId: 'sidebar-menu-link-kafka',
+			aiDescription: 'Button to navigate to kafka triggers'
 		},
 		{
 			label: 'NATS' + ($enterpriseLicense ? '' : ' (EE)'),
 			href: '/nats_triggers',
 			icon: NatsIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
-			kind: 'nats'
+			kind: 'nats',
+			aiId: 'sidebar-menu-link-nats',
+			aiDescription: 'Button to navigate to nats triggers'
 		},
 		{
 			label: 'SQS' + ($enterpriseLicense ? '' : ' (EE)'),
 			href: '/sqs_triggers',
 			icon: AwsIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
-			kind: 'sqs'
+			kind: 'sqs',
+			aiId: 'sidebar-menu-link-sqs',
+			aiDescription: 'Button to navigate to sqs triggers'
 		},
 		{
 			label: 'GCP Pub/Sub' + ($enterpriseLicense ? '' : ' (EE)'),
 			href: '/gcp_triggers',
 			icon: GoogleCloudIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
-			kind: 'gcp'
+			kind: 'gcp',
+			aiId: 'sidebar-menu-link-gcp',
+			aiDescription: 'Button to navigate to gcp triggers'
 		},
 		{
 			label: 'MQTT',
 			href: '/mqtt_triggers',
 			icon: MqttIcon,
 			disabled: $userStore?.operator,
-			kind: 'mqtt'
+			kind: 'mqtt',
+			aiId: 'sidebar-menu-link-mqtt',
+			aiDescription: 'Button to navigate to mqtt triggers'
 		}
 	]
 
@@ -166,11 +205,16 @@
 		{
 			label: 'Settings',
 			icon: Settings,
+			aiId: 'sidebar-menu-link-settings',
+			aiDescription:
+				'Button to navigate to settings, including account, workspace, and instance settings',
 			subItems: [
 				{
 					label: 'Account',
 					href: '#user-settings',
 					icon: UserCog,
+					aiId: 'sidebar-menu-link-account',
+					aiDescription: 'Button to navigate to account settings',
 					faIcon: undefined
 				},
 				...($userStore?.is_admin || $superadmin
@@ -179,6 +223,8 @@
 								label: 'Workspace',
 								href: `${base}/workspace_settings`,
 								icon: FolderCog,
+								aiId: 'sidebar-menu-link-workspace',
+								aiDescription: 'Button to navigate to workspace settings',
 								faIcon: undefined
 							}
 						]
@@ -189,6 +235,8 @@
 								label: 'Instance',
 								href: '#superadmin-settings',
 								icon: ServerCog,
+								aiId: 'sidebar-menu-link-instance',
+								aiDescription: 'Button to navigate to instance settings',
 								faIcon: undefined
 							}
 						]
@@ -209,16 +257,27 @@
 			],
 			disabled: $userStore?.operator
 		},
-		{ label: 'Workers', href: `${base}/workers`, icon: Bot, disabled: $userStore?.operator },
+		{
+			label: 'Workers',
+			href: `${base}/workers`,
+			icon: Bot,
+			disabled: $userStore?.operator,
+			aiId: 'sidebar-menu-link-workers',
+			aiDescription: 'Button to navigate to workers'
+		},
 		{
 			label: 'Folders & Groups',
 			icon: FolderOpen,
+			aiId: 'sidebar-menu-link-folders-groups',
+			aiDescription: 'Button to navigate to folders and groups',
 			subItems: [
 				{
 					label: 'Folders',
 					href: `${base}/folders`,
 					icon: FolderOpen,
 					disabled: $userStore?.operator,
+					aiId: 'sidebar-menu-link-folders',
+					aiDescription: 'Button to navigate to folders',
 					faIcon: undefined
 				},
 				{
@@ -226,6 +285,8 @@
 					href: `${base}/groups`,
 					icon: UserCog,
 					disabled: $userStore?.operator,
+					aiId: 'sidebar-menu-link-groups',
+					aiDescription: 'Button to navigate to groups',
 					faIcon: undefined
 				}
 			],
@@ -235,18 +296,24 @@
 			? {
 					label: 'Logs',
 					icon: Logs,
+					aiId: 'sidebar-menu-link-logs',
+					aiDescription: 'Button to navigate to logs',
 					subItems: [
 						{
 							label: 'Audit logs',
 							href: `${base}/audit_logs`,
-							icon: Eye
+							icon: Eye,
+							aiId: 'sidebar-menu-link-audit-logs',
+							aiDescription: 'Button to navigate to audit logs'
 						},
 						...($devopsRole
 							? [
 									{
 										label: 'Service logs',
 										href: `${base}/service_logs`,
-										icon: Logs
+										icon: Logs,
+										aiId: 'sidebar-menu-link-service-logs',
+										aiDescription: 'Button to navigate to service logs'
 									}
 								]
 							: []),
@@ -258,7 +325,9 @@
 											isCriticalAlertsUIOpen.set(true)
 										},
 										icon: AlertCircle,
-										notificationCount: numUnacknowledgedCriticalAlerts
+										notificationCount: numUnacknowledgedCriticalAlerts,
+										aiId: 'sidebar-menu-link-critical-alerts',
+										aiDescription: 'Button to navigate to critical alerts'
 									}
 								]
 							: [])
@@ -268,7 +337,9 @@
 					label: 'Audit logs',
 					href: `${base}/audit_logs`,
 					icon: Eye,
-					disabled: $userStore?.operator
+					disabled: $userStore?.operator,
+					aiId: 'sidebar-menu-link-audit-logs',
+					aiDescription: 'Button to navigate to audit logs'
 				}
 	]
 
@@ -298,21 +369,33 @@
 			label: 'Help',
 			icon: HelpCircle,
 			subItems: [
-				{ label: 'Docs', href: 'https://www.windmill.dev/docs/intro/', icon: BookOpen },
+				{
+					label: 'Docs',
+					href: 'https://www.windmill.dev/docs/intro/',
+					icon: BookOpen,
+					aiId: 'sidebar-menu-link-docs',
+					aiDescription: 'Button to navigate to docs'
+				},
 				{
 					label: 'Feedbacks',
 					href: 'https://discord.gg/V7PM2YHsPB',
-					icon: DiscordIcon
+					icon: DiscordIcon,
+					aiId: 'sidebar-menu-link-feedbacks',
+					aiDescription: 'Button to navigate to feedbacks'
 				},
 				{
 					label: 'Issues',
 					href: 'https://github.com/windmill-labs/windmill/issues/new',
-					icon: Github
+					icon: Github,
+					aiId: 'sidebar-menu-link-issues',
+					aiDescription: 'Button to navigate to issues'
 				},
 				{
 					label: 'Changelog',
 					href: 'https://www.windmill.dev/changelog/',
-					icon: Newspaper
+					icon: Newspaper,
+					aiId: 'sidebar-menu-link-changelog',
+					aiDescription: 'Button to navigate to changelog'
 				}
 			]
 		}
@@ -370,6 +453,8 @@
 						</svelte:fragment>
 						{#each extraTriggerLinks as subItem (subItem.href ?? subItem.label)}
 							<MenuItem
+								aiId={subItem.aiId}
+								aiDescription={subItem.aiDescription}
 								href={subItem.disabled ? '' : subItem.href}
 								class={twMerge(itemClass, subItem.disabled ? 'pointer-events-none opacity-50' : '')}
 								{item}
@@ -414,6 +499,8 @@
 								on:click={() => {
 									subItem?.['action']?.()
 								}}
+								aiId={subItem.aiId}
+								aiDescription={subItem.aiDescription}
 							>
 								<div class="flex flex-row items-center gap-2">
 									{#if subItem.icon}

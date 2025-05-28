@@ -140,6 +140,7 @@
 		if (allTriggerTypes) {
 			numberOfTriggers = allTriggerTypes?.length
 		}
+		console.log(allTriggerTypes)
 	})
 </script>
 
@@ -237,6 +238,8 @@
 	{@const { icon: SvelteComponent, countKey } = triggerTypeConfig[type]}
 
 	<MeltButton
+		aiId={`trigger-button-${type}`}
+		aiDescription={`Trigger button for ${type}`}
 		class={twMerge(
 			'hover:bg-surface-hover rounded-md shadow-sm text-xs relative center-center cursor-pointer bg-slate-100 dark:bg-slate-700',
 			'dark:outline dark:outline-1 outline-tertiary/20 group',
