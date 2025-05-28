@@ -1357,7 +1357,7 @@
 			try {
 				closeWebsockets()
 				vimDisposable?.dispose()
-				console.log('disposing editor', editor, model)
+				console.log('disposing editor')
 				model?.dispose()
 				editor && editor.dispose()
 				console.log('disposed editor')

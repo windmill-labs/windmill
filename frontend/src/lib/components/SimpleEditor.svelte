@@ -24,12 +24,15 @@
 		noLib: true,
 		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
 	})
-	languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-		noSemanticValidation: false,
-		noSyntaxValidation: false,
-		noSuggestionDiagnostics: false,
-		diagnosticCodesToIgnore: [1108]
-	})
+	function setDiagnosticsOptions() {
+		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+			noSemanticValidation: false,
+			noSyntaxValidation: false,
+			noSuggestionDiagnostics: false,
+			diagnosticCodesToIgnore: [1108]
+		})
+	}
+	setDiagnosticsOptions()
 	languages.json.jsonDefaults.setDiagnosticsOptions({
 		validate: true,
 		allowComments: false,
@@ -537,6 +540,7 @@
 				})
 			}
 			languages.typescript.javascriptDefaults.setExtraLibs(libs)
+			setDiagnosticsOptions()
 		}
 	}
 
