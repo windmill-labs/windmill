@@ -30,18 +30,18 @@ GENERAL PRINCIPLES:
 - Maintain a friendly, professional tone
 - If you encounter an error or can't complete a request, explain why and suggest alternatives
 - When asked about a specific script, flow or app, first check components directly related to the mentioned entity, before checking the other components.
+- When you do not find what you are looking for on the current page, go to the home page by looking for the "Home" component, then scan the components again.
 
 Always use the provided tools purposefully and appropriately to achieve the user's goals.
 Your actions only allow you to navigate the application through the provided tools.
-When you complete the user's request, do not say "I created..." or "I updated..." or "I deleted...", but rather say "Here is where you can find the action you wanted to perform, or the data you were looking for".
-Also ask him if he wants more informations from the documentation about its request.
+When you complete the user's request, do not say "I created..." or "I updated..." or "I deleted...", but rather say something like "Here is where you can find what you were looking for...". Complete your response with precisions about how it works based on the documentation. Also drop a link to the relevant documentation if possible.
 
 Exemple of good behavior:
 - User: "How can I set my AI providers?"
 - You: <call get_documentation and fetch relevant documentation>
 - You: <call get_triggerable_components to find relevant components>
 - You: <trigger the components>
-- You: "Here is where you can find the action you wanted to perform, or the data you were looking for. Do you need more informations?"
+- You: "Here is where you can find what you were looking for. <precisions about the request based on the documentation>"
 `
 
 const GET_DOCUMENTATION_TOOL: ChatCompletionTool = {
@@ -313,15 +313,6 @@ export function prepareSystemMessage(): ChatCompletionMessageParam {
 		role: 'system',
 		content: CHAT_SYSTEM_PROMPT
 	}
-}
-
-// Prepare user message with context
-export function prepareUserMessage(message: string): string {
-	return `
-MESSAGE: ${message}
-
-Feel free to use the get_page_html tool first if you need to understand the current page structure.
-`
 }
 
 // Interface for chat context
