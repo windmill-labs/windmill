@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.493.2](https://github.com/windmill-labs/windmill/compare/v1.493.1...v1.493.2) (2025-05-28)
+
+
+### Bug Fixes
+
+* improve monaco editor memory leak ([e0f4f83](https://github.com/windmill-labs/windmill/commit/e0f4f83ebf4416c3bcc24433a7bf606349e1f75a))
+* improve monaco javascript extra lib refresh ([7b70348](https://github.com/windmill-labs/windmill/commit/7b70348b4bba3726e3fb26c964219a5a2aa6af55))
+
+## [1.493.1](https://github.com/windmill-labs/windmill/compare/v1.493.0...v1.493.1) (2025-05-28)
+
+
+### Bug Fixes
+
+* improve monaco javascript extra lib refresh ([a2c8ea6](https://github.com/windmill-labs/windmill/commit/a2c8ea69a3962a350273717cd237d8a96523fd00))
+
+## [1.493.0](https://github.com/windmill-labs/windmill/compare/v1.492.1...v1.493.0) (2025-05-27)
+
+
+### Features
+
+* add aws oidc support for instance s3 storage ([#5810](https://github.com/windmill-labs/windmill/issues/5810)) ([5b96bcc](https://github.com/windmill-labs/windmill/commit/5b96bccedd6e68fea631580dd49338301ad0305f))
+* duckdb sql lang support ([#5761](https://github.com/windmill-labs/windmill/issues/5761)) ([fdefd4b](https://github.com/windmill-labs/windmill/commit/fdefd4be9398b9610a539360353fd61b521732d4))
+* **python:** inline script metadata (PEP 723)  ([#5712](https://github.com/windmill-labs/windmill/issues/5712)) ([2622253](https://github.com/windmill-labs/windmill/commit/26222539e66bce7e88f86a7e5917e6ca99350865))
+
+
+### Bug Fixes
+
+* add missing http_trigger_version_seq grants ([#5816](https://github.com/windmill-labs/windmill/issues/5816)) ([306f3ea](https://github.com/windmill-labs/windmill/commit/306f3eabd1c03fa904b0e59438de124a0e680597))
+* avoid monaco memory leak ([0d459d5](https://github.com/windmill-labs/windmill/commit/0d459d5d223728270854e37715ecc1663ede9870))
+* error handler node rendering at top level ([feae9b0](https://github.com/windmill-labs/windmill/commit/feae9b09240ba306c007013a36d2aefb0b273766))
+* **frontend:** auto completion and render of tailwind classes in app editor ([#5817](https://github.com/windmill-labs/windmill/issues/5817)) ([5897e7e](https://github.com/windmill-labs/windmill/commit/5897e7e01b8839425c30c2a97481ef7bb9090661))
+
 ## [1.492.1](https://github.com/windmill-labs/windmill/compare/v1.492.0...v1.492.1) (2025-05-22)
 
 

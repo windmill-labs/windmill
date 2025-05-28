@@ -115,7 +115,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { type Preview, ResourceService, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
-	import { initializeVscode } from '$lib/components/vscode'
+	import { initializeVscode, keepModelAroundToAvoidDisposalOfWorkers } from '$lib/components/vscode'
 
 	import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
 	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
@@ -1266,6 +1266,8 @@
 			folding
 		})
 
+		keepModelAroundToAvoidDisposalOfWorkers()
+
 		// updateEditorKeybindingsMode(editor, 'vim', undefined)
 
 		let ataModel: NodeJS.Timeout | undefined = undefined
@@ -1355,6 +1357,7 @@
 			try {
 				closeWebsockets()
 				vimDisposable?.dispose()
+				console.log('disposing editor')
 				model?.dispose()
 				editor && editor.dispose()
 				console.log('disposed editor')
