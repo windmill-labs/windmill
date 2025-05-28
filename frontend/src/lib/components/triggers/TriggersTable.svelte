@@ -41,6 +41,8 @@
 	<div class="w-full">
 		<AddTriggersButton {onAddDraftTrigger} setDropdownWidthToButtonWidth class="w-full" {isEditor}>
 			<Button
+				aiId="add-trigger"
+				aiDescription="Add a new trigger"
 				size="xs"
 				color="blue"
 				startIcon={{ icon: Plus }}
