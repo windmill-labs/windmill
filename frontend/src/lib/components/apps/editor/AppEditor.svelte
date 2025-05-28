@@ -785,8 +785,7 @@
 	$: forceDeactivatePanzoom = isModifierKeyPressed && handMode
 </script>
 
-<svelte:head>
-</svelte:head>
+<svelte:head></svelte:head>
 
 <DarkModeObserver on:change={onThemeChange} />
 
