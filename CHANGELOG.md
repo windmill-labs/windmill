@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.493.1](https://github.com/windmill-labs/windmill/compare/v1.493.0...v1.493.1) (2025-05-28)
+
+
+### Bug Fixes
+
+* improve monaco javascript extra lib refresh ([a2c8ea6](https://github.com/windmill-labs/windmill/commit/a2c8ea69a3962a350273717cd237d8a96523fd00))
+
 ## [1.493.0](https://github.com/windmill-labs/windmill/compare/v1.492.1...v1.493.0) (2025-05-27)
 
 
