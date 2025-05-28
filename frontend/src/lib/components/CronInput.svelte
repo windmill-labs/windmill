@@ -5,14 +5,13 @@
 	// @ts-ignore
 	import Multiselect from 'svelte-multiselect'
 	import { Button } from './common'
-	import Select from '../components/apps/svelte-select/lib/index'
 	import timezones from './timezones'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
 	import { onMount } from 'svelte'
 	import CronBuilder from './CronBuilder.svelte'
 	import Label from './Label.svelte'
 	import CronGen from './copilot/CronGen.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
+	import Select from './Select.svelte'
 
 	export let schedule: string
 	// export let offset: number = -60 * Math.floor(new Date().getTimezoneOffset() / 60)
@@ -192,7 +191,7 @@
 					return {
 						value: subKey,
 						label: subKey,
-						group: timezones[key][subKey][1]
+						group: timezones[key][subKey][1] as string
 					}
 				})
 				.flat()
@@ -234,17 +233,14 @@
 				</div>
 			{:else}
 				<Select
-					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-					containerStyles={'border-color: lightgray;' +
-						(darkMode
-							? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-							: SELECT_INPUT_DEFAULT_STYLE.containerStyles)}
 					{items}
+					bind:value={timezone}
 					groupBy={(item) => item.group}
-					on:change={(w) => {
-						timezone = w.detail.label
+					sortBy={(a, b) => {
+						if (a.group[0] === '+' && b.group[0] === '-') return -1
+						if (a.group[0] === '-' && b.group[0] === '+') return 1
+						return a.group.localeCompare(b.group)
 					}}
-					value={timezone}
 				/>
 			{/if}
 		</Label>
