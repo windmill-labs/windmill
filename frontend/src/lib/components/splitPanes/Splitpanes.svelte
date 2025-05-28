@@ -19,18 +19,18 @@
 	const splitPanesLayout = getSplitPanesLayout()
 
 	onMount(() => {
-		splitPanesLayout.handleSplitPaneReady(id)
+		splitPanesLayout?.handleSplitPaneReady(id)
 	})
 
 	onDestroy(() => {
-		splitPanesLayout.handleSplitPaneDestroy(id)
+		splitPanesLayout?.handleSplitPaneDestroy(id)
 		clearTimeout(timeout)
 	})
 </script>
 
 <Splitpanes
 	on:resized={({ detail }) => {
-		splitPanesLayout.handleResize(
+		splitPanesLayout?.handleResize(
 			id,
 			detail.map((d, index) => ({ size: d.size, index }))
 		)

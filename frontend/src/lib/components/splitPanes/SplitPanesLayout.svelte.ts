@@ -118,7 +118,7 @@ export class SplitPanesLayout {
 	}
 }
 
-export function getSplitPanesLayout(): SplitPanesLayout {
+export function getSplitPanesLayout(): SplitPanesLayout | undefined {
 	return getContext<SplitPanesLayout>(KEY)
 }
 

@@ -19,14 +19,14 @@
 	const splitPanesLayout = getSplitPanesLayout()
 
 	onMount(() => {
-		splitPanesLayout.mountPane(splitPanesId, index, defaultSize)
+		splitPanesLayout?.mountPane(splitPanesId, index, defaultSize)
 	})
 
 	onDestroy(() => {
-		splitPanesLayout.unmountPane(splitPanesId, index)
+		splitPanesLayout?.unmountPane(splitPanesId, index)
 	})
 </script>
 
-<Pane size={splitPanesLayout.layout[splitPanesId]?.[index]?.size ?? defaultSize} {...rest}>
+<Pane size={splitPanesLayout?.layout[splitPanesId]?.[index]?.size ?? defaultSize} {...rest}>
 	{@render children?.()}
 </Pane>
