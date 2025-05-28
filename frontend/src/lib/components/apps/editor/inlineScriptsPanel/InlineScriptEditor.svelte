@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview } from '$lib/gen'
 	import { createEventDispatcher, getContext, onMount } from 'svelte'
@@ -22,17 +25,6 @@
 	import EditorSettings from '$lib/components/EditorSettings.svelte'
 	import { userStore } from '$lib/stores'
 
-	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
-
-	export let inlineScript: InlineScript | undefined
-	export let name: string | undefined = undefined
-	export let id: string
-	export let defaultUserInput: boolean = false
-	export let fields: Record<string, AppInput> = {}
-	export let syncFields: boolean = false
-	export let transformer: boolean = false
-	export let componentType: string | undefined = undefined
-
 	const {
 		runnableComponents,
 		stateId,
@@ -42,10 +34,33 @@
 		app
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	export let editor: Editor | undefined = undefined
-	let diffEditor: DiffEditor
-	let simpleEditor: SimpleEditor
-	let validCode = true
+	interface Props {
+		inlineScript: InlineScript | undefined
+		name?: string | undefined
+		id: string
+		defaultUserInput?: boolean
+		fields?: Record<string, AppInput>
+		syncFields?: boolean
+		transformer?: boolean
+		componentType?: string | undefined
+		editor?: Editor | undefined
+	}
+
+	let {
+		inlineScript = $bindable(),
+		name = $bindable(undefined),
+		id,
+		defaultUserInput = false,
+		fields = $bindable({}),
+		syncFields = false,
+		transformer = false,
+		componentType = undefined,
+		editor = $bindable(undefined)
+	}: Props = $props()
+	let diffEditor: DiffEditor | undefined = $state()
+	let simpleEditor: SimpleEditor | undefined = $state()
+	let validCode = $state(true)
+	let inlineScriptEditorDrawer: InlineScriptEditorDrawer | undefined = $state()
 
 	async function inferInlineScriptSchema(
 		language: Preview['language'],
@@ -62,8 +77,6 @@
 
 		return schema
 	}
-
-	$: name && onNameChange()
 
 	function onNameChange() {
 		if (inlineScript) {
@@ -96,7 +109,7 @@
 	})
 
 	const dispatch = createEventDispatcher()
-	let runLoading = false
+	let runLoading = $state(false)
 
 	function preConnect(newFields) {
 		if (!componentType) {
@@ -186,16 +199,11 @@
 		}
 	}
 
-	$: extraLib =
-		inlineScript?.language == 'frontend' && worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {}, id, $stateStore, true)
-			: undefined
-
 	// 	`
 	// /** The current's app state */
 	// const state: Record<string, any>;`
 
-	let drawerIsOpen: boolean | undefined = undefined
+	let drawerIsOpen: boolean | undefined = $state(undefined)
 
 	async function inferSuggestions(code: string) {
 		const outputs = await parseOutputs(code, true)
@@ -218,8 +226,24 @@
 			}
 		}
 	}
+
+	let lastName = $state(name)
+	$effect(() => {
+		if (name && name !== lastName) {
+			lastName = name
+			onNameChange()
+		}
+	})
+
+	let isFrontend = $derived(inlineScript?.language == 'frontend')
+	let extraLib = $derived(
+		isFrontend && worldStore
+			? buildExtraLib($worldStore?.outputsById ?? {}, id, $stateStore, true)
+			: undefined
+	)
 </script>
 
+<!-- <pre class="text-2xs">{JSON.stringify($worldStore?.outputsById, null, 2)}</pre> -->
 {#if inlineScript}
 	{#if inlineScript.language != 'frontend'}
 		<InlineScriptEditorDrawer
@@ -241,11 +265,11 @@
 				{#if !transformer}
 					<div class="flex flex-row gap-2 w-full items-center">
 						<input
-							on:keydown|stopPropagation
+							onkeydown={stopPropagation(bubble('keydown'))}
 							bind:value={name}
 							placeholder="Inline script name"
 							class="!text-xs !rounded-sm !shadow-none"
-							on:keyup={() => {
+							onkeyup={() => {
 								$app = $app
 								if (stateId) {
 									$stateId++
