@@ -90,5 +90,5 @@ jobs:
     with:
       needs_processing: false
       base_prompt: ${{ needs.check-and-prepare.outputs.prompt_content }}
-      rules_files: "CLAUDE.md backend/CLAUDE.md frontend/CLAUDE.md"
+      rules_files: ".cursor/rules/rust-best-practices.mdc .cursor/rules/svelte5-best-practices.mdc .cursor/rules/windmill-overview.mdc"
     secrets: inherit
