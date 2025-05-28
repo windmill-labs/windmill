@@ -107,6 +107,7 @@
 				usePointerDownOutside={true}
 				clickOutsideExcludeIds={modalId ? [modalId] : []}
 				let:close
+				renderContent
 			>
 				<svelte:fragment slot="trigger" let:trigger>
 					<MeltButton meltElement={trigger} class="w-full h-full">

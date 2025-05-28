@@ -18,6 +18,7 @@
 	export let clickOutsideExcludeIds: string[] = []
 	export let menuClass: string = ''
 	export let open = false
+	export let renderContent: boolean = false
 
 	// Use the passed createMenu function
 	const {
@@ -81,7 +82,7 @@
 	</button>
 
 	<!--svelte-ignore a11y-no-static-element-interactions-->
-	{#if open}
+	{#if open || renderContent}
 		<div
 			use:melt={$menuElement}
 			class={twMerge(

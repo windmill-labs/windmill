@@ -7,6 +7,16 @@
 	import '@codingame/monaco-vscode-standalone-css-language-features'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 	import '@codingame/monaco-vscode-standalone-html-language-features'
+	import {
+		editor as meditor,
+		KeyCode,
+		KeyMod,
+		Uri as mUri,
+		languages,
+		type IRange,
+		type IDisposable
+	} from 'monaco-editor'
+
 	languages.typescript.javascriptDefaults.setCompilerOptions({
 		target: languages.typescript.ScriptTarget.Latest,
 		allowNonTsExtensions: true,
@@ -44,15 +54,15 @@
 	import { BROWSER } from 'esm-env'
 
 	import { createHash, editorConfig, langToExt, updateOptions } from '$lib/editorUtils'
-	import {
-		editor as meditor,
-		KeyCode,
-		KeyMod,
-		Uri as mUri,
-		languages,
-		type IRange,
-		type IDisposable
-	} from 'monaco-editor'
+	// import {
+	// 	editor as meditor,
+	// 	KeyCode,
+	// 	KeyMod,
+	// 	Uri as mUri,
+	// 	languages,
+	// 	type IRange,
+	// 	type IDisposable
+	// } from 'monaco-editor'
 
 	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
@@ -60,7 +70,7 @@
 
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import domContent from '$lib/dom.d.ts.txt?raw'
-	import { initializeVscode } from './vscode'
+	import { initializeVscode, keepModelAroundToAvoidDisposalOfWorkers } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import { vimMode } from '$lib/stores'
 	import { initVim } from './monaco_keybindings'
@@ -348,6 +358,7 @@
 				snippetsPreventQuickSuggestions: disableSuggestions
 			}
 		})
+		keepModelAroundToAvoidDisposalOfWorkers()
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
@@ -467,33 +478,46 @@
 	}
 
 	function addTailwindClassCompletions() {
+		// Define a custom word definition for Tailwind classes
+		languages.setMonarchTokensProvider('tailwindcss', {
+			tokenizer: {
+				root: [[/[a-zA-Z0-9-]+/, 'tailwind-class']]
+			}
+		})
+
 		languages.registerCompletionItemProvider('tailwindcss', {
+			triggerCharacters: ['-'],
 			provideCompletionItems: function (model, position, context, token) {
-				const word = model.getWordUntilPosition(position)
+				const wordUntilPosition = model.getWordUntilPosition(position)
+				const lineContent = model.getLineContent(position.lineNumber)
+
+				// Get the text from the start of the line to the cursor
+				const textUntilPosition = lineContent.substring(0, position.column - 1)
+				// Find the last space before the cursor
+				const lastSpaceIndex = textUntilPosition.lastIndexOf(' ')
+				const startColumn = lastSpaceIndex === -1 ? 1 : lastSpaceIndex + 2
+
 				const range = {
 					startLineNumber: position.lineNumber,
-					startColumn: word.startColumn,
+					startColumn: startColumn,
 					endLineNumber: position.lineNumber,
-					endColumn: word.endColumn
+					endColumn: position.column
 				}
 
-				if (word && word.word) {
-					const currentWord = word.word
+				const currentWord = wordUntilPosition.word
 
-					const suggestions = tailwindClasses
-						.filter((className) => className.includes(currentWord))
-						.map((className) => ({
-							label: className,
-							kind: languages.CompletionItemKind.Class,
-							insertText: className,
-							documentation: 'Custom CSS class',
-							range: range
-						}))
+				const suggestions = tailwindClasses
+					.filter((className) => className.includes(currentWord))
+					.map((className) => ({
+						label: className,
+						kind: languages.CompletionItemKind.Class,
+						insertText: className,
+						documentation: 'Tailwind CSS class',
+						range: range,
+						preselect: true
+					}))
 
-					return { suggestions }
-				}
-
-				return { suggestions: [] }
+				return { suggestions }
 			}
 		})
 	}
