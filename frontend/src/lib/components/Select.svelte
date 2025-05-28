@@ -10,35 +10,54 @@
 		items,
 		placeholder = 'Please select',
 		value = $bindable(),
+		filterText: _filterTextBind = $bindable(undefined),
 		class: className = '',
 		clearable = false,
+		listAutoWidth = true,
+		disabled = false,
+		containerStyle = '',
 		groupBy,
-		sortBy
+		sortBy,
+		onFocus,
+		onClear
 	}: {
 		items?: Item[]
 		value: Value | undefined
 		placeholder?: string
 		class?: string
 		clearable?: boolean
+		filterText?: string
+		disabled?: boolean
+		listAutoWidth?: boolean
+		containerStyle?: string
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
+		onFocus?: () => void
+		onClear?: () => void
 	} = $props()
 
-	let search = $state<string>('')
+	let filterText = $state<string>('')
 	let open = $state<boolean>(false)
 	let keyArrowPos = $state<number | undefined>()
 	let inputEl: HTMLInputElement | undefined = $state()
 
 	$effect(() => {
-		;[search, open, processedItems]
-		keyArrowPos = open && search ? 0 : undefined
+		if (_filterTextBind !== undefined) filterText = _filterTextBind
+	})
+	$effect(() => {
+		if (_filterTextBind !== undefined) _filterTextBind = filterText
 	})
 
 	$effect(() => {
-		if (search) open = true
+		;[filterText, open, processedItems]
+		keyArrowPos = open && filterText ? 0 : undefined
+	})
+
+	$effect(() => {
+		if (filterText) open = true
 	})
 	$effect(() => {
-		if (!open) search = ''
+		if (!open) filterText = ''
 	})
 
 	let processedItems: (Item & { __select_group?: string; label: string })[] = $derived.by(() => {
@@ -47,8 +66,8 @@
 				...item,
 				label: getLabel(item)
 			})) ?? []
-		if (search) {
-			items2 = items2.filter((item) => item.label.toLowerCase().includes(search.toLowerCase()))
+		if (filterText) {
+			items2 = items2.filter((item) => item.label.toLowerCase().includes(filterText.toLowerCase()))
 		}
 		if (groupBy) {
 			items2 =
@@ -66,13 +85,14 @@
 
 	function setValue(item: Item) {
 		value = item.value
-		search = ''
+		filterText = ''
 		open = false
 	}
 
 	function clearValue() {
-		value = undefined
-		search = ''
+		filterText = ''
+		if (onClear) onClear()
+		else value = undefined
 	}
 
 	function getLabel(item: Item | undefined): string {
@@ -121,27 +141,40 @@
 	}}
 />
 
-<div class={`relative ${className}`} use:clickOutside={{ onClickOutside: () => (open = false) }}>
-	{#if clearable && value !== undefined}
+<div
+	class={`relative ${className}`}
+	use:clickOutside={{ onClickOutside: () => (open = false) }}
+	onpointerdown={() => onFocus?.()}
+	onfocus={() => onFocus?.()}
+>
+	{#if clearable && !disabled && value !== undefined}
 		<div class="absolute z-10 right-2 h-full flex items-center">
 			<CloseButton noBg small on:close={clearValue} />
 		</div>
 	{/if}
 	<input
+		{disabled}
 		type="text"
-		bind:value={() => search, (v) => (search = v)}
+		bind:value={() => filterText, (v) => (filterText = v)}
 		placeholder={valueEntry?.label ?? placeholder}
-		class={twMerge(open ? '' : 'cursor-pointer', valueEntry ? '!placeholder-primary' : '')}
+		style={containerStyle}
+		class={twMerge(
+			'!bg-surface',
+			open ? '' : 'cursor-pointer',
+			valueEntry ? '!placeholder-primary' : ''
+		)}
 		autocomplete="off"
 		onpointerdown={() => (open = true)}
 		bind:this={inputEl}
 	/>
 
 	<Portal name="select-dropdown">
-		{#if open}
+		{#if open && !disabled}
 			<div
-				class="flex flex-col absolute z-[5001] max-h-64 overflow-y-scroll bg-surface text-tertiary text-sm select-none border rounded-lg"
-				style="top: {dropdownPos.y}px; left: {dropdownPos.x}px; width: {dropdownPos.width}px;"
+				class="flex flex-col absolute z-[5001] max-h-64 overflow-y-auto bg-surface-secondary text-tertiary text-sm select-none border rounded-lg"
+				style="top: {dropdownPos.y}px; left: {dropdownPos.x}px; {listAutoWidth
+					? `width: ${dropdownPos.width}px;`
+					: ''}"
 			>
 				{#each processedItems ?? [] as item, itemIndex}
 					{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1]?.__select_group !== item.__select_group}
@@ -158,9 +191,7 @@
 						class={twMerge(
 							'py-2 px-4 w-full font-normal text-left',
 							itemIndex === keyArrowPos ? 'bg-surface-hover' : '',
-							item.value === value
-								? 'bg-surface-selected-inverse text-primary-inverse'
-								: 'hover:bg-surface-hover'
+							item.value === value ? 'bg-surface-selected' : 'hover:bg-surface-hover'
 						)}
 						onclick={() => setValue(item)}
 					>
