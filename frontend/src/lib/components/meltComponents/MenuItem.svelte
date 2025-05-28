@@ -2,8 +2,6 @@
 	import { melt } from '@melt-ui/svelte'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
-	import { goto } from '$app/navigation'
-	import { createEventDispatcher } from 'svelte'
 
 	export let aiId: string | undefined = undefined
 	export let aiDescription: string | undefined = undefined
@@ -12,7 +10,8 @@
 	export let target: string | undefined = undefined
 	export let item: MenubarMenuElements['item']
 
-	const dispatch = createEventDispatcher()
+	let aRef: HTMLAnchorElement | undefined = undefined
+	let buttonRef: HTMLButtonElement | undefined = undefined
 </script>
 
 <TriggerableByAI
@@ -20,14 +19,15 @@
 	description={aiDescription}
 	onTrigger={() => {
 		if (href) {
-			goto(href)
+			aRef?.click()
 		} else {
-			dispatch('click')
+			buttonRef?.click()
 		}
 	}}
 >
 	{#if href}
 		<a
+			bind:this={aRef}
 			use:melt={$item}
 			{href}
 			class={$$props.class}
@@ -42,6 +42,7 @@
 		</a>
 	{:else}
 		<button
+			bind:this={buttonRef}
 			on:click
 			use:melt={$item}
 			{disabled}

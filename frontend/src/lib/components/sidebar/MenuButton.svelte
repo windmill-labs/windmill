@@ -39,6 +39,7 @@
 			id={aiId}
 			description={aiDescription}
 			onTrigger={() => {
+				console.log('onTrigger', aiId)
 				if (buttonRef) {
 					buttonRef.click()
 				}

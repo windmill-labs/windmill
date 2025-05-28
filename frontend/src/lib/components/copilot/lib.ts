@@ -359,7 +359,6 @@ function getProviderAndCompletionConfig<K extends boolean>({
 		: ChatCompletionCreateParamsNonStreaming
 } {
 	let info = get(copilotInfo)
-	console.log('info', info)
 	const modelProvider =
 		forceModelProvider ?? get(copilotSessionModel) ?? info.defaultModel ?? info.aiModels[0]
 
@@ -457,7 +456,6 @@ export async function getCompletion(
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
 ) {
 	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
-	console.log('config', config)
 	const openaiClient = workspaceAIClients.getOpenaiClient()
 	const completion = await openaiClient.chat.completions.create(config, {
 		signal: abortController.signal,
