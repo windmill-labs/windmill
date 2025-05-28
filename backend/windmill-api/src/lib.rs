@@ -12,11 +12,11 @@ use crate::ee::ExternalJwks;
 #[cfg(feature = "embedding")]
 use crate::embeddings::load_embeddings_db;
 #[cfg(feature = "oauth2")]
-use crate::oauth2_ee::AllClients;
+use crate::oauth2_oss::AllClients;
 #[cfg(feature = "oauth2")]
-use crate::oauth2_ee::SlackVerifier;
+use crate::oauth2_oss::SlackVerifier;
 #[cfg(feature = "smtp")]
-use crate::smtp_server_ee::SmtpServer;
+use crate::smtp_server_oss::SmtpServer;
 
 #[cfg(feature = "mcp")]
 use crate::mcp::{setup_mcp_server, Runner as McpRunner};
@@ -58,11 +58,9 @@ use windmill_common::db::UserDB;
 use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::{utils::GIT_VERSION, BASE_URL, INSTANCE_NAME};
 
-use crate::scim_ee::has_scim_token;
+use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
 
-#[cfg(feature = "agent_worker_server")]
-mod agent_workers_ee;
 #[cfg(feature = "agent_worker_server")]
 mod agent_workers_oss;
 mod ai;
@@ -88,6 +86,7 @@ mod http_trigger_args;
 mod http_trigger_auth;
 #[cfg(feature = "http_trigger")]
 pub mod http_triggers;
+mod indexer_oss;
 mod indexer_ee;
 mod inputs;
 mod integration;
@@ -95,48 +94,64 @@ mod integration;
 mod postgres_triggers;
 
 mod approvals;
+mod apps_oss;
 #[cfg(feature = "enterprise")]
 mod apps_ee;
+mod gcp_triggers_oss;
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
 mod gcp_triggers_ee;
+mod git_sync_oss;
 #[cfg(feature = "enterprise")]
 mod git_sync_ee;
+mod job_helpers_oss;
 #[cfg(feature = "parquet")]
 mod job_helpers_ee;
 pub mod job_metrics;
 pub mod jobs;
+mod kafka_triggers_oss;
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 mod kafka_triggers_ee;
 #[cfg(feature = "mqtt_trigger")]
 mod mqtt_triggers;
+mod nats_triggers_oss;
 #[cfg(all(feature = "enterprise", feature = "nats"))]
 mod nats_triggers_ee;
+pub mod oauth2_oss;
 #[cfg(feature = "oauth2")]
 pub mod oauth2_ee;
+mod oidc_oss;
 mod oidc_ee;
 mod raw_apps;
 mod resources;
+mod saml_oss;
 mod saml_ee;
 mod schedule;
+mod scim_oss;
 mod scim_ee;
 mod scripts;
 mod service_logs;
 mod settings;
 mod slack_approvals;
+mod smtp_server_oss;
 #[cfg(feature = "smtp")]
 mod smtp_server_ee;
+mod sqs_triggers_oss;
 #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
 mod sqs_triggers_ee;
+mod teams_approvals_oss;
 mod teams_approvals_ee;
 mod trigger_helpers;
 
 mod static_assets;
+mod stripe_oss;
 #[cfg(all(feature = "stripe", feature = "enterprise"))]
 mod stripe_ee;
+mod teams_oss;
 mod teams_ee;
 mod tracing_init;
 mod triggers;
 mod users;
+mod users_oss;
 mod users_ee;
 mod utils;
 mod variables;
@@ -145,6 +160,7 @@ pub mod webhook_util;
 mod websocket_triggers;
 mod workers;
 mod workspaces;
+mod workspaces_oss;
 mod workspaces_ee;
 mod workspaces_export;
 mod workspaces_extra;
@@ -280,7 +296,7 @@ pub async fn run_server(
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
         .allow_origin(Any);
 
-    let sp_extension = Arc::new(saml_ee::build_sp_extension().await?);
+    let sp_extension = Arc::new(saml_oss::build_sp_extension().await?);
 
     if server_mode {
         #[cfg(feature = "embedding")]
@@ -319,7 +335,7 @@ pub async fn run_server(
     let job_helpers_service = {
         #[cfg(feature = "parquet")]
         {
-            job_helpers_ee::workspaced_service()
+            job_helpers_oss::workspaced_service()
         }
 
         #[cfg(not(feature = "parquet"))]
@@ -331,7 +347,7 @@ pub async fn run_server(
     let kafka_triggers_service = {
         #[cfg(all(feature = "enterprise", feature = "kafka"))]
         {
-            kafka_triggers_ee::workspaced_service()
+            kafka_triggers_oss::workspaced_service()
         }
 
         #[cfg(not(all(feature = "enterprise", feature = "kafka")))]
@@ -343,7 +359,7 @@ pub async fn run_server(
     let nats_triggers_service = {
         #[cfg(all(feature = "enterprise", feature = "nats"))]
         {
-            nats_triggers_ee::workspaced_service()
+            nats_triggers_oss::workspaced_service()
         }
 
         #[cfg(not(all(feature = "enterprise", feature = "nats")))]
@@ -367,7 +383,7 @@ pub async fn run_server(
     let gcp_triggers_service = {
         #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
         {
-            gcp_triggers_ee::workspaced_service()
+            gcp_triggers_oss::workspaced_service()
         }
 
         #[cfg(not(all(feature = "enterprise", feature = "gcp_trigger")))]
@@ -379,7 +395,7 @@ pub async fn run_server(
     let sqs_triggers_service = {
         #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
         {
-            sqs_triggers_ee::workspaced_service()
+            sqs_triggers_oss::workspaced_service()
         }
 
         #[cfg(not(all(feature = "enterprise", feature = "sqs_trigger")))]
@@ -434,13 +450,13 @@ pub async fn run_server(
         #[cfg(all(feature = "enterprise", feature = "kafka"))]
         {
             let kafka_killpill_rx = killpill_rx.resubscribe();
-            kafka_triggers_ee::start_kafka_consumers(db.clone(), kafka_killpill_rx);
+            kafka_triggers_oss::start_kafka_consumers(db.clone(), kafka_killpill_rx);
         }
 
         #[cfg(all(feature = "enterprise", feature = "nats"))]
         {
             let nats_killpill_rx = killpill_rx.resubscribe();
-            nats_triggers_ee::start_nats_consumers(db.clone(), nats_killpill_rx);
+            nats_triggers_oss::start_nats_consumers(db.clone(), nats_killpill_rx);
         }
 
         #[cfg(feature = "postgres_trigger")]
@@ -458,13 +474,13 @@ pub async fn run_server(
         #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
         {
             let sqs_killpill_rx = killpill_rx.resubscribe();
-            sqs_triggers_ee::start_sqs(db.clone(), sqs_killpill_rx);
+            sqs_triggers_oss::start_sqs(db.clone(), sqs_killpill_rx);
         }
 
         #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
         {
             let gcp_killpill_rx = killpill_rx.resubscribe();
-            gcp_triggers_ee::start_consuming_gcp_pubsub_event(db.clone(), gcp_killpill_rx);
+            gcp_triggers_oss::start_consuming_gcp_pubsub_event(db.clone(), gcp_killpill_rx);
         }
     }
 
@@ -537,7 +553,7 @@ pub async fn run_server(
                         .nest("/oauth", {
                             #[cfg(feature = "oauth2")]
                             {
-                                oauth2_ee::workspaced_service()
+                                oauth2_oss::workspaced_service()
                             }
 
                             #[cfg(not(feature = "oauth2"))]
@@ -554,7 +570,7 @@ pub async fn run_server(
                         )
                         .nest("/variables", variables::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
-                        .nest("/oidc", oidc_ee::workspaced_service())
+                        .nest("/oidc", oidc_oss::workspaced_service())
                         .nest("/http_triggers", http_triggers_service)
                         .nest("/websocket_triggers", websocket_triggers_service)
                         .nest("/kafka_triggers", kafka_triggers_service)
@@ -586,17 +602,17 @@ pub async fn run_server(
                 .nest("/jobs", jobs::global_root_service())
                 .nest(
                     "/srch/w/:workspace_id/index",
-                    indexer_ee::workspaced_service(),
+                    indexer_oss::workspaced_service(),
                 )
-                .nest("/srch/index", indexer_ee::global_service())
-                .nest("/oidc", oidc_ee::global_service())
+                .nest("/srch/index", indexer_oss::global_service())
+                .nest("/oidc", oidc_oss::global_service())
                 .nest(
                     "/saml",
-                    saml_ee::global_service().layer(Extension(Arc::clone(&sp_extension))),
+                    saml_oss::global_service().layer(Extension(Arc::clone(&sp_extension))),
                 )
                 .nest(
                     "/scim",
-                    scim_ee::global_service()
+                    scim_oss::global_service()
                         .route_layer(axum::middleware::from_fn(has_scim_token)),
                 )
                 .nest("/concurrency_groups", concurrency_groups::global_service())
@@ -604,7 +620,7 @@ pub async fn run_server(
                 .nest("/apps_u", {
                     #[cfg(feature = "enterprise")]
                     {
-                        apps_ee::global_unauthed_service()
+                        apps_oss::global_unauthed_service()
                     }
 
                     #[cfg(not(feature = "enterprise"))]
@@ -648,7 +664,7 @@ pub async fn run_server(
                 .nest("/teams", {
                     #[cfg(feature = "enterprise")]
                     {
-                        teams_ee::teams_service()
+                        teams_oss::teams_service()
                     }
 
                     #[cfg(not(feature = "enterprise"))]
@@ -662,12 +678,12 @@ pub async fn run_server(
                 )
                 .route(
                     "/w/:workspace_id/jobs/teams_approval/:job_id",
-                    get(teams_approvals_ee::request_teams_approval),
+                    get(teams_approvals_oss::request_teams_approval),
                 )
                 .nest("/w/:workspace_id/github_app", {
                     #[cfg(feature = "enterprise")]
                     {
-                        git_sync_ee::workspaced_service()
+                        git_sync_oss::workspaced_service()
                     }
 
                     #[cfg(not(feature = "enterprise"))]
@@ -676,7 +692,7 @@ pub async fn run_server(
                 .nest("/github_app", {
                     #[cfg(feature = "enterprise")]
                     {
-                        git_sync_ee::global_service()
+                        git_sync_oss::global_service()
                     }
 
                     #[cfg(not(feature = "enterprise"))]
@@ -697,7 +713,7 @@ pub async fn run_server(
                 .nest("/oauth", {
                     #[cfg(feature = "oauth2")]
                     {
-                        oauth2_ee::global_service().layer(Extension(Arc::clone(&sp_extension)))
+                        oauth2_oss::global_service().layer(Extension(Arc::clone(&sp_extension)))
                     }
 
                     #[cfg(not(feature = "oauth2"))]
@@ -723,7 +739,7 @@ pub async fn run_server(
                     {
                         #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
                         {
-                            gcp_triggers_ee::gcp_push_route_handler()
+                            gcp_triggers_oss::gcp_push_route_handler()
                         }
                         #[cfg(not(all(feature = "enterprise", feature = "gcp_trigger")))]
                         {
