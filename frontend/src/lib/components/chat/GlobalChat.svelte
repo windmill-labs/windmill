@@ -18,7 +18,6 @@
 	let messages = $state(chatHistory)
 
 	let abortController = new AbortController()
-	let chatContainer: HTMLDivElement
 
 	async function handleSubmit() {
 		if (!inputValue.trim()) return
@@ -50,7 +49,7 @@
 
 <div class="flex flex-col h-full bg-surface z-10">
 	<!-- Chat Messages -->
-	<div bind:this={chatContainer} class="flex-1 overflow-y-auto p-4 space-y-4 z-10">
+	<div class="flex-1 overflow-y-auto p-4 space-y-4 z-10">
 		{#each messages as msg}
 			<div class={twMerge('flex flex-col', msg.role === 'user' ? 'items-end' : 'items-start')}>
 				<div
