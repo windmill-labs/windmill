@@ -70,7 +70,8 @@
 			href: `${base}/`,
 			icon: Home,
 			aiId: 'sidebar-menu-link-home',
-			aiDescription: 'Button to navigate to home'
+			aiDescription:
+				"Button to navigate to home which contains all the user's scripts, flows and apps"
 		},
 		{
 			label: 'Runs',
