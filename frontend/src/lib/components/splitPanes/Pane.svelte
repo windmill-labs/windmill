@@ -1,32 +1,25 @@
 <script lang="ts">
 	import { Pane } from 'svelte-splitpanes'
-	import { getSplitPanesLayout } from './SplitPanesLayout.svelte'
 	import type { Snippet } from 'svelte'
-	import { type ComponentProps, getContext, onDestroy, onMount } from 'svelte'
+	import { getContext, onMount, type ComponentProps } from 'svelte'
+	import type { SplitPanesContext } from './types'
 
 	type SplitpanesProps = ComponentProps<Pane>
 
-	type Props = SplitpanesProps & {
+	export type Props = SplitpanesProps & {
 		index: number
-		defaultSize: number
 		children?: Snippet
 	}
 
-	let { index, defaultSize, children, ...rest }: Props = $props()
+	let { index, children, ...rest }: Props = $props()
 
-	const splitPanesId = getContext<string>('splitPanesId')
-
-	const splitPanesLayout = getSplitPanesLayout()
+	const { sizes, setActivePane } = getContext<SplitPanesContext>('splitPanesContext') ?? {}
 
 	onMount(() => {
-		splitPanesLayout?.mountPane(splitPanesId, index, defaultSize)
-	})
-
-	onDestroy(() => {
-		splitPanesLayout?.unmountPane(splitPanesId, index)
+		setActivePane(index)
 	})
 </script>
 
-<Pane size={splitPanesLayout?.layout[splitPanesId]?.[index]?.size ?? defaultSize} {...rest}>
+<Pane size={sizes?.(index)} {...rest}>
 	{@render children?.()}
 </Pane>

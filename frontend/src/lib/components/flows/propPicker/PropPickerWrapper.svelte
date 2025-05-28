@@ -104,11 +104,11 @@
 	<Splitpanes
 		class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}
 		id={`prop-picker-wrapper-${moduleId}`}
+		defaultSize={[60, 40]}
 	>
 		<Pane
 			index={0}
 			minSize={20}
-			defaultSize={60}
 			class={twMerge('relative !transition-none ', noPadding ? '' : 'p-2')}
 		>
 			<slot />
@@ -116,7 +116,6 @@
 		<Pane
 			index={1}
 			minSize={20}
-			defaultSize={40}
 			class="!transition-none z-1000 {$propPickerConfig ? 'ml-[-1px]' : ''} {paneClass}"
 		>
 			<AnimatedButton

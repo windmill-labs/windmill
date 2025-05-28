@@ -16,7 +16,7 @@
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
 	import type { Trigger } from '$lib/components/triggers/utils'
-	import type { PanesLayout } from '$lib/components/splitPanes/SplitPanesLayout.svelte'
+	import type { PanesLayout } from '$lib/components/splitPanes/types'
 
 	let version: undefined | number = undefined
 	let nodraft = $page.url.searchParams.get('nodraft')

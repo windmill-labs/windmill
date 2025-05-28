@@ -85,9 +85,9 @@
 	import { Triggers } from './triggers/triggers.svelte'
 	import {
 		SplitPanesLayout,
-		setSplitPanesLayoutContext,
-		type PanesLayout
+		setSplitPanesLayoutContext
 	} from './splitPanes/SplitPanesLayout.svelte'
+	import type { PanesLayout } from './splitPanes/types'
 	import { setTabStateContext, TabsState } from './common/tabs/tabsState.svelte'
 
 	export let initialPath: string = ''

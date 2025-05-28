@@ -66,7 +66,6 @@
 
 	if (id) {
 		tabsState = getTabStateContext()
-		console.log('dbg tabsState', tabsState)
 		const tabState = tabsState?.getSelected(id)
 		if (tabState) {
 			selected = tabState

@@ -1,30 +1,40 @@
 <script lang="ts">
 	import { Splitpanes } from 'svelte-splitpanes'
 	import { getSplitPanesLayout } from './SplitPanesLayout.svelte'
-	import { onDestroy, onMount, setContext, type Snippet } from 'svelte'
+	import { onDestroy, setContext, type Snippet } from 'svelte'
 	import type { ComponentProps } from 'svelte'
+	import type { Pane, SplitPanesContext } from './types'
 
 	type SplitpanesProps = ComponentProps<Splitpanes>
 
 	type Props = SplitpanesProps & {
+		defaultSize: number[]
 		id: string
 		children?: Snippet
 	}
 
-	let { id, children, ...rest }: Props = $props()
-	let timeout: ReturnType<typeof setTimeout> | undefined = undefined
-
-	setContext<string>('splitPanesId', id)
-
 	const splitPanesLayout = getSplitPanesLayout()
 
-	onMount(() => {
-		splitPanesLayout?.handleSplitPaneReady(id)
+	let { id, children, defaultSize, ...rest }: Props = $props()
+	const sizes = $derived(splitPanesLayout?.layout[id]?.map((pane) => pane.size ?? 0) ?? [])
+
+	setContext<SplitPanesContext>('splitPanesContext', {
+		sizes: (index: number) => sizes[index],
+		setActivePane: (index: number) => {
+			panes[index].active = true
+		}
 	})
+
+	function initPane(defaultSize: number[]): Pane[] {
+		// Initialize all panes with default sizes
+		const panes = defaultSize.map((size, idx) => ({ size, active: false }))
+		return panes
+	}
+
+	let panes: Pane[] = $state(initPane(defaultSize))
 
 	onDestroy(() => {
 		splitPanesLayout?.handleSplitPaneDestroy(id)
-		clearTimeout(timeout)
 	})
 </script>
 
@@ -34,6 +44,15 @@
 			id,
 			detail.map((d, index) => ({ size: d.size, index }))
 		)
+	}}
+	on:pane-add={({ detail }) => {
+		splitPanesLayout?.addPane(id, detail.index)
+	}}
+	on:pane-remove={({ detail }) => {
+		splitPanesLayout?.removePane(id, detail.removed.index)
+	}}
+	on:ready={() => {
+		splitPanesLayout?.setPanes(id, panes)
 	}}
 	{...rest}
 >

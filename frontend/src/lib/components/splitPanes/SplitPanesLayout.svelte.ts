@@ -1,13 +1,7 @@
 import { setContext, getContext, tick } from 'svelte'
+import type { Pane, PanesLayout } from './types'
 
 const KEY = 'splitPanesLayout'
-
-export type Pane = {
-	size: number | undefined
-	active: boolean
-}
-
-export type PanesLayout = Pane[]
 
 export class SplitPanesLayout {
 	#layout: Record<string, PanesLayout> = $state({})
@@ -28,27 +22,24 @@ export class SplitPanesLayout {
 		this.#changeCb?.()
 	}
 
-	mountPane(layoutId: string, paneIndex: number, defaultSize: number) {
-		if (!this.#layout[layoutId]) {
-			this.#layout[layoutId] = [{ size: defaultSize, active: true }]
-		} else if (this.#readyPanes[layoutId]) {
-			// Ensure array is long enough
-			while (this.#layout[layoutId].length <= paneIndex) {
-				this.#layout[layoutId].push({ size: undefined, active: false })
-			}
-			this.#layout[layoutId][paneIndex].active = true
-			this.#layout[layoutId][paneIndex].size = this.#layout[layoutId][paneIndex].size ?? defaultSize
-			this.#scalePanes(layoutId, paneIndex)
+	addPane(layoutId: string, paneIndex: number) {
+		if (!this.#readyPanes[layoutId] || !this.#layout[layoutId][paneIndex].size) {
+			return
 		} else {
-			// Ensure array is long enough
-			while (this.#layout[layoutId].length <= paneIndex) {
-				this.#layout[layoutId].push({ size: undefined, active: false })
-			}
-
-			const currentPane = this.#layout[layoutId][paneIndex]
-			currentPane.active = true
-			currentPane.size = currentPane.size ?? defaultSize
+			this.#layout[layoutId][paneIndex].active = true
+			this.#scalePanes(layoutId, paneIndex)
 		}
+		this.#changeCb?.()
+	}
+
+	setPanes(layoutId: string, panes: Pane[]) {
+		if (!this.#layout[layoutId]) {
+			this.#layout[layoutId] = []
+		}
+
+		this.#layout[layoutId] = panes
+		this.#scalePanesTo100(layoutId)
+		this.#readyPanes[layoutId] = true
 		this.#changeCb?.()
 	}
 
@@ -70,6 +61,7 @@ export class SplitPanesLayout {
 		const activePanesTotal = this.#layout[layoutId]
 			.filter((pane) => pane.active)
 			.reduce((sum, pane) => sum + (pane.size ?? 0), 0)
+
 		if (activePanesTotal > 0) {
 			const scale = 100 / activePanesTotal
 			this.#layout[layoutId] = this.#layout[layoutId].map((pane) =>
@@ -78,10 +70,10 @@ export class SplitPanesLayout {
 		}
 	}
 
-	async unmountPane(layoutId: string, paneIndex: number) {
-		// Wait for the dom refresh to avoid update in the case the splitpane has been removed
+	async removePane(layoutId: string, paneIndex: number) {
+		// Wait for the dom refresh to avoid update in the case the splitpane has been removed completly
 		await tick()
-		if (this.#readyPanes[layoutId]) {
+		if (this.#readyPanes[layoutId] && this.#layout[layoutId][paneIndex].active) {
 			this.#layout[layoutId][paneIndex].active = false
 			this.#scalePanesTo100(layoutId)
 		}
@@ -95,12 +87,6 @@ export class SplitPanesLayout {
 				return newSize ? { ...pane, size: newSize.size } : pane
 			})
 		}
-		this.#changeCb?.()
-	}
-
-	handleSplitPaneReady(layoutId: string) {
-		this.#readyPanes[layoutId] = true
-		this.#scalePanesTo100(layoutId)
 		this.#changeCb?.()
 	}
 

@@ -376,8 +376,8 @@
 				{/if}
 
 				<div class="min-h-0 flex-grow" id="flow-editor-editor">
-					<Splitpanes id={`flow-editor-split-${flowModule.id}`} horizontal>
-						<Pane minSize={10} class="relative" index={0} defaultSize={panesSizes[0]}>
+					<Splitpanes id={`flow-editor-split-${flowModule.id}`} horizontal defaultSize={panesSizes}>
+						<Pane minSize={10} class="relative" index={0}>
 							{#if flowModule.value.type === 'rawscript'}
 								{#if !noEditor}
 									{#key flowModule.id}
@@ -453,9 +453,9 @@
 								{/key}
 							{/if}
 						</Pane>
-						<Pane minSize={20} index={1} defaultSize={panesSizes[1]}>
-							<Splitpanes id={`flow-editor-step-input-${flowModule.id}`}>
-								<Pane minSize={36} index={0} defaultSize={selected === 'inputs' ? 100 : 50}>
+						<Pane minSize={20} index={1}>
+							<Splitpanes id={`flow-editor-step-input-${flowModule.id}`} defaultSize={[50, 50]}>
+								<Pane minSize={36} index={0}>
 									<Tabs bind:selected id={`flow-editor-step-input-${flowModule.id}`}>
 										{#if !preprocessorModule}
 											<Tab value="inputs">Step Input</Tab>
@@ -784,7 +784,7 @@
 									</div>
 								</Pane>
 								{#if selected === 'test'}
-									<Pane minSize={20} index={1} defaultSize={50}>
+									<Pane minSize={20} index={1}>
 										<ModulePreviewResultViewer
 											lang={flowModule.value['language'] ?? 'deno'}
 											{editor}

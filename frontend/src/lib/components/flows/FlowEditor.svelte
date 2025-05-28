@@ -46,8 +46,8 @@
 		$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : ''
 	)}
 >
-	<Splitpanes id="flow-editor">
-		<Pane minSize={15} class="h-full relative z-0" index={0} defaultSize={60}>
+	<Splitpanes id="flow-editor" defaultSize={[60, 40]}>
+		<Pane minSize={15} class="h-full relative z-0" index={0}>
 			<div class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative">
 				{#if loading}
 					<div class="p-2 pt-10">
@@ -69,7 +69,7 @@
 				{/if}
 			</div>
 		</Pane>
-		<Pane class="relative z-10" index={1} defaultSize={40}>
+		<Pane class="relative z-10" index={1}>
 			{#if loading}
 				<div class="w-full h-full">
 					<div class="block m-auto pt-40 w-10">
