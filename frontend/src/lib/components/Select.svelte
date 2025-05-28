@@ -31,11 +31,14 @@
 
 	$effect(() => {
 		;[search, open, processedItems]
-		keyArrowPos = open ? 0 : undefined
+		keyArrowPos = open && search ? 0 : undefined
 	})
 
 	$effect(() => {
 		if (search) open = true
+	})
+	$effect(() => {
+		if (!open) search = ''
 	})
 
 	let processedItems: (Item & { __select_group?: string; label: string })[] = $derived.by(() => {
