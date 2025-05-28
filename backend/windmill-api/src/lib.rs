@@ -28,7 +28,7 @@ use crate::{
 };
 
 #[cfg(feature = "agent_worker_server")]
-use agent_workers_ee::AgentCache;
+use agent_workers_oss::AgentCache;
 
 use anyhow::Context;
 use argon2::Argon2;
@@ -63,6 +63,8 @@ use windmill_common::error::AppError;
 
 #[cfg(feature = "agent_worker_server")]
 mod agent_workers_ee;
+#[cfg(feature = "agent_worker_server")]
+mod agent_workers_oss;
 mod ai;
 mod apps;
 pub mod args;
@@ -497,7 +499,7 @@ pub async fn run_server(
     #[cfg(feature = "agent_worker_server")]
     let (agent_workers_router, agent_workers_bg_processor, agent_workers_killpill_tx) =
         if server_mode {
-            agent_workers_ee::workspaced_service(db.clone(), _base_internal_url.clone())
+            agent_workers_oss::workspaced_service(db.clone(), _base_internal_url.clone())
         } else {
             (Router::new(), vec![], None)
         };
@@ -621,7 +623,7 @@ pub async fn run_server(
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
                     {
-                        agent_workers_ee::global_service().layer(Extension(agent_cache.clone()))
+                        agent_workers_oss::global_service().layer(Extension(agent_cache.clone()))
                     }
                     #[cfg(not(feature = "agent_worker_server"))]
                     {
