@@ -16,6 +16,7 @@
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
 	import type { Trigger } from '$lib/components/triggers/utils'
+	import type { PanesLayout } from '$lib/components/splitPanes/SplitPanesLayout.svelte'
 
 	let version: undefined | number = undefined
 	let nodraft = $page.url.searchParams.get('nodraft')
@@ -63,6 +64,7 @@
 
 	let draftTriggersFromUrl: Trigger[] | undefined = undefined
 	let selectedTriggerIndexFromUrl: number | undefined = undefined
+	let splitPanesLayoutFromUrl: Record<string, PanesLayout> | undefined = undefined
 
 	let flowBuilder: FlowBuilder | undefined = undefined
 
@@ -93,6 +95,8 @@
 			flow = stateLoadedFromUrl.flow
 			draftTriggersFromUrl = stateLoadedFromUrl.draft_triggers
 			selectedTriggerIndexFromUrl = stateLoadedFromUrl.selected_trigger
+			splitPanesLayoutFromUrl = stateLoadedFromUrl.split_panes_layout
+			flowBuilder?.setSplitPanesLayout(splitPanesLayoutFromUrl)
 			flowBuilder?.setDraftTriggers(draftTriggersFromUrl)
 			flowBuilder?.setSelectedTriggerIndex(selectedTriggerIndexFromUrl)
 			const selectedId = stateLoadedFromUrl?.selectedId ?? 'settings-metadata'
@@ -262,6 +266,7 @@
 	initialPath={$page.params.path}
 	newFlow={false}
 	{selectedId}
+	savedSplitPanesLayout={splitPanesLayoutFromUrl}
 	{initialArgs}
 	{loading}
 	bind:this={flowBuilder}

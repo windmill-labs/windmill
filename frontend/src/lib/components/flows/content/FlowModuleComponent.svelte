@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { Splitpanes, Pane } from '$lib/components/splitPanes/index'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Editor from '$lib/components/Editor.svelte'
@@ -202,8 +202,6 @@
 	}
 
 	let forceReload = 0
-	let editorPanelSize = noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50
-	let editorSettingsPanelSize = 100 - editorPanelSize
 
 	$: $selectedId && onSelectedIdChange()
 
@@ -260,13 +258,6 @@
 	$: parentLoop =
 		$flowStore && flowModule ? checkIfParentLoop($flowStore, flowModule.id) : undefined
 
-	let leftPanelSize = 0
-	$: if (selected === 'test') {
-		leftPanelSize = 50
-	} else {
-		leftPanelSize = 100
-	}
-
 	function showDiffMode() {
 		diffMode = true
 		diffEditor?.setOriginal((savedModule?.value as RawScript).content ?? '')
@@ -280,6 +271,11 @@
 		diffEditor?.hide()
 		editor?.show()
 	}
+
+	let panesSizes = [
+		noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50,
+		100 - (noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50)
+	]
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -380,8 +376,8 @@
 				{/if}
 
 				<div class="min-h-0 flex-grow" id="flow-editor-editor">
-					<Splitpanes horizontal>
-						<Pane bind:size={editorPanelSize} minSize={10} class="relative">
+					<Splitpanes id={`flow-editor-split-${flowModule.id}`} horizontal>
+						<Pane minSize={10} class="relative" index={0} defaultSize={panesSizes[0]}>
 							{#if flowModule.value.type === 'rawscript'}
 								{#if !noEditor}
 									{#key flowModule.id}
@@ -457,9 +453,9 @@
 								{/key}
 							{/if}
 						</Pane>
-						<Pane bind:size={editorSettingsPanelSize} minSize={20}>
-							<Splitpanes>
-								<Pane minSize={36} bind:size={leftPanelSize}>
+						<Pane minSize={20} index={1} defaultSize={panesSizes[1]}>
+							<Splitpanes id={`flow-editor-step-input-${flowModule.id}`}>
+								<Pane minSize={36} index={0} defaultSize={selected === 'inputs' ? 100 : 50}>
 									<Tabs bind:selected>
 										{#if !preprocessorModule}
 											<Tab value="inputs">Step Input</Tab>
@@ -480,6 +476,7 @@
 													pickableProperties={stepPropPicker.pickableProperties}
 													error={failureModule}
 													noPadding
+													moduleId={flowModule.id}
 												>
 													{#if reloadError}
 														<div
@@ -781,7 +778,7 @@
 									</div>
 								</Pane>
 								{#if selected === 'test'}
-									<Pane minSize={20}>
+									<Pane minSize={20} index={1} defaultSize={50}>
 										<ModulePreviewResultViewer
 											lang={flowModule.value['language'] ?? 'deno'}
 											{editor}

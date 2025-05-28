@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import FlowEditorPanel from './content/FlowEditorPanel.svelte'
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
@@ -8,12 +7,12 @@
 	import type { FlowEditorContext } from './types'
 	import type { FlowCopilotContext } from '../copilot/flow'
 	import { classNames } from '$lib/utils'
-
 	import { writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
 	import type { Flow } from '$lib/gen'
 	import type { Trigger } from '$lib/components/triggers/utils'
+	import { Splitpanes, Pane } from '$lib/components/splitPanes/index'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let loading: boolean
@@ -31,8 +30,6 @@
 		| undefined = undefined
 	export let onDeployTrigger: (trigger: Trigger) => void = () => {}
 
-	let size = 50
-
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext>('FlowCopilotContext')
 
@@ -49,8 +46,8 @@
 		$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : ''
 	)}
 >
-	<Splitpanes>
-		<Pane {size} minSize={15} class="h-full relative z-0">
+	<Splitpanes id="flow-editor">
+		<Pane minSize={15} class="h-full relative z-0" index={0} defaultSize={60}>
 			<div class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative">
 				{#if loading}
 					<div class="p-2 pt-10">
@@ -72,7 +69,7 @@
 				{/if}
 			</div>
 		</Pane>
-		<Pane class="relative z-10" size={100 - size} minSize={40}>
+		<Pane class="relative z-10" index={1} defaultSize={40}>
 			{#if loading}
 				<div class="w-full h-full">
 					<div class="block m-auto pt-40 w-10">
