@@ -14,7 +14,7 @@
 	}>('FlowGraphContext')
 
 	let {
-		id,
+		// id,
 		sourceX,
 		sourceY,
 		sourcePosition,
@@ -22,7 +22,7 @@
 		targetY,
 		targetPosition,
 		markerEnd,
-		style,
+		// style,
 		data
 	}: EdgeProps & {
 		data: {
@@ -60,7 +60,7 @@
 	{#if data?.insertable && !$useDataflow && !data?.moving}
 		<div
 			class={twMerge('edgeButtonContainer nodrag nopan top-0')}
-			style:transform="translate(-50%)"
+			style:transform="translate(-50%, -50%)"
 		>
 			<InsertModuleButton
 				disableAi={data.disableAi}
@@ -104,7 +104,7 @@
 			{#if data.moving && !data.disableMoveIds?.includes(data.moving)}
 				<button
 					title="Paste module"
-					on:click={() => {
+					onclick={() => {
 						data.eventHandlers.insert({
 							modules: data.modules,
 							index: data.index
