@@ -165,8 +165,12 @@
 		}
 	}
 
-	function handleTeamChange(teamItem: { team_id: string; team_name: string }, i: number) {
-		const team = $values['teams'].find((team) => team.team_id === teamItem.team_id) || null
+	function handleTeamChange(
+		teamItem: { team_id: string; team_name: string } | undefined,
+		i: number
+	) {
+		const team =
+			(teamItem && $values['teams'].find((team) => team.team_id === teamItem.team_id)) || null
 		$values['critical_error_channels'][i] = {
 			teams_channel: {
 				team_id: team?.team_id,
@@ -177,7 +181,10 @@
 		}
 	}
 
-	function handleChannelChange(channel: { channel_id: string; channel_name: string }, i: number) {
+	function handleChannelChange(
+		channel: { channel_id: string; channel_name: string } | undefined,
+		i: number
+	) {
 		const team = $values['critical_error_channels'][i]?.teams_channel
 		if (team) {
 			$values['critical_error_channels'][i] = {
@@ -561,7 +568,7 @@
 																				?.team_name
 																	}
 																: undefined,
-														(team) => team && handleTeamChange(team, i)
+														(team) => handleTeamChange(team, i)
 													}
 												/>
 
@@ -586,7 +593,7 @@
 																					?.channel_name
 																		}
 																	: undefined,
-															(channel) => channel && handleChannelChange(channel, i)
+															(channel) => handleChannelChange(channel, i)
 														}
 													/>
 												{/if}
