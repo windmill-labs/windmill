@@ -409,7 +409,7 @@ pub async fn handle_receive_completed_job(
     let mem_peak = jc.mem_peak.clone();
     let canceled_by = jc.canceled_by.clone();
 
-    let proceded_completed_job = process_completed_job(
+    let processed_completed_job = process_completed_job(
         jc,
         &client,
         db,
@@ -422,7 +422,7 @@ pub async fn handle_receive_completed_job(
     )
     .await;
 
-    match proceded_completed_job {
+    match processed_completed_job {
         Err(err) => {
             handle_job_error(
                 db,
