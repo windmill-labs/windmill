@@ -87,6 +87,7 @@ mod http_trigger_auth;
 #[cfg(feature = "http_trigger")]
 pub mod http_triggers;
 mod indexer_ee;
+mod inkeep;
 mod inputs;
 mod integration;
 #[cfg(feature = "postgres_trigger")]
@@ -581,6 +582,7 @@ pub async fn run_server(
                 .nest("/ai", ai::global_service())
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
+                .nest("/inkeep", inkeep::global_service())
                 .nest("/jobs", jobs::global_root_service())
                 .nest(
                     "/srch/w/:workspace_id/index",
