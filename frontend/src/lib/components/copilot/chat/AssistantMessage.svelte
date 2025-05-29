@@ -1,8 +1,8 @@
 <script lang="ts">
 	import Markdown from 'svelte-exmarkdown'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
-	import type { DisplayMessage } from './core'
-	import CodeDisplay from './CodeDisplay.svelte'
+	import type { DisplayMessage } from './shared'
+	import CodeDisplay from './script/CodeDisplay.svelte'
 	import { setContext } from 'svelte'
 
 	export let message: DisplayMessage

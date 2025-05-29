@@ -63,7 +63,7 @@
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
-	async function insertNewModuleAtIndex(
+	export async function insertNewModuleAtIndex(
 		modules: FlowModule[],
 		index: number,
 		kind:
@@ -82,7 +82,6 @@
 			language: RawScript['language']
 			kind: Script['kind']
 			subkind: 'pgsql' | 'flow'
-			id: string
 			summary?: string
 		}
 	): Promise<FlowModule[]> {
@@ -143,7 +142,7 @@
 		return modules
 	}
 
-	function removeAtId(modules: FlowModule[], id: string): FlowModule[] {
+	export function removeAtId(modules: FlowModule[], id: string): FlowModule[] {
 		const index = modules.findIndex((mod) => mod.id == id)
 		if (index != -1) {
 			const [removed] = modules.splice(index, 1)
@@ -176,7 +175,7 @@
 
 	let minHeight = 0
 
-	function selectNextId(id: any) {
+	export function selectNextId(id: any) {
 		if (modules) {
 			let allIds = dfs(modules, (mod) => mod.id)
 			if (allIds.length > 1) {
@@ -187,7 +186,7 @@
 			}
 		}
 	}
-	async function addBranch(module: FlowModule) {
+	export async function addBranch(module: FlowModule) {
 		push(history, $flowStore)
 
 		if (module.value.type === 'branchone' || module.value.type === 'branchall') {
@@ -199,7 +198,7 @@
 		}
 	}
 
-	function removeBranch(module: FlowModule, index: number) {
+	export function removeBranch(module: FlowModule, index: number) {
 		push(history, $flowStore)
 
 		if (module.value.type === 'branchone' || module.value.type === 'branchall') {
@@ -231,7 +230,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	async function updateFlowInputsStore() {
+	export async function updateFlowInputsStore() {
 		const keys = Object.keys(dependents ?? {})
 
 		for (const key of keys) {
@@ -255,7 +254,7 @@
 		}
 	}
 
-	function setExpr(module: FlowModule, expr: string) {
+	export function setExpr(module: FlowModule, expr: string) {
 		if (module.value.type == 'forloopflow') {
 			module.value.iterator = { type: 'javascript', expr }
 			module.value.parallel = true
@@ -385,6 +384,7 @@
 				}
 			}}
 			on:insert={async ({ detail }) => {
+				console.log(detail)
 				if (shouldRunTutorial('forloop', detail.detail, 1)) {
 					flowTutorials?.runTutorialById('forloop', detail.index)
 				} else if (shouldRunTutorial('branchone', detail.detail, 2)) {

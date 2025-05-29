@@ -5,7 +5,8 @@
 	import { getContext, untrack } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { initializeVscode } from '$lib/components/vscode'
-	import type { AIChatContext, ContextElement, DisplayMessage } from './core'
+	import type { AIChatContext, DisplayMessage } from '../shared'
+	import type { ContextElement } from '../context'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import {
 		csharp,
@@ -27,15 +28,17 @@
 	const {
 		loading: loadingContext,
 		currentReply,
-		applyCode
+		applyCode,
+		canApplyCode
 	} = getContext<AIChatContext>('AIChatContext')
 
 	const { message } = getContext<{ message: DisplayMessage }>('AssistantMessageContext')
 
 	let codeContext = $derived(
-		message.contextElements?.find((e) => e.type === 'code') as
-			| Extract<ContextElement, { type: 'code' }>
-			| undefined
+		message.role === 'assistant' &&
+			(message.contextElements?.find((e) => e.type === 'code') as
+				| Extract<ContextElement, { type: 'code' }>
+				| undefined)
 	)
 
 	function getSmartLang(lang: string) {
@@ -180,7 +183,7 @@
 </script>
 
 <div class="flex flex-col gap-0.5 rounded-lg relative not-prose">
-	{#if codeContext}
+	{#if canApplyCode()}
 		<div class="flex justify-end items-end">
 			<Button
 				color="dark"

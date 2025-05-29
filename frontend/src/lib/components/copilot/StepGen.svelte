@@ -1,12 +1,9 @@
 <script lang="ts">
 	import { copilotInfo, workspaceStore } from '$lib/stores'
-	import { createEventDispatcher, getContext } from 'svelte'
-	import type { FlowEditorContext } from '../flows/types'
-	import type { FlowCopilotContext, FlowCopilotModule } from './flow'
-	import { ScriptService, type FlowModule, type Script } from '$lib/gen'
+	import { createEventDispatcher } from 'svelte'
+	import { ScriptService, type FlowModule, type Script, type ScriptLang } from '$lib/gen'
 	import { APP_TO_ICON_COMPONENT } from '../icons'
 	import { sendUserToast } from '$lib/toast'
-	import { nextId } from '../flows/flowModuleNextId'
 	import { Wand2 } from 'lucide-svelte'
 	import SearchItems from '../SearchItems.svelte'
 	import { defaultIfEmptyString, emptyString } from '$lib/utils'
@@ -19,15 +16,18 @@
 	export let trigger = false
 	export let disableAi = false
 
+	type Completion = {
+		path: string
+		summary: string
+		app: string
+	}
+
 	// state
 	let input: HTMLInputElement | undefined
-	let hubCompletions: FlowCopilotModule['hubCompletions'] = []
-	let selectedCompletion: FlowCopilotModule['selectedCompletion'] = undefined
-	let lang: FlowCopilotModule['lang'] = undefined
-
-	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
-	const { modulesStore: copilotModulesStore, genFlow } =
-		getContext<FlowCopilotContext>('FlowCopilotContext')
+	let hubCompletions: Completion[] = []
+	let selectedCompletion: Completion | undefined = undefined
+	let lang: ScriptLang | undefined = undefined
+	console.log(lang)
 
 	let scripts: Script[] | undefined = undefined
 	let filteredItems: (Script & { marked?: string })[] = []
@@ -63,7 +63,7 @@
 			if (ts < doneTs) return
 			doneTs = ts
 
-			hubCompletions = scripts as FlowCopilotModule['hubCompletions']
+			hubCompletions = scripts
 		} catch (err) {
 			if (err.name !== 'CancelError') throw err
 		}
@@ -77,20 +77,7 @@
 			)
 			return
 		}
-		$copilotModulesStore = [
-			{
-				id: nextId($flowStateStore, $flowStore),
-				type: trigger ? 'trigger' : 'script',
-				description: funcDesc,
-				code: '',
-				source: selectedCompletion ? 'hub' : 'custom',
-				hubCompletions,
-				selectedCompletion,
-				editor: undefined,
-				lang
-			}
-		]
-		genFlow?.(index, modules, true)
+		//TODO gen
 	}
 
 	const dispatch = createEventDispatcher()

@@ -27,7 +27,7 @@
 	import PropPickerWrapper, { CONNECT } from '../propPicker/PropPickerWrapper.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 
-	const { previewArgs, flowStateStore, flowStore } =
+	const { previewArgs, flowStateStore, flowStore, currentEditor } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let mod: FlowModule
@@ -71,6 +71,8 @@
 		editor?.setCode('')
 		editor?.insertAtCursor(code)
 	}
+
+	$: editor && currentEditor.set({ type: 'iterator', editor, stepId: mod.id })
 </script>
 
 <Drawer bind:open={previewOpen} alwaysOpen size="75%">
