@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use itertools::Itertools;
 use quote::ToTokens;
 use regex::Regex;
-use windmill_parser::{Arg, MainArgSignature, Typ};
+use windmill_parser::{to_snake_case, Arg, MainArgSignature, Typ};
 
 pub fn otyp_to_string(otyp: Option<String>) -> String {
     otyp.unwrap()
@@ -103,15 +103,30 @@ fn parse_pat_type(p: Box<syn::Type>) -> Typ {
                                 Typ::List(Box::new(parse_pat_type(Box::new(a.clone()))))
                             } else {
                                 Typ::Unknown
+                                // Typ::Datetime
                             }
                         } else {
                             Typ::Unknown
+                            // Typ::Bytes
                         }
                     }
-                    _ => Typ::Unknown,
+                    s => {
+                        // dbg!(s);
+                        // dbg!(s);
+                        // dbg!(s);
+                        // dbg!(s);
+                        // dbg!(s);
+                        // dbg!(s);
+                        // dbg!(s);
+                        // Typ::Datetime
+                        // Typ::Resource("c_my_resource_type".into())
+                        Typ::Resource(to_snake_case(s))
+                        // Typ::Unknown
+                    }
                 }
             } else {
                 Typ::Unknown
+                // Typ::Bytes
             }
         }
         // syn::Type::Ptr(_) => todo!(),
@@ -121,6 +136,8 @@ fn parse_pat_type(p: Box<syn::Type>) -> Typ {
         // syn::Type::Tuple(_) => todo!(),
         // syn::Type::Verbatim(_) => todo!(),
         _ => Typ::Unknown,
+        // _ => Typ::Datetime,
+        // _ => Typ::Resource("stripe".into()),
     }
 }
 
