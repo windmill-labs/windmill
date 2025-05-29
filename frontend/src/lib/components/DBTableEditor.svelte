@@ -282,7 +282,9 @@
 														)}
 														placeholder=""
 														bind:value={column.sourceColumn}
-														items={values.columns.map((c) => ({ value: c.name }))}
+														items={values.columns
+															.filter((c) => c.name.length)
+															.map((c) => ({ value: c.name }))}
 														clearable={false}
 													/>
 												</div>
