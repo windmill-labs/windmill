@@ -345,22 +345,24 @@
 
 	export function setCode(ncode: string, noHistory: boolean = false): void {
 		if (code != ncode) {
-			if (noHistory) {
-				editor?.setValue(ncode)
-			} else {
-				if (editor?.getModel()) {
-					// editor.setValue(ncode)
-					editor.pushUndoStop()
+			code = ncode
+		}
 
-					editor.executeEdits('set', [
-						{
-							range: editor.getModel()!.getFullModelRange(), // full range
-							text: ncode
-						}
-					])
+		if (noHistory) {
+			editor?.setValue(ncode)
+		} else {
+			if (editor?.getModel()) {
+				// editor.setValue(ncode)
+				editor.pushUndoStop()
 
-					editor.pushUndoStop()
-				}
+				editor.executeEdits('set', [
+					{
+						range: editor.getModel()!.getFullModelRange(), // full range
+						text: ncode
+					}
+				])
+
+				editor.pushUndoStop()
 			}
 		}
 	}
