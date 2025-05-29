@@ -580,9 +580,9 @@ pub async fn run_server(
                 .nest("/schedules", schedule::global_service())
                 .nest("/embeddings", embeddings::global_service())
                 .nest("/ai", ai::global_service())
+                .nest("/inkeep", inkeep::global_service())
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
-                .nest("/inkeep", inkeep::global_service())
                 .nest("/jobs", jobs::global_root_service())
                 .nest(
                     "/srch/w/:workspace_id/index",
