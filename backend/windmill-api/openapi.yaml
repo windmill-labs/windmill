@@ -13165,9 +13165,48 @@ components:
         enum: [script, flow]
 
   schemas:
+    # NOTE: Not so many generators and validators support this format:
+    # $ref: "../../openflow.openapi.yaml#/components/schemas"
+    # This is why it is better to inline each of schemas for better compat
+    OpenFlow:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
+    FlowValue:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowValue"
+    Retry:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+    StopAfterIf:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/StopAfterIf"
+    FlowModule:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowModule"
     InputTransform:
-      allOf:
-        - $ref: "../../openflow.openapi.yaml#/components/schemas/InputTransform"
+      $ref: "../../openflow.openapi.yaml#/components/schemas/InputTransform"
+    StaticTransform:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/StaticTransform"
+    JavascriptTransform:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/JavascriptTransform"
+    FlowModuleValue:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowModuleValue"
+    RawScript:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/RawScript"
+    PathScript:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/PathScript"
+    PathFlow:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/PathFlow"
+    ForloopFlow:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/ForloopFlow"
+    WhileloopFlow:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/WhileloopFlow"
+    BranchOne:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/BranchOne"
+    BranchAll:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/BranchAll"
+    Identity:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/Identity"
+    FlowStatus:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
+    FlowStatusModule:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatusModule"
+
     AIProvider:
       type: string
       enum: [openai, azure_openai, anthropic, mistral, deepseek, googleai, groq, openrouter, togetherai, customai]
