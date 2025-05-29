@@ -426,7 +426,10 @@ fn main(
             ret.args[3].otyp,
             Some("Vec < Result < MyStruct , anyhow :: Error > >".to_string())
         );
-        assert_eq!(ret.args[3].typ, Typ::List(Box::new(Typ::Unknown)));
+        assert_eq!(
+            ret.args[3].typ,
+            Typ::List(Box::new(Typ::Resource("result".into())))
+        );
 
         let code = r#"
 // commenting comments
