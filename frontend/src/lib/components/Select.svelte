@@ -153,7 +153,7 @@
 	onpointerdown={() => onFocus?.()}
 	onfocus={() => onFocus?.()}
 >
-	{#if clearable && !disabled && value !== undefined}
+	{#if clearable && !disabled && value}
 		<div class="absolute z-10 right-2 h-full flex items-center">
 			<CloseButton noBg small on:close={clearValue} />
 		</div>
@@ -168,7 +168,7 @@
 			'!bg-surface text-ellipsis',
 			open ? '' : 'cursor-pointer',
 			valueEntry ? '!placeholder-primary' : '',
-			clearable && !disabled && value !== undefined ? '!pr-8' : '',
+			clearable && !disabled && value ? '!pr-8' : '',
 			inputClass ?? ''
 		)}
 		autocomplete="off"

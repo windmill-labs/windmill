@@ -2,7 +2,7 @@
 	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
 	import type { Script } from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
-	import SelectLegacy from './apps/svelte-select/lib/Select.svelte'
+	import SelectLegacy from './apps/svelte-select/lib/SelectLegacy.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import ResultJobLoader from './ResultJobLoader.svelte'
 	import Tooltip from './Tooltip.svelte'
