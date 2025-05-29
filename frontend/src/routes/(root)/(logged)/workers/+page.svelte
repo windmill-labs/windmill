@@ -720,6 +720,10 @@
 														size="xs"
 														color="light"
 														on:click={() => {
+															if (isWorkerAlive === false) {
+																sendUserToast('Worker must be alive', true)
+																return
+															}
 															if (worker.startsWith(AGENT_WORKER_NAME_PREFIX)) {
 																if (!sshWorker) {
 																	sendUserToast(
