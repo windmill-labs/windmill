@@ -206,21 +206,22 @@ async fn get_build_dir(
     worker_name: &str,
     is_preview: bool,
 ) -> anyhow::Result<String> {
-    let (bd, run_sweep) = if *DISABLE_NSJAIL {
-        // If nsjail is disabled then entire worker has shared build directory
-        // It drastically improves cache hit-rate.
-        (format!("{RUST_CACHE_DIR}/build/{worker_name}"), true)
-    } else {
-        // If nsjail is enabled, having global shared directory is vulnerability and target for an attack
-        // Instead we either:
-        // 1. Create different build directory for workspace script and user. Balanced caching while mainining high degree of security.
-        // 2. If user is not known or something else goes wrong - use random build dir. This is equivalent to no cache at all.
-        job.runnable_path
-            .as_ref()
-            .and_then(|p| {
-                if !is_preview || *NO_SHARED_BUILD_DIR {
-                    None
+    let (bd, run_sweep) = job
+        .runnable_path
+        .as_ref()
+        .and_then(|p| {
+            if !is_preview || *NO_SHARED_BUILD_DIR {
+                None
+            } else {
+                if *DISABLE_NSJAIL {
+                    // If nsjail is disabled then entire worker has shared build directory
+                    // It drastically improves cache hit-rate.
+                    Some((format!("{RUST_CACHE_DIR}/build/{worker_name}"), true))
                 } else {
+                    // If nsjail is enabled, having global shared directory is vulnerability and target for an attack
+                    // Instead we either:
+                    // 1. Create different build directory for workspace script and user. Balanced caching while mainining high degree of security.
+                    // 2. If user is not known or something else goes wrong - use random build dir. This is equivalent to no cache at all.
                     Some((
                         format!(
                             "{RUST_CACHE_DIR}/build/{}@{}@{}",
@@ -231,9 +232,9 @@ async fn get_build_dir(
                         true,
                     ))
                 }
-            })
-            .unwrap_or((format!("{RUST_CACHE_DIR}/build/{}", Uuid::new_v4()), false))
-    };
+            }
+        })
+        .unwrap_or((format!("{RUST_CACHE_DIR}/build/{}", Uuid::new_v4()), false));
 
     {
         let (t, r, g) = (
