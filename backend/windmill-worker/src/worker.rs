@@ -1104,7 +1104,8 @@ pub fn start_interactive_worker_shell(
                         tracing::debug!(worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
 
                         let job_dir = create_job_dir(&worker_dir, job.id).await;
-
+                        #[cfg(feature = "benchmark")]
+                        let mut bench = windmill_common::bench::BenchmarkIter::new();
                         let _ = handle_job_execution(
                             job,
                             &conn,
@@ -1119,7 +1120,7 @@ pub fn start_interactive_worker_shell(
                             &mut killpill_rx,
                             false,
                             #[cfg(feature = "benchmark")]
-                            bench,
+                            &mut bench,
                         )
                         .await;
 
@@ -1494,7 +1495,7 @@ pub async fn run_worker(
     if i_worker == 1 {
         let (conn, job_completed_tx) = if worker_name.starts_with(AGENT_WORKER_NAME_PREFIX) {
             let Connection::Http((client, _)) = conn else {
-                unreachable!("Agent worker are expected to have http connection")
+                unreachable!("Agent workers are expected to have an HTTP connection")
             };
             let conn = Connection::Http((client.clone(), Some(AgentWorkerData::new(Some(true)))));
             let (job_completed_tx, _) = JobCompletedSender::new(&conn, 10);
@@ -2031,7 +2032,7 @@ pub async fn run_worker(
                         &mut killpill_rx2,
                         true,
                         #[cfg(feature = "benchmark")]
-                        bench,
+                        &mut bench,
                     )
                     .await;
 
@@ -2266,7 +2267,7 @@ pub async fn handle_queued_job(
     occupancy_metrics: &mut OccupancyMetrics,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
-    #[cfg(feature = "benchmark")] _bench: &mut Option<BenchmarkIter>,
+    #[cfg(feature = "benchmark")] _bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<bool> {
     // Extract the active span from the context
 

@@ -408,7 +408,8 @@ pub async fn handle_receive_completed_job(
     let job = jc.job.clone();
     let mem_peak = jc.mem_peak.clone();
     let canceled_by = jc.canceled_by.clone();
-    match process_completed_job(
+
+    let proceded_completed_job = process_completed_job(
         jc,
         &client,
         db,
@@ -417,10 +418,11 @@ pub async fn handle_receive_completed_job(
         worker_name,
         job_completed_tx.clone(),
         #[cfg(feature = "benchmark")]
-        bench.as_mut().expect("da"),
+        bench,
     )
-    .await
-    {
+    .await;
+
+    match proceded_completed_job {
         Err(err) => {
             handle_job_error(
                 db,
@@ -680,7 +682,7 @@ pub async fn handle_job_error(
             worker_name,
             job_completed_tx.clone(),
             #[cfg(feature = "benchmark")]
-            bench.expect(""),
+            bench,
         )
         .await;
 
