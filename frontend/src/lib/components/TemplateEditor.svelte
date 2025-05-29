@@ -477,8 +477,11 @@
 		editor.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
-				code = getCode()
-				dispatch('change', { code })
+				const newCode = getCode()
+				if (code != newCode) {
+					code = newCode
+				}
+				dispatch('change', { code: newCode })
 			}, 200)
 		})
 
@@ -504,7 +507,10 @@
 
 		editor.onDidBlurEditorText(() => {
 			dispatch('blur')
-			code = getCode()
+			const newCode = getCode()
+			if (code != newCode) {
+				code = newCode
+			}
 		})
 
 		jsLoader = setTimeout(async () => {
