@@ -151,11 +151,10 @@ function triggerComponent(args: { id: string; value: string }): string {
 }
 
 async function getDocumentation(args: { request: string }): Promise<string | null> {
-	const retrieval = await fetch('https://api.inkeep.com/v1/chat/completions', {
+	const retrieval = await fetch('/api/inkeep', {
 		method: 'POST',
 		headers: {
-			'Content-Type': 'application/json',
-			Authorization: `Bearer ${import.meta.env.VITE_INKEEP_API_KEY}`
+			'Content-Type': 'application/json'
 		},
 		body: JSON.stringify({
 			model: 'inkeep-rag',
