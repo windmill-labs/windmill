@@ -375,7 +375,7 @@ async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String
             .fetch_all(db)
             .await
             .unwrap_or_default(),
-            Connection::Http((client, _)) => client
+            Connection::Http(client) => client
                 .get(&format!("/api/w/{w_id}/agent_workers/custom_envs"))
                 .await
                 .unwrap_or_default(),

@@ -12,12 +12,12 @@
 use anyhow::anyhow;
 use futures::TryFutureExt;
 use windmill_common::{
-    agent_workers::{AgentWorkerData, DECODED_AGENT_TOKEN},
+    agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
     cache::{future::FutureCachedExt, ScriptData, ScriptMetadata},
     schema::{should_validate_schema, SchemaValidator},
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
-    utils::{create_directory_async, WarnAfterExt, AGENT_WORKER_NAME_PREFIX},
+    utils::{create_directory_async, WarnAfterExt},
     worker::{
         make_pull_query, write_file, Connection, HttpClient, MAX_TIMEOUT, ROOT_CACHE_DIR,
         ROOT_CACHE_NOMOUNT_DIR, TMP_DIR,
@@ -97,7 +97,7 @@ use tokio::{
 use rand::Rng;
 
 use crate::{
-    agent_workers::{queue_init_job, ProcessAgentWorkerResult},
+    agent_workers::queue_init_job,
     bash_executor::{handle_bash_job, handle_powershell_job},
     bun_executor::handle_bun_job,
     common::{
@@ -626,11 +626,7 @@ pub struct SameWorkerSender(pub Sender<SameWorkerPayload>, pub Arc<AtomicU16>);
 #[derive(Clone)]
 pub enum JobCompletedSender {
     Sql(SqlJobCompletedSender),
-    //For now AgentWorkerData struct only contains a boolean which is cheap to clone and dont need to be mutated for its use right now
-    // If more fields are added in the future and cloning becomes expensive, consider wrapping it in Arc<Option<AgentWorkerData>>
-    // (for shared ownership) or Arc<Mutex<AgentWorkerData>> if interior mutability is needed.
-    // or anything equivalent.
-    Http((HttpClient, Option<AgentWorkerData>)),
+    Http(HttpClient),
     NeverUsed,
 }
 
@@ -658,13 +654,6 @@ impl JobCompletedReceiver {
 }
 
 impl JobCompletedSender {
-    pub fn new_job_completed_sender_http(
-        http_client: HttpClient,
-        agent_worker_data: Option<AgentWorkerData>,
-    ) -> Self {
-        Self::Http((http_client, agent_worker_data))
-    }
-
     pub fn new_job_completed_sender_sql(buffer_size: u8) -> (Self, JobCompletedReceiver) {
         let (sender, receiver) = flume::bounded::<SendResult>(buffer_size as usize);
         let (unbounded_sender, unbounded_rx) = flume::unbounded::<SendResult>();
@@ -681,10 +670,7 @@ impl JobCompletedSender {
                 let result = Self::new_job_completed_sender_sql(buffer_size);
                 (result.0, Some(result.1))
             }
-            Connection::Http((client, agent_worker_data)) => (
-                Self::new_job_completed_sender_http(client.clone(), agent_worker_data.clone()),
-                None,
-            ),
+            Connection::Http(client) => (Self::Http(client.clone()), None),
         }
     }
 
@@ -706,12 +692,8 @@ impl JobCompletedSender {
                     anyhow::anyhow!("Failed to send job completed to background processor")
                 })
             }
-            Self::Http((client, agent_worker_data)) => {
-                crate::agent_workers::send_result(
-                    client,
-                    ProcessAgentWorkerResult::new(jc, agent_worker_data.to_owned()),
-                )
-                .await?;
+            Self::Http(client) => {
+                crate::agent_workers::send_result(client, jc).await?;
                 Ok(())
             }
             Self::NeverUsed => {
@@ -1089,14 +1071,12 @@ pub fn start_interactive_worker_shell(
 
                         job.map(|x| x.job.map(NextJob::Sql))
                     }
-                    Connection::Http((client, _)) => crate::agent_workers::pull_job(
-                        &client,
-                        None,
-                        Some(AgentWorkerData::new(Some(true))),
-                    )
-                    .await
-                    .map_err(|e| error::Error::InternalErr(e.to_string()))
-                    .map(|x| x.map(|y| NextJob::Http(y))),
+                    Connection::Http(client) => {
+                        crate::agent_workers::pull_job(&client, None, Some(true))
+                            .await
+                            .map_err(|e| error::Error::InternalErr(e.to_string()))
+                            .map(|x| x.map(|y| NextJob::Http(y)))
+                    }
                 };
 
                 match pulled_job {
@@ -1493,23 +1473,12 @@ pub async fn run_worker(
     // For agent workers, the expected tag format is the worker name suffixed with "-ssh".
     // For regular workers, the tag is simply the machine's hostname and if not found the randomly generated hostname.
     if i_worker == 1 {
-        let (conn, job_completed_tx) = if worker_name.starts_with(AGENT_WORKER_NAME_PREFIX) {
-            let Connection::Http((client, _)) = conn else {
-                unreachable!("Agent workers are expected to have an HTTP connection")
-            };
-            let conn = Connection::Http((client.clone(), Some(AgentWorkerData::new(Some(true)))));
-            let (job_completed_tx, _) = JobCompletedSender::new(&conn, 10);
-            (conn.clone(), job_completed_tx)
-        } else {
-            (conn.clone(), job_completed_tx.clone())
-        };
-
         start_interactive_worker_shell(
-            conn,
+            conn.clone(),
             hostname.to_owned(),
             worker_name.clone(),
             killpill_rx.resubscribe(),
-            job_completed_tx,
+            job_completed_tx.clone(),
             base_internal_url.to_owned(),
             worker_dir.clone(),
         );
@@ -1728,7 +1697,7 @@ pub async fn run_worker(
                             job.map(|x| x.map(NextJob::Sql))
                         }
                     }
-                    Connection::Http((client, _)) => client
+                    Connection::Http(client) => client
                         .post(
                             &format!(
                                 "/api/agent_workers/same_worker_job/{}",
@@ -1840,12 +1809,10 @@ pub async fn run_worker(
                         }
                         job.map(|x| x.job.map(NextJob::Sql))
                     }
-                    Connection::Http((client, _)) => {
-                        crate::agent_workers::pull_job(&client, None, None)
-                            .await
-                            .map_err(|e| error::Error::InternalErr(e.to_string()))
-                            .map(|x| x.map(|y| NextJob::Http(y)))
-                    }
+                    Connection::Http(client) => crate::agent_workers::pull_job(&client, None, None)
+                        .await
+                        .map_err(|e| error::Error::InternalErr(e.to_string()))
+                        .map(|x| x.map(|y| NextJob::Http(y))),
                 }
             }
         };
@@ -2173,7 +2140,7 @@ async fn queue_init_bash_maybe<'c>(
     let uuid_content = if let Some(content) = WORKER_CONFIG.read().await.init_bash.clone() {
         let uuid = match conn {
             Connection::Sql(db) => push_init_job(db, content.clone(), worker_name).await?,
-            Connection::Http((client, _)) => queue_init_job(client, &content).await?,
+            Connection::Http(client) => queue_init_job(client, &content).await?,
         };
         Some((uuid, content))
     } else {

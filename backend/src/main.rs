@@ -51,7 +51,10 @@ use windmill_common::{
     scripts::ScriptLang,
     stats_ee::schedule_stats,
     triggers::TriggerKind,
-    utils::{create_default_worker_suffix, create_ssh_agent_worker_suffix, worker_name_with_suffix, Mode, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS},
+    utils::{
+        create_default_worker_suffix, create_ssh_agent_worker_suffix, worker_name_with_suffix,
+        Mode, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS,
+    },
     worker::{
         reload_custom_tags_setting, Connection, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
     },
@@ -342,7 +345,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         );
         let suffix = create_ssh_agent_worker_suffix(&hostname);
         (
-            Connection::Http((build_agent_http_client(&suffix), None)),
+            Connection::Http(build_agent_http_client(&suffix)),
             Some(suffix),
         )
     } else {
@@ -687,7 +690,7 @@ Windmill Community Edition {GIT_VERSION}
                             conn: if i == 0 || mode != Mode::Agent {
                                 conn.clone()
                             } else {
-                                Connection::Http((build_agent_http_client(&suffix), None))
+                                Connection::Http(build_agent_http_client(&suffix))
                             },
                             worker_name: worker_name_with_suffix(
                                 mode == Mode::Agent,

@@ -51,7 +51,6 @@ mod worker_flow;
 mod worker_lockfiles;
 mod worker_utils;
 
-pub use agent_workers::{CancelJob, ProcessAgentWorkerResult};
 pub use worker::*;
 pub use worker_lockfiles::process_relative_imports;
 

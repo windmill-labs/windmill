@@ -484,7 +484,7 @@ pub mod flow {
         NODES.get_or_insert_async(node, async move {
             match conn {
                 Connection::Sql(db) => fetch_flow_node_query(db, node.0, loc).await,
-                Connection::Http((client, _)) => {
+                Connection::Http(client) => {
                     let r = client
                         .get::<RawNodeApi>(&format!("/api/agent_workers/flow_script/{}", node.0))
                         .await?;
@@ -570,7 +570,7 @@ pub mod script {
         let fut = CACHE.get_or_insert_async(hash, async move {
             match conn {
                 Connection::Sql(db) => fetch_script_from_db(&db, hash, loc).await,
-                Connection::Http((client, _)) => {
+                Connection::Http(client) => {
                     let r = client
                         .get::<RawScriptApi>(&format!("/api/agent_workers/script/{}", hash.0))
                         .await?;
@@ -672,7 +672,7 @@ pub mod app {
         let fut = CACHE.get_or_insert_async(id, async move {
             match conn {
                 Connection::Sql(db) => fetch_raw_script_from_app_query(db, id.0, loc).await,
-                Connection::Http((client, _)) => {
+                Connection::Http(client) => {
                     let r = client
                         .get::<RawScriptApi>(&format!("/api/agent_workers/app_script/{}", id.0))
                         .await?;

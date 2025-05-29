@@ -89,14 +89,3 @@ pub struct PingJobStatusResponse {
 // pub struct PullJobRequest {
 //     pub worker_name: String,
 // }
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AgentWorkerData {
-    pub is_wk_shell: Option<bool>,
-}
-
-impl AgentWorkerData {
-    pub fn new(is_wk_shell: Option<bool>) -> AgentWorkerData {
-        AgentWorkerData { is_wk_shell }
-    }
-}

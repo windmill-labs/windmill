@@ -387,7 +387,7 @@ pub async fn append_logs(
                 tracing::error!(%job_id, %err, "error updating logs for job {job_id}: {err}");
             }
         }
-        Connection::Http((client, _)) => {
+        Connection::Http(client) => {
             if let Err(e) = client
             .post::<_, String>(
                 &format!("/api/w/{}/agent_workers/push_logs/{}", workspace.as_ref(), job_id),

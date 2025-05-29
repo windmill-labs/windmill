@@ -121,7 +121,7 @@ async fn update_worker_ping_full_inner(
             )
             .await?;
         }
-        Connection::Http((client, _)) => {
+        Connection::Http(client) => {
             client
                 .post::<_, ()>(
                     UPDATE_PING_URL,
@@ -187,7 +187,7 @@ pub async fn insert_ping(
             )
             .await?;
         }
-        Connection::Http((client, _)) => {
+        Connection::Http(client) => {
             client
                 .post::<_, ()>(
                     UPDATE_PING_URL,
@@ -247,7 +247,7 @@ pub async fn update_worker_ping_from_job(
             )
             .await?;
         }
-        Connection::Http((client, _)) => {
+        Connection::Http(client) => {
             client
                 .post::<Ping, ()>(
                     UPDATE_PING_URL,
@@ -286,7 +286,7 @@ pub async fn ping_job_status(
 ) -> anyhow::Result<PingJobStatusResponse> {
     match conn {
         Connection::Sql(ref db) => update_job_ping_query(job_id, db, mem_peak).await,
-        Connection::Http((client, _)) => {
+        Connection::Http(client) => {
             client
                 .post(
                     &format!("/api/agent_workers/ping_job_status/{}", job_id),

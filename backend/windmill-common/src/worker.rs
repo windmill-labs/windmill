@@ -24,7 +24,7 @@ use uuid::Uuid;
 use windmill_macros::annotations;
 
 use crate::{
-    agent_workers::{AgentWorkerData, PingJobStatusResponse, BASE_INTERNAL_URL},
+    agent_workers::{PingJobStatusResponse, BASE_INTERNAL_URL},
     cache::{unwrap_or_error, RawNode, RawScript},
     error::{self, to_anyhow},
     global_settings::CUSTOM_TAGS_SETTING,
@@ -210,7 +210,7 @@ impl HttpClient {
 #[derive(Clone)]
 pub enum Connection {
     Sql(Pool<Postgres>),
-    Http((HttpClient, Option<AgentWorkerData>)),
+    Http(HttpClient),
 }
 
 impl std::fmt::Debug for Connection {
