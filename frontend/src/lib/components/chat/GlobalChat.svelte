@@ -4,6 +4,7 @@
 	import { Send, Loader2 } from 'lucide-svelte'
 	import { chatRequest, prepareSystemMessage } from './core'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
+	import { globalChatInitialInput } from '$lib/stores'
 
 	let chatHistory = [
 		{
@@ -16,6 +17,17 @@
 	let isSubmitting = $state(false)
 	let currentReply = $state('')
 	let messages = $state(chatHistory)
+
+	// Suggested questions for the user
+	const suggestions = $state([
+		'How do I create a new workflow?',
+		"What's the difference between scripts and flows?",
+		'How can I connect to a database?',
+		'How do I schedule a recurring job?'
+	])
+
+	// Check if there are any user messages
+	const hasUserMessages = $derived(messages.some((msg) => msg.role === 'user'))
 
 	let abortController = new AbortController()
 
@@ -45,6 +57,19 @@
 		inputValue = ''
 		isSubmitting = false
 	}
+
+	function submitSuggestion(suggestion: string) {
+		inputValue = suggestion
+		handleSubmit()
+	}
+
+	$effect(() => {
+		if (globalChatInitialInput) {
+			inputValue = $globalChatInitialInput
+			globalChatInitialInput.set('')
+			handleSubmit()
+		}
+	})
 </script>
 
 <div class="flex flex-col h-full bg-surface z-10">
@@ -72,6 +97,24 @@
 						<Loader2 size={16} class="animate-spin" />
 						<span class="text-sm">Thinking...</span>
 					</div>
+				</div>
+			</div>
+		{/if}
+
+		<!-- Suggestion buttons when no user messages yet -->
+		{#if !hasUserMessages && !isSubmitting}
+			<div class="w-full pt-4">
+				<div class="flex flex-wrap gap-2">
+					{#each suggestions as suggestion}
+						<Button
+							on:click={() => submitSuggestion(suggestion)}
+							size="xs2"
+							color="gray"
+							buttonType="button"
+						>
+							{suggestion}
+						</Button>
+					{/each}
 				</div>
 			</div>
 		{/if}
