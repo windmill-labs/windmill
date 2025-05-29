@@ -460,7 +460,7 @@
 											on:click={() => openGlobalChat()}
 											isCollapsed={false}
 											icon={MessageCircle}
-											label="Global Chat"
+											label="Ask AI"
 											class="!text-xs"
 										/>
 									</div>
@@ -527,7 +527,7 @@
 									on:click={() => openGlobalChat()}
 									{isCollapsed}
 									icon={MessageCircle}
-									label="Global Chat"
+									label="Ask AI"
 									class="!text-xs"
 								/>
 							</div>
@@ -634,7 +634,7 @@
 									on:click={() => openGlobalChat()}
 									{isCollapsed}
 									icon={MessageCircle}
-									label="Global Chat"
+									label="Ask AI"
 									class="!text-xs"
 								/>
 							</div>

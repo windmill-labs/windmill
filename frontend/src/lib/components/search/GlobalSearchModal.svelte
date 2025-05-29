@@ -9,9 +9,7 @@
 		type ListableApp,
 		type ListableRawApp,
 		type Script,
-
 		type SearchJobsIndexResponse
-
 	} from '$lib/gen'
 	import { clickOutside, isMac } from '$lib/utils'
 	import {
@@ -44,6 +42,7 @@
 	import Logs from 'lucide-svelte/icons/logs'
 	import { AwsIcon, GoogleCloudIcon, KafkaIcon, MqttIcon, NatsIcon } from '../icons'
 	import RunsSearch from './RunsSearch.svelte'
+	import AskAiButton from '../AskAiButton.svelte'
 
 	let open: boolean = false
 
@@ -264,7 +263,6 @@
 		return r
 	}
 
-
 	let queryParseErrors: string[] = []
 
 	async function handleSearch() {
@@ -320,8 +318,8 @@
 			)
 		}
 		if (tab === 'runs') {
-				await tick()
-				runsSearch?.handleRunSearch(removePrefix(searchTerm, RUNS_PREFIX))
+			await tick()
+			runsSearch?.handleRunSearch(removePrefix(searchTerm, RUNS_PREFIX))
 		}
 		selectedItem = selectItem(0)
 	}
@@ -413,7 +411,7 @@
 			open = false
 			goto(path)
 		} else {
-			window.open(path, "_blank")
+			window.open(path, '_blank')
 		}
 	}
 
@@ -581,8 +579,7 @@
 	let runsSearch: RunsSearch
 	let runSearchRemainingCount: number | undefined = undefined
 	let runSearchTotalCount: number | undefined = undefined
-	let indexMetadata: SearchJobsIndexResponse["index_metadata"] = undefined
-
+	let indexMetadata: SearchJobsIndexResponse['index_metadata'] = undefined
 </script>
 
 {#if open}
@@ -618,6 +615,15 @@
 							>{placeholderFromPrefix(searchTerm)}</label
 						>
 					</div>
+					{#if (itemMap[tab] ?? []).length === 0 && searchTerm.length > 0}
+						<AskAiButton
+							label="Ask AI"
+							initialInput={searchTerm}
+							onClick={() => {
+								closeModal()
+							}}
+						/>
+					{/if}
 					{#if queryParseErrors.length > 0}
 						<Popover notClickable placement="bottom-start">
 							<AlertTriangle size={16} class="text-yellow-500" />
@@ -682,7 +688,9 @@
 							{#if (itemMap[tab] ?? []).length === 0}
 								<div class="flex w-full justify-center items-center">
 									<div class="text-tertiary text-center">
-										<div class="text-2xl font-bold">Nothing found</div>
+										<div class="text-2xl font-bold"
+											>Nothing found, ask the AI to find what you need !</div
+										>
 										<div class="text-sm">Tip: press `esc` to quickly clear the search bar</div>
 									</div>
 								</div>
@@ -718,20 +726,20 @@
 							{/if}
 						</div>
 					{:else if tab === 'runs'}
-								<RunsSearch
-												bind:queryParseErrors
-												bind:this={runsSearch}
-												bind:selectedItem
-												bind:selectedWorkspace
-												bind:mouseMoved
-												bind:loadedRuns={itemMap['runs']}
-												bind:open
-												{selectItem}
-												searchTerm={removePrefix(searchTerm, RUNS_PREFIX)}
-												bind:runSearchRemainingCount
-												bind:runSearchTotalCount
-												bind:indexMetadata
-								/>
+						<RunsSearch
+							bind:queryParseErrors
+							bind:this={runsSearch}
+							bind:selectedItem
+							bind:selectedWorkspace
+							bind:mouseMoved
+							bind:loadedRuns={itemMap['runs']}
+							bind:open
+							{selectItem}
+							searchTerm={removePrefix(searchTerm, RUNS_PREFIX)}
+							bind:runSearchRemainingCount
+							bind:runSearchTotalCount
+							bind:indexMetadata
+						/>
 					{/if}
 				</div>
 			</div>

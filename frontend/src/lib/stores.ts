@@ -174,6 +174,7 @@ export const triggerablesByAI = writable<
 	Record<string, { description: string; onTrigger: ((id: string) => void) | undefined }>
 >({})
 export const globalChatOpen = writable<boolean>(false)
+export const globalChatInitialInput = writable<string>('')
 
 type SQLBaseSchema = {
 	[schemaKey: string]: {

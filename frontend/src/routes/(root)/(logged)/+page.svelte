@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { AppService, FlowService, type OpenFlow, type Script } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { globalChatOpen, userStore, workspaceStore } from '$lib/stores'
 	import { Alert, Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import CreateActionsFlow from '$lib/components/flows/CreateActionsFlow.svelte'
@@ -23,6 +23,7 @@
 	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/stores'
 	import { goto, replaceState } from '$app/navigation'
+	import AskAiButton from '$lib/components/AskAiButton.svelte'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -214,7 +215,12 @@
 </Drawer>
 
 <div>
-	<div class="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 h-fit-content">
+	{#if !$globalChatOpen}
+		<div class="fixed top-4 right-4 z-50">
+			<AskAiButton />
+		</div>
+	{/if}
+	<div class="max-w-7xl mx-auto px-4 sm:px-8 md:px-8 h-fit-content">
 		{#if $workspaceStore == 'admins'}
 			<div class="my-4"></div>
 
