@@ -46,6 +46,7 @@
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 	import type { EditorBarUi } from './custom_ui'
 	import EditorSettings from './EditorSettings.svelte'
+	import { quicktype, InputData, JSONSchemaInput, FetchingJSONSchemaStore } from 'quicktype-core'
 
 	export let lang: SupportedLanguage | 'bunnative' | undefined
 	export let editor: Editor | undefined
@@ -136,7 +137,8 @@
 	$: showResourceTypePicker =
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
 		lang === 'python3' ||
-		lang === 'php'
+		lang === 'php' ||
+		lang === 'rust'
 
 	let codeViewer: Drawer
 	let codeObj: { language: SupportedLanguage; content: string } | undefined = undefined
@@ -207,6 +209,22 @@
 		return rec(schema.properties, true)
 	}
 
+	async function quicktypeJSONSchema(targetLanguage, typeName, jsonSchemaString, rendererOptions) {
+		const schemaInput = new JSONSchemaInput(new FetchingJSONSchemaStore())
+
+		// We could add multiple schemas for multiple types,
+		// but here we're just making one type from JSON schema.
+		await schemaInput.addSource({ name: typeName, schema: jsonSchemaString })
+
+		const inputData = new InputData()
+		inputData.addInput(schemaInput)
+
+		return await quicktype({
+			inputData,
+			lang: targetLanguage,
+			rendererOptions
+		})
+	}
 	async function resourceTypePickCallback(name: string) {
 		if (!editor) return
 		const resourceType = await ResourceService.getResourceType({
@@ -228,6 +246,16 @@
 			editor.insertAtCursor(`if (!class_exists('${rtName}')) {\nclass ${rtName} {\n${phpSchema}\n`)
 			editor.backspace()
 			editor.insertAtCursor('}')
+		} else if (lang === 'rust') {
+			const { lines: lines } = await quicktypeJSONSchema(
+				'rust',
+				name,
+				JSON.stringify(resourceType.schema),
+				{
+					"leading-comments": false
+				}
+			)
+			editor.insertAtCurrentLine(lines.join('\n'))
 		} else {
 			const tsSchema = compile(resourceType.schema as any)
 			editor.insertAtCursor(`type ${toCamel(capitalize(name))} = ${tsSchema}`)
