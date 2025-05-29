@@ -4,27 +4,31 @@
 	import { Send, Loader2 } from 'lucide-svelte'
 	import { chatRequest, prepareSystemMessage } from './core'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
-	import { globalChatInitialInput } from '$lib/stores'
+	import { globalChatInitialInput, userStore, copilotInfo } from '$lib/stores'
 
-	let chatHistory = [
-		{
-			role: 'assistant',
-			content: "Hello! I'm your global assistant. How can I help you today?"
-		}
-	] as ChatCompletionMessageParam[]
+	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
+	const hasCopilot = $derived($copilotInfo.enabled)
+
+	const firstMessage = $derived(
+		hasCopilot
+			? 'Hello! I am your global assistant. How can I help you today?'
+			: isAdmin
+				? 'Enable Windmill AI in your workspace settings to use this chat'
+				: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
+	)
 
 	let inputValue = $state('')
 	let isSubmitting = $state(false)
 	let currentReply = $state('')
-	let messages = $state(chatHistory)
+	let messages = $state<ChatCompletionMessageParam[]>([])
 
 	// Suggested questions for the user
-	const suggestions = $state([
+	const suggestions = [
 		'How do I create a new workflow?',
 		"What's the difference between scripts and flows?",
 		'How can I connect to a database?',
 		'How do I schedule a recurring job?'
-	])
+	]
 
 	// Check if there are any user messages
 	const hasUserMessages = $derived(messages.some((msg) => msg.role === 'user'))
@@ -64,11 +68,20 @@
 	}
 
 	$effect(() => {
-		if (globalChatInitialInput) {
+		if ($globalChatInitialInput.length > 0) {
 			inputValue = $globalChatInitialInput
 			globalChatInitialInput.set('')
 			handleSubmit()
 		}
+	})
+
+	$effect(() => {
+		messages = [
+			{
+				role: 'assistant',
+				content: firstMessage
+			}
+		]
 	})
 </script>
 
@@ -111,6 +124,7 @@
 							size="xs2"
 							color="gray"
 							buttonType="button"
+							disabled={!hasCopilot}
 						>
 							{suggestion}
 						</Button>
@@ -134,11 +148,11 @@
 				placeholder="Type your message..."
 				class="flex-1 resize-none border border-gray-300 dark:border-gray-600 rounded-lg p-3 text-sm bg-surface text-primary focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px] max-h-32 z-10"
 				rows="1"
-				disabled={isSubmitting}
+				disabled={!hasCopilot || isSubmitting}
 			></textarea>
 			<Button
 				size="md"
-				disabled={!inputValue.trim() || isSubmitting}
+				disabled={!hasCopilot || !inputValue.trim() || isSubmitting}
 				iconOnly
 				startIcon={{ icon: Send }}
 				on:click={handleSubmit}

@@ -64,12 +64,10 @@
 <style>
 	.ai-triggerable-wrapper {
 		position: relative;
-		height: 100%;
 	}
 
 	.ai-triggerable-content {
-		/* This preserves original styling of children */
-		/* display: contents; */
+		display: contents;
 		height: 100%;
 	}
 
