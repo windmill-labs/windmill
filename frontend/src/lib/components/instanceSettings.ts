@@ -19,6 +19,7 @@ export interface Setting {
 		| 'boolean'
 		| 'password'
 		| 'select'
+		| 'select_python'
 		| 'textarea'
 		| 'codearea'
 		| 'seconds'
@@ -231,7 +232,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Instance Python Version',
 			description: 'Default python version for newly deployed scripts',
 			key: 'instance_python_version',
-			fieldType: 'select',
+			fieldType: 'select_python',
 			// To change latest stable version:
 			// 1. Change placeholder in instanceSettings.ts
 			// 2. Change LATEST_STABLE_PY in dockerfile

@@ -13,6 +13,7 @@
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
 	import type { Flow } from '$lib/gen'
+	import type { Trigger } from '$lib/components/triggers/utils'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let loading: boolean
@@ -28,6 +29,8 @@
 				draft?: Flow | undefined
 		  })
 		| undefined = undefined
+	export let onDeployTrigger: (trigger: Trigger) => void = () => {}
+
 	let size = 50
 
 	const { currentStepStore: copilotCurrentStepStore } =
@@ -84,6 +87,7 @@
 					enableAi={!disableAi}
 					on:applyArgs
 					on:testWithArgs
+					{onDeployTrigger}
 				/>
 			{/if}
 		</Pane>

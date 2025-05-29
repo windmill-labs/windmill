@@ -98,6 +98,12 @@ pub fn parse_oracledb(code: &str) -> String {
 
 #[cfg(feature = "sql-parser")]
 #[wasm_bindgen]
+pub fn parse_duckdb(code: &str) -> String {
+    wrap_sig(windmill_parser_sql::parse_duckdb_sig(code))
+}
+
+#[cfg(feature = "sql-parser")]
+#[wasm_bindgen]
 pub fn parse_bigquery(code: &str) -> String {
     wrap_sig(windmill_parser_sql::parse_bigquery_sig(code))
 }

@@ -25,6 +25,8 @@
 	export let fixedHeight = true
 	export let hidePopup = false
 	export let open = false
+	export let customWidth: number | undefined = undefined
+	export let customMenu = false
 
 	const {
 		elements: { menu, item, trigger },
@@ -106,11 +108,16 @@
 </button>
 
 {#if open && !hidePopup}
-	<div use:melt={$menu} data-menu class="z-[6000]">
-		<div
-			class="bg-surface border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
-		>
-			<DropdownV2Inner items={computeItems} meltItem={item} />
-		</div>
+	<div use:melt={$menu} data-menu class="z-[6000] transition-all duration-100">
+		{#if customMenu}
+			<slot name="menu" />
+		{:else}
+			<div
+				class="bg-surface border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
+				style={customWidth ? `width: ${customWidth}px` : ''}
+			>
+				<DropdownV2Inner items={computeItems} meltItem={item} />
+			</div>
+		{/if}
 	</div>
 {/if}

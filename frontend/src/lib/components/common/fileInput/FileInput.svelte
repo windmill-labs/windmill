@@ -18,7 +18,7 @@
 	export let iconSize = 36
 	export let returnFileNames = false
 	export let submittedText: string | undefined = undefined
-	export let defaultFile: string | undefined = undefined
+	export let defaultFile: string | string[] | undefined = undefined
 	export let disabled: boolean | undefined = undefined
 	export let folderOnly = false
 
@@ -160,9 +160,8 @@
 		files = files
 		if (convertTo && files) {
 			const promises = files.map(convertFile)
-			let converted: ConvertedFile[] | { name: string; data: ConvertedFile }[] = await Promise.all(
-				promises
-			)
+			let converted: ConvertedFile[] | { name: string; data: ConvertedFile }[] =
+				await Promise.all(promises)
 			if (returnFileNames) {
 				converted = converted.map((c, i) => ({ name: files![i].name, data: c }))
 			}
@@ -239,7 +238,7 @@
 		{multiple}
 		{...$$restProps}
 	/>
-	{#if defaultFile}
+	{#if defaultFile && (!Array.isArray(defaultFile) || defaultFile.length > 0)}
 		<div class="w-full border-dashed border-t-2 text-2xs pt-1 text-tertiary mt-2">
 			Default file: <span class="text-blue-500">{defaultFile}</span>
 		</div>

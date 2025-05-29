@@ -41,11 +41,11 @@ use windmill_common::{
     db::UserDB,
     error::{self, JsonResult},
     s3_helpers::S3Object,
+    triggers::TriggerKind,
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     worker::CLOUD_HOSTED,
 };
 use windmill_git_sync::handle_deployment_metadata;
-use windmill_queue::TriggerKind;
 
 lazy_static::lazy_static! {
     static ref ROUTE_PATH_KEY_RE: regex::Regex = regex::Regex::new(r"/?:[-\w]+").unwrap();

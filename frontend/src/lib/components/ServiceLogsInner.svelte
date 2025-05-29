@@ -15,6 +15,9 @@
 	import AnsiUp from 'ansi_up'
 	import { scroll_into_view_if_needed_polyfill } from './multiselect/utils'
 	import SplitPanesOrColumnOnMobile from './splitPanes/SplitPanesOrColumnOnMobile.svelte'
+	import Select from './apps/svelte-select/lib/Select.svelte'
+	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
+	import DarkModeObserver from './DarkModeObserver.svelte'
 
 	export let searchTerm: string
 	export let queryParseErrors: string[] = []
@@ -319,10 +322,13 @@
 				const buckets = res['buckets']
 				sumOtherDocCount = res['sum_other_doc_count']
 				countsPerHost = new Map(buckets.map(({ key, doc_count }) => [key, doc_count]))
-				countsPerHost = buckets.reduce((acc: any, { key, doc_count }) => {
-					acc[key] = { doc_count }
-					return acc
-				}, {} as Record<string, number>)
+				countsPerHost = buckets.reduce(
+					(acc: any, { key, doc_count }) => {
+						acc[key] = { doc_count }
+						return acc
+					},
+					{} as Record<string, number>
+				)
 				queryParseErrors = countLogsResponse.query_parse_errors ?? []
 				loadingLogCounts = false
 			}
@@ -376,7 +382,7 @@
 		let ret = {}
 
 		for (const hk of Object.keys(countsPerHost)) {
-			let u = hk.split(",")
+			let u = hk.split(',')
 			let [mode, wg, hn] = [u[0], u[1], u[2]]
 
 			if (!ret[mode]) {
@@ -392,7 +398,22 @@
 
 		return ret
 	}
+
+	function getSelectItems(allLogs: ByMode, countsPerHost: any): { label: string; value: any }[] {
+		return Object.entries(allLogsOrQueryResults(allLogs, countsPerHost)).flatMap(([mode, o1]) =>
+			Object.entries(o1).flatMap(([wg, o2]) =>
+				Object.keys(o2).map((hn) => ({
+					label: hn,
+					value: [mode, wg, hn]
+				}))
+			)
+		)
+	}
+
+	let darkMode = false
 </script>
+
+<DarkModeObserver bind:darkMode />
 
 <Drawer bind:this={logDrawer} bind:open={logDrawerOpen} size="1400px">
 	<DrawerContent title="See context" on:close={logDrawer.closeDrawer}>
@@ -436,7 +457,7 @@
 									month: '2-digit',
 									hour: '2-digit',
 									minute: '2-digit'
-							  })
+								})
 							: 'min datetime'}
 						disabled
 					/>
@@ -476,7 +497,7 @@
 									month: '2-digit',
 									hour: '2-digit',
 									minute: '2-digit'
-							  })
+								})
 							: 'max datetime'}
 						disabled
 					/>
@@ -548,6 +569,24 @@
 						>
 					</div>
 				{/if}
+				<div class="mr-0.5">
+					<Select
+						justValue={selected}
+						items={getSelectItems(allLogs, countsPerHost)}
+						on:change={({ detail }) => {
+							// console.log(detail)
+							selected = detail.value
+						}}
+						on:clear={() => {
+							selected = undefined
+						}}
+						placeholder="Select a service"
+						inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+						containerStyles={darkMode
+							? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+							: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+					/>
+				</div>
 				{#each Object.entries(allLogsOrQueryResults(allLogs, countsPerHost)) as [mode, o1]}
 					<div class="w-full pb-8">
 						<h2 class="pb-2 text-2xl">{mode}s</h2>
@@ -587,7 +626,8 @@
 											<div
 												class="text-sm pt-2 pl-0.5 whitespace-nowrap"
 												title={hn}
-												style="width: 90px;">{truncateRev(hn, countsPerHost || loadingLogs ? 40 : 8)}</div
+												style="width: 90px;"
+												>{truncateRev(hn, countsPerHost || loadingLogs ? 40 : 8)}</div
 											>
 											{#if loadingLogCounts}
 												<Loader2 size={15} class="animate-spin" />
@@ -752,7 +792,7 @@
 													month: '2-digit',
 													hour: '2-digit',
 													minute: '2-digit'
-											  })
+												})
 											: ''}
 										disabled
 									/><CalendarPicker bind:date={upTo} label="Logs up to" /></div

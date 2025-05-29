@@ -18,8 +18,9 @@ use crate::{
     flow_status::{FlowStatus, RestartedFrom},
     flows::{FlowNodeId, FlowValue, Retry},
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
-    scripts::{ScriptHash, ScriptLang},
+    scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
+    utils::{StripPath, HTTP_CLIENT},
     worker::{to_raw_value, TMP_DIR},
     FlowVersionInfo, ScriptHashInfo,
 };
@@ -270,6 +271,7 @@ impl CompletedJob {
 pub enum JobPayload {
     ScriptHub {
         path: String,
+        apply_preprocessor: bool,
     },
     ScriptHash {
         hash: ScriptHash,
@@ -387,6 +389,25 @@ pub struct OnBehalfOf {
     pub permissioned_as: String,
 }
 
+pub fn get_has_preprocessor_from_content_and_lang(
+    content: &str,
+    language: &ScriptLang,
+) -> error::Result<bool> {
+    let has_preprocessor = match language {
+        ScriptLang::Bun | ScriptLang::Bunnative | ScriptLang::Deno | ScriptLang::Nativets => {
+            let args = windmill_parser_ts::parse_deno_signature(&content, true, true, None)?;
+            args.has_preprocessor.unwrap_or(false)
+        }
+        ScriptLang::Python3 => {
+            let args = windmill_parser_py::parse_python_signature(&content, None, true)?;
+            args.has_preprocessor.unwrap_or(false)
+        }
+        _ => false,
+    };
+
+    Ok(has_preprocessor)
+}
+
 pub async fn script_path_to_payload<'e, A: sqlx::Acquire<'e, Database = Postgres> + Send>(
     script_path: &str,
     db: A,
@@ -399,63 +420,74 @@ pub async fn script_path_to_payload<'e, A: sqlx::Acquire<'e, Database = Postgres
     Option<i32>,
     Option<OnBehalfOf>,
 )> {
-    let (job_payload, tag, delete_after_use, script_timeout, on_behalf_of) =
-        if script_path.starts_with("hub/") {
-            (
-                JobPayload::ScriptHub { path: script_path.to_owned() },
-                None,
-                None,
-                None,
-                None,
-            )
+    let (job_payload, tag, delete_after_use, script_timeout, on_behalf_of) = if script_path
+        .starts_with("hub/")
+    {
+        let hub_script =
+            get_full_hub_script_by_path(StripPath(script_path.to_string()), &HTTP_CLIENT, None)
+                .await?;
+
+        let has_preprocessor =
+            get_has_preprocessor_from_content_and_lang(&hub_script.content, &hub_script.language)?;
+
+        (
+            JobPayload::ScriptHub {
+                path: script_path.to_owned(),
+                apply_preprocessor: has_preprocessor && !skip_preprocessor.unwrap_or(false),
+            },
+            None,
+            None,
+            None,
+            None,
+        )
+    } else {
+        let ScriptHashInfo {
+            hash,
+            tag,
+            concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            cache_ttl,
+            language,
+            dedicated_worker,
+            priority,
+            delete_after_use,
+            timeout,
+            has_preprocessor,
+            on_behalf_of_email,
+            created_by,
+            ..
+        } = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
+
+        let on_behalf_of = if let Some(email) = on_behalf_of_email {
+            Some(OnBehalfOf {
+                email,
+                permissioned_as: username_to_permissioned_as(created_by.as_str()),
+            })
         } else {
-            let ScriptHashInfo {
-                hash,
-                tag,
-                concurrency_key,
+            None
+        };
+
+        (
+            JobPayload::ScriptHash {
+                hash: ScriptHash(hash),
+                path: script_path.to_owned(),
+                custom_concurrency_key: concurrency_key,
                 concurrent_limit,
                 concurrency_time_window_s,
-                cache_ttl,
+                cache_ttl: cache_ttl,
                 language,
                 dedicated_worker,
                 priority,
-                delete_after_use,
-                timeout,
-                has_preprocessor,
-                on_behalf_of_email,
-                created_by,
-                ..
-            } = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
-
-            let on_behalf_of = if let Some(email) = on_behalf_of_email {
-                Some(OnBehalfOf {
-                    email,
-                    permissioned_as: username_to_permissioned_as(created_by.as_str()),
-                })
-            } else {
-                None
-            };
-
-            (
-                JobPayload::ScriptHash {
-                    hash: ScriptHash(hash),
-                    path: script_path.to_owned(),
-                    custom_concurrency_key: concurrency_key,
-                    concurrent_limit,
-                    concurrency_time_window_s,
-                    cache_ttl: cache_ttl,
-                    language,
-                    dedicated_worker,
-                    priority,
-                    apply_preprocessor: !skip_preprocessor.unwrap_or(false)
-                        && has_preprocessor.unwrap_or(false),
-                },
-                tag,
-                delete_after_use,
-                timeout,
-                on_behalf_of,
-            )
-        };
+                apply_preprocessor: !skip_preprocessor.unwrap_or(false)
+                    && has_preprocessor.unwrap_or(false),
+            },
+            tag,
+            delete_after_use,
+            timeout,
+            on_behalf_of,
+        )
+    };
     Ok((
         job_payload,
         tag,
@@ -576,11 +608,11 @@ pub async fn get_logs_from_store(
     logs: &str,
     log_file_index: &Option<Vec<String>>,
 ) -> Option<impl Stream<Item = Result<Bytes, object_store::Error>>> {
-    use crate::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
+    use crate::s3_helpers::get_object_store;
 
     if log_offset > 0 {
         if let Some(file_index) = log_file_index.clone() {
-            if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+            if let Some(os) = get_object_store().await {
                 let logs = logs.to_string();
                 let stream = async_stream::stream! {
                     for file_p in file_index.clone() {

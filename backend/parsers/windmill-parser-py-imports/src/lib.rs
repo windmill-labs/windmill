@@ -11,7 +11,7 @@ mod mapping;
 use async_recursion::async_recursion;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use std::collections::HashMap;
+use std::{collections::HashMap, str::FromStr};
 
 use mapping::{FULL_IMPORTS_MAP, SHORT_IMPORTS_MAP};
 #[cfg(not(target_arch = "wasm32"))]
@@ -25,7 +25,10 @@ use rustpython_parser::{
     Parse,
 };
 use sqlx::{Pool, Postgres};
-use windmill_common::{error, worker::PythonAnnotations};
+use windmill_common::{
+    error::{self, to_anyhow},
+    worker::PythonAnnotations,
+};
 
 const DEF_MAIN: &str = "def main(";
 
@@ -242,8 +245,7 @@ pub async fn parse_python_imports(
     w_id: &str,
     path: &str,
     db: &Pool<Postgres>,
-    already_visited: &mut Vec<String>,
-    annotated_pyv_numeric: &mut Option<u32>,
+    version_specifiers: &mut Vec<pep440_rs::VersionSpecifier>,
 ) -> error::Result<(Vec<String>, Option<String>)> {
     let mut compile_error_hint: Option<String> = None;
     let mut imports = parse_python_imports_inner(
@@ -251,9 +253,10 @@ pub async fn parse_python_imports(
         w_id,
         path,
         db,
-        already_visited,
-        annotated_pyv_numeric,
-        &mut annotated_pyv_numeric.and_then(|_| Some(path.to_owned())),
+        &mut vec![],
+        version_specifiers,
+        // &mut version_specifier.and_then(|_| Some(path.to_owned())),
+        &mut None
     )
     .await?
     .into_values()
@@ -279,6 +282,7 @@ pub async fn parse_python_imports(
     .flatten()
     .collect::<error::Result<Vec<String>>>()?
     .into_iter()
+    .filter(|x| !x.trim_start().starts_with("--") && !x.trim().is_empty())
     .unique()
     .collect_vec();
 
@@ -304,11 +308,34 @@ async fn parse_python_imports_inner(
     path: &str,
     db: &Pool<Postgres>,
     already_visited: &mut Vec<String>,
-    annotated_pyv_numeric: &mut Option<u32>,
+    version_specifiers: &mut Vec<pep440_rs::VersionSpecifier>,
     path_where_annotated_pyv: &mut Option<String>,
 ) -> error::Result<HashMap<String, NImportResolved>> {
     let PythonAnnotations { py310, py311, py312, py313, .. } = PythonAnnotations::parse(&code);
 
+    let mut push_version_specifiers = |perform, unparsed: String| -> error::Result<()> {
+        if perform {
+            pep440_rs::VersionSpecifiers::from_str(unparsed.as_str())
+                .ok()
+                .map(|vs| version_specifiers.extend(vs.to_vec()));
+        }
+        Ok(())
+    };
+    push_version_specifiers(py310, "==3.10.*".to_owned())?;
+    push_version_specifiers(py311, "==3.11.*".to_owned())?;
+    push_version_specifiers(py312, "==3.12.*".to_owned())?;
+    push_version_specifiers(py313, "==3.13.*".to_owned())?;
+
+    for x in code.lines() {
+        if x.starts_with("# py:") || x.starts_with("#py:") {
+            push_version_specifiers(
+                true,
+                x.replace('#', "").replace("py:", "").trim().to_owned(),
+            )?;
+        } else if !x.starts_with('#') {
+            break;
+        }
+    }
     // we pass only if there is none or only one annotation
 
     // Naive:
@@ -323,39 +350,48 @@ async fn parse_python_imports_inner(
     // This way we make sure there is no multiple annotations for same script
     // and we get detailed span on conflicting versions
 
-    let mut check = |is_py_xyz, numeric| -> error::Result<()> {
-        if is_py_xyz {
-            if let Some(v) = annotated_pyv_numeric {
-                if *v != numeric {
-                    return Err(error::Error::from(anyhow::anyhow!(
-                        "Annotated 2 or more different python versions: \n - py{v} at {}\n - py{numeric} at {path}\nIt is possible to use only one.",
-                        path_where_annotated_pyv.clone().unwrap_or("Unknown".to_owned())
-                    )));
-                }
-            } else {
-                *annotated_pyv_numeric = Some(numeric);
-            }
-            *path_where_annotated_pyv = Some(path.to_owned());
-        }
-        Ok(())
-    };
+    #[derive(serde::Serialize, serde::Deserialize)]
+    struct InlineMetadata {
+        requires_python: String,
+        dependencies: Vec<String>,
+    }
 
-    check(py310, 310)?;
-    check(py311, 311)?;
-    check(py312, 312)?;
-    check(py313, 313)?;
-
-    let find_requirements = code
-        .lines()
-        .find_position(|x| x.starts_with("#requirements:") || x.starts_with("# requirements:"));
-    if let Some((pos, _)) = find_requirements {
+    let find_requirements = code.lines().find_position(|x| {
+        x.starts_with("#requirements:")
+            || x.starts_with("# requirements:")
+            || x.starts_with("# /// script")
+    });
+    if let Some((pos, item)) = find_requirements {
         let mut requirements = HashMap::new();
-        code.lines()
-            .skip(pos + 1)
-            .map_while(|x| {
-                RE.captures(x).and_then(|x| {
-                    x.get(1).map(|m| {
-                        let requirement = m.as_str().to_string();
+        if item.starts_with("# /// script") {
+            let mut incorrect = false;
+            let metadata = code
+                .lines()
+                .skip(pos + 1)
+                .map_while(|x| {
+                    incorrect = !x.starts_with('#');
+                    if incorrect || x.starts_with("# ///") {
+                        None
+                    } else {
+                        x.get(1..)
+                    }
+                })
+                .join("\n")
+                .parse::<toml::Table>()
+            .map_err(to_anyhow)?;
+
+            {
+                if let Some(v) = metadata.get("requires-python").and_then(|v| v.as_str()) {
+                    push_version_specifiers(true, v.to_owned())?;
+                }
+            };
+
+            metadata
+                .get("dependencies")
+                .and_then(|dependencies| dependencies.as_array())
+                .inspect(|list| {
+                    for dependency_v in list.into_iter() {
+                        let requirement = dependency_v.as_str().unwrap_or("ERROR").to_owned();
                         let key = extract_pkg_name(&requirement);
                         requirements.insert(
                             key.clone(),
@@ -367,11 +403,31 @@ async fn parse_python_imports_inner(
                                 key,
                             },
                         );
+                    }
+                });
+        } else {
+            code.lines()
+                .skip(pos + 1)
+                .map_while(|x| {
+                    RE.captures(x).and_then(|x| {
+                        x.get(1).map(|m| {
+                            let requirement = m.as_str().to_string();
+                            let key = extract_pkg_name(&requirement);
+                            requirements.insert(
+                                key.clone(),
+                                NImportResolved::Pin {
+                                    pins: vec![ImportPin {
+                                        pkg: requirement.clone(),
+                                        path: Default::default(),
+                                    }],
+                                    key,
+                                },
+                            );
+                        })
                     })
                 })
-            })
-            .collect_vec();
-
+                .collect_vec();
+        }
         Ok(requirements)
     } else {
         let find_extra_requirements = code.lines().find_position(|x| {
@@ -442,7 +498,7 @@ async fn parse_python_imports_inner(
                             &rpath,
                             db,
                             already_visited,
-                            annotated_pyv_numeric,
+                            version_specifiers,
                             path_where_annotated_pyv,
                         )
                         .await?

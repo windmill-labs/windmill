@@ -25,7 +25,7 @@
 	import ResultNode from './renderers/nodes/ResultNode.svelte'
 	import BaseEdge from './renderers/edges/BaseEdge.svelte'
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
-	import { sugiyama, dagStratify, decrossOpt, coordCenter } from 'd3-dag'
+	import { sugiyama, dagStratify, coordCenter, decrossTwoLayer, decrossOpt } from 'd3-dag'
 	import { Expand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
@@ -117,7 +117,7 @@
 	function onModulesChange(modules: FlowModule[]) {
 		computeSimplifiableFlow(
 			modules,
-			triggerContext?.simplifiedPoll ? get(triggerContext.simplifiedPoll) ?? false : false
+			triggerContext?.simplifiedPoll ? (get(triggerContext.simplifiedPoll) ?? false) : false
 		)
 	}
 
@@ -143,12 +143,13 @@
 		let boxSize: any
 		try {
 			const layout = sugiyama()
-				.decross(decrossOpt())
+				.decross(nodes.length > 20 ? decrossTwoLayer() : decrossOpt())
 				.coord(coordCenter())
 				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
 			boxSize = layout(dag)
 		} catch {
 			const layout = sugiyama()
+				.decross(decrossTwoLayer())
 				.coord(coordCenter())
 				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
 			boxSize = layout(dag)
@@ -160,13 +161,13 @@
 			position: {
 				x: des.x
 					? // @ts-ignore
-					  (des.data.data.offset ?? 0) +
-					  // @ts-ignore
-					  des.x +
-					  (fullSize ? fullWidth : width) / 2 -
-					  boxSize.width / 2 -
-					  NODE.width / 2 -
-					  (width - fullWidth) / 2
+						(des.data.data.offset ?? 0) +
+						// @ts-ignore
+						des.x +
+						(fullSize ? fullWidth : width) / 2 -
+						boxSize.width / 2 -
+						NODE.width / 2 -
+						(width - fullWidth) / 2
 					: 0,
 				y: des.y || 0
 			}

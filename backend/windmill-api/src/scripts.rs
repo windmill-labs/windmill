@@ -223,7 +223,8 @@ async fn list_scripts(
             "draft_only",
             "ws_error_handler_muted",
             "no_main_func",
-            "codebase IS NOT NULL as use_codebase"
+            "codebase IS NOT NULL as use_codebase",
+            "kind"
         ])
         .left()
         .join("favorite")
@@ -298,7 +299,9 @@ async fn list_scripts(
     if let Some(it) = &lq.is_template {
         sqlb.and_where_eq("is_template", it);
     }
-    if let Some(lowercased_kinds) = lowercased_kinds {
+    if authed.is_operator {
+        sqlb.and_where_eq("kind", quote("script"));
+    } else if let Some(lowercased_kinds) = lowercased_kinds {
         let safe_kinds = lowercased_kinds
             .into_iter()
             .map(sql_builder::quote)
@@ -407,10 +410,7 @@ async fn create_snapshot_script(
             uploaded = true;
 
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
-            let object_store = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-                .read()
-                .await
-                .clone();
+            let object_store = windmill_common::s3_helpers::get_object_store().await;
 
             #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
             let object_store: Option<()> = None;
@@ -683,36 +683,40 @@ async fn create_script_internal<'c>(
 
     let validate_schema = should_validate_schema(&ns.content, &ns.language);
 
-    let (no_main_func, has_preprocessor) = match lang {
-        ScriptLang::Bun | ScriptLang::Bunnative | ScriptLang::Deno | ScriptLang::Nativets => {
-            let args = windmill_parser_ts::parse_deno_signature(&ns.content, true, true, None);
-            match args {
-                Ok(args) => (args.no_main_func, args.has_preprocessor),
-                Err(e) => {
-                    tracing::warn!(
-                        "Error parsing deno signature when deploying script {}: {:?}",
-                        ns.path,
-                        e
-                    );
-                    (None, None)
+    let (no_main_func, has_preprocessor) = if matches!(ns.kind, Some(ScriptKind::Preprocessor)) {
+        (ns.no_main_func, ns.has_preprocessor)
+    } else {
+        match lang {
+            ScriptLang::Bun | ScriptLang::Bunnative | ScriptLang::Deno | ScriptLang::Nativets => {
+                let args = windmill_parser_ts::parse_deno_signature(&ns.content, true, true, None);
+                match args {
+                    Ok(args) => (args.no_main_func, args.has_preprocessor),
+                    Err(e) => {
+                        tracing::warn!(
+                            "Error parsing deno signature when deploying script {}: {:?}",
+                            ns.path,
+                            e
+                        );
+                        (None, None)
+                    }
                 }
             }
-        }
-        ScriptLang::Python3 => {
-            let args = windmill_parser_py::parse_python_signature(&ns.content, None, true);
-            match args {
-                Ok(args) => (args.no_main_func, args.has_preprocessor),
-                Err(e) => {
-                    tracing::warn!(
-                        "Error parsing python signature when deploying script {}: {:?}",
-                        ns.path,
-                        e
-                    );
-                    (None, None)
+            ScriptLang::Python3 => {
+                let args = windmill_parser_py::parse_python_signature(&ns.content, None, true);
+                match args {
+                    Ok(args) => (args.no_main_func, args.has_preprocessor),
+                    Err(e) => {
+                        tracing::warn!(
+                            "Error parsing python signature when deploying script {}: {:?}",
+                            ns.path,
+                            e
+                        );
+                        (None, None)
+                    }
                 }
             }
+            _ => (ns.no_main_func, ns.has_preprocessor),
         }
-        _ => (ns.no_main_func, ns.has_preprocessor),
     };
 
     sqlx::query!(
@@ -1320,10 +1324,12 @@ async fn raw_script_by_path_internal(
             w_id
         )
         .fetch_one(&db)
-        .await?;
-        if exists.unwrap_or(false) {
+        .await?
+        .unwrap_or(false);
+
+        if exists {
             return Err(Error::NotFound(format!(
-                "Script {path} not visible to {} but exists",
+                "Script {path} exists but {} does not have permissions to access it",
                 authed.username
             )));
         }

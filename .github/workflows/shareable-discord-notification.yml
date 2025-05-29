@@ -84,7 +84,7 @@ jobs:
           fi
           # 2) get the first message in that thread
           messages=$(curl -H "Authorization: Bot $BOT_TOKEN" \
-            "https://discord.com/api/v10/channels/$thread_id/messages?limit=1")
+            "https://discord.com/api/v10/channels/$thread_id/messages")
           message_id=$(echo "$messages" | jq -r '.[-1].id')
 
           if [ -z "$message_id" ]; then

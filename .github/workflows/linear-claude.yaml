@@ -1,0 +1,38 @@
+name: Claude PR Assistant
+
+on:
+  repository_dispatch:
+    types: [external_claude_issue_fix]
+
+jobs:
+  claude-code-action:
+    runs-on: ubicloud-standard-8
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Process inputs
+        id: process_inputs
+        shell: bash
+        run: |
+          ISSUE_TITLE="${{ github.event.client_payload.issue_title }}"
+          INSTRUCTION="${{ github.event.client_payload.instruction }}"
+          ISSUE_BODY=$(printf '%q' "${{ github.event.client_payload.issue_body }}")
+          BASE_PROMPT="Try to fix the following issue based on the instruction given. You are provided with the issue title, issue body, and instruction. You are to fix the issue based on the instruction. You are to create a pull request to fix the issue."
+          CUSTOM_PROMPT=$(printf -v PROMPT "%s\n\nISSUE_TITLE: %s\n\nISSUE_BODY: %s\n\nINSTRUCTION: %s" "$BASE_PROMPT" "$ISSUE_TITLE" "$ISSUE_BODY" "$INSTRUCTION")
+          echo "CUSTOM_PROMPT=$CUSTOM_PROMPT" >> $GITHUB_OUTPUT
+
+      - name: Run Claude PR Action
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          timeout_minutes: "60"
+          allowed_tools: "mcp__github__create_pull_request"
+          direct_prompt: ${{ steps.process_inputs.outputs.CUSTOM_PROMPT }}

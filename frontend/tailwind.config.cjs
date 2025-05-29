@@ -1,4 +1,5 @@
 const plugin = require('tailwindcss/plugin')
+const { tailwindClasses } = require('./src/lib/components/apps/editor/componentsPanel/tailwindUtils')
 
 const lightTheme = {
 	surface: '#ffffff',
@@ -80,7 +81,8 @@ const config = {
 		'autocomplete-list-item',
 		'autocomplete-list-item-create',
 		'selected',
-		'wm-tab-selected'
+		'wm-tab-selected',
+		...tailwindClasses
 	],
 	theme: {
 		colors: {

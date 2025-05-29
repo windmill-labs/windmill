@@ -179,7 +179,7 @@
 			>
 				<div
 					style={css?.popup?.style}
-					class={twMerge('mx-24 mt-8 bg-surface rounded-lg relative', css?.popup?.class)}
+					class={twMerge('mx-24 mt-8 bg-surface wm-modal rounded-lg relative', css?.popup?.class)}
 					use:clickOutside={{
 						capture: false,
 						stopPropagation: false,
@@ -209,7 +209,7 @@
 					</div>
 
 					<div
-						class={twMerge('wm-modal h-full', 'overflow-y-auto')}
+						class={twMerge('wm-modal-container h-full', 'overflow-y-auto', css?.container?.class)}
 						on:pointerdown={(e) => {
 							e?.stopPropagation()
 							if (!$connectingInput.opened) {

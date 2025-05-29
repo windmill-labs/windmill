@@ -307,6 +307,19 @@ INSERT INTO demo VALUES (@P1, @P2);
 UPDATE demo SET col2 = @P3 WHERE col2 = @P2;
 `
 
+const DUCKDB_INIT_CODE = `-- $friends_csv (s3object)
+-- $name (text) = Ben
+
+ATTACH '$res:u/demo/amazed_postgresql' AS db (TYPE postgres);
+CREATE TABLE IF NOT EXISTS db.public.friends (name text);
+
+INSERT INTO db.public.friends
+  SELECT name FROM read_csv($friends_csv);
+
+SELECT 'Hello ' || $name || ', you have ' || 
+  (SELECT COUNT(*) FROM read_csv($friends_csv)) || ' new friends !';
+`
+
 const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {
 	demo(name1: $name1, name2: $name2, name3: $name3) {
 		name1,
@@ -1134,6 +1147,9 @@ export const INITIAL_CODE = {
 	mssql: {
 		script: MSSQL_INIT_CODE
 	},
+	duckdb: {
+		script: DUCKDB_INIT_CODE
+	},
 	graphql: {
 		script: GRAPHQL_INIT_CODE
 	},
@@ -1258,6 +1274,8 @@ export function initialCode(
 		return INITIAL_CODE.mssql.script
 	} else if (language == 'graphql') {
 		return INITIAL_CODE.graphql.script
+	} else if (language == 'duckdb') {
+		return INITIAL_CODE.duckdb.script
 	} else if (language == 'php') {
 		return INITIAL_CODE.php.script
 	} else if (language == 'rust') {

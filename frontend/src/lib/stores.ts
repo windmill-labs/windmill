@@ -50,6 +50,12 @@ export const tutorialsToDo = writable<number[]>([])
 export const globalEmailInvite = writable<string>('')
 export const awarenessStore = writable<Record<string, string>>(undefined)
 export const enterpriseLicense = writable<string | undefined>(undefined)
+export const whitelabelNameStore = derived([enterpriseLicense], ([enterpriseLicense]) => {
+	if (enterpriseLicense?.endsWith('__whitelabel')) {
+		return enterpriseLicense.split('__whitelabel')[0]
+	}
+	return undefined
+})
 export const workerTags = writable<string[] | undefined>(undefined)
 export const usageStore = writable<number>(0)
 export const workspaceUsageStore = writable<number>(0)

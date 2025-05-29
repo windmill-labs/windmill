@@ -22,7 +22,7 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::common::{build_args_values, s3_mode_args_to_worker_data, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
-use crate::AuthedClient;
+use windmill_common::client::AuthedClient;
 
 use serde::Deserializer;
 

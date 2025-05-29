@@ -3,43 +3,47 @@
 	import {
 		AppService,
 		FlowService,
-		IndexSearchService,
 		RawAppService,
 		ScriptService,
 		type Flow,
 		type ListableApp,
 		type ListableRawApp,
-		type Script
+		type Script,
+
+		type SearchJobsIndexResponse
+
 	} from '$lib/gen'
-	import { clickOutside, displayDateOnly, isMac, sendUserToast } from '$lib/utils'
-	import TimeAgo from '../TimeAgo.svelte'
+	import { clickOutside, isMac } from '$lib/utils'
 	import {
 		AlertTriangle,
 		BoxesIcon,
 		CalendarIcon,
 		Code2Icon,
+		Database,
 		DollarSignIcon,
 		HomeIcon,
 		LayoutDashboardIcon,
-		Loader2,
 		PlayIcon,
+		Route,
 		Search,
-		SearchCode
+		SearchCode,
+		Unplug
 	} from 'lucide-svelte'
-	import JobPreview from '../runs/JobPreview.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
 	import { twMerge } from 'tailwind-merge'
 	import ContentSearchInner from '../ContentSearchInner.svelte'
 	import { goto } from '$app/navigation'
 	import QuickMenuItem from '../search/QuickMenuItem.svelte'
-	import { devopsRole, enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { devopsRole, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import uFuzzy from '@leeoniya/ufuzzy'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
 	import { scroll_into_view_if_needed_polyfill } from '../multiselect/utils'
 	import { Alert } from '../common'
 	import Popover from '../Popover.svelte'
 	import Logs from 'lucide-svelte/icons/logs'
+	import { AwsIcon, GoogleCloudIcon, KafkaIcon, MqttIcon, NatsIcon } from '../icons'
+	import RunsSearch from './RunsSearch.svelte'
 
 	let open: boolean = false
 
@@ -63,53 +67,135 @@
 		action: () => void
 		icon?: any
 		shortcutKey?: string
+		disabled?: boolean
 	}
 	let switchModeItems: quickMenuItem[] = [
 		{
 			search_id: 'switchto:run-search',
-			label: 'Search across completed runs',
+			label: 'Search across completed runs' + (!$enterpriseLicense ? '' : ' (EE)'),
 			action: () => switchMode('runs'),
 			shortcutKey: RUNS_PREFIX,
-			icon: Search
+			icon: Search,
+			disabled: false
 		},
 		{
 			search_id: 'switchto:content-search',
 			label: 'Search scripts/flows/apps based on content',
 			action: () => switchMode('content'),
 			shortcutKey: CONTENT_SEARCH_PREFIX,
-			icon: SearchCode
+			icon: SearchCode,
+			disabled: false
 		}
 	]
+
+	// These items are searchable but do not appear initially on the menu.
+	let hiddenMenuItems = [
+		{
+			search_id: 'nav:http_routes',
+			label: 'Go to HTTP routes',
+			action: (newtab: boolean = false) => gotoPage('/routes', newtab),
+			icon: Route,
+			disabled: $userStore?.operator
+		},
+		{
+			search_id: 'nav:web_sockets',
+			label: 'Go to WebSockets',
+			action: (newtab: boolean = false) => gotoPage('/websocket_triggers', newtab),
+			icon: Unplug,
+			disabled: $userStore?.operator
+		},
+		{
+			search_id: 'nav:postgres_triggers',
+			label: 'Go to Postgres triggers',
+			action: (newtab: boolean = false) => gotoPage('/postgres_triggers', newtab),
+			icon: Database,
+			disabled: $userStore?.operator
+		},
+		{
+			search_id: 'nav:kafka_triggers',
+			label: 'Go to Kafka triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
+			action: (newtab: boolean = false) => gotoPage('/kafka_triggers', newtab),
+			icon: KafkaIcon,
+			disabled: $userStore?.operator
+		},
+		{
+			search_id: 'nav:nats_triggers',
+			label: 'Go to NATS triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
+			action: (newtab: boolean = false) => gotoPage('/nats_triggers', newtab),
+			icon: NatsIcon,
+			disabled: $userStore?.operator
+		},
+		{
+			search_id: 'nav:sqs_triggers',
+			label: 'Go to SQS triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
+			action: (newtab: boolean = false) => gotoPage('/sqs_triggers', newtab),
+			icon: AwsIcon,
+			disabled: $userStore?.operator
+		},
+		{
+			search_id: 'nav:gcp_pub_sub',
+			label: 'Go to GCP Pub/Sub' + (!$enterpriseLicense ? '' : ' (EE)'),
+			action: (newtab: boolean = false) => gotoPage('/gcp_triggers', newtab),
+			icon: GoogleCloudIcon,
+			disabled: $userStore?.operator
+		},
+		{
+			search_id: 'nav:mqtt_triggers',
+			label: 'Go to MQTT triggers',
+			action: (newtab: boolean = false) => gotoPage('/mqtt_triggers', newtab),
+			icon: MqttIcon,
+			disabled: $userStore?.operator
+		}
+	]
+
 	let defaultMenuItems: quickMenuItem[] = [
-		{ search_id: 'nav:home', label: 'Go to Home', action: () => gotoPage('/'), icon: HomeIcon },
-		{ search_id: 'nav:runs', label: 'Go to Runs', action: () => gotoPage('/runs'), icon: PlayIcon },
+		{
+			search_id: 'nav:home',
+			label: 'Go to Home',
+			action: (newtab: boolean = false) => gotoPage('/', newtab),
+			icon: HomeIcon,
+			disabled: false
+		},
+		{
+			search_id: 'nav:runs',
+			label: 'Go to Runs',
+			action: (newtab: boolean = false) => gotoPage('/runs', newtab),
+			icon: PlayIcon,
+			disabled: false
+		},
 		{
 			search_id: 'nav:variables',
 			label: 'Go to Variables',
-			action: () => gotoPage('/variables'),
-			icon: DollarSignIcon
+			action: (newtab: boolean = false) => gotoPage('/variables', newtab),
+			icon: DollarSignIcon,
+			disabled: false
 		},
 		{
 			search_id: 'nav:resources',
 			label: 'Go to Resources',
-			action: () => gotoPage('/resources'),
-			icon: BoxesIcon
+			action: (newtab: boolean = false) => gotoPage('/resources', newtab),
+			icon: BoxesIcon,
+			disabled: false
 		},
 		{
-			search_id: 'nav:schedules',
+			search_id: 'nav:schedules_triggers',
 			label: 'Go to Schedules',
-			action: () => gotoPage('/schedules'),
-			icon: CalendarIcon
+			action: (newtab: boolean = false) => gotoPage('/schedules', newtab),
+			icon: CalendarIcon,
+			disabled: false
 		},
 		...switchModeItems,
 		{
 			search_id: 'nav:service_logs',
 			label: 'Explore windmill service logs',
-			action: () => gotoPage('/service_logs'),
+			action: (newtab: boolean = false) => gotoPage('/service_logs', newtab),
 			shortcutKey: LOGS_PREFIX,
-			icon: Logs
+			icon: Logs,
+			disabled: !$devopsRole
 		}
 	]
+
+	let defaultMenuItemsWithHidden = [...defaultMenuItems, ...hiddenMenuItems]
 
 	let itemMap = {
 		default: defaultMenuItems as any[],
@@ -152,6 +238,7 @@
 
 	let uf = new uFuzzy(opts)
 	let defaultMenuItemLabels = defaultMenuItems.map((item) => item.label)
+	let defaultMenuItemAndHiddenLabels = defaultMenuItemsWithHidden.map((item) => item.label)
 	let switchModeItemLabels = switchModeItems.map((item) => item.label)
 
 	function fuzzyFilter(filter: string, items: any[], itemsPlainText: string[]) {
@@ -177,12 +264,8 @@
 		return r
 	}
 
-	let debounceTimeout: any = undefined
-	const debouncePeriod: number = 1000
-	let loadingCompletedRuns: boolean = false
 
 	let queryParseErrors: string[] = []
-	let indexMetadata: any = {}
 
 	async function handleSearch() {
 		queryParseErrors = []
@@ -210,7 +293,14 @@
 		}
 
 		if (tab === 'default') {
-			itemMap['default'] = fuzzyFilter(searchTerm, defaultMenuItems, defaultMenuItemLabels)
+			if (searchTerm === '')
+				itemMap['default'] = fuzzyFilter(searchTerm, defaultMenuItems, defaultMenuItemLabels)
+			else
+				itemMap['default'] = fuzzyFilter(
+					searchTerm,
+					defaultMenuItemsWithHidden,
+					defaultMenuItemAndHiddenLabels
+				)
 			if (combinedItems) {
 				itemMap['default'] = itemMap['default'].concat(
 					fuzzyFilter(
@@ -220,6 +310,7 @@
 					)
 				)
 			}
+			itemMap['default'] = itemMap['default'].filter((e) => !e.disabled)
 		}
 		if (tab === 'switch-mode') {
 			itemMap['switch-mode'] = fuzzyFilter(
@@ -229,26 +320,8 @@
 			)
 		}
 		if (tab === 'runs') {
-			const s = removePrefix(searchTerm, RUNS_PREFIX)
-			clearTimeout(debounceTimeout)
-			loadingCompletedRuns = true
-			debounceTimeout = setTimeout(async () => {
-				clearTimeout(debounceTimeout)
-				let searchResults
-				try {
-					searchResults = await IndexSearchService.searchJobsIndex({
-						searchQuery: s,
-						workspace: $workspaceStore!
-					})
-					itemMap['runs'] = searchResults.hits
-					queryParseErrors = searchResults.query_parse_errors
-					indexMetadata = searchResults.index_metadata
-				} catch (e) {
-					sendUserToast(e.body, true)
-				}
-				loadingCompletedRuns = false
-				selectedItem = selectItem(0)
-			}, debouncePeriod)
+				await tick()
+				runsSearch?.handleRunSearch(removePrefix(searchTerm, RUNS_PREFIX))
 		}
 		selectedItem = selectItem(0)
 	}
@@ -313,7 +386,7 @@
 		textInput.focus()
 	}
 
-	function gotoWindmillItemPage(e: TableAny) {
+	function gotoWindmillItemPage(e: TableAny, newtab: boolean = false) {
 		let path: string
 		switch (e.type) {
 			case 'flow':
@@ -331,13 +404,17 @@
 			default:
 				path = '/'
 		}
-		gotoPage(path)
+		gotoPage(path, newtab)
 	}
 
-	function gotoPage(path: string) {
-		open = false
+	function gotoPage(path: string, newtab: boolean = false) {
 		searchTerm = ''
-		goto(path)
+		if (!newtab) {
+			open = false
+			goto(path)
+		} else {
+			window.open(path, "_blank")
+		}
 	}
 
 	let mouseMoved: boolean = false
@@ -500,6 +577,12 @@
 			return 'max-h-[60vh]'
 		}
 	}
+
+	let runsSearch: RunsSearch
+	let runSearchRemainingCount: number | undefined = undefined
+	let runSearchTotalCount: number | undefined = undefined
+	let indexMetadata: SearchJobsIndexResponse["index_metadata"] = undefined
+
 </script>
 
 {#if open}
@@ -552,13 +635,15 @@
 				</div>
 				<div class="overflow-y-auto relative {maxModalHeight(tab)}">
 					{#if tab === 'default' || tab === 'switch-mode'}
-						{@const items = (itemMap[tab] ?? []).filter((e) => defaultMenuItems.includes(e))}
+						{@const items = (itemMap[tab] ?? []).filter((e) =>
+							defaultMenuItemsWithHidden.includes(e)
+						)}
 						{#if items.length > 0}
 							<div class={tab === 'switch-mode' ? 'p-2' : 'p-2 border-b'}>
 								{#each items as el}
 									<QuickMenuItem
-										on:select={el?.action}
-										on:hover={() => (selectedItem = el)}
+										onselect={(shift) => el?.action(shift)}
+										onhover={() => (selectedItem = el)}
 										id={el?.search_id}
 										hovered={el?.search_id === selectedItem?.search_id}
 										label={el?.label}
@@ -579,8 +664,10 @@
 								</div>
 								{#each (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)) as el}
 									<QuickMenuItem
-										on:select={() => gotoWindmillItemPage(el)}
-										on:hover={() => (selectedItem = el)}
+										onselect={(shift) => {
+											gotoWindmillItemPage(el, shift)
+										}}
+										onhover={() => (selectedItem = el)}
 										id={el?.search_id}
 										hovered={el?.path === selectedItem?.path}
 										label={(el.summary ? `${el.summary} - ` : '') +
@@ -617,7 +704,7 @@
 								</Alert>
 							{:else}
 								<QuickMenuItem
-									on:select={() =>
+									onselect={() =>
 										gotoPage(
 											`/service_logs?query=${encodeURIComponent(removePrefix(searchTerm, '!'))}`
 										)}
@@ -631,138 +718,20 @@
 							{/if}
 						</div>
 					{:else if tab === 'runs'}
-						<div class="flex h-full p-2 divide-x">
-							{#if loadingCompletedRuns}
-								<div class="flex w-full justify-center items-center h-48">
-									<div class="text-tertiary text-center">
-										<Loader2 size={34} class="animate-spin" />
-									</div>
-								</div>
-							{:else if itemMap['runs'] && itemMap['runs'].length > 0}
-								<div class="w-4/12 overflow-y-auto max-h-[70vh]">
-									{#each itemMap['runs'] ?? [] as r}
-										<QuickMenuItem
-											on:select={() => {
-												selectedItem = r
-												selectedWorkspace = r?.document.workspace_id[0]
-											}}
-											on:keyboardOnlySelect={() => {
-												open = false
-												goto(`/run/${r?.document.id[0]}`)
-											}}
-											id={r?.document.id[0]}
-											hovered={selectedItem && r?.document.id[0] === selectedItem?.document.id[0]}
-											icon={r?.icon}
-											containerClass="rounded-md px-2 py-1 my-2"
-											bind:mouseMoved
-										>
-											<svelte:fragment slot="itemReplacement">
-												<div
-													class="w-full flex flex-row items-center gap-4 transition-all"
-												>
-													<div
-														class="rounded-full w-2 h-2 {r?.document.success[0]
-															? 'bg-green-400'
-															: 'bg-red-400'}"
-													></div>
-													<div class="flex flex-col gap-2">
-														<div class="text-xs"> {r?.document.script_path} </div>
-														<div class="flex flex-row gap-2">
-															<div
-																class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
-															>
-																{displayDateOnly(new Date(r?.document.created_at[0]))}
-															</div>
-															<div
-																class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
-															>
-																<TimeAgo date={r?.document.created_at[0] ?? ''} />
-															</div>
-														</div>
-													</div>
-												</div>
-											</svelte:fragment>
-										</QuickMenuItem>
-									{/each}
-								</div>
-								<div class="w-8/12 max-h-[70vh]">
-									{#if selectedItem === undefined}
-										Select a result to preview
-									{:else}
-										<div class="h-[95%] overflow-y-scroll">
-											<JobPreview
-												id={selectedItem?.document?.id[0]}
-												workspace={selectedWorkspace}
-											/>
-										</div>
-									{/if}
-									<div class="flex flex-row pt-3 pl-4 items-center text-xs text-secondary">
-										{#if indexMetadata.indexed_until}
-											<span class="px-2">
-												Most recently indexed job was created at <TimeAgo
-													agoOnlyIfRecent
-													date={indexMetadata.indexed_until || ''}
-												/>
-											</span>
-										{/if}
-										{#if indexMetadata.lost_lock_ownership}
-											<Popover notClickable placement="top">
-												<AlertTriangle size={16} class="text-gray-500" />
-												<svelte:fragment slot="text">
-													The current indexer is no longer indexing new jobs. This is most likely
-													because of an ongoing deployment and indexing will resume once it's
-													complete.
-												</svelte:fragment>
-											</Popover>
-										{/if}
-									</div>
-								</div>
-							{:else}
-								<div class="flex flex-col w-full justify-center items-center h-48">
-									<div class="text-tertiary text-center">
-										{#if searchTerm === RUNS_PREFIX}
-											<div class="text-2xl font-bold">Enter your search terms</div>
-											<div class="text-sm"
-												>Start typing to do full-text search across completed runs</div
-											>
-										{:else}
-											<div class="text-2xl font-bold">No runs found</div>
-											<div class="text-sm">There were no completed runs that match your query</div>
-										{/if}
-										<div class="text-sm">
-											Note that new runs might take a while to become searchable (by default ~5min)
-										</div>
-										{#if !$enterpriseLicense}
-											<div class="py-6"></div>
-
-											<Alert title="This is an EE feature" type="warning">
-												Full-text search on jobs is only available on EE.
-											</Alert>
-										{/if}
-									</div>
-									<div class="flex flex-row pt-10 text-xs text-secondary">
-										{#if indexMetadata.indexed_until}
-											<span class="px-2">
-												Most recently indexed job was created at <TimeAgo
-													agoOnlyIfRecent
-													date={indexMetadata.indexed_until}
-												/>
-											</span>
-										{/if}
-										{#if indexMetadata.lost_lock_ownership}
-											<Popover notClickable placement="top">
-												<AlertTriangle size={16} class="text-gray-500" />
-												<svelte:fragment slot="text">
-													The current indexer is no longer indexing new jobs. This is most likely
-													because of an ongoing deployment and indexing will resume once it's
-													complete.
-												</svelte:fragment>
-											</Popover>
-										{/if}
-									</div>
-								</div>
-							{/if}
-						</div>
+								<RunsSearch
+												bind:queryParseErrors
+												bind:this={runsSearch}
+												bind:selectedItem
+												bind:selectedWorkspace
+												bind:mouseMoved
+												bind:loadedRuns={itemMap['runs']}
+												bind:open
+												{selectItem}
+												searchTerm={removePrefix(searchTerm, RUNS_PREFIX)}
+												bind:runSearchRemainingCount
+												bind:runSearchTotalCount
+												bind:indexMetadata
+								/>
 					{/if}
 				</div>
 			</div>

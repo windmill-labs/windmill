@@ -1,4 +1,6 @@
 <script lang="ts">
+	import ObjectViewer from './ObjectViewer.svelte'
+
 	import { copyToClipboard, truncate } from '$lib/utils'
 
 	import { createEventDispatcher } from 'svelte'
@@ -12,31 +14,44 @@
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import Popover from '../Popover.svelte'
 
-	export let json: any
-	export let level = 0
-	export let currentPath: string = ''
-	export let pureViewer = false
-	export let collapsed = (level != 0 && level % 3 == 0) || Array.isArray(json)
-	export let rawKey = false
-	export let topBrackets = false
-	export let allowCopy = true
-	export let collapseLevel: number | undefined = undefined
-	export let prefix = ''
-	export let expandedEvenOnLevel0: string | undefined = undefined
-	export let connecting = false
+	interface Props {
+		json: any
+		level?: number
+		currentPath?: string
+		pureViewer?: boolean
+		collapsed?: any
+		rawKey?: boolean
+		topBrackets?: boolean
+		allowCopy?: boolean
+		collapseLevel?: number | undefined
+		prefix?: string
+		expandedEvenOnLevel0?: string | undefined
+		connecting?: boolean
+	}
 
-	let jsonFiltered = json
+	let {
+		json,
+		level = 0,
+		currentPath = '',
+		pureViewer = false,
+		collapsed = $bindable((level != 0 && level % 3 == 0) || (Array.isArray(json) && level != 0)),
+		rawKey = false,
+		topBrackets = false,
+		allowCopy = true,
+		collapseLevel = undefined,
+		prefix = '',
+		expandedEvenOnLevel0 = undefined,
+		connecting = false
+	}: Props = $props()
 
-	$: jsonFiltered = onJsonChange(json)
+	let jsonFiltered = $state(json)
 
-	let search = ''
-	let searchOpen = false
+	let search = $state('')
+	let searchOpen = $state(false)
 
 	function onJsonChange(json: any) {
 		return searchOpen && search ? keepByKeyOrValue(json, search) : json
 	}
-
-	$: search != undefined && searchOpen && onSearch()
 
 	let searchTimeout: NodeJS.Timeout | undefined = undefined
 	function onSearch() {
@@ -48,16 +63,10 @@
 		}, 100)
 	}
 
-	let s3FileViewer: S3FilePicker
-	let hoveredKey: string | null = null
+	let s3FileViewer: S3FilePicker | undefined = $state()
+	let hoveredKey: string | null = $state(null)
 
 	const collapsedSymbol = '...'
-	$: keys = ['object', 's3object'].includes(getTypeAsString(jsonFiltered))
-		? Object.keys(jsonFiltered)
-		: []
-	$: isArray = Array.isArray(jsonFiltered)
-	$: openBracket = isArray ? '[' : '{'
-	$: closeBracket = isArray ? ']' : '}'
 
 	export function getTypeAsString(arg: any): string {
 		if (arg === null) {
@@ -99,16 +108,64 @@
 		dispatch('select', fullKey)
 	}
 
-	$: keyLimit = isArray ? 5 : 100
-
-	$: fullyCollapsed = keys.length > 1 && collapsed
-
 	function clearSearch() {
 		searchOpen = false
 		jsonFiltered = json
 		search = ''
 	}
+	$effect(() => {
+		jsonFiltered = onJsonChange(json)
+	})
+	$effect(() => {
+		search != undefined && searchOpen && onSearch()
+	})
+	let keys = $derived(
+		['object', 's3object'].includes(getTypeAsString(jsonFiltered)) ? Object.keys(jsonFiltered) : []
+	)
+	let isArray = $derived(Array.isArray(jsonFiltered))
+	let openBracket = $derived(isArray ? '[' : '{')
+	let closeBracket = $derived(isArray ? ']' : '}')
+	let keyLimit = $derived(isArray ? 5 : 100)
+	let fullyCollapsed = $derived(keys.length > 1 && collapsed)
 </script>
+
+{#snippet renderScalar(k: string, v: any)}
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<span
+		class="val inline text-left {pureViewer ? 'cursor-auto' : ''} rounded pl-0.5 {getTypeAsString(
+			v
+		)}"
+		onclick={() => {
+			selectProp(k, v, true)
+		}}
+		title={JSON.stringify(v)}
+	>
+		{#if v === NEVER_TESTED_THIS_FAR}
+			<span class="text-2xs text-tertiary font-normal"> Test the flow to see a value </span>
+		{:else if v == undefined}
+			<span class="text-2xs">undefined</span>
+		{:else if v == null}
+			<span class="text-2xs">null</span>
+		{:else if typeof v == 'string'}
+			<span class="text-2xs">"{truncate(v, 200)}"</span>
+		{:else if typeof v == 'number' && Number.isInteger(v) && !Number.isSafeInteger(v)}
+			<span class="inline-flex flex-row gap-1 items-center text-2xs">
+				{truncate(JSON.stringify(v), 200)}
+				<Popover>
+					<TriangleAlertIcon size={14} class="text-yellow-500 mb-0.5" />
+					{#snippet text()}
+						This number is too large for the frontend to handle correctly and may be rounded.
+					{/snippet}
+				</Popover>
+			</span>
+		{:else}
+			<span class="text-2xs">
+				{truncate(JSON.stringify(v), 200)}
+			</span>
+		{/if}
+	</span>
+{/snippet}
 
 <Portal name="object-viewer">
 	<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
@@ -118,10 +175,11 @@
 		{#if searchOpen}
 			<div class="px-1 relative">
 				<input
-					on:keydown|stopPropagation={(event) => {
-						if (event?.key === 'Escape') {
+					onkeydown={(event) => {
+						if ((event as KeyboardEvent)?.key === 'Escape') {
 							clearSearch()
 						}
+						event.stopPropagation()
 					}}
 					type="text"
 					class="!h-6 !text-2xs mt-0.5"
@@ -130,7 +188,7 @@
 				/>
 				<button
 					class="absolute right-2 top-1 rounded-full hover:bg-surface-hover focus:bg-surface-hover text-secondary p-0.5"
-					on:click={() => {
+					onclick={() => {
 						clearSearch()
 					}}><X size={12} /></button
 				>
@@ -147,12 +205,13 @@
 		{/if}
 	</div>
 {/if}
+
 {#if keys.length > 0}
 	{#if !fullyCollapsed}
 		<span>
 			{#if level != 0 && keys.length > 1}
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<!-- svelte-ignore a11y-no-static-element-interactions -->
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
 
 				<Button
 					color="light"
@@ -198,7 +257,7 @@
 						<span class="text-2xs -ml-0.5 text-tertiary">:</span>
 
 						{#if getTypeAsString(jsonFiltered[key]) === 'object'}
-							<svelte:self
+							<ObjectViewer
 								{connecting}
 								json={jsonFiltered[key]}
 								level={level + 1}
@@ -212,50 +271,13 @@
 									: undefined}
 							/>
 						{:else}
-							<!-- svelte-ignore a11y-click-events-have-key-events -->
-							<!-- svelte-ignore a11y-no-static-element-interactions -->
-							<span
-								class="val inline text-left {pureViewer
-									? 'cursor-auto'
-									: ''} rounded pl-0.5 {getTypeAsString(jsonFiltered[key])}"
-								on:click={() => {
-									selectProp(key, jsonFiltered[key], true)
-								}}
-								title={JSON.stringify(jsonFiltered[key])}
-							>
-								{#if jsonFiltered[key] === NEVER_TESTED_THIS_FAR}
-									<span class="text-2xs text-tertiary font-normal">
-										Test the flow to see a value
-									</span>
-								{:else if jsonFiltered[key] == undefined}
-									<span class="text-2xs">undefined</span>
-								{:else if jsonFiltered[key] == null}
-									<span class="text-2xs">null</span>
-								{:else if typeof jsonFiltered[key] == 'string'}
-									<span class="text-2xs">"{truncate(jsonFiltered[key], 200)}"</span>
-								{:else if typeof jsonFiltered[key] == 'number' && Number.isInteger(jsonFiltered[key]) && !Number.isSafeInteger(jsonFiltered[key])}
-									<span class="inline-flex flex-row gap-1 items-center text-2xs">
-										{truncate(JSON.stringify(jsonFiltered[key]), 200)}
-										<Popover>
-											<TriangleAlertIcon size={14} class="text-yellow-500 mb-0.5" />
-											<svelte:fragment slot="text">
-												This number is too large for the frontend to handle correctly and may be
-												rounded.
-											</svelte:fragment>
-										</Popover>
-									</span>
-								{:else}
-									<span class="text-2xs">
-										{truncate(JSON.stringify(jsonFiltered[key]), 200)}
-									</span>
-								{/if}
-							</span>
+							{@render renderScalar(key, jsonFiltered[key])}
 						{/if}
 					</li>
 				{/each}
 				{#if keys.length > keyLimit}
 					{@const increment = Math.min(100, keys.length - keyLimit)}
-					<button on:click={() => (keyLimit += increment)} class="text-2xs px-2 text-secondary">
+					<button onclick={() => (keyLimit += increment)} class="text-2xs px-2 text-secondary">
 						{keyLimit}/{keys.length}: Load {increment} more...
 					</button>
 				{/if}
@@ -275,7 +297,7 @@
 						</a>
 						<button
 							class="text-secondary underline text-2xs whitespace-nowrap ml-1"
-							on:click={() => {
+							onclick={() => {
 								s3FileViewer?.open?.(jsonFiltered)
 							}}
 							><span class="flex items-center gap-1"><PanelRightOpen size={12} />open preview</span>
@@ -286,8 +308,8 @@
 		</span>
 	{/if}
 
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 
 	{#if fullyCollapsed}
 		<span>
@@ -307,6 +329,8 @@
 	<span class="text-primary">{openBracket}{closeBracket}</span>
 {:else if jsonFiltered == undefined}
 	<span class="text-tertiary text-2xs ml-2">undefined</span>
+{:else if typeof jsonFiltered != 'object'}
+	{@render renderScalar('', jsonFiltered)}
 {:else}
 	<span class="text-tertiary text-2xs ml-2">No items</span>
 {/if}

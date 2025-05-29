@@ -4,6 +4,7 @@ use futures::future::BoxFuture;
 use futures::{FutureExt, StreamExt};
 use reqwest::Client;
 use serde_json::{json, value::RawValue, Value};
+use windmill_common::client::AuthedClient;
 use windmill_common::error::to_anyhow;
 use windmill_common::s3_helpers::convert_json_line_stream;
 use windmill_common::worker::Connection;
@@ -16,15 +17,12 @@ use windmill_queue::CanceledBy;
 
 use serde::Deserialize;
 
+use crate::common::{build_args_values, resolve_job_timeout};
 use crate::common::{
     build_http_client, s3_mode_args_to_worker_data, OccupancyMetrics, S3ModeWorkerData,
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
-use crate::{
-    common::{build_args_values, resolve_job_timeout},
-    AuthedClient,
-};
 
 use gcp_auth::{AuthenticationManager, CustomServiceAccount};
 

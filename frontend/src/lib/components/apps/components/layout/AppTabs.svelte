@@ -151,10 +151,11 @@
 				)}
 				style={css?.tabRow?.style}
 			>
-				{#each tabs ?? [] as res}
+				{#each tabs ?? [] as res, index}
 					<button
 						on:pointerdown|stopPropagation
-						on:click={() => (selected = res)}
+						on:click={() => !resolvedDisabledTabs[index] && (selected = res)}
+						disabled={resolvedDisabledTabs[index]}
 						class={twMerge(
 							'rounded-sm !truncate text-sm  hover:text-primary px-1 py-2',
 							css?.allTabs?.class,
@@ -165,7 +166,8 @@
 										css?.selectedTab?.class,
 										'wm-tabs-selectedTab'
 									)
-								: ''
+								: '',
+							resolvedDisabledTabs[index] ? 'opacity-50 cursor-not-allowed hover:text-secondary' : ''
 						)}
 						style={selected == res
 							? [css?.allTabs?.style, css?.selectedTab?.style].filter(Boolean).join(';')
@@ -182,7 +184,8 @@
 					<div class="border-b">
 						<button
 							on:pointerdown|stopPropagation
-							on:click={() => (selected = res)}
+							on:click={() => !resolvedDisabledTabs[index] && (selected = res)}
+							disabled={resolvedDisabledTabs[index]}
 							class={twMerge(
 								'w-full text-left bg-surface !truncate text-sm hover:text-primary px-1 py-2',
 								css?.allTabs?.class,
@@ -193,7 +196,8 @@
 											css?.selectedTab?.class,
 											'wm-tabs-selectedTab'
 										)
-									: 'text-secondary'
+									: 'text-secondary',
+								resolvedDisabledTabs[index] ? 'opacity-50 cursor-not-allowed hover:text-secondary' : ''
 							)}
 						>
 							<span class="mr-2 w-8 font-mono">{selected == res ? '-' : '+'}</span>

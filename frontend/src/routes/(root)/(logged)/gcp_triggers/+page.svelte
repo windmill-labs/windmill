@@ -263,7 +263,7 @@
 </ConfirmationModal>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<GcpTriggerEditor on:update={loadTriggers} bind:this={gcpTriggerEditor} />
+<GcpTriggerEditor onUpdate={loadTriggers} bind:this={gcpTriggerEditor} />
 
 <SearchItems
 	{filter}

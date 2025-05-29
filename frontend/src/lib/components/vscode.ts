@@ -4,7 +4,7 @@ import { initServices } from 'monaco-languageclient/vscode/services'
 import getMonarchServiceOverride from '@codingame/monaco-vscode-monarch-service-override'
 import '@codingame/monaco-vscode-standalone-typescript-language-features'
 import getConfigurationServiceOverride from '@codingame/monaco-vscode-configuration-service-override'
-import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
+import { editor as meditor, Uri as mUri } from 'monaco-editor'
 
 export let isInitialized = false
 export let isInitializing = false
@@ -265,5 +265,12 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 			console.log('Waiting for initialization of monaco services')
 			await new Promise((resolve) => setTimeout(resolve, 100))
 		}
+	}
+}
+
+export function keepModelAroundToAvoidDisposalOfWorkers() {
+	const keepEditorUri = mUri.parse('file:///avoidDisposalOfWorkers')
+	if (!meditor?.getModel(keepEditorUri)) {
+		meditor.createModel('', 'typescript', keepEditorUri)
 	}
 }

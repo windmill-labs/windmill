@@ -57,7 +57,6 @@ use {
 use crate::{
     args::RawWebhookArgs,
     db::{ApiAuthed, DB},
-    trigger_helpers::{RunnableFormat, RunnableFormatVersion},
     users::fetch_api_authed,
     utils::RunnableKind,
 };
@@ -76,11 +75,12 @@ use sqlx::types::Json as SqlxJson;
 use windmill_common::{
     db::UserDB,
     error::{JsonResult, Result},
+    triggers::{RunnableFormat, RunnableFormatVersion, TriggerKind},
     utils::{not_found_if_none, paginate, Pagination, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
 
-use windmill_queue::{PushArgs, PushArgsOwned, TriggerKind};
+use windmill_queue::{PushArgs, PushArgsOwned};
 
 const KEEP_LAST: i64 = 20;
 

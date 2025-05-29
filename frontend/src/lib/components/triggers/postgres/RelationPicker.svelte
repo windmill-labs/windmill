@@ -13,6 +13,7 @@
 
 	export let relations: Relations[] | undefined = undefined
 	export let can_write: boolean = true
+	export let disabled: boolean = false
 	let selected: 'all' | 'specific' = relations && relations.length > 0 ? 'specific' : 'all'
 	let cached: Relations[] | undefined = relations
 
@@ -51,6 +52,7 @@
 				}}
 				bind:selected
 				let:item
+				{disabled}
 			>
 				<ToggleButton value="all" label="All Tables" {item} />
 				<ToggleButton value="specific" label="Specific Tables" {item} />
@@ -75,7 +77,7 @@
 								</Tooltip>
 							</svelte:fragment>
 
-							<input class="mt-1" type="text" bind:value={v.schema_name} />
+							<input class="mt-1" type="text" bind:value={v.schema_name} {disabled} />
 						</Label>
 						<div class="flex flex-col w-full gap-4 items-center p-5">
 							{#each v.table_to_track as table_to_track, j}
@@ -90,6 +92,7 @@
 											type="text"
 											bind:value={table_to_track.table_name}
 											class="!bg-surface mt-1"
+											{disabled}
 										/>
 									</Label>
 									<!-- svelte-ignore a11y-label-has-associated-control -->
@@ -128,6 +131,7 @@
 												selected={table_to_track.columns_name ?? []}
 												placeholder="Select columns"
 												--sms-options-margin="4px"
+												{disabled}
 												onchange={(e) => {
 													const option = e.option?.toString()
 													if (e.type === 'add') {
@@ -181,6 +185,7 @@
 											type="text"
 											bind:value={table_to_track.where_clause}
 											class="!bg-surface mt-1"
+											{disabled}
 										/>
 									</Label>
 									<Button
@@ -194,6 +199,7 @@
 										}}
 										iconOnly
 										startIcon={{ icon: Trash }}
+										{disabled}
 									/>
 								</div>
 							{/each}
@@ -202,12 +208,14 @@
 								on:add={({ detail }) => {
 									addTable(detail.name, i)
 								}}
+								{disabled}
 							>
 								<svelte:fragment slot="trigger">
 									<Button
 										wrapperClasses="w-full border border-dashed rounded-md"
 										color="light"
 										size="xs"
+										{disabled}
 										startIcon={{ icon: Plus }}
 										nonCaptureEvent
 									>
@@ -217,7 +225,6 @@
 							</AddPropertyFormV2>
 						</div>
 					</div>
-
 					<Button
 						variant="border"
 						color="light"
@@ -229,6 +236,7 @@
 								relations = relations.filter((_, index) => index !== i)
 							}
 						}}
+						{disabled}
 					>
 						<Trash size={14} />
 					</Button>
@@ -258,12 +266,13 @@
 							invalidRelations(appendedRelations, {
 								showError: true,
 								trackSchemaTableError: false
-							}) === false
+							}) === ''
 						) {
 							relations = appendedRelations
 						}
 					}
 				}}
+				{disabled}
 			>
 				<svelte:fragment slot="trigger">
 					<Button
@@ -271,7 +280,7 @@
 						color="light"
 						size="xs"
 						btnClasses="w-full"
-						disabled={!can_write}
+						disabled={!can_write || disabled}
 						startIcon={{ icon: Plus }}
 						nonCaptureEvent
 					>
