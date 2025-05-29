@@ -34,7 +34,7 @@
 		level = 0,
 		currentPath = '',
 		pureViewer = false,
-		collapsed = $bindable((level != 0 && level % 3 == 0) || Array.isArray(json)),
+		collapsed = $bindable((level != 0 && level % 3 == 0) || (Array.isArray(json) && level != 0)),
 		rawKey = false,
 		topBrackets = false,
 		allowCopy = true,
@@ -205,6 +205,7 @@
 		{/if}
 	</div>
 {/if}
+
 {#if keys.length > 0}
 	{#if !fullyCollapsed}
 		<span>

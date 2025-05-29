@@ -21,9 +21,19 @@
 		  }
 		| undefined
 
-	let selected: 'string' | 'number' | 'object' | 'bytes' | 'enum' | 'resource' | undefined =
+	let selected:
+		| 'string'
+		| 'number'
+		| 'object'
+		| 'bytes'
+		| 'enum'
+		| 'resource'
+		| 's3object'
+		| undefined =
 		itemsType?.type != 'string'
-			? itemsType?.type
+			? itemsType?.type == 'object' && itemsType?.resourceType == 's3object'
+				? 's3object'
+				: itemsType?.type
 			: Array.isArray(itemsType?.enum)
 				? 'enum'
 				: itemsType?.contentEncoding == 'base64'
@@ -62,6 +72,8 @@
 					itemsType = { type: 'string', contentEncoding: 'base64' }
 				} else if (selected == 'resource') {
 					itemsType = { type: 'resource', resourceType: itemsType?.resourceType }
+				} else if (selected == 's3object') {
+					itemsType = { type: 'object', resourceType: 's3object' }
 				} else {
 					itemsType = undefined
 				}
@@ -71,6 +83,7 @@
 			<option value="string"> Items are strings</option>
 			<option value="enum">Items are strings from an enum</option>
 			{#if originalType != 'string[]'}
+				<option value="s3object">Items are S3 objects</option>
 				<option value="object"> Items are objects (JSON)</option>
 				<option value="resource"> Items are resources</option>
 				<option value="number">Items are numbers</option>

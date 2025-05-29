@@ -573,6 +573,30 @@
 								}}
 							/>
 						</div>
+					{:else if itemsType?.type == 'object' && itemsType?.resourceType == 's3object'}
+						<div class="w-full">
+							<FileUpload
+								{appPath}
+								computeForceViewerPolicies={computeS3ForceViewerPolicies}
+								{workspace}
+								allowMultiple={true}
+								randomFileKey={true}
+								on:addition={(evt) => {
+									value = [
+										...value,
+										{
+											s3: evt.detail?.path ?? '',
+											filename: evt.detail?.filename ?? ''
+										}
+									]
+								}}
+								on:deletion={(evt) => {
+									value = value.filter((v) => v.s3 !== evt.detail?.path)
+								}}
+								defaultValue={defaultValue?.map((v) => v.s3)}
+								initialValue={value}
+							/>
+						</div>
 					{:else}
 						<div class="w-full">
 							{#key redraw}
