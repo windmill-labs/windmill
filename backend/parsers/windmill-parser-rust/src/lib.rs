@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use itertools::Itertools;
 use quote::ToTokens;
 use regex::Regex;
-use windmill_parser::{Arg, MainArgSignature, Typ};
+use windmill_parser::{to_snake_case, Arg, MainArgSignature, Typ};
 
 pub fn otyp_to_string(otyp: Option<String>) -> String {
     otyp.unwrap()
@@ -108,7 +108,7 @@ fn parse_pat_type(p: Box<syn::Type>) -> Typ {
                             Typ::Unknown
                         }
                     }
-                    _ => Typ::Unknown,
+                    s => Typ::Resource(to_snake_case(s)),
                 }
             } else {
                 Typ::Unknown
