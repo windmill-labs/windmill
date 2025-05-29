@@ -159,8 +159,8 @@
 	export function setCode(ncode: string): void {
 		if (ncode != code) {
 			code = ncode
-			editor?.setValue(ncode)
 		}
+		editor?.setValue(ncode)
 	}
 
 	function updateCode(): boolean {

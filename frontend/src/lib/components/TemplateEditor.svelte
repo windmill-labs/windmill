@@ -412,8 +412,8 @@
 	export function setCode(ncode: string): void {
 		if (code != ncode) {
 			code = ncode
-			editor?.setValue(ncode)
 		}
+		editor?.setValue(ncode)
 	}
 
 	let valueAfterDispose: string | undefined = undefined
