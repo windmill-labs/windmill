@@ -9,7 +9,6 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { fade } from 'svelte/transition'
 	import { Database, Square } from 'lucide-svelte'
-	import { useSvelteFlow } from '@xyflow/svelte'
 
 	export let label: string | undefined = undefined
 	export let bgColor: string = ''
@@ -30,8 +29,6 @@
 
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
-
-	const { viewport } = useSvelteFlow()
 </script>
 
 <VirtualItemWrapper
@@ -74,7 +71,6 @@
 		</div>
 		{#if (alwaysPluggable || (inputJson && Object.keys(inputJson).length > 0)) && editMode}
 			<OutputPicker
-				zoom={$viewport?.zoom ?? 1}
 				{selected}
 				{hover}
 				let:allowCopy

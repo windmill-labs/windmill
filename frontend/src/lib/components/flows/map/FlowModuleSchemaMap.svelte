@@ -416,6 +416,7 @@
 							push(history, $flowStore)
 							let indexToRemove = $moving.modules.findIndex((m) => $moving?.module?.id == m.id)
 							$moving.modules.splice(indexToRemove, 1)
+							console.log('modules', $moving.modules)
 							modules.splice(detail.index, 0, $moving.module)
 							$selectedId = $moving.module.id
 							$moving = undefined

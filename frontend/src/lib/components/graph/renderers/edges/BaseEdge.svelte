@@ -97,10 +97,7 @@
 	{/if}
 
 	{#if data?.moving}
-		<div
-			class="edgeButtonContainer nodrag nopan"
-			style:transform="translate(-50%, 50%) translate({sourceX}px,{sourceY}px)"
-		>
+		<div class="edgeButtonContainer nodrag nopan" style:transform="translate(-50%, -50%)">
 			{#if data.moving && !data.disableMoveIds?.includes(data.moving)}
 				<button
 					title="Paste module"

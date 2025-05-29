@@ -30,7 +30,6 @@
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
-	import { useSvelteFlow } from '@xyflow/svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
 
 	export let selected: boolean = false
@@ -93,8 +92,6 @@
 	let lastJob: any | undefined = undefined
 	let outputPicker: OutputPicker | undefined = undefined
 	let historyOpen = false
-
-	const { viewport } = useSvelteFlow()
 
 	$: flowStateStore = flowEditorContext?.flowStateStore
 
@@ -319,7 +316,6 @@
 		{#if editMode && (isConnectingCandidate || alwaysShowOutputPicker)}
 			<OutputPicker
 				bind:this={outputPicker}
-				zoom={$viewport?.zoom ?? 1}
 				{selected}
 				{hover}
 				let:allowCopy

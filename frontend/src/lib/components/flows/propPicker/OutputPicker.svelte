@@ -5,8 +5,9 @@
 	import { getContext, tick } from 'svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
+	import { useSvelteFlow } from '@xyflow/svelte'
+	const { getViewport } = useSvelteFlow()
 
-	export let zoom: number = 1
 	export let selected: boolean = false
 	export let hover: boolean = false
 	export let isConnectingCandidate: boolean = false
@@ -38,8 +39,14 @@
 
 	let popover: Popover | undefined = undefined
 
-	$: width = Math.max(MIN_WIDTH * zoom, 375)
-	$: height = Math.max(MIN_HEIGHT * zoom, 375)
+	let width = 0
+	let height = 0
+
+	function onOpen() {
+		let zoom = getViewport().zoom
+		width = Math.max(MIN_WIDTH * zoom, 375)
+		height = Math.max(MIN_HEIGHT * zoom, 375)
+	}
 
 	const virtualItemClasses = {
 		bar: 'dark:hover:bg-[#525d6f] dark:bg-[#414958] bg-[#d7dfea]  hover:bg-slate-300',
@@ -73,6 +80,7 @@
 		e.preventDefault()
 		e.stopPropagation()
 	}}
+	on:open={onOpen}
 	bind:this={popover}
 	allowFullScreen
 	contentClasses="overflow-hidden resize rounded-md"

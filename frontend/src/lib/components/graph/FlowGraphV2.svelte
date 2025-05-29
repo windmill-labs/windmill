@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { FlowService, type FlowModule } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
-	import { createEventDispatcher, getContext, onDestroy, onMount, setContext, tick } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, setContext, tick } from 'svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/style.css'
@@ -13,7 +13,7 @@
 		ConnectionLineType,
 		Controls,
 		ControlButton,
-		type Viewport
+		SvelteFlowProvider
 	} from '@xyflow/svelte'
 	import { graphBuilder, isTriggerStep, type SimplifiableFlow } from './graphBuilder'
 	import ModuleNode from './renderers/nodes/ModuleNode.svelte'
@@ -42,6 +42,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
 	import { deepEqual } from 'fast-equals'
+	import ViewportResizer from './ViewportResizer.svelte'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -312,23 +313,9 @@
 
 	const proOptions = { hideAttribution: true }
 
-	let viewport = $state<Viewport>({
-		x: 0,
-		y: 35,
-		zoom: 1
-	})
-
-	function centerViewport(width: number) {
-		viewport = {
-			...viewport,
-			x: (width - fullWidth) / 2,
-			y: viewport.y
-		}
-	}
-
-	onMount(() => {
-		centerViewport(width)
-	})
+	// onMount(() => {
+	// 	centerViewport(width)
+	// })
 	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
 
 	$effect(() => {
@@ -375,13 +362,6 @@
 			$selectedId !== 'Result' &&
 			$selectedId !== 'triggers'
 	)
-	let lastWidth = width
-	$effect(() => {
-		if (lastWidth !== width) {
-			lastWidth = width
-			width && centerViewport(width)
-		}
-	})
 </script>
 
 {#if insertable}
@@ -403,70 +383,74 @@
 			</Alert>
 		</div>
 	{:else}
-		<SvelteFlow
-			onpaneclick={(e) => {
-				document.dispatchEvent(new Event('focus'))
-			}}
-			{nodes}
-			{edges}
-			{edgeTypes}
-			{nodeTypes}
-			{viewport}
-			{height}
-			minZoom={0.5}
-			connectionLineType={ConnectionLineType.SmoothStep}
-			defaultEdgeOptions={{ type: 'smoothstep' }}
-			preventScrolling={scroll}
-			zoomOnDoubleClick={false}
-			elementsSelectable={false}
-			{proOptions}
-			nodesDraggable={false}
-			--background-color={false}
-		>
-			<div class="absolute inset-0 !bg-surface-secondary"></div>
-			<Controls position="top-right" orientation="horizontal" showLock={false}>
-				{#if download}
-					<ControlButton
-						onclick={() => {
-							try {
-								localStorage.setItem(
-									'svelvet',
-									encodeState({ modules, failureModule, preprocessorModule })
-								)
-							} catch (e) {
-								console.error('error interacting with local storage', e)
-							}
-							window.open('/view_graph', '_blank')
-						}}
-						class="!bg-surface"
-					>
-						<Expand size="14" />
-					</ControlButton>
-				{/if}
-			</Controls>
-
-			<Controls
-				position="top-left"
-				orientation="horizontal"
-				showLock={false}
-				showZoom={false}
-				showFitView={false}
-				class="!shadow-none"
+		<SvelteFlowProvider>
+			<ViewportResizer {width} />
+			<SvelteFlow
+				onpaneclick={(e) => {
+					document.dispatchEvent(new Event('focus'))
+				}}
+				{nodes}
+				{edges}
+				{edgeTypes}
+				{nodeTypes}
+				{height}
+				{width}
+				minZoom={0.5}
+				maxZoom={1.2}
+				connectionLineType={ConnectionLineType.SmoothStep}
+				defaultEdgeOptions={{ type: 'smoothstep' }}
+				preventScrolling={scroll}
+				zoomOnDoubleClick={false}
+				elementsSelectable={false}
+				{proOptions}
+				nodesDraggable={false}
+				--background-color={false}
 			>
-				{#if showDataflow}
-					<Toggle
-						value={$useDataflow}
-						on:change={() => {
-							$useDataflow = !$useDataflow
-						}}
-						size="xs"
-						options={{
-							right: 'Dataflow'
-						}}
-					/>
-				{/if}
-			</Controls>
-		</SvelteFlow>
+				<div class="absolute inset-0 !bg-surface-secondary"></div>
+				<Controls position="top-right" orientation="horizontal" showLock={false}>
+					{#if download}
+						<ControlButton
+							onclick={() => {
+								try {
+									localStorage.setItem(
+										'svelvet',
+										encodeState({ modules, failureModule, preprocessorModule })
+									)
+								} catch (e) {
+									console.error('error interacting with local storage', e)
+								}
+								window.open('/view_graph', '_blank')
+							}}
+							class="!bg-surface"
+						>
+							<Expand size="14" />
+						</ControlButton>
+					{/if}
+				</Controls>
+
+				<Controls
+					position="top-left"
+					orientation="horizontal"
+					showLock={false}
+					showZoom={false}
+					showFitView={false}
+					class="!shadow-none"
+				>
+					{#if showDataflow}
+						<Toggle
+							value={$useDataflow}
+							on:change={() => {
+								$useDataflow = !$useDataflow
+							}}
+							size="xs"
+							options={{
+								right: 'Dataflow'
+							}}
+						/>
+					{/if}
+				</Controls>
+			</SvelteFlow>
+		</SvelteFlowProvider>
 	{/if}
 </div>
 
