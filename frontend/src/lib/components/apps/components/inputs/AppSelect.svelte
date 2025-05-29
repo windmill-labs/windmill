@@ -259,7 +259,11 @@
 				<Select
 					bind:filterText={() => filterText, onFilter}
 					{onClear}
-					items={listItems}
+					items={listItems.map((item) =>
+						item.created && item.label === filterText
+							? { ...item, label: 'Add new: ' + item.label }
+							: item
+					)}
 					listAutoWidth={resolvedConfig.fullWidth}
 					containerStyle={css?.input?.style}
 					bind:value={() => value, onChange}
@@ -268,11 +272,7 @@
 					disabled={resolvedConfig.disabled}
 					clearable
 					onFocus={() => !$connectingInput.opened && ($selectedComponent = [id])}
-				>
-					<svelte:fragment slot="item" let:item
-						>{#if resolvedConfig.create}{item.created ? 'Add new: ' : ''}{/if}{item.label}
-					</svelte:fragment>
-				</Select>
+				/>
 			{/if}
 		{:else}
 			<Popover notClickable placement="bottom" popupClass="!bg-surface border w-96">

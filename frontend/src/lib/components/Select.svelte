@@ -3,6 +3,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import CloseButton from './common/CloseButton.svelte'
 	import ConditionalPortal from './common/drawer/ConditionalPortal.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	type Value = Item['value']
 
@@ -117,7 +118,8 @@
 	let dropdownPos = $state(computeDropdownPos())
 	$effect(() => {
 		function updateDropdownPos() {
-			dropdownPos = computeDropdownPos()
+			let nPos = computeDropdownPos()
+			if (!deepEqual(nPos, dropdownPos)) dropdownPos = nPos
 			if (open) requestAnimationFrame(updateDropdownPos)
 		}
 		if (open) updateDropdownPos()
