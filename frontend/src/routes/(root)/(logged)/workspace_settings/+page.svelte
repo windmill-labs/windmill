@@ -162,7 +162,10 @@
 	// Track changes in repositories
 	const repoChanges = $derived(
 		gitSyncSettings.repositories.map((repo, idx) => {
-			if (!initialGitSyncSettings) return false
+			if (!initialGitSyncSettings || !initialGitSyncSettings.repositories || initialGitSyncSettings.repositories.length === 0) {
+				// If initial settings were empty but we now have repositories, that's a change
+				return true
+			}
 			const initial = initialGitSyncSettings.repositories[idx]
 			if (!initial || !repo) return false
 
@@ -197,38 +200,74 @@
 		})
 	)
 
-	const hasAnyChanges = $derived(repoChanges.some(Boolean))
+	const hasAnyChanges = $derived(
+		repoChanges.some(Boolean) ||
+		// Also detect when we have repositories but initial settings were empty
+		((!initialGitSyncSettings || !initialGitSyncSettings.repositories || initialGitSyncSettings.repositories.length === 0) &&
+		 gitSyncSettings.repositories.some(repo => !emptyString(repo.git_repo_resource_path))) ||
+		// Also detect when we had repositories but now have none (counting only valid ones)
+		((initialGitSyncSettings?.repositories?.length ?? 0) > 0 &&
+		 gitSyncSettings.repositories.filter(repo => !emptyString(repo.git_repo_resource_path)).length === 0)
+	)
 
 	async function saveRepoSettings(idx: number): Promise<void> {
-		if (!initialGitSyncSettings) return
+		const currentRepo = gitSyncSettings.repositories[idx]
+		if (!currentRepo || emptyString(currentRepo.git_repo_resource_path)) {
+			sendUserToast('Cannot save repository without a git resource selected', true)
+			return
+		}
 
-		// Create new repositories array with updated repo and initial settings for others
-		const repositories = initialGitSyncSettings.repositories.map((repo, i) => {
-			if (i === idx) {
-				const currentRepo = gitSyncSettings.repositories[idx]
-				return {
-					script_path: currentRepo.script_path,
-					git_repo_resource_path: `$res:${currentRepo.git_repo_resource_path.replace('$res:', '')}`,
-					use_individual_branch: currentRepo.use_individual_branch,
-					group_by_folder: currentRepo.group_by_folder,
+		// If we started with empty settings, we need to save all valid repositories
+		if (!initialGitSyncSettings || !initialGitSyncSettings.repositories || initialGitSyncSettings.repositories.length === 0) {
+			// For new repositories starting from empty, save all current repositories with valid resources
+			const validRepositories = gitSyncSettings.repositories
+				.filter(repo => !emptyString(repo.git_repo_resource_path))
+				.map(repo => ({
+					script_path: repo.script_path,
+					git_repo_resource_path: `$res:${repo.git_repo_resource_path.replace('$res:', '')}`,
+					use_individual_branch: repo.use_individual_branch,
+					group_by_folder: repo.group_by_folder,
 					collapsed: false,
-					settings: currentRepo.settings
+					settings: repo.settings
+				}))
+
+			await WorkspaceService.editWorkspaceGitSyncConfig({
+				workspace: $workspaceStore!,
+				requestBody: {
+					git_sync_settings: { repositories: validRepositories }
 				}
-			}
-			return repo
-		})
+			})
 
-		await WorkspaceService.editWorkspaceGitSyncConfig({
-			workspace: $workspaceStore!,
-			requestBody: {
-				git_sync_settings: { repositories }
-			}
-		})
+			// Update initial settings to reflect what we just saved
+			initialGitSyncSettings = JSON.parse(JSON.stringify(gitSyncSettings))
+		} else {
+			// Update existing repository in the context of existing repositories
+			const repositories = initialGitSyncSettings.repositories.map((repo, i) => {
+				if (i === idx) {
+					return {
+						script_path: currentRepo.script_path,
+						git_repo_resource_path: `$res:${currentRepo.git_repo_resource_path.replace('$res:', '')}`,
+						use_individual_branch: currentRepo.use_individual_branch,
+						group_by_folder: currentRepo.group_by_folder,
+						collapsed: false,
+						settings: currentRepo.settings
+					}
+				}
+				return repo
+			})
 
-		// Update initial settings for this repo
-		initialGitSyncSettings.repositories[idx] = JSON.parse(
-			JSON.stringify(gitSyncSettings.repositories[idx])
-		)
+			await WorkspaceService.editWorkspaceGitSyncConfig({
+				workspace: $workspaceStore!,
+				requestBody: {
+					git_sync_settings: { repositories }
+				}
+			})
+
+			// Update initial settings for this repo
+			initialGitSyncSettings.repositories[idx] = JSON.parse(
+				JSON.stringify(gitSyncSettings.repositories[idx])
+			)
+		}
 
 		sendUserToast('Repository settings updated')
 	}
@@ -290,8 +329,11 @@
 	}
 
 	async function editWindmillGitSyncSettings(): Promise<void> {
+		// Filter out repositories with empty resource paths before processing
+		const validRepos = gitSyncSettings.repositories.filter(repo => !emptyString(repo.git_repo_resource_path))
+
 		let alreadySeenResource: string[] = []
-		let repositories = gitSyncSettings.repositories.map((repo) => {
+		let repositories = validRepos.map((repo) => {
 			alreadySeenResource.push(repo.git_repo_resource_path)
 
 			return {
@@ -308,6 +350,7 @@
 			sendUserToast('Same Git resource used more than once', true)
 			return
 		}
+
 		if (repositories.length > 0) {
 			await WorkspaceService.editWorkspaceGitSyncConfig({
 				workspace: $workspaceStore!,
@@ -317,6 +360,10 @@
 					}
 				}
 			})
+			// Update initial settings to reflect what we just saved
+			initialGitSyncSettings = {
+				repositories: gitSyncSettings.repositories.filter(repo => !emptyString(repo.git_repo_resource_path))
+			}
 			sendUserToast('Workspace Git sync settings updated')
 		} else {
 			await WorkspaceService.editWorkspaceGitSyncConfig({
@@ -325,6 +372,7 @@
 					git_sync_settings: undefined
 				}
 			})
+			initialGitSyncSettings = undefined
 			sendUserToast('Workspace Git sync settings reset')
 		}
 	}
@@ -1095,10 +1143,8 @@
 						color="red"
 						startIcon={{ icon: Save }}
 						disabled={!$enterpriseLicense ||
-							gitSyncSettings?.repositories?.some((elmt) =>
-								emptyString(elmt.git_repo_resource_path)
-							) ||
-							!hasAnyChanges}
+							!hasAnyChanges ||
+							gitSyncSettings.repositories.filter(repo => !emptyString(repo.git_repo_resource_path)).length === 0}
 						on:click={() => {
 							editWindmillGitSyncSettings()
 							console.log('Saving git sync settings', gitSyncSettings)
@@ -1127,7 +1173,7 @@
 									</span>
 								</div>
 								<div class="flex items-center gap-2">
-									{#if repoChanges[idx]}
+									{#if repoChanges[idx] && !emptyString(repo.git_repo_resource_path)}
 										<Button
 											color="red"
 											size="xs"
@@ -1213,111 +1259,119 @@
 													repo.git_repo_resource_path = ev.detail
 												}}
 											/>
-											<Button
-												disabled={emptyString(repo.script_path)}
-												color="dark"
-												on:click={() => runGitSyncTestJob(idx)}
-												size="xs">Test connection</Button
-											>
+											{#if !emptyString(repo.git_repo_resource_path)}
+												<Button
+													disabled={emptyString(repo.script_path)}
+													color="dark"
+													on:click={() => runGitSyncTestJob(idx)}
+													size="xs">Test connection</Button
+												>
+											{/if}
 										{/key}
 									</div>
 
-									<div class="flex mb-5 text-normal text-2xs gap-1">
-										{#if gitSyncSettings.repositories.filter((settings) => settings.git_repo_resource_path === repo.git_repo_resource_path).length > 1}
-											<span class="text-red-700">Using the same resource twice is not allowed.</span
-											>
-										{/if}
-										{#if gitSyncTestJobs[idx].status !== undefined}
-											{#if gitSyncTestJobs[idx].status === 'running'}
-												<RotateCw size={14} />
-											{:else if gitSyncTestJobs[idx].status === 'success'}
-												<CheckCircle2 size={14} class="text-green-600" />
-											{:else}
-												<XCircle size={14} class="text-red-700" />
+									{#if !emptyString(repo.git_repo_resource_path)}
+										<div class="flex mb-5 text-normal text-2xs gap-1">
+											{#if gitSyncSettings.repositories.filter((settings) => settings.git_repo_resource_path === repo.git_repo_resource_path).length > 1}
+												<span class="text-red-700">Using the same resource twice is not allowed.</span
+												>
 											{/if}
-											Git sync resource checked via Windmill job
-											<a
-												target="_blank"
-												href={`/run/${gitSyncTestJobs[idx].jobId}?workspace=${$workspaceStore}`}
-											>
-												{gitSyncTestJobs[idx].jobId}
-											</a>WARNING: Only read permissions are verified.
-										{/if}
-									</div>
+											{#if gitSyncTestJobs[idx].status !== undefined}
+												{#if gitSyncTestJobs[idx].status === 'running'}
+													<RotateCw size={14} />
+												{:else if gitSyncTestJobs[idx].status === 'success'}
+													<CheckCircle2 size={14} class="text-green-600" />
+												{:else}
+													<XCircle size={14} class="text-red-700" />
+												{/if}
+												Git sync resource checked via Windmill job
+												<a
+													target="_blank"
+													href={`/run/${gitSyncTestJobs[idx].jobId}?workspace=${$workspaceStore}`}
+												>
+													{gitSyncTestJobs[idx].jobId}
+												</a>WARNING: Only read permissions are verified.
+											{/if}
+										</div>
 
-									<div class="flex flex-col mt-5 mb-1 gap-4">
-										{#if gitSyncSettings && repo}
-											{#if repo.script_path != latestGitSyncHubScript}
-												<Alert type="warning" title="Script version mismatch">
-													The git sync version for this repository is not latest. Current: <a
-														target="_blank"
-														href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
-														>{repo.script_path}</a
-													>, latest:
-													<a
-														target="_blank"
-														href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
-														>{latestGitSyncHubScript}</a
-													>
-													<div class="flex mt-2">
-														<Button
-															size="xs"
-															color="dark"
-															on:click={() => {
-																repo.script_path = latestGitSyncHubScript
-															}}
-															>Update git sync script (require save git settings to be applied)</Button
+										<div class="flex flex-col mt-5 mb-1 gap-4">
+											{#if gitSyncSettings && repo}
+												{#if repo.script_path != latestGitSyncHubScript}
+													<Alert type="warning" title="Script version mismatch">
+														The git sync version for this repository is not latest. Current: <a
+															target="_blank"
+															href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
+															>{repo.script_path}</a
+														>, latest:
+														<a
+															target="_blank"
+															href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
+															>{latestGitSyncHubScript}</a
 														>
-													</div>
-												</Alert>
-											{/if}
-											<GitSyncFilterSettings
-												bind:this={gitSyncComponent}
-												git_repo_resource_path={repo.git_repo_resource_path}
-												bind:include_path={repo.settings.include_path}
-												bind:include_type={repo.settings.include_type}
-												bind:yamlText
-												onSettingsChange={(settings) => {
-													yamlText = settings.yaml
-												}}
-											/>
-											<div class="w-1/3 flex gap-2">
-												<InitGitRepoPopover
-													gitRepoResourcePath={repo.git_repo_resource_path}
-													yamlText={gitSyncComponent?.toYaml() ?? ''}
-												/>
-												<PullGitRepoPopover
-													gitRepoResourcePath={repo.git_repo_resource_path}
-													yamlText={gitSyncComponent?.toYaml() ?? ''}
-													onFilterUpdate={(filters) => {
-														if (gitSyncComponent) {
-															gitSyncComponent.setSettings(filters)
-														}
+														<div class="flex mt-2">
+															<Button
+																size="xs"
+																color="dark"
+																on:click={() => {
+																	repo.script_path = latestGitSyncHubScript
+																}}
+																>Update git sync script (require save git settings to be applied)</Button
+															>
+														</div>
+													</Alert>
+												{/if}
+												<GitSyncFilterSettings
+													bind:this={gitSyncComponent}
+													git_repo_resource_path={repo.git_repo_resource_path}
+													bind:include_path={repo.settings.include_path}
+													bind:include_type={repo.settings.include_type}
+													bind:yamlText
+													onSettingsChange={(settings) => {
+														yamlText = settings.yaml
 													}}
 												/>
-											</div>
-											<Toggle
-												disabled={emptyString(repo.git_repo_resource_path)}
-												bind:checked={repo.use_individual_branch}
-												options={{
-													right: 'Create one branch per deployed object',
-													rightTooltip:
-														"If set, Windmill will create a unique branch per object being pushed based on its path, prefixed with 'wm_deploy/'."
-												}}
-											/>
+												<div class="w-1/3 flex gap-2">
+													<InitGitRepoPopover
+														gitRepoResourcePath={repo.git_repo_resource_path}
+														yamlText={gitSyncComponent?.toYaml() ?? ''}
+													/>
+													<PullGitRepoPopover
+														gitRepoResourcePath={repo.git_repo_resource_path}
+														yamlText={gitSyncComponent?.toYaml() ?? ''}
+														onFilterUpdate={(filters) => {
+															if (gitSyncComponent) {
+																gitSyncComponent.setSettings(filters)
+															}
+														}}
+													/>
+												</div>
+												<Toggle
+													disabled={emptyString(repo.git_repo_resource_path)}
+													bind:checked={repo.use_individual_branch}
+													options={{
+														right: 'Create one branch per deployed object',
+														rightTooltip:
+															"If set, Windmill will create a unique branch per object being pushed based on its path, prefixed with 'wm_deploy/'."
+													}}
+												/>
 
-											<Toggle
-												disabled={emptyString(repo.git_repo_resource_path) ||
-													!repo.use_individual_branch}
-												bind:checked={repo.group_by_folder}
-												options={{
-													right: 'Group deployed objects by folder',
-													rightTooltip:
-														'Instead of creating a branch per object, Windmill will create a branch per folder containing objects being deployed.'
-												}}
-											/>
-										{/if}
-									</div>
+												<Toggle
+													disabled={emptyString(repo.git_repo_resource_path) ||
+														!repo.use_individual_branch}
+													bind:checked={repo.group_by_folder}
+													options={{
+														right: 'Group deployed objects by folder',
+														rightTooltip:
+															'Instead of creating a branch per object, Windmill will create a branch per folder containing objects being deployed.'
+													}}
+												/>
+											{/if}
+										</div>
+									{:else}
+										<div class="text-tertiary text-sm mt-3 mb-2">
+											Select a git repository resource to configure sync settings.
+										</div>
+									{/if}
 								</div>
 							{/if}
 						</div>
