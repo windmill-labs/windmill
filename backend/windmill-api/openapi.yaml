@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.493.2
+  version: 1.493.4
   title: Windmill API
 
   contact:
@@ -377,6 +377,9 @@ paths:
                   type: string
                 company:
                   type: string
+                skip_email:
+                  type: boolean
+                  description: Skip sending email notifications to the user
               required:
                 - email
                 - password

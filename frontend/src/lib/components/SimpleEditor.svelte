@@ -157,8 +157,19 @@
 	}
 
 	export function setCode(ncode: string): void {
-		code = ncode
+		if (ncode != code) {
+			code = ncode
+		}
 		editor?.setValue(ncode)
+	}
+
+	function updateCode(): boolean {
+		const ncode = getCode()
+		if (code == ncode) {
+			return false
+		}
+		code = ncode
+		return true
 	}
 
 	function updatePlaceholderVisibility(value: string) {
@@ -171,11 +182,11 @@
 
 	export function format() {
 		if (editor) {
-			code = getCode()
+			updateCode()
 			editor.getAction('editor.action.formatDocument')?.run()
 			if (formatAction) {
 				formatAction()
-				code = getCode()
+				updateCode()
 			}
 		}
 	}
@@ -368,8 +379,9 @@
 			suggestion = ''
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
-				code = getCode()
-				dispatch('change', { code })
+				if (updateCode()) {
+					dispatch('change', { code })
+				}
 			}, 200)
 		})
 
@@ -379,7 +391,7 @@
 			loadExtraLib()
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
-				code = getCode()
+				updateCode()
 				shouldBindKey && format && format()
 			})
 
@@ -411,12 +423,12 @@
 		editor.onDidFocusEditorText(() => {
 			if (!editor) return
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
-				code = getCode()
+				updateCode()
 				shouldBindKey && format && format()
 			})
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {
-				code = getCode()
+				updateCode()
 				shouldBindKey && cmdEnterAction && cmdEnterAction()
 			})
 			dispatch('focus')
@@ -424,8 +436,7 @@
 
 		editor.onDidBlurEditorText(() => {
 			dispatch('blur')
-
-			code = getCode()
+			updateCode()
 		})
 
 		if (lang === 'css' && !cssClassesLoaded) {

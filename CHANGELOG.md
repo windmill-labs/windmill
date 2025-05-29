@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.493.4](https://github.com/windmill-labs/windmill/compare/v1.493.3...v1.493.4) (2025-05-29)
+
+
+### Bug Fixes
+
+* templatev2 delete issue ([#5834](https://github.com/windmill-labs/windmill/issues/5834)) ([ed3ad32](https://github.com/windmill-labs/windmill/commit/ed3ad327a235c16b9f3aa7f8edeefe61b0c01da3))
+
+## [1.493.3](https://github.com/windmill-labs/windmill/compare/v1.493.2...v1.493.3) (2025-05-29)
+
+
+### Bug Fixes
+
+* evalv2 prohibit component delete ([e302aa3](https://github.com/windmill-labs/windmill/commit/e302aa38b5977dd406ae05e1d8dbb74cb7dc3d17))
+* faster layout for larger graphs ([8d12bcc](https://github.com/windmill-labs/windmill/commit/8d12bcc8ee2991909ea0d9bb57f04f0d4106c69f))
+
 ## [1.493.2](https://github.com/windmill-labs/windmill/compare/v1.493.1...v1.493.2) (2025-05-28)
 
 
