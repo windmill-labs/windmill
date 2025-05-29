@@ -47,14 +47,14 @@ use lazy_static::lazy_static;
 use urlencoding::encode;
 use windmill_common::client::AuthedClient;
 #[derive(Deserialize)]
-struct PgDatabase {
-    host: String,
-    user: Option<String>,
-    password: Option<String>,
-    port: Option<u16>,
-    sslmode: Option<String>,
-    dbname: String,
-    root_certificate_pem: Option<String>,
+pub struct PgDatabase {
+    pub host: String,
+    pub user: Option<String>,
+    pub password: Option<String>,
+    pub port: Option<u16>,
+    pub sslmode: Option<String>,
+    pub dbname: String,
+    pub root_certificate_pem: Option<String>,
 }
 
 lazy_static! {

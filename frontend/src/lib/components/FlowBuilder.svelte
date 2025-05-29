@@ -566,6 +566,7 @@
 	})
 
 	export async function loadTriggers() {
+		if (initialPath == '') return
 		$triggersCount = await FlowService.getTriggersCountOfFlow({
 			workspace: $workspaceStore!,
 			path: initialPath

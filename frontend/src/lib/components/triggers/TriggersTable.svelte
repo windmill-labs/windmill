@@ -1,11 +1,12 @@
 <script lang="ts">
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Plus, Star, Loader2, Trash, RotateCcw } from 'lucide-svelte'
+	import { Plus, Star, Loader2, RotateCcw } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { triggerIconMap, type Trigger, type TriggerType } from './utils'
 	import AddTriggersButton from './AddTriggersButton.svelte'
 	import TriggerLabel from './TriggerLabel.svelte'
+	import DeleteTriggerButton from './DeleteTriggerButton.svelte'
 
 	interface Props {
 		// Props
@@ -94,14 +95,7 @@
 
 							{#if !['email', 'webhook', 'cli'].includes(trigger.type)}
 								{#if trigger.isDraft}
-									<Button
-										size="xs"
-										color="light"
-										btnClasses="transition-all duration-200 text-transparent hover:bg-surface group-hover:text-primary bg-transparent px-1 py-1"
-										startIcon={{ icon: Trash }}
-										iconOnly
-										on:click={() => onDeleteDraft?.(index)}
-									/>
+									<DeleteTriggerButton {trigger} onDelete={() => onDeleteDraft?.(index)} small />
 								{:else if !!trigger.draftConfig && !trigger.isDraft}
 									<Button
 										size="xs"
