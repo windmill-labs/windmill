@@ -16711,22 +16711,22 @@ components:
               items:
                 type: string
             include_type:
-          type: array
-          items:
-            type: string
-            enum:
-              - script
-              - flow
-              - app
-              - folder
-              - resource
-              - variable
-              - secret
-              - resourcetype
-              - schedule
-              - user
-              - group
-              - trigger
+              type: array
+              items:
+                type: string
+                enum:
+                  - script
+                  - flow
+                  - app
+                  - folder
+                  - resource
+                  - variable
+                  - secret
+                  - resourcetype
+                  - schedule
+                  - user
+                  - group
+                  - trigger
       required:
         - script_path
         - git_repo_resource_path
