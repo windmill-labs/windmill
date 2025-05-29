@@ -26,7 +26,9 @@
 			? itemsType?.type
 			: Array.isArray(itemsType?.enum)
 				? 'enum'
-				: 'string'
+				: itemsType?.contentEncoding == 'base64'
+					? 'bytes'
+					: 'string'
 
 	let schema = {
 		properties: itemsType?.properties || {},
