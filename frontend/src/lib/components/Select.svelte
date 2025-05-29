@@ -1,8 +1,8 @@
-<script lang="ts" generics="Item extends { label: string; value: any; }">
+<script lang="ts" generics="Item extends { label?: string; value: any; }">
 	import { clickOutside } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import CloseButton from './common/CloseButton.svelte'
-	import Portal from './Portal.svelte'
+	import ConditionalPortal from './common/drawer/ConditionalPortal.svelte'
 
 	type Value = Item['value']
 
@@ -16,6 +16,8 @@
 		listAutoWidth = true,
 		disabled = false,
 		containerStyle = '',
+		inputClass = '',
+		disablePortal = false,
 		groupBy,
 		sortBy,
 		onFocus,
@@ -30,6 +32,8 @@
 		disabled?: boolean
 		listAutoWidth?: boolean
 		containerStyle?: string
+		inputClass?: string
+		disablePortal?: boolean
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onFocus?: () => void
@@ -159,21 +163,23 @@
 		placeholder={valueEntry?.label ?? placeholder}
 		style={containerStyle}
 		class={twMerge(
-			'!bg-surface',
+			'!bg-surface text-ellipsis',
 			open ? '' : 'cursor-pointer',
-			valueEntry ? '!placeholder-primary' : ''
+			valueEntry ? '!placeholder-primary' : '',
+			clearable && !disabled && value !== undefined ? '!pr-8' : '',
+			inputClass ?? ''
 		)}
 		autocomplete="off"
 		onpointerdown={() => (open = true)}
 		bind:this={inputEl}
 	/>
 
-	<Portal name="select-dropdown">
+	<ConditionalPortal condition={!disablePortal}>
 		{#if open && !disabled}
 			<div
 				class="flex flex-col absolute z-[5001] max-h-64 overflow-y-auto bg-surface-secondary text-tertiary text-sm select-none border rounded-lg"
 				style="top: {dropdownPos.y}px; left: {dropdownPos.x}px; {listAutoWidth
-					? `width: ${dropdownPos.width}px;`
+					? `min-width: ${dropdownPos.width}px;`
 					: ''}"
 			>
 				{#if processedItems?.length === 0}
@@ -203,5 +209,5 @@
 				{/each}
 			</div>
 		{/if}
-	</Portal>
+	</ConditionalPortal>
 </div>

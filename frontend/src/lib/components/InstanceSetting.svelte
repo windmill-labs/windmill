@@ -550,15 +550,19 @@
 													showRefreshButton={false}
 													placeholder="Select team"
 													teams={$values['teams']}
-													on:change={(e) => handleTeamChange(e.detail, i)}
-													selectedTeam={$values['critical_error_channels'][i]?.teams_channel
-														? {
-																team_id:
-																	$values['critical_error_channels'][i]?.teams_channel?.team_id,
-																team_name:
-																	$values['critical_error_channels'][i]?.teams_channel?.team_name
-															}
-														: undefined}
+													bind:selectedTeam={
+														() =>
+															$values['critical_error_channels'][i]?.teams_channel
+																? {
+																		team_id:
+																			$values['critical_error_channels'][i]?.teams_channel?.team_id,
+																		team_name:
+																			$values['critical_error_channels'][i]?.teams_channel
+																				?.team_name
+																	}
+																: undefined,
+														(team) => team && handleTeamChange(team, i)
+													}
 												/>
 
 												{#if $values['critical_error_channels'][i]?.teams_channel?.team_id}
@@ -570,18 +574,20 @@
 																team.team_id ===
 																$values['critical_error_channels'][i]?.teams_channel?.team_id
 														)?.channels ?? []}
-														on:change={(e) => handleChannelChange(e.detail, i)}
-														selectedChannel={$values['critical_error_channels'][i]?.teams_channel
-															?.channel_id
-															? {
-																	channel_id:
-																		$values['critical_error_channels'][i]?.teams_channel
-																			?.channel_id,
-																	channel_name:
-																		$values['critical_error_channels'][i]?.teams_channel
-																			?.channel_name
-																}
-															: undefined}
+														bind:selectedChannel={
+															() =>
+																$values['critical_error_channels'][i]?.teams_channel?.channel_id
+																	? {
+																			channel_id:
+																				$values['critical_error_channels'][i]?.teams_channel
+																					?.channel_id,
+																			channel_name:
+																				$values['critical_error_channels'][i]?.teams_channel
+																					?.channel_name
+																		}
+																	: undefined,
+															(channel) => channel && handleChannelChange(channel, i)
+														}
 													/>
 												{/if}
 												<div>
