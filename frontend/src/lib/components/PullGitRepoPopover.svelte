@@ -98,6 +98,7 @@
 				requestBody: {
 					workspace_id: workspace,
 					repo_url_resource_path: gitRepoResourcePath,
+					yaml: yamlText,
 					dry_run: true,
 					pull: true
 				},
