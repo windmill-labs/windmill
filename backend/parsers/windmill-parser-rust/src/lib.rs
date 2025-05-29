@@ -108,7 +108,8 @@ fn parse_pat_type(p: Box<syn::Type>) -> Typ {
                             Typ::Unknown
                         }
                     }
-                    s => Typ::Resource(to_snake_case(s)),
+                    s if s.starts_with("C") => Typ::Resource(to_snake_case(s)),
+                    _ => Typ::Unknown,
                 }
             } else {
                 Typ::Unknown
@@ -430,19 +431,21 @@ fn main(
 
         let code = r#"
 // commenting comments
+struct CRes(());
 
 fn main(
     my_str_slice: &str,
     my_String: String,
     mut my_mut_ref_to_string: &mut String,
     my_string_vec: Vec<String>,
+    my_resource: CRes,
 ) -> Result<String, String> {
     println!("My int is {}", my_int);
 }"#;
 
         let ret = parse_rust_signature(code).unwrap();
 
-        assert_eq!(ret.args.len(), 4);
+        assert_eq!(ret.args.len(), 5);
 
         assert_eq!(ret.args[0].name, "my_str_slice");
         assert_eq!(ret.args[0].otyp, Some("& str".to_string()));
@@ -459,6 +462,10 @@ fn main(
         assert_eq!(ret.args[3].name, "my_string_vec");
         assert_eq!(ret.args[3].otyp, Some("Vec < String >".to_string()));
         assert_eq!(ret.args[3].typ, Typ::List(Box::new(Typ::Str(None))));
+
+        assert_eq!(ret.args[4].name, "my_resource");
+        assert_eq!(ret.args[4].otyp, Some("CRes".to_string()));
+        assert_eq!(ret.args[4].typ, Typ::Resource("c_res".to_owned()));
     }
 
     #[test]
