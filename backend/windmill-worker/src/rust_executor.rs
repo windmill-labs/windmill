@@ -23,8 +23,8 @@ use crate::{
         read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
-    RUST_CACHE_DIR, TZ_ENV,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUST_CACHE_DIR,
+    TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -41,7 +41,7 @@ lazy_static::lazy_static! {
     static ref RUSTUP_HOME: String = std::env::var("RUSTUP_HOME").unwrap_or_else(|_| { RUSTUP_HOME_DEFAULT.clone() });
     static ref CARGO_PATH: String = std::env::var("CARGO_PATH").unwrap_or_else(|_| format!("{}/bin/cargo", CARGO_HOME.as_str()));
     // static ref CARGO_SWEEP_PATH: String = std::env::var("CARGO_SWEEP_PATH").unwrap_or_else(|_| format!("{}/bin/cargo-sweep", CARGO_HOME.as_str()));
-    static ref SWEEP_MAXSIZE: String = std::env::var("CARGO_SWEEP_MAXSIZE").unwrap_or("10GB".to_owned());
+    static ref SWEEP_MAXSIZE: String = std::env::var("CARGO_SWEEP_MAXSIZE").unwrap_or("25GB".to_owned());
     static ref NO_SHARED_BUILD_DIR: bool = std::env::var("RUST_NO_SHARED_BUILD_DIR").ok().map(|flag| flag == "true").unwrap_or(false);
 
 }
@@ -201,33 +201,39 @@ pub async fn generate_cargo_lockfile(
 
 async fn get_build_dir(
     job: &MiniPulledJob,
-    mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
     conn: &Connection,
     worker_name: &str,
-    occupancy_metrics: &mut OccupancyMetrics,
     is_preview: bool,
 ) -> anyhow::Result<String> {
-    let (bd, run_sweep) = job
-        .runnable_path
-        .as_ref()
-        .and_then(|p| {
-            if !is_preview || *NO_SHARED_BUILD_DIR {
-                None
-            } else {
-                Some((
-                    format!(
-                        "{RUST_CACHE_DIR}/build/{}@{}@{}",
-                        &job.workspace_id,
-                        p.replace('/', "."),
-                        &job.created_by
-                    ),
-                    true,
-                ))
-            }
-        })
-        .unwrap_or((format!("{RUST_CACHE_DIR}/build/{}", Uuid::new_v4()), false));
+    let (bd, run_sweep) = if *DISABLE_NSJAIL {
+        // If nsjail is disabled then entire worker has shared build directory
+        // It drastically improves cache hit-rate.
+        (format!("{RUST_CACHE_DIR}/build/{worker_name}"), true)
+    } else {
+        // If nsjail is enabled, having global shared directory is vulnerability and target for an attack
+        // Instead we either:
+        // 1. Create different build directory for workspace script and user. Balanced caching while mainining high degree of security.
+        // 2. If user is not known or something else goes wrong - use random build dir. This is equivalent to no cache at all.
+        job.runnable_path
+            .as_ref()
+            .and_then(|p| {
+                if !is_preview || *NO_SHARED_BUILD_DIR {
+                    None
+                } else {
+                    Some((
+                        format!(
+                            "{RUST_CACHE_DIR}/build/{}@{}@{}",
+                            &job.workspace_id,
+                            p.replace('/', "."),
+                            &job.created_by
+                        ),
+                        true,
+                    ))
+                }
+            })
+            .unwrap_or((format!("{RUST_CACHE_DIR}/build/{}", Uuid::new_v4()), false))
+    };
 
     {
         let (t, r, g) = (
@@ -265,33 +271,43 @@ async fn get_build_dir(
             );
             sweep_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         }
-        if let Err(e) = match start_child_process(sweep_cmd, CARGO_PATH.as_str()).await {
-            Ok(sweep_process) => {
-                handle_child(
-                    &job.id,
-                    conn,
-                    mem_peak,
-                    canceled_by,
-                    sweep_process,
-                    false,
-                    worker_name,
-                    &job.workspace_id,
-                    "cargo sweep",
-                    None,
-                    false,
-                    &mut Some(occupancy_metrics),
-                    None,
-                )
-                .await
+
+        let (job_id, conn, w_id, wk_name) = (
+            job.id.clone(),
+            conn.clone(),
+            job.workspace_id.clone(),
+            worker_name.to_owned(),
+        );
+
+        tokio::spawn(async move {
+            if let Err(e) = match start_child_process(sweep_cmd, CARGO_PATH.as_str()).await {
+                Ok(sweep_process) => {
+                    handle_child(
+                        &job_id,
+                        &conn,
+                        &mut 0,
+                        &mut None,
+                        sweep_process,
+                        false,
+                        &wk_name,
+                        &w_id,
+                        "cargo sweep",
+                        None,
+                        false,
+                        &mut None,
+                        None,
+                    )
+                    .await
+                }
+                Err(e) => Err(e),
+            } {
+                tracing::warn!(
+                    workspace_id = %w_id,
+                    job_id = %job_id,
+                    "Failed to run `cargo sweep`. Rust cache may grow over time, cargo sweep is meant to clean up unused cache.\ne: {e}\n"
+                );
             }
-            Err(e) => Err(e),
-        } {
-            tracing::warn!(
-                workspace_id = %job.workspace_id,
-                job_id = %job.id,
-                "Failed to run `cargo sweep`. Rust cache may grow over time, cargo sweep is meant to clean up unused cache.\ne: {e}\n"
-            );
-        }
+        });
     }
     Ok(bd)
 }
@@ -310,17 +326,7 @@ pub async fn build_rust_crate(
 ) -> error::Result<String> {
     let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
 
-    let build_dir = get_build_dir(
-        job,
-        mem_peak,
-        canceled_by,
-        job_dir,
-        conn,
-        worker_name,
-        occupancy_metrics,
-        is_preview,
-    )
-    .await?;
+    let build_dir = get_build_dir(job, job_dir, conn, worker_name, is_preview).await?;
 
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
