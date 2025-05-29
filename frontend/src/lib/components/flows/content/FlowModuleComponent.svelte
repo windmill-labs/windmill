@@ -39,7 +39,6 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import s3Scripts from './s3Scripts/lib'
-	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import Label from '$lib/components/Label.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
@@ -55,7 +54,7 @@
 
 	const {
 		selectedId,
-		currentScriptEditor,
+		currentEditor,
 		previewArgs,
 		flowStateStore,
 		flowStore,
@@ -110,21 +109,6 @@
 			? savedModule.value.content
 			: undefined
 	}
-
-	const { modulesStore: copilotModulesStore } =
-		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
-
-	function setCopilotModuleEditor() {
-		copilotModulesStore?.update((modules) => {
-			const module = modules.find((m) => m.id === flowModule.id)
-			if (module) {
-				module.editor = editor
-			}
-			return modules
-		})
-	}
-
-	$: editor !== undefined && setCopilotModuleEditor()
 
 	$: stepPropPicker =
 		$executionCount != undefined && failureModule
@@ -282,7 +266,15 @@
 		editor?.show()
 	}
 
-	$: editor && ($currentScriptEditor = editor)
+	$: editor &&
+		($currentEditor = {
+			type: 'script',
+			editor,
+			stepId: flowModule.id,
+			showDiffMode,
+			diffMode,
+			lastDeployedCode
+		})
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -389,6 +381,9 @@
 								{#if !noEditor}
 									{#key flowModule.id}
 										<Editor
+											on:addSelectedLinesToAiChat={(e) => {
+												// TODO
+											}}
 											loadAsync
 											folding
 											path={$pathStore + '/' + flowModule.id}

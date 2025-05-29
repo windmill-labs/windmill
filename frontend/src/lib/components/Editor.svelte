@@ -152,7 +152,7 @@
 	import { AIChatEditorHandler } from './copilot/chat/monaco-adapter'
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
 	import { writable } from 'svelte/store'
-	import { formatResourceTypes } from './copilot/chat/core'
+	import { formatResourceTypes } from './copilot/chat/script/core'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	// import EditorTheme from './EditorTheme.svelte'
 

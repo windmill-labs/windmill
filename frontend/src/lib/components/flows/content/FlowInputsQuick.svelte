@@ -9,13 +9,11 @@
 	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import PickHubScriptQuick from '../pickers/PickHubScriptQuick.svelte'
-	import { type Script, type FlowModule } from '$lib/gen'
+	import { type Script, type FlowModule, type ScriptLang, type HubScriptKind } from '$lib/gen'
 	import ListFiltersQuick from '$lib/components/home/ListFiltersQuick.svelte'
 	import { Folder, User } from 'lucide-svelte'
-	import type { FlowCopilotContext, FlowCopilotModule } from '../../copilot/flow'
 	import type { FlowEditorContext } from '../../flows/types'
 	import { copilotInfo } from '$lib/stores'
-	import { nextId } from '../../flows/flowModuleNextId'
 	import { twMerge } from 'tailwind-merge'
 	import { fade } from 'svelte/transition'
 	import { flip } from 'svelte/animate'
@@ -43,17 +41,25 @@
 		kind
 	export let displayPath = false
 
-	let lang: FlowCopilotModule['lang'] = undefined
-	let selectedCompletion: FlowCopilotModule['selectedCompletion'] = undefined
+	type HubCompletion = {
+		path: string
+		summary: string
+		id: number
+		version_id: number
+		ask_id: number
+		app: string
+		kind: HubScriptKind
+	}
+
+	let lang: ScriptLang | undefined = undefined
+	console.log(lang)
+	let selectedCompletion: HubCompletion | undefined = undefined
 
 	let filteredWorkspaceItems: (Script & { marked?: string })[] = []
 
-	let hubCompletions: FlowCopilotModule['hubCompletions'] = []
+	let hubCompletions: HubCompletion[] = []
 
-	const { flowStore, flowStateStore, insertButtonOpen } =
-		getContext<FlowEditorContext>('FlowEditorContext')
-	const { modulesStore: copilotModulesStore, genFlow } =
-		getContext<FlowCopilotContext>('FlowCopilotContext')
+	const { insertButtonOpen } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let selected: { kind: 'owner' | 'integrations'; name: string | undefined } | undefined = undefined
 
@@ -94,20 +100,7 @@
 			)
 			return
 		}
-		$copilotModulesStore = [
-			{
-				id: nextId($flowStateStore, $flowStore),
-				type: selectedKind == 'trigger' ? 'trigger' : 'script',
-				description: funcDesc,
-				code: '',
-				source: selectedCompletion ? 'hub' : 'custom',
-				hubCompletions,
-				selectedCompletion,
-				editor: undefined,
-				lang
-			}
-		]
-		genFlow?.(index, modules, true)
+		//TODO gen
 		dispatch('close')
 	}
 
@@ -375,8 +368,8 @@
 									lang == 'docker'
 										? 'docker'
 										: selectedKind == 'preprocessor'
-										? 'preprocessor'
-										: 'flow',
+											? 'preprocessor'
+											: 'flow',
 								summary
 							}
 						})

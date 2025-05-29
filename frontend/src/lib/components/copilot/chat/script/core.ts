@@ -1,20 +1,14 @@
 import { ResourceService } from '$lib/gen/services.gen'
 import type { ResourceType, ScriptLang } from '$lib/gen/types.gen'
 import { capitalize, isObject, toCamel } from '$lib/utils'
-import { get, type Writable } from 'svelte/store'
-import { getCompletion } from '../lib'
-import { compile, phpCompile, pythonCompile } from '../utils'
-import { Code, Database, TriangleAlert, Diff } from 'lucide-svelte'
-import type {
-	ChatCompletionChunk,
-	ChatCompletionMessageParam,
-	ChatCompletionMessageToolCall,
-	ChatCompletionTool
-} from 'openai/resources/index.mjs'
-import { workspaceStore, type DBSchema, dbSchemas } from '$lib/stores'
+import { get } from 'svelte/store'
+import { compile, phpCompile, pythonCompile } from '../../utils'
+import type { ChatCompletionTool } from 'openai/resources/index.mjs'
+import { type DBSchema, dbSchemas } from '$lib/stores'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
-import { type Change } from 'diff'
+import type { CodePieceElement, ContextElement } from '../context'
+import type { Tool } from '../shared'
 
 export function formatResourceTypes(
 	allResourceTypes: ResourceType[],
@@ -60,7 +54,7 @@ const TS_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are 
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type inside the \`RT\` namespace: for instance \`RT.Stripe\`.
 You should only use them if you need them to satisfy the user's instructions. Always use the RT namespace.`
 
-const TS_INLINE_TYPE_INSTRUCTION = `You must always inline the objects types instead of defining them separately. If INSTRUCTIONS ask you to use an already defined type, you MUST inline it instead of using the type name. Explain to the user that you are inlining the type for better arguments inference.`
+const TS_INLINE_TYPE_INSTRUCTION = `You must always inline the objects types instead of defining them separately. If INSTRUCTIONS ask you to use an already defined type **apart from the RT namespace**, you MUST inline it instead of using the type name. Explain to the user that you are inlining the type for better arguments inference.`
 
 const PYTHON_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type.
@@ -257,7 +251,7 @@ WINDMILL LANGUAGE CONTEXT:
 
 export const CHAT_USER_DB_CONTEXT = `- {title}: SCHEMA: \n{schema}\n`
 
-export function prepareSystemMessage(): {
+export function prepareScriptSystemMessage(): {
 	role: 'system'
 	content: string
 } {
@@ -266,58 +260,6 @@ export function prepareSystemMessage(): {
 		content: CHAT_SYSTEM_PROMPT
 	}
 }
-
-export interface DisplayMessage {
-	role: 'user' | 'assistant'
-	content: string
-	contextElements?: ContextElement[]
-}
-
-export const ContextIconMap = {
-	code: Code,
-	error: TriangleAlert,
-	db: Database,
-	diff: Diff,
-	code_piece: Code
-}
-
-type CodeElement = {
-	type: 'code'
-	content: string
-	title: string
-	lang: ScriptLang | 'bunnative'
-}
-
-type ErrorElement = {
-	type: 'error'
-	content: string
-	title: 'error'
-}
-
-type DBElement = {
-	type: 'db'
-	schema?: DBSchema
-	title: string
-}
-
-type DiffElement = {
-	type: 'diff'
-	content: string
-	title: string
-	diff: Change[]
-	lang: ScriptLang | 'bunnative'
-}
-
-type CodePieceElement = {
-	type: 'code_piece'
-	content: string
-	startLine: number
-	endLine: number
-	title: string
-	lang: ScriptLang | 'bunnative'
-}
-
-export type ContextElement = CodeElement | ErrorElement | DBElement | DiffElement | CodePieceElement
 
 const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext: string) => {
 	let code = codeContext.split('\n')
@@ -331,7 +273,7 @@ const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext
 	return code.join('\n')
 }
 
-export async function prepareUserMessage(
+export async function prepareScriptUserMessage(
 	instructions: string,
 	language: ScriptLang | 'bunnative',
 	selectedContext: ContextElement[]
@@ -450,156 +392,53 @@ async function formatDBSchema(dbSchema: DBSchema) {
 	}
 }
 
-async function callTool(
-	functionName: string,
-	args: any,
-	lang: ScriptLang | 'bunnative',
-	workspace: string
-) {
-	switch (functionName) {
-		case 'search_resource_types':
-			const formattedResourceTypes = await getFormattedResourceTypes(lang, args.query, workspace)
-			return formattedResourceTypes
-		case 'get_db_schema':
-			if (!args.resourcePath) {
-				throw new Error('Database path not provided')
-			}
-			const resource = await ResourceService.getResource({
-				workspace: workspace,
-				path: args.resourcePath
-			})
-			const newDbSchemas = {}
-			await getDbSchemas(
-				resource.resource_type,
-				args.resourcePath,
-				workspace,
-				newDbSchemas,
-				(error) => {
-					console.error(error)
-				}
-			)
-			dbSchemas.update((schemas) => ({ ...schemas, ...newDbSchemas }))
-			const dbs = get(dbSchemas)
-			const db = dbs[args.resourcePath]
-			if (!db) {
-				throw new Error('Database not found')
-			}
-			const stringSchema = await formatDBSchema(db)
-			return stringSchema
-		default:
-			throw new Error(`Unknown tool call: ${functionName}`)
+export interface ScriptChatHelpers {
+	getLang: () => ScriptLang | 'bunnative'
+}
+
+export const resourceTypeTool: Tool<ScriptChatHelpers> = {
+	def: RESOURCE_TYPE_FUNCTION_DEF,
+	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
+		toolCallbacks.onToolCall(toolId, 'Searching resource types...')
+		const formattedResourceTypes = await getFormattedResourceTypes(
+			helpers.getLang(),
+			args.query,
+			workspace
+		)
+		toolCallbacks.onFinishToolCall(toolId, 'Retrieved resource types')
+		return formattedResourceTypes
 	}
 }
 
-async function processToolCall(
-	toolCall: ChatCompletionMessageToolCall,
-	messages: ChatCompletionMessageParam[],
-	lang: ScriptLang | 'bunnative'
-) {
-	try {
-		const args = JSON.parse(toolCall.function.arguments)
-		let result = ''
-		try {
-			result = await callTool(toolCall.function.name, args, lang, get(workspaceStore) ?? '')
-		} catch (err) {
-			console.error(err)
-			result =
-				'Error while calling tool, MUST tell the user to check the browser console for more details, and then respond as much as possible to the original request'
+export const dbSchemaTool: Tool<ScriptChatHelpers> = {
+	def: DB_SCHEMA_FUNCTION_DEF,
+	fn: async ({ args, workspace, toolCallbacks, toolId }) => {
+		if (!args.resourcePath) {
+			throw new Error('Database path not provided')
 		}
-		messages.push({
-			role: 'tool',
-			tool_call_id: toolCall.id,
-			content: result
+		toolCallbacks.onToolCall(toolId, 'Getting database schema for ' + args.resourcePath + '...')
+		const resource = await ResourceService.getResource({
+			workspace: workspace,
+			path: args.resourcePath
 		})
-	} catch (err) {
-		console.error(err)
-	}
-}
-
-export async function chatRequest(
-	messages: ChatCompletionMessageParam[],
-	abortController: AbortController,
-	lang: ScriptLang | 'bunnative',
-	useDbTools: boolean,
-	onNewToken: (token: string) => void
-) {
-	const toolDefs: ChatCompletionTool[] = []
-	if (
-		lang === 'python3' ||
-		lang === 'php' ||
-		lang === 'bun' ||
-		lang === 'deno' ||
-		lang === 'nativets' ||
-		lang === 'bunnative'
-	) {
-		toolDefs.push(RESOURCE_TYPE_FUNCTION_DEF)
-	}
-	if (useDbTools) {
-		toolDefs.push(DB_SCHEMA_FUNCTION_DEF)
-	}
-	try {
-		let completion: any = null
-		while (true) {
-			completion = await getCompletion(messages, abortController, toolDefs)
-
-			if (completion) {
-				const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
-
-				for await (const chunk of completion) {
-					if (!('choices' in chunk && chunk.choices.length > 0 && 'delta' in chunk.choices[0])) {
-						continue
-					}
-					const c = chunk as ChatCompletionChunk
-					const delta = c.choices[0].delta.content
-					if (delta) {
-						onNewToken(delta)
-					}
-					const toolCalls = c.choices[0].delta.tool_calls || []
-					for (const toolCall of toolCalls) {
-						const { index } = toolCall
-						const finalToolCall = finalToolCalls[index]
-						if (!finalToolCall) {
-							finalToolCalls[index] = toolCall
-						} else {
-							if (toolCall.function?.arguments) {
-								if (!finalToolCall.function) {
-									finalToolCall.function = toolCall.function
-								} else {
-									finalToolCall.function.arguments =
-										(finalToolCall.function.arguments ?? '') + toolCall.function.arguments
-								}
-							}
-						}
-					}
-				}
-
-				const toolCalls = Object.values(finalToolCalls).filter(
-					(toolCall) => toolCall.id !== undefined && toolCall.function?.arguments !== undefined
-				) as ChatCompletionMessageToolCall[]
-
-				if (toolCalls.length > 0) {
-					messages.push({
-						role: 'assistant',
-						tool_calls: toolCalls
-					})
-					for (const toolCall of toolCalls) {
-						await processToolCall(toolCall, messages, lang)
-					}
-				} else {
-					break
-				}
+		const newDbSchemas = {}
+		await getDbSchemas(
+			resource.resource_type,
+			args.resourcePath,
+			workspace,
+			newDbSchemas,
+			(error) => {
+				console.error(error)
 			}
+		)
+		dbSchemas.update((schemas) => ({ ...schemas, ...newDbSchemas }))
+		const dbs = get(dbSchemas)
+		const db = dbs[args.resourcePath]
+		if (!db) {
+			throw new Error('Database not found')
 		}
-		return completion
-	} catch (err) {
-		if (!abortController.signal.aborted) {
-			throw err
-		}
+		const stringSchema = await formatDBSchema(db)
+		toolCallbacks.onFinishToolCall(toolId, 'Retrieved database schema for ' + args.resourcePath)
+		return stringSchema
 	}
-}
-
-export interface AIChatContext {
-	loading: Writable<boolean>
-	currentReply: Writable<string>
-	applyCode: (code: string) => void
 }

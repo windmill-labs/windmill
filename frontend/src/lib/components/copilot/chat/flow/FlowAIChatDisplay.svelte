@@ -2,12 +2,11 @@
 	import autosize from '$lib/autosize'
 	import { Button } from '$lib/components/common'
 	import { Loader2, PlusIcon } from 'lucide-svelte'
-	import type { FlowDisplayMessage } from './core'
 	import { twMerge } from 'tailwind-merge'
-	import ProviderModelSelector from '../chat/ProviderModelSelector.svelte'
-	import type { AIChatContext } from '../chat/core'
+	import ProviderModelSelector from '../ProviderModelSelector.svelte'
+	import type { AIChatContext, DisplayMessage } from '../shared'
 	import { getContext } from 'svelte'
-	import FlowAssistantMessage from './FlowAssistantMessage.svelte'
+	import AssistantMessage from '../AssistantMessage.svelte'
 
 	let {
 		messages,
@@ -15,7 +14,7 @@
 		sendRequest,
 		clear
 	}: {
-		messages: FlowDisplayMessage[]
+		messages: DisplayMessage[]
 		instructions: string
 		sendRequest: () => void
 		clear: () => void
@@ -86,7 +85,7 @@
 						)}
 					>
 						{#if message.role === 'assistant'}
-							<FlowAssistantMessage {message} />
+							<AssistantMessage {message} />
 						{:else}
 							{message.content}
 						{/if}
