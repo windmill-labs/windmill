@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.493.4](https://github.com/windmill-labs/windmill/compare/v1.493.3...v1.493.4) (2025-05-29)
+
+
+### Bug Fixes
+
+* templatev2 delete issue ([#5834](https://github.com/windmill-labs/windmill/issues/5834)) ([ed3ad32](https://github.com/windmill-labs/windmill/commit/ed3ad327a235c16b9f3aa7f8edeefe61b0c01da3))
+
 ## [1.493.3](https://github.com/windmill-labs/windmill/compare/v1.493.2...v1.493.3) (2025-05-29)
 
 
