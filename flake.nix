@@ -87,6 +87,7 @@
             sqlx-cli
             sccache
             nsjail
+            openapi-generator-cli
 
             # Python
             flock
