@@ -959,6 +959,7 @@ pub async fn handle_job_execution(
     };
 
     match job_result {
+        Ok(success) => return Ok(success),
         Err(err) => {
             handle_all_job_kind_error(
                 &conn,
@@ -975,7 +976,6 @@ pub async fn handle_job_execution(
             .await;
             return Err(());
         }
-        Ok(success) => return Ok(success),
     }
 }
 
