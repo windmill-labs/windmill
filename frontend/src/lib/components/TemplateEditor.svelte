@@ -380,7 +380,6 @@
 		$componentControl[$selectedComponent[0]] = {
 			...$componentControl[$selectedComponent[0]],
 			setCode: (value: string) => {
-				code = value
 				setCode(value)
 			}
 		}
@@ -411,9 +410,9 @@
 	}
 
 	export function setCode(ncode: string): void {
-		code = ncode
-		if (editor) {
-			editor.setValue(ncode)
+		if (code != ncode) {
+			code = ncode
+			editor?.setValue(ncode)
 		}
 	}
 
@@ -473,15 +472,22 @@
 			editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {})
 		})
 
+		function updateCode(): boolean {
+			const ncode = getCode()
+			if (code == ncode) {
+				return false
+			}
+			code = ncode
+			return true
+		}
+
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
-				const newCode = getCode()
-				if (code != newCode) {
-					code = newCode
+				if (updateCode()) {
+					dispatch('change', { code })
 				}
-				dispatch('change', { code: newCode })
 			}, 200)
 		})
 
@@ -507,10 +513,7 @@
 
 		editor.onDidBlurEditorText(() => {
 			dispatch('blur')
-			const newCode = getCode()
-			if (code != newCode) {
-				code = newCode
-			}
+			updateCode()
 		})
 
 		jsLoader = setTimeout(async () => {
