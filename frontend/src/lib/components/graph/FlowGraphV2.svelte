@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import { FlowService, type FlowModule } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
 	import { createEventDispatcher, getContext, onDestroy, onMount, setContext, tick } from 'svelte'
@@ -250,7 +248,7 @@
 	}
 
 	let lastModules = structuredClone(modules)
-	let newModules = $state(modules)
+	let newModules = $state.raw(modules)
 
 	function onModulesChange2(modules) {
 		if (!deepEqual(modules, lastModules)) {
@@ -365,7 +363,7 @@
 			expandedSubflows
 		)
 	)
-	run(() => {
+	$effect(() => {
 		;(graph || allowSimplifiedPoll) && updateStores()
 	})
 	let showDataflow = $derived(
@@ -377,8 +375,12 @@
 			$selectedId !== 'Result' &&
 			$selectedId !== 'triggers'
 	)
-	run(() => {
-		width && centerViewport(width)
+	let lastWidth = width
+	$effect(() => {
+		if (lastWidth !== width) {
+			lastWidth = width
+			width && centerViewport(width)
+		}
 	})
 </script>
 

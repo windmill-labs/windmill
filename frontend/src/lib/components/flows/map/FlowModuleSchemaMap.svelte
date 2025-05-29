@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import type { FlowEditorContext } from '../types'
 	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import {
@@ -38,17 +40,31 @@
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { JobService } from '$lib/gen'
 
-	export let modules: FlowModule[] | undefined
-	export let sidebarSize: number | undefined = undefined
-	export let disableStaticInputs = false
-	export let disableTutorials = false
-	export let disableAi = false
-	export let disableSettings = false
-	export let newFlow: boolean = false
-	export let smallErrorHandler = false
-	export let workspace: string | undefined = $workspaceStore
+	interface Props {
+		modules: FlowModule[] | undefined
+		sidebarSize?: number | undefined
+		disableStaticInputs?: boolean
+		disableTutorials?: boolean
+		disableAi?: boolean
+		disableSettings?: boolean
+		newFlow?: boolean
+		smallErrorHandler?: boolean
+		workspace?: string | undefined
+	}
 
-	let flowTutorials: FlowTutorials | undefined = undefined
+	let {
+		modules = $bindable(undefined),
+		sidebarSize = $bindable(undefined),
+		disableStaticInputs = false,
+		disableTutorials = false,
+		disableAi = false,
+		disableSettings = false,
+		newFlow = false,
+		smallErrorHandler = false,
+		workspace = $workspaceStore
+	}: Props = $props()
+
+	let flowTutorials: FlowTutorials | undefined = $state(undefined)
 
 	const {
 		customUi,
@@ -170,11 +186,9 @@
 		})
 	}
 
-	$: sidebarMode == 'graph' ? (sidebarSize = 40) : (sidebarSize = 20)
-
 	let sidebarMode: 'list' | 'graph' = 'graph'
 
-	let minHeight = 0
+	let minHeight = $state(0)
 
 	function selectNextId(id: any) {
 		if (modules) {
@@ -214,8 +228,8 @@
 		}
 	}
 
-	let deleteCallback: (() => void) | undefined = undefined
-	let dependents: Record<string, string[]> = {}
+	let deleteCallback: (() => void) | undefined = $state(undefined)
+	let dependents: Record<string, string[]> = $state({})
 
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
@@ -290,6 +304,9 @@
 			$flowStateStore = $flowStateStore
 		}
 	}
+	run(() => {
+		sidebarMode == 'graph' ? (sidebarSize = 40) : (sidebarSize = 20)
+	})
 </script>
 
 <Portal name="flow-module">
@@ -392,13 +409,14 @@
 				} else if (shouldRunTutorial('branchall', detail.detail, 3)) {
 					flowTutorials?.runTutorialById('branchall')
 				} else {
-					if (detail.modules && Array.isArray(detail.modules)) {
+					const modules = detail.modules
+					if (modules && Array.isArray(modules)) {
 						await tick()
 						if ($moving) {
 							push(history, $flowStore)
 							let indexToRemove = $moving.modules.findIndex((m) => $moving?.module?.id == m.id)
 							$moving.modules.splice(indexToRemove, 1)
-							detail.modules.splice(detail.index, 0, $moving.module)
+							modules.splice(detail.index, 0, $moving.module)
 							$selectedId = $moving.module.id
 							$moving = undefined
 						} else {
@@ -413,26 +431,26 @@
 							} else {
 								const index = detail.index ?? 0
 								await insertNewModuleAtIndex(
-									detail.modules,
+									modules,
 									index,
 									detail.kind,
 									detail.script,
 									detail.flow,
 									detail.inlineScript
 								)
-								const id = detail.modules[detail.index ?? 0].id
+								const id = modules[detail.index ?? 0].id
 								$selectedId = id
 
 								if (detail.kind == 'trigger') {
 									await insertNewModuleAtIndex(
-										detail.modules,
+										modules,
 										index + 1,
 										'forloop',
 										undefined,
 										undefined,
 										undefined
 									)
-									setExpr(detail.modules[index + 1], `results.${id}`)
+									setExpr(modules[index + 1], `results.${id}`)
 									setScheduledPollSchedule(triggersState, triggersCount)
 								}
 
@@ -445,7 +463,7 @@
 						}
 
 						if (['branchone', 'branchall'].includes(detail.kind)) {
-							await addBranch(detail.modules[detail.index ?? 0])
+							await addBranch(modules[detail.index ?? 0])
 						}
 						$flowStateStore = $flowStateStore
 						$flowStore = $flowStore
