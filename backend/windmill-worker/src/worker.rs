@@ -84,7 +84,6 @@ use tokio::fs::symlink;
 use tokio::fs::symlink_file as symlink;
 
 use tokio::{
-    fs::DirBuilder,
     sync::{
         broadcast,
         mpsc::{self, Receiver, Sender},
@@ -433,6 +432,15 @@ pub struct AuthedClient {
 }
 
 impl AuthedClient {
+    pub fn new(
+        base_internal_url: String,
+        workspace: String,
+        token: String,
+        force_client: Option<reqwest::Client>,
+    ) -> AuthedClient {
+        AuthedClient { base_internal_url, workspace, token, force_client }
+    }
+
     pub async fn get(&self, url: &str, query: Vec<(&str, String)>) -> anyhow::Result<Response> {
         self.force_client
             .as_ref()
@@ -859,15 +867,6 @@ async fn extract_job_and_perms(job: NextJob, conn: &Connection) -> JobAndPerms {
     }
 }
 
-fn build_authed_client(base_internal_url: &str, token: String, workspace_id: &str) -> AuthedClient {
-    AuthedClient {
-        base_internal_url: base_internal_url.to_string(),
-        token,
-        workspace: workspace_id.to_string(),
-        force_client: None,
-    }
-}
-
 fn create_span(arc_job: &Arc<MiniPulledJob>, worker_name: &str, hostname: &str) -> Span {
     let span = tracing::span!(tracing::Level::INFO, "job",
         job_id = %arc_job.id, root_job = field::Empty, workspace_id = %arc_job.workspace_id,  worker = %worker_name, hostname = %hostname, tag = %arc_job.tag,
@@ -925,7 +924,12 @@ pub async fn handle_job_execution(
         precomputed_agent_info: precomputed_bundle,
     } = extract_job_and_perms(job, &conn).await;
 
-    let authed_client = build_authed_client(base_internal_url, token, &job.workspace_id);
+    let authed_client = AuthedClient::new(
+        base_internal_url.to_owned(),
+        job.workspace_id.clone(),
+        token,
+        None,
+    );
 
     let arc_job = Arc::new(job);
 
@@ -1205,11 +1209,7 @@ pub async fn run_worker(
         write_file(&HOME_ENV, ".netrc", netrc).expect("could not write netrc");
     }
 
-    DirBuilder::new()
-        .recursive(true)
-        .create(&worker_dir)
-        .await
-        .expect("could not create initial worker dir");
+    create_directory_async(&worker_dir).await;
 
     if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -1944,11 +1944,7 @@ pub async fn run_worker(
                     let same_worker = job.same_worker;
 
                     let folder = if job.script_lang == Some(ScriptLang::Go) {
-                        DirBuilder::new()
-                            .recursive(true)
-                            .create(&format!("{job_dir}/go"))
-                            .await
-                            .expect("could not create go dir");
+                        create_directory_async(&format!("{job_dir}/go")).await;
                         "/go"
                     } else {
                         ""
@@ -1960,22 +1956,13 @@ pub async fn run_worker(
                         if tokio::fs::metadata(target).await.is_err() {
                             let parent_flow = job.parent_job.unwrap();
                             let parent_shared_dir = format!("{worker_dir}/{parent_flow}/shared");
-                            DirBuilder::new()
-                                .recursive(true)
-                                .create(&parent_shared_dir)
-                                .await
-                                .expect("could not create parent shared dir");
-
+                            create_directory_async(&parent_shared_dir).await;
                             symlink(&parent_shared_dir, target)
                                 .await
                                 .expect("could not symlink target");
                         }
                     } else {
-                        DirBuilder::new()
-                            .recursive(true)
-                            .create(target)
-                            .await
-                            .expect("could not create shared dir");
+                        create_directory_async(target).await;
                     }
 
                     #[cfg(feature = "prometheus")]
@@ -2341,7 +2328,7 @@ pub async fn handle_queued_job(
                         .to_string();
                     append_logs(&job.id, &job.workspace_id, logs, conn).await;
                 }
-                job_completed_tx
+                let result = job_completed_tx
                     .send_job(
                         JobCompleted {
                             preprocessed_args: None,
@@ -2357,8 +2344,16 @@ pub async fn handle_queued_job(
                         },
                         true,
                     )
-                    .await
-                    .expect("send job completed");
+                    .await;
+
+                match result {
+                    Ok(_) => {
+                        tracing::debug!("Send job completed")
+                    }
+                    Err(err) => {
+                        tracing::error!("An error occurred while sending job completed: {:#?}", err)
+                    }
+                }
 
                 return Ok(true);
             }

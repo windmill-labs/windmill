@@ -1962,12 +1962,12 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         .await
         .expect("could not create job token");
 
-        let client = AuthedClient {
-            base_internal_url: base_internal_url.to_string(),
+        let client = AuthedClient::new(
+            base_internal_url.to_string(),
+            job.workspace_id.to_string(),
             token,
-            workspace: job.workspace_id.to_string(),
-            force_client: None,
-        };
+            None,
+        );
 
         let last_ping = job.last_ping.clone();
         let error_message = format!(

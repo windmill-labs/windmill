@@ -229,12 +229,12 @@ pub fn start_background_processor(
                     tracing::info!(parent_flow = %flow, "updating flow status");
                     if let Err(e) = update_flow_status_after_job_completion(
                         &db,
-                        &AuthedClient {
-                            base_internal_url: base_internal_url.to_string(),
-                            workspace: w_id.clone(),
-                            token: token.clone(),
-                            force_client: None,
-                        },
+                        &AuthedClient::new(
+                            base_internal_url.to_string(),
+                            w_id.clone(),
+                            token.clone(),
+                            None,
+                        ),
                         flow,
                         &Uuid::nil(),
                         &w_id,
@@ -280,7 +280,9 @@ async fn send_job_completed(job_completed_tx: JobCompletedSender, jc: JobComplet
         .await;
 
     match result {
-        Ok(()) => tracing::debug!("send job completed"),
+        Ok(()) => {
+            tracing::debug!("Send job completed")
+        }
         Err(err) => {
             tracing::error!("An error occurred while sending job completed: {:#?}", err)
         }
@@ -399,12 +401,7 @@ pub async fn handle_receive_completed_job(
 ) -> Option<Arc<MiniPulledJob>> {
     let token = jc.token.clone();
     let workspace = jc.job.workspace_id.clone();
-    let client = AuthedClient {
-        base_internal_url: base_internal_url.to_string(),
-        workspace,
-        token,
-        force_client: None,
-    };
+    let client = AuthedClient::new(base_internal_url.to_string(), workspace, token, None);
     let job = jc.job.clone();
     let mem_peak = jc.mem_peak.clone();
     let canceled_by = jc.canceled_by.clone();
