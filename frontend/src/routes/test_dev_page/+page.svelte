@@ -82,8 +82,8 @@
 		showWhiteLabelUI === 'old'
 			? oldWhiteLabelUIConfig
 			: showWhiteLabelUI === 'new'
-			? newWhiteLabelUIConfig
-			: noWhiteLabelUIConfig
+				? newWhiteLabelUIConfig
+				: noWhiteLabelUIConfig
 </script>
 
 <select bind:value={showWhiteLabelUI} placeholder="Select UI Type">

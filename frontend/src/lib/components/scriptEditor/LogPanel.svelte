@@ -140,7 +140,7 @@
 												customUi={customUi?.displayResult}
 												language={lang}
 											>
-												<svelte:fragment slot="copilot-fix">
+												<svelte:fragment slot="copilot_fix">
 													{#if lang && editor && diffEditor && args && previewJob?.result && typeof previewJob?.result == 'object' && `error` in previewJob?.result && previewJob?.result.error}
 														<ScriptFix
 															on:fix

@@ -69,7 +69,7 @@
 			{disableMock}
 			{disableHistory}
 		>
-			<svelte:fragment slot="copilot-fix">
+			<svelte:fragment slot="copilot_fix">
 				{#if lang && editor && diffEditor && $testStepStore[mod.id] && selectedJob && 'result' in selectedJob && selectedJob.result && typeof selectedJob.result == 'object' && `error` in selectedJob.result && selectedJob.result.error}
 					<ScriptFix
 						error={JSON.stringify(selectedJob.result.error)}
