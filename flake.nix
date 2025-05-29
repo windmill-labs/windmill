@@ -81,6 +81,7 @@
           buildInputs = buildInputs ++ (with pkgs; [
             # Essentials
             rust
+            cargo-sweep
             git
             xcaddy
             sqlx-cli
@@ -187,6 +188,7 @@
           # for related places search: ADD_NEW_LANG
           FLOCK_PATH = "${pkgs.flock}/bin/flock";
           CARGO_PATH = "${rust}/bin/cargo";
+          CARGO_SWEEP_PATH = "${pkgs.cargo-sweep}/bin/cargo-sweep";
           DOTNET_PATH = "${pkgs.dotnet-sdk_9}/bin/dotnet";
           DOTNET_ROOT = "${pkgs.dotnet-sdk_9}/share/dotnet";
           ORACLE_LIB_DIR = "${pkgs.oracle-instantclient.lib}/lib";
