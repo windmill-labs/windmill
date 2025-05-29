@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { FlowService, type FlowModule } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
 	import { createEventDispatcher, getContext, onDestroy, onMount, setContext, tick } from 'svelte'
@@ -43,56 +45,79 @@
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
 	import { deepEqual } from 'fast-equals'
 
-	export let success: boolean | undefined = undefined
-	export let modules: FlowModule[] | undefined = []
-	export let failureModule: FlowModule | undefined = undefined
-	export let preprocessorModule: FlowModule | undefined = undefined
-	export let minHeight: number = 0
-	export let maxHeight: number | undefined = undefined
-	export let notSelectable = false
-	export let flowModuleStates: Record<string, GraphModuleState> | undefined = undefined
-
-	export let selectedId: Writable<string | undefined> = writable<string | undefined>(undefined)
-	export let path: string | undefined = undefined
-	export let newFlow: boolean = false
-
-	export let insertable = false
-	export let earlyStop: boolean = false
-	export let cache: boolean = false
-	export let scroll = false
-	export let moving: string | undefined = undefined
-
-	// Download: display a top level button to open the graph in a new tab
-	export let download = false
-	export let fullSize = false
-	export let disableAi = false
-	export let flowInputsStore: Writable<FlowInput | undefined> = writable<FlowInput | undefined>(
-		undefined
-	)
-	export let triggerNode = false
-	export let workspace: string = $workspaceStore ?? 'NO_WORKSPACE'
-	export let editMode = false
-
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
-
-	setContext<{
-		selectedId: Writable<string | undefined>
-		flowInputsStore: Writable<FlowInput | undefined>
-		useDataflow: Writable<boolean | undefined>
-	}>('FlowGraphContext', { selectedId, flowInputsStore, useDataflow })
 
 	const triggerContext = getContext<TriggerContext>('TriggerContext')
 
 	const dispatch = createEventDispatcher()
 
 	let fullWidth = 0
-	let width = 0
+	let width = $state(0)
 
-	export let allowSimplifiedPoll: boolean = true
+	let simplifiableFlow: SimplifiableFlow | undefined = $state(undefined)
 
-	let simplifiableFlow: SimplifiableFlow | undefined = undefined
+	interface Props {
+		success?: boolean | undefined
+		modules?: FlowModule[] | undefined
+		failureModule?: FlowModule | undefined
+		preprocessorModule?: FlowModule | undefined
+		minHeight?: number
+		maxHeight?: number | undefined
+		notSelectable?: boolean
+		flowModuleStates?: Record<string, GraphModuleState> | undefined
+		selectedId?: Writable<string | undefined>
+		path?: string | undefined
+		newFlow?: boolean
+		insertable?: boolean
+		earlyStop?: boolean
+		cache?: boolean
+		scroll?: boolean
+		moving?: string | undefined
+		// Download: display a top level button to open the graph in a new tab
+		download?: boolean
+		fullSize?: boolean
+		disableAi?: boolean
+		flowInputsStore?: Writable<FlowInput | undefined>
+		triggerNode?: boolean
+		workspace?: string
+		editMode?: boolean
+		allowSimplifiedPoll?: boolean
+		expandedSubflows?: Record<string, FlowModule[]>
+	}
 
-	export let expandedSubflows: Record<string, FlowModule[]> = {}
+	let {
+		success = undefined,
+		modules = [],
+		failureModule = undefined,
+		preprocessorModule = undefined,
+		minHeight = 0,
+		maxHeight = undefined,
+		notSelectable = false,
+		flowModuleStates = undefined,
+		selectedId = writable<string | undefined>(undefined),
+		path = undefined,
+		newFlow = false,
+		insertable = false,
+		earlyStop = false,
+		cache = false,
+		scroll = false,
+		moving = undefined,
+		download = false,
+		fullSize = false,
+		disableAi = false,
+		flowInputsStore = writable<FlowInput | undefined>(undefined),
+		triggerNode = false,
+		workspace = $workspaceStore ?? 'NO_WORKSPACE',
+		editMode = false,
+		allowSimplifiedPoll = true,
+		expandedSubflows = $bindable({})
+	}: Props = $props()
+
+	setContext<{
+		selectedId: Writable<string | undefined>
+		flowInputsStore: Writable<FlowInput | undefined>
+		useDataflow: Writable<boolean | undefined>
+	}>('FlowGraphContext', { selectedId, flowInputsStore, useDataflow })
 
 	if (triggerContext && allowSimplifiedPoll) {
 		if (isSimplifiable(modules)) {
@@ -120,8 +145,6 @@
 			triggerContext?.simplifiedPoll ? (get(triggerContext.simplifiedPoll) ?? false) : false
 		)
 	}
-
-	$: allowSimplifiedPoll && onModulesChange(modules ?? [])
 
 	function layoutNodes(nodes: Node[]): Node[] {
 		let seenId: string[] = []
@@ -227,8 +250,7 @@
 	}
 
 	let lastModules = structuredClone(modules)
-	let newModules = modules
-	$: modules && onModulesChange2(modules)
+	let newModules = $state(modules)
 
 	function onModulesChange2(modules) {
 		if (!deepEqual(modules, lastModules)) {
@@ -237,35 +259,10 @@
 		}
 	}
 
-	$: graph = graphBuilder(
-		newModules,
-		{
-			disableAi,
-			insertable,
-			flowModuleStates,
-			selectedId: $selectedId,
-			path,
-			newFlow,
-			cache,
-			earlyStop,
-			editMode
-		},
-		failureModule,
-		preprocessorModule,
-		eventHandler,
-		success,
-		$useDataflow,
-		$selectedId,
-		moving,
-		simplifiableFlow,
-		triggerNode ? path : undefined,
-		expandedSubflows
-	)
+	let nodes = $state.raw<Node[]>([])
+	let edges = $state.raw<Edge[]>([])
 
-	const nodes = writable<Node[]>([])
-	const edges = writable<Edge[]>([])
-
-	let height = 0
+	let height = $state(0)
 
 	function isSimplifiable(modules: FlowModule[] | undefined): boolean {
 		if (!modules || modules?.length !== 2) {
@@ -285,13 +282,11 @@
 		}
 		let newGraph = graph
 
-		$nodes = layoutNodes(newGraph.nodes)
-		$edges = newGraph.edges
+		nodes = layoutNodes(newGraph.nodes)
+		edges = newGraph.edges
 		await tick()
-		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
+		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
 	}
-
-	$: (graph || allowSimplifiedPoll) && updateStores()
 
 	const nodeTypes = {
 		input2: InputNode,
@@ -319,35 +314,72 @@
 
 	const proOptions = { hideAttribution: true }
 
-	$: showDataflow =
-		$selectedId != undefined &&
-		!$selectedId.startsWith('constants') &&
-		!$selectedId.startsWith('settings') &&
-		$selectedId !== 'failure' &&
-		$selectedId !== 'preprocessor' &&
-		$selectedId !== 'Result' &&
-		$selectedId !== 'triggers'
-
-	const viewport = writable<Viewport>({
+	let viewport = $state<Viewport>({
 		x: 0,
 		y: 35,
 		zoom: 1
 	})
 
 	function centerViewport(width: number) {
-		viewport.update((vp) => ({
-			...vp,
+		viewport = {
+			...viewport,
 			x: (width - fullWidth) / 2,
-			y: vp.y
-		}))
+			y: viewport.y
+		}
 	}
-
-	$: width && centerViewport(width)
 
 	onMount(() => {
 		centerViewport(width)
 	})
-	let yamlEditorDrawer: Drawer | undefined = undefined
+	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
+
+	$effect(() => {
+		allowSimplifiedPoll && onModulesChange(modules ?? [])
+	})
+	$effect(() => {
+		modules && onModulesChange2(modules)
+	})
+	let graph = $derived(
+		graphBuilder(
+			newModules,
+			{
+				disableAi,
+				insertable,
+				flowModuleStates,
+				selectedId: $selectedId,
+				path,
+				newFlow,
+				cache,
+				earlyStop,
+				editMode
+			},
+			failureModule,
+			preprocessorModule,
+			eventHandler,
+			success,
+			$useDataflow,
+			$selectedId,
+			moving,
+			simplifiableFlow,
+			triggerNode ? path : undefined,
+			expandedSubflows
+		)
+	)
+	run(() => {
+		;(graph || allowSimplifiedPoll) && updateStores()
+	})
+	let showDataflow = $derived(
+		$selectedId != undefined &&
+			!$selectedId.startsWith('constants') &&
+			!$selectedId.startsWith('settings') &&
+			$selectedId !== 'failure' &&
+			$selectedId !== 'preprocessor' &&
+			$selectedId !== 'Result' &&
+			$selectedId !== 'triggers'
+	)
+	run(() => {
+		width && centerViewport(width)
+	})
 </script>
 
 {#if insertable}
@@ -370,7 +402,7 @@
 		</div>
 	{:else}
 		<SvelteFlow
-			on:paneclick={(e) => {
+			onpaneclick={(e) => {
 				document.dispatchEvent(new Event('focus'))
 			}}
 			{nodes}
@@ -393,7 +425,7 @@
 			<Controls position="top-right" orientation="horizontal" showLock={false}>
 				{#if download}
 					<ControlButton
-						on:click={() => {
+						onclick={() => {
 							try {
 								localStorage.setItem(
 									'svelvet',

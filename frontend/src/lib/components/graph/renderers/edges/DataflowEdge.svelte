@@ -1,41 +1,55 @@
 <script lang="ts">
 	import type { FlowModule } from '$lib/gen'
-	import { getBezierPath, BaseEdge, type Position, EdgeLabelRenderer } from '@xyflow/svelte'
+	import { getBezierPath, BaseEdge, type Position, EdgeLabel } from '@xyflow/svelte'
 	import { getStraightLinePath } from '../utils'
 
-	export let sourceX: number
-	export let sourceY: number
-	export let sourcePosition: Position
-	export let targetX: number
-	export let targetY: number
-	export let targetPosition: Position
-	export let markerEnd: string | undefined = undefined
-
-	export let data: {
-		modules: FlowModule[]
-		sourceId: string
-		targetId: string
+	interface Props {
+		sourceX: number
+		sourceY: number
+		sourcePosition: Position
+		targetX: number
+		targetY: number
+		targetPosition: Position
+		markerEnd?: string | undefined
+		data: {
+			modules: FlowModule[]
+			sourceId: string
+			targetId: string
+		}
 	}
 
-	$: [edgePath, labelX, labelY] = getBezierPath({
+	let {
 		sourceX,
-		sourceY: targetY - sourceY > 100 ? targetY - 100 : sourceY,
+		sourceY,
 		sourcePosition,
 		targetX,
 		targetY,
 		targetPosition,
-		curvature: 0.25
-	})
+		markerEnd = undefined,
+		data
+	}: Props = $props()
+
+	let [edgePath, labelX, labelY] = $derived(
+		getBezierPath({
+			sourceX,
+			sourceY: targetY - sourceY > 100 ? targetY - 100 : sourceY,
+			sourcePosition,
+			targetX,
+			targetY,
+			targetPosition,
+			curvature: 0.25
+		})
+	)
 </script>
 
-<EdgeLabelRenderer>
+<EdgeLabel x={labelX} y={labelY}>
 	<div
 		class="absolute cursor-pointer nodrag nopan bg-surface-selected p-1 border text-xs"
 		style:transform="translate(-50%, -50%) translate({labelX}px,{labelY}px)"
 	>
 		{data.sourceId} -> {data.targetId}
 	</div>
-</EdgeLabelRenderer>
+</EdgeLabel>
 
 <BaseEdge
 	path={targetY - sourceY > 100

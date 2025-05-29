@@ -1,7 +1,7 @@
 <script lang="ts">
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import { getBezierPath, BaseEdge, type Position, EdgeLabelRenderer } from '@xyflow/svelte'
+	import { getBezierPath, BaseEdge, type EdgeProps, EdgeLabel } from '@xyflow/svelte'
 	import { ClipboardCopy } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
@@ -9,50 +9,58 @@
 	import { getStraightLinePath } from '../utils'
 	import { twMerge } from 'tailwind-merge'
 
-	export let sourceX: number
-	export let sourceY: number
-	export let sourcePosition: Position
-	export let targetX: number
-	export let targetY: number
-	export let targetPosition: Position
-	export let markerEnd: string | undefined = undefined
+	const { useDataflow } = getContext<{
+		useDataflow: Writable<boolean | undefined>
+	}>('FlowGraphContext')
 
-	export let data: {
-		insertable: boolean
-		modules: FlowModule[]
-		moving: string | undefined
-		eventHandlers: GraphEventHandlers
-		index: number
-		enableTrigger: boolean
-		disableAi: boolean
-		disableMoveIds: string[]
-	}
-
-	$: [edgePath] = getBezierPath({
+	let {
+		id,
 		sourceX,
-		sourceY: targetY - sourceY > 100 ? targetY - 100 : sourceY,
+		sourceY,
 		sourcePosition,
 		targetX,
 		targetY,
 		targetPosition,
-		curvature: 0.25
-	})
+		markerEnd,
+		style,
+		data
+	}: EdgeProps & {
+		data: {
+			insertable: boolean
+			modules: FlowModule[]
+			moving: string | undefined
+			eventHandlers: GraphEventHandlers
+			index: number
+			enableTrigger: boolean
+			disableAi: boolean
+			disableMoveIds: string[]
+		}
+	} = $props()
 
-	$: completeEdge =
+	let [edgePath, labelX, labelY] = $derived(
+		getBezierPath({
+			sourceX,
+			sourceY: targetY - sourceY > 100 ? targetY - 100 : sourceY,
+			sourcePosition,
+			targetX,
+			targetY,
+			targetPosition,
+			curvature: 0.25
+		})
+	)
+
+	let completeEdge = $derived(
 		targetY - sourceY > 100
 			? `${edgePath} ${getStraightLinePath({ sourceX, sourceY, targetY })}`
 			: edgePath
-
-	const { useDataflow } = getContext<{
-		useDataflow: Writable<boolean | undefined>
-	}>('FlowGraphContext')
+	)
 </script>
 
-<EdgeLabelRenderer>
+<EdgeLabel x={labelX} y={labelY} class="button-edge__label">
 	{#if data?.insertable && !$useDataflow && !data?.moving}
 		<div
 			class={twMerge('edgeButtonContainer nodrag nopan top-0')}
-			style:transform="translate(-50%, 50%) translate({sourceX}px,{sourceY + 2}px)"
+			style:transform="translate(-50%)"
 		>
 			<InsertModuleButton
 				disableAi={data.disableAi}
@@ -115,7 +123,7 @@
 			{/if}
 		</div>
 	{/if}
-</EdgeLabelRenderer>
+</EdgeLabel>
 
 <BaseEdge path={completeEdge} {markerEnd} class={$useDataflow ? 'hidden' : ''} />
 
