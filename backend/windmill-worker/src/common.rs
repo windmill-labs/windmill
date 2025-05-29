@@ -490,7 +490,7 @@ pub async fn update_worker_ping_for_failed_init_script(
                 tracing::error!("Error updating worker ping for failed init script: {e:?}");
             }
         }
-        Connection::Http(client) => {
+        Connection::Http((client, _)) => {
             if let Err(e) = client
                 .post::<_, ()>(
                     UPDATE_PING_URL,

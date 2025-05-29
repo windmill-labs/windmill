@@ -192,8 +192,23 @@ fn instance_name(hostname: &str) -> String {
         .to_string()
 }
 
-pub fn worker_suffix(hostname: &str, rd_string: &str) -> String {
-    format!("{}-{}", instance_name(hostname), rd_string)
+const DEFAULT_WORKER_SUFFIX_LEN: usize = 5;
+const SSH_AGENT_WORKER_SUFFIX: &'static str = "/ssh";
+
+pub fn create_worker_suffix(hostname: &str, rd_string_len: usize, ssh_ag_worker: bool) -> String {
+    let mut wk_suffix = format!("{}-{}", instance_name(hostname), rd_string(rd_string_len));
+    if ssh_ag_worker {
+        wk_suffix.push_str(SSH_AGENT_WORKER_SUFFIX);
+    }
+    wk_suffix
+}
+
+pub fn create_ssh_agent_worker_suffix(hostname: &str) -> String {
+    create_worker_suffix(hostname, DEFAULT_WORKER_SUFFIX_LEN, true)
+}
+
+pub fn create_default_worker_suffix(hostname: &str) -> String {
+    create_worker_suffix(hostname, DEFAULT_WORKER_SUFFIX_LEN, false)
 }
 
 pub fn worker_name_with_suffix(is_agent: bool, worker_group: &str, suffix: &str) -> String {

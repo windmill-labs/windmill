@@ -24,7 +24,14 @@
 		userWorkspaces
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { displayDate, groupBy, pluralize, truncate } from '$lib/utils'
+	import {
+		AGENT_WORKER_NAME_PREFIX,
+		displayDate,
+		groupBy,
+		isAgentWorkerShell,
+		pluralize,
+		truncate
+	} from '$lib/utils'
 	import { AlertTriangle, LineChart, List, Plus, Search, Terminal } from 'lucide-svelte'
 	import { getContext, onDestroy, onMount } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
@@ -258,6 +265,10 @@
 	}
 	let newHttpAgentWorkerDrawer: Drawer | undefined = undefined
 	let replForWorkerDrawer: Drawer | undefined = undefined
+
+	function isWorkerMaybeAlive(last_ping: number | undefined): boolean | undefined {
+		return last_ping != undefined ? last_ping < 60 : undefined
+	}
 </script>
 
 {#if $superadmin}
@@ -615,9 +626,12 @@
 											</div>
 										</Cell>
 									</tr>
-
 									{#if workers}
+										{@const sshWorker = workers.find((worker) => {
+											return isAgentWorkerShell(worker.worker)
+										})?.worker}
 										{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
+											{@const isWorkerAlive = isWorkerMaybeAlive(last_ping)}
 											<tr>
 												<Cell first>
 													{@const underscorePos = worker.search('_')}
@@ -688,14 +702,14 @@
 												</Cell>
 												<Cell>
 													<Badge
-														color={last_ping != undefined
-															? last_ping < 60
+														color={isWorkerAlive != undefined
+															? isWorkerAlive
 																? 'green'
 																: 'red'
 															: 'gray'}
 													>
-														{last_ping != undefined
-															? last_ping < 60
+														{isWorkerAlive != undefined
+															? isWorkerAlive
 																? 'Alive'
 																: 'Dead'
 															: 'Unknown'}
@@ -706,8 +720,19 @@
 														size="xs"
 														color="light"
 														on:click={() => {
-															tag = hostname
-															replForWorkerDrawer?.openDrawer?.()
+															if (worker.startsWith(AGENT_WORKER_NAME_PREFIX)) {
+																if (!sshWorker) {
+																	sendUserToast(
+																		'Unexpected error could not find agent worker handling repl feature',
+																		true
+																	)
+																	return
+																}
+																tag = sshWorker
+															} else {
+																tag = hostname
+															}
+															replForWorkerDrawer?.openDrawer()
 														}}
 														startIcon={{ icon: Terminal }}
 													>

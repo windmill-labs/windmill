@@ -51,7 +51,7 @@ use windmill_common::{
     scripts::ScriptLang,
     stats_ee::schedule_stats,
     triggers::TriggerKind,
-    utils::{rd_string, Mode, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS},
+    utils::{create_default_worker_suffix, create_ssh_agent_worker_suffix, worker_name_with_suffix, Mode, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS},
     worker::{
         reload_custom_tags_setting, Connection, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
     },
@@ -340,9 +340,9 @@ async fn windmill_main() -> anyhow::Result<()> {
             "Creating http client for cluster using base internal url {}",
             std::env::var("BASE_INTERNAL_URL").unwrap_or_default()
         );
-        let suffix = windmill_common::utils::worker_suffix(&hostname, &rd_string(5));
+        let suffix = create_ssh_agent_worker_suffix(&hostname);
         (
-            Connection::Http(build_agent_http_client(&suffix)),
+            Connection::Http((build_agent_http_client(&suffix), None)),
             Some(suffix),
         )
     } else {
@@ -680,16 +680,16 @@ Windmill Community Edition {GIT_VERSION}
                         let suffix = if i == 0 && first_suffix.is_some() {
                             first_suffix.as_ref().unwrap().clone()
                         } else {
-                            windmill_common::utils::worker_suffix(&hostname, &rd_string(5))
+                            create_default_worker_suffix(&hostname)
                         };
 
                         let worker_conn = WorkerConn {
                             conn: if i == 0 || mode != Mode::Agent {
                                 conn.clone()
                             } else {
-                                Connection::Http(build_agent_http_client(&suffix))
+                                Connection::Http((build_agent_http_client(&suffix), None))
                             },
-                            worker_name: windmill_common::utils::worker_name_with_suffix(
+                            worker_name: worker_name_with_suffix(
                                 mode == Mode::Agent,
                                 WORKER_GROUP.as_str(),
                                 &suffix,

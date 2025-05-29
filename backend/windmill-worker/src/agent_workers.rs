@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use windmill_common::{
     agent_workers::{AgentWorkerData, QueueInitJob},
-    worker::HttpClient,
+    worker::{HttpClient, JobCancelled},
 };
 use windmill_queue::{JobAndPerms, JobCompleted};
 
@@ -34,6 +34,12 @@ pub struct ProcessAgentWorkerResult {
     pub agent_worker_data: Option<AgentWorkerData>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CancelJob {
+    pub job_cancelled: JobCancelled,
+    pub agent_worker_data: Option<AgentWorkerData>,
+    
+}
 impl ProcessAgentWorkerResult {
     pub fn new(job_completed: JobCompleted, agent_worker_data: Option<AgentWorkerData>) -> Self {
         Self { job_completed, agent_worker_data }

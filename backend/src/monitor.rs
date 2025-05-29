@@ -1241,7 +1241,7 @@ pub async fn load_value_from_global_settings_with_conn(
 ) -> anyhow::Result<Option<serde_json::Value>> {
     match conn {
         Connection::Sql(db) => Ok(load_value_from_global_settings(db, setting_name).await?),
-        Connection::Http(client) => {
+        Connection::Http((client, _)) => {
             if load_from_http {
                 client
                     .get::<Option<serde_json::Value>>(&format!(

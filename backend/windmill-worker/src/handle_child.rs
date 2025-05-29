@@ -55,7 +55,7 @@ use crate::common::{resolve_job_timeout, OccupancyMetrics};
 use crate::job_logger::{append_job_logs, append_with_limit};
 use crate::job_logger_ee::process_streaming_log_lines;
 use crate::worker_utils::{ping_job_status, update_worker_ping_from_job};
-use crate::{MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM};
+use crate::{CancelJob, MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM};
 
 lazy_static::lazy_static! {
     pub static ref SLOW_LOGS: bool = std::env::var("SLOW_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
@@ -223,14 +223,20 @@ pub async fn handle_child(
                             tracing::error!(%job_id, %err, "error setting cancelation reason for job {job_id}: {err}");
                         }
                     }
-                    Connection::Http(client) => {
+                    Connection::Http((client, agent_worker_data)) => {
                         if let Err(err) = client
                             .post::<_, ()>(
                                 &format!("/api/agent_workers/set_job_cancelled/{}", job_id),
                                 None,
-                                &JobCancelled {
-                                    canceled_by: "timeout".to_string(),
-                                    reason: format!("duration > {}", timeout_duration.as_secs()),
+                                &CancelJob {
+                                    job_cancelled: JobCancelled {
+                                        canceled_by: "timeout".to_string(),
+                                        reason: format!(
+                                            "duration > {}",
+                                            timeout_duration.as_secs()
+                                        ),
+                                    },
+                                    agent_worker_data: agent_worker_data.to_owned(),
                                 },
                             )
                             .await

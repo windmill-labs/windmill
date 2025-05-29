@@ -24,7 +24,7 @@ use uuid::Uuid;
 use windmill_macros::annotations;
 
 use crate::{
-    agent_workers::{PingJobStatusResponse, BASE_INTERNAL_URL},
+    agent_workers::{AgentWorkerData, PingJobStatusResponse, BASE_INTERNAL_URL},
     cache::{unwrap_or_error, RawNode, RawScript},
     error::{self, to_anyhow},
     global_settings::CUSTOM_TAGS_SETTING,
@@ -210,7 +210,7 @@ impl HttpClient {
 #[derive(Clone)]
 pub enum Connection {
     Sql(Pool<Postgres>),
-    Http(HttpClient),
+    Http((HttpClient, Option<AgentWorkerData>)),
 }
 
 impl std::fmt::Debug for Connection {
@@ -1048,7 +1048,7 @@ pub async fn update_ping_http(
     Ok(())
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct JobCancelled {
     pub canceled_by: String,
     pub reason: String,
