@@ -108,8 +108,7 @@ fn parse_pat_type(p: Box<syn::Type>) -> Typ {
                             Typ::Unknown
                         }
                     }
-                    s if s.starts_with("C") => Typ::Resource(to_snake_case(s)),
-                    _ => Typ::Unknown,
+                    s => Typ::Resource(to_snake_case(s)),
                 }
             } else {
                 Typ::Unknown

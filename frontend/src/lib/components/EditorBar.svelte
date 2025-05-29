@@ -252,7 +252,9 @@
 				name,
 				JSON.stringify(resourceType.schema),
 				{
-					"leading-comments": false
+					"leading-comments": false,
+					"density": "dense",
+					"derive-debug": true
 				}
 			)
 			editor.insertAtCurrentLine(lines.join('\n'))
