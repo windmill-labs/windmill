@@ -84,7 +84,11 @@
 <TriggerableByAI id={aiId} description={aiDescription} onTrigger={() => buttonEl.click()}>
 	<button
 		bind:this={buttonEl}
-		class={twMerge('w-full flex items-center justify-end', fixedHeight && 'h-8', $$props.class)}
+		class={twMerge(
+			'w-full flex items-center justify-end h-full',
+			fixedHeight && 'h-8',
+			$$props.class
+		)}
 		use:melt={$trigger}
 		{disabled}
 		on:click={(e) => e.stopPropagation()}

@@ -46,23 +46,31 @@
 	})
 </script>
 
-<div class="ai-triggerable-wrapper">
-	{#if isAnimating}
-		<div class="ai-triggerable-animation"></div>
-	{/if}
-	<div class="ai-triggerable-content">
-		{@render children?.()}
+{#if disabled}
+	{@render children?.()}
+{/if}
+
+{#if !disabled}
+	<div class="ai-triggerable-wrapper">
+		{#if isAnimating}
+			<div class="ai-triggerable-animation"></div>
+		{/if}
+		<div class="ai-triggerable-content">
+			{@render children?.()}
+		</div>
 	</div>
-</div>
+{/if}
 
 <style>
 	.ai-triggerable-wrapper {
 		position: relative;
+		height: 100%;
 	}
 
 	.ai-triggerable-content {
 		/* This preserves original styling of children */
-		display: contents;
+		/* display: contents; */
+		height: 100%;
 	}
 
 	.ai-triggerable-animation {
