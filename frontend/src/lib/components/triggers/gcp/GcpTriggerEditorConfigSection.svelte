@@ -122,6 +122,7 @@
 				>
 					<div class="flex gap-1 mt-2">
 						<Select
+							disablePortal
 							clearable
 							class="grow shrink"
 							bind:value={
@@ -254,6 +255,7 @@
 							<div class="flex flex-col gap-3">
 								<div class="flex gap-1">
 									<Select
+										disablePortal
 										clearable
 										class="grow shrink"
 										bind:value={
