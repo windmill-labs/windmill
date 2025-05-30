@@ -785,9 +785,7 @@
 	$: forceDeactivatePanzoom = isModifierKeyPressed && handMode
 </script>
 
-<svelte:head>
-	<link rel="stylesheet" href="/tailwind_full.css" />
-</svelte:head>
+<svelte:head></svelte:head>
 
 <DarkModeObserver on:change={onThemeChange} />
 

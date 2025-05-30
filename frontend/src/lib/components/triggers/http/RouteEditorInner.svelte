@@ -39,15 +39,14 @@
 		description = undefined,
 		isEditor = false,
 		customLabel = undefined,
-		isDraftOnly = false,
 		allowDraft = false,
-		hasDraft = false,
 		isDeployed = false,
 		onConfigChange = undefined,
 		onCaptureConfigChange = undefined,
 		onUpdate = undefined,
 		onDelete = undefined,
-		onReset = undefined
+		onReset = undefined,
+		trigger = undefined
 	} = $props()
 
 	// Form data state
@@ -528,7 +527,7 @@
 				{can_write}
 				bind:static_asset_config
 				showTestingBadge={isEditor}
-				{isDraftOnly}
+				isDraftOnly={trigger?.isDraft}
 			/>
 
 			{#if !is_static_website}
@@ -719,8 +718,7 @@
 {#snippet saveButton()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
-			{isDraftOnly}
-			{hasDraft}
+			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : can_write && isAdmin ? 'create' : 'write'}
 			{saveDisabled}
 			enabled={undefined}

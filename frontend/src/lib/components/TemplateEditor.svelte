@@ -1,3 +1,21 @@
+<script module>
+	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+
+	languages.typescript.javascriptDefaults.setCompilerOptions({
+		target: languages.typescript.ScriptTarget.Latest,
+		allowNonTsExtensions: true,
+		noSemanticValidation: false,
+		noLib: true,
+		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+	})
+	languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+		noSemanticValidation: false,
+		noSyntaxValidation: false,
+		noSuggestionDiagnostics: false,
+		diagnosticCodesToIgnore: [1108]
+	})
+</script>
+
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 	import {
@@ -362,7 +380,6 @@
 		$componentControl[$selectedComponent[0]] = {
 			...$componentControl[$selectedComponent[0]],
 			setCode: (value: string) => {
-				code = value
 				setCode(value)
 			}
 		}
@@ -393,10 +410,10 @@
 	}
 
 	export function setCode(ncode: string): void {
-		code = ncode
-		if (editor) {
-			editor.setValue(ncode)
+		if (code != ncode) {
+			code = ncode
 		}
+		editor?.setValue(ncode)
 	}
 
 	let valueAfterDispose: string | undefined = undefined
@@ -422,20 +439,6 @@
 		await initializeVscode('templateEditor')
 		console.log('initialized')
 		initialized = true
-		languages.typescript.javascriptDefaults.setCompilerOptions({
-			target: languages.typescript.ScriptTarget.Latest,
-			allowNonTsExtensions: true,
-			noSemanticValidation: false,
-			noLib: true,
-			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-		})
-
-		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-			noSemanticValidation: false,
-			noSyntaxValidation: false,
-			noSuggestionDiagnostics: false,
-			diagnosticCodesToIgnore: [1108]
-		})
 
 		languages.register({ id: 'template' })
 
@@ -469,12 +472,22 @@
 			editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {})
 		})
 
+		function updateCode(): boolean {
+			const ncode = getCode()
+			if (code == ncode) {
+				return false
+			}
+			code = ncode
+			return true
+		}
+
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
-				code = getCode()
-				dispatch('change', { code })
+				if (updateCode()) {
+					dispatch('change', { code })
+				}
 			}, 200)
 		})
 
@@ -500,7 +513,7 @@
 
 		editor.onDidBlurEditorText(() => {
 			dispatch('blur')
-			code = getCode()
+			updateCode()
 		})
 
 		jsLoader = setTimeout(async () => {
