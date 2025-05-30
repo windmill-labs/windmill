@@ -93,7 +93,6 @@
 				data.eventHandlers.delete(e.detail, '')
 			}}
 			on:insert={(e) => {
-				console.log('insert', e.detail)
 				data.eventHandlers.insert(e.detail)
 			}}
 			on:changeId={(e) => {
