@@ -147,9 +147,9 @@ async fn list_connects() -> error::JsonResult<Vec<String>> {
 }
 
 #[cfg(not(all(feature = "oauth2", not(feature = "private"))))]
-async fn list_connects() -> error::JsonResult<Vec<String>> {
+async fn list_connects() -> windmill_common::error::JsonResult<Vec<String>> {
     // Implementation is not open source
-    return Ok(Json(vec![]));
+    return Ok(axum::Json(vec![]));
 }
 
 #[cfg(not(feature = "private"))]

@@ -153,6 +153,7 @@ pub mod smtp_server_ee;
 mod smtp_server_oss;
 #[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
 pub mod sqs_triggers_ee;
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
 mod sqs_triggers_oss;
 #[cfg(feature = "private")]
 pub mod teams_approvals_ee;
