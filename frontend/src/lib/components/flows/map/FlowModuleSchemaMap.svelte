@@ -37,6 +37,7 @@
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { JobService } from '$lib/gen'
+	import { dfsByModule } from '../previousResults'
 
 	interface Props {
 		modules: FlowModule[] | undefined
@@ -201,12 +202,11 @@
 	}
 	async function addBranch(id: string) {
 		push(history, $flowStore)
-		let module
-		dfs($flowStore.value.modules, (mod) => {
-			if (mod.id == id) {
-				module = mod
-			}
-		})
+		let module = dfsByModule(id, $flowStore.value.modules).pop()
+
+		if (!module) {
+			throw new Error(`Node ${id} not found`)
+		}
 
 		if (module.value.type === 'branchone' || module.value.type === 'branchall') {
 			module.value.branches.splice(module.value.branches.length, 0, {
@@ -219,12 +219,11 @@
 
 	function removeBranch(id: string, index: number) {
 		push(history, $flowStore)
-		let module
-		dfs($flowStore.value.modules, (mod) => {
-			if (mod.id == id) {
-				module = mod
-			}
-		})
+		let module = dfsByModule(id, $flowStore.value.modules).pop()
+
+		if (!module) {
+			throw new Error(`Node ${id} not found`)
+		}
 
 		if (module.value.type === 'branchone' || module.value.type === 'branchall') {
 			const offset = module.value.type === 'branchone' ? 1 : 0

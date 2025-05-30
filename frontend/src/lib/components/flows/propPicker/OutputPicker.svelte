@@ -2,11 +2,9 @@
 	import { ChevronDown } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { getContext, onMount, tick } from 'svelte'
+	import { getContext, tick } from 'svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
-	import { useSvelteFlow } from '@xyflow/svelte'
-	const { getViewport } = useSvelteFlow()
 
 	interface Props {
 		selected?: boolean
@@ -28,8 +26,8 @@
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
 	const flowPropPickerConfig = context?.flowPropPickerConfig
-	const MIN_WIDTH = 200
-	const MIN_HEIGHT = 200
+	const MIN_WIDTH = 375
+	const MIN_HEIGHT = 375
 
 	let isConnecting = $state(false)
 
@@ -54,16 +52,6 @@
 
 	let popover: Popover | undefined = $state(undefined)
 
-	let width = $state(0)
-	let height = $state(0)
-
-	function setDims() {
-		let zoom = getViewport().zoom
-		width = Math.max(MIN_WIDTH, 375 * zoom)
-		height = Math.max(MIN_HEIGHT, 375 * zoom)
-		console.log('setDims', width, height, zoom)
-	}
-
 	const virtualItemClasses = {
 		bar: 'dark:hover:bg-[#525d6f] dark:bg-[#414958] bg-[#d7dfea]  hover:bg-slate-300',
 		handle:
@@ -83,19 +71,6 @@
 			popover?.open()
 		}
 	}
-
-	onMount(() => {
-		function handleCaptureWheel(event) {
-			setDims()
-		}
-
-		// true = capture phase
-		window.addEventListener('wheel', handleCaptureWheel, true)
-
-		return () => {
-			window.removeEventListener('wheel', handleCaptureWheel, true)
-		}
-	})
 </script>
 
 <Popover
@@ -106,14 +81,13 @@
 	usePointerDownOutside
 	closeOnOutsideClick={false}
 	on:click={(e) => {
-		setDims()
 		e.preventDefault()
 		e.stopPropagation()
 	}}
 	bind:this={popover}
 	allowFullScreen
 	contentClasses="overflow-hidden resize rounded-md"
-	contentStyle={`width: calc(${width}px); min-width: calc(${width}px); height: calc(${height}px); min-height: calc(${height}px);`}
+	contentStyle={`width: calc(${MIN_WIDTH}px); min-width: calc(${MIN_WIDTH}px); height: calc(${MIN_HEIGHT}px); min-height: calc(${MIN_HEIGHT}px);`}
 	extraProps={{ 'data-prop-picker': true }}
 	closeOnOtherPopoverOpen
 	class="outline-none"

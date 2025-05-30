@@ -11,16 +11,12 @@
 
 	function onWidthChange(width: number) {
 		if (lastWidth === width) return
-
+		const viewport = getViewport()
 		let diff = width - (lastWidth ?? 0)
 		lastWidth = width
 		setViewport({
-			...getViewport(),
-			x: getViewport().x + diff / 2
+			...viewport,
+			x: viewport.x + diff / 2
 		})
-		// update((state) => ({
-		// 	...state,
-		// 	x: state.x + diff / 2
-		// }))
 	}
 </script>

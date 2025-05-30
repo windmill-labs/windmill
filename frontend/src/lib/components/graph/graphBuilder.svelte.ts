@@ -241,7 +241,6 @@ export function graphBuilder(
 			disableMoveIds: string[] = [],
 			parentIndex?: string
 		) {
-			console.log('modules', modules)
 			if (prefix != undefined) {
 				modules.forEach((m) => {
 					if (!m['oid']) {
