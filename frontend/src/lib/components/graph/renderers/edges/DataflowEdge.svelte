@@ -42,14 +42,7 @@
 	)
 </script>
 
-<EdgeLabel x={labelX} y={labelY}>
-	<div
-		class="absolute cursor-pointer nodrag nopan bg-surface-selected p-1 border text-xs"
-		style:transform="translate(-50%, -50%) translate({labelX}px,{labelY}px)"
-	>
-		{data.sourceId} -> {data.targetId}
-	</div>
-</EdgeLabel>
+<EdgeLabel x={labelX} y={labelY}></EdgeLabel>
 
 <BaseEdge
 	path={targetY - sourceY > 100
