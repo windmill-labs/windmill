@@ -27,7 +27,7 @@
 		// Reset animation state after animation completes
 		setTimeout(() => {
 			isAnimating = false
-		}, 1200) // Animation duration
+		}, 2000) // Animation duration
 	}
 
 	$effect(() => {
@@ -73,7 +73,7 @@
 
 	.ai-triggerable-animation {
 		position: absolute;
-		top: -20px;
+		top: -10px;
 		left: 50%;
 		transform: translateX(-50%);
 		width: 40px;
@@ -82,7 +82,7 @@
 		border-radius: 50%;
 		z-index: 9999;
 		pointer-events: none;
-		animation: pulse 0.6s ease-out forwards;
+		animation: pulse 1.5s ease-out forwards;
 	}
 
 	@keyframes pulse {
@@ -91,7 +91,7 @@
 			opacity: 1;
 		}
 		100% {
-			transform: translateX(-50%) scale(2.5);
+			transform: translateX(-50%) scale(3);
 			opacity: 0;
 		}
 	}
