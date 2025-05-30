@@ -344,7 +344,10 @@
 	}
 
 	export function setCode(ncode: string, noHistory: boolean = false): void {
-		code = ncode
+		if (code != ncode) {
+			code = ncode
+		}
+
 		if (noHistory) {
 			editor?.setValue(ncode)
 		} else {
@@ -362,6 +365,15 @@
 				editor.pushUndoStop()
 			}
 		}
+	}
+
+	function updateCode(): boolean {
+		const ncode = getCode()
+		if (code == ncode) {
+			return false
+		}
+		code = ncode
+		return true
 	}
 
 	export function append(code: string): void {
@@ -387,7 +399,7 @@
 
 	export async function format() {
 		if (editor) {
-			code = getCode()
+			updateCode()
 			if (lang != 'shell' && lang != 'nu') {
 				if ($formatOnSave != false) {
 					if (scriptLang == 'deno' && languageClients.length > 0) {
@@ -424,7 +436,7 @@
 						await editor?.getAction('editor.action.formatDocument')?.run()
 					}
 				}
-				code = getCode()
+				updateCode()
 			}
 			if (formatAction) {
 				formatAction()
@@ -1275,9 +1287,9 @@
 		editor?.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
-				let ncode = getCode()
-				code = ncode
-				dispatch('change', ncode)
+				if (updateCode()) {
+					dispatch('change', code)
+				}
 			}, changeTimeout)
 
 			ataModel && clearTimeout(ataModel)
@@ -1296,12 +1308,12 @@
 			dispatch('focus')
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
-				code = getCode()
+				updateCode()
 				shouldBindKey && format && format()
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {
-				code = getCode()
+				updateCode()
 				shouldBindKey && cmdEnterAction && cmdEnterAction()
 			})
 

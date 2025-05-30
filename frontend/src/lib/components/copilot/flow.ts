@@ -1,6 +1,7 @@
 import {
 	ScriptService,
 	type FlowModule,
+	type HubScriptKind,
 	type InputTransform,
 	type PathScript,
 	type RawScript,
@@ -22,7 +23,7 @@ export type FlowCopilotModule = {
 	hubCompletions: {
 		path: string
 		summary: string
-		kind: string
+		kind: HubScriptKind
 		app: string
 		ask_id: number
 		id: number
