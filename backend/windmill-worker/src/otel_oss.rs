@@ -1,3 +1,7 @@
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::otel_ee::*;
+
 #[cfg(not(feature = "private"))]
 use windmill_queue::MiniPulledJob;
 

@@ -1,3 +1,7 @@
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::smtp_server_ee::*;
+
 #[cfg(not(feature = "private"))]
 use crate::{auth::AuthCache, db::DB};
 #[cfg(not(feature = "private"))]

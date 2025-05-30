@@ -1,3 +1,7 @@
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::job_helpers_ee::*;
+
 #[cfg(not(feature = "private"))]
 use axum::Router;
 #[cfg(not(feature = "private"))]

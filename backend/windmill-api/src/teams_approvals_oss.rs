@@ -1,3 +1,7 @@
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::teams_approvals_ee::*;
+
 #[cfg(not(feature = "private"))]
 use hyper::StatusCode;
 

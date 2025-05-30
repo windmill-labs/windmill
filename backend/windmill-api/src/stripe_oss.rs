@@ -1,3 +1,7 @@
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::stripe_ee::*;
+
 #[cfg(not(feature = "private"))]
 use axum::Router;
 

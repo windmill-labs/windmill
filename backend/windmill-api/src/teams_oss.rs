@@ -1,3 +1,7 @@
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::teams_ee::*;
+
 #[cfg(all(feature = "enterprise", not(feature = "private")))]
 use axum::Router;
 #[cfg(not(feature = "private"))]

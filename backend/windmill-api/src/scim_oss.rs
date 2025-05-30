@@ -1,3 +1,7 @@
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::scim_ee::*;
+
 /*
  * Author: Ruben Fiszel
  * Copyright: Windmill Labs, Inc 2023

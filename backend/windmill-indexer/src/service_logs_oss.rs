@@ -1,3 +1,7 @@
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::service_logs_ee::*;
+
 #[cfg(not(feature = "private"))]
 use anyhow::anyhow;
 #[cfg(not(feature = "private"))]

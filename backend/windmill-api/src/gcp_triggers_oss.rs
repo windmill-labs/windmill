@@ -1,3 +1,7 @@
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::gcp_triggers_ee::*;
+
 #[cfg(not(feature = "private"))]
 use {
     crate::db::{ApiAuthed, DB},

@@ -1,3 +1,7 @@
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::sqs_triggers_ee::*;
+
 #[cfg(not(feature = "private"))]
 use crate::db::DB;
 #[cfg(not(feature = "private"))]

@@ -7,6 +7,10 @@
  */
 #![allow(non_snake_case)]
 
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::saml_ee::*;
+
 #[cfg(not(feature = "private"))]
 use axum::{routing::post, Router};
 

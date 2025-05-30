@@ -1,3 +1,7 @@
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::git_sync_ee::*;
+
 #[cfg(not(feature = "private"))]
 use windmill_common::error::Result;
 

@@ -1,3 +1,7 @@
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::otel_ee::*;
+
 /*
  * Author: Ruben Fiszel
  * Copyright: Windmill Labs, Inc 2022

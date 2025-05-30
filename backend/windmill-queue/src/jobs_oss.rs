@@ -1,3 +1,7 @@
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::jobs_ee::*;
+
 #[cfg(not(feature = "private"))]
 use chrono::{DateTime, Utc};
 #[cfg(not(feature = "private"))]

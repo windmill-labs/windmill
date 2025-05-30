@@ -1,3 +1,7 @@
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::ee::*;
+
 use anyhow::anyhow;
 #[cfg(all(feature = "enterprise", not(feature = "private")))]
 use std::sync::Arc;

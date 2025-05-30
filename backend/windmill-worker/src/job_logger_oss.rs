@@ -1,3 +1,7 @@
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::job_logger_ee::*;
+
 #[cfg(not(feature = "private"))]
 use {
     crate::job_logger::CompactLogs, std::io, std::sync::atomic::AtomicU32, std::sync::Arc,

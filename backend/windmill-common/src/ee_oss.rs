@@ -1,3 +1,7 @@
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::ee::*;
+
 #[cfg(all(feature = "enterprise", not(feature = "private")))]
 use crate::db::DB;
 #[cfg(not(feature = "private"))]

@@ -1,3 +1,7 @@
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::ee::*;
+
 #[cfg(not(feature = "private"))]
 pub async fn set_license_key(_license_key: String) -> () {
     // Implementation is not open source

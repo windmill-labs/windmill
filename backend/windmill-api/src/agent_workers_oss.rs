@@ -1,3 +1,7 @@
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::agent_workers_ee::*;
+
 /*
  * Author: Ruben Fiszel
  * Copyright: Windmill Labs, Inc 2042

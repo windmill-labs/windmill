@@ -1,3 +1,7 @@
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::job_s3_helpers_ee::*;
+
 #[cfg(not(feature = "private"))]
 use crate::s3_helpers::{ObjectStoreResource, StorageResourceType};
 
