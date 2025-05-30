@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import type { FlowEditorContext } from '../types'
 	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import {
@@ -201,8 +199,14 @@
 			}
 		}
 	}
-	async function addBranch(module: FlowModule) {
+	async function addBranch(id: string) {
 		push(history, $flowStore)
+		let module
+		dfs($flowStore.value.modules, (mod) => {
+			if (mod.id == id) {
+				module = mod
+			}
+		})
 
 		if (module.value.type === 'branchone' || module.value.type === 'branchall') {
 			module.value.branches.splice(module.value.branches.length, 0, {
@@ -213,8 +217,14 @@
 		}
 	}
 
-	function removeBranch(module: FlowModule, index: number) {
+	function removeBranch(id: string, index: number) {
 		push(history, $flowStore)
+		let module
+		dfs($flowStore.value.modules, (mod) => {
+			if (mod.id == id) {
+				module = mod
+			}
+		})
 
 		if (module.value.type === 'branchone' || module.value.type === 'branchall') {
 			const offset = module.value.type === 'branchone' ? 1 : 0
@@ -304,7 +314,7 @@
 			$flowStateStore = $flowStateStore
 		}
 	}
-	run(() => {
+	$effect(() => {
 		sidebarMode == 'graph' ? (sidebarSize = 40) : (sidebarSize = 20)
 	})
 </script>
@@ -367,9 +377,9 @@
 			insertable
 			scroll
 			{minHeight}
-			moving={$moving?.module.id}
+			moving={$moving?.id}
 			maxHeight={minHeight}
-			modules={$flowStore.value?.modules}
+			modules={$flowStore.value.modules}
 			preprocessorModule={$flowStore.value?.preprocessor_module}
 			{selectedId}
 			{flowInputsStore}
@@ -409,16 +419,35 @@
 				} else if (shouldRunTutorial('branchall', detail.detail, 3)) {
 					flowTutorials?.runTutorialById('branchall')
 				} else {
-					const modules = detail.modules
+					let originalModules
+					let targetModules
+					if (detail.sourceId == 'Input' || detail.targetId == 'result') {
+						targetModules = modules
+					}
+
+					dfs($flowStore.value.modules, (mod, modules, branches) => {
+						// console.log('mod', mod.id, $moving?.id, detail, branches)
+						if (mod.id == $moving?.id) {
+							originalModules = modules
+						}
+						if (detail.branch) {
+							if (mod.id == detail.branch.rootId) {
+								targetModules = branches[detail.branch.branch]
+							}
+						} else if (mod.id == detail.sourceId || mod.id == detail.targetId) {
+							targetModules = modules
+						}
+					})
 					if (modules && Array.isArray(modules)) {
 						await tick()
 						if ($moving) {
+							// console.log('modules', modules, movingModules, movingModule)
 							push(history, $flowStore)
-							let indexToRemove = $moving.modules.findIndex((m) => $moving?.module?.id == m.id)
-							$moving.modules.splice(indexToRemove, 1)
-							console.log('modules', $moving.modules)
-							modules.splice(detail.index, 0, $moving.module)
-							$selectedId = $moving.module.id
+							let indexToRemove = originalModules.findIndex((m) => $moving?.id == m.id)
+
+							let [removedModule] = originalModules.splice(indexToRemove, 1)
+							targetModules.splice(detail.index, 0, removedModule)
+							$selectedId = removedModule.id
 							$moving = undefined
 						} else {
 							if (detail.detail === 'preprocessor') {
@@ -432,26 +461,26 @@
 							} else {
 								const index = detail.index ?? 0
 								await insertNewModuleAtIndex(
-									modules,
+									targetModules,
 									index,
 									detail.kind,
 									detail.script,
 									detail.flow,
 									detail.inlineScript
 								)
-								const id = modules[detail.index ?? 0].id
+								const id = targetModules[detail.index ?? 0].id
 								$selectedId = id
 
 								if (detail.kind == 'trigger') {
 									await insertNewModuleAtIndex(
-										modules,
+										targetModules,
 										index + 1,
 										'forloop',
 										undefined,
 										undefined,
 										undefined
 									)
-									setExpr(modules[index + 1], `results.${id}`)
+									setExpr(targetModules[index + 1], `results.${id}`)
 									setScheduledPollSchedule(triggersState, triggersCount)
 								}
 
@@ -464,7 +493,7 @@
 						}
 
 						if (['branchone', 'branchall'].includes(detail.kind)) {
-							await addBranch(modules[detail.index ?? 0])
+							await addBranch(targetModules[detail.index ?? 0].id)
 						}
 						$flowStateStore = $flowStateStore
 						$flowStore = $flowStore
@@ -473,8 +502,8 @@
 				}
 			}}
 			on:newBranch={async ({ detail }) => {
-				if (detail.module) {
-					await addBranch(detail.module)
+				if (detail.id) {
+					await addBranch(detail.id)
 					$flowStore = $flowStore
 				}
 			}}
@@ -519,17 +548,15 @@
 				$selectedId = newId
 			}}
 			on:deleteBranch={async ({ detail }) => {
-				if (detail.module) {
-					await removeBranch(detail.module, detail.index)
+				if (detail.id) {
+					await removeBranch(detail.id, detail.index)
 					$flowStore = $flowStore
-					$selectedId = detail.module.id
+					$selectedId = detail.id
 				}
 			}}
 			on:move={async ({ detail }) => {
-				if (!$moving || $moving.module.id !== detail.module.id) {
-					if (detail.module && detail.modules) {
-						$moving = { module: detail.module, modules: detail.modules }
-					}
+				if (!$moving || $moving.id !== detail.id) {
+					$moving = { id: detail.id }
 				} else {
 					$moving = undefined
 				}

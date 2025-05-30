@@ -3,7 +3,7 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { GraphModuleState } from '../../model'
 	import { getStateColor } from '../../util'
-	import type { GraphEventHandlers } from '../../graphBuilder'
+	import type { GraphEventHandlers } from '../../graphBuilder.svelte'
 
 	export let data: {
 		offset: number

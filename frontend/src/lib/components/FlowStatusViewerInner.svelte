@@ -29,7 +29,7 @@
 	import Alert from './common/alert/Alert.svelte'
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
-	import { buildPrefix } from './graph/graphBuilder'
+	import { buildPrefix } from './graph/graphBuilder.svelte'
 
 	const dispatch = createEventDispatcher()
 

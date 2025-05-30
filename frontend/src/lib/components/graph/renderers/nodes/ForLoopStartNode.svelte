@@ -4,7 +4,7 @@
 	import type { FlowModule, FlowStatusModule } from '$lib/gen'
 	import { getStateColor, getStateHoverColor } from '../../util'
 	import type { GraphModuleState } from '../../model'
-	import type { GraphEventHandlers } from '../../graphBuilder'
+	import type { GraphEventHandlers } from '../../graphBuilder.svelte'
 	import { getContext } from 'svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 

@@ -610,16 +610,20 @@
 
 	let mounted = false
 	onMount(async () => {
-		if (BROWSER) {
-			if (loadAsync) {
-				setTimeout(async () => {
+		try {
+			if (BROWSER) {
+				if (loadAsync) {
+					setTimeout(async () => {
+						await loadMonaco()
+						mounted = true
+					}, 0)
+				} else {
 					await loadMonaco()
 					mounted = true
-				}, 0)
-			} else {
-				await loadMonaco()
-				mounted = true
+				}
 			}
+		} catch (e) {
+			console.error('Error loading monaco:', e)
 		}
 	})
 

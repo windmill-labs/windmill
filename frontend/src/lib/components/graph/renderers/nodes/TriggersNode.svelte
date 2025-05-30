@@ -1,7 +1,7 @@
 <script lang="ts">
 	import NodeWrapper from './NodeWrapper.svelte'
 	import TriggersWrapper from '../triggers/TriggersWrapper.svelte'
-	import { type GraphEventHandlers, type SimplifiableFlow } from '../../graphBuilder'
+	import { type GraphEventHandlers, type SimplifiableFlow } from '../../graphBuilder.svelte'
 	import type { FlowModule, TriggersCount } from '$lib/gen'
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'

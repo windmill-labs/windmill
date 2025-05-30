@@ -1,11 +1,10 @@
 <script lang="ts">
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
-	import type { FlowModule } from '$lib/gen'
 	import { getBezierPath, BaseEdge, type EdgeProps, EdgeLabel } from '@xyflow/svelte'
 	import { ClipboardCopy } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
-	import type { GraphEventHandlers } from '../../graphBuilder'
+	import type { GraphEventHandlers } from '../../graphBuilder.svelte'
 	import { getStraightLinePath } from '../utils'
 	import { twMerge } from 'tailwind-merge'
 
@@ -27,7 +26,9 @@
 	}: EdgeProps & {
 		data: {
 			insertable: boolean
-			modules: FlowModule[]
+			sourceId: string
+			branch: number | undefined
+			targetId: string
 			moving: string | undefined
 			eventHandlers: GraphEventHandlers
 			index: number
@@ -62,14 +63,15 @@
 			class={twMerge('edgeButtonContainer nodrag nopan top-0')}
 			style:transform="translate(-50%, -50%)"
 		>
+			<!-- <pre class="text-2xs">A{JSON.stringify(data.branch)}, {data.sourceId}, {data.targetId}</pre> -->
+			<!-- {data.targetId} B -->
 			<InsertModuleButton
-				disableAi={data.disableAi}
 				index={data.index ?? 0}
-				allowTrigger={data.enableTrigger}
-				modules={data?.modules ?? []}
 				on:new={(e) => {
 					data?.eventHandlers.insert({
-						modules: data.modules,
+						sourceId: data.sourceId,
+						targetId: data.targetId,
+						branch: data.branch,
 						index: data.index,
 						kind: e.detail.kind,
 						inlineScript: e.detail.inlineScript
@@ -78,7 +80,9 @@
 				on:pickScript={(e) => {
 					// console.log('pickScript', e)
 					data?.eventHandlers.insert({
-						modules: data.modules,
+						sourceId: data.sourceId,
+						targetId: data.targetId,
+						branch: data.branch,
 						index: data.index,
 						script: e.detail,
 						kind: e.detail.kind
@@ -87,7 +91,9 @@
 				on:pickFlow={(e) => {
 					// console.log('pickFlow', e)
 					data?.eventHandlers.insert({
-						modules: data.modules,
+						sourceId: data.sourceId,
+						targetId: data.targetId,
+						branch: data.branch,
 						index: data.index,
 						flow: e.detail
 					})
@@ -103,7 +109,9 @@
 					title="Paste module"
 					onclick={() => {
 						data.eventHandlers.insert({
-							modules: data.modules,
+							branch: data.branch,
+							sourceId: data.sourceId,
+							targetId: data.targetId,
 							index: data.index
 						})
 					}}

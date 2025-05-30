@@ -10,22 +10,45 @@
 	import { fade } from 'svelte/transition'
 	import { Database, Square } from 'lucide-svelte'
 
-	export let label: string | undefined = undefined
-	export let bgColor: string = ''
-	export let bgHoverColor: string = ''
-	export let selected: boolean
-	export let selectable: boolean
-	export let id: string | undefined = undefined
-	export let center = true
-	export let borderColor: string | undefined = undefined
-	export let hideId: boolean = false
-	export let preLabel: string | undefined = undefined
-	export let inputJson: Object | undefined = undefined
-	export let prefix = ''
-	export let alwaysPluggable: boolean = false
-	export let cache: boolean = false
-	export let earlyStop: boolean = false
-	export let editMode: boolean = false
+	interface Props {
+		label?: string | undefined
+		bgColor?: string
+		bgHoverColor?: string
+		selected: boolean
+		selectable: boolean
+		id?: string | undefined
+		center?: boolean
+		borderColor?: string | undefined
+		hideId?: boolean
+		preLabel?: string | undefined
+		inputJson?: Object | undefined
+		prefix?: string
+		alwaysPluggable?: boolean
+		cache?: boolean
+		earlyStop?: boolean
+		editMode?: boolean
+		icon?: import('svelte').Snippet
+	}
+
+	let {
+		label = undefined,
+		bgColor = '',
+		bgHoverColor = '',
+		selected,
+		selectable,
+		id = undefined,
+		center = true,
+		borderColor = undefined,
+		hideId = false,
+		preLabel = undefined,
+		inputJson = undefined,
+		prefix = '',
+		alwaysPluggable = false,
+		cache = false,
+		earlyStop = false,
+		editMode = false,
+		icon
+	}: Props = $props()
 
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
@@ -40,83 +63,82 @@
 	{id}
 	onTop={label === 'Input' && $copilotCurrentStepStore === 'Input'}
 	on:select
-	let:hover
 >
-	<div class="flex flex-col w-full">
-		<div
-			style={borderColor ? `border-color: ${borderColor};` : 'border: 0'}
-			class="flex flex-row gap-1 justify-between {center
-				? 'items-center'
-				: 'items-baseline'} w-full overflow-hidden rounded-sm border p-2 text-2xs module text-primary border-gray-400 dark:border-gray-600"
-		>
-			{#if $$slots.icon}
-				<slot name="icon" />
-				<span class="mr-2"></span>
-			{/if}
-			<div class="flex flex-col flex-grow shrink-0 max-w-full min-w-0">
-				{#if label}
-					<div class="truncate text-center">{label}</div>
+	{#snippet children({ hover })}
+		<div class="flex flex-col w-full">
+			<div
+				style={borderColor ? `border-color: ${borderColor};` : 'border: 0'}
+				class="flex flex-row gap-1 justify-between {center
+					? 'items-center'
+					: 'items-baseline'} w-full overflow-hidden rounded-sm border p-2 text-2xs module text-primary border-gray-400 dark:border-gray-600"
+			>
+				{#if icon}
+					{@render icon?.()}
+					<span class="mr-2"></span>
 				{/if}
-				{#if preLabel}
-					<div class="truncate text-2xs text-center"><pre>{preLabel}</pre></div>
+				<div class="flex flex-col flex-grow shrink-0 max-w-full min-w-0">
+					{#if label}
+						<div class="truncate text-center">{label}</div>
+					{/if}
+					{#if preLabel}
+						<div class="truncate text-2xs text-center"><pre>{preLabel}</pre></div>
+					{/if}
+				</div>
+				{#if id && !hideId && !id?.startsWith('subflow:')}
+					<div class="flex items-center shrink min-w-0">
+						<Badge color="indigo" wrapperClass="w-full" baseClass="max-w-full" title={id}>
+							<span class="max-w-full text-2xs truncate">{id}</span>
+						</Badge>
+					</div>
 				{/if}
 			</div>
-			{#if id && !hideId && !id?.startsWith('subflow:')}
-				<div class="flex items-center shrink min-w-0">
-					<Badge color="indigo" wrapperClass="w-full" baseClass="max-w-full" title={id}>
-						<span class="max-w-full text-2xs truncate">{id}</span>
-					</Badge>
-				</div>
+			{#if (alwaysPluggable || (inputJson && Object.keys(inputJson).length > 0)) && editMode}
+				<OutputPicker {selected} {hover} isConnectingCandidate={true} variant="virtual">
+					{#snippet children({ allowCopy, isConnecting, selectConnection })}
+						<OutputPickerInner
+							{allowCopy}
+							{prefix}
+							connectingData={isConnecting ? inputJson : undefined}
+							on:select={selectConnection}
+							moduleId={''}
+							on:updateMock
+							hideHeaderBar
+							simpleViewer={inputJson}
+							rightMargin
+							historyOffset={{ mainAxis: 12, crossAxis: -9 }}
+							class="p-1"
+						/>
+					{/snippet}
+				</OutputPicker>
 			{/if}
 		</div>
-		{#if (alwaysPluggable || (inputJson && Object.keys(inputJson).length > 0)) && editMode}
-			<OutputPicker
-				{selected}
-				{hover}
-				let:allowCopy
-				isConnectingCandidate={true}
-				let:isConnecting
-				let:selectConnection
-				variant="virtual"
-			>
-				<OutputPickerInner
-					{allowCopy}
-					{prefix}
-					connectingData={isConnecting ? inputJson : undefined}
-					on:select={selectConnection}
-					moduleId={''}
-					on:updateMock
-					hideHeaderBar
-					simpleViewer={inputJson}
-					rightMargin
-					historyOffset={{ mainAxis: 12, crossAxis: -9 }}
-					class="p-1"
-				/>
-			</OutputPicker>
-		{/if}
-	</div>
-	<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
-		{#if cache}
-			<Popover notClickable>
-				<div
-					transition:fade|local={{ duration: 200 }}
-					class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
-				>
-					<Database size={12} />
-				</div>
-				<svelte:fragment slot="text">Cached</svelte:fragment>
-			</Popover>
-		{/if}
-		{#if earlyStop}
-			<Popover notClickable>
-				<div
-					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-				>
-					<Square size={12} />
-				</div>
-				<svelte:fragment slot="text">Early stop if condition met</svelte:fragment>
-			</Popover>
-		{/if}
-	</div>
+		<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
+			{#if cache}
+				<Popover notClickable>
+					<div
+						transition:fade|local={{ duration: 200 }}
+						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
+					>
+						<Database size={12} />
+					</div>
+					{#snippet text()}
+						Cached
+					{/snippet}
+				</Popover>
+			{/if}
+			{#if earlyStop}
+				<Popover notClickable>
+					<div
+						transition:fade|local={{ duration: 200 }}
+						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+					>
+						<Square size={12} />
+					</div>
+					{#snippet text()}
+						Early stop if condition met
+					{/snippet}
+				</Popover>
+			{/if}
+		</div>
+	{/snippet}
 </VirtualItemWrapper>

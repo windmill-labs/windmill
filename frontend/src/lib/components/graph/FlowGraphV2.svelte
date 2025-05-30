@@ -15,7 +15,7 @@
 		ControlButton,
 		SvelteFlowProvider
 	} from '@xyflow/svelte'
-	import { graphBuilder, isTriggerStep, type SimplifiableFlow } from './graphBuilder'
+	import { graphBuilder, isTriggerStep, type SimplifiableFlow } from './graphBuilder.svelte'
 	import ModuleNode from './renderers/nodes/ModuleNode.svelte'
 	import InputNode from './renderers/nodes/InputNode.svelte'
 	import BranchAllStart from './renderers/nodes/BranchAllStart.svelte'
@@ -222,11 +222,11 @@
 
 			dispatch('delete', detail)
 		},
-		newBranch: (module) => {
-			dispatch('newBranch', { module })
+		newBranch: (id) => {
+			dispatch('newBranch', { id })
 		},
-		move: (module, modules) => {
-			dispatch('move', { module, modules })
+		move: (detail) => {
+			dispatch('move', detail)
 		},
 		selectedIteration: (detail, moduleId) => {
 			dispatch('selectedIteration', { ...detail, moduleId: moduleId })
@@ -249,12 +249,11 @@
 	}
 
 	let lastModules = structuredClone(modules)
-	let newModules = $state.raw(modules)
-
+	let moduleCounter = $state(0)
 	function onModulesChange2(modules) {
 		if (!deepEqual(modules, lastModules)) {
 			lastModules = structuredClone(modules)
-			newModules = modules
+			moduleCounter++
 		}
 	}
 
@@ -324,9 +323,10 @@
 	$effect(() => {
 		modules && onModulesChange2(modules)
 	})
-	let graph = $derived(
-		graphBuilder(
-			newModules,
+	let graph = $derived.by(() => {
+		moduleCounter
+		return graphBuilder(
+			modules,
 			{
 				disableAi,
 				insertable,
@@ -349,7 +349,7 @@
 			triggerNode ? path : undefined,
 			expandedSubflows
 		)
-	)
+	})
 	$effect(() => {
 		;(graph || allowSimplifiedPoll) && updateStores()
 	})

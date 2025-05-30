@@ -11,7 +11,7 @@
 	import { msToSec } from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import FlowJobsMenu from './FlowJobsMenu.svelte'
-	import { isTriggerStep } from '$lib/components/graph/graphBuilder'
+	import { isTriggerStep } from '$lib/components/graph/graphBuilder.svelte'
 	import { checkIfParentLoop } from '$lib/components/flows/utils'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 
@@ -49,7 +49,7 @@
 			script?: { path: string; summary: string; hash: string | undefined }
 		}
 		select: string
-		newBranch: { module: FlowModule }
+		newBranch: { id: string }
 		move: { module: FlowModule } | undefined
 		selectedIteration: { index: number; id: string }
 		updateMock: void
@@ -121,7 +121,7 @@
 					}`}
 					id={mod.id}
 					on:changeId
-					on:move={() => dispatch('move')}
+					on:move
 					on:delete={onDelete}
 					on:pointerdown={() => dispatch('select', mod.id)}
 					on:updateMock={({ detail }) => {
@@ -149,7 +149,7 @@
 					{editMode}
 					on:changeId
 					on:delete={onDelete}
-					on:move={() => dispatch('move')}
+					on:move
 					on:pointerdown={() => dispatch('select', mod.id)}
 					{...itemProps}
 					id={mod.id}
@@ -167,7 +167,7 @@
 					{editMode}
 					on:changeId
 					on:delete={onDelete}
-					on:move={() => dispatch('move')}
+					on:move
 					on:pointerdown={() => dispatch('select', mod.id)}
 					id={mod.id}
 					{...itemProps}
@@ -186,7 +186,7 @@
 					on:changeId
 					on:pointerdown={() => dispatch('select', mod.id)}
 					on:delete={onDelete}
-					on:move={() => dispatch('move')}
+					on:move
 					on:updateMock={({ detail }) => {
 						mod.mock = detail
 						dispatch('updateMock')
