@@ -30,6 +30,7 @@ pub async fn send_inkeep_request(
         http::header::CONTENT_TYPE,
         "application/json".parse().unwrap(),
     );
+    forwarded_headers.insert("X-Uid", "test".parse().unwrap());
 
     match HTTP_CLIENT
         .post(&request_url)
