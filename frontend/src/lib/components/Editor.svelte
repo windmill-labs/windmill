@@ -1268,15 +1268,20 @@
 
 		onFileChanges()
 
-		editor = meditor.create(divEl as HTMLDivElement, {
-			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
-			model,
-			fontSize: !small ? 14 : 12,
-			lineNumbersMinChars,
-			// overflowWidgetsDomNode: widgets,
-			tabSize: lang == 'python' ? 4 : 2,
-			folding
-		})
+		try {
+			editor = meditor.create(divEl as HTMLDivElement, {
+				...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
+				model,
+				fontSize: !small ? 14 : 12,
+				lineNumbersMinChars,
+				// overflowWidgetsDomNode: widgets,
+				tabSize: lang == 'python' ? 4 : 2,
+				folding
+			})
+		} catch (e) {
+			console.error('Error loading monaco:', e)
+			return
+		}
 
 		keepModelAroundToAvoidDisposalOfWorkers()
 

@@ -453,16 +453,21 @@
 
 		model.updateOptions(updateOptions)
 
-		editor = meditor.create(divEl as HTMLDivElement, {
-			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
-			model,
-			// overflowWidgetsDomNode: widgets,
-			// lineNumbers: 'on',
-			lineDecorationsWidth: 6,
-			lineNumbersMinChars: 2,
-			fontSize,
-			suggestOnTriggerCharacters: true
-		})
+		try {
+			editor = meditor.create(divEl as HTMLDivElement, {
+				...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
+				model,
+				// overflowWidgetsDomNode: widgets,
+				// lineNumbers: 'on',
+				lineDecorationsWidth: 6,
+				lineNumbersMinChars: 2,
+				fontSize,
+				suggestOnTriggerCharacters: true
+			})
+		} catch (e) {
+			console.error('Error loading monaco:', e)
+			return
+		}
 
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')

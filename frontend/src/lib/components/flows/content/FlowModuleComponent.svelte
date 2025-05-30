@@ -516,7 +516,21 @@
 														pickableProperties={stepPropPicker.pickableProperties}
 														schema={$flowStateStore[$selectedId]?.schema ?? {}}
 														previousModuleId={previousModule?.id}
-														bind:args={flowModule.value.input_transforms}
+														bind:args={
+															() => {
+																// @ts-ignore
+																return flowModule.value.input_transforms
+															},
+															(v) => {
+																if (
+																	typeof flowModule.value === 'object' &&
+																	flowModule.value !== null
+																) {
+																	// @ts-ignore
+																	flowModule.value.input_transforms = v
+																}
+															}
+														}
 														extraLib={stepPropPicker.extraLib}
 														{enableAi}
 														on:changeArg={(e) => {
