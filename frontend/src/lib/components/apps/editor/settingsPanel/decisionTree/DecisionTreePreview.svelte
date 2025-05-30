@@ -6,8 +6,8 @@
 		type Node,
 		type Edge,
 		ConnectionLineType,
-		type Viewport,
-		Controls
+		Controls,
+		SvelteFlowProvider
 	} from '@xyflow/svelte'
 
 	import {
@@ -23,23 +23,30 @@
 	import DecisionTreeGraphNode from '../DecisionTreeGraphNode.svelte'
 	import DecisionTreeGraphHeader from '../DecisionTreeGraphHeader.svelte'
 
-	import { writable, type Writable } from 'svelte/store'
+	import { type Writable } from 'svelte/store'
 	import type { AppComponent, DecisionTreeNode } from '../../component'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '$lib/components/apps/types'
 	import { deleteGridItem } from '../../appUtils'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
-	export let nodes: DecisionTreeNode[]
-	export let paneWidth = 0
-	export let paneHeight = 0
-	export let component: AppComponent
+	interface Props {
+		nodes: DecisionTreeNode[]
+		paneWidth?: number
+		paneHeight?: number
+		component: AppComponent
+		onrender: () => void
+	}
 
-	const nodesStore = writable<Node[]>([])
-	const edgesStore = writable<Edge[]>([])
+	let {
+		nodes = $bindable(),
+		paneWidth = 0,
+		paneHeight = 0,
+		component = $bindable(),
+		onrender
+	}: Props = $props()
 
-	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
+	let nodesStore = $state.raw<Node[]>([])
+	let edgesStore = $state.raw<Edge[]>([])
 
 	const { selectedNodeId } = getContext<{
 		selectedNodeId: Writable<string | undefined>
@@ -157,7 +164,7 @@
 			default:
 				break
 		}
-		dispatchIfMounted('render')
+		onrender()
 	}
 
 	function graphBuilder(decisionTreeNodes: DecisionTreeNode[]) {
@@ -378,11 +385,13 @@
 			}
 		})
 
-		$nodesStore = layoutNodes(nodes)
-		$edgesStore = edges
+		nodesStore = layoutNodes(nodes)
+		edgesStore = edges
 	}
 
-	$: graphBuilder(nodes)
+	$effect(() => {
+		graphBuilder(nodes)
+	})
 
 	function layoutNodes(nodes: Node[]): Node[] {
 		let seenId: string[] = []
@@ -427,22 +436,6 @@
 		return newNodes
 	}
 
-	const viewport = writable<Viewport>({
-		x: 0,
-		y: 5,
-		zoom: 1
-	})
-
-	function centerViewport(width: number) {
-		viewport.update((vp) => ({
-			...vp,
-			x: width / 2,
-			y: vp.y
-		}))
-	}
-
-	$: paneWidth && centerViewport(paneWidth)
-
 	const nodeTypes = {
 		step: DecisionTreeGraphNode,
 		start: DecisionTreeGraphHeader,
@@ -450,21 +443,27 @@
 	} as any
 </script>
 
-<SvelteFlow
-	nodes={nodesStore}
-	edges={edgesStore}
-	{nodeTypes}
-	{viewport}
-	height={paneHeight}
-	minZoom={0.5}
-	connectionLineType={ConnectionLineType.SmoothStep}
-	defaultEdgeOptions={{ type: 'smoothstep' }}
-	zoomOnDoubleClick={false}
-	elementsSelectable={false}
-	proOptions={{ hideAttribution: true }}
-	nodesDraggable={false}
->
-	<div class="absolute inset-0 !bg-surface-secondary"></div>
+<SvelteFlowProvider>
+	<SvelteFlow
+		nodes={nodesStore}
+		edges={edgesStore}
+		{nodeTypes}
+		height={paneHeight}
+		minZoom={0.5}
+		initialViewport={{
+			x: paneWidth / 2,
+			y: 5,
+			zoom: 1
+		}}
+		connectionLineType={ConnectionLineType.SmoothStep}
+		defaultEdgeOptions={{ type: 'smoothstep' }}
+		zoomOnDoubleClick={false}
+		elementsSelectable={false}
+		proOptions={{ hideAttribution: true }}
+		nodesDraggable={false}
+	>
+		<div class="absolute inset-0 !bg-surface-secondary"></div>
 
-	<Controls position="top-right" orientation="horizontal" showLock={false} />
-</SvelteFlow>
+		<Controls position="top-right" orientation="horizontal" showLock={false} />
+	</SvelteFlow>
+</SvelteFlowProvider>

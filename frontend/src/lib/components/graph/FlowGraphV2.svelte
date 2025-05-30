@@ -4,7 +4,7 @@
 	import { createEventDispatcher, getContext, onDestroy, setContext, tick } from 'svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
-	import '@xyflow/svelte/dist/style.css'
+	import '@xyflow/svelte/dist/base.css'
 	import type { FlowInput } from '../flows/types'
 	import {
 		SvelteFlow,

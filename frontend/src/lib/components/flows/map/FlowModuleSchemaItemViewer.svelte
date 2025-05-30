@@ -16,6 +16,7 @@
 		editId?: boolean
 		hover?: boolean
 		icon?: import('svelte').Snippet
+		onclick?: () => void
 	}
 
 	let {
@@ -26,7 +27,8 @@
 		bold = false,
 		editId = $bindable(false),
 		hover = false,
-		icon
+		icon,
+		onclick
 	}: Props = $props()
 
 	let marginLeft = $derived(Math.max(iconWidth ?? 0, idBadgeWidth ?? 0) * 2 + 32)
@@ -73,7 +75,12 @@
 						? '!bg-blue-400'
 						: ''} hover:text-white
 hover:border-blue-700 hover:!visible {hover ? '' : '!hidden'}"
-					onclick={stopPropagation(preventDefault((event) => (editId = !editId)))}
+					onclick={stopPropagation(
+						preventDefault((event) => {
+							editId = !editId
+							onclick?.()
+						})
+					)}
 					title="Edit Id"><Pencil size={14} /></button
 				>
 			{/if}

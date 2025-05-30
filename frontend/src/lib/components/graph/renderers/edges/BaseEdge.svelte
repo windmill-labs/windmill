@@ -57,7 +57,7 @@
 	)
 </script>
 
-<EdgeLabel x={labelX} y={labelY} class="button-edge__label">
+<EdgeLabel x={labelX} y={labelY} class="base-edge" style="">
 	{#if data?.insertable && !$useDataflow && !data?.moving}
 		<div
 			class={twMerge('edgeButtonContainer nodrag nopan top-0')}
