@@ -11,7 +11,6 @@
 
 	function onWidthChange(width: number) {
 		if (lastWidth === width) return
-		console.log('onWidthChange', width)
 		const viewport = getViewport()
 		let diff = width - (lastWidth ?? 0)
 		lastWidth = width

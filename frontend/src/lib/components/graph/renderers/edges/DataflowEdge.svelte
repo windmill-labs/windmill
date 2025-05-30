@@ -25,8 +25,7 @@
 		targetX,
 		targetY,
 		targetPosition,
-		markerEnd = undefined,
-		data
+		markerEnd = undefined
 	}: Props = $props()
 
 	let [edgePath, labelX, labelY] = $derived(
