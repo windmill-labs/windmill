@@ -1,5 +1,1 @@
-use axum::Router;
-
-pub fn global_unauthed_service() -> Router {
-    Router::new()
-}
+pub use crate::apps_ee::*;
