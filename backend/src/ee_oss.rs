@@ -1,8 +1,8 @@
-pub async fn set_license_key(license_key: String) -> () {
-    crate::ee::set_license_key(license_key).await
+pub async fn set_license_key(_license_key: String) -> () {
+    // Implementation is not open source
 }
 
 #[cfg(feature = "enterprise")]
 pub async fn verify_license_key() -> () {
-    crate::ee::verify_license_key().await
+    // Implementation is not open source
 }
