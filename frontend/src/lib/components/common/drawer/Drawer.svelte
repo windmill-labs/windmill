@@ -3,7 +3,7 @@
 	import { BROWSER } from 'esm-env'
 	import Disposable from './Disposable.svelte'
 	import ConditionalPortal from './ConditionalPortal.svelte'
-	import { globalChatOpen } from '$lib/stores'
+	import { globalChatOpen, globalChatSize } from '$lib/stores'
 
 	export let open = false
 	export let duration = 0.3
@@ -43,7 +43,7 @@
 	const dispatch = createEventDispatcher()
 
 	// Calculate adjusted offset based on global chat status
-	$: adjustedOffset = $globalChatOpen && placement === 'right' ? 200 : 0
+	$: adjustedOffset = $globalChatOpen && placement === 'right' ? $globalChatSize : 0
 	$: style = `--duration: ${duration}s; --size: ${size}; --adjusted-offset: ${adjustedOffset}px;`
 
 	function scrollLock(open: boolean) {

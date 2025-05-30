@@ -98,7 +98,7 @@
 							: 'bg-gray-100 dark:bg-gray-700 text-primary rounded-bl-sm'
 					)}
 				>
-					<p class="whitespace-pre-wrap">{msg.content}</p>
+					<p class="whitespace-pre-wrap break-words">{msg.content}</p>
 				</div>
 			</div>
 		{/each}
@@ -122,9 +122,10 @@
 						<Button
 							on:click={() => submitSuggestion(suggestion)}
 							size="xs2"
-							color="gray"
+							color="blue"
 							buttonType="button"
 							disabled={!hasCopilot}
+							btnClasses="whitespace-normal text-left"
 						>
 							{suggestion}
 						</Button>

@@ -54,7 +54,7 @@
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
 	import GlobalChat from '$lib/components/chat/GlobalChat.svelte'
-	import { globalChatOpen } from '$lib/stores'
+	import { globalChatOpen, globalChatSize } from '$lib/stores'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -656,8 +656,9 @@
 				'w-full flex flex-col flex-1 h-full',
 				devOnly || $userStore?.operator ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
 				'transition-all ease-in-out duration-200',
-				$globalChatOpen ? 'chat-open pr-[200px]' : ''
+				$globalChatOpen ? 'chat-open' : ''
 			)}
+			style={`padding-right: ${$globalChatOpen ? $globalChatSize : 0}px`}
 		>
 			<main class="min-h-screen">
 				<div class="relative w-full h-full">
@@ -695,7 +696,7 @@
 	</div>
 
 	<!-- Global Chat Panel -->
-	<div class="fixed-chat-panel" class:open={$globalChatOpen}>
+	<div class="fixed-chat-panel" class:open={$globalChatOpen} style={`width: ${$globalChatSize}px`}>
 		<div class="chat-panel-container">
 			<GlobalChat />
 		</div>
@@ -707,7 +708,6 @@
 			top: 0;
 			right: 0;
 			height: 100vh;
-			width: 200px;
 			transform: translateX(100%);
 			transition: transform 0.3s ease-in-out;
 			z-index: 10;

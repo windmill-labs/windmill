@@ -175,6 +175,7 @@ export const triggerablesByAI = writable<
 >({})
 export const globalChatOpen = writable<boolean>(false)
 export const globalChatInitialInput = writable<string>('')
+export const globalChatSize = writable<number>(300)
 
 type SQLBaseSchema = {
 	[schemaKey: string]: {

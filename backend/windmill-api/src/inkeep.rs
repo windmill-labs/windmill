@@ -63,7 +63,7 @@ pub async fn send_inkeep_request(
         Err(e) => {
             error!("Failed to send request to inkeep service: {}", e);
             (
-                StatusCode::BAD_GATEWAY,
+                StatusCode::INTERNAL_SERVER_ERROR,
                 HeaderMap::new(),
                 Bytes::from(r#"{"error": "Failed to connect to inkeep service"}"#),
             )
