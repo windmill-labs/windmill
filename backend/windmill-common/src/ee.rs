@@ -1,6 +1,6 @@
 #[cfg(feature = "enterprise")]
 use crate::db::DB;
-use crate::ee::LicensePlan::Community;
+use crate::ee_oss::LicensePlan::{self, Community};
 #[cfg(feature = "enterprise")]
 use crate::error;
 use serde::Deserialize;
@@ -11,12 +11,6 @@ lazy_static::lazy_static! {
   pub static ref LICENSE_KEY_VALID: Arc<RwLock<bool>> = Arc::new(RwLock::new(true));
   pub static ref LICENSE_KEY_ID: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
   pub static ref LICENSE_KEY: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
-}
-
-pub enum LicensePlan {
-    Community,
-    Pro,
-    Enterprise,
 }
 
 pub async fn get_license_plan() -> LicensePlan {
@@ -100,7 +94,11 @@ pub async fn worker_groups_alerts(_db: &DB) {}
 pub async fn jobs_waiting_alerts(_db: &DB) {}
 
 #[cfg(feature = "enterprise")]
-pub async fn low_disk_alerts(_db: &DB, _server_mode: bool, _worker_mode: bool, _workers: Vec<String>) {
+pub async fn low_disk_alerts(
+    _db: &DB,
+    _server_mode: bool,
+    _worker_mode: bool,
+    _workers: Vec<String>,
+) {
     // Implementation is not open source
 }
-

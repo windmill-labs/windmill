@@ -10,9 +10,10 @@ use sqlx::{Pool, Postgres};
 
 use windmill_common::scripts::ScriptHash;
 
-pub mod git_sync_ee;
+mod git_sync_ee;
+pub mod git_sync_oss;
 
-pub use git_sync_ee::handle_deployment_metadata;
+pub use git_sync_oss::handle_deployment_metadata;
 pub type DB = Pool<Postgres>;
 
 #[derive(Clone, Debug)]

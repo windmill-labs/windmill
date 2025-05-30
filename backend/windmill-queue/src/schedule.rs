@@ -13,7 +13,7 @@ use sqlx::{PgExecutor, Postgres, Transaction};
 use std::collections::HashMap;
 use std::str::FromStr;
 use windmill_common::db::Authed;
-use windmill_common::ee::LICENSE_KEY_VALID;
+use windmill_common::ee_oss::LICENSE_KEY_VALID;
 use windmill_common::flows::Retry;
 use windmill_common::get_latest_flow_version_info_for_path;
 use windmill_common::jobs::JobPayload;
