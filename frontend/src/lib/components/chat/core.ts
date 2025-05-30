@@ -1,4 +1,5 @@
 import { get, type Writable } from 'svelte/store'
+import { page } from '$app/state'
 import { getCompletion } from '$lib/components/copilot/lib'
 import type {
 	ChatCompletionChunk,
@@ -20,7 +21,7 @@ You have access to these tools:
 
 INSTRUCTIONS:
 - When users ask about application features or concepts, first use get_documentation internally to retrieve accurate information about how to fulfill the user's request.
-- Then immediately use the available tools to guide the user through the application. Do not wait for the user's confirmation before taking action.
+- Then check which page you are on using get_current_page_name. Then immediately use the available tools to guide the user through the application. Only wait for the user's confirmation if your are on a flow / script / app creation page. Do not wait for the user's confirmation before taking action on other pages.
 - Use get_triggerable_components to understand available options, and then trigger the components using trigger_component. Then wait a moment before rescanning the current page, and then continue with the next step. Do this 5 times max.
 - If you are not able to fulfill the user's request after 5 attempts, redirect the user to the documentation.
 
@@ -98,6 +99,19 @@ const EXECUTE_COMMAND_TOOL: ChatCompletionTool = {
 	}
 }
 
+const GET_CURRENT_PAGE_NAME_TOOL: ChatCompletionTool = {
+	type: 'function',
+	function: {
+		name: 'get_current_page_name',
+		description: 'Get the name of the current page the user is on.',
+		parameters: {
+			type: 'object',
+			properties: {},
+			required: []
+		}
+	}
+}
+
 function getTriggerableComponents(): string {
 	try {
 		// Get components registered in the triggerablesByAI store
@@ -118,6 +132,28 @@ function getTriggerableComponents(): string {
 	} catch (error) {
 		console.error('Error getting triggerable components:', error)
 		return 'Error getting triggerable components: ' + error.message
+	}
+}
+
+// Function to get the current page name
+function getCurrentPageName(): string {
+	try {
+		const currentPage = page.url.pathname
+		switch (currentPage) {
+			case '/':
+				return 'Home Page'
+			case '/flows/add':
+				return 'Flow creation page'
+			case '/scripts/add':
+				return 'Script creation page'
+			case '/apps/add':
+				return 'App creation page'
+			default:
+				return 'Non-specific page'
+		}
+	} catch (error) {
+		console.error('Error getting current page name:', error)
+		return 'Error getting current page name: ' + error.message
 	}
 }
 
@@ -206,6 +242,8 @@ async function processToolCall(
 			} else if (toolCall.function.name === 'get_documentation') {
 				const docResult = await getDocumentation(args)
 				result = docResult || 'No documentation found for this request'
+			} else if (toolCall.function.name === 'get_current_page_name') {
+				result = getCurrentPageName()
 			} else {
 				result = `Unknown tool: ${toolCall.function.name}`
 			}
@@ -233,7 +271,8 @@ export async function chatRequest(
 	const toolDefs: ChatCompletionTool[] = [
 		GET_PAGE_HTML_TOOL,
 		EXECUTE_COMMAND_TOOL,
-		GET_DOCUMENTATION_TOOL
+		GET_DOCUMENTATION_TOOL,
+		GET_CURRENT_PAGE_NAME_TOOL
 	]
 
 	try {
