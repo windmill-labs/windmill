@@ -87,7 +87,7 @@ mod http_trigger_auth;
 #[cfg(feature = "http_trigger")]
 pub mod http_triggers;
 mod indexer_ee;
-mod inkeep;
+mod inkeep_ee;
 mod inputs;
 mod integration;
 #[cfg(feature = "postgres_trigger")]
