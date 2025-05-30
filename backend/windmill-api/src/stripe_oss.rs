@@ -1,1 +1,5 @@
-pub use crate::stripe_ee::*;
+use axum::Router;
+
+pub fn add_stripe_routes(router: Router) -> Router {
+    return router;
+}
