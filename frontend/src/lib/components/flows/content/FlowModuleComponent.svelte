@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
@@ -65,42 +68,56 @@
 		executionCount
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
-	export let flowModule: FlowModule
-	export let failureModule: boolean = false
-	export let preprocessorModule: boolean = false
-	export let parentModule: FlowModule | undefined = undefined
-	export let previousModule: FlowModule | undefined
-	export let scriptKind: 'script' | 'trigger' | 'approval' = 'script'
-	export let scriptTemplate: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
-	export let noEditor: boolean
-	export let enableAi: boolean
-	export let savedModule: FlowModule | undefined = undefined
+	interface Props {
+		flowModule: FlowModule
+		failureModule?: boolean
+		preprocessorModule?: boolean
+		parentModule?: FlowModule | undefined
+		previousModule: FlowModule | undefined
+		scriptKind?: 'script' | 'trigger' | 'approval'
+		scriptTemplate?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell'
+		noEditor: boolean
+		enableAi: boolean
+		savedModule?: FlowModule | undefined
+	}
 
-	let tag: string | undefined = undefined
-	let diffMode = false
+	let {
+		flowModule = $bindable(),
+		failureModule = false,
+		preprocessorModule = false,
+		parentModule = undefined,
+		previousModule,
+		scriptKind = 'script',
+		scriptTemplate = 'script',
+		noEditor,
+		enableAi,
+		savedModule = undefined
+	}: Props = $props()
 
-	let editor: Editor
-	let diffEditor: DiffEditor
-	let modulePreview: ModulePreview
-	let websocketAlive = {
+	let tag: string | undefined = $state(undefined)
+	let diffMode = $state(false)
+
+	let editor: Editor | undefined = $state()
+	let diffEditor: DiffEditor | undefined = $state()
+	let modulePreview: ModulePreview | undefined = $state()
+	let websocketAlive = $state({
 		pyright: false,
 		deno: false,
 		go: false,
 		ruff: false,
 		shellcheck: false
-	}
-	let selected = preprocessorModule ? 'test' : 'inputs'
-	let advancedSelected = 'retries'
-	let advancedRuntimeSelected = 'concurrency'
-	let s3Kind = 's3_client'
-	let validCode = true
-	let width = 1200
-	let lastJob: Job | undefined = undefined
-	let testJob: Job | undefined = undefined
-	let testIsLoading = false
-	let scriptProgress = undefined
+	})
+	let selected = $state(preprocessorModule ? 'test' : 'inputs')
+	let advancedSelected = $state('retries')
+	let advancedRuntimeSelected = $state('concurrency')
+	let s3Kind = $state('s3_client')
+	let validCode = $state(true)
+	let width = $state(1200)
+	let lastJob: Job | undefined = $state(undefined)
+	let testJob: Job | undefined = $state(undefined)
+	let testIsLoading = $state(false)
+	let scriptProgress = $state(undefined)
 
-	$: lastDeployedCode = onModulesChange(savedModule, flowModule)
 	function onModulesChange(savedModule: FlowModule | undefined, flowModule: FlowModule) {
 		// console.log('onModulesChange', savedModule, flowModule)
 		return savedModule?.value?.type === 'rawscript' &&
@@ -123,21 +140,6 @@
 		})
 	}
 
-	$: editor !== undefined && setCopilotModuleEditor()
-
-	$: stepPropPicker =
-		$executionCount != undefined && failureModule
-			? getFailureStepPropPicker($flowStateStore, $flowStore, $previewArgs)
-			: getStepPropPicker(
-					$flowStateStore,
-					parentModule,
-					previousModule,
-					flowModule.id,
-					$flowStore,
-					$previewArgs,
-					false
-				)
-
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
 			event.preventDefault()
@@ -145,9 +147,9 @@
 			modulePreview?.runTestWithStepArgs()
 		}
 	}
-	let inputTransformSchemaForm: InputTransformSchemaForm | undefined = undefined
+	let inputTransformSchemaForm: InputTransformSchemaForm | undefined = $state(undefined)
 
-	let reloadError: string | undefined = undefined
+	let reloadError: string | undefined = $state(undefined)
 	async function reload(flowModule: FlowModule) {
 		reloadError = undefined
 		try {
@@ -201,11 +203,9 @@
 		advancedSelected = subtab
 	}
 
-	let forceReload = 0
-	let editorPanelSize = noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50
-	let editorSettingsPanelSize = 100 - editorPanelSize
-
-	$: $selectedId && onSelectedIdChange()
+	let forceReload = $state(0)
+	let editorPanelSize = $state(noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50)
+	let editorSettingsPanelSize = $state(100 - editorPanelSize)
 
 	function onSelectedIdChange() {
 		if (!$flowStateStore?.[$selectedId]?.schema && flowModule) {
@@ -253,19 +253,7 @@
 		}
 	}
 
-	$: if ($workspaceStore && $pathStore && flowModule?.id && $flowStateStore) {
-		getLastJob()
-	}
-
-	$: parentLoop =
-		$flowStore && flowModule ? checkIfParentLoop($flowStore, flowModule.id) : undefined
-
-	let leftPanelSize = 0
-	$: if (selected === 'test') {
-		leftPanelSize = 50
-	} else {
-		leftPanelSize = 100
-	}
+	let leftPanelSize = $state(0)
 
 	function showDiffMode() {
 		diffMode = true
@@ -280,9 +268,44 @@
 		diffEditor?.hide()
 		editor?.show()
 	}
+	let lastDeployedCode = $derived(onModulesChange(savedModule, flowModule))
+	$effect(() => {
+		editor !== undefined && setCopilotModuleEditor()
+	})
+	let stepPropPicker = $derived(
+		$executionCount != undefined && failureModule
+			? getFailureStepPropPicker($flowStateStore, $flowStore, $previewArgs)
+			: getStepPropPicker(
+					$flowStateStore,
+					parentModule,
+					previousModule,
+					flowModule.id,
+					$flowStore,
+					$previewArgs,
+					false
+				)
+	)
+	$effect(() => {
+		$selectedId && onSelectedIdChange()
+	})
+	$effect(() => {
+		if ($workspaceStore && $pathStore && flowModule?.id && $flowStateStore) {
+			getLastJob()
+		}
+	})
+	let parentLoop = $derived(
+		$flowStore && flowModule ? checkIfParentLoop($flowStore, flowModule.id) : undefined
+	)
+	$effect(() => {
+		if (selected === 'test') {
+			leftPanelSize = 50
+		} else {
+			leftPanelSize = 100
+		}
+	})
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} />
 
 {#if flowModule.value}
 	<div class="h-full" bind:clientWidth={width}>
@@ -300,7 +323,7 @@
 			}}
 			bind:summary={flowModule.summary}
 		>
-			<svelte:fragment slot="header">
+			{#snippet header()}
 				<FlowModuleHeader
 					{tag}
 					module={flowModule}
@@ -352,7 +375,7 @@
 						$flowStateStore[module.id] = state
 					}}
 				/>
-			</svelte:fragment>
+			{/snippet}
 
 			<div class="h-full flex flex-col">
 				{#if flowModule.value.type === 'rawscript' && !noEditor}
@@ -393,13 +416,13 @@
 											bind:this={editor}
 											class="h-full relative"
 											code={flowModule.value.content}
-											lang={scriptLangToEditorLang(flowModule.value.language)}
-											scriptLang={flowModule.value.language}
+											lang={scriptLangToEditorLang(flowModule?.value?.language)}
+											scriptLang={flowModule?.value?.language}
 											automaticLayout={true}
 											cmdEnterAction={async () => {
 												selected = 'test'
 												if ($selectedId == flowModule.id) {
-													if (flowModule.value.type === 'rawscript') {
+													if (flowModule.value.type === 'rawscript' && editor) {
 														flowModule.value.content = editor.getCode()
 													}
 													await reload(flowModule)
@@ -549,14 +572,14 @@
 											<div class="h-[calc(100%-32px)] overflow-auto p-4">
 												{#if advancedSelected === 'retries'}
 													<Section label="Retries">
-														<svelte:fragment slot="header">
+														{#snippet header()}
 															<Tooltip
 																documentationLink="https://www.windmill.dev/docs/flows/retries"
 															>
 																If defined, upon error this step will be retried with a delay and a
 																maximum number of attempts as defined below.
 															</Tooltip>
-														</svelte:fragment>
+														{/snippet}
 														<span class="text-2xs"
 															>After all retries attempts have been exhausted:</span
 														>
@@ -580,9 +603,9 @@
 													</Section>
 												{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'concurrency'}
 													<Section label="Concurrency limits" class="flex flex-col gap-4" eeOnly>
-														<svelte:fragment slot="header">
+														{#snippet header()}
 															<Tooltip>Allowed concurrency within a given timeframe</Tooltip>
-														</svelte:fragment>
+														{/snippet}
 														{#if flowModule.value.type == 'rawscript'}
 															<Label label="Max number of executions within the time window">
 																<div class="flex flex-row gap-2 max-w-sm">
@@ -612,14 +635,14 @@
 																/>
 															</Label>
 															<Label label="Custom concurrency key (optional)">
-																<svelte:fragment slot="header">
+																{#snippet header()}
 																	<Tooltip>
 																		Concurrency keys are global, you can have them be workspace
 																		specific using the variable `$workspace`. You can also use an
 																		argument's value using `$args[name_of_arg]`</Tooltip
 																	>
-																</svelte:fragment>
-																<!-- svelte-ignore a11y-autofocus -->
+																{/snippet}
+																<!-- svelte-ignore a11y_autofocus -->
 																<input
 																	type="text"
 																	autofocus
@@ -663,16 +686,16 @@
 															}}
 														/>
 														<Label label="Priority number">
-															<svelte:fragment slot="header">
+															{#snippet header()}
 																<Tooltip>The higher the number, the higher the priority.</Tooltip>
-															</svelte:fragment>
+															{/snippet}
 															<input
 																type="number"
 																class="!w-24"
 																disabled={flowModule.priority === undefined}
 																bind:value={flowModule.priority}
-																on:focus
-																on:change={() => {
+																onfocus={bubble('focus')}
+																onchange={() => {
 																	if (flowModule.priority && flowModule.priority > 100) {
 																		flowModule.priority = 100
 																	} else if (flowModule.priority && flowModule.priority < 0) {
@@ -747,26 +770,33 @@
 													</div>
 													<div class="flex gap-2 justify-between mb-4 items-center">
 														<div class="flex gap-2">
-															<ToggleButtonGroup bind:selected={s3Kind} class="w-auto" let:item>
-																{#if flowModule.value['language'] === 'deno'}
-																	<ToggleButton
-																		value="s3_client"
-																		size="sm"
-																		label="S3 lite client"
-																		{item}
-																	/>
-																{:else}
-																	<ToggleButton value="s3_client" size="sm" label="Boto3" {item} />
-																	<ToggleButton value="polars" size="sm" label="Polars" {item} />
-																	<ToggleButton value="duckdb" size="sm" label="DuckDB" {item} />
-																{/if}
+															<ToggleButtonGroup bind:selected={s3Kind} class="w-auto">
+																{#snippet children({ item })}
+																	{#if flowModule.value['language'] === 'deno'}
+																		<ToggleButton
+																			value="s3_client"
+																			size="sm"
+																			label="S3 lite client"
+																			{item}
+																		/>
+																	{:else}
+																		<ToggleButton
+																			value="s3_client"
+																			size="sm"
+																			label="Boto3"
+																			{item}
+																		/>
+																		<ToggleButton value="polars" size="sm" label="Polars" {item} />
+																		<ToggleButton value="duckdb" size="sm" label="DuckDB" {item} />
+																	{/if}
+																{/snippet}
 															</ToggleButtonGroup>
 														</div>
 
 														<Button
 															size="xs"
 															on:click={() =>
-																editor.setCode(s3Scripts[flowModule.value['language']][s3Kind])}
+																editor?.setCode(s3Scripts[flowModule.value['language']][s3Kind])}
 														>
 															Apply snippet
 														</Button>

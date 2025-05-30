@@ -614,8 +614,8 @@
 									toolbarLocationJob = detail
 								}}
 							>
-								<svelte:fragment slot="copilot-fix">
-									<slot name="copilot-fix" />
+								<svelte:fragment slot="copilot_fix">
+									<slot name="copilot_fix" />
 								</svelte:fragment>
 							</DisplayResult>
 						{/key}

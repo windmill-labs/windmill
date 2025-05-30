@@ -56,7 +56,9 @@
 	export let shouldDispatchChanges: boolean = false
 	export let isValid: boolean = true
 	export let customUi: EditableSchemaFormUi | undefined = undefined
+	export let pannelExtraButtonWidth: number = 0
 
+	// export let openEditTab: () => void = () => {}
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
@@ -210,6 +212,11 @@
 	let error: string | undefined = undefined
 	let editor: SimpleEditor | undefined = undefined
 
+	export function updateJson() {
+		schemaString = JSON.stringify(schema, null, '\t')
+		editor?.setCode(schemaString)
+	}
+
 	const editTabDefaultSize = noPreview ? 100 : 50
 	editPanelSize = editTab ? (editPanelInitialSize ?? editTabDefaultSize) : 0
 	let inputPanelSize = 100 - editPanelSize
@@ -218,7 +225,7 @@
 	})
 	let inputPanelSizeSmooth = tweened(inputPanelSize, { duration: 150 })
 
-	function openEditTab() {
+	function openEditTabFn() {
 		if (editPanelSize > 0) return
 		editPanelSizeSmooth.set(editTabDefaultSize)
 		inputPanelSizeSmooth.set(100 - editTabDefaultSize)
@@ -236,15 +243,9 @@
 	}
 	$: updatePanelSizes($editPanelSizeSmooth, $inputPanelSizeSmooth)
 
-	$: !!editTab ? openEditTab() : closeEditTab()
+	$: !!editTab ? openEditTabFn() : closeEditTab()
 
 	let panelButtonWidth: number = 0
-	export let pannelExtraButtonWidth: number = 0
-
-	export function updateJson() {
-		schemaString = JSON.stringify(schema, null, '\t')
-		editor?.setCode(schemaString)
-	}
 </script>
 
 <div class="w-full h-full">

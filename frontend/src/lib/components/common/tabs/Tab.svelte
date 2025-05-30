@@ -1,7 +1,7 @@
 <script lang="ts">
+	import type { TabsContext } from '$lib/components/apps/editor/settingsPanel/inputEditor/tabs.svelte'
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { TabsContext } from './Tabs.svelte'
 
 	export let value: string
 	export let size: 'xs' | 'sm' | 'md' | 'lg' | 'xl' = 'sm'
