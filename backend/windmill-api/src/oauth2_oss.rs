@@ -6,39 +6,50 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+#[cfg(not(feature = "private"))]
 use std::{collections::HashMap, fmt::Debug};
 
+#[cfg(not(feature = "private"))]
 use axum::{routing::get, Json, Router};
+#[cfg(not(feature = "private"))]
 use hmac::Mac;
 
-#[cfg(feature = "oauth2")]
+#[cfg(all(feature = "oauth2", not(feature = "private")))]
 use itertools::Itertools;
-#[cfg(feature = "oauth2")]
+#[cfg(all(feature = "oauth2", not(feature = "private")))]
 use oauth2::{Client as OClient, *};
+#[cfg(not(feature = "private"))]
 use serde::{Deserialize, Serialize};
+#[cfg(not(feature = "private"))]
 use sqlx::{Postgres, Transaction};
-#[cfg(feature = "oauth2")]
+#[cfg(all(feature = "oauth2", not(feature = "private")))]
 use windmill_common::more_serde::maybe_number_opt;
 
-#[cfg(feature = "oauth2")]
+#[cfg(all(feature = "oauth2", not(feature = "private")))]
 use crate::OAUTH_CLIENTS;
+#[cfg(not(feature = "private"))]
 use windmill_common::error;
+#[cfg(not(feature = "private"))]
 use windmill_common::oauth2::*;
 
+#[cfg(not(feature = "private"))]
 use crate::db::DB;
+#[cfg(not(feature = "private"))]
 use std::str;
 
+#[cfg(not(feature = "private"))]
 pub fn global_service() -> Router {
     Router::new()
         .route("/list_logins", get(list_logins))
         .route("/list_connects", get(list_connects))
 }
 
+#[cfg(not(feature = "private"))]
 pub fn workspaced_service() -> Router {
     Router::new()
 }
 
-#[cfg(feature = "oauth2")]
+#[cfg(all(feature = "oauth2", not(feature = "private")))]
 #[derive(Debug, Clone)]
 pub struct ClientWithScopes {
     _client: OClient,
@@ -48,9 +59,10 @@ pub struct ClientWithScopes {
     _allowed_domains: Option<Vec<String>>,
     _userinfo_url: Option<String>,
 }
-#[cfg(feature = "oauth2")]
+#[cfg(all(feature = "oauth2", not(feature = "private")))]
 pub type BasicClientsMap = HashMap<String, ClientWithScopes>;
 
+#[cfg(not(feature = "private"))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OAuthConfig {
     auth_url: String,
@@ -62,6 +74,7 @@ pub struct OAuthConfig {
     req_body_auth: Option<bool>,
 }
 
+#[cfg(not(feature = "private"))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OAuthClient {
     id: String,
@@ -71,7 +84,7 @@ pub struct OAuthClient {
     login_config: Option<OAuthConfig>,
 }
 
-#[cfg(feature = "oauth2")]
+#[cfg(all(feature = "oauth2", not(feature = "private")))]
 #[derive(Debug)]
 pub struct AllClients {
     pub logins: BasicClientsMap,
@@ -79,7 +92,7 @@ pub struct AllClients {
     pub slack: Option<OClient>,
 }
 
-#[cfg(feature = "oauth2")]
+#[cfg(all(feature = "oauth2", not(feature = "private")))]
 pub async fn build_oauth_clients(
     _base_url: &str,
     _oauths_from_config: Option<HashMap<String, OAuthClient>>,
@@ -93,7 +106,7 @@ pub async fn build_oauth_clients(
     });
 }
 
-#[cfg(feature = "oauth2")]
+#[cfg(all(feature = "oauth2", not(feature = "private")))]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TokenResponse {
     access_token: AccessToken,
@@ -107,17 +120,19 @@ pub struct TokenResponse {
     scope: Option<Vec<Scope>>,
 }
 
+#[cfg(not(feature = "private"))]
 #[derive(Serialize)]
 struct Logins {
     oauth: Vec<String>,
     saml: Option<String>,
 }
+#[cfg(not(feature = "private"))]
 async fn list_logins() -> error::JsonResult<Logins> {
     // Implementation is not open source
     return Ok(Json(Logins { oauth: vec![], saml: None }));
 }
 
-#[cfg(feature = "oauth2")]
+#[cfg(all(feature = "oauth2", not(feature = "private")))]
 async fn list_connects() -> error::JsonResult<Vec<String>> {
     Ok(Json(
         (&OAUTH_CLIENTS.read().await.connects)
@@ -127,12 +142,13 @@ async fn list_connects() -> error::JsonResult<Vec<String>> {
     ))
 }
 
-#[cfg(not(feature = "oauth2"))]
+#[cfg(not(all(feature = "oauth2", not(feature = "private"))))]
 async fn list_connects() -> error::JsonResult<Vec<String>> {
     // Implementation is not open source
     return Ok(Json(vec![]));
 }
 
+#[cfg(not(feature = "private"))]
 pub async fn _refresh_token<'c>(
     _tx: Transaction<'c, Postgres>,
     _path: &str,
@@ -146,6 +162,7 @@ pub async fn _refresh_token<'c>(
     ))
 }
 
+#[cfg(not(feature = "private"))]
 pub async fn check_nb_of_user(db: &DB) -> error::Result<()> {
     let nb_users_sso =
         sqlx::query_scalar!("SELECT COUNT(*) FROM password WHERE login_type != 'password'",)
@@ -171,10 +188,11 @@ pub async fn check_nb_of_user(db: &DB) -> error::Result<()> {
 }
 
 #[derive(Clone, Debug)]
+#[cfg(not(feature = "private"))]
 pub struct SlackVerifier {
     _mac: HmacSha256,
 }
-
+#[cfg(not(feature = "private"))]
 impl SlackVerifier {
     pub fn new<S: AsRef<[u8]>>(secret: S) -> anyhow::Result<SlackVerifier> {
         HmacSha256::new_from_slice(secret.as_ref())

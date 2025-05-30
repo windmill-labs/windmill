@@ -1,13 +1,20 @@
+#[cfg(not(feature = "private"))]
 use anyhow::anyhow;
+#[cfg(not(feature = "private"))]
 use sqlx::{Pool, Postgres};
+#[cfg(not(feature = "private"))]
 use windmill_common::error::Error;
+#[cfg(not(feature = "private"))]
 use windmill_common::KillpillSender;
 #[derive(Clone)]
+#[cfg(not(feature = "private"))]
 pub struct ServiceLogIndexReader;
 
 #[derive(Clone)]
+#[cfg(not(feature = "private"))]
 pub struct ServiceLogIndexWriter;
 
+#[cfg(not(feature = "private"))]
 pub async fn init_index(
     _db: &Pool<Postgres>,
     mut _killpill_tx: KillpillSender,
@@ -15,6 +22,7 @@ pub async fn init_index(
     Err(anyhow!("Cannot initialize index: not in EE").into())
 }
 
+#[cfg(not(feature = "private"))]
 pub async fn run_indexer(
     _db: Pool<Postgres>,
     mut _index_writer: ServiceLogIndexWriter,

@@ -1,8 +1,10 @@
+#[cfg(not(feature = "private"))]
 use crate::{
     db::{ApiAuthed, DB},
     workspaces::EditAutoInvite,
 };
 
+#[cfg(not(feature = "private"))]
 pub async fn edit_auto_invite(
     _authed: ApiAuthed,
     _db: DB,

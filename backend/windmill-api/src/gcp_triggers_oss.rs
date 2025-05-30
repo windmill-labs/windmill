@@ -1,29 +1,34 @@
-use crate::db::{ApiAuthed, DB};
-use crate::trigger_helpers::TriggerJobArgs;
-use axum::{extract::Request, Router};
-use http::HeaderMap;
-use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
-use sqlx::prelude::FromRow;
-use sqlx::types::Json as SqlxJson;
-use std::collections::HashMap;
-use windmill_common::db::UserDB;
-use windmill_common::worker::to_raw_value;
-use windmill_common::{
-    error::{Error as WindmillError, Result as WindmillResult},
-    triggers::TriggerKind,
-    utils::empty_as_none,
+#[cfg(not(feature = "private"))]
+use {
+    crate::db::{ApiAuthed, DB},
+    crate::trigger_helpers::TriggerJobArgs,
+    axum::{extract::Request, Router},
+    http::HeaderMap,
+    serde::{Deserialize, Serialize},
+    serde_json::value::RawValue,
+    sqlx::prelude::FromRow,
+    sqlx::types::Json as SqlxJson,
+    std::collections::HashMap,
+    windmill_common::db::UserDB,
+    windmill_common::worker::to_raw_value,
+    windmill_common::{
+        error::{Error as WindmillError, Result as WindmillResult},
+        triggers::TriggerKind,
+        utils::empty_as_none,
+    },
 };
 
 #[derive(sqlx::Type, Debug, Deserialize, Serialize)]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 #[sqlx(type_name = "DELIVERY_MODE", rename_all = "lowercase")]
 #[allow(unused)]
+#[cfg(not(feature = "private"))]
 pub enum DeliveryType {
     Pull,
     Push,
 }
 
+#[cfg(not(feature = "private"))]
 impl Default for DeliveryType {
     fn default() -> Self {
         Self::Pull
@@ -32,6 +37,7 @@ impl Default for DeliveryType {
 
 #[derive(FromRow, Deserialize, Serialize, Debug)]
 #[allow(unused)]
+#[cfg(not(feature = "private"))]
 pub struct PushConfig {
     #[serde(deserialize_with = "empty_as_none")]
     route_path: Option<String>,
@@ -42,6 +48,7 @@ pub struct PushConfig {
 }
 #[derive(Default, Debug, Serialize, Deserialize)]
 #[allow(unused)]
+#[cfg(not(feature = "private"))]
 pub struct CreateUpdateConfig {
     pub delivery_type: DeliveryType,
     #[serde(default, deserialize_with = "empty_as_none")]
@@ -50,6 +57,7 @@ pub struct CreateUpdateConfig {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[cfg(not(feature = "private"))]
 pub struct ExistingGcpSubscription {
     pub subscription_id: String,
     pub base_endpoint: String,
@@ -58,15 +66,18 @@ pub struct ExistingGcpSubscription {
 #[derive(Debug, Deserialize, Serialize, sqlx::Type)]
 #[serde(rename_all = "snake_case")]
 #[sqlx(type_name = "GCP_SUBSCRIPTION_MODE", rename_all = "snake_case")]
+#[cfg(not(feature = "private"))]
 pub enum SubscriptionMode {
     Existing,
     CreateUpdate,
 }
 
+#[cfg(not(feature = "private"))]
 pub fn workspaced_service() -> Router {
     Router::new()
 }
 
+#[cfg(not(feature = "private"))]
 pub fn start_consuming_gcp_pubsub_event(
     _db: DB,
     mut _killpill_rx: tokio::sync::broadcast::Receiver<()>,
@@ -74,6 +85,7 @@ pub fn start_consuming_gcp_pubsub_event(
     // implementation is not open source
 }
 
+#[cfg(not(feature = "private"))]
 pub async fn manage_google_subscription(
     _authed: ApiAuthed,
     _db: &DB,
@@ -91,6 +103,7 @@ pub async fn manage_google_subscription(
     Ok(CreateUpdateConfig::default())
 }
 
+#[cfg(not(feature = "private"))]
 pub async fn process_google_push_request(
     _headers: HeaderMap,
     _request: Request,
@@ -98,6 +111,7 @@ pub async fn process_google_push_request(
     Ok((String::new(), HashMap::new()))
 }
 
+#[cfg(not(feature = "private"))]
 pub async fn validate_jwt_token(
     _db: &DB,
     _user_db: UserDB,
@@ -110,11 +124,13 @@ pub async fn validate_jwt_token(
     Ok(())
 }
 
+#[cfg(not(feature = "private"))]
 pub fn gcp_push_route_handler() -> Router {
     Router::new()
 }
 
 #[derive(FromRow, Deserialize, Serialize, Debug)]
+#[cfg(not(feature = "private"))]
 pub struct GcpTrigger {
     pub gcp_resource_path: String,
     pub subscription_id: String,
@@ -135,7 +151,7 @@ pub struct GcpTrigger {
     pub last_server_ping: Option<chrono::DateTime<chrono::Utc>>,
     pub enabled: bool,
 }
-
+#[cfg(not(feature = "private"))]
 impl TriggerJobArgs<String> for GcpTrigger {
     fn v1_payload_fn(payload: String) -> HashMap<String, Box<RawValue>> {
         HashMap::from([("payload".to_string(), to_raw_value(&payload))])

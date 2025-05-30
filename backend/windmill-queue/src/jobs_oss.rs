@@ -1,7 +1,11 @@
+#[cfg(not(feature = "private"))]
 use chrono::{DateTime, Utc};
+#[cfg(not(feature = "private"))]
 use uuid::Uuid;
+#[cfg(not(feature = "private"))]
 use windmill_common::DB;
 
+#[cfg(not(feature = "private"))]
 #[allow(dead_code)]
 pub(crate) async fn update_concurrency_counter(
     _db: &DB,

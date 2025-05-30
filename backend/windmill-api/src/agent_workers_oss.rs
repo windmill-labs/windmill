@@ -6,16 +6,21 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+#[cfg(not(feature = "private"))]
 use crate::db::DB;
 
+#[cfg(not(feature = "private"))]
 use axum::Router;
 
+#[cfg(not(feature = "private"))]
 use serde::{Deserialize, Serialize};
 
+#[cfg(not(feature = "private"))]
 pub fn global_service() -> Router {
     Router::new()
 }
 
+#[cfg(not(feature = "private"))]
 pub fn workspaced_service(
     db: DB,
     _base_internal_url: String,
@@ -36,6 +41,7 @@ pub fn workspaced_service(
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg(not(feature = "private"))]
 pub struct AgentAuth {
     pub worker_group: String,
     pub suffix: Option<String>,
@@ -43,8 +49,10 @@ pub struct AgentAuth {
     pub exp: Option<usize>,
 }
 
+#[cfg(not(feature = "private"))]
 pub struct AgentCache {}
 
+#[cfg(not(feature = "private"))]
 impl AgentCache {
     pub fn new() -> Self {
         AgentCache {}

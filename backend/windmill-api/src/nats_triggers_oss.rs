@@ -1,22 +1,30 @@
+#[cfg(not(feature = "private"))]
 use crate::db::DB;
+#[cfg(not(feature = "private"))]
 use axum::Router;
+#[cfg(not(feature = "private"))]
 use serde::{Deserialize, Serialize};
 
+#[cfg(not(feature = "private"))]
 #[derive(Serialize, Deserialize)]
 pub struct NatsResourceAuth {}
 
+#[cfg(not(feature = "private"))]
 pub fn workspaced_service() -> Router {
     Router::new()
 }
 
+#[cfg(not(feature = "private"))]
 pub fn start_nats_consumers(_db: DB, mut _killpill_rx: tokio::sync::broadcast::Receiver<()>) -> () {
     // implementation is not open source
 }
 
 #[derive(Serialize, Deserialize)]
+#[cfg(not(feature = "private"))]
 pub enum NatsTriggerConfigConnection {}
 
 #[derive(Serialize, Clone)]
+#[cfg(not(feature = "private"))]
 pub struct NatsTrigger {
     pub workspace_id: String,
     pub path: String,

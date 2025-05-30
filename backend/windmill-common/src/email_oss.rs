@@ -1,5 +1,7 @@
+#[cfg(not(feature = "private"))]
 use crate::server::Smtp;
 
+#[cfg(not(feature = "private"))]
 pub async fn send_email(
     _subject: &str,
     _content: &str,

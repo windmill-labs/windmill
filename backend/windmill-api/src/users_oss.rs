@@ -1,15 +1,23 @@
+#[cfg(not(feature = "private"))]
 use std::sync::Arc;
 
+#[cfg(not(feature = "private"))]
 use crate::db::ApiAuthed;
 
+#[cfg(not(feature = "private"))]
 use crate::users::{EditPassword, NewUser};
+#[cfg(not(feature = "private"))]
 use crate::{db::DB, webhook_util::WebhookShared};
+#[cfg(not(feature = "private"))]
 use argon2::Argon2;
 
+#[cfg(not(feature = "private"))]
 use http::StatusCode;
 
+#[cfg(not(feature = "private"))]
 use windmill_common::error::{Error, Result};
 
+#[cfg(not(feature = "private"))]
 pub async fn create_user(
     _authed: ApiAuthed,
     _db: DB,
@@ -22,6 +30,7 @@ pub async fn create_user(
     ))
 }
 
+#[cfg(not(feature = "private"))]
 pub async fn set_password(
     _db: DB,
     _argon2: Arc<Argon2<'_>>,
@@ -34,6 +43,7 @@ pub async fn set_password(
     ))
 }
 
+#[cfg(not(feature = "private"))]
 pub fn send_email_if_possible(_subject: &str, _content: &str, _to: &str) {
     tracing::warn!(
         "send_email_if_possible is not implemented in Windmill's Open Source repository"

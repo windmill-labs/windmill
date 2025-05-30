@@ -1,7 +1,10 @@
+#[cfg(not(feature = "private"))]
 use windmill_common::error::Result;
 
+#[cfg(not(feature = "private"))]
 use crate::{DeployedObject, DB};
 
+#[cfg(not(feature = "private"))]
 pub async fn handle_deployment_metadata<'c>(
     _email: &str,
     _created_by: &str,

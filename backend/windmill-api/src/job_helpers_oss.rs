@@ -1,34 +1,40 @@
+#[cfg(not(feature = "private"))]
 use axum::Router;
+#[cfg(not(feature = "private"))]
 use serde::Serialize;
+#[cfg(not(feature = "private"))]
 use uuid::Uuid;
+#[cfg(not(feature = "private"))]
 use windmill_common::s3_helpers::StorageResourceType;
 
-#[cfg(feature = "parquet")]
+#[cfg(all(feature = "parquet", not(feature = "private")))]
 use crate::db::{ApiAuthed, DB};
-#[cfg(feature = "parquet")]
+#[cfg(all(feature = "parquet", not(feature = "private")))]
 use object_store::{ObjectStore, PutMultipartOpts};
-#[cfg(feature = "parquet")]
+#[cfg(all(feature = "parquet", not(feature = "private")))]
 use std::sync::Arc;
 use windmill_common::error;
-#[cfg(feature = "parquet")]
+#[cfg(all(feature = "parquet", not(feature = "private")))]
 use windmill_common::{db::UserDB, s3_helpers::ObjectStoreResource};
 
-#[cfg(feature = "parquet")]
+#[cfg(all(feature = "parquet", not(feature = "private")))]
 use bytes::Bytes;
-#[cfg(feature = "parquet")]
+#[cfg(all(feature = "parquet", not(feature = "private")))]
 use futures::Stream;
 
-#[cfg(feature = "parquet")]
+#[cfg(all(feature = "parquet", not(feature = "private")))]
 use axum::response::Response;
-#[cfg(feature = "parquet")]
+#[cfg(all(feature = "parquet", not(feature = "private")))]
 use serde::Deserialize;
 
 #[derive(Serialize)]
+#[cfg(not(feature = "private"))]
 pub struct UploadFileResponse {
     pub file_key: String,
 }
 
 #[derive(Deserialize)]
+#[cfg(not(feature = "private"))]
 pub struct LoadImagePreviewQuery {
     #[allow(dead_code)]
     pub file_key: String,
@@ -37,6 +43,7 @@ pub struct LoadImagePreviewQuery {
 }
 
 #[derive(Deserialize)]
+#[cfg(not(feature = "private"))]
 pub struct DownloadFileQuery {
     #[allow(dead_code)]
     pub file_key: String,
@@ -46,11 +53,12 @@ pub struct DownloadFileQuery {
     pub s3_resource_path: Option<String>,
 }
 
+#[cfg(not(feature = "private"))]
 pub fn workspaced_service() -> Router {
     Router::new()
 }
 
-#[cfg(feature = "parquet")]
+#[cfg(all(feature = "parquet", not(feature = "private")))]
 pub async fn get_workspace_s3_resource<'c>(
     _authed: &ApiAuthed,
     _db: &DB,
@@ -63,10 +71,12 @@ pub async fn get_workspace_s3_resource<'c>(
     Ok((None, None))
 }
 
+#[cfg(not(feature = "private"))]
 pub fn get_random_file_name(_file_extension: Option<String>) -> String {
     unimplemented!("Not implemented in Windmill's Open Source repository")
 }
 
+#[cfg(not(feature = "private"))]
 pub async fn get_s3_resource<'c>(
     _authed: &ApiAuthed,
     _db: &DB,
@@ -82,7 +92,7 @@ pub async fn get_s3_resource<'c>(
     ))
 }
 
-#[cfg(feature = "parquet")]
+#[cfg(all(feature = "parquet", not(feature = "private")))]
 pub async fn upload_file_from_req(
     _s3_client: Arc<dyn ObjectStore>,
     _file_key: &str,
@@ -94,7 +104,7 @@ pub async fn upload_file_from_req(
     ))
 }
 
-#[cfg(feature = "parquet")]
+#[cfg(all(feature = "parquet", not(feature = "private")))]
 pub async fn upload_file_internal(
     _s3_client: Arc<dyn ObjectStore>,
     _file_key: &str,
@@ -106,7 +116,7 @@ pub async fn upload_file_internal(
     ))
 }
 
-#[cfg(feature = "parquet")]
+#[cfg(all(feature = "parquet", not(feature = "private")))]
 pub async fn download_s3_file_internal(
     _authed: ApiAuthed,
     _db: &DB,

@@ -1,15 +1,16 @@
 use anyhow::anyhow;
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", not(feature = "private")))]
 use std::sync::Arc;
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", not(feature = "private")))]
 use tokio::sync::RwLock;
 
+#[cfg(not(feature = "private"))]
 pub async fn validate_license_key(_license_key: String) -> anyhow::Result<(String, bool)> {
     // Implementation is not open source
     Err(anyhow!("License can't be validated in Windmill CE"))
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", not(feature = "private")))]
 pub async fn jwt_ext_auth(
     _w_id: Option<&String>,
     _token: &str,
@@ -20,10 +21,10 @@ pub async fn jwt_ext_auth(
     Err(anyhow!("External JWT auth is not open source"))
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", not(feature = "private")))]
 pub struct ExternalJwks;
 
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", not(feature = "private")))]
 impl ExternalJwks {
     pub async fn load() -> Option<Arc<RwLock<Self>>> {
         // Implementation is not open source

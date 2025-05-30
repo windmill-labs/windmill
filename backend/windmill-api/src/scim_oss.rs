@@ -6,17 +6,22 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+#[cfg(not(feature = "private"))]
 use axum::{middleware::Next, response::Response, routing::get, Router};
+#[cfg(not(feature = "private"))]
 use hyper::Request;
 
+#[cfg(not(feature = "private"))]
 pub fn global_service() -> Router {
     Router::new().route("/ee", get(ee))
 }
 
+#[cfg(not(feature = "private"))]
 pub async fn ee() -> String {
     return "Enterprise Edition".to_string();
 }
 
+#[cfg(not(feature = "private"))]
 pub async fn has_scim_token<B>(_request: Request<B>, _next: Next) -> Response {
     //Not implemented in open-source version
     todo!()

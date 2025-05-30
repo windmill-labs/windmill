@@ -6,9 +6,15 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+#[cfg(not(feature = "private"))]
 use serde::{Deserialize, Serialize};
+#[cfg(not(feature = "private"))]
 use tokio::sync::RwLock;
-#[cfg(all(feature = "enterprise", feature = "openidconnect"))]
+#[cfg(all(
+    feature = "enterprise",
+    feature = "openidconnect",
+    not(feature = "private")
+))]
 use {
     crate::db::DB,
     crate::{auth::IdToken as WindmillIdToken, error::Result},
@@ -20,27 +26,30 @@ use {
     std::process::Command,
 };
 
-#[cfg(feature = "openidconnect")]
+#[cfg(all(feature = "openidconnect", not(feature = "private")))]
 use openidconnect::AdditionalClaims;
 
-#[cfg(feature = "openidconnect")]
+#[cfg(all(feature = "openidconnect", not(feature = "private")))]
 impl AdditionalClaims for JobClaim {}
 
-#[cfg(feature = "openidconnect")]
+#[cfg(all(feature = "openidconnect", not(feature = "private")))]
 impl AdditionalClaims for WorkspaceClaim {}
 
-#[cfg(feature = "openidconnect")]
+#[cfg(all(feature = "openidconnect", not(feature = "private")))]
 impl AdditionalClaims for InstanceClaim {}
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+#[cfg(not(feature = "private"))]
 pub struct WorkspaceClaim {
     pub workspace: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+#[cfg(not(feature = "private"))]
 pub struct InstanceClaim {}
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+#[cfg(not(feature = "private"))]
 pub struct JobClaim {
     pub job_id: String,
     pub path: Option<String>,
@@ -51,10 +60,12 @@ pub struct JobClaim {
     pub workspace: String,
 }
 
+#[cfg(not(feature = "private"))]
 lazy_static::lazy_static! {
     static ref PRIVATE_KEY: RwLock<Option<String>> = RwLock::new(None);
 }
 
+#[cfg(not(feature = "private"))]
 pub async fn generate_id_token<T: AdditionalClaims>(
     db: Option<&DB>,
     claim: T,
@@ -135,7 +146,11 @@ pub async fn generate_id_token<T: AdditionalClaims>(
     Ok(WindmillIdToken::new(id_token.to_string(), expiration))
 }
 
-#[cfg(all(feature = "enterprise", feature = "openidconnect"))]
+#[cfg(all(
+    feature = "enterprise",
+    feature = "openidconnect",
+    not(feature = "private")
+))]
 pub async fn get_private_key(db: Option<&DB>) -> anyhow::Result<String> {
     if let Some(key) = PRIVATE_KEY.read().await.clone() {
         return Ok(key);
@@ -160,13 +175,21 @@ pub async fn get_private_key(db: Option<&DB>) -> anyhow::Result<String> {
     }
 }
 
-#[cfg(all(feature = "enterprise", feature = "openidconnect"))]
+#[cfg(all(
+    feature = "enterprise",
+    feature = "openidconnect",
+    not(feature = "private")
+))]
 #[derive(Debug, Clone, serde::Serialize)]
 struct Keys {
     private_key: String,
 }
 
-#[cfg(all(feature = "enterprise", feature = "openidconnect"))]
+#[cfg(all(
+    feature = "enterprise",
+    feature = "openidconnect",
+    not(feature = "private")
+))]
 async fn gen_pems(db: &DB) -> anyhow::Result<Keys> {
     use anyhow::anyhow;
 

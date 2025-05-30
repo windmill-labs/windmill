@@ -1,14 +1,20 @@
+#[cfg(not(feature = "private"))]
 use crate::db::DB;
+#[cfg(not(feature = "private"))]
 use axum::Router;
+#[cfg(not(feature = "private"))]
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
+#[cfg(not(feature = "private"))]
 pub struct KafkaResourceSecurity {}
 
+#[cfg(not(feature = "private"))]
 pub fn workspaced_service() -> Router {
     Router::new()
 }
 
+#[cfg(not(feature = "private"))]
 pub fn start_kafka_consumers(
     _db: DB,
     mut _killpill_rx: tokio::sync::broadcast::Receiver<()>,
@@ -17,9 +23,11 @@ pub fn start_kafka_consumers(
 }
 
 #[derive(Serialize, Deserialize)]
+#[cfg(not(feature = "private"))]
 pub enum KafkaTriggerConfigConnection {}
 
 #[derive(Serialize, Clone)]
+#[cfg(not(feature = "private"))]
 pub struct KafkaTrigger {
     pub workspace_id: String,
     pub path: String,
