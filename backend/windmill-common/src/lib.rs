@@ -33,10 +33,10 @@ pub mod cache;
 pub mod client;
 pub mod db;
 #[cfg(feature = "private")]
-mod ee;
+pub mod ee;
 pub mod ee_oss;
 #[cfg(feature = "private")]
-mod email_ee;
+pub mod email_ee;
 pub mod email_oss;
 pub mod error;
 pub mod external_ip;
@@ -46,12 +46,12 @@ pub mod global_settings;
 pub mod indexer;
 pub mod job_metrics;
 #[cfg(all(feature = "parquet", feature = "private"))]
-mod job_s3_helpers_ee;
+pub mod job_s3_helpers_ee;
 #[cfg(feature = "parquet")]
 pub mod job_s3_helpers_oss;
 
 #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
-mod oidc_ee;
+pub mod oidc_ee;
 #[cfg(all(feature = "enterprise", feature = "openidconnect"))]
 pub mod oidc_oss;
 
@@ -60,7 +60,7 @@ pub mod jwt;
 pub mod more_serde;
 pub mod oauth2;
 #[cfg(feature = "private")]
-mod otel_ee;
+pub mod otel_ee;
 pub mod otel_oss;
 pub mod queue;
 pub mod s3_helpers;
@@ -69,10 +69,10 @@ pub mod schema;
 pub mod scripts;
 pub mod server;
 #[cfg(feature = "private")]
-mod stats_ee;
+pub mod stats_ee;
 pub mod stats_oss;
 #[cfg(feature = "private")]
-mod teams_ee;
+pub mod teams_ee;
 pub mod teams_oss;
 pub mod tracing_init;
 pub mod users;

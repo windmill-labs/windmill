@@ -101,7 +101,7 @@ const DEFAULT_PORT: u16 = 8000;
 const DEFAULT_SERVER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 
 #[cfg(feature = "private")]
-mod ee;
+pub mod ee;
 mod ee_oss;
 mod monitor;
 

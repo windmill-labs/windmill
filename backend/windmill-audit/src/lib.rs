@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 #[cfg(feature = "private")]
-mod audit_ee;
+pub mod audit_ee;
 pub mod audit_oss;
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
