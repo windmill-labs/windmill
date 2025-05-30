@@ -67,6 +67,14 @@
 		handleSubmit()
 	}
 
+	function renderMarkdownLinks(content: string) {
+		const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g
+		return content.replace(
+			linkRegex,
+			'<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-400 dark:text-blue-300 hover:underline">$1</a>'
+		)
+	}
+
 	$effect(() => {
 		if ($globalChatInitialInput.length > 0) {
 			inputValue = $globalChatInitialInput
@@ -98,7 +106,9 @@
 							: 'bg-gray-100 dark:bg-gray-700 text-primary rounded-bl-sm'
 					)}
 				>
-					<p class="whitespace-pre-wrap break-words">{msg.content}</p>
+					<p class="whitespace-pre-wrap break-words"
+						>{@html renderMarkdownLinks(msg.content as string)}</p
+					>
 				</div>
 			</div>
 		{/each}
