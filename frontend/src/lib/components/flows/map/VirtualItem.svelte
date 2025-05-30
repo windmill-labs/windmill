@@ -106,7 +106,7 @@
 							simpleViewer={inputJson}
 							rightMargin
 							historyOffset={{ mainAxis: 12, crossAxis: -9 }}
-							class="p-1"
+							clazz="p-1"
 						/>
 					{/snippet}
 				</OutputPicker>
