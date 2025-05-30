@@ -56,7 +56,7 @@
 			showDraft={data.isEditor ?? false}
 			on:new={(e) => {
 				data?.eventHandlers.insert({
-					modules: data.modules,
+					sourceId: 'Input',
 					index: 0,
 					kind: 'trigger',
 					inlineScript: e.detail.inlineScript
@@ -65,7 +65,7 @@
 			}}
 			on:pickScript={(e) => {
 				data?.eventHandlers.insert({
-					modules: data.modules,
+					sourceId: 'Input',
 					index: 0,
 					kind: 'trigger',
 					script: e.detail
