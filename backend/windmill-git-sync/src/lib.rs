@@ -10,6 +10,7 @@ use sqlx::{Pool, Postgres};
 
 use windmill_common::scripts::ScriptHash;
 
+#[cfg(feature = "private")]
 mod git_sync_ee;
 pub mod git_sync_oss;
 

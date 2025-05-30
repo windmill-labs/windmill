@@ -61,7 +61,7 @@ use windmill_common::{utils::GIT_VERSION, BASE_URL, INSTANCE_NAME};
 use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
 
-#[cfg(feature = "agent_worker_server")]
+#[cfg(all(feature = "agent_worker_server", feature = "private"))]
 mod agent_workers_ee;
 #[cfg(feature = "agent_worker_server")]
 mod agent_workers_oss;
@@ -75,6 +75,7 @@ mod concurrency_groups;
 mod configs;
 mod db;
 mod drafts;
+#[cfg(feature = "private")]
 mod ee;
 pub mod ee_oss;
 pub mod embeddings;
@@ -89,6 +90,7 @@ mod http_trigger_args;
 mod http_trigger_auth;
 #[cfg(feature = "http_trigger")]
 pub mod http_triggers;
+#[cfg(feature = "private")]
 mod indexer_ee;
 mod indexer_oss;
 mod inputs;
@@ -97,71 +99,78 @@ mod integration;
 mod postgres_triggers;
 
 mod approvals;
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "private"))]
 mod apps_ee;
 #[cfg(feature = "enterprise")]
 mod apps_oss;
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
 mod gcp_triggers_ee;
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
 mod gcp_triggers_oss;
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "private"))]
 mod git_sync_ee;
 #[cfg(feature = "enterprise")]
 mod git_sync_oss;
-#[cfg(feature = "parquet")]
+#[cfg(all(feature = "parquet", feature = "private"))]
 mod job_helpers_ee;
 #[cfg(feature = "parquet")]
 mod job_helpers_oss;
 pub mod job_metrics;
 pub mod jobs;
-#[cfg(all(feature = "enterprise", feature = "kafka"))]
+#[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
 mod kafka_triggers_ee;
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 mod kafka_triggers_oss;
 #[cfg(feature = "mqtt_trigger")]
 mod mqtt_triggers;
-#[cfg(all(feature = "enterprise", feature = "nats"))]
+#[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
 mod nats_triggers_ee;
 #[cfg(all(feature = "enterprise", feature = "nats"))]
 mod nats_triggers_oss;
-#[cfg(feature = "oauth2")]
+#[cfg(all(feature = "oauth2", feature = "private"))]
 mod oauth2_ee;
+#[cfg(feature = "oauth2")]
 pub mod oauth2_oss;
+#[cfg(feature = "private")]
 mod oidc_ee;
 mod oidc_oss;
 mod raw_apps;
 mod resources;
+#[cfg(feature = "private")]
 mod saml_ee;
 mod saml_oss;
 mod schedule;
+#[cfg(feature = "private")]
 mod scim_ee;
 mod scim_oss;
 mod scripts;
 mod service_logs;
 mod settings;
 mod slack_approvals;
-#[cfg(feature = "smtp")]
+#[cfg(all(feature = "smtp", feature = "private"))]
 mod smtp_server_ee;
 #[cfg(feature = "smtp")]
 mod smtp_server_oss;
-#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
 mod sqs_triggers_ee;
 mod sqs_triggers_oss;
+#[cfg(feature = "private")]
 mod teams_approvals_ee;
 mod teams_approvals_oss;
 mod trigger_helpers;
 
 mod static_assets;
-#[cfg(all(feature = "stripe", feature = "enterprise"))]
+#[cfg(all(feature = "stripe", feature = "enterprise", feature = "private"))]
 mod stripe_ee;
 #[cfg(all(feature = "stripe", feature = "enterprise"))]
 mod stripe_oss;
+#[cfg(feature = "private")]
 mod teams_ee;
 mod teams_oss;
 mod tracing_init;
 mod triggers;
 mod users;
+#[cfg(feature = "private")]
 mod users_ee;
 mod users_oss;
 mod utils;
@@ -171,6 +180,7 @@ pub mod webhook_util;
 mod websocket_triggers;
 mod workers;
 mod workspaces;
+#[cfg(feature = "private")]
 mod workspaces_ee;
 mod workspaces_export;
 mod workspaces_extra;
