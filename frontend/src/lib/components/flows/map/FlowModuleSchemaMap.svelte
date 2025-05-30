@@ -202,7 +202,7 @@
 	}
 	async function addBranch(id: string) {
 		push(history, $flowStore)
-		let module = dfsByModule(id, $flowStore.value.modules).pop()
+		let module = dfsByModule(id, $flowStore.value.modules)[0]
 
 		if (!module) {
 			throw new Error(`Node ${id} not found`)
@@ -219,7 +219,7 @@
 
 	function removeBranch(id: string, index: number) {
 		push(history, $flowStore)
-		let module = dfsByModule(id, $flowStore.value.modules).pop()
+		let module = dfsByModule(id, $flowStore.value.modules)[0]
 
 		if (!module) {
 			throw new Error(`Node ${id} not found`)
