@@ -40,17 +40,18 @@
 			lastSavedCode?: string | undefined
 			lastDeployedCode?: string | undefined
 			diffMode: boolean
-			applyCode: (code: string) => void
-			showDiffMode: () => void
 		}
 		flowHelpers?: FlowAIChatHelpers & {
 			getFlow: () => OpenFlow
 		}
+		showDiffMode: () => void
+		applyCode: (code: string) => void
 		headerLeft?: Snippet
 		headerRight?: Snippet
 	}
 
-	let { scriptOptions, flowHelpers, headerLeft, headerRight }: Props = $props()
+	let { scriptOptions, flowHelpers, applyCode, showDiffMode, headerLeft, headerRight }: Props =
+		$props()
 
 	let instructions = $state('')
 	let loading = writable(false)
@@ -59,7 +60,6 @@
 		script: scriptOptions !== undefined,
 		flow: flowHelpers !== undefined
 	})
-	$inspect(allowedModes)
 	let mode: 'script' | 'flow' = $state(flowHelpers ? 'flow' : 'script')
 
 	async function updateMode(currentMode: 'script' | 'flow') {
@@ -78,10 +78,25 @@
 		loading,
 		currentReply,
 		canApplyCode: () => allowedModes.script,
-		applyCode: scriptOptions?.applyCode ?? (() => {})
+		applyCode
 	})
 
-	async function sendRequest(options: { removeDiff?: boolean; addBackCode?: boolean } = {}) {
+	export async function sendRequest(
+		options: {
+			removeDiff?: boolean
+			addBackCode?: boolean
+			instructions?: string
+			mode?: 'script' | 'flow'
+			lang?: ScriptLang | 'bunnative'
+			isPreprocessor?: boolean
+		} = {}
+	) {
+		if (options.mode) {
+			mode = options.mode
+		}
+		if (options.instructions) {
+			instructions = options.instructions
+		}
 		if (!instructions.trim()) {
 			return
 		}
@@ -112,14 +127,19 @@
 				throw new Error('No flow helpers passed')
 			}
 
-			if (mode === 'script' && !scriptOptions) {
+			if (mode === 'script' && !scriptOptions && !options.lang) {
 				throw new Error('No script options passed')
 			}
+
+			const lang = scriptOptions?.lang ?? options.lang ?? 'bun'
+			const isPreprocessor = scriptOptions?.path === 'preprocessor' || options.isPreprocessor
 
 			const userMessage =
 				mode === 'flow'
 					? prepareFlowUserMessage(oldInstructions, flowHelpers!.getFlow())
-					: await prepareScriptUserMessage(oldInstructions, scriptOptions!.lang, oldSelectedContext)
+					: await prepareScriptUserMessage(oldInstructions, lang, oldSelectedContext, {
+							isPreprocessor
+						})
 
 			messages.push({ role: 'user', content: userMessage })
 			await historyManager.saveChat(displayMessages, messages)
@@ -184,9 +204,7 @@
 				})
 			} else {
 				const tools: Tool<ScriptChatHelpers>[] = []
-				if (
-					['python3', 'php', 'bun', 'deno', 'nativets', 'bunnative'].includes(scriptOptions!.lang)
-				) {
+				if (['python3', 'php', 'bun', 'deno', 'nativets', 'bunnative'].includes(lang)) {
 					tools.push(resourceTypeTool)
 				}
 				if (oldSelectedContext.filter((c) => c.type === 'db').length > 0) {
@@ -196,7 +214,7 @@
 					...params,
 					tools,
 					helpers: {
-						getLang: () => scriptOptions!.lang
+						getLang: () => lang
 					}
 				})
 			}
@@ -260,7 +278,7 @@
 			addBackCode: options.withCode === false
 		})
 		if (options.withDiff) {
-			scriptOptions.showDiffMode()
+			showDiffMode()
 		}
 	}
 

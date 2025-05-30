@@ -600,13 +600,13 @@
 						path,
 						lastSavedCode,
 						lastDeployedCode,
-						diffMode,
-						applyCode: (code) => {
-							hideDiffMode()
-							editor?.reviewAndApplyCode(code)
-						},
-						showDiffMode
+						diffMode
 					}}
+					applyCode={() => {
+						hideDiffMode()
+						editor?.reviewAndApplyCode(code)
+					}}
+					{showDiffMode}
 					headerLeft={aiChatHeaderLeft}
 					headerRight={aiChatHeaderRight}
 				/>

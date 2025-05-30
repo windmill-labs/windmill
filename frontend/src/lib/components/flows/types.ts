@@ -49,6 +49,7 @@ export type FlowEditorContext = {
 						type: 'script'
 						editor: Editor
 						showDiffMode: () => void
+						hideDiffMode: () => void
 						diffMode: boolean
 						lastDeployedCode: string | undefined
 				  }

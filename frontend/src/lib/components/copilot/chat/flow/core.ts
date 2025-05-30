@@ -125,7 +125,17 @@ const insertLocationSchema = z.union([
 		})
 		.describe(
 			'Add a step at the start of a given branch of the given step (branchone or branchall only)'
-		)
+		),
+	z
+		.object({
+			type: z.literal('preprocessor')
+		})
+		.describe('Insert a preprocessor step (runs before the first step when triggered externally)'),
+	z
+		.object({
+			type: z.literal('failure')
+		})
+		.describe('Insert a failure step (only executed when the flow fails)')
 ])
 
 type InsertLocation = z.infer<typeof insertLocationSchema>
@@ -352,7 +362,13 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 						? 'Adding a step at the start'
 						: parsedArgs.location.type === 'start_inside_forloop'
 							? `Adding a step at the start of the forloop ${parsedArgs.location.inside}`
-							: `Adding a step at the start of the branch ${parsedArgs.location.inside} ${parsedArgs.location.branchIndex}`
+							: parsedArgs.location.type === 'start_inside_branch'
+								? `Adding a step at the start of the branch ${parsedArgs.location.inside} ${parsedArgs.location.branchIndex}`
+								: parsedArgs.location.type === 'preprocessor'
+									? 'Adding a preprocessor step'
+									: parsedArgs.location.type === 'failure'
+										? 'Adding a failure step'
+										: 'Adding a step'
 			)
 			const id = await helpers.insertStep(parsedArgs.location, parsedArgs.step)
 			helpers.selectStep(id)
@@ -361,7 +377,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			if (parsedArgs.step.type === 'rawscript') {
 				const langContext = getLangContext(parsedArgs.step.language, {
-					allowResourcesFetch: true
+					allowResourcesFetch: true,
+					isPreprocessor: parsedArgs.location.type === 'preprocessor'
 				})
 				return `Step ${id} added, here is some additional instructions to help you write the code:\n${langContext}`
 			} else {
@@ -555,6 +572,12 @@ Here are the variables you can use:
 - Flow inputs are accessible as flow_input.property_name. The flow input doesn't have to exist already but make sure to add it to the schema if it doesn't.
 - If you want to use static values, set them like in javascript (e.g. "hello", true, 3, etc...).
 
+### Special modules
+- Preprocessor: Runs before the first step when triggered externally. You cannot link its inputs. It's id is 'preprocessor'
+- Error handler: Runs when the flow fails. When linking it's input, you can only refer to flow_input and error (error: { message, name, stack, step_id }). It's id is 'failure'. 
+
+Both modules only support a script or rawscript step. You cannot nest modules using foorloop/branchone/branchall.
+
 
 ## Resource types
 On Windmill, credentials and configuration are stored in resources. Resource types define the format of the resource.
@@ -575,6 +598,12 @@ ${JSON.stringify(flow.schema ?? emptySchema())}
 
 flow modules:
 ${YAML.stringify(flow.value.modules)}
+
+preprocessor module:
+${YAML.stringify(flow.value.preprocessor_module)}
+
+failure module:
+${YAML.stringify(flow.value.failure_module)}
 
 ## INSTRUCTIONS:
 ${instructions}`

@@ -117,7 +117,7 @@
 	function onModulesChange(modules: FlowModule[]) {
 		computeSimplifiableFlow(
 			modules,
-			triggerContext?.simplifiedPoll ? get(triggerContext.simplifiedPoll) ?? false : false
+			triggerContext?.simplifiedPoll ? (get(triggerContext.simplifiedPoll) ?? false) : false
 		)
 	}
 
@@ -160,13 +160,13 @@
 			position: {
 				x: des.x
 					? // @ts-ignore
-					  (des.data.data.offset ?? 0) +
-					  // @ts-ignore
-					  des.x +
-					  (fullSize ? fullWidth : width) / 2 -
-					  boxSize.width / 2 -
-					  NODE.width / 2 -
-					  (width - fullWidth) / 2
+						(des.data.data.offset ?? 0) +
+						// @ts-ignore
+						des.x +
+						(fullSize ? fullWidth : width) / 2 -
+						boxSize.width / 2 -
+						NODE.width / 2 -
+						(width - fullWidth) / 2
 					: 0,
 				y: des.y || 0
 			}

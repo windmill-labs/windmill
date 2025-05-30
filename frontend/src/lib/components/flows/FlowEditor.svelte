@@ -68,6 +68,8 @@
 	export function getIsAiPanelClosed() {
 		return aiPanelSize === 0
 	}
+
+	let flowAIChat: FlowAIChat | undefined = undefined
 </script>
 
 <svelte:window
@@ -103,6 +105,12 @@
 						{newFlow}
 						bind:modules={$flowStore.value.modules}
 						on:reload
+						on:generateStep={({ detail }) => {
+							if (getIsAiPanelClosed()) {
+								toggleAiPanel()
+							}
+							flowAIChat?.generateStep(detail.moduleId, detail.lang, detail.instructions)
+						}}
 					/>
 				{/if}
 			</div>
@@ -140,7 +148,7 @@
 				/>
 			{/snippet}
 			<Pane bind:size={aiPanelSize} minSize={20}>
-				<FlowAIChat {flowModuleSchemaMap} headerLeft={aiChatHeaderLeft} />
+				<FlowAIChat bind:this={flowAIChat} {flowModuleSchemaMap} headerLeft={aiChatHeaderLeft} />
 			</Pane>
 		{/if}
 	</Splitpanes>

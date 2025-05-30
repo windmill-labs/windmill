@@ -6,10 +6,15 @@
 	import { dfs } from '$lib/components/flows/previousResults'
 	import { getSubModules } from '$lib/components/flows/flowExplorer'
 	import AIChat from '../AIChat.svelte'
-	import type { FlowModule } from '$lib/gen'
+	import type { FlowModule, OpenFlow, ScriptLang } from '$lib/gen'
 	import { getIndexInNestedModules, getNestedModules } from './utils'
 	import type { FlowModuleState } from '$lib/components/flows/flowState'
 	import { getStringError } from '../utils'
+	import type { FlowAIChatHelpers } from './core'
+	import {
+		insertNewFailureModule,
+		insertNewPreprocessorModule
+	} from '$lib/components/flows/flowStateUtils'
 
 	let {
 		flowModuleSchemaMap,
@@ -24,8 +29,18 @@
 
 	const { exprsToSet } = getContext<FlowCopilotContext | undefined>('FlowCopilotContext') ?? {}
 
-	function getScriptOptions() {
-		const module = dfs($selectedId, $flowStore, false)[0]
+	function getModule(id: string) {
+		if (id === 'preprocessor') {
+			return $flowStore.value.preprocessor_module
+		} else if (id === 'failure') {
+			return $flowStore.value.failure_module
+		} else {
+			return dfs(id, $flowStore, false)[0]
+		}
+	}
+
+	function getScriptOptions(id: string) {
+		const module = getModule(id)
 
 		if (
 			module &&
@@ -47,38 +62,18 @@
 				path: module.id,
 				diffMode: $currentEditor.diffMode,
 				lastDeployedCode: $currentEditor.lastDeployedCode,
-				lastSavedCode: undefined,
-				showDiffMode: () => {
-					if (
-						$currentEditor &&
-						$currentEditor.type === 'script' &&
-						$currentEditor.stepId === module.id
-					) {
-						$currentEditor.showDiffMode()
-					}
-				},
-				applyCode: (code: string) => {
-					if (
-						$currentEditor &&
-						$currentEditor.type === 'script' &&
-						$currentEditor.stepId === module.id
-					) {
-						$currentEditor.editor.reviewAndApplyCode(code)
-					}
-				}
+				lastSavedCode: undefined
 			}
 		}
 
 		return undefined
 	}
 
-	let scriptOptions = $derived.by(getScriptOptions)
-</script>
+	let scriptOptions = $derived.by(() => getScriptOptions($selectedId))
 
-<AIChat
-	{headerLeft}
-	{scriptOptions}
-	flowHelpers={{
+	const flowHelpers: FlowAIChatHelpers & {
+		getFlow: () => OpenFlow
+	} = {
 		getFlow: () => $flowStore,
 		setCode: (code) => {
 			if (
@@ -92,7 +87,6 @@
 			}
 		},
 		insertStep: async (location, step) => {
-			console.log('insertStep', location, step)
 			const { index, modules } =
 				location.type === 'start'
 					? {
@@ -109,43 +103,65 @@
 									index: -1,
 									modules: getNestedModules($flowStore, location.inside, location.branchIndex)
 								}
-							: getIndexInNestedModules($flowStore, location.afterId)
+							: location.type === 'after'
+								? getIndexInNestedModules($flowStore, location.afterId)
+								: {
+										index: -1,
+										modules: $flowStore.value.modules
+									}
 
 			const indexToInsertAt = index + 1
 
-			let newModules: FlowModule[] | undefined
+			let newModules: FlowModule[] | undefined = undefined
 			switch (step.type) {
 				case 'rawscript': {
-					newModules = await flowModuleSchemaMap?.insertNewModuleAtIndex(
-						modules,
-						indexToInsertAt,
-						'script',
-						undefined,
-						undefined,
-						{
-							language: step.language,
-							kind: 'script',
-							subkind: 'flow'
-						}
-					)
+					const inlineScript = {
+						language: step.language,
+						kind: 'script' as const,
+						subkind: 'flow' as const
+					}
+					if (location.type === 'preprocessor') {
+						await insertNewPreprocessorModule(flowStore, flowStateStore, inlineScript)
+					} else if (location.type === 'failure') {
+						await insertNewFailureModule(flowStore, flowStateStore, inlineScript)
+					} else {
+						newModules = await flowModuleSchemaMap?.insertNewModuleAtIndex(
+							modules,
+							indexToInsertAt,
+							'script',
+							undefined,
+							undefined,
+							inlineScript
+						)
+					}
 					break
 				}
 				case 'script': {
-					newModules = await flowModuleSchemaMap?.insertNewModuleAtIndex(
-						modules,
-						indexToInsertAt,
-						'script',
-						{
-							path: step.path,
-							summary: '',
-							hash: undefined
-						}
-					)
+					const wsScript = {
+						path: step.path,
+						summary: '',
+						hash: undefined
+					}
+					if (location.type === 'preprocessor') {
+						await insertNewPreprocessorModule(flowStore, flowStateStore, undefined, wsScript)
+					} else if (location.type === 'failure') {
+						await insertNewFailureModule(flowStore, flowStateStore, undefined, wsScript)
+					} else {
+						newModules = await flowModuleSchemaMap?.insertNewModuleAtIndex(
+							modules,
+							indexToInsertAt,
+							'script',
+							wsScript
+						)
+					}
 					break
 				}
 				case 'forloop':
 				case 'branchall':
 				case 'branchone': {
+					if (location.type === 'preprocessor' || location.type === 'failure') {
+						throw new Error('Cannot insert a non-script module for preprocessing or error handling')
+					}
 					newModules = await flowModuleSchemaMap?.insertNewModuleAtIndex(
 						modules,
 						indexToInsertAt,
@@ -158,25 +174,37 @@
 				}
 			}
 
-			const newModule = newModules?.[indexToInsertAt]
+			if (location.type === 'preprocessor' || location.type === 'failure') {
+				$flowStateStore = $flowStateStore
+				$flowStore = $flowStore
+				return location.type
+			} else {
+				const newModule = newModules?.[indexToInsertAt]
 
-			if (!newModule) {
-				throw new Error('Failed to insert module')
+				if (!newModule) {
+					throw new Error('Failed to insert module')
+				}
+
+				if (['branchone', 'branchall'].includes(step.type)) {
+					await flowModuleSchemaMap?.addBranch(newModule)
+				}
+
+				$flowStateStore = $flowStateStore
+				$flowStore = $flowStore
+
+				return newModule.id
 			}
-
-			if (['branchone', 'branchall'].includes(step.type)) {
-				await flowModuleSchemaMap?.addBranch(newModule)
-			}
-
-			$flowStateStore = $flowStateStore
-			$flowStore = $flowStore
-			return newModule.id
 		},
 		removeStep: async (id) => {
-			console.log('removeStep', id)
-			const { modules } = getIndexInNestedModules($flowStore, id)
 			flowModuleSchemaMap?.selectNextId(id)
-			flowModuleSchemaMap?.removeAtId(modules, id)
+			if (id === 'preprocessor') {
+				$flowStore.value.preprocessor_module = undefined
+			} else if (id === 'failure') {
+				$flowStore.value.failure_module = undefined
+			} else {
+				const { modules } = getIndexInNestedModules($flowStore, id)
+				flowModuleSchemaMap?.removeAtId(modules, id)
+			}
 
 			if ($flowInputsStore) {
 				delete $flowInputsStore[id]
@@ -187,20 +215,22 @@
 			flowModuleSchemaMap?.updateFlowInputsStore()
 		},
 		getStepInputs: async (id) => {
-			const module = dfs(id, $flowStore, false)[0]
+			const module = getModule(id)
 			if (!module) {
 				throw new Error('Module not found')
 			}
-
 			const inputs =
 				module.value.type === 'script' || module.value.type === 'rawscript'
 					? module.value.input_transforms
 					: {}
-			console.log('getStepInputs inputs', id, inputs)
 
 			return inputs
 		},
 		setStepInputs: async (id, inputs) => {
+			if (id === 'preprocessor') {
+				throw new Error('Cannot set inputs for preprocessor')
+			}
+
 			const regex = /\[\[(.+?)\]\]\s*\n([\s\S]*?)(?=\n\[\[|$)/g
 
 			const parsedInputs = Array.from(inputs.matchAll(regex)).map((match) => ({
@@ -219,7 +249,7 @@
 				}
 				exprsToSet?.set(argsToUpdate)
 			} else {
-				const module = dfs(id, $flowStore, false)[0]
+				const module = getModule(id)
 				if (!module) {
 					throw new Error('Module not found')
 				}
@@ -247,7 +277,7 @@
 			$selectedId = id
 		},
 		getStepCode: (id) => {
-			const module = dfs(id, $flowStore, false)[0]
+			const module = getModule(id)
 			if (!module) {
 				throw new Error('Module not found')
 			}
@@ -259,7 +289,7 @@
 		},
 		getModules: (id?: string) => {
 			if (id) {
-				const module = dfs(id, $flowStore, false)[0]
+				const module = getModule(id)
 
 				if (!module) {
 					throw new Error('Module not found')
@@ -270,7 +300,7 @@
 			return $flowStore.value.modules
 		},
 		setBranchPredicate: async (id, branchIndex, expression) => {
-			const module = dfs(id, $flowStore, false)[0]
+			const module = getModule(id)
 			if (!module) {
 				throw new Error('Module not found')
 			}
@@ -285,7 +315,7 @@
 			$flowStore = $flowStore
 		},
 		addBranch: async (id) => {
-			const module = dfs(id, $flowStore, false)[0]
+			const module = getModule(id)
 			if (!module) {
 				throw new Error('Module not found')
 			}
@@ -296,7 +326,7 @@
 			$flowStore = $flowStore
 		},
 		removeBranch: async (id, branchIndex) => {
-			const module = dfs(id, $flowStore, false)[0]
+			const module = getModule(id)
 			if (!module) {
 				throw new Error('Module not found')
 			}
@@ -315,7 +345,7 @@
 			if ($currentEditor && $currentEditor.type === 'iterator' && $currentEditor.stepId === id) {
 				$currentEditor.editor.setCode(expression)
 			} else {
-				const module = dfs(id, $flowStore, false)[0]
+				const module = getModule(id)
 				if (!module) {
 					throw new Error('Module not found')
 				}
@@ -325,6 +355,36 @@
 				module.value.iterator = { type: 'javascript', expr: expression }
 				$flowStore = $flowStore
 			}
+		}
+	}
+
+	let aiChat: AIChat | undefined = undefined
+
+	export async function generateStep(moduleId: string, lang: ScriptLang, instructions: string) {
+		flowHelpers.selectStep(moduleId)
+		aiChat?.sendRequest({
+			instructions: instructions,
+			mode: 'script',
+			lang: lang,
+			isPreprocessor: moduleId === 'preprocessor'
+		})
+	}
+</script>
+
+<AIChat
+	bind:this={aiChat}
+	{headerLeft}
+	{scriptOptions}
+	{flowHelpers}
+	showDiffMode={() => {
+		if ($currentEditor && $currentEditor.type === 'script') {
+			$currentEditor.showDiffMode()
+		}
+	}}
+	applyCode={(code: string) => {
+		if ($currentEditor && $currentEditor.type === 'script') {
+			$currentEditor.hideDiffMode()
+			$currentEditor.editor.reviewAndApplyCode(code)
 		}
 	}}
 />

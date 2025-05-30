@@ -61,7 +61,6 @@
 	}
 
 	let flowCopilotContext: FlowCopilotContext = {
-		currentStepStore: writable<string | undefined>(undefined),
 		shouldUpdatePropertyType: writable<{
 			[key: string]: 'static' | 'javascript' | undefined
 		}>({}),

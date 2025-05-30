@@ -13,7 +13,7 @@
 		pickFlow,
 		insertNewPreprocessorModule
 	} from '$lib/components/flows/flowStateUtils'
-	import type { FlowModule, RawScript, Script } from '$lib/gen'
+	import type { FlowModule, RawScript, Script, ScriptLang } from '$lib/gen'
 	import { emptyFlowModuleState, initFlowStepWarnings } from '../utils'
 	import FlowSettingsItem from './FlowSettingsItem.svelte'
 	import FlowConstantsItem from './FlowConstantsItem.svelte'
@@ -25,8 +25,6 @@
 	import Portal from '$lib/components/Portal.svelte'
 
 	import { getDependentComponents } from '../flowExplorer'
-	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
-	import { fade } from 'svelte/transition'
 	import { copilotInfo, tutorialsToDo, workspaceStore } from '$lib/stores'
 
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
@@ -216,9 +214,6 @@
 	let deleteCallback: (() => void) | undefined = undefined
 	let dependents: Record<string, string[]> = {}
 
-	const { currentStepStore: copilotCurrentStepStore } =
-		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
-
 	function shouldRunTutorial(tutorialName: string, name: string, index: number) {
 		return (
 			$tutorialsToDo.includes(index) &&
@@ -228,7 +223,10 @@
 		)
 	}
 
-	const dispatch = createEventDispatcher()
+	const dispatch = createEventDispatcher<{
+		generateStep: { moduleId: string; instructions: string; lang: ScriptLang }
+		change: void
+	}>()
 
 	export async function updateFlowInputsStore() {
 		const keys = Object.keys(dependents ?? {})
@@ -323,13 +321,8 @@
 </Portal>
 <div class="flex flex-col h-full relative -pt-1">
 	<div
-		class={`z-10 sticky inline-flex flex-col gap-2 top-0 bg-surface-secondary flex-initial p-2 items-center transition-colors duration-[400ms] ease-linear border-b ${
-			$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : ''
-		}`}
+		class={`z-10 sticky inline-flex flex-col gap-2 top-0 bg-surface-secondary flex-initial p-2 items-center transition-colors duration-[400ms] ease-linear border-b`}
 	>
-		{#if $copilotCurrentStepStore !== undefined}
-			<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0"></div>
-		{/if}
 		{#if !disableSettings}
 			<FlowSettingsItem />
 		{/if}
@@ -403,13 +396,21 @@
 							$moving = undefined
 						} else {
 							if (detail.detail === 'preprocessor') {
-								insertNewPreprocessorModule(
+								await insertNewPreprocessorModule(
 									flowStore,
 									flowStateStore,
 									detail.inlineScript,
 									detail.script
 								)
 								$selectedId = 'preprocessor'
+
+								if (detail.inlineScript?.instructions) {
+									dispatch('generateStep', {
+										moduleId: 'preprocessor',
+										lang: detail.inlineScript?.language,
+										instructions: detail.inlineScript?.instructions
+									})
+								}
 							} else {
 								const index = detail.index ?? 0
 								await insertNewModuleAtIndex(
@@ -420,9 +421,16 @@
 									detail.flow,
 									detail.inlineScript
 								)
-								const id = detail.modules[detail.index ?? 0].id
+								const id = detail.modules[index].id
 								$selectedId = id
 
+								if (detail.inlineScript?.instructions) {
+									dispatch('generateStep', {
+										moduleId: id,
+										lang: detail.inlineScript?.language,
+										instructions: detail.inlineScript?.instructions
+									})
+								}
 								if (detail.kind == 'trigger') {
 									await insertNewModuleAtIndex(
 										detail.modules,
@@ -525,7 +533,7 @@
 			? 'flex-row-reverse'
 			: 'justify-center'} border-b"
 	>
-		<FlowErrorHandlerItem small={smallErrorHandler} />
+		<FlowErrorHandlerItem small={smallErrorHandler} on:generateStep />
 	</div>
 </div>
 

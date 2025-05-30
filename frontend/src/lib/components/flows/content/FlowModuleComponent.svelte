@@ -272,6 +272,7 @@
 			editor,
 			stepId: flowModule.id,
 			showDiffMode,
+			hideDiffMode,
 			diffMode,
 			lastDeployedCode
 		})

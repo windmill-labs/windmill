@@ -9,6 +9,7 @@ import { scriptLangToEditorLang } from '$lib/scripts'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
 import type { CodePieceElement, ContextElement } from '../context'
 import type { Tool } from '../shared'
+import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
 
 export function formatResourceTypes(
 	allResourceTypes: ResourceType[],
@@ -52,7 +53,7 @@ async function getResourceTypes(prompt: string, workspace: string) {
 
 const TS_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type inside the \`RT\` namespace: for instance \`RT.Stripe\`.
-You should only use them if you need them to satisfy the user's instructions. Always use the RT namespace.`
+You should only use them if you need them to satisfy the user's instructions. Always use the RT namespace.\n`
 
 const TS_INLINE_TYPE_INSTRUCTION = `You must always inline the objects types instead of defining them separately. If INSTRUCTIONS ask you to use an already defined type **apart from the RT namespace**, you MUST inline it instead of using the type name. Explain to the user that you are inlining the type for better arguments inference.`
 
@@ -68,6 +69,24 @@ If you need credentials, you should add a parameter to \`main\` with the corresp
 You need to **redefine** the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.
 Before defining each type, check if the class already exists using class_exists.
 The resource type name has to be exactly as specified.`
+
+const PREPROCESSOR_INSTRUCTION_BASE = `The current script is a preprocessor. It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` → Calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+The preprocessor receives a single parameter called event.
+Here's a sample script which includes the event object definition:\n`
+
+const TS_PREPROCESSOR_INSTRUCTION =
+	PREPROCESSOR_INSTRUCTION_BASE +
+	`\`\`\`typescript
+${TS_PREPROCESSOR_MODULE_CODE}
+\`\`\`\n`
+
+const PYTHON_PREPROCESSOR_INSTRUCTION =
+	PREPROCESSOR_INSTRUCTION_BASE +
+	`\`\`\`python
+${PYTHON_PREPROCESSOR_MODULE_CODE}
+\`\`\``
 
 export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
 	'bunnative',
@@ -90,38 +109,45 @@ export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
 
 export function getLangContext(
 	lang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json',
-	{ allowResourcesFetch = false }: { allowResourcesFetch?: boolean } = {}
+	{
+		allowResourcesFetch = false,
+		isPreprocessor = false
+	}: { allowResourcesFetch?: boolean; isPreprocessor?: boolean; isFailure?: boolean } = {}
 ) {
 	const tsContext =
-		TS_RESOURCE_TYPE_SYSTEM +
-		(allowResourcesFetch
-			? `\nTo query the RT namespace, you can use the \`search_resource_types\` function.\n`
-			: '') +
-		TS_INLINE_TYPE_INSTRUCTION
+		(isPreprocessor
+			? TS_PREPROCESSOR_INSTRUCTION
+			: TS_RESOURCE_TYPE_SYSTEM +
+				(allowResourcesFetch
+					? `To query the RT namespace, you can use the \`search_resource_types\` function.\n`
+					: '')) + TS_INLINE_TYPE_INSTRUCTION
+
+	const mainFunctionName = isPreprocessor ? 'preprocessor' : 'main'
+
 	switch (lang) {
 		case 'bunnative':
 		case 'nativets':
 			return (
-				'The user is coding in TypeScript. On Windmill, it is expected that the script exports a single **async** function called `main`. You should use fetch (available globally, no need to import) and are not allowed to import any libraries.\n' +
+				`The user is coding in TypeScript. On Windmill, it is expected that the script exports a single **async** function called \`${mainFunctionName}\`. You should use fetch (available globally, no need to import) and are not allowed to import any libraries.\n` +
 				tsContext
 			)
 		case 'bun':
 			return (
-				'The user is coding in TypeScript (bun runtime). On Windmill, it is expected that the script exports a single **async** function called `main`. Do not call the main function. Libraries are installed automatically, do not show how to install them.\n' +
+				`The user is coding in TypeScript (bun runtime). On Windmill, it is expected that the script exports a single **async** function called \`${mainFunctionName}\`. Do not call the ${mainFunctionName} function. Libraries are installed automatically, do not show how to install them.\n` +
 				tsContext
 			)
 		case 'deno':
 			return (
-				'The user is coding in TypeScript (deno runtime). On Windmill, it is expected that the script exports a single **async** function called `main`. Do not call the main function. Libraries are installed automatically, do not show how to install them.\n' +
+				`The user is coding in TypeScript (deno runtime). On Windmill, it is expected that the script exports a single **async** function called \`${mainFunctionName}\`. Do not call the ${mainFunctionName} function. Libraries are installed automatically, do not show how to install them.\n` +
 				tsContext +
 				'\nYou can import deno libraries or you can import npm libraries like that: `import ... from "npm:{package}";`.'
 			)
 		case 'python3':
-			return (
-				'The user is coding in Python. On Windmill, it is expected the script contains at least one function called `main`. Do not call the main function. Libraries are installed automatically, do not show how to install them.' +
-				PYTHON_RESOURCE_TYPE_SYSTEM +
-				`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` function.` : ''}`
-			)
+			return `The user is coding in Python. On Windmill, it is expected the script contains at least one function called \`${mainFunctionName}\`. Do not call the ${mainFunctionName} function. Libraries are installed automatically, do not show how to install them.` +
+				isPreprocessor
+				? PYTHON_PREPROCESSOR_INSTRUCTION
+				: PYTHON_RESOURCE_TYPE_SYSTEM +
+						`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` function.` : ''}`
 		case 'php':
 			return (
 				'The user is coding in PHP. On Windmill, it is expected the script contains at least one function called `main`. The script must start with <?php.' +
@@ -276,7 +302,10 @@ const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext
 export async function prepareScriptUserMessage(
 	instructions: string,
 	language: ScriptLang | 'bunnative',
-	selectedContext: ContextElement[]
+	selectedContext: ContextElement[],
+	options: {
+		isPreprocessor?: boolean
+	} = {}
 ) {
 	let codeContext = 'CODE:\n'
 	let errorContext = 'ERROR:\n'
@@ -319,7 +348,7 @@ export async function prepareScriptUserMessage(
 
 	let userMessage = CHAT_USER_PROMPT.replace('{instructions}', instructions).replace(
 		'{lang_context}',
-		getLangContext(language, { allowResourcesFetch: true })
+		getLangContext(language, { allowResourcesFetch: true, ...options })
 	)
 	if (hasCode) {
 		userMessage += codeContext
