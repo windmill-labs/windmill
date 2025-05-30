@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Send, Loader2 } from 'lucide-svelte'
+	import { Send, Loader2, RefreshCcw, Plus } from 'lucide-svelte'
 	import { chatRequest, prepareSystemMessage } from './core'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 	import { globalChatInitialInput, userStore, copilotInfo } from '$lib/stores'
@@ -72,6 +72,22 @@
 		)
 	}
 
+	function resetChat() {
+		console.log('resetChat')
+		abortController.abort()
+		abortController = new AbortController()
+
+		messages = [
+			{
+				role: 'assistant',
+				content: firstMessage
+			}
+		]
+		inputValue = ''
+		currentReply = ''
+		isSubmitting = false
+	}
+
 	$effect(() => {
 		if ($globalChatInitialInput.length > 0) {
 			inputValue = $globalChatInitialInput
@@ -90,9 +106,23 @@
 	})
 </script>
 
-<div class="flex flex-col h-full bg-surface z-10">
+<div class="relative flex flex-col h-full bg-surface z-20">
+	<!-- Reset Button -->
+	<div class="fixed top-3 right-3 flex flex-row justify-end gap-2">
+		<Button
+			buttonType="button"
+			on:click={resetChat}
+			disabled={!hasCopilot}
+			startIcon={{ icon: Plus }}
+			size="xs2"
+			aria-label="Reset chat"
+		>
+			New chat
+		</Button>
+	</div>
+
 	<!-- Chat Messages -->
-	<div class="flex-1 overflow-y-auto p-4 space-y-4 z-10">
+	<div class="flex-1 overflow-y-auto p-4 space-y-4 z-10 mt-12">
 		{#each messages as msg}
 			<div class={twMerge('flex flex-col', msg.role === 'user' ? 'items-end' : 'items-start')}>
 				<div
