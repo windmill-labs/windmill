@@ -24,8 +24,8 @@
 
 	// Suggested questions for the user
 	const suggestions = [
-		'How do I create a new workflow?',
-		"What's the difference between scripts and flows?",
+		'Where can i see my latest runs?',
+		'How do i trigger a script with a webhook endpoint?',
 		'How can I connect to a database?',
 		'How do I schedule a recurring job?'
 	]
@@ -44,21 +44,18 @@
 		const userMessage = inputValue
 		const systemMessage = prepareSystemMessage()
 
-		// Add user message to chat
 		messages = [...messages, { role: 'user', content: userMessage }]
 
-		// Create message array for API request
 		const apiMessages = [systemMessage, ...messages]
+
+		inputValue = ''
 
 		await chatRequest(apiMessages, abortController, (token) => {
 			currentReply = currentReply + token
 		})
 
-		// Add assistant's response to chat
 		messages = [...messages, { role: 'assistant', content: currentReply }]
 
-		// Reset the input field
-		inputValue = ''
 		isSubmitting = false
 	}
 
@@ -100,7 +97,7 @@
 			<div class={twMerge('flex flex-col', msg.role === 'user' ? 'items-end' : 'items-start')}>
 				<div
 					class={twMerge(
-						'max-w-[80%] p-3 rounded-lg text-sm',
+						'max-w-[98%] p-3 rounded-lg text-sm',
 						msg.role === 'user'
 							? 'bg-blue-500 text-white rounded-br-sm'
 							: 'bg-gray-100 dark:bg-gray-700 text-primary rounded-bl-sm'
