@@ -5,13 +5,12 @@
 	import { base } from '$lib/base'
 	import { createEventDispatcher } from 'svelte'
 
-	import Select from './apps/svelte-select/lib/index'
+	import Select from './Select.svelte'
 
 	import { getScriptByPath } from '$lib/scripts'
 	import { Button, Drawer, DrawerContent } from './common'
 	import HighlightCode from './HighlightCode.svelte'
 	import FlowPathViewer from './flows/content/FlowPathViewer.svelte'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { Code, Code2, ExternalLink, Pen, RefreshCw } from 'lucide-svelte'
@@ -97,24 +96,16 @@
 		<input type="text" value={scriptPath ?? initialPath ?? ''} disabled />
 	{:else}
 		<Select
-			value={items?.find((x) => x.value == initialPath)}
-			class="grow shrink max-w-full"
-			on:change={() => {
-				dispatch('select', { path: scriptPath, itemKind })
-			}}
-			on:input={(ev) => {
-				if (!ev.detail) {
-					dispatch('select', { path: undefined, itemKind })
+			bind:value={
+				() => scriptPath ?? initialPath,
+				(path) => {
+					scriptPath = path
+					dispatch('select', { path, itemKind })
 				}
-			}}
-			bind:justValue={scriptPath}
+			}
+			class="grow shrink max-w-full"
 			{items}
 			placeholder="Pick {itemKind === 'app' ? 'an' : 'a'} {itemKind}"
-			inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-			containerStyles={darkMode
-				? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-				: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-			portal={false}
 		/>
 	{/if}
 

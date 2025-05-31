@@ -165,8 +165,12 @@
 		}
 	}
 
-	function handleTeamChange(teamItem: { team_id: string; team_name: string }, i: number) {
-		const team = $values['teams'].find((team) => team.team_id === teamItem.team_id) || null
+	function handleTeamChange(
+		teamItem: { team_id: string; team_name: string } | undefined,
+		i: number
+	) {
+		const team =
+			(teamItem && $values['teams'].find((team) => team.team_id === teamItem.team_id)) || null
 		$values['critical_error_channels'][i] = {
 			teams_channel: {
 				team_id: team?.team_id,
@@ -177,7 +181,10 @@
 		}
 	}
 
-	function handleChannelChange(channel: { channel_id: string; channel_name: string }, i: number) {
+	function handleChannelChange(
+		channel: { channel_id: string; channel_name: string } | undefined,
+		i: number
+	) {
 		const team = $values['critical_error_channels'][i]?.teams_channel
 		if (team) {
 			$values['critical_error_channels'][i] = {
@@ -550,15 +557,19 @@
 													showRefreshButton={false}
 													placeholder="Select team"
 													teams={$values['teams']}
-													on:change={(e) => handleTeamChange(e.detail, i)}
-													selectedTeam={$values['critical_error_channels'][i]?.teams_channel
-														? {
-																team_id:
-																	$values['critical_error_channels'][i]?.teams_channel?.team_id,
-																team_name:
-																	$values['critical_error_channels'][i]?.teams_channel?.team_name
-															}
-														: undefined}
+													bind:selectedTeam={
+														() =>
+															$values['critical_error_channels'][i]?.teams_channel
+																? {
+																		team_id:
+																			$values['critical_error_channels'][i]?.teams_channel?.team_id,
+																		team_name:
+																			$values['critical_error_channels'][i]?.teams_channel
+																				?.team_name
+																	}
+																: undefined,
+														(team) => handleTeamChange(team, i)
+													}
 												/>
 
 												{#if $values['critical_error_channels'][i]?.teams_channel?.team_id}
@@ -570,18 +581,20 @@
 																team.team_id ===
 																$values['critical_error_channels'][i]?.teams_channel?.team_id
 														)?.channels ?? []}
-														on:change={(e) => handleChannelChange(e.detail, i)}
-														selectedChannel={$values['critical_error_channels'][i]?.teams_channel
-															?.channel_id
-															? {
-																	channel_id:
-																		$values['critical_error_channels'][i]?.teams_channel
-																			?.channel_id,
-																	channel_name:
-																		$values['critical_error_channels'][i]?.teams_channel
-																			?.channel_name
-																}
-															: undefined}
+														bind:selectedChannel={
+															() =>
+																$values['critical_error_channels'][i]?.teams_channel?.channel_id
+																	? {
+																			channel_id:
+																				$values['critical_error_channels'][i]?.teams_channel
+																					?.channel_id,
+																			channel_name:
+																				$values['critical_error_channels'][i]?.teams_channel
+																					?.channel_name
+																		}
+																	: undefined,
+															(channel) => handleChannelChange(channel, i)
+														}
 													/>
 												{/if}
 												<div>
