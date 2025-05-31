@@ -2013,9 +2013,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.24"
+version = "1.2.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16595d3be041c03b09d08d0858631facccee9221e579704070e6e9e4915d3bc7"
+checksum = "d0fc897dc1e865cc67c0e05a836d9d3f1df3cbe442aa4a9473b18e12624a4951"
 dependencies = [
  "jobserver",
  "libc",
@@ -2728,7 +2728,7 @@ dependencies = [
  "hashbrown 0.14.5",
  "lock_api",
  "once_cell",
- "parking_lot_core 0.9.10",
+ "parking_lot_core 0.9.11",
 ]
 
 [[package]]
@@ -2742,7 +2742,7 @@ dependencies = [
  "hashbrown 0.14.5",
  "lock_api",
  "once_cell",
- "parking_lot_core 0.9.10",
+ "parking_lot_core 0.9.11",
 ]
 
 [[package]]
@@ -2799,7 +2799,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "object_store",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "parquet",
  "rand 0.8.5",
  "regex",
@@ -2834,7 +2834,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "object_store",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "tokio",
 ]
 
@@ -3007,7 +3007,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "object_store",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "parquet",
  "rand 0.8.5",
  "tokio",
@@ -3032,7 +3032,7 @@ dependencies = [
  "futures",
  "log",
  "object_store",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "rand 0.8.5",
  "tempfile",
  "url",
@@ -3168,7 +3168,7 @@ dependencies = [
  "datafusion-common",
  "datafusion-expr",
  "datafusion-physical-plan",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "paste",
 ]
 
@@ -3309,7 +3309,7 @@ dependencies = [
  "indexmap 2.9.0",
  "itertools 0.14.0",
  "log",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "pin-project-lite",
  "tokio",
 ]
@@ -3334,7 +3334,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "object_store",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "tokio",
 ]
 
@@ -3463,7 +3463,7 @@ dependencies = [
  "indexmap 2.9.0",
  "log",
  "once_cell",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -3545,7 +3545,7 @@ dependencies = [
  "indexmap 2.9.0",
  "libc",
  "memoffset",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "percent-encoding",
  "pin-project",
  "serde",
@@ -3790,7 +3790,7 @@ dependencies = [
  "log",
  "once_cell",
  "os_pipe",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "pin-project",
  "rand 0.8.5",
  "tokio",
@@ -4170,7 +4170,7 @@ dependencies = [
  "log",
  "node_resolver",
  "once_cell",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "sys_traits",
  "thiserror 2.0.12",
  "url",
@@ -4327,7 +4327,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47c618b51088b3ac67f15c69b3ed7620ba3a7d495e5a090186df9424b5ab623e"
 dependencies = [
  "futures",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "tokio",
 ]
 
@@ -5483,7 +5483,7 @@ checksum = "1d930c203dd0b6ff06e0201a4a2fe9149b43c684fd4420555b26d21b1a02956f"
 dependencies = [
  "futures-core",
  "lock_api",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
 ]
 
 [[package]]
@@ -6286,9 +6286,9 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "hermit-abi"
-version = "0.3.9"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d231dfb89cfffdbc30e7fc41579ed6066ad03abda9e567ccafae602b97ec5024"
+checksum = "f154ce46856750ed433c8649605bf7ed2de3bc35fd9d2a9f30cddd873c80cb08"
 
 [[package]]
 name = "hex"
@@ -6357,7 +6357,7 @@ dependencies = [
  "ipconfig",
  "moka",
  "once_cell",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "rand 0.9.0",
  "resolv-conf",
  "serde",
@@ -7505,9 +7505,9 @@ checksum = "b4ce301924b7887e9d637144fdade93f9dfff9b60981d4ac161db09720d39aa5"
 
 [[package]]
 name = "lock_api"
-version = "0.4.12"
+version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07af8b9cdd281b7915f413fa73f29ebd5d55d0d3f0155584dade1ff18cea1b17"
+checksum = "96936507f153605bddfcda068dd804796c84324ed2510809e5b2a624c81da765"
 dependencies = [
  "autocfg",
  "scopeguard",
@@ -7975,7 +7975,7 @@ dependencies = [
  "crossbeam-epoch",
  "crossbeam-utils",
  "loom",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "portable-atomic",
  "rustc_version 0.4.1",
  "smallvec",
@@ -8593,9 +8593,9 @@ dependencies = [
 
 [[package]]
 name = "num_cpus"
-version = "1.16.0"
+version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4161fcb6d602d4d2081af7c3a45852d875a03dd337a6bfdd6e06407b61342a43"
+checksum = "91df4bbde75afed763b708b7eee1e8e7651e02d97f6d5dd763e89367e957b23b"
 dependencies = [
  "hermit-abi",
  "libc",
@@ -8684,7 +8684,7 @@ dependencies = [
  "hyper 1.6.0",
  "itertools 0.14.0",
  "md-5 0.10.6",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "percent-encoding",
  "quick-xml 0.37.5",
  "rand 0.9.0",
@@ -9122,12 +9122,12 @@ dependencies = [
 
 [[package]]
 name = "parking_lot"
-version = "0.12.3"
+version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1bf18183cf54e8d6059647fc3063646a1801cf30896933ec2311622cc4b9a27"
+checksum = "70d58bf43669b5795d1576d0641cfb6fbb2057bf629506267a92807158584a13"
 dependencies = [
  "lock_api",
- "parking_lot_core 0.9.10",
+ "parking_lot_core 0.9.11",
 ]
 
 [[package]]
@@ -9146,9 +9146,9 @@ dependencies = [
 
 [[package]]
 name = "parking_lot_core"
-version = "0.9.10"
+version = "0.9.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e401f977ab385c9e4e3ab30627d6f26d00e2c73eef317493c4ec6d468726cf8"
+checksum = "bc838d2a56b5b1a6c25f55575dfc605fabb63bb2365f6c2353ef9159aa69e4a5"
 dependencies = [
  "cfg-if",
  "libc",
@@ -9594,9 +9594,9 @@ checksum = "c6fa0831dd7cc608c38a5e323422a0077678fa5744aa2be4ad91c4ece8eec8d5"
 
 [[package]]
 name = "prettyplease"
-version = "0.2.32"
+version = "0.2.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "664ec5419c51e34154eec046ebcba56312d5a2fc3b09a06da188e1ad21afadf6"
+checksum = "9dee91521343f4c5c6a63edd65e54f31f5c92fe8978c40a4282f8372194c6a7d"
 dependencies = [
  "proc-macro2",
  "syn 2.0.101",
@@ -9753,7 +9753,7 @@ dependencies = [
  "fnv",
  "lazy_static",
  "memchr",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "thiserror 2.0.12",
 ]
 
@@ -9921,7 +9921,7 @@ dependencies = [
  "ahash 0.8.12",
  "equivalent",
  "hashbrown 0.15.3",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
 ]
 
 [[package]]
@@ -13195,7 +13195,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio 1.0.4",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
@@ -13259,7 +13259,7 @@ dependencies = [
  "futures-channel",
  "futures-util",
  "log",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "percent-encoding",
  "phf",
  "pin-project-lite",
@@ -13285,7 +13285,7 @@ dependencies = [
  "futures-channel",
  "futures-util",
  "log",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "percent-encoding",
  "phf",
  "pin-project-lite",
@@ -13556,7 +13556,7 @@ dependencies = [
  "cookie 0.18.1",
  "futures-util",
  "http 1.3.1",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "pin-project-lite",
  "tower-layer",
  "tower-service",
@@ -14526,7 +14526,7 @@ dependencies = [
  "log",
  "naga",
  "once_cell",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "profiling",
  "raw-window-handle",
  "ron",
@@ -14568,7 +14568,7 @@ dependencies = [
  "ndk-sys",
  "objc",
  "once_cell",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "profiling",
  "range-alloc",
  "raw-window-handle",
@@ -14667,7 +14667,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -14718,7 +14718,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -14827,7 +14827,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -14842,7 +14842,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "chrono",
  "serde",
@@ -14855,7 +14855,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-autoscaling"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -14869,7 +14869,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -14945,7 +14945,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "regex",
  "serde",
@@ -14959,7 +14959,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -14982,7 +14982,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-macros"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "itertools 0.14.0",
  "lazy_static",
@@ -14994,7 +14994,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "convert_case 0.6.0",
  "serde",
@@ -15003,7 +15003,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15015,7 +15015,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-csharp"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -15027,7 +15027,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -15039,7 +15039,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15051,7 +15051,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-java"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -15063,7 +15063,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-nu"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "nu-parser",
@@ -15074,7 +15074,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -15085,7 +15085,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -15096,7 +15096,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15119,7 +15119,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -15136,7 +15136,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15148,7 +15148,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15166,7 +15166,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.16",
@@ -15190,7 +15190,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -15200,7 +15200,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15233,7 +15233,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -15243,7 +15243,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.493.4"
+version = "1.494.0"
 dependencies = [
  "anyhow",
  "async-recursion",

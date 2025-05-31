@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.494.0](https://github.com/windmill-labs/windmill/compare/v1.493.4...v1.494.0) (2025-05-31)
+
+
+### Features
+
+* array of s3 objects in input maker ([806d669](https://github.com/windmill-labs/windmill/commit/806d66972568d21a1621acd1b30db5ae9b217341))
+* **rust:** shared build directory ([#5610](https://github.com/windmill-labs/windmill/issues/5610)) ([ed61d97](https://github.com/windmill-labs/windmill/commit/ed61d9770031c1a04908880dbd3e5fb692df9946))
+
+
+### Bug Fixes
+
+* allow disable tabs for sidebar/accordion tabs ([#5838](https://github.com/windmill-labs/windmill/issues/5838)) ([80277d1](https://github.com/windmill-labs/windmill/commit/80277d14d02e8e596c7002326946142226d382a6))
+
 ## [1.493.4](https://github.com/windmill-labs/windmill/compare/v1.493.3...v1.493.4) (2025-05-29)
 
 
