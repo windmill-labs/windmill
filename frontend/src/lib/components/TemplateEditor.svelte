@@ -477,22 +477,20 @@
 			editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {})
 		})
 
-		function updateCode(): boolean {
+		function updateCode() {
 			const ncode = getCode()
 			if (code == ncode) {
-				return false
+				return
 			}
 			code = ncode
-			return true
+			dispatch('change', code)
 		}
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
-				if (updateCode()) {
-					dispatch('change', { code })
-				}
+				updateCode()
 			}, 200)
 		})
 
