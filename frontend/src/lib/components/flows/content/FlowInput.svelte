@@ -44,8 +44,12 @@
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import { isObjectTooBig } from '$lib/utils'
 
-	export let noEditor: boolean
-	export let disabled: boolean
+	interface Props {
+		noEditor: boolean
+		disabled: boolean
+	}
+
+	let { noEditor, disabled }: Props = $props()
 
 	const {
 		flowStore,
@@ -56,33 +60,42 @@
 		flowInputEditorState
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
-	let addProperty: AddPropertyV2 | undefined = undefined
-	let previewSchema: Record<string, any> | undefined = undefined
+	let addPropertyV2: AddPropertyV2 | undefined = $state(undefined)
+	let previewSchema: Record<string, any> | undefined = $state(undefined)
 	let payloadData: Record<string, any> | undefined = undefined
-	let previewArguments: Record<string, any> | undefined = $previewArgs
+	let previewArguments: Record<string, any> | undefined = $state($previewArgs)
 	let dropdownItems: Array<{
 		label: string
 		onClick: () => void
 		disabled?: boolean
-	}> = []
-	let diff: Record<string, SchemaDiff> = {}
-	let editPanelSize = $flowInputEditorState?.editPanelSize ?? 0
-	let selectedSchema: Record<string, any> | undefined = undefined
-	let runDisabled: boolean = false
-	let editableSchemaForm: EditableSchemaForm | undefined = undefined
-	let savedPreviewArgs: Record<string, any> | undefined = undefined
-	let preventEscape = false
-	let isValid = true
+	}> = $state([])
+	let diff: Record<string, SchemaDiff> = $state({})
+	let editPanelSize = $state($flowInputEditorState?.editPanelSize ?? 0)
+	let selectedSchema: Record<string, any> | undefined = $state(undefined)
+	let runDisabled: boolean = $state(false)
+	let editableSchemaForm: EditableSchemaForm | undefined = $state(undefined)
+	let savedPreviewArgs: Record<string, any> | undefined = $state(undefined)
+	let preventEscape = $state(false)
+	let isValid = $state(true)
 
 	function updateEditPanelSize(size: number | undefined) {
 		if (!$flowInputEditorState) return
 		if (!size || size === 0) {
 			$flowInputEditorState.editPanelSize = undefined
-			return
+		} else {
+			$flowInputEditorState.editPanelSize = size
 		}
-		$flowInputEditorState.editPanelSize = size
 	}
-	$: updateEditPanelSize(editPanelSize)
+
+	let timeout: NodeJS.Timeout | undefined = undefined
+	$effect(() => {
+		if (timeout) {
+			clearTimeout(timeout)
+		}
+		timeout = setTimeout(() => {
+			updateEditPanelSize(editPanelSize)
+		}, 100)
+	})
 
 	const getDropdownItems = () => {
 		return [
@@ -179,8 +192,8 @@
 		return { required: [], properties: {}, ...convert(parsed) }
 	}
 
-	let flowPreviewContent: FlowPreviewContent
-	let previewOpen = false
+	let flowPreviewContent: FlowPreviewContent | undefined = $state()
+	let previewOpen = $state(false)
 
 	function handleKeydown(event: KeyboardEvent) {
 		if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -195,7 +208,7 @@
 
 	function runPreview() {
 		if (previewArguments) {
-			$previewArgs = structuredClone(previewArguments)
+			$previewArgs = structuredClone($state.snapshot(previewArguments))
 		}
 		previewOpen = true
 		flowPreviewContent?.test()
@@ -258,7 +271,7 @@
 
 	let tabButtonWidth = 0
 
-	let connectFirstNode: () => void = () => {}
+	let connectFirstNode: () => void = $state(() => {})
 
 	let init = false
 	function initPayloadData() {
@@ -268,9 +281,11 @@
 			$flowInputEditorState.payloadData = undefined
 		}
 	}
-	$: $flowInputEditorState && ((dropdownItems = getDropdownItems()), initPayloadData())
+	$effect(() => {
+		$flowInputEditorState && ((dropdownItems = getDropdownItems()), initPayloadData())
+	})
 
-	let preventEnter = false
+	let preventEnter = $state(false)
 
 	async function acceptChange(arg: { label: string; nestedParent: any | undefined }) {
 		handleChange(arg, $flowStore.schema, diff, (newSchema) => {
@@ -320,11 +335,11 @@
 		}
 	}
 
-	let historicInputs: HistoricInputs | undefined = undefined
-	let captureTable: CaptureTable | undefined = undefined
-	let savedInputsPicker: SavedInputsPicker | undefined = undefined
-	let jsonInputs: JsonInputs | undefined = undefined
-	let firstStepInputs: FirstStepInputs | undefined = undefined
+	let historicInputs: HistoricInputs | undefined = $state(undefined)
+	let captureTable: CaptureTable | undefined = $state(undefined)
+	let savedInputsPicker: SavedInputsPicker | undefined = $state(undefined)
+	let jsonInputs: JsonInputs | undefined = $state(undefined)
+	let firstStepInputs: FirstStepInputs | undefined = $state(undefined)
 
 	function resetSelected() {
 		historicInputs?.resetSelected(true)
@@ -336,7 +351,7 @@
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} />
 
 <Drawer bind:open={previewOpen} alwaysOpen size="75%" {preventEscape}>
 	<FlowPreviewContent
@@ -358,16 +373,27 @@
 				bind:schema={$flowStore.schema}
 				isFlowInput
 				on:edit={(e) => {
-					addProperty?.openDrawer(e.detail)
+					addPropertyV2?.openDrawer(e.detail)
 				}}
 				on:delete={(e) => {
-					addProperty?.handleDeleteArgument([e.detail])
+					addPropertyV2?.handleDeleteArgument([e.detail])
 				}}
 				displayWebhookWarning
 				editTab={$flowInputEditorState?.selectedTab}
 				{previewSchema}
 				bind:args={previewArguments}
-				bind:editPanelSize
+				bind:editPanelSize={
+					() => {
+						console.log('editPanelSize', editPanelSize)
+						return editPanelSize
+					},
+					(v) => {
+						if (editPanelSize != v) {
+							console.log('editPanelSize', v)
+							editPanelSize = v
+						}
+					}
+				}
 				editPanelInitialSize={$flowInputEditorState?.editPanelSize}
 				pannelExtraButtonWidth={$flowInputEditorState?.editPanelSize ? tabButtonWidth : 0}
 				{diff}
@@ -387,7 +413,7 @@
 				on:change={() => {
 					previewArguments = previewArguments
 					if (!previewSchema) {
-						savedPreviewArgs = structuredClone(previewArguments)
+						savedPreviewArgs = structuredClone($state.snapshot(previewArguments))
 					}
 				}}
 				on:schemaChange={() => {
@@ -395,12 +421,12 @@
 				}}
 				bind:isValid
 			>
-				<svelte:fragment slot="openEditTab">
+				{#snippet openEditTab()}
 					<div class={twMerge('flex flex-row divide-x', ButtonType.ColorVariants.blue.divider)}>
 						<SideBarTab {dropdownItems} fullMenu={!!$flowInputEditorState?.selectedTab}>
-							<svelte:fragment slot="close button">
+							{#snippet close_button()}
 								<button
-									on:click={() => {
+									onclick={() => {
 										handleEditSchema()
 									}}
 									title={!!$flowInputEditorState?.selectedTab
@@ -414,17 +440,18 @@
 									)}
 								>
 									<div class="p-2 center-center">
-										<svelte:component
-											this={!!$flowInputEditorState?.selectedTab ? ChevronRight : Pen}
-											size={14}
-										/>
+										{#if !!$flowInputEditorState?.selectedTab}
+											<ChevronRight size={14} />
+										{:else}
+											<Pen size={14} />
+										{/if}
 									</div>
 								</button>
-							</svelte:fragment>
+							{/snippet}
 						</SideBarTab>
 					</div>
-				</svelte:fragment>
-				<svelte:fragment slot="addProperty">
+				{/snippet}
+				{#snippet addProperty()}
 					{#if !!previewSchema}
 						<div class="flex flex-row items-center gap-2 right-2 justify-end">
 							<Button
@@ -456,7 +483,7 @@
 					{:else}
 						<AddPropertyV2
 							bind:schema={$flowStore.schema}
-							bind:this={addProperty}
+							bind:this={addPropertyV2}
 							on:change={() => {
 								$flowStore = $flowStore
 								if (editableSchemaForm) {
@@ -469,18 +496,18 @@
 								$flowStore = $flowStore
 							}}
 						>
-							<svelte:fragment slot="trigger">
+							{#snippet trigger()}
 								<div
 									class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
 									id="add-flow-input-btn"
 								>
 									<Plus size={14} />
 								</div>
-							</svelte:fragment>
+							{/snippet}
 						</AddPropertyV2>
 					{/if}
-				</svelte:fragment>
-				<svelte:fragment slot="extraTab">
+				{/snippet}
+				{#snippet extraTab()}
 					{#if $flowInputEditorState?.selectedTab === 'history'}
 						<FlowInputEditor
 							title="History"
@@ -505,11 +532,13 @@
 							}}
 							title="Trigger captures"
 						>
-							<svelete:fragment slot="action">
-								<div class="center-center">
-									<CaptureButton on:openTriggers small={true} />
-								</div>
-							</svelete:fragment>
+							{#snippet action()}
+								<svelete:fragment>
+									<div class="center-center">
+										<CaptureButton on:openTriggers small={true} />
+									</div>
+								</svelete:fragment>
+							{/snippet}
 							<div class="h-full">
 								<CaptureTable
 									path={$initialPathStore || fakeInitialPath}
@@ -593,8 +622,8 @@
 							/>
 						</FlowInputEditor>
 					{/if}
-				</svelte:fragment>
-				<svelte:fragment slot="runButton">
+				{/snippet}
+				{#snippet runButton()}
 					<div class="w-full flex justify-end pr-5">
 						<Button
 							color="dark"
@@ -609,7 +638,7 @@
 							Run
 						</Button>
 					</div>
-				</svelte:fragment>
+				{/snippet}
 			</EditableSchemaForm>
 		</div>
 	{:else}

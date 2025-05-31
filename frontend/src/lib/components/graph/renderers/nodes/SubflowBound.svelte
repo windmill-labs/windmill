@@ -5,7 +5,7 @@
 	import type { GraphModuleState } from '../../model'
 	import { getStateColor, getStateHoverColor } from '../../util'
 	import type { FlowModule } from '$lib/gen'
-	import type { GraphEventHandlers } from '../../graphBuilder'
+	import type { GraphEventHandlers } from '../../graphBuilder.svelte'
 
 	export let data: {
 		label: string

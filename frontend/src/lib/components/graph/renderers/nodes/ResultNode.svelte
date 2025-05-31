@@ -2,7 +2,7 @@
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import type { GraphEventHandlers } from '../../graphBuilder'
+	import type { GraphEventHandlers } from '../../graphBuilder.svelte'
 	import { getStateColor, getStateHoverColor } from '../../util'
 	import type { Writable } from 'svelte/store'
 	import { getContext } from 'svelte'

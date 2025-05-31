@@ -1,28 +1,46 @@
 <script lang="ts">
+	import { preventDefault, stopPropagation } from 'svelte/legacy'
+
 	import Popover from '$lib/components/Popover.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { Pencil } from 'lucide-svelte'
 
-	let iconWidth: number = 0
-	let idBadgeWidth: number | undefined = undefined
-	export let label: string = ''
-	export let path: string = ''
-	export let id: string = ''
-	export let deletable: boolean = false
-	export let bold: boolean = false
-	export let editId: boolean = false
-	export let hover: boolean = false
+	let iconWidth: number = $state(0)
+	let idBadgeWidth: number | undefined = $state(undefined)
+	interface Props {
+		label?: string
+		path?: string
+		id?: string
+		deletable?: boolean
+		bold?: boolean
+		editId?: boolean
+		hover?: boolean
+		icon?: import('svelte').Snippet
+		onclick?: () => void
+	}
 
-	$: marginLeft = Math.max(iconWidth ?? 0, idBadgeWidth ?? 0) * 2 + 32
+	let {
+		label = '',
+		path = '',
+		id = '',
+		deletable = false,
+		bold = false,
+		editId = $bindable(false),
+		hover = false,
+		icon,
+		onclick
+	}: Props = $props()
+
+	let marginLeft = $derived(Math.max(iconWidth ?? 0, idBadgeWidth ?? 0) * 2 + 32)
 </script>
 
 <div
 	class="relative flex gap-1 justify-between items-center w-full overflow-hidden rounded-sm
 	 p-2 text-2xs module text-primary"
 >
-	{#if $$slots.icon && true}
+	{#if icon && true}
 		<div class="flex-none" bind:clientWidth={iconWidth}>
-			<slot name="icon" />
+			{@render icon?.()}
 		</div>
 	{/if}
 
@@ -33,12 +51,12 @@
 		<div class="text-center truncate {bold ? '!font-bold' : 'font-normal'}">
 			{label}
 		</div>
-		<svelte:fragment slot="text">
+		{#snippet text()}
 			<div>
 				<div>{label}</div>
 				{#if path != ''}<div>{path}</div>{/if}
 			</div>
-		</svelte:fragment>
+		{/snippet}
 	</Popover>
 
 	<div class="flex items-center space-x-2 relative max-w-[25%]" bind:clientWidth={idBadgeWidth}>
@@ -57,7 +75,12 @@
 						? '!bg-blue-400'
 						: ''} hover:text-white
 hover:border-blue-700 hover:!visible {hover ? '' : '!hidden'}"
-					on:click|preventDefault|stopPropagation={(event) => (editId = !editId)}
+					onclick={stopPropagation(
+						preventDefault((event) => {
+							editId = !editId
+							onclick?.()
+						})
+					)}
 					title="Edit Id"><Pencil size={14} /></button
 				>
 			{/if}

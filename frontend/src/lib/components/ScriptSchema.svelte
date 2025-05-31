@@ -4,8 +4,12 @@
 
 	import EditableSchemaForm from './EditableSchemaForm.svelte'
 
-	export let schema: Schema | any
-	export let customUi: EditableSchemaFormUi | undefined = undefined
+	interface Props {
+		schema: Schema | any
+		customUi?: EditableSchemaFormUi | undefined
+	}
+
+	let { schema = $bindable(), customUi = undefined }: Props = $props()
 
 	export function setSchema(newSchema: Schema) {
 		schema = newSchema

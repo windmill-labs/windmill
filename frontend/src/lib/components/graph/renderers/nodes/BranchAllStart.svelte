@@ -5,7 +5,7 @@
 	import type { GraphModuleState } from '../../model'
 	import { getStateColor, getStateHoverColor } from '../../util'
 	import type { FlowModule } from '$lib/gen'
-	import type { GraphEventHandlers } from '../../graphBuilder'
+	import type { GraphEventHandlers } from '../../graphBuilder.svelte'
 	import { computeBorderStatus } from '../utils'
 
 	export let data: {
@@ -53,7 +53,7 @@ hover:border-red-700"
 			on:click|preventDefault|stopPropagation={() => {
 				data.eventHandlers.deleteBranch(
 					{
-						module: data.modules.find((m) => m.id === data.id),
+						id: data.id,
 						index: data.branchIndex
 					},
 					data.label

@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { run, createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import Path from '$lib/components/Path.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -19,7 +22,11 @@
 	import Badge from '$lib/components/Badge.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
 
-	export let noEditor: boolean
+	interface Props {
+		noEditor: boolean
+	}
+
+	let { noEditor }: Props = $props()
 
 	const { flowStore, initialPathStore, previewArgs, pathStore, customUi } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -27,13 +34,15 @@
 	function asSchema(x: any) {
 		return x as Schema
 	}
-	let path: Path | undefined = undefined
-	let dirtyPath = false
+	let path: Path | undefined = $state(undefined)
+	let dirtyPath = $state(false)
 
-	let displayWorkerTagPicker = false
-	$: $flowStore.tag ? (displayWorkerTagPicker = true) : null
+	let displayWorkerTagPicker = $state(false)
+	run(() => {
+		$flowStore.tag ? (displayWorkerTagPicker = true) : null
+	})
 
-	$: activeAdvancedOptions = [
+	let activeAdvancedOptions = $derived([
 		{
 			name: 'High Priority',
 			active: $flowStore.value.priority !== undefined && $flowStore.value.priority > 0
@@ -48,12 +57,14 @@
 		{ name: 'Concurrent Limit', active: Boolean($flowStore.value.concurrent_limit) },
 		{ name: 'Run on Behalf of Last Editor', active: Boolean($flowStore.on_behalf_of_email) },
 		{ name: 'Worker Tag', active: displayWorkerTagPicker }
-	]
+	])
 
-	$: numberOfAdvancedOptionsOn = activeAdvancedOptions.filter((option) => option.active).length
-	$: activeAdvancedOptionNames = activeAdvancedOptions
-		.filter((option) => option.active)
-		.map((option) => option.name)
+	let numberOfAdvancedOptionsOn = $derived(
+		activeAdvancedOptions.filter((option) => option.active).length
+	)
+	let activeAdvancedOptionNames = $derived(
+		activeAdvancedOptions.filter((option) => option.active).map((option) => option.name)
+	)
 </script>
 
 <div class="h-full overflow-y-auto flex flex-col">
@@ -157,7 +168,7 @@
 				{/if}
 
 				<!-- Metadata Advanced Section -->
-				<svelte:fragment slot="badge">
+				{#snippet badge()}
 					{#if numberOfAdvancedOptionsOn > 0}
 						<div class="flex grow min-w-0 w-full flex-wrap gap-1 ps-2">
 							{#each activeAdvancedOptionNames as optionName}
@@ -167,7 +178,7 @@
 							{/each}
 						</div>
 					{/if}
-				</svelte:fragment>
+				{/snippet}
 
 				<!-- Cache Section -->
 				{#if customUi?.settingsTabs?.cache != false}
@@ -441,13 +452,13 @@
 									/>
 								</Label>
 								<Label label="Custom concurrency key (optional)">
-									<svelte:fragment slot="header">
+									{#snippet header()}
 										<Tooltip>
 											Concurrency keys are global, you can have them be workspace specific using the
 											variable `$workspace`. You can also use an argument's value using
 											`$args[name_of_arg]`</Tooltip
 										>
-									</svelte:fragment>
+									{/snippet}
 									<!-- svelte-ignore a11y_autofocus -->
 									<input
 										type="text"
@@ -485,14 +496,14 @@
 					}}
 					class="py-1 relative"
 				>
-					<svelte:fragment slot="right">
+					{#snippet right()}
 						<input
 							type="number"
 							class="!w-16 text-xs ml-4 absolute left-52"
 							disabled={$flowStore.value.priority === undefined}
 							bind:value={$flowStore.value.priority}
-							on:focus
-							on:change={() => {
+							onfocus={bubble('focus')}
+							onchange={() => {
 								if ($flowStore.value.priority && $flowStore.value.priority > 100) {
 									$flowStore.value.priority = 100
 								} else if ($flowStore.value.priority && $flowStore.value.priority < 0) {
@@ -508,7 +519,7 @@
 								EE only <Tooltip>Enterprise Edition only feature</Tooltip>
 							</span>
 						{/if}
-					</svelte:fragment>
+					{/snippet}
 				</Toggle>
 
 				<div>
