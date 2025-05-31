@@ -12,7 +12,7 @@ use std::{
 };
 use tracing::{field, Instrument};
 #[cfg(not(feature = "otel"))]
-use windmill_common::otel_ee::FutureExt;
+use windmill_common::otel_oss::FutureExt;
 
 use uuid::Uuid;
 
@@ -41,7 +41,7 @@ use windmill_queue::{add_completed_job, add_completed_job_error};
 use crate::{
     bash_executor::ANSI_ESCAPE_RE,
     common::{error_to_value, read_result, save_in_cache},
-    otel_ee::add_root_flow_job_to_otlp,
+    otel_oss::add_root_flow_job_to_otlp,
     worker_flow::update_flow_status_after_job_completion,
     JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult, UpdateFlow,
     INIT_SCRIPT_TAG,
@@ -76,7 +76,7 @@ async fn process_jc(
     } else {
         jc.job.id
     };
-    windmill_common::otel_ee::set_span_parent(&span, &rj);
+    windmill_common::otel_oss::set_span_parent(&span, &rj);
 
     if let Some(lg) = jc.job.script_lang.as_ref() {
         span.record("language", lg.as_str());
@@ -276,7 +276,7 @@ pub fn start_background_processor(
 async fn send_job_completed(job_completed_tx: JobCompletedSender, jc: JobCompleted) {
     job_completed_tx
         .send_job(jc, true)
-        .with_context(windmill_common::otel_ee::otel_ctx())
+        .with_context(windmill_common::otel_oss::otel_ctx())
         .await
         .expect("send job completed")
 }
@@ -312,7 +312,7 @@ pub async fn process_result(
                     duration,
                 },
             )
-            .with_context(windmill_common::otel_ee::otel_ctx())
+            .with_context(windmill_common::otel_oss::otel_ctx())
             .await;
             Ok(true)
         }
@@ -374,7 +374,7 @@ pub async fn process_result(
                     duration,
                 },
             )
-            .with_context(windmill_common::otel_ee::otel_ctx())
+            .with_context(windmill_common::otel_oss::otel_ctx())
             .await;
             Ok(false)
         }

@@ -20,12 +20,12 @@ use rust_postgres::types::Type;
 use serde::{Deserialize, Deserializer, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{postgres::types::Oid, FromRow, PgConnection};
-use windmill_audit::{audit_ee::audit_log, ActionKind};
+use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::error::Error;
 use windmill_common::{
     db::UserDB,
     error::{self, JsonResult, Result},
-    utils::{not_found_if_none, paginate, Pagination, StripPath, empty_as_none},
+    utils::{empty_as_none, not_found_if_none, paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};

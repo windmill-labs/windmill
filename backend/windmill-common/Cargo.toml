@@ -7,6 +7,7 @@ edition.workspace = true
 [features]
 default = []
 enterprise = []
+private = []
 jemalloc = ["dep:tikv-jemalloc-ctl"]
 tantivy = []
 prometheus = ["dep:prometheus"]

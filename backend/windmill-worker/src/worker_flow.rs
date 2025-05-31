@@ -66,7 +66,7 @@ use windmill_queue::{
 
 type DB = sqlx::Pool<sqlx::Postgres>;
 
-use windmill_audit::audit_ee::{audit_log, AuditAuthor};
+use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 use windmill_queue::{canceled_job_to_result, push};
 

@@ -15,7 +15,7 @@ use {
 
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
 use {
-    crate::gcp_triggers_ee::{
+    crate::gcp_triggers_oss::{
         manage_google_subscription, process_google_push_request, validate_jwt_token,
         CreateUpdateConfig, SubscriptionMode,
     },
@@ -36,13 +36,13 @@ use windmill_common::auth::aws::AwsAuthResourceType;
 use {serde::de::DeserializeOwned, windmill_common::error::Error};
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
-use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
+use crate::kafka_triggers_oss::KafkaTriggerConfigConnection;
 
 #[cfg(feature = "mqtt_trigger")]
 use crate::mqtt_triggers::{MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic};
 
 #[cfg(all(feature = "enterprise", feature = "nats"))]
-use crate::nats_triggers_ee::NatsTriggerConfigConnection;
+use crate::nats_triggers_oss::NatsTriggerConfigConnection;
 
 #[cfg(feature = "postgres_trigger")]
 use {
@@ -903,7 +903,7 @@ async fn gcp_payload(
     headers: HeaderMap,
     request: Request,
 ) -> Result<StatusCode> {
-    use crate::{gcp_triggers_ee::GcpTrigger, trigger_helpers::TriggerJobArgs};
+    use crate::{gcp_triggers_oss::GcpTrigger, trigger_helpers::TriggerJobArgs};
 
     let is_flow = matches!(runnable_kind, RunnableKind::Flow);
     let (gcp_trigger_config, owner, email): (GcpTriggerConfig, _, _) =
