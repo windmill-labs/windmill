@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Send, Loader2, RefreshCcw, Plus } from 'lucide-svelte'
+	import { Send, Loader2, Plus } from 'lucide-svelte'
 	import { chatRequest, prepareSystemMessage } from './core'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 	import { globalChatInitialInput, userStore, copilotInfo } from '$lib/stores'
