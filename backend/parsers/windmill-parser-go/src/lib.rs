@@ -7,7 +7,7 @@ use gosyn::{
 use itertools::Itertools;
 
 use regex::Regex;
-use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
+use windmill_parser::{to_snake_case, Arg, MainArgSignature, ObjectProperty, Typ};
 
 lazy_static::lazy_static! {
     pub static ref REQUIRE_PARSE: Regex = Regex::new(r"//require (.*)\n").unwrap();
@@ -99,7 +99,7 @@ fn parse_go_typ(typ: &Expression) -> (Option<String>, Typ) {
                 "int64" => Typ::Int,
                 "string" => Typ::Str(None),
                 "bool" => Typ::Bool,
-                _ => Typ::Unknown,
+                _ => Typ::Resource(to_snake_case(name.as_ref())),
             },
         ),
         Expression::TypeSlice(slice_type) => {
@@ -163,6 +163,55 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn test_parse_go_sig_resources() -> anyhow::Result<()> {
+        let code = r#"
+
+package main
+
+import "fmt"
+
+type MyResource struct {
+	A string   `json:"a"`
+	B *int64   `json:"b,omitempty"`
+	C []string `json:"c,omitempty"`
+}
+
+func main(x int, a MyResource) {
+    fmt.Println("hello world")
+}    
+
+"#;
+        assert_eq!(
+            parse_go_sig(code)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        otyp: Some("int".to_string()),
+                        name: "x".to_string(),
+                        typ: Typ::Int,
+                        has_default: false,
+                        default: None,
+                        oidx: None
+                    },
+                    Arg {
+                        otyp: Some("MyResource".to_string()),
+                        name: "a".to_string(),
+                        typ: Typ::Resource("my_resource".into()),
+                        default: None,
+                        has_default: false,
+                        oidx: None
+                    },
+                ],
+                no_main_func: Some(false),
+                has_preprocessor: None
+            }
+        );
+
+        Ok(())
+    }
     #[test]
     fn test_parse_go_sig() -> anyhow::Result<()> {
         let code = r#"
