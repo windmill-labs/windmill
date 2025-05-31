@@ -43,7 +43,7 @@
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
-	import { ArrowLeft, Search } from 'lucide-svelte'
+	import { ArrowLeft, Search, MessageCircle } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
 	import { workspaceAIClients } from '$lib/components/copilot/lib'
 	import { twMerge } from 'tailwind-merge'
@@ -53,6 +53,8 @@
 	import { setContext } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
+	import GlobalChat from '$lib/components/chat/GlobalChat.svelte'
+	import { globalChatOpen, globalChatSize } from '$lib/stores'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -305,6 +307,10 @@
 		globalSearchModal?.openSearchWithPrefilledText(text)
 	}
 
+	function openGlobalChat(): void {
+		globalChatOpen.update((open) => !open)
+	}
+
 	setContext('openSearchWithPrefilledText', openSearchModal)
 
 	$: {
@@ -449,6 +455,14 @@
 											class="!text-xs"
 											shortcut={`${getModifierKey()}k`}
 										/>
+										<MenuButton
+											stopPropagationOnClick={true}
+											on:click={() => openGlobalChat()}
+											isCollapsed={false}
+											icon={MessageCircle}
+											label="Ask AI"
+											class="!text-xs"
+										/>
 									</div>
 
 									<SidebarContent
@@ -507,6 +521,14 @@
 									label="Search"
 									class="!text-xs"
 									shortcut={`${getModifierKey()}k`}
+								/>
+								<MenuButton
+									stopPropagationOnClick={true}
+									on:click={() => openGlobalChat()}
+									{isCollapsed}
+									icon={MessageCircle}
+									label="Ask AI"
+									class="!text-xs"
 								/>
 							</div>
 
@@ -607,6 +629,14 @@
 									class="!text-xs"
 									shortcut={`${getModifierKey()}k`}
 								/>
+								<MenuButton
+									stopPropagationOnClick={true}
+									on:click={() => openGlobalChat()}
+									{isCollapsed}
+									icon={MessageCircle}
+									label="Ask AI"
+									class="!text-xs"
+								/>
 							</div>
 
 							<SidebarContent
@@ -625,8 +655,10 @@
 			class={classNames(
 				'w-full flex flex-col flex-1 h-full',
 				devOnly || $userStore?.operator ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
-				'transition-all ease-in-out duration-200'
+				'transition-all ease-in-out duration-200',
+				$globalChatOpen ? 'chat-open' : ''
 			)}
+			style={`padding-right: ${$globalChatOpen ? $globalChatSize : 0}px`}
 		>
 			<main class="min-h-screen">
 				<div class="relative w-full h-full">
@@ -662,6 +694,39 @@
 			</main>
 		</div>
 	</div>
+
+	<!-- Global Chat Panel -->
+	<div class="fixed-chat-panel" class:open={$globalChatOpen} style={`width: ${$globalChatSize}px`}>
+		<div class="chat-panel-container">
+			<GlobalChat />
+		</div>
+	</div>
+
+	<style>
+		.fixed-chat-panel {
+			position: fixed;
+			top: 0;
+			right: 0;
+			height: 100vh;
+			transform: translateX(100%);
+			transition: transform 0.3s ease-in-out;
+			z-index: 10;
+		}
+
+		.fixed-chat-panel.open {
+			transform: translateX(0);
+		}
+
+		.chat-panel-container {
+			height: 100%;
+			width: 100%;
+			box-shadow: -2px 0 10px rgba(0, 0, 0, 0.1);
+		}
+
+		:global(.chat-open) {
+			transition: padding-right 0.3s ease-in-out;
+		}
+	</style>
 {:else}
 	<CenteredModal title="Loading user...">
 		<div class="w-full">

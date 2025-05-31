@@ -9,7 +9,11 @@
 	import type { Placement } from '@floating-ui/core'
 	import { conditionalMelt } from '$lib/utils'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
 
+	export let id: string = ''
+	export let aiId: string | undefined = undefined
+	export let aiDescription: string | undefined = undefined
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
 	export let color: ButtonType.Color | string = 'blue'
@@ -26,7 +30,6 @@
 	export let clickableWhileLoading = false
 
 	export let element: ButtonType.Element | undefined = undefined
-	export let id: string = ''
 	export let nonCaptureEvent: boolean = false
 	export let propagateEvent: boolean = false
 	export let loading = false
@@ -70,6 +73,10 @@
 
 	export function focus() {
 		element?.focus({})
+	}
+
+	export function click() {
+		element?.click()
 	}
 
 	const dispatch = createEventDispatcher()
@@ -155,150 +162,160 @@
 	$: $open !== undefined && dispatchIfMounted('tooltipOpen', $open)
 </script>
 
-<div
-	class={twMerge(
-		dropdownItems && dropdownItems.length > 0 && variant === 'contained'
-			? ButtonType.ColorVariants[color].divider
-			: '',
-		wrapperClasses,
-		'flex flex-row',
-		disabled ? 'divide-text-disabled' : ''
-	)}
-	style={wrapperStyle}
-	data-interactive
+<TriggerableByAI
+	id={aiId}
+	description={aiDescription}
+	onTrigger={() => {
+		element?.click()
+	}}
 >
-	{#if href && !disabled}
-		<a
-			bind:this={element}
-			on:pointerdown
-			on:focus
-			on:blur
-			on:mouseenter
-			on:mouseleave
-			on:click={() => {
-				loading = true
-				dispatch('click', event)
-				if (!loadUntilNav) {
-					loading = false
-				}
-			}}
-			{href}
-			{download}
-			class={buttonClass}
-			{id}
-			{target}
-			tabindex={disabled ? -1 : 0}
-			{...$$restProps}
-			{style}
-		>
-			{#if loading}
-				<Loader2 class={twMerge('animate-spin', iconOnlyPadding[size])} size={lucideIconSize} />
-			{:else if startIcon?.icon}
-				<svelte:component
-					this={startIcon.icon}
-					class={twMerge(startIcon?.classes, iconOnlyPadding[size])}
-					size={lucideIconSize}
-					{...startIcon.props}
-				/>
-			{/if}
+	<div
+		class={twMerge(
+			dropdownItems && dropdownItems.length > 0 && variant === 'contained'
+				? ButtonType.ColorVariants[color].divider
+				: '',
+			wrapperClasses,
+			'flex flex-row',
+			disabled ? 'divide-text-disabled' : ''
+		)}
+		style={wrapperStyle}
+		data-interactive
+	>
+		{#if href && !disabled}
+			<a
+				bind:this={element}
+				on:pointerdown
+				on:focus
+				on:blur
+				on:mouseenter
+				on:mouseleave
+				on:click={() => {
+					loading = true
+					dispatch('click', event)
+					if (!loadUntilNav) {
+						loading = false
+					}
+				}}
+				{href}
+				{download}
+				class={buttonClass}
+				{id}
+				{target}
+				tabindex={disabled ? -1 : 0}
+				{...$$restProps}
+				{style}
+			>
+				{#if loading}
+					<Loader2 class={twMerge('animate-spin', iconOnlyPadding[size])} size={lucideIconSize} />
+				{:else if startIcon?.icon}
+					<svelte:component
+						this={startIcon.icon}
+						class={twMerge(startIcon?.classes, iconOnlyPadding[size])}
+						size={lucideIconSize}
+						{...startIcon.props}
+					/>
+				{/if}
 
-			{#if !iconOnly}
-				<slot />
-			{/if}
-			{#if endIcon?.icon}
-				<svelte:component
-					this={endIcon.icon}
-					class={twMerge(endIcon?.classes, iconOnlyPadding[size])}
-					size={lucideIconSize}
-				/>
-			{/if}
-			{#if shortCut && !shortCut.hide}
-				<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-normal">
-					{#if shortCut.withoutModifier !== true}{getModifierKey()}{/if}{#if shortCut.Icon}<shortCut.Icon
-							class="w-4 h-4"
-							size={lucideIconSize}
-						/>{:else}{shortCut.key}{/if}
+				{#if !iconOnly}
+					<slot />
+				{/if}
+				{#if endIcon?.icon}
+					<svelte:component
+						this={endIcon.icon}
+						class={twMerge(endIcon?.classes, iconOnlyPadding[size])}
+						size={lucideIconSize}
+					/>
+				{/if}
+				{#if shortCut && !shortCut.hide}
+					<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-normal">
+						{#if shortCut.withoutModifier !== true}{getModifierKey()}{/if}{#if shortCut.Icon}<shortCut.Icon
+								class="w-4 h-4"
+								size={lucideIconSize}
+							/>{:else}{shortCut.key}{/if}
+					</div>
+				{/if}
+			</a>
+		{:else}
+			<button
+				bind:this={element}
+				on:pointerdown
+				on:click={onClick}
+				on:focus
+				on:blur
+				on:mouseenter
+				on:mouseleave
+				class={buttonClass}
+				{id}
+				tabindex={disabled ? -1 : 0}
+				{title}
+				{...$$restProps}
+				disabled={disabled || (loading && !clickableWhileLoading)}
+				{style}
+				use:conditionalMelt={trigger}
+				{...$trigger}
+			>
+				{#if loading}
+					<Loader2 class={twMerge('animate-spin', iconOnlyPadding[size])} size={lucideIconSize} />
+				{:else if startIcon?.icon}
+					<svelte:component
+						this={startIcon.icon}
+						class={twMerge(startIcon?.classes, iconOnlyPadding[size])}
+						size={lucideIconSize}
+						{...startIcon.props}
+					/>
+				{/if}
+
+				{#if !iconOnly}
+					<slot />
+				{/if}
+				{#if endIcon?.icon}
+					<svelte:component
+						this={endIcon.icon}
+						class={twMerge(endIcon?.classes, iconOnlyPadding[size])}
+						size={lucideIconSize}
+					/>
+				{/if}
+				{#if shortCut && !shortCut.hide}
+					{@const Icon = shortCut.Icon}
+					<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-normal">
+						{#if shortCut.withoutModifier !== true}{getModifierKey()}{/if}{#if shortCut.Icon}<Icon
+								size={lucideIconSize}
+							/>{:else}{shortCut.key}{/if}
+					</div>
+				{/if}
+			</button>
+			{#if tooltipPopover && $open}
+				<div use:conditionalMelt={content} {...$content} class="z-[20000]">
+					<slot name="tooltip" />
 				</div>
 			{/if}
-		</a>
-	{:else}
-		<button
-			bind:this={element}
-			on:pointerdown
-			on:click={onClick}
-			on:focus
-			on:blur
-			on:mouseenter
-			on:mouseleave
-			class={buttonClass}
-			{id}
-			tabindex={disabled ? -1 : 0}
-			{title}
-			{...$$restProps}
-			disabled={disabled || (loading && !clickableWhileLoading)}
-			{style}
-			use:conditionalMelt={trigger}
-			{...$trigger}
-		>
-			{#if loading}
-				<Loader2 class={twMerge('animate-spin', iconOnlyPadding[size])} size={lucideIconSize} />
-			{:else if startIcon?.icon}
-				<svelte:component
-					this={startIcon.icon}
-					class={twMerge(startIcon?.classes, iconOnlyPadding[size])}
-					size={lucideIconSize}
-					{...startIcon.props}
-				/>
-			{/if}
-
-			{#if !iconOnly}
-				<slot />
-			{/if}
-			{#if endIcon?.icon}
-				<svelte:component
-					this={endIcon.icon}
-					class={twMerge(endIcon?.classes, iconOnlyPadding[size])}
-					size={lucideIconSize}
-				/>
-			{/if}
-			{#if shortCut && !shortCut.hide}
-				{@const Icon = shortCut.Icon}
-				<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-normal">
-					{#if shortCut.withoutModifier !== true}{getModifierKey()}{/if}{#if shortCut.Icon}<Icon
-							size={lucideIconSize}
-						/>{:else}{shortCut.key}{/if}
-				</div>
-			{/if}
-		</button>
-		{#if tooltipPopover && $open}
-			<div use:conditionalMelt={content} {...$content} class="z-[20000]">
-				<slot name="tooltip" />
-			</div>
 		{/if}
-	{/if}
 
-	{#if dropdownItems && dropdownItems.length > 0}
-		<Dropdown
-			items={computeDropdowns(dropdownItems)}
-			class="h-auto w-fit"
-			hidePopup={hideDropdown}
-			usePointerDownOutside
-			on:open={() => dispatch('dropdownOpen', true)}
-			on:close={() => dispatch('dropdownOpen', false)}
-		>
-			<svelte:fragment slot="buttonReplacement">
-				<div
-					class={twMerge(
-						buttonClass,
-						'rounded-md m-0 p-0 center-center h-full',
-						variant === 'border' ? 'border-0 border-r border-y ' : 'border-0',
-						'rounded-r-md !rounded-l-none',
-						size === 'xs2' ? '!w-8' : '!w-10'
-					)}
-				>
-					<ChevronDown size={lucideIconSize} />
-				</div>
-			</svelte:fragment>
-		</Dropdown>
-	{/if}
-</div>
+		{#if dropdownItems && dropdownItems.length > 0}
+			<Dropdown
+				aiId={aiId ? `${aiId}-dropdown` : undefined}
+				aiDescription={aiDescription ? `${aiDescription} dropdown` : undefined}
+				items={computeDropdowns(dropdownItems)}
+				class="h-full w-fit"
+				hidePopup={hideDropdown}
+				usePointerDownOutside
+				on:open={() => dispatch('dropdownOpen', true)}
+				on:close={() => dispatch('dropdownOpen', false)}
+			>
+				<svelte:fragment slot="buttonReplacement">
+					<div
+						class={twMerge(
+							buttonClass,
+							'rounded-md m-0 p-0 center-center h-full',
+							variant === 'border' ? 'border-0 border-r border-y ' : 'border-0',
+							'rounded-r-md !rounded-l-none',
+							size === 'xs2' ? '!w-8' : '!w-10'
+						)}
+					>
+						<ChevronDown size={lucideIconSize} />
+					</div>
+				</svelte:fragment>
+			</Dropdown>
+		{/if}
+	</div>
+</TriggerableByAI>
