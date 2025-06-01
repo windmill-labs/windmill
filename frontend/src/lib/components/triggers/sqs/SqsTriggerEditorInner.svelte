@@ -15,7 +15,7 @@
 	import type { Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveSqsTriggerFromCfg } from './utils'
-	import { handleConfigChange } from '../utils'
+	import { handleConfigChange, type Trigger } from '../utils'
 
 	interface Props {
 		useDrawer?: boolean
@@ -23,8 +23,7 @@
 		hideTarget?: boolean
 		hideTooltips?: boolean
 		allowDraft?: boolean
-		hasDraft?: boolean
-		isDraftOnly?: boolean
+		trigger?: Trigger
 		isEditor?: boolean
 		customLabel?: Snippet
 		isDeployed?: boolean
@@ -42,8 +41,7 @@
 		hideTarget = false,
 		hideTooltips = false,
 		allowDraft = false,
-		hasDraft = false,
-		isDraftOnly = false,
+		trigger = undefined,
 		isEditor = false,
 		customLabel = undefined,
 		isDeployed = false,
@@ -194,7 +192,7 @@
 
 	async function handleToggleEnabled(nEnabled: boolean) {
 		enabled = nEnabled
-		if (!isDraftOnly && !hasDraft) {
+		if (!trigger?.draftConfig) {
 			await SqsTriggerService.setSqsTriggerEnabled({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
@@ -275,8 +273,7 @@
 {#snippet actions()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
-			{isDraftOnly}
-			{hasDraft}
+			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
 			{enabled}

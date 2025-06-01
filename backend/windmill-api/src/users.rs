@@ -334,6 +334,7 @@ pub struct NewUser {
     pub super_admin: bool,
     pub name: Option<String>,
     pub company: Option<String>,
+    pub skip_email: Option<bool>,
 }
 
 #[derive(Deserialize)]

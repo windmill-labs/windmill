@@ -33,8 +33,11 @@ use windmill_common::ee::low_disk_alerts;
 #[cfg(feature = "enterprise")]
 use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
 
+use windmill_common::client::AuthedClient;
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
+#[cfg(feature = "parquet")]
+use windmill_common::s3_helpers::reload_object_store_setting;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     auth::create_token_for_owner,
@@ -75,19 +78,13 @@ use windmill_common::{
 };
 use windmill_queue::{cancel_job, MiniPulledJob, SameWorkerPayload};
 use windmill_worker::{
-    handle_job_error, AuthedClient, JobCompletedSender, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
+    handle_job_error, JobCompletedSender, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
     INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN,
     NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
 };
 
 #[cfg(feature = "parquet")]
-use windmill_common::s3_helpers::{
-    build_object_store_from_settings, build_s3_client_from_settings, S3Settings,
-    OBJECT_STORE_CACHE_SETTINGS,
-};
-
-#[cfg(feature = "parquet")]
-use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
+use windmill_common::s3_helpers::ObjectStoreReload;
 
 #[cfg(feature = "enterprise")]
 use crate::ee::verify_license_key;
@@ -241,7 +238,23 @@ pub async fn initial_load(
     #[cfg(feature = "parquet")]
     if !disable_s3_store {
         if let Some(db) = conn.as_sql() {
-            reload_s3_cache_setting(db).await;
+            let db2 = db.clone();
+            match reload_object_store_setting(db).await {
+                ObjectStoreReload::Later => {
+                    tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_secs(10)).await;
+                        match reload_object_store_setting(&db2).await {
+                            ObjectStoreReload::Later => {
+                                tracing::error!("Giving up on loading object store setting");
+                            }
+                            ObjectStoreReload::Never => {
+                                tracing::info!("Object store setting successfully loaded");
+                            }
+                        }
+                    });
+                }
+                ObjectStoreReload::Never => (),
+            }
         }
     }
 
@@ -631,7 +644,7 @@ async fn send_log_file_to_object_store(
         }
 
         #[cfg(feature = "parquet")]
-        let s3_client = OBJECT_STORE_CACHE_SETTINGS.read().await.clone();
+        let s3_client = windmill_common::s3_helpers::get_object_store().await;
         #[cfg(feature = "parquet")]
         if let Some(s3_client) = s3_client {
             let path = std::path::Path::new(TMP_WINDMILL_LOGS_SERVICE)
@@ -917,10 +930,7 @@ async fn delete_log_files_from_disk_and_store(
     _s3_prefix: &str,
 ) {
     #[cfg(feature = "parquet")]
-    let os = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-        .read()
-        .await
-        .clone();
+    let os = windmill_common::s3_helpers::get_object_store().await;
     #[cfg(not(feature = "parquet"))]
     let os: Option<()> = None;
 
@@ -1098,64 +1108,6 @@ pub async fn reload_delete_logs_periodically_setting(conn: &Connection) {
     .await
     {
         tracing::error!("Error reloading retention period: {:?}", e)
-    }
-}
-
-#[cfg(feature = "parquet")]
-pub async fn reload_s3_cache_setting(db: &DB) {
-    use windmill_common::{
-        ee::{get_license_plan, LicensePlan},
-        s3_helpers::ObjectSettings,
-    };
-
-    let s3_config = load_value_from_global_settings(db, OBJECT_STORE_CACHE_CONFIG_SETTING).await;
-    if let Err(e) = s3_config {
-        tracing::error!("Error reloading s3 cache config: {:?}", e)
-    } else {
-        if let Some(v) = s3_config.unwrap() {
-            if matches!(get_license_plan().await, LicensePlan::Pro) {
-                tracing::error!("S3 cache is not available for pro plan");
-                return;
-            }
-            let mut s3_cache_settings = OBJECT_STORE_CACHE_SETTINGS.write().await;
-            let setting = serde_json::from_value::<ObjectSettings>(v);
-            if let Err(e) = setting {
-                tracing::error!("Error parsing s3 cache config: {:?}", e)
-            } else {
-                let setting = setting.unwrap();
-                let bucket = setting.get_bucket().map(|b| b.to_string());
-                let s3_client = build_object_store_from_settings(setting).await;
-                if let Err(e) = s3_client {
-                    tracing::error!("Error building s3 client from settings: {:?}", e)
-                } else {
-                    tracing::info!("Loaded object store {:?}", bucket);
-                    *s3_cache_settings = Some(s3_client.unwrap());
-                }
-            }
-        } else {
-            let mut s3_cache_settings = OBJECT_STORE_CACHE_SETTINGS.write().await;
-            if std::env::var("S3_CACHE_BUCKET").is_ok() {
-                if matches!(get_license_plan().await, LicensePlan::Pro) {
-                    tracing::error!("S3 cache is not available for pro plan");
-                    return;
-                }
-                *s3_cache_settings = build_s3_client_from_settings(S3Settings {
-                    bucket: None,
-                    region: None,
-                    access_key: None,
-                    secret_key: None,
-                    endpoint: None,
-                    store_logs: None,
-                    path_style: None,
-                    allow_http: None,
-                    port: None,
-                })
-                .await
-                .ok();
-            } else {
-                *s3_cache_settings = None;
-            }
-        }
     }
 }
 

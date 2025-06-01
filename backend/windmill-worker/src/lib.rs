@@ -20,6 +20,8 @@ mod csharp_executor;
 #[cfg(feature = "enterprise")]
 mod dedicated_worker;
 mod deno_executor;
+#[cfg(feature = "duckdb")]
+mod duckdb_executor;
 mod global_cache;
 mod go_executor;
 mod graphql_executor;

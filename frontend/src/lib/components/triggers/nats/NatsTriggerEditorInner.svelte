@@ -15,7 +15,7 @@
 	import type { Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveNatsTriggerFromCfg } from './utils'
-	import { handleConfigChange } from '../utils'
+	import { handleConfigChange, type Trigger } from '../utils'
 
 	interface Props {
 		useDrawer?: boolean
@@ -25,8 +25,7 @@
 		useEditButton?: boolean
 		isEditor?: boolean
 		allowDraft?: boolean
-		hasDraft?: boolean
-		isDraftOnly?: boolean
+		trigger?: Trigger
 		isDeployed?: boolean
 		cloudDisabled?: boolean
 		customLabel?: Snippet
@@ -44,8 +43,7 @@
 		hideTooltips = false,
 		isEditor = false,
 		allowDraft = false,
-		hasDraft = false,
-		isDraftOnly = false,
+		trigger = undefined,
 		isDeployed = false,
 		cloudDisabled = false,
 		customLabel = undefined,
@@ -227,7 +225,7 @@
 
 	async function handleToggleEnabled(toggleEnabled: boolean) {
 		enabled = toggleEnabled
-		if (!isDraftOnly && !hasDraft) {
+		if (!trigger?.draftConfig) {
 			await NatsTriggerService.setNatsTriggerEnabled({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
@@ -285,8 +283,7 @@
 {#snippet actions()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
-			{isDraftOnly}
-			{hasDraft}
+			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
 			{enabled}

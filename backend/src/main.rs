@@ -72,7 +72,7 @@ use tikv_jemallocator::Jemalloc;
 static GLOBAL: Jemalloc = Jemalloc;
 
 #[cfg(feature = "parquet")]
-use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
+use windmill_common::global_settings::OBJECT_STORE_CONFIG_SETTING;
 
 use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR,
@@ -95,7 +95,7 @@ use crate::monitor::{
 };
 
 #[cfg(feature = "parquet")]
-use crate::monitor::reload_s3_cache_setting;
+use windmill_common::s3_helpers::reload_object_store_setting;
 
 const DEFAULT_NUM_WORKERS: usize = 1;
 const DEFAULT_PORT: u16 = 8000;
@@ -912,9 +912,9 @@ Windmill Community Edition {GIT_VERSION}
                                                             reload_job_default_timeout_setting(&conn).await
                                                         },
                                                         #[cfg(feature = "parquet")]
-                                                        OBJECT_STORE_CACHE_CONFIG_SETTING => {
+                                                        OBJECT_STORE_CONFIG_SETTING => {
                                                             if !disable_s3_store {
-                                                                reload_s3_cache_setting(&db).await
+                                                                reload_object_store_setting(&db).await;
                                                             }
                                                         },
                                                         SCIM_TOKEN_SETTING => {

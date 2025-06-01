@@ -360,6 +360,7 @@ pub(crate) async fn tarball_workspace(
                 ScriptLang::Bigquery => "bq.sql",
                 ScriptLang::Snowflake => "sf.sql",
                 ScriptLang::Mssql => "ms.sql",
+                ScriptLang::DuckDb => "duckdb.sql",
                 ScriptLang::Graphql => "gql",
                 ScriptLang::Nativets => "fetch.ts",
                 ScriptLang::Bun | ScriptLang::Bunnative => {

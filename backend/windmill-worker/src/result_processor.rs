@@ -46,6 +46,7 @@ use crate::{
     AuthedClient, JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult,
     UpdateFlow, INIT_SCRIPT_TAG, SAME_WORKER_REQUIREMENTS,
 };
+use windmill_common::client::AuthedClient;
 
 async fn process_jc(
     jc: JobCompleted,

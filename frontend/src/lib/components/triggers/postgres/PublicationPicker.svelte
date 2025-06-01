@@ -18,8 +18,12 @@
 	export let transaction_to_track: string[] = []
 	export let disabled: boolean = false
 
+	let loadingPublication: boolean = false
+	let deletingPublication: boolean = false
+	let updatingPublication: boolean = false
 	async function listDatabasePublication() {
 		try {
+			loadingPublication = true
 			const publications = await PostgresTriggerService.listPostgresPublication({
 				path: postgres_resource_path,
 				workspace: $workspaceStore!
@@ -28,11 +32,14 @@
 			items = publications
 		} catch (error) {
 			sendUserToast(error.body, true)
+		} finally {
+			loadingPublication = false
 		}
 	}
 
 	async function updatePublication() {
 		try {
+			updatingPublication = true
 			const message = await PostgresTriggerService.updatePostgresPublication({
 				path: postgres_resource_path,
 				workspace: $workspaceStore!,
@@ -45,11 +52,14 @@
 			sendUserToast(message)
 		} catch (error) {
 			sendUserToast(error.body, true)
+		} finally {
+			updatingPublication = false
 		}
 	}
 
 	async function deletePublication() {
 		try {
+			deletingPublication = true
 			const message = await PostgresTriggerService.deletePostgresPublication({
 				path: postgres_resource_path,
 				workspace: $workspaceStore!,
@@ -62,6 +72,8 @@
 			sendUserToast(message)
 		} catch (error) {
 			sendUserToast(error.body, true)
+		} finally {
+			deletingPublication = false
 		}
 	}
 
@@ -91,6 +103,7 @@
 
 <div class="flex gap-1">
 	<Select
+		loading={loadingPublication}
 		disabled={!can_write || disabled}
 		class="grow shrink max-w-full"
 		on:select={async (e) => {
@@ -119,6 +132,7 @@
 		iconOnly
 	/>
 	<Button
+		loading={updatingPublication}
 		color="light"
 		size="xs"
 		variant="border"
@@ -126,6 +140,7 @@
 		on:click={updatePublication}>Update</Button
 	>
 	<Button
+		loading={deletingPublication}
 		color="light"
 		size="xs"
 		variant="border"
