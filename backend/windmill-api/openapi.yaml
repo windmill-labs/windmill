@@ -9821,6 +9821,23 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/postgres_triggers/postgres/version/{path}:
+    get:
+      summary: get postgres version
+      operationId: getPostgresVersion
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: postgres version
+          content:
+            application/json:
+              schema:
+                type: string
+  
   /w/{workspace}/postgres_triggers/is_valid_postgres_configuration/{path}:
     get:
       summary: check if postgres configuration is set to logical
