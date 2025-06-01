@@ -43,8 +43,8 @@ use crate::{
     common::{error_to_value, read_result, save_in_cache},
     otel_ee::add_root_flow_job_to_otlp,
     worker_flow::update_flow_status_after_job_completion,
-    AuthedClient, JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult,
-    UpdateFlow, INIT_SCRIPT_TAG, SAME_WORKER_REQUIREMENTS,
+    JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult, UpdateFlow,
+    INIT_SCRIPT_TAG, SAME_WORKER_REQUIREMENTS,
 };
 use windmill_common::client::AuthedClient;
 
