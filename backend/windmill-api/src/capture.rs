@@ -55,12 +55,9 @@ use crate::mqtt_triggers::{MqttClientVersion, MqttV3Config, MqttV5Config, Subscr
 use crate::nats_triggers_ee::NatsTriggerConfigConnection;
 
 #[cfg(feature = "postgres_trigger")]
-use {
-    crate::postgres_triggers::{
-        create_logical_replication_slot, create_pg_publication, generate_random_string,
-        get_pg_connection, PublicationData,
-    },
-    sqlx::Connection,
+use crate::postgres_triggers::{
+    create_logical_replication_slot, create_pg_publication, generate_random_string,
+    get_default_pg_connection, PublicationData,
 };
 
 use crate::{
@@ -304,13 +301,15 @@ async fn set_postgres_trigger_config(
     user_db: UserDB,
     mut capture_config: NewCaptureConfig,
 ) -> Result<NewCaptureConfig> {
+    use windmill_common::error::to_anyhow;
+
     let Some(TriggerConfig::Postgres(postgres_config)) = capture_config.trigger_config.as_mut()
     else {
         return Err(Error::BadRequest("Invalid postgres config".to_string()));
     };
 
     if postgres_config.basic_mode.unwrap_or(false) {
-        let mut pg_connection = get_pg_connection(
+        let mut pg_connection = get_default_pg_connection(
             authed,
             Some(user_db),
             &db,
@@ -319,22 +318,26 @@ async fn set_postgres_trigger_config(
         )
         .await?;
 
-        let mut tx = pg_connection.begin().await?;
+        let tx = pg_connection.transaction().await.map_err(to_anyhow)?;
 
         let publication_name = format!("windmill_capture_{}", generate_random_string());
         let replication_slot_name = publication_name.clone();
 
-        create_logical_replication_slot(&mut tx, &replication_slot_name).await?;
+        create_logical_replication_slot(tx.client(), &replication_slot_name)
+            .await
+            .map_err(to_anyhow)?;
 
         create_pg_publication(
-            &mut tx,
+            tx.client(),
             &publication_name,
             postgres_config.publication.table_to_track.as_deref(),
             &postgres_config.publication.transaction_to_track,
         )
-        .await?;
+        .await
+        .map_err(to_anyhow)?;
 
-        tx.commit().await?;
+        tx.commit().await.map_err(to_anyhow)?;
+
         postgres_config.publication_name = Some(publication_name);
         postgres_config.replication_slot_name = Some(replication_slot_name);
     } else {
