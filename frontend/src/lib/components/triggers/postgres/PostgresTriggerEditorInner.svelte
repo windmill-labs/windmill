@@ -97,6 +97,7 @@
 	let publicationItems: string[] = $state([])
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
 	let tab: 'advanced' | 'basic' = $state('basic')
+	let basic_mode = $derived(tab === 'basic')
 	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
 	let creatingSlot: boolean = $state(false)
@@ -130,6 +131,7 @@
 				(isBasicTab(tab) && (!relations || relations.length > 0))) &&
 			!errorMessage
 	)
+
 	const postgresConfig = $derived.by(getSaveCfg)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
 
@@ -323,6 +325,7 @@
 	function getCaptureConfig() {
 		return {
 			postgres_resource_path,
+			basic_mode,
 			publication:
 				!edit || tab === 'basic'
 					? {

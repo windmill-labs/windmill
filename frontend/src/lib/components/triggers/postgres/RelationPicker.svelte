@@ -21,12 +21,12 @@
 	let cached: Relations[] | undefined = relations
 
 	$: if (pg14 && relations) {
-		relations.forEach((relation, index) => {
-			if (index === 0 && relation.table_to_track.length === 0) {
+		relations.forEach((relation) => {
+			if (relation.table_to_track.length === 0) {
 				relation.table_to_track.push({ table_name: '' })
 			} else {
 				relation.table_to_track.forEach((table_to_track) => {
-					if (table_to_track.columns_name && table_to_track.columns_name.length > 0) {
+					if (table_to_track.columns_name) {
 						table_to_track.columns_name = undefined
 					}
 					if (!emptyStringTrimmed(table_to_track.where_clause)) {

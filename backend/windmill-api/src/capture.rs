@@ -213,7 +213,6 @@ pub struct PostgresTriggerConfig {
     pub publication_name: Option<String>,
     #[serde(default, deserialize_with = "empty_as_none")]
     pub replication_slot_name: Option<String>,
-    #[serde(flatten)]
     pub publication: PublicationData,
     pub basic_mode: Option<bool>,
 }
