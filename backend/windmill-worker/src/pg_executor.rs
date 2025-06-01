@@ -41,20 +41,20 @@ use crate::common::{
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
-use crate::{AuthedClient, MAX_RESULT_SIZE};
+use crate::MAX_RESULT_SIZE;
 use bytes::Buf;
 use lazy_static::lazy_static;
 use urlencoding::encode;
-
+use windmill_common::client::AuthedClient;
 #[derive(Deserialize)]
-struct PgDatabase {
-    host: String,
-    user: Option<String>,
-    password: Option<String>,
-    port: Option<u16>,
-    sslmode: Option<String>,
-    dbname: String,
-    root_certificate_pem: Option<String>,
+pub struct PgDatabase {
+    pub host: String,
+    pub user: Option<String>,
+    pub password: Option<String>,
+    pub port: Option<u16>,
+    pub sslmode: Option<String>,
+    pub dbname: String,
+    pub root_certificate_pem: Option<String>,
 }
 
 lazy_static! {

@@ -28,7 +28,7 @@
 	import type { Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import TestingBadge from '../testingBadge.svelte'
-	import { handleConfigChange } from '../utils'
+	import { handleConfigChange, type Trigger } from '../utils'
 	import { fade } from 'svelte/transition'
 
 	interface Props {
@@ -38,8 +38,7 @@
 		isEditor?: boolean
 		hideTooltips?: boolean
 		allowDraft?: boolean
-		hasDraft?: boolean
-		isDraftOnly?: boolean
+		trigger?: Trigger
 		isDeployed?: boolean
 		cloudDisabled?: boolean
 		customLabel?: Snippet
@@ -57,8 +56,7 @@
 		isEditor = false,
 		hideTooltips = false,
 		allowDraft = false,
-		hasDraft = false,
-		isDraftOnly = false,
+		trigger = undefined,
 		isDeployed = false,
 		cloudDisabled = false,
 		customLabel = undefined,
@@ -383,7 +381,7 @@
 
 	async function handleToggleEnabled(toggleEnabled: boolean) {
 		enabled = toggleEnabled
-		if (!isDraftOnly && !hasDraft) {
+		if (!trigger?.draftConfig) {
 			await PostgresTriggerService.setPostgresTriggerEnabled({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
@@ -454,8 +452,7 @@
 {#snippet actions()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
-			{isDraftOnly}
-			{hasDraft}
+			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
 			{allowDraft}

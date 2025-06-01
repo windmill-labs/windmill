@@ -10,7 +10,10 @@
 		type RawScript,
 		type InputTransform,
 		type TriggersCount,
-		CaptureService
+		CaptureService,
+
+		type HubScriptKind
+
 	} from '$lib/gen'
 	import { initHistory, push, redo, undo } from '$lib/history'
 	import {
@@ -461,7 +464,7 @@
 				...structuredClone(newSavedFlow),
 				path: $pathStore
 			} as Flow
-			triggersState.setTriggers([])
+			setDraftTriggers([])
 			loadingSave = false
 			dispatch('deploy', $pathStore)
 		} catch (err) {
@@ -566,6 +569,7 @@
 	})
 
 	export async function loadTriggers() {
+		if (initialPath == '') return
 		$triggersCount = await FlowService.getTriggersCountOfFlow({
 			workspace: $workspaceStore!,
 			path: initialPath
@@ -721,7 +725,7 @@
 			$copilotModulesStore[idx].hubCompletions = scripts as {
 				path: string
 				summary: string
-				kind: string
+				kind: HubScriptKind
 				app: string
 				ask_id: number
 				id: number

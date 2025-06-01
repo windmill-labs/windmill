@@ -5,23 +5,21 @@ export function argSigToJsonSchemaType(
 		| string
 		| { resource: string | null }
 		| {
-			list:
-			| (string | { object: { key: string; typ: any }[] })
-			| { str: any }
-			| { object: { key: string; typ: any }[] }
-			| null
-		}
+				list:
+					| (string | { object: { key: string; typ: any }[] })
+					| { str: any }
+					| { object: { key: string; typ: any }[] }
+					| null
+		  }
 		| { dynselect: string }
 		| { str: string[] | null }
 		| { object: { key: string; typ: any }[] }
 		| {
-			oneof: [
-				{
+				oneof: {
 					label: string
 					properties: { key: string; typ: any }[]
-				}
-			]
-		},
+				}[]
+		  },
 	oldS: SchemaProperty
 ): void {
 	const newS: SchemaProperty = { type: '' }
