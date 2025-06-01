@@ -177,7 +177,7 @@ pub async fn create_pg_publication(
                 } else {
                     if pg_14 && first {
                         query.push_str(" TABLE ONLY ");
-                        first = false
+                        first = false;
                     } else if !pg_14 {
                         query.push_str(" TABLE ONLY ");
                     }
