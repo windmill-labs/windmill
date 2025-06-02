@@ -334,6 +334,9 @@
 	) {
 		if (aiChat) {
 			aiChat.addSelectedLinesToContext(e.detail.lines, e.detail.startLine, e.detail.endLine)
+			if (aiPanelSize === 0) {
+				toggleAiPanel()
+			}
 			aiChat.focusTextArea()
 		}
 	}
@@ -523,7 +526,6 @@
 						on:toggleAiPanel={toggleAiPanel}
 						on:addSelectedLinesToAiChat={addSelectedLinesToAiChat}
 						on:toggleTestPanel={toggleTestPanel}
-						isAiPanelOpen={aiPanelSize > 0}
 						cmdEnterAction={async () => {
 							await inferSchema(code)
 							runTest()

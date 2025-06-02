@@ -51,6 +51,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { checkIfParentLoop } from '../utils'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
+	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 
 	const {
 		selectedId,
@@ -64,6 +65,9 @@
 		customUi,
 		executionCount
 	} = getContext<FlowEditorContext>('FlowEditorContext')
+
+	const { toggleAiPanel, addSelectedLinesToAiChat } =
+		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') ?? {}
 
 	export let flowModule: FlowModule
 	export let failureModule: boolean = false
@@ -387,10 +391,11 @@
 									{#key flowModule.id}
 										<Editor
 											on:addSelectedLinesToAiChat={(e) => {
-												// TODO
+												const { lines, startLine, endLine } = e.detail
+												addSelectedLinesToAiChat?.(lines, startLine, endLine)
 											}}
 											on:toggleAiPanel={() => {
-												// TODO
+												toggleAiPanel?.()
 											}}
 											loadAsync
 											folding

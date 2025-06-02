@@ -14,7 +14,7 @@
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
 	import HideButton from '../apps/editor/settingsPanel/HideButton.svelte'
-	import { copilotInfo } from '$lib/stores'
+	import { chatMode, copilotInfo } from '$lib/stores'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let loading: boolean
@@ -51,7 +51,7 @@
 	let storedAiPanelSize = aiPanelSize > 0 ? aiPanelSize : DEFAULT_AI_PANEL_SIZE
 	let mapPanelSize = DEFAULT_MAP_PANEL_SIZE
 
-	export function toggleAiPanel() {
+	export function toggleAiPanel(mode?: 'script' | 'flow') {
 		if (!$copilotInfo.enabled) return
 		if (aiPanelSize > 0) {
 			storedAiPanelSize = aiPanelSize
@@ -62,6 +62,16 @@
 			modulePanelSize -= storedAiPanelSize
 			aiPanelSize = storedAiPanelSize
 			localStorage.setItem('aiPanelOpen', 'true')
+			if (mode) {
+				chatMode.set(mode)
+			}
+		}
+	}
+
+	export function addSelectedLinesToAiChat(lines: string, startLine: number, endLine: number) {
+		flowAIChat?.addSelectedLinesToContext(lines, startLine, endLine)
+		if (getIsAiPanelClosed()) {
+			toggleAiPanel('script')
 		}
 	}
 

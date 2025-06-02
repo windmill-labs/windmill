@@ -375,6 +375,10 @@
 			isPreprocessor: moduleId === 'preprocessor'
 		})
 	}
+
+	export function addSelectedLinesToContext(lines: string, startLine: number, endLine: number) {
+		aiChat?.addSelectedLinesToContext(lines, startLine, endLine)
+	}
 </script>
 
 <AIChat
