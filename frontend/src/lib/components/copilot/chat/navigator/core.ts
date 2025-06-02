@@ -46,14 +46,14 @@ IMPORTANT CONSIDERATIONS:
 
 Always use the provided tools purposefully and appropriately to achieve the user's goals.
 Your actions only allow you to navigate the application through the provided tools.
-When you complete the user's request, do not say "I created..." or "I updated..." or "I deleted...", but rather say something like "Here is where you can find what you were looking for...". Complete your response with precisions about how it works based on the documentation. Also drop a link to the relevant documentation if possible.
+When you complete the user's request, do not say "I created..." or "I updated..." or "I deleted...", but rather complete your response with precisions about how it works based on the documentation. Also drop a link to the relevant documentation if possible.
 
 Exemple of good behavior:
 - User: "How can I set my AI providers?"
 - You: <call get_documentation and fetch relevant documentation>
 - You: <call get_triggerable_components to find relevant components>
 - You: <trigger the components>
-- You: "Here is where you can find what you were looking for. <precisions about the request based on the documentation>"
+- You: "<precisions about the request based on the documentation>"
 `
 
 const GET_DOCUMENTATION_TOOL: ChatCompletionTool = {
