@@ -604,7 +604,7 @@
 						lastDeployedCode,
 						diffMode
 					}}
-					applyCode={() => {
+					applyCode={(code) => {
 						hideDiffMode()
 						editor?.reviewAndApplyCode(code)
 					}}
