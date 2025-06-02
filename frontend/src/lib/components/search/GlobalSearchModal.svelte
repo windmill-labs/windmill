@@ -239,6 +239,7 @@
 	let defaultMenuItemLabels = defaultMenuItems.map((item) => item.label)
 	let defaultMenuItemAndHiddenLabels = defaultMenuItemsWithHidden.map((item) => item.label)
 	let switchModeItemLabels = switchModeItems.map((item) => item.label)
+	let askAiButton: AskAiButton | undefined
 
 	function fuzzyFilter(filter: string, items: any[], itemsPlainText: string[]) {
 		if (filter === '') {
@@ -369,6 +370,9 @@
 						if (el) scroll_into_view_if_needed_polyfill(el, false)
 					}
 				}
+			}
+			if ((itemMap[tab] ?? []).length === 0 && searchTerm.length > 0 && event.key === 'Enter') {
+				askAiButton?.onClick()
 			}
 		}
 	}
@@ -617,6 +621,7 @@
 					</div>
 					{#if (itemMap[tab] ?? []).length === 0 && searchTerm.length > 0}
 						<AskAiButton
+							bind:this={askAiButton}
 							label="Ask AI"
 							initialInput={searchTerm}
 							onClick={() => {

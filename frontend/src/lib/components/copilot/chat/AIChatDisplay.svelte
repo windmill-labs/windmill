@@ -15,6 +15,7 @@
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import { chatMode } from '$lib/stores'
+	import Markdown from 'svelte-exmarkdown'
 
 	let {
 		allowedModes,
@@ -32,7 +33,10 @@
 		cancel,
 		askAi = () => {}, // todo: remove default,
 		headerLeft,
-		headerRight
+		headerRight,
+		disabled = false,
+		disabledMessage = '',
+		suggestions = []
 	}: {
 		allowedModes: {
 			script: boolean
@@ -54,6 +58,9 @@
 		askAi?: (instructions: string, options?: { withCode?: boolean; withDiff?: boolean }) => void
 		headerLeft?: Snippet
 		headerRight?: Snippet
+		disabled?: boolean
+		disabledMessage?: string
+		suggestions?: string[]
 	} = $props()
 
 	const { loading, currentReply } = getContext<AIChatContext>('AIChatContext')
@@ -104,6 +111,11 @@
 			}
 		}
 		return -1
+	}
+
+	function submitSuggestion(suggestion: string) {
+		instructions = suggestion
+		sendRequest()
 	}
 
 	const lastUserMessageIndex = $derived(findLastIndex(messages, (m) => m.role === 'user'))
@@ -294,6 +306,7 @@
 					}
 				}}
 				on:updateInstructions={(e) => (instructions = e.detail.value)}
+				{disabled}
 			/>
 		{:else}
 			<div class="relative w-full px-2 scroll-pb-2 pt-2">
@@ -309,6 +322,7 @@
 					rows={3}
 					placeholder={messages.length === 0 ? 'Ask anything' : 'Ask followup'}
 					class="resize-none"
+					{disabled}
 				></textarea>
 			</div>
 		{/if}
@@ -320,10 +334,32 @@
 			{#if $chatMode === 'script' && hasDiff}
 				<ChatQuickActions {askAi} {diffMode} />
 			{/if}
-			<div class="flex flex-row gap-2 min-w-0">
-				<ChatMode {allowedModes} />
-				<ProviderModelSelector />
-			</div>
+			{#if disabled}
+				<div class="text-tertiary text-xs mt-2 px-2">
+					<Markdown md={disabledMessage} />
+				</div>
+			{:else}
+				<div class="flex flex-row gap-2 min-w-0">
+					<ChatMode {allowedModes} />
+					<ProviderModelSelector />
+				</div>
+			{/if}
 		</div>
+		{#if suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
+			<div class="px-2 mt-4">
+				<div class="flex flex-col gap-2">
+					{#each suggestions as suggestion}
+						<Button
+							on:click={() => submitSuggestion(suggestion)}
+							size="xs2"
+							color="light"
+							btnClasses="whitespace-normal text-center font-normal"
+						>
+							{suggestion}
+						</Button>
+					{/each}
+				</div>
+			</div>
+		{/if}
 	</div>
 </div>

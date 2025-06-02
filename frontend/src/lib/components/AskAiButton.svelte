@@ -11,7 +11,7 @@
 
 	const { label, initialInput, onClick: onClickProp }: Props = $props()
 
-	const onClick = () => {
+	export function onClick() {
 		globalChatOpen.set(true)
 		if (initialInput) {
 			globalChatInitialInput.set(initialInput)

@@ -189,7 +189,7 @@
 				color="dark"
 				size="xs2"
 				on:click={() => {
-					applyCode(code ?? '')
+					applyCode?.(code ?? '')
 				}}
 			>
 				Apply

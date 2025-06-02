@@ -30,15 +30,13 @@
 		ChatCompletionMessageParam,
 		ChatCompletionSystemMessageParam
 	} from 'openai/resources/index.mjs'
-<<<<<<< HEAD
 	import { chatMode, copilotSessionModel, dbSchemas, workspaceStore } from '$lib/stores'
-=======
 	import {
 		navigatorTools,
 		prepareNavigatorSystemMessage,
 		prepareNavigatorUserMessage
 	} from './navigator/core'
->>>>>>> 332040744 (integrate navigator mode)
+	import { globalChatInitialInput } from '$lib/stores'
 	interface Props {
 		scriptOptions?: ScriptOptions
 		flowHelpers?: FlowAIChatHelpers & {
@@ -49,6 +47,9 @@
 		applyCode?: (code: string) => void
 		headerLeft?: Snippet
 		headerRight?: Snippet
+		suggestions?: string[]
+		disabled?: boolean
+		disabledMessage?: string
 	}
 
 	let {
@@ -58,7 +59,10 @@
 		showDiffMode,
 		headerLeft,
 		headerRight,
-		navigatorMode = false
+		navigatorMode = false,
+		disabled = false,
+		disabledMessage = '',
+		suggestions = []
 	}: Props = $props()
 
 	let instructions = $state('')
@@ -69,23 +73,14 @@
 		flow: flowHelpers !== undefined,
 		navigator: navigatorMode
 	})
-<<<<<<< HEAD
-
-	async function updateMode(currentMode: 'script' | 'flow') {
-		if (!allowedModes[currentMode]) {
-			chatMode.set(currentMode === 'script' ? 'flow' : 'script')
-=======
-	let mode: 'script' | 'flow' | 'navigator' = $state(
-		flowHelpers ? 'flow' : scriptOptions ? 'script' : 'navigator'
-	)
 
 	async function updateMode(currentMode: 'script' | 'flow' | 'navigator') {
 		if (!allowedModes[currentMode] && Object.keys(allowedModes).length === 1) {
 			const firstKey = Object.keys(allowedModes)[0]
-			mode = firstKey as 'script' | 'flow' | 'navigator'
->>>>>>> 332040744 (integrate navigator mode)
+			chatMode.set(firstKey as 'script' | 'flow' | 'navigator')
 		}
 	}
+
 	$effect(() => {
 		updateMode(untrack(() => $chatMode))
 	})
@@ -93,6 +88,14 @@
 	let displayMessages: DisplayMessage[] = $state([])
 	let abortController: AbortController | undefined = undefined
 	let messages: ChatCompletionMessageParam[] = $state([])
+
+	$effect(() => {
+		if ($globalChatInitialInput.length > 0) {
+			instructions = $globalChatInitialInput
+			globalChatInitialInput.set('')
+			sendRequest()
+		}
+	})
 
 	setContext<AIChatContext>('AIChatContext', {
 		loading,
@@ -141,15 +144,11 @@
 			instructions = ''
 
 			const systemMessage =
-<<<<<<< HEAD
-				$chatMode === 'script' ? prepareScriptSystemMessage() : prepareFlowSystemMessage()
-=======
-				mode === 'script'
+				$chatMode === 'script'
 					? prepareScriptSystemMessage()
-					: mode === 'flow'
+					: $chatMode === 'flow'
 						? prepareFlowSystemMessage()
 						: prepareNavigatorSystemMessage()
->>>>>>> 332040744 (integrate navigator mode)
 
 			if ($chatMode === 'flow' && !flowHelpers) {
 				throw new Error('No flow helpers passed')
@@ -402,4 +401,7 @@
 		!!scriptOptions.lastDeployedCode &&
 		scriptOptions.lastDeployedCode !== scriptOptions.code}
 	diffMode={scriptOptions?.diffMode ?? false}
+	{disabled}
+	{disabledMessage}
+	{suggestions}
 ></AIChatDisplay>
