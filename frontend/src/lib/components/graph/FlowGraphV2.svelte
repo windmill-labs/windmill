@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { FlowService, type FlowModule } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
-	import { createEventDispatcher, getContext, onDestroy, setContext, tick } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, setContext, tick, untrack } from 'svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/base.css'
@@ -15,11 +15,16 @@
 		ControlButton,
 		SvelteFlowProvider
 	} from '@xyflow/svelte'
-	import { graphBuilder, isTriggerStep, type SimplifiableFlow } from './graphBuilder.svelte'
+	import {
+		graphBuilder,
+		isTriggerStep,
+		type NodeLayout,
+		type SimplifiableFlow
+	} from './graphBuilder.svelte'
 	import ModuleNode from './renderers/nodes/ModuleNode.svelte'
 	import InputNode from './renderers/nodes/InputNode.svelte'
 	import BranchAllStart from './renderers/nodes/BranchAllStart.svelte'
-	import BranchAllEndNode from './renderers/nodes/branchAllEndNode.svelte'
+	import BranchAllEndNode from './renderers/nodes/BranchAllEndNode.svelte'
 	import ForLoopEndNode from './renderers/nodes/ForLoopEndNode.svelte'
 	import ForLoopStartNode from './renderers/nodes/ForLoopStartNode.svelte'
 	import ResultNode from './renderers/nodes/ResultNode.svelte'
@@ -145,7 +150,7 @@
 		)
 	}
 
-	function layoutNodes(nodes: Node[]): Node[] {
+	function layoutNodes(nodes: NodeLayout[]): Node[] {
 		let seenId: string[] = []
 		for (const n of nodes) {
 			if (seenId.includes(n.id)) {
@@ -154,27 +159,27 @@
 			seenId.push(n.id)
 		}
 
-		const flattenParentIds = nodes.map((n) => ({
-			...n,
-			parentIds: n.data?.parentIds ?? []
-		})) as any
-
-		const stratify = dagStratify().id(({ id }: Node) => id)
-		const dag = stratify(flattenParentIds)
+		const dag = dagStratify().id(({ id }: Node) => id)(nodes)
 
 		let boxSize: any
 		try {
 			const layout = sugiyama()
 				.decross(nodes.length > 20 ? decrossTwoLayer() : decrossOpt())
 				.coord(coordCenter())
-				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
-			boxSize = layout(dag)
+				.nodeSize(
+					(d) =>
+						[NODE.width + NODE.gap.horizontal * 1, NODE.height + NODE.gap.vertical] as readonly [
+							number,
+							number
+						]
+				)
+			boxSize = layout(dag as any)
 		} catch {
 			const layout = sugiyama()
 				.decross(decrossTwoLayer())
 				.coord(coordCenter())
 				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
-			boxSize = layout(dag)
+			boxSize = layout(dag as any)
 		}
 
 		const newNodes = dag.descendants().map((des) => ({
@@ -252,6 +257,7 @@
 	let moduleCounter = $state(0)
 	function onModulesChange2(modules) {
 		if (!deepEqual(modules, lastModules)) {
+			console.log('modules changed', modules)
 			lastModules = structuredClone(modules)
 			moduleCounter++
 		}
@@ -324,9 +330,10 @@
 		modules && onModulesChange2(modules)
 	})
 	let graph = $derived.by(() => {
+		console.log('graph', moduleCounter)
 		moduleCounter
 		return graphBuilder(
-			modules,
+			untrack(() => modules),
 			{
 				disableAi,
 				insertable,

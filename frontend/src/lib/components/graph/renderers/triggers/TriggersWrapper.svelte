@@ -3,7 +3,6 @@
 	import { createEventDispatcher } from 'svelte'
 	import type { TriggerType } from '$lib/components/triggers/utils'
 	import TriggersBadge from './TriggersBadge.svelte'
-	import type { FlowModule } from '$lib/gen'
 	import { Plus } from 'lucide-svelte'
 	import InsertModuleInner from '$lib/components/flows/map/InsertModuleInner.svelte'
 	import AddTriggersButton from '$lib/components/triggers/AddTriggersButton.svelte'
@@ -15,7 +14,6 @@
 		selected: boolean
 		isEditor?: boolean
 		disableAi?: boolean
-		modules?: FlowModule[]
 		bgColor: string
 		bgHoverColor?: string
 		showDraft?: boolean
@@ -29,7 +27,6 @@
 		selected,
 		isEditor = false,
 		disableAi = false,
-		modules = [],
 		bgColor,
 		bgHoverColor = '',
 		showDraft,
@@ -118,7 +115,6 @@
 			}}
 			kind="trigger"
 			index={0}
-			{modules}
 		/>
 	</div>
 {/snippet}

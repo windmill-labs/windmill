@@ -81,7 +81,7 @@
 	}
 	const { modulesStore } = flowCopilotContext
 
-	async function genFlow(idx: number, flowModules: FlowModule[], stepOnly = false) {
+	async function genFlow(idx: number, stepOnly = false) {
 		let module = stepOnly ? $modulesStore[0] : $modulesStore[idx]
 
 		if (module && module.selectedCompletion) {
@@ -101,7 +101,7 @@
 
 			$flowStateStore[module.id] = hubScriptState
 
-			flowModules.splice(idx, 0, flowModule)
+			$flowStore.value.modules.splice(idx, 0, flowModule)
 			$flowStore = $flowStore
 			sendUserToast('Added module', false)
 		}

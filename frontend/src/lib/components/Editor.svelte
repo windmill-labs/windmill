@@ -207,7 +207,7 @@
 	let websocketInterval: NodeJS.Timeout | undefined
 	let lastWsAttempt: Date = new Date()
 	let nbWsAttempt = 0
-	let disposeMethod: () => void | undefined
+	let disposeMethod: (() => void) | undefined
 	const dispatch = createEventDispatcher()
 	let graphqlService: MonacoGraphQLAPI | undefined = undefined
 

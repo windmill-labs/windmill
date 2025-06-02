@@ -45,7 +45,7 @@ export type FlowCopilotContext = {
 	drawerStore: Writable<Drawer | undefined>
 	modulesStore: Writable<FlowCopilotModule[]>
 	currentStepStore: Writable<string | undefined>
-	genFlow: ((i: number, modules: FlowModule[], stepOnly?: boolean) => Promise<void>) | undefined
+	genFlow: ((i: number, stepOnly?: boolean) => Promise<void>) | undefined
 	shouldUpdatePropertyType: Writable<{
 		[key: string]: 'static' | 'javascript' | undefined
 	}>
@@ -265,12 +265,12 @@ export async function stepCopilot(
 		module.type === 'trigger'
 			? triggerPrompts[lang]
 			: // : module.type === 'preprocessor'
-			// 	? preprocessorPrompts[lang]
-			pastModule === undefined
-			? firstActionPrompt
-			: isFirstInLoop
-			? loopActionPrompt
-			: actionPrompt
+				// 	? preprocessorPrompts[lang]
+				pastModule === undefined
+				? firstActionPrompt
+				: isFirstInLoop
+					? loopActionPrompt
+					: actionPrompt
 
 	const { prevCode, prevLang } = pastModule
 		? await getPreviousStepContent(pastModule, workspace)

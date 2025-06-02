@@ -8,20 +8,16 @@
 	import { charsToNumber } from '../flows/idUtils'
 	import { copilotInfo } from '$lib/stores'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import type { FlowModule } from '$lib/gen'
-	import type { FlowEditorContext } from '../flows/types'
 	import { ExternalLink, Wand2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	export let copilotLoading: boolean
 	export let copilotStatus: string
 	export let abortController: AbortController | undefined
-	export let genFlow: (index: number, modules: FlowModule[], stepOnly?: boolean) => void
+	export let genFlow: (index: number, stepOnly?: boolean) => void
 	export let finishCopilotFlowBuilder: () => void
 
 	let copilotPopover: ManualPopover | undefined = undefined
-
-	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const { modulesStore, drawerStore, currentStepStore } =
 		getContext<FlowCopilotContext>('FlowCopilotContext')
@@ -57,7 +53,7 @@
 				? undefined
 				: {
 						icon: Wand2
-				  }}
+					}}
 			color={copilotLoading || ($currentStepStore !== undefined && $currentStepStore !== 'Input')
 				? 'red'
 				: 'light'}
@@ -72,8 +68,8 @@
 			{copilotLoading
 				? 'Stop'
 				: $currentStepStore !== undefined && $currentStepStore !== 'Input'
-				? 'Exit'
-				: 'AI Builder'}
+					? 'Exit'
+					: 'AI Builder'}
 		</Button>
 		<div slot="content" class="text-sm flex flex-row items-center z-[901]">
 			<span class="font-semibold">
@@ -102,7 +98,7 @@
 						if (stepNb >= $modulesStore.length - 1) {
 							finishCopilotFlowBuilder()
 						} else {
-							genFlow(stepNb + 1, $flowStore.value.modules)
+							genFlow(stepNb + 1)
 						}
 					}}
 				>

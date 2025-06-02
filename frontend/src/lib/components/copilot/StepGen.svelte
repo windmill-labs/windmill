@@ -3,7 +3,7 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import type { FlowCopilotContext, FlowCopilotModule } from './flow'
-	import { ScriptService, type FlowModule, type Script } from '$lib/gen'
+	import { ScriptService, type Script } from '$lib/gen'
 	import { APP_TO_ICON_COMPONENT } from '../icons'
 	import { sendUserToast } from '$lib/toast'
 	import { nextId } from '../flows/flowModuleNextId'
@@ -15,7 +15,6 @@
 	export let open: boolean | undefined
 	export let close: () => void
 	export let funcDesc: string
-	export let modules: FlowModule[]
 	export let trigger = false
 	export let disableAi = false
 
@@ -90,7 +89,7 @@
 				lang
 			}
 		]
-		genFlow?.(index, modules, true)
+		genFlow?.(index, true)
 	}
 
 	const dispatch = createEventDispatcher()

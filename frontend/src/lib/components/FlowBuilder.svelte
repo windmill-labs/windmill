@@ -11,9 +11,7 @@
 		type InputTransform,
 		type TriggersCount,
 		CaptureService,
-
 		type HubScriptKind
-
 	} from '$lib/gen'
 	import { initHistory, push, redo, undo } from '$lib/history'
 	import {
@@ -831,7 +829,7 @@
 				?.substring(e.slice(0, 1).match(/([A-Z])/g) ? 1 : 0) ?? e
 		)
 	}
-	async function genFlow(idx: number, flowModules: FlowModule[], stepOnly = false) {
+	async function genFlow(idx: number, stepOnly = false) {
 		try {
 			push(history, $flowStore)
 			let module = stepOnly ? $copilotModulesStore[0] : $copilotModulesStore[idx]
@@ -841,10 +839,10 @@
 			$copilotCurrentStepStore = module.id
 			focusCopilot()
 
-			if (!stepOnly && flowModules.length > idx) {
+			if (!stepOnly && $flowStore.value.modules.length > idx) {
 				select('')
 				await tick()
-				flowModules.splice(idx, flowModules.length - idx)
+				$flowStore.value.modules.splice(idx, $flowStore.value.modules.length - idx)
 				$flowStore = $flowStore
 				focusCopilot()
 			}
@@ -895,7 +893,7 @@
 			}
 
 			if (stepOnly) {
-				flowModules.splice(idx, 0, flowModule)
+				$flowStore.value.modules.splice(idx, 0, flowModule)
 			} else if (idx === 1 && $copilotModulesStore[idx - 1].type === 'trigger') {
 				const loopModule: FlowModule = {
 					id: module.id + '_loop',
@@ -911,9 +909,9 @@
 				}
 				const loopState = await loadFlowModuleState(loopModule)
 				$flowStateStore[loopModule.id] = loopState
-				flowModules.push(loopModule)
+				$flowStore.value.modules.push(loopModule)
 			} else {
-				flowModules.push(flowModule)
+				$flowStore.value.modules.push(flowModule)
 			}
 
 			$copilotDrawerStore?.closeDrawer()

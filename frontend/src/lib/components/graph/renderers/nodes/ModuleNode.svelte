@@ -2,24 +2,23 @@
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
-	import type { FlowModule, FlowModuleValue } from '$lib/gen'
 	import { GitBranchPlus, Maximize2 } from 'lucide-svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { GraphEventHandlers } from '../../graphBuilder.svelte'
 	import type { GraphModuleState } from '../../model'
 	import { getStateColor, getStateHoverColor } from '../../util'
+	import type { FlowModule } from '$lib/gen'
 
 	interface Props {
 		data: {
 			offset: number
-			value: FlowModuleValue
-			module: FlowModule
 			insertable: boolean
 			insertableEnd: boolean
+			module: FlowModule
 			branchable: boolean
 			bgColor: string
-			modules: FlowModule[]
 			moving: string | undefined
+			id: string
 			disableAi: boolean
 			wrapperId: string | undefined
 			retries: number | undefined
@@ -35,12 +34,12 @@
 
 	let { data }: Props = $props()
 
-	let type = $derived(data.flowModuleStates?.[data.module.id]?.type)
+	let type = $derived(data.flowModuleStates?.[data.id]?.type)
 	if (!type && data.flowJobs) {
 		type = 'InProgress'
 	}
 
-	let moduleState = $derived(data.flowModuleStates?.[data.module.id])
+	let moduleState = $derived(data.flowModuleStates?.[data.id])
 	let flowJobs = $derived(
 		moduleState?.flow_jobs
 			? {
@@ -62,7 +61,7 @@
 				onclick={stopPropagation(
 					preventDefault(() => {
 						if (data.module.value.type == 'flow') {
-							data.eventHandlers.expandSubflow(data.module.id, data.module.value.path)
+							data.eventHandlers.expandSubflow(data.id, data.module.value.path)
 						}
 					})
 				)}
@@ -99,16 +98,16 @@
 				data.eventHandlers.changeId(e.detail)
 			}}
 			on:move={(e) => {
-				data.eventHandlers.move({ id: data.module.id })
+				data.eventHandlers.move({ id: data.id })
 			}}
 			on:newBranch={(e) => {
-				data.eventHandlers.newBranch(data.module.id)
+				data.eventHandlers.newBranch(data.id)
 			}}
 			on:select={(e) => {
 				setTimeout(() => data.eventHandlers.select(e.detail))
 			}}
 			on:selectedIteration={(e) => {
-				data.eventHandlers.selectedIteration(e.detail, data.module.id)
+				data.eventHandlers.selectedIteration(e.detail, data.id)
 			}}
 			on:updateMock={() => {
 				data.eventHandlers.updateMock()
@@ -116,12 +115,12 @@
 		/>
 
 		<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10">
-			{#if (data.value.type === 'branchall' || data.value.type === 'branchone') && data.insertable}
+			{#if (data.module.value.type === 'branchall' || data.module.value.type === 'branchone') && data.insertable}
 				<button
 					title="Add branch"
 					class="rounded text-secondary border hover:bg-surface-hover bg-surface p-1"
 					onclick={() => {
-						data?.eventHandlers?.newBranch(data.module.id)
+						data?.eventHandlers?.newBranch(data.id)
 					}}
 				>
 					<GitBranchPlus size={16} />

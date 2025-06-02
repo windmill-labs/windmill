@@ -9,7 +9,7 @@
 	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import PickHubScriptQuick from '../pickers/PickHubScriptQuick.svelte'
-	import { type Script, type FlowModule } from '$lib/gen'
+	import { type Script } from '$lib/gen'
 	import ListFiltersQuick from '$lib/components/home/ListFiltersQuick.svelte'
 	import { Folder, User } from 'lucide-svelte'
 	import type { FlowCopilotContext, FlowCopilotModule } from '../../copilot/flow'
@@ -34,7 +34,6 @@
 	export let preFilter: 'all' | 'workspace' | 'hub' = 'hub'
 	export let funcDesc: string
 	export let index: number
-	export let modules: FlowModule[]
 	export let owners: string[] = []
 	export let loading = false
 	export let small = false
@@ -107,7 +106,7 @@
 				lang
 			}
 		]
-		genFlow?.(index, modules, true)
+		genFlow?.(index, true)
 		dispatch('close')
 	}
 
@@ -375,8 +374,8 @@
 									lang == 'docker'
 										? 'docker'
 										: selectedKind == 'preprocessor'
-										? 'preprocessor'
-										: 'flow',
+											? 'preprocessor'
+											: 'flow',
 								summary
 							}
 						})

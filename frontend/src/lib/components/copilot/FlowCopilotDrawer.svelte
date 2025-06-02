@@ -9,11 +9,10 @@
 	import type { FlowCopilotContext } from './flow'
 	import Alert from '../common/alert/Alert.svelte'
 	import type { FlowEditorContext } from '../flows/types'
-	import type { FlowModule } from '$lib/gen'
 	import { Plus, Wand2, X } from 'lucide-svelte'
 
 	export let getHubCompletions: (text: string, idx: number, type: 'trigger' | 'script') => void
-	export let genFlow: (index: number, modules: FlowModule[], stepOnly?: boolean) => void
+	export let genFlow: (index: number, stepOnly?: boolean) => void
 	export let flowCopilotMode: 'trigger' | 'sequence'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -126,12 +125,12 @@
 										<div class="text-primary flex-wrap text-sm font-medium">
 											{copilotModule.source === 'hub' && copilotModule.selectedCompletion
 												? copilotModule.selectedCompletion.summary +
-												  ' (' +
-												  copilotModule.selectedCompletion.app +
-												  ')'
+													' (' +
+													copilotModule.selectedCompletion.app +
+													')'
 												: `Generate "${copilotModule.description}" in ${
 														copilotModule.lang === 'bun' ? 'TypeScript' : 'Python'
-												  }`}
+													}`}
 										</div>
 									</div>
 								</div>
@@ -301,9 +300,7 @@
 
 			<Button
 				on:click={() =>
-					$currentStepStore !== undefined
-						? genFlow(charsToNumber($currentStepStore), $flowStore.value.modules)
-						: genFlow(0, $flowStore.value.modules)}
+					$currentStepStore !== undefined ? genFlow(charsToNumber($currentStepStore)) : genFlow(0)}
 				spacingSize="md"
 				startIcon={{ icon: Wand2 }}
 				disabled={$modulesStore.find((m) => m.source === undefined) !== undefined}

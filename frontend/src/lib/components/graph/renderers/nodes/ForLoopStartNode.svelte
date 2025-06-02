@@ -4,26 +4,18 @@
 	import type { FlowModule, FlowStatusModule } from '$lib/gen'
 	import { getStateColor, getStateHoverColor } from '../../util'
 	import type { GraphModuleState } from '../../model'
-	import type { GraphEventHandlers } from '../../graphBuilder.svelte'
 	import { getContext } from 'svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
+	import type { ForLoopStartN } from '../../graphBuilder.svelte'
 
-	export let data: {
-		offset: number
-		id: string
-		modules: FlowModule[]
-		module: FlowModule
-		flowModuleStates: Record<string, GraphModuleState> | undefined
-		eventHandlers: GraphEventHandlers
-		simplifiedTriggerView: boolean
-		selectedId: string
-		editMode: boolean
+	interface Props {
+		data: ForLoopStartN['data']
 	}
+
+	let { data }: Props = $props()
 
 	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
 	const pickablePropertiesFiltered = propPickerContext?.pickablePropertiesFiltered
-
-	$: filteredInput = filterIterFromInput($pickablePropertiesFiltered?.flow_input)
 
 	function filterIterFromInput(inputJson: Record<string, any> | undefined): Record<string, any> {
 		if (!inputJson || typeof inputJson !== 'object' || (!inputJson.iter && !inputJson.iter_parent))
@@ -69,23 +61,26 @@
 		}
 		return 'none'
 	}
+	let filteredInput = $derived(filterIterFromInput($pickablePropertiesFiltered?.flow_input))
 </script>
 
-<NodeWrapper let:darkMode offset={data.offset}>
-	<VirtualItem
-		label={data.simplifiedTriggerView ? 'For each new event' : 'Do one iteration'}
-		selectable={false}
-		selected={false}
-		id={data.id}
-		hideId
-		bgColor={getStateColor(undefined, darkMode)}
-		bgHoverColor={getStateHoverColor(undefined, darkMode)}
-		borderColor={getStateColor(computeStatus(data.flowModuleStates?.[data.id]), darkMode)}
-		on:select={(e) => {
-			setTimeout(() => data?.eventHandlers?.select(e.detail))
-		}}
-		inputJson={filteredInput}
-		prefix="flow_input"
-		editMode={data.editMode}
-	/>
+<NodeWrapper offset={data.offset}>
+	{#snippet children({ darkMode })}
+		<VirtualItem
+			label={data.simplifiedTriggerView ? 'For each new event' : 'Do one iteration'}
+			selectable={false}
+			selected={false}
+			id={data.id}
+			hideId
+			bgColor={getStateColor(undefined, darkMode)}
+			bgHoverColor={getStateHoverColor(undefined, darkMode)}
+			borderColor={getStateColor(computeStatus(data.flowModuleStates?.[data.id]), darkMode)}
+			on:select={(e) => {
+				setTimeout(() => data?.eventHandlers?.select(e.detail))
+			}}
+			inputJson={filteredInput}
+			prefix="flow_input"
+			editMode={data.editMode}
+		/>
+	{/snippet}
 </NodeWrapper>

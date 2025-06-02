@@ -38,7 +38,7 @@
 		}
 	} = $props()
 
-	let [edgePath, labelX, labelY] = $derived(
+	let [edgePath] = $derived(
 		getBezierPath({
 			sourceX,
 			sourceY: targetY - sourceY > 100 ? targetY - 100 : sourceY,
@@ -57,7 +57,7 @@
 	)
 </script>
 
-<EdgeLabel x={labelX} y={labelY} class="base-edge" style="">
+<EdgeLabel x={sourceX} y={sourceY + 22} class="base-edge" style="">
 	{#if data?.insertable && !$useDataflow && !data?.moving}
 		<div
 			class={twMerge('edgeButtonContainer nodrag nopan top-0')}
