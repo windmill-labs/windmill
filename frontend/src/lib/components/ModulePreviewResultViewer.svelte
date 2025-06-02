@@ -6,7 +6,7 @@
 	import type Editor from './Editor.svelte'
 	import type { Script, Job, FlowModule } from '$lib/gen'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { Pane, Splitpanes } from '$lib/components/splitPanes'
 	import type { FlowEditorContext } from './flows/types'
 	import { getContext } from 'svelte'
 
@@ -38,8 +38,8 @@
 	let forceJson = false
 </script>
 
-<Splitpanes horizontal>
-	<Pane size={50} minSize={10} class="text-sm text-tertiary">
+<Splitpanes horizontal id={`module-preview-result-viewer-${mod.id}`} defaultSizes={[50, 50]}>
+	<Pane index={0} minSize={10} class="text-sm text-tertiary">
 		{#if scriptProgress}
 			<JobProgressBar
 				job={testJob}
@@ -82,7 +82,7 @@
 			</svelte:fragment>
 		</OutputPickerInner>
 	</Pane>
-	<Pane size={50} minSize={10}>
+	<Pane index={1} minSize={10}>
 		{#if (mod.mock?.enabled && preview != 'job') || preview == 'mock'}
 			<LogViewer
 				small
