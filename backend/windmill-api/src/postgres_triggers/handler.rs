@@ -854,12 +854,11 @@ pub async fn update_pg_publication(
 ) -> Result<()> {
     let quoted_publication_name = quote_identifier(publication_name);
     let transaction_to_track_as_str = transaction_to_track.iter().join(",");
-
     match table_to_track {
         Some(ref relations) if !relations.is_empty() => {
             // If all_table is None, the publication does not exist yet
             if all_table.unwrap_or(true) {
-                if all_table.is_some() {
+                if all_table.is_some_and(|all_table| all_table) {
                     drop_publication(pg_connection, publication_name)
                         .await
                         .map_err(to_anyhow)?;
