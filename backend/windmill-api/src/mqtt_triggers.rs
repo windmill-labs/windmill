@@ -39,7 +39,7 @@ use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{FromRow, Type};
 use std::collections::HashMap;
 use std::time::Duration;
-use windmill_audit::{audit_ee::audit_log, ActionKind};
+use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{self, JsonResult},

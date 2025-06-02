@@ -1,5 +1,5 @@
 #[cfg(feature = "enterprise")]
-use crate::ee::ExternalJwks;
+use crate::ee_oss::ExternalJwks;
 use axum::{
     async_trait,
     extract::{FromRequestParts, OriginalUri, Query},
@@ -71,7 +71,7 @@ impl AuthCache {
             }
             #[cfg(feature = "enterprise")]
             _ if token.starts_with("jwt_ext_") => {
-                let authed_and_exp = match crate::ee::jwt_ext_auth(
+                let authed_and_exp = match crate::ee_oss::jwt_ext_auth(
                     w_id.as_ref(),
                     token.trim_start_matches("jwt_ext_"),
                     self.ext_jwks.clone(),

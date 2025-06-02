@@ -20,7 +20,7 @@ use tokio::{
 };
 use uuid::Uuid;
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
-use windmill_common::ee::{get_license_plan, LicensePlan};
+use windmill_common::ee_oss::{get_license_plan, LicensePlan};
 use windmill_common::{
     error::{
         self,

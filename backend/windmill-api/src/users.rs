@@ -42,7 +42,7 @@ use sqlx::FromRow;
 use time::OffsetDateTime;
 use tower_cookies::{Cookie, Cookies};
 use tracing::Instrument;
-use windmill_audit::audit_ee::{audit_log, AuditAuthor};
+use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 use windmill_common::auth::fetch_authed_from_permissioned_as;
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
@@ -1508,7 +1508,7 @@ async fn create_user(
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Json(nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
-    crate::users_ee::create_user(authed, db, webhook, argon2, nu).await
+    crate::users_oss::create_user(authed, db, webhook, argon2, nu).await
 }
 
 async fn delete_workspace_user(
@@ -1582,7 +1582,7 @@ async fn set_password(
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
     let email = authed.email.clone();
-    crate::users_ee::set_password(db, argon2, authed, &email, ep).await
+    crate::users_oss::set_password(db, argon2, authed, &email, ep).await
 }
 
 async fn set_password_of_user(
@@ -1593,7 +1593,7 @@ async fn set_password_of_user(
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    crate::users_ee::set_password(db, argon2, authed, &email, ep).await
+    crate::users_oss::set_password(db, argon2, authed, &email, ep).await
 }
 
 async fn set_login_type(

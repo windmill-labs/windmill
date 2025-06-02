@@ -4,7 +4,6 @@ script_dirpath="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root_dirpath="$(cd "${script_dirpath}/.." && pwd)"
 
 REVERT="NO"
-REVERT_PREVIOUS="NO"
 COPY="NO"
 EE_CODE_DIR="../windmill-ee-private/"
 
@@ -16,13 +15,6 @@ while [[ $# -gt 0 ]]; do
       # this to work (commit hooks should prevent this from happening, as well as the fact
       # that we're using symlinks by default).
       REVERT="YES"
-      shift
-      ;;
-    --revert-previous)
-      # This is a special case of --revert that will revert to the previous commit.
-      REVERT="YES"
-      REVERT_PREVIOUS="YES"
-      echo "Reverting to previous commit"
       shift
       ;;
     -c|--copy)
@@ -70,29 +62,19 @@ if [ "$REVERT" == "YES" ]; then
   for ee_file in $(find ${EE_CODE_DIR} -name "*ee.rs"); do
     ce_file="${ee_file/${EE_CODE_DIR}/}"
     ce_file="${root_dirpath}/backend/${ce_file}"
-    if [ "$REVERT_PREVIOUS" == "YES" ]; then
-      git checkout HEAD@{3} ${ce_file} || true
-    else
-      git restore --staged ${ce_file} || true
-      git restore ${ce_file} || true
-    fi
+    rm ${ce_file}
   done
 else
   # This replaces all files in current repo with alternative EE files in windmill-ee-private
   for ee_file in $(find "${EE_CODE_DIR}" -name "*ee.rs"); do
-    ce_file="${ee_file/${EE_CODE_DIR}/}"
-    ce_file="${root_dirpath}/backend/${ce_file}"
-    if [[ -f "${ce_file}" ]]; then
-      rm "${ce_file}"
-      if [ "$COPY" == "YES" ]; then
-        cp "${ee_file}" "${ce_file}"
-        echo "File copied '${ee_file}' -->> '${ce_file}'"
-      else
-        ln -s "${ee_file}" "${ce_file}"
-        echo "Symlink created '${ee_file}' -->> '${ce_file}'"
-      fi
+  ce_file="${ee_file/${EE_CODE_DIR}/}"
+  ce_file="${root_dirpath}/backend/${ce_file}"
+    if [ "$COPY" == "YES" ]; then
+      cp "${ee_file}" "${ce_file}"
+      echo "File copied '${ee_file}' -->> '${ce_file}'"
     else
-      echo "File ${ce_file} is not a file, ignoring"
+      ln -s "${ee_file}" "${ce_file}"
+      echo "Symlink created '${ee_file}' -->> '${ce_file}'"
     fi
   done
 fi

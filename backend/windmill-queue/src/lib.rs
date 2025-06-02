@@ -7,7 +7,9 @@
  */
 
 mod jobs;
+#[cfg(feature = "private")]
 pub mod jobs_ee;
+pub mod jobs_oss;
 pub mod schedule;
 pub use jobs::*;
 pub mod flow_status;

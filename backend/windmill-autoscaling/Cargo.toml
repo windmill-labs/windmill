@@ -10,6 +10,7 @@ path = "./src/lib.rs"
 
 [features]
 enterprise = ["windmill-queue/enterprise", "windmill-common/enterprise"]
+private = []
 default = []
 
 [dependencies]

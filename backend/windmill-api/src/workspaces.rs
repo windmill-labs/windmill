@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use crate::ai::{AIConfig, AI_REQUEST_CACHE};
 use crate::db::ApiAuthed;
-use crate::users_ee::send_email_if_possible;
+use crate::users_oss::send_email_if_possible;
 use crate::utils::get_instance_username_or_create_pending;
 use crate::BASE_URL;
 use crate::{
@@ -30,7 +30,7 @@ use chrono::Utc;
 use regex::Regex;
 
 use uuid::Uuid;
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
@@ -58,7 +58,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::utils::not_found_if_none;
 
-use crate::teams_ee::{
+use crate::teams_oss::{
     connect_teams, edit_teams_command, run_teams_message_test_job,
     workspaces_list_available_teams_channels, workspaces_list_available_teams_ids,
 };
@@ -145,7 +145,7 @@ pub fn workspaced_service() -> Router {
 
     #[cfg(all(feature = "stripe", feature = "enterprise"))]
     {
-        crate::stripe_ee::add_stripe_routes(router)
+        crate::stripe_oss::add_stripe_routes(router)
     }
 
     #[cfg(not(feature = "stripe"))]
@@ -640,7 +640,7 @@ async fn edit_auto_invite(
     Path(w_id): Path<String>,
     Json(ea): Json<EditAutoInvite>,
 ) -> Result<String> {
-    crate::workspaces_ee::edit_auto_invite(authed, db, w_id, ea).await
+    crate::workspaces_oss::edit_auto_invite(authed, db, w_id, ea).await
 }
 
 async fn edit_webhook(

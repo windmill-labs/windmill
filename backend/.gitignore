@@ -7,3 +7,4 @@ heaptrack*
 index/
 windmill-api/openapi-*.*
 .duckdb/*
+*ee.rs
