@@ -22,7 +22,7 @@ npx @redocly/openapi-cli@latest bundle openapi/openapi.yaml > openapi-bundled.ya
 
 if [[ "$OSTYPE" == "darwin"* ]]; then
     # sed -z is not supported on macOS, use perl instead
-    perl -0777 -pe 's/schemas-FlowModuleValue:/schemas-FlowModuleValue2:/g' openapi-bundled.yaml > openapi-decycled.yaml
+    perl -0777 -pe 's/FlowModuleValue:/FlowModuleValue2:/g' openapi-bundled.yaml > openapi-decycled.yaml
 else
   sed -z 's/FlowModuleValue:/FlowModuleValue2:/' openapi-bundled.yaml > openapi-decycled.yaml
 fi
