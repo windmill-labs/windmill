@@ -102,7 +102,7 @@ pub async fn get_raw_postgres_connection(
             "verify-full" => SslMode::VerifyFull,
             ssl_mode => {
                 return Err(Error::BadRequest(
-                    format!("Invalid ssl mode for postgres: {}, please put a valid ssl_mode among the following avalible ssl mode: ['disable', 'allow', 'prefer', 'verify-ca', 'verify-full']", ssl_mode),
+                    format!("Invalid ssl mode for postgres: {}, please put a valid ssl_mode among the following available ssl mode: ['disable', 'allow', 'prefer', 'verify-ca', 'verify-full']", ssl_mode),
                 ))
             }
         };
