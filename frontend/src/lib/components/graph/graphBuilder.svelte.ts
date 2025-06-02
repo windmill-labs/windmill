@@ -6,15 +6,31 @@ import { defaultIfEmptyString } from '$lib/utils'
 import type { GraphModuleState } from './model'
 
 export type GraphEventHandlers = {
-	insert: (detail) => void
-	deleteBranch: (detail, label: string) => void
+	insert: (detail: {
+		sourceId?: string
+		targetId?: string
+		branch?: { rootId: string; branch: number }
+		index: number
+		kind: string
+		inlineScript?: string
+		script?: string
+		isPreprocessor?: boolean
+	}) => void
+	deleteBranch: (detail: { id: string; index: number }, label: string) => void
 	select: (modId: string) => void
-	delete: (detail, label: string) => void
+	delete: (detail: { id: string }, label: string) => void
 	newBranch: (id: string) => void
 	move: (detail: { id: string }) => void
-	selectedIteration: (detail, moduleId: string) => void
+	selectedIteration: (
+		detail: {
+			id: string
+			index: number
+			manuallySet?: boolean
+		},
+		moduleId: string
+	) => void
 	changeId: (newId: string) => void
-	simplifyFlow: (detail: boolean) => void
+	simplifyFlow: (b: boolean) => void
 	expandSubflow: (id: string, path: string) => void
 	minimizeSubflow: (id: string) => void
 	updateMock: () => void

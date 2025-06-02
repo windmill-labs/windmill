@@ -73,9 +73,6 @@
 			on:delete={(e) => {
 				data.eventHandlers.delete(e.detail, '')
 			}}
-			on:insert={(e) => {
-				data.eventHandlers.insert(e.detail)
-			}}
 			on:changeId={(e) => {
 				data.eventHandlers.changeId(e.detail)
 			}}

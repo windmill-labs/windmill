@@ -385,18 +385,18 @@
 			{workspace}
 			editMode
 			on:delete={({ detail }) => {
-				let e = detail.detail
-				dependents = getDependentComponents(e.id, $flowStore)
+				let id = detail
+				dependents = getDependentComponents(id, $flowStore)
 				const cb = () => {
 					push(history, $flowStore)
-					if (e.id === 'preprocessor') {
+					if (id === 'preprocessor') {
 						$selectedId = 'Input'
 						$flowStore.value.preprocessor_module = undefined
 					} else {
-						selectNextId(e.id)
-						removeAtId($flowStore.value.modules, e.id)
+						selectNextId(id)
+						removeAtId($flowStore.value.modules, id)
 						if ($flowInputsStore) {
-							delete $flowInputsStore[e.id]
+							delete $flowInputsStore[id]
 						}
 					}
 					$flowStore = $flowStore
@@ -449,7 +449,7 @@
 							$selectedId = removedModule.id
 							$moving = undefined
 						} else {
-							if (detail.detail === 'preprocessor') {
+							if (detail.isPreprocessor) {
 								insertNewPreprocessorModule(
 									flowStore,
 									flowStateStore,

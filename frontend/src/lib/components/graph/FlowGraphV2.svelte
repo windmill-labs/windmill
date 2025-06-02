@@ -222,10 +222,8 @@
 		changeId: (detail) => {
 			dispatch('changeId', detail)
 		},
-		delete: (detail, label) => {
-			$selectedId = label
-
-			dispatch('delete', detail)
+		delete: (detail) => {
+			dispatch('delete', detail.id)
 		},
 		newBranch: (id) => {
 			dispatch('newBranch', { id })

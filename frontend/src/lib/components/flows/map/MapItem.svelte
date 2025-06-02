@@ -15,24 +15,38 @@
 	import { checkIfParentLoop } from '$lib/components/flows/utils'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 
-	export let mod: FlowModule
-	export let insertable: boolean
-	export let annotation: string | undefined = undefined
-	export let bgColor: string = ''
-	export let bgHoverColor: string = ''
-	export let moving: string | undefined = undefined
-	export let duration_ms: number | undefined = undefined
+	interface Props {
+		mod: FlowModule
+		insertable: boolean
+		annotation?: string | undefined
+		bgColor?: string
+		bgHoverColor?: string
+		moving?: string | undefined
+		duration_ms?: number | undefined
+		retries?: number | undefined
+		flowJobs:
+			| {
+					flowJobs: string[]
+					selected: number
+					flowJobsSuccess: (boolean | undefined)[]
+					selectedManually: boolean | undefined
+			  }
+			| undefined
+		editMode?: boolean
+	}
 
-	export let retries: number | undefined = undefined
-	export let flowJobs:
-		| {
-				flowJobs: string[]
-				selected: number
-				flowJobsSuccess: (boolean | undefined)[]
-				selectedManually: boolean | undefined
-		  }
-		| undefined
-	export let editMode: boolean = false
+	let {
+		mod = $bindable(),
+		insertable,
+		annotation = undefined,
+		bgColor = '',
+		bgHoverColor = '',
+		moving = undefined,
+		duration_ms = undefined,
+		retries = undefined,
+		flowJobs,
+		editMode = false
+	}: Props = $props()
 
 	const { selectedId } = getContext<{
 		selectedId: Writable<string | undefined>
@@ -42,12 +56,6 @@
 
 	const dispatch = createEventDispatcher<{
 		delete: CustomEvent<MouseEvent>
-		insert: {
-			modules: FlowModule[]
-			index: number
-			detail: 'script' | 'forloop' | 'whileloop' | 'branchone' | 'branchall' | 'move'
-			script?: { path: string; summary: string; hash: string | undefined }
-		}
 		select: string
 		newBranch: { id: string }
 		move: { module: FlowModule } | undefined
@@ -55,7 +63,7 @@
 		updateMock: void
 	}>()
 
-	$: itemProps = {
+	let itemProps = $derived({
 		selected: $selectedId === mod.id,
 		retry: mod.retry?.constant != undefined || mod.retry?.exponential != undefined,
 		earlyStop: mod.stop_after_if != undefined || mod.stop_after_all_iters_if != undefined,
@@ -65,13 +73,11 @@
 		cache: Boolean(mod.cache_ttl),
 		mock: mod.mock,
 		concurrency: Boolean(mod?.value?.['concurrent_limit'])
-	}
+	})
 
-	$: parentLoop = flowStore && $flowStore && mod ? checkIfParentLoop($flowStore, mod.id) : undefined
-
-	function onDelete(event: CustomEvent<MouseEvent>) {
-		dispatch('delete', event)
-	}
+	let parentLoop = $derived(
+		flowStore && $flowStore && mod ? checkIfParentLoop($flowStore, mod.id) : undefined
+	)
 </script>
 
 {#if mod}
@@ -122,7 +128,7 @@
 					id={mod.id}
 					on:changeId
 					on:move
-					on:delete={onDelete}
+					on:delete
 					on:pointerdown={() => dispatch('select', mod.id)}
 					on:updateMock={({ detail }) => {
 						mod.mock = detail
@@ -139,16 +145,18 @@
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:')}
 					loopStatus={{ type: 'self', flow: mod.value.type }}
 				>
-					<div slot="icon">
-						<Repeat size={16} />
-					</div>
+					{#snippet icon()}
+						<div>
+							<Repeat size={16} />
+						</div>
+					{/snippet}
 				</FlowModuleSchemaItem>
 			{:else if mod.value.type === 'branchone'}
 				<FlowModuleSchemaItem
 					deletable={insertable}
 					{editMode}
 					on:changeId
-					on:delete={onDelete}
+					on:delete
 					on:move
 					on:pointerdown={() => dispatch('select', mod.id)}
 					{...itemProps}
@@ -157,16 +165,18 @@
 					{bgColor}
 					{bgHoverColor}
 				>
-					<div slot="icon">
-						<GitBranch size={16} />
-					</div>
+					{#snippet icon()}
+						<div>
+							<GitBranch size={16} />
+						</div>
+					{/snippet}
 				</FlowModuleSchemaItem>
 			{:else if mod.value.type === 'branchall'}
 				<FlowModuleSchemaItem
 					deletable={insertable}
 					{editMode}
 					on:changeId
-					on:delete={onDelete}
+					on:delete
 					on:move
 					on:pointerdown={() => dispatch('select', mod.id)}
 					id={mod.id}
@@ -175,9 +185,11 @@
 					{bgColor}
 					{bgHoverColor}
 				>
-					<div slot="icon">
-						<GitBranch size={16} />
-					</div>
+					{#snippet icon()}
+						<div>
+							<GitBranch size={16} />
+						</div>
+					{/snippet}
 				</FlowModuleSchemaItem>
 			{:else}
 				<FlowModuleSchemaItem
@@ -185,7 +197,7 @@
 					{editMode}
 					on:changeId
 					on:pointerdown={() => dispatch('select', mod.id)}
-					on:delete={onDelete}
+					on:delete
 					on:move
 					on:updateMock={({ detail }) => {
 						mod.mock = detail
@@ -212,30 +224,32 @@
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:') && mod.id !== 'preprocessor'}
 					loopStatus={parentLoop ? { type: 'inside', flow: parentLoop.type } : undefined}
 				>
-					<div slot="icon">
-						{#if mod.value.type === 'rawscript'}
-							<LanguageIcon lang={mod.value.language} width={16} height={16} />
-						{:else if mod.summary == 'Terminate flow'}
-							<Square size={16} />
-						{:else if mod.value.type === 'identity'}
-							<ArrowDown size={16} />
-						{:else if mod.value.type === 'flow'}
-							<BarsStaggered size={16} />
-						{:else if mod.value.type === 'script'}
-							{#if mod.value.path.startsWith('hub/')}
-								<div>
-									<IconedResourceType
-										width="20px"
-										height="20px"
-										name={mod.value.path.split('/')[2]}
-										silent={true}
-									/>
-								</div>
-							{:else}
-								<Building size={14} />
+					{#snippet icon()}
+						<div>
+							{#if mod.value.type === 'rawscript'}
+								<LanguageIcon lang={mod.value.language} width={16} height={16} />
+							{:else if mod.summary == 'Terminate flow'}
+								<Square size={16} />
+							{:else if mod.value.type === 'identity'}
+								<ArrowDown size={16} />
+							{:else if mod.value.type === 'flow'}
+								<BarsStaggered size={16} />
+							{:else if mod.value.type === 'script'}
+								{#if mod.value.path.startsWith('hub/')}
+									<div>
+										<IconedResourceType
+											width="20px"
+											height="20px"
+											name={mod.value.path.split('/')[2]}
+											silent={true}
+										/>
+									</div>
+								{:else}
+									<Building size={14} />
+								{/if}
 							{/if}
-						{/if}
-					</div>
+						</div>
+					{/snippet}
 				</FlowModuleSchemaItem>
 			{/if}
 		</div>

@@ -96,7 +96,6 @@
 
 	{#if !$flowStore?.value?.failure_module}
 		<InsertModuleButton
-			disableAi={false}
 			index={0}
 			placement={'top-center'}
 			on:new={(e) => {

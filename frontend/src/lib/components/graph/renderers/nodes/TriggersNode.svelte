@@ -79,9 +79,6 @@
 					await tick()
 					triggersState.selectedTriggerIndex = triggerIndex
 				}}
-				on:delete={(e) => {
-					data.eventHandlers.delete(e, '')
-				}}
 				onAddDraftTrigger={async (type: TriggerType) => {
 					const newTrigger = triggersState.addDraftTrigger(triggersCount, type)
 					data?.eventHandlers?.select('triggers')

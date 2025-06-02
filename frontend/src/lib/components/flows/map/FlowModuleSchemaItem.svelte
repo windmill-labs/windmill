@@ -403,7 +403,7 @@
 	 {hover || selected ? '' : '!hidden'}"
 			title="Delete"
 			onclick={stopPropagation(
-				preventDefault((event) => dispatch('delete', { event, id, type: modType }))
+				preventDefault((event) => dispatch('delete', { id, type: modType }))
 			)}
 		>
 			<X class="mx-[3px]" size={12} strokeWidth={2} />
