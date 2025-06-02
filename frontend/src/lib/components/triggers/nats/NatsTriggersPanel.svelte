@@ -45,8 +45,7 @@
 			hideTooltips={!isDeployed}
 			useEditButton
 			allowDraft={true}
-			hasDraft={!!selectedTrigger.draftConfig}
-			isDraftOnly={selectedTrigger.isDraft}
+			trigger={selectedTrigger}
 			{customLabel}
 			{isDeployed}
 			{cloudDisabled}

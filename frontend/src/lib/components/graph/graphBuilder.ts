@@ -635,7 +635,7 @@ export function graphBuilder(
 		if (failureModule) {
 			let toAdd: Record<string, string> = {}
 			Object.keys(extra.flowModuleStates ?? {}).forEach((id) => {
-				if (id.startsWith('failure-')) {
+				if (id.startsWith('failure')) {
 					const failureState = extra.flowModuleStates?.[id] as GraphModuleState | undefined
 					if (failureState?.parent_module) {
 						toAdd[failureState.parent_module] = id

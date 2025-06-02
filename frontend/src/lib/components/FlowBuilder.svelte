@@ -8,7 +8,8 @@
 		type OpenFlow,
 		type InputTransform,
 		type TriggersCount,
-		CaptureService
+		CaptureService,
+		type HubScriptKind
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history'
 	import {
@@ -553,6 +554,7 @@
 	})
 
 	export async function loadTriggers() {
+		if (initialPath == '') return
 		$triggersCount = await FlowService.getTriggersCountOfFlow({
 			workspace: $workspaceStore!,
 			path: initialPath
