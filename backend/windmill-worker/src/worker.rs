@@ -27,7 +27,7 @@ use windmill_common::{
 };
 
 #[cfg(feature = "enterprise")]
-use windmill_common::ee::LICENSE_KEY_VALID;
+use windmill_common::ee_oss::LICENSE_KEY_VALID;
 
 use anyhow::Result;
 use const_format::concatcp;
@@ -1526,7 +1526,7 @@ pub async fn run_worker(
                         span.record("root_job", root_job.to_string().as_str());
                     }
 
-                    windmill_common::otel_ee::set_span_parent(&span, &rj);
+                    windmill_common::otel_oss::set_span_parent(&span, &rj);
                     // span.context().span().add_event_with_timestamp("job created".to_string(), arc_job.created_at.into(), vec![]);
 
                     match handle_queued_job(

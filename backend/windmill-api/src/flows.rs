@@ -31,7 +31,7 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::utils::query_elems_from_hub;
 use windmill_common::worker::to_raw_value;

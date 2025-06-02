@@ -16,7 +16,7 @@ use sqlx::{
 };
 
 use tokio::task::JoinHandle;
-use windmill_audit::audit_ee::{AuditAuthor, AuditAuthorable};
+use windmill_audit::audit_oss::{AuditAuthor, AuditAuthorable};
 use windmill_common::{
     db::{Authable, Authed},
     error::Error,
