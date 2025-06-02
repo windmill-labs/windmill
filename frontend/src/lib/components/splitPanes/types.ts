@@ -8,4 +8,5 @@ export type PanesLayout = Pane[]
 export type SplitPanesContext = {
 	sizes: (index: number) => number | undefined
 	setActivePane: (index: number) => void
+	removeActivePane: (index: number) => void
 }

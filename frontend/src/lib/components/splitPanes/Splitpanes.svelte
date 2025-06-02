@@ -1,40 +1,64 @@
 <script lang="ts">
 	import { Splitpanes } from 'svelte-splitpanes'
 	import { getSplitPanesLayout } from './SplitPanesLayout.svelte'
-	import { onDestroy, setContext, type Snippet } from 'svelte'
+	import { onDestroy, onMount, setContext, tick, type Snippet } from 'svelte'
 	import type { ComponentProps } from 'svelte'
 	import type { Pane, SplitPanesContext } from './types'
 
 	type SplitpanesProps = ComponentProps<Splitpanes>
 
 	type Props = SplitpanesProps & {
-		defaultSize: number[]
+		defaultSizes: number[]
 		id: string
 		children?: Snippet
 	}
 
 	const splitPanesLayout = getSplitPanesLayout()
 
-	let { id, children, defaultSize, ...rest }: Props = $props()
-	const sizes = $derived(splitPanesLayout?.layout[id]?.map((pane) => pane.size ?? 0) ?? [])
+	let { id, children, defaultSizes, ...rest }: Props = $props()
+
+	let ready = $state(false)
+	let isDestroying = $state(false)
+	let initialPanes: Pane[] = $state(
+		splitPanesLayout?.layout[id] ??
+			defaultSizes.map((size) => ({
+				size,
+				active: false
+			}))
+	)
+	const sizes = $derived(splitPanesLayout?.layout[id]?.map((pane) => pane.size) ?? [])
 
 	setContext<SplitPanesContext>('splitPanesContext', {
 		sizes: (index: number) => sizes[index],
 		setActivePane: (index: number) => {
-			panes[index].active = true
+			if (!ready) {
+				initialPanes[index].active = true
+				return
+			}
+			splitPanesLayout?.setActivePane(id, index)
+		},
+		removeActivePane: async (index: number) => {
+			await tick()
+			if (!ready || isDestroying) {
+				initialPanes[index].active = false
+				return
+			}
+			splitPanesLayout?.removePane(id, index)
 		}
 	})
 
-	function initPane(defaultSize: number[]): Pane[] {
-		// Initialize all panes with default sizes
-		const panes = defaultSize.map((size, idx) => ({ size, active: false }))
-		return panes
+	function initPanes() {
+		splitPanesLayout?.setPanes(id, initialPanes)
 	}
 
-	let panes: Pane[] = $state(initPane(defaultSize))
-
 	onDestroy(() => {
-		splitPanesLayout?.handleSplitPaneDestroy(id)
+		isDestroying = true
+		ready = false
+	})
+
+	onMount(() => {
+		initPanes()
+		ready = true
 	})
 </script>
 
@@ -44,15 +68,6 @@
 			id,
 			detail.map((d, index) => ({ size: d.size, index }))
 		)
-	}}
-	on:pane-add={({ detail }) => {
-		splitPanesLayout?.addPane(id, detail.index)
-	}}
-	on:pane-remove={({ detail }) => {
-		splitPanesLayout?.removePane(id, detail.removed.index)
-	}}
-	on:ready={() => {
-		splitPanesLayout?.setPanes(id, panes)
 	}}
 	{...rest}
 >

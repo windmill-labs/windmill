@@ -376,7 +376,11 @@
 				{/if}
 
 				<div class="min-h-0 flex-grow" id="flow-editor-editor">
-					<Splitpanes id={`flow-editor-split-${flowModule.id}`} horizontal defaultSize={panesSizes}>
+					<Splitpanes
+						id={`flow-editor-split-${flowModule.id}`}
+						horizontal
+						defaultSizes={panesSizes}
+					>
 						<Pane minSize={10} class="relative" index={0}>
 							{#if flowModule.value.type === 'rawscript'}
 								{#if !noEditor}
@@ -454,7 +458,7 @@
 							{/if}
 						</Pane>
 						<Pane minSize={20} index={1}>
-							<Splitpanes id={`flow-editor-step-input-${flowModule.id}`} defaultSize={[50, 50]}>
+							<Splitpanes id={`flow-editor-step-input-${flowModule.id}`} defaultSizes={[50, 50]}>
 								<Pane minSize={36} index={0}>
 									<Tabs bind:selected id={`flow-editor-step-input-${flowModule.id}`}>
 										{#if !preprocessorModule}

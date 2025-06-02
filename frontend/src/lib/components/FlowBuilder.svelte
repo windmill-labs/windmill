@@ -211,7 +211,7 @@
 	}
 
 	export function setSelectedTriggerIndex(index: number | undefined) {
-		triggersState.selectedTriggerIndex = index
+		selectedTriggerIndexFromUrl = index
 	}
 
 	let loadingSave = false
@@ -612,6 +612,8 @@
 		if (savedFlow && savedFlow.draft) {
 			savedFlow = filterDraftTriggers(savedFlow, triggersState) as FlowWithDraftAndDraftTriggers
 		}
+
+		triggersState.selectedTriggerIndex = selectedTriggerIndexFromUrl
 	}
 
 	$: selectedId && select(selectedId)

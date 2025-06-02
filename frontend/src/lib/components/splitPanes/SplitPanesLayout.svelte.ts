@@ -1,4 +1,4 @@
-import { setContext, getContext, tick } from 'svelte'
+import { setContext, getContext } from 'svelte'
 import type { Pane, PanesLayout } from './types'
 
 const KEY = 'splitPanesLayout'
@@ -6,7 +6,6 @@ const KEY = 'splitPanesLayout'
 export class SplitPanesLayout {
 	#layout: Record<string, PanesLayout> = $state({})
 	#changeCb: (() => void) | undefined = undefined
-	#readyPanes: Record<string, boolean> = $state({})
 
 	constructor(initialPaneLayouts?: Record<string, PanesLayout>, changeCb?: () => void) {
 		this.#layout = initialPaneLayouts ?? {}
@@ -22,8 +21,8 @@ export class SplitPanesLayout {
 		this.#changeCb?.()
 	}
 
-	addPane(layoutId: string, paneIndex: number) {
-		if (!this.#readyPanes[layoutId] || !this.#layout[layoutId][paneIndex].size) {
+	setActivePane(layoutId: string, paneIndex: number) {
+		if (!this.#layout[layoutId][paneIndex].size) {
 			return
 		} else {
 			this.#layout[layoutId][paneIndex].active = true
@@ -39,7 +38,6 @@ export class SplitPanesLayout {
 
 		this.#layout[layoutId] = panes
 		this.#scalePanesTo100(layoutId)
-		this.#readyPanes[layoutId] = true
 		this.#changeCb?.()
 	}
 
@@ -71,9 +69,7 @@ export class SplitPanesLayout {
 	}
 
 	async removePane(layoutId: string, paneIndex: number) {
-		// Wait for the dom refresh to avoid update in the case the splitpane has been removed completly
-		await tick()
-		if (this.#readyPanes[layoutId] && this.#layout[layoutId][paneIndex].active) {
+		if (this.#layout[layoutId][paneIndex].active) {
 			this.#layout[layoutId][paneIndex].active = false
 			this.#scalePanesTo100(layoutId)
 		}
@@ -87,11 +83,6 @@ export class SplitPanesLayout {
 				return newSize ? { ...pane, size: newSize.size } : pane
 			})
 		}
-		this.#changeCb?.()
-	}
-
-	handleSplitPaneDestroy(layoutId: string) {
-		this.#readyPanes[layoutId] = false
 		this.#changeCb?.()
 	}
 

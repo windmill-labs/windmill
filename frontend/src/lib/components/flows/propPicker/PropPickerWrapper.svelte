@@ -104,7 +104,7 @@
 	<Splitpanes
 		class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}
 		id={`prop-picker-wrapper-${moduleId}`}
-		defaultSize={[60, 40]}
+		defaultSizes={[60, 40]}
 	>
 		<Pane
 			index={0}
