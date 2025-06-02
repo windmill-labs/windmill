@@ -116,9 +116,10 @@
 		const r = inputEl.getBoundingClientRect()
 		const listR = listEl.getBoundingClientRect()
 		const openBelow = r.y + r.height + listR.height <= window.innerHeight
-		if (openBelow) return { width: r.width, x: r.x, y: r.y + r.height }
+		let [x, y] = disablePortal ? [0, 0] : [r.x, r.y]
+		if (openBelow) return { width: r.width, x: x, y: y + r.height }
 		else {
-			return { width: r.width, x: r.x, y: r.y - listR.height }
+			return { width: r.width, x: x, y: y - listR.height }
 		}
 	}
 	let dropdownPos = $state(computeDropdownPos())
@@ -186,9 +187,7 @@
 		{#if open && !disabled}
 			<div
 				class="flex flex-col absolute z-[5001] max-h-64 overflow-y-auto bg-surface-secondary text-tertiary text-sm select-none border rounded-lg"
-				style="{disablePortal
-					? ''
-					: `top: ${dropdownPos.y}px; left: ${dropdownPos.x}px;`} {listAutoWidth
+				style="{`top: ${dropdownPos.y}px; left: ${dropdownPos.x}px;`} {listAutoWidth
 					? `min-width: ${dropdownPos.width}px;`
 					: ''}"
 				bind:this={listEl}
