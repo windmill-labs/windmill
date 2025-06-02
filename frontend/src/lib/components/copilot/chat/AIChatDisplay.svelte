@@ -14,9 +14,9 @@
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
 	import ChatMode from './ChatMode.svelte'
+	import { chatMode } from '$lib/stores'
 
 	let {
-		mode = $bindable(),
 		allowedModes,
 		messages,
 		instructions = $bindable(),
@@ -34,7 +34,6 @@
 		headerLeft,
 		headerRight
 	}: {
-		mode: 'script' | 'flow'
 		allowedModes: {
 			script: boolean
 			flow: boolean
@@ -249,7 +248,7 @@
 	{/if}
 
 	<div class:border-t={messages.length > 0}>
-		{#if mode === 'script'}
+		{#if $chatMode === 'script'}
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 px-2 no-scrollbar">
 				<Popover>
 					<svelte:fragment slot="trigger">
@@ -314,14 +313,14 @@
 		{/if}
 		<div
 			class={`flex flex-row ${
-				mode === 'script' && hasDiff ? 'justify-between' : 'justify-end'
+				$chatMode === 'script' && hasDiff ? 'justify-between' : 'justify-end'
 			} items-center px-0.5`}
 		>
-			{#if mode === 'script' && hasDiff}
+			{#if $chatMode === 'script' && hasDiff}
 				<ChatQuickActions {askAi} {diffMode} />
 			{/if}
 			<div class="flex flex-row gap-2 min-w-0">
-				<ChatMode bind:mode {allowedModes} />
+				<ChatMode {allowedModes} />
 				<ProviderModelSelector />
 			</div>
 		</div>

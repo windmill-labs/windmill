@@ -15,6 +15,7 @@
 		insertNewFailureModule,
 		insertNewPreprocessorModule
 	} from '$lib/components/flows/flowStateUtils'
+	import type { ScriptOptions } from '../ContextManager.svelte'
 
 	let {
 		flowModuleSchemaMap,
@@ -39,17 +40,24 @@
 		}
 	}
 
-	function getScriptOptions(id: string) {
+	function getScriptOptions(id: string): ScriptOptions | undefined {
 		const module = getModule(id)
 
-		if (
-			module &&
-			module.value.type === 'rawscript' &&
-			$currentEditor &&
-			$currentEditor.type === 'script' &&
-			$currentEditor.stepId === module.id
-		) {
+		if (module && module.value.type === 'rawscript') {
 			const moduleState: FlowModuleState | undefined = $flowStateStore[module.id]
+
+			const editorRelated =
+				$currentEditor && $currentEditor.type === 'script' && $currentEditor.stepId === module.id
+					? {
+							diffMode: $currentEditor.diffMode,
+							lastDeployedCode: $currentEditor.lastDeployedCode,
+							lastSavedCode: undefined
+						}
+					: {
+							diffMode: false,
+							lastDeployedCode: undefined,
+							lastSavedCode: undefined
+						}
 
 			return {
 				args: moduleState?.previewArgs ?? {},
@@ -60,9 +68,7 @@
 				code: module.value.content,
 				lang: module.value.language,
 				path: module.id,
-				diffMode: $currentEditor.diffMode,
-				lastDeployedCode: $currentEditor.lastDeployedCode,
-				lastSavedCode: undefined
+				...editorRelated
 			}
 		}
 

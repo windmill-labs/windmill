@@ -13,7 +13,7 @@
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
-	import { getContext, tick } from 'svelte'
+	import { getContext, onDestroy, tick } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleScript from './FlowModuleScript.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
@@ -276,6 +276,10 @@
 			diffMode,
 			lastDeployedCode
 		})
+
+	onDestroy(() => {
+		$currentEditor = undefined
+	})
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -383,6 +387,9 @@
 									{#key flowModule.id}
 										<Editor
 											on:addSelectedLinesToAiChat={(e) => {
+												// TODO
+											}}
+											on:toggleAiPanel={() => {
 												// TODO
 											}}
 											loadAsync

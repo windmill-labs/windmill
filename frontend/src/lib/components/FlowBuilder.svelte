@@ -8,8 +8,7 @@
 		type OpenFlow,
 		type InputTransform,
 		type TriggersCount,
-		CaptureService,
-		type HubScriptKind
+		CaptureService
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history'
 	import {

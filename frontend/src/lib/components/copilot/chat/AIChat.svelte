@@ -18,7 +18,7 @@
 	import { onDestroy, setContext, untrack, type Snippet } from 'svelte'
 	import { type OpenFlow, type ScriptLang } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import ContextManager from './ContextManager.svelte'
+	import ContextManager, { type ScriptOptions } from './ContextManager.svelte'
 	import HistoryManager from './HistoryManager.svelte'
 	import {
 		flowTools,
@@ -30,17 +30,9 @@
 		ChatCompletionMessageParam,
 		ChatCompletionSystemMessageParam
 	} from 'openai/resources/index.mjs'
+	import { chatMode, copilotSessionModel, dbSchemas, workspaceStore } from '$lib/stores'
 	interface Props {
-		scriptOptions?: {
-			lang: ScriptLang | 'bunnative'
-			code: string
-			error: string | undefined
-			args: Record<string, any>
-			path: string | undefined
-			lastSavedCode?: string | undefined
-			lastDeployedCode?: string | undefined
-			diffMode: boolean
-		}
+		scriptOptions?: ScriptOptions
 		flowHelpers?: FlowAIChatHelpers & {
 			getFlow: () => OpenFlow
 		}
@@ -60,16 +52,16 @@
 		script: scriptOptions !== undefined,
 		flow: flowHelpers !== undefined
 	})
-	let mode: 'script' | 'flow' = $state(flowHelpers ? 'flow' : 'script')
 
 	async function updateMode(currentMode: 'script' | 'flow') {
 		if (!allowedModes[currentMode]) {
-			mode = currentMode === 'script' ? 'flow' : 'script'
+			chatMode.set(currentMode === 'script' ? 'flow' : 'script')
 		}
 	}
 	$effect(() => {
-		updateMode(untrack(() => mode))
+		updateMode(untrack(() => $chatMode))
 	})
+
 	let displayMessages: DisplayMessage[] = $state([])
 	let abortController: AbortController | undefined = undefined
 	let messages: ChatCompletionMessageParam[] = $state([])
@@ -92,7 +84,7 @@
 		} = {}
 	) {
 		if (options.mode) {
-			mode = options.mode
+			$chatMode = options.mode
 		}
 		if (options.instructions) {
 			instructions = options.instructions
@@ -102,7 +94,7 @@
 		}
 		try {
 			const oldSelectedContext = contextManager?.getSelectedContext() ?? []
-			if (mode === 'script') {
+			if ($chatMode === 'script') {
 				contextManager?.updateContextOnRequest(options)
 			}
 			loading.set(true)
@@ -114,20 +106,20 @@
 				{
 					role: 'user',
 					content: instructions,
-					contextElements: mode === 'script' ? oldSelectedContext : undefined
+					contextElements: $chatMode === 'script' ? oldSelectedContext : undefined
 				}
 			]
 			const oldInstructions = instructions
 			instructions = ''
 
 			const systemMessage =
-				mode === 'script' ? prepareScriptSystemMessage() : prepareFlowSystemMessage()
+				$chatMode === 'script' ? prepareScriptSystemMessage() : prepareFlowSystemMessage()
 
-			if (mode === 'flow' && !flowHelpers) {
+			if ($chatMode === 'flow' && !flowHelpers) {
 				throw new Error('No flow helpers passed')
 			}
 
-			if (mode === 'script' && !scriptOptions && !options.lang) {
+			if ($chatMode === 'script' && !scriptOptions && !options.lang) {
 				throw new Error('No script options passed')
 			}
 
@@ -135,7 +127,7 @@
 			const isPreprocessor = scriptOptions?.path === 'preprocessor' || options.isPreprocessor
 
 			const userMessage =
-				mode === 'flow'
+				$chatMode === 'flow'
 					? prepareFlowUserMessage(oldInstructions, flowHelpers!.getFlow())
 					: await prepareScriptUserMessage(oldInstructions, lang, oldSelectedContext, {
 							isPreprocessor
@@ -168,7 +160,7 @@
 									role: 'assistant',
 									content: $currentReply,
 									contextElements:
-										mode === 'script'
+										$chatMode === 'script'
 											? oldSelectedContext.filter((c) => c.type === 'code')
 											: undefined
 								}
@@ -193,7 +185,7 @@
 				}
 			}
 
-			if (mode === 'flow') {
+			if ($chatMode === 'flow') {
 				if (!flowHelpers) {
 					throw new Error('No flow helpers found')
 				}
@@ -227,7 +219,9 @@
 						role: 'assistant',
 						content: $currentReply,
 						contextElements:
-							mode === 'script' ? oldSelectedContext.filter((c) => c.type === 'code') : undefined
+							$chatMode === 'script'
+								? oldSelectedContext.filter((c) => c.type === 'code')
+								: undefined
 					}
 				]
 				currentReply.set('')
@@ -272,7 +266,7 @@
 			throw new Error('No script options passed')
 		}
 		instructions = prompt
-		contextManager?.setAskAiContext(options)
+		contextManager.setAskAiContext(options)
 		sendRequest({
 			removeDiff: options.withDiff,
 			addBackCode: options.withCode === false
@@ -295,42 +289,48 @@
 	})
 
 	let aiChatDisplay: AIChatDisplay | undefined = $state(undefined)
-	let contextManager: ContextManager | undefined = $state(undefined)
-</script>
+	// let contextManager: ContextManager | undefined = $state(undefined)
 
-{#if mode === 'script' && scriptOptions}
-	<ContextManager
-		bind:this={contextManager}
-		code={scriptOptions.code}
-		lang={scriptOptions.lang}
-		path={scriptOptions.path}
-		args={scriptOptions.args}
-		lastSavedCode={scriptOptions.lastSavedCode}
-		lastDeployedCode={scriptOptions.lastDeployedCode}
-		error={scriptOptions.error}
-		bind:displayMessages
-	/>
-{/if}
+	const contextManager = new ContextManager()
+
+	$effect(() => {
+		if (scriptOptions) {
+			contextManager.updateAvailableContext(
+				scriptOptions,
+				$dbSchemas,
+				$workspaceStore ?? '',
+				!$copilotSessionModel?.model.endsWith('/thinking'),
+				untrack(() => contextManager.getSelectedContext())
+			)
+		}
+	})
+
+	$effect(() => {
+		displayMessages = ContextManager.updateDisplayMessages(
+			untrack(() => displayMessages),
+			$dbSchemas
+		)
+	})
+</script>
 
 <AIChatDisplay
 	bind:this={aiChatDisplay}
-	bind:mode
 	{allowedModes}
 	pastChats={historyManager.getPastChats()}
 	bind:selectedContext={
-		() => contextManager?.getSelectedContext() ?? [],
+		() => contextManager.getSelectedContext(),
 		(sc) => {
-			contextManager?.setSelectedContext(sc)
+			scriptOptions && contextManager.setSelectedContext(sc)
 		}
 	}
-	availableContext={contextManager?.getAvailableContext() ?? []}
+	availableContext={contextManager.getAvailableContext()}
 	messages={$currentReply
 		? [
 				...displayMessages,
 				{
 					role: 'assistant',
 					content: $currentReply,
-					contextElements: contextManager?.getSelectedContext()?.filter((c) => c.type === 'code')
+					contextElements: contextManager.getSelectedContext().filter((c) => c.type === 'code')
 				}
 			]
 		: displayMessages}
@@ -345,7 +345,7 @@
 	loadPastChat={(id) => {
 		const chat = historyManager.loadPastChat(id)
 		if (chat) {
-			displayMessages = chat.displayMessages
+			displayMessages = ContextManager.updateDisplayMessages(chat.displayMessages, $dbSchemas)
 			messages = chat.actualMessages
 			aiChatDisplay?.enableAutomaticScroll()
 		}
