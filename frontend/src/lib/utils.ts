@@ -19,9 +19,61 @@ import type { AnyMeltElement } from '@melt-ui/svelte'
 import type { RunsSelectionMode } from './components/runs/RunsBatchActionsDropdown.svelte'
 import type { TriggerKind } from './components/triggers'
 
+export namespace OpenApi {
+	export enum OpenApiVersion {
+		V2,
+		V3,
+		V3_1
+	}
 
-namespace OpenApi {
-	
+	export function isV2(doc: OpenAPI.Document): doc is OpenAPIV2.Document {
+		return 'swagger' in doc && doc.swagger === '2.0'
+	}
+
+	export function isV3(doc: OpenAPI.Document): doc is OpenAPIV3.Document {
+		return 'openapi' in doc && typeof doc.openapi === 'string' && doc.openapi.startsWith('3.0')
+	}
+
+	export function isV3_1(doc: OpenAPI.Document): doc is OpenAPIV3_1.Document {
+		return 'openapi' in doc && typeof doc.openapi === 'string' && doc.openapi.startsWith('3.1')
+	}
+
+	export function getOpenApiVersion(doc: OpenAPI.Document): OpenApiVersion {
+		if (isV2(doc)) {
+			return OpenApiVersion.V2
+		} else if (isV3(doc)) {
+			return OpenApiVersion.V3
+		} else {
+			return OpenApiVersion.V3_1
+		}
+	}
+
+	/**
+	 * Parses and validates an OpenAPI specification provided as a string in either JSON or YAML format.
+	 *
+	 * @param api - A string containing a valid OpenAPI specification in JSON or YAML format.
+	 * @returns A promise that resolves to a tuple:
+	 *   - The first element is the validated OpenAPI document.
+	 *   - The second element is the detected OpenAPI version (2, 3.0, or 3.1).
+	 *
+	 * @throws Will throw an error if the specification is invalid or cannot be parsed.
+	 */
+	export async function parse(api: string): Promise<[OpenAPI.Document, OpenApiVersion]> {
+		let data: any
+
+		if (api.trimStart().at(0) === '{') {
+			data = JSON.parse(api)
+		} else {
+			data = YAML.parse(api)
+		}
+
+		const swaggerParser = (await import('@apidevtools/swagger-parser')).default
+
+		const document = await swaggerParser.validate(data)
+		const version = getOpenApiVersion(document)
+
+		return [document, version]
+	}
 }
 
 export function isJobCancelable(j: Job): boolean {
@@ -1284,6 +1336,7 @@ export function getOS() {
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import type { Snippet } from 'svelte'
+import type { OpenAPI, OpenAPIV2, OpenAPIV3, OpenAPIV3_1 } from 'openapi-types'
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))

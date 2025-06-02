@@ -4,10 +4,10 @@ import { random_adj } from '$lib/components/random_positive_adjetive'
 import type { HttpMethod, NewHttpTrigger } from '$lib/gen'
 import { HttpTriggerService } from '$lib/gen/services.gen'
 import { sendUserToast } from '$lib/toast'
-import type { OpenAPI, OpenAPIV2, OpenAPIV3, OpenAPIV3_1 } from 'openapi-types'
+import { OpenApi as WindmillOpenApi } from '$lib/utils'
+import { type OpenAPI } from 'openapi-types'
 import type { Writable } from 'svelte/store'
 import { get } from 'svelte/store'
-import YAML from 'yaml'
 
 export const SECRET_KEY_PATH = 'secret_key_path'
 export const HUB_SCRIPT_ID = 19670
@@ -83,8 +83,20 @@ export async function saveHttpRouteFromCfg(
 
 export type Source = 'OpenApiFile' | 'OpenApi' | 'OpenApiURL'
 
-function processV2(doc: OpenAPIV2.Document): NewHttpTrigger[] {
-	const paths = doc.paths
+function convertOpenApiPathToRoutePath(openApiPath: string) {
+	return openApiPath.replace(/{([^}]+)}/g, ':$1').slice(1)
+}
+
+function generateFolderPath(folderName: string, summary?: string) {
+	return `f/${folderName}/${summary?.toLowerCase().replaceAll(' ', '_') ?? random_adj()}`
+}
+
+function processOpenApiDocument(
+	document: OpenAPI.Document,
+	folderName: string,
+	_version?: WindmillOpenApi.OpenApiVersion
+) {
+	const paths = document.paths
 
 	const httpTrigger: NewHttpTrigger[] = []
 
@@ -99,7 +111,7 @@ function processV2(doc: OpenAPIV2.Document): NewHttpTrigger[] {
 			if (!routeDetail) continue
 
 			httpTrigger.push({
-				route_path: path.replace(/^\/+/, ''),
+				route_path: convertOpenApiPathToRoutePath(path),
 				http_method: method,
 				authentication_method: 'none',
 				workspaced_route: false,
@@ -109,116 +121,19 @@ function processV2(doc: OpenAPIV2.Document): NewHttpTrigger[] {
 				is_flow: false,
 				is_static_website: false,
 				wrap_body: false,
-				path: `f/test/${random_adj()}`
+				path: generateFolderPath(folderName, routeDetail.summary)
 			})
 		}
 	}
 
 	return httpTrigger
-}
-
-function processV3(doc: OpenAPIV3.Document): NewHttpTrigger[] {
-	const paths = doc.paths
-
-	const httpTrigger: NewHttpTrigger[] = []
-
-	for (const path in paths) {
-		const pathItem = paths[path]
-		if (!pathItem) continue
-
-		const methods: HttpMethod[] = ['get', 'post', 'put', 'patch', 'delete']
-
-		for (const method of methods) {
-			const routeDetail = pathItem[method]
-			if (!routeDetail) continue
-
-			httpTrigger.push({
-				route_path: path.replace(/^\/+/, ''),
-				http_method: method,
-				authentication_method: 'none',
-				workspaced_route: false,
-				is_async: true,
-				script_path: '',
-				raw_string: false,
-				is_flow: false,
-				is_static_website: false,
-				wrap_body: false,
-				path: `f/test/${random_adj()}`
-			})
-		}
-	}
-	return httpTrigger
-}
-
-function processV3_1(doc: OpenAPIV3_1.Document): NewHttpTrigger[] {
-	const paths = doc.paths
-
-	const httpTrigger: NewHttpTrigger[] = []
-
-	for (const path in paths) {
-		const pathItem = paths[path]
-		if (!pathItem) continue
-
-		const methods: HttpMethod[] = ['get', 'post', 'put', 'patch', 'delete']
-
-		for (const method of methods) {
-			const routeDetail = pathItem[method]
-			if (!routeDetail) continue
-
-			httpTrigger.push({
-				route_path: path.replace(/^\/+/, ''),
-				http_method: method,
-				authentication_method: 'none',
-				workspaced_route: false,
-				is_async: true,
-				script_path: '',
-				raw_string: false,
-				is_flow: false,
-				is_static_website: false,
-				wrap_body: false,
-				path: `f/test/${random_adj()}`
-			})
-		}
-	}
-
-	return httpTrigger
-}
-
-export function isV2(doc: OpenAPI.Document): doc is OpenAPIV2.Document {
-	return 'swagger' in doc && doc.swagger === '2.0'
-}
-
-export function isV3(doc: OpenAPI.Document): doc is OpenAPIV3.Document {
-	return 'openapi' in doc && typeof doc.openapi === 'string' && doc.openapi.startsWith('3.0')
-}
-
-export function isV3_1(doc: OpenAPI.Document): doc is OpenAPIV3_1.Document {
-	return 'openapi' in doc && typeof doc.openapi === 'string' && doc.openapi.startsWith('3.1')
 }
 
 export async function generateHttpTriggerFromOpenApi(
-	openApiSpec: string
+	api: string,
+	folderName: string
 ): Promise<NewHttpTrigger[]> {
-	try {
-		let data: any
+	const [document] = await WindmillOpenApi.parse(api)
 
-		if (openApiSpec.trimStart().at(0) === '{') {
-			data = JSON.parse(openApiSpec)
-		} else {
-			data = YAML.parse(openApiSpec)
-		}
-
-		const swaggerParser = (await import('@apidevtools/swagger-parser')).default
-
-		const document = await swaggerParser.validate(data)
-		if (isV2(document)) {
-			return processV2(document)
-		} else if (isV3(document)) {
-			return processV3(document)
-		} else {
-			return processV3_1(document)
-		}
-	} catch (error) {
-		throw error
-	}
+	return processOpenApiDocument(document, folderName)
 }
