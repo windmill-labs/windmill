@@ -36,11 +36,11 @@
 			<div class="absolute bottom-full left-0 right-0 flex center-center mb-3.5">
 				<InsertModuleButton
 					disableAi={data.disableAi}
-					index={data.index ?? 0}
+					index={0}
 					kind="preprocessor"
 					on:new={(e) => {
 						data?.eventHandlers.insert({
-							index: data.index,
+							index: 0,
 							kind: e.detail.kind,
 							inlineScript: e.detail.inlineScript,
 							detail: 'preprocessor'
@@ -48,7 +48,7 @@
 					}}
 					on:pickScript={(e) => {
 						data?.eventHandlers.insert({
-							index: data.index,
+							index: 0,
 							script: e.detail,
 							detail: 'preprocessor'
 						})

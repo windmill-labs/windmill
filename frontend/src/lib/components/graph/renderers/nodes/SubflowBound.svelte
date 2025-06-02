@@ -4,22 +4,11 @@
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import { Minimize2 } from 'lucide-svelte'
-	import type { GraphModuleState } from '../../model'
 	import { getStateColor, getStateHoverColor } from '../../util'
-	import type { GraphEventHandlers } from '../../graphBuilder.svelte'
+	import type { SubflowBoundN } from '../../graphBuilder.svelte'
 
 	interface Props {
-		data: {
-			label: string
-			preLabel: string | undefined
-			insertable: boolean
-			flowModuleStates: Record<string, GraphModuleState> | undefined
-			subflowId: string
-			id: string
-			selected: boolean
-			eventHandlers: GraphEventHandlers
-			offset: number
-		}
+		data: SubflowBoundN['data']
 	}
 
 	let { data }: Props = $props()

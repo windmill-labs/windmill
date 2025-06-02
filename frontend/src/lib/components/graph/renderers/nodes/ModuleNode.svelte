@@ -4,40 +4,14 @@
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
 	import { GitBranchPlus, Maximize2 } from 'lucide-svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
-	import type { GraphEventHandlers } from '../../graphBuilder.svelte'
-	import type { GraphModuleState } from '../../model'
 	import { getStateColor, getStateHoverColor } from '../../util'
-	import type { FlowModule } from '$lib/gen'
+	import type { ModuleN } from '../../graphBuilder.svelte'
 
 	interface Props {
-		data: {
-			offset: number
-			insertable: boolean
-			insertableEnd: boolean
-			module: FlowModule
-			branchable: boolean
-			bgColor: string
-			moving: string | undefined
-			id: string
-			disableAi: boolean
-			wrapperId: string | undefined
-			retries: number | undefined
-			flowJobs:
-				| { flowJobs: string[]; selected: number; flowJobsSuccess: (boolean | undefined)[] }
-				| undefined
-			eventHandlers: GraphEventHandlers
-			flowModuleStates: Record<string, GraphModuleState> | undefined
-			selected: boolean
-			editMode: boolean
-		}
+		data: ModuleN['data']
 	}
 
 	let { data }: Props = $props()
-
-	let type = $derived(data.flowModuleStates?.[data.id]?.type)
-	if (!type && data.flowJobs) {
-		type = 'InProgress'
-	}
 
 	let moduleState = $derived(data.flowModuleStates?.[data.id])
 	let flowJobs = $derived(
@@ -50,6 +24,14 @@
 				}
 			: (undefined as any)
 	)
+
+	let type = $derived.by(() => {
+		let typ = data.flowModuleStates?.[data.id]?.type
+		if (!typ && flowJobs) {
+			return 'InProgress'
+		}
+		return typ
+	})
 </script>
 
 <NodeWrapper offset={data.offset}>
@@ -86,7 +68,7 @@
 			bgHoverColor={getStateHoverColor(type, darkMode, true, moduleState?.skipped)}
 			moving={data.moving}
 			duration_ms={moduleState?.duration_ms}
-			retries={data.retries}
+			retries={moduleState?.retries}
 			{flowJobs}
 			on:delete={(e) => {
 				data.eventHandlers.delete(e.detail, '')

@@ -3,7 +3,6 @@
 
 	import NodeWrapper from './NodeWrapper.svelte'
 	import TriggersWrapper from '../triggers/TriggersWrapper.svelte'
-	import { type GraphEventHandlers, type SimplifiableFlow } from '../../graphBuilder.svelte'
 	import type { TriggersCount } from '$lib/gen'
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
@@ -13,18 +12,10 @@
 	import VirtualItemWrapper from '$lib/components/flows/map/VirtualItemWrapper.svelte'
 	import { type Trigger, type TriggerType } from '$lib/components/triggers/utils'
 	import { tick } from 'svelte'
+	import type { TriggerN } from '../../graphBuilder.svelte'
 
 	interface Props {
-		data: {
-			path: string
-			isEditor: boolean
-			newFlow: boolean
-			extra_perms: Record<string, any>
-			eventHandlers: GraphEventHandlers
-			index: number
-			disableAi: boolean
-			simplifiableFlow: SimplifiableFlow
-		}
+		data: TriggerN['data']
 	}
 
 	let { data }: Props = $props()

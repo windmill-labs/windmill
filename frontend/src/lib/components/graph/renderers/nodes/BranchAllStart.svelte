@@ -24,7 +24,7 @@
 		<VirtualItem
 			label={data.label}
 			selectable
-			selected={data.selected}
+			selected={false}
 			bgColor={getStateColor(undefined, darkMode)}
 			bgHoverColor={getStateHoverColor(undefined, darkMode)}
 			borderColor={borderStatus
