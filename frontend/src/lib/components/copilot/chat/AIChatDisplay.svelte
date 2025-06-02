@@ -16,6 +16,7 @@
 	import ChatMode from './ChatMode.svelte'
 	import { chatMode } from '$lib/stores'
 	import Markdown from 'svelte-exmarkdown'
+	import TriggerableByAi from '$lib/components/TriggerableByAI.svelte'
 
 	let {
 		allowedModes,
@@ -261,6 +262,14 @@
 	{/if}
 
 	<div class:border-t={messages.length > 0}>
+		<TriggerableByAi
+			id={`ai-chat-for-${$chatMode}`}
+			description={`AI Chat helper for ${$chatMode}`}
+			onTrigger={(value) => {
+				instructions = value ?? ''
+				sendRequest()
+			}}
+		/>
 		{#if $chatMode === 'script'}
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 px-2 no-scrollbar">
 				<Popover>
