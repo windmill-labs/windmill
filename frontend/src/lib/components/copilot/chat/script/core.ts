@@ -1,20 +1,15 @@
 import { ResourceService } from '$lib/gen/services.gen'
 import type { ResourceType, ScriptLang } from '$lib/gen/types.gen'
 import { capitalize, isObject, toCamel } from '$lib/utils'
-import { get, type Writable } from 'svelte/store'
-import { getCompletion } from '../lib'
-import { compile, phpCompile, pythonCompile } from '../utils'
-import { Code, Database, TriangleAlert, Diff } from 'lucide-svelte'
-import type {
-	ChatCompletionChunk,
-	ChatCompletionMessageParam,
-	ChatCompletionMessageToolCall,
-	ChatCompletionTool
-} from 'openai/resources/index.mjs'
-import { workspaceStore, type DBSchema, dbSchemas } from '$lib/stores'
+import { get } from 'svelte/store'
+import { compile, phpCompile, pythonCompile } from '../../utils'
+import type { ChatCompletionTool } from 'openai/resources/index.mjs'
+import { type DBSchema, dbSchemas } from '$lib/stores'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
-import { type Change } from 'diff'
+import type { CodePieceElement, ContextElement } from '../context'
+import type { Tool } from '../shared'
+import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
 
 export function formatResourceTypes(
 	allResourceTypes: ResourceType[],
@@ -58,9 +53,9 @@ async function getResourceTypes(prompt: string, workspace: string) {
 
 const TS_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type inside the \`RT\` namespace: for instance \`RT.Stripe\`.
-You should only use them if you need them to satisfy the user's instructions. Always use the RT namespace.`
+You should only use them if you need them to satisfy the user's instructions. Always use the RT namespace.\n`
 
-const TS_INLINE_TYPE_INSTRUCTION = `You must always inline the objects types instead of defining them separately. If INSTRUCTIONS ask you to use an already defined type, you MUST inline it instead of using the type name. Explain to the user that you are inlining the type for better arguments inference.`
+const TS_INLINE_TYPE_INSTRUCTION = `You must always inline the objects types instead of defining them separately. If INSTRUCTIONS ask you to use an already defined type **apart from the RT namespace**, you MUST inline it instead of using the type name. Explain to the user that you are inlining the type for better arguments inference.`
 
 const PYTHON_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type.
@@ -74,6 +69,24 @@ If you need credentials, you should add a parameter to \`main\` with the corresp
 You need to **redefine** the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.
 Before defining each type, check if the class already exists using class_exists.
 The resource type name has to be exactly as specified.`
+
+const PREPROCESSOR_INSTRUCTION_BASE = `The current script is a preprocessor. It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+The returned object determines the parameter values passed to the flow.
+e.g., \`{ b: 1, a: 2 }\` → Calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+The preprocessor receives a single parameter called event.
+Here's a sample script which includes the event object definition:\n`
+
+const TS_PREPROCESSOR_INSTRUCTION =
+	PREPROCESSOR_INSTRUCTION_BASE +
+	`\`\`\`typescript
+${TS_PREPROCESSOR_MODULE_CODE}
+\`\`\`\n`
+
+const PYTHON_PREPROCESSOR_INSTRUCTION =
+	PREPROCESSOR_INSTRUCTION_BASE +
+	`\`\`\`python
+${PYTHON_PREPROCESSOR_MODULE_CODE}
+\`\`\``
 
 export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
 	'bunnative',
@@ -96,38 +109,45 @@ export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
 
 export function getLangContext(
 	lang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json',
-	{ allowResourcesFetch = false }: { allowResourcesFetch?: boolean } = {}
+	{
+		allowResourcesFetch = false,
+		isPreprocessor = false
+	}: { allowResourcesFetch?: boolean; isPreprocessor?: boolean; isFailure?: boolean } = {}
 ) {
 	const tsContext =
-		TS_RESOURCE_TYPE_SYSTEM +
-		(allowResourcesFetch
-			? `\nTo query the RT namespace, you can use the \`search_resource_types\` function.\n`
-			: '') +
-		TS_INLINE_TYPE_INSTRUCTION
+		(isPreprocessor
+			? TS_PREPROCESSOR_INSTRUCTION
+			: TS_RESOURCE_TYPE_SYSTEM +
+				(allowResourcesFetch
+					? `To query the RT namespace, you can use the \`search_resource_types\` function.\n`
+					: '')) + TS_INLINE_TYPE_INSTRUCTION
+
+	const mainFunctionName = isPreprocessor ? 'preprocessor' : 'main'
+
 	switch (lang) {
 		case 'bunnative':
 		case 'nativets':
 			return (
-				'The user is coding in TypeScript. On Windmill, it is expected that the script exports a single **async** function called `main`. You should use fetch (available globally, no need to import) and are not allowed to import any libraries.\n' +
+				`The user is coding in TypeScript. On Windmill, it is expected that the script exports a single **async** function called \`${mainFunctionName}\`. You should use fetch (available globally, no need to import) and are not allowed to import any libraries.\n` +
 				tsContext
 			)
 		case 'bun':
 			return (
-				'The user is coding in TypeScript (bun runtime). On Windmill, it is expected that the script exports a single **async** function called `main`. Do not call the main function. Libraries are installed automatically, do not show how to install them.\n' +
+				`The user is coding in TypeScript (bun runtime). On Windmill, it is expected that the script exports a single **async** function called \`${mainFunctionName}\`. Do not call the ${mainFunctionName} function. Libraries are installed automatically, do not show how to install them.\n` +
 				tsContext
 			)
 		case 'deno':
 			return (
-				'The user is coding in TypeScript (deno runtime). On Windmill, it is expected that the script exports a single **async** function called `main`. Do not call the main function. Libraries are installed automatically, do not show how to install them.\n' +
+				`The user is coding in TypeScript (deno runtime). On Windmill, it is expected that the script exports a single **async** function called \`${mainFunctionName}\`. Do not call the ${mainFunctionName} function. Libraries are installed automatically, do not show how to install them.\n` +
 				tsContext +
 				'\nYou can import deno libraries or you can import npm libraries like that: `import ... from "npm:{package}";`.'
 			)
 		case 'python3':
-			return (
-				'The user is coding in Python. On Windmill, it is expected the script contains at least one function called `main`. Do not call the main function. Libraries are installed automatically, do not show how to install them.' +
-				PYTHON_RESOURCE_TYPE_SYSTEM +
-				`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` function.` : ''}`
-			)
+			return `The user is coding in Python. On Windmill, it is expected the script contains at least one function called \`${mainFunctionName}\`. Do not call the ${mainFunctionName} function. Libraries are installed automatically, do not show how to install them.` +
+				isPreprocessor
+				? PYTHON_PREPROCESSOR_INSTRUCTION
+				: PYTHON_RESOURCE_TYPE_SYSTEM +
+						`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` function.` : ''}`
 		case 'php':
 			return (
 				'The user is coding in PHP. On Windmill, it is expected the script contains at least one function called `main`. The script must start with <?php.' +
@@ -257,7 +277,7 @@ WINDMILL LANGUAGE CONTEXT:
 
 export const CHAT_USER_DB_CONTEXT = `- {title}: SCHEMA: \n{schema}\n`
 
-export function prepareSystemMessage(): {
+export function prepareScriptSystemMessage(): {
 	role: 'system'
 	content: string
 } {
@@ -266,58 +286,6 @@ export function prepareSystemMessage(): {
 		content: CHAT_SYSTEM_PROMPT
 	}
 }
-
-export interface DisplayMessage {
-	role: 'user' | 'assistant'
-	content: string
-	contextElements?: ContextElement[]
-}
-
-export const ContextIconMap = {
-	code: Code,
-	error: TriangleAlert,
-	db: Database,
-	diff: Diff,
-	code_piece: Code
-}
-
-type CodeElement = {
-	type: 'code'
-	content: string
-	title: string
-	lang: ScriptLang | 'bunnative'
-}
-
-type ErrorElement = {
-	type: 'error'
-	content: string
-	title: 'error'
-}
-
-type DBElement = {
-	type: 'db'
-	schema?: DBSchema
-	title: string
-}
-
-type DiffElement = {
-	type: 'diff'
-	content: string
-	title: string
-	diff: Change[]
-	lang: ScriptLang | 'bunnative'
-}
-
-type CodePieceElement = {
-	type: 'code_piece'
-	content: string
-	startLine: number
-	endLine: number
-	title: string
-	lang: ScriptLang | 'bunnative'
-}
-
-export type ContextElement = CodeElement | ErrorElement | DBElement | DiffElement | CodePieceElement
 
 const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext: string) => {
 	let code = codeContext.split('\n')
@@ -331,10 +299,13 @@ const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext
 	return code.join('\n')
 }
 
-export async function prepareUserMessage(
+export async function prepareScriptUserMessage(
 	instructions: string,
 	language: ScriptLang | 'bunnative',
-	selectedContext: ContextElement[]
+	selectedContext: ContextElement[],
+	options: {
+		isPreprocessor?: boolean
+	} = {}
 ) {
 	let codeContext = 'CODE:\n'
 	let errorContext = 'ERROR:\n'
@@ -377,7 +348,7 @@ export async function prepareUserMessage(
 
 	let userMessage = CHAT_USER_PROMPT.replace('{instructions}', instructions).replace(
 		'{lang_context}',
-		getLangContext(language, { allowResourcesFetch: true })
+		getLangContext(language, { allowResourcesFetch: true, ...options })
 	)
 	if (hasCode) {
 		userMessage += codeContext
@@ -450,156 +421,53 @@ async function formatDBSchema(dbSchema: DBSchema) {
 	}
 }
 
-async function callTool(
-	functionName: string,
-	args: any,
-	lang: ScriptLang | 'bunnative',
-	workspace: string
-) {
-	switch (functionName) {
-		case 'search_resource_types':
-			const formattedResourceTypes = await getFormattedResourceTypes(lang, args.query, workspace)
-			return formattedResourceTypes
-		case 'get_db_schema':
-			if (!args.resourcePath) {
-				throw new Error('Database path not provided')
-			}
-			const resource = await ResourceService.getResource({
-				workspace: workspace,
-				path: args.resourcePath
-			})
-			const newDbSchemas = {}
-			await getDbSchemas(
-				resource.resource_type,
-				args.resourcePath,
-				workspace,
-				newDbSchemas,
-				(error) => {
-					console.error(error)
-				}
-			)
-			dbSchemas.update((schemas) => ({ ...schemas, ...newDbSchemas }))
-			const dbs = get(dbSchemas)
-			const db = dbs[args.resourcePath]
-			if (!db) {
-				throw new Error('Database not found')
-			}
-			const stringSchema = await formatDBSchema(db)
-			return stringSchema
-		default:
-			throw new Error(`Unknown tool call: ${functionName}`)
+export interface ScriptChatHelpers {
+	getLang: () => ScriptLang | 'bunnative'
+}
+
+export const resourceTypeTool: Tool<ScriptChatHelpers> = {
+	def: RESOURCE_TYPE_FUNCTION_DEF,
+	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
+		toolCallbacks.onToolCall(toolId, 'Searching resource types...')
+		const formattedResourceTypes = await getFormattedResourceTypes(
+			helpers.getLang(),
+			args.query,
+			workspace
+		)
+		toolCallbacks.onFinishToolCall(toolId, 'Retrieved resource types')
+		return formattedResourceTypes
 	}
 }
 
-async function processToolCall(
-	toolCall: ChatCompletionMessageToolCall,
-	messages: ChatCompletionMessageParam[],
-	lang: ScriptLang | 'bunnative'
-) {
-	try {
-		const args = JSON.parse(toolCall.function.arguments)
-		let result = ''
-		try {
-			result = await callTool(toolCall.function.name, args, lang, get(workspaceStore) ?? '')
-		} catch (err) {
-			console.error(err)
-			result =
-				'Error while calling tool, MUST tell the user to check the browser console for more details, and then respond as much as possible to the original request'
+export const dbSchemaTool: Tool<ScriptChatHelpers> = {
+	def: DB_SCHEMA_FUNCTION_DEF,
+	fn: async ({ args, workspace, toolCallbacks, toolId }) => {
+		if (!args.resourcePath) {
+			throw new Error('Database path not provided')
 		}
-		messages.push({
-			role: 'tool',
-			tool_call_id: toolCall.id,
-			content: result
+		toolCallbacks.onToolCall(toolId, 'Getting database schema for ' + args.resourcePath + '...')
+		const resource = await ResourceService.getResource({
+			workspace: workspace,
+			path: args.resourcePath
 		})
-	} catch (err) {
-		console.error(err)
-	}
-}
-
-export async function chatRequest(
-	messages: ChatCompletionMessageParam[],
-	abortController: AbortController,
-	lang: ScriptLang | 'bunnative',
-	useDbTools: boolean,
-	onNewToken: (token: string) => void
-) {
-	const toolDefs: ChatCompletionTool[] = []
-	if (
-		lang === 'python3' ||
-		lang === 'php' ||
-		lang === 'bun' ||
-		lang === 'deno' ||
-		lang === 'nativets' ||
-		lang === 'bunnative'
-	) {
-		toolDefs.push(RESOURCE_TYPE_FUNCTION_DEF)
-	}
-	if (useDbTools) {
-		toolDefs.push(DB_SCHEMA_FUNCTION_DEF)
-	}
-	try {
-		let completion: any = null
-		while (true) {
-			completion = await getCompletion(messages, abortController, toolDefs)
-
-			if (completion) {
-				const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
-
-				for await (const chunk of completion) {
-					if (!('choices' in chunk && chunk.choices.length > 0 && 'delta' in chunk.choices[0])) {
-						continue
-					}
-					const c = chunk as ChatCompletionChunk
-					const delta = c.choices[0].delta.content
-					if (delta) {
-						onNewToken(delta)
-					}
-					const toolCalls = c.choices[0].delta.tool_calls || []
-					for (const toolCall of toolCalls) {
-						const { index } = toolCall
-						const finalToolCall = finalToolCalls[index]
-						if (!finalToolCall) {
-							finalToolCalls[index] = toolCall
-						} else {
-							if (toolCall.function?.arguments) {
-								if (!finalToolCall.function) {
-									finalToolCall.function = toolCall.function
-								} else {
-									finalToolCall.function.arguments =
-										(finalToolCall.function.arguments ?? '') + toolCall.function.arguments
-								}
-							}
-						}
-					}
-				}
-
-				const toolCalls = Object.values(finalToolCalls).filter(
-					(toolCall) => toolCall.id !== undefined && toolCall.function?.arguments !== undefined
-				) as ChatCompletionMessageToolCall[]
-
-				if (toolCalls.length > 0) {
-					messages.push({
-						role: 'assistant',
-						tool_calls: toolCalls
-					})
-					for (const toolCall of toolCalls) {
-						await processToolCall(toolCall, messages, lang)
-					}
-				} else {
-					break
-				}
+		const newDbSchemas = {}
+		await getDbSchemas(
+			resource.resource_type,
+			args.resourcePath,
+			workspace,
+			newDbSchemas,
+			(error) => {
+				console.error(error)
 			}
+		)
+		dbSchemas.update((schemas) => ({ ...schemas, ...newDbSchemas }))
+		const dbs = get(dbSchemas)
+		const db = dbs[args.resourcePath]
+		if (!db) {
+			throw new Error('Database not found')
 		}
-		return completion
-	} catch (err) {
-		if (!abortController.signal.aborted) {
-			throw err
-		}
+		const stringSchema = await formatDBSchema(db)
+		toolCallbacks.onFinishToolCall(toolId, 'Retrieved database schema for ' + args.resourcePath)
+		return stringSchema
 	}
-}
-
-export interface AIChatContext {
-	loading: Writable<boolean>
-	currentReply: Writable<string>
-	applyCode: (code: string) => void
 }

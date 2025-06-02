@@ -2,7 +2,6 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import StepGenQuick from '$lib/components/copilot/StepGenQuick.svelte'
 	import FlowInputsQuick from '../content/FlowInputsQuick.svelte'
-	import type { FlowModule } from '$lib/gen'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import ToggleHubWorkspaceQuick from '$lib/components/ToggleHubWorkspaceQuick.svelte'
 	import TopLevelNode from '../pickers/TopLevelNode.svelte'
@@ -11,9 +10,7 @@
 
 	const dispatch = createEventDispatcher()
 	export let stop = false
-	export let index: number = 0
 	export let funcDesc = ''
-	export let modules: FlowModule[] = []
 	export let disableAi = false
 	export let kind: 'script' | 'trigger' | 'preprocessor' | 'failure' = 'script'
 	export let allowTrigger = true
@@ -148,8 +145,6 @@ shouldUsePortal={true} -->
 			{selectedKind}
 			bind:loading
 			filter={funcDesc}
-			{modules}
-			{index}
 			{disableAi}
 			{funcDesc}
 			{kind}

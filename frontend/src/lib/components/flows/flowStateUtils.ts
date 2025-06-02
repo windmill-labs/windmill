@@ -19,6 +19,7 @@ import { loadSchemaFromModule } from './flowInfers'
 import { nextId } from './flowModuleNextId'
 import { findNextAvailablePath } from '$lib/path'
 import type { ExtendedOpenFlow } from './types'
+import { emptySchema } from '$lib/utils'
 
 export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowModuleState> {
 	try {
@@ -303,11 +304,11 @@ export async function insertNewPreprocessorModule(
 	},
 	wsScript?: { path: string; summary: string; hash: string | undefined }
 ) {
-	var module: FlowModule = {
+	let module: FlowModule = {
 		id: 'preprocessor',
 		value: { type: 'identity' }
 	}
-	var state = emptyFlowModuleState()
+	let state = emptyFlowModuleState()
 
 	if (inlineScript) {
 		;[module, state] = await createInlineScriptModule(
@@ -322,6 +323,47 @@ export async function insertNewPreprocessorModule(
 
 	flowStore.update((fs) => {
 		fs.value.preprocessor_module = module
+		return fs
+	})
+
+	flowStateStore.update((fss) => {
+		fss[module.id] = state
+		return fss
+	})
+}
+
+export async function insertNewFailureModule(
+	flowStore: Writable<ExtendedOpenFlow>,
+	flowStateStore: Writable<FlowState>,
+	inlineScript?: {
+		language: RawScript['language']
+		subkind: 'pgsql' | 'flow'
+		instructions?: string
+	},
+	wsScript?: { path: string; summary: string; hash: string | undefined }
+) {
+	let module: FlowModule = {
+		id: 'failure',
+		value: { type: 'identity' }
+	}
+	let state: FlowModuleState = {
+		schema: emptySchema(),
+		previewResult: NEVER_TESTED_THIS_FAR
+	}
+
+	if (inlineScript) {
+		;[module, state] = await createInlineScriptModule(
+			inlineScript.language,
+			'failure',
+			inlineScript.subkind,
+			'failure'
+		)
+	} else if (wsScript) {
+		;[module, state] = await pickScript(wsScript.path, wsScript.summary, module.id, wsScript.hash)
+	}
+
+	flowStore.update((fs) => {
+		fs.value.failure_module = module
 		return fs
 	})
 

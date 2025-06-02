@@ -1,7 +1,7 @@
 <script lang="ts">
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
-	import { Button, Drawer } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
 	import LogPanel from '$lib/components/scriptEditor/LogPanel.svelte'
 	import {
@@ -14,8 +14,6 @@
 		type FlowModule,
 		WorkspaceService,
 		type InputTransform,
-		type RawScript,
-		type PathScript,
 		type TriggersCount
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
@@ -39,8 +37,7 @@
 	import { CornerDownLeft, Play } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
-	import type { FlowCopilotContext, FlowCopilotModule } from './copilot/flow'
-	import { pickScript } from './flows/flowStateUtils'
+	import type { FlowCopilotContext } from './copilot/flow'
 	import {
 		approximateFindPythonRelativePath,
 		isTypescriptRelativePath,
@@ -64,10 +61,6 @@
 	}
 
 	let flowCopilotContext: FlowCopilotContext = {
-		drawerStore: writable<Drawer | undefined>(undefined),
-		modulesStore: writable<FlowCopilotModule[]>([]),
-		currentStepStore: writable<string | undefined>(undefined),
-		genFlow,
 		shouldUpdatePropertyType: writable<{
 			[key: string]: 'static' | 'javascript' | undefined
 		}>({}),
@@ -78,33 +71,6 @@
 			[key: string]: string | undefined
 		}>({}),
 		stepInputsLoading: writable<boolean>(false)
-	}
-	const { modulesStore } = flowCopilotContext
-
-	async function genFlow(idx: number, flowModules: FlowModule[], stepOnly = false) {
-		let module = stepOnly ? $modulesStore[0] : $modulesStore[idx]
-
-		if (module && module.selectedCompletion) {
-			const [hubScriptModule, hubScriptState] = await pickScript(
-				module.selectedCompletion.path,
-				`${module.selectedCompletion.summary} (${module.selectedCompletion.app})`,
-				module.id,
-				undefined
-			)
-			const flowModule: FlowModule & {
-				value: RawScript | PathScript
-			} = {
-				id: module.id,
-				value: hubScriptModule.value,
-				summary: hubScriptModule.summary
-			}
-
-			$flowStateStore[module.id] = hubScriptState
-
-			flowModules.splice(idx, 0, flowModule)
-			$flowStore = $flowStore
-			sendUserToast('Added module', false)
-		}
 	}
 
 	setContext('FlowCopilotContext', flowCopilotContext)
@@ -523,7 +489,8 @@
 			selectedTab: undefined,
 			editPanelSize: undefined,
 			payloadData: undefined
-		})
+		}),
+		currentEditor: writable(undefined)
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),

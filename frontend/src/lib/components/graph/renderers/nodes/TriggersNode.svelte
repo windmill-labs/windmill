@@ -93,7 +93,6 @@
 			}}
 			selected={$selectedId == 'triggers'}
 			newItem={data.newFlow}
-			modules={data.modules}
 		/>
 	{:else}
 		<VirtualItemWrapper
