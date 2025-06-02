@@ -54,7 +54,7 @@
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
 	import GlobalChat from '$lib/components/copilot/chat/navigator/GlobalChat.svelte'
-	import { globalChatOpen, globalChatSize } from '$lib/stores'
+	import { globalChatOpen, globalChatSize, chatMode } from '$lib/stores'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -309,6 +309,7 @@
 
 	function openGlobalChat(): void {
 		globalChatOpen.update((open) => !open)
+		// chatMode.set('navigator')
 	}
 
 	setContext('openSearchWithPrefilledText', openSearchModal)

@@ -42,7 +42,6 @@
 		flowHelpers?: FlowAIChatHelpers & {
 			getFlow: () => OpenFlow
 		}
-		navigatorMode?: boolean
 		showDiffMode?: () => void
 		applyCode?: (code: string) => void
 		headerLeft?: Snippet
@@ -50,6 +49,7 @@
 		suggestions?: string[]
 		disabled?: boolean
 		disabledMessage?: string
+		forceMode?: 'script' | 'flow' | 'navigator'
 	}
 
 	let {
@@ -59,10 +59,10 @@
 		showDiffMode,
 		headerLeft,
 		headerRight,
-		navigatorMode = false,
 		disabled = false,
 		disabledMessage = '',
-		suggestions = []
+		suggestions = [],
+		forceMode
 	}: Props = $props()
 
 	let instructions = $state('')
@@ -70,8 +70,14 @@
 	let currentReply: Writable<string> = writable('')
 	let allowedModes = $derived({
 		script: scriptOptions !== undefined,
-		flow: flowHelpers !== undefined,
-		navigator: navigatorMode
+		flow: flowHelpers !== undefined
+	})
+	let mode = $derived(forceMode ?? $chatMode)
+
+	$effect(() => {
+		console.log('mode', mode)
+		console.log('forceMode', forceMode)
+		console.log('chatMode', $chatMode)
 	})
 
 	async function updateMode(currentMode: 'script' | 'flow' | 'navigator') {
@@ -115,7 +121,7 @@
 		} = {}
 	) {
 		if (options.mode) {
-			$chatMode = options.mode
+			mode = options.mode
 		}
 		if (options.instructions) {
 			instructions = options.instructions
@@ -125,7 +131,7 @@
 		}
 		try {
 			const oldSelectedContext = contextManager?.getSelectedContext() ?? []
-			if ($chatMode === 'script') {
+			if (mode === 'script') {
 				contextManager?.updateContextOnRequest(options)
 			}
 			loading.set(true)
@@ -137,24 +143,24 @@
 				{
 					role: 'user',
 					content: instructions,
-					contextElements: $chatMode === 'script' ? oldSelectedContext : undefined
+					contextElements: mode === 'script' ? oldSelectedContext : undefined
 				}
 			]
 			const oldInstructions = instructions
 			instructions = ''
 
 			const systemMessage =
-				$chatMode === 'script'
+				mode === 'script'
 					? prepareScriptSystemMessage()
-					: $chatMode === 'flow'
+					: mode === 'flow'
 						? prepareFlowSystemMessage()
 						: prepareNavigatorSystemMessage()
 
-			if ($chatMode === 'flow' && !flowHelpers) {
+			if (mode === 'flow' && !flowHelpers) {
 				throw new Error('No flow helpers passed')
 			}
 
-			if ($chatMode === 'script' && !scriptOptions && !options.lang) {
+			if (mode === 'script' && !scriptOptions && !options.lang) {
 				throw new Error('No script options passed')
 			}
 
@@ -162,7 +168,7 @@
 			const isPreprocessor = scriptOptions?.path === 'preprocessor' || options.isPreprocessor
 
 			const userMessage =
-				$chatMode === 'flow'
+				mode === 'flow'
 					? prepareFlowUserMessage(oldInstructions, flowHelpers!.getFlow())
 					: mode === 'navigator'
 						? prepareNavigatorUserMessage(oldInstructions)
@@ -197,7 +203,7 @@
 									role: 'assistant',
 									content: $currentReply,
 									contextElements:
-										$chatMode === 'script'
+										mode === 'script'
 											? oldSelectedContext.filter((c) => c.type === 'code')
 											: undefined
 								}
@@ -222,7 +228,7 @@
 				}
 			}
 
-			if ($chatMode === 'flow') {
+			if (mode === 'flow') {
 				if (!flowHelpers) {
 					throw new Error('No flow helpers found')
 				}
@@ -262,9 +268,7 @@
 						role: 'assistant',
 						content: $currentReply,
 						contextElements:
-							$chatMode === 'script'
-								? oldSelectedContext.filter((c) => c.type === 'code')
-								: undefined
+							mode === 'script' ? oldSelectedContext.filter((c) => c.type === 'code') : undefined
 					}
 				]
 				currentReply.set('')

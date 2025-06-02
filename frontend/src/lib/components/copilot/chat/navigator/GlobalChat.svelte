@@ -30,6 +30,7 @@
 		{disabledMessage}
 		{suggestions}
 		headerLeft={aiChatHeaderLeft}
+		forceMode="navigator"
 	/>
 </div>
 
