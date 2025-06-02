@@ -53,7 +53,7 @@
 	import { setContext } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
-	import GlobalChat from '$lib/components/chat/GlobalChat.svelte'
+	import GlobalChat from '$lib/components/copilot/chat/navigator/GlobalChat.svelte'
 	import { globalChatOpen, globalChatSize } from '$lib/stores'
 
 	OpenAPI.WITH_CREDENTIALS = true

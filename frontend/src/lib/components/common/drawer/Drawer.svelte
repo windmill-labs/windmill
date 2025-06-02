@@ -44,7 +44,8 @@
 
 	// Calculate adjusted offset based on global chat status
 	$: adjustedOffset = $globalChatOpen && placement === 'right' ? $globalChatSize : 0
-	$: style = `--duration: ${duration}s; --size: ${size}; --adjusted-offset: ${adjustedOffset}px;`
+	$: adjustedSize = parseInt(size) - adjustedOffset + 100
+	$: style = `--duration: ${duration}s; --size: ${adjustedSize}px; --adjusted-offset: ${adjustedOffset}px;`
 
 	function scrollLock(open: boolean) {
 		if (BROWSER) {
