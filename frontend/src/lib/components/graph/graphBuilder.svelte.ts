@@ -1,9 +1,34 @@
-import type { FlowModule } from '$lib/gen'
+import type { FlowModule, RawScript, Script } from '$lib/gen'
 import { type Node, type Edge } from '@xyflow/svelte'
 import { getDependeeAndDependentComponents } from '../flows/flowExplorer'
 import { dfsByModule } from '../flows/previousResults'
 import { defaultIfEmptyString } from '$lib/utils'
 import type { GraphModuleState } from './model'
+
+export type InsertKind =
+	| 'script'
+	| 'forloop'
+	| 'whileloop'
+	| 'branchone'
+	| 'branchall'
+	| 'flow'
+	| 'trigger'
+	| 'approval'
+	| 'end'
+
+export type InlineScript = {
+	language: RawScript['language']
+	kind: Script['kind']
+	subkind: 'pgsql' | 'flow'
+	id: string
+	summary?: string
+}
+
+export type onSelectedIteration = (
+	detail:
+		| { id: string; index: number; manuallySet: true; moduleId: string }
+		| { manuallySet: false; moduleId: string }
+) => void
 
 export type GraphEventHandlers = {
 	insert: (detail: {
@@ -21,14 +46,7 @@ export type GraphEventHandlers = {
 	delete: (detail: { id: string }, label: string) => void
 	newBranch: (id: string) => void
 	move: (detail: { id: string }) => void
-	selectedIteration: (
-		detail: {
-			id: string
-			index: number
-			manuallySet?: boolean
-		},
-		moduleId: string
-	) => void
+	selectedIteration: onSelectedIteration
 	changeId: (newId: string) => void
 	simplifyFlow: (b: boolean) => void
 	expandSubflow: (id: string, path: string) => void

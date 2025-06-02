@@ -1253,31 +1253,29 @@
 							success={jobId != undefined && isSuccess(job?.['success'])}
 							flowModuleStates={$localModuleStates}
 							bind:expandedSubflows
-							on:select={(e) => {
+							onSelect={(e) => {
+								console.log('onSelect', e)
 								if (rightColumnSelect != 'node_definition') {
 									rightColumnSelect = 'node_status'
 								}
-								if (typeof e.detail == 'string') {
-									if (e.detail == 'Input') {
+								if (typeof e == 'string') {
+									if (e == 'Input') {
 										selectedNode = 'start'
 										stepDetail = undefined
-									} else if (e.detail == 'Result') {
+									} else if (e == 'Result') {
 										selectedNode = 'end'
 										stepDetail = 'end'
 									} else {
-										const mod = dfs(job?.raw_flow?.modules ?? [], (m) => m).find(
-											(m) => m?.id === e?.detail
-										)
+										const mod = dfs(job?.raw_flow?.modules ?? [], (m) => m).find((m) => m?.id === e)
 										stepDetail = mod
-										selectedNode = e?.detail
+										selectedNode = e
 									}
 								} else {
-									stepDetail = e.detail
-									selectedNode = e.detail.id
+									stepDetail = e
+									selectedNode = e.id
 								}
 							}}
-							on:selectedIteration={async (e) => {
-								let detail = e.detail
+							onSelectedIteration={async (detail) => {
 								if (detail.manuallySet) {
 									let rootJobId = detail.id
 									await tick()

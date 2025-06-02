@@ -52,6 +52,7 @@
 			</button>
 		{/if}
 		<MapItem
+			moduleId={data.id}
 			mod={data.module}
 			insertable={data.insertable}
 			editMode={data.editMode}
@@ -82,11 +83,11 @@
 			on:newBranch={(e) => {
 				data.eventHandlers.newBranch(data.id)
 			}}
-			on:select={(e) => {
-				setTimeout(() => data.eventHandlers.select(e.detail))
+			onSelect={(e) => {
+				setTimeout(() => data.eventHandlers.select(e))
 			}}
-			on:selectedIteration={(e) => {
-				data.eventHandlers.selectedIteration(e.detail, data.id)
+			onSelectedIteration={(e) => {
+				data.eventHandlers.selectedIteration(e)
 			}}
 			on:updateMock={() => {
 				data.eventHandlers.updateMock()

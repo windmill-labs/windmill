@@ -11,11 +11,15 @@
 	import { msToSec } from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import FlowJobsMenu from './FlowJobsMenu.svelte'
-	import { isTriggerStep } from '$lib/components/graph/graphBuilder.svelte'
+	import {
+		isTriggerStep,
+		type onSelectedIteration
+	} from '$lib/components/graph/graphBuilder.svelte'
 	import { checkIfParentLoop } from '$lib/components/flows/utils'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 
 	interface Props {
+		moduleId: string
 		mod: FlowModule
 		insertable: boolean
 		annotation?: string | undefined
@@ -33,9 +37,13 @@
 			  }
 			| undefined
 		editMode?: boolean
+		onSelectedIteration: onSelectedIteration
+		onSelect: (id: string | FlowModule) => void
 	}
 
 	let {
+		onSelectedIteration,
+		moduleId,
 		mod = $bindable(),
 		insertable,
 		annotation = undefined,
@@ -45,7 +53,8 @@
 		duration_ms = undefined,
 		retries = undefined,
 		flowJobs,
-		editMode = false
+		editMode = false,
+		onSelect
 	}: Props = $props()
 
 	const { selectedId } = getContext<{
@@ -59,7 +68,6 @@
 		select: string
 		newBranch: { id: string }
 		move: { module: FlowModule } | undefined
-		selectedIteration: { index: number; id: string }
 		updateMock: void
 	}>()
 
@@ -103,10 +111,9 @@
 		{#if flowJobs && !insertable && (mod.value.type === 'forloopflow' || mod.value.type === 'whileloopflow')}
 			<div class="absolute right-8 z-50 -top-5">
 				<FlowJobsMenu
+					{moduleId}
 					id={mod.id}
-					on:selectedIteration={(e) => {
-						dispatch('selectedIteration', e.detail)
-					}}
+					{onSelectedIteration}
 					flowJobsSuccess={flowJobs.flowJobsSuccess}
 					flowJobs={flowJobs.flowJobs}
 					selected={flowJobs.selected}
@@ -129,7 +136,7 @@
 					on:changeId
 					on:move
 					on:delete
-					on:pointerdown={() => dispatch('select', mod.id)}
+					on:pointerdown={() => onSelect(mod)}
 					on:updateMock={({ detail }) => {
 						mod.mock = detail
 						dispatch('updateMock')
@@ -158,7 +165,7 @@
 					on:changeId
 					on:delete
 					on:move
-					on:pointerdown={() => dispatch('select', mod.id)}
+					on:pointerdown={() => onSelect(mod.id)}
 					{...itemProps}
 					id={mod.id}
 					label={mod.summary || 'Run one branch'}
@@ -178,7 +185,7 @@
 					on:changeId
 					on:delete
 					on:move
-					on:pointerdown={() => dispatch('select', mod.id)}
+					on:pointerdown={() => onSelect(mod.id)}
 					id={mod.id}
 					{...itemProps}
 					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
@@ -196,7 +203,7 @@
 					{retries}
 					{editMode}
 					on:changeId
-					on:pointerdown={() => dispatch('select', mod.id)}
+					on:pointerdown={() => onSelect(mod.id)}
 					on:delete
 					on:move
 					on:updateMock={({ detail }) => {

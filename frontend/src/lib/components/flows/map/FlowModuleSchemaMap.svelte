@@ -13,7 +13,7 @@
 		pickFlow,
 		insertNewPreprocessorModule
 	} from '$lib/components/flows/flowStateUtils'
-	import type { FlowModule, RawScript, Script } from '$lib/gen'
+	import type { FlowModule } from '$lib/gen'
 	import { emptyFlowModuleState, initFlowStepWarnings } from '../utils'
 	import FlowSettingsItem from './FlowSettingsItem.svelte'
 	import FlowConstantsItem from './FlowConstantsItem.svelte'
@@ -38,6 +38,7 @@
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { JobService } from '$lib/gen'
 	import { dfsByModule } from '../previousResults'
+	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 
 	interface Props {
 		modules: FlowModule[] | undefined
@@ -81,25 +82,10 @@
 	async function insertNewModuleAtIndex(
 		modules: FlowModule[],
 		index: number,
-		kind:
-			| 'script'
-			| 'forloop'
-			| 'whileloop'
-			| 'branchone'
-			| 'branchall'
-			| 'flow'
-			| 'trigger'
-			| 'approval'
-			| 'end',
+		kind: InsertKind,
 		wsScript?: { path: string; summary: string; hash: string | undefined },
 		wsFlow?: { path: string; summary: string },
-		inlineScript?: {
-			language: RawScript['language']
-			kind: Script['kind']
-			subkind: 'pgsql' | 'flow'
-			id: string
-			summary?: string
-		}
+		inlineScript?: InlineScript
 	): Promise<FlowModule[]> {
 		push(history, $flowStore)
 		var module = emptyModule($flowStateStore, $flowStore, kind == 'flow')
@@ -384,8 +370,7 @@
 			{flowInputsStore}
 			{workspace}
 			editMode
-			on:delete={({ detail }) => {
-				let id = detail
+			onDelete={(id) => {
 				dependents = getDependentComponents(id, $flowStore)
 				const cb = () => {
 					push(history, $flowStore)
@@ -410,7 +395,7 @@
 					cb()
 				}
 			}}
-			on:insert={async ({ detail }) => {
+			onInsert={async (detail) => {
 				if (shouldRunTutorial('forloop', detail.detail, 1)) {
 					flowTutorials?.runTutorialById('forloop', detail.index)
 				} else if (shouldRunTutorial('branchone', detail.detail, 2)) {
@@ -483,9 +468,9 @@
 									setScheduledPollSchedule(triggersState, triggersCount)
 								}
 
-								if (`flow` in detail) {
-									loadLastJob(detail.flow?.path, id)
-								} else if (`script` in detail) {
+								if (detail.flow?.path) {
+									loadLastJob(detail.flow.path, id)
+								} else if (detail.script?.path) {
 									loadLastJob(detail.script?.path, id)
 								}
 							}
@@ -500,16 +485,16 @@
 					}
 				}
 			}}
-			on:newBranch={async ({ detail }) => {
-				if (detail.id) {
-					await addBranch(detail.id)
+			onNewBranch={async (id) => {
+				if (id) {
+					await addBranch(id)
 					$flowStore = $flowStore
 				}
 			}}
-			on:select={async ({ detail }) => {
+			onSelect={(id) => {
 				flowPropPickerConfig.set(undefined)
 			}}
-			on:changeId={({ detail }) => {
+			onChangeId={(detail) => {
 				let { id, newId, deps } = detail
 				dfs($flowStore.value.modules, (mod) => {
 					if (deps[mod.id]) {
@@ -546,21 +531,21 @@
 				$flowStore = $flowStore
 				$selectedId = newId
 			}}
-			on:deleteBranch={async ({ detail }) => {
-				if (detail.id) {
-					await removeBranch(detail.id, detail.index)
+			onDeleteBranch={async ({ id, index }) => {
+				if (id) {
+					await removeBranch(id, index)
 					$flowStore = $flowStore
-					$selectedId = detail.id
+					$selectedId = id
 				}
 			}}
-			on:move={async ({ detail }) => {
-				if (!$moving || $moving.id !== detail.id) {
-					$moving = { id: detail.id }
+			onMove={(id) => {
+				if (!$moving || $moving.id !== id) {
+					$moving = { id }
 				} else {
 					$moving = undefined
 				}
 			}}
-			on:updateMock={() => {
+			onUpdateMock={() => {
 				$flowStore = $flowStore
 			}}
 		/>

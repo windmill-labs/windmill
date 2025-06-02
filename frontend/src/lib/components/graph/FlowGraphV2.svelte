@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { FlowService, type FlowModule } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
-	import { createEventDispatcher, getContext, onDestroy, setContext, tick, untrack } from 'svelte'
+	import { getContext, onDestroy, setContext, tick, untrack } from 'svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/base.css'
@@ -18,7 +18,10 @@
 	import {
 		graphBuilder,
 		isTriggerStep,
+		type InlineScript,
+		type InsertKind,
 		type NodeLayout,
+		type onSelectedIteration,
 		type SimplifiableFlow
 	} from './graphBuilder.svelte'
 	import ModuleNode from './renderers/nodes/ModuleNode.svelte'
@@ -53,8 +56,6 @@
 
 	const triggerContext = getContext<TriggerContext>('TriggerContext')
 
-	const dispatch = createEventDispatcher()
-
 	let fullWidth = 0
 	let width = $state(0)
 
@@ -87,9 +88,39 @@
 		editMode?: boolean
 		allowSimplifiedPoll?: boolean
 		expandedSubflows?: Record<string, FlowModule[]>
+		onDelete?: (id: string) => void
+		onInsert?: (detail: {
+			sourceId?: string
+			targetId?: string
+			branch?: { rootId: string; branch: number }
+			index: number
+			detail: string
+			isPreprocessor?: boolean
+			inlineScript?: InlineScript
+			script?: { path: string; summary: string; hash: string | undefined }
+			flow?: { path: string; summary: string }
+			kind: InsertKind
+		}) => Promise<void>
+		onNewBranch?: (id: string) => Promise<void>
+		onSelect?: (id: string | FlowModule) => void
+		onDeleteBranch?: (detail: { id: string; index: number }) => Promise<void>
+		onChangeId?: (detail: { id: string; newId: string; deps: Record<string, string[]> }) => void
+		onMove?: (id: string) => void
+		onUpdateMock?: () => void
+		onSelectedIteration?: onSelectedIteration
 	}
 
 	let {
+		onInsert = undefined,
+		onDelete = undefined,
+		onMove = undefined,
+		onDeleteBranch = undefined,
+		onNewBranch = undefined,
+		onSelect = undefined,
+		onChangeId = undefined,
+
+		onUpdateMock = undefined,
+		onSelectedIteration = undefined,
 		success = undefined,
 		modules = [],
 		failureModule = undefined,
@@ -206,33 +237,34 @@
 	let eventHandler = {
 		deleteBranch: (detail, label) => {
 			$selectedId = label
-			dispatch('deleteBranch', detail)
+			onDeleteBranch?.(detail)
 		},
 		insert: (detail) => {
-			dispatch('insert', detail)
+			onInsert?.(detail)
 		},
 		select: (modId) => {
+			console.log('select', modId, notSelectable)
 			if (!notSelectable) {
 				if ($selectedId != modId) {
 					$selectedId = modId
 				}
-				dispatch('select', modId)
+				onSelect?.(modId)
 			}
 		},
 		changeId: (detail) => {
-			dispatch('changeId', detail)
+			onChangeId?.(detail)
 		},
 		delete: (detail) => {
-			dispatch('delete', detail.id)
+			onDelete?.(detail.id)
 		},
 		newBranch: (id) => {
-			dispatch('newBranch', { id })
+			onNewBranch?.(id)
 		},
 		move: (detail) => {
-			dispatch('move', detail)
+			onMove?.(detail.id)
 		},
-		selectedIteration: (detail, moduleId) => {
-			dispatch('selectedIteration', { ...detail, moduleId: moduleId })
+		selectedIteration: (detail) => {
+			onSelectedIteration?.(detail)
 		},
 		simplifyFlow: (detail) => {
 			triggerContext?.simplifiedPoll.set(detail)
@@ -247,7 +279,7 @@
 			expandedSubflows = expandedSubflows
 		},
 		updateMock: () => {
-			dispatch('updateMock')
+			onUpdateMock?.()
 		}
 	}
 

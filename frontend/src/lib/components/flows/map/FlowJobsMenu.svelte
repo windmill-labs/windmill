@@ -1,20 +1,32 @@
 <script lang="ts">
 	import { Menu, Menubar, MenuItem, MeltButton } from '$lib/components/meltComponents'
-	import { createEventDispatcher } from 'svelte'
 	import { ListFilter, Lock, LockOpen } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import VirtualList from 'svelte-tiny-virtual-list'
+	import type { onSelectedIteration } from '$lib/components/graph/graphBuilder.svelte'
 
-	const dispatch = createEventDispatcher()
+	interface Props {
+		id: string
+		moduleId: string
+		flowJobs: string[] | undefined
+		flowJobsSuccess: (boolean | undefined)[] | undefined
+		selected: number
+		selectedManually: boolean | undefined
+		onSelectedIteration: onSelectedIteration
+	}
 
-	export let id: string
-	export let flowJobs: string[] | undefined
-	export let flowJobsSuccess: (boolean | undefined)[] | undefined
-	export let selected: number
-	export let selectedManually: boolean | undefined
+	let {
+		id,
+		flowJobs,
+		flowJobsSuccess,
+		selected,
+		selectedManually,
+		onSelectedIteration,
+		moduleId
+	}: Props = $props()
 
-	let filter: number | undefined = undefined
+	let filter: number | undefined = $state(undefined)
 	function onKeydown(event: KeyboardEvent) {
 		if (
 			event.key === 'Enter' &&
@@ -24,19 +36,20 @@
 			filter > 0
 		) {
 			event.preventDefault()
-			dispatch('selectedIteration', {
+			onSelectedIteration({
 				index: filter - 1,
 				id: flowJobs[filter - 1],
-				manuallySet: true
+				manuallySet: true,
+				moduleId: moduleId
 			})
 			menu?.close()
 		}
 	}
 
-	let buttonHover = false
-	let menu: Menu | undefined = undefined
+	let buttonHover = $state(false)
+	let menu: Menu | undefined = $state(undefined)
 
-	let items: { id: string; success: boolean | undefined; index: number }[] = []
+	let items: { id: string; success: boolean | undefined; index: number }[] = $state([])
 	function updateItems() {
 		items = (flowJobs ?? [])
 			.map((v, i) => {
@@ -51,21 +64,23 @@
 			})
 	}
 
-	let isOpen = false
+	let isOpen = $state(false)
 
-	$: isOpen && flowJobs && updateItems()
+	$effect(() => {
+		isOpen && flowJobs && updateItems()
+	})
 </script>
 
 {#if selectedManually && flowJobsSuccess?.some((x) => x == undefined || x == null)}
 	<Popover class="absolute top-1.5 right-12 cursor-pointer">
-		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			on:mouseenter={() => (buttonHover = true)}
-			on:mouseleave={() => (buttonHover = false)}
-			on:click={(e) => {
+			onmouseenter={() => (buttonHover = true)}
+			onmouseleave={() => (buttonHover = false)}
+			onclick={(e) => {
 				buttonHover = false
-				dispatch('selectedIteration', { manuallySet: false })
+				onSelectedIteration({ manuallySet: false, moduleId: moduleId })
 			}}
 		>
 			{#if buttonHover}
@@ -74,80 +89,88 @@
 				<Lock class="text-primary" size={12} />
 			{/if}
 		</div>
-		<span slot="text">
-			The iteration picked is locked. Click to unlock to pick automatically new iterations.
-		</span>
+		{#snippet text()}
+			<span>
+				The iteration picked is locked. Click to unlock to pick automatically new iterations.
+			</span>
+		{/snippet}
 	</Popover>
 {/if}
 
-<Menubar let:createMenu>
-	<Menu
-		on:open={() => {
-			isOpen = true
-			updateItems()
-		}}
-		on:close={() => {
-			isOpen = false
-		}}
-		{createMenu}
-		let:item
-		placement="bottom"
-		bind:this={menu}
-		usePointerDownOutside
-	>
-		<svelte:fragment slot="trigger" let:trigger>
-			<MeltButton
-				title="Pick an iteration"
-				id={`flow-editor-iteration picker-${id}`}
-				type="button"
-				class={twMerge(
-					'text-xs bg-surface border-[1px] border-gray-300 dark:border-gray-500 focus:outline-none',
-					'hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected font-medium rounded-sm w-[40px] gap-1 h-[20px]',
-					'flex items-center justify-center',
-					flowJobsSuccess?.[selected] == false ? 'text-red-400' : 'text-secondary'
-				)}
-				meltElement={trigger}
-			>
-				#{selected == -1 ? '?' : selected + 1}
-				<ListFilter size={15} />
-			</MeltButton>
-		</svelte:fragment>
+<Menubar>
+	{#snippet children({ createMenu })}
+		<Menu
+			on:open={() => {
+				isOpen = true
+				updateItems()
+			}}
+			on:close={() => {
+				isOpen = false
+			}}
+			{createMenu}
+			placement="bottom"
+			bind:this={menu}
+			usePointerDownOutside
+		>
+			{#snippet trigger({ trigger })}
+				<MeltButton
+					title="Pick an iteration"
+					id={`flow-editor-iteration picker-${id}`}
+					type="button"
+					class={twMerge(
+						'text-xs bg-surface border-[1px] border-gray-300 dark:border-gray-500 focus:outline-none',
+						'hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected font-medium rounded-sm w-[40px] gap-1 h-[20px]',
+						'flex items-center justify-center',
+						flowJobsSuccess?.[selected] == false ? 'text-red-400' : 'text-secondary'
+					)}
+					meltElement={trigger}
+				>
+					#{selected == -1 ? '?' : selected + 1}
+					<ListFilter size={15} />
+				</MeltButton>
+			{/snippet}
 
-		<div class="flex flex-col px-1">
-			<input type="number" bind:value={filter} on:keydown={onKeydown} />
+			{#snippet children({ item })}
+				<div class="flex flex-col px-1">
+					<input type="number" bind:value={filter} onkeydown={onKeydown} />
 
-			<div class="max-h-[300px]">
-				{#key items}
-					<VirtualList height={300} width="100%" itemCount={items.length} itemSize={24}>
-						<div slot="item" let:index={idx} let:style {style}>
-							<MenuItem
-								class={twMerge(
-									'text-primary text-xs w-full text-left py-1 pl-2 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center',
-									items[idx].success == false ? 'text-red-400' : '',
-									'data-[highlighted]:bg-surface-hover'
-								)}
-								on:click={() => {
-									dispatch('selectedIteration', {
-										index: items[idx].index,
-										id: items[idx].id,
-										manuallySet: true
-									})
-									menu?.close()
-								}}
-								{item}
-							>
-								#{items[idx].index + 1}
-							</MenuItem>
-						</div>
-					</VirtualList>
-				{/key}
+					<div class="max-h-[300px]">
+						{#key items}
+							<VirtualList height={300} width="100%" itemCount={items.length} itemSize={24}>
+								{#snippet item({ index: idx, style })}
+									<div {style}>
+										<MenuItem
+											class={twMerge(
+												'text-primary text-xs w-full text-left py-1 pl-2 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center',
+												items[idx].success == false ? 'text-red-400' : '',
+												'data-[highlighted]:bg-surface-hover'
+											)}
+											on:click={() => {
+												onSelectedIteration({
+													moduleId: moduleId,
+													index: items[idx].index,
+													id: items[idx].id,
+													manuallySet: true
+												})
+												menu?.close()
+											}}
+											{item}
+										>
+											#{items[idx].index + 1}
+										</MenuItem>
+									</div>
+								{/snippet}
+							</VirtualList>
+						{/key}
 
-				<!-- {#each flowJobs ?? [] as id, idx (id)}
-						{#if filter == undefined || (idx + 1).toString().includes(filter.toString())}
+						<!-- {#each flowJobs ?? [] as id, idx (id)}
+								{#if filter == undefined || (idx + 1).toString().includes(filter.toString())}
 
-						{/if}
-					{/each} -->
-			</div>
-		</div></Menu
-	>
+								{/if}
+							{/each} -->
+					</div>
+				</div>
+			{/snippet}
+		</Menu>
+	{/snippet}
 </Menubar>
