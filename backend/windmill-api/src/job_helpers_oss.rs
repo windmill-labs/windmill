@@ -17,6 +17,7 @@ use crate::db::{ApiAuthed, DB};
 use object_store::{ObjectStore, PutMultipartOpts};
 #[cfg(all(feature = "parquet", not(feature = "private")))]
 use std::sync::Arc;
+#[cfg(not(feature = "private"))]
 use windmill_common::error;
 #[cfg(all(feature = "parquet", not(feature = "private")))]
 use windmill_common::{db::UserDB, s3_helpers::ObjectStoreResource};

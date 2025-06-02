@@ -2,6 +2,7 @@
 #[allow(unused)]
 pub use crate::ee::*;
 
+#[cfg(not(feature = "private"))]
 use anyhow::anyhow;
 #[cfg(all(feature = "enterprise", not(feature = "private")))]
 use std::sync::Arc;

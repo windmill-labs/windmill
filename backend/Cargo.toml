@@ -95,7 +95,7 @@ php = ["windmill-worker/php"]
 csharp = ["windmill-worker/csharp"]
 nu = ["windmill-worker/nu"]
 java = ["windmill-worker/java"]
-all_languages = [ "python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql", "bigquery", "csharp", "nu", "php", "java"]
+all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql", "bigquery", "csharp", "nu", "php", "java"]
 
 
 [patch.crates-io]
