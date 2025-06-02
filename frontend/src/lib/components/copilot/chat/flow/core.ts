@@ -28,7 +28,7 @@ export interface FlowAIChatHelpers {
 	addBranch: (id: string) => Promise<void>
 	removeBranch: (id: string, branchIndex: number) => Promise<void>
 	setForLoopIteratorExpression: (id: string, expression: string) => Promise<void>
-	setCode: (code: string) => void
+	setCode: (id: string, code: string) => Promise<void>
 }
 
 const searchScriptsSchema = z.object({
@@ -250,6 +250,7 @@ const setFlowInputsSchemaToolDef = createToolDef(
 )
 
 const setCodeSchema = z.object({
+	id: z.string().describe('The id of the step to set the code for'),
 	code: z.string().describe('The code to apply')
 })
 
@@ -443,9 +444,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		def: setCodeToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = setCodeSchema.parse(args)
-			toolCallbacks.onToolCall(toolId, 'Setting step code...')
-			helpers.setCode(parsedArgs.code)
-			toolCallbacks.onFinishToolCall(toolId, 'Set step code')
+			toolCallbacks.onToolCall(toolId, `Setting code for step '${parsedArgs.id}'...`)
+			await helpers.setCode(parsedArgs.id, parsedArgs.code)
+			helpers.selectStep(parsedArgs.id)
+			toolCallbacks.onFinishToolCall(toolId, `Set code for step '${parsedArgs.id}'`)
 			return `Step code set`
 		}
 	},
@@ -591,7 +593,11 @@ If the user wants a specific resource as step input, you should set the step val
 	}
 }
 
-export function prepareFlowUserMessage(instructions: string, flow: ExtendedOpenFlow) {
+export function prepareFlowUserMessage(
+	instructions: string,
+	flowAndSelectedId: { flow: ExtendedOpenFlow; selectedId: string }
+) {
+	const { flow, selectedId } = flowAndSelectedId
 	return `## FLOW:
 flow_input schema:
 ${JSON.stringify(flow.schema ?? emptySchema())}
@@ -604,6 +610,9 @@ ${YAML.stringify(flow.value.preprocessor_module)}
 
 failure module:
 ${YAML.stringify(flow.value.failure_module)}
+
+currently selected step:
+${selectedId}
 
 ## INSTRUCTIONS:
 ${instructions}`

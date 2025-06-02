@@ -34,7 +34,7 @@
 	interface Props {
 		scriptOptions?: ScriptOptions
 		flowHelpers?: FlowAIChatHelpers & {
-			getFlow: () => OpenFlow
+			getFlowAndSelectedId: () => { flow: OpenFlow; selectedId: string }
 		}
 		showDiffMode: () => void
 		applyCode: (code: string) => void
@@ -69,7 +69,7 @@
 	setContext<AIChatContext>('AIChatContext', {
 		loading,
 		currentReply,
-		canApplyCode: () => allowedModes.script,
+		canApplyCode: () => allowedModes.script && $chatMode === 'script',
 		applyCode
 	})
 
@@ -128,7 +128,7 @@
 
 			const userMessage =
 				$chatMode === 'flow'
-					? prepareFlowUserMessage(oldInstructions, flowHelpers!.getFlow())
+					? prepareFlowUserMessage(oldInstructions, flowHelpers!.getFlowAndSelectedId())
 					: await prepareScriptUserMessage(oldInstructions, lang, oldSelectedContext, {
 							isPreprocessor
 						})

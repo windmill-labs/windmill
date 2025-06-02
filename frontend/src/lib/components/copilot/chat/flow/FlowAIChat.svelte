@@ -16,6 +16,7 @@
 		insertNewPreprocessorModule
 	} from '$lib/components/flows/flowStateUtils'
 	import type { ScriptOptions } from '../ContextManager.svelte'
+	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
 
 	let {
 		flowModuleSchemaMap,
@@ -78,18 +79,31 @@
 	let scriptOptions = $derived.by(() => getScriptOptions($selectedId))
 
 	const flowHelpers: FlowAIChatHelpers & {
-		getFlow: () => OpenFlow
+		getFlowAndSelectedId: () => { flow: OpenFlow; selectedId: string }
 	} = {
-		getFlow: () => $flowStore,
-		setCode: (code) => {
-			if (
-				$currentEditor &&
-				$currentEditor.type === 'script' &&
-				$currentEditor.stepId === $selectedId
-			) {
-				$currentEditor.editor.setCode(code)
+		getFlowAndSelectedId: () => ({ flow: $flowStore, selectedId: $selectedId }),
+		setCode: async (id, code) => {
+			const module = getModule(id)
+			if (!module) {
+				throw new Error('Module not found')
+			}
+			if (module.value.type === 'rawscript') {
+				module.value.content = code
+				const { input_transforms, schema } = await loadSchemaFromModule(module)
+				module.value.input_transforms = input_transforms
+				$flowStore = $flowStore
+				if ($flowStateStore[id]) {
+					$flowStateStore[id].schema = schema
+				} else {
+					$flowStateStore[id] = {
+						schema
+					}
+				}
 			} else {
-				console.error('No script editor found')
+				throw new Error('Module is not a rawscript or script')
+			}
+			if ($currentEditor && $currentEditor.type === 'script' && $currentEditor.stepId === id) {
+				$currentEditor.editor.setCode(code)
 			}
 		},
 		insertStep: async (location, step) => {
