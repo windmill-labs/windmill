@@ -45,6 +45,7 @@
 	let open = $state<boolean>(false)
 	let keyArrowPos = $state<number | undefined>()
 	let inputEl: HTMLInputElement | undefined = $state()
+	let listEl: HTMLDivElement | undefined = $state()
 
 	$effect(() => {
 		if (_filterTextBind !== undefined) filterText = _filterTextBind
@@ -111,9 +112,14 @@
 	}
 
 	function computeDropdownPos(): { width: number; x: number; y: number } {
-		if (!inputEl) return { width: 0, x: 0, y: 0 }
-		const r = inputEl?.getBoundingClientRect()
-		return { width: r.width, x: r.x, y: r.y + r.height }
+		if (!inputEl || !listEl) return { width: 0, x: 0, y: 0 }
+		const r = inputEl.getBoundingClientRect()
+		const listR = listEl.getBoundingClientRect()
+		const openBelow = r.y + r.height + listR.height <= window.innerHeight
+		if (openBelow) return { width: r.width, x: r.x, y: r.y + r.height }
+		else {
+			return { width: r.width, x: r.x, y: r.y - listR.height }
+		}
 	}
 	let dropdownPos = $state(computeDropdownPos())
 	$effect(() => {
@@ -185,6 +191,7 @@
 					: `top: ${dropdownPos.y}px; left: ${dropdownPos.x}px;`} {listAutoWidth
 					? `min-width: ${dropdownPos.width}px;`
 					: ''}"
+				bind:this={listEl}
 			>
 				{#if processedItems?.length === 0}
 					<div class="py-8 px-4 text-center text-secondary">No items</div>
