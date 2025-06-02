@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { userStore, copilotInfo } from '$lib/stores'
+	import { userStore, copilotInfo, globalChatOpen } from '$lib/stores'
 	import AiChat from '../copilot/chat/AIChat.svelte'
 	import { base } from '$lib/base'
+	import HideButton from '../apps/editor/settingsPanel/HideButton.svelte'
 
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const hasCopilot = $derived($copilotInfo.enabled)
@@ -22,5 +23,24 @@
 </script>
 
 <div class="relative flex flex-col h-full bg-surface z-20">
-	<AiChat navigatorMode disabled={!hasCopilot} {disabledMessage} {suggestions} />
+	<AiChat
+		navigatorMode
+		disabled={!hasCopilot}
+		{disabledMessage}
+		{suggestions}
+		headerLeft={aiChatHeaderLeft}
+	/>
 </div>
+
+{#snippet aiChatHeaderLeft()}
+	<HideButton
+		hidden={false}
+		direction="right"
+		panelName="AI"
+		shortcut="L"
+		size="md"
+		on:click={() => {
+			globalChatOpen.set(!$globalChatOpen)
+		}}
+	/>
+{/snippet}
