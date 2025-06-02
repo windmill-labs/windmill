@@ -43,7 +43,7 @@
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
-	import { ArrowLeft, Search, MessageCircle } from 'lucide-svelte'
+	import { ArrowLeft, Search, WandSparkles } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
 	import { workspaceAIClients } from '$lib/components/copilot/lib'
 	import { twMerge } from 'tailwind-merge'
@@ -454,9 +454,10 @@
 											stopPropagationOnClick={true}
 											on:click={() => AIChatService.toggleOpen()}
 											isCollapsed={false}
-											icon={MessageCircle}
+											icon={WandSparkles}
 											label="Ask AI"
 											class="!text-xs"
+											iconClasses="!text-violet-800 dark:!text-violet-400"
 										/>
 									</div>
 
@@ -521,9 +522,10 @@
 									stopPropagationOnClick={true}
 									on:click={() => AIChatService.toggleOpen()}
 									{isCollapsed}
-									icon={MessageCircle}
+									icon={WandSparkles}
 									label="Ask AI"
 									class="!text-xs"
+									iconClasses="!text-violet-800 dark:!text-violet-400"
 								/>
 							</div>
 
@@ -628,9 +630,10 @@
 									stopPropagationOnClick={true}
 									on:click={() => AIChatService.toggleOpen()}
 									{isCollapsed}
-									icon={MessageCircle}
+									icon={WandSparkles}
 									label="Ask AI"
 									class="!text-xs"
+									iconClasses="!text-violet-800 dark:!text-violet-400"
 								/>
 							</div>
 

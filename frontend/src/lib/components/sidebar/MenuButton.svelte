@@ -12,6 +12,7 @@
 	export let aiDescription: string | undefined = undefined
 	export let label: string | undefined = undefined
 	export let icon: any | undefined = undefined
+	export let iconClasses: string | null = null
 	export let isCollapsed: boolean
 	export let disabled: boolean = false
 	export let lightMode: boolean = false
@@ -39,7 +40,6 @@
 			id={aiId}
 			description={aiDescription}
 			onTrigger={() => {
-				console.log('onTrigger', aiId)
 				if (buttonRef) {
 					buttonRef.click()
 				}
@@ -77,7 +77,8 @@
 							lightMode
 								? 'text-primary group-hover:text-secondary'
 								: 'text-primary-inverse group-hover:text-secondary-inverse dark:group-hover:text-secondary dark:text-primary',
-							'transition-all'
+							'transition-all',
+							iconClasses
 						)}
 					/>
 				{/if}

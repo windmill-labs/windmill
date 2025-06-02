@@ -23,9 +23,13 @@
 </script>
 
 <Button
+	iconOnly={!label}
+	startIcon={{
+		icon: WandSparkles
+	}}
 	size="xs2"
-	color="blue"
-	buttonType="button"
+	btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 !bg-transparent"
 	on:click={onClick}
-	startIcon={{ icon: WandSparkles }}>{label}</Button
 >
+	{label}
+</Button>
