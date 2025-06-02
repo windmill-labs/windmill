@@ -940,7 +940,13 @@
 		bind:open={metadataOpen}
 		size={selectedTab === 'ui' || selectedTab === 'triggers' ? '1200px' : '800px'}
 	>
-		<DrawerContent noPadding title="Settings" on:close={() => (metadataOpen = false)}>
+		<DrawerContent
+			noPadding
+			title="Settings"
+			on:close={() => (metadataOpen = false)}
+			aiId="script-builder-settings"
+			aiDescription="Script builder settings"
+		>
 			<!-- svelte-ignore a11y-autofocus -->
 			<div class="flex flex-col h-full">
 				<Tabs bind:selected={selectedTab} wrapperClass="flex-none w-full">

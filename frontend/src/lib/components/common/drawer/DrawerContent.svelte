@@ -24,8 +24,8 @@
 	<div class="flex justify-between w-full items-center px-4 py-2 gap-2">
 		<div class="flex items-center gap-2 w-full truncate">
 			<TriggerableByAI
-				id={aiId}
-				description={aiDescription}
+				id={`close-${aiId}`}
+				description={`Close ${aiDescription}`}
 				onTrigger={() => {
 					dispatch('close')
 				}}

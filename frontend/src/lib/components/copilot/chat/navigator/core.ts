@@ -39,12 +39,10 @@ GENERAL PRINCIPLES:
 
 IMPORTANT CONSIDERATIONS:
 - If you navigate to a script creation page, consider this:
-  - The user will need to select a language for the script. If provided, select the one he mentioned, else do not do anything.
-  - If he provides any other information but its script settings, do the changes.
-  - Close the settings once the changes are done.
-  - Then if the user have described what he wanted the script to do, search for the script ai chat in the page and input it's request in it.
+  - The page opens with the settings drawer open. After doing the changes mentioned by the user, close the settings drawer.
+  - Then if the user have described what he wanted the script to do, search for the script ai chat in the page and input it's request in it. Do not specify the language, just input the request. Then close the navigator ai chat.
 - If you navigate to a flow creation page, consider this:
-  - If the user have described what he wanted the flow to do, search for the flow ai chat in the page and input it's request in it.
+  - If the user have described what he wanted the flow to do, search for the flow ai chat in the page and input it's request in it. Then close the navigator ai chat.
 
 Always use the provided tools purposefully and appropriately to achieve the user's goals.
 Your actions only allow you to navigate the application through the provided tools.

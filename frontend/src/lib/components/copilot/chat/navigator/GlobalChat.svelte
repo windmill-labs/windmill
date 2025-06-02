@@ -3,6 +3,7 @@
 	import AiChat from '../AIChat.svelte'
 	import { base } from '$lib/base'
 	import HideButton from '../../../apps/editor/settingsPanel/HideButton.svelte'
+	import TriggerableByAi from '$lib/components/TriggerableByAI.svelte'
 
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const hasCopilot = $derived($copilotInfo.enabled)
@@ -33,14 +34,22 @@
 </div>
 
 {#snippet aiChatHeaderLeft()}
-	<HideButton
-		hidden={false}
-		direction="right"
-		panelName="AI"
-		shortcut="L"
-		size="md"
-		on:click={() => {
+	<TriggerableByAi
+		id="close-navigator-ai-chat"
+		description="Close the navigator ai chat"
+		onTrigger={() => {
 			globalChatOpen.set(!$globalChatOpen)
 		}}
-	/>
+	>
+		<HideButton
+			hidden={false}
+			direction="right"
+			panelName="AI"
+			shortcut="L"
+			size="md"
+			on:click={() => {
+				globalChatOpen.set(!$globalChatOpen)
+			}}
+		/>
+	</TriggerableByAi>
 {/snippet}
