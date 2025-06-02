@@ -14,7 +14,7 @@ use axum::{
 
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
     error::{self},
