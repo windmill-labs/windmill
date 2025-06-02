@@ -655,8 +655,7 @@
 			class={classNames(
 				'w-full flex flex-col flex-1 h-full',
 				devOnly || $userStore?.operator ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
-				'transition-all ease-in-out duration-200',
-				$globalChatOpen ? 'chat-open' : ''
+				'transition-all ease-in-out duration-200'
 			)}
 			style={`padding-right: ${$globalChatOpen ? $globalChatSize : 0}px`}
 		>
@@ -697,9 +696,7 @@
 
 	<!-- Global Chat Panel -->
 	<div class="fixed-chat-panel" class:open={$globalChatOpen} style={`width: ${$globalChatSize}px`}>
-		<div class="chat-panel-container">
-			<GlobalChat />
-		</div>
+		<GlobalChat />
 	</div>
 
 	<style>
@@ -715,16 +712,6 @@
 
 		.fixed-chat-panel.open {
 			transform: translateX(0);
-		}
-
-		.chat-panel-container {
-			height: 100%;
-			width: 100%;
-			box-shadow: -2px 0 10px rgba(0, 0, 0, 0.1);
-		}
-
-		:global(.chat-open) {
-			transition: padding-right 0.3s ease-in-out;
 		}
 	</style>
 {:else}

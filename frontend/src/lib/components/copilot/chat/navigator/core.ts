@@ -43,6 +43,8 @@ IMPORTANT CONSIDERATIONS:
   - If he provides any other information but its script settings, do the changes.
   - Close the settings once the changes are done.
   - Then if the user have described what he wanted the script to do, search for the script ai chat in the page and input it's request in it.
+- If you navigate to a flow creation page, consider this:
+  - If the user have described what he wanted the flow to do, search for the flow ai chat in the page and input it's request in it.
 
 Always use the provided tools purposefully and appropriately to achieve the user's goals.
 Your actions only allow you to navigate the application through the provided tools.

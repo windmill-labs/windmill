@@ -44,8 +44,7 @@
 
 	// Calculate adjusted offset based on global chat status
 	$: adjustedOffset = $globalChatOpen && placement === 'right' ? $globalChatSize : 0
-	$: adjustedSize = parseInt(size) - adjustedOffset + 100
-	$: style = `--duration: ${duration}s; --size: ${adjustedSize}px; --adjusted-offset: ${adjustedOffset}px;`
+	$: style = `--duration: ${duration}s; --size: ${size}; --adjusted-offset: ${adjustedOffset}px;`
 
 	function scrollLock(open: boolean) {
 		if (BROWSER) {
@@ -117,7 +116,6 @@
 
 	.drawer.open {
 		height: 100%;
-		width: 100%;
 		z-index: var(--zIndex);
 		right: 0;
 		width: calc(100% - var(--adjusted-offset));
@@ -138,7 +136,7 @@
 	}
 
 	.drawer.respect-global-chat.global-chat-open > .overlay {
-		width: calc(100% - var(--adjusted-offset));
+		width: 100%;
 		right: var(--adjusted-offset);
 		left: auto;
 	}
@@ -176,6 +174,7 @@
 
 	.drawer.respect-global-chat.global-chat-open > .panel.right {
 		right: var(--adjusted-offset);
+		width: calc(100vw - var(--adjusted-offset));
 	}
 
 	.panel.top {
