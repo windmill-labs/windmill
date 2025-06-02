@@ -307,7 +307,8 @@
 				<div class="mt-4 mb-2">
 					{#if displayAlert}
 						<Alert type="warning" title="Trigger deployed" size="xs" class="mb-4">
-							Capturing will suscribe to the trigger endpoint. Treat carefully.
+							Capturing on a deployed trigger can cause event loss on the deployed trigger. Treat
+							carefully.
 						</Alert>
 					{/if}
 					<Description>

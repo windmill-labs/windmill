@@ -31,7 +31,7 @@ csharp = ["dep:windmill-parser-csharp"]
 rust = ["dep:windmill-parser-rust"]
 nu = ["dep:windmill-parser-nu"]
 java = ["dep:windmill-parser-java"]
-duckdb = []
+duckdb = ["dep:duckdb"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -93,7 +93,7 @@ deno_permissions = { workspace = true, optional = true }
 deno_io = { workspace = true, optional = true }
 deno_error = { workspace = true, optional = true }
 async-stream.workspace = true
-duckdb.workspace = true
+duckdb = { workspace = true, optional = true }
 
 postgres-native-tls.workspace = true
 native-tls.workspace = true

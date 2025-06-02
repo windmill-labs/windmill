@@ -45,8 +45,7 @@
 			hideTarget
 			hideTooltips={!isDeployed || cloudDisabled}
 			allowDraft={true}
-			hasDraft={!!selectedTrigger.draftConfig}
-			isDraftOnly={selectedTrigger.isDraft}
+			trigger={selectedTrigger}
 			{customLabel}
 			{isDeployed}
 			{cloudDisabled}

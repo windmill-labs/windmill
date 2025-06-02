@@ -115,7 +115,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { type Preview, ResourceService, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
-	import { initializeVscode } from '$lib/components/vscode'
+	import { initializeVscode, keepModelAroundToAvoidDisposalOfWorkers } from '$lib/components/vscode'
 
 	import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
 	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
@@ -344,7 +344,10 @@
 	}
 
 	export function setCode(ncode: string, noHistory: boolean = false): void {
-		code = ncode
+		if (code != ncode) {
+			code = ncode
+		}
+
 		if (noHistory) {
 			editor?.setValue(ncode)
 		} else {
@@ -362,6 +365,15 @@
 				editor.pushUndoStop()
 			}
 		}
+	}
+
+	function updateCode() {
+		const ncode = getCode()
+		if (code == ncode) {
+			return
+		}
+		code = ncode
+		dispatch('change', ncode)
 	}
 
 	export function append(code: string): void {
@@ -387,7 +399,7 @@
 
 	export async function format() {
 		if (editor) {
-			code = getCode()
+			updateCode()
 			if (lang != 'shell' && lang != 'nu') {
 				if ($formatOnSave != false) {
 					if (scriptLang == 'deno' && languageClients.length > 0) {
@@ -424,7 +436,7 @@
 						await editor?.getAction('editor.action.formatDocument')?.run()
 					}
 				}
-				code = getCode()
+				updateCode()
 			}
 			if (formatAction) {
 				formatAction()
@@ -1266,6 +1278,8 @@
 			folding
 		})
 
+		keepModelAroundToAvoidDisposalOfWorkers()
+
 		// updateEditorKeybindingsMode(editor, 'vim', undefined)
 
 		let ataModel: NodeJS.Timeout | undefined = undefined
@@ -1273,9 +1287,7 @@
 		editor?.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
-				let ncode = getCode()
-				code = ncode
-				dispatch('change', ncode)
+				updateCode()
 			}, changeTimeout)
 
 			ataModel && clearTimeout(ataModel)
@@ -1294,12 +1306,12 @@
 			dispatch('focus')
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
-				code = getCode()
+				updateCode()
 				shouldBindKey && format && format()
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {
-				code = getCode()
+				updateCode()
 				shouldBindKey && cmdEnterAction && cmdEnterAction()
 			})
 
@@ -1355,6 +1367,7 @@
 			try {
 				closeWebsockets()
 				vimDisposable?.dispose()
+				console.log('disposing editor')
 				model?.dispose()
 				editor && editor.dispose()
 				console.log('disposed editor')
