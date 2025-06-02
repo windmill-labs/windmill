@@ -1,0 +1,117 @@
+name: "rust download script"
+
+mode: ONCE
+hostname: "rust"
+log_level: ERROR
+
+disable_rl: true
+
+cwd: "/tmp"
+
+clone_newnet: false
+
+keep_caps: false
+keep_env: true
+mount_proc: true
+
+mount {
+    src: "/bin"
+    dst: "/bin"
+	is_bind: true
+}
+
+mount {
+    src: "/lib"
+    dst: "/lib"
+	is_bind: true
+}
+
+
+mount {
+    src: "/lib64"
+    dst: "/lib64"
+	is_bind: true
+    mandatory: false
+}
+
+
+mount {
+    src: "/usr"
+    dst: "/usr"
+	is_bind: true
+}
+
+mount {
+	src: "/dev/null"
+	dst: "/dev/null"
+	is_bind: true
+	rw: true
+}
+
+mount {
+	dst: "/tmp"
+	fstype: "tmpfs"
+	rw: true
+    options: "size=500000000"
+}
+
+mount {
+    src: "/etc"
+    dst: "/etc"
+	is_bind: true
+}
+
+mount {
+    src: "/dev/random"
+    dst: "/dev/random"
+    is_bind: true
+}
+mount {
+    src: "{JOB_DIR}"
+    dst: "/tmp"
+    is_bind: true
+    rw: true
+}
+
+mount {
+    src: "/dev/urandom"
+    dst: "/dev/urandom"
+    is_bind: true
+}
+
+iface_no_lo: true
+
+mount {
+    src: "{BUILD}"
+    dst: "{BUILD}"
+    is_bind: true
+    mandatory: false
+    rw: true
+}
+mount {
+    src: "{CARGO_HOME}"
+    dst: "{CARGO_HOME}"
+    is_bind: true
+    # Readonly 
+    rw: false
+}
+
+mount {
+    src: "{BUILD}/registry"
+    dst: "{CARGO_HOME}/registry"
+    is_bind: true
+    mandatory: true
+    # Read-write
+    rw: true
+}
+
+mount {
+    src: "{BUILD}/git"
+    dst: "{CARGO_HOME}/git"
+    is_bind: true
+    mandatory: true
+    # Read-write
+    rw: true
+}
+
+{DEV}
