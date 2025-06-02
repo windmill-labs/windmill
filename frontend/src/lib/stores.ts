@@ -13,6 +13,8 @@ import {
 	WorkspaceService
 } from './gen'
 import { getLocalSetting } from './utils'
+import type { ScriptOptions } from './components/copilot/chat/ContextManager.svelte'
+import type AiChat from './components/copilot/chat/AIChat.svelte'
 
 export interface UserExt {
 	email: string
@@ -176,6 +178,11 @@ export const triggerablesByAI = writable<
 export const globalChatOpen = writable<boolean>(false)
 export const globalChatInitialInput = writable<string>('')
 export const globalChatSize = writable<number>(300)
+
+export const scriptEditorOptionsStore = writable<ScriptOptions | undefined>(undefined)
+export const scriptEditorApplyCode = writable<((code: string) => void) | undefined>(undefined)
+export const scriptEditorShowDiffMode = writable<(() => void) | undefined>(undefined)
+export const aiChatInstanceStore = writable<AiChat | undefined>(undefined)
 
 type SQLBaseSchema = {
 	[schemaKey: string]: {

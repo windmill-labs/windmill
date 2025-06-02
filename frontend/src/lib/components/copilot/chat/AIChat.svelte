@@ -18,7 +18,7 @@
 	import { onDestroy, setContext, untrack, type Snippet } from 'svelte'
 	import { type OpenFlow, type ScriptLang } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import ContextManager, { type ScriptOptions } from './ContextManager.svelte'
+	import ContextManager from './ContextManager.svelte'
 	import HistoryManager from './HistoryManager.svelte'
 	import {
 		flowTools,
@@ -30,7 +30,14 @@
 		ChatCompletionMessageParam,
 		ChatCompletionSystemMessageParam
 	} from 'openai/resources/index.mjs'
-	import { chatMode, copilotSessionModel, dbSchemas, workspaceStore } from '$lib/stores'
+	import {
+		chatMode,
+		copilotSessionModel,
+		dbSchemas,
+		scriptEditorOptionsStore,
+		scriptEditorShowDiffMode,
+		workspaceStore
+	} from '$lib/stores'
 	import {
 		navigatorTools,
 		prepareNavigatorSystemMessage,
@@ -38,12 +45,9 @@
 	} from './navigator/core'
 	import { globalChatInitialInput } from '$lib/stores'
 	interface Props {
-		scriptOptions?: ScriptOptions
 		flowHelpers?: FlowAIChatHelpers & {
 			getFlow: () => OpenFlow
 		}
-		showDiffMode?: () => void
-		applyCode?: (code: string) => void
 		headerLeft?: Snippet
 		headerRight?: Snippet
 		suggestions?: string[]
@@ -53,10 +57,7 @@
 	}
 
 	let {
-		scriptOptions,
 		flowHelpers,
-		applyCode,
-		showDiffMode,
 		headerLeft,
 		headerRight,
 		disabled = false,
@@ -69,8 +70,9 @@
 	let loading = writable(false)
 	let currentReply: Writable<string> = writable('')
 	let allowedModes = $derived({
-		script: scriptOptions !== undefined,
-		flow: flowHelpers !== undefined
+		script: $scriptEditorOptionsStore !== undefined,
+		flow: flowHelpers !== undefined,
+		navigator: true
 	})
 	let mode = $derived(forceMode ?? $chatMode)
 
@@ -78,11 +80,16 @@
 		console.log('mode', mode)
 		console.log('forceMode', forceMode)
 		console.log('chatMode', $chatMode)
+		console.log('$scriptEditorOptionsStore', $scriptEditorOptionsStore)
+		console.log('allowedModes', allowedModes)
 	})
 
 	async function updateMode(currentMode: 'script' | 'flow' | 'navigator') {
-		if (!allowedModes[currentMode] && Object.keys(allowedModes).length === 1) {
-			const firstKey = Object.keys(allowedModes)[0]
+		if (
+			!allowedModes[currentMode] &&
+			Object.keys(allowedModes).filter((k) => allowedModes[k]).length === 1
+		) {
+			const firstKey = Object.keys(allowedModes).filter((k) => allowedModes[k])[0]
 			chatMode.set(firstKey as 'script' | 'flow' | 'navigator')
 		}
 	}
@@ -106,8 +113,7 @@
 	setContext<AIChatContext>('AIChatContext', {
 		loading,
 		currentReply,
-		canApplyCode: () => allowedModes.script,
-		applyCode
+		canApplyCode: () => allowedModes.script
 	})
 
 	export async function sendRequest(
@@ -160,12 +166,13 @@
 				throw new Error('No flow helpers passed')
 			}
 
-			if (mode === 'script' && !scriptOptions && !options.lang) {
+			if (mode === 'script' && !$scriptEditorOptionsStore && !options.lang) {
 				throw new Error('No script options passed')
 			}
 
-			const lang = scriptOptions?.lang ?? options.lang ?? 'bun'
-			const isPreprocessor = scriptOptions?.path === 'preprocessor' || options.isPreprocessor
+			const lang = $scriptEditorOptionsStore?.lang ?? options.lang ?? 'bun'
+			const isPreprocessor =
+				$scriptEditorOptionsStore?.path === 'preprocessor' || options.isPreprocessor
 
 			const userMessage =
 				mode === 'flow'
@@ -309,7 +316,7 @@
 			withDiff: false
 		}
 	) {
-		if (!scriptOptions) {
+		if (!$scriptEditorOptionsStore) {
 			throw new Error('No script options passed')
 		}
 		instructions = prompt
@@ -319,7 +326,7 @@
 			addBackCode: options.withCode === false
 		})
 		if (options.withDiff) {
-			showDiffMode?.()
+			$scriptEditorShowDiffMode?.()
 		}
 	}
 
@@ -341,9 +348,9 @@
 	const contextManager = new ContextManager()
 
 	$effect(() => {
-		if (scriptOptions) {
+		if ($scriptEditorOptionsStore) {
 			contextManager.updateAvailableContext(
-				scriptOptions,
+				$scriptEditorOptionsStore,
 				$dbSchemas,
 				$workspaceStore ?? '',
 				!$copilotSessionModel?.model.endsWith('/thinking'),
@@ -367,7 +374,7 @@
 	bind:selectedContext={
 		() => contextManager.getSelectedContext(),
 		(sc) => {
-			scriptOptions && contextManager.setSelectedContext(sc)
+			$scriptEditorOptionsStore && contextManager.setSelectedContext(sc)
 		}
 	}
 	availableContext={contextManager.getAvailableContext()}
@@ -401,10 +408,10 @@
 	{askAi}
 	{headerLeft}
 	{headerRight}
-	hasDiff={scriptOptions &&
-		!!scriptOptions.lastDeployedCode &&
-		scriptOptions.lastDeployedCode !== scriptOptions.code}
-	diffMode={scriptOptions?.diffMode ?? false}
+	hasDiff={$scriptEditorOptionsStore &&
+		!!$scriptEditorOptionsStore.lastDeployedCode &&
+		$scriptEditorOptionsStore.lastDeployedCode !== $scriptEditorOptionsStore.code}
+	diffMode={$scriptEditorOptionsStore?.diffMode ?? false}
 	{disabled}
 	{disabledMessage}
 	{suggestions}

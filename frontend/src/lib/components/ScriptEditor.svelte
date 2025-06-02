@@ -2,8 +2,17 @@
 	import { BROWSER } from 'esm-env'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import { type CompletedJob, type Job, JobService, type Preview } from '$lib/gen'
-	import { copilotInfo, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
+	import {
+		aiChatInstanceStore,
+		copilotInfo,
+		enterpriseLicense,
+		globalChatOpen,
+		scriptEditorApplyCode,
+		scriptEditorShowDiffMode,
+		userStore,
+		workspaceStore
+	} from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
 	import { inferArgs } from '$lib/infer'
@@ -38,13 +47,14 @@
 	import { slide } from 'svelte/transition'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import CaptureButton from './triggers/CaptureButton.svelte'
-	import AIChat from './copilot/chat/AIChat.svelte'
 	import { setContext } from 'svelte'
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
 	import { base } from '$lib/base'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/script/core'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import { getStringError } from './copilot/chat/utils'
+	import { scriptEditorOptionsStore } from '$lib/stores'
+	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -127,13 +137,14 @@
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
 			event.preventDefault()
 			runTest()
-		} else if ((event.ctrlKey || event.metaKey) && event.key == 'l') {
-			event.preventDefault()
-			toggleAiPanel()
 		} else if ((event.ctrlKey || event.metaKey) && event.key == 'u') {
 			event.preventDefault()
 			toggleTestPanel()
 		}
+	}
+
+	function toggleAiPanel() {
+		globalChatOpen.update((open) => !open)
 	}
 
 	export function setArgs(nargs: Record<string, any>) {
@@ -276,6 +287,9 @@
 
 	onDestroy(() => {
 		disableCollaboration()
+		scriptEditorApplyCode.set(undefined)
+		scriptEditorShowDiffMode.set(undefined)
+		scriptEditorOptionsStore.set(undefined)
 	})
 
 	function asKind(str: string | undefined) {
@@ -311,34 +325,26 @@
 			? 0
 			: 30
 	let codePanelSize = 40 + (30 - aiPanelSize)
-	let storedAiPanelSize = aiPanelSize > 0 ? aiPanelSize : 30
 	let testPanelSize = 30
 	let storedTestPanelSize = testPanelSize
-
-	function toggleAiPanel() {
-		if (!$copilotInfo.enabled) return
-		if (aiPanelSize > 0) {
-			storedAiPanelSize = aiPanelSize
-			codePanelSize += aiPanelSize
-			aiPanelSize = 0
-			localStorage.setItem('aiPanelOpen', 'false')
-		} else {
-			codePanelSize -= storedAiPanelSize
-			aiPanelSize = storedAiPanelSize
-			localStorage.setItem('aiPanelOpen', 'true')
-		}
-	}
 
 	function addSelectedLinesToAiChat(
 		e: CustomEvent<{ lines: string; startLine: number; endLine: number }>
 	) {
-		if (aiChat) {
-			aiChat.addSelectedLinesToContext(e.detail.lines, e.detail.startLine, e.detail.endLine)
-			aiChat.focusTextArea()
+		if ($aiChatInstanceStore) {
+			$aiChatInstanceStore.addSelectedLinesToContext(
+				e.detail.lines,
+				e.detail.startLine,
+				e.detail.endLine
+			)
+			$aiChatInstanceStore.focusTextArea()
 		}
 	}
 
-	$: !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') && aiPanelSize > 0 && toggleAiPanel()
+	$: !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') &&
+		aiPanelSize > 0 &&
+		!globalChatOpen &&
+		toggleAiPanel()
 
 	function toggleTestPanel() {
 		if (testPanelSize > 0) {
@@ -350,8 +356,6 @@
 			testPanelSize = storedTestPanelSize
 		}
 	}
-
-	let aiChat: AIChat | undefined = undefined
 
 	function getError(job: Job | undefined) {
 		if (job != undefined && job.type === 'CompletedJob' && !job.success) {
@@ -375,6 +379,25 @@
 	}
 
 	$: error = getError(testJob)
+
+	$: {
+		const options: ScriptOptions = {
+			code,
+			lang: lang as ScriptLang,
+			error,
+			args,
+			path,
+			lastSavedCode,
+			lastDeployedCode,
+			diffMode
+		}
+		scriptEditorOptionsStore.set(options)
+		scriptEditorApplyCode.set((code: string) => {
+			hideDiffMode()
+			editor?.reviewAndApplyCode(code)
+		})
+		scriptEditorShowDiffMode.set(showDiffMode)
+	}
 </script>
 
 <TestJobLoader
@@ -461,7 +484,7 @@
 		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
 			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
 				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
-					{#if aiPanelSize === 0}
+					{#if !$globalChatOpen}
 						{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
 							<HideButton
 								hidden={true}
@@ -523,7 +546,7 @@
 						on:toggleAiPanel={toggleAiPanel}
 						on:addSelectedLinesToAiChat={addSelectedLinesToAiChat}
 						on:toggleTestPanel={toggleTestPanel}
-						isAiPanelOpen={aiPanelSize > 0}
+						isAiPanelOpen={false}
 						cmdEnterAction={async () => {
 							await inferSchema(code)
 							runTest()
@@ -558,60 +581,6 @@
 				{/key}
 			</div>
 		</Pane>
-		{#if lang && $copilotInfo.enabled}
-			{#snippet aiChatHeaderRight()}
-				{#if testPanelSize === 0}
-					<div class="bg-gray-200 h-6 w-[1px] rounded-full dark:bg-gray-600"></div>
-					<HideButton
-						hidden={true}
-						direction="right"
-						panelName="Test"
-						shortcut="U"
-						size="md"
-						customHiddenIcon={PlayIcon}
-						on:click={() => {
-							toggleTestPanel()
-						}}
-						btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
-						color="marine"
-					/>
-				{/if}
-			{/snippet}
-			{#snippet aiChatHeaderLeft()}
-				<HideButton
-					hidden={false}
-					direction="right"
-					panelName="AI"
-					shortcut="L"
-					size="md"
-					on:click={() => {
-						toggleAiPanel()
-					}}
-				/>
-			{/snippet}
-			<Pane bind:size={aiPanelSize} minSize={0}>
-				<AIChat
-					bind:this={aiChat}
-					scriptOptions={{
-						code,
-						lang,
-						error,
-						args,
-						path,
-						lastSavedCode,
-						lastDeployedCode,
-						diffMode
-					}}
-					applyCode={() => {
-						hideDiffMode()
-						editor?.reviewAndApplyCode(code)
-					}}
-					{showDiffMode}
-					headerLeft={aiChatHeaderLeft}
-					headerRight={aiChatHeaderRight}
-				/>
-			</Pane>
-		{/if}
 		<Pane bind:size={testPanelSize} minSize={0}>
 			<div class="flex flex-col h-full">
 				{#if showTabs}
@@ -725,7 +694,7 @@
 						<LogPanel
 							bind:setFocusToLogs
 							on:fix={() => {
-								aiChat?.fix()
+								$aiChatInstanceStore?.fix()
 							}}
 							fixChatMode
 							{lang}

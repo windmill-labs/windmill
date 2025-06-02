@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { userStore, copilotInfo, globalChatOpen } from '$lib/stores'
+	import { userStore, copilotInfo, globalChatOpen, aiChatInstanceStore } from '$lib/stores'
 	import AiChat from '../AIChat.svelte'
 	import { base } from '$lib/base'
 	import HideButton from '../../../apps/editor/settingsPanel/HideButton.svelte'
@@ -21,16 +21,26 @@
 		'How can I connect to a database?',
 		'How do I schedule a recurring job?'
 	]
+
+	let aiChatInstance: AiChat | undefined = undefined
+
+	$effect(() => {
+		if (aiChatInstance) {
+			aiChatInstanceStore.set(aiChatInstance)
+		}
+		return () => {
+			aiChatInstanceStore.set(undefined)
+		}
+	})
 </script>
 
 <div class="relative flex flex-col h-full bg-surface z-20 border-l border-border">
 	<AiChat
-		navigatorMode
+		bind:this={aiChatInstance}
 		disabled={!hasCopilot}
 		{disabledMessage}
 		{suggestions}
 		headerLeft={aiChatHeaderLeft}
-		forceMode="navigator"
 	/>
 </div>
 
