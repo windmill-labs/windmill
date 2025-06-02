@@ -10,12 +10,16 @@
 		allowedModes: {
 			script: boolean
 			flow: boolean
+			navigator: boolean
 		}
 	} = $props()
 </script>
 
 <div class="min-w-0">
-	<Popover disablePopup={!allowedModes.script || !allowedModes.flow} class="max-w-full">
+	<Popover
+		disablePopup={!allowedModes.script || !allowedModes.flow || !allowedModes.navigator}
+		class="max-w-full"
+	>
 		<svelte:fragment slot="trigger">
 			<div
 				class="text-tertiary text-xs flex flex-row items-center font-normal gap-0.5 border px-1 rounded-lg"
@@ -32,14 +36,14 @@
 		</svelte:fragment>
 		<svelte:fragment slot="content" let:close>
 			<div class="flex flex-col gap-1 p-1 min-w-24">
-				{#each ['script', 'flow'] as possibleMode}
+				{#each ['script', 'flow', 'navigator'] as possibleMode}
 					<button
 						class={twMerge(
 							'text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal',
 							$chatMode === possibleMode && 'bg-surface-hover'
 						)}
 						onclick={() => {
-							$chatMode = possibleMode as 'script' | 'flow'
+							$chatMode = possibleMode as 'script' | 'flow' | 'navigator'
 							close()
 						}}
 					>

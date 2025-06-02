@@ -30,32 +30,60 @@
 		ChatCompletionMessageParam,
 		ChatCompletionSystemMessageParam
 	} from 'openai/resources/index.mjs'
+<<<<<<< HEAD
 	import { chatMode, copilotSessionModel, dbSchemas, workspaceStore } from '$lib/stores'
+=======
+	import {
+		navigatorTools,
+		prepareNavigatorSystemMessage,
+		prepareNavigatorUserMessage
+	} from './navigator/core'
+>>>>>>> 332040744 (integrate navigator mode)
 	interface Props {
 		scriptOptions?: ScriptOptions
 		flowHelpers?: FlowAIChatHelpers & {
 			getFlow: () => OpenFlow
 		}
-		showDiffMode: () => void
-		applyCode: (code: string) => void
+		navigatorMode?: boolean
+		showDiffMode?: () => void
+		applyCode?: (code: string) => void
 		headerLeft?: Snippet
 		headerRight?: Snippet
 	}
 
-	let { scriptOptions, flowHelpers, applyCode, showDiffMode, headerLeft, headerRight }: Props =
-		$props()
+	let {
+		scriptOptions,
+		flowHelpers,
+		applyCode,
+		showDiffMode,
+		headerLeft,
+		headerRight,
+		navigatorMode = false
+	}: Props = $props()
 
 	let instructions = $state('')
 	let loading = writable(false)
 	let currentReply: Writable<string> = writable('')
 	let allowedModes = $derived({
 		script: scriptOptions !== undefined,
-		flow: flowHelpers !== undefined
+		flow: flowHelpers !== undefined,
+		navigator: navigatorMode
 	})
+<<<<<<< HEAD
 
 	async function updateMode(currentMode: 'script' | 'flow') {
 		if (!allowedModes[currentMode]) {
 			chatMode.set(currentMode === 'script' ? 'flow' : 'script')
+=======
+	let mode: 'script' | 'flow' | 'navigator' = $state(
+		flowHelpers ? 'flow' : scriptOptions ? 'script' : 'navigator'
+	)
+
+	async function updateMode(currentMode: 'script' | 'flow' | 'navigator') {
+		if (!allowedModes[currentMode] && Object.keys(allowedModes).length === 1) {
+			const firstKey = Object.keys(allowedModes)[0]
+			mode = firstKey as 'script' | 'flow' | 'navigator'
+>>>>>>> 332040744 (integrate navigator mode)
 		}
 	}
 	$effect(() => {
@@ -78,7 +106,7 @@
 			removeDiff?: boolean
 			addBackCode?: boolean
 			instructions?: string
-			mode?: 'script' | 'flow'
+			mode?: 'script' | 'flow' | 'navigator'
 			lang?: ScriptLang | 'bunnative'
 			isPreprocessor?: boolean
 		} = {}
@@ -113,7 +141,15 @@
 			instructions = ''
 
 			const systemMessage =
+<<<<<<< HEAD
 				$chatMode === 'script' ? prepareScriptSystemMessage() : prepareFlowSystemMessage()
+=======
+				mode === 'script'
+					? prepareScriptSystemMessage()
+					: mode === 'flow'
+						? prepareFlowSystemMessage()
+						: prepareNavigatorSystemMessage()
+>>>>>>> 332040744 (integrate navigator mode)
 
 			if ($chatMode === 'flow' && !flowHelpers) {
 				throw new Error('No flow helpers passed')
@@ -129,11 +165,13 @@
 			const userMessage =
 				$chatMode === 'flow'
 					? prepareFlowUserMessage(oldInstructions, flowHelpers!.getFlow())
-					: await prepareScriptUserMessage(oldInstructions, lang, oldSelectedContext, {
-							isPreprocessor
-						})
+					: mode === 'navigator'
+						? prepareNavigatorUserMessage(oldInstructions)
+						: await prepareScriptUserMessage(oldInstructions, lang, oldSelectedContext, {
+								isPreprocessor
+							})
 
-			messages.push({ role: 'user', content: userMessage })
+			messages.push(userMessage)
 			await historyManager.saveChat(displayMessages, messages)
 
 			$currentReply = ''
@@ -194,7 +232,7 @@
 					tools: flowTools,
 					helpers: flowHelpers
 				})
-			} else {
+			} else if (mode === 'script') {
 				const tools: Tool<ScriptChatHelpers>[] = []
 				if (['python3', 'php', 'bun', 'deno', 'nativets', 'bunnative'].includes(lang)) {
 					tools.push(resourceTypeTool)
@@ -208,6 +246,12 @@
 					helpers: {
 						getLang: () => lang
 					}
+				})
+			} else if (mode === 'navigator') {
+				await chatRequest({
+					...params,
+					tools: navigatorTools,
+					helpers: {}
 				})
 			}
 
@@ -272,7 +316,7 @@
 			addBackCode: options.withCode === false
 		})
 		if (options.withDiff) {
-			showDiffMode()
+			showDiffMode?.()
 		}
 	}
 

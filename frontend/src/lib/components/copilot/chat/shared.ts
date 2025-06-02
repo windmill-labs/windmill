@@ -14,7 +14,7 @@ export interface AIChatContext {
 	loading: Writable<boolean>
 	currentReply: Writable<string>
 	canApplyCode: () => boolean
-	applyCode: (code: string) => void
+	applyCode?: (code: string) => void
 }
 
 export type DisplayMessage =

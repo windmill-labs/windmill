@@ -37,6 +37,7 @@
 		allowedModes: {
 			script: boolean
 			flow: boolean
+			navigator: boolean
 		}
 		messages: DisplayMessage[]
 		instructions: string

@@ -1,5 +1,9 @@
 import { ScriptService, type FlowModule, type RawScript, type Script } from '$lib/gen'
-import type { ChatCompletionTool } from 'openai/resources/chat/completions.mjs'
+import type {
+	ChatCompletionSystemMessageParam,
+	ChatCompletionTool,
+	ChatCompletionUserMessageParam
+} from 'openai/resources/chat/completions.mjs'
 import YAML from 'yaml'
 import { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
@@ -537,10 +541,7 @@ function createToolDef(
 	}
 }
 
-export function prepareFlowSystemMessage(): {
-	role: 'system'
-	content: string
-} {
+export function prepareFlowSystemMessage(): ChatCompletionSystemMessageParam {
 	const content = `You are a helpful assitant that creates and edit workflows on the Windmill platform. You're provided with a a bunch of tools to help you edit the flow.
 Describe all steps you take to edit the flow before calling the tools.
 Follow the user instructions carefully and take note of the following:
@@ -591,8 +592,13 @@ If the user wants a specific resource as step input, you should set the step val
 	}
 }
 
-export function prepareFlowUserMessage(instructions: string, flow: ExtendedOpenFlow) {
-	return `## FLOW:
+export function prepareFlowUserMessage(
+	instructions: string,
+	flow: ExtendedOpenFlow
+): ChatCompletionUserMessageParam {
+	return {
+		role: 'user',
+		content: `## FLOW:
 flow_input schema:
 ${JSON.stringify(flow.schema ?? emptySchema())}
 
@@ -607,4 +613,5 @@ ${YAML.stringify(flow.value.failure_module)}
 
 ## INSTRUCTIONS:
 ${instructions}`
+	}
 }
