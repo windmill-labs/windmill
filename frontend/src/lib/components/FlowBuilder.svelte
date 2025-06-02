@@ -86,6 +86,12 @@
 	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
+	import {
+		SplitPanesLayout,
+		setSplitPanesLayoutContext
+	} from './splitPanes/SplitPanesLayout.svelte'
+	import type { PanesLayout } from './splitPanes/types'
+	import { setTabStateContext, TabsState } from './common/tabs/tabsState.svelte'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -105,6 +111,8 @@
 	export let setSavedraftCb: ((cb: () => void) => void) | undefined = undefined
 	export let draftTriggersFromUrl: Trigger[] | undefined = undefined
 	export let selectedTriggerIndexFromUrl: number | undefined = undefined
+	export let savedSplitPanesLayout: Record<string, PanesLayout> | undefined = undefined
+	export let tabsStateFromUrl: Record<string, string> | undefined = undefined
 
 	let initialPathStore = writable(initialPath)
 	$: initialPathStore.set(initialPath)
@@ -136,6 +144,24 @@
 	}
 
 	$: setContext('customUi', customUi)
+
+	const splitPanesLayout = new SplitPanesLayout(savedSplitPanesLayout ?? {}, saveSessionDraft)
+	setSplitPanesLayoutContext(splitPanesLayout)
+
+	const tabsState = new TabsState(tabsStateFromUrl ?? {}, saveSessionDraft)
+	setTabStateContext(tabsState)
+
+	export function setSplitPanesLayout(layout: Record<string, PanesLayout> | undefined) {
+		if (layout !== undefined) {
+			splitPanesLayout.layout = layout
+		}
+	}
+
+	export function setTabsState(newTabsState: Record<string, string> | undefined) {
+		if (newTabsState !== undefined) {
+			tabsState.selected = newTabsState
+		}
+	}
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
 		return {
@@ -188,7 +214,7 @@
 	}
 
 	export function setSelectedTriggerIndex(index: number | undefined) {
-		triggersState.selectedTriggerIndex = index
+		selectedTriggerIndexFromUrl = index
 	}
 
 	let loadingSave = false
@@ -493,7 +519,9 @@
 						path: $pathStore,
 						selectedId: $selectedIdStore,
 						draft_triggers: triggersState.getDraftTriggersSnapshot(),
-						selected_trigger: triggersState.getSelectedTriggerSnapshot()
+						selected_trigger: triggersState.getSelectedTriggerSnapshot(),
+						split_panes_layout: splitPanesLayout.getLayoutSnapshot(),
+						tabs_state: tabsState.getTabsStateSnapshot()
 					})
 				)
 			} catch (err) {
@@ -588,6 +616,8 @@
 		if (savedFlow && savedFlow.draft) {
 			savedFlow = filterDraftTriggers(savedFlow, triggersState) as FlowWithDraftAndDraftTriggers
 		}
+
+		triggersState.selectedTriggerIndex = selectedTriggerIndexFromUrl
 	}
 
 	$: selectedId && select(selectedId)

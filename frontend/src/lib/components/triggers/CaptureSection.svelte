@@ -23,7 +23,7 @@
 	import type { CaptureTriggerKind, Capture } from '$lib/gen'
 	import CaptureIcon from './CaptureIcon.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { Pane, Splitpanes } from '$lib/components/splitPanes'
 	import { Popover } from '$lib/components/meltComponents'
 	import { CaptureService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -259,8 +259,8 @@
 	})
 </script>
 
-<Splitpanes>
-	<Pane size={50} minSize={30}>
+<Splitpanes id={`capture-section`} defaultSizes={[50, 50]}>
+	<Pane index={0} minSize={30}>
 		<div
 			class="flex flex-col gap-1 px-4 py-2 h-full w-full overflow-auto"
 			style="scrollbar-gutter: stable"
@@ -342,7 +342,7 @@
 		</div>
 	</Pane>
 
-	<Pane minSize={30} class="flex flex-col">
+	<Pane index={1} minSize={30} class="flex flex-col">
 		<div class="flex flex-row gap-1 justify-between min-h-[33.5px] pl-1 pr-4">
 			<div class="flex flex-row gap-1 items-center">
 				{#if lastCapture}
