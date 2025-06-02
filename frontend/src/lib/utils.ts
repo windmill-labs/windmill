@@ -19,6 +19,11 @@ import type { AnyMeltElement } from '@melt-ui/svelte'
 import type { RunsSelectionMode } from './components/runs/RunsBatchActionsDropdown.svelte'
 import type { TriggerKind } from './components/triggers'
 
+
+namespace OpenApi {
+	
+}
+
 export function isJobCancelable(j: Job): boolean {
 	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
 }

@@ -3,6 +3,7 @@ import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
 import mkcert from 'vite-plugin-mkcert'
 import importMetaUrlPlugin from '@windmill-labs/esbuild-import-meta-url-plugin'
+import { nodePolyfills } from 'vite-plugin-node-polyfills'
 
 const file = fileURLToPath(new URL('package.json', import.meta.url))
 const json = readFileSync(file, 'utf8')
@@ -43,7 +44,11 @@ const config = {
 	preview: {
 		port: 3000
 	},
-	plugins: [sveltekit(), ...(process.env.HTTPS === 'true' ? [mkcert()] : [])],
+	plugins: [
+		nodePolyfills({ include: ['buffer'] }),
+		sveltekit(),
+		...(process.env.HTTPS === 'true' ? [mkcert()] : [])
+	],
 	define: {
 		__pkg__: version
 	},

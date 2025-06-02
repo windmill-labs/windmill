@@ -8444,6 +8444,31 @@ paths:
         "201":
           description: default error handler set
 
+  /w/{workspace}/http_triggers/create_many:
+    post:
+      summary: create many http trigger
+      operationId: createManyHttpTrigger
+      tags:
+        - http_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new http trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/NewHttpTrigger"
+      responses:
+        "201":
+          description: http trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/http_triggers/create:
     post:
       summary: create http trigger
@@ -14703,14 +14728,12 @@ components:
 
     HttpMethod:
       type: string
-      http_method:
-        type: string
-        enum:
-          - get
-          - post
-          - put
-          - delete
-          - patch
+      enum:
+        - get
+        - post
+        - put
+        - delete
+        - patch
 
     HttpTrigger:
       allOf:

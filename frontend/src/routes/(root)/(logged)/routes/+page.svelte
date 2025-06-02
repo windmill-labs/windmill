@@ -191,10 +191,13 @@
 <RouteEditor onUpdate={loadTriggers} bind:this={routeEditor} />
 <Drawer size="700px" bind:this={httpRouteGeneratorDrawer}>
 	<DrawerContent
-		title={'Generate http route/webhook from OpenApi spec'}
+		title={'Generate http trigger(s) from OpenApi spec'}
 		on:close={() => httpRouteGeneratorDrawer?.closeDrawer()}
 	>
-		<HttpRouteGenerator />
+		<HttpRouteGenerator closeFn={async () => {
+			await loadTriggers()
+			httpRouteGeneratorDrawer?.closeDrawer()
+		}}/>
 	</DrawerContent>
 </Drawer>
 <SearchItems
@@ -225,7 +228,7 @@
 							httpRouteGeneratorDrawer?.openDrawer()
 						}}
 					>
-						Generate http route from openapi
+						Generate http trigger(s) from OpenApi spec
 					</Button>
 					<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor.openNew(false)}>
 						New&nbsp;route

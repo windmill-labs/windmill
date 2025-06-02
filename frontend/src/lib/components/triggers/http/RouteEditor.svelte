@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { tick } from 'svelte'
 	import RouteEditorInner from './RouteEditorInner.svelte'
+	import type { NewHttpTrigger } from '$lib/gen'
 
 	interface Props {
 		onUpdate?: (cfg?: Record<string, any>) => void
+		updateHttpTrigger?: (createNewHttpTrigger: NewHttpTrigger) => void
 	}
 
 	let { onUpdate = undefined }: Props = $props()
