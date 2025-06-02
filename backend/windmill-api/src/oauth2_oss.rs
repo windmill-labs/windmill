@@ -136,6 +136,7 @@ async fn list_logins() -> error::JsonResult<Logins> {
     return Ok(Json(Logins { oauth: vec![], saml: None }));
 }
 
+#[allow(unused)]
 #[cfg(all(feature = "oauth2", not(feature = "private")))]
 async fn list_connects() -> error::JsonResult<Vec<String>> {
     Ok(Json(
@@ -146,6 +147,7 @@ async fn list_connects() -> error::JsonResult<Vec<String>> {
     ))
 }
 
+#[allow(unused)]
 #[cfg(not(all(feature = "oauth2", not(feature = "private"))))]
 async fn list_connects() -> windmill_common::error::JsonResult<Vec<String>> {
     // Implementation is not open source
