@@ -4,6 +4,7 @@
 	import CloseButton from './common/CloseButton.svelte'
 	import ConditionalPortal from './common/drawer/ConditionalPortal.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { Loader2 } from 'lucide-svelte'
 
 	type Value = Item['value']
 
@@ -15,10 +16,11 @@
 		class: className = '',
 		clearable = false,
 		listAutoWidth = true,
-		disabled = false,
+		disabled: _disabled = false,
 		containerStyle = '',
 		inputClass = '',
 		disablePortal = false,
+		loading = false,
 		groupBy,
 		sortBy,
 		onFocus,
@@ -35,11 +37,14 @@
 		containerStyle?: string
 		inputClass?: string
 		disablePortal?: boolean
+		loading?: boolean
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onFocus?: () => void
 		onClear?: () => void
 	} = $props()
+
+	let disabled = $derived(_disabled || loading)
 
 	let filterText = $state<string>('')
 	let open = $state<boolean>(false)
@@ -165,16 +170,21 @@
 			<CloseButton noBg small on:close={clearValue} />
 		</div>
 	{/if}
+	{#if loading}
+		<div class="absolute z-10 right-2 h-full flex items-center">
+			<Loader2 size={20} class="animate-spin" />
+		</div>
+	{/if}
 	<input
 		{disabled}
 		type="text"
 		bind:value={() => filterText, (v) => (filterText = v)}
-		placeholder={valueEntry?.label ?? placeholder}
+		placeholder={loading ? 'Loading...' : (valueEntry?.label ?? placeholder)}
 		style={containerStyle}
 		class={twMerge(
 			'!bg-surface text-ellipsis',
 			open ? '' : 'cursor-pointer',
-			valueEntry ? '!placeholder-primary' : '',
+			valueEntry && !loading ? '!placeholder-primary' : '',
 			clearable && !disabled && value ? '!pr-8' : '',
 			inputClass ?? ''
 		)}

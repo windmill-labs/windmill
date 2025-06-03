@@ -73,6 +73,7 @@
 
 <div class="flex gap-1">
 	<Select
+		loading={loadingSlot}
 		class="grow shrink max-w-full"
 		bind:value={replication_slot_name}
 		onClear={() => (replication_slot_name = '')}

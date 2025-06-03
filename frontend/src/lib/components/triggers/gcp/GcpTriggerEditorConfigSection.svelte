@@ -137,6 +137,7 @@
 					>
 						<div class="flex flex-row gap-1 mt-2">
 							<Select
+								loading={loadingTopic}
 								disablePortal
 								clearable
 								class="grow shrink"
@@ -271,6 +272,7 @@
 							<div class="flex flex-col gap-3">
 								<div class="flex gap-1">
 									<Select
+										loading={loadingSubscription}
 										disablePortal
 										clearable
 										class="grow shrink"
