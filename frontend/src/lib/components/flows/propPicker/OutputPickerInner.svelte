@@ -55,6 +55,7 @@
 		rightMargin?: boolean
 		disableMock?: boolean
 		disableHistory?: boolean
+		lastJob?: SelectedJob
 		derivedHistoryOpen?: boolean // derived from historyOpen
 		historyOffset?: any
 		clazz?: string
@@ -62,6 +63,7 @@
 	}
 
 	let {
+		lastJob = undefined,
 		prefix = '',
 		allowCopy = false,
 		connectingData = undefined,
@@ -89,14 +91,16 @@
 	}: Props = $props()
 
 	type SelectedJob =
-		| Job
-		| {
-				id: string
-				result: unknown
-				type: 'CompletedJob'
-				workspace_id: string
-				success: boolean
-		  }
+		| ((
+				| Job
+				| {
+						id: string
+						result: unknown
+						type: 'CompletedJob'
+						workspace_id: string
+						success: boolean
+				  }
+		  ) & { preview?: boolean })
 		| undefined
 
 	const dispatch = createEventDispatcher<{
@@ -108,7 +112,6 @@
 	let tmpMock: { enabled: boolean; return_value?: unknown } | undefined = $state(undefined)
 	let error = $state('')
 	let stepHistoryPopover: Popover | undefined = $state(undefined)
-	let lastJob: SelectedJob = $state(undefined)
 	let historyOpen = $state(false)
 	let contentEl: HTMLDivElement | undefined = $state(undefined)
 	let hasOverflow = $state(false)
@@ -127,16 +130,16 @@
 		}
 	}
 
-	export function setLastJob(job: SelectedJob, setPreview: boolean = false) {
-		if (!job || !('result' in job)) {
+	$effect(() => {
+		if (!lastJob || !('result' in lastJob)) {
 			return
 		}
-		lastJob = structuredClone($state.snapshot(job))
 		selectJob(lastJob)
-		if (setPreview && mock?.enabled) {
+
+		if (lastJob.preview) {
 			preview = 'job'
 		}
-	}
+	})
 
 	function togglePreview(nPrev: 'mock' | 'job' | undefined) {
 		if (!nPrev && preview === 'job') {
@@ -239,6 +242,7 @@
 			updateCanEditWithDblClick(newValue)
 		}
 	})
+
 	let popoverHeight = $derived(customHeight ?? (clientHeight > 0 ? clientHeight : 0))
 
 	const copilot_fix_render = $derived(copilot_fix)

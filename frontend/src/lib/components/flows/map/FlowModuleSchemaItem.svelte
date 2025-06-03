@@ -115,7 +115,6 @@
 	let newId: string = $state(id ?? '')
 
 	let hover = $state(false)
-	let outputPickerInner: OutputPickerInner | undefined = $state(undefined)
 	let connectingData: any | undefined = $state(undefined)
 	let lastJob: any | undefined = $state(undefined)
 	let outputPicker: OutputPicker | undefined = $state(undefined)
@@ -153,12 +152,8 @@
 	}
 
 	$effect(() => {
+		console.log('updateLastJob')
 		flowStateStore && updateLastJob($flowStateStore)
-	})
-	$effect(() => {
-		outputPickerInner &&
-			typeof outputPickerInner.setLastJob === 'function' &&
-			outputPickerInner.setLastJob(lastJob)
 	})
 
 	let isConnectingCandidate = $derived(
@@ -371,11 +366,11 @@
 			>
 				{#snippet children({ allowCopy, isConnecting, selectConnection })}
 					<OutputPickerInner
-						bind:this={outputPickerInner}
 						{allowCopy}
 						prefix={'results'}
 						connectingData={isConnecting ? connectingData : undefined}
 						{mock}
+						{lastJob}
 						on:select={selectConnection}
 						moduleId={id}
 						on:updateMock
