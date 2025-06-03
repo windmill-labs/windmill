@@ -18,7 +18,7 @@ use crate::{
 };
 #[cfg(feature = "parquet")]
 use crate::{
-    job_helpers_ee::{
+    job_helpers_oss::{
         download_s3_file_internal, get_random_file_name, get_s3_resource,
         get_workspace_s3_resource, upload_file_from_req, DownloadFileQuery,
     },
@@ -48,7 +48,7 @@ use sha2::{Digest, Sha256};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{types::Uuid, FromRow};
 use std::str;
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
     apps::{AppScriptId, ListAppQuery},

@@ -9,6 +9,7 @@ name = "windmill_git_sync"
 path = "./src/lib.rs"
 
 [features]
+private = []
 enterprise = ["windmill-queue/enterprise", "windmill-common/enterprise"]
 default = []
 

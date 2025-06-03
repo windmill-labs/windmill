@@ -1,7 +1,7 @@
 <script lang="ts">
 	import autosize from '$lib/autosize'
 	import { createEventDispatcher } from 'svelte'
-	import type { ContextElement } from './core'
+	import type { ContextElement } from './context'
 	import AvailableContextList from './AvailableContextList.svelte'
 
 	export let instructions: string

@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { Badge } from '$lib/components/common'
 
-	import { getContext } from 'svelte'
-	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import VirtualItemWrapper from './VirtualItemWrapper.svelte'
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
@@ -28,9 +26,6 @@
 	export let earlyStop: boolean = false
 	export let editMode: boolean = false
 
-	const { currentStepStore: copilotCurrentStepStore } =
-		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
-
 	const { viewport } = useSvelteFlow()
 </script>
 
@@ -41,7 +36,6 @@
 	{selected}
 	{selectable}
 	{id}
-	onTop={label === 'Input' && $copilotCurrentStepStore === 'Input'}
 	on:select
 	let:hover
 >
