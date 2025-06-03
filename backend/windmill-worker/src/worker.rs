@@ -1854,7 +1854,7 @@ pub async fn run_worker(
                         &base_internal_url,
                         job_completed_tx.clone(),
                         &mut occupancy_metrics,
-                        &mut killpill_rx,
+                        &mut killpill_rx2,
                         precomputed_bundle,
                         #[cfg(feature = "benchmark")]
                         bench,
