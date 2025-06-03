@@ -12,7 +12,8 @@
 		Square,
 		SkipForward,
 		Pin,
-		X
+		X,
+		Play
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
@@ -31,6 +32,7 @@
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import { useSvelteFlow } from '@xyflow/svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
+	import { Button } from '$lib/components/common'
 
 	export let selected: boolean = false
 	export let deletable: boolean = false
@@ -344,10 +346,23 @@
 	</div>
 
 	{#if deletable}
+		<Button
+			size="xs3"
+			color="dark"
+			iconOnly
+			startIcon={{ icon: Play }}
+			wrapperClasses="absolute top-1/2 -translate-y-1/2 -left-[28px] {hover || selected
+				? ''
+				: '!hidden'}"
+			title="Run"
+			btnClasses="p-1"
+			on:click={(event) => dispatch('run', { event, id })}
+		/>
+
 		<button
 			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
-	outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-red-400 hover:text-white
-	 {hover || selected ? '' : '!hidden'}"
+outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-red-400 hover:text-white
+ {hover || selected ? '' : '!hidden'}"
 			title="Delete"
 			on:click|preventDefault|stopPropagation={(event) =>
 				dispatch('delete', { event, id, type: modType })}
