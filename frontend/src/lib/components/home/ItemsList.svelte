@@ -44,7 +44,7 @@
 	import TreeViewRoot from './TreeViewRoot.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { getContext } from 'svelte'
-	import TriggerableByAi from '../TriggerableByAI.svelte'
+	import TriggerableByAI from '../TriggerableByAI.svelte'
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
@@ -335,7 +335,7 @@
 	</DrawerContent>
 </Drawer>
 
-<TriggerableByAi id="home-items-list" description="Lists of scripts, flows, and apps">
+<TriggerableByAI id="home-items-list" description="Lists of scripts, flows, and apps">
 	<CenteredPage>
 		<div class="flex flex-wrap gap-2 items-center justify-between w-full mt-2">
 			<div class="flex justify-start">
@@ -550,4 +550,4 @@
 			{/if}
 		</div>
 	</CenteredPage>
-</TriggerableByAi>
+</TriggerableByAI>

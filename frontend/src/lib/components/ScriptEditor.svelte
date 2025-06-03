@@ -46,7 +46,7 @@
 	import { getStringError } from './copilot/chat/utils'
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
 	import { AIChatService } from './copilot/chat/AIChatManager.svelte'
-	import TriggerableByAi from './TriggerableByAI.svelte'
+	import TriggerableByAI from './TriggerableByAI.svelte'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -390,7 +390,7 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<TriggerableByAi id="script-editor" description="Component to edit a script" />
+<TriggerableByAI id="script-editor" description="Component to edit a script" />
 
 <Modal title="Invite others" bind:open={showCollabPopup}>
 	<div>Have others join by sharing the following url:</div>

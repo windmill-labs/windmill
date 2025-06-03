@@ -7,7 +7,7 @@
 	import AddTriggersButton from './AddTriggersButton.svelte'
 	import TriggerLabel from './TriggerLabel.svelte'
 	import DeleteTriggerButton from './DeleteTriggerButton.svelte'
-	import TriggerableByAi from '../TriggerableByAI.svelte'
+	import TriggerableByAI from '../TriggerableByAI.svelte'
 
 	interface Props {
 		// Props
@@ -65,7 +65,7 @@
 					)}
 					onclick={() => onSelect?.(index)}
 				>
-					<TriggerableByAi
+					<TriggerableByAI
 						id={`trigger-${trigger.id}`}
 						description={`See ${trigger.type} triggers`}
 						onTrigger={() => onSelect?.(index)}
@@ -118,7 +118,7 @@
 								{/if}
 							</div>
 						</td>
-					</TriggerableByAi>
+					</TriggerableByAI>
 				</tr>
 			{/each}
 
