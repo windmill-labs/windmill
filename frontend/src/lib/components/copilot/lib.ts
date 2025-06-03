@@ -383,7 +383,6 @@ function getProviderAndCompletionConfig<K extends boolean>({
 						model: modelProvider.model.slice(0, -9)
 					}
 				: {
-						// model: 'inkeep-context-sonnet-4',
 						model: modelProvider.model,
 						temperature: 0,
 						...(tools && tools.length > 0 ? { tools } : {})

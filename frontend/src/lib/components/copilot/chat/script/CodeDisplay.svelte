@@ -102,7 +102,10 @@
 	$effect(() => {
 		// we only want to trigger when astNode offset is updated not currentReply, otherwise as there is some delay on the offset update, loading would be set to false too early
 		const completeReply = untrack(() => AIChatService.currentReply)
-		if (!loading || completeReply.length > (astNode.current.position?.end.offset ?? 0)) {
+		if (
+			!AIChatService.loading ||
+			completeReply.length > (astNode.current.position?.end.offset ?? 0)
+		) {
 			loading = false
 		}
 	})

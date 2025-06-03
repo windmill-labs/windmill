@@ -8,38 +8,31 @@
 		children?: () => any
 	}>()
 
-	// Track animation state
 	let isAnimating = $state(false)
 
 	// Component is not discoverable if id or description is not provided
 	const disabled = !id || !description
 
-	// Wrapper for onTrigger that adds animation
 	function handleTrigger(value?: string) {
 		if (disabled || !onTrigger) return
-
-		// Show animation
 		isAnimating = true
-
-		// Call the actual onTrigger
 		onTrigger(value)
-
-		// Reset animation state after animation completes
 		setTimeout(() => {
 			isAnimating = false
-		}, 2000) // Animation duration
+		}, 2000)
 	}
 
 	$effect(() => {
 		if (disabled) return
 
+		// register the triggerable
 		const currentId = id
 		const currentData = { description, onTrigger: handleTrigger }
-
 		const existingTriggerables = AIChatService.triggerablesByAI
 		existingTriggerables[currentId] = currentData
 
 		return () => {
+			// unregister the triggerable
 			if (AIChatService.triggerablesByAI[currentId]) {
 				delete AIChatService.triggerablesByAI[currentId]
 			}

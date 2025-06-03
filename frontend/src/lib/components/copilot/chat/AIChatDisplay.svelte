@@ -334,7 +334,7 @@
 				</div>
 			{/if}
 		</div>
-		{#if suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
+		{#if AIChatService.mode === 'navigator' && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
 			<div class="px-2 mt-4">
 				<div class="flex flex-col gap-2">
 					{#each suggestions as suggestion}

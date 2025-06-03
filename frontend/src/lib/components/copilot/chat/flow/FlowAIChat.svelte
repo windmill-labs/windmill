@@ -416,21 +416,3 @@
 		}
 	})
 </script>
-
-<!-- <AIChat
-	bind:this={aiChat}
-	{headerLeft}
-	{scriptOptions}
-	{flowHelpers}
-	showDiffMode={() => {
-		if ($currentEditor && $currentEditor.type === 'script') {
-			$currentEditor.showDiffMode()
-		}
-	}}
-	applyCode={(code: string) => {
-		if ($currentEditor && $currentEditor.type === 'script') {
-			$currentEditor.hideDiffMode()
-			$currentEditor.editor.reviewAndApplyCode(code)
-		}
-	}}
-/> -->

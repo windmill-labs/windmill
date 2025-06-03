@@ -321,7 +321,6 @@
 										if (event?.shiftKey) {
 											deleteScript(script.path)
 										} else {
-											console.log('setting delete confirmed callback')
 											deleteConfirmedCallback = () => {
 												deleteScript(script.path)
 											}

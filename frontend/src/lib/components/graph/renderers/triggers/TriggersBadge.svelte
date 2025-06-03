@@ -140,7 +140,6 @@
 		if (allTriggerTypes) {
 			numberOfTriggers = allTriggerTypes?.length
 		}
-		console.log(allTriggerTypes)
 	})
 </script>
 
