@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
 	import AssistantMessage from './AssistantMessage.svelte'
-	import { getContext, type Snippet } from 'svelte'
+	import { type Snippet } from 'svelte'
 	import { HistoryIcon, Loader2, Plus, StopCircleIcon, X } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { type AIChatContext, type DisplayMessage } from './shared'
+	import { type DisplayMessage } from './shared'
 	import type { ContextElement } from './context'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import ContextTextarea from './ContextTextarea.svelte'
@@ -14,20 +14,17 @@
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
 	import ChatMode from './ChatMode.svelte'
-	import { chatMode } from '$lib/stores'
 	import Markdown from 'svelte-exmarkdown'
-	import TriggerableByAi from '$lib/components/TriggerableByAI.svelte'
+	import { AIChatService } from './AIChatManager.svelte'
 
 	let {
 		allowedModes,
 		messages,
-		instructions = $bindable(),
 		pastChats,
 		hasDiff,
 		diffMode = false, // todo: remove default
 		selectedContext = $bindable([]), // todo: remove default
 		availableContext = [], // todo: remove default
-		sendRequest,
 		loadPastChat,
 		deletePastChat,
 		saveAndClear,
@@ -45,13 +42,11 @@
 			navigator: boolean
 		}
 		messages: DisplayMessage[]
-		instructions: string
 		pastChats: { id: string; title: string }[]
 		hasDiff?: boolean
 		diffMode: boolean
 		selectedContext: ContextElement[]
 		availableContext: ContextElement[]
-		sendRequest: () => void
 		loadPastChat: (id: string) => void
 		deletePastChat: (id: string) => void
 		saveAndClear: () => void
@@ -64,19 +59,12 @@
 		suggestions?: string[]
 	} = $props()
 
-	const { loading, currentReply } = getContext<AIChatContext>('AIChatContext')
-
-	export function enableAutomaticScroll() {
-		automaticScroll = true
-	}
-
 	let contextTextareaComponent: ContextTextarea | undefined = $state()
 
 	export function focusInput() {
 		contextTextareaComponent?.focus()
 	}
 
-	let automaticScroll = $state(true)
 	let scrollEl: HTMLDivElement | undefined = $state()
 	async function scrollDown() {
 		scrollEl?.scrollTo({
@@ -87,7 +75,7 @@
 
 	let height = $state(0)
 	$effect(() => {
-		automaticScroll && height && scrollDown()
+		AIChatService.automaticScroll && height && scrollDown()
 	})
 
 	function addContextToSelection(contextElement: ContextElement) {
@@ -115,8 +103,8 @@
 	}
 
 	function submitSuggestion(suggestion: string) {
-		instructions = suggestion
-		sendRequest()
+		AIChatService.instructions = suggestion
+		AIChatService.sendRequest()
 	}
 
 	const lastUserMessageIndex = $derived(findLastIndex(messages, (m) => m.role === 'user'))
@@ -203,7 +191,7 @@
 			class="h-full overflow-y-scroll pt-2"
 			bind:this={scrollEl}
 			onwheel={(e) => {
-				automaticScroll = false
+				AIChatService.automaticScroll = false
 			}}
 		>
 			<div class="flex flex-col" bind:clientHeight={height}>
@@ -221,7 +209,7 @@
 							message.role === 'user' &&
 								'px-2 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 rounded-lg',
 							message.role === 'user'
-								? $loading && lastUserMessageIndex === messageIndex
+								? AIChatService.loading && lastUserMessageIndex === messageIndex
 									? 'mb-1'
 									: 'mb-2'
 								: '',
@@ -235,7 +223,7 @@
 							{message.content}
 						{/if}
 					</div>
-					{#if message.role === 'user' && $loading && lastUserMessageIndex === messageIndex}
+					{#if message.role === 'user' && AIChatService.loading && lastUserMessageIndex === messageIndex}
 						<div class="flex flex-row px-2 mb-2">
 							<Button
 								startIcon={{ icon: StopCircleIcon }}
@@ -252,7 +240,7 @@
 						</div>
 					{/if}
 				{/each}
-				{#if $loading && !$currentReply}
+				{#if AIChatService.loading && !AIChatService.currentReply}
 					<div class="mb-6 py-1 px-2">
 						<Loader2 class="animate-spin" />
 					</div>
@@ -262,15 +250,7 @@
 	{/if}
 
 	<div class:border-t={messages.length > 0}>
-		<TriggerableByAi
-			id={`ai-chat-for-${$chatMode}`}
-			description={`AI Chat helper for ${$chatMode}`}
-			onTrigger={(value) => {
-				instructions = value ?? ''
-				sendRequest()
-			}}
-		/>
-		{#if $chatMode === 'script'}
+		{#if AIChatService.mode === 'script'}
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 px-2 no-scrollbar">
 				<Popover>
 					<svelte:fragment slot="trigger">
@@ -304,28 +284,28 @@
 			</div>
 			<ContextTextarea
 				bind:this={contextTextareaComponent}
-				{instructions}
+				instructions={AIChatService.instructions}
 				{availableContext}
 				{selectedContext}
 				isFirstMessage={messages.length === 0}
 				on:addContext={(e) => addContextToSelection(e.detail.contextElement)}
 				on:sendRequest={() => {
-					if (!$loading) {
-						sendRequest()
+					if (!AIChatService.loading) {
+						AIChatService.sendRequest()
 					}
 				}}
-				on:updateInstructions={(e) => (instructions = e.detail.value)}
+				on:updateInstructions={(e) => (AIChatService.instructions = e.detail.value)}
 				{disabled}
 			/>
 		{:else}
 			<div class="relative w-full px-2 scroll-pb-2 pt-2">
 				<textarea
-					bind:value={instructions}
+					bind:value={AIChatService.instructions}
 					use:autosize
 					onkeydown={(e) => {
-						if (e.key === 'Enter' && !e.shiftKey && !$loading) {
+						if (e.key === 'Enter' && !e.shiftKey && !AIChatService.loading) {
 							e.preventDefault()
-							sendRequest()
+							AIChatService.sendRequest()
 						}
 					}}
 					rows={3}
@@ -337,10 +317,10 @@
 		{/if}
 		<div
 			class={`flex flex-row ${
-				$chatMode === 'script' && hasDiff ? 'justify-between' : 'justify-end'
+				AIChatService.mode === 'script' && hasDiff ? 'justify-between' : 'justify-end'
 			} items-center px-0.5`}
 		>
-			{#if $chatMode === 'script' && hasDiff}
+			{#if AIChatService.mode === 'script' && hasDiff}
 				<ChatQuickActions {askAi} {diffMode} />
 			{/if}
 			{#if disabled}

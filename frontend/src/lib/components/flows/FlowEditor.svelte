@@ -4,7 +4,7 @@
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
 	import { Skeleton } from '../common'
-	import { getContext, onDestroy, onMount, setContext } from 'svelte'
+	import { getContext, setContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
 
 	import { writable } from 'svelte/store'
@@ -13,7 +13,6 @@
 	import type { Flow } from '$lib/gen'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
-	import { aiChatInstanceStore, chatMode } from '$lib/stores'
 	import { AIChatService } from '../copilot/chat/AIChatManager.svelte'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -45,32 +44,20 @@
 	let modulePanelSize = DEFAULT_MODULE_PANEL_SIZE
 	let mapPanelSize = DEFAULT_MAP_PANEL_SIZE
 
-	export function toggleAiPanel() {
-		AIChatService.open = !AIChatService.open
-	}
-
 	export function addSelectedLinesToAiChat(lines: string, startLine: number, endLine: number) {
-		$aiChatInstanceStore?.addSelectedLinesToContext(lines, startLine, endLine)
+		AIChatService.addSelectedLinesToContext(lines, startLine, endLine)
 		if (!AIChatService.open) {
 			AIChatService.open = true
-			chatMode.set('script')
+			AIChatService.mode = 'script'
 		}
 	}
-
-	onMount(() => {
-		chatMode.set('flow')
-	})
-
-	onDestroy(() => {
-		chatMode.set('navigator')
-	})
 </script>
 
 <svelte:window
 	on:keydown={(e) => {
 		if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
 			e.preventDefault()
-			toggleAiPanel()
+			AIChatService.toggleOpen()
 		}
 	}}
 />

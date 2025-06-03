@@ -5,7 +5,7 @@
 	import { getContext, untrack } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { initializeVscode } from '$lib/components/vscode'
-	import type { AIChatContext, DisplayMessage } from '../shared'
+	import type { DisplayMessage } from '../shared'
 	import type { ContextElement } from '../context'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import {
@@ -23,14 +23,9 @@
 	} from 'svelte-highlight/languages'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import { scriptEditorApplyCode } from '$lib/stores'
+	import { AIChatService } from '../AIChatManager.svelte'
 
 	const astNode = getAstNode()
-
-	const {
-		loading: loadingContext,
-		currentReply,
-		canApplyCode
-	} = getContext<AIChatContext>('AIChatContext')
 
 	const { message } = getContext<{ message: DisplayMessage }>('AssistantMessageContext')
 
@@ -107,8 +102,8 @@
 	let loading = $state(true)
 	$effect(() => {
 		// we only want to trigger when astNode offset is updated not currentReply, otherwise as there is some delay on the offset update, loading would be set to false too early
-		const completeReply = untrack(() => $currentReply)
-		if (!$loadingContext || completeReply.length > (astNode.current.position?.end.offset ?? 0)) {
+		const completeReply = untrack(() => AIChatService.currentReply)
+		if (!loading || completeReply.length > (astNode.current.position?.end.offset ?? 0)) {
 			loading = false
 		}
 	})
@@ -183,7 +178,7 @@
 </script>
 
 <div class="flex flex-col gap-0.5 rounded-lg relative not-prose">
-	{#if canApplyCode()}
+	{#if AIChatService.canApplyCode}
 		<div class="flex justify-end items-end">
 			<Button
 				color="dark"

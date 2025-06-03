@@ -13,7 +13,10 @@
 	export function onClick() {
 		AIChatService.open = true
 		if (initialInput) {
-			AIChatService.initialInput = initialInput
+			AIChatService.askAi(initialInput, {
+				withCode: false,
+				withDiff: false
+			})
 		}
 		onClickProp?.()
 	}

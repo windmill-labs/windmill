@@ -43,7 +43,7 @@
 	const dispatch = createEventDispatcher()
 
 	// Calculate adjusted offset based on global chat status
-	$: adjustedOffset = AIChatService.open && placement === 'right' ? AIChatService.size : 0
+	$: adjustedOffset = AIChatService.open && placement === 'right' ? AIChatService.SIZE : 0
 	$: style = `--duration: ${duration}s; --size: ${size}; --adjusted-offset: ${adjustedOffset}px;`
 
 	function scrollLock(open: boolean) {

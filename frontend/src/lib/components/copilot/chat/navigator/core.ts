@@ -7,7 +7,6 @@ import type {
 } from 'openai/resources/index.mjs'
 import {
 	chatHelpers,
-	chatMode,
 	chatSystemMessage,
 	chatTools,
 	flowAiChatHelpersStore,
@@ -16,6 +15,7 @@ import {
 import type { Tool } from '../shared'
 import { prepareScriptSystemMessage } from '../script/core'
 import { flowTools, prepareFlowSystemMessage } from '../flow/core'
+import { AIChatService } from '../AIChatManager.svelte'
 
 // System prompt for the LLM
 export const CHAT_SYSTEM_PROMPT = `
@@ -151,7 +151,7 @@ const CHANGE_MODE_TOOL: ChatCompletionTool = {
 function changeMode(args: { mode: string }) {
 	const { mode } = args
 
-	chatMode.set(mode as 'script' | 'flow' | 'navigator')
+	AIChatService.mode = mode as 'script' | 'flow' | 'navigator'
 	if (mode === 'script') {
 		chatSystemMessage.set(prepareScriptSystemMessage())
 		// chatTools.set([

@@ -5,16 +5,10 @@ import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionTool
 } from 'openai/resources/chat/completions.mjs'
-import { get, type Writable } from 'svelte/store'
+import { get } from 'svelte/store'
 import type { ContextElement } from './context'
 import { getCompletion } from '../lib'
 import { chatHelpers, chatSystemMessage, chatTools, workspaceStore } from '$lib/stores'
-
-export interface AIChatContext {
-	loading: Writable<boolean>
-	currentReply: Writable<string>
-	canApplyCode: () => boolean
-}
 
 export type DisplayMessage =
 	| {

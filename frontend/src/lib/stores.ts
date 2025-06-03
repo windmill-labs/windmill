@@ -111,10 +111,6 @@ export const copilotInfo = writable<{
 	defaultModel: undefined,
 	aiModels: []
 })
-export const chatMode = writable<'script' | 'flow' | 'navigator'>('script')
-export const chatSystemMessage = writable<ChatCompletionSystemMessageParam | undefined>(undefined)
-export const chatTools = writable<Tool<any>[]>([])
-export const chatHelpers = writable<any | undefined>(undefined)
 
 export function setCopilotInfo(aiConfig: AIConfig) {
 	if (Object.keys(aiConfig.providers ?? {}).length > 0) {
@@ -182,17 +178,17 @@ export const usedTriggerKinds = writable<string[]>([])
 export const triggerablesByAI = writable<
 	Record<string, { description: string; onTrigger: ((id: string) => void) | undefined }>
 >({})
-export const globalChatInitialInput = writable<string>('')
-export const globalChatSize = writable<number>(300)
 
 export const scriptEditorOptionsStore = writable<ScriptOptions | undefined>(undefined)
 export const scriptEditorApplyCode = writable<((code: string) => void) | undefined>(undefined)
 export const scriptEditorShowDiffMode = writable<(() => void) | undefined>(undefined)
-export const aiChatInstanceStore = writable<AiChat | undefined>(undefined)
 export const flowAiChatHelpersStore = writable<
 	| (FlowAIChatHelpers & { getFlowAndSelectedId: () => { flow: OpenFlow; selectedId: string } })
 	| undefined
 >(undefined)
+export const chatSystemMessage = writable<ChatCompletionSystemMessageParam | undefined>(undefined)
+export const chatTools = writable<Tool<any>[]>([])
+export const chatHelpers = writable<any | undefined>(undefined)
 
 type SQLBaseSchema = {
 	[schemaKey: string]: {

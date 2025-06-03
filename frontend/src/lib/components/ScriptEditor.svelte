@@ -4,8 +4,6 @@
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
 	import {
-		aiChatInstanceStore,
-		chatMode,
 		copilotInfo,
 		enterpriseLicense,
 		scriptEditorApplyCode,
@@ -144,10 +142,6 @@
 		}
 	}
 
-	function toggleAiPanel() {
-		AIChatService.open = !AIChatService.open
-	}
-
 	export function setArgs(nargs: Record<string, any>) {
 		args = nargs
 	}
@@ -215,7 +209,6 @@
 	onMount(() => {
 		inferSchema(code)
 		loadPastTests()
-		chatMode.set('script')
 	})
 
 	setLicense()
@@ -292,7 +285,6 @@
 		scriptEditorApplyCode.set(undefined)
 		scriptEditorShowDiffMode.set(undefined)
 		scriptEditorOptionsStore.set(undefined)
-		chatMode.set('navigator')
 	})
 
 	function asKind(str: string | undefined) {
@@ -328,17 +320,13 @@
 	function addSelectedLinesToAiChat(
 		e: CustomEvent<{ lines: string; startLine: number; endLine: number }>
 	) {
-		if ($aiChatInstanceStore) {
-			$aiChatInstanceStore.addSelectedLinesToContext(
-				e.detail.lines,
-				e.detail.startLine,
-				e.detail.endLine
-			)
-			$aiChatInstanceStore.focusTextArea()
-		}
+		AIChatService.addSelectedLinesToContext(e.detail.lines, e.detail.startLine, e.detail.endLine)
+		// AIChatService.focusTextArea() TODO: Add this back
 	}
 
-	$: !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') && !AIChatService.open && toggleAiPanel()
+	$: !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') &&
+		!AIChatService.open &&
+		AIChatService.toggleOpen()
 
 	function toggleTestPanel() {
 		if (testPanelSize > 0) {
@@ -490,7 +478,7 @@
 								customHiddenIcon={WandSparkles}
 								btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface"
 								on:click={() => {
-									toggleAiPanel()
+									AIChatService.toggleOpen()
 								}}
 							>
 								<svelte:fragment slot="popoverOverride">
@@ -537,10 +525,9 @@
 							inferSchema(e.detail)
 						}}
 						on:saveDraft
-						on:toggleAiPanel={toggleAiPanel}
+						on:toggleAiPanel={() => AIChatService.toggleOpen()}
 						on:addSelectedLinesToAiChat={addSelectedLinesToAiChat}
 						on:toggleTestPanel={toggleTestPanel}
-						isAiPanelOpen={false}
 						cmdEnterAction={async () => {
 							await inferSchema(code)
 							runTest()
@@ -688,7 +675,7 @@
 						<LogPanel
 							bind:setFocusToLogs
 							on:fix={() => {
-								$aiChatInstanceStore?.fix()
+								AIChatService.fix()
 							}}
 							fixChatMode
 							{lang}

@@ -306,10 +306,6 @@
 		globalSearchModal?.openSearchWithPrefilledText(text)
 	}
 
-	function openGlobalChat(): void {
-		AIChatService.open = !AIChatService.open
-	}
-
 	setContext('openSearchWithPrefilledText', openSearchModal)
 
 	$: {
@@ -456,7 +452,7 @@
 										/>
 										<MenuButton
 											stopPropagationOnClick={true}
-											on:click={() => openGlobalChat()}
+											on:click={() => AIChatService.toggleOpen()}
 											isCollapsed={false}
 											icon={MessageCircle}
 											label="Ask AI"
@@ -523,7 +519,7 @@
 								/>
 								<MenuButton
 									stopPropagationOnClick={true}
-									on:click={() => openGlobalChat()}
+									on:click={() => AIChatService.toggleOpen()}
 									{isCollapsed}
 									icon={MessageCircle}
 									label="Ask AI"
@@ -630,7 +626,7 @@
 								/>
 								<MenuButton
 									stopPropagationOnClick={true}
-									on:click={() => openGlobalChat()}
+									on:click={() => AIChatService.toggleOpen()}
 									{isCollapsed}
 									icon={MessageCircle}
 									label="Ask AI"
@@ -656,7 +652,7 @@
 				devOnly || $userStore?.operator ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
 				'transition-all ease-in-out duration-200'
 			)}
-			style={`padding-right: ${AIChatService.open ? AIChatService.size : 0}px`}
+			style={`padding-right: ${AIChatService.open ? AIChatService.SIZE : 0}px`}
 		>
 			<main class="min-h-screen">
 				<div class="relative w-full h-full">
@@ -697,7 +693,7 @@
 	<div
 		class="fixed-chat-panel"
 		class:open={AIChatService.open}
-		style={`width: ${AIChatService.size}px`}
+		style={`width: ${AIChatService.SIZE}px`}
 	>
 		<GlobalChat />
 	</div>
