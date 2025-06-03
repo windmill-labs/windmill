@@ -172,7 +172,6 @@
 						displayMessages = [...displayMessages, { role: 'tool', tool_call_id: id, content }]
 					},
 					onFinishToolCall: (id, content) => {
-						console.log('onFinishToolCall', id, content)
 						const existingIdx = displayMessages.findIndex(
 							(m) => m.role === 'tool' && m.tool_call_id === id
 						)

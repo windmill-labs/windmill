@@ -61,29 +61,29 @@ const newStepSchema = z.union([
 				'The language to use for the code, default to bun if none specified'
 			)
 		})
-		.describe('Add a raw script step after the given step id'),
+		.describe('Add a raw script step at the specified location'),
 	z
 		.object({
 			type: z.literal('script'),
 			path: z.string().describe('The path of the script to use for the step.')
 		})
-		.describe('Add a script step after the given step id'),
+		.describe('Add a script step at the specified location'),
 	z
 		.object({
 			type: z.literal('forloop')
 		})
-		.describe('Add a for loop after the given step id'),
+		.describe('Add a for loop at the specified location'),
 	z
 		.object({
 			type: z.literal('branchall')
 		})
-		.describe('Add a branch all after the given step id: all branches will be executed'),
+		.describe('Add a branch all at the specified location: all branches will be executed'),
 	z
 		.object({
 			type: z.literal('branchone')
 		})
 		.describe(
-			'Add a branch one after the given step id: only the first branch that evaluates to true will be executed'
+			'Add a branch one at the specified location: only the first branch that evaluates to true will be executed'
 		)
 ])
 
@@ -148,7 +148,7 @@ const addStepSchema = z.object({
 const addStepToolDef = createToolDef(
 	addStepSchema,
 	'add_step',
-	'Add a step after the given step id'
+	'Add a step at the specified location'
 )
 
 const removeStepSchema = z.object({
@@ -314,6 +314,17 @@ const resourceTypeToolDef = createToolDef(
 	'Search for resource types'
 )
 
+const getInstructionsForCodeGenerationToolSchema = z.object({
+	id: z.string().describe('The id of the step to generate code for'),
+	language: langSchema.describe('The programming language the code will be written in')
+})
+
+const getInstructionsForCodeGenerationToolDef = createToolDef(
+	getInstructionsForCodeGenerationToolSchema,
+	'get_instructions_for_code_generation',
+	'Get instructions for code generation for a raw script step'
+)
+
 const workspaceScriptsSearch = new WorkspaceScriptsSearch()
 
 export const flowTools: Tool<FlowAIChatHelpers>[] = [
@@ -377,11 +388,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			toolCallbacks.onFinishToolCall(toolId, `Added step '${id}'`)
 
 			if (parsedArgs.step.type === 'rawscript') {
-				const langContext = getLangContext(parsedArgs.step.language, {
-					allowResourcesFetch: true,
-					isPreprocessor: parsedArgs.location.type === 'preprocessor'
-				})
-				return `Step ${id} added, here is some additional instructions to help you write the code:\n${langContext}`
+				return `Step ${id} added. Here is the updated flow, make sure to take it into account when adding another step:\n${YAML.stringify(helpers.getModules())}`
 			} else {
 				if (
 					parsedArgs.location.type === 'start_inside_branch' ||
@@ -438,6 +445,21 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const updatedSchema = await helpers.getFlowInputsSchema()
 			toolCallbacks.onFinishToolCall(toolId, 'Set flow inputs schema')
 			return `Flow inputs schema set. New schema:\n${JSON.stringify(updatedSchema)}`
+		}
+	},
+	{
+		def: getInstructionsForCodeGenerationToolDef,
+		fn: async ({ args, toolId, toolCallbacks }) => {
+			const parsedArgs = getInstructionsForCodeGenerationToolSchema.parse(args)
+			const langContext = getLangContext(parsedArgs.language, {
+				allowResourcesFetch: true,
+				isPreprocessor: parsedArgs.id === 'preprocessor'
+			})
+			toolCallbacks.onFinishToolCall(
+				toolId,
+				'Retrieved instructions for code generation in ' + parsedArgs.language
+			)
+			return langContext
 		}
 	},
 	{
@@ -500,14 +522,17 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: resourceTypeToolDef,
 		fn: async ({ args, toolId, workspace, toolCallbacks }) => {
-			toolCallbacks.onToolCall(toolId, 'Searching resource types...')
 			const parsedArgs = resourceTypeToolSchema.parse(args)
+			toolCallbacks.onToolCall(toolId, 'Searching resource types for "' + parsedArgs.query + '"...')
 			const formattedResourceTypes = await getFormattedResourceTypes(
 				parsedArgs.language,
 				parsedArgs.query,
 				workspace
 			)
-			toolCallbacks.onFinishToolCall(toolId, 'Retrieved resource types')
+			toolCallbacks.onFinishToolCall(
+				toolId,
+				'Retrieved resource types for "' + parsedArgs.query + '"'
+			)
 			return formattedResourceTypes
 		}
 	}
@@ -544,8 +569,10 @@ export function prepareFlowSystemMessage(): {
 	content: string
 } {
 	const content = `You are a helpful assitant that creates and edit workflows on the Windmill platform. You're provided with a a bunch of tools to help you edit the flow.
-Describe all steps you take to edit the flow before calling the tools.
-Follow the user instructions carefully and take note of the following:
+Follow the user instructions carefully.
+Go step by step, and explain what you're doing as you're doing it.
+DO NOT wait for user confirmation before performing an action. Only do it if the user explicitly asks you to wait in their initial instructions.
+Take note of the following:
 
 ## Flow editor
 
@@ -555,7 +582,10 @@ You can add a script step in different ways:
 - from a script in the hub
 - a raw script: create an empty step and write the code directly
 
-When adding a raw script step, you will get back some special instructions to help you write the code. Make sure to follow them carefully. Also, make sure to display the code to the user before setting it.
+When generating code for a raw script step, you should make sure it's in the correct format for Windmill. Format varies depending on the language and on the type of step (preprocessor or not). Use the get_instructions_for_code_generation tool to get instructions to help you write the code. Make sure to follow them carefully. DO NOT tell the user you're using this specific tool, just use it.
+Also, make sure to display the code to the user before setting it.
+
+Unless the user explicitly specifies how the script should be created (e.g., from the workspace, from the hub, or as a new one), whenever they ask you to add a script step, you must first check for matching scripts in the workspace and the hub. If no suitable script is found, create a raw script step and write the necessary code directly.
 
 Once you've added a new step and set the path or written the code, you should use the get_step_inputs tool to get the current/possible inputs for the step and set the step input values using the set_step_inputs tool.
 Step input keys and types are automatically inferred from the code.
@@ -564,6 +594,9 @@ If you use flow_input in the step inputs, make sure to add the missing propertie
 ### Branchone/branchall and forloop
 You can add branchone/branchall and forloops to the flow. Make sure to set the predicates for the branches (of branchone only) and the iterator expression for the forloops.
 You can also add or remove branches. 
+
+### Adding multiple steps
+After adding a step, make sure to consider the updated flow when adding a another step so that the step is added in the right place.
 
 ### Flow inputs schema
 You can use the set_flow_inputs_schema tool to set the flow inputs schema.
