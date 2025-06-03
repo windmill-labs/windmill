@@ -59,7 +59,7 @@ const TS_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are 
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type inside the \`RT\` namespace: for instance \`RT.Stripe\`.
 You should only use them if you need them to satisfy the user's instructions. Always use the RT namespace.\n`
 
-const TS_INLINE_TYPE_INSTRUCTION = `You must always inline the objects types instead of defining them separately. If INSTRUCTIONS ask you to use an already defined type **apart from the RT namespace**, you MUST inline it instead of using the type name. Explain to the user that you are inlining the type for better arguments inference.`
+const TS_INLINE_TYPE_INSTRUCTION = `When using resource types, you should use RT.ResourceType as parameter type. For other parameters, you should inline the objects types instead of defining them separately. This is because Windmill requires the types (other than resource types) to be inlined to generate a user friendly UI from the parameters.`
 
 const PYTHON_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type.
@@ -123,7 +123,7 @@ export function getLangContext(
 			? TS_PREPROCESSOR_INSTRUCTION
 			: TS_RESOURCE_TYPE_SYSTEM +
 				(allowResourcesFetch
-					? `To query the RT namespace, you can use the \`search_resource_types\` function.\n`
+					? `To query the RT namespace, you can use the \`search_resource_types\` tool.\n`
 					: '')) + TS_INLINE_TYPE_INSTRUCTION
 
 	const mainFunctionName = isPreprocessor ? 'preprocessor' : 'main'
@@ -147,16 +147,18 @@ export function getLangContext(
 				'\nYou can import deno libraries or you can import npm libraries like that: `import ... from "npm:{package}";`.'
 			)
 		case 'python3':
-			return `The user is coding in Python. On Windmill, it is expected the script contains at least one function called \`${mainFunctionName}\`. Do not call the ${mainFunctionName} function. Libraries are installed automatically, do not show how to install them.` +
-				isPreprocessor
-				? PYTHON_PREPROCESSOR_INSTRUCTION
-				: PYTHON_RESOURCE_TYPE_SYSTEM +
-						`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` function.` : ''}`
+			return (
+				`The user is coding in Python. On Windmill, it is expected the script contains at least one function called \`${mainFunctionName}\`. Do not call the ${mainFunctionName} function. Libraries are installed automatically, do not show how to install them.` +
+				(isPreprocessor
+					? PYTHON_PREPROCESSOR_INSTRUCTION
+					: PYTHON_RESOURCE_TYPE_SYSTEM +
+						`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` tool.` : ''}`)
+			)
 		case 'php':
 			return (
 				'The user is coding in PHP. On Windmill, it is expected the script contains at least one function called `main`. The script must start with <?php.' +
 				PHP_RESOURCE_TYPE_SYSTEM +
-				`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` function.` : ''}` +
+				`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` tool.` : ''}` +
 				`\nIf you need to import libraries, you need to specify them as comments in the following manner before the main function:
 \`\`\`
 // require:
@@ -446,13 +448,13 @@ export interface ScriptChatHelpers {
 export const resourceTypeTool: Tool<ScriptChatHelpers> = {
 	def: RESOURCE_TYPE_FUNCTION_DEF,
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
-		toolCallbacks.onToolCall(toolId, 'Searching resource types...')
+		toolCallbacks.onToolCall(toolId, 'Searching resource types for "' + args.query + '"...')
 		const formattedResourceTypes = await getFormattedResourceTypes(
 			helpers.getLang(),
 			args.query,
 			workspace
 		)
-		toolCallbacks.onFinishToolCall(toolId, 'Retrieved resource types')
+		toolCallbacks.onFinishToolCall(toolId, 'Retrieved resource types for "' + args.query + '"')
 		return formattedResourceTypes
 	}
 }
