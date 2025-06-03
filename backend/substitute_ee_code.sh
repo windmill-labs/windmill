@@ -91,7 +91,7 @@ if [ "$MOVE_NEW_FILES" == "YES" ]; then
     backend_dirpath="${root_dirpath}/backend/"
     ee_file="${ce_file/${backend_dirpath}/}"
     ee_file="${EE_CODE_DIR}${ee_file}"
-    if [ ! -f "${ee_file}" ]; then\
+    if [ ! -f "${ee_file}" ]; then
       mv "${ce_file}" "${ee_file}"
       if [ ! "$REVERT" == "YES" ]; then
         ln -s "${ee_file}" "${ce_file}"
