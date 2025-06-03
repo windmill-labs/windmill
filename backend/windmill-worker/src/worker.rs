@@ -1271,7 +1271,7 @@ pub async fn run_worker(
     // This tag is associated only with jobs using Bash as the script language.
     // For agent workers, the expected tag format is the worker name suffixed with "-ssh".
     // For regular workers, the tag is simply the machine's hostname and if not found the randomly generated hostname.
-    if i_worker == 1 {
+    /* if i_worker == 1 {
         start_interactive_worker_shell(
             conn.clone(),
             hostname.to_owned(),
@@ -1281,7 +1281,7 @@ pub async fn run_worker(
             base_internal_url.to_owned(),
             worker_dir.clone(),
         );
-    }
+    }*/
 
     let mut last_executed_job: Option<Instant> = None;
 
