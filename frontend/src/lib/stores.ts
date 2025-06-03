@@ -186,7 +186,8 @@ export const scriptEditorApplyCode = writable<((code: string) => void) | undefin
 export const scriptEditorShowDiffMode = writable<(() => void) | undefined>(undefined)
 export const aiChatInstanceStore = writable<AiChat | undefined>(undefined)
 export const flowAiChatHelpersStore = writable<
-	(FlowAIChatHelpers & { getFlow: () => OpenFlow }) | undefined
+	| (FlowAIChatHelpers & { getFlowAndSelectedId: () => { flow: OpenFlow; selectedId: string } })
+	| undefined
 >(undefined)
 
 type SQLBaseSchema = {

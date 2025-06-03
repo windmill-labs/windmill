@@ -49,9 +49,10 @@
 	}
 
 	export function addSelectedLinesToAiChat(lines: string, startLine: number, endLine: number) {
-		flowAIChat?.addSelectedLinesToContext(lines, startLine, endLine)
-		if (getIsAiPanelClosed()) {
-			toggleAiPanel('script')
+		$aiChatInstanceStore?.addSelectedLinesToContext(lines, startLine, endLine)
+		if (!$globalChatOpen) {
+			globalChatOpen.set(true)
+			chatMode.set('script')
 		}
 	}
 

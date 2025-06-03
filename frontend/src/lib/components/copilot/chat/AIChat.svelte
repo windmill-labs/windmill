@@ -179,7 +179,7 @@
 
 			const userMessage =
 				mode === 'flow'
-					? prepareFlowUserMessage(oldInstructions, $flowAiChatHelpersStore!.getFlow())
+					? prepareFlowUserMessage(oldInstructions, $flowAiChatHelpersStore!.getFlowAndSelectedId())
 					: mode === 'navigator'
 						? prepareNavigatorUserMessage(oldInstructions)
 						: await prepareScriptUserMessage(oldInstructions, lang, oldSelectedContext, {

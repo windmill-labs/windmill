@@ -321,13 +321,7 @@
 
 	setContext('disableTooltips', customUi?.disableTooltips === true)
 
-	let aiPanelSize =
-		!$copilotInfo.enabled ||
-		!SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') ||
-		localStorage.getItem('aiPanelOpen') === 'false'
-			? 0
-			: 30
-	let codePanelSize = 40 + (30 - aiPanelSize)
+	let codePanelSize = 70
 	let testPanelSize = 30
 	let storedTestPanelSize = testPanelSize
 
