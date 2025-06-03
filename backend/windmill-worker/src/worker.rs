@@ -1754,6 +1754,8 @@ pub async fn run_worker(
 
                     let arc_job = Arc::new(job);
 
+                    let span = create_span(&arc_job, &worker_name, hostname);
+
                     let job_result = handle_queued_job(
                         arc_job.clone(),
                         raw_code,
@@ -1775,6 +1777,7 @@ pub async fn run_worker(
                         #[cfg(feature = "benchmark")]
                         &mut bench,
                     )
+                    .instrument(span)
                     .await;
 
                     match job_result {
