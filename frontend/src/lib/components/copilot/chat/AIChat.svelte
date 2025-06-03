@@ -32,8 +32,8 @@
 	)
 
 	const suggestions = [
-		'Where can i see my latest runs?',
-		'How do i trigger a script with a webhook endpoint?',
+		'Where can I see my latest runs?',
+		'How do I trigger a script with a webhook endpoint?',
 		'How can I connect to a database?',
 		'How do I schedule a recurring job?'
 	]

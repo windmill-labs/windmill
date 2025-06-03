@@ -576,7 +576,7 @@ function createToolDef(
 }
 
 export function prepareFlowSystemMessage(): ChatCompletionSystemMessageParam {
-	const content = `You are a helpful assitant that creates and edit workflows on the Windmill platform. You're provided with a a bunch of tools to help you edit the flow.
+	const content = `You are a helpful assistant that creates and edit workflows on the Windmill platform. You're provided with a bunch of tools to help you edit the flow.
 Follow the user instructions carefully.
 Go step by step, and explain what you're doing as you're doing it.
 DO NOT wait for user confirmation before performing an action. Only do it if the user explicitly asks you to wait in their initial instructions.

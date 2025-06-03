@@ -694,7 +694,7 @@
 								<div class="flex w-full justify-center items-center">
 									<div class="text-tertiary text-center">
 										<div class="text-2xl font-bold"
-											>Nothing found, ask the AI to find what you need !</div
+											>Nothing found, ask the AI to find what you need!</div
 										>
 										<div class="text-sm">Tip: press `esc` to quickly clear the search bar</div>
 									</div>
