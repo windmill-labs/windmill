@@ -48,7 +48,7 @@
 	export function addSelectedLinesToAiChat(lines: string, startLine: number, endLine: number) {
 		AIChatService.addSelectedLinesToContext(lines, startLine, endLine)
 		if (!AIChatService.open) {
-			AIChatService.open = true
+			AIChatService.openChat()
 			AIChatService.changeMode('script')
 		}
 	}
@@ -89,7 +89,7 @@
 						on:reload
 						on:generateStep={({ detail }) => {
 							if (!AIChatService.open) {
-								AIChatService.open = true
+								AIChatService.openChat()
 							}
 							AIChatService.generateStep(detail.moduleId, detail.lang, detail.instructions)
 						}}

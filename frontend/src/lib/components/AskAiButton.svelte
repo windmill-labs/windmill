@@ -11,7 +11,7 @@
 	const { label, initialInput, onClick: onClickProp }: Props = $props()
 
 	export function onClick() {
-		AIChatService.open = true
+		AIChatService.openChat()
 		if (initialInput) {
 			AIChatService.askAi(initialInput, {
 				withCode: false,

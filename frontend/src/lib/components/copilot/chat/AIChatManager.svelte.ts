@@ -35,7 +35,7 @@ export class AIChat {
 	historyManager = new HistoryManager()
 	abortController: AbortController | undefined = undefined
 
-	open = $state<boolean>(false)
+	open = $state<boolean>(localStorage.getItem('ai-chat-open') === 'true')
 	instructions = $state<string>('')
 	pendingPrompt = $state<string>('')
 	loading = $state<boolean>(false)
@@ -132,8 +132,19 @@ export class AIChat {
 		}
 	}
 
+	openChat = () => {
+		this.open = true
+		localStorage.setItem('ai-chat-open', 'true')
+	}
+
+	closeChat = () => {
+		this.open = false
+		localStorage.setItem('ai-chat-open', 'false')
+	}
+
 	toggleOpen = () => {
 		this.open = !this.open
+		localStorage.setItem('ai-chat-open', this.open.toString())
 	}
 
 	askAi = (
