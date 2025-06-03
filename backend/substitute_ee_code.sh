@@ -96,7 +96,7 @@ if [ "$MOVE_NEW_FILES" == "YES" ]; then
       if [ ! "$REVERT" == "YES" ]; then
         ln -s "${ee_file}" "${ce_file}"
       fi
-      echo "File moved '${ce_file} -->> '${ee_file}'"
+      echo "File moved '${ce_file}' -->> '${ee_file}'"
     fi
   done
 fi
