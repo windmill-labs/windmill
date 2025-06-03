@@ -1,15 +1,11 @@
-import { get, type Writable } from 'svelte/store'
+import { get } from 'svelte/store'
 import { page } from '$app/state'
-import { getCompletion } from '$lib/components/copilot/lib'
 import type {
-	ChatCompletionChunk,
-	ChatCompletionMessageParam,
-	ChatCompletionMessageToolCall,
 	ChatCompletionSystemMessageParam,
 	ChatCompletionTool,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/index.mjs'
-import { triggerablesByAI } from '$lib/stores'
+import { chatMode, triggerablesByAI } from '$lib/stores'
 import type { Tool } from '../shared'
 
 // System prompt for the LLM
@@ -40,9 +36,9 @@ GENERAL PRINCIPLES:
 IMPORTANT CONSIDERATIONS:
 - If you navigate to a script creation page, consider this:
   - The page opens with the settings drawer open. After doing the changes mentioned by the user, close the settings drawer.
-  - Then if the user have described what he wanted the script to do, search for the script ai chat in the page and input it's request in it. Do not specify the language, just input the request. Then close the navigator ai chat.
+  - Then if the user have described what he wanted the script to do, switch to script mode with the change_mode tool, and use the new tools you'll have access to to edit the script.
 - If you navigate to a flow creation page, consider this:
-  - If the user have described what he wanted the flow to do, search for the flow ai chat in the page and input it's request in it. Then close the navigator ai chat.
+  - If the user have described what he wanted the flow to do, switch to flow mode with the change_mode tool before using the new tools you'll have access to to edit the flow.
 
 Always use the provided tools purposefully and appropriately to achieve the user's goals.
 Your actions only allow you to navigate the application through the provided tools.
@@ -121,6 +117,32 @@ const GET_CURRENT_PAGE_NAME_TOOL: ChatCompletionTool = {
 			required: []
 		}
 	}
+}
+
+const CHANGE_MODE_TOOL: ChatCompletionTool = {
+	type: 'function',
+	function: {
+		name: 'change_mode',
+		description:
+			'Change the AI mode to the one specified. Script mode is used to create scripts, and flow mode is used to create flows. Navigator mode is used to navigate the application and help the user find what they are looking for.',
+		parameters: {
+			type: 'object',
+			properties: {
+				mode: {
+					type: 'string',
+					description: 'The mode to change to',
+					enum: ['script', 'flow', 'navigator']
+				}
+			},
+			required: ['mode']
+		}
+	}
+}
+
+function changeMode(args: { mode: string }) {
+	const { mode } = args
+
+	chatMode.set(mode as 'script' | 'flow' | 'navigator')
 }
 
 function getTriggerableComponents(): string {
@@ -236,43 +258,6 @@ async function getDocumentation(args: { request: string }): Promise<string> {
 	return data.choices[0].message.content
 }
 
-// Process tool calls from the LLM
-async function processToolCall(
-	toolCall: ChatCompletionMessageToolCall,
-	messages: ChatCompletionMessageParam[]
-) {
-	try {
-		const args = toolCall.function.arguments ? JSON.parse(toolCall.function.arguments) : {}
-		let result = ''
-
-		try {
-			if (toolCall.function.name === 'get_triggerable_components') {
-				result = getTriggerableComponents()
-			} else if (toolCall.function.name === 'trigger_component') {
-				result = triggerComponent(args)
-			} else if (toolCall.function.name === 'get_documentation') {
-				const docResult = await getDocumentation(args)
-				result = docResult || 'No documentation found for this request'
-			} else if (toolCall.function.name === 'get_current_page_name') {
-				result = getCurrentPageName()
-			} else {
-				result = `Unknown tool: ${toolCall.function.name}`
-			}
-		} catch (err) {
-			console.error(err)
-			result = `Error while calling ${toolCall.function.name}: ${err.message}`
-		}
-
-		messages.push({
-			role: 'tool',
-			tool_call_id: toolCall.id,
-			content: result
-		})
-	} catch (err) {
-		console.error(err)
-	}
-}
-
 export const navigatorTools: Tool<{}>[] = [
 	{
 		def: GET_TRIGGERABLE_COMPONENTS_TOOL,
@@ -308,93 +293,18 @@ export const navigatorTools: Tool<{}>[] = [
 			toolCallbacks.onFinishToolCall(toolId, 'Retrieved current page name')
 			return pageName
 		}
+	},
+	{
+		def: CHANGE_MODE_TOOL,
+		fn: async ({ args, toolId, toolCallbacks }) => {
+			toolCallbacks.onToolCall(toolId, 'Changing AI mode...')
+			changeMode(args)
+			toolCallbacks.onFinishToolCall(toolId, 'Changed AI mode')
+			return 'Mode changed to ' + args.mode
+		}
 	}
 ]
 
-// Main function to handle chat requests
-export async function chatRequest(
-	messages: ChatCompletionMessageParam[],
-	abortController: AbortController,
-	onNewToken: (token: string) => void
-) {
-	const toolDefs: ChatCompletionTool[] = [
-		GET_TRIGGERABLE_COMPONENTS_TOOL,
-		EXECUTE_COMMAND_TOOL,
-		GET_DOCUMENTATION_TOOL,
-		GET_CURRENT_PAGE_NAME_TOOL
-	]
-
-	try {
-		let completion: any = null
-
-		while (true) {
-			completion = await getCompletion(messages, abortController, toolDefs)
-
-			if (completion) {
-				const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
-
-				for await (const chunk of completion) {
-					if (!('choices' in chunk && chunk.choices.length > 0 && 'delta' in chunk.choices[0])) {
-						continue
-					}
-
-					const c = chunk as ChatCompletionChunk
-					const delta = c.choices[0].delta.content
-
-					if (delta) {
-						onNewToken(delta)
-					}
-
-					const toolCalls = c.choices[0].delta.tool_calls || []
-
-					for (const toolCall of toolCalls) {
-						const { index } = toolCall
-						const finalToolCall = finalToolCalls[index]
-
-						if (!finalToolCall) {
-							finalToolCalls[index] = toolCall
-						} else {
-							if (toolCall.function?.arguments) {
-								if (!finalToolCall.function) {
-									finalToolCall.function = toolCall.function
-								} else {
-									finalToolCall.function.arguments =
-										(finalToolCall.function.arguments ?? '') + toolCall.function.arguments
-								}
-							}
-						}
-					}
-				}
-
-				const toolCalls = Object.values(finalToolCalls).filter(
-					(toolCall) => toolCall.id !== undefined && toolCall.function?.arguments !== undefined
-				) as ChatCompletionMessageToolCall[]
-
-				if (toolCalls.length > 0) {
-					messages.push({
-						role: 'assistant',
-						tool_calls: toolCalls
-					})
-
-					for (const toolCall of toolCalls) {
-						await processToolCall(toolCall, messages)
-					}
-				} else {
-					break
-				}
-			}
-		}
-
-		return completion
-	} catch (err) {
-		if (!abortController.signal.aborted) {
-			console.error(err)
-			throw err
-		}
-	}
-}
-
-// Prepare initial system message
 export function prepareNavigatorSystemMessage(): ChatCompletionSystemMessageParam {
 	return {
 		role: 'system',
@@ -407,10 +317,4 @@ export function prepareNavigatorUserMessage(instructions: string): ChatCompletio
 		role: 'user',
 		content: instructions
 	}
-}
-
-// Interface for chat context
-export interface AIChatContext {
-	loading: Writable<boolean>
-	currentReply: Writable<string>
 }

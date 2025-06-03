@@ -6,6 +6,7 @@ import {
 	type AIConfig,
 	type AIProvider,
 	type AIProviderModel,
+	type OpenFlow,
 	type OperatorSettings,
 	type TokenResponse,
 	type UserWorkspaceList,
@@ -15,6 +16,7 @@ import {
 import { getLocalSetting } from './utils'
 import type { ScriptOptions } from './components/copilot/chat/ContextManager.svelte'
 import type AiChat from './components/copilot/chat/AIChat.svelte'
+import type { FlowAIChatHelpers } from './components/copilot/chat/flow/core'
 
 export interface UserExt {
 	email: string
@@ -183,6 +185,9 @@ export const scriptEditorOptionsStore = writable<ScriptOptions | undefined>(unde
 export const scriptEditorApplyCode = writable<((code: string) => void) | undefined>(undefined)
 export const scriptEditorShowDiffMode = writable<(() => void) | undefined>(undefined)
 export const aiChatInstanceStore = writable<AiChat | undefined>(undefined)
+export const flowAiChatHelpersStore = writable<
+	(FlowAIChatHelpers & { getFlow: () => OpenFlow }) | undefined
+>(undefined)
 
 type SQLBaseSchema = {
 	[schemaKey: string]: {

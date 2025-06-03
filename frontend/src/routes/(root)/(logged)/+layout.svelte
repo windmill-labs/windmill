@@ -309,7 +309,6 @@
 
 	function openGlobalChat(): void {
 		globalChatOpen.update((open) => !open)
-		// chatMode.set('navigator')
 	}
 
 	setContext('openSearchWithPrefilledText', openSearchModal)

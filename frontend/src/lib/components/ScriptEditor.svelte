@@ -5,6 +5,7 @@
 	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
 	import {
 		aiChatInstanceStore,
+		chatMode,
 		copilotInfo,
 		enterpriseLicense,
 		globalChatOpen,
@@ -214,6 +215,7 @@
 	onMount(() => {
 		inferSchema(code)
 		loadPastTests()
+		chatMode.set('script')
 	})
 
 	setLicense()
@@ -290,6 +292,7 @@
 		scriptEditorApplyCode.set(undefined)
 		scriptEditorShowDiffMode.set(undefined)
 		scriptEditorOptionsStore.set(undefined)
+		chatMode.set('navigator')
 	})
 
 	function asKind(str: string | undefined) {

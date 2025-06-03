@@ -16,7 +16,8 @@
 		tutorialsToDo,
 		userStore,
 		workspaceStore,
-		usedTriggerKinds
+		usedTriggerKinds,
+		globalChatOpen
 	} from '$lib/stores'
 	import {
 		cleanValueProperties,
@@ -926,8 +927,8 @@
 							</div>
 						</Button>
 					{/if}
-					{#if !disableAi && customUi?.topBar?.aiBuilder != false && flowEditor?.getIsAiPanelClosed()}
-						<FlowAIButton openPanel={() => flowEditor?.toggleAiPanel()} />
+					{#if !disableAi && customUi?.topBar?.aiBuilder != false && !$globalChatOpen}
+						<FlowAIButton openPanel={() => globalChatOpen.set(true)} />
 					{/if}
 					<FlowPreviewButtons
 						on:openTriggers={(e) => {

@@ -16,16 +16,11 @@
 		type ToolCallbacks
 	} from './shared'
 	import { onDestroy, setContext, untrack, type Snippet } from 'svelte'
-	import { type OpenFlow, type ScriptLang } from '$lib/gen'
+	import { type ScriptLang } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import ContextManager from './ContextManager.svelte'
 	import HistoryManager from './HistoryManager.svelte'
-	import {
-		flowTools,
-		prepareFlowSystemMessage,
-		prepareFlowUserMessage,
-		type FlowAIChatHelpers
-	} from './flow/core'
+	import { flowTools, prepareFlowSystemMessage, prepareFlowUserMessage } from './flow/core'
 	import type {
 		ChatCompletionMessageParam,
 		ChatCompletionSystemMessageParam
@@ -34,6 +29,8 @@
 		chatMode,
 		copilotSessionModel,
 		dbSchemas,
+		flowAiChatHelpersStore,
+		globalChatOpen,
 		scriptEditorOptionsStore,
 		scriptEditorShowDiffMode,
 		workspaceStore
@@ -45,9 +42,6 @@
 	} from './navigator/core'
 	import { globalChatInitialInput } from '$lib/stores'
 	interface Props {
-		flowHelpers?: FlowAIChatHelpers & {
-			getFlow: () => OpenFlow
-		}
 		headerLeft?: Snippet
 		headerRight?: Snippet
 		suggestions?: string[]
@@ -57,7 +51,6 @@
 	}
 
 	let {
-		flowHelpers,
 		headerLeft,
 		headerRight,
 		disabled = false,
@@ -71,7 +64,7 @@
 	let currentReply: Writable<string> = writable('')
 	let allowedModes = $derived({
 		script: $scriptEditorOptionsStore !== undefined,
-		flow: flowHelpers !== undefined,
+		flow: $flowAiChatHelpersStore !== undefined,
 		navigator: true
 	})
 	let mode = $derived(forceMode ?? $chatMode)
@@ -115,6 +108,16 @@
 		currentReply,
 		canApplyCode: () => allowedModes.script
 	})
+
+	export async function generateStep(moduleId: string, lang: ScriptLang, instructions: string) {
+		$flowAiChatHelpersStore?.selectStep(moduleId)
+		await sendRequest({
+			instructions: instructions,
+			mode: 'script',
+			lang: lang,
+			isPreprocessor: moduleId === 'preprocessor'
+		})
+	}
 
 	export async function sendRequest(
 		options: {
@@ -162,7 +165,7 @@
 						? prepareFlowSystemMessage()
 						: prepareNavigatorSystemMessage()
 
-			if (mode === 'flow' && !flowHelpers) {
+			if (mode === 'flow' && !$flowAiChatHelpersStore) {
 				throw new Error('No flow helpers passed')
 			}
 
@@ -176,7 +179,7 @@
 
 			const userMessage =
 				mode === 'flow'
-					? prepareFlowUserMessage(oldInstructions, flowHelpers!.getFlow())
+					? prepareFlowUserMessage(oldInstructions, $flowAiChatHelpersStore!.getFlow())
 					: mode === 'navigator'
 						? prepareNavigatorUserMessage(oldInstructions)
 						: await prepareScriptUserMessage(oldInstructions, lang, oldSelectedContext, {
@@ -236,13 +239,13 @@
 			}
 
 			if (mode === 'flow') {
-				if (!flowHelpers) {
+				if (!$flowAiChatHelpersStore) {
 					throw new Error('No flow helpers found')
 				}
 				await chatRequest({
 					...params,
 					tools: flowTools,
-					helpers: flowHelpers
+					helpers: $flowAiChatHelpersStore
 				})
 			} else if (mode === 'script') {
 				const tools: Tool<ScriptChatHelpers>[] = []
@@ -366,6 +369,15 @@
 		)
 	})
 </script>
+
+<svelte:window
+	on:keydown={(e) => {
+		if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+			e.preventDefault()
+			globalChatOpen.update((prev) => !prev)
+		}
+	}}
+/>
 
 <AIChatDisplay
 	bind:this={aiChatDisplay}

@@ -1,12 +1,11 @@
 <script lang="ts">
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
-	import { getContext, type Snippet } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { FlowCopilotContext } from '../../flow'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { dfs } from '$lib/components/flows/previousResults'
 	import { getSubModules } from '$lib/components/flows/flowExplorer'
-	import AIChat from '../AIChat.svelte'
-	import type { FlowModule, OpenFlow, ScriptLang } from '$lib/gen'
+	import type { FlowModule, OpenFlow } from '$lib/gen'
 	import { getIndexInNestedModules, getNestedModules } from './utils'
 	import type { FlowModuleState } from '$lib/components/flows/flowState'
 	import { getStringError } from '../utils'
@@ -16,13 +15,17 @@
 		insertNewPreprocessorModule
 	} from '$lib/components/flows/flowStateUtils'
 	import type { ScriptOptions } from '../ContextManager.svelte'
+	import {
+		flowAiChatHelpersStore,
+		scriptEditorApplyCode,
+		scriptEditorOptionsStore,
+		scriptEditorShowDiffMode
+	} from '$lib/stores'
 
 	let {
-		flowModuleSchemaMap,
-		headerLeft
+		flowModuleSchemaMap
 	}: {
 		flowModuleSchemaMap: FlowModuleSchemaMap | undefined
-		headerLeft: Snippet
 	} = $props()
 
 	const { flowStore, flowStateStore, selectedId, currentEditor, flowInputsStore } =
@@ -74,8 +77,6 @@
 
 		return undefined
 	}
-
-	let scriptOptions = $derived.by(() => getScriptOptions($selectedId))
 
 	const flowHelpers: FlowAIChatHelpers & {
 		getFlow: () => OpenFlow
@@ -364,20 +365,50 @@
 		}
 	}
 
-	let aiChat: AIChat | undefined = undefined
+	$effect(() => {
+		if ($currentEditor && $currentEditor.type === 'script') {
+			scriptEditorApplyCode.set((code) => {
+				if ($currentEditor && $currentEditor.type === 'script') {
+					$currentEditor.hideDiffMode()
+					$currentEditor.editor.reviewAndApplyCode(code)
+				}
+			})
+			scriptEditorShowDiffMode.set(() => {
+				if ($currentEditor && $currentEditor.type === 'script') {
+					$currentEditor.showDiffMode()
+				}
+			})
+		}
 
-	export async function generateStep(moduleId: string, lang: ScriptLang, instructions: string) {
-		flowHelpers.selectStep(moduleId)
-		aiChat?.sendRequest({
-			instructions: instructions,
-			mode: 'script',
-			lang: lang,
-			isPreprocessor: moduleId === 'preprocessor'
-		})
-	}
+		return () => {
+			scriptEditorApplyCode.set(undefined)
+			scriptEditorShowDiffMode.set(undefined)
+		}
+	})
+
+	$effect(() => {
+		if ($selectedId) {
+			const options = getScriptOptions($selectedId)
+			if (options) {
+				scriptEditorOptionsStore.set(options)
+			}
+		}
+
+		return () => {
+			scriptEditorOptionsStore.set(undefined)
+		}
+	})
+
+	$effect(() => {
+		flowAiChatHelpersStore.set(flowHelpers)
+
+		return () => {
+			flowAiChatHelpersStore.set(undefined)
+		}
+	})
 </script>
 
-<AIChat
+<!-- <AIChat
 	bind:this={aiChat}
 	{headerLeft}
 	{scriptOptions}
@@ -393,4 +424,4 @@
 			$currentEditor.editor.reviewAndApplyCode(code)
 		}
 	}}
-/>
+/> -->
