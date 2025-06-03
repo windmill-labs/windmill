@@ -7,7 +7,6 @@ import type {
 import type { Tool } from '../shared'
 import { AIChatService } from '../AIChatManager.svelte'
 
-// System prompt for the LLM
 export const CHAT_SYSTEM_PROMPT = `
 You are Windmill's intelligent assistant, designed to help users navigate the application and answer questions about its functionality. It is your only purpose to help the user in the context of the windmill application.
 Windmill is an open-source developer platform for building internal tools, API integrations, background jobs, workflows, and user interfaces. It offers a unified system where scripts are automatically turned into sharable UIs and can be composed into flows or embedded in custom applications.
@@ -118,26 +117,6 @@ const GET_CURRENT_PAGE_NAME_TOOL: ChatCompletionTool = {
 			type: 'object',
 			properties: {},
 			required: []
-		}
-	}
-}
-
-const CHANGE_MODE_TOOL: ChatCompletionTool = {
-	type: 'function',
-	function: {
-		name: 'change_mode',
-		description:
-			'Change the AI mode to the one specified. Script mode is used to create scripts, and flow mode is used to create flows. Navigator mode is used to navigate the application and help the user find what they are looking for.',
-		parameters: {
-			type: 'object',
-			properties: {
-				mode: {
-					type: 'string',
-					description: 'The mode to change to',
-					enum: ['script', 'flow', 'navigator']
-				}
-			},
-			required: ['mode']
 		}
 	}
 }
@@ -291,15 +270,6 @@ export const navigatorTools: Tool<{}>[] = [
 			const pageName = getCurrentPageName()
 			toolCallbacks.onFinishToolCall(toolId, 'Retrieved current page name')
 			return pageName
-		}
-	},
-	{
-		def: CHANGE_MODE_TOOL,
-		fn: async ({ args, toolId, toolCallbacks }) => {
-			toolCallbacks.onToolCall(toolId, 'Switching to ' + args.mode + ' mode...')
-			AIChatService.changeMode(args.mode as 'script' | 'flow' | 'navigator')
-			toolCallbacks.onFinishToolCall(toolId, 'Switched to ' + args.mode + ' mode')
-			return 'Mode changed to ' + args.mode
 		}
 	}
 ]

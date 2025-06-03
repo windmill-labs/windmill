@@ -2,14 +2,18 @@ import type {
 	ChatCompletionChunk,
 	ChatCompletionMessageParam,
 	ChatCompletionMessageToolCall,
-	ChatCompletionSystemMessageParam,
-	ChatCompletionTool
+	ChatCompletionTool,
+	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import { get } from 'svelte/store'
 import type { ContextElement } from './context'
 import { getCompletion } from '../lib'
 import { workspaceStore } from '$lib/stores'
 import { AIChatService } from './AIChatManager.svelte'
+import { prepareScriptUserMessage } from './script/core'
+import type { ScriptLang } from '$lib/gen'
+import { prepareFlowUserMessage } from './flow/core'
+import { prepareNavigatorUserMessage } from './navigator/core'
 
 export type DisplayMessage =
 	| {
@@ -118,15 +122,33 @@ export async function chatRequest({
 }) {
 	try {
 		let completion: any = null
+
 		while (true) {
 			const systemMessage = AIChatService.systemMessage
 			const tools = AIChatService.tools
 			const helpers = AIChatService.helpers
-			console.log('systemMessage', systemMessage)
-			console.log('tools', tools)
-			console.log('helpers', helpers)
+
+			let pendingPrompt = AIChatService.pendingPrompt
+			let pendingUserMessage: ChatCompletionUserMessageParam | undefined = undefined
+			if (pendingPrompt) {
+				if (AIChatService.mode === 'script') {
+					pendingUserMessage = await prepareScriptUserMessage(
+						pendingPrompt,
+						AIChatService.scriptEditorOptions?.lang as ScriptLang | 'bunnative',
+						AIChatService.contextManager.getSelectedContext()
+					)
+				} else if (AIChatService.mode === 'flow') {
+					pendingUserMessage = prepareFlowUserMessage(
+						pendingPrompt,
+						AIChatService.flowAiChatHelpers!.getFlowAndSelectedId()
+					)
+				} else if (AIChatService.mode === 'navigator') {
+					pendingUserMessage = prepareNavigatorUserMessage(pendingPrompt)
+				}
+				AIChatService.pendingPrompt = ''
+			}
 			completion = await getCompletion(
-				[systemMessage, ...messages],
+				[systemMessage, ...messages, ...(pendingUserMessage ? [pendingUserMessage] : [])],
 				abortController,
 				tools.map((t) => t.def)
 			)

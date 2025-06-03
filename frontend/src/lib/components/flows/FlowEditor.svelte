@@ -4,7 +4,7 @@
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
 	import { Skeleton } from '../common'
-	import { getContext, setContext } from 'svelte'
+	import { getContext, onDestroy, onMount, setContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
 
 	import { writable } from 'svelte/store'
@@ -14,6 +14,7 @@
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
 	import { AIChatService } from '../copilot/chat/AIChatManager.svelte'
+	import TriggerableByAi from '../TriggerableByAI.svelte'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let loading: boolean
@@ -51,21 +52,21 @@
 			AIChatService.changeMode('script')
 		}
 	}
-</script>
 
-<svelte:window
-	on:keydown={(e) => {
-		if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
-			e.preventDefault()
-			AIChatService.toggleOpen()
-		}
-	}}
-/>
+	onMount(() => {
+		AIChatService.changeMode('flow')
+	})
+
+	onDestroy(() => {
+		AIChatService.changeMode('navigator')
+	})
+</script>
 
 <div
 	id="flow-editor"
 	class={'h-full overflow-hidden transition-colors duration-[400ms] ease-linear border-t'}
 >
+	<TriggerableByAi id="flow-editor" description="Component to edit a flow" />
 	<Splitpanes>
 		<Pane bind:size={mapPanelSize} minSize={15} class="h-full relative z-0">
 			<div class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative">

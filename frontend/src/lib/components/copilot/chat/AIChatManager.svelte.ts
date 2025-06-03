@@ -26,6 +26,10 @@ type TriggerablesMap = Record<
 
 export class AIChat {
 	SIZE = 300
+	NAVIGATION_SYSTEM_PROMPT = `
+	CONSIDERATIONS:
+	 - You are provided with a tool to switch to navigation mode, use it when the user asks you to navigate the application or help them find something.
+	`
 
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
@@ -33,6 +37,7 @@ export class AIChat {
 
 	open = $state<boolean>(false)
 	instructions = $state<string>('')
+	pendingPrompt = $state<string>('')
 	loading = $state<boolean>(false)
 	currentReply = $state<string>('')
 	displayMessages = $state<DisplayMessage[]>([])
@@ -68,34 +73,64 @@ export class AIChat {
 		}
 	}
 
-	changeMode(mode: 'script' | 'flow' | 'navigator') {
+	changeMode(mode: 'script' | 'flow' | 'navigator', pendingPrompt?: string) {
 		this.mode = mode
+		this.pendingPrompt = pendingPrompt ?? ''
 		if (mode === 'script') {
 			this.systemMessage = prepareScriptSystemMessage()
+			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
 			const context = this.contextManager.getSelectedContext()
 			const lang = this.scriptEditorOptions?.lang ?? 'bun'
-			this.tools = prepareScriptTools(lang, context)
+			this.tools = [this.changeModeTool, ...prepareScriptTools(lang, context)]
 			this.helpers = {
 				getLang: () => lang
 			}
 		} else if (mode === 'flow') {
 			this.systemMessage = prepareFlowSystemMessage()
-			this.tools = flowTools
+			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
+			this.tools = [this.changeModeTool, ...flowTools]
 			this.helpers = this.flowAiChatHelpers
 		} else if (mode === 'navigator') {
 			this.systemMessage = prepareNavigatorSystemMessage()
-			this.tools = navigatorTools
+			this.tools = [this.changeModeTool, ...navigatorTools]
 			this.helpers = {}
 		}
 	}
 
 	canApplyCode = $derived(this.allowedModes.script && this.mode === 'script')
 
-	// constructor() {
-	// 	$effect(() => {
-	// 		this.updateMode(untrack(() => this.mode))
-	// 	})
-	// }
+	private changeModeTool = {
+		def: {
+			type: 'function' as const,
+			function: {
+				name: 'change_mode',
+				description:
+					'Change the AI mode to the one specified. Script mode is used to create scripts, and flow mode is used to create flows. Navigator mode is used to navigate the application and help the user find what they are looking for.',
+				parameters: {
+					type: 'object',
+					properties: {
+						mode: {
+							type: 'string',
+							description: 'The mode to change to',
+							enum: ['script', 'flow', 'navigator']
+						},
+						pendingPrompt: {
+							type: 'string',
+							description: 'The prompt to send to the new mode to fulfill the user request',
+							default: ''
+						}
+					},
+					required: ['mode']
+				}
+			}
+		},
+		fn: async ({ args, toolId, toolCallbacks }) => {
+			toolCallbacks.onToolCall(toolId, 'Switching to ' + args.mode + ' mode...')
+			this.changeMode(args.mode as 'script' | 'flow' | 'navigator', args.pendingPrompt)
+			toolCallbacks.onFinishToolCall(toolId, 'Switched to ' + args.mode + ' mode')
+			return 'Mode changed to ' + args.mode
+		}
+	}
 
 	toggleOpen = () => {
 		this.open = !this.open
@@ -132,9 +167,9 @@ export class AIChat {
 		} = {}
 	) => {
 		if (options.mode) {
-			this.changeMode(options.mode)
+			this.changeMode(options.mode, '')
 		} else {
-			this.changeMode(this.mode)
+			this.changeMode(this.mode, '')
 		}
 		if (options.instructions) {
 			this.instructions = options.instructions
@@ -161,10 +196,6 @@ export class AIChat {
 			]
 			const oldInstructions = this.instructions
 			this.instructions = ''
-
-			if (this.mode === 'flow' && !this.flowAiChatHelpers) {
-				throw new Error('No flow helpers passed')
-			}
 
 			if (this.mode === 'script' && !this.scriptEditorOptions && !options.lang) {
 				throw new Error('No script options passed')

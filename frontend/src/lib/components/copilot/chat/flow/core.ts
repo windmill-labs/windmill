@@ -606,9 +606,18 @@ If the user wants a specific resource as step input, you should set the step val
 
 export function prepareFlowUserMessage(
 	instructions: string,
-	flowAndSelectedId: { flow: ExtendedOpenFlow; selectedId: string }
+	flowAndSelectedId?: { flow: ExtendedOpenFlow; selectedId: string }
 ): ChatCompletionUserMessageParam {
-	const { flow, selectedId } = flowAndSelectedId
+	const flow = flowAndSelectedId?.flow
+	const selectedId = flowAndSelectedId?.selectedId
+
+	if (!flow || !selectedId) {
+		return {
+			role: 'user',
+			content: `## INSTRUCTIONS:
+${instructions}`
+		}
+	}
 	return {
 		role: 'user',
 		content: `## FLOW:
