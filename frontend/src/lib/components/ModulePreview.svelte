@@ -8,8 +8,7 @@
 	import ModuleTest from './ModuleTest.svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
-
-	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	import { evalValue } from './flows/utils'
 
 	export let mod: FlowModule
 	export let schema: Schema | { properties?: Record<string, any> }
@@ -19,8 +18,15 @@
 	export let noEditor = false
 	export let scriptProgress = undefined
 
+	const { flowStore, testStepStore } = getContext<FlowEditorContext>('FlowEditorContext')
+
 	let moduleTest: ModuleTest
-	let stepArgs: Record<string, any> | undefined = undefined
+	let stepArgs: Record<string, any> | undefined = Object.fromEntries(
+		Object.keys(schema.properties ?? {}).map((k) => [
+			k,
+			evalValue(k, mod, $testStepStore, pickableProperties, false)
+		])
+	)
 
 	export function runTestWithStepArgs() {
 		moduleTest?.runTest(stepArgs)
@@ -29,8 +35,6 @@
 
 <ModuleTest
 	{mod}
-	{schema}
-	{pickableProperties}
 	{stepArgs}
 	{noEditor}
 	bind:testJob

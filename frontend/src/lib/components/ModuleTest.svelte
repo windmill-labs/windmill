@@ -1,5 +1,4 @@
 <script lang="ts">
-	import type { Schema } from '$lib/common'
 	import { ScriptService, type FlowModule, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getScriptByPath } from '$lib/scripts'
@@ -10,22 +9,12 @@
 
 	import TestJobLoader from './TestJobLoader.svelte'
 
-	import { evalValue } from './flows/utils'
-	import type { PickableProperties } from './flows/previousResults'
-
 	export let mod: FlowModule
-	export let schema: Schema | { properties?: Record<string, any> }
-	export let pickableProperties: PickableProperties | undefined
 	export let testJob: Job | undefined = undefined
 	export let testIsLoading = false
 	export let noEditor = false
 	export let scriptProgress = undefined
-	export let stepArgs: Record<string, any> | undefined = Object.fromEntries(
-		Object.keys(schema.properties ?? {}).map((k) => [
-			k,
-			evalValue(k, mod, $testStepStore, pickableProperties, false)
-		])
-	)
+	export let stepArgs: Record<string, any> | undefined
 
 	const { flowStore, flowStateStore, testStepStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')

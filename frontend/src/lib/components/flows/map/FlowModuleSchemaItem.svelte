@@ -13,7 +13,8 @@
 		SkipForward,
 		Pin,
 		X,
-		Play
+		Play,
+		Loader2
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
@@ -33,6 +34,7 @@
 	import { useSvelteFlow } from '@xyflow/svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import { Button } from '$lib/components/common'
+	import ModuleTest from '$lib/components/ModuleTest.svelte'
 
 	export let selected: boolean = false
 	export let deletable: boolean = false
@@ -64,6 +66,7 @@
 	export let loopStatus:
 		| { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' }
 		| undefined = undefined
+	export let stepArgs: Record<string, any> | undefined = undefined
 
 	let pickableIds: Record<string, any> | undefined = undefined
 
@@ -91,6 +94,8 @@
 	let lastJob: any | undefined = undefined
 	let outputPicker: OutputPicker | undefined = undefined
 	let historyOpen = false
+	let moduleTest: ModuleTest | undefined = undefined
+	let testIsLoading = false
 
 	const { viewport } = useSvelteFlow()
 
@@ -188,6 +193,18 @@
 			</div>
 		</DrawerContent>
 	</Drawer>
+{/if}
+
+{#if deletable && id}
+	{@const flowStore = flowEditorContext?.flowStore ? get(flowEditorContext?.flowStore) : undefined}
+	{#if flowStore?.value.modules.find((m) => m.id === id) !== undefined && $flowStateStore[id]}
+		<ModuleTest
+			bind:this={moduleTest}
+			mod={flowStore?.value.modules.find((m) => m.id === id)!}
+			bind:testIsLoading
+			{stepArgs}
+		/>
+	{/if}
 {/if}
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -347,17 +364,24 @@
 
 	{#if deletable}
 		<Button
-			size="xs3"
+			size="sm"
 			color="dark"
-			iconOnly
-			startIcon={{ icon: Play }}
 			wrapperClasses="absolute top-1/2 -translate-y-1/2 -left-[28px] {hover || selected
 				? ''
 				: '!hidden'}"
 			title="Run"
 			btnClasses="p-1"
-			on:click={(event) => dispatch('run', { event, id })}
-		/>
+			on:click={() => {
+				console.log('dbg runTestWithStepArgs', stepArgs)
+				moduleTest?.runTestWithStepArgs()
+			}}
+		>
+			{#if testIsLoading}
+				<Loader2 size={12} class="animate-spin mr-1" />
+			{:else}
+				<Play size={12} />
+			{/if}
+		</Button>
 
 		<button
 			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
