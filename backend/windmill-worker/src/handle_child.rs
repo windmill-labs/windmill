@@ -227,6 +227,7 @@ pub async fn handle_child(
                         if let Err(err) = client
                             .post::<_, ()>(
                                 &format!("/api/agent_workers/set_job_cancelled/{}", job_id),
+                                None,
                                 &JobCancelled {
                                     canceled_by: "timeout".to_string(),
                                     reason: format!("duration > {}", timeout_duration.as_secs()),

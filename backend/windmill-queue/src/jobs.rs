@@ -391,6 +391,7 @@ pub async fn append_logs(
             if let Err(e) = client
             .post::<_, String>(
                 &format!("/api/w/{}/agent_workers/push_logs/{}", workspace.as_ref(), job_id),
+                None,
                 &logs.as_ref(),
             )
             .await {
@@ -2127,7 +2128,7 @@ pub struct PulledJob {
 // NOTE:
 // Precomputed by the server
 // Used to offload work from agent workers to server
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum PrecomputedAgentInfo {
     Bun { local: String, remote: String },
     Python {
@@ -2138,7 +2139,7 @@ pub enum PrecomputedAgentInfo {
         requirements: Option<String> },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct JobAndPerms {
     pub job: MiniPulledJob,
     pub raw_code: Option<String>,
@@ -2148,6 +2149,7 @@ pub struct JobAndPerms {
     pub token: String,
     pub precomputed_agent_info: Option<PrecomputedAgentInfo>,
 }
+
 impl PulledJob {
     pub async fn get_job_and_perms(self, db: &DB) -> JobAndPerms {
         let job_perms = match (
@@ -2290,16 +2292,20 @@ pub async fn pull(
     db: &Pool<Postgres>,
     suspend_first: bool,
     worker_name: &str,
-    query_o: Option<(String, String)>,
+    query_o: Option<&(String, String)>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<PulledJobResult> {
     loop {
-        if let Some((query_suspended, query_no_suspend)) = query_o.as_ref() {
+        if let Some((query_suspended, query_no_suspend)) = query_o {
             let njob = {
-                let job = sqlx::query_as::<_, PulledJob>(query_suspended)
+                let job = if query_suspended.is_empty() {
+                    None
+                } else {
+                    sqlx::query_as::<_, PulledJob>(query_suspended)
                     .bind(worker_name)
                     .fetch_optional(db)
-                    .await?;
+                    .await?
+                };
                 if let Some(job) = job {
                     PulledJobResult { job: Some(job), suspended: true }
                 } else {
