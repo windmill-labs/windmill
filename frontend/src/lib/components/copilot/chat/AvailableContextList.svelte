@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { ContextIconMap } from './core'
-	import type { ContextElement } from './core'
+	import { ContextIconMap, type ContextElement } from './context'
 
 	export let availableContext: ContextElement[]
 	export let selectedContext: ContextElement[]
@@ -12,12 +11,12 @@
 	$: actualAvailableContext = showAllAvailable
 		? availableContext.filter(
 				(c) => !stringSearch || c.title.toLowerCase().includes(stringSearch.toLowerCase())
-		  )
+			)
 		: availableContext.filter(
 				(c) =>
 					!selectedContext.find((sc) => sc.type === c.type && sc.title === c.title) &&
 					(!stringSearch || c.title.toLowerCase().includes(stringSearch.toLowerCase()))
-		  )
+			)
 </script>
 
 <div class="flex flex-col gap-1 text-tertiary text-xs p-1 min-w-24 max-h-48 overflow-y-scroll">
