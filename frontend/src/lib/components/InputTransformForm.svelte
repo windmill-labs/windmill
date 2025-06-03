@@ -80,7 +80,6 @@
 	const { inputMatches, focusProp, propPickerConfig, clearFocus } = propPickerWrapperContext ?? {}
 
 	function setExpr() {
-		console.log('setExpr', argName, $exprsToSet)
 		const newArg = $exprsToSet?.[argName]
 		if (newArg) {
 			if (newArg.type === 'javascript') {
