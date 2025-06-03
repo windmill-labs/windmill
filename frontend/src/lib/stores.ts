@@ -105,6 +105,7 @@ export const copilotInfo = writable<{
 	defaultModel: undefined,
 	aiModels: []
 })
+export const chatMode = writable<'script' | 'flow'>('script')
 
 export function setCopilotInfo(aiConfig: AIConfig) {
 	if (Object.keys(aiConfig.providers ?? {}).length > 0) {

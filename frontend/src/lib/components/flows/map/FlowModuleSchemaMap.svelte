@@ -13,7 +13,11 @@
 		pickFlow,
 		insertNewPreprocessorModule
 	} from '$lib/components/flows/flowStateUtils'
+<<<<<<< HEAD
 	import type { FlowModule } from '$lib/gen'
+=======
+	import type { FlowModule, RawScript, Script, ScriptLang } from '$lib/gen'
+>>>>>>> main
 	import { emptyFlowModuleState, initFlowStepWarnings } from '../utils'
 	import FlowSettingsItem from './FlowSettingsItem.svelte'
 	import FlowConstantsItem from './FlowConstantsItem.svelte'
@@ -25,8 +29,6 @@
 	import Portal from '$lib/components/Portal.svelte'
 
 	import { getDependentComponents } from '../flowExplorer'
-	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
-	import { fade } from 'svelte/transition'
 	import { copilotInfo, tutorialsToDo, workspaceStore } from '$lib/stores'
 
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
@@ -79,13 +81,22 @@
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
-	async function insertNewModuleAtIndex(
+	export async function insertNewModuleAtIndex(
 		modules: FlowModule[],
 		index: number,
 		kind: InsertKind,
 		wsScript?: { path: string; summary: string; hash: string | undefined },
 		wsFlow?: { path: string; summary: string },
+<<<<<<< HEAD
 		inlineScript?: InlineScript
+=======
+		inlineScript?: {
+			language: RawScript['language']
+			kind: Script['kind']
+			subkind: 'pgsql' | 'flow'
+			summary?: string
+		}
+>>>>>>> main
 	): Promise<FlowModule[]> {
 		push(history, $flowStore)
 		var module = emptyModule($flowStateStore, $flowStore, kind == 'flow')
@@ -144,7 +155,7 @@
 		return modules
 	}
 
-	function removeAtId(modules: FlowModule[], id: string): FlowModule[] {
+	export function removeAtId(modules: FlowModule[], id: string): FlowModule[] {
 		const index = modules.findIndex((mod) => mod.id == id)
 		if (index != -1) {
 			const [removed] = modules.splice(index, 1)
@@ -175,7 +186,7 @@
 
 	let minHeight = $state(0)
 
-	function selectNextId(id: any) {
+	export function selectNextId(id: any) {
 		if (modules) {
 			let allIds = dfs(modules, (mod) => mod.id)
 			if (allIds.length > 1) {
@@ -186,7 +197,11 @@
 			}
 		}
 	}
+<<<<<<< HEAD
 	async function addBranch(id: string) {
+=======
+	export async function addBranch(module: FlowModule) {
+>>>>>>> main
 		push(history, $flowStore)
 		let module = dfsByModule(id, $flowStore.value.modules)[0]
 
@@ -203,7 +218,11 @@
 		}
 	}
 
+<<<<<<< HEAD
 	function removeBranch(id: string, index: number) {
+=======
+	export function removeBranch(module: FlowModule, index: number) {
+>>>>>>> main
 		push(history, $flowStore)
 		let module = dfsByModule(id, $flowStore.value.modules)[0]
 
@@ -226,9 +245,6 @@
 	let deleteCallback: (() => void) | undefined = $state(undefined)
 	let dependents: Record<string, string[]> = $state({})
 
-	const { currentStepStore: copilotCurrentStepStore } =
-		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
-
 	function shouldRunTutorial(tutorialName: string, name: string, index: number) {
 		return (
 			$tutorialsToDo.includes(index) &&
@@ -238,9 +254,12 @@
 		)
 	}
 
-	const dispatch = createEventDispatcher()
+	const dispatch = createEventDispatcher<{
+		generateStep: { moduleId: string; instructions: string; lang: ScriptLang }
+		change: void
+	}>()
 
-	async function updateFlowInputsStore() {
+	export async function updateFlowInputsStore() {
 		const keys = Object.keys(dependents ?? {})
 
 		for (const key of keys) {
@@ -264,7 +283,7 @@
 		}
 	}
 
-	function setExpr(module: FlowModule, expr: string) {
+	export function setExpr(module: FlowModule, expr: string) {
 		if (module.value.type == 'forloopflow') {
 			module.value.iterator = { type: 'javascript', expr }
 			module.value.parallel = true
@@ -336,13 +355,8 @@
 </Portal>
 <div class="flex flex-col h-full relative -pt-1">
 	<div
-		class={`z-10 sticky inline-flex flex-col gap-2 top-0 bg-surface-secondary flex-initial p-2 items-center transition-colors duration-[400ms] ease-linear border-b ${
-			$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : ''
-		}`}
+		class={`z-10 sticky inline-flex flex-col gap-2 top-0 bg-surface-secondary flex-initial p-2 items-center transition-colors duration-[400ms] ease-linear border-b`}
 	>
-		{#if $copilotCurrentStepStore !== undefined}
-			<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0"></div>
-		{/if}
 		{#if !disableSettings}
 			<FlowSettingsItem />
 		{/if}
@@ -395,7 +409,12 @@
 					cb()
 				}
 			}}
+<<<<<<< HEAD
 			onInsert={async (detail) => {
+=======
+			on:insert={async ({ detail }) => {
+				console.log(detail)
+>>>>>>> main
 				if (shouldRunTutorial('forloop', detail.detail, 1)) {
 					flowTutorials?.runTutorialById('forloop', detail.index)
 				} else if (shouldRunTutorial('branchone', detail.detail, 2)) {
@@ -434,14 +453,27 @@
 							$selectedId = removedModule.id
 							$moving = undefined
 						} else {
+<<<<<<< HEAD
 							if (detail.isPreprocessor) {
 								insertNewPreprocessorModule(
+=======
+							if (detail.detail === 'preprocessor') {
+								await insertNewPreprocessorModule(
+>>>>>>> main
 									flowStore,
 									flowStateStore,
 									detail.inlineScript,
 									detail.script
 								)
 								$selectedId = 'preprocessor'
+
+								if (detail.inlineScript?.instructions) {
+									dispatch('generateStep', {
+										moduleId: 'preprocessor',
+										lang: detail.inlineScript?.language,
+										instructions: detail.inlineScript?.instructions
+									})
+								}
 							} else {
 								const index = detail.index ?? 0
 								await insertNewModuleAtIndex(
@@ -452,9 +484,20 @@
 									detail.flow,
 									detail.inlineScript
 								)
+<<<<<<< HEAD
 								const id = targetModules[detail.index ?? 0].id
+=======
+								const id = detail.modules[index].id
+>>>>>>> main
 								$selectedId = id
 
+								if (detail.inlineScript?.instructions) {
+									dispatch('generateStep', {
+										moduleId: id,
+										lang: detail.inlineScript?.language,
+										instructions: detail.inlineScript?.instructions
+									})
+								}
 								if (detail.kind == 'trigger') {
 									await insertNewModuleAtIndex(
 										targetModules,
@@ -555,7 +598,7 @@
 			? 'flex-row-reverse'
 			: 'justify-center'} border-b"
 	>
-		<FlowErrorHandlerItem small={smallErrorHandler} />
+		<FlowErrorHandlerItem small={smallErrorHandler} on:generateStep />
 	</div>
 </div>
 

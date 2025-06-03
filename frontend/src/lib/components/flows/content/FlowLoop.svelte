@@ -28,7 +28,7 @@
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import TabsV2 from '$lib/components/common/tabs/TabsV2.svelte'
 
-	const { previewArgs, flowStateStore, flowStore } =
+	const { previewArgs, flowStateStore, flowStore, currentEditor } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	interface Props {
@@ -84,6 +84,8 @@
 		editor?.setCode('')
 		editor?.insertAtCursor(code)
 	}
+
+	$: editor && currentEditor.set({ type: 'iterator', editor, stepId: mod.id })
 </script>
 
 <Drawer bind:open={previewOpen} alwaysOpen size="75%">

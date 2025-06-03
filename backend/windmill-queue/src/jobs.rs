@@ -25,7 +25,7 @@ use sqlx::{types::Json, FromRow, Pool, Postgres, Transaction};
 use tokio::{sync::RwLock, time::sleep};
 use ulid::Ulid;
 use uuid::Uuid;
-use windmill_audit::audit_ee::{audit_log, AuditAuthor};
+use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 
 #[cfg(feature = "benchmark")]
@@ -71,7 +71,7 @@ use windmill_common::BASE_URL;
 use windmill_common::users::SUPERADMIN_SYNC_EMAIL;
 
 use crate::flow_status::{update_flow_status_in_progress, update_workflow_as_code_status};
-use crate::jobs_ee::update_concurrency_counter;
+use crate::jobs_oss::update_concurrency_counter;
 use crate::schedule::{get_schedule_opt, push_scheduled_job};
 use crate::tags::per_workspace_tag;
 

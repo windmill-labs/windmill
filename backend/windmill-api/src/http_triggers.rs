@@ -1,7 +1,7 @@
 #[cfg(feature = "http_trigger")]
 use crate::http_trigger_args::{HttpMethod, RawHttpTriggerArgs};
 #[cfg(feature = "parquet")]
-use crate::job_helpers_ee::get_workspace_s3_resource;
+use crate::job_helpers_oss::get_workspace_s3_resource;
 use crate::resources::try_get_resource_from_db_as;
 use crate::trigger_helpers::{get_runnable_format, RunnableId};
 use crate::utils::{non_empty_str, ExpiringCacheEntry};
@@ -33,7 +33,7 @@ use std::borrow::Cow;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{RwLock, RwLockReadGuard};
 use tower_http::cors::CorsLayer;
-use windmill_audit::{audit_ee::audit_log, ActionKind};
+use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::error::Error;
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::build_object_store_client;

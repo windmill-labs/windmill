@@ -107,7 +107,8 @@
 			selectedTab: undefined,
 			editPanelSize: undefined,
 			payloadData: undefined
-		})
+		}),
+		currentEditor: writable(undefined)
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),

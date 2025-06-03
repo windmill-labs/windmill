@@ -103,9 +103,6 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { currentStepStore: copilotCurrentStepStore } =
-		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
-
 	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
 	const flowPropPickerConfig = propPickerContext?.flowPropPickerConfig
 	const pickablePropertiesFiltered = propPickerContext?.pickablePropertiesFiltered
@@ -236,8 +233,7 @@
 	class={classNames(
 		'w-full module flex rounded-sm cursor-pointer max-w-full outline-offset-0 outline-slate-500 dark:outline-gray-400',
 		selected ? 'outline outline-2' : 'active:outline active:outline-2',
-		'flex relative',
-		$copilotCurrentStepStore === id ? 'z-[901]' : ''
+		'flex relative'
 	)}
 	style="width: 275px; height: 38px; background-color: {hover && bgHoverColor
 		? bgHoverColor

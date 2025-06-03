@@ -10,7 +10,6 @@
 
 	const dispatch = createEventDispatcher()
 	export let stop = false
-	export let index: number = 0
 	export let funcDesc = ''
 	export let disableAi = false
 	export let kind: 'script' | 'trigger' | 'preprocessor' | 'failure' = 'script'
@@ -146,7 +145,6 @@ shouldUsePortal={true} -->
 			{selectedKind}
 			bind:loading
 			filter={funcDesc}
-			{index}
 			{disableAi}
 			{funcDesc}
 			{kind}

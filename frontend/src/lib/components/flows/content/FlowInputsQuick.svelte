@@ -9,13 +9,11 @@
 	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import PickHubScriptQuick from '../pickers/PickHubScriptQuick.svelte'
-	import { type Script } from '$lib/gen'
+	import { type Script, type ScriptLang, type HubScriptKind } from '$lib/gen'
 	import ListFiltersQuick from '$lib/components/home/ListFiltersQuick.svelte'
 	import { Folder, User } from 'lucide-svelte'
-	import type { FlowCopilotContext, FlowCopilotModule } from '../../copilot/flow'
 	import type { FlowEditorContext } from '../../flows/types'
 	import { copilotInfo } from '$lib/stores'
-	import { nextId } from '../../flows/flowModuleNextId'
 	import { twMerge } from 'tailwind-merge'
 	import { fade } from 'svelte/transition'
 	import { flip } from 'svelte/animate'
@@ -33,7 +31,6 @@
 	export let disableAi = false
 	export let preFilter: 'all' | 'workspace' | 'hub' = 'hub'
 	export let funcDesc: string
-	export let index: number
 	export let owners: string[] = []
 	export let loading = false
 	export let small = false
@@ -42,17 +39,23 @@
 		kind
 	export let displayPath = false
 
-	let lang: FlowCopilotModule['lang'] = undefined
-	let selectedCompletion: FlowCopilotModule['selectedCompletion'] = undefined
+	type HubCompletion = {
+		path: string
+		summary: string
+		id: number
+		version_id: number
+		ask_id: number
+		app: string
+		kind: HubScriptKind
+	}
+
+	let lang: ScriptLang | undefined = undefined
 
 	let filteredWorkspaceItems: (Script & { marked?: string })[] = []
 
-	let hubCompletions: FlowCopilotModule['hubCompletions'] = []
+	let hubCompletions: HubCompletion[] = []
 
-	const { flowStore, flowStateStore, insertButtonOpen } =
-		getContext<FlowEditorContext>('FlowEditorContext')
-	const { modulesStore: copilotModulesStore, genFlow } =
-		getContext<FlowCopilotContext>('FlowCopilotContext')
+	const { insertButtonOpen } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let selected: { kind: 'owner' | 'integrations'; name: string | undefined } | undefined = undefined
 
@@ -86,28 +89,24 @@
 	}
 
 	async function onGenerate() {
-		if (!selectedCompletion && !$copilotInfo.enabled) {
+		if (!$copilotInfo.enabled) {
 			sendUserToast(
 				'Windmill AI is not enabled, you can activate it in the workspace settings',
 				true
 			)
 			return
 		}
-		$copilotModulesStore = [
-			{
-				id: nextId($flowStateStore, $flowStore),
-				type: selectedKind == 'trigger' ? 'trigger' : 'script',
-				description: funcDesc,
-				code: '',
-				source: selectedCompletion ? 'hub' : 'custom',
-				hubCompletions,
-				selectedCompletion,
-				editor: undefined,
-				lang
+		console.log('ongenerate', selectedKind, lang, funcDesc)
+		dispatch('new', {
+			kind: selectedKind,
+			inlineScript: {
+				language: lang,
+				kind: selectedKind,
+				subkind: 'flow',
+				summary,
+				instructions: funcDesc
 			}
-		]
-		genFlow?.(index, true)
-		dispatch('close')
+		})
 	}
 
 	let openScriptSettings = false

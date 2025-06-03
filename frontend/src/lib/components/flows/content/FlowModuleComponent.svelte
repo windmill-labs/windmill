@@ -16,7 +16,7 @@
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
-	import { getContext, tick } from 'svelte'
+	import { getContext, onDestroy, tick } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleScript from './FlowModuleScript.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
@@ -42,7 +42,6 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import s3Scripts from './s3Scripts/lib'
-	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import Label from '$lib/components/Label.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
@@ -55,9 +54,11 @@
 	import { workspaceStore } from '$lib/stores'
 	import { checkIfParentLoop } from '../utils'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
+	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 
 	const {
 		selectedId,
+		currentEditor,
 		previewArgs,
 		flowStateStore,
 		flowStore,
@@ -285,6 +286,7 @@
 					false
 				)
 	)
+
 	$effect(() => {
 		$selectedId && onSelectedIdChange()
 	})
@@ -302,6 +304,23 @@
 		} else {
 			leftPanelSize = 100
 		}
+	})
+
+	$effect(() => {
+		editor &&
+			($currentEditor = {
+				type: 'script',
+				editor,
+				stepId: flowModule.id,
+				showDiffMode,
+				hideDiffMode,
+				diffMode,
+				lastDeployedCode
+			})
+	})
+
+	onDestroy(() => {
+		$currentEditor = undefined
 	})
 </script>
 
@@ -409,6 +428,13 @@
 								{#if !noEditor}
 									{#key flowModule.id}
 										<Editor
+											on:addSelectedLinesToAiChat={(e) => {
+												const { lines, startLine, endLine } = e.detail
+												addSelectedLinesToAiChat?.(lines, startLine, endLine)
+											}}
+											on:toggleAiPanel={() => {
+												toggleAiPanel?.()
+											}}
 											loadAsync
 											folding
 											path={$pathStore + '/' + flowModule.id}

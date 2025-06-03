@@ -114,7 +114,6 @@
 				addTriggersButton?.close()
 			}}
 			kind="trigger"
-			index={0}
 		/>
 	</div>
 {/snippet}
