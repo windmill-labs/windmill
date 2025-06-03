@@ -591,28 +591,30 @@
 					}}
 				/>
 			{/snippet}
-			<Pane bind:size={aiPanelSize} minSize={0}>
-				<AIChat
-					bind:this={aiChat}
-					scriptOptions={{
-						code,
-						lang,
-						error,
-						args,
-						path,
-						lastSavedCode,
-						lastDeployedCode,
-						diffMode
-					}}
-					applyCode={(code) => {
-						hideDiffMode()
-						editor?.reviewAndApplyCode(code)
-					}}
-					{showDiffMode}
-					headerLeft={aiChatHeaderLeft}
-					headerRight={aiChatHeaderRight}
-				/>
-			</Pane>
+			{#if aiPanelSize > 0}
+				<Pane bind:size={aiPanelSize} minSize={0}>
+					<AIChat
+						bind:this={aiChat}
+						scriptOptions={{
+							code,
+							lang,
+							error,
+							args,
+							path,
+							lastSavedCode,
+							lastDeployedCode,
+							diffMode
+						}}
+						applyCode={(code) => {
+							hideDiffMode()
+							editor?.reviewAndApplyCode(code)
+						}}
+						{showDiffMode}
+						headerLeft={aiChatHeaderLeft}
+						headerRight={aiChatHeaderRight}
+					/>
+				</Pane>
+			{/if}
 		{/if}
 		<Pane bind:size={testPanelSize} minSize={0}>
 			<div class="flex flex-col h-full">

@@ -9,6 +9,7 @@
 use std::{
     fmt::{self, Display},
     hash::{Hash, Hasher},
+    str::FromStr,
 };
 
 use crate::{
@@ -21,6 +22,7 @@ use crate::worker::HUB_CACHE_DIR;
 use anyhow::Context;
 use backon::ConstantBuilder;
 use backon::{BackoffBuilder, Retryable};
+use itertools::Itertools;
 use serde::de::Error as _;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 
@@ -82,6 +84,40 @@ impl ScriptLang {
             ScriptLang::Java => "java",
             // for related places search: ADD_NEW_LANG
         }
+    }
+}
+
+impl FromStr for ScriptLang {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let language = match s.to_lowercase().as_str() {
+            "bun" => ScriptLang::Bun,
+            "bunnative" => ScriptLang::Bunnative,
+            "nativets" => ScriptLang::Nativets,
+            "deno" => ScriptLang::Deno,
+            "python3" => ScriptLang::Python3,
+            "go" => ScriptLang::Go,
+            "bash" => ScriptLang::Bash,
+            "powershell" => ScriptLang::Powershell,
+            "postgresql" => ScriptLang::Postgresql,
+            "mysql" => ScriptLang::Mysql,
+            "bigquery" => ScriptLang::Bigquery,
+            "snowflake" => ScriptLang::Snowflake,
+            "mssql" => ScriptLang::Mssql,
+            "graphql" => ScriptLang::Graphql,
+            "oracledb" => ScriptLang::OracleDB,
+            "php" => ScriptLang::Php,
+            "rust" => ScriptLang::Rust,
+            "ansible" => ScriptLang::Ansible,
+            "csharp" => ScriptLang::CSharp,
+            "nu" => ScriptLang::Nu,
+            "java" => ScriptLang::Java,
+            language => {
+                return Err(anyhow::anyhow!("{} is currently not supported", language).into())
+            }
+        };
+
+        Ok(language)
     }
 }
 
@@ -367,7 +403,7 @@ where
     deserializer.deserialize_any(StringOrArrayVisitor)
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct ListScriptQuery {
     pub path_start: Option<String>,
     pub path_exact: Option<String>,
@@ -384,6 +420,29 @@ pub struct ListScriptQuery {
     pub include_without_main: Option<bool>,
     pub include_draft_only: Option<bool>,
     pub with_deployment_msg: Option<bool>,
+    #[serde(default, deserialize_with = "from_seq")]
+    pub languages: Option<Vec<ScriptLang>>,
+}
+
+fn from_seq<'de, D>(deserializer: D) -> Result<Option<Vec<ScriptLang>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = <String>::deserialize(deserializer)?;
+
+    let languages: Vec<ScriptLang> = s
+        .split(",")
+        .map(ScriptLang::from_str)
+        .try_collect()
+        .map_err(|e| serde::de::Error::custom(e.to_string()))?;
+
+    let languages = if languages.is_empty() {
+        None
+    } else {
+        Some(languages)
+    };
+
+    Ok(languages)
 }
 
 pub fn to_i64(s: &str) -> crate::error::Result<i64> {
