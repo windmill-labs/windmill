@@ -6,7 +6,6 @@ import {
 	type AIConfig,
 	type AIProvider,
 	type AIProviderModel,
-	type OpenFlow,
 	type OperatorSettings,
 	type TokenResponse,
 	type UserWorkspaceList,
@@ -14,9 +13,6 @@ import {
 	WorkspaceService
 } from './gen'
 import { getLocalSetting } from './utils'
-import type { FlowAIChatHelpers } from './components/copilot/chat/flow/core'
-import type { Tool } from './components/copilot/chat/shared'
-import type { ChatCompletionSystemMessageParam } from 'openai/resources/index.mjs'
 
 export interface UserExt {
 	email: string

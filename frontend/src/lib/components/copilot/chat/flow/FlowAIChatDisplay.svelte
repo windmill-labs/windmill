@@ -4,9 +4,9 @@
 	import { Loader2, PlusIcon } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ProviderModelSelector from '../ProviderModelSelector.svelte'
-	import type { AIChatContext, DisplayMessage } from '../shared'
-	import { getContext } from 'svelte'
+	import type { DisplayMessage } from '../shared'
 	import AssistantMessage from '../AssistantMessage.svelte'
+	import { AIChatService } from '../AIChatManager.svelte'
 
 	let {
 		messages,
@@ -37,8 +37,6 @@
 	$effect(() => {
 		automaticScroll && height && scrollDown()
 	})
-
-	const { loading, currentReply } = getContext<AIChatContext>('AIChatContext')
 
 	export function focusInput() {}
 </script>
@@ -91,7 +89,7 @@
 						{/if}
 					</div>
 				{/each}
-				{#if $loading && !$currentReply}
+				{#if AIChatService.loading && !AIChatService.currentReply}
 					<div class="mb-6 py-1 px-2">
 						<Loader2 class="animate-spin" />
 					</div>

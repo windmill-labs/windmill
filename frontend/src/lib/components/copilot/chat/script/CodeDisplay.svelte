@@ -198,13 +198,13 @@
 			<div class="flex flex-row gap-1 p-2 items-center justify-center">
 				<Loader2 class="w-4 h-4 animate-spin" /> Generating code...
 			</div>
-		{:else if !loading && codeContext && getSmartLang(codeContext.lang) === getSmartLang(language)}
+		{:else if !loading && codeContext && getSmartLang(codeContext.lang) === getSmartLang(language as string)}
 			<div bind:this={diffEl} class="w-full h-full"></div>
 		{:else}
 			<HighlightCode
 				class="p-1"
 				code={code ?? ''}
-				highlightLanguage={SMART_LANG_TO_HIGHLIGHT_LANG[getSmartLang(language)]}
+				highlightLanguage={SMART_LANG_TO_HIGHLIGHT_LANG[getSmartLang(language as string)]}
 				language={undefined}
 			/>
 		{/if}
