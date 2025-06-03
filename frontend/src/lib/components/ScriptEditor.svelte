@@ -315,6 +315,9 @@
 	function addSelectedLinesToAiChat(
 		e: CustomEvent<{ lines: string; startLine: number; endLine: number }>
 	) {
+		if (!AIChatService.open) {
+			AIChatService.toggleOpen()
+		}
 		AIChatService.addSelectedLinesToContext(e.detail.lines, e.detail.startLine, e.detail.endLine)
 		// AIChatService.focusTextArea() TODO: Add this back
 	}
