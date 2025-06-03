@@ -296,9 +296,9 @@ export const navigatorTools: Tool<{}>[] = [
 	{
 		def: CHANGE_MODE_TOOL,
 		fn: async ({ args, toolId, toolCallbacks }) => {
-			toolCallbacks.onToolCall(toolId, 'Changing AI mode...')
+			toolCallbacks.onToolCall(toolId, 'Switching to ' + args.mode + ' mode...')
 			AIChatService.changeMode(args.mode as 'script' | 'flow' | 'navigator')
-			toolCallbacks.onFinishToolCall(toolId, 'Changed AI mode')
+			toolCallbacks.onFinishToolCall(toolId, 'Switched to ' + args.mode + ' mode')
 			return 'Mode changed to ' + args.mode
 		}
 	}
