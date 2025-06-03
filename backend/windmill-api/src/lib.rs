@@ -619,7 +619,6 @@ pub async fn run_server(
                 .nest("/schedules", schedule::global_service())
                 .nest("/embeddings", embeddings::global_service())
                 .nest("/ai", ai::global_service())
-                .nest("/inkeep", inkeep_ee::global_service())
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest("/jobs", jobs::global_root_service())
