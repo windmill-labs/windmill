@@ -54,8 +54,7 @@
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
 	import GlobalChat from '$lib/components/copilot/chat/navigator/GlobalChat.svelte'
-	import { globalChatOpen, globalChatSize } from '$lib/stores'
-
+	import { AIChatService } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
 	let globalSearchModal: GlobalSearchModal | undefined = undefined
@@ -308,7 +307,7 @@
 	}
 
 	function openGlobalChat(): void {
-		globalChatOpen.update((open) => !open)
+		AIChatService.open = !AIChatService.open
 	}
 
 	setContext('openSearchWithPrefilledText', openSearchModal)
@@ -657,7 +656,7 @@
 				devOnly || $userStore?.operator ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
 				'transition-all ease-in-out duration-200'
 			)}
-			style={`padding-right: ${$globalChatOpen ? $globalChatSize : 0}px`}
+			style={`padding-right: ${AIChatService.open ? AIChatService.size : 0}px`}
 		>
 			<main class="min-h-screen">
 				<div class="relative w-full h-full">
@@ -695,7 +694,11 @@
 	</div>
 
 	<!-- Global Chat Panel -->
-	<div class="fixed-chat-panel" class:open={$globalChatOpen} style={`width: ${$globalChatSize}px`}>
+	<div
+		class="fixed-chat-panel"
+		class:open={AIChatService.open}
+		style={`width: ${AIChatService.size}px`}
+	>
 		<GlobalChat />
 	</div>
 

@@ -3,7 +3,7 @@
 	import { BROWSER } from 'esm-env'
 	import Disposable from './Disposable.svelte'
 	import ConditionalPortal from './ConditionalPortal.svelte'
-	import { globalChatOpen, globalChatSize } from '$lib/stores'
+	import { AIChatService } from '../../copilot/chat/AIChatManager.svelte'
 
 	export let open = false
 	export let duration = 0.3
@@ -13,7 +13,7 @@
 	export let shouldUsePortal: boolean = true
 	export let offset: number = 0
 	export let preventEscape = false
-	export let disableClickOutside = $globalChatOpen
+	export let disableClickOutside = AIChatService.open
 
 	let disposable: Disposable | undefined = undefined
 
@@ -43,7 +43,7 @@
 	const dispatch = createEventDispatcher()
 
 	// Calculate adjusted offset based on global chat status
-	$: adjustedOffset = $globalChatOpen && placement === 'right' ? $globalChatSize : 0
+	$: adjustedOffset = AIChatService.open && placement === 'right' ? AIChatService.size : 0
 	$: style = `--duration: ${duration}s; --size: ${size}; --adjusted-offset: ${adjustedOffset}px;`
 
 	function scrollLock(open: boolean) {
@@ -80,10 +80,10 @@
 	>
 		<aside
 			class="drawer windmill-app windmill-drawer {$$props.class ?? ''} {$$props.positionClass ??
-				''} {$globalChatOpen ? 'respect-global-chat' : ''}"
+				''} {AIChatService.open ? 'respect-global-chat' : ''}"
 			class:open
 			class:close={!open && timeout}
-			class:global-chat-open={$globalChatOpen}
+			class:global-chat-open={AIChatService.open}
 			style={`${style}; --zIndex: ${zIndex};`}
 		>
 			<!-- svelte-ignore a11y-click-events-have-key-events -->

@@ -182,7 +182,6 @@ export const usedTriggerKinds = writable<string[]>([])
 export const triggerablesByAI = writable<
 	Record<string, { description: string; onTrigger: ((id: string) => void) | undefined }>
 >({})
-export const globalChatOpen = writable<boolean>(false)
 export const globalChatInitialInput = writable<string>('')
 export const globalChatSize = writable<number>(300)
 

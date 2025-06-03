@@ -16,8 +16,7 @@
 		tutorialsToDo,
 		userStore,
 		workspaceStore,
-		usedTriggerKinds,
-		globalChatOpen
+		usedTriggerKinds
 	} from '$lib/stores'
 	import {
 		cleanValueProperties,
@@ -70,6 +69,7 @@
 	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
+	import { AIChatService } from './copilot/chat/AIChatManager.svelte'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -932,8 +932,8 @@
 							</div>
 						</Button>
 					{/if}
-					{#if !disableAi && customUi?.topBar?.aiBuilder != false && !$globalChatOpen}
-						<FlowAIButton openPanel={() => globalChatOpen.set(true)} />
+					{#if !disableAi && customUi?.topBar?.aiBuilder != false && !AIChatService.open}
+						<FlowAIButton openPanel={() => (AIChatService.open = true)} />
 					{/if}
 					<FlowPreviewButtons
 						on:openTriggers={(e) => {

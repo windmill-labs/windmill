@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { WandSparkles } from 'lucide-svelte'
-	import { globalChatOpen, globalChatInitialInput } from '$lib/stores'
-
+	import { AIChatService } from './copilot/chat/AIChatManager.svelte'
 	interface Props {
 		label?: string
 		initialInput?: string
@@ -12,9 +11,9 @@
 	const { label, initialInput, onClick: onClickProp }: Props = $props()
 
 	export function onClick() {
-		globalChatOpen.set(true)
+		AIChatService.open = true
 		if (initialInput) {
-			globalChatInitialInput.set(initialInput)
+			AIChatService.initialInput = initialInput
 		}
 		onClickProp?.()
 	}

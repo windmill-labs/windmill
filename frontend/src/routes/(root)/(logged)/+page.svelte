@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { AppService, FlowService, type OpenFlow, type Script } from '$lib/gen'
-	import { globalChatOpen, userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { Alert, Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import CreateActionsFlow from '$lib/components/flows/CreateActionsFlow.svelte'
@@ -24,6 +24,7 @@
 	import { page } from '$app/stores'
 	import { goto, replaceState } from '$app/navigation'
 	import AskAiButton from '$lib/components/AskAiButton.svelte'
+	import { AIChatService } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -215,7 +216,7 @@
 </Drawer>
 
 <div>
-	{#if !$globalChatOpen}
+	{#if !AIChatService.open}
 		<div class="fixed top-4 right-4 z-50">
 			<AskAiButton />
 		</div>

@@ -27,12 +27,13 @@
 	} from 'openai/resources/index.mjs'
 	import {
 		chatMode,
+		copilotInfo,
 		copilotSessionModel,
 		dbSchemas,
 		flowAiChatHelpersStore,
-		globalChatOpen,
 		scriptEditorOptionsStore,
 		scriptEditorShowDiffMode,
+		userStore,
 		workspaceStore
 	} from '$lib/stores'
 	import {
@@ -41,22 +42,31 @@
 		prepareNavigatorUserMessage
 	} from './navigator/core'
 	import { globalChatInitialInput } from '$lib/stores'
+	import { AIChatService } from './AIChatManager.svelte'
+
 	interface Props {
 		headerLeft?: Snippet
 		headerRight?: Snippet
-		suggestions?: string[]
-		disabled?: boolean
-		disabledMessage?: string
-		forceMode?: 'script' | 'flow' | 'navigator'
 	}
 
-	let {
-		headerLeft,
-		headerRight,
-		disabled = false,
-		disabledMessage = '',
-		suggestions = []
-	}: Props = $props()
+	let { headerLeft, headerRight }: Props = $props()
+
+	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
+	const hasCopilot = $derived($copilotInfo.enabled)
+	const disabledMessage = $derived(
+		hasCopilot
+			? ''
+			: isAdmin
+				? `Enable Windmill AI in your [workspace settings](${base}/workspace_settings?tab=ai) to use this chat`
+				: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
+	)
+
+	const suggestions = [
+		'Where can i see my latest runs?',
+		'How do i trigger a script with a webhook endpoint?',
+		'How can I connect to a database?',
+		'How do I schedule a recurring job?'
+	]
 
 	let instructions = $state('')
 	let loading = writable(false)
@@ -366,7 +376,7 @@
 	on:keydown={(e) => {
 		if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
 			e.preventDefault()
-			globalChatOpen.update((prev) => !prev)
+			AIChatService.open = !AIChatService.open
 		}
 	}}
 />
@@ -416,7 +426,7 @@
 		!!$scriptEditorOptionsStore.lastDeployedCode &&
 		$scriptEditorOptionsStore.lastDeployedCode !== $scriptEditorOptionsStore.code}
 	diffMode={$scriptEditorOptionsStore?.diffMode ?? false}
-	{disabled}
+	disabled={!hasCopilot}
 	{disabledMessage}
 	{suggestions}
 ></AIChatDisplay>

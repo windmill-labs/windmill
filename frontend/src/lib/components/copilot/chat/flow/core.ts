@@ -1,4 +1,10 @@
-import { ScriptService, type FlowModule, type RawScript, type Script } from '$lib/gen'
+import {
+	ScriptService,
+	type FlowModule,
+	type OpenFlow,
+	type RawScript,
+	type Script
+} from '$lib/gen'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionTool,
@@ -19,6 +25,7 @@ import type { Tool } from '../shared'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 
 export interface FlowAIChatHelpers {
+	getFlowAndSelectedId: () => { flow: OpenFlow; selectedId: string }
 	insertStep: (location: InsertLocation, step: NewStep) => Promise<string>
 	removeStep: (id: string) => Promise<void>
 	getStepInputs: (id: string) => Promise<Record<string, any>>

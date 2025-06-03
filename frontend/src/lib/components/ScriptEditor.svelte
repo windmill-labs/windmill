@@ -8,7 +8,6 @@
 		chatMode,
 		copilotInfo,
 		enterpriseLicense,
-		globalChatOpen,
 		scriptEditorApplyCode,
 		scriptEditorShowDiffMode,
 		userStore,
@@ -56,6 +55,7 @@
 	import { getStringError } from './copilot/chat/utils'
 	import { scriptEditorOptionsStore } from '$lib/stores'
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
+	import { AIChatService } from './copilot/chat/AIChatManager.svelte'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -145,7 +145,7 @@
 	}
 
 	function toggleAiPanel() {
-		globalChatOpen.update((open) => !open)
+		AIChatService.open = !AIChatService.open
 	}
 
 	export function setArgs(nargs: Record<string, any>) {
@@ -338,10 +338,7 @@
 		}
 	}
 
-	$: !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') &&
-		aiPanelSize > 0 &&
-		!globalChatOpen &&
-		toggleAiPanel()
+	$: !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') && !AIChatService.open && toggleAiPanel()
 
 	function toggleTestPanel() {
 		if (testPanelSize > 0) {
@@ -481,7 +478,7 @@
 		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
 			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
 				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
-					{#if !$globalChatOpen}
+					{#if !AIChatService.open}
 						{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
 							<HideButton
 								hidden={true}
