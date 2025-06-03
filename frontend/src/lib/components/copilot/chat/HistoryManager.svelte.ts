@@ -39,7 +39,6 @@ export default class HistoryManager {
 
 	async init() {
 		try {
-			console.log('Initializing chat history database')
 			this.indexDB = await openDB<ChatSchema>('copilot-chat-history', 1, {
 				upgrade(indexDB) {
 					if (!indexDB.objectStoreNames.contains('chats')) {
@@ -47,10 +46,8 @@ export default class HistoryManager {
 					}
 				}
 			})
-			console.log('Chat history database initialized')
 
 			const chats = await this.indexDB.getAll('chats')
-			console.log('Retrieved chats')
 			this.savedChats = chats.reduce(
 				(acc, chat) => {
 					acc[chat.id] = chat
@@ -85,8 +82,6 @@ export default class HistoryManager {
 				...this.savedChats,
 				[updatedChat.id]: updatedChat
 			}
-
-			console.log('updatedChat', updatedChat)
 
 			if (this.indexDB) {
 				await this.indexDB.put('chats', updatedChat)

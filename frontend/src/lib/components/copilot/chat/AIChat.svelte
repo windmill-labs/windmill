@@ -106,7 +106,7 @@
 	setContext<AIChatContext>('AIChatContext', {
 		loading,
 		currentReply,
-		canApplyCode: () => allowedModes.script
+		canApplyCode: () => allowedModes.script && $chatMode === 'script'
 	})
 
 	export async function generateStep(moduleId: string, lang: ScriptLang, instructions: string) {
@@ -130,7 +130,7 @@
 		} = {}
 	) {
 		if (options.mode) {
-			mode = options.mode
+			$chatMode = options.mode
 		}
 		if (options.instructions) {
 			instructions = options.instructions
@@ -140,7 +140,7 @@
 		}
 		try {
 			const oldSelectedContext = contextManager?.getSelectedContext() ?? []
-			if (mode === 'script') {
+			if ($chatMode === 'script') {
 				contextManager?.updateContextOnRequest(options)
 			}
 			loading.set(true)
@@ -152,7 +152,7 @@
 				{
 					role: 'user',
 					content: instructions,
-					contextElements: mode === 'script' ? oldSelectedContext : undefined
+					contextElements: $chatMode === 'script' ? oldSelectedContext : undefined
 				}
 			]
 			const oldInstructions = instructions
@@ -213,7 +213,7 @@
 									role: 'assistant',
 									content: $currentReply,
 									contextElements:
-										mode === 'script'
+										$chatMode === 'script'
 											? oldSelectedContext.filter((c) => c.type === 'code')
 											: undefined
 								}

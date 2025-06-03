@@ -32,7 +32,7 @@ export interface FlowAIChatHelpers {
 	addBranch: (id: string) => Promise<void>
 	removeBranch: (id: string, branchIndex: number) => Promise<void>
 	setForLoopIteratorExpression: (id: string, expression: string) => Promise<void>
-	setCode: (code: string) => void
+	setCode: (id: string, code: string) => Promise<void>
 }
 
 const searchScriptsSchema = z.object({
@@ -254,6 +254,7 @@ const setFlowInputsSchemaToolDef = createToolDef(
 )
 
 const setCodeSchema = z.object({
+	id: z.string().describe('The id of the step to set the code for'),
 	code: z.string().describe('The code to apply')
 })
 
@@ -447,9 +448,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		def: setCodeToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = setCodeSchema.parse(args)
-			toolCallbacks.onToolCall(toolId, 'Setting step code...')
-			helpers.setCode(parsedArgs.code)
-			toolCallbacks.onFinishToolCall(toolId, 'Set step code')
+			toolCallbacks.onToolCall(toolId, `Setting code for step '${parsedArgs.id}'...`)
+			await helpers.setCode(parsedArgs.id, parsedArgs.code)
+			helpers.selectStep(parsedArgs.id)
+			toolCallbacks.onFinishToolCall(toolId, `Set code for step '${parsedArgs.id}'`)
 			return `Step code set`
 		}
 	},
@@ -554,9 +556,11 @@ You can add a script step in different ways:
 - from a script in the hub
 - a raw script: create an empty step and write the code directly
 
-When adding a raw script step, you will get back some special instructions to help you write the code. Make sure to follow them carefully. Also, make sure to display the code to the user and ask for confirmation before setting it. Do not continue until the user confirms.
+When adding a raw script step, you will get back some special instructions to help you write the code. Make sure to follow them carefully. Also, make sure to display the code to the user before setting it.
 
-Once you've added a new step and set the path or written the code, you can use the get_step_inputs tool to get the current/possible inputs for the step and then use the set_step_inputs tool to set the inputs for the step using JavaScript expressions.
+Once you've added a new step and set the path or written the code, you should use the get_step_inputs tool to get the current/possible inputs for the step and set the step input values using the set_step_inputs tool.
+Step input keys and types are automatically inferred from the code.
+If you use flow_input in the step inputs, make sure to add the missing properties to the schema using the set_flow_inputs_schema tool.
 
 ### Branchone/branchall and forloop
 You can add branchone/branchall and forloops to the flow. Make sure to set the predicates for the branches (of branchone only) and the iterator expression for the forloops.
@@ -572,6 +576,7 @@ Here are the variables you can use:
 - Inside loops, the iterator value is accessible as flow_input.iter.value.
 - Flow inputs are accessible as flow_input.property_name. The flow input doesn't have to exist already but make sure to add it to the schema if it doesn't.
 - If you want to use static values, set them like in javascript (e.g. "hello", true, 3, etc...).
+Note: these variables are only accessible in step inputs, forloop iterator expressions and branch predicates. They are not directly accessible in the code and should be passed as script arguments using the set_step_inputs tool.
 
 ### Special modules
 - Preprocessor: Runs before the first step when triggered externally. You cannot link its inputs. It's id is 'preprocessor'
@@ -594,8 +599,9 @@ If the user wants a specific resource as step input, you should set the step val
 
 export function prepareFlowUserMessage(
 	instructions: string,
-	flow: ExtendedOpenFlow
+	flowAndSelectedId: { flow: ExtendedOpenFlow; selectedId: string }
 ): ChatCompletionUserMessageParam {
+	const { flow, selectedId } = flowAndSelectedId
 	return {
 		role: 'user',
 		content: `## FLOW:
@@ -610,6 +616,9 @@ ${YAML.stringify(flow.value.preprocessor_module)}
 
 failure module:
 ${YAML.stringify(flow.value.failure_module)}
+
+currently selected step:
+${selectedId}
 
 ## INSTRUCTIONS:
 ${instructions}`

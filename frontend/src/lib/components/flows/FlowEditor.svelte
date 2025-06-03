@@ -48,6 +48,13 @@
 		globalChatOpen.set(!$globalChatOpen)
 	}
 
+	export function addSelectedLinesToAiChat(lines: string, startLine: number, endLine: number) {
+		flowAIChat?.addSelectedLinesToContext(lines, startLine, endLine)
+		if (getIsAiPanelClosed()) {
+			toggleAiPanel('script')
+		}
+	}
+
 	onMount(() => {
 		chatMode.set('flow')
 	})
@@ -56,6 +63,15 @@
 		chatMode.set('navigator')
 	})
 </script>
+
+<svelte:window
+	on:keydown={(e) => {
+		if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+			e.preventDefault()
+			toggleAiPanel()
+		}
+	}}
+/>
 
 <div
 	id="flow-editor"

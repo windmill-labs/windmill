@@ -19,7 +19,7 @@ use rust_postgres::types::Type;
 use serde::{Deserialize, Deserializer, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{postgres::types::Oid, Connection, FromRow, PgConnection};
-use windmill_audit::{audit_ee::audit_log, ActionKind};
+use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{self, Error, JsonResult, Result},
@@ -298,9 +298,9 @@ async fn create_custom_slot_and_publication_inner(
     let mut tx = pg_connection.begin().await?;
     let publication_name = format!("windmill_trigger_{}", generate_random_string());
     let replication_slot_name = publication_name.clone();
-    
+
     create_logical_replication_slot(&mut tx, &replication_slot_name).await?;
-    
+
     create_pg_publication(
         &mut tx,
         &publication_name,
@@ -949,7 +949,7 @@ pub async fn alter_publication(
     .await?;
 
     let mut tx = pg_connection.begin().await?;
-    
+
     let publication = get_publication_scope_and_transaction(&mut tx, &publication_name).await?;
 
     update_pg_publication(

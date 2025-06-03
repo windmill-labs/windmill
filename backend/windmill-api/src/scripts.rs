@@ -38,7 +38,7 @@ use std::{
     hash::{Hash, Hasher},
     sync::Arc,
 };
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_worker::process_relative_imports;
 

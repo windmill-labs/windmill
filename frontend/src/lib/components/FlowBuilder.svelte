@@ -749,7 +749,12 @@
 	}
 
 	let flowPreviewButtons: FlowPreviewButtons
+
 	let flowEditor: FlowEditor | undefined = undefined
+	$: if (flowEditor) {
+		flowCopilotContext.toggleAiPanel = flowEditor.toggleAiPanel
+		flowCopilotContext.addSelectedLinesToAiChat = flowEditor.addSelectedLinesToAiChat
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />

@@ -20,7 +20,7 @@ use std::{collections::HashMap, fmt};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use uuid::Uuid;
-use windmill_audit::{audit_ee::audit_log, ActionKind};
+use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, JsonResult},

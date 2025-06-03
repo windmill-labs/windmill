@@ -13185,6 +13185,8 @@ components:
     # NOTE: Not so many generators and validators support this format:
     # $ref: "../../openflow.openapi.yaml#/components/schemas"
     # This is why it is better to inline each of schemas for better compat
+    # Do not change next line. It is used by python-client for pre-processing
+    # -- INLINE START --
     OpenFlow:
       $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
     FlowValue:
@@ -13223,6 +13225,8 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
     FlowStatusModule:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatusModule"
+    # -- INLINE END --
+    # Do not change line above
 
     AIProvider:
       type: string
