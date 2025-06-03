@@ -11,7 +11,6 @@
 		OpenAPI,
 		type Preview,
 		type OpenFlow,
-		type FlowModule,
 		WorkspaceService,
 		type InputTransform,
 		type TriggersCount

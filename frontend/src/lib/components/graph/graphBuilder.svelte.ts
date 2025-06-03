@@ -22,6 +22,7 @@ export type InlineScript = {
 	subkind: 'pgsql' | 'flow'
 	id: string
 	summary?: string
+	instructions?: string
 }
 
 export type onSelectedIteration = (
@@ -42,7 +43,7 @@ export type GraphEventHandlers = {
 		isPreprocessor?: boolean
 	}) => void
 	deleteBranch: (detail: { id: string; index: number }, label: string) => void
-	select: (modId: string) => void
+	select: (mod: string | FlowModule) => void
 	delete: (detail: { id: string }, label: string) => void
 	newBranch: (id: string) => void
 	move: (detail: { id: string }) => void

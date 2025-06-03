@@ -13,11 +13,7 @@
 		pickFlow,
 		insertNewPreprocessorModule
 	} from '$lib/components/flows/flowStateUtils'
-<<<<<<< HEAD
-	import type { FlowModule } from '$lib/gen'
-=======
-	import type { FlowModule, RawScript, Script, ScriptLang } from '$lib/gen'
->>>>>>> main
+	import type { FlowModule, ScriptLang } from '$lib/gen'
 	import { emptyFlowModuleState, initFlowStepWarnings } from '../utils'
 	import FlowSettingsItem from './FlowSettingsItem.svelte'
 	import FlowConstantsItem from './FlowConstantsItem.svelte'
@@ -87,16 +83,7 @@
 		kind: InsertKind,
 		wsScript?: { path: string; summary: string; hash: string | undefined },
 		wsFlow?: { path: string; summary: string },
-<<<<<<< HEAD
 		inlineScript?: InlineScript
-=======
-		inlineScript?: {
-			language: RawScript['language']
-			kind: Script['kind']
-			subkind: 'pgsql' | 'flow'
-			summary?: string
-		}
->>>>>>> main
 	): Promise<FlowModule[]> {
 		push(history, $flowStore)
 		var module = emptyModule($flowStateStore, $flowStore, kind == 'flow')
@@ -197,11 +184,7 @@
 			}
 		}
 	}
-<<<<<<< HEAD
 	async function addBranch(id: string) {
-=======
-	export async function addBranch(module: FlowModule) {
->>>>>>> main
 		push(history, $flowStore)
 		let module = dfsByModule(id, $flowStore.value.modules)[0]
 
@@ -218,11 +201,7 @@
 		}
 	}
 
-<<<<<<< HEAD
 	function removeBranch(id: string, index: number) {
-=======
-	export function removeBranch(module: FlowModule, index: number) {
->>>>>>> main
 		push(history, $flowStore)
 		let module = dfsByModule(id, $flowStore.value.modules)[0]
 
@@ -409,12 +388,7 @@
 					cb()
 				}
 			}}
-<<<<<<< HEAD
 			onInsert={async (detail) => {
-=======
-			on:insert={async ({ detail }) => {
-				console.log(detail)
->>>>>>> main
 				if (shouldRunTutorial('forloop', detail.detail, 1)) {
 					flowTutorials?.runTutorialById('forloop', detail.index)
 				} else if (shouldRunTutorial('branchone', detail.detail, 2)) {
@@ -453,13 +427,8 @@
 							$selectedId = removedModule.id
 							$moving = undefined
 						} else {
-<<<<<<< HEAD
 							if (detail.isPreprocessor) {
-								insertNewPreprocessorModule(
-=======
-							if (detail.detail === 'preprocessor') {
 								await insertNewPreprocessorModule(
->>>>>>> main
 									flowStore,
 									flowStateStore,
 									detail.inlineScript,
@@ -484,11 +453,7 @@
 									detail.flow,
 									detail.inlineScript
 								)
-<<<<<<< HEAD
-								const id = targetModules[detail.index ?? 0].id
-=======
-								const id = detail.modules[index].id
->>>>>>> main
+								const id = targetModules[index].id
 								$selectedId = id
 
 								if (detail.inlineScript?.instructions) {

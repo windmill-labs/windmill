@@ -128,18 +128,8 @@
 			: undefined
 	}
 
-	const { modulesStore: copilotModulesStore } =
+	const { addSelectedLinesToAiChat, toggleAiPanel } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
-
-	function setCopilotModuleEditor() {
-		copilotModulesStore?.update((modules) => {
-			const module = modules.find((m) => m.id === flowModule.id)
-			if (module) {
-				module.editor = editor
-			}
-			return modules
-		})
-	}
 
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
@@ -270,9 +260,7 @@
 		editor?.show()
 	}
 	let lastDeployedCode = $derived(onModulesChange(savedModule, flowModule))
-	$effect(() => {
-		editor !== undefined && setCopilotModuleEditor()
-	})
+
 	let stepPropPicker = $derived(
 		$executionCount != undefined && failureModule
 			? getFailureStepPropPicker($flowStateStore, $flowStore, $previewArgs)

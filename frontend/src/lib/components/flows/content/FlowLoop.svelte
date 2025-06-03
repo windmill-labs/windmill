@@ -85,7 +85,9 @@
 		editor?.insertAtCursor(code)
 	}
 
-	$: editor && currentEditor.set({ type: 'iterator', editor, stepId: mod.id })
+	$effect(() => {
+		editor && currentEditor.set({ type: 'iterator', editor, stepId: mod.id })
+	})
 </script>
 
 <Drawer bind:open={previewOpen} alwaysOpen size="75%">

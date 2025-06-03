@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 
-	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import Popover from '$lib/components/Popover.svelte'
 	import { classNames } from '$lib/utils'
 	import {
