@@ -5,8 +5,17 @@ import type {
 	ChatCompletionTool,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/index.mjs'
-import { chatMode, triggerablesByAI } from '$lib/stores'
+import {
+	chatHelpers,
+	chatMode,
+	chatSystemMessage,
+	chatTools,
+	flowAiChatHelpersStore,
+	triggerablesByAI
+} from '$lib/stores'
 import type { Tool } from '../shared'
+import { prepareScriptSystemMessage } from '../script/core'
+import { flowTools, prepareFlowSystemMessage } from '../flow/core'
 
 // System prompt for the LLM
 export const CHAT_SYSTEM_PROMPT = `
@@ -143,6 +152,24 @@ function changeMode(args: { mode: string }) {
 	const { mode } = args
 
 	chatMode.set(mode as 'script' | 'flow' | 'navigator')
+	if (mode === 'script') {
+		chatSystemMessage.set(prepareScriptSystemMessage())
+		// chatTools.set([
+		// 	GET_TRIGGERABLE_COMPONENTS_TOOL,
+		// 	EXECUTE_COMMAND_TOOL,
+		// 	GET_DOCUMENTATION_TOOL,
+		// 	GET_CURRENT_PAGE_NAME_TOOL,
+		// 	CHANGE_MODE_TOOL
+		// ])
+	} else if (mode === 'flow') {
+		chatSystemMessage.set(prepareFlowSystemMessage())
+		chatTools.set(flowTools)
+		chatHelpers.set(get(flowAiChatHelpersStore))
+	} else if (mode === 'navigator') {
+		chatSystemMessage.set(prepareNavigatorSystemMessage())
+		chatTools.set(navigatorTools)
+		chatHelpers.set({})
+	}
 }
 
 function getTriggerableComponents(): string {

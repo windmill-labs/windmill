@@ -17,6 +17,8 @@ import { getLocalSetting } from './utils'
 import type { ScriptOptions } from './components/copilot/chat/ContextManager.svelte'
 import type AiChat from './components/copilot/chat/AIChat.svelte'
 import type { FlowAIChatHelpers } from './components/copilot/chat/flow/core'
+import type { Tool } from './components/copilot/chat/shared'
+import type { ChatCompletionSystemMessageParam } from 'openai/resources/index.mjs'
 
 export interface UserExt {
 	email: string
@@ -110,6 +112,9 @@ export const copilotInfo = writable<{
 	aiModels: []
 })
 export const chatMode = writable<'script' | 'flow' | 'navigator'>('script')
+export const chatSystemMessage = writable<ChatCompletionSystemMessageParam | undefined>(undefined)
+export const chatTools = writable<Tool<any>[]>([])
+export const chatHelpers = writable<any | undefined>(undefined)
 
 export function setCopilotInfo(aiConfig: AIConfig) {
 	if (Object.keys(aiConfig.providers ?? {}).length > 0) {

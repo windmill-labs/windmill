@@ -55,8 +55,7 @@
 		headerRight,
 		disabled = false,
 		disabledMessage = '',
-		suggestions = [],
-		forceMode
+		suggestions = []
 	}: Props = $props()
 
 	let instructions = $state('')
@@ -66,15 +65,6 @@
 		script: $scriptEditorOptionsStore !== undefined,
 		flow: $flowAiChatHelpersStore !== undefined,
 		navigator: true
-	})
-	let mode = $derived(forceMode ?? $chatMode)
-
-	$effect(() => {
-		console.log('mode', mode)
-		console.log('forceMode', forceMode)
-		console.log('chatMode', $chatMode)
-		console.log('$scriptEditorOptionsStore', $scriptEditorOptionsStore)
-		console.log('allowedModes', allowedModes)
 	})
 
 	async function updateMode(currentMode: 'script' | 'flow' | 'navigator') {
@@ -159,17 +149,17 @@
 			instructions = ''
 
 			const systemMessage =
-				mode === 'script'
+				$chatMode === 'script'
 					? prepareScriptSystemMessage()
-					: mode === 'flow'
+					: $chatMode === 'flow'
 						? prepareFlowSystemMessage()
 						: prepareNavigatorSystemMessage()
 
-			if (mode === 'flow' && !$flowAiChatHelpersStore) {
+			if ($chatMode === 'flow' && !$flowAiChatHelpersStore) {
 				throw new Error('No flow helpers passed')
 			}
 
-			if (mode === 'script' && !$scriptEditorOptionsStore && !options.lang) {
+			if ($chatMode === 'script' && !$scriptEditorOptionsStore && !options.lang) {
 				throw new Error('No script options passed')
 			}
 
@@ -178,9 +168,9 @@
 				$scriptEditorOptionsStore?.path === 'preprocessor' || options.isPreprocessor
 
 			const userMessage =
-				mode === 'flow'
+				$chatMode === 'flow'
 					? prepareFlowUserMessage(oldInstructions, $flowAiChatHelpersStore!.getFlowAndSelectedId())
-					: mode === 'navigator'
+					: $chatMode === 'navigator'
 						? prepareNavigatorUserMessage(oldInstructions)
 						: await prepareScriptUserMessage(oldInstructions, lang, oldSelectedContext, {
 								isPreprocessor
@@ -238,7 +228,7 @@
 				}
 			}
 
-			if (mode === 'flow') {
+			if ($chatMode === 'flow') {
 				if (!$flowAiChatHelpersStore) {
 					throw new Error('No flow helpers found')
 				}
@@ -247,7 +237,7 @@
 					tools: flowTools,
 					helpers: $flowAiChatHelpersStore
 				})
-			} else if (mode === 'script') {
+			} else if ($chatMode === 'script') {
 				const tools: Tool<ScriptChatHelpers>[] = []
 				if (['python3', 'php', 'bun', 'deno', 'nativets', 'bunnative'].includes(lang)) {
 					tools.push(resourceTypeTool)
@@ -262,7 +252,7 @@
 						getLang: () => lang
 					}
 				})
-			} else if (mode === 'navigator') {
+			} else if ($chatMode === 'navigator') {
 				await chatRequest({
 					...params,
 					tools: navigatorTools,
@@ -278,7 +268,9 @@
 						role: 'assistant',
 						content: $currentReply,
 						contextElements:
-							mode === 'script' ? oldSelectedContext.filter((c) => c.type === 'code') : undefined
+							$chatMode === 'script'
+								? oldSelectedContext.filter((c) => c.type === 'code')
+								: undefined
 					}
 				]
 				currentReply.set('')

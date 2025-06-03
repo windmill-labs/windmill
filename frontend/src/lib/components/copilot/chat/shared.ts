@@ -8,7 +8,7 @@ import type {
 import { get, type Writable } from 'svelte/store'
 import type { ContextElement } from './context'
 import { getCompletion } from '../lib'
-import { workspaceStore } from '$lib/stores'
+import { chatHelpers, chatSystemMessage, chatTools, workspaceStore } from '$lib/stores'
 
 export interface AIChatContext {
 	loading: Writable<boolean>
@@ -130,10 +130,14 @@ export async function chatRequest<T>({
 	try {
 		let completion: any = null
 		while (true) {
+			const sysMessage =
+				(get(chatSystemMessage) as ChatCompletionSystemMessageParam) || systemMessage
+			const t = get(chatTools).length > 0 ? get(chatTools) : tools
+			const h = get(chatHelpers)
 			completion = await getCompletion(
-				[systemMessage, ...messages],
+				[sysMessage, ...messages],
 				abortController,
-				tools.map((t) => t.def)
+				t.map((t) => t.def)
 			)
 
 			if (completion) {
@@ -191,7 +195,13 @@ export async function chatRequest<T>({
 						}))
 					})
 					for (const toolCall of toolCalls) {
-						await processToolCall({ tools, toolCall, messages, helpers, toolCallbacks: callbacks })
+						await processToolCall({
+							tools: t,
+							toolCall,
+							messages,
+							helpers: h,
+							toolCallbacks: callbacks
+						})
 					}
 				} else {
 					break
