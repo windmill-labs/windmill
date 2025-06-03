@@ -27,13 +27,11 @@
 	const { flowStore, testStepStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let selectedJob: Job | undefined = undefined
-	let fetchingLastJob = false
 	let preview: 'mock' | 'job' | undefined = undefined
 	let outputPicker: OutputPickerInner | undefined = undefined
 	let jobProgressReset: () => void = () => {}
 
 	$: lastJob && outputPicker?.setLastJob(lastJob, false)
-	$: testJob && outputPicker?.setLastJob(testJob, true)
 
 	let forceJson = false
 </script>
@@ -62,7 +60,7 @@
 			mock={mod.mock}
 			bind:forceJson
 			bind:selectedJob
-			isLoading={(testIsLoading && !scriptProgress) || fetchingLastJob}
+			isLoading={testIsLoading && !scriptProgress}
 			bind:preview
 			path={`path` in mod.value ? mod.value.path : ''}
 			{loopStatus}
@@ -98,7 +96,7 @@
 				duration={selectedJob?.['duration_ms']}
 				mem={selectedJob?.['mem_peak']}
 				content={selectedJob?.logs}
-				isLoading={(testIsLoading && selectedJob?.['running'] == false) || fetchingLastJob}
+				isLoading={testIsLoading && selectedJob?.['running'] == false}
 				tag={selectedJob?.tag}
 			/>
 		{/if}

@@ -41,7 +41,7 @@
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
-	import { cleanInputs } from './flows/utils'
+	import { cleanInputs, loadIndividualStepsStates } from './flows/utils'
 	import { Calendar, Pen, Save, DiffIcon, HistoryIcon, FileJson, type Icon } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
@@ -753,6 +753,30 @@
 	$: if (flowEditor) {
 		flowCopilotContext.toggleAiPanel = flowEditor.toggleAiPanel
 		flowCopilotContext.addSelectedLinesToAiChat = flowEditor.addSelectedLinesToAiChat
+	}
+
+	let loadingIndividualStepsStates = false
+	async function loadStepsStates() {
+		if (loadingIndividualStepsStates) return
+		loadingIndividualStepsStates = true
+		try {
+			await loadIndividualStepsStates(
+				$flowStore.value.modules,
+				flowStateStore,
+				$workspaceStore!,
+				$initialPathStore,
+				$pathStore
+			)
+		} catch (e) {
+			console.error('Error loading individual steps states', e)
+		} finally {
+			loadingIndividualStepsStates = false
+		}
+	}
+
+	$: if ($flowStore) {
+		console.log('dbg [Store Update Triggered]')
+		//loadStepsStates()
 	}
 </script>
 

@@ -82,7 +82,7 @@
 			flow = $importFlowStore
 			$importFlowStore = undefined
 			sendUserToast('Flow loaded from YAML/JSON')
-		} else if (!templatePath && !hubId && state) {
+		} else if (!templatePath && !hubId && state && state.flow) {
 			sendUserToast('Flow restored from draft', false, [
 				{
 					label: 'Start from blank instead',
