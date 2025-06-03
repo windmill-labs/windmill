@@ -53,7 +53,10 @@ use windmill_common::{
     scripts::ScriptLang,
     stats_oss::schedule_stats,
     triggers::TriggerKind,
-    utils::{hostname, rd_string, Mode, GIT_VERSION, MODE_AND_ADDONS},
+    utils::{
+        create_default_worker_suffix, create_ssh_agent_worker_suffix, worker_name_with_suffix,
+        Mode, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS,
+    },
     worker::{
         reload_custom_tags_setting, Connection, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
     },
@@ -265,7 +268,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         tracing::error!("Failed to install rustls crypto provider");
     }
 
-    let hostname = hostname();
+    let hostname = HOSTNAME.to_owned();
 
     let mode_and_addons = MODE_AND_ADDONS.clone();
     let mode = mode_and_addons.mode;
@@ -344,7 +347,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             "Creating http client for cluster using base internal url {}",
             std::env::var("BASE_INTERNAL_URL").unwrap_or_default()
         );
-        let suffix = windmill_common::utils::worker_suffix(&hostname, &rd_string(5));
+        let suffix = create_ssh_agent_worker_suffix(&hostname);
         (
             Connection::Http(build_agent_http_client(&suffix)),
             Some(suffix),
@@ -679,19 +682,21 @@ Windmill Community Edition {GIT_VERSION}
                 let base_internal_url = base_internal_rx.await?;
                 if worker_mode {
                     let mut workers = vec![];
+
                     for i in 0..num_workers {
-                        let suffix: String = if i == 0 && first_suffix.as_ref().is_some() {
+                        let suffix = if i == 0 && first_suffix.is_some() {
                             first_suffix.as_ref().unwrap().clone()
                         } else {
-                            windmill_common::utils::worker_suffix(&hostname, &rd_string(5))
+                            create_default_worker_suffix(&hostname)
                         };
+
                         let worker_conn = WorkerConn {
                             conn: if i == 0 || mode != Mode::Agent {
                                 conn.clone()
                             } else {
                                 Connection::Http(build_agent_http_client(&suffix))
                             },
-                            worker_name: windmill_common::utils::worker_name_with_suffix(
+                            worker_name: worker_name_with_suffix(
                                 mode == Mode::Agent,
                                 WORKER_GROUP.as_str(),
                                 &suffix,
