@@ -14,6 +14,7 @@
 	import FileInput from './common/fileInput/FileInput.svelte'
 	import { emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import FolderPicker from './FolderPicker.svelte'
+	import Required from '$lib/components/Required.svelte'
 
 	type Props = {
 		closeFn: () => Promise<void>
@@ -107,9 +108,14 @@
 <RouteEditor updateHttpTrigger={callback} bind:this={routeEditor} />
 
 <Section label="Http routes generator">
-	<div class="flex flex-col gap-2">
-		<Subsection label="Pick a folder">
-			<FolderPicker bind:folderName />
+	<div class="flex flex-col gap-1">
+		<Subsection>
+			<div class="flex flex-col gap-1">
+				<p class="text-xs text-tertiary">
+					Pick a folder <Required required={true} />
+				</p>
+				<FolderPicker bind:folderName />
+			</div>
 		</Subsection>
 
 		{#if !emptyStringTrimmed(folderName)}
@@ -189,14 +195,18 @@
 								size="xs"
 								loading={isFetchingOpenApiSpec}
 								disabled={!isValidUrl}
-								on:click={fetchOpenApiConfig}>Fetch</Button
+								on:click={fetchOpenApiConfig}
 							>
+								Fetch
+							</Button>
 						</div>
 					{/if}
 					{#if selected === 'OpenApi' || (selected === 'OpenApiFile' && !emptyStringTrimmed(openApiFile)) || (selected === 'OpenApiURL' && !emptyStringTrimmed(openApiUrl))}
-						<div class="h-96">
-							<SimpleEditor class="h-full" {lang} bind:code />
-						</div>
+						{#key code}
+							<div class="h-96">
+								<SimpleEditor class="h-full" {lang} bind:code />
+							</div>
+						{/key}
 					{/if}
 					<Button
 						spacingSize="sm"
@@ -204,6 +214,7 @@
 						btnClasses="h-8"
 						loading={isGeneratingHttpRoutes}
 						on:click={generateHttpTrigger}
+						disabled={code.length === 0}
 						color="light"
 						variant="border">Generate Http trigger(s)</Button
 					>
