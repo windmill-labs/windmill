@@ -144,7 +144,7 @@
 				/>
 			{/if}
 		</Pane>
-		{#if !disableAi}
+		{#if !disableAi && aiPanelSize > 0}
 			{#snippet aiChatHeaderLeft()}
 				<HideButton
 					hidden={false}
@@ -157,7 +157,7 @@
 					}}
 				/>
 			{/snippet}
-			<Pane bind:size={aiPanelSize} minSize={20}>
+			<Pane bind:size={aiPanelSize}>
 				<FlowAIChat bind:this={flowAIChat} {flowModuleSchemaMap} headerLeft={aiChatHeaderLeft} />
 			</Pane>
 		{/if}
