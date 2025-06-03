@@ -1,16 +1,16 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT has_preprocessor, language as \"language: _\", content, schema as \"schema: _\" FROM script WHERE workspace_id = $1 AND hash = $2",
+  "query": "\n    SELECT \n        tag, \n        script_lang AS \"script_lang!: _\"\n    FROM \n        v2_job\n    WHERE \n        id = $1\n    ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "has_preprocessor",
-        "type_info": "Bool"
+        "name": "tag",
+        "type_info": "Varchar"
       },
       {
         "ordinal": 1,
-        "name": "language: _",
+        "name": "script_lang!: _",
         "type_info": {
           "Custom": {
             "name": "script_lang",
@@ -42,30 +42,17 @@
             }
           }
         }
-      },
-      {
-        "ordinal": 2,
-        "name": "content",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 3,
-        "name": "schema: _",
-        "type_info": "Json"
       }
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Int8"
+        "Uuid"
       ]
     },
     "nullable": [
-      true,
-      false,
       false,
       true
     ]
   },
-  "hash": "a8bcae108af1eda6efe3a4b8c6f8807bc464a81c0883e68f5a69b89b94b0b34b"
+  "hash": "4e5273b9ce05f6ee2dfd5f14c8574a0cf43682480452f7dbe23012320fe7fe25"
 }

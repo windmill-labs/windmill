@@ -80,7 +80,7 @@ pub async fn update_flow_status_after_job_completion(
     success: bool,
     result: Arc<Box<RawValue>>,
     unrecoverable: bool,
-    same_worker_tx: SameWorkerSender,
+    same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
     stop_early_override: Option<bool>,
     worker_name: &str,
@@ -89,6 +89,7 @@ pub async fn update_flow_status_after_job_completion(
 ) -> error::Result<Option<Arc<MiniPulledJob>>> {
     // this is manual tailrecursion because async_recursion blows up the stack
     potentially_crash_for_testing();
+
     let mut rec = RecUpdateFlowStatusAfterJobCompletion {
         flow,
         job_id_for_status: job_id_for_status.clone(),
@@ -109,7 +110,7 @@ pub async fn update_flow_status_after_job_completion(
             rec.success,
             rec.result,
             unrecoverable,
-            same_worker_tx.clone(),
+            same_worker_tx,
             worker_dir,
             rec.stop_early_override,
             rec.skip_error_handler,
@@ -134,7 +135,7 @@ pub async fn update_flow_status_after_job_completion(
                         error: json!(e.to_string()),
                     }))),
                     true,
-                    same_worker_tx.clone(),
+                    same_worker_tx,
                     worker_dir,
                     rec.stop_early_override,
                     rec.skip_error_handler,
@@ -147,6 +148,7 @@ pub async fn update_flow_status_after_job_completion(
             }
         };
         unrecoverable = false;
+
         match nrec {
             UpdateFlowStatusAfterJobCompletion::Done(job) => {
                 add_time!(bench, "update flow status internal END");
@@ -226,7 +228,7 @@ pub async fn update_flow_status_after_job_completion_internal(
     mut success: bool,
     result: Arc<Box<RawValue>>,
     unrecoverable: bool,
-    same_worker_tx: SameWorkerSender,
+    same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
     stop_early_override: Option<bool>,
     skip_error_handler: bool,
@@ -1289,7 +1291,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             db,
             client,
             Some(nresult.clone()),
-            same_worker_tx.clone(),
+            same_worker_tx,
             worker_dir,
             job_completed_tx,
             worker_name,
@@ -1586,7 +1588,7 @@ pub async fn handle_flow(
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
     last_result: Option<Arc<Box<RawValue>>>,
-    same_worker_tx: SameWorkerSender,
+    same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
     job_completed_tx: JobCompletedSender,
     worker_name: &str,
@@ -1643,7 +1645,7 @@ pub async fn handle_flow(
             db,
             client,
             last_result.clone(),
-            same_worker_tx.clone(),
+            same_worker_tx,
             worker_dir,
             worker_name,
         )
@@ -1736,7 +1738,7 @@ async fn push_next_flow_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
     last_job_result: Option<Arc<Box<RawValue>>>,
-    same_worker_tx: SameWorkerSender,
+    same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
     worker_name: &str,
 ) -> error::Result<PushNextFlowJob> {

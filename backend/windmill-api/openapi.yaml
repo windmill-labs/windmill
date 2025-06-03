@@ -4501,6 +4501,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: languages
+          in: query
+          description: |
+            Filter to only include scripts written in the given languages.
+            Accepts multiple values as a comma-separated list.
+          schema:
+            type: string
       responses:
         "200":
           description: All scripts

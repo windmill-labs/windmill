@@ -11,7 +11,7 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Job, Script } from './gen'
+import type { Job, Script, ScriptLang } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
@@ -22,8 +22,17 @@ import type { TriggerKind } from './components/triggers'
 export function isJobCancelable(j: Job): boolean {
 	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
 }
+
 export function isJobReRunnable(j: Job): boolean {
 	return (j.job_kind === 'script' || j.job_kind === 'flow') && j.parent_job === undefined
+}
+
+export const WORKER_NAME_PREFIX = 'wk'
+export const AGENT_WORKER_NAME_PREFIX = 'ag'
+const SSH_AGENT_WORKER_SUFFIX = '/ssh'
+
+export function isAgentWorkerShell(workerName: string) {
+	return workerName.startsWith(AGENT_WORKER_NAME_PREFIX) && workerName.endsWith(SSH_AGENT_WORKER_SUFFIX)
 }
 
 export function isJobSelectable(selectionType: RunsSelectionMode) {
@@ -564,6 +573,10 @@ export function formatCron(inp: string): string {
 	} else {
 		return inp
 	}
+}
+
+export function scriptLangArrayToCommaList(languages: ScriptLang[]): string {
+	return languages.join(',')
 }
 
 export function cronV1toV2(inp: string): string {

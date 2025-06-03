@@ -17,6 +17,15 @@ pub struct AuthedClient {
 }
 
 impl AuthedClient {
+    pub fn new(
+        base_internal_url: String,
+        workspace: String,
+        token: String,
+        force_client: Option<reqwest::Client>,
+    ) -> AuthedClient {
+        AuthedClient { base_internal_url, workspace, token, force_client }
+    }
+
     pub async fn get(&self, url: &str, query: Vec<(&str, String)>) -> anyhow::Result<Response> {
         self.force_client
             .as_ref()

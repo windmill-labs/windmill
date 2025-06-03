@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use axum::http::HeaderMap;
 use bytes::Bytes;
 use const_format::concatcp;
 use itertools::Itertools;
@@ -34,7 +35,6 @@ use crate::{
 
 pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
 pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
-
 lazy_static::lazy_static! {
     pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| {
         #[cfg(not(feature = "enterprise"))]
@@ -159,12 +159,20 @@ impl HttpClient {
     pub async fn post<T: Serialize, R: DeserializeOwned>(
         &self,
         url: &str,
+        headers: Option<HeaderMap>,
         body: &T,
     ) -> anyhow::Result<R> {
-        let response = self
+        let response_builder = self
             .0
             .post(format!("{}{}", *BASE_INTERNAL_URL, url))
-            .json(body)
+            .json(body);
+
+        let response_builder = match headers {
+            Some(headers) => response_builder.headers(headers),
+            None => response_builder,
+        };
+
+        let response = response_builder
             .send()
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
@@ -308,7 +316,7 @@ pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
 }
 
 pub fn make_pull_query(tags: &[String]) -> String {
-    format_pull_query(format!(
+    let query = format_pull_query(format!(
         "SELECT id
         FROM v2_job_queue
         WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
@@ -316,7 +324,8 @@ pub fn make_pull_query(tags: &[String]) -> String {
         FOR UPDATE SKIP LOCKED
         LIMIT 1",
         tags.iter().map(|x| format!("'{x}'")).join(", ")
-    ))
+    ));
+    query
 }
 
 pub async fn store_pull_query(wc: &WorkerConfig) {
@@ -1028,7 +1037,7 @@ pub async fn update_ping_http(
     Ok(())
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct JobCancelled {
     pub canceled_by: String,
     pub reason: String,

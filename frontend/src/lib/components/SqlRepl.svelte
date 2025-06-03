@@ -41,7 +41,7 @@
 	import { CornerDownLeft } from 'lucide-svelte'
 	import Button from './common/button/Button.svelte'
 	import Editor from './Editor.svelte'
-	import { runPreviewJobAndPollResult } from './jobs/utils'
+	import { runScriptAndPollResult } from './jobs/utils'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { untrack } from 'svelte'
@@ -91,7 +91,7 @@
 					.join(';')
 			}
 
-			let { job, result } = (await runPreviewJobAndPollResult(
+			let { job, result } = (await runScriptAndPollResult(
 				{
 					workspace: $workspaceStore,
 					requestBody: {
