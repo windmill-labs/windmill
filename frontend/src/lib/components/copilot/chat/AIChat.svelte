@@ -246,10 +246,12 @@
 	}
 
 	export function addSelectedLinesToContext(lines: string, startLine: number, endLine: number) {
+		$chatMode = 'script'
 		contextManager?.addSelectedLinesToContext(lines, startLine, endLine)
 	}
 
 	export function fix() {
+		$chatMode = 'script'
 		instructions = 'Fix the error'
 		contextManager?.setFixContext()
 		sendRequest()

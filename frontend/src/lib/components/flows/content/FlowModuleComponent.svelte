@@ -66,7 +66,7 @@
 		executionCount
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
-	const { toggleAiPanel, addSelectedLinesToAiChat } =
+	const { toggleAiPanel, addSelectedLinesToAiChat, fix } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') ?? {}
 
 	export let flowModule: FlowModule
@@ -794,6 +794,9 @@
 								{#if selected === 'test'}
 									<Pane minSize={20}>
 										<ModulePreviewResultViewer
+											on:fix={() => {
+												fix?.()
+											}}
 											lang={flowModule.value['language'] ?? 'deno'}
 											{editor}
 											{diffEditor}

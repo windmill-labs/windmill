@@ -753,6 +753,7 @@
 	$: if (flowEditor) {
 		flowCopilotContext.toggleAiPanel = flowEditor.toggleAiPanel
 		flowCopilotContext.addSelectedLinesToAiChat = flowEditor.addSelectedLinesToAiChat
+		flowCopilotContext.fix = flowEditor.aiFix
 	}
 </script>
 

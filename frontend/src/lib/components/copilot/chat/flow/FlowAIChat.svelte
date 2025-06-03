@@ -393,6 +393,10 @@
 	export function addSelectedLinesToContext(lines: string, startLine: number, endLine: number) {
 		aiChat?.addSelectedLinesToContext(lines, startLine, endLine)
 	}
+
+	export function fix() {
+		aiChat?.fix()
+	}
 </script>
 
 <AIChat

@@ -14,4 +14,5 @@ export type FlowCopilotContext = {
 	}>
 	toggleAiPanel?: () => void
 	addSelectedLinesToAiChat?: (lines: string, startLine: number, endLine: number) => void
+	fix?: () => void
 }
