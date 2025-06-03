@@ -194,7 +194,7 @@
 	<div
 		class="relative w-full border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden"
 	>
-		{#if (loading && !code) || !language}
+		{#if AIChatService.mode !== 'navigator' && ((loading && !code) || !language)}
 			<div class="flex flex-row gap-1 p-2 items-center justify-center">
 				<Loader2 class="w-4 h-4 animate-spin" /> Generating code...
 			</div>

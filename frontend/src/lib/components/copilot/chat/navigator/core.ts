@@ -98,9 +98,13 @@ const EXECUTE_COMMAND_TOOL: ChatCompletionTool = {
 				value: {
 					type: 'string',
 					description: 'Value to pass to the AI-triggerable component trigger function'
+				},
+				description: {
+					type: 'string',
+					description: 'Description of the component'
 				}
 			},
-			required: ['id']
+			required: ['id', 'description']
 		}
 	}
 }
@@ -151,7 +155,7 @@ function getTriggerableComponents(): string {
 
 		// List each registered component with its ID and description
 		Object.entries(registeredComponents).forEach(([id, component], index) => {
-			result += `[${index}] ID: "${id}" - ${component.description} - Triggerable: ${component.onTrigger ? 'Yes' : 'No'}\n`
+			result += `[${index}] ID: "${id}" - Description: ${component.description} - Triggerable: ${component.onTrigger ? 'Yes' : 'No'}\n`
 		})
 
 		return result
@@ -254,18 +258,21 @@ export const navigatorTools: Tool<{}>[] = [
 	{
 		def: GET_TRIGGERABLE_COMPONENTS_TOOL,
 		fn: async ({ toolId, toolCallbacks }) => {
-			toolCallbacks.onToolCall(toolId, 'Getting clickable components...')
-			const pageName = getTriggerableComponents()
-			toolCallbacks.onFinishToolCall(toolId, 'Retrieved clickable components')
-			return pageName
+			toolCallbacks.onToolCall(toolId, 'Looking for screen components...')
+			const components = getTriggerableComponents()
+			toolCallbacks.onFinishToolCall(toolId, 'Retrieved screen components')
+			return components
 		}
 	},
 	{
 		def: EXECUTE_COMMAND_TOOL,
 		fn: async ({ args, toolId, toolCallbacks }) => {
-			toolCallbacks.onToolCall(toolId, 'Clicking on the component...')
+			toolCallbacks.onToolCall(toolId, 'Clicking on component...')
 			const result = triggerComponent(args)
-			toolCallbacks.onFinishToolCall(toolId, 'Clicked on the component')
+			toolCallbacks.onFinishToolCall(
+				toolId,
+				'Clicked on component described as: ' + args.description
+			)
 			return result
 		}
 	},
