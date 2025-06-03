@@ -3,14 +3,7 @@
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
-	import {
-		copilotInfo,
-		enterpriseLicense,
-		scriptEditorApplyCode,
-		scriptEditorShowDiffMode,
-		userStore,
-		workspaceStore
-	} from '$lib/stores'
+	import { copilotInfo, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
 	import { inferArgs } from '$lib/infer'
@@ -51,7 +44,6 @@
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/script/core'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import { getStringError } from './copilot/chat/utils'
-	import { scriptEditorOptionsStore } from '$lib/stores'
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
 	import { AIChatService } from './copilot/chat/AIChatManager.svelte'
 
@@ -282,9 +274,9 @@
 
 	onDestroy(() => {
 		disableCollaboration()
-		scriptEditorApplyCode.set(undefined)
-		scriptEditorShowDiffMode.set(undefined)
-		scriptEditorOptionsStore.set(undefined)
+		AIChatService.scriptEditorApplyCode = undefined
+		AIChatService.scriptEditorShowDiffMode = undefined
+		AIChatService.scriptEditorOptions = undefined
 	})
 
 	function asKind(str: string | undefined) {
@@ -373,12 +365,12 @@
 			lastDeployedCode,
 			diffMode
 		}
-		scriptEditorOptionsStore.set(options)
-		scriptEditorApplyCode.set((code: string) => {
+		AIChatService.scriptEditorOptions = options
+		AIChatService.scriptEditorApplyCode = (code: string) => {
 			hideDiffMode()
 			editor?.reviewAndApplyCode(code)
-		})
-		scriptEditorShowDiffMode.set(showDiffMode)
+		}
+		AIChatService.scriptEditorShowDiffMode = showDiffMode
 	}
 </script>
 

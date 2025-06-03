@@ -1,5 +1,3 @@
-// frontend/src/lib/components/copilot/chat/AIChat.svelte.ts
-
 import type { ScriptLang } from '$lib/gen/types.gen'
 import type { ScriptOptions } from './ContextManager.svelte'
 import {
@@ -15,12 +13,7 @@ import type {
 	ChatCompletionMessageParam,
 	ChatCompletionSystemMessageParam
 } from 'openai/resources/chat/completions.mjs'
-import {
-	dbSchemaTool,
-	prepareScriptSystemMessage,
-	resourceTypeTool,
-	type ScriptChatHelpers
-} from './script/core'
+import { prepareScriptSystemMessage, prepareScriptTools } from './script/core'
 import { navigatorTools, prepareNavigatorSystemMessage } from './navigator/core'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
@@ -45,6 +38,12 @@ export class AIChat {
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
 	automaticScroll = $state<boolean>(true)
+	systemMessage = $state<ChatCompletionSystemMessageParam>({
+		role: 'system',
+		content: ''
+	})
+	tools = $state<Tool<any>[]>([])
+	helpers = $state<any | undefined>(undefined)
 
 	triggerablesByAI = $state<TriggerablesMap>({})
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
@@ -59,13 +58,34 @@ export class AIChat {
 		navigator: true
 	})
 
-	private updateMode(currentMode: 'script' | 'flow' | 'navigator') {
+	updateMode(currentMode: 'script' | 'flow' | 'navigator') {
 		if (
 			!this.allowedModes[currentMode] &&
 			Object.keys(this.allowedModes).filter((k) => this.allowedModes[k]).length === 1
 		) {
 			const firstKey = Object.keys(this.allowedModes).filter((k) => this.allowedModes[k])[0]
-			this.mode = firstKey as 'script' | 'flow' | 'navigator'
+			this.changeMode(firstKey as 'script' | 'flow' | 'navigator')
+		}
+	}
+
+	changeMode(mode: 'script' | 'flow' | 'navigator') {
+		this.mode = mode
+		if (mode === 'script') {
+			this.systemMessage = prepareScriptSystemMessage()
+			const context = this.contextManager.getSelectedContext()
+			const lang = this.scriptEditorOptions?.lang ?? 'bun'
+			this.tools = prepareScriptTools(lang, context)
+			this.helpers = {
+				getLang: () => lang
+			}
+		} else if (mode === 'flow') {
+			this.systemMessage = prepareFlowSystemMessage()
+			this.tools = flowTools
+			this.helpers = this.flowAiChatHelpers
+		} else if (mode === 'navigator') {
+			this.systemMessage = prepareNavigatorSystemMessage()
+			this.tools = navigatorTools
+			this.helpers = {}
 		}
 	}
 
@@ -112,7 +132,9 @@ export class AIChat {
 		} = {}
 	) => {
 		if (options.mode) {
-			this.mode = options.mode
+			this.changeMode(options.mode)
+		} else {
+			this.changeMode(this.mode)
 		}
 		if (options.instructions) {
 			this.instructions = options.instructions
@@ -139,13 +161,6 @@ export class AIChat {
 			]
 			const oldInstructions = this.instructions
 			this.instructions = ''
-
-			const systemMessage =
-				this.mode === 'script'
-					? prepareScriptSystemMessage()
-					: this.mode === 'flow'
-						? prepareFlowSystemMessage()
-						: prepareNavigatorSystemMessage()
 
 			if (this.mode === 'flow' && !this.flowAiChatHelpers) {
 				throw new Error('No flow helpers passed')
@@ -174,7 +189,6 @@ export class AIChat {
 			this.currentReply = ''
 
 			const params: {
-				systemMessage: ChatCompletionSystemMessageParam
 				messages: ChatCompletionMessageParam[]
 				abortController: AbortController
 				callbacks: ToolCallbacks & {
@@ -182,7 +196,6 @@ export class AIChat {
 					onMessageEnd: () => void
 				}
 			} = {
-				systemMessage,
 				messages: this.messages,
 				abortController: this.abortController,
 				callbacks: {
@@ -223,38 +236,12 @@ export class AIChat {
 				}
 			}
 
-			if (this.mode === 'flow') {
-				if (!this.flowAiChatHelpers) {
-					throw new Error('No flow helpers found')
-				}
-				await chatRequest({
-					...params,
-					tools: flowTools,
-					helpers: this.flowAiChatHelpers
-				})
-			} else if (this.mode === 'script') {
-				const tools: Tool<ScriptChatHelpers>[] = []
-				if (['python3', 'php', 'bun', 'deno', 'nativets', 'bunnative'].includes(lang)) {
-					tools.push(resourceTypeTool)
-				}
-				if (oldSelectedContext.filter((c) => c.type === 'db').length > 0) {
-					tools.push(dbSchemaTool)
-				}
-				await chatRequest({
-					...params,
-					tools,
-					helpers: {
-						getLang: () => lang
-					}
-				})
-			} else if (this.mode === 'navigator') {
-				await chatRequest({
-					...params,
-					tools: navigatorTools,
-					helpers: {}
-				})
+			if (this.mode === 'flow' && !this.flowAiChatHelpers) {
+				throw new Error('No flow helpers found')
 			}
-
+			await chatRequest({
+				...params
+			})
 			if (this.currentReply) {
 				// just in case the onMessageEnd is not called (due to an error for instance)
 				this.displayMessages = [
@@ -312,6 +299,19 @@ export class AIChat {
 			this.messages = chat.actualMessages
 			this.automaticScroll = true
 		}
+	}
+
+	generateStep = async (moduleId: string, lang: ScriptLang, instructions: string) => {
+		if (!this.flowAiChatHelpers) {
+			throw new Error('No flow helpers found')
+		}
+		this.flowAiChatHelpers.selectStep(moduleId)
+		await this.sendRequest({
+			instructions: instructions,
+			mode: 'script',
+			lang: lang,
+			isPreprocessor: moduleId === 'preprocessor'
+		})
 	}
 }
 

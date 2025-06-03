@@ -14,8 +14,6 @@ import {
 	WorkspaceService
 } from './gen'
 import { getLocalSetting } from './utils'
-import type { ScriptOptions } from './components/copilot/chat/ContextManager.svelte'
-import type AiChat from './components/copilot/chat/AIChat.svelte'
 import type { FlowAIChatHelpers } from './components/copilot/chat/flow/core'
 import type { Tool } from './components/copilot/chat/shared'
 import type { ChatCompletionSystemMessageParam } from 'openai/resources/index.mjs'
@@ -174,21 +172,6 @@ export const copilotSessionModel = writable<AIProviderModel | undefined>(
 		: undefined
 )
 export const usedTriggerKinds = writable<string[]>([])
-
-export const triggerablesByAI = writable<
-	Record<string, { description: string; onTrigger: ((id: string) => void) | undefined }>
->({})
-
-export const scriptEditorOptionsStore = writable<ScriptOptions | undefined>(undefined)
-export const scriptEditorApplyCode = writable<((code: string) => void) | undefined>(undefined)
-export const scriptEditorShowDiffMode = writable<(() => void) | undefined>(undefined)
-export const flowAiChatHelpersStore = writable<
-	| (FlowAIChatHelpers & { getFlowAndSelectedId: () => { flow: OpenFlow; selectedId: string } })
-	| undefined
->(undefined)
-export const chatSystemMessage = writable<ChatCompletionSystemMessageParam | undefined>(undefined)
-export const chatTools = writable<Tool<any>[]>([])
-export const chatHelpers = writable<any | undefined>(undefined)
 
 type SQLBaseSchema = {
 	[schemaKey: string]: {

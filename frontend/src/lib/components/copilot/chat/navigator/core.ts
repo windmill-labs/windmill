@@ -1,20 +1,10 @@
-import { get } from 'svelte/store'
 import { page } from '$app/state'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionTool,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/index.mjs'
-import {
-	chatHelpers,
-	chatSystemMessage,
-	chatTools,
-	flowAiChatHelpersStore,
-	triggerablesByAI
-} from '$lib/stores'
 import type { Tool } from '../shared'
-import { prepareScriptSystemMessage } from '../script/core'
-import { flowTools, prepareFlowSystemMessage } from '../flow/core'
 import { AIChatService } from '../AIChatManager.svelte'
 
 // System prompt for the LLM
@@ -148,34 +138,10 @@ const CHANGE_MODE_TOOL: ChatCompletionTool = {
 	}
 }
 
-function changeMode(args: { mode: string }) {
-	const { mode } = args
-
-	AIChatService.mode = mode as 'script' | 'flow' | 'navigator'
-	if (mode === 'script') {
-		chatSystemMessage.set(prepareScriptSystemMessage())
-		// chatTools.set([
-		// 	GET_TRIGGERABLE_COMPONENTS_TOOL,
-		// 	EXECUTE_COMMAND_TOOL,
-		// 	GET_DOCUMENTATION_TOOL,
-		// 	GET_CURRENT_PAGE_NAME_TOOL,
-		// 	CHANGE_MODE_TOOL
-		// ])
-	} else if (mode === 'flow') {
-		chatSystemMessage.set(prepareFlowSystemMessage())
-		chatTools.set(flowTools)
-		chatHelpers.set(get(flowAiChatHelpersStore))
-	} else if (mode === 'navigator') {
-		chatSystemMessage.set(prepareNavigatorSystemMessage())
-		chatTools.set(navigatorTools)
-		chatHelpers.set({})
-	}
-}
-
 function getTriggerableComponents(): string {
 	try {
 		// Get components registered in the triggerablesByAI store
-		const registeredComponents = get(triggerablesByAI)
+		const registeredComponents = AIChatService.triggerablesByAI
 		let result = 'TRIGGERABLE_COMPONENTS:\n'
 
 		// If there are no components registered, return a message
@@ -227,8 +193,7 @@ function triggerComponent(args: { id: string; value: string }): string {
 			return 'Trigger command requires an id parameter'
 		}
 
-		const components = get(triggerablesByAI)
-		const component = components[id]
+		const component = AIChatService.triggerablesByAI[id]
 
 		if (!component) {
 			return `No triggerable component found with id: ${id}`
@@ -325,7 +290,7 @@ export const navigatorTools: Tool<{}>[] = [
 		def: CHANGE_MODE_TOOL,
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			toolCallbacks.onToolCall(toolId, 'Changing AI mode...')
-			changeMode(args)
+			AIChatService.changeMode(args.mode as 'script' | 'flow' | 'navigator')
 			toolCallbacks.onFinishToolCall(toolId, 'Changed AI mode')
 			return 'Mode changed to ' + args.mode
 		}

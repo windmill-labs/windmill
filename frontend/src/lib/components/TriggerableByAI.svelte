@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { triggerablesByAI } from '$lib/stores'
+	import { AIChatService } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
 	let { id, description, onTrigger, children } = $props<{
 		id: string | undefined
@@ -32,16 +32,17 @@
 
 	$effect(() => {
 		if (disabled) return
-		triggerablesByAI.update((triggers) => {
-			return { ...triggers, [id]: { description, onTrigger: handleTrigger } }
-		})
+
+		const currentId = id
+		const currentData = { description, onTrigger: handleTrigger }
+
+		const existingTriggerables = AIChatService.triggerablesByAI
+		existingTriggerables[currentId] = currentData
 
 		return () => {
-			triggerablesByAI.update((triggers) => {
-				const newTriggers = { ...triggers }
-				delete newTriggers[id]
-				return newTriggers
-			})
+			if (AIChatService.triggerablesByAI[currentId]) {
+				delete AIChatService.triggerablesByAI[currentId]
+			}
 		}
 	})
 </script>

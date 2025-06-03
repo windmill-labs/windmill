@@ -8,7 +8,8 @@ import type {
 import { get } from 'svelte/store'
 import type { ContextElement } from './context'
 import { getCompletion } from '../lib'
-import { chatHelpers, chatSystemMessage, chatTools, workspaceStore } from '$lib/stores'
+import { workspaceStore } from '$lib/stores'
+import { AIChatService } from './AIChatManager.svelte'
 
 export type DisplayMessage =
 	| {
@@ -103,19 +104,13 @@ export interface ToolCallbacks {
 	onFinishToolCall: (id: string, content: string) => void
 }
 
-export async function chatRequest<T>({
-	systemMessage,
+export async function chatRequest({
 	messages,
 	abortController,
-	tools,
-	helpers,
 	callbacks
 }: {
-	systemMessage: ChatCompletionSystemMessageParam
 	messages: ChatCompletionMessageParam[]
 	abortController: AbortController
-	tools: Tool<T>[]
-	helpers: T
 	callbacks: ToolCallbacks & {
 		onNewToken: (token: string) => void
 		onMessageEnd: () => void
@@ -124,14 +119,16 @@ export async function chatRequest<T>({
 	try {
 		let completion: any = null
 		while (true) {
-			const sysMessage =
-				(get(chatSystemMessage) as ChatCompletionSystemMessageParam) || systemMessage
-			const t = get(chatTools).length > 0 ? get(chatTools) : tools
-			const h = get(chatHelpers)
+			const systemMessage = AIChatService.systemMessage
+			const tools = AIChatService.tools
+			const helpers = AIChatService.helpers
+			console.log('systemMessage', systemMessage)
+			console.log('tools', tools)
+			console.log('helpers', helpers)
 			completion = await getCompletion(
-				[sysMessage, ...messages],
+				[systemMessage, ...messages],
 				abortController,
-				t.map((t) => t.def)
+				tools.map((t) => t.def)
 			)
 
 			if (completion) {
@@ -190,10 +187,10 @@ export async function chatRequest<T>({
 					})
 					for (const toolCall of toolCalls) {
 						await processToolCall({
-							tools: t,
+							tools,
 							toolCall,
 							messages,
-							helpers: h,
+							helpers,
 							toolCallbacks: callbacks
 						})
 					}

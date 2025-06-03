@@ -22,7 +22,6 @@
 		yaml
 	} from 'svelte-highlight/languages'
 	import { scriptLangToEditorLang } from '$lib/scripts'
-	import { scriptEditorApplyCode } from '$lib/stores'
 	import { AIChatService } from '../AIChatManager.svelte'
 
 	const astNode = getAstNode()
@@ -184,7 +183,7 @@
 				color="dark"
 				size="xs2"
 				on:click={() => {
-					$scriptEditorApplyCode?.(code ?? '')
+					AIChatService.scriptEditorApplyCode?.(code ?? '')
 				}}
 			>
 				Apply

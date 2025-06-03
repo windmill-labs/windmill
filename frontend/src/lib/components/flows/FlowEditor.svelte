@@ -48,7 +48,7 @@
 		AIChatService.addSelectedLinesToContext(lines, startLine, endLine)
 		if (!AIChatService.open) {
 			AIChatService.open = true
-			AIChatService.mode = 'script'
+			AIChatService.changeMode('script')
 		}
 	}
 </script>
@@ -90,7 +90,7 @@
 							if (!AIChatService.open) {
 								AIChatService.open = true
 							}
-							$aiChatInstanceStore?.generateStep(detail.moduleId, detail.lang, detail.instructions)
+							AIChatService.generateStep(detail.moduleId, detail.lang, detail.instructions)
 						}}
 					/>
 				{/if}

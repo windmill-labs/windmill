@@ -15,13 +15,8 @@
 		insertNewPreprocessorModule
 	} from '$lib/components/flows/flowStateUtils'
 	import type { ScriptOptions } from '../ContextManager.svelte'
-	import {
-		flowAiChatHelpersStore,
-		scriptEditorApplyCode,
-		scriptEditorOptionsStore,
-		scriptEditorShowDiffMode
-	} from '$lib/stores'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
+	import { AIChatService } from '../AIChatManager.svelte'
 
 	let {
 		flowModuleSchemaMap
@@ -381,22 +376,22 @@
 
 	$effect(() => {
 		if ($currentEditor && $currentEditor.type === 'script') {
-			scriptEditorApplyCode.set((code) => {
+			AIChatService.scriptEditorApplyCode = (code) => {
 				if ($currentEditor && $currentEditor.type === 'script') {
 					$currentEditor.hideDiffMode()
 					$currentEditor.editor.reviewAndApplyCode(code)
 				}
-			})
-			scriptEditorShowDiffMode.set(() => {
+			}
+			AIChatService.scriptEditorShowDiffMode = () => {
 				if ($currentEditor && $currentEditor.type === 'script') {
 					$currentEditor.showDiffMode()
 				}
-			})
+			}
 		}
 
 		return () => {
-			scriptEditorApplyCode.set(undefined)
-			scriptEditorShowDiffMode.set(undefined)
+			AIChatService.scriptEditorApplyCode = undefined
+			AIChatService.scriptEditorShowDiffMode = undefined
 		}
 	})
 
@@ -404,20 +399,20 @@
 		if ($selectedId) {
 			const options = getScriptOptions($selectedId)
 			if (options) {
-				scriptEditorOptionsStore.set(options)
+				AIChatService.scriptEditorOptions = options
 			}
 		}
 
 		return () => {
-			scriptEditorOptionsStore.set(undefined)
+			AIChatService.scriptEditorOptions = undefined
 		}
 	})
 
 	$effect(() => {
-		flowAiChatHelpersStore.set(flowHelpers)
+		AIChatService.flowAiChatHelpers = flowHelpers
 
 		return () => {
-			flowAiChatHelpersStore.set(undefined)
+			AIChatService.flowAiChatHelpers = undefined
 		}
 	})
 </script>

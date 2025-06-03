@@ -43,7 +43,7 @@
 								AIChatService.mode === possibleMode && 'bg-surface-hover'
 							)}
 							onclick={() => {
-								AIChatService.mode = possibleMode as 'script' | 'flow' | 'navigator'
+								AIChatService.changeMode(possibleMode as 'script' | 'flow' | 'navigator')
 								close()
 							}}
 						>
