@@ -596,7 +596,7 @@ You can add branchone/branchall and forloops to the flow. Make sure to set the p
 You can also add or remove branches. 
 
 ### Adding multiple steps
-After adding a step, make sure to consider the updated flow when adding a another step so that the step is added in the right place.
+After adding a step, make sure to consider the updated flow when adding another step so that the step is added in the right place.
 
 ### Flow inputs schema
 You can use the set_flow_inputs_schema tool to set the flow inputs schema.
