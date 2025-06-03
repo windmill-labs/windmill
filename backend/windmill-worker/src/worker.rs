@@ -845,7 +845,7 @@ pub fn start_interactive_worker_shell(
     job_completed_tx: JobCompletedSender,
     base_internal_url: String,
     worker_dir: String,
-) {
+) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
 
@@ -933,7 +933,7 @@ pub fn start_interactive_worker_shell(
                 };
             }
         }
-    });
+    })
 }
 
 async fn create_job_dir(worker_directory: &str, job_id: impl Display) -> String {
@@ -1271,8 +1271,8 @@ pub async fn run_worker(
     // This tag is associated only with jobs using Bash as the script language.
     // For agent workers, the expected tag format is the worker name suffixed with "-ssh".
     // For regular workers, the tag is simply the machine's hostname and if not found the randomly generated hostname.
-    /* if i_worker == 1 {
-        start_interactive_worker_shell(
+    let interactive_shell = if i_worker == 1 {
+        let it_shell = start_interactive_worker_shell(
             conn.clone(),
             hostname.to_owned(),
             worker_name.clone(),
@@ -1281,7 +1281,11 @@ pub async fn run_worker(
             base_internal_url.to_owned(),
             worker_dir.clone(),
         );
-    }*/
+
+        Some(it_shell)
+    } else {
+        None
+    };
 
     let mut last_executed_job: Option<Instant> = None;
 
@@ -1912,6 +1916,11 @@ pub async fn run_worker(
     if let Some(send_result) = send_result {
         if let Err(e) = send_result.await {
             tracing::error!("error in awaiting send_result process: {e:?}")
+        }
+    }
+    if let Some(interactive_shell) = interactive_shell {
+        if let Err(e) = interactive_shell.await {
+            tracing::error!("error in awaiting interactive_shell process: {e:?}")
         }
     }
     tracing::info!(worker = %worker_name, hostname = %hostname, "worker {} exited", worker_name);
