@@ -10,7 +10,7 @@ use reqwest::{Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
-use windmill_audit::{audit_ee::audit_log, ActionKind};
+use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::error::{to_anyhow, Error, Result};
 
 lazy_static::lazy_static! {

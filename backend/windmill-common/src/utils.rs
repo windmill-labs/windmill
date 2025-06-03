@@ -7,9 +7,9 @@
  */
 
 use crate::auth::is_devops_email;
-use crate::ee::LICENSE_KEY_ID;
+use crate::ee_oss::LICENSE_KEY_ID;
 #[cfg(feature = "enterprise")]
-use crate::ee::{send_critical_alert, CriticalAlertKind};
+use crate::ee_oss::{send_critical_alert, CriticalAlertKind};
 use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
 use crate::DB;

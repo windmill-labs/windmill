@@ -53,7 +53,7 @@ use futures::{
 
 use crate::common::{resolve_job_timeout, OccupancyMetrics};
 use crate::job_logger::{append_job_logs, append_with_limit};
-use crate::job_logger_ee::process_streaming_log_lines;
+use crate::job_logger_oss::process_streaming_log_lines;
 use crate::worker_utils::{ping_job_status, update_worker_ping_from_job};
 use crate::{MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM};
 

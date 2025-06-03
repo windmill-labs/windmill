@@ -27,7 +27,7 @@ use windmill_common::{
 };
 
 #[cfg(feature = "enterprise")]
-use windmill_common::ee::LICENSE_KEY_VALID;
+use windmill_common::ee_oss::LICENSE_KEY_VALID;
 
 use anyhow::Result;
 use const_format::concatcp;
@@ -694,7 +694,7 @@ fn create_span(arc_job: &Arc<MiniPulledJob>, worker_name: &str, hostname: &str) 
         span.record("root_job", root_job.to_string().as_str());
     }
 
-    windmill_common::otel_ee::set_span_parent(&span, &rj);
+    windmill_common::otel_oss::set_span_parent(&span, &rj);
     span
 }
 

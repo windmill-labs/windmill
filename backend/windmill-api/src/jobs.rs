@@ -65,7 +65,7 @@ use sqlx::types::JsonRawValue;
 use sqlx::{types::Uuid, FromRow, Postgres, Transaction};
 use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
-use windmill_audit::audit_ee::{audit_log, AuditAuthor};
+use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 use windmill_common::worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE};
 use windmill_common::{
@@ -3200,7 +3200,7 @@ async fn check_tag_available_for_workspace(
 
 #[cfg(feature = "enterprise")]
 pub async fn check_license_key_valid() -> error::Result<()> {
-    use windmill_common::ee::LICENSE_KEY_VALID;
+    use windmill_common::ee_oss::LICENSE_KEY_VALID;
 
     let valid = *LICENSE_KEY_VALID.read().await;
     if !valid {
