@@ -28,7 +28,7 @@
 		icon: WandSparkles
 	}}
 	size="xs2"
-	btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 !bg-transparent"
+	btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 !bg-surface"
 	on:click={onClick}
 >
 	{label}

@@ -10,8 +10,6 @@
 	export let title: string = ''
 	export let id: string | undefined = undefined
 
-	$: console.log(aiId, aiDescription)
-
 	let buttonRef: HTMLButtonElement | undefined = undefined
 </script>
 

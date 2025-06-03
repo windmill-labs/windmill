@@ -217,7 +217,7 @@
 
 <div>
 	{#if !AIChatService.open}
-		<div class="fixed top-4 right-4 z-50">
+		<div class="fixed top-4 right-2 z-50">
 			<AskAiButton />
 		</div>
 	{/if}
