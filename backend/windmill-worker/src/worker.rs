@@ -889,23 +889,67 @@ pub fn start_interactive_worker_shell(
                         let job_dir = create_job_dir(&worker_dir, job.id).await;
                         #[cfg(feature = "benchmark")]
                         let mut bench = windmill_common::bench::BenchmarkIter::new();
-                        let _ = handle_job_execution(
+
+                        let JobAndPerms {
                             job,
+                            raw_code,
+                            raw_lock,
+                            raw_flow,
+                            parent_runnable_path,
+                            token,
+                            precomputed_agent_info: precomputed_bundle,
+                        } = extract_job_and_perms(job, &conn).await;
+
+                        let authed_client = AuthedClient::new(
+                            base_internal_url.to_owned(),
+                            job.workspace_id.clone(),
+                            token,
+                            None,
+                        );
+
+                        let arc_job = Arc::new(job);
+
+                        let job_result = handle_queued_job(
+                            arc_job.clone(),
+                            raw_code,
+                            raw_lock,
+                            raw_flow,
+                            parent_runnable_path,
                             &conn,
-                            &base_internal_url,
+                            &authed_client,
                             &hostname,
                             &worker_name,
                             &worker_dir,
                             &job_dir,
                             None,
+                            &base_internal_url,
                             job_completed_tx.clone(),
                             &mut occupancy_metrics,
                             &mut killpill_rx,
-                            false,
+                            precomputed_bundle,
                             #[cfg(feature = "benchmark")]
-                            &mut bench,
+                            bench,
                         )
                         .await;
+
+                        match job_result {
+                            Err(err) => {
+                                handle_all_job_kind_error(
+                                    &conn,
+                                    &authed_client,
+                                    arc_job.clone(),
+                                    err,
+                                    None,
+                                    &worker_dir,
+                                    &worker_name,
+                                    job_completed_tx.clone(),
+                                    #[cfg(feature = "benchmark")]
+                                    bench,
+                                )
+                                .await;
+                            }
+                            _ => {}
+                        }
 
                         last_executed_job = Some(Instant::now());
                     }
@@ -1271,7 +1315,7 @@ pub async fn run_worker(
     // This tag is associated only with jobs using Bash as the script language.
     // For agent workers, the expected tag format is the worker name suffixed with "-ssh".
     // For regular workers, the tag is simply the machine's hostname and if not found the randomly generated hostname.
-    let interactive_shell = if i_worker == 1 {
+    /*let interactive_shell = if i_worker == 1 {
         let it_shell = start_interactive_worker_shell(
             conn.clone(),
             hostname.to_owned(),
@@ -1285,7 +1329,7 @@ pub async fn run_worker(
         Some(it_shell)
     } else {
         None
-    };
+    };*/
 
     let mut last_executed_job: Option<Instant> = None;
 
@@ -1775,26 +1819,63 @@ pub async fn run_worker(
                     let is_flow = job.is_flow();
                     let job_id = job.id;
 
-                    let result = handle_job_execution(
+                    let JobAndPerms {
                         job,
-                        conn,
-                        base_internal_url,
-                        hostname,
+                        raw_code,
+                        raw_lock,
+                        raw_flow,
+                        parent_runnable_path,
+                        token,
+                        precomputed_agent_info: precomputed_bundle,
+                    } = extract_job_and_perms(job, &conn).await;
+
+                    let authed_client = AuthedClient::new(
+                        base_internal_url.to_owned(),
+                        job.workspace_id.clone(),
+                        token,
+                        None,
+                    );
+
+                    let arc_job = Arc::new(job);
+
+                    let job_result = handle_queued_job(
+                        arc_job.clone(),
+                        raw_code,
+                        raw_lock,
+                        raw_flow,
+                        parent_runnable_path,
+                        &conn,
+                        &authed_client,
+                        &hostname,
                         &worker_name,
                         &worker_dir,
                         &job_dir,
-                        Some(same_worker_tx.clone()),
+                        None,
+                        &base_internal_url,
                         job_completed_tx.clone(),
                         &mut occupancy_metrics,
-                        &mut killpill_rx2,
-                        true,
+                        &mut killpill_rx,
+                        precomputed_bundle,
                         #[cfg(feature = "benchmark")]
-                        &mut bench,
+                        bench,
                     )
                     .await;
 
-                    match result {
-                        Err(_) => {
+                    match job_result {
+                        Err(err) => {
+                            handle_all_job_kind_error(
+                                &conn,
+                                &authed_client,
+                                arc_job.clone(),
+                                err,
+                                None,
+                                &worker_dir,
+                                &worker_name,
+                                job_completed_tx.clone(),
+                                #[cfg(feature = "benchmark")]
+                                bench,
+                            )
+                            .await;
                             if is_init_script {
                                 tracing::error!("init script job failed (in handler), exiting");
                                 update_worker_ping_for_failed_init_script(
@@ -1918,11 +1999,11 @@ pub async fn run_worker(
             tracing::error!("error in awaiting send_result process: {e:?}")
         }
     }
-    if let Some(interactive_shell) = interactive_shell {
+    /*if let Some(interactive_shell) = interactive_shell {
         if let Err(e) = interactive_shell.await {
             tracing::error!("error in awaiting interactive_shell process: {e:?}")
         }
-    }
+    }*/
     tracing::info!(worker = %worker_name, hostname = %hostname, "worker {} exited", worker_name);
     tracing::info!(worker = %worker_name, hostname = %hostname, "number of jobs executed: {}", jobs_executed);
 }
