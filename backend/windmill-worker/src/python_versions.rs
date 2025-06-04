@@ -157,43 +157,6 @@ impl PyV {
             .filter(|v| version_specifiers.iter().all(|vs| (vs).contains(&*v)))
             .collect_vec();
 
-        // let has_minor = |v: &pep440_rs::Version| v.release().get(2).is_some();
-
-        // // Usually INSTANCE_PYTHON_VERSION
-        // let gv =
-        //     gravitational_version.unwrap_or(PyV::gravitational_version(job_id, w_id, conn).await);
-
-        // // Get all versions that can be fetched
-        // let all_versions = custom_versions
-        //     .clone()
-        //     .unwrap_or(PyV::list_available_python_versions().await);
-
-        // // Determine if resolved version should contain MINOR digit.
-        // // We do that by checking if any version specifier has minor digit
-        // let pin_to_specific = version_specifiers.iter().any(|vs| has_minor(vs.version()))
-        //     || has_minor(&*gv)
-        //         && all_versions
-        //             .clone()
-        //             .into_iter()
-        //             .any(|v| v == gv && version_specifiers.iter().all(|vs| (vs).contains(&*v)));
-        // // .collect_vec();
-
-        // let all_versions = custom_versions.unwrap_or(if pin_to_specific {
-        //     all_versions
-        //     // PyV::list_available_python_versions().await
-        // } else {
-        //     PyV::list_available_python_versions_no_minor().await
-        // });
-
-        // // Narrow down to those that satisfy given version specifiers
-        // let valid = all_versions
-        //     .clone()
-        //     .into_iter()
-        //     .filter(|v| version_specifiers.iter().all(|vs| (vs).contains(&*v)))
-        //     .collect_vec();
-
-        // // valid.contains(&gv);
-
         if !valid.is_empty() {
             let patch_vs = version_specifiers
                 .iter()
@@ -353,15 +316,6 @@ impl PyV {
         pyv.into()
     }
 
-    pub async fn list_available_python_versions_no_minor() -> Vec<Self> {
-        let mut set = HashSet::new();
-        for pyv in Self::list_available_python_versions().await {
-            if let [major, minor, ..] = pyv.release() {
-                set.insert(pep440_rs::Version::new([major, minor]).into());
-            }
-        }
-        set.into_iter().sorted().rev().collect()
-    }
     pub async fn list_available_python_versions() -> Vec<Self> {
         match Self::list_available_python_versions_inner().await {
             Ok(pyvs) => pyvs,
