@@ -659,7 +659,7 @@
 						'transition-all ease-in-out duration-200'
 					)}
 				>
-					<main class="min-h-screen">
+					<main class="min-h-[97vh]">
 						<div class="relative w-full h-full">
 							<div
 								class={classNames(
