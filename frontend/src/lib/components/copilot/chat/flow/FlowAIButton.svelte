@@ -3,9 +3,10 @@
 	import { copilotInfo } from '$lib/stores'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DarkPopover from '$lib/components/Popover.svelte'
-	import { ExternalLink, WandSparkles } from 'lucide-svelte'
+	import { ExternalLink } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { getModifierKey } from '$lib/utils'
+	import WindmillAiIcon from '$lib/components/icons/WindmillAiIcon.svelte'
 
 	let { openPanel }: { openPanel: () => void } = $props()
 </script>
@@ -16,7 +17,7 @@
 		variant="border"
 		size="xs"
 		on:click={onClick}
-		startIcon={{ icon: WandSparkles }}
+		startIcon={{ icon: WindmillAiIcon, props: { className: 'm-[1px]' } }}
 		iconOnly
 		btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface"
 	>

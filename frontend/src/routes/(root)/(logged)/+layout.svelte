@@ -43,7 +43,7 @@
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
-	import { ArrowLeft, Search, WandSparkles } from 'lucide-svelte'
+	import { ArrowLeft, Search } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
 	import { workspaceAIClients } from '$lib/components/copilot/lib'
 	import { twMerge } from 'tailwind-merge'
@@ -56,6 +56,7 @@
 	import GlobalChat from '$lib/components/copilot/chat/navigator/GlobalChat.svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import WindmillAiIcon from '$lib/components/icons/WindmillAiIcon.svelte'
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
 	let globalSearchModal: GlobalSearchModal | undefined = undefined
@@ -455,7 +456,7 @@
 											stopPropagationOnClick={true}
 											on:click={() => aiChatManager.toggleOpen()}
 											isCollapsed={false}
-											icon={WandSparkles}
+											icon={WindmillAiIcon}
 											label="Ask AI"
 											class="!text-xs"
 											iconClasses="!text-violet-400 dark:!text-violet-400"
@@ -523,7 +524,7 @@
 									stopPropagationOnClick={true}
 									on:click={() => aiChatManager.toggleOpen()}
 									{isCollapsed}
-									icon={WandSparkles}
+									icon={WindmillAiIcon}
 									label="Ask AI"
 									class="!text-xs"
 									iconClasses="!text-violet-400 dark:!text-violet-400"
@@ -631,7 +632,7 @@
 									stopPropagationOnClick={true}
 									on:click={() => aiChatManager.toggleOpen()}
 									{isCollapsed}
-									icon={WandSparkles}
+									icon={WindmillAiIcon}
 									label="Ask AI"
 									class="!text-xs"
 									iconClasses="!text-violet-400 dark:!text-violet-400"
