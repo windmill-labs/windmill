@@ -3,7 +3,7 @@
 	import { ListFilter, Lock, LockOpen } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import VirtualList from 'svelte-tiny-virtual-list'
+	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
 	import type { onSelectedIteration } from '$lib/components/graph/graphBuilder.svelte'
 
 	interface Props {
@@ -137,7 +137,9 @@
 					<div class="max-h-[300px]">
 						{#key items}
 							<VirtualList height={300} width="100%" itemCount={items.length} itemSize={24}>
-								{#snippet item({ index: idx, style })}
+								{#snippet header()}{/snippet}
+								{#snippet footer()}{/snippet}
+								{#snippet children({ index: idx, style })}
 									<div {style}>
 										<MenuItem
 											class={twMerge(

@@ -599,7 +599,6 @@
 								--sms-open-z-index="100"
 								disabled={!can_write}
 							>
-								<!-- @migration-task: migrate this slot by hand, `remove-icon` is an invalid identifier -->
 								<svelte:fragment slot="remove-icon">
 									<div class="hover:text-primary p-0.5">
 										<X size={12} />

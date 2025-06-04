@@ -20,7 +20,6 @@ export type InlineScript = {
 	language: RawScript['language']
 	kind: Script['kind']
 	subkind: 'pgsql' | 'flow'
-	id: string
 	summary?: string
 	instructions?: string
 }
