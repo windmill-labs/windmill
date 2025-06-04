@@ -42,15 +42,11 @@
 	$: height = Math.max(MIN_HEIGHT * zoom, 375)
 
 	const virtualItemClasses = {
-		bar: 'dark:hover:bg-[#525d6f] dark:bg-[#414958] bg-[#d7dfea]  hover:bg-slate-300',
-		handle:
-			'dark:group-hover:bg-[#525d6f] dark:hover:bg-[#525d6f] dark:bg-[#414958] bg-[#d7dfea] hover:bg-slate-300 group-hover:bg-slate-300'
+		bar: 'dark:hover:bg-[#525d6f] dark:bg-[#414958] bg-[#d7dfea] hover:bg-slate-300'
 	}
 
 	const defaultClasses = {
-		bar: 'bg-surface-disabled hover:bg-surface-hover dark:bg-[#454e5f] dark:hover:bg-[#576278]',
-		handle:
-			'group-hover:bg-surface-hover hover:bg-surface-hover bg-surface-disabled dark:bg-[#454e5f] dark:hover:bg-[#576278] dark:group-hover:bg-[#576278]'
+		bar: 'bg-surface-disabled hover:bg-surface-hover dark:bg-[#454e5f] dark:hover:bg-[#576278]'
 	}
 
 	export function toggleOpen() {
@@ -62,9 +58,11 @@
 	}
 </script>
 
+<!-- svelte-ignore element_invalid_self_closing_tag -->
 <Popover
 	floatingConfig={{
 		placement: 'bottom',
+		gutter: 24, // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
 		overflowPadding: historyOpen ? 250 : 8
 	}}
 	usePointerDownOutside
@@ -83,42 +81,48 @@
 >
 	<svelte:fragment slot="trigger" let:isOpen>
 		<div
-			class={twMerge(
-				'bg-slate-200',
-				`w-[275px] h-[4px] flex flex-row items-center justify-center cursor-pointer`,
-				variant === 'virtual' ? virtualItemClasses.bar : defaultClasses.bar,
-				'shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)] rounded-b-sm',
-				'group'
-			)}
+			class="relative h-1"
 			on:pointerdown={(e) => {
 				e.preventDefault()
 				e.stopPropagation()
 			}}
-			data-prop-picker
-			title={`${isOpen ? 'Close' : 'Open'} step output`}
 		>
-			<div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-10 h-[14px]">
+			<!-- Invisible hover area to maintain consistent height -->
+			<div class="absolute w-[275px] h-[16px]" />
+			<div
+				class={twMerge(
+					'bg-slate-200 absolute w-[275px]',
+					variant === 'virtual'
+						? `${virtualItemClasses.bar} ${isOpen || selected || hover || showConnecting ? 'bg-slate-300 dark:bg-[#525d6f]' : ''}`
+						: `${defaultClasses.bar} ${isOpen || selected || hover || showConnecting ? 'bg-surface-hover dark:bg-[#576278]' : ''}`,
+					'shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)] rounded-b-sm',
+					'group transition-all duration-100',
+					'flex flex-row items-center justify-center',
+					'h-1 hover:h-[16px]',
+					(isOpen || selected || hover || showConnecting) && 'h-[16px]',
+					showConnecting && 'text-blue-500 bg-surface'
+				)}
+				data-prop-picker
+				title={`${isOpen ? 'Close' : 'Open'} step output`}
+			>
 				<AnimatedButton
 					animate={showConnecting}
-					wrapperClasses="relative w-full h-full center-center"
+					wrapperClasses={twMerge(
+						'relative w-10 h-full center-center transition-opacity duration-150',
+						isOpen || selected || hover || showConnecting ? 'opacity-100' : 'opacity-0',
+						'group-hover:opacity-100'
+					)}
 					baseRadius="6px"
 					marginWidth="1px"
 				>
-					<div
+					<ChevronDown
+						size={12}
 						class={twMerge(
-							'w-full h-full rounded-t-md shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)]',
-							`hidden group-hover:center-center`,
-							variant === 'virtual' ? virtualItemClasses.handle : defaultClasses.handle,
-							isOpen || selected || hover || showConnecting ? 'center-center' : 'hidden',
-							showConnecting ? 'text-blue-500 bg-surface rounded-b-md' : 'text-secondary'
+							'h-fit transition-all duration-150',
+							showConnecting ? 'text-blue-500' : 'text-secondary'
 						)}
-					>
-						<ChevronDown
-							size={12}
-							class="h-fit transition-transform duration-100"
-							style={`transform: rotate(${isOpen ? '180deg' : '0deg'})`}
-						/>
-					</div>
+						style={`transform: rotate(${isOpen ? '180deg' : '0deg'})`}
+					/>
 				</AnimatedButton>
 			</div>
 		</div>

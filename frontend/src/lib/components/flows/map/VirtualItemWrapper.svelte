@@ -34,7 +34,7 @@
 		onTop ? 'z-[901]' : '',
 		'outline-offset-1 outline-gray-600 dark:outline-gray-400'
 	)}
-	style="width: 275px; max-height: 38px; background-color: {hover && bgHoverColor && selectable
+	style="width: 275px; max-height: 34px; background-color: {hover && bgHoverColor && selectable
 		? bgHoverColor
 		: bgColor};"
 	on:pointerdown={() => {

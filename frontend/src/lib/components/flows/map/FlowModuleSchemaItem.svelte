@@ -215,7 +215,7 @@
 		selected ? 'outline outline-2' : 'active:outline active:outline-2',
 		'flex relative'
 	)}
-	style="width: 275px; height: 38px; background-color: {hover && bgHoverColor
+	style="width: 275px; height: 34px; background-color: {hover && bgHoverColor
 		? bgHoverColor
 		: bgColor};"
 	on:mouseenter={() => (hover = true)}
