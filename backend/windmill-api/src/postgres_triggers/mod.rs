@@ -7,15 +7,13 @@ use crate::{
 };
 use chrono::Utc;
 use itertools::Itertools;
-use pg_escape::{quote_identifier, quote_literal};
+use native_tls::{Certificate, TlsConnector};
+use pg_escape::quote_identifier;
 use rand::Rng;
+use rust_postgres::{config::SslMode, Client, Config, NoTls};
+use rust_postgres_native_tls::MakeTlsConnector;
 use serde_json::value::RawValue;
-use sqlx::{
-    postgres::{PgConnectOptions, PgSslMode},
-    Connection, PgConnection,
-};
 use std::collections::HashMap;
-use std::str::FromStr;
 
 use axum::{
     routing::{delete, get, post},
@@ -33,7 +31,7 @@ use handler::{
 };
 use windmill_common::{
     db::UserDB,
-    error::{Error, Result},
+    error::{to_anyhow, Error, Result},
     utils::StripPath,
 };
 mod bool;
@@ -52,76 +50,144 @@ const ERROR_REPLICATION_SLOT_NOT_EXISTS: &str = r#"The replication slot associat
 
 const ERROR_PUBLICATION_NAME_NOT_EXISTS: &str = r#"The publication associated with this trigger no longer exists. Recreate a new publication or select an existing one in the advanced tab, or delete and recreate a new trigger"#;
 
+fn build_tls_connector(
+    ssl_mode: SslMode,
+    root_certificate_pem: Option<&String>,
+) -> Result<Option<MakeTlsConnector>> {
+    let get_tls_builder_for_verify = |root_certificate: Option<&String>| {
+        let mut builder = TlsConnector::builder();
+        if let Some(root_certificate) = root_certificate {
+            let root_certificate_pem =
+                Certificate::from_pem(root_certificate.as_bytes()).map_err(to_anyhow)?;
+            builder.add_root_certificate(root_certificate_pem);
+        }
+        Ok::<_, Error>(builder)
+    };
+    let connector = match ssl_mode {
+        SslMode::Disable => return Ok(None),
+        SslMode::Require | SslMode::Prefer => {
+            let mut builder = TlsConnector::builder();
+            builder.danger_accept_invalid_certs(true);
+            builder.danger_accept_invalid_hostnames(true);
+            builder
+        }
+
+        SslMode::VerifyCa => {
+            let mut builder = get_tls_builder_for_verify(root_certificate_pem)?;
+            builder.danger_accept_invalid_hostnames(true);
+            builder
+        }
+
+        SslMode::VerifyFull => {
+            let builder = get_tls_builder_for_verify(root_certificate_pem)?;
+            builder
+        }
+        _ => unreachable!(),
+    };
+
+    Ok(Some(MakeTlsConnector::new(
+        connector.build().map_err(to_anyhow)?,
+    )))
+}
+
+pub async fn get_raw_postgres_connection(
+    database: &Postgres,
+    logical_mode: bool,
+) -> Result<Client> {
+    let ssl_mode = match database.sslmode.as_ref() {
+            "disable" => SslMode::Disable,
+            "" | "prefer" | "allow" => SslMode::Prefer,
+            "require" => SslMode::Require,
+            "verify-ca" => SslMode::VerifyCa,
+            "verify-full" => SslMode::VerifyFull,
+            ssl_mode => {
+                return Err(Error::BadRequest(
+                    format!("Invalid ssl mode for postgres: {}, please put a valid ssl_mode among the following available ssl mode: ['disable', 'allow', 'prefer', 'verify-ca', 'verify-full']", ssl_mode),
+                ))
+            }
+        };
+
+    let mut config = Config::new();
+    config
+        .dbname(&database.dbname)
+        .host(&database.host)
+        .user(&database.user)
+        .ssl_mode(ssl_mode);
+
+    if logical_mode {
+        config.replication_mode(rust_postgres::config::ReplicationMode::Logical);
+    }
+
+    if let Some(port) = database.port {
+        config.port(port);
+    };
+
+    if !database.password.is_empty() {
+        config.password(&database.password);
+    }
+
+    let connector = build_tls_connector(ssl_mode, database.root_certificate_pem.as_ref())?;
+
+    let client = if let Some(connector) = connector {
+        let (client, connection) = config.connect(connector).await.map_err(to_anyhow)?;
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                tracing::debug!("{:#?}", e);
+            };
+            tracing::info!("Successfully Connected into database");
+        });
+        client
+    } else {
+        let (client, connection) = config.connect(NoTls).await.map_err(to_anyhow)?;
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                tracing::debug!("{:#?}", e);
+            };
+            tracing::info!("Successfully Connected into database");
+        });
+        client
+    };
+
+    Ok(client)
+}
+
 pub async fn get_pg_connection(
     authed: ApiAuthed,
     user_db: Option<UserDB>,
     db: &DB,
     postgres_resource_path: &str,
     w_id: &str,
-) -> Result<PgConnection> {
+    logical_mode: bool,
+) -> Result<Client> {
     let database =
         try_get_resource_from_db_as::<Postgres>(authed, user_db, db, postgres_resource_path, w_id)
             .await?;
 
-    Ok(get_raw_postgres_connection(&database).await?)
+    Ok(get_raw_postgres_connection(&database, logical_mode).await?)
 }
 
-pub async fn get_raw_postgres_connection(db: &Postgres) -> Result<PgConnection> {
-    let options = {
-        let sslmode = if !db.sslmode.is_empty() {
-            PgSslMode::from_str(&db.sslmode)?
-        } else {
-            PgSslMode::Prefer
-        };
-        let options = {
-            let inner_options = PgConnectOptions::new()
-                .host(&db.host)
-                .database(&db.dbname)
-                .ssl_mode(sslmode)
-                .username(&db.user);
-
-            if let Some(port) = db.port {
-                inner_options.port(port)
-            } else {
-                inner_options
-            }
-        };
-
-        let options = if let Some(root_certificate_pem) = &db.root_certificate_pem {
-            options.ssl_root_cert_from_pem(root_certificate_pem.as_bytes().to_vec())
-        } else {
-            options
-        };
-
-        if !db.password.is_empty() {
-            options.password(&db.password)
-        } else {
-            options
-        }
-    };
-    Ok(PgConnection::connect_with(&options).await?)
+pub async fn get_default_pg_connection(
+    authed: ApiAuthed,
+    user_db: Option<UserDB>,
+    db: &DB,
+    postgres_resource_path: &str,
+    w_id: &str,
+) -> Result<Client> {
+    get_pg_connection(authed, user_db, db, postgres_resource_path, w_id, false).await
 }
 
-pub async fn create_logical_replication_slot(
-    pg_connection: &mut PgConnection,
-    name: &str,
-) -> Result<()> {
-    let query = format!(
-        r#"
-        SELECT 
-                *
-        FROM
-            pg_create_logical_replication_slot({}, 'pgoutput');"#,
-        quote_literal(&name)
-    );
-
-    sqlx::query(&query).execute(pg_connection).await?;
-
+pub async fn create_logical_replication_slot(tx: &Client, slot_name: &str) -> Result<()> {
+    tx.execute(
+        &format!("SELECT * FROM pg_create_logical_replication_slot($1, 'pgoutput')"),
+        &[&slot_name],
+    )
+    .await
+    .map_err(to_anyhow)?;
     Ok(())
 }
 
 async fn check_if_valid_publication_for_postgres_version(
-    pg_connection: &mut PgConnection,
+    pg_connection: &Client,
     table_to_track: Option<&[Relations]>,
 ) -> Result<bool> {
     let postgres_version = get_postgres_version_internal(pg_connection).await?;
@@ -155,7 +221,7 @@ async fn check_if_valid_publication_for_postgres_version(
 }
 
 pub async fn create_pg_publication(
-    pg_connection: &mut PgConnection,
+    pg_connection: &Client,
     publication_name: &str,
     table_to_track: Option<&[Relations]>,
     transaction_to_track: &[String],
@@ -177,7 +243,7 @@ pub async fn create_pg_publication(
                 } else {
                     if pg_14 && first {
                         query.push_str(" TABLE ONLY ");
-                        first = false;
+                        first = false
                     } else if !pg_14 {
                         query.push_str(" TABLE ONLY ");
                     }
@@ -224,20 +290,22 @@ pub async fn create_pg_publication(
         query.push_str("');");
     }
 
-    sqlx::query(&query).execute(pg_connection).await?;
-
+    pg_connection
+        .execute(&query, &[])
+        .await
+        .map_err(to_anyhow)?;
     Ok(())
 }
 
-pub async fn drop_publication(
-    pg_connection: &mut PgConnection,
-    publication_name: &str,
-) -> Result<()> {
+pub async fn drop_publication(pg_connection: &Client, publication_name: &str) -> Result<()> {
     let mut query = String::from("DROP PUBLICATION IF EXISTS ");
     let quoted_publication_name = quote_identifier(publication_name);
     query.push_str(&quoted_publication_name);
 
-    sqlx::query(&query).execute(pg_connection).await?;
+    pg_connection
+        .execute(&query, &[])
+        .await
+        .map_err(to_anyhow)?;
 
     Ok(())
 }
