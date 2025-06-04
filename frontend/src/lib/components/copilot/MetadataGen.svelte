@@ -11,6 +11,7 @@
 	import { yamlStringifyExceptKeys } from './utils'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
 
 	type PromptConfig = {
 		system: string
@@ -78,6 +79,8 @@ Generate a description for the flow below:
 		}
 	}
 
+	export let aiId: string | undefined = undefined
+	export let aiDescription: string | undefined = undefined
 	export let content: string | undefined
 	export let code: string | undefined = undefined
 	export let flow: FlowValue | undefined = undefined
@@ -187,104 +190,117 @@ Generate a description for the flow below:
 </script>
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
-<div
-	class={twMerge('relative', $$props.class)}
-	bind:clientWidth={width}
-	on:keydown={(event) => {
-		if (!$copilotInfo.enabled || !$metadataCompletionEnabled) {
-			return
-		}
-		if (event.key === 'Tab') {
-			if (manualDisabled) {
-				event.preventDefault()
-				manualDisabled = false
-			} else if (!loading && generatedContent) {
-				event.preventDefault()
-				content = generatedContent
-				generatedContent = ''
-			} else if (!loading && !content) {
-				event.preventDefault()
-				generateContent()
-			}
-		} else if (event.key === 'Escape' && !manualDisabled) {
-			event.preventDefault()
-			event.stopPropagation()
-			if (loading) {
-				abortController.abort()
-			} else {
-				manualDisabled = true
-				generatedContent = ''
-			}
-		} else if (event.key === 'Backspace' && !loading && !content) {
-			manualDisabled = true
-			generatedContent = ''
+<TriggerableByAI
+	id={aiId}
+	description={aiDescription}
+	onTrigger={(value) => {
+		if (value) {
+			content = value
+			dispatchIfMounted('change', { content })
 		}
 	}}
 >
 	<div
-		class="absolute left-[0.5rem] {elementType === 'textarea'
-			? 'top-[1.3rem]'
-			: 'top-[0.3rem]'}  flex flex-row gap-2 items-start pointer-events-none"
+		class={twMerge('relative', $$props.class)}
+		bind:clientWidth={width}
+		on:keydown={(event) => {
+			if (!$copilotInfo.enabled || !$metadataCompletionEnabled) {
+				return
+			}
+			if (event.key === 'Tab') {
+				if (manualDisabled) {
+					event.preventDefault()
+					manualDisabled = false
+				} else if (!loading && generatedContent) {
+					event.preventDefault()
+					content = generatedContent
+					generatedContent = ''
+				} else if (!loading && !content) {
+					event.preventDefault()
+					generateContent()
+				}
+			} else if (event.key === 'Escape' && !manualDisabled) {
+				event.preventDefault()
+				event.stopPropagation()
+				if (loading) {
+					abortController.abort()
+				} else {
+					manualDisabled = true
+					generatedContent = ''
+				}
+			} else if (event.key === 'Backspace' && !loading && !content) {
+				manualDisabled = true
+				generatedContent = ''
+			}
+		}}
 	>
-		{#if active}
-			<span
-				class={twMerge(
-					'absolute text-xs bg-violet-100 text-violet-800 dark:bg-gray-700 dark:text-violet-400 px-1 py-0.5 rounded-md flex flex-row items-center justify-center gap-2 transition-all shrink-0',
-					!loading && generatedContent.length > 0
-						? 'bg-green-100 text-green-800 dark:text-green-400 dark:bg-green-700'
-						: ''
-				)}
-			>
-				<span class="px-0.5 py-0.5 rounded-md text-2xs text-bold flex flex-row items-center gap-1">
-					{#if loading}
-						ESC
-					{:else}
-						TAB
-					{/if}
-					{#if loading}
-						<Loader2 class="animate-spin" size={12} />
-					{:else if generatedContent}
-						<Check size={12} />
-					{:else}
-						<Wand2 size={12} />
-					{/if}
+		<div
+			class="absolute left-[0.5rem] {elementType === 'textarea'
+				? 'top-[1.3rem]'
+				: 'top-[0.3rem]'}  flex flex-row gap-2 items-start pointer-events-none"
+		>
+			{#if active}
+				<span
+					class={twMerge(
+						'absolute text-xs bg-violet-100 text-violet-800 dark:bg-gray-700 dark:text-violet-400 px-1 py-0.5 rounded-md flex flex-row items-center justify-center gap-2 transition-all shrink-0',
+						!loading && generatedContent.length > 0
+							? 'bg-green-100 text-green-800 dark:text-green-400 dark:bg-green-700'
+							: ''
+					)}
+				>
+					<span
+						class="px-0.5 py-0.5 rounded-md text-2xs text-bold flex flex-row items-center gap-1"
+					>
+						{#if loading}
+							ESC
+						{:else}
+							TAB
+						{/if}
+						{#if loading}
+							<Loader2 class="animate-spin" size={12} />
+						{:else if generatedContent}
+							<Check size={12} />
+						{:else}
+							<Wand2 size={12} />
+						{/if}
+					</span>
 				</span>
-			</span>
-			<div
-				bind:clientHeight={genHeight}
-				class={twMerge(
-					'text-sm leading-6 indent-[3.5rem] text-gray-500 dark:text-gray-400 pr-1',
-					elementType === 'input' ? 'text-ellipsis overflow-hidden whitespace-nowrap' : ''
-				)}
-				style={elementType === 'input' ? `max-width: calc(${width}px - 0.5rem)` : ''}
-			>
-				{generatedContent}
+				<div
+					bind:clientHeight={genHeight}
+					class={twMerge(
+						'text-sm leading-6 indent-[3.5rem] text-gray-500 dark:text-gray-400 pr-1',
+						elementType === 'input' ? 'text-ellipsis overflow-hidden whitespace-nowrap' : ''
+					)}
+					style={elementType === 'input' ? `max-width: calc(${width}px - 0.5rem)` : ''}
+				>
+					{generatedContent}
+				</div>
+			{/if}
+		</div>
+		{#if elementType === 'textarea'}
+			<div>
+				<div class="flex flex-row-reverse !text-3xs text-tertiary -mt-4">GH Markdown</div>
+				<textarea
+					bind:this={el}
+					bind:value={content}
+					use:autosize
+					{...elementProps}
+					placeholder={!active ? elementProps.placeholder : ''}
+					class={active ? '!indent-[3.5rem]' : ''}
+					on:focus={() => (focused = true)}
+					on:blur={() => (focused = false)}
+				></textarea>
 			</div>
-		{/if}
-	</div>
-	{#if elementType === 'textarea'}
-		<div>
-			<div class="flex flex-row-reverse !text-3xs text-tertiary -mt-4">GH Markdown</div>
-			<textarea
+		{:else}
+			<input
 				bind:this={el}
 				bind:value={content}
-				use:autosize
-				{...elementProps}
 				placeholder={!active ? elementProps.placeholder : ''}
 				class={active ? '!indent-[3.5rem]' : ''}
 				on:focus={() => (focused = true)}
 				on:blur={() => (focused = false)}
-			></textarea>
-		</div>
-	{:else}
-		<input
-			bind:this={el}
-			bind:value={content}
-			placeholder={!active ? elementProps.placeholder : ''}
-			class={active ? '!indent-[3.5rem]' : ''}
-			on:focus={() => (focused = true)}
-			on:blur={() => (focused = false)}
-		/>
-	{/if}
-	<!-- <slot {updateFocus} {active} {generatedContent} classNames={active ? '!indent-[8.8rem]' : ''} /> -->
-</div>
+			/>
+		{/if}
+		<!-- <slot {updateFocus} {active} {generatedContent} classNames={active ? '!indent-[8.8rem]' : ''} /> -->
+	</div>
+</TriggerableByAI>
