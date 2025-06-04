@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run, createBubbler } from 'svelte/legacy'
+	import { createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
@@ -208,22 +208,22 @@
 		}
 	}
 
-	run(() => {
+	$effect(() => {
 		if (args == undefined || typeof args !== 'object') {
 			args = {}
 		}
 	})
-	run(() => {
+	$effect(() => {
 		keys = Array.isArray(schema?.order) ? schema?.order : Object.keys(schema?.properties ?? {})
 	})
-	run(() => {
+	$effect(() => {
 		schema && (reorder(), (hidden = {}))
 	})
 	let fields = $derived(items ?? keys.map((x) => ({ id: x, value: x })))
-	run(() => {
+	$effect(() => {
 		handleHiddenFields(schema, args)
 	})
-	run(() => {
+	$effect(() => {
 		isValid = allTrue(inputCheck ?? {})
 	})
 

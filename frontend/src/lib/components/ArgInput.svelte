@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run, preventDefault, stopPropagation, createBubbler } from 'svelte/legacy'
+	import { preventDefault, stopPropagation, createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()
 	import type { EnumType, SchemaProperty } from '$lib/common'
@@ -132,7 +132,7 @@
 		oneOf = $bindable(undefined),
 		required = false,
 		pattern = $bindable(undefined),
-		valid = $bindable(true),
+		valid = $bindable(undefined),
 		enum_ = $bindable(undefined),
 		disabled = false,
 		itemsType = $bindable(undefined),
@@ -177,6 +177,12 @@
 		workspace = undefined,
 		actions
 	}: Props = $props()
+
+	$effect.pre(() => {
+		if (valid == undefined) {
+			valid = true
+		}
+	})
 
 	let oneOfSelected: string | undefined = $state(undefined)
 	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
@@ -442,16 +448,16 @@
 
 	let debounced = debounce(() => compareValues(value), 50)
 	let inputCat = $derived(computeInputCat(type, format, itemsType?.type, enum_, contentEncoding))
-	run(() => {
+	$effect(() => {
 		updateOneOfSelected(oneOf)
 	})
-	run(() => {
+	$effect(() => {
 		oneOf && value && onOneOfChange()
 	})
-	run(() => {
+	$effect(() => {
 		computeDefaultValue(value, inputCat, defaultValue, nullable)
 	})
-	run(() => {
+	$effect(() => {
 		!isListJson &&
 			inputCat === 'list' &&
 			value != lastValue &&
@@ -459,20 +465,20 @@
 			!hasIsListJsonChanged &&
 			checkArrayValueType()
 	})
-	run(() => {
+	$effect(() => {
 		defaultValue != undefined && handleDefaultValueChange()
 	})
-	run(() => {
+	$effect(() => {
 		;(inputCat &&
 			(isObjectCat(inputCat) || isRawStringEditor(inputCat)) &&
 			!oneOf &&
 			evalValueToRaw()) ||
 			value
 	})
-	run(() => {
+	$effect(() => {
 		validateInput(pattern, value, required)
 	})
-	run(() => {
+	$effect(() => {
 		shouldDispatchChanges && debounced(value)
 	})
 </script>
@@ -707,7 +713,7 @@
 															dispatch('blur')
 														}}
 														{defaultValue}
-														{valid}
+														valid={valid ?? true}
 														{disabled}
 														{autofocus}
 														bind:value={value[i]}
@@ -1143,7 +1149,7 @@
 					{required}
 					create={extra['disableCreate'] != true}
 					{defaultValue}
-					{valid}
+					valid={valid ?? true}
 					{disabled}
 					bind:value
 					{enum_}
