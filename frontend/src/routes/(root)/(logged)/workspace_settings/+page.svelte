@@ -644,46 +644,106 @@
 					goto(`?${$page.url.searchParams.toString()}`)
 				}}
 			>
-				<Tab size="xs" value="users">
+				<Tab
+					size="xs"
+					value="users"
+					aiId="workspace-settings-users"
+					aiDescription="Users workspace settings"
+				>
 					<div class="flex gap-2 items-center my-1"> Users</div>
 				</Tab>
-				<Tab size="xs" value="git_sync">
+				<Tab
+					size="xs"
+					value="git_sync"
+					aiId="workspace-settings-git-sync"
+					aiDescription="Git sync workspace settings"
+				>
 					<div class="flex gap-2 items-center my-1">Git Sync</div>
 				</Tab>
-				<Tab size="xs" value="deploy_to">
+				<Tab
+					size="xs"
+					value="deploy_to"
+					aiId="workspace-settings-deploy-to"
+					aiDescription="Deployment UI workspace settings"
+				>
 					<div class="flex gap-2 items-center my-1">Deployment UI</div>
 				</Tab>
 				{#if WORKSPACE_SHOW_SLACK_CMD}
-					<Tab size="xs" value="slack">
+					<Tab
+						size="xs"
+						value="slack"
+						aiId="workspace-settings-slack"
+						aiDescription="Slack / Teams workspace settings"
+					>
 						<div class="flex gap-2 items-center my-1"> Slack / Teams</div>
 					</Tab>
 				{/if}
 				{#if isCloudHosted()}
-					<Tab size="xs" value="premium">
+					<Tab
+						size="xs"
+						value="premium"
+						aiId="workspace-settings-premium"
+						aiDescription="Premium plans workspace settings"
+					>
 						<div class="flex gap-2 items-center my-1"> Premium Plans </div>
 					</Tab>
 				{/if}
 				{#if WORKSPACE_SHOW_WEBHOOK_CLI_SYNC}
-					<Tab size="xs" value="webhook">
+					<Tab
+						size="xs"
+						value="webhook"
+						aiId="workspace-settings-webhook"
+						aiDescription="Webhook workspace settings"
+					>
 						<div class="flex gap-2 items-center my-1">Webhook</div>
 					</Tab>
 				{/if}
-				<Tab size="xs" value="error_handler">
+				<Tab
+					size="xs"
+					value="error_handler"
+					aiId="workspace-settings-error-handler"
+					aiDescription="Error handler workspace settings"
+				>
 					<div class="flex gap-2 items-center my-1">Error Handler</div>
 				</Tab>
-				<Tab size="xs" value="ai">
+				<Tab
+					size="xs"
+					value="ai"
+					aiId="workspace-settings-ai"
+					aiDescription="Windmill AI workspace settings"
+				>
 					<div class="flex gap-2 items-center my-1">Windmill AI</div>
 				</Tab>
-				<Tab size="xs" value="windmill_lfs">
+				<Tab
+					size="xs"
+					value="windmill_lfs"
+					aiId="workspace-settings-windmill-lfs"
+					aiDescription="Object Storage (S3) workspace settings"
+				>
 					<div class="flex gap-2 items-center my-1"> Object Storage (S3)</div>
 				</Tab>
-				<Tab size="xs" value="default_app">
+				<Tab
+					size="xs"
+					value="default_app"
+					aiId="workspace-settings-default-app"
+					aiDescription="Default app workspace settings"
+				>
 					<div class="flex gap-2 items-center my-1"> Default App </div>
 				</Tab>
-				<Tab size="xs" value="encryption">
+				<Tab
+					size="xs"
+					value="encryption"
+					aiId="workspace-settings-encryption"
+					aiDescription="Encryption workspace settings"
+				>
 					<div class="flex gap-2 items-center my-1"> Encryption </div>
 				</Tab>
-				<Tab size="xs" value="general">
+				<Tab
+					size="xs"
+					value="general"
+					aiId="workspace-settings-general"
+					aiDescription="General workspace settings"
+				>
 					<div class="flex gap-2 items-center my-1"> General </div>
 				</Tab>
 			</Tabs>

@@ -114,6 +114,8 @@
 							variant="border"
 							startIcon={{ icon: Pen }}
 							href="{base}/flows/edit/{flow.path}?nodraft=true"
+							aiId={`edit-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
+							aiDescription={`Edits the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 						>
 							Edit
 						</Button>
@@ -126,6 +128,8 @@
 							variant="border"
 							startIcon={{ icon: GitFork }}
 							href="{base}/flows/add?template={flow.path}"
+							aiId={`fork-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
+							aiDescription={`Fork the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 						>
 							Fork
 						</Button>
@@ -135,6 +139,8 @@
 		</span>
 
 		<Dropdown
+			aiId={`flow-row-dropdown-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
+			aiDescription={`Open dropdown for flow ${flow.summary?.length > 0 ? flow.summary : flow.path} options`}
 			items={async () => {
 				let { draft_only, path, archived, has_draft } = flow
 				let owner = isOwner(path, $userStore, $workspaceStore)
