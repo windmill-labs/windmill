@@ -8453,7 +8453,7 @@ paths:
 
   /w/{workspace}/http_triggers/create_many:
     post:
-      summary: create many http trigger
+      summary: create many HTTP triggers
       operationId: createManyHttpTrigger
       tags:
         - http_trigger

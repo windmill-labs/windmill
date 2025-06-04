@@ -110,7 +110,7 @@
 			isGeneratingHttpRoutes = true
 			httpTriggers = await generateHttpTriggerFromOpenApi(code, folderName)
 		} catch (error) {
-			sendUserToast(error.message || 'An unexpected error occured', true)
+			sendUserToast(error.message || 'An unexpected error occurred', true)
 		} finally {
 			isGeneratingHttpRoutes = false
 		}
