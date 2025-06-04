@@ -125,7 +125,9 @@
 			]
 		: aiChatManager.displayMessages}
 	saveAndClear={aiChatManager.saveAndClear}
-	deletePastChat={historyManager.deletePastChat}
+	deletePastChat={(id) => {
+		historyManager.deletePastChat(id)
+	}}
 	loadPastChat={(id) => {
 		aiChatManager.loadPastChat(id)
 	}}
