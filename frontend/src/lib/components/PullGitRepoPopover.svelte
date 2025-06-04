@@ -22,9 +22,12 @@
 	import yaml from 'js-yaml'
 	import { page } from '$app/stores'
 
-	let { gitRepoResourcePath, yamlText = '', onFilterUpdate } = $props<{
+	let { gitRepoResourcePath, uiState, onFilterUpdate } = $props<{
 		gitRepoResourcePath: string
-		yamlText?: string
+		uiState: {
+			include_path: string[]
+			include_type: string[]
+		}
 		onFilterUpdate: (filters: { yaml: string }) => void
 	}>()
 
@@ -92,15 +95,17 @@
 		jobStatus = { id: null, status: undefined, type: 'preview' }
 
 		try {
+			// Always use the simplified JSON approach
 			const jobId = await JobService.runScriptByPath({
 				workspace,
 				path: hubPaths.gitInitRepo,
 				requestBody: {
 					workspace_id: workspace,
 					repo_url_resource_path: gitRepoResourcePath,
-					yaml: yamlText,
 					dry_run: true,
-					pull: true
+					pull: true,
+					only_wmill_yaml: false,
+					settings_json: JSON.stringify(uiState)
 				},
 				skipPreprocessor: true
 			})
@@ -110,44 +115,13 @@
 
 			if (success) {
 				const result = await JobService.getCompletedJobResult({ workspace, id: jobId }) as PreviewResult
-				console.log('Preview result:', result.repoWmillYaml)
-                console.log('Yaml text:', yamlText)
+				console.log('Preview result:', result)
 
-				// Parse both YAMLs for structural comparison
-				const repoYamlObj = result.repoWmillYaml ? yaml.load(result.repoWmillYaml) : null
-				const currentYamlObj = yamlText ? yaml.load(yamlText) : null
-
-				// Normalize both objects for proper comparison
-				const normalizeYamlObj = (obj: any) => {
-					if (!obj) return null;
-					const normalized = { ...obj }
-					// Ensure all boolean fields exist with default values
-					// Skip flags default to false (by default, we include these resources)
-					normalized.skipVariables = normalized.skipVariables ?? false
-					normalized.skipResources = normalized.skipResources ?? false
-					normalized.skipResourceTypes = normalized.skipResourceTypes ?? false
-					normalized.skipSecrets = normalized.skipSecrets ?? false
-					// Include flags default to false (by default, we exclude these special types)
-					normalized.includeSchedules = normalized.includeSchedules ?? false
-					normalized.includeTriggers = normalized.includeTriggers ?? false
-					normalized.includeUsers = normalized.includeUsers ?? false
-					normalized.includeGroups = normalized.includeGroups ?? false
-					// Ensure arrays exist
-					normalized.includes = normalized.includes ?? []
-					normalized.excludes = normalized.excludes ?? []
-					normalized.codebases = normalized.codebases ?? []
-					return normalized
-				}
-
-				const normalizedRepo = normalizeYamlObj(repoYamlObj)
-				const normalizedCurrent = normalizeYamlObj(currentYamlObj)
-
-				// Compare normalized objects
-				const yamlModified = JSON.stringify(normalizedRepo) !== JSON.stringify(normalizedCurrent)
-
+				// For full sync mode, just use the CLI results directly
+				// The CLI already handles wmill.yaml changes with --include-wmill-yaml flag
 				previewResult = {
 					...result,
-					yamlModified
+					yamlModified: false // Don't add redundant YAML detection
 				}
 				jobStatus.status = 'success'
 			} else {
@@ -178,6 +152,25 @@
 		try {
 			const yamlObj = yaml.load(previewResult.repoWmillYaml) as any
 			if (!yamlObj || typeof yamlObj !== 'object') throw new Error('Invalid YAML')
+
+			// Convert YAML config to UI state format for JSON approach
+			const uiState = {
+				include_path: yamlObj.includes || ['f/**'],
+				include_type: [] as string[]
+			}
+
+			// Convert YAML flags back to include_type array
+			const includeTypes = ['script', 'flow', 'app', 'folder'] // Always include core types
+			if (!yamlObj.skipResourceTypes) includeTypes.push('resourcetype')
+			if (!yamlObj.skipResources) includeTypes.push('resource')
+			if (!yamlObj.skipVariables) includeTypes.push('variable')
+			if (!yamlObj.skipSecrets && !yamlObj.skipVariables) includeTypes.push('secret')
+			if (yamlObj.includeSchedules) includeTypes.push('schedule')
+			if (yamlObj.includeTriggers) includeTypes.push('trigger')
+			if (yamlObj.includeUsers) includeTypes.push('user')
+			if (yamlObj.includeGroups) includeTypes.push('group')
+
+			uiState.include_type = includeTypes
 
 			const jobId = await JobService.runScriptByPath({
 				workspace,

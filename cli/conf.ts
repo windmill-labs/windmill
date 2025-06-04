@@ -26,6 +26,8 @@ export interface SyncOptions {
   defaultTs?: "bun" | "deno";
   codebases?: Codebase[];
   parallel?: number;
+  jsonOutput?: boolean;
+  includeWmillYaml?: boolean;
 }
 
 export interface Codebase {

@@ -21,10 +21,13 @@
 	import GitDiffPreview from './GitDiffPreview.svelte'
 	import { page } from '$app/stores'
 
-	let { gitRepoResourcePath, branchName, yamlText } = $props<{
+	let { gitRepoResourcePath, branchName, uiState } = $props<{
 		gitRepoResourcePath: string
 		branchName?: string
-		yamlText: string
+		uiState: {
+			include_path: string[]
+			include_type: string[]
+		}
 	}>()
 
 	let _branchName = $state(branchName ?? '')
@@ -58,14 +61,16 @@
 				isPreviewLoading = false
 				return
 			}
+
+			// Pass UI state directly as JSON to CLI
 			const payloadObj = {
 				workspace_id: workspace,
 				repo_url_resource_path: gitRepoResourcePath,
 				branch_to_push: _branchName,
-				yaml: yamlText,
-				dry_run: true
+				dry_run: true,
+				settings_json: JSON.stringify(uiState)
 			}
-			// 1. Start the job
+
 			const jobId = await JobService.runScriptByPath({
 				workspace,
 				path: hubPaths.gitInitRepo,
@@ -75,7 +80,7 @@
 			previewJobId = jobId
 			previewJobStatus = 'running'
 
-			// 2. Wait for job completion (polling)
+			// Wait for job completion (polling)
 			let jobSuccess = false
 			await tryEvery({
 				tryCode: async () => {
@@ -132,6 +137,7 @@
 		pushJobId = null
 		pushJobStatus = undefined
 		try {
+			// Pass UI state directly as JSON to CLI
 			const jobId = await JobService.runScriptByPath({
 				workspace,
 				path: hubPaths.gitInitRepo,
@@ -139,7 +145,7 @@
 					workspace_id: workspace,
 					repo_url_resource_path: gitRepoResourcePath,
 					branch_to_push: _branchName,
-					yaml: yamlText
+					settings_json: JSON.stringify(uiState)
 				},
 				skipPreprocessor: true
 			})

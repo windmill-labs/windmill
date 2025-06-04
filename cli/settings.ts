@@ -6,6 +6,10 @@ import { compareInstanceObjects, InstanceSyncOptions } from "./instance.ts";
 import { isSuperset } from "./types.ts";
 import { deepEqual } from "./utils.ts";
 import { removeWorkerPrefix } from "./worker_groups.ts";
+import { Command } from "./deps.ts";
+import { GlobalOptions } from "./types.ts";
+import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
+import { requireLogin, resolveWorkspace } from "./context.ts";
 
 export interface SimplifiedSettings {
   // slack_team_id?: string;
@@ -569,3 +573,631 @@ export async function pushInstanceConfigs(
     log.info(colors.green("Configs pushed to instance"));
   }
 }
+
+// Interface for structured responses
+interface SettingsResult {
+  success: boolean;
+  settings?: SyncOptions;
+  yaml?: string;
+  diff?: string;
+  message?: string;
+  error?: string;
+}
+
+// Helper functions for UI state ↔ SyncOptions conversion
+export interface UIState {
+  include_path: string[];
+  include_type: string[];
+}
+
+export function uiStateToSyncOptions(uiState: UIState): SyncOptions {
+  return {
+    defaultTs: 'bun',
+    includes: uiState.include_path.length > 0 ? uiState.include_path : ['f/**'],
+    excludes: [],
+    codebases: [],
+
+    // Convert include_type array to skip/include flags
+    skipVariables: !uiState.include_type.includes('variable'),
+    skipResources: !uiState.include_type.includes('resource'),
+    skipResourceTypes: !uiState.include_type.includes('resourcetype'),
+    skipSecrets: !uiState.include_type.includes('secret'),
+
+    includeSchedules: uiState.include_type.includes('schedule'),
+    includeTriggers: uiState.include_type.includes('trigger'),
+    includeUsers: uiState.include_type.includes('user'),
+    includeGroups: uiState.include_type.includes('group'),
+    includeSettings: uiState.include_type.includes('settings'),
+    includeKey: uiState.include_type.includes('key')
+  };
+}
+
+export function syncOptionsToUIState(syncOptions: SyncOptions): UIState {
+  const include_type: string[] = ['script', 'flow', 'app', 'folder']; // Always included
+
+  // Add types based on skip flags (default to included if not specified)
+  if (syncOptions.skipVariables !== true) include_type.push('variable');
+  if (syncOptions.skipResources !== true) include_type.push('resource');
+  if (syncOptions.skipResourceTypes !== true) include_type.push('resourcetype');
+  if (syncOptions.skipSecrets !== true) include_type.push('secret');
+
+  // Add types based on include flags (default to excluded if not specified)
+  if (syncOptions.includeSchedules === true) include_type.push('schedule');
+  if (syncOptions.includeTriggers === true) include_type.push('trigger');
+  if (syncOptions.includeUsers === true) include_type.push('user');
+  if (syncOptions.includeGroups === true) include_type.push('group');
+  if (syncOptions.includeSettings === true) include_type.push('settings');
+  if (syncOptions.includeKey === true) include_type.push('key');
+
+  return {
+    include_path: syncOptions.includes || ['f/**'],
+    include_type
+  };
+}
+
+// ========== SHARED HELPER FUNCTIONS ==========
+
+// Helper function to run diff command cross-platform
+async function runDiffCommand(args: string[]): Promise<{ stdout: string; stderr: string; success: boolean }> {
+  try {
+    if (args.length >= 2) {
+      const [file1Path, file2Path] = args.slice(-2);
+
+      try {
+        const content1 = await Deno.readTextFile(file1Path);
+        const content2 = await Deno.readTextFile(file2Path);
+
+        const { createTwoFilesPatch } = await import("npm:diff");
+        const patch = createTwoFilesPatch(
+          file1Path,
+          file2Path,
+          content1,
+          content2,
+          '',
+          '',
+          { context: 3 }
+        );
+
+        const hasDifferences = content1 !== content2;
+
+        return {
+          stdout: hasDifferences ? patch : '',
+          stderr: '',
+          success: true
+        };
+      } catch (fileError) {
+        return {
+          stdout: '',
+          stderr: `Failed to read files: ${(fileError as Error).message}`,
+          success: false
+        };
+      }
+    } else {
+      return {
+        stdout: '',
+        stderr: 'Invalid arguments for diff command',
+        success: false
+      };
+    }
+  } catch (error) {
+    return {
+      stdout: '',
+      stderr: `diff command failed: ${(error as Error).message}`,
+      success: false
+    };
+  }
+}
+
+// Helper function to fetch backend settings
+async function fetchBackendSettings(workspace: { workspaceId: string }): Promise<SyncOptions> {
+  const backendSettings = await wmill.getSettings({ workspace: workspace.workspaceId });
+
+  if (backendSettings.git_sync?.repositories && backendSettings.git_sync.repositories.length > 0) {
+    const firstRepo = backendSettings.git_sync.repositories[0];
+    const repoSettings = firstRepo.settings || {};
+
+    return {
+      defaultTs: 'bun',
+      includes: repoSettings.include_path,
+      excludes: [],
+      codebases: [],
+      skipVariables: !repoSettings.include_type?.includes('variable'),
+      skipResources: !repoSettings.include_type?.includes('resource'),
+      skipResourceTypes: !repoSettings.include_type?.includes('resourcetype'),
+      skipSecrets: !repoSettings.include_type?.includes('secret'),
+      includeSchedules: repoSettings.include_type?.includes('schedule') || false,
+      includeTriggers: repoSettings.include_type?.includes('trigger') || false,
+      includeUsers: repoSettings.include_type?.includes('user') || false,
+      includeGroups: repoSettings.include_type?.includes('group') || false,
+      includeSettings: (repoSettings.include_type as string[])?.includes('settings') || false,
+      includeKey: (repoSettings.include_type as string[])?.includes('key') || false
+    };
+  } else {
+    return {
+      defaultTs: 'bun',
+      includes: ['f/**'],
+      excludes: [],
+      codebases: [],
+      skipVariables: false,
+      skipResources: false,
+      skipResourceTypes: false,
+      skipSecrets: false,
+      includeSchedules: false,
+      includeTriggers: false,
+      includeUsers: false,
+      includeGroups: false,
+      includeSettings: false,
+      includeKey: false
+    };
+  }
+}
+
+// Helper function to generate diff between two settings
+async function generateDiff(fromFile: string, toFile: string): Promise<string> {
+  const diffResult = await runDiffCommand([fromFile, toFile]);
+  return diffResult.success ? diffResult.stdout : `Failed to compare: ${diffResult.stderr}`;
+}
+
+// Helper function to get YAML utilities
+async function getYamlUtils() {
+  const { stringify, parse } = await import('jsr:@std/yaml@^1.0.5');
+  return { stringify, parse };
+}
+
+// Helper function to handle JSON input parsing
+function parseJsonInput(jsonInput: string): UIState {
+  try {
+    return JSON.parse(jsonInput);
+  } catch (e) {
+    throw new Error("Invalid JSON in --from-json parameter: " + (e as Error).message);
+  }
+}
+
+// Helper function to read local settings file
+async function readLocalSettingsFile(filePath: string = 'wmill.yaml'): Promise<{ content: string; settings: SyncOptions }> {
+  try {
+    const content = await Deno.readTextFile(filePath);
+    const { parse } = await getYamlUtils();
+    const settings = parse(content) as SyncOptions;
+    return { content, settings };
+  } catch (error) {
+    throw new Error(`Could not read ${filePath}: ${(error as Error).message}`);
+  }
+}
+
+// Helper function to create temp files for diff
+async function createTempDiffFiles(content1: string, content2: string): Promise<{ file1: string; file2: string }> {
+  const file1 = await Deno.makeTempFile({ suffix: '.yaml' });
+  const file2 = await Deno.makeTempFile({ suffix: '.yaml' });
+
+  await Deno.writeTextFile(file1, content1);
+  await Deno.writeTextFile(file2, content2);
+
+  return { file1, file2 };
+}
+
+// Helper function to update git sync repositories with new settings
+async function updateGitSyncRepositories(workspace: { workspaceId: string }, localSettings: SyncOptions): Promise<void> {
+  const backendSettings = await wmill.getSettings({ workspace: workspace.workspaceId });
+
+  if (backendSettings.git_sync?.repositories && backendSettings.git_sync.repositories.length > 0) {
+    const repositories = backendSettings.git_sync.repositories.map((repo, index) => {
+      if (index === 0) {
+        return {
+          script_path: repo.script_path,
+          git_repo_resource_path: repo.git_repo_resource_path,
+          use_individual_branch: repo.use_individual_branch ?? false,
+          group_by_folder: repo.group_by_folder ?? false,
+          collapsed: false,
+          settings: {
+            include_path: localSettings.includes || ['f/**'],
+            include_type: [
+              'script', 'flow', 'app', 'folder',
+              ...(localSettings.skipVariables === false ? ['variable'] as const : []),
+              ...(localSettings.skipResources === false ? ['resource'] as const : []),
+              ...(localSettings.skipResourceTypes === false ? ['resourcetype'] as const : []),
+              ...(localSettings.skipSecrets === false ? ['secret'] as const : []),
+              ...(localSettings.includeSchedules === true ? ['schedule'] as const : []),
+              ...(localSettings.includeTriggers === true ? ['trigger'] as const : []),
+              ...(localSettings.includeUsers === true ? ['user'] as const : []),
+              ...(localSettings.includeGroups === true ? ['group'] as const : []),
+              ...(localSettings.includeSettings === true ? ['settings'] as const : []),
+              ...(localSettings.includeKey === true ? ['key'] as const : [])
+            ] as ('script' | 'flow' | 'app' | 'folder' | 'variable' | 'resource' | 'resourcetype' | 'secret' | 'schedule' | 'trigger' | 'user' | 'group' | 'settings' | 'key')[]
+          }
+        };
+      }
+      return repo;
+    });
+
+    await wmill.editWorkspaceGitSyncConfig({
+      workspace: workspace.workspaceId,
+      requestBody: {
+        git_sync_settings: {
+          repositories
+        }
+      }
+    });
+  } else {
+    throw new Error("No git sync repositories found in workspace. Please configure a git repository first through the UI.");
+  }
+}
+
+// ========== CORE FUNCTIONS ==========
+
+export async function pullSettings(opts: GlobalOptions & SyncOptions & {
+  format?: 'json' | 'yaml';
+  diff?: boolean;
+  fromJson?: string;
+}): Promise<SettingsResult> {
+  try {
+    opts = await mergeConfigWithConfigFile(opts);
+    const workspace = await resolveWorkspace(opts);
+    await requireLogin(opts);
+
+    let currentSettings: SyncOptions;
+    let yamlContent: string;
+
+    if (opts.fromJson) {
+      // Handle JSON input mode - JSON represents simulated backend state
+      const uiState = parseJsonInput(opts.fromJson);
+      const simulatedBackendSettings = uiStateToSyncOptions(uiState);
+
+      if (opts.diff) {
+        // For --from-json --diff: Compare JSON (simulated backend) with local file (what we want to push)
+        try {
+          const { settings: actualLocalSettings } = await readLocalSettingsFile();
+          const { stringify } = await getYamlUtils();
+
+          const simulatedBackendYaml = stringify(simulatedBackendSettings as Record<string, unknown>);
+          const localYaml = stringify(actualLocalSettings as Record<string, unknown>);
+
+          const { file1: tmpSimulatedBackendFile, file2: tmpLocalFile } = await createTempDiffFiles(simulatedBackendYaml, localYaml);
+          const diff = await generateDiff(tmpLocalFile, tmpSimulatedBackendFile);
+
+          return {
+            success: true,
+            yaml: localYaml,
+            settings: actualLocalSettings,
+            diff: diff,
+            message: "Diff between local file and JSON input (what local would become)"
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: `Could not read local wmill.yaml file: ${(error as Error).message}`
+          };
+        }
+      }
+
+      // For non-diff operations, use JSON as the settings to push
+      currentSettings = simulatedBackendSettings;
+      const { stringify } = await getYamlUtils();
+      yamlContent = stringify(currentSettings as Record<string, unknown>);
+
+      if (opts.dryRun) {
+        return {
+          success: true,
+          yaml: yamlContent,
+          settings: currentSettings,
+          message: "Dry run - showing what would be written to wmill.yaml from JSON input"
+        };
+      }
+
+      await Deno.writeTextFile('wmill.yaml', yamlContent);
+      return {
+        success: true,
+        yaml: yamlContent,
+        settings: currentSettings,
+        message: "Settings written to wmill.yaml from JSON input"
+      };
+    }
+
+    // Original backend pulling logic
+    currentSettings = await fetchBackendSettings(workspace);
+    const { stringify } = await getYamlUtils();
+    yamlContent = stringify(currentSettings as Record<string, unknown>);
+
+    if (opts.diff) {
+      // Compare backend with local wmill.yaml
+      let currentLocalContent = '';
+      try {
+        currentLocalContent = await Deno.readTextFile('wmill.yaml');
+      } catch {
+        currentLocalContent = '';
+      }
+
+      const { file1: tmpLocalFile, file2: tmpBackendFile } = await createTempDiffFiles(currentLocalContent, yamlContent);
+      const diff = await generateDiff(tmpLocalFile, tmpBackendFile);
+
+      return {
+        success: true,
+        yaml: yamlContent,
+        settings: currentSettings,
+        diff: diff,
+        message: "Diff between local wmill.yaml and windmill git-sync settings"
+      };
+    }
+
+    if (opts.dryRun) {
+      let currentLocalContent = '';
+      try {
+        currentLocalContent = await Deno.readTextFile('wmill.yaml');
+      } catch {
+        currentLocalContent = '';
+      }
+
+      const { file1: tmpLocalFile, file2: tmpBackendFile } = await createTempDiffFiles(currentLocalContent, yamlContent);
+      const diff = await generateDiff(tmpLocalFile, tmpBackendFile);
+
+      return {
+        success: true,
+        yaml: yamlContent,
+        settings: currentSettings,
+        diff: diff,
+        message: "Dry run - showing what would be pulled from backend"
+      };
+    }
+
+    await Deno.writeTextFile('wmill.yaml', yamlContent);
+    return {
+      success: true,
+      yaml: yamlContent,
+      settings: currentSettings
+    };
+  } catch (error: any) {
+    return {
+      success: false,
+      error: (error as Error).message || "Pull failed"
+    };
+  }
+}
+
+export async function pushSettings(opts: GlobalOptions & SyncOptions & {
+  format?: 'json' | 'yaml';
+  settingsData?: SyncOptions;
+  settingsFile?: string;
+  json?: boolean;
+  diff?: boolean;
+  fromJson?: string;
+}): Promise<SettingsResult> {
+  try {
+    opts = await mergeConfigWithConfigFile(opts);
+    const workspace = await resolveWorkspace(opts);
+    await requireLogin(opts);
+
+    let localSettings: SyncOptions;
+
+    if (opts.fromJson) {
+      // Handle JSON input mode - JSON represents simulated backend state
+      const uiState = parseJsonInput(opts.fromJson);
+      const simulatedBackendSettings = uiStateToSyncOptions(uiState);
+
+      if (opts.diff) {
+        // For --from-json --diff: Compare JSON (simulated backend) with local file (what we want to push)
+        try {
+          const { settings: actualLocalSettings } = await readLocalSettingsFile();
+          const { stringify } = await getYamlUtils();
+
+          const simulatedBackendYaml = stringify(simulatedBackendSettings as Record<string, unknown>);
+          const localYaml = stringify(actualLocalSettings as Record<string, unknown>);
+
+          const { file1: tmpSimulatedBackendFile, file2: tmpLocalFile } = await createTempDiffFiles(simulatedBackendYaml, localYaml);
+          const diff = await generateDiff(tmpLocalFile, tmpSimulatedBackendFile);
+
+          return {
+            success: true,
+            yaml: localYaml,
+            settings: actualLocalSettings,
+            diff: diff,
+            message: "Diff between local file and JSON input (what backend would become)"
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: `Could not read local wmill.yaml file: ${(error as Error).message}`
+          };
+        }
+      }
+
+      // For non-diff operations, use JSON as the settings to push
+      localSettings = simulatedBackendSettings;
+      const { stringify } = await getYamlUtils();
+      const yamlContent = stringify(localSettings as Record<string, unknown>);
+
+      if (opts.dryRun) {
+        return {
+          success: true,
+          yaml: yamlContent,
+          settings: localSettings,
+          message: "Dry run - showing what would be pushed from JSON input"
+        };
+      }
+
+      await updateGitSyncRepositories(workspace, localSettings);
+      return {
+        success: true,
+        message: "Settings successfully pushed to workspace backend from JSON input"
+      };
+    }
+
+    // Handle regular file/data input
+    if (opts.settingsData) {
+      localSettings = opts.settingsData;
+    } else if (opts.settingsFile) {
+      const fileContent = await Deno.readTextFile(opts.settingsFile);
+      if (opts.format === 'json') {
+        localSettings = JSON.parse(fileContent);
+      } else {
+        const { parse } = await getYamlUtils();
+        localSettings = parse(fileContent) as SyncOptions;
+      }
+    } else {
+      try {
+        const { settings } = await readLocalSettingsFile();
+        localSettings = settings;
+      } catch (error) {
+        return {
+          success: false,
+          error: "Could not read local wmill.yaml file. Make sure it exists or use --file to specify a different file."
+        };
+      }
+    }
+
+    if (opts.diff) {
+      // Compare local settings with backend settings
+      const backendSyncOptions = await fetchBackendSettings(workspace);
+      const { stringify } = await getYamlUtils();
+
+      const localYaml = stringify(localSettings as Record<string, unknown>);
+      const backendYaml = stringify(backendSyncOptions as Record<string, unknown>);
+
+      const { file1: tmpBackendFile, file2: tmpLocalFile } = await createTempDiffFiles(backendYaml, localYaml);
+      const diff = await generateDiff(tmpBackendFile, tmpLocalFile);
+
+      return {
+        success: true,
+        yaml: localYaml,
+        settings: localSettings,
+        diff: diff,
+        message: "Diff between backend settings and local wmill.yaml"
+      };
+    }
+
+    if (opts.dryRun) {
+      const { stringify } = await getYamlUtils();
+      const localYaml = stringify(localSettings as Record<string, unknown>);
+
+      return {
+        success: true,
+        yaml: localYaml,
+        settings: localSettings,
+        message: "Dry run - showing what would be pushed to backend"
+      };
+    }
+
+    await updateGitSyncRepositories(workspace, localSettings);
+    return {
+      success: true,
+      message: "Settings successfully pushed to workspace backend"
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: (error as Error).message
+    };
+  }
+}
+
+// CLI command structure
+const settingsCommand = new Command()
+  .description("Manage workspace settings")
+  .command("pull")
+  .description("Pull workspace settings from backend")
+  .option("--format <format:string>", "Output format: json or yaml", { default: "yaml" })
+  .option("--dry-run", "Preview changes without applying them")
+  .option("--from-json <data:string>", "JSON string of UI state data (include_path, include_type)")
+  .option("--json-output", "Output in JSON format")
+  .option("--diff", "Show diff between local and remote settings")
+  .action(async (opts) => {
+    try {
+      const mergedOpts = await mergeConfigWithConfigFile(opts) as (GlobalOptions & SyncOptions & {
+        format?: 'json' | 'yaml';
+        diff?: boolean;
+        fromJson?: string;
+      });
+      const result = await pullSettings(mergedOpts);
+
+      if (!result.success) {
+        if (opts.jsonOutput) {
+          console.log(JSON.stringify({ success: false, error: result.error }));
+        } else {
+          log.error(colors.red(result.error || "Pull failed"));
+        }
+        Deno.exit(1);
+      }
+
+      if (opts.jsonOutput) {
+        console.log(JSON.stringify(result));
+      } else {
+        if (opts.diff) {
+          if (result.diff && result.diff.trim()) {
+            console.log("Diff:");
+            console.log(result.diff);
+          } else {
+            console.log("No differences found between local wmill.yaml and windmill git-sync settings");
+          }
+        } else if (result.diff) {
+          console.log("Diff:");
+          console.log(result.diff);
+        } else {
+          console.log(result.yaml || result.settings);
+        }
+      }
+    } catch (error) {
+      if (opts.jsonOutput) {
+        console.log(JSON.stringify({ success: false, error: (error as Error).message }));
+      } else {
+        log.error(colors.red((error as Error).message));
+      }
+      Deno.exit(1);
+    }
+  })
+
+  .command("push")
+  .description("Push workspace settings to backend")
+  .option("--format <format:string>", "Input format: json or yaml", { default: "yaml" })
+  .option("--dry-run", "Preview changes without applying them")
+  .option("--json-output", "Output in JSON format")
+  .option("--diff", "Show diff between local and remote settings")
+  .option("--from-json <data:string>", "JSON string of UI state data (include_path, include_type)")
+  .option("--file <file:string>", "Settings file to push")
+  .action(async (opts) => {
+    try {
+      const { file, fromJson, ...restOpts } = opts;
+      const mergedOpts = await mergeConfigWithConfigFile(restOpts) as (GlobalOptions & SyncOptions & {
+        format?: 'json' | 'yaml';
+        settingsData?: SyncOptions;
+        settingsFile?: string;
+        diff?: boolean;
+        fromJson?: string;
+      });
+      const result = await pushSettings({ ...mergedOpts, settingsFile: file, fromJson });
+
+      if (!result.success) {
+        if (opts.jsonOutput) {
+          console.log(JSON.stringify({ success: false, error: result.error }));
+        } else {
+          log.error(colors.red(result.error || "Push failed"));
+        }
+        Deno.exit(1);
+      }
+
+      if (opts.jsonOutput) {
+        console.log(JSON.stringify(result));
+      } else {
+        if (opts.diff) {
+          if (result.diff && result.diff.trim()) {
+            console.log("Diff:");
+            console.log(result.diff);
+          } else {
+            console.log("No differences found between backend settings and local/provided settings");
+          }
+        } else if (result.diff) {
+          console.log("Diff:");
+          console.log(result.diff);
+        } else {
+          console.log(result.message || "Settings pushed successfully");
+        }
+      }
+    } catch (error) {
+      if (opts.jsonOutput) {
+        console.log(JSON.stringify({ success: false, error: (error as Error).message }));
+      } else {
+        log.error(colors.red((error as Error).message));
+      }
+      Deno.exit(1);
+    }
+  });
+
+export default settingsCommand;

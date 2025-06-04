@@ -79,6 +79,8 @@
 		| 'user'
 		| 'group'
 		| 'trigger'
+		| 'settings'
+		| 'key'
 
 	type GitSyncSettings = {
 		repositories: GitSyncRepository[]
@@ -1333,11 +1335,17 @@
 												<div class="w-1/3 flex gap-2">
 													<InitGitRepoPopover
 														gitRepoResourcePath={repo.git_repo_resource_path}
-														yamlText={gitSyncComponent?.toYaml() ?? ''}
+														uiState={{
+															include_path: repo.settings.include_path,
+															include_type: repo.settings.include_type
+														}}
 													/>
 													<PullGitRepoPopover
 														gitRepoResourcePath={repo.git_repo_resource_path}
-														yamlText={gitSyncComponent?.toYaml() ?? ''}
+														uiState={{
+															include_path: repo.settings.include_path,
+															include_type: repo.settings.include_type
+														}}
 														onFilterUpdate={(filters) => {
 															if (gitSyncComponent) {
 																gitSyncComponent.setSettings(filters)
