@@ -35,7 +35,6 @@ type TriggerablesMap = Record<
 >
 
 class AIChatManager {
-	SIZE = 300
 	NAVIGATION_SYSTEM_PROMPT = `
 	CONSIDERATIONS:
 	 - You are provided with a tool to switch to navigation mode, use it when the user asks you to navigate the application or help them find something.
@@ -45,7 +44,7 @@ class AIChatManager {
 	historyManager = new HistoryManager()
 	abortController: AbortController | undefined = undefined
 
-	open = $state<boolean>(localStorage.getItem('ai-chat-open') === 'true')
+	size = $state<number>(localStorage.getItem('ai-chat-open') === 'true' ? 20 : 0)
 	instructions = $state<string>('')
 	pendingPrompt = $state<string>('')
 	loading = $state<boolean>(false)
@@ -72,6 +71,8 @@ class AIChatManager {
 		flow: this.flowAiChatHelpers !== undefined,
 		navigator: true
 	})
+
+	open = $derived(this.size > 0)
 
 	updateMode(currentMode: 'script' | 'flow' | 'navigator') {
 		if (
@@ -143,18 +144,18 @@ class AIChatManager {
 	}
 
 	openChat = () => {
-		this.open = true
+		this.size = 20
 		localStorage.setItem('ai-chat-open', 'true')
 	}
 
 	closeChat = () => {
-		this.open = false
+		this.size = 0
 		localStorage.setItem('ai-chat-open', 'false')
 	}
 
 	toggleOpen = () => {
-		this.open = !this.open
-		localStorage.setItem('ai-chat-open', this.open.toString())
+		this.size = this.size === 0 ? 20 : 0
+		localStorage.setItem('ai-chat-open', this.size === 0 ? 'false' : 'true')
 	}
 
 	askAi = (

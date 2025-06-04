@@ -55,6 +55,7 @@
 	import { Menubar } from '$lib/components/meltComponents'
 	import GlobalChat from '$lib/components/copilot/chat/navigator/GlobalChat.svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
 	let globalSearchModal: GlobalSearchModal | undefined = undefined
@@ -648,74 +649,59 @@
 				</div>
 			</div>
 		{/if}
-		<div
-			id="content"
-			class={classNames(
-				'w-full flex flex-col flex-1 h-full',
-				devOnly || $userStore?.operator ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
-				'transition-all ease-in-out duration-200'
-			)}
-			style={`padding-right: ${aiChatManager.open ? aiChatManager.SIZE : 0}px`}
-		>
-			<main class="min-h-screen">
-				<div class="relative w-full h-full">
-					<div
-						class={classNames(
-							'py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-7xl mx-auto md:hidden',
-							devOnly || $userStore?.operator ? 'hidden' : ''
-						)}
-					>
-						<button
-							aria-label="Menu"
-							type="button"
-							on:click={() => {
-								menuOpen = true
-							}}
-							class="h-8 w-8 inline-flex items-center justify-center rounded-md text-tertiary hover:text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
-						>
-							<svg
-								class="h-6 w-6"
-								xmlns="http://www.w3.org/2000/svg"
-								fill="none"
-								viewBox="0 0 24 24"
-								stroke-width="2"
-								stroke="currentColor"
-								aria-hidden="true"
+		<Splitpanes horizontal={false} style="height: 100vh">
+			<Pane size={100 - aiChatManager.size} minSize={50}>
+				<div
+					id="content"
+					class={classNames(
+						'w-full flex flex-col flex-1 h-full',
+						devOnly || $userStore?.operator ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
+						'transition-all ease-in-out duration-200'
+					)}
+				>
+					<main class="min-h-screen">
+						<div class="relative w-full h-full">
+							<div
+								class={classNames(
+									'py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-7xl mx-auto md:hidden',
+									devOnly || $userStore?.operator ? 'hidden' : ''
+								)}
 							>
-								<path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-							</svg>
-						</button>
-					</div>
-					<slot />
+								<button
+									aria-label="Menu"
+									type="button"
+									on:click={() => {
+										menuOpen = true
+									}}
+									class="h-8 w-8 inline-flex items-center justify-center rounded-md text-tertiary hover:text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
+								>
+									<svg
+										class="h-6 w-6"
+										xmlns="http://www.w3.org/2000/svg"
+										fill="none"
+										viewBox="0 0 24 24"
+										stroke-width="2"
+										stroke="currentColor"
+										aria-hidden="true"
+									>
+										<path
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											d="M4 6h16M4 12h16M4 18h16"
+										/>
+									</svg>
+								</button>
+							</div>
+							<slot />
+						</div>
+					</main>
 				</div>
-			</main>
-		</div>
+			</Pane>
+			<Pane bind:size={aiChatManager.size} minSize={15}>
+				<GlobalChat />
+			</Pane>
+		</Splitpanes>
 	</div>
-
-	<!-- Global Chat Panel -->
-	<div
-		class="fixed-chat-panel"
-		class:open={aiChatManager.open}
-		style={`width: ${aiChatManager.SIZE}px`}
-	>
-		<GlobalChat />
-	</div>
-
-	<style>
-		.fixed-chat-panel {
-			position: fixed;
-			top: 0;
-			right: 0;
-			height: 100vh;
-			transform: translateX(100%);
-			transition: transform 0.3s ease-in-out;
-			z-index: 10;
-		}
-
-		.fixed-chat-panel.open {
-			transform: translateX(0);
-		}
-	</style>
 {:else}
 	<CenteredModal title="Loading user...">
 		<div class="w-full">

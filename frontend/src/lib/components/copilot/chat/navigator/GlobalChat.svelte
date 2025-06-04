@@ -4,7 +4,7 @@
 	import HideButton from '../../../apps/editor/settingsPanel/HideButton.svelte'
 </script>
 
-<div class="relative flex flex-col h-full bg-surface z-20 border-l border-border">
+<div class="relative flex flex-col h-full bg-surface z-20">
 	<AiChat headerLeft={aiChatHeaderLeft} />
 </div>
 

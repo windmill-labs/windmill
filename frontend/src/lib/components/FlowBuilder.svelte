@@ -933,7 +933,7 @@
 						</Button>
 					{/if}
 					{#if !disableAi && customUi?.topBar?.aiBuilder != false && !aiChatManager.open}
-						<FlowAIButton openPanel={() => (aiChatManager.open = true)} />
+						<FlowAIButton openPanel={() => aiChatManager.openChat()} />
 					{/if}
 					<FlowPreviewButtons
 						on:openTriggers={(e) => {

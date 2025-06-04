@@ -82,7 +82,7 @@
 			class:open
 			class:close={!open && timeout}
 			class:global-chat-open={aiChatManager.open}
-			style={`${style}; --zIndex: ${zIndex}; --adjusted-offset: ${aiChatManager.open && placement === 'right' ? aiChatManager.SIZE : 0}px`}
+			style={`${style}; --zIndex: ${zIndex}; --adjusted-offset: ${aiChatManager.open && placement === 'right' ? aiChatManager.size : 0}%`}
 		>
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
