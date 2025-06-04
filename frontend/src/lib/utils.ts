@@ -277,6 +277,8 @@ interface ClickOutsideOptions {
 	exclude?: (() => Promise<HTMLElement[]>) | HTMLElement[] | undefined
 	stopPropagation?: boolean
 	customEventName?: string
+	// on:click_outside cannot be used with svelte 5
+	onClickOutside?: (event: MouseEvent) => void
 }
 
 export function clickOutside(
@@ -311,6 +313,7 @@ export function clickOutside(
 					event.stopPropagation()
 				}
 				node.dispatchEvent(new CustomEvent<MouseEvent>('click_outside', { detail: event }))
+				if (typeof options === 'object') options.onClickOutside?.(event)
 			}
 		}
 
