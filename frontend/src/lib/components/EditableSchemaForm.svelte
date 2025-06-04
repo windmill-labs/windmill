@@ -104,7 +104,11 @@
 		extraTab
 	}: Props = $props()
 
-	let schema2 = $derived(previewSchema ? previewSchema : schema)
+	let schema2 = $state(previewSchema ? previewSchema : schema)
+	$effect(() => {
+		schema2 = previewSchema ? previewSchema : schema
+	})
+
 	export function setDefaults() {
 		const nargs = {}
 
