@@ -46,7 +46,8 @@
 		onUpdate = undefined,
 		onDelete = undefined,
 		onReset = undefined,
-		trigger = undefined
+		trigger = undefined,
+		customSaveBehavior = undefined
 	} = $props()
 
 	// Form data state
@@ -198,27 +199,27 @@
 		}, 100) // if loading takes less than 100ms, we don't show the loader
 		try {
 			drawer?.openDrawer()
-			is_flow = nis_flow
+			is_flow = defaultValues?.is_flow ?? nis_flow
 			edit = false
 			itemKind = nis_flow ? 'flow' : 'script'
-			is_async = false
-			authentication_method = 'none'
+			is_async = defaultValues?.is_async ?? false
+			authentication_method = defaultValues?.authentication_method ?? 'none'
 			route_path = defaultValues?.route_path ?? ''
 			dirtyRoutePath = false
 			http_method = defaultValues?.http_method ?? 'post'
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
-			static_asset_config = undefined
-			s3FileUploadRawMode = false
+			static_asset_config = defaultValues?.static_asset_config ?? undefined
+			s3FileUploadRawMode = defaultValues?.s3FileUploadRawMode ?? false
 			path = defaultValues?.path ?? ''
 			initialPath = ''
 			dirtyPath = false
-			is_static_website = false
-			workspaced_route = false
-			authentication_resource_path = ''
+			is_static_website = defaultValues?.is_static_website ?? false
+			workspaced_route = defaultValues?.workspaced_route ?? false
+			authentication_resource_path = defaultValues?.authentication_resource_path ?? ''
 			variable_path = ''
-			signature_options_type = 'custom_signature'
+			signature_options_type = defaultValues?.signature_options_type ?? 'custom_signature'
 			raw_string = defaultValues?.raw_string ?? false
 			wrap_body = defaultValues?.wrap_body ?? false
 		} finally {
@@ -271,21 +272,26 @@
 	}
 
 	async function triggerScript(): Promise<void> {
-		deploymentLoading = true
-		const saveCfg = routeConfig
-		const isSaved = await saveHttpRouteFromCfg(
-			initialPath,
-			saveCfg,
-			edit,
-			$workspaceStore!,
-			!!$userStore?.is_admin || !!$userStore?.is_super_admin,
-			usedTriggerKinds
-		)
-		if (isSaved) {
-			onUpdate(saveCfg.path)
+		if (customSaveBehavior) {
+			customSaveBehavior(routeConfig)
 			drawer?.closeDrawer()
+		} else {
+			deploymentLoading = true
+			const saveCfg = routeConfig
+			const isSaved = await saveHttpRouteFromCfg(
+				initialPath,
+				saveCfg,
+				edit,
+				$workspaceStore!,
+				!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+				usedTriggerKinds
+			)
+			if (isSaved) {
+				onUpdate(saveCfg.path)
+				drawer?.closeDrawer()
+			}
+			deploymentLoading = false
 		}
-		deploymentLoading = false
 	}
 
 	function getRouteConfig(): Record<string, any> {

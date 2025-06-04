@@ -15,7 +15,7 @@
 	} from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Button, DrawerContent, Skeleton } from '$lib/components/common'
+	import { Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -43,14 +43,14 @@
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import { isCloudHosted } from '$lib/cloud'
 	import { getHttpRoute } from '$lib/components/triggers/http/utils'
-	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
-	import HttpRouteGenerator from '$lib/components/HttpRouteGenerator.svelte'
+	import HttpTriggersGenerator from '$lib/components/triggers/http/HttpTriggersGenerator.svelte'
 
 	type TriggerW = HttpTrigger & { canWrite: boolean }
 
 	let triggers: TriggerW[] = []
 	let shareModal: ShareModal
 	let loading = true
+	let httpTriggersGenerator: HttpTriggersGenerator | undefined
 	let deploymentDrawer: DeployWorkspaceDrawer
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
 
@@ -79,7 +79,6 @@
 		}
 	}
 	let routeEditor: RouteEditor
-	let httpRouteGeneratorDrawer: Drawer | undefined
 	let filteredItems: (TriggerW & { marked?: any })[] | undefined = []
 	let items: typeof filteredItems | undefined = []
 	let preFilteredItems: typeof filteredItems | undefined = []
@@ -189,17 +188,9 @@
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <RouteEditor onUpdate={loadTriggers} bind:this={routeEditor} />
-<Drawer size="700px" bind:this={httpRouteGeneratorDrawer}>
-	<DrawerContent
-		title={'Generate http trigger(s) from OpenApi spec'}
-		on:close={() => httpRouteGeneratorDrawer?.closeDrawer()}
-	>
-		<HttpRouteGenerator closeFn={async () => {
-			await loadTriggers()
-			httpRouteGeneratorDrawer?.closeDrawer()
-		}}/>
-	</DrawerContent>
-</Drawer>
+
+<HttpTriggersGenerator closeFn={loadTriggers} bind:this={httpTriggersGenerator} />
+
 <SearchItems
 	{filter}
 	items={preFilteredItems}
@@ -225,10 +216,10 @@
 						size="md"
 						startIcon={{ icon: Plus }}
 						on:click={() => {
-							httpRouteGeneratorDrawer?.openDrawer()
+							httpTriggersGenerator?.openDrawer()
 						}}
 					>
-						Generate http trigger(s) from OpenApi spec
+						From OpenAPI spec
 					</Button>
 					<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor.openNew(false)}>
 						New&nbsp;route

@@ -81,7 +81,7 @@ export async function saveHttpRouteFromCfg(
 	}
 }
 
-export type Source = 'OpenApiFile' | 'OpenApi' | 'OpenApiURL'
+export type Source = 'OpenAPI' | 'OpenAPI_File' | 'OpenAPI_URL'
 
 function convertOpenApiPathToRoutePath(openApiPath: string) {
 	return openApiPath.replace(/{([^}]+)}/g, ':$1').slice(1)
