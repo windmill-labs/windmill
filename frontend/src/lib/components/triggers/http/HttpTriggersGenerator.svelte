@@ -10,12 +10,13 @@
 	import RouteEditor from './RouteEditor.svelte'
 	import { generateHttpTriggerFromOpenApi, type Source } from './utils'
 	import { isCloudHosted } from '$lib/cloud'
-	import { workspaceStore } from '$lib/stores'
+	import { usedTriggerKinds, workspaceStore } from '$lib/stores'
 	import FileInput from '../../common/fileInput/FileInput.svelte'
 	import { emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import FolderPicker from '../../FolderPicker.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
+	import { get } from 'svelte/store'
 
 	type Props = {
 		closeFn: () => Promise<void>
@@ -88,6 +89,9 @@
 			sendUserToast(message)
 			await closeFn()
 			httpTriggersGenerator?.closeDrawer()
+			if (!get(usedTriggerKinds).includes('http')) {
+				usedTriggerKinds.update((t) => [...t, 'http'])
+			}
 		} catch (error) {
 			sendUserToast(error.body, true)
 		} finally {
@@ -103,9 +107,12 @@
 
 	async function generateHttpTrigger() {
 		try {
+			isGeneratingHttpRoutes = true
 			httpTriggers = await generateHttpTriggerFromOpenApi(code, folderName)
 		} catch (error) {
 			sendUserToast(error.message || 'An unexpected error occured', true)
+		} finally {
+			isGeneratingHttpRoutes = false
 		}
 	}
 </script>
@@ -133,159 +140,163 @@
 </Drawer>
 
 {#snippet config()}
-	<Section label="HTTP triggers generator">
-		<div class="flex flex-col gap-1">
-			<Subsection>
-				<div class="flex flex-col gap-1">
-					<p class="text-xs text-tertiary">
-						Pick a folder <Required required={true} />
-					</p>
-					<FolderPicker bind:folderName />
-				</div>
-			</Subsection>
-
-			{#if !emptyStringTrimmed(folderName)}
+	<div class="h-full">
+		<Section label="HTTP triggers generator">
+			<div class="flex flex-col gap-1 h-full">
 				<Subsection>
-					<ToggleButtonGroup
-						on:selected={({ detail }) => {
-							const type = detail as Source
-							if (type === 'OpenAPI') {
-								code = openApiRawEditorValue
-							} else if (type === 'OpenAPI_File') {
-								code = openApiFileEditorValue
-							} else {
-								code = openApiUrlEditorValue
-							}
-						}}
-						bind:selected
-						let:item
-					>
-						<ToggleButton
-							tooltip="Paste an OpenAPI JSON/YAML spec directly to generate HTTP triggers"
-							showTooltipIcon
-							label="Paste OpenAPI spec"
-							value="OpenAPI"
-							{item}
-						/>
-						<ToggleButton
-							tooltip="Upload an OpenAPI file to generate HTTP triggers automatically"
-							showTooltipIcon
-							label="From OpenAPI file"
-							value="OpenAPI_File"
-							{item}
-						/>
-						<ToggleButton
-							tooltip="Enter an OpenAPI URL to generate an HTTP routes from it"
-							showTooltipIcon
-							label="From OpenAPI URL"
-							value="OpenAPI_URL"
-							{item}
-						/>
-					</ToggleButtonGroup>
+					<div class="flex flex-col gap-1">
+						<p class="text-xs text-tertiary">
+							Pick a folder <Required required={true} />
+						</p>
+						<FolderPicker bind:folderName />
+					</div>
+				</Subsection>
 
-					<div class="flex flex-col gap-2 mt-2">
-						{#if selected === 'OpenAPI'}
-							<ToggleButtonGroup bind:selected={lang} let:item>
-								<ToggleButton value="yaml" label="yaml" {item} />
-								<ToggleButton value="json" label="json" {item} />
-							</ToggleButtonGroup>
-						{:else if selected === 'OpenAPI_File'}
-							<FileInput
-								accept={acceptedFileTypes.join(',')}
-								multiple={false}
-								convertTo={'text'}
-								iconSize={24}
-								returnFileNames={true}
-								class="text-sm py-4"
-								on:change={async ({ detail }) => {
-									if (detail && detail.length > 0) {
-										code = detail[0].data
-										openApiFileEditorValue = code
-										openApiFile = detail[0].name as string
-										if (openApiFile.endsWith('.json')) {
-											lang = 'json'
+				{#if !emptyStringTrimmed(folderName)}
+					<Subsection>
+						<ToggleButtonGroup
+							on:selected={({ detail }) => {
+								const type = detail as Source
+								if (type === 'OpenAPI') {
+									code = openApiRawEditorValue
+								} else if (type === 'OpenAPI_File') {
+									code = openApiFileEditorValue
+								} else {
+									code = openApiUrlEditorValue
+								}
+							}}
+							bind:selected
+							let:item
+						>
+							<ToggleButton
+								tooltip="Paste an OpenAPI JSON/YAML spec directly to generate HTTP triggers"
+								showTooltipIcon
+								label="Paste OpenAPI spec"
+								value="OpenAPI"
+								{item}
+							/>
+							<ToggleButton
+								tooltip="Upload an OpenAPI file to generate HTTP triggers automatically"
+								showTooltipIcon
+								label="From OpenAPI file"
+								value="OpenAPI_File"
+								{item}
+							/>
+							<ToggleButton
+								tooltip="Enter an OpenAPI URL to generate an HTTP routes from it"
+								showTooltipIcon
+								label="From OpenAPI URL"
+								value="OpenAPI_URL"
+								{item}
+							/>
+						</ToggleButtonGroup>
+
+						<div class="flex flex-col gap-2 mt-2">
+							{#if selected === 'OpenAPI'}
+								<ToggleButtonGroup bind:selected={lang} let:item>
+									<ToggleButton value="yaml" label="yaml" {item} />
+									<ToggleButton value="json" label="json" {item} />
+								</ToggleButtonGroup>
+							{:else if selected === 'OpenAPI_File'}
+								<FileInput
+									accept={acceptedFileTypes.join(',')}
+									multiple={false}
+									convertTo={'text'}
+									iconSize={24}
+									returnFileNames={true}
+									class="text-sm py-4"
+									on:change={async ({ detail }) => {
+										if (detail && detail.length > 0) {
+											code = detail[0].data
+											openApiFileEditorValue = code
+											openApiFile = detail[0].name as string
+											if (openApiFile.endsWith('.json')) {
+												lang = 'json'
+												return
+											}
+											lang = 'yaml'
 											return
 										}
-										lang = 'yaml'
-										return
-									}
-									openApiFile = ''
-								}}
-							/>
-						{:else if selected === 'OpenAPI_URL'}
-							<div class="flex flex-row gap-1">
-								<input type="text" placeholder="OpenAPI URL" bind:value={openApiUrl} />
-								<Button
-									color="light"
-									spacingSize="sm"
-									size="xs"
-									loading={isFetchingOpenApiSpec}
-									disabled={!isValidUrl}
-									on:click={fetchOpenApiConfig}
-								>
-									Fetch
-								</Button>
-							</div>
-						{/if}
-						{#if selected === 'OpenAPI' || (selected === 'OpenAPI_File' && !emptyStringTrimmed(openApiFile)) || (selected === 'OpenAPI_URL' && !emptyStringTrimmed(openApiUrl))}
-							{#key code}
-								<div class="h-96">
-									<SimpleEditor class="h-full" {lang} bind:code />
-								</div>
-							{/key}
-						{/if}
-						<Button
-							spacingSize="sm"
-							size="xs"
-							btnClasses="h-8"
-							loading={isGeneratingHttpRoutes}
-							on:click={generateHttpTrigger}
-							disabled={code.length === 0}
-							color="light"
-							variant="border">Generate HTTP triggers</Button
-						>
-					</div>
-				</Subsection>
-				<Subsection>
-					<div class="flex flex-col gap-1 mb-2">
-						{#each httpTriggers as httpTrigger, index}
-							<div
-								class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
-				first-of-type:rounded-t-md last-of-type:rounded-b-md flex justify-between mt-2"
-							>
-								<div>
-									<div class="text-primary">
-										{httpTrigger.http_method.toUpperCase()}
-										{isCloudHosted() || httpTrigger.workspaced_route
-											? $workspaceStore! + '/' + httpTrigger.route_path
-											: httpTrigger.route_path}
-									</div>
-									<div class="text-secondary text-xs truncate text-left font-light">
-										{httpTrigger.path}
-									</div>
-								</div>
-
-								<div class="flex gap-2 items-center justify-end">
+										openApiFile = ''
+									}}
+								/>
+							{:else if selected === 'OpenAPI_URL'}
+								<div class="flex flex-row gap-1">
+									<input type="text" placeholder="OpenAPI URL" bind:value={openApiUrl} />
 									<Button
-										on:click={() => {
-											callback = (newHttpTrigger) => {
-												httpTriggers[index] = newHttpTrigger as NewHttpTrigger
-												httpTriggers = httpTriggers
-											}
-											openRouteEditor(httpTriggers[index].path, httpTriggers[index])
-										}}
+										color="light"
+										spacingSize="sm"
 										size="xs"
-										startIcon={{ icon: Pen }}
-										color="gray"
+										loading={isFetchingOpenApiSpec}
+										disabled={!isValidUrl}
+										on:click={fetchOpenApiConfig}
 									>
-										Edit
+										Fetch
 									</Button>
 								</div>
+							{/if}
+							{#if selected === 'OpenAPI' || (selected === 'OpenAPI_File' && !emptyStringTrimmed(openApiFile)) || (selected === 'OpenAPI_URL' && !emptyStringTrimmed(openApiUrl))}
+								{#key code}
+									<div class="h-96">
+										<SimpleEditor class="h-full" {lang} bind:code />
+									</div>
+								{/key}
+							{/if}
+							<Button
+								spacingSize="sm"
+								size="xs"
+								btnClasses="h-8"
+								loading={isGeneratingHttpRoutes}
+								on:click={generateHttpTrigger}
+								disabled={code.length === 0}
+								color="light"
+								variant="border">Generate HTTP triggers</Button
+							>
+						</div>
+					</Subsection>
+					<div class="overflow-auto h-80">
+						<Subsection>
+							<div class="flex flex-col gap-1 mb-2">
+								{#each httpTriggers as httpTrigger, index}
+									<div
+										class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
+								first-of-type:rounded-t-md last-of-type:rounded-b-md flex justify-between mt-2"
+									>
+										<div>
+											<div class="text-primary">
+												{httpTrigger.http_method.toUpperCase()}
+												{isCloudHosted() || httpTrigger.workspaced_route
+													? $workspaceStore! + '/' + httpTrigger.route_path
+													: httpTrigger.route_path}
+											</div>
+											<div class="text-secondary text-xs truncate text-left font-light">
+												{httpTrigger.path}
+											</div>
+										</div>
+
+										<div class="flex gap-2 items-center justify-end">
+											<Button
+												on:click={() => {
+													callback = (newHttpTrigger) => {
+														httpTriggers[index] = newHttpTrigger as NewHttpTrigger
+														httpTriggers = httpTriggers
+													}
+													openRouteEditor(httpTriggers[index].path, httpTriggers[index])
+												}}
+												size="xs"
+												startIcon={{ icon: Pen }}
+												color="gray"
+											>
+												Edit
+											</Button>
+										</div>
+									</div>
+								{/each}
 							</div>
-						{/each}
+						</Subsection>
 					</div>
-				</Subsection>
-			{/if}
-		</div>
-	</Section>
+				{/if}
+			</div>
+		</Section>
+	</div>
 {/snippet}

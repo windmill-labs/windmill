@@ -11,7 +11,8 @@
 		displayDate,
 		getLocalSetting,
 		storeLocalSetting,
-		removeTriggerKindIfUnused
+		removeTriggerKindIfUnused,
+		sendUserToast
 	} from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -342,11 +343,16 @@
 												disabled:
 													!canWrite || !($userStore?.is_admin || $userStore?.is_super_admin),
 												action: async () => {
-													await HttpTriggerService.deleteHttpTrigger({
-														workspace: $workspaceStore ?? '',
-														path
-													})
-													loadTriggers()
+													try {
+														await HttpTriggerService.deleteHttpTrigger({
+															workspace: $workspaceStore ?? '',
+															path
+														})
+														sendUserToast(`Successfully deleted trigger: ${path}`)
+														loadTriggers()
+													} catch (error) {
+														sendUserToast(error.body || error.message, true)
+													}
 												}
 											},
 											{
