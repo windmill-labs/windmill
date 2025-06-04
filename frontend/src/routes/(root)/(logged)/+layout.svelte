@@ -369,7 +369,7 @@
 	{#if mountModal}
 		<CriticalAlertModal bind:muteSettings bind:numUnacknowledgedCriticalAlerts />
 	{/if}
-	<div>
+	<div class="h-screen flex flex-col">
 		{#if !menuHidden}
 			{#if !$userStore?.operator}
 				{#if innerWidth < 768}
@@ -565,7 +565,7 @@
 			<div
 				class={classNames(
 					'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300  !dark',
-					'opacity-0'
+					'opacity-0 pointer-events-none'
 				)}
 			>
 				<div class={twMerge('fixed inset-0 flex ', '-z-0')}>
@@ -649,18 +649,18 @@
 				</div>
 			</div>
 		{/if}
-		<Splitpanes horizontal={false} style="height: 99vh">
-			<Pane size={100 - aiChatManager.size} minSize={50}>
+		<Splitpanes horizontal={false} class="flex-1 min-h-0">
+			<Pane size={100 - aiChatManager.size} minSize={50} class="flex flex-col min-h-0">
 				<div
 					id="content"
 					class={classNames(
-						'w-full flex flex-col flex-1 h-full',
+						'w-full flex-1 flex flex-col overflow-y-auto',
 						devOnly || $userStore?.operator ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
 						'transition-all ease-in-out duration-200'
 					)}
 				>
-					<main class="min-h-[97vh]">
-						<div class="relative w-full h-full">
+					<main class="flex-1 flex flex-col">
+						<div class="relative w-full flex-1 flex flex-col">
 							<div
 								class={classNames(
 									'py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-7xl mx-auto md:hidden',
@@ -692,12 +692,14 @@
 									</svg>
 								</button>
 							</div>
-							<slot />
+							<div class="flex-1">
+								<slot />
+							</div>
 						</div>
 					</main>
 				</div>
 			</Pane>
-			<Pane bind:size={aiChatManager.size} minSize={15}>
+			<Pane bind:size={aiChatManager.size} minSize={15} class="flex flex-col min-h-0">
 				<GlobalChat />
 			</Pane>
 		</Splitpanes>
