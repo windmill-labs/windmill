@@ -3969,8 +3969,7 @@ async fn assert_lockfile(
 #[cfg(feature = "python")]
 #[sqlx::test(fixtures("base", "lockfile_python"))]
 async fn test_requirements_python(db: Pool<Postgres>) {
-    let content = r#"
-# py: 3.11.11
+    let content = r#"# py: ==3.11.11
 # requirements:
 # tiny==0.1.3
 
@@ -3997,8 +3996,7 @@ def main():
 #[sqlx::test(fixtures("base", "lockfile_python"))]
 async fn test_extra_requirements_python(db: Pool<Postgres>) {
     {
-        let content = r#"
-# py: ==3.11.11
+        let content = r#"# py: ==3.11.11
 # extra_requirements:
 # tiny
 
@@ -4025,8 +4023,7 @@ def main():
 #[cfg(feature = "python")]
 #[sqlx::test(fixtures("base", "lockfile_python"))]
 async fn test_extra_requirements_python2(db: Pool<Postgres>) {
-    let content = r#"
-# py: ==3.11.11
+    let content = r#"# py: ==3.11.11
 # extra_requirements:
 # tiny==0.1.3
 
@@ -4048,8 +4045,7 @@ def main():
 #[cfg(feature = "python")]
 #[sqlx::test(fixtures("base", "lockfile_python"))]
 async fn test_pins_python(db: Pool<Postgres>) {
-    let content = r#"
-# py: ==3.11.11
+    let content = r#"# py: ==3.11.11
 # extra_requirements:
 # tiny==0.1.3
 # bottle==0.13.2
