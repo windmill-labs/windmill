@@ -13,6 +13,7 @@
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import MultiSelectWrapper from '../multiselect/MultiSelectWrapper.svelte'
+	import TriggerableByAI from '../TriggerableByAI.svelte'
 
 	// --- Props ---
 	interface Props {
@@ -101,7 +102,7 @@
 					label: newTokenLabel,
 					expiration: date?.toISOString(),
 					scopes: tokenScopes,
-					workspace_id: mcpMode ? (newTokenWorkspace || $workspaceStore) : newTokenWorkspace
+					workspace_id: mcpMode ? newTokenWorkspace || $workspaceStore : newTokenWorkspace
 				} as NewToken
 			})
 
@@ -187,6 +188,8 @@
 	<h2 class="py-0 my-0 border-b pt-3">Tokens</h2>
 	<div class="flex justify-end border-b pb-1 gap-2">
 		<Button
+			aiId="account-settings-create-token"
+			aiDescription="Create a new token to authenticate to the Windmill API"
 			size="sm"
 			startIcon={{ icon: Plus }}
 			btnClasses={displayCreateToken ? 'hidden' : ''}
@@ -235,28 +238,33 @@
 
 			{#if showMcpMode}
 				<div class="mb-4 flex flex-row flex-shrink-0">
-					<Toggle
-						on:change={(e) => {
-							mcpCreationMode = e.detail
-							if (e.detail) {
-								newTokenLabel = 'MCP token'
-								newTokenExpiration = undefined
-								newTokenWorkspace = $workspaceStore
-							} else {
-								newTokenLabel = undefined
-								newTokenExpiration = undefined
-								newTokenWorkspace = defaultNewTokenWorkspace
-							}
-						}}
-						checked={mcpCreationMode}
-						options={{
-							right: 'Generate MCP URL',
-							rightTooltip:
-								'Generate a new MCP URL to make your scripts and flows available as tools through your LLM clients.',
-							rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mcp'
-						}}
-						size="xs"
-					/>
+					<TriggerableByAI
+						id="account-settings-create-mcp-token"
+						description="Create a new MCP token to authenticate to the Windmill API"
+					>
+						<Toggle
+							on:change={(e) => {
+								mcpCreationMode = e.detail
+								if (e.detail) {
+									newTokenLabel = 'MCP token'
+									newTokenExpiration = undefined
+									newTokenWorkspace = $workspaceStore
+								} else {
+									newTokenLabel = undefined
+									newTokenExpiration = undefined
+									newTokenWorkspace = defaultNewTokenWorkspace
+								}
+							}}
+							checked={mcpCreationMode}
+							options={{
+								right: 'Generate MCP URL',
+								rightTooltip:
+									'Generate a new MCP URL to make your scripts and flows available as tools through your LLM clients.',
+								rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mcp'
+							}}
+							size="xs"
+						/>
+					</TriggerableByAI>
 				</div>
 			{/if}
 

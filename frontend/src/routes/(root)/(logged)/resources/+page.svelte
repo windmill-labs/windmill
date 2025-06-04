@@ -616,10 +616,23 @@
 			documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
 		>
 			<div class="flex flex-row justify-end gap-4">
-				<Button variant="border" size="md" startIcon={{ icon: Plus }} on:click={startNewType}>
+				<Button
+					variant="border"
+					size="md"
+					startIcon={{ icon: Plus }}
+					on:click={startNewType}
+					aiId="resources-add-resource-type"
+					aiDescription="Add resource type"
+				>
 					Add resource type
 				</Button>
-				<Button size="md" startIcon={{ icon: Link }} on:click={() => appConnect.open?.()}>
+				<Button
+					size="md"
+					startIcon={{ icon: Link }}
+					on:click={() => appConnect.open?.()}
+					aiId="resources-add-resource"
+					aiDescription="Add resource"
+				>
 					Add resource
 				</Button>
 			</div>

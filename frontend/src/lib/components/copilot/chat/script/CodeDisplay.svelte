@@ -5,7 +5,7 @@
 	import { getContext, untrack } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { initializeVscode } from '$lib/components/vscode'
-	import type { AIChatContext, DisplayMessage } from '../shared'
+	import type { DisplayMessage } from '../shared'
 	import type { ContextElement } from '../context'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import {
@@ -22,15 +22,9 @@
 		yaml
 	} from 'svelte-highlight/languages'
 	import { scriptLangToEditorLang } from '$lib/scripts'
+	import { aiChatManager } from '../AIChatManager.svelte'
 
 	const astNode = getAstNode()
-
-	const {
-		loading: loadingContext,
-		currentReply,
-		applyCode,
-		canApplyCode
-	} = getContext<AIChatContext>('AIChatContext')
 
 	const { message } = getContext<{ message: DisplayMessage }>('AssistantMessageContext')
 
@@ -107,8 +101,11 @@
 	let loading = $state(true)
 	$effect(() => {
 		// we only want to trigger when astNode offset is updated not currentReply, otherwise as there is some delay on the offset update, loading would be set to false too early
-		const completeReply = untrack(() => $currentReply)
-		if (!$loadingContext || completeReply.length > (astNode.current.position?.end.offset ?? 0)) {
+		const completeReply = untrack(() => aiChatManager.currentReply)
+		if (
+			!aiChatManager.loading ||
+			completeReply.length > (astNode.current.position?.end.offset ?? 0)
+		) {
 			loading = false
 		}
 	})
@@ -183,13 +180,13 @@
 </script>
 
 <div class="flex flex-col gap-0.5 rounded-lg relative not-prose">
-	{#if canApplyCode()}
+	{#if aiChatManager.canApplyCode}
 		<div class="flex justify-end items-end">
 			<Button
 				color="dark"
 				size="xs2"
 				on:click={() => {
-					applyCode(code ?? '')
+					aiChatManager.scriptEditorApplyCode?.(code ?? '')
 				}}
 			>
 				Apply
@@ -200,17 +197,17 @@
 	<div
 		class="relative w-full border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden"
 	>
-		{#if (loading && !code) || !language}
+		{#if aiChatManager.mode !== 'navigator' && ((loading && !code) || !language)}
 			<div class="flex flex-row gap-1 p-2 items-center justify-center">
 				<Loader2 class="w-4 h-4 animate-spin" /> Generating code...
 			</div>
-		{:else if !loading && codeContext && getSmartLang(codeContext.lang) === getSmartLang(language)}
+		{:else if !loading && codeContext && getSmartLang(codeContext.lang) === getSmartLang(language as string)}
 			<div bind:this={diffEl} class="w-full h-full"></div>
 		{:else}
 			<HighlightCode
 				class="p-1"
 				code={code ?? ''}
-				highlightLanguage={SMART_LANG_TO_HIGHLIGHT_LANG[getSmartLang(language)]}
+				highlightLanguage={SMART_LANG_TO_HIGHLIGHT_LANG[getSmartLang(language as string)]}
 				language={undefined}
 			/>
 		{/if}

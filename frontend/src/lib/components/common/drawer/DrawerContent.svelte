@@ -2,7 +2,11 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { classNames } from '$lib/utils'
 	import CloseButton from '../CloseButton.svelte'
+	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
+	import { createEventDispatcher } from 'svelte'
 
+	export let aiId: string | undefined = undefined
+	export let aiDescription: string | undefined = undefined
 	export let title: string | undefined = undefined
 	export let overflow_y = true
 	export let noPadding = false
@@ -12,13 +16,22 @@
 	export let CloseIcon: any | undefined = undefined
 
 	export let fullScreen: boolean = true
+
+	const dispatch = createEventDispatcher()
 </script>
 
 <div class={classNames('flex flex-col divide-y', fullScreen ? 'h-screen max-h-screen' : 'h-full')}>
 	<div class="flex justify-between w-full items-center px-4 py-2 gap-2">
 		<div class="flex items-center gap-2 w-full truncate">
-			<CloseButton on:close Icon={CloseIcon} />
-
+			<TriggerableByAI
+				id={`close-${aiId}`}
+				description={`Close ${aiDescription}`}
+				onTrigger={() => {
+					dispatch('close')
+				}}
+			>
+				<CloseButton on:close Icon={CloseIcon} />
+			</TriggerableByAI>
 			<span class="font-semibold truncate text-primary !text-lg max-w-sm"
 				>{title ?? ''}
 				{#if tooltip != '' || documentationLink}

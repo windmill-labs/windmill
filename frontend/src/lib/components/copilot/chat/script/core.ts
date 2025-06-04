@@ -3,7 +3,11 @@ import type { ResourceType, ScriptLang } from '$lib/gen/types.gen'
 import { capitalize, isObject, toCamel } from '$lib/utils'
 import { get } from 'svelte/store'
 import { compile, phpCompile, pythonCompile } from '../../utils'
-import type { ChatCompletionTool } from 'openai/resources/index.mjs'
+import type {
+	ChatCompletionSystemMessageParam,
+	ChatCompletionTool,
+	ChatCompletionUserMessageParam
+} from 'openai/resources/index.mjs'
 import { type DBSchema, dbSchemas } from '$lib/stores'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
@@ -279,10 +283,7 @@ WINDMILL LANGUAGE CONTEXT:
 
 export const CHAT_USER_DB_CONTEXT = `- {title}: SCHEMA: \n{schema}\n`
 
-export function prepareScriptSystemMessage(): {
-	role: 'system'
-	content: string
-} {
+export function prepareScriptSystemMessage(): ChatCompletionSystemMessageParam {
 	return {
 		role: 'system',
 		content: CHAT_SYSTEM_PROMPT
@@ -301,6 +302,20 @@ const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext
 	return code.join('\n')
 }
 
+export function prepareScriptTools(
+	language: ScriptLang | 'bunnative',
+	context: ContextElement[]
+): Tool<ScriptChatHelpers>[] {
+	const tools: Tool<ScriptChatHelpers>[] = [resourceTypeTool, dbSchemaTool]
+	if (['python3', 'php', 'bun', 'deno', 'nativets', 'bunnative'].includes(language)) {
+		tools.push(resourceTypeTool)
+	}
+	if (context.some((c) => c.type === 'db')) {
+		tools.push(dbSchemaTool)
+	}
+	return tools
+}
+
 export async function prepareScriptUserMessage(
 	instructions: string,
 	language: ScriptLang | 'bunnative',
@@ -308,7 +323,7 @@ export async function prepareScriptUserMessage(
 	options: {
 		isPreprocessor?: boolean
 	} = {}
-) {
+): Promise<ChatCompletionUserMessageParam> {
 	let codeContext = 'CODE:\n'
 	let errorContext = 'ERROR:\n'
 	let dbContext = 'DATABASES:\n'
@@ -364,7 +379,10 @@ export async function prepareScriptUserMessage(
 	if (hasDiff) {
 		userMessage += diffContext
 	}
-	return userMessage
+	return {
+		role: 'user',
+		content: userMessage
+	}
 }
 
 const RESOURCE_TYPE_FUNCTION_DEF: ChatCompletionTool = {

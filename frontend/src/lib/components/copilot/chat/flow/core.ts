@@ -1,5 +1,15 @@
-import { ScriptService, type FlowModule, type RawScript, type Script } from '$lib/gen'
-import type { ChatCompletionTool } from 'openai/resources/chat/completions.mjs'
+import {
+	ScriptService,
+	type FlowModule,
+	type OpenFlow,
+	type RawScript,
+	type Script
+} from '$lib/gen'
+import type {
+	ChatCompletionSystemMessageParam,
+	ChatCompletionTool,
+	ChatCompletionUserMessageParam
+} from 'openai/resources/chat/completions.mjs'
 import YAML from 'yaml'
 import { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
@@ -15,6 +25,7 @@ import type { Tool } from '../shared'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 
 export interface FlowAIChatHelpers {
+	getFlowAndSelectedId: () => { flow: OpenFlow; selectedId: string }
 	insertStep: (location: InsertLocation, step: NewStep) => Promise<string>
 	removeStep: (id: string) => Promise<void>
 	getStepInputs: (id: string) => Promise<Record<string, any>>
@@ -562,11 +573,8 @@ function createToolDef(
 	}
 }
 
-export function prepareFlowSystemMessage(): {
-	role: 'system'
-	content: string
-} {
-	const content = `You are a helpful assitant that creates and edit workflows on the Windmill platform. You're provided with a a bunch of tools to help you edit the flow.
+export function prepareFlowSystemMessage(): ChatCompletionSystemMessageParam {
+	const content = `You are a helpful assistant that creates and edits workflows on the Windmill platform. You're provided with a bunch of tools to help you edit the flow.
 Follow the user instructions carefully.
 Go step by step, and explain what you're doing as you're doing it.
 DO NOT wait for user confirmation before performing an action. Only do it if the user explicitly asks you to wait in their initial instructions.
@@ -630,10 +638,21 @@ If the user wants a specific resource as step input, you should set the step val
 
 export function prepareFlowUserMessage(
 	instructions: string,
-	flowAndSelectedId: { flow: ExtendedOpenFlow; selectedId: string }
-) {
-	const { flow, selectedId } = flowAndSelectedId
-	return `## FLOW:
+	flowAndSelectedId?: { flow: ExtendedOpenFlow; selectedId: string }
+): ChatCompletionUserMessageParam {
+	const flow = flowAndSelectedId?.flow
+	const selectedId = flowAndSelectedId?.selectedId
+
+	if (!flow || !selectedId) {
+		return {
+			role: 'user',
+			content: `## INSTRUCTIONS:
+${instructions}`
+		}
+	}
+	return {
+		role: 'user',
+		content: `## FLOW:
 flow_input schema:
 ${JSON.stringify(flow.schema ?? emptySchema())}
 
@@ -651,4 +670,5 @@ ${selectedId}
 
 ## INSTRUCTIONS:
 ${instructions}`
+	}
 }
