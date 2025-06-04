@@ -184,7 +184,7 @@
 			})
 		} else if (selectedJob && 'result' in selectedJob) {
 			// Pin the job
-			let mockValue = structuredClone(selectedJob.result)
+			let mockValue: any = structuredClone($state.snapshot(selectedJob.result))
 			if (selectedJob.result === 'never tested this far') {
 				mockValue = { example: 'value' }
 			}
