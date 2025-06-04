@@ -34,7 +34,7 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{RwLock, RwLockReadGuard};
 use tower_http::cors::CorsLayer;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
-use windmill_common::error::Error;
+use windmill_common::error::{Error, Result as WindmillResult};
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::build_object_store_client;
 use windmill_common::{
@@ -274,7 +274,7 @@ async fn get_trigger(
 fn validate_authentication_method(
     authentication_method: AuthenticationMethod,
     raw_string: Option<bool>,
-) -> error::Result<()> {
+) -> WindmillResult<()> {
     match (authentication_method, raw_string) {
         (AuthenticationMethod::CustomScript, raw) if !raw.unwrap_or(false) == true => {
             return Err(Error::BadRequest(
@@ -288,7 +288,7 @@ fn validate_authentication_method(
     Ok(())
 }
 
-async fn increase_trigger_version(tx: &mut PgConnection) -> error::Result<()> {
+async fn increase_trigger_version(tx: &mut PgConnection) -> WindmillResult<()> {
     sqlx::query!("SELECT nextval('http_trigger_version_seq')",)
         .fetch_one(tx)
         .await?;
@@ -297,50 +297,12 @@ async fn increase_trigger_version(tx: &mut PgConnection) -> error::Result<()> {
 }
 
 async fn create_trigger_inner(
-    db: &DB,
+    tx: &mut PgConnection,
     w_id: &str,
     authed: &ApiAuthed,
-    new_http_trigger: NewTrigger,
-    tx: &mut PgConnection,
-) -> error::Result<()> {
-    require_admin(authed.is_admin, &authed.username)?;
-
-    if !VALID_ROUTE_PATH_RE.is_match(&new_http_trigger.route_path) {
-        return Err(error::Error::BadRequest("Invalid route path".to_string()));
-    }
-
-    validate_authentication_method(
-        new_http_trigger.authentication_method,
-        new_http_trigger.raw_string,
-    )?;
-
-    // route path key is extracted from the route path to check for uniqueness
-    // it replaces /?:{key} with :key
-    // it will also remove the leading / if present, not an issue as we only allow : after slashes
-    let route_path_key = ROUTE_PATH_KEY_RE.replace_all(&new_http_trigger.route_path, ":key");
-    let exists = route_path_key_exists(
-        &route_path_key,
-        &new_http_trigger.http_method,
-        &w_id,
-        None,
-        new_http_trigger.workspaced_route,
-        &db,
-    )
-    .await?;
-    if exists {
-        return Err(error::Error::BadRequest(
-            "A route already exists with this path".to_string(),
-        ));
-    }
-
-    if *CLOUD_HOSTED
-        && (new_http_trigger.is_static_website || new_http_trigger.static_asset_config.is_some())
-    {
-        return Err(error::Error::BadRequest(
-            "Static website and static asset are not supported on cloud".to_string(),
-        ));
-    }
-
+    new_http_trigger: &NewTrigger,
+    route_path_key: &str,
+) -> WindmillResult<()> {
     sqlx::query!(
         r#"
         INSERT INTO http_trigger (
@@ -401,6 +363,120 @@ async fn create_trigger_inner(
 
     increase_trigger_version(tx).await?;
 
+    Ok(())
+}
+
+async fn create_many_http_trigger(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(new_http_triggers): Json<Vec<NewTrigger>>,
+) -> WindmillResult<(StatusCode, String)> {
+    let mut route_path_keys = Vec::with_capacity(new_http_triggers.len());
+
+    for new_http_trigger in new_http_triggers.iter() {
+        let route_path_key = validate_http_trigger(&db, &authed, &w_id, new_http_trigger).await?;
+        route_path_keys.push(route_path_key);
+    }
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    for (i, new_http_trigger) in new_http_triggers.iter().enumerate() {
+        create_trigger_inner(
+            &mut tx,
+            &w_id,
+            &authed,
+            new_http_trigger,
+            &route_path_keys[i],
+        )
+        .await?;
+    }
+
+    tx.commit().await?;
+
+    for http_trigger in new_http_triggers.into_iter() {
+        handle_deployment_metadata(
+            &authed.email,
+            &authed.username,
+            &db,
+            &w_id,
+            windmill_git_sync::DeployedObject::HttpTrigger { path: http_trigger.path.clone() },
+            Some(format!("HTTP trigger '{}' created", http_trigger.path)),
+            true,
+        )
+        .await?;
+    }
+
+    Ok((StatusCode::CREATED, format!("Created all HTTP triggers")))
+}
+
+async fn validate_http_trigger<'trigger>(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    new_http_trigger: &'trigger NewTrigger,
+) -> WindmillResult<Cow<'trigger, str>> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    if !VALID_ROUTE_PATH_RE.is_match(&new_http_trigger.route_path) {
+        return Err(error::Error::BadRequest("Invalid route path".to_string()));
+    }
+
+    validate_authentication_method(
+        new_http_trigger.authentication_method,
+        new_http_trigger.raw_string,
+    )?;
+
+    // route path key is extracted from the route path to check for uniqueness
+    // it replaces /?:{key} with :key
+    // it will also remove the leading / if present, not an issue as we only allow : after slashes
+    let route_path_key = ROUTE_PATH_KEY_RE.replace_all(&new_http_trigger.route_path, ":key");
+
+    let exists = route_path_key_exists(
+        &route_path_key,
+        &new_http_trigger.http_method,
+        &w_id,
+        None,
+        new_http_trigger.workspaced_route,
+        db,
+    )
+    .await?;
+
+    if exists {
+        return Err(error::Error::BadRequest(
+            "A route already exists with this path".to_string(),
+        ));
+    }
+
+    if *CLOUD_HOSTED
+        && (new_http_trigger.is_static_website || new_http_trigger.static_asset_config.is_some())
+    {
+        return Err(error::Error::BadRequest(
+            "Static website and static asset are not supported on cloud".to_string(),
+        ));
+    }
+
+    Ok(route_path_key)
+}
+
+async fn create_trigger(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(new_http_trigger): Json<NewTrigger>,
+) -> WindmillResult<(StatusCode, String)> {
+    let route_path_key = validate_http_trigger(&db, &authed, &w_id, &new_http_trigger).await?;
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    let http_trigger_path = new_http_trigger.path.clone();
+
+    create_trigger_inner(&mut tx, &w_id, &authed, &new_http_trigger, &route_path_key).await?;
+
+    tx.commit().await?;
+
     handle_deployment_metadata(
         &authed.email,
         &authed.username,
@@ -412,42 +488,6 @@ async fn create_trigger_inner(
     )
     .await?;
 
-    Ok(())
-}
-
-async fn create_many_http_trigger(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>,
-    Json(new_http_triggers): Json<Vec<NewTrigger>>,
-) -> error::Result<(StatusCode, String)> {
-    let mut tx = user_db.begin(&authed).await?;
-
-    for new_http_trigger in new_http_triggers {
-        create_trigger_inner(&db, &w_id, &authed, new_http_trigger, &mut tx).await?;
-    }
-
-    tx.commit().await?;
-
-    Ok((StatusCode::CREATED, format!("Created all http triggers")))
-}
-
-async fn create_trigger(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>,
-    Json(new_http_trigger): Json<NewTrigger>,
-) -> error::Result<(StatusCode, String)> {
-    let mut tx = user_db.begin(&authed).await?;
-
-    let http_trigger_path = new_http_trigger.path.clone();
-
-    create_trigger_inner(&db, &w_id, &authed, new_http_trigger, &mut tx).await?;
-
-    tx.commit().await?;
-
     Ok((StatusCode::CREATED, format!("{}", http_trigger_path)))
 }
 
@@ -457,8 +497,9 @@ async fn update_trigger(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ct): Json<EditTrigger>,
-) -> error::Result<String> {
+) -> WindmillResult<String> {
     let path = path.to_path();
+
     if *CLOUD_HOSTED && (ct.is_static_website || ct.static_asset_config.is_some()) {
         return Err(error::Error::BadRequest(
             "Static website and static asset are not supported on cloud".to_string(),
@@ -625,7 +666,7 @@ async fn delete_trigger(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> error::Result<String> {
+) -> WindmillResult<String> {
     require_admin(authed.is_admin, &authed.username)?;
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
@@ -703,7 +744,7 @@ async fn route_path_key_exists(
     trigger_path: Option<&str>,
     workspaced_route: Option<bool>,
     db: &DB,
-) -> error::Result<bool> {
+) -> WindmillResult<bool> {
     let exists = if *CLOUD_HOSTED {
         sqlx::query_scalar!(
             r#"
@@ -941,7 +982,7 @@ async fn get_http_route_trigger(
     db: &DB,
     user_db: UserDB,
     method: &http::Method,
-) -> error::Result<(TriggerRoute, String, HashMap<String, String>, ApiAuthed)> {
+) -> WindmillResult<(TriggerRoute, String, HashMap<String, String>, ApiAuthed)> {
     let http_method: HttpMethod = method.try_into()?;
 
     let requested_path = format!("/{}", route_path);

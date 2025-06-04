@@ -79,7 +79,7 @@
 			code = data
 			forceRerender = !forceRerender
 		} catch (error) {
-			sendUserToast(error.body, true)
+			sendUserToast(error.message || error, true)
 		} finally {
 			isFetchingOpenApiSpec = false
 		}
@@ -88,7 +88,7 @@
 	async function saveHttpTrigger() {
 		try {
 			isCreating = true
-			const message = await HttpTriggerService.createManyHttpTrigger({
+			const message = await HttpTriggerService.createHttpTriggers({
 				workspace: $workspaceStore!,
 				requestBody: httpTriggers
 			})
