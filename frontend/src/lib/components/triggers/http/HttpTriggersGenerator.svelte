@@ -30,7 +30,6 @@
 	let selected: Source = $state('OpenAPI')
 	let openApiUrl = $state('')
 	let openApiFile = $state('')
-
 	let openApiRawEditorValue = $state('')
 	let openApiFileEditorValue = $state('')
 	let openApiUrlEditorValue = $state('')
@@ -38,6 +37,7 @@
 	let httpTriggers: NewHttpTrigger[] = $state([])
 	let isFetchingOpenApiSpec = $state(false)
 	let folderName: string = $state('')
+	let forceRerender = $state(false)
 	let callback: ((cfg: NewHttpTrigger | EditHttpTrigger) => void) | undefined = $state(undefined)
 
 	let lang: 'yaml' | 'json' = $derived.by(() => {
@@ -50,7 +50,7 @@
 	let acceptedFileTypes: string[] = ['.json', '.yaml']
 	let isCreating = $state(false)
 
-	function openRouteEditor(path: string, newHttpTrigger: NewHttpTrigger) {
+	function openRouteEditor(_path: string, newHttpTrigger: NewHttpTrigger) {
 		routeEditor.openNew(false, '', newHttpTrigger)
 	}
 
@@ -77,6 +77,7 @@
 			const data = await response.text()
 			openApiUrlEditorValue = data
 			code = data
+			forceRerender = !forceRerender
 		} catch (error) {
 			sendUserToast(error.body, true)
 		} finally {
@@ -168,21 +169,21 @@
 							let:item
 						>
 							<ToggleButton
-								tooltip="Paste an OpenAPI JSON/YAML spec directly to generate HTTP triggers"
+								tooltip="Paste an OpenAPI JSON/YAML specification directly to generate HTTP triggers."
 								showTooltipIcon
 								label="Paste OpenAPI spec"
 								value="OpenAPI"
 								{item}
 							/>
 							<ToggleButton
-								tooltip="Upload an OpenAPI file to generate HTTP triggers automatically"
+								tooltip="Upload an OpenAPI file in JSON/YAML format to generate HTTP triggers."
 								showTooltipIcon
 								label="From OpenAPI file"
 								value="OpenAPI_File"
 								{item}
 							/>
 							<ToggleButton
-								tooltip="Provide a publicly accessible URL to an OpenAPI specification in JSON or YAML format."
+								tooltip="Provide a publicly accessible URL to an OpenAPI specification in JSON/YAML format to generate HTTP triggers."
 								showTooltipIcon
 								label="From OpenAPI URL"
 								value="OpenAPI_URL"
@@ -193,8 +194,8 @@
 						<div class="flex flex-col gap-2 mt-2">
 							{#if selected === 'OpenAPI'}
 								<ToggleButtonGroup bind:selected={lang} let:item>
-									<ToggleButton value="yaml" label="yaml" {item} />
-									<ToggleButton value="json" label="json" {item} />
+									<ToggleButton value="yaml" label="YAML" {item} />
+									<ToggleButton value="json" label="JSON" {item} />
 								</ToggleButtonGroup>
 							{:else if selected === 'OpenAPI_File'}
 								<FileInput
@@ -206,14 +207,15 @@
 									class="text-sm py-4"
 									on:change={async ({ detail }) => {
 										if (detail && detail.length > 0) {
+											if (openApiFile.endsWith('.json')) {
+												lang = 'json'
+											} else {
+												lang = 'yaml'
+											}
 											code = detail[0].data
 											openApiFileEditorValue = code
 											openApiFile = detail[0].name as string
-											if (openApiFile.endsWith('.json')) {
-												lang = 'json'
-												return
-											}
-											lang = 'yaml'
+											forceRerender = !forceRerender
 											return
 										}
 										openApiFile = ''
@@ -235,7 +237,7 @@
 								</div>
 							{/if}
 							{#if selected === 'OpenAPI' || (selected === 'OpenAPI_File' && !emptyStringTrimmed(openApiFile)) || (selected === 'OpenAPI_URL' && !emptyStringTrimmed(openApiUrl))}
-								{#key code}
+								{#key forceRerender}
 									<div class="h-96">
 										<SimpleEditor class="h-full" {lang} bind:code />
 									</div>
