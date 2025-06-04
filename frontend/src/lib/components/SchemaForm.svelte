@@ -77,7 +77,7 @@
 		schema = $bindable(),
 		hiddenArgs = [],
 		schemaFieldTooltip = {},
-		args = $bindable({}),
+		args = $bindable(undefined),
 		disabledArgs = [],
 		disabled = false,
 		isValid = $bindable(true),
@@ -114,6 +114,12 @@
 		actions
 	}: Props = $props()
 
+	$effect.pre(() => {
+		if (args == undefined) {
+			args = {}
+		}
+	})
+
 	const dispatch = createEventDispatcher()
 
 	let inputCheck: { [id: string]: boolean } = $state({})
@@ -122,7 +128,7 @@
 		const nargs = structuredClone(defaultValues)
 
 		Object.keys(schema?.properties ?? {}).forEach((key) => {
-			if (schema?.properties[key].default != undefined && args[key] == undefined) {
+			if (schema?.properties[key].default != undefined && args && args[key] == undefined) {
 				let value = schema?.properties[key].default
 				nargs[key] = value === 'object' ? structuredClone(value) : value
 			}
@@ -135,7 +141,7 @@
 	function removeExtraKey() {
 		const nargs = {}
 		Object.keys(args ?? {}).forEach((key) => {
-			if (keys.includes(key)) {
+			if (keys.includes(key) && args) {
 				nargs[key] = args[key]
 			}
 		})
@@ -221,7 +227,7 @@
 	})
 	let fields = $derived(items ?? keys.map((x) => ({ id: x, value: x })))
 	$effect(() => {
-		handleHiddenFields(schema, args)
+		handleHiddenFields(schema, args ?? {})
 	})
 	$effect(() => {
 		isValid = allTrue(inputCheck ?? {})
@@ -245,7 +251,7 @@
 	onfinalize={bubble('finalize')}
 	onconsider={bubble('consider')}
 >
-	{#if keys.length > 0}
+	{#if keys.length > 0 && args}
 		{#each fields as item, i (item.id)}
 			{@const argName = item.value}
 			<div
@@ -431,7 +437,7 @@
 	<ItemPicker
 		bind:this={itemPicker}
 		pickCallback={(path, _) => {
-			if (pickForField) {
+			if (pickForField && args) {
 				args[pickForField] = '$var:' + path
 			}
 		}}

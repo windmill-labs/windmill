@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run, createBubbler, preventDefault, stopPropagation } from 'svelte/legacy'
+	import { createBubbler, preventDefault, stopPropagation } from 'svelte/legacy'
 
 	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
@@ -104,6 +104,7 @@
 		extraTab
 	}: Props = $props()
 
+	let schema2 = $derived(previewSchema ? previewSchema : schema)
 	export function setDefaults() {
 		const nargs = {}
 
@@ -167,6 +168,7 @@
 			}
 		}
 		if (editSchema) {
+			console.log('setSchema', schema)
 			schema = schema
 		}
 	}
@@ -277,25 +279,26 @@
 	}
 
 	let panelButtonWidth: number = $state(0)
-	run(() => {
+	$effect(() => {
 		if (args == undefined || typeof args !== 'object') {
 			args = {}
 		}
 	})
-	run(() => {
+	$effect(() => {
 		schema && onSchemaChange()
 	})
-	run(() => {
+	$effect(() => {
 		opened && updateSelected(schema.properties[opened])
 	})
-	run(() => {
+	$effect(() => {
 		updatePanelSizes($editPanelSizeSmooth, $inputPanelSizeSmooth)
 	})
-	run(() => {
+	$effect(() => {
 		!!editTab ? openEditTabFn() : closeEditTab()
 	})
 </script>
 
+<!-- {JSON.stringify(schema2)} -->
 <div class="w-full h-full">
 	<div class="relative z-[100000]">
 		<div
@@ -331,7 +334,7 @@
 					>
 						<SchemaFormDnd
 							nestedClasses={'flex flex-col gap-1'}
-							schema={previewSchema ? previewSchema : schema}
+							schema={schema2}
 							{dndType}
 							{disableDnd}
 							{onlyMaskPassword}

@@ -384,12 +384,10 @@
 				bind:args={previewArguments}
 				bind:editPanelSize={
 					() => {
-						console.log('editPanelSize', editPanelSize)
 						return editPanelSize
 					},
 					(v) => {
 						if (editPanelSize != v) {
-							console.log('editPanelSize', v)
 							editPanelSize = v
 						}
 					}

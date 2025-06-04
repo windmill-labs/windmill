@@ -125,8 +125,8 @@
 		label = '',
 		value = $bindable(),
 		defaultValue = $bindable(undefined),
-		description = $bindable(''),
-		format = $bindable(''),
+		description = $bindable(undefined),
+		format = $bindable(undefined),
 		contentEncoding = undefined,
 		type = undefined,
 		oneOf = $bindable(undefined),
@@ -178,7 +178,13 @@
 		actions
 	}: Props = $props()
 
-	$effect.pre(() => {
+	$effect(() => {
+		if (description == undefined) {
+			description = ''
+		}
+		if (format == undefined) {
+			format = ''
+		}
 		if (valid == undefined) {
 			valid = true
 		}
@@ -834,16 +840,16 @@
 				args={otherArgs}
 				{helperScript}
 				bind:value
-				entrypoint={format.substring('dynselect_'.length)}
+				entrypoint={format?.substring('dynselect_'.length) ?? ''}
 			/>
 		{:else if inputCat == 'resource-object' && resourceTypes == undefined}
 			<span class="text-2xs text-tertiary">Loading resource types...</span>
-		{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
+		{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format && format?.split('-').length > 1 && resourceTypes.includes(format?.substring('resource-'.length))))}
 			<ObjectResourceInput
 				{defaultValue}
 				selectFirst={!noDefaultOnSelectFirst}
 				{disablePortal}
-				{format}
+				format={format ?? ''}
 				bind:value
 				bind:editor
 				on:clear={() => {
@@ -851,7 +857,7 @@
 				}}
 				{showSchemaExplorer}
 			/>
-		{:else if inputCat == 'resource-object' && format.split('-').length > 1 && format
+		{:else if inputCat == 'resource-object' && format && format.split('-').length > 1 && format
 				.replace('resource-', '')
 				.replace('_', '')
 				.toLowerCase() == 's3object'}

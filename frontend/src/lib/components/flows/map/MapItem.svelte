@@ -136,7 +136,7 @@
 					on:changeId
 					on:move
 					on:delete
-					on:pointerdown={() => onSelect(mod)}
+					on:pointerdown={() => onSelect(mod.id)}
 					on:updateMock={({ detail }) => {
 						mod.mock = detail
 						dispatch('updateMock')

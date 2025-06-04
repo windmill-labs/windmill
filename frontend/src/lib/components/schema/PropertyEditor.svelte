@@ -50,7 +50,7 @@
 	}
 
 	let {
-		description = $bindable(''),
+		description = $bindable(undefined),
 		format = $bindable(undefined),
 		contentEncoding = $bindable(undefined),
 		type = undefined,
@@ -70,6 +70,12 @@
 		typeeditor,
 		children
 	}: Props = $props()
+
+	$effect.pre(() => {
+		if (description == undefined) {
+			description = ''
+		}
+	})
 
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
