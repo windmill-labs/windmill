@@ -147,7 +147,7 @@
 							{filter}
 							class="mt-2"
 							schema={$flowStateStore[m.id]?.schema ?? {}}
-							bind:args={steps[index]}
+							bind:args={steps[index][0]}
 						/>
 					</div>
 				{/if}
