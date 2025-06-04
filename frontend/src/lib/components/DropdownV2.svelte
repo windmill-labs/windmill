@@ -31,7 +31,7 @@
 	export let customWidth: number | undefined = undefined
 	export let customMenu = false
 
-	let buttonEl = { click: () => {} }
+	let buttonEl: HTMLButtonElement | undefined = undefined
 
 	const {
 		elements: { menu, item, trigger },
@@ -81,7 +81,7 @@
 
 <ResolveOpen {open} on:open on:close />
 
-<TriggerableByAI id={aiId} description={aiDescription} onTrigger={() => buttonEl.click()}>
+<TriggerableByAI id={aiId} description={aiDescription} onTrigger={() => buttonEl?.click()}>
 	<button
 		bind:this={buttonEl}
 		class={twMerge(
