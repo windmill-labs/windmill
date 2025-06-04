@@ -1,4 +1,4 @@
-import type { ScriptLang } from '$lib/gen/types.gen'
+import type { AIProviderModel, ScriptLang } from '$lib/gen/types.gen'
 import type { ScriptOptions } from './ContextManager.svelte'
 import {
 	flowTools,
@@ -26,6 +26,8 @@ import { dfs } from '$lib/components/flows/previousResults'
 import { getStringError } from './utils'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
+import { untrack } from 'svelte'
+import type { DBSchemas } from '$lib/stores'
 
 type TriggerablesMap = Record<
 	string,
@@ -484,6 +486,35 @@ class AIChatManager {
 			mode: 'script',
 			lang: lang,
 			isPreprocessor: moduleId === 'preprocessor'
+		})
+	}
+
+	initChatEffects = (
+		dbSchemas: DBSchemas,
+		workspaceStore: string | undefined,
+		copilotSessionModel: AIProviderModel | undefined
+	) => {
+		$effect(() => {
+			if (this.scriptEditorOptions) {
+				this.contextManager.updateAvailableContext(
+					this.scriptEditorOptions,
+					dbSchemas,
+					workspaceStore ?? '',
+					!copilotSessionModel?.model.endsWith('/thinking'),
+					untrack(() => this.contextManager.getSelectedContext())
+				)
+			}
+		})
+
+		$effect(() => {
+			this.displayMessages = ContextManager.updateDisplayMessages(
+				untrack(() => this.displayMessages),
+				dbSchemas
+			)
+		})
+
+		$effect(() => {
+			this.updateMode(untrack(() => this.mode))
 		})
 	}
 

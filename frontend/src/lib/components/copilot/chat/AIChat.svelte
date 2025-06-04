@@ -1,6 +1,6 @@
 <script lang="ts">
 	import AIChatDisplay from './AIChatDisplay.svelte'
-	import { onDestroy, untrack, type Snippet } from 'svelte'
+	import { onDestroy, type Snippet } from 'svelte'
 	import { type ScriptLang } from '$lib/gen'
 	import HistoryManager from './HistoryManager.svelte'
 	import {
@@ -12,7 +12,6 @@
 	} from '$lib/stores'
 	import { aiChatManager } from './AIChatManager.svelte'
 	import { base } from '$lib/base'
-	import ContextManager from './ContextManager.svelte'
 
 	interface Props {
 		headerLeft?: Snippet
@@ -78,26 +77,7 @@
 	let aiChatDisplay: AIChatDisplay | undefined = $state(undefined)
 
 	$effect(() => {
-		if (aiChatManager.scriptEditorOptions) {
-			aiChatManager.contextManager.updateAvailableContext(
-				aiChatManager.scriptEditorOptions,
-				$dbSchemas,
-				$workspaceStore ?? '',
-				!$copilotSessionModel?.model.endsWith('/thinking'),
-				untrack(() => aiChatManager.contextManager.getSelectedContext())
-			)
-		}
-	})
-
-	$effect(() => {
-		aiChatManager.displayMessages = ContextManager.updateDisplayMessages(
-			untrack(() => aiChatManager.displayMessages),
-			$dbSchemas
-		)
-	})
-
-	$effect(() => {
-		aiChatManager.updateMode(untrack(() => aiChatManager.mode))
+		aiChatManager.initChatEffects($dbSchemas, $workspaceStore, $copilotSessionModel)
 	})
 </script>
 
