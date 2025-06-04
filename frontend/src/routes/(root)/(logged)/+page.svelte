@@ -23,8 +23,6 @@
 	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/stores'
 	import { goto, replaceState } from '$app/navigation'
-	import AskAiButton from '$lib/components/copilot/AskAiButton.svelte'
-	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -216,11 +214,6 @@
 </Drawer>
 
 <div>
-	{#if !aiChatManager.open}
-		<div class="fixed top-4 right-2 z-50">
-			<AskAiButton />
-		</div>
-	{/if}
 	<div class="max-w-7xl mx-auto px-4 sm:px-8 md:px-8 h-fit-content">
 		{#if $workspaceStore == 'admins'}
 			<div class="my-4"></div>
