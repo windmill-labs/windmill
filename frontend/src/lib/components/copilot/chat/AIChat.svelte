@@ -2,7 +2,6 @@
 	import AIChatDisplay from './AIChatDisplay.svelte'
 	import { onDestroy, untrack, type Snippet } from 'svelte'
 	import { type ScriptLang } from '$lib/gen'
-	import HistoryManager from './HistoryManager.svelte'
 	import {
 		copilotInfo,
 		copilotSessionModel,
@@ -66,7 +65,7 @@
 		aiChatDisplay?.focusInput()
 	}
 
-	const historyManager = new HistoryManager()
+	const historyManager = aiChatManager.historyManager
 	historyManager.init()
 
 	onDestroy(() => {
