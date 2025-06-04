@@ -37,7 +37,7 @@
 		selectedIds = $bindable([]),
 		selectedWorkspace = $bindable(undefined),
 		activeLabel = null,
-		lastFetchWentToEnd = false
+		lastFetchWentToEnd = $bindable(false)
 	}: Props = $props()
 
 	function getTime(job: Job): string | undefined {

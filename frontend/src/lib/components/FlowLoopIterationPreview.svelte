@@ -156,7 +156,7 @@
 			<SchemaForm
 				noVariablePicker
 				compact
-				class="py-4 max-w-3xl"
+				className="py-4 max-w-3xl"
 				schema={whileLoop ? whileLoopSchema : forloopSchema}
 				bind:args={previewArgs}
 			/>
