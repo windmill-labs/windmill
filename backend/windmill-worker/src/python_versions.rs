@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     ops::{Deref, DerefMut},
     process::Stdio,
     str::FromStr,
@@ -153,10 +154,51 @@ impl PyV {
         let valid = all_versions
             .clone()
             .into_iter()
-            .filter(|v| version_specifiers.iter().all(|vs| vs.contains(&*v)))
+            .filter(|v| version_specifiers.iter().all(|vs| (vs).contains(&*v)))
             .collect_vec();
 
+        // let has_minor = |v: &pep440_rs::Version| v.release().get(2).is_some();
+
+        // // Usually INSTANCE_PYTHON_VERSION
+        // let gv =
+        //     gravitational_version.unwrap_or(PyV::gravitational_version(job_id, w_id, conn).await);
+
+        // // Get all versions that can be fetched
+        // let all_versions = custom_versions
+        //     .clone()
+        //     .unwrap_or(PyV::list_available_python_versions().await);
+
+        // // Determine if resolved version should contain MINOR digit.
+        // // We do that by checking if any version specifier has minor digit
+        // let pin_to_specific = version_specifiers.iter().any(|vs| has_minor(vs.version()))
+        //     || has_minor(&*gv)
+        //         && all_versions
+        //             .clone()
+        //             .into_iter()
+        //             .any(|v| v == gv && version_specifiers.iter().all(|vs| (vs).contains(&*v)));
+        // // .collect_vec();
+
+        // let all_versions = custom_versions.unwrap_or(if pin_to_specific {
+        //     all_versions
+        //     // PyV::list_available_python_versions().await
+        // } else {
+        //     PyV::list_available_python_versions_no_minor().await
+        // });
+
+        // // Narrow down to those that satisfy given version specifiers
+        // let valid = all_versions
+        //     .clone()
+        //     .into_iter()
+        //     .filter(|v| version_specifiers.iter().all(|vs| (vs).contains(&*v)))
+        //     .collect_vec();
+
+        // // valid.contains(&gv);
+
         if !valid.is_empty() {
+            let patch_vs = version_specifiers
+                .iter()
+                .any(|vs| vs.version().release().get(2).is_some());
+
             if select_latest {
                 return Ok(valid[0].clone());
             }
@@ -183,9 +225,11 @@ impl PyV {
             // - We will iterate until find the closest version to target.
             //   - If closest version has the same MINOR version, use it.
             //   - If it differs in MINOR version, take latest PATCH version.
-            //
-            let mut result = None;
 
+            let mut result = valid[0].clone();
+            let [major, minor, ..] = result.release() else {
+                return Err(Error::InternalErr(format!("Failed to parse \"{}\". Available python versions are supposed to be in SEMVER format (MAJOR.MINOR)", *result)));
+            };
             // This represents newest version with oldest MINOR:
             //
             // I Iterable   Newest in MINOR
@@ -195,12 +239,9 @@ impl PyV {
             // 4. 3.10.2 -> 3.10.2
             // 5. 3.10.1 -> 3.10.2
             // 6. 3.10.0 -> 3.10.2
-            let mut newest_in_minor = None;
-            for v in valid.iter() {
-                if result.is_none() {
-                    result.replace(v);
-                }
+            let mut newest_in_minor = (result.clone(), (*major, *minor));
 
+            for v in valid.iter() {
                 if v < &gv {
                     // We will not continue if we start looking into versions older than gravity version.
                     break;
@@ -212,37 +253,48 @@ impl PyV {
 
                 // Since we go top to down we can assume
                 // the first occurence of new minor version contains the latest patch version.
-                if matches!(newest_in_minor, Some((_, mm)) if mm != (major, minor))
-                    || newest_in_minor.is_none()
-                {
-                    newest_in_minor = Some((v.clone(), (major, minor)));
+                if newest_in_minor.1 != (*major, *minor) {
+                    newest_in_minor = (v.clone(), (*major, *minor));
                 }
 
                 if gravity_matcher.contains(v) {
                     // return as soon as gravity matcher has first hit.
-                    return Ok(v.clone());
+                    // Only in case version specifiers do specify PATCH version OR gravity version specify PATCH
+                    if patch_vs || gv.release().get(2).is_some() {
+                        return Ok(v.clone());
+                    } else {
+                        let Some(release_numbers) = v.release().get(0..=1) else {
+                            return Err(Error::InternalErr(format!(
+                                "Failed to get release numbers from: \"{}\". ",
+                                **v
+                            )));
+                        };
+                        return Ok(PyV(pep440_rs::Version::new(release_numbers)));
+                    }
                 }
                 // If we are still in the loop, it means that we are getting closer to gravity version
                 else {
-                    result = Some(v);
+                    result = v.clone();
                 }
             }
 
             let [gravity_major, gravity_minor, ..] = gv.release() else {
-                return Err(Error::internal_err(format!("Cannot get MAJOR or/and MINOR version of python gravity version ({}). Something might be wrong with INSTANCE_PYTHON_VERSION.", &*gv)));
+                return Err(Error::internal_err(format!("Cannot get MAJOR nor MINOR version of python gravity version ({}). Something might be wrong with INSTANCE_PYTHON_VERSION.", &*gv)));
             };
 
-            if let Some((v, mm)) = newest_in_minor {
-                if (gravity_major, gravity_minor) != mm {
-                    return Ok(v);
+            if (*gravity_major, *gravity_minor) != newest_in_minor.1 {
+                // Return full version only if there is PATCH versions in version specifiers
+                if patch_vs {
+                    return Ok(newest_in_minor.0);
+                } else {
+                    return Ok(PyV(pep440_rs::Version::new([
+                        newest_in_minor.1 .0,
+                        newest_in_minor.1 .1,
+                    ])));
                 }
             }
 
-            result
-                .ok_or(Error::internal_err(
-                    "No python candidates found. This is a bug!",
-                ))
-                .map(ToOwned::to_owned)
+            Ok(result)
         } else {
             Err(anyhow!(
                 "
@@ -301,6 +353,15 @@ impl PyV {
         pyv.into()
     }
 
+    pub async fn list_available_python_versions_no_minor() -> Vec<Self> {
+        let mut set = HashSet::new();
+        for pyv in Self::list_available_python_versions().await {
+            if let [major, minor, ..] = pyv.release() {
+                set.insert(pep440_rs::Version::new([major, minor]).into());
+            }
+        }
+        set.into_iter().sorted().rev().collect()
+    }
     pub async fn list_available_python_versions() -> Vec<Self> {
         match Self::list_available_python_versions_inner().await {
             Ok(pyvs) => pyvs,
@@ -762,7 +823,7 @@ mod tests {
                 pyv("0.9.3"),
                 pyv("0.9.2"),
             ],
-            pyv("0.9.4"), //
+            pyv("0.9"), //
         )
         .await;
     }
@@ -785,7 +846,7 @@ mod tests {
                 pyv("0.8.1"),
                 pyv("0.8.0"),
             ],
-            pyv("1.0.2"), //
+            pyv("1.0"), //
         )
         .await;
     }
@@ -824,7 +885,7 @@ mod tests {
                 pyv("2.2.1"),
                 pyv("2.2.0"),
             ],
-            pyv("2.2.2"),
+            pyv("2.2"),
         )
         .await;
     }
@@ -842,6 +903,164 @@ mod tests {
                 pyv("2.2.0"),
             ],
             pyv("3.0.1"),
+        )
+        .await;
+    }
+    #[tokio::test]
+    async fn test_python_resolution_8() {
+        assert_resolution(
+            "2.2",
+            false,
+            vec![">2.2", ">=2.4", "<2.4.1"],
+            vec![
+                pyv("2.4.1"),
+                pyv("2.4.0"),
+                pyv("2.3.1"),
+                pyv("2.3.0"),
+                pyv("2.2.1"),
+                pyv("2.2.0"),
+                pyv("2.1.1"),
+                pyv("2.1.0"),
+            ],
+            pyv("2.4.0"),
+        )
+        .await;
+    }
+    #[tokio::test]
+    async fn test_python_resolution_9() {
+        assert_resolution(
+            "2.2",
+            true,
+            vec![">2.2", ">2.3", "<2.4.1"],
+            vec![
+                pyv("2.4.1"),
+                pyv("2.4.0"),
+                pyv("2.3.1"),
+                pyv("2.3.0"),
+                pyv("2.2.1"),
+                pyv("2.2.0"),
+                pyv("2.1.1"),
+                pyv("2.1.0"),
+            ],
+            pyv("2.4.0"),
+        )
+        .await;
+    }
+    #[tokio::test]
+    async fn test_python_resolution_10() {
+        assert_resolution(
+            "2.2",
+            false,
+            vec![">2.2", ">=2.4"],
+            vec![
+                pyv("2.4.1"),
+                pyv("2.4.0"),
+                pyv("2.3.1"),
+                pyv("2.3.0"),
+                pyv("2.2.1"),
+                pyv("2.2.0"),
+                pyv("2.1.1"),
+                pyv("2.1.0"),
+            ],
+            // vec![pyv("2.4.1"), pyv("2.3"), pyv("2.2"), pyv("2.1")],
+            pyv("2.4"),
+        )
+        .await;
+    }
+    #[tokio::test]
+    async fn test_python_resolution_11() {
+        assert_resolution(
+            "2.4.1",
+            false,
+            vec![">2.2", ">=2.3", "<2.4"],
+            vec![
+                pyv("2.4.1"),
+                pyv("2.4.0"),
+                pyv("2.3.1"),
+                pyv("2.3.0"),
+                pyv("2.2.1"),
+                pyv("2.2.0"),
+                pyv("2.1.1"),
+                pyv("2.1.0"),
+            ],
+            // vec![pyv("2.4.1"), pyv("2.3"), pyv("2.2"), pyv("2.1")],
+            pyv("2.3"),
+        )
+        .await;
+    }
+    #[tokio::test]
+    async fn test_python_resolution_12() {
+        assert_resolution(
+            "2.3",
+            false,
+            vec![">2.2", ">=2.3", "<2.4"],
+            vec![
+                pyv("2.4.1"),
+                pyv("2.4.0"),
+                pyv("2.3.1"),
+                pyv("2.3.0"),
+                pyv("2.2.1"),
+                pyv("2.2.0"),
+                pyv("2.1.1"),
+                pyv("2.1.0"),
+            ],
+            // vec![pyv("2.4.1"), pyv("2.3"), pyv("2.2"), pyv("2.1")],
+            pyv("2.3"),
+        )
+        .await;
+    }
+    #[tokio::test]
+    async fn test_python_resolution_13() {
+        assert_resolution(
+            "2.3.1",
+            false,
+            vec![">2.2", ">=2.3", "<2.4"],
+            vec![
+                pyv("2.4.1"),
+                pyv("2.4.0"),
+                pyv("2.3.1"),
+                pyv("2.3.0"),
+                pyv("2.2.1"),
+                pyv("2.2.0"),
+                pyv("2.1.1"),
+                pyv("2.1.0"),
+            ],
+            // vec![pyv("2.4.1"), pyv("2.3"), pyv("2.2"), pyv("2.1")],
+            pyv("2.3.1"),
+        )
+        .await;
+    }
+    #[tokio::test]
+    async fn test_python_resolution_14() {
+        assert_resolution(
+            "2.3.0",
+            false,
+            vec![],
+            vec![pyv("2.4.1"), pyv("2.4.0"), pyv("2.3.1"), pyv("2.3.1")],
+            pyv("2.3.1"),
+        )
+        .await;
+    }
+    #[tokio::test]
+    async fn test_python_resolution_15() {
+        assert_resolution(
+            "2.3.0",
+            false,
+            vec![],
+            vec![pyv("2.4.1"), pyv("2.4.0"), pyv("2.3.1")],
+            pyv("2.3.1"),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_python_resolution_16() {
+        assert_resolution(
+            "2.3",
+            false,
+            vec![],
+            vec![pyv("2.4.1"), pyv("2.4.0"), pyv("2.3.1")],
+            pyv("2.3"),
         )
         .await;
     }
