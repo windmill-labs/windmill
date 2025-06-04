@@ -24,7 +24,7 @@
 	import { page } from '$app/stores'
 	import { goto, replaceState } from '$app/navigation'
 	import AskAiButton from '$lib/components/AskAiButton.svelte'
-	import { AIChatService } from '$lib/components/copilot/chat/AIChatManager.svelte'
+	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -216,7 +216,7 @@
 </Drawer>
 
 <div>
-	{#if !AIChatService.open}
+	{#if !aiChatManager.open}
 		<div class="fixed top-4 right-2 z-50">
 			<AskAiButton />
 		</div>

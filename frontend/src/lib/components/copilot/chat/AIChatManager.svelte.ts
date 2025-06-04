@@ -28,7 +28,7 @@ type TriggerablesMap = Record<
 	{ description: string; onTrigger: ((id: string) => void) | undefined }
 >
 
-export class AIChat {
+class AIChatManager {
 	SIZE = 300
 	NAVIGATION_SYSTEM_PROMPT = `
 	CONSIDERATIONS:
@@ -482,6 +482,22 @@ export class AIChat {
 			isPreprocessor: moduleId === 'preprocessor'
 		})
 	}
+
+	initFlowEffects = () => {
+		$effect(() => {
+			console.log('initFlowEffects')
+		})
+
+		return () => {
+			console.log('destroyFlowEffects inside initFlowEffects')
+		}
+	}
+
+	destroyFlowEffects = () => {
+		$effect(() => {
+			console.log('destroyFlowEffects')
+		})
+	}
 }
 
-export const AIChatService = new AIChat()
+export const aiChatManager = new AIChatManager()

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AIChatService } from '$lib/components/copilot/chat/AIChatManager.svelte'
+	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
 	let { id, description, onTrigger, children } = $props<{
 		id: string | undefined
@@ -28,13 +28,13 @@
 		// register the triggerable
 		const currentId = id
 		const currentData = { description, onTrigger: handleTrigger }
-		const existingTriggerables = AIChatService.triggerablesByAI
+		const existingTriggerables = aiChatManager.triggerablesByAI
 		existingTriggerables[currentId] = currentData
 
 		return () => {
 			// unregister the triggerable
-			if (AIChatService.triggerablesByAI[currentId]) {
-				delete AIChatService.triggerablesByAI[currentId]
+			if (aiChatManager.triggerablesByAI[currentId]) {
+				delete aiChatManager.triggerablesByAI[currentId]
 			}
 		}
 	})

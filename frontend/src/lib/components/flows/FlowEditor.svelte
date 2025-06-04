@@ -13,7 +13,7 @@
 	import type { Flow } from '$lib/gen'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
-	import { AIChatService } from '../copilot/chat/AIChatManager.svelte'
+	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
 	import TriggerableByAI from '../TriggerableByAI.svelte'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -46,19 +46,19 @@
 	let mapPanelSize = DEFAULT_MAP_PANEL_SIZE
 
 	export function addSelectedLinesToAiChat(lines: string, startLine: number, endLine: number) {
-		AIChatService.addSelectedLinesToContext(lines, startLine, endLine)
-		if (!AIChatService.open) {
-			AIChatService.openChat()
-			AIChatService.changeMode('script')
+		aiChatManager.addSelectedLinesToContext(lines, startLine, endLine)
+		if (!aiChatManager.open) {
+			aiChatManager.openChat()
+			aiChatManager.changeMode('script')
 		}
 	}
 
 	onMount(() => {
-		AIChatService.changeMode('flow')
+		aiChatManager.changeMode('flow')
 	})
 
 	onDestroy(() => {
-		AIChatService.changeMode('navigator')
+		aiChatManager.changeMode('navigator')
 	})
 </script>
 
@@ -88,10 +88,10 @@
 						bind:modules={$flowStore.value.modules}
 						on:reload
 						on:generateStep={({ detail }) => {
-							if (!AIChatService.open) {
-								AIChatService.openChat()
+							if (!aiChatManager.open) {
+								aiChatManager.openChat()
 							}
-							AIChatService.generateStep(detail.moduleId, detail.lang, detail.instructions)
+							aiChatManager.generateStep(detail.moduleId, detail.lang, detail.instructions)
 						}}
 					/>
 				{/if}

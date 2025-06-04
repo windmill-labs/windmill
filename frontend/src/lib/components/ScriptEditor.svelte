@@ -45,7 +45,7 @@
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import { getStringError } from './copilot/chat/utils'
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
-	import { AIChatService } from './copilot/chat/AIChatManager.svelte'
+	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import TriggerableByAI from './TriggerableByAI.svelte'
 
 	// Exported
@@ -202,7 +202,7 @@
 	onMount(() => {
 		inferSchema(code)
 		loadPastTests()
-		AIChatService.changeMode('script')
+		aiChatManager.changeMode('script')
 	})
 
 	setLicense()
@@ -276,10 +276,10 @@
 
 	onDestroy(() => {
 		disableCollaboration()
-		AIChatService.scriptEditorApplyCode = undefined
-		AIChatService.scriptEditorShowDiffMode = undefined
-		AIChatService.scriptEditorOptions = undefined
-		AIChatService.changeMode('navigator')
+		aiChatManager.scriptEditorApplyCode = undefined
+		aiChatManager.scriptEditorShowDiffMode = undefined
+		aiChatManager.scriptEditorOptions = undefined
+		aiChatManager.changeMode('navigator')
 	})
 
 	function asKind(str: string | undefined) {
@@ -315,16 +315,16 @@
 	function addSelectedLinesToAiChat(
 		e: CustomEvent<{ lines: string; startLine: number; endLine: number }>
 	) {
-		if (!AIChatService.open) {
-			AIChatService.toggleOpen()
+		if (!aiChatManager.open) {
+			aiChatManager.toggleOpen()
 		}
-		AIChatService.addSelectedLinesToContext(e.detail.lines, e.detail.startLine, e.detail.endLine)
-		// AIChatService.focusTextArea() TODO: Add this back
+		aiChatManager.addSelectedLinesToContext(e.detail.lines, e.detail.startLine, e.detail.endLine)
+		// aiChatManager.focusTextArea() TODO: Add this back
 	}
 
 	$: !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') &&
-		!AIChatService.open &&
-		AIChatService.toggleOpen()
+		!aiChatManager.open &&
+		aiChatManager.toggleOpen()
 
 	function toggleTestPanel() {
 		if (testPanelSize > 0) {
@@ -371,12 +371,12 @@
 			lastDeployedCode,
 			diffMode
 		}
-		AIChatService.scriptEditorOptions = options
-		AIChatService.scriptEditorApplyCode = (code: string) => {
+		aiChatManager.scriptEditorOptions = options
+		aiChatManager.scriptEditorApplyCode = (code: string) => {
 			hideDiffMode()
 			editor?.reviewAndApplyCode(code)
 		}
-		AIChatService.scriptEditorShowDiffMode = showDiffMode
+		aiChatManager.scriptEditorShowDiffMode = showDiffMode
 	}
 </script>
 
@@ -466,7 +466,7 @@
 		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
 			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
 				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
-					{#if !AIChatService.open}
+					{#if !aiChatManager.open}
 						{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
 							<HideButton
 								hidden={true}
@@ -478,7 +478,7 @@
 								customHiddenIcon={WandSparkles}
 								btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface"
 								on:click={() => {
-									AIChatService.toggleOpen()
+									aiChatManager.toggleOpen()
 								}}
 							>
 								<svelte:fragment slot="popoverOverride">
@@ -525,7 +525,7 @@
 							inferSchema(e.detail)
 						}}
 						on:saveDraft
-						on:toggleAiPanel={() => AIChatService.toggleOpen()}
+						on:toggleAiPanel={() => aiChatManager.toggleOpen()}
 						on:addSelectedLinesToAiChat={addSelectedLinesToAiChat}
 						on:toggleTestPanel={toggleTestPanel}
 						cmdEnterAction={async () => {
@@ -675,7 +675,7 @@
 						<LogPanel
 							bind:setFocusToLogs
 							on:fix={() => {
-								AIChatService.fix()
+								aiChatManager.fix()
 							}}
 							fixChatMode
 							{lang}

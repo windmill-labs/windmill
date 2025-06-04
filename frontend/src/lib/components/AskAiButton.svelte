@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { WandSparkles } from 'lucide-svelte'
-	import { AIChatService } from './copilot/chat/AIChatManager.svelte'
+	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	interface Props {
 		label?: string
 		initialInput?: string
@@ -11,9 +11,9 @@
 	const { label, initialInput, onClick: onClickProp }: Props = $props()
 
 	export function onClick() {
-		AIChatService.openChat()
+		aiChatManager.openChat()
 		if (initialInput) {
-			AIChatService.askAi(initialInput, {
+			aiChatManager.askAi(initialInput, {
 				withCode: false,
 				withDiff: false
 			})

@@ -69,7 +69,7 @@
 	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
-	import { AIChatService } from './copilot/chat/AIChatManager.svelte'
+	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -932,8 +932,8 @@
 							</div>
 						</Button>
 					{/if}
-					{#if !disableAi && customUi?.topBar?.aiBuilder != false && !AIChatService.open}
-						<FlowAIButton openPanel={() => (AIChatService.open = true)} />
+					{#if !disableAi && customUi?.topBar?.aiBuilder != false && !aiChatManager.open}
+						<FlowAIButton openPanel={() => (aiChatManager.open = true)} />
 					{/if}
 					<FlowPreviewButtons
 						on:openTriggers={(e) => {

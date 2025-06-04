@@ -3,7 +3,7 @@
 	import { BROWSER } from 'esm-env'
 	import Disposable from './Disposable.svelte'
 	import ConditionalPortal from './ConditionalPortal.svelte'
-	import { AIChatService } from '../../copilot/chat/AIChatManager.svelte'
+	import { aiChatManager } from '../../copilot/chat/AIChatManager.svelte'
 
 	export let open = false
 	export let duration = 0.3
@@ -13,7 +13,7 @@
 	export let shouldUsePortal: boolean = true
 	export let offset: number = 0
 	export let preventEscape = false
-	export let disableClickOutside = AIChatService.open
+	export let disableClickOutside = aiChatManager.open
 
 	let disposable: Disposable | undefined = undefined
 
@@ -78,11 +78,11 @@
 	>
 		<aside
 			class="drawer windmill-app windmill-drawer {$$props.class ?? ''} {$$props.positionClass ??
-				''} {AIChatService.open ? 'respect-global-chat' : ''}"
+				''} {aiChatManager.open ? 'respect-global-chat' : ''}"
 			class:open
 			class:close={!open && timeout}
-			class:global-chat-open={AIChatService.open}
-			style={`${style}; --zIndex: ${zIndex}; --adjusted-offset: ${AIChatService.open && placement === 'right' ? AIChatService.SIZE : 0}px`}
+			class:global-chat-open={aiChatManager.open}
+			style={`${style}; --zIndex: ${zIndex}; --adjusted-offset: ${aiChatManager.open && placement === 'right' ? aiChatManager.SIZE : 0}px`}
 		>
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->

@@ -22,7 +22,7 @@
 		yaml
 	} from 'svelte-highlight/languages'
 	import { scriptLangToEditorLang } from '$lib/scripts'
-	import { AIChatService } from '../AIChatManager.svelte'
+	import { aiChatManager } from '../AIChatManager.svelte'
 
 	const astNode = getAstNode()
 
@@ -101,9 +101,9 @@
 	let loading = $state(true)
 	$effect(() => {
 		// we only want to trigger when astNode offset is updated not currentReply, otherwise as there is some delay on the offset update, loading would be set to false too early
-		const completeReply = untrack(() => AIChatService.currentReply)
+		const completeReply = untrack(() => aiChatManager.currentReply)
 		if (
-			!AIChatService.loading ||
+			!aiChatManager.loading ||
 			completeReply.length > (astNode.current.position?.end.offset ?? 0)
 		) {
 			loading = false
@@ -180,13 +180,13 @@
 </script>
 
 <div class="flex flex-col gap-0.5 rounded-lg relative not-prose">
-	{#if AIChatService.canApplyCode}
+	{#if aiChatManager.canApplyCode}
 		<div class="flex justify-end items-end">
 			<Button
 				color="dark"
 				size="xs2"
 				on:click={() => {
-					AIChatService.scriptEditorApplyCode?.(code ?? '')
+					aiChatManager.scriptEditorApplyCode?.(code ?? '')
 				}}
 			>
 				Apply
@@ -197,7 +197,7 @@
 	<div
 		class="relative w-full border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden"
 	>
-		{#if AIChatService.mode !== 'navigator' && ((loading && !code) || !language)}
+		{#if aiChatManager.mode !== 'navigator' && ((loading && !code) || !language)}
 			<div class="flex flex-row gap-1 p-2 items-center justify-center">
 				<Loader2 class="w-4 h-4 animate-spin" /> Generating code...
 			</div>

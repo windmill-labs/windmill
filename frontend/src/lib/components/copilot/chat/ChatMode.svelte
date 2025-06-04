@@ -2,7 +2,7 @@
 	import { ChevronDown } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { AIChatService } from './AIChatManager.svelte'
+	import { aiChatManager } from './AIChatManager.svelte'
 	let {
 		allowedModes
 	}: {
@@ -24,7 +24,7 @@
 				class="text-tertiary text-xs flex flex-row items-center font-normal gap-0.5 border px-1 rounded-lg"
 			>
 				<span class={`truncate`}>
-					{AIChatService.mode} mode
+					{aiChatManager.mode} mode
 				</span>
 				{#if Object.keys(allowedModes).filter((k) => allowedModes[k]).length > 1}
 					<div class="shrink-0">
@@ -40,10 +40,10 @@
 						<button
 							class={twMerge(
 								'text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal',
-								AIChatService.mode === possibleMode && 'bg-surface-hover'
+								aiChatManager.mode === possibleMode && 'bg-surface-hover'
 							)}
 							onclick={() => {
-								AIChatService.changeMode(possibleMode as 'script' | 'flow' | 'navigator')
+								aiChatManager.changeMode(possibleMode as 'script' | 'flow' | 'navigator')
 								close()
 							}}
 						>

@@ -10,7 +10,7 @@
 		userStore,
 		workspaceStore
 	} from '$lib/stores'
-	import { AIChatService } from './AIChatManager.svelte'
+	import { aiChatManager } from './AIChatManager.svelte'
 	import { base } from '$lib/base'
 	import ContextManager from './ContextManager.svelte'
 
@@ -39,7 +39,7 @@
 	]
 
 	export async function generateStep(moduleId: string, lang: ScriptLang, instructions: string) {
-		AIChatService.generateStep(moduleId, lang, instructions)
+		aiChatManager.generateStep(moduleId, lang, instructions)
 	}
 
 	export async function sendRequest(
@@ -52,15 +52,15 @@
 			isPreprocessor?: boolean
 		} = {}
 	) {
-		AIChatService.sendRequest(options)
+		aiChatManager.sendRequest(options)
 	}
 
 	function cancel() {
-		AIChatService.cancel()
+		aiChatManager.cancel()
 	}
 
 	export function addSelectedLinesToContext(lines: string, startLine: number, endLine: number) {
-		AIChatService.contextManager.addSelectedLinesToContext(lines, startLine, endLine)
+		aiChatManager.contextManager.addSelectedLinesToContext(lines, startLine, endLine)
 	}
 
 	export function focusTextArea() {
@@ -78,26 +78,26 @@
 	let aiChatDisplay: AIChatDisplay | undefined = $state(undefined)
 
 	$effect(() => {
-		if (AIChatService.scriptEditorOptions) {
-			AIChatService.contextManager.updateAvailableContext(
-				AIChatService.scriptEditorOptions,
+		if (aiChatManager.scriptEditorOptions) {
+			aiChatManager.contextManager.updateAvailableContext(
+				aiChatManager.scriptEditorOptions,
 				$dbSchemas,
 				$workspaceStore ?? '',
 				!$copilotSessionModel?.model.endsWith('/thinking'),
-				untrack(() => AIChatService.contextManager.getSelectedContext())
+				untrack(() => aiChatManager.contextManager.getSelectedContext())
 			)
 		}
 	})
 
 	$effect(() => {
-		AIChatService.displayMessages = ContextManager.updateDisplayMessages(
-			untrack(() => AIChatService.displayMessages),
+		aiChatManager.displayMessages = ContextManager.updateDisplayMessages(
+			untrack(() => aiChatManager.displayMessages),
 			$dbSchemas
 		)
 	})
 
 	$effect(() => {
-		AIChatService.updateMode(untrack(() => AIChatService.mode))
+		aiChatManager.updateMode(untrack(() => aiChatManager.mode))
 	})
 </script>
 
@@ -105,47 +105,47 @@
 	on:keydown={(e) => {
 		if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
 			e.preventDefault()
-			AIChatService.toggleOpen()
+			aiChatManager.toggleOpen()
 		}
 	}}
 />
 
 <AIChatDisplay
 	bind:this={aiChatDisplay}
-	allowedModes={AIChatService.allowedModes}
+	allowedModes={aiChatManager.allowedModes}
 	pastChats={historyManager.getPastChats()}
 	bind:selectedContext={
-		() => AIChatService.contextManager.getSelectedContext(),
+		() => aiChatManager.contextManager.getSelectedContext(),
 		(sc) => {
-			AIChatService.scriptEditorOptions && AIChatService.contextManager.setSelectedContext(sc)
+			aiChatManager.scriptEditorOptions && aiChatManager.contextManager.setSelectedContext(sc)
 		}
 	}
-	availableContext={AIChatService.contextManager.getAvailableContext()}
-	messages={AIChatService.currentReply
+	availableContext={aiChatManager.contextManager.getAvailableContext()}
+	messages={aiChatManager.currentReply
 		? [
-				...AIChatService.displayMessages,
+				...aiChatManager.displayMessages,
 				{
 					role: 'assistant',
-					content: AIChatService.currentReply,
-					contextElements: AIChatService.contextManager
+					content: aiChatManager.currentReply,
+					contextElements: aiChatManager.contextManager
 						.getSelectedContext()
 						.filter((c) => c.type === 'code')
 				}
 			]
-		: AIChatService.displayMessages}
-	saveAndClear={AIChatService.saveAndClear}
+		: aiChatManager.displayMessages}
+	saveAndClear={aiChatManager.saveAndClear}
 	deletePastChat={historyManager.deletePastChat}
 	loadPastChat={(id) => {
-		AIChatService.loadPastChat(id)
+		aiChatManager.loadPastChat(id)
 	}}
 	{cancel}
-	askAi={AIChatService.askAi}
+	askAi={aiChatManager.askAi}
 	{headerLeft}
 	{headerRight}
-	hasDiff={AIChatService.scriptEditorOptions &&
-		!!AIChatService.scriptEditorOptions.lastDeployedCode &&
-		AIChatService.scriptEditorOptions.lastDeployedCode !== AIChatService.scriptEditorOptions.code}
-	diffMode={AIChatService.scriptEditorOptions?.diffMode ?? false}
+	hasDiff={aiChatManager.scriptEditorOptions &&
+		!!aiChatManager.scriptEditorOptions.lastDeployedCode &&
+		aiChatManager.scriptEditorOptions.lastDeployedCode !== aiChatManager.scriptEditorOptions.code}
+	diffMode={aiChatManager.scriptEditorOptions?.diffMode ?? false}
 	disabled={!hasCopilot}
 	{disabledMessage}
 	{suggestions}

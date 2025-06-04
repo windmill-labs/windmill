@@ -54,7 +54,7 @@
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
 	import GlobalChat from '$lib/components/copilot/chat/navigator/GlobalChat.svelte'
-	import { AIChatService } from '$lib/components/copilot/chat/AIChatManager.svelte'
+	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
 	let globalSearchModal: GlobalSearchModal | undefined = undefined
@@ -452,7 +452,7 @@
 										/>
 										<MenuButton
 											stopPropagationOnClick={true}
-											on:click={() => AIChatService.toggleOpen()}
+											on:click={() => aiChatManager.toggleOpen()}
 											isCollapsed={false}
 											icon={WandSparkles}
 											label="Ask AI"
@@ -520,7 +520,7 @@
 								/>
 								<MenuButton
 									stopPropagationOnClick={true}
-									on:click={() => AIChatService.toggleOpen()}
+									on:click={() => aiChatManager.toggleOpen()}
 									{isCollapsed}
 									icon={WandSparkles}
 									label="Ask AI"
@@ -628,7 +628,7 @@
 								/>
 								<MenuButton
 									stopPropagationOnClick={true}
-									on:click={() => AIChatService.toggleOpen()}
+									on:click={() => aiChatManager.toggleOpen()}
 									{isCollapsed}
 									icon={WandSparkles}
 									label="Ask AI"
@@ -655,7 +655,7 @@
 				devOnly || $userStore?.operator ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
 				'transition-all ease-in-out duration-200'
 			)}
-			style={`padding-right: ${AIChatService.open ? AIChatService.SIZE : 0}px`}
+			style={`padding-right: ${aiChatManager.open ? aiChatManager.SIZE : 0}px`}
 		>
 			<main class="min-h-screen">
 				<div class="relative w-full h-full">
@@ -695,8 +695,8 @@
 	<!-- Global Chat Panel -->
 	<div
 		class="fixed-chat-panel"
-		class:open={AIChatService.open}
-		style={`width: ${AIChatService.SIZE}px`}
+		class:open={aiChatManager.open}
+		style={`width: ${aiChatManager.SIZE}px`}
 	>
 		<GlobalChat />
 	</div>

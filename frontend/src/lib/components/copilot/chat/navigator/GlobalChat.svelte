@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AIChatService } from '../AIChatManager.svelte'
+	import { aiChatManager } from '../AIChatManager.svelte'
 	import AiChat from '../AIChat.svelte'
 	import HideButton from '../../../apps/editor/settingsPanel/HideButton.svelte'
 </script>
@@ -15,6 +15,6 @@
 		panelName="AI"
 		shortcut="L"
 		size="md"
-		on:click={() => AIChatService.toggleOpen()}
+		on:click={() => aiChatManager.toggleOpen()}
 	/>
 {/snippet}

@@ -6,7 +6,7 @@
 	import ProviderModelSelector from '../ProviderModelSelector.svelte'
 	import type { DisplayMessage } from '../shared'
 	import AssistantMessage from '../AssistantMessage.svelte'
-	import { AIChatService } from '../AIChatManager.svelte'
+	import { aiChatManager } from '../AIChatManager.svelte'
 
 	let {
 		messages,
@@ -89,7 +89,7 @@
 						{/if}
 					</div>
 				{/each}
-				{#if AIChatService.loading && !AIChatService.currentReply}
+				{#if aiChatManager.loading && !aiChatManager.currentReply}
 					<div class="mb-6 py-1 px-2">
 						<Loader2 class="animate-spin" />
 					</div>

@@ -15,7 +15,7 @@
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import Markdown from 'svelte-exmarkdown'
-	import { AIChatService } from './AIChatManager.svelte'
+	import { aiChatManager } from './AIChatManager.svelte'
 
 	let {
 		allowedModes,
@@ -75,7 +75,7 @@
 
 	let height = $state(0)
 	$effect(() => {
-		AIChatService.automaticScroll && height && scrollDown()
+		aiChatManager.automaticScroll && height && scrollDown()
 	})
 
 	function addContextToSelection(contextElement: ContextElement) {
@@ -103,8 +103,8 @@
 	}
 
 	function submitSuggestion(suggestion: string) {
-		AIChatService.instructions = suggestion
-		AIChatService.sendRequest()
+		aiChatManager.instructions = suggestion
+		aiChatManager.sendRequest()
 	}
 
 	const lastUserMessageIndex = $derived(findLastIndex(messages, (m) => m.role === 'user'))
@@ -191,7 +191,7 @@
 			class="h-full overflow-y-scroll pt-2"
 			bind:this={scrollEl}
 			onwheel={(e) => {
-				AIChatService.automaticScroll = false
+				aiChatManager.automaticScroll = false
 			}}
 		>
 			<div class="flex flex-col" bind:clientHeight={height}>
@@ -209,7 +209,7 @@
 							message.role === 'user' &&
 								'px-2 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 rounded-lg',
 							message.role === 'user'
-								? AIChatService.loading && lastUserMessageIndex === messageIndex
+								? aiChatManager.loading && lastUserMessageIndex === messageIndex
 									? 'mb-1'
 									: 'mb-2'
 								: '',
@@ -223,7 +223,7 @@
 							{message.content}
 						{/if}
 					</div>
-					{#if message.role === 'user' && AIChatService.loading && lastUserMessageIndex === messageIndex}
+					{#if message.role === 'user' && aiChatManager.loading && lastUserMessageIndex === messageIndex}
 						<div class="flex flex-row px-2 mb-2">
 							<Button
 								startIcon={{ icon: StopCircleIcon }}
@@ -240,7 +240,7 @@
 						</div>
 					{/if}
 				{/each}
-				{#if AIChatService.loading && !AIChatService.currentReply}
+				{#if aiChatManager.loading && !aiChatManager.currentReply}
 					<div class="mb-6 py-1 px-2">
 						<Loader2 class="animate-spin" />
 					</div>
@@ -250,7 +250,7 @@
 	{/if}
 
 	<div class:border-t={messages.length > 0}>
-		{#if AIChatService.mode === 'script'}
+		{#if aiChatManager.mode === 'script'}
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 px-2 no-scrollbar">
 				<Popover>
 					<svelte:fragment slot="trigger">
@@ -284,28 +284,28 @@
 			</div>
 			<ContextTextarea
 				bind:this={contextTextareaComponent}
-				instructions={AIChatService.instructions}
+				instructions={aiChatManager.instructions}
 				{availableContext}
 				{selectedContext}
 				isFirstMessage={messages.length === 0}
 				on:addContext={(e) => addContextToSelection(e.detail.contextElement)}
 				on:sendRequest={() => {
-					if (!AIChatService.loading) {
-						AIChatService.sendRequest()
+					if (!aiChatManager.loading) {
+						aiChatManager.sendRequest()
 					}
 				}}
-				on:updateInstructions={(e) => (AIChatService.instructions = e.detail.value)}
+				on:updateInstructions={(e) => (aiChatManager.instructions = e.detail.value)}
 				{disabled}
 			/>
 		{:else}
 			<div class="relative w-full px-2 scroll-pb-2 pt-2">
 				<textarea
-					bind:value={AIChatService.instructions}
+					bind:value={aiChatManager.instructions}
 					use:autosize
 					onkeydown={(e) => {
-						if (e.key === 'Enter' && !e.shiftKey && !AIChatService.loading) {
+						if (e.key === 'Enter' && !e.shiftKey && !aiChatManager.loading) {
 							e.preventDefault()
-							AIChatService.sendRequest()
+							aiChatManager.sendRequest()
 						}
 					}}
 					rows={3}
@@ -317,10 +317,10 @@
 		{/if}
 		<div
 			class={`flex flex-row ${
-				AIChatService.mode === 'script' && hasDiff ? 'justify-between' : 'justify-end'
+				aiChatManager.mode === 'script' && hasDiff ? 'justify-between' : 'justify-end'
 			} items-center px-0.5`}
 		>
-			{#if AIChatService.mode === 'script' && hasDiff}
+			{#if aiChatManager.mode === 'script' && hasDiff}
 				<ChatQuickActions {askAi} {diffMode} />
 			{/if}
 			{#if disabled}
@@ -334,7 +334,7 @@
 				</div>
 			{/if}
 		</div>
-		{#if AIChatService.mode === 'navigator' && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
+		{#if aiChatManager.mode === 'navigator' && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
 			<div class="px-2 mt-4">
 				<div class="flex flex-col gap-2">
 					{#each suggestions as suggestion}

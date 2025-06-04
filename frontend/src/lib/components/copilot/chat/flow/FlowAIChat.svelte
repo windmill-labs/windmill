@@ -16,7 +16,7 @@
 	} from '$lib/components/flows/flowStateUtils'
 	import type { ScriptOptions } from '../ContextManager.svelte'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
-	import { AIChatService } from '../AIChatManager.svelte'
+	import { aiChatManager } from '../AIChatManager.svelte'
 
 	let {
 		flowModuleSchemaMap
@@ -376,13 +376,13 @@
 
 	$effect(() => {
 		if ($currentEditor && $currentEditor.type === 'script') {
-			AIChatService.scriptEditorApplyCode = (code) => {
+			aiChatManager.scriptEditorApplyCode = (code) => {
 				if ($currentEditor && $currentEditor.type === 'script') {
 					$currentEditor.hideDiffMode()
 					$currentEditor.editor.reviewAndApplyCode(code)
 				}
 			}
-			AIChatService.scriptEditorShowDiffMode = () => {
+			aiChatManager.scriptEditorShowDiffMode = () => {
 				if ($currentEditor && $currentEditor.type === 'script') {
 					$currentEditor.showDiffMode()
 				}
@@ -390,8 +390,8 @@
 		}
 
 		return () => {
-			AIChatService.scriptEditorApplyCode = undefined
-			AIChatService.scriptEditorShowDiffMode = undefined
+			aiChatManager.scriptEditorApplyCode = undefined
+			aiChatManager.scriptEditorShowDiffMode = undefined
 		}
 	})
 
@@ -399,22 +399,25 @@
 		if ($selectedId) {
 			const options = getScriptOptions($selectedId)
 			if (options) {
-				AIChatService.scriptEditorOptions = options
+				aiChatManager.scriptEditorOptions = options
 			}
 		} else {
-			AIChatService.scriptEditorOptions = undefined
+			aiChatManager.scriptEditorOptions = undefined
 		}
 
 		return () => {
-			AIChatService.scriptEditorOptions = undefined
+			aiChatManager.scriptEditorOptions = undefined
 		}
 	})
 
 	$effect(() => {
-		AIChatService.flowAiChatHelpers = flowHelpers
+		aiChatManager.flowAiChatHelpers = flowHelpers
 
 		return () => {
-			AIChatService.flowAiChatHelpers = undefined
+			console.log('destroyFlowAIChat')
+			aiChatManager.flowAiChatHelpers = undefined
 		}
 	})
+
+	aiChatManager.initFlowEffects()
 </script>
