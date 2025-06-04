@@ -5,14 +5,25 @@
 	import { Button, Drawer, DrawerContent } from './common'
 	import FolderEditor from './FolderEditor.svelte'
 
-	let initialPath: string | undefined = $state(undefined)
 	let folders: { name: string; write: boolean }[] = $state([])
 	let newFolder: Drawer | null = $state(null)
 	let viewFolder: Drawer | null = $state(null)
 	let newFolderName: string = $state('')
 	let folderCreated: string | undefined = $state(undefined)
 
-	let { folderName = $bindable('') } = $props()
+	type Props = {
+		folderName: string
+		initialPath?: string
+		disabled?: boolean
+		disableEditing?: boolean
+	}
+
+	let {
+		folderName = $bindable(''),
+		initialPath = $bindable(undefined),
+		disabled = $bindable(undefined),
+		disableEditing = $bindable(undefined)
+	}: Props = $props()
 
 	async function loadFolders(): Promise<void> {
 		let initialFolders: { name: string; write: boolean }[] = []
@@ -21,20 +32,16 @@
 			initialFolder = initialPath?.split('/')?.[1]
 			initialFolders.push({ name: initialFolder, write: true })
 		}
+
+		const excludedFolders = [initialFolder, 'app_groups', 'app_custom', 'app_themes']
+
 		folders = initialFolders.concat(
 			(
 				await FolderService.listFolderNames({
 					workspace: $workspaceStore!
 				})
 			)
-				.filter(
-					(x) =>
-						x != initialFolder &&
-						x != 'app_groups' &&
-						x != 'app_custom' &&
-						x != 'app_themes' &&
-						x != 'app_custom'
-				)
+				.filter((x) => !excludedFolders.includes(x))
 				.map((x) => ({
 					name: x,
 					write:
@@ -86,7 +93,7 @@
 </Drawer>
 
 <div class="flex flex-row items-center gap-1 w-full">
-	<select class="grow w-full" bind:value={folderName}>
+	<select class="grow w-full" disabled={disabled || disableEditing} bind:value={folderName}>
 		{#if folders?.length == 0}
 			<option disabled>No folders</option>
 		{/if}
@@ -111,6 +118,7 @@
 		variant="border"
 		color="light"
 		size="xs"
+		{disabled}
 		on:click={newFolder.openDrawer}
 		iconOnly
 		startIcon={{ icon: Plus }}
