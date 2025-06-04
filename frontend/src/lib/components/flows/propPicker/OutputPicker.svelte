@@ -115,14 +115,7 @@
 					baseRadius="6px"
 					marginWidth="1px"
 				>
-					<ChevronDown
-						size={12}
-						class={twMerge(
-							'h-fit transition-all duration-150',
-							showConnecting ? 'text-blue-500' : 'text-secondary'
-						)}
-						style={`transform: rotate(${isOpen ? '180deg' : '0deg'})`}
-					/>
+					<p class="text-xs">O</p>
 				</AnimatedButton>
 			</div>
 		</div>
