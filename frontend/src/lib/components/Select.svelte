@@ -203,13 +203,13 @@
 				bind:this={listEl}
 			>
 				{#if processedItems?.length === 0}
-					<div class="py-8 px-4 text-center text-secondary">No items</div>
+					<div class="py-8 px-4 text-center text-primary">No items</div>
 				{/if}
 				{#each processedItems ?? [] as item, itemIndex}
 					{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1]?.__select_group !== item.__select_group}
 						<div
 							class={twMerge(
-								'mx-4 pb-1 mb-2 text-xs font-semibold text-secondary border-b',
+								'mx-4 pb-1 mb-2 text-xs font-semibold text-primary border-b',
 								itemIndex === 0 ? 'mt-3' : 'mt-6'
 							)}
 						>
@@ -218,7 +218,7 @@
 					{/if}
 					<button
 						class={twMerge(
-							'py-2 px-4 w-full font-normal text-left',
+							'py-2 px-4 w-full font-normal text-left text-primary',
 							itemIndex === keyArrowPos ? 'bg-surface-hover' : '',
 							item.value === value ? 'bg-surface-selected' : 'hover:bg-surface-hover'
 						)}
