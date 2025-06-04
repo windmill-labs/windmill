@@ -53,10 +53,10 @@
 	import { setContext } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
-	import GlobalChat from '$lib/components/copilot/chat/navigator/GlobalChat.svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import WindmillAiIcon from '$lib/components/icons/WindmillAiIcon.svelte'
+	import AiChat from '$lib/components/copilot/chat/AIChat.svelte'
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
 	let globalSearchModal: GlobalSearchModal | undefined = undefined
@@ -660,7 +660,7 @@
 			</div>
 		{/if}
 		<Splitpanes horizontal={false} class="flex-1 min-h-0">
-			<Pane size={100 - aiChatManager.size} minSize={50} class="flex flex-col min-h-0">
+			<Pane size={99.8 - aiChatManager.size} minSize={50} class="flex flex-col min-h-0">
 				<div
 					id="content"
 					class={classNames(
@@ -709,11 +709,9 @@
 					</main>
 				</div>
 			</Pane>
-			{#if aiChatManager.size > 0}
-				<Pane bind:size={aiChatManager.size} minSize={15} class="flex flex-col min-h-0">
-					<GlobalChat />
-				</Pane>
-			{/if}
+			<Pane bind:size={aiChatManager.size} minSize={15} class="flex flex-col min-h-0">
+				<AiChat />
+			</Pane>
 		</Splitpanes>
 	</div>
 {:else}
