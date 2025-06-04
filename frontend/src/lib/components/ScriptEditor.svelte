@@ -466,6 +466,21 @@
 		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
 			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
 				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
+					{#if testPanelSize === 0}
+						<HideButton
+							hidden={true}
+							direction="right"
+							size="md"
+							panelName="Test"
+							shortcut="U"
+							customHiddenIcon={PlayIcon}
+							on:click={() => {
+								toggleTestPanel()
+							}}
+							btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
+							color="marine"
+						/>
+					{/if}
 					{#if !aiChatManager.open}
 						{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
 							<HideButton
@@ -493,21 +508,6 @@
 									</div>
 								</svelte:fragment>
 							</HideButton>
-						{/if}
-						{#if testPanelSize === 0}
-							<HideButton
-								hidden={true}
-								direction="right"
-								size="md"
-								panelName="Test"
-								shortcut="U"
-								customHiddenIcon={PlayIcon}
-								on:click={() => {
-									toggleTestPanel()
-								}}
-								btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
-								color="marine"
-							/>
 						{/if}
 					{/if}
 				</div>
