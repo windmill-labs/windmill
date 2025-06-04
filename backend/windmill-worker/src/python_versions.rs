@@ -1,5 +1,4 @@
 use std::{
-    collections::HashSet,
     ops::{Deref, DerefMut},
     process::Stdio,
     str::FromStr,
@@ -158,12 +157,14 @@ impl PyV {
             .collect_vec();
 
         if !valid.is_empty() {
+            let mut result = valid[0].clone();
+            // Is there at least one version specifier that has PATCH digit?
             let patch_vs = version_specifiers
                 .iter()
                 .any(|vs| vs.version().release().get(2).is_some());
 
             if select_latest {
-                return Ok(valid[0].clone());
+                return Ok(result.clone());
             }
 
             // Usually INSTANCE_PYTHON_VERSION
@@ -189,7 +190,6 @@ impl PyV {
             //   - If closest version has the same MINOR version, use it.
             //   - If it differs in MINOR version, take latest PATCH version.
 
-            let mut result = valid[0].clone();
             let [major, minor, ..] = result.release() else {
                 return Err(Error::InternalErr(format!("Failed to parse \"{}\". Available python versions are supposed to be in SEMVER format (MAJOR.MINOR)", *result)));
             };
