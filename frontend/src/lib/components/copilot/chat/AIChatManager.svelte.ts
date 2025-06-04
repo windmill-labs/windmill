@@ -596,7 +596,6 @@ class AIChatManager {
 
 		$effect(() => {
 			if (selectedId) {
-				console.log('selectedId', selectedId)
 				const options = getScriptOptions(selectedId)
 				if (options) {
 					this.scriptEditorOptions = options
