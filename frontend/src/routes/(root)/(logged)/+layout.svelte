@@ -649,7 +649,7 @@
 				</div>
 			</div>
 		{/if}
-		<Splitpanes horizontal={false} style="height: 100vh">
+		<Splitpanes horizontal={false} style="height: 99vh">
 			<Pane size={100 - aiChatManager.size} minSize={50}>
 				<div
 					id="content"

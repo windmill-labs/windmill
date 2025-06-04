@@ -1,6 +1,6 @@
 <script lang="ts">
 	import AIChatDisplay from './AIChatDisplay.svelte'
-	import { onDestroy, type Snippet } from 'svelte'
+	import { onDestroy, untrack, type Snippet } from 'svelte'
 	import { type ScriptLang } from '$lib/gen'
 	import HistoryManager from './HistoryManager.svelte'
 	import {
@@ -77,7 +77,19 @@
 	let aiChatDisplay: AIChatDisplay | undefined = $state(undefined)
 
 	$effect(() => {
-		aiChatManager.initChatEffects($dbSchemas, $workspaceStore, $copilotSessionModel)
+		aiChatManager.listenForDbSchemasChanges($dbSchemas)
+	})
+
+	$effect(() => {
+		aiChatManager.listenForScriptEditorContextChange(
+			$dbSchemas,
+			$workspaceStore,
+			$copilotSessionModel
+		)
+	})
+
+	$effect(() => {
+		aiChatManager.updateMode(untrack(() => aiChatManager.mode))
 	})
 </script>
 

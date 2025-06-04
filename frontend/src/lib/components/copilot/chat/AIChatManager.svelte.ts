@@ -35,6 +35,7 @@ type TriggerablesMap = Record<
 >
 
 class AIChatManager {
+	DEFAULT_SIZE = 22
 	NAVIGATION_SYSTEM_PROMPT = `
 	CONSIDERATIONS:
 	 - You are provided with a tool to switch to navigation mode, use it when the user asks you to navigate the application or help them find something.
@@ -44,7 +45,7 @@ class AIChatManager {
 	historyManager = new HistoryManager()
 	abortController: AbortController | undefined = undefined
 
-	size = $state<number>(localStorage.getItem('ai-chat-open') === 'true' ? 20 : 0)
+	size = $state<number>(localStorage.getItem('ai-chat-open') === 'true' ? this.DEFAULT_SIZE : 0)
 	instructions = $state<string>('')
 	pendingPrompt = $state<string>('')
 	loading = $state<boolean>(false)
@@ -144,7 +145,7 @@ class AIChatManager {
 	}
 
 	openChat = () => {
-		this.size = 20
+		this.size = this.DEFAULT_SIZE
 		localStorage.setItem('ai-chat-open', 'true')
 	}
 
@@ -154,7 +155,7 @@ class AIChatManager {
 	}
 
 	toggleOpen = () => {
-		this.size = this.size === 0 ? 20 : 0
+		this.size = this.size === 0 ? this.DEFAULT_SIZE : 0
 		localStorage.setItem('ai-chat-open', this.size === 0 ? 'false' : 'true')
 	}
 
@@ -490,41 +491,58 @@ class AIChatManager {
 		})
 	}
 
-	initChatEffects = (
+	listenForScriptEditorContextChange = (
 		dbSchemas: DBSchemas,
 		workspaceStore: string | undefined,
 		copilotSessionModel: AIProviderModel | undefined
 	) => {
-		$effect(() => {
-			if (this.scriptEditorOptions) {
-				this.contextManager.updateAvailableContext(
-					this.scriptEditorOptions,
-					dbSchemas,
-					workspaceStore ?? '',
-					!copilotSessionModel?.model.endsWith('/thinking'),
-					untrack(() => this.contextManager.getSelectedContext())
-				)
-			}
-		})
-
-		$effect(() => {
-			this.displayMessages = ContextManager.updateDisplayMessages(
-				untrack(() => this.displayMessages),
-				dbSchemas
+		if (this.scriptEditorOptions) {
+			this.contextManager.updateAvailableContext(
+				this.scriptEditorOptions,
+				dbSchemas,
+				workspaceStore ?? '',
+				!copilotSessionModel?.model.endsWith('/thinking'),
+				untrack(() => this.contextManager.getSelectedContext())
 			)
-		})
-
-		$effect(() => {
-			this.updateMode(untrack(() => this.mode))
-		})
+		}
 	}
 
-	initFlowEffects = (
-		currentEditor: CurrentEditor,
-		flowHelpers: FlowAIChatHelpers,
+	listenForDbSchemasChanges = (dbSchemas: DBSchemas) => {
+		this.displayMessages = ContextManager.updateDisplayMessages(
+			untrack(() => this.displayMessages),
+			dbSchemas
+		)
+	}
+
+	listenForCurrentEditorChanges = (currentEditor: CurrentEditor) => {
+		if (currentEditor && currentEditor.type === 'script') {
+			this.scriptEditorApplyCode = (code) => {
+				if (currentEditor && currentEditor.type === 'script') {
+					currentEditor.hideDiffMode()
+					currentEditor.editor.reviewAndApplyCode(code)
+				}
+			}
+			this.scriptEditorShowDiffMode = () => {
+				if (currentEditor && currentEditor.type === 'script') {
+					currentEditor.showDiffMode()
+				}
+			}
+		} else {
+			this.scriptEditorApplyCode = undefined
+			this.scriptEditorShowDiffMode = undefined
+		}
+
+		return () => {
+			this.scriptEditorApplyCode = undefined
+			this.scriptEditorShowDiffMode = undefined
+		}
+	}
+
+	listenForSelectedIdChanges = (
+		selectedId: string,
 		flowStore: ExtendedOpenFlow,
 		flowStateStore: FlowState,
-		selectedId: string
+		currentEditor: CurrentEditor
 	) => {
 		function getModule(id: string) {
 			if (id === 'preprocessor') {
@@ -571,52 +589,26 @@ class AIChatManager {
 			return undefined
 		}
 
-		$effect(() => {
-			if (currentEditor && currentEditor.type === 'script') {
-				this.scriptEditorApplyCode = (code) => {
-					if (currentEditor && currentEditor.type === 'script') {
-						currentEditor.hideDiffMode()
-						currentEditor.editor.reviewAndApplyCode(code)
-					}
-				}
-				this.scriptEditorShowDiffMode = () => {
-					if (currentEditor && currentEditor.type === 'script') {
-						currentEditor.showDiffMode()
-					}
-				}
-			} else {
-				this.scriptEditorApplyCode = undefined
-				this.scriptEditorShowDiffMode = undefined
+		if (selectedId) {
+			const options = getScriptOptions(selectedId)
+			if (options) {
+				this.scriptEditorOptions = options
 			}
+		} else {
+			this.scriptEditorOptions = undefined
+		}
 
-			return () => {
-				this.scriptEditorApplyCode = undefined
-				this.scriptEditorShowDiffMode = undefined
-			}
-		})
+		return () => {
+			this.scriptEditorOptions = undefined
+		}
+	}
 
-		$effect(() => {
-			if (selectedId) {
-				const options = getScriptOptions(selectedId)
-				if (options) {
-					this.scriptEditorOptions = options
-				}
-			} else {
-				this.scriptEditorOptions = undefined
-			}
+	setFlowHelpers = (flowHelpers: FlowAIChatHelpers) => {
+		this.flowAiChatHelpers = flowHelpers
 
-			return () => {
-				this.scriptEditorOptions = undefined
-			}
-		})
-
-		$effect(() => {
-			this.flowAiChatHelpers = flowHelpers
-
-			return () => {
-				this.flowAiChatHelpers = undefined
-			}
-		})
+		return () => {
+			this.flowAiChatHelpers = undefined
+		}
 	}
 }
 

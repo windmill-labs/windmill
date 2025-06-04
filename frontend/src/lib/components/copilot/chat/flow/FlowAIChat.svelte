@@ -335,12 +335,22 @@
 	}
 
 	$effect(() => {
-		aiChatManager.initFlowEffects(
-			$currentEditor,
-			flowHelpers,
+		const cleanup = aiChatManager.setFlowHelpers(flowHelpers)
+		return cleanup
+	})
+
+	$effect(() => {
+		const cleanup = aiChatManager.listenForSelectedIdChanges(
+			$selectedId,
 			$flowStore,
 			$flowStateStore,
-			$selectedId
+			$currentEditor
 		)
+		return cleanup
+	})
+
+	$effect(() => {
+		const cleanup = aiChatManager.listenForCurrentEditorChanges($currentEditor)
+		return cleanup
 	})
 </script>
