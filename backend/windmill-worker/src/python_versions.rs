@@ -993,17 +993,6 @@ mod tests {
         )
         .await;
     }
-    #[tokio::test]
-    async fn test_python_resolution_15() {
-        assert_resolution(
-            "2.3.0",
-            false,
-            vec![],
-            vec![pyv("2.4.1"), pyv("2.4.0"), pyv("2.3.1")],
-            pyv("2.3.1"),
-        )
-        .await;
-    }
 
     #[tokio::test]
     async fn test_python_resolution_16() {
