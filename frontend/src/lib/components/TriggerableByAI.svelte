@@ -42,9 +42,7 @@
 
 {#if disabled}
 	{@render children?.()}
-{/if}
-
-{#if !disabled}
+{:else}
 	<div class="ai-triggerable-wrapper">
 		{#if isAnimating}
 			<div class="ai-triggerable-animation"></div>
