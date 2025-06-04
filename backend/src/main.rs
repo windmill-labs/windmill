@@ -862,9 +862,9 @@ Windmill Community Edition {GIT_VERSION}
                                                     };
                                                 },
                                                 "notify_token_invalidation" => {
-                                                    let user_email = n.payload();
-                                                    tracing::info!("Token invalidation detected for user: {}", user_email);
-                                                    windmill_api::auth::invalidate_cache_by_email(user_email);
+                                                    let token = n.payload();
+                                                    tracing::info!("Token invalidation detected for token: {}...", &token[..token.len().min(8)]);
+                                                    windmill_api::auth::invalidate_token_from_cache(token);
                                                 },
                                                 "notify_global_setting_change" => {
                                                     tracing::info!("Global setting change detected: {}", n.payload());

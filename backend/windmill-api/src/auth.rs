@@ -31,12 +31,13 @@ lazy_static::lazy_static! {
     pub static ref AUTH_CACHE: Cache<(String, String), ExpiringAuthCache> = Cache::new(300);
 }
 
-// Global function to invalidate cache entries by email
-pub fn invalidate_cache_by_email(email: &str) {
-    AUTH_CACHE.retain(|_key, cached_value| {
-        cached_value.authed.email != email
+// Global function to invalidate a specific token from cache
+pub fn invalidate_token_from_cache(token: &str) {
+    // Remove all cache entries for this token (across all workspaces)
+    AUTH_CACHE.retain(|(_workspace_id, cached_token), _cached_value| {
+        cached_token != token
     });
-    tracing::info!("Invalidated auth cache entries for user: {}", email);
+    tracing::info!("Invalidated token from auth cache: {}...", &token[..token.len().min(8)]);
 }
 
 #[derive(Clone)]
