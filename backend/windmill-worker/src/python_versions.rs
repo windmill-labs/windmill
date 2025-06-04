@@ -250,10 +250,8 @@ impl PyV {
                 if patch_vs {
                     return Ok(newest_in_minor.0);
                 } else {
-                    return Ok(PyV(pep440_rs::Version::new([
-                        newest_in_minor.1 .0,
-                        newest_in_minor.1 .1,
-                    ])));
+                    let mm = newest_in_minor.1;
+                    return Ok(PyV(pep440_rs::Version::new([mm.0, mm.1])));
                 }
             }
 
