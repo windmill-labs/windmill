@@ -21,6 +21,7 @@ import trigger from "./trigger.ts";
 import sync from "./sync.ts";
 import instance from "./instance.ts";
 import workerGroups from "./worker_groups.ts";
+import settings from "./settings.ts";
 
 import dev from "./dev.ts";
 import { fetchVersion } from "./context.ts";
@@ -131,6 +132,7 @@ const command = new Command()
   .command("trigger", trigger)
   .command("dev", dev)
   .command("sync", sync)
+  .command("settings", settings)
   .command("instance", instance)
   .command("worker-groups", workerGroups)
   .command("workers", workers)

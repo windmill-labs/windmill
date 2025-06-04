@@ -16406,6 +16406,8 @@ components:
                   - user
                   - group
                   - trigger
+                  - settings
+                  - key
       required:
         - script_path
         - git_repo_resource_path

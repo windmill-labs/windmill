@@ -1162,6 +1162,43 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
     prettyChanges(changes);
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
+      if (opts.jsonOutput) {
+        // Convert changes to frontend-compatible format
+        const added: string[] = [];
+        const deleted: string[] = [];
+        const modified: string[] = [];
+
+        for (const change of changes) {
+          if (change.name === "added") {
+            added.push(change.path);
+          } else if (change.name === "deleted") {
+            deleted.push(change.path);
+          } else if (change.name === "edited") {
+            modified.push(change.path);
+          }
+        }
+
+        // Add wmill.yaml change detection if requested
+        if (opts.includeWmillYaml) {
+          // Check if settings would generate a different wmill.yaml
+          const currentWmillYaml = await readCurrentWmillYaml();
+          const generatedWmillYaml = generateWmillYamlFromOpts(opts);
+
+          if (currentWmillYaml !== generatedWmillYaml) {
+            if (!modified.includes('wmill.yaml')) {
+              modified.push('wmill.yaml');
+            }
+          }
+        }
+
+        const result = {
+          success: true,
+          added,
+          deleted,
+          modified
+        };
+        console.log(JSON.stringify(result));
+      }
       return;
     }
     if (
@@ -1502,6 +1539,43 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     prettyChanges(changes);
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
+      if (opts.jsonOutput) {
+        // Convert changes to frontend-compatible format
+        const added: string[] = [];
+        const deleted: string[] = [];
+        const modified: string[] = [];
+
+        for (const change of changes) {
+          if (change.name === "added") {
+            added.push(change.path);
+          } else if (change.name === "deleted") {
+            deleted.push(change.path);
+          } else if (change.name === "edited") {
+            modified.push(change.path);
+          }
+        }
+
+        // Add wmill.yaml change detection if requested
+        if (opts.includeWmillYaml) {
+          // Check if settings would generate a different wmill.yaml
+          const currentWmillYaml = await readCurrentWmillYaml();
+          const generatedWmillYaml = generateWmillYamlFromOpts(opts);
+
+          if (currentWmillYaml !== generatedWmillYaml) {
+            if (!modified.includes('wmill.yaml')) {
+              modified.push('wmill.yaml');
+            }
+          }
+        }
+
+        const result = {
+          success: true,
+          added,
+          deleted,
+          modified
+        };
+        console.log(JSON.stringify(result));
+      }
       return;
     }
     if (
@@ -1910,6 +1984,8 @@ const command = new Command()
     "--extra-includes <patterns:file[]>",
     "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy"
   )
+  .option("--json-output", "Output changes in JSON format for frontend integration")
+  .option("--include-wmill-yaml", "Include wmill.yaml changes in output when using --json-output")
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
   .command("push")
@@ -1950,7 +2026,40 @@ const command = new Command()
     "Include a message that will be added to all scripts/flows/apps updated during this push"
   )
   .option("--parallel <number>", "Number of changes to process in parallel")
+  .option("--json-output", "Output changes in JSON format for frontend integration")
+  .option("--include-wmill-yaml", "Include wmill.yaml changes in output when using --json-output")
   // deno-lint-ignore no-explicit-any
   .action(push as any);
 
 export default command;
+
+// Helper functions for reading and generating wmill.yaml files
+async function readCurrentWmillYaml(): Promise<string | null> {
+  try {
+    const wmillYamlPath = path.join(Deno.cwd(), "wmill.yaml");
+    return await Deno.readTextFile(wmillYamlPath);
+  } catch {
+    return null;
+  }
+}
+
+function generateWmillYamlFromOpts(opts: SyncOptions): string {
+  const config = {
+    defaultTs: opts.defaultTs ?? "bun",
+    includes: opts.includes || ["f/**"],
+    excludes: opts.excludes || [],
+    codebases: opts.codebases || [],
+    skipVariables: opts.skipVariables ?? false,
+    skipResources: opts.skipResources ?? false,
+    skipResourceTypes: opts.skipResourceTypes ?? false,
+    skipSecrets: opts.skipSecrets ?? false,
+    includeSchedules: opts.includeSchedules ?? false,
+    includeTriggers: opts.includeTriggers ?? false,
+    includeUsers: opts.includeUsers ?? false,
+    includeGroups: opts.includeGroups ?? false,
+    includeSettings: opts.includeSettings ?? false,
+    includeKey: opts.includeKey ?? false
+  };
+
+  return yamlStringify(config);
+}
