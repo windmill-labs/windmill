@@ -401,6 +401,8 @@
 			if (options) {
 				AIChatService.scriptEditorOptions = options
 			}
+		} else {
+			AIChatService.scriptEditorOptions = undefined
 		}
 
 		return () => {

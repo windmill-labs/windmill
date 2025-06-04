@@ -1,19 +1,11 @@
 import type {
-	ChatCompletionChunk,
 	ChatCompletionMessageParam,
 	ChatCompletionMessageToolCall,
-	ChatCompletionTool,
-	ChatCompletionUserMessageParam
+	ChatCompletionTool
 } from 'openai/resources/chat/completions.mjs'
 import { get } from 'svelte/store'
 import type { ContextElement } from './context'
-import { getCompletion } from '../lib'
 import { workspaceStore } from '$lib/stores'
-import { AIChatService } from './AIChatManager.svelte'
-import { prepareScriptUserMessage } from './script/core'
-import type { ScriptLang } from '$lib/gen'
-import { prepareFlowUserMessage } from './flow/core'
-import { prepareNavigatorUserMessage } from './navigator/core'
 
 export type DisplayMessage =
 	| {
@@ -51,7 +43,7 @@ async function callTool<T>({
 	return tool.fn({ args, workspace, helpers, toolCallbacks, toolId })
 }
 
-async function processToolCall<T>({
+export async function processToolCall<T>({
 	tools,
 	toolCall,
 	messages,
@@ -106,127 +98,4 @@ export interface Tool<T> {
 export interface ToolCallbacks {
 	onToolCall: (id: string, content: string) => void
 	onFinishToolCall: (id: string, content: string) => void
-}
-
-export async function chatRequest({
-	messages,
-	abortController,
-	callbacks
-}: {
-	messages: ChatCompletionMessageParam[]
-	abortController: AbortController
-	callbacks: ToolCallbacks & {
-		onNewToken: (token: string) => void
-		onMessageEnd: () => void
-	}
-}) {
-	try {
-		let completion: any = null
-
-		while (true) {
-			const systemMessage = AIChatService.systemMessage
-			const tools = AIChatService.tools
-			const helpers = AIChatService.helpers
-
-			let pendingPrompt = AIChatService.pendingPrompt
-			let pendingUserMessage: ChatCompletionUserMessageParam | undefined = undefined
-			if (pendingPrompt) {
-				if (AIChatService.mode === 'script') {
-					pendingUserMessage = await prepareScriptUserMessage(
-						pendingPrompt,
-						AIChatService.scriptEditorOptions?.lang as ScriptLang | 'bunnative',
-						AIChatService.contextManager.getSelectedContext()
-					)
-				} else if (AIChatService.mode === 'flow') {
-					pendingUserMessage = prepareFlowUserMessage(
-						pendingPrompt,
-						AIChatService.flowAiChatHelpers!.getFlowAndSelectedId()
-					)
-				} else if (AIChatService.mode === 'navigator') {
-					pendingUserMessage = prepareNavigatorUserMessage(pendingPrompt)
-				}
-				AIChatService.pendingPrompt = ''
-			}
-			completion = await getCompletion(
-				[systemMessage, ...messages, ...(pendingUserMessage ? [pendingUserMessage] : [])],
-				abortController,
-				tools.map((t) => t.def)
-			)
-
-			if (completion) {
-				const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
-
-				let answer = ''
-				for await (const chunk of completion) {
-					if (!('choices' in chunk && chunk.choices.length > 0 && 'delta' in chunk.choices[0])) {
-						continue
-					}
-					const c = chunk as ChatCompletionChunk
-					const delta = c.choices[0].delta.content
-					if (delta) {
-						answer += delta
-						callbacks.onNewToken(delta)
-					}
-					const toolCalls = c.choices[0].delta.tool_calls || []
-					for (const toolCall of toolCalls) {
-						const { index } = toolCall
-						const finalToolCall = finalToolCalls[index]
-						if (!finalToolCall) {
-							finalToolCalls[index] = toolCall
-						} else {
-							if (toolCall.function?.arguments) {
-								if (!finalToolCall.function) {
-									finalToolCall.function = toolCall.function
-								} else {
-									finalToolCall.function.arguments =
-										(finalToolCall.function.arguments ?? '') + toolCall.function.arguments
-								}
-							}
-						}
-					}
-				}
-
-				if (answer) {
-					messages.push({ role: 'assistant', content: answer })
-				}
-
-				callbacks.onMessageEnd()
-
-				const toolCalls = Object.values(finalToolCalls).filter(
-					(toolCall) => toolCall.id !== undefined && toolCall.function?.arguments !== undefined
-				) as ChatCompletionMessageToolCall[]
-
-				if (toolCalls.length > 0) {
-					messages.push({
-						role: 'assistant',
-						tool_calls: toolCalls.map((t) => ({
-							...t,
-							function: {
-								...t.function,
-								arguments: t.function.arguments || '{}'
-							}
-						}))
-					})
-					for (const toolCall of toolCalls) {
-						await processToolCall({
-							tools,
-							toolCall,
-							messages,
-							helpers,
-							toolCallbacks: callbacks
-						})
-					}
-				} else {
-					break
-				}
-			}
-		}
-		return messages
-	} catch (err) {
-		if (!abortController.signal.aborted) {
-			throw err
-		} else {
-			return messages
-		}
-	}
 }

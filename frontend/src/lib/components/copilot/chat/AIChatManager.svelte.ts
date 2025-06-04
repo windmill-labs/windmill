@@ -8,16 +8,20 @@ import {
 } from './flow/core'
 import ContextManager from './ContextManager.svelte'
 import HistoryManager from './HistoryManager.svelte'
-import { chatRequest, type DisplayMessage, type Tool, type ToolCallbacks } from './shared'
+import { processToolCall, type DisplayMessage, type Tool, type ToolCallbacks } from './shared'
 import type {
+	ChatCompletionChunk,
 	ChatCompletionMessageParam,
-	ChatCompletionSystemMessageParam
+	ChatCompletionMessageToolCall,
+	ChatCompletionSystemMessageParam,
+	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import { prepareScriptSystemMessage, prepareScriptTools } from './script/core'
 import { navigatorTools, prepareNavigatorSystemMessage } from './navigator/core'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
+import { getCompletion } from '../lib'
 
 type TriggerablesMap = Record<
 	string,
@@ -167,6 +171,129 @@ export class AIChat {
 		}
 	}
 
+	private chatRequest = async ({
+		messages,
+		abortController,
+		callbacks
+	}: {
+		messages: ChatCompletionMessageParam[]
+		abortController: AbortController
+		callbacks: ToolCallbacks & {
+			onNewToken: (token: string) => void
+			onMessageEnd: () => void
+		}
+	}) => {
+		try {
+			let completion: any = null
+
+			while (true) {
+				const systemMessage = this.systemMessage
+				const tools = this.tools
+				const helpers = this.helpers
+
+				let pendingPrompt = this.pendingPrompt
+				let pendingUserMessage: ChatCompletionUserMessageParam | undefined = undefined
+				if (pendingPrompt) {
+					if (this.mode === 'script') {
+						pendingUserMessage = await prepareScriptUserMessage(
+							pendingPrompt,
+							this.scriptEditorOptions?.lang as ScriptLang | 'bunnative',
+							this.contextManager.getSelectedContext()
+						)
+					} else if (this.mode === 'flow') {
+						pendingUserMessage = prepareFlowUserMessage(
+							pendingPrompt,
+							this.flowAiChatHelpers!.getFlowAndSelectedId()
+						)
+					} else if (this.mode === 'navigator') {
+						pendingUserMessage = prepareNavigatorUserMessage(pendingPrompt)
+					}
+					this.pendingPrompt = ''
+				}
+				completion = await getCompletion(
+					[systemMessage, ...messages, ...(pendingUserMessage ? [pendingUserMessage] : [])],
+					abortController,
+					tools.map((t) => t.def)
+				)
+
+				if (completion) {
+					const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
+
+					let answer = ''
+					for await (const chunk of completion) {
+						if (!('choices' in chunk && chunk.choices.length > 0 && 'delta' in chunk.choices[0])) {
+							continue
+						}
+						const c = chunk as ChatCompletionChunk
+						const delta = c.choices[0].delta.content
+						if (delta) {
+							answer += delta
+							callbacks.onNewToken(delta)
+						}
+						const toolCalls = c.choices[0].delta.tool_calls || []
+						for (const toolCall of toolCalls) {
+							const { index } = toolCall
+							const finalToolCall = finalToolCalls[index]
+							if (!finalToolCall) {
+								finalToolCalls[index] = toolCall
+							} else {
+								if (toolCall.function?.arguments) {
+									if (!finalToolCall.function) {
+										finalToolCall.function = toolCall.function
+									} else {
+										finalToolCall.function.arguments =
+											(finalToolCall.function.arguments ?? '') + toolCall.function.arguments
+									}
+								}
+							}
+						}
+					}
+
+					if (answer) {
+						messages.push({ role: 'assistant', content: answer })
+					}
+
+					callbacks.onMessageEnd()
+
+					const toolCalls = Object.values(finalToolCalls).filter(
+						(toolCall) => toolCall.id !== undefined && toolCall.function?.arguments !== undefined
+					) as ChatCompletionMessageToolCall[]
+
+					if (toolCalls.length > 0) {
+						messages.push({
+							role: 'assistant',
+							tool_calls: toolCalls.map((t) => ({
+								...t,
+								function: {
+									...t.function,
+									arguments: t.function.arguments || '{}'
+								}
+							}))
+						})
+						for (const toolCall of toolCalls) {
+							await processToolCall({
+								tools,
+								toolCall,
+								messages,
+								helpers,
+								toolCallbacks: callbacks
+							})
+						}
+					} else {
+						break
+					}
+				}
+			}
+			return messages
+		} catch (err) {
+			if (!abortController.signal.aborted) {
+				throw err
+			} else {
+				return messages
+			}
+		}
+	}
+
 	sendRequest = async (
 		options: {
 			removeDiff?: boolean
@@ -281,7 +408,7 @@ export class AIChat {
 			if (this.mode === 'flow' && !this.flowAiChatHelpers) {
 				throw new Error('No flow helpers found')
 			}
-			await chatRequest({
+			await this.chatRequest({
 				...params
 			})
 			if (this.currentReply) {
