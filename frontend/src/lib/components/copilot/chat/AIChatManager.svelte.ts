@@ -46,6 +46,7 @@ class AIChatManager {
 	abortController: AbortController | undefined = undefined
 
 	size = $state<number>(localStorage.getItem('ai-chat-open') === 'true' ? this.DEFAULT_SIZE : 0)
+	savedSize = $state<number>(0)
 	instructions = $state<string>('')
 	pendingPrompt = $state<string>('')
 	loading = $state<boolean>(false)
@@ -159,17 +160,21 @@ class AIChatManager {
 	}
 
 	openChat = () => {
-		this.size = this.DEFAULT_SIZE
+		this.size = this.savedSize > 0 ? this.savedSize : this.DEFAULT_SIZE
 		localStorage.setItem('ai-chat-open', 'true')
 	}
 
 	closeChat = () => {
+		this.savedSize = this.size
 		this.size = 0
 		localStorage.setItem('ai-chat-open', 'false')
 	}
 
 	toggleOpen = () => {
-		this.size = this.size === 0 ? this.DEFAULT_SIZE : 0
+		if (this.size > 0) {
+			this.savedSize = this.size
+		}
+		this.size = this.size === 0 ? (this.savedSize > 0 ? this.savedSize : this.DEFAULT_SIZE) : 0
 		localStorage.setItem('ai-chat-open', this.size === 0 ? 'false' : 'true')
 	}
 
