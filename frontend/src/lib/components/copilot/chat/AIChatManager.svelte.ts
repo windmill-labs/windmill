@@ -38,7 +38,7 @@ class AIChatManager {
 	DEFAULT_SIZE = 22
 	NAVIGATION_SYSTEM_PROMPT = `
 	CONSIDERATIONS:
-	 - You are provided with a tool to switch to navigation mode, use it when the user asks you to navigate the application or help them find something.
+	 - You are provided with a tool to switch to navigation mode, only use it when you are sure that the user is asking you to navigate the application or help them find something. Do not use it otherwise.
 	`
 
 	contextManager = new ContextManager()
