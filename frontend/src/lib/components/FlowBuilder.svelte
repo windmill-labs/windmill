@@ -775,8 +775,7 @@
 	}
 
 	$: if ($flowStore) {
-		console.log('dbg [Store Update Triggered]')
-		//loadStepsStates()
+		loadStepsStates()
 	}
 </script>
 
