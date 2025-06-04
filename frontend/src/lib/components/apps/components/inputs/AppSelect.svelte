@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { getContext, onDestroy } from 'svelte'
-	import Select from '../../svelte-select/lib/index'
 
 	import type {
 		AppViewerContext,
@@ -11,7 +10,6 @@
 	} from '../../types'
 	import { initCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
@@ -21,6 +19,7 @@
 	import { Bug } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import Select from '$lib/components/Select.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -42,8 +41,7 @@
 		connectingInput,
 		selectedComponent,
 		runnableComponents,
-		componentControl,
-		darkMode
+		componentControl
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
@@ -74,8 +72,8 @@
 	let value: string | undefined = noDefault
 		? undefined
 		: outputs?.result.peak()
-		? JSON.stringify(outputs?.result.peak())
-		: undefined
+			? JSON.stringify(outputs?.result.peak())
+			: undefined
 
 	$: resolvedConfig.items && handleItems()
 
@@ -108,7 +106,7 @@
 						label: item?.label ?? 'undefined',
 						value: item?.value != undefined ? JSON.stringify(item.value) : 'undefined'
 					}
-			  })
+				})
 			: []
 
 		if (value != undefined && listItems.some((x) => x.value === value)) {
@@ -137,9 +135,7 @@
 		rowInputs?.remove(id)
 	})
 
-	function onChange(e: CustomEvent) {
-		e?.stopPropagation()
-
+	function onChange(nvalue: any) {
 		if (resolvedConfig.create) {
 			listItems = listItems.map((i) => {
 				delete i.created
@@ -147,7 +143,7 @@
 			})
 		}
 		preclickAction?.()
-		setValue(e.detail?.['value'])
+		setValue(nvalue)
 		if (onSelect) {
 			onSelect.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((f) => f()))
 		}
@@ -182,7 +178,8 @@
 
 	let previsousFilter = ''
 
-	function handleFilter(e) {
+	function onFilter(newFilterText: string) {
+		filterText = newFilterText
 		if (resolvedConfig.create && filterText !== previsousFilter) {
 			previsousFilter = filterText
 			if (filterText.length > 0) {
@@ -260,34 +257,22 @@
 				</select>
 			{:else}
 				<Select
-					inAppEditor={true}
-					--border-radius="0.250rem"
-					--clear-icon-color="#6b7280"
-					--border={$darkMode ? '1px solid #6b7280' : '1px solid #d1d5db'}
-					bind:filterText
-					on:filter={handleFilter}
-					on:clear={onClear}
-					on:change={onChange}
-					items={listItems}
+					bind:filterText={() => filterText, onFilter}
+					{onClear}
+					items={listItems.map((item) =>
+						item.created && item.label === filterText
+							? { ...item, label: 'Add new: ' + item.label }
+							: item
+					)}
 					listAutoWidth={resolvedConfig.fullWidth}
-					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-					containerStyles={($darkMode
-						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-						: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
-					{value}
+					containerStyle={css?.input?.style}
+					bind:value={() => value, onChange}
 					class={css?.input?.class}
 					placeholder={resolvedConfig.placeholder}
 					disabled={resolvedConfig.disabled}
-					on:focus={() => {
-						if (!$connectingInput.opened) {
-							$selectedComponent = [id]
-						}
-					}}
-				>
-					<svelte:fragment slot="item" let:item
-						>{#if resolvedConfig.create}{item.created ? 'Add new: ' : ''}{/if}{item.label}
-					</svelte:fragment>
-				</Select>
+					clearable
+					onFocus={() => !$connectingInput.opened && ($selectedComponent = [id])}
+				/>
 			{/if}
 		{:else}
 			<Popover notClickable placement="bottom" popupClass="!bg-surface border w-96">

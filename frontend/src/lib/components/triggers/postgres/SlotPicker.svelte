@@ -1,8 +1,6 @@
 <script lang="ts">
-	import Select from '$lib/components/apps/svelte-select/lib/Select.svelte'
 	import { Button } from '$lib/components/common'
-	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
+	import Select from '$lib/components/Select.svelte'
 	import { PostgresTriggerService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -71,30 +69,18 @@
 	}
 
 	listDatabaseSlot()
-
-	let darkMode = false
 </script>
-
-<DarkModeObserver bind:darkMode />
 
 <div class="flex gap-1">
 	<Select
-		class="grow shrink max-w-full"
-		on:select={(e) => {
-			replication_slot_name = e.detail.value
-		}}
-		on:clear={() => {
-			replication_slot_name = ''
-		}}
 		loading={loadingSlot}
-		value={replication_slot_name}
-		{items}
+		class="grow shrink max-w-full"
+		bind:value={replication_slot_name}
+		onClear={() => (replication_slot_name = '')}
+		items={items.map((value) => ({ value }))}
 		placeholder="Choose a slot name"
-		inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-		containerStyles={darkMode
-			? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-			: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-		portal={false}
+		disablePortal
+		clearable
 		{disabled}
 	/>
 	<Button

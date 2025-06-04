@@ -1,1 +1,1 @@
-export { default as default } from './Select.svelte'
+export { default as default } from './SelectLegacy.svelte'
