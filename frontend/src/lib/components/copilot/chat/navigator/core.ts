@@ -262,6 +262,7 @@ export const navigatorTools: Tool<{}>[] = [
 			toolCallbacks.onToolCall(toolId, 'Getting documentation...')
 			try {
 				const docResult = await getDocumentation(args)
+				toolCallbacks.onFinishToolCall(toolId, 'Retrieved documentation')
 				return docResult
 			} catch (error) {
 				toolCallbacks.onFinishToolCall(toolId, 'Failed to get documentation')
