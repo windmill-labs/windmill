@@ -699,9 +699,11 @@
 					</main>
 				</div>
 			</Pane>
-			<Pane bind:size={aiChatManager.size} minSize={15} class="flex flex-col min-h-0">
-				<GlobalChat />
-			</Pane>
+			{#if aiChatManager.size > 0}
+				<Pane bind:size={aiChatManager.size} minSize={15} class="flex flex-col min-h-0">
+					<GlobalChat />
+				</Pane>
+			{/if}
 		</Splitpanes>
 	</div>
 {:else}
