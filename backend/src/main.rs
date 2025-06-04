@@ -861,6 +861,11 @@ Windmill Community Edition {GIT_VERSION}
                                                         }
                                                     };
                                                 },
+                                                "notify_token_invalidation" => {
+                                                    let user_email = n.payload();
+                                                    tracing::info!("Token invalidation detected for user: {}", user_email);
+                                                    windmill_api::auth::invalidate_cache_by_email(user_email);
+                                                },
                                                 "notify_global_setting_change" => {
                                                     tracing::info!("Global setting change detected: {}", n.payload());
                                                     match n.payload() {
@@ -893,7 +898,7 @@ Windmill Community Edition {GIT_VERSION}
                                                             if let Err(e) = load_tag_per_workspace_workspaces(&db).await {
                                                                 tracing::error!("Error loading default tag per workspace workspaces: {e:#}");
                                                             }
-                                                        }
+                                                        },
                                                         SMTP_SETTING => {
                                                             reload_smtp_config(&db).await;
                                                         },
@@ -1010,7 +1015,6 @@ Windmill Community Edition {GIT_VERSION}
                                                                 tracing::error!(error = %e, "Could not reload critical alert UI setting");
                                                             }
                                                         },
-
                                                         a @_ => {
                                                             tracing::info!("Unrecognized Global Setting Change Payload: {:?}", a);
                                                         }
@@ -1183,6 +1187,7 @@ async fn listen_pg(url: &str) -> Option<PgListener> {
         "notify_webhook_change",
         "notify_workspace_envs_change",
         "notify_runnable_version_change",
+        "notify_token_invalidation",
     ];
 
     #[cfg(feature = "http_trigger")]
