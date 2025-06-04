@@ -13,7 +13,6 @@
 	export let shouldUsePortal: boolean = true
 	export let offset: number = 0
 	export let preventEscape = false
-	export let disableClickOutside = aiChatManager.open
 
 	let disposable: Disposable | undefined = undefined
 
@@ -86,10 +85,7 @@
 		>
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
-			<div
-				class="overlay {$$props.positionClass ?? ''}"
-				on:click={disableClickOutside ? () => {} : handleClickAway}
-			></div>
+			<div class="overlay {$$props.positionClass ?? ''}" on:click={handleClickAway}></div>
 			<div class="panel {placement} {$$props.positionClass}" class:size>
 				{#if open || !timeout || alwaysOpen}
 					<slot {open} />
