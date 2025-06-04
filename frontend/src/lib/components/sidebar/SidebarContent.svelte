@@ -126,7 +126,7 @@
 			disabled: $userStore?.operator,
 			kind: 'http',
 			aiId: 'sidebar-menu-link-http',
-			aiDescription: 'Button to navigate to http routes'
+			aiDescription: 'Button to navigate to HTTP routes'
 		},
 		{
 			label: 'WebSockets',
@@ -144,7 +144,7 @@
 			disabled: $userStore?.operator,
 			kind: 'postgres',
 			aiId: 'sidebar-menu-link-postgres',
-			aiDescription: 'Button to navigate to postgres triggers'
+			aiDescription: 'Button to navigate to Postgres triggers'
 		},
 		{
 			label: 'Kafka' + ($enterpriseLicense ? '' : ' (EE)'),
@@ -153,7 +153,7 @@
 			disabled: $userStore?.operator || !$enterpriseLicense,
 			kind: 'kafka',
 			aiId: 'sidebar-menu-link-kafka',
-			aiDescription: 'Button to navigate to kafka triggers'
+			aiDescription: 'Button to navigate to Kafka triggers'
 		},
 		{
 			label: 'NATS' + ($enterpriseLicense ? '' : ' (EE)'),
@@ -162,7 +162,7 @@
 			disabled: $userStore?.operator || !$enterpriseLicense,
 			kind: 'nats',
 			aiId: 'sidebar-menu-link-nats',
-			aiDescription: 'Button to navigate to nats triggers'
+			aiDescription: 'Button to navigate to NATS triggers'
 		},
 		{
 			label: 'SQS' + ($enterpriseLicense ? '' : ' (EE)'),
@@ -171,7 +171,7 @@
 			disabled: $userStore?.operator || !$enterpriseLicense,
 			kind: 'sqs',
 			aiId: 'sidebar-menu-link-sqs',
-			aiDescription: 'Button to navigate to sqs triggers'
+			aiDescription: 'Button to navigate to SQS triggers'
 		},
 		{
 			label: 'GCP Pub/Sub' + ($enterpriseLicense ? '' : ' (EE)'),
@@ -180,7 +180,7 @@
 			disabled: $userStore?.operator || !$enterpriseLicense,
 			kind: 'gcp',
 			aiId: 'sidebar-menu-link-gcp',
-			aiDescription: 'Button to navigate to gcp triggers'
+			aiDescription: 'Button to navigate to GCP Pub/Sub triggers'
 		},
 		{
 			label: 'MQTT',
@@ -189,7 +189,7 @@
 			disabled: $userStore?.operator,
 			kind: 'mqtt',
 			aiId: 'sidebar-menu-link-mqtt',
-			aiDescription: 'Button to navigate to mqtt triggers'
+			aiDescription: 'Button to navigate to MQTT triggers'
 		}
 	]
 

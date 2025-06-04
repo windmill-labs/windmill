@@ -250,7 +250,7 @@ export const navigatorTools: Tool<{}>[] = [
 			const result = triggerComponent(args)
 			toolCallbacks.onFinishToolCall(
 				toolId,
-				'Clicked on component described as: ' + args.description
+				'Clicked ' + args.description.charAt(0).toLowerCase() + args.description.slice(1)
 			)
 			return result
 		}
