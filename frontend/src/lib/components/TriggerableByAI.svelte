@@ -43,48 +43,14 @@
 {#if disabled}
 	{@render children?.()}
 {:else}
-	<div class="ai-triggerable-wrapper">
+	<div class="relative">
 		{#if isAnimating}
-			<div class="ai-triggerable-animation"></div>
+			<div
+				class="absolute -top-2.5 left-1/2 -translate-x-1/2 w-10 h-10 bg-blue-500/90 rounded-full z-[9999] pointer-events-none animate-ping"
+			></div>
 		{/if}
-		<div class="ai-triggerable-content">
+		<div class="contents h-full">
 			{@render children?.()}
 		</div>
 	</div>
 {/if}
-
-<style>
-	.ai-triggerable-wrapper {
-		position: relative;
-	}
-
-	.ai-triggerable-content {
-		display: contents;
-		height: 100%;
-	}
-
-	.ai-triggerable-animation {
-		position: absolute;
-		top: -10px;
-		left: 50%;
-		transform: translateX(-50%);
-		width: 40px;
-		height: 40px;
-		background-color: rgba(66, 133, 244, 0.9);
-		border-radius: 50%;
-		z-index: 9999;
-		pointer-events: none;
-		animation: pulse 1.5s ease-out forwards;
-	}
-
-	@keyframes pulse {
-		0% {
-			transform: translateX(-50%) scale(0);
-			opacity: 1;
-		}
-		100% {
-			transform: translateX(-50%) scale(3);
-			opacity: 0;
-		}
-	}
-</style>
