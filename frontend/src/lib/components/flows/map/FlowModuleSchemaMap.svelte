@@ -560,7 +560,7 @@
 			}}
 			onUpdateMock={(detail) => {
 				let module = findModuleById(detail.id)
-				module.mock = detail.mock
+				module.mock = $state.snapshot(detail.mock)
 				$flowStore = $flowStore
 			}}
 		/>
