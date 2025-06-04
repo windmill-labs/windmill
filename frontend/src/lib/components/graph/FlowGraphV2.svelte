@@ -106,7 +106,7 @@
 		onDeleteBranch?: (detail: { id: string; index: number }) => Promise<void>
 		onChangeId?: (detail: { id: string; newId: string; deps: Record<string, string[]> }) => void
 		onMove?: (id: string) => void
-		onUpdateMock?: () => void
+		onUpdateMock?: (detail: { mock: FlowModule['mock']; id: string }) => void
 		onSelectedIteration?: onSelectedIteration
 	}
 
@@ -278,8 +278,8 @@
 			delete expandedSubflows[id]
 			expandedSubflows = expandedSubflows
 		},
-		updateMock: () => {
-			onUpdateMock?.()
+		updateMock: (detail) => {
+			onUpdateMock?.(detail)
 		}
 	}
 

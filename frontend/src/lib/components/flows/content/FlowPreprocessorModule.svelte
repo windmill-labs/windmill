@@ -14,9 +14,6 @@
 	<FlowModuleWrapper
 		{noEditor}
 		bind:flowModule={$flowStore.value.preprocessor_module}
-		on:delete={() => {
-			$flowStore.value.preprocessor_module = undefined
-		}}
 		previousModule={undefined}
 		{savedModule}
 	/>

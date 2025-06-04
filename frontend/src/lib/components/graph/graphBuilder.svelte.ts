@@ -51,7 +51,7 @@ export type GraphEventHandlers = {
 	simplifyFlow: (b: boolean) => void
 	expandSubflow: (id: string, path: string) => void
 	minimizeSubflow: (id: string) => void
-	updateMock: () => void
+	updateMock: (detail: { mock: FlowModule['mock']; id: string }) => void
 }
 
 export type SimplifiableFlow = { simplifiedFlow: boolean }

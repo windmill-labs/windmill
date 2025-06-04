@@ -14,9 +14,6 @@
 	<FlowModuleWrapper
 		{noEditor}
 		bind:flowModule={$flowStore.value.failure_module}
-		on:delete={() => {
-			$flowStore.value.failure_module = undefined
-		}}
 		{savedModule}
 		previousModule={undefined}
 	/>

@@ -86,7 +86,7 @@
 		flowModule = $bindable(),
 		failureModule = false,
 		preprocessorModule = false,
-		parentModule = undefined,
+		parentModule = $bindable(),
 		previousModule,
 		scriptKind = 'script',
 		scriptTemplate = 'script',
@@ -847,6 +847,11 @@
 											loopStatus={parentLoop
 												? { type: 'inside', flow: parentLoop.type }
 												: undefined}
+											on:updateMock={({ detail }) => {
+												flowModule.mock = detail
+												flowModule = flowModule
+												$flowStore = $flowStore
+											}}
 											{lastJob}
 											{scriptProgress}
 											{testJob}

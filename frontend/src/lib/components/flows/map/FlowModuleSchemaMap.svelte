@@ -184,9 +184,14 @@
 			}
 		}
 	}
+
+	function findModuleById(id: string) {
+		return dfsByModule(id, $flowStore.value.modules)[0]
+	}
+
 	async function addBranch(id: string) {
 		push(history, $flowStore)
-		let module = dfsByModule(id, $flowStore.value.modules)[0]
+		let module = findModuleById(id)
 
 		if (!module) {
 			throw new Error(`Node ${id} not found`)
@@ -203,7 +208,7 @@
 
 	function removeBranch(id: string, index: number) {
 		push(history, $flowStore)
-		let module = dfsByModule(id, $flowStore.value.modules)[0]
+		let module = findModuleById(id)
 
 		if (!module) {
 			throw new Error(`Node ${id} not found`)
@@ -553,7 +558,9 @@
 					$moving = undefined
 				}
 			}}
-			onUpdateMock={() => {
+			onUpdateMock={(detail) => {
+				let module = findModuleById(detail.id)
+				module.mock = detail.mock
 				$flowStore = $flowStore
 			}}
 		/>

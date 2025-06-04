@@ -68,7 +68,7 @@
 		select: string
 		newBranch: { id: string }
 		move: { module: FlowModule } | undefined
-		updateMock: void
+		updateMock: { mock: FlowModule['mock']; id: string }
 	}>()
 
 	let itemProps = $derived({
@@ -139,7 +139,7 @@
 					on:pointerdown={() => onSelect(mod.id)}
 					on:updateMock={({ detail }) => {
 						mod.mock = detail
-						dispatch('updateMock')
+						dispatch('updateMock', { mock: detail, id: mod.id })
 					}}
 					{...itemProps}
 					{bgColor}
@@ -208,7 +208,7 @@
 					on:move
 					on:updateMock={({ detail }) => {
 						mod.mock = detail
-						dispatch('updateMock')
+						dispatch('updateMock', { mock: detail, id: mod.id })
 					}}
 					deletable={insertable}
 					id={mod.id}

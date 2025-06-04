@@ -32,13 +32,13 @@
 		lastJob = undefined,
 		scriptProgress = $bindable(undefined),
 		testJob = undefined,
-		mod = $bindable(),
+		mod,
 		testIsLoading = false,
 		disableMock = false,
 		disableHistory = false
 	}: Props = $props()
 
-	const { flowStore, testStepStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { testStepStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let selectedJob: Job | undefined = $state(undefined)
 	let fetchingLastJob = false
@@ -75,11 +75,7 @@
 			moduleId={mod.id}
 			closeOnOutsideClick={true}
 			getLogs
-			on:updateMock={({ detail }) => {
-				mod.mock = detail
-				mod = mod
-				$flowStore = $flowStore
-			}}
+			on:updateMock
 			mock={mod.mock}
 			bind:forceJson
 			bind:selectedJob
