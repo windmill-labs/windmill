@@ -31,7 +31,7 @@ import type { DBSchemas } from '$lib/stores'
 
 type TriggerablesMap = Record<
 	string,
-	{ description: string; onTrigger: ((id: string) => void) | undefined }
+	{ description: string; onTrigger: ((value?: string) => void) | undefined }
 >
 
 class AIChatManager {
@@ -85,7 +85,13 @@ class AIChatManager {
 		}
 	}
 
-	changeMode(mode: 'script' | 'flow' | 'navigator', pendingPrompt?: string) {
+	changeMode(
+		mode: 'script' | 'flow' | 'navigator',
+		pendingPrompt?: string,
+		options?: {
+			closeScriptSettings?: boolean
+		}
+	) {
 		this.mode = mode
 		this.pendingPrompt = pendingPrompt ?? ''
 		if (mode === 'script') {
@@ -96,6 +102,12 @@ class AIChatManager {
 			this.tools = [this.changeModeTool, ...prepareScriptTools(lang, context)]
 			this.helpers = {
 				getLang: () => lang
+			}
+			if (options?.closeScriptSettings) {
+				const closeComponent = this.triggerablesByAI['close-script-builder-settings']
+				if (closeComponent) {
+					closeComponent.onTrigger?.()
+				}
 			}
 		} else if (mode === 'flow') {
 			this.systemMessage = prepareFlowSystemMessage()
@@ -138,7 +150,9 @@ class AIChatManager {
 		},
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			toolCallbacks.onToolCall(toolId, 'Switching to ' + args.mode + ' mode...')
-			this.changeMode(args.mode as 'script' | 'flow' | 'navigator', args.pendingPrompt)
+			this.changeMode(args.mode as 'script' | 'flow' | 'navigator', args.pendingPrompt, {
+				closeScriptSettings: true
+			})
 			toolCallbacks.onFinishToolCall(toolId, 'Switched to ' + args.mode + ' mode')
 			return 'Mode changed to ' + args.mode
 		}
