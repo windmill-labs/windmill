@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext, onMount } from 'svelte'
-	import Select from '../apps/svelte-select/lib/Select.svelte'
+	import SelectLegacy from '../apps/svelte-select/lib/SelectLegacy.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -44,7 +44,7 @@
 <DarkModeObserver bind:darkMode />
 
 <div class="flex flex-col gap-2 w-full">
-	<Select
+	<SelectLegacy
 		class="grow shrink max-w-full"
 		on:change={(e) => {
 			value = e.detail.value

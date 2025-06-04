@@ -9,11 +9,9 @@
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	import Select from '../../svelte-select/lib/Select.svelte'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
-	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { enUS, fr, de, pt, ja } from 'date-fns/locale'
+	import Select from '$lib/components/Select.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -86,7 +84,6 @@
 
 	let css = initCss($app.css?.dateinputcomponent, customCss)
 
-	let darkMode: boolean = false
 	let selectedDay: string | undefined = undefined
 	let selectedMonth: string | undefined = undefined
 	let selectedYear: string | undefined = undefined
@@ -216,8 +213,6 @@
 	/>
 {/each}
 
-<DarkModeObserver bind:darkMode />
-
 <InitializeComponent {id} />
 
 <AlignWrapper {render} {verticalAlignment}>
@@ -236,25 +231,20 @@
 				class={twMerge('grow', resolvedConfig?.orientation === 'horizontal' ? 'w-1/4' : 'w-full')}
 			>
 				<Select
-					portal={false}
-					value={selectedDay}
-					on:change={(e) => {
-						selectedDay = e.detail.value
-						outputs.day.set(Number(selectedDay))
-					}}
-					on:clear={() => {
-						selectedDay = ''
-						outputs.day.set(undefined)
-					}}
+					bind:value={
+						() => selectedDay,
+						(v) => {
+							selectedDay = v ?? ''
+							outputs.day.set(v ? Number(v) : undefined)
+						}
+					}
 					items={Array.from({ length: computeDayPerMonth(selectedMonth, selectedYear) }, (_, i) => {
 						return { label: String(i + 1), value: String(i + 1) }
 					})}
 					class={twMerge('text-clip min-w-0', css?.input?.class, 'wm-date-select')}
-					containerStyles={(darkMode
-						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-						: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
-					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+					containerStyle={css?.input?.style}
 					placeholder="Pick a day"
+					clearable
 				/>
 			</div>
 		{/if}
@@ -263,22 +253,17 @@
 				class={twMerge('grow', resolvedConfig?.orientation === 'horizontal' ? 'w-1/2' : 'w-full')}
 			>
 				<Select
-					portal={false}
-					value={selectedMonth}
-					on:change={(e) => {
-						selectedMonth = e.detail.value
-						outputs.month.set(monthItems.findIndex((item) => item.value === selectedMonth) + 1)
-					}}
-					on:clear={() => {
-						selectedMonth = ''
-						outputs.month.set(undefined)
-					}}
+					bind:value={
+						() => selectedMonth ?? '',
+						(v) => {
+							selectedMonth = v
+							outputs.month.set(monthItems.findIndex((item) => item.value === selectedMonth) + 1)
+						}
+					}
 					items={monthItems}
 					placeholder="Pick a month"
 					class={twMerge('text-clip min-w-0', css?.input?.class, 'wm-date-select')}
-					containerStyles={(darkMode
-						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-						: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
+					containerStyle={css?.input?.style}
 					clearable
 				/>
 			</div>
@@ -288,23 +273,19 @@
 				class={twMerge('grow', resolvedConfig?.orientation === 'horizontal' ? 'w-1/4' : 'w-full')}
 			>
 				<Select
-					portal={false}
-					value={selectedYear}
-					on:change={(e) => {
-						selectedYear = e.detail.value
-						outputs.year.set(Number(selectedYear))
-					}}
-					on:clear={() => {
-						selectedYear = ''
-						outputs.year.set(undefined)
-					}}
-					items={Array.from({ length: 201 }, (_, i) => `${1900 + i}`)}
+					bind:value={
+						() => selectedYear,
+						(v) => {
+							selectedYear = v ?? ''
+							outputs.year.set(selectedYear ? Number(selectedYear) : undefined)
+						}
+					}
+					items={Array.from({ length: 201 }, (_, i) => `${1900 + i}`).map((value) => ({
+						value
+					}))}
 					placeholder="Pick a year"
-					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
 					class={twMerge('text-clip min-w-0', css?.input?.class, 'wm-date-select')}
-					containerStyles={(darkMode
-						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-						: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
+					containerStyle={css?.input?.style}
 					clearable
 				/>
 			</div>

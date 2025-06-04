@@ -59,7 +59,6 @@
 		type DbType
 	} from './apps/components/display/dbtable/utils'
 	import { DB_TYPES } from '$lib/consts'
-	import Select from './apps/svelte-select/lib/Select.svelte'
 	import Popover from './meltComponents/Popover.svelte'
 	import Tooltip from './meltComponents/Tooltip.svelte'
 	import {
@@ -71,8 +70,8 @@
 	import { copyToClipboard } from '$lib/utils'
 	import { getFlatTableNamesFromSchema, type DBSchema } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
 	import DarkModeObserver from './DarkModeObserver.svelte'
+	import Select from './Select.svelte'
 
 	const { onConfirm, resourceType, previewSql, dbSchema, currentSchema }: DBTableEditorProps =
 		$props()
@@ -155,22 +154,19 @@
 							</Cell>
 							<Cell>
 								<Select
-									inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-									containerStyles={darkMode
-										? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-										: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-									class="!w-48"
-									value={column.datatype}
-									on:change={(e) => {
-										column.datatype = e.detail.value
-										if (datatypeHasLength(column.datatype)) {
-											column.datatype_length = datatypeDefaultLength(column.datatype)
-										} else {
-											column.datatype_length = undefined
+									bind:value={
+										() => column.datatype,
+										(v) => {
+											column.datatype = v
+											if (datatypeHasLength(column.datatype)) {
+												column.datatype_length = datatypeDefaultLength(column.datatype)
+											} else {
+												column.datatype_length = undefined
+											}
 										}
-									}}
-									items={columnTypes}
-									clearable={false}
+									}
+									items={columnTypes.map((type) => ({ value: type, label: type }))}
+									class="w-48"
 								/>
 							</Cell>
 							<Cell last class="flex items-center mt-1.5">
@@ -252,14 +248,12 @@
 						<tr>
 							<Cell first class="flex">
 								<Select
-									inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-									containerStyles={darkMode
-										? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-										: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-									class={twMerge('!w-48', fkErrors?.emptyTarget ? 'border !border-red-600/60' : '')}
+									inputClass={twMerge(
+										'!w-48',
+										fkErrors?.emptyTarget ? 'border !border-red-600/60' : ''
+									)}
 									placeholder=""
-									value={foreignKey.targetTable}
-									on:change={(e) => (foreignKey.targetTable = e.detail.value)}
+									bind:value={foreignKey.targetTable}
 									items={getFlatTableNamesFromSchema(dbSchema).map((o) => ({
 										value: o,
 										label:
@@ -277,47 +271,39 @@
 										<div class="flex">
 											<div class="flex items-center gap-1 w-60">
 												<!-- Div wrappers with absolute select are to prevent the Select content
-												 		 from overflowing -->
+												 		 from x-overflowing -->
 												<div class="grow h-[2rem] relative">
 													<Select
-														inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-														containerStyles={darkMode
-															? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-															: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-														class={twMerge(
-															'!absolute inset-0',
+														class="!absolute inset-0"
+														inputClass={twMerge(
 															fkErrors?.nonExistingSourceColumns.includes(column.sourceColumn)
 																? 'border !border-red-600/60'
 																: ''
 														)}
 														placeholder=""
-														value={column.sourceColumn}
-														on:change={(e) => (column.sourceColumn = e.detail.value)}
-														items={values.columns.map((c) => c.name)}
+														bind:value={column.sourceColumn}
+														items={values.columns
+															.filter((c) => c.name.length)
+															.map((c) => ({ value: c.name }))}
 														clearable={false}
 													/>
 												</div>
 												<ArrowRight size={16} class="h-fit shrink-0" />
 												<div class="grow h-[2rem] relative">
 													<Select
-														inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-														containerStyles={darkMode
-															? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-															: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-														class={twMerge(
-															'!absolute inset-0',
+														class="!absolute inset-0"
+														inputClass={twMerge(
 															fkErrors?.nonExistingTargetColumns.includes(column.targetColumn)
 																? 'border !border-red-600/60'
 																: ''
 														)}
 														placeholder=""
-														value={column.targetColumn}
-														on:change={(e) => (column.targetColumn = e.detail.value)}
+														bind:value={column.targetColumn}
 														items={Object.keys(
 															dbSchema?.schema?.[foreignKey.targetTable?.split('.')?.[0] ?? '']?.[
 																foreignKey.targetTable?.split('.')[1]
 															] ?? {}
-														)}
+														).map((value) => ({ value }))}
 														clearable={false}
 													/>
 												</div>
