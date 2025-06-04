@@ -331,12 +331,19 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: searchScriptsToolDef,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-			toolCallbacks.onToolCall(toolId, 'Searching workspace scripts...')
+			toolCallbacks.onToolCall(
+				toolId,
+				'Searching for workspace scripts related to "' + args.query + '"...'
+			)
 			const parsedArgs = searchScriptsSchema.parse(args)
 			const scriptResults = await workspaceScriptsSearch.search(parsedArgs.query, workspace)
 			toolCallbacks.onFinishToolCall(
 				toolId,
-				'Found ' + scriptResults.length + ' relevant scripts in the workspace'
+				'Found ' +
+					scriptResults.length +
+					' scripts in the workspace related to "' +
+					args.query +
+					'"'
 			)
 			return JSON.stringify(scriptResults)
 		}
@@ -344,7 +351,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: searchHubScriptsToolDef,
 		fn: async ({ args, toolId, toolCallbacks }) => {
-			toolCallbacks.onToolCall(toolId, 'Searching hub scripts...')
+			toolCallbacks.onToolCall(
+				toolId,
+				'Searching for hub scripts related to "' + args.query + '"...'
+			)
 			const parsedArgs = searchScriptsSchema.parse(args)
 			const scripts = await ScriptService.queryHubScripts({
 				text: parsedArgs.query,
@@ -352,7 +362,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			})
 			toolCallbacks.onFinishToolCall(
 				toolId,
-				'Found ' + scripts.length + ' relevant scripts in the hub'
+				'Found ' + scripts.length + ' scripts in the hub related to "' + args.query + '"'
 			)
 			return JSON.stringify(
 				scripts.map((s) => ({
@@ -387,19 +397,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			toolCallbacks.onFinishToolCall(toolId, `Added step '${id}'`)
 
-			if (parsedArgs.step.type === 'rawscript') {
-				return `Step ${id} added. Here is the updated flow, make sure to take it into account when adding another step:\n${YAML.stringify(helpers.getModules())}`
-			} else {
-				if (
-					parsedArgs.location.type === 'start_inside_branch' ||
-					parsedArgs.location.type === 'start_inside_forloop'
-				) {
-					const parentId = parsedArgs.location.inside
-					return `Step ${id} added. Here is the updated subflow of step ${parentId}:\n${YAML.stringify(helpers.getModules(parentId))}`
-				} else {
-					return `Step ${id} added. Here is the updated flow:\n${YAML.stringify(helpers.getModules())}`
-				}
-			}
+			return `Step ${id} added. Here is the updated flow, make sure to take it into account when adding another step:\n${YAML.stringify(helpers.getModules())}`
 		}
 	},
 	{
@@ -593,10 +591,11 @@ If you use flow_input in the step inputs, make sure to add the missing propertie
 
 ### Branchone/branchall and forloop
 You can add branchone/branchall and forloops to the flow. Make sure to set the predicates for the branches (of branchone only) and the iterator expression for the forloops.
-You can also add or remove branches. 
+You can also add or remove branches. Steps can be added inside branches and forloops.
 
-### Adding multiple steps
-After adding a step, make sure to consider the updated flow when adding another step so that the step is added in the right place.
+### Special instructions when adding steps
+When adding a step, always consider the current sequence of steps to ensure the new step is inserted in the correct position.
+Important: Steps are executed in the order they appear in the flow definition — not in the order they were added or by the alphanumeric order of their IDs.
 
 ### Flow inputs schema
 You can use the set_flow_inputs_schema tool to set the flow inputs schema.
