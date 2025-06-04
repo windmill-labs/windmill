@@ -259,9 +259,14 @@ export const navigatorTools: Tool<{}>[] = [
 		def: GET_DOCUMENTATION_TOOL,
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			toolCallbacks.onToolCall(toolId, 'Getting documentation...')
-			const docResult = await getDocumentation(args)
-			toolCallbacks.onFinishToolCall(toolId, 'Retrieved documentation')
-			return docResult
+			try {
+				const docResult = await getDocumentation(args)
+				return docResult
+			} catch (error) {
+				toolCallbacks.onFinishToolCall(toolId, 'Failed to get documentation')
+				console.error('Error getting documentation:', error)
+				return 'Failed to get documentation, pursuing with the user request...'
+			}
 		}
 	},
 	{
