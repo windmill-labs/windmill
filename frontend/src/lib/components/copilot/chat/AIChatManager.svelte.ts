@@ -22,6 +22,10 @@ import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
 import { getCompletion } from '../lib'
+import { dfs } from '$lib/components/flows/previousResults'
+import { getStringError } from './utils'
+import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
+import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 
 type TriggerablesMap = Record<
 	string,
@@ -483,19 +487,104 @@ class AIChatManager {
 		})
 	}
 
-	initFlowEffects = () => {
+	initFlowEffects = (
+		currentEditor: CurrentEditor,
+		flowHelpers: FlowAIChatHelpers,
+		flowStore: ExtendedOpenFlow,
+		flowStateStore: FlowState,
+		selectedId: string
+	) => {
+		function getModule(id: string) {
+			if (id === 'preprocessor') {
+				return flowStore.value.preprocessor_module
+			} else if (id === 'failure') {
+				return flowStore.value.failure_module
+			} else {
+				return dfs(id, flowStore, false)[0]
+			}
+		}
+
+		function getScriptOptions(id: string): ScriptOptions | undefined {
+			const module = getModule(id)
+
+			if (module && module.value.type === 'rawscript') {
+				const moduleState: FlowModuleState | undefined = flowStateStore[module.id]
+
+				const editorRelated =
+					currentEditor && currentEditor.type === 'script' && currentEditor.stepId === module.id
+						? {
+								diffMode: currentEditor.diffMode,
+								lastDeployedCode: currentEditor.lastDeployedCode,
+								lastSavedCode: undefined
+							}
+						: {
+								diffMode: false,
+								lastDeployedCode: undefined,
+								lastSavedCode: undefined
+							}
+
+				return {
+					args: moduleState?.previewArgs ?? {},
+					error:
+						moduleState && !moduleState.previewSuccess
+							? getStringError(moduleState.previewResult)
+							: undefined,
+					code: module.value.content,
+					lang: module.value.language,
+					path: module.id,
+					...editorRelated
+				}
+			}
+
+			return undefined
+		}
+
 		$effect(() => {
-			console.log('initFlowEffects')
+			if (currentEditor && currentEditor.type === 'script') {
+				this.scriptEditorApplyCode = (code) => {
+					if (currentEditor && currentEditor.type === 'script') {
+						currentEditor.hideDiffMode()
+						currentEditor.editor.reviewAndApplyCode(code)
+					}
+				}
+				this.scriptEditorShowDiffMode = () => {
+					if (currentEditor && currentEditor.type === 'script') {
+						currentEditor.showDiffMode()
+					}
+				}
+			} else {
+				this.scriptEditorApplyCode = undefined
+				this.scriptEditorShowDiffMode = undefined
+			}
+
+			return () => {
+				this.scriptEditorApplyCode = undefined
+				this.scriptEditorShowDiffMode = undefined
+			}
 		})
 
-		return () => {
-			console.log('destroyFlowEffects inside initFlowEffects')
-		}
-	}
-
-	destroyFlowEffects = () => {
 		$effect(() => {
-			console.log('destroyFlowEffects')
+			if (selectedId) {
+				console.log('selectedId', selectedId)
+				const options = getScriptOptions(selectedId)
+				if (options) {
+					this.scriptEditorOptions = options
+				}
+			} else {
+				this.scriptEditorOptions = undefined
+			}
+
+			return () => {
+				this.scriptEditorOptions = undefined
+			}
+		})
+
+		$effect(() => {
+			aiChatManager.flowAiChatHelpers = flowHelpers
+
+			return () => {
+				aiChatManager.flowAiChatHelpers = undefined
+			}
 		})
 	}
 }

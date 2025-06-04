@@ -5,16 +5,13 @@
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { dfs } from '$lib/components/flows/previousResults'
 	import { getSubModules } from '$lib/components/flows/flowExplorer'
-	import type { FlowModule, OpenFlow } from '$lib/gen'
+	import type { FlowModule } from '$lib/gen'
 	import { getIndexInNestedModules, getNestedModules } from './utils'
-	import type { FlowModuleState } from '$lib/components/flows/flowState'
-	import { getStringError } from '../utils'
 	import type { FlowAIChatHelpers } from './core'
 	import {
 		insertNewFailureModule,
 		insertNewPreprocessorModule
 	} from '$lib/components/flows/flowStateUtils'
-	import type { ScriptOptions } from '../ContextManager.svelte'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
 	import { aiChatManager } from '../AIChatManager.svelte'
 
@@ -39,44 +36,7 @@
 		}
 	}
 
-	function getScriptOptions(id: string): ScriptOptions | undefined {
-		const module = getModule(id)
-
-		if (module && module.value.type === 'rawscript') {
-			const moduleState: FlowModuleState | undefined = $flowStateStore[module.id]
-
-			const editorRelated =
-				$currentEditor && $currentEditor.type === 'script' && $currentEditor.stepId === module.id
-					? {
-							diffMode: $currentEditor.diffMode,
-							lastDeployedCode: $currentEditor.lastDeployedCode,
-							lastSavedCode: undefined
-						}
-					: {
-							diffMode: false,
-							lastDeployedCode: undefined,
-							lastSavedCode: undefined
-						}
-
-			return {
-				args: moduleState?.previewArgs ?? {},
-				error:
-					moduleState && !moduleState.previewSuccess
-						? getStringError(moduleState.previewResult)
-						: undefined,
-				code: module.value.content,
-				lang: module.value.language,
-				path: module.id,
-				...editorRelated
-			}
-		}
-
-		return undefined
-	}
-
-	const flowHelpers: FlowAIChatHelpers & {
-		getFlowAndSelectedId: () => { flow: OpenFlow; selectedId: string }
-	} = {
+	const flowHelpers: FlowAIChatHelpers = {
 		getFlowAndSelectedId: () => ({ flow: $flowStore, selectedId: $selectedId }),
 		setCode: async (id, code) => {
 			const module = getModule(id)
@@ -375,49 +335,12 @@
 	}
 
 	$effect(() => {
-		if ($currentEditor && $currentEditor.type === 'script') {
-			aiChatManager.scriptEditorApplyCode = (code) => {
-				if ($currentEditor && $currentEditor.type === 'script') {
-					$currentEditor.hideDiffMode()
-					$currentEditor.editor.reviewAndApplyCode(code)
-				}
-			}
-			aiChatManager.scriptEditorShowDiffMode = () => {
-				if ($currentEditor && $currentEditor.type === 'script') {
-					$currentEditor.showDiffMode()
-				}
-			}
-		}
-
-		return () => {
-			aiChatManager.scriptEditorApplyCode = undefined
-			aiChatManager.scriptEditorShowDiffMode = undefined
-		}
+		aiChatManager.initFlowEffects(
+			$currentEditor,
+			flowHelpers,
+			$flowStore,
+			$flowStateStore,
+			$selectedId
+		)
 	})
-
-	$effect(() => {
-		if ($selectedId) {
-			const options = getScriptOptions($selectedId)
-			if (options) {
-				aiChatManager.scriptEditorOptions = options
-			}
-		} else {
-			aiChatManager.scriptEditorOptions = undefined
-		}
-
-		return () => {
-			aiChatManager.scriptEditorOptions = undefined
-		}
-	})
-
-	$effect(() => {
-		aiChatManager.flowAiChatHelpers = flowHelpers
-
-		return () => {
-			console.log('destroyFlowAIChat')
-			aiChatManager.flowAiChatHelpers = undefined
-		}
-	})
-
-	aiChatManager.initFlowEffects()
 </script>
