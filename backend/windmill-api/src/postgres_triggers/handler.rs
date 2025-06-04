@@ -15,14 +15,14 @@ use http::StatusCode;
 use itertools::Itertools;
 use pg_escape::{quote_identifier, quote_literal};
 use quick_cache::sync::Cache;
-use rust_postgres::types::Type;
+use rust_postgres::{types::Type, Client};
 use serde::{Deserialize, Deserializer, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
-use sqlx::{postgres::types::Oid, Connection, FromRow, PgConnection};
+use sqlx::FromRow;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
-    error::{self, Error, JsonResult, Result},
+    error::{self, to_anyhow, Error, JsonResult, Result},
     utils::{empty_as_none, not_found_if_none, paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
 };
@@ -30,9 +30,10 @@ use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 use super::{
     check_if_valid_publication_for_postgres_version, create_logical_replication_slot,
-    create_pg_publication, drop_publication, generate_random_string, get_pg_connection,
+    create_pg_publication, drop_publication, generate_random_string, get_default_pg_connection,
     ERROR_PUBLICATION_NAME_NOT_EXISTS,
 };
+use anyhow::anyhow;
 use lazy_static::lazy_static;
 
 #[derive(FromRow, Serialize, Deserialize, Debug)]
@@ -123,7 +124,7 @@ pub async fn test_postgres_connection(
     Json(test_postgres): Json<TestPostgres>,
 ) -> Result<()> {
     let connect_f = async {
-        get_pg_connection(
+        get_default_pg_connection(
             authed,
             Some(user_db),
             &db,
@@ -267,15 +268,17 @@ impl PostgresPublicationReplication {
 }
 
 async fn check_if_logical_replication_slot_exist(
-    pg_connection: &mut PgConnection,
+    pg_connection: &mut Client,
     replication_slot_name: &str,
 ) -> Result<bool> {
-    let exists = sqlx::query("SELECT slot_name FROM pg_replication_slots where slot_name = $1")
-        .bind(&replication_slot_name)
-        .fetch_optional(pg_connection)
-        .await?
-        .is_some();
-    Ok(exists)
+    let row = pg_connection
+        .query_opt(
+            "SELECT slot_name FROM pg_replication_slots WHERE slot_name = $1",
+            &[&replication_slot_name],
+        )
+        .await
+        .map_err(to_anyhow)?;
+    Ok(row.is_some())
 }
 
 async fn create_custom_slot_and_publication_inner(
@@ -286,30 +289,31 @@ async fn create_custom_slot_and_publication_inner(
     w_id: &str,
     publication: &PublicationData,
 ) -> Result<PostgresPublicationReplication> {
-    let mut pg_connection = get_pg_connection(
+    let mut pg_connection = get_default_pg_connection(
         authed.clone(),
         Some(user_db),
         &db,
         &postgres_resource_path,
         &w_id,
     )
-    .await?;
+    .await
+    .map_err(to_anyhow)?;
 
-    let mut tx = pg_connection.begin().await?;
+    let tx = pg_connection.transaction().await.map_err(to_anyhow)?;
+
     let publication_name = format!("windmill_trigger_{}", generate_random_string());
     let replication_slot_name = publication_name.clone();
 
-    create_logical_replication_slot(&mut tx, &replication_slot_name).await?;
-
+    create_logical_replication_slot(tx.client(), &replication_slot_name).await?;
     create_pg_publication(
-        &mut tx,
+        &tx.client(),
         &publication_name,
         publication.table_to_track.as_deref(),
         &publication.transaction_to_track,
     )
     .await?;
 
-    tx.commit().await?;
+    tx.commit().await.map_err(to_anyhow)?;
 
     Ok(PostgresPublicationReplication::new(
         publication_name,
@@ -317,14 +321,13 @@ async fn create_custom_slot_and_publication_inner(
     ))
 }
 
-pub async fn get_postgres_version_internal(pg_connection: &mut PgConnection) -> Result<String> {
-    let postgres_version: String = sqlx::query_scalar("SHOW server_version;")
-        .fetch_one(&mut *pg_connection)
+pub async fn get_postgres_version_internal(pg_connection: &Client) -> Result<String> {
+    let row = pg_connection
+        .query_one("SHOW server_version;", &[])
         .await
-        .map_err(|e| Error::Anyhow {
-            error: anyhow::anyhow!("Failed to retrieve PostgreSQL version: {}", e),
-            location: "postgres_triggers/handler.rs@379".to_string(),
-        })?;
+        .map_err(to_anyhow)?;
+
+    let postgres_version: String = row.get(0);
 
     Ok(postgres_version)
 }
@@ -335,16 +338,17 @@ pub async fn get_postgres_version(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, postgres_resource_path)): Path<(String, String)>,
 ) -> Result<String> {
-    let mut pg_connection = get_pg_connection(
+    let pg_connection = get_default_pg_connection(
         authed.clone(),
         Some(user_db),
         &db,
         &postgres_resource_path,
         &w_id,
     )
-    .await?;
+    .await
+    .map_err(to_anyhow)?;
 
-    let postgres_version = get_postgres_version_internal(&mut pg_connection).await?;
+    let postgres_version = get_postgres_version_internal(&pg_connection).await?;
 
     Ok(postgres_version)
 }
@@ -595,29 +599,37 @@ pub async fn list_slot_name(
     Extension(db): Extension<DB>,
     Path((w_id, postgres_resource_path)): Path<(String, String)>,
 ) -> Result<Json<Vec<SlotList>>> {
-    let mut pg_connection = get_pg_connection(
+    let pg_connection: Client = get_default_pg_connection(
         authed.clone(),
         Some(user_db.clone()),
         &db,
         &postgres_resource_path,
         &w_id,
     )
-    .await?;
+    .await
+    .map_err(to_anyhow)?;
 
-    let slots: Vec<SlotList> = sqlx::query_as(
-        r#"
-        SELECT 
-            slot_name,
-            active
-        FROM
-            pg_replication_slots 
-        WHERE 
-            plugin = 'pgoutput' AND
-            slot_type = 'logical';
-        "#,
-    )
-    .fetch_all(&mut pg_connection)
-    .await?;
+    let rows = pg_connection
+        .query(
+            r#"
+            SELECT 
+                slot_name,
+                active
+            FROM
+                pg_replication_slots 
+            WHERE 
+                plugin = 'pgoutput' AND
+                slot_type = 'logical';
+            "#,
+            &[],
+        )
+        .await
+        .map_err(to_anyhow)?;
+
+    let slots = rows
+        .into_iter()
+        .map(|row| SlotList { slot_name: row.get("slot_name"), active: row.get("active") })
+        .collect();
 
     Ok(Json(slots))
 }
@@ -634,48 +646,51 @@ pub async fn create_slot(
     Path((w_id, postgres_resource_path)): Path<(String, String)>,
     Json(Slot { name }): Json<Slot>,
 ) -> Result<String> {
-    let mut pg_connection = get_pg_connection(
+    let pg_connection = get_default_pg_connection(
         authed.clone(),
         Some(user_db.clone()),
         &db,
         &postgres_resource_path,
         &w_id,
     )
-    .await?;
+    .await
+    .map_err(to_anyhow)?;
 
-    create_logical_replication_slot(&mut pg_connection, &name).await?;
+    create_logical_replication_slot(&pg_connection, &name).await?;
 
     Ok(format!("Replication slot {} created!", name))
 }
 
-pub async fn drop_logical_replication_slot(
-    pg_connection: &mut PgConnection,
-    slot_name: &str,
-) -> Result<()> {
-    let active_pid: Option<i32> = sqlx::query_scalar(
-        r#"SELECT 
-            active_pid 
-        FROM 
-            pg_replication_slots 
-        WHERE 
-            slot_name = $1
-        "#,
-    )
-    .bind(&slot_name)
-    .fetch_optional(&mut *pg_connection)
-    .await?
-    .flatten();
+pub async fn drop_logical_replication_slot(pg_connection: &Client, slot_name: &str) -> Result<()> {
+    let row = pg_connection
+        .query_opt(
+            r#"
+            SELECT 
+                active_pid 
+            FROM 
+                pg_replication_slots 
+            WHERE 
+                slot_name = $1
+            "#,
+            &[&slot_name],
+        )
+        .await
+        .map_err(to_anyhow)?;
+
+    let active_pid = row.map(|r| r.get::<_, Option<i32>>(0)).flatten();
 
     if let Some(pid) = active_pid {
-        sqlx::query("SELECT pg_terminate_backend($1)")
-            .bind(pid)
-            .execute(&mut *pg_connection)
-            .await?;
+        pg_connection
+            .execute("SELECT pg_terminate_backend($1)", &[&pid])
+            .await
+            .map_err(to_anyhow)?;
     }
-    sqlx::query("SELECT pg_drop_replication_slot($1)")
-        .bind(&slot_name)
-        .execute(pg_connection)
-        .await?;
+
+    pg_connection
+        .execute("SELECT pg_drop_replication_slot($1)", &[&slot_name])
+        .await
+        .map_err(to_anyhow)?;
+
     Ok(())
 }
 
@@ -686,16 +701,16 @@ pub async fn drop_slot_name(
     Path((w_id, postgres_resource_path)): Path<(String, String)>,
     Json(Slot { name }): Json<Slot>,
 ) -> Result<String> {
-    let mut pg_connection =
-        get_pg_connection(authed, Some(user_db), &db, &postgres_resource_path, &w_id).await?;
+    let pg_connection =
+        get_default_pg_connection(authed, Some(user_db), &db, &postgres_resource_path, &w_id)
+            .await
+            .map_err(to_anyhow)?;
 
-    drop_logical_replication_slot(&mut pg_connection, &name).await?;
+    drop_logical_replication_slot(&pg_connection, &name)
+        .await
+        .map_err(to_anyhow)?;
 
     Ok(format!("Replication slot {} deleted!", name))
-}
-#[derive(FromRow, Debug, Serialize)]
-struct PublicationName {
-    publication_name: String,
 }
 
 pub async fn list_database_publication(
@@ -704,23 +719,27 @@ pub async fn list_database_publication(
     Extension(db): Extension<DB>,
     Path((w_id, postgres_resource_path)): Path<(String, String)>,
 ) -> Result<Json<Vec<String>>> {
-    let mut pg_connection = get_pg_connection(
+    let pg_connection = get_default_pg_connection(
         authed.clone(),
         Some(user_db.clone()),
         &db,
         &postgres_resource_path,
         &w_id,
     )
-    .await?;
+    .await
+    .map_err(to_anyhow)?;
 
-    let publication_names: Vec<PublicationName> =
-        sqlx::query_as("SELECT pubname AS publication_name FROM pg_publication;")
-            .fetch_all(&mut pg_connection)
-            .await?;
+    let rows = pg_connection
+        .query(
+            "SELECT pubname AS publication_name FROM pg_publication;",
+            &[],
+        )
+        .await
+        .map_err(to_anyhow)?;
 
-    let publications = publication_names
-        .iter()
-        .map(|publication| publication.publication_name.to_owned())
+    let publications = rows
+        .into_iter()
+        .map(|row| row.get::<_, String>("publication_name"))
         .collect_vec();
 
     Ok(Json(publications))
@@ -732,14 +751,15 @@ pub async fn get_publication_info(
     Extension(db): Extension<DB>,
     Path((w_id, publication_name, postgres_resource_path)): Path<(String, String, String)>,
 ) -> Result<Json<PublicationData>> {
-    let mut pg_connection = get_pg_connection(
+    let mut pg_connection = get_default_pg_connection(
         authed.clone(),
         Some(user_db.clone()),
         &db,
         &postgres_resource_path,
         &w_id,
     )
-    .await?;
+    .await
+    .map_err(to_anyhow)?;
 
     let publication_data =
         get_publication_scope_and_transaction(&mut pg_connection, &publication_name).await;
@@ -772,28 +792,29 @@ pub async fn create_publication(
     Path((w_id, publication_name, postgres_resource_path)): Path<(String, String, String)>,
     Json(publication_data): Json<PublicationData>,
 ) -> Result<String> {
-    let mut pg_connection = get_pg_connection(
+    let mut pg_connection = get_default_pg_connection(
         authed.clone(),
         Some(user_db.clone()),
         &db,
         &postgres_resource_path,
         &w_id,
     )
-    .await?;
+    .await
+    .map_err(to_anyhow)?;
 
     let PublicationData { table_to_track, transaction_to_track } = publication_data;
 
-    let mut tx = pg_connection.begin().await?;
+    let tx = pg_connection.transaction().await.map_err(to_anyhow)?;
 
     create_pg_publication(
-        &mut tx,
+        tx.client(),
         &publication_name,
         table_to_track.as_deref(),
         &transaction_to_track,
     )
     .await?;
 
-    tx.commit().await?;
+    tx.commit().await.map_err(to_anyhow)?;
 
     Ok(format!(
         "Publication {} successfully created!",
@@ -807,14 +828,15 @@ pub async fn delete_publication(
     Extension(db): Extension<DB>,
     Path((w_id, publication_name, postgres_resource_path)): Path<(String, String, String)>,
 ) -> Result<String> {
-    let mut pg_connection = get_pg_connection(
+    let mut pg_connection = get_default_pg_connection(
         authed.clone(),
         Some(user_db.clone()),
         &db,
         &postgres_resource_path,
         &w_id,
     )
-    .await?;
+    .await
+    .map_err(to_anyhow)?;
 
     drop_publication(&mut pg_connection, &publication_name).await?;
 
@@ -825,70 +847,67 @@ pub async fn delete_publication(
 }
 
 pub async fn update_pg_publication(
-    pg_connection: &mut PgConnection,
+    pg_connection: &Client,
     publication_name: &str,
     PublicationData { table_to_track, transaction_to_track }: PublicationData,
     all_table: Option<bool>,
 ) -> Result<()> {
-    let quoted_publication_name = quote_identifier(&publication_name);
+    let quoted_publication_name = quote_identifier(publication_name);
     let transaction_to_track_as_str = transaction_to_track.iter().join(",");
     match table_to_track {
         Some(ref relations) if !relations.is_empty() => {
-            //if all table is none it means that the publication do not exist in the database
+            // If all_table is None, the publication does not exist yet
             if all_table.unwrap_or(true) {
-                if all_table.is_some() {
-                    drop_publication(pg_connection, &publication_name).await?;
+                if all_table.is_some_and(|all_table| all_table) {
+                    drop_publication(pg_connection, publication_name)
+                        .await
+                        .map_err(to_anyhow)?;
                 }
                 create_pg_publication(
                     pg_connection,
-                    &publication_name,
+                    publication_name,
                     table_to_track.as_deref(),
                     &transaction_to_track,
                 )
-                .await?;
+                .await
+                .map_err(to_anyhow)?;
             } else {
                 let pg_14 = check_if_valid_publication_for_postgres_version(
                     pg_connection,
                     table_to_track.as_deref(),
                 )
-                .await?;
+                .await
+                .map_err(to_anyhow)?;
 
-                let mut query = String::from("");
+                let mut query = format!("ALTER PUBLICATION {} SET ", quoted_publication_name);
                 let mut first = true;
-                query.push_str("ALTER PUBLICATION ");
-                query.push_str(&quoted_publication_name);
-                query.push_str(" SET");
+
                 for (i, schema) in relations.iter().enumerate() {
                     if schema.table_to_track.is_empty() {
-                        query.push_str(" TABLES IN SCHEMA ");
-                        let quoted_schema = quote_identifier(&schema.schema_name);
-                        query.push_str(&quoted_schema);
+                        query.push_str("TABLES IN SCHEMA ");
+                        query.push_str(&quote_identifier(&schema.schema_name));
                     } else {
                         if pg_14 && first {
-                            query.push_str(" TABLE ONLY ");
-                            first = false
+                            query.push_str("TABLE ONLY ");
+                            first = false;
                         } else if !pg_14 {
-                            query.push_str(" TABLE ONLY ");
+                            query.push_str("TABLE ONLY ");
                         }
+
                         for (j, table) in schema.table_to_track.iter().enumerate() {
                             let table_name = quote_identifier(&table.table_name);
                             let schema_name = quote_identifier(&schema.schema_name);
-                            let full_name = format!("{}.{}", &schema_name, &table_name);
+                            let full_name = format!("{}.{}", schema_name, table_name);
                             query.push_str(&full_name);
+
                             if let Some(columns) = table.columns_name.as_ref() {
-                                query.push_str(" (");
-                                let columns = columns
-                                    .iter()
-                                    .map(|column| quote_identifier(column))
-                                    .join(", ");
-                                query.push_str(&columns);
-                                query.push_str(") ");
+                                let cols =
+                                    columns.iter().map(|col| quote_identifier(col)).join(", ");
+                                query.push_str(&format!(" ({})", cols));
                             }
 
                             if let Some(where_clause) = &table.where_clause {
-                                query.push_str(" WHERE (");
-                                query.push_str(where_clause);
-                                query.push(')');
+                                query.push_str(&format!(" WHERE ({})", where_clause));
                             }
 
                             if j + 1 != schema.table_to_track.len() {
@@ -896,39 +915,42 @@ pub async fn update_pg_publication(
                             }
                         }
                     }
-                    if i < relations.len() - 1 {
-                        query.push(',');
+
+                    if i + 1 != relations.len() {
+                        query.push_str(", ");
                     }
                 }
 
-                sqlx::query(&query).execute(&mut *pg_connection).await?;
+                pg_connection
+                    .execute(&query, &[])
+                    .await
+                    .map_err(to_anyhow)?;
 
-                let mut query = String::new();
-
-                query.push_str("ALTER PUBLICATION ");
-                query.push_str(&quoted_publication_name);
-                query.push_str(&format!(
-                    " SET (publish = '{}');",
-                    transaction_to_track_as_str
-                ));
-
-                sqlx::query(&query).execute(pg_connection).await?;
+                let publish_query = format!(
+                    "ALTER PUBLICATION {} SET (publish = '{}');",
+                    quoted_publication_name, transaction_to_track_as_str
+                );
+                pg_connection
+                    .execute(&publish_query, &[])
+                    .await
+                    .map_err(to_anyhow)?;
             }
         }
         _ => {
-            drop_publication(pg_connection, &publication_name).await?;
-            let query_to_execute = format!(
-                r#"
-                CREATE
-                    PUBLICATION {} FOR ALL TABLES WITH (publish = '{}');
-                "#,
+            drop_publication(pg_connection, publication_name)
+                .await
+                .map_err(to_anyhow)?;
+            let create_all_query = format!(
+                "CREATE PUBLICATION {} FOR ALL TABLES WITH (publish = '{}');",
                 quoted_publication_name, transaction_to_track_as_str
             );
-            sqlx::query(&query_to_execute)
-                .execute(pg_connection)
-                .await?;
+            pg_connection
+                .execute(&create_all_query, &[])
+                .await
+                .map_err(to_anyhow)?;
         }
-    };
+    }
+
     Ok(())
 }
 
@@ -939,28 +961,32 @@ pub async fn alter_publication(
     Path((w_id, publication_name, postgres_resource_path)): Path<(String, String, String)>,
     Json(publication_data): Json<PublicationData>,
 ) -> Result<String> {
-    let mut pg_connection = get_pg_connection(
+    let mut pg_connection = get_default_pg_connection(
         authed.clone(),
         Some(user_db.clone()),
         &db,
         &postgres_resource_path,
         &w_id,
     )
-    .await?;
+    .await
+    .map_err(to_anyhow)?;
 
-    let mut tx = pg_connection.begin().await?;
+    let tx = pg_connection.transaction().await.map_err(to_anyhow)?;
 
-    let publication = get_publication_scope_and_transaction(&mut tx, &publication_name).await?;
+    let publication = get_publication_scope_and_transaction(tx.client(), &publication_name)
+        .await
+        .map_err(to_anyhow)?;
 
     update_pg_publication(
-        &mut tx,
+        tx.client(),
         &publication_name,
         publication_data,
         publication.map(|publication| publication.0),
     )
-    .await?;
+    .await
+    .map_err(to_anyhow)?;
 
-    tx.commit().await?;
+    tx.commit().await.map_err(to_anyhow)?;
 
     Ok(format!(
         "Publication {} updated with success",
@@ -968,114 +994,107 @@ pub async fn alter_publication(
     ))
 }
 
-async fn get_publication_scope_and_transaction(
-    pg_connection: &mut PgConnection,
+pub async fn get_publication_scope_and_transaction(
+    pg_connection: &Client,
     publication_name: &str,
 ) -> Result<Option<(bool, Vec<String>)>> {
-    #[derive(Debug, Deserialize, FromRow)]
-    struct PublicationTransaction {
-        all_table: bool,
-        insert: bool,
-        update: bool,
-        delete: bool,
-    }
+    let row_opt = pg_connection
+        .query_opt(
+            r#"
+            SELECT
+                puballtables AS all_table,
+                pubinsert AS insert,
+                pubupdate AS update,
+                pubdelete AS delete
+            FROM
+                pg_publication
+            WHERE
+                pubname = $1
+            "#,
+            &[&publication_name],
+        )
+        .await
+        .map_err(to_anyhow)?;
 
-    let publication: Option<PublicationTransaction> = sqlx::query_as(
-        r#"
-        SELECT
-            puballtables AS all_table,
-            pubinsert AS insert,
-            pubupdate AS update,
-            pubdelete AS delete
-        FROM
-            pg_publication
-        WHERE
-            pubname = $1
-        "#,
-    )
-    .bind(publication_name)
-    .fetch_optional(&mut *pg_connection)
-    .await?;
+    let row = match row_opt {
+        Some(r) => r,
+        None => return Ok(None),
+    };
 
-    if publication.is_none() {
-        return Ok(None);
-    }
+    let all_table: bool = row.get("all_table");
+    let pub_insert: bool = row.get("insert");
+    let pub_update: bool = row.get("update");
+    let pub_delete: bool = row.get("delete");
 
     let mut transaction_to_track = Vec::with_capacity(3);
-
-    let publication = publication.unwrap();
-    if publication.insert {
+    if pub_insert {
         transaction_to_track.push("insert".to_string());
     }
-    if publication.update {
+    if pub_update {
         transaction_to_track.push("update".to_string());
     }
-    if publication.delete {
+    if pub_delete {
         transaction_to_track.push("delete".to_string());
     }
 
-    Ok(Some((publication.all_table, transaction_to_track)))
+    Ok(Some((all_table, transaction_to_track)))
 }
 
-async fn get_tracked_relations(
-    pg_connection: &mut PgConnection,
+pub async fn get_tracked_relations(
+    pg_connection: &Client,
     publication_name: &str,
 ) -> Result<Vec<Relations>> {
-    #[derive(Debug, Deserialize, FromRow)]
-    struct PublicationData {
-        schema_name: Option<String>,
-        table_name: Option<String>,
-        #[serde(default)]
-        columns: Option<Vec<String>>,
-        #[serde(default)]
-        where_clause: Option<String>,
-    }
-
     let pg_version = get_postgres_version_internal(pg_connection).await?;
+
     let query = if pg_version.starts_with("14") {
         r#"
-            SELECT
+        SELECT
             schemaname AS schema_name,
             tablename AS table_name,
             NULL::text[] AS columns,
             NULL::text AS where_clause
-            FROM
-                pg_publication_tables
-            WHERE
-                pubname = $1;
-            "#
+        FROM
+            pg_publication_tables
+        WHERE
+            pubname = $1;
+        "#
     } else {
         r#"
-            SELECT
+        SELECT
             schemaname AS schema_name,
             tablename AS table_name,
             attnames AS columns,
             rowfilter AS where_clause
-            FROM
-                pg_publication_tables
-            WHERE
-                pubname = $1;
-            "#
+        FROM
+            pg_publication_tables
+        WHERE
+            pubname = $1;
+        "#
     };
 
-    let publications: Vec<PublicationData> = sqlx::query_as(query)
-        .bind(publication_name)
-        .fetch_all(&mut *pg_connection)
-        .await?;
+    let rows = pg_connection
+        .query(query, &[&publication_name])
+        .await
+        .map_err(to_anyhow)?;
 
     let mut table_to_track: HashMap<String, Relations> = HashMap::new();
 
-    for publication in publications {
-        let schema_name = publication.schema_name.ok_or_else(|| Error::Anyhow {
-            error: anyhow::anyhow!(
+    for row in rows {
+        let schema_name: Option<String> = row.get("schema_name");
+        let table_name: Option<String> = row.get("table_name");
+        let columns: Option<Vec<String>> = row.get("columns");
+        let where_clause: Option<String> = row.get("where_clause");
+
+        let schema_name = schema_name.ok_or_else(|| Error::Anyhow {
+            error: anyhow!(
                 "Unexpected NULL `schema_name` in publication entry (pubname: `{}`). This should never happen unless PostgreSQL internals are corrupted.",
                 publication_name,
             ),
             location: "postgres_triggers/handler.rs@1093".to_string(),
         })?;
 
-        let table_name = publication.table_name.ok_or_else(|| Error::Anyhow {
-            error: anyhow::anyhow!(
+        let table_name = table_name.ok_or_else(|| Error::Anyhow {
+            error: anyhow!(
                 "Unexpected NULL `table_name` for schema `{}` in publication `{}`. This should never happen unless PostgreSQL internals are corrupted.",
                 schema_name,
                 publication_name,
@@ -1084,17 +1103,18 @@ async fn get_tracked_relations(
         })?;
 
         let entry = table_to_track.entry(schema_name.clone());
-        let table_to_track =
-            TableToTrack::new(table_name, publication.where_clause, publication.columns);
+        let table_to_track = TableToTrack::new(table_name, where_clause, columns);
+
         match entry {
-            Occupied(mut occuped) => {
+            std::collections::hash_map::Entry::Occupied(mut occuped) => {
                 occuped.get_mut().add_new_table(table_to_track);
             }
-            Vacant(vacant) => {
+            std::collections::hash_map::Entry::Vacant(vacant) => {
                 vacant.insert(Relations::new(schema_name, vec![table_to_track]));
             }
         }
     }
+
     Ok(table_to_track.into_values().collect_vec())
 }
 
@@ -1161,41 +1181,48 @@ pub async fn update_postgres_trigger(
         publication,
     } = postgres_trigger;
 
-    let mut pg_connection = get_pg_connection(
+    let mut pg_connection = get_default_pg_connection(
         authed.clone(),
         Some(user_db.clone()),
         &db,
         &postgres_resource_path,
         &w_id,
     )
-    .await?;
+    .await
+    .map_err(to_anyhow)?;
 
     let exists =
         check_if_logical_replication_slot_exist(&mut pg_connection, &replication_slot_name).await?;
 
-    let mut tx = pg_connection.begin().await?;
+    let tx = pg_connection.transaction().await.map_err(to_anyhow)?;
 
     if !exists {
         tracing::debug!(
             "Logical replication slot named: {} does not exists creating it...",
             &replication_slot_name
         );
-        create_logical_replication_slot(&mut tx, &replication_slot_name).await?;
+        create_logical_replication_slot(tx.client(), &replication_slot_name)
+            .await
+            .map_err(to_anyhow)?;
     }
 
     if let Some(publication) = publication {
         let publication_data =
-            get_publication_scope_and_transaction(&mut tx, &publication_name).await?;
+            get_publication_scope_and_transaction(tx.client(), &publication_name)
+                .await
+                .map_err(to_anyhow)?;
 
         update_pg_publication(
-            &mut tx,
+            tx.client(),
             &publication_name,
             publication,
             publication_data.map(|publication| publication.0),
         )
-        .await?;
+        .await
+        .map_err(to_anyhow)?;
     }
-    tx.commit().await?;
+
+    tx.commit().await.map_err(to_anyhow)?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -1415,53 +1442,45 @@ pub async fn create_template_script(
     Json(template_script): Json<TemplateScript>,
 ) -> Result<String> {
     let TemplateScript { postgres_resource_path, relations, language } = template_script;
-    if relations.is_none() {
-        return Err(Error::BadRequest(
-            "You must at least choose schema to fetch table from".to_string(),
-        ));
-    }
 
-    let mut pg_connection = get_pg_connection(
+    let relations = match relations {
+        Some(r) => r,
+        None => {
+            return Err(Error::Anyhow {
+                error: anyhow!("You must at least choose schema to fetch table from"),
+                location: "postgres_trigger/handler.rs@1475".to_string(),
+            })
+        }
+    };
+
+    let pg_connection: Client = get_default_pg_connection(
         authed.clone(),
         Some(user_db.clone()),
         &db,
         &postgres_resource_path,
         &w_id,
     )
-    .await?;
+    .await
+    .map_err(to_anyhow)?;
 
-    #[derive(Debug, FromRow, Deserialize)]
-    struct ColumnInfo {
-        table_schema: Option<String>,
-        table_name: Option<String>,
-        column_name: Option<String>,
-        oid: Oid,
-        is_nullable: bool,
-    }
-
-    let relations = relations.unwrap();
     let mut schema_or_fully_qualified_name = Vec::with_capacity(relations.len());
-    let mut columns_list = Vec::new();
+    let mut columns_list = Vec::with_capacity(relations.len());
+
     for relation in relations {
         if !relation.table_to_track.is_empty() {
-            for table_to_track in relation.table_to_track {
-                let fully_qualified_name =
-                    format!("{}.{}", &relation.schema_name, table_to_track.table_name);
+            for table in relation.table_to_track {
+                let fully_qualified_name = format!("{}.{}", relation.schema_name, table.table_name);
                 schema_or_fully_qualified_name.push(quote_literal(&fully_qualified_name));
-
-                let columns = table_to_track
+                let columns = table
                     .columns_name
-                    .map(|columns| quote_literal(&columns.join(",")))
-                    .or_else(|| Some("''".to_string()))
-                    .unwrap();
-
+                    .map(|c| quote_literal(&c.join(",")))
+                    .unwrap_or_else(|| "''".to_string());
                 columns_list.push(columns);
             }
-            continue;
+        } else {
+            schema_or_fully_qualified_name.push(quote_literal(&relation.schema_name));
+            columns_list.push("''".to_string());
         }
-
-        schema_or_fully_qualified_name.push(quote_literal(&relation.schema_name));
-        columns_list.push(String::from("''"));
     }
 
     let tables_name = schema_or_fully_qualified_name.join(",");
@@ -1481,8 +1500,7 @@ pub async fn create_template_script(
                     WHEN tcm.column_list = '' THEN NULL
                     ELSE string_to_array(tcm.column_list, ',')
                 END AS columns
-            FROM
-                table_column_mapping tcm
+            FROM table_column_mapping tcm
         )
         SELECT
             ns.nspname AS table_schema,
@@ -1490,22 +1508,16 @@ pub async fn create_template_script(
             attr.attname AS column_name,
             attr.atttypid AS oid,
             attr.attnotnull AS is_nullable
-        FROM
-            pg_attribute attr
-        JOIN
-            pg_class cls
-            ON attr.attrelid = cls.oid
-        JOIN
-            pg_namespace ns
-            ON cls.relnamespace = ns.oid
-        JOIN
-            parsed_columns pc
+        FROM pg_attribute attr
+        JOIN pg_class cls ON attr.attrelid = cls.oid
+        JOIN pg_namespace ns ON cls.relnamespace = ns.oid
+        JOIN parsed_columns pc
             ON ns.nspname || '.' || cls.relname = pc.table_name
             OR ns.nspname = pc.table_name
         WHERE
-            attr.attnum > 0 -- Exclude system columns
-            AND NOT attr.attisdropped -- Exclude dropped columns
-            AND cls.relkind = 'r' -- Restrict to base tables
+            attr.attnum > 0
+            AND NOT attr.attisdropped
+            AND cls.relkind = 'r'
             AND (
                 pc.columns IS NULL
                 OR attr.attname = ANY(pc.columns)
@@ -1514,51 +1526,52 @@ pub async fn create_template_script(
         tables_name, columns_list
     );
 
-    let rows: Vec<ColumnInfo> = sqlx::query_as(&query).fetch_all(&mut pg_connection).await?;
-    let mut mapper: HashMap<String, HashMap<String, Vec<MappingInfo>>> = HashMap::new();
+    let rows = pg_connection.query(&query, &[]).await.map_err(to_anyhow)?;
+
+    let mut schema_map: HashMap<String, HashMap<String, Vec<MappingInfo>>> = HashMap::new();
+
+    #[derive(Debug)]
+    struct ColumnInfo {
+        table_schema: String,
+        table_name: String,
+        column_name: String,
+        oid: u32,
+        is_nullable: bool,
+    }
 
     for row in rows {
-        let ColumnInfo { table_schema, table_name, column_name, oid, is_nullable } = row;
-
-        let entry = mapper.entry(table_schema.unwrap());
+        let info = ColumnInfo {
+            table_schema: row.get("table_schema"),
+            table_name: row.get("table_name"),
+            column_name: row.get("column_name"),
+            oid: row.get::<_, u32>("oid"),
+            is_nullable: row.get::<_, bool>("is_nullable"),
+        };
 
         let mapped_info =
-            MappingInfo::new(column_name.unwrap(), Type::from_oid(oid.0), is_nullable);
+            MappingInfo::new(info.column_name, Type::from_oid(info.oid), info.is_nullable);
 
-        match entry {
-            Occupied(mut occupied) => {
-                let entry = occupied.get_mut().entry(table_name.unwrap());
-                match entry {
-                    Occupied(mut occuped) => {
-                        let mapping_info = occuped.get_mut();
-                        mapping_info.push(mapped_info);
-                    }
-                    Vacant(vacant) => {
-                        let mut mapping_info = Vec::with_capacity(10);
-                        mapping_info.push(mapped_info);
-                        vacant.insert(mapping_info);
-                    }
+        match schema_map.entry(info.table_schema) {
+            Occupied(mut schema_entry) => match schema_entry.get_mut().entry(info.table_name) {
+                Occupied(mut table_entry) => {
+                    table_entry.get_mut().push(mapped_info);
                 }
-            }
-            Vacant(vacant) => {
-                let mut mapping_info = Vec::with_capacity(10);
-                mapping_info.push(mapped_info);
-                vacant.insert(HashMap::from([(table_name.unwrap(), mapping_info)]));
+                Vacant(v) => {
+                    v.insert(vec![mapped_info]);
+                }
+            },
+            Vacant(schema_vacant) => {
+                let mut table_map = HashMap::new();
+                table_map.insert(info.table_name, vec![mapped_info]);
+                schema_vacant.insert(table_map);
             }
         }
     }
 
-    let mapper = Mapper::new(mapper, language);
-
-    let create_template_id = |w_id: &str| -> String {
-        let uuid = uuid::Uuid::new_v4().to_string();
-        let id = format!("{}-{}", &w_id, &uuid);
-
-        id
-    };
-
+    let mapper = Mapper::new(schema_map, language);
     let template = mapper.get_template();
-    let id = create_template_id(&w_id);
+
+    let id = format!("{}-{}", w_id, uuid::Uuid::new_v4());
 
     TEMPLATE.insert(id.clone(), template);
 
@@ -1571,24 +1584,24 @@ pub async fn is_database_in_logical_level(
     Extension(db): Extension<DB>,
     Path((w_id, postgres_resource_path)): Path<(String, String)>,
 ) -> error::JsonResult<bool> {
-    let mut pg_connection = get_pg_connection(
+    let pg_connection = get_default_pg_connection(
         authed.clone(),
         Some(user_db.clone()),
         &db,
         &postgres_resource_path,
         &w_id,
     )
-    .await?;
+    .await
+    .map_err(to_anyhow)?;
 
-    let wal_level: Option<String> = sqlx::query_scalar("SHOW WAL_LEVEL;")
-        .fetch_optional(&mut pg_connection)
-        .await?
-        .flatten();
+    let row_opt = pg_connection
+        .query_opt("SHOW wal_level;", &[])
+        .await
+        .map_err(to_anyhow)?;
 
-    let is_logical = match wal_level.as_deref() {
-        Some("logical") => true,
-        _ => false,
-    };
+    let wal_level: Option<String> = row_opt.map(|row| row.get(0));
+
+    let is_logical = matches!(wal_level.as_deref(), Some("logical"));
 
     Ok(Json(is_logical))
 }
