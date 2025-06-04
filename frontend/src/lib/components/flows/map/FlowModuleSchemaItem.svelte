@@ -377,7 +377,7 @@
 			}}
 		>
 			{#if testIsLoading}
-				<Loader2 size={12} class="animate-spin mr-1" />
+				<Loader2 size={12} class="animate-spin" />
 			{:else}
 				<Play size={12} />
 			{/if}
