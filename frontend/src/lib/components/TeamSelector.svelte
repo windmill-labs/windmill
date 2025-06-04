@@ -1,42 +1,40 @@
 <script lang="ts">
-	import Select from '$lib/components/apps/svelte-select/lib/Select.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
-	import { createEventDispatcher, onMount } from 'svelte'
-	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { RefreshCcw } from 'lucide-svelte'
 	import { WorkspaceService } from '$lib/gen'
+	import Select from './Select.svelte'
+	import { onMount } from 'svelte'
 
 	interface TeamItem {
 		team_id: string
 		team_name: string
 	}
 
-	export let disabled = false
-	export let placeholder = 'Select a team'
-	export let selectedTeam: TeamItem | undefined = undefined
-	export let containerClass = 'w-64'
-	export let showRefreshButton = true
-	export let teams: TeamItem[] | undefined = undefined
-	export let minWidth = '160px'
-
-	let isFetching = false
-	let darkMode: boolean = false
-
-	const dispatch = createEventDispatcher<{
-		change: TeamItem
-		error: Error
-	}>()
-
-	function onThemeChange() {
-		darkMode = document.documentElement.classList.contains('dark')
+	interface Props {
+		disabled?: boolean
+		placeholder?: string
+		selectedTeam?: TeamItem | undefined
+		containerClass?: string
+		showRefreshButton?: boolean
+		teams?: TeamItem[] | undefined
+		minWidth?: string
+		onError?: (error: Error) => void
 	}
 
+	let {
+		disabled = false,
+		placeholder = 'Select a team',
+		selectedTeam = $bindable(),
+		containerClass = 'w-64',
+		showRefreshButton = true,
+		teams = undefined,
+		minWidth = '160px',
+		onError
+	}: Props = $props()
+
+	let isFetching = $state(false)
 	onMount(() => {
-		onThemeChange()
-		if (!teams) {
-			loadTeams()
-		}
+		if (!teams) loadTeams()
 	})
 
 	async function loadTeams() {
@@ -52,29 +50,10 @@
 			return teams
 		} catch (error) {
 			isFetching = false
-			dispatch('error', error)
+			onError?.(error)
 			console.error('Error loading teams:', error)
 			return []
 		}
-	}
-
-	function handleTeamSelect(event) {
-		selectedTeam = event.detail
-		if (selectedTeam) {
-			dispatch('change', selectedTeam)
-		}
-	}
-
-	function filterTeams(filterText: string | unknown) {
-		if (!teams) return teams
-
-		const searchText = typeof filterText === 'string' ? filterText : ''
-
-		const filtered = searchText
-			? teams.filter((team) => team.team_name.toLowerCase().includes(searchText.toLowerCase()))
-			: teams
-
-		return filtered
 	}
 </script>
 
@@ -82,28 +61,24 @@
 	<div class="flex items-center gap-2">
 		<div class="flex-grow" style="min-width: {minWidth};">
 			<Select
-				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-				containerStyles={'border-color: lightgray; min-width: ' +
-					minWidth +
-					';' +
-					(darkMode
-						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-						: SELECT_INPUT_DEFAULT_STYLE.containerStyles)}
-				itemId="team_id"
-				label="team_name"
-				items={teams || []}
-				on:change={handleTeamSelect}
+				containerStyle={'min-width: ' + minWidth}
+				items={teams?.map((team) => ({
+					label: team.team_name,
+					value: team.team_id
+				})) ?? []}
 				{placeholder}
-				searchable={true}
-				loading={isFetching}
+				clearable
 				disabled={disabled || isFetching}
-				on:input={(e) => filterTeams(e.detail)}
+				bind:value={
+					() => selectedTeam?.team_id,
+					(value) => (selectedTeam = teams?.find((team) => team.team_id === value))
+				}
 			/>
 		</div>
 
 		{#if showRefreshButton}
 			<button
-				on:click={loadTeams}
+				onclick={loadTeams}
 				disabled={isFetching || disabled}
 				class="flex items-center justify-center p-1.5 rounded hover:bg-surface-hover focus:bg-surface-hover disabled:opacity-50"
 				title="Refresh teams from Microsoft"
@@ -123,5 +98,3 @@
 		</div>
 	{/if}
 </div>
-
-<DarkModeObserver on:change={onThemeChange} />
