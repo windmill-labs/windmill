@@ -25,9 +25,9 @@
 	let { closeFn }: Props = $props()
 
 	let routeEditor: RouteEditor
+	let httpTriggersGenerator: Drawer
 
 	let selected: Source = $state('OpenAPI')
-
 	let openApiUrl = $state('')
 	let openApiFile = $state('')
 
@@ -55,6 +55,7 @@
 	}
 
 	let code: string = $state('')
+
 	let isValidUrl = $derived.by(() => {
 		try {
 			const parsed = new URL(openApiUrl)
@@ -63,6 +64,10 @@
 			return false
 		}
 	})
+
+	export function openDrawer() {
+		httpTriggersGenerator.openDrawer()
+	}
 
 	async function fetchOpenApiConfig() {
 		try {
@@ -88,7 +93,7 @@
 			})
 			sendUserToast(message)
 			await closeFn()
-			httpTriggersGenerator?.closeDrawer()
+			httpTriggersGenerator.closeDrawer()
 			if (!get(usedTriggerKinds).includes('http')) {
 				usedTriggerKinds.update((t) => [...t, 'http'])
 			}
@@ -97,12 +102,6 @@
 		} finally {
 			isCreating = false
 		}
-	}
-
-	let httpTriggersGenerator: Drawer | undefined
-
-	export function openDrawer() {
-		httpTriggersGenerator?.openDrawer()
 	}
 
 	async function generateHttpTrigger() {
@@ -122,7 +121,7 @@
 <Drawer size="700px" bind:this={httpTriggersGenerator}>
 	<DrawerContent
 		title={'Generate HTTP triggers from OpenAPI spec'}
-		on:close={() => httpTriggersGenerator?.closeDrawer()}
+		on:close={() => httpTriggersGenerator.closeDrawer()}
 	>
 		<svelte:fragment slot="actions">
 			<Button
@@ -146,7 +145,7 @@
 				<Subsection>
 					<div class="flex flex-col gap-1">
 						<p class="text-xs text-tertiary">
-							Pick a folder <Required required={true} />
+							Pick a folder to bind the generated HTTP triggers to.<Required required={true} />
 						</p>
 						<FolderPicker bind:folderName />
 					</div>
@@ -183,7 +182,7 @@
 								{item}
 							/>
 							<ToggleButton
-								tooltip="Enter an OpenAPI URL to generate an HTTP routes from it"
+								tooltip="Provide a publicly accessible URL to an OpenAPI specification in JSON or YAML format."
 								showTooltipIcon
 								label="From OpenAPI URL"
 								value="OpenAPI_URL"
