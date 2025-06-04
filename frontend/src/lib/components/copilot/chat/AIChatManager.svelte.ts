@@ -610,10 +610,10 @@ class AIChatManager {
 		})
 
 		$effect(() => {
-			aiChatManager.flowAiChatHelpers = flowHelpers
+			this.flowAiChatHelpers = flowHelpers
 
 			return () => {
-				aiChatManager.flowAiChatHelpers = undefined
+				this.flowAiChatHelpers = undefined
 			}
 		})
 	}

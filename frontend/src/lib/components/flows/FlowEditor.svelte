@@ -39,12 +39,6 @@
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
 	})
 
-	const DEFAULT_MODULE_PANEL_SIZE = 60
-	const DEFAULT_MAP_PANEL_SIZE = 40
-
-	let modulePanelSize = DEFAULT_MODULE_PANEL_SIZE
-	let mapPanelSize = DEFAULT_MAP_PANEL_SIZE
-
 	export function addSelectedLinesToAiChat(lines: string, startLine: number, endLine: number) {
 		aiChatManager.addSelectedLinesToContext(lines, startLine, endLine)
 		if (!aiChatManager.open) {
@@ -68,7 +62,7 @@
 >
 	<TriggerableByAI id="flow-editor" description="Component to edit a flow" />
 	<Splitpanes>
-		<Pane bind:size={mapPanelSize} minSize={15} class="h-full relative z-0">
+		<Pane size={50} minSize={15} class="h-full relative z-0">
 			<div class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative">
 				{#if loading}
 					<div class="p-2 pt-10">
@@ -97,7 +91,7 @@
 				{/if}
 			</div>
 		</Pane>
-		<Pane class="relative z-10" bind:size={modulePanelSize} minSize={20}>
+		<Pane class="relative z-10" size={50} minSize={20}>
 			{#if loading}
 				<div class="w-full h-full">
 					<div class="block m-auto pt-40 w-10">

@@ -305,8 +305,8 @@ const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext
 export function prepareScriptTools(
 	language: ScriptLang | 'bunnative',
 	context: ContextElement[]
-): Tool<any>[] {
-	const tools: Tool<any>[] = [resourceTypeTool, dbSchemaTool]
+): Tool<ScriptChatHelpers>[] {
+	const tools: Tool<ScriptChatHelpers>[] = [resourceTypeTool, dbSchemaTool]
 	if (['python3', 'php', 'bun', 'deno', 'nativets', 'bunnative'].includes(language)) {
 		tools.push(resourceTypeTool)
 	}
