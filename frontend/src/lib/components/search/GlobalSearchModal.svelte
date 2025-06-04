@@ -42,7 +42,7 @@
 	import Logs from 'lucide-svelte/icons/logs'
 	import { AwsIcon, GoogleCloudIcon, KafkaIcon, MqttIcon, NatsIcon } from '../icons'
 	import RunsSearch from './RunsSearch.svelte'
-	import AskAiButton from '../AskAiButton.svelte'
+	import AskAiButton from '../copilot/AskAiButton.svelte'
 
 	let open: boolean = false
 

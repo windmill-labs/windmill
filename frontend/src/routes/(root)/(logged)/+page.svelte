@@ -23,7 +23,7 @@
 	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/stores'
 	import { goto, replaceState } from '$app/navigation'
-	import AskAiButton from '$lib/components/AskAiButton.svelte'
+	import AskAiButton from '$lib/components/copilot/AskAiButton.svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
 	type Tab = 'hub' | 'workspace'

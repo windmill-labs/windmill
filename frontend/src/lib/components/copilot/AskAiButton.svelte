@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { WandSparkles } from 'lucide-svelte'
-	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
+	import { aiChatManager } from './chat/AIChatManager.svelte'
 	interface Props {
 		label?: string
 		initialInput?: string
