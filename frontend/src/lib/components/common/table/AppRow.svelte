@@ -99,6 +99,8 @@
 				{#if app.canWrite}
 					<div>
 						<Button
+							aiId={`edit-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
+							aiDescription={`Edits the app ${app.summary?.length > 0 ? app.summary : app.path}`}
 							color="light"
 							size="xs"
 							variant="border"
@@ -111,6 +113,8 @@
 				{:else}
 					<div>
 						<Button
+							aiId={`fork-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
+							aiDescription={`Fork the app ${app.summary?.length > 0 ? app.summary : app.path}`}
 							color="light"
 							size="xs"
 							variant="border"
@@ -124,6 +128,8 @@
 			{/if}
 		</span>
 		<Dropdown
+			aiId={`app-row-dropdown-${app.summary?.length > 0 ? app.summary : app.path}`}
+			aiDescription={`Open dropdown for app ${app.summary?.length > 0 ? app.summary : app.path} options`}
 			items={async () => {
 				let { draft_only, canWrite, summary, execution_mode, path, has_draft } = app
 
@@ -184,7 +190,7 @@
 									},
 									hide: $userStore?.operator
 								}
-						  ]
+							]
 						: []),
 					{
 						displayName: $userStore?.operator ? 'View JSON' : 'View/Edit JSON',
@@ -231,7 +237,7 @@
 										gotoUrl(url)
 									}
 								}
-						  ]
+							]
 						: []),
 					...(has_draft
 						? [
@@ -250,7 +256,7 @@
 									disabled: !canWrite,
 									hide: $userStore?.operator
 								}
-						  ]
+							]
 						: []),
 					{
 						displayName: 'Delete',

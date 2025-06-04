@@ -1,29 +1,24 @@
 <script lang="ts">
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
-	import { getContext, type Snippet } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { FlowCopilotContext } from '../../flow'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { dfs } from '$lib/components/flows/previousResults'
 	import { getSubModules } from '$lib/components/flows/flowExplorer'
-	import AIChat from '../AIChat.svelte'
-	import type { FlowModule, OpenFlow, ScriptLang } from '$lib/gen'
+	import type { FlowModule } from '$lib/gen'
 	import { getIndexInNestedModules, getNestedModules } from './utils'
-	import type { FlowModuleState } from '$lib/components/flows/flowState'
-	import { getStringError } from '../utils'
 	import type { FlowAIChatHelpers } from './core'
 	import {
 		insertNewFailureModule,
 		insertNewPreprocessorModule
 	} from '$lib/components/flows/flowStateUtils'
-	import type { ScriptOptions } from '../ContextManager.svelte'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
+	import { aiChatManager } from '../AIChatManager.svelte'
 
 	let {
-		flowModuleSchemaMap,
-		headerLeft
+		flowModuleSchemaMap
 	}: {
 		flowModuleSchemaMap: FlowModuleSchemaMap | undefined
-		headerLeft: Snippet
 	} = $props()
 
 	const { flowStore, flowStateStore, selectedId, currentEditor, flowInputsStore } =
@@ -41,46 +36,7 @@
 		}
 	}
 
-	function getScriptOptions(id: string): ScriptOptions | undefined {
-		const module = getModule(id)
-
-		if (module && module.value.type === 'rawscript') {
-			const moduleState: FlowModuleState | undefined = $flowStateStore[module.id]
-
-			const editorRelated =
-				$currentEditor && $currentEditor.type === 'script' && $currentEditor.stepId === module.id
-					? {
-							diffMode: $currentEditor.diffMode,
-							lastDeployedCode: $currentEditor.lastDeployedCode,
-							lastSavedCode: undefined
-						}
-					: {
-							diffMode: false,
-							lastDeployedCode: undefined,
-							lastSavedCode: undefined
-						}
-
-			return {
-				args: moduleState?.previewArgs ?? {},
-				error:
-					moduleState && !moduleState.previewSuccess
-						? getStringError(moduleState.previewResult)
-						: undefined,
-				code: module.value.content,
-				lang: module.value.language,
-				path: module.id,
-				...editorRelated
-			}
-		}
-
-		return undefined
-	}
-
-	let scriptOptions = $derived.by(() => getScriptOptions($selectedId))
-
-	const flowHelpers: FlowAIChatHelpers & {
-		getFlowAndSelectedId: () => { flow: OpenFlow; selectedId: string }
-	} = {
+	const flowHelpers: FlowAIChatHelpers = {
 		getFlowAndSelectedId: () => ({ flow: $flowStore, selectedId: $selectedId }),
 		setCode: async (id, code) => {
 			const module = getModule(id)
@@ -378,37 +334,23 @@
 		}
 	}
 
-	let aiChat: AIChat | undefined = undefined
+	$effect(() => {
+		const cleanup = aiChatManager.setFlowHelpers(flowHelpers)
+		return cleanup
+	})
 
-	export async function generateStep(moduleId: string, lang: ScriptLang, instructions: string) {
-		flowHelpers.selectStep(moduleId)
-		aiChat?.sendRequest({
-			instructions: instructions,
-			mode: 'script',
-			lang: lang,
-			isPreprocessor: moduleId === 'preprocessor'
-		})
-	}
+	$effect(() => {
+		const cleanup = aiChatManager.listenForSelectedIdChanges(
+			$selectedId,
+			$flowStore,
+			$flowStateStore,
+			$currentEditor
+		)
+		return cleanup
+	})
 
-	export function addSelectedLinesToContext(lines: string, startLine: number, endLine: number) {
-		aiChat?.addSelectedLinesToContext(lines, startLine, endLine)
-	}
+	$effect(() => {
+		const cleanup = aiChatManager.listenForCurrentEditorChanges($currentEditor)
+		return cleanup
+	})
 </script>
-
-<AIChat
-	bind:this={aiChat}
-	{headerLeft}
-	{scriptOptions}
-	{flowHelpers}
-	showDiffMode={() => {
-		if ($currentEditor && $currentEditor.type === 'script') {
-			$currentEditor.showDiffMode()
-		}
-	}}
-	applyCode={(code: string) => {
-		if ($currentEditor && $currentEditor.type === 'script') {
-			$currentEditor.hideDiffMode()
-			$currentEditor.editor.reviewAndApplyCode(code)
-		}
-	}}
-/>

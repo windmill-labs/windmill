@@ -24,6 +24,8 @@
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
 	<Button
+		aiId="flows-create-actions-flow"
+		aiDescription="Create a new flow"
 		size="sm"
 		spacingSize="xl"
 		startIcon={{ icon: Plus }}
