@@ -1,11 +1,15 @@
-import { JobService, type RunScriptPreviewData } from '$lib/gen'
+import { JobService, type RunScriptByPathData, type RunScriptPreviewData } from '$lib/gen'
 
-export async function runPreviewJobAndPollResult(
-	data: RunScriptPreviewData,
+
+function isRunScriptByPathData(arg:RunScriptPreviewData | RunScriptByPathData): arg is RunScriptByPathData {
+  return (arg as RunScriptByPathData).path !== undefined;
+}
+
+export async function runScriptAndPollResult(
+	data: RunScriptPreviewData | RunScriptByPathData,
 	{ maxRetries = 7, withJobData }: { maxRetries?: number; withJobData?: boolean } = {}
 ): Promise<unknown> {
-	const uuid = await JobService.runScriptPreview(data)
-
+	const uuid = (isRunScriptByPathData(data) ? await JobService.runScriptByPath(data) : await JobService.runScriptPreview(data)) as string
 	let attempts = 0
 	while (attempts < maxRetries) {
 		try {

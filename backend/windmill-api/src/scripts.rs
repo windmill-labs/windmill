@@ -38,7 +38,7 @@ use std::{
     hash::{Hash, Hasher},
     sync::Arc,
 };
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_worker::process_relative_imports;
 
@@ -206,7 +206,6 @@ async fn list_scripts(
     Query(lq): Query<ListScriptQuery>,
 ) -> JsonResult<Vec<ListableScript>> {
     let (per_page, offset) = paginate(pagination);
-
     let mut sqlb = SqlBuilder::select_from("script as o")
         .fields(&[
             "hash",
@@ -319,6 +318,16 @@ async fn list_scripts(
             .left()
             .on("dm.script_hash = o.hash")
             .fields(&["dm.deployment_msg"]);
+    }
+
+    if let Some(languages) = lq.languages {
+        sqlb.and_where_in(
+            "language",
+            &languages
+                .iter()
+                .map(|language| quote(language.as_str()))
+                .collect_vec(),
+        );
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;

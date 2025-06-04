@@ -94,6 +94,9 @@
             python3
             python3Packages.pip
             uv
+            poetry
+            pyright
+            openapi-python-client
 
             # Other languages
             deno

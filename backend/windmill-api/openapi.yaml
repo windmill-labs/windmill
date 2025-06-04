@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.493.4
+  version: 1.494.0
   title: Windmill API
 
   contact:
@@ -4501,6 +4501,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: languages
+          in: query
+          description: |
+            Filter to only include scripts written in the given languages.
+            Accepts multiple values as a comma-separated list.
+          schema:
+            type: string
       responses:
         "200":
           description: All scripts
@@ -9845,6 +9852,23 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/postgres_triggers/postgres/version/{path}:
+    get:
+      summary: get postgres version
+      operationId: getPostgresVersion
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: postgres version
+          content:
+            application/json:
+              schema:
+                type: string
+  
   /w/{workspace}/postgres_triggers/is_valid_postgres_configuration/{path}:
     get:
       summary: check if postgres configuration is set to logical
@@ -13192,6 +13216,8 @@ components:
     # NOTE: Not so many generators and validators support this format:
     # $ref: "../../openflow.openapi.yaml#/components/schemas"
     # This is why it is better to inline each of schemas for better compat
+    # Do not change next line. It is used by python-client for pre-processing
+    # -- INLINE START --
     OpenFlow:
       $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
     FlowValue:
@@ -13230,6 +13256,8 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
     FlowStatusModule:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatusModule"
+    # -- INLINE END --
+    # Do not change line above
 
     AIProvider:
       type: string

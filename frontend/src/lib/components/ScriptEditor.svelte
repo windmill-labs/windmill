@@ -42,8 +42,9 @@
 	import { setContext } from 'svelte'
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
 	import { base } from '$lib/base'
-	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/core'
+	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/script/core'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import { getStringError } from './copilot/chat/utils'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -333,6 +334,9 @@
 	) {
 		if (aiChat) {
 			aiChat.addSelectedLinesToContext(e.detail.lines, e.detail.startLine, e.detail.endLine)
+			if (aiPanelSize === 0) {
+				toggleAiPanel()
+			}
 			aiChat.focusTextArea()
 		}
 	}
@@ -352,16 +356,9 @@
 
 	let aiChat: AIChat | undefined = undefined
 
-	function getStringError(job: Job | undefined) {
-		if (
-			job != undefined &&
-			job.type === 'CompletedJob' &&
-			typeof job.result == 'object' &&
-			job.result != null &&
-			`error` in job.result &&
-			job.result.error
-		) {
-			return JSON.stringify(job.result.error, null, 2)
+	function getError(job: Job | undefined) {
+		if (job != undefined && job.type === 'CompletedJob' && !job.success) {
+			return getStringError(job.result)
 		}
 		return undefined
 	}
@@ -380,7 +377,7 @@
 		editor?.show()
 	}
 
-	$: error = getStringError(testJob)
+	$: error = getError(testJob)
 </script>
 
 <TestJobLoader
@@ -529,7 +526,6 @@
 						on:toggleAiPanel={toggleAiPanel}
 						on:addSelectedLinesToAiChat={addSelectedLinesToAiChat}
 						on:toggleTestPanel={toggleTestPanel}
-						isAiPanelOpen={aiPanelSize > 0}
 						cmdEnterAction={async () => {
 							await inferSchema(code)
 							runTest()
@@ -565,55 +561,60 @@
 			</div>
 		</Pane>
 		{#if lang && $copilotInfo.enabled}
-			<Pane bind:size={aiPanelSize} minSize={0}>
-				<AIChat
-					bind:this={aiChat}
-					{code}
-					{lang}
-					{error}
-					{args}
-					{path}
-					on:applyCode={(e) => {
-						hideDiffMode()
-						editor?.reviewAndApplyCode(e.detail.code)
+			{#snippet aiChatHeaderRight()}
+				{#if testPanelSize === 0}
+					<div class="bg-gray-200 h-6 w-[1px] rounded-full dark:bg-gray-600"></div>
+					<HideButton
+						hidden={true}
+						direction="right"
+						panelName="Test"
+						shortcut="U"
+						size="md"
+						customHiddenIcon={PlayIcon}
+						on:click={() => {
+							toggleTestPanel()
+						}}
+						btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
+						color="marine"
+					/>
+				{/if}
+			{/snippet}
+			{#snippet aiChatHeaderLeft()}
+				<HideButton
+					hidden={false}
+					direction="right"
+					panelName="AI"
+					shortcut="L"
+					size="md"
+					on:click={() => {
+						toggleAiPanel()
 					}}
-					on:showDiffMode={showDiffMode}
-					{lastSavedCode}
-					{lastDeployedCode}
-					{diffMode}
-				>
-					<svelte:fragment slot="header-left">
-						<HideButton
-							hidden={false}
-							direction="right"
-							panelName="AI"
-							shortcut="L"
-							size="md"
-							on:click={() => {
-								toggleAiPanel()
-							}}
-						/>
-					</svelte:fragment>
-					<svelte:fragment slot="header-right">
-						{#if testPanelSize === 0}
-							<div class="bg-gray-200 h-6 w-[1px] rounded-full dark:bg-gray-600"></div>
-							<HideButton
-								hidden={true}
-								direction="right"
-								panelName="Test"
-								shortcut="U"
-								size="md"
-								customHiddenIcon={PlayIcon}
-								on:click={() => {
-									toggleTestPanel()
-								}}
-								btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
-								color="marine"
-							/>
-						{/if}
-					</svelte:fragment>
-				</AIChat>
-			</Pane>
+				/>
+			{/snippet}
+			{#if aiPanelSize > 0}
+				<Pane bind:size={aiPanelSize} minSize={0}>
+					<AIChat
+						bind:this={aiChat}
+						scriptOptions={{
+							code,
+							lang,
+							error,
+							args,
+							path,
+							lastSavedCode,
+							lastDeployedCode,
+							diffMode
+						}}
+						applyCode={(code) => {
+							hideDiffMode()
+							editor?.reviewAndApplyCode(code)
+						}}
+						{showDiffMode}
+						headerLeft={aiChatHeaderLeft}
+						headerRight={aiChatHeaderRight}
+					/>
+				</Pane>
+			{/if}
 		{/if}
 		<Pane bind:size={testPanelSize} minSize={0}>
 			<div class="flex flex-col h-full">
