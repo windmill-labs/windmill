@@ -1,23 +1,57 @@
-import type { FlowModule } from '$lib/gen'
+import type { FlowModule, RawScript, Script } from '$lib/gen'
 import { type Node, type Edge } from '@xyflow/svelte'
 import { getDependeeAndDependentComponents } from '../flows/flowExplorer'
 import { dfsByModule } from '../flows/previousResults'
 import { defaultIfEmptyString } from '$lib/utils'
 import type { GraphModuleState } from './model'
 
+export type InsertKind =
+	| 'script'
+	| 'forloop'
+	| 'whileloop'
+	| 'branchone'
+	| 'branchall'
+	| 'flow'
+	| 'trigger'
+	| 'approval'
+	| 'end'
+
+export type InlineScript = {
+	language: RawScript['language']
+	kind: Script['kind']
+	subkind: 'pgsql' | 'flow'
+	summary?: string
+	instructions?: string
+}
+
+export type onSelectedIteration = (
+	detail:
+		| { id: string; index: number; manuallySet: true; moduleId: string }
+		| { manuallySet: false; moduleId: string }
+) => void
+
 export type GraphEventHandlers = {
-	insert: (detail) => void
-	deleteBranch: (detail, label: string) => void
-	select: (modId: string) => void
-	delete: (detail, label: string) => void
-	newBranch: (module: FlowModule) => void
-	move: (module: FlowModule, modules: FlowModule[]) => void
-	selectedIteration: (detail, moduleId: string) => void
+	insert: (detail: {
+		sourceId?: string
+		targetId?: string
+		branch?: { rootId: string; branch: number }
+		index: number
+		kind: string
+		inlineScript?: string
+		script?: string
+		isPreprocessor?: boolean
+	}) => void
+	deleteBranch: (detail: { id: string; index: number }, label: string) => void
+	select: (mod: string | FlowModule) => void
+	delete: (detail: { id: string }, label: string) => void
+	newBranch: (id: string) => void
+	move: (detail: { id: string }) => void
+	selectedIteration: onSelectedIteration
 	changeId: (newId: string) => void
-	simplifyFlow: (detail: boolean) => void
+	simplifyFlow: (b: boolean) => void
 	expandSubflow: (id: string, path: string) => void
 	minimizeSubflow: (id: string) => void
-	updateMock: () => void
+	updateMock: (detail: { mock: FlowModule['mock']; id: string }) => void
 }
 
 export type SimplifiableFlow = { simplifiedFlow: boolean }
@@ -33,9 +67,219 @@ export function isTriggerStep(module: FlowModule | undefined): boolean {
 export function buildPrefix(prefix: string | undefined, id: string): string {
 	return (prefix ?? '') + id + ':'
 }
+
+export type NodeLayout = {
+	id: string
+	position: { x: number; y: number }
+	parentIds?: string[]
+} & FlowNode
+
+export type FlowNode =
+	| InputN
+	| ModuleN
+	| BranchAllStartN
+	| BranchAllEndN
+	| ForLoopEndN
+	| ForLoopStartN
+	| ResultN
+	| WhileLoopStartN
+	| WhileLoopEndN
+	| BranchOneStartN
+	| BranchOneEndN
+	| SubflowBoundN
+	| NoBranchN
+	| TriggerN
+
+export type InputN = {
+	type: 'input2'
+	data: {
+		eventHandlers: GraphEventHandlers
+		hasPreprocessor: boolean
+		insertable: boolean
+		moving: string | undefined
+		disableAi: boolean
+		cache: boolean
+		earlyStop: boolean
+		editMode: boolean
+	}
+}
+
+export type ModuleN = {
+	type: 'module'
+	data: {
+		offset: number
+		module: FlowModule
+		id: string
+		parentIds: string[]
+		eventHandlers: GraphEventHandlers
+		moving: string | undefined
+		flowModuleStates: Record<string, GraphModuleState> | undefined
+		insertable: boolean
+		editMode: boolean
+	}
+}
+
+export type BranchAllStartN = {
+	type: 'branchAllStart'
+	data: {
+		offset: number
+		label: string
+		id: string
+		branchIndex: number
+		eventHandlers: GraphEventHandlers
+		flowModuleStates: Record<string, GraphModuleState> | undefined
+		insertable: boolean
+	}
+}
+
+export type BranchAllEndN = {
+	type: 'branchAllEnd'
+	data: {
+		offset: number
+		id: string
+		eventHandlers: GraphEventHandlers
+		flowModuleStates: Record<string, GraphModuleState> | undefined
+	}
+}
+
+export type ForLoopEndN = {
+	type: 'forLoopEnd'
+	data: {
+		offset: number
+		id: string
+		eventHandlers: GraphEventHandlers
+		simplifiedTriggerView: boolean
+		flowModuleStates: Record<string, GraphModuleState> | undefined
+	}
+}
+
+export type ForLoopStartN = {
+	type: 'forLoopStart'
+	data: {
+		offset: number
+		id: string
+		eventHandlers: GraphEventHandlers
+		flowModuleStates: Record<string, GraphModuleState> | undefined
+		selectedId: string
+		editMode: boolean
+		simplifiedTriggerView: boolean
+		module: FlowModule
+	}
+}
+
+export type ResultN = {
+	type: 'result'
+	data: {
+		success: boolean | undefined
+		eventHandlers: GraphEventHandlers
+	}
+}
+
+export type WhileLoopStartN = {
+	type: 'whileLoopStart'
+	data: {
+		offset: number
+		eventHandlers: GraphEventHandlers
+	}
+}
+
+export type WhileLoopEndN = {
+	type: 'whileLoopEnd'
+	data: {
+		offset: number
+	}
+}
+
+export type BranchOneStartN = {
+	type: 'branchOneStart'
+	data: {
+		offset: number
+		id: string
+		eventHandlers: GraphEventHandlers
+		flowModuleStates: Record<string, GraphModuleState> | undefined
+		selected: boolean
+		insertable: boolean
+		label: string
+		preLabel: string | undefined
+		branchIndex: number
+		modules: FlowModule[]
+	}
+}
+
+export type BranchOneEndN = {
+	type: 'branchOneEnd'
+	data: {
+		offset: number
+		id: string
+		eventHandlers: GraphEventHandlers
+		flowModuleStates: Record<string, GraphModuleState> | undefined
+	}
+}
+
+export type SubflowBoundN = {
+	type: 'subflowBound'
+	data: {
+		offset: number
+		id: string
+		eventHandlers: GraphEventHandlers
+		label: string
+		preLabel: string | undefined
+		subflowId: string
+		selected: boolean
+	}
+}
+
+export type NoBranchN = {
+	type: 'noBranch'
+	data: {
+		offset: number
+		id: string
+		eventHandlers: GraphEventHandlers
+		flowModuleStates: Record<string, GraphModuleState> | undefined
+		branchOne: boolean
+	}
+}
+
+export type TriggerN = {
+	type: 'trigger'
+	data: {
+		simplifiableFlow: SimplifiableFlow | undefined
+		path: string
+		newFlow: boolean
+		isEditor: boolean
+		eventHandlers: GraphEventHandlers
+		disableAi: boolean
+	}
+}
+
+// input2: InputNode,
+// module: ModuleNode,
+// branchAllStart: BranchAllStart,
+// branchAllEnd: BranchAllEndNode,
+// forLoopEnd: ForLoopEndNode,
+// forLoopStart: ForLoopStartNode,
+// result: ResultNode,
+// whileLoopStart: ForLoopStartNode,
+// whileLoopEnd: ForLoopEndNode,
+// branchOneStart: BranchOneStart,
+// branchOneEnd: BranchOneEndNode,
+// subflowBound: SubflowBound,
+// noBranch: NoBranchNode,
+// trigger: TriggersNode
+
 export function graphBuilder(
 	modules: FlowModule[] | undefined,
-	extra: Record<string, any>,
+	extra: {
+		disableAi: boolean
+		insertable: boolean
+		flowModuleStates: Record<string, GraphModuleState> | undefined
+		selectedId: string | undefined
+		path: string | undefined
+		newFlow: boolean
+		cache: boolean
+		earlyStop: boolean
+		editMode: boolean
+	},
 	failureModule: FlowModule | undefined,
 	preprocessorModule: FlowModule | undefined,
 	eventHandlers: GraphEventHandlers,
@@ -51,19 +295,19 @@ export function graphBuilder(
 	// 	flowIsSimplifiable?: boolean
 	// }
 ): {
-	nodes: Node[]
+	nodes: NodeLayout[]
 	edges: Edge[]
 	error?: string | undefined
 } {
 	console.debug('Building graph')
-	const nodes: Node[] = []
+	const nodes: NodeLayout[] = []
 	const edges: Edge[] = []
 	try {
 		if (!modules) {
 			return { nodes, edges }
 		}
 
-		function addNode(module: FlowModule, offset: number, type: string, subModules?: FlowModule[]) {
+		function addNode(module: FlowModule, offset: number) {
 			const duplicated = nodes.find((n) => n.id === module.id)
 			if (duplicated) {
 				console.log('Duplicated node detected: ', module, duplicated)
@@ -77,17 +321,18 @@ export function graphBuilder(
 			nodes.push({
 				id: module.id,
 				data: {
-					value: module.value,
 					offset: offset,
 					module: module,
-					modules: subModules ?? modules,
+					id: module.id,
 					parentIds: [],
 					eventHandlers: eventHandlers,
 					moving: moving,
-					...extra
+					flowModuleStates: extra.flowModuleStates,
+					insertable: extra.insertable,
+					editMode: extra.editMode
 				},
 				position: { x: -1, y: -1 },
-				type: type
+				type: 'module'
 			})
 
 			return module.id
@@ -127,6 +372,7 @@ export function graphBuilder(
 		function addEdge(
 			sourceId: string,
 			targetId: string,
+			branch: { rootId: string; branch: number } | undefined,
 			prefix: string | undefined,
 			options?: {
 				disableInsert?: boolean
@@ -157,9 +403,9 @@ export function graphBuilder(
 				target: targetId,
 				type: options?.type ?? 'edge',
 				data: {
-					modules: options?.subModules ?? modules,
 					sourceId,
 					targetId,
+					branch,
 					moving,
 					eventHandlers,
 					simplifiedTriggerView: simplifiableFlow?.simplifiedFlow,
@@ -173,19 +419,23 @@ export function graphBuilder(
 			})
 		}
 
-		const inputNode: Node = {
+		const inputNode = {
 			id: 'Input',
 			position: { x: -1, y: -1 },
 			type: 'input2',
 			data: {
 				eventHandlers: eventHandlers,
-				modules: modules,
 				hasPreprocessor: !!preprocessorModule || flowPathForTriggerNode == undefined,
-				...extra
+				insertable: extra.insertable,
+				moving: moving,
+				disableAi: extra.disableAi,
+				cache: extra.cache,
+				earlyStop: extra.earlyStop,
+				editMode: extra.editMode
 			}
-		}
+		} as NodeLayout
 
-		let triggerNode: Node | undefined = undefined
+		let triggerNode: NodeLayout | undefined = undefined
 		if (flowPathForTriggerNode) {
 			triggerNode = {
 				id: 'Trigger',
@@ -196,29 +446,26 @@ export function graphBuilder(
 					path: flowPathForTriggerNode,
 					newFlow: extra.newFlow,
 					eventHandlers: eventHandlers,
-					modules: modules,
 					isEditor: extra.insertable
 				}
-			}
+			} as NodeLayout
 			nodes.push(triggerNode)
 			if (preprocessorModule != null && preprocessorModule != undefined) {
-				addEdge('Trigger', preprocessorModule.id, undefined, {
+				addEdge('Trigger', preprocessorModule.id, undefined, undefined, {
 					type: 'empty'
 				})
 			} else {
-				addEdge('Trigger', 'Input', undefined, {
+				addEdge('Trigger', 'Input', undefined, undefined, {
 					type: 'empty'
 				})
 			}
 		}
 
-		const resultNode: Node = {
+		const resultNode: NodeLayout = {
 			id: 'result',
 			data: {
 				eventHandlers: eventHandlers,
-				modules: modules,
-				success: success,
-				...extra
+				success: success
 			},
 			position: { x: -1, y: -1 },
 			type: 'result'
@@ -231,14 +478,14 @@ export function graphBuilder(
 
 		function processModules(
 			modules: FlowModule[],
+			branch: { rootId: string; branch: number } | undefined,
 			beforeNode: Node,
 			nextNode: Node | undefined,
 			simplifiedTriggerView: boolean,
 			prefix: string | undefined,
 			currentOffset = 0,
 			disableMoveIds: string[] = [],
-			parentIndex?: string,
-			branchChosen?: boolean
+			parentIndex?: string
 		) {
 			if (prefix != undefined) {
 				modules.forEach((m) => {
@@ -252,7 +499,7 @@ export function graphBuilder(
 
 			if (modules.length === 0) {
 				if (nextNode) {
-					addEdge(beforeNode.id, nextNode.id, prefix, {
+					addEdge(beforeNode.id, nextNode.id, branch, prefix, {
 						subModules: modules,
 						disableMoveIds
 					})
@@ -263,7 +510,7 @@ export function graphBuilder(
 
 					// Add the edge between the previous node and the current one
 					if (index > 0 && previousId && expandedSubflows[module.id] == undefined) {
-						addEdge(previousId, module.id, prefix, {
+						addEdge(previousId, module.id, branch, prefix, {
 							subModules: modules,
 							disableMoveIds
 						})
@@ -271,7 +518,7 @@ export function graphBuilder(
 
 					if (module.value.type === 'branchall') {
 						// Start
-						addNode(module, currentOffset, 'module', modules)
+						addNode(module, currentOffset)
 
 						// "Collect result of each branch" node
 						const endNode = {
@@ -279,13 +526,11 @@ export function graphBuilder(
 							data: {
 								offset: currentOffset,
 								id: module.id,
-								module: module,
-								modules: modules,
-								...extra
+								eventHandlers: eventHandlers
 							},
 							position: { x: -1, y: -1 },
 							type: 'branchAllEnd'
-						}
+						} as NodeLayout
 
 						nodes.push(endNode)
 
@@ -297,20 +542,20 @@ export function graphBuilder(
 									offset: currentOffset,
 									id: module.id,
 									branchIndex: -1,
-									modules: modules,
 									eventHandlers: eventHandlers,
-									...extra
+									flowModuleStates: extra.flowModuleStates,
+									branchOne: false
 								},
 								position: { x: -1, y: -1 },
 								type: 'noBranch'
-							}
+							} as NodeLayout
 
 							nodes.push(startNode)
 
-							addEdge(module.id, startNode.id, prefix, {
+							addEdge(module.id, startNode.id, { rootId: module.id, branch: 0 }, prefix, {
 								type: 'empty'
 							})
-							addEdge(startNode.id, endNode.id, prefix, {
+							addEdge(startNode.id, endNode.id, { rootId: module.id, branch: 0 }, prefix, {
 								type: 'empty'
 							})
 						} else {
@@ -324,22 +569,29 @@ export function graphBuilder(
 										label: defaultIfEmptyString(branch.summary, `Branch ${branchIndex + 1}`),
 										id: module.id,
 										branchIndex: branchIndex,
-										modules: modules,
 										eventHandlers: eventHandlers,
-										...extra
+										flowModuleStates: extra.flowModuleStates,
+										insertable: extra.insertable
 									},
 									position: { x: -1, y: -1 },
 									type: 'branchAllStart'
-								}
+								} as NodeLayout
 
 								nodes.push(startNode)
 
-								addEdge(module.id, startNode.id, prefix, {
-									type: 'empty'
-								})
+								addEdge(
+									module.id,
+									startNode.id,
+									{ rootId: module.id, branch: branchIndex },
+									prefix,
+									{
+										type: 'empty'
+									}
+								)
 
 								processModules(
 									branch.modules,
+									{ rootId: module.id, branch: branchIndex },
 									startNode,
 									endNode,
 									false,
@@ -354,7 +606,7 @@ export function graphBuilder(
 						previousId = endNode.id
 					} else if (module.value.type === 'forloopflow') {
 						if (!simplifiedTriggerView) {
-							addNode(module, currentOffset, 'module', modules)
+							addNode(module, currentOffset)
 						}
 
 						const startNode = {
@@ -363,21 +615,19 @@ export function graphBuilder(
 								offset: currentOffset + 25,
 								id: module.id,
 								module: module,
-								modules: modules,
 								simplifiedTriggerView,
-								eventHandlers: eventHandlers,
-								...extra
+								eventHandlers: eventHandlers
 							},
 							position: { x: -1, y: -1 },
 							type: 'forLoopStart'
-						}
+						} as NodeLayout
 
 						if (!simplifiedTriggerView) {
-							addEdge(module.id, startNode.id, prefix, {
+							addEdge(module.id, startNode.id, undefined, prefix, {
 								type: 'empty'
 							})
 						} else if (previousId) {
-							addEdge(previousId, startNode.id, prefix, {
+							addEdge(previousId, startNode.id, undefined, prefix, {
 								type: 'empty'
 							})
 						}
@@ -387,15 +637,12 @@ export function graphBuilder(
 							data: {
 								offset: currentOffset,
 								id: module.id,
-								module: module,
-								modules: modules,
 								eventHandlers: eventHandlers,
-								simplifiedTriggerView,
-								...extra
+								simplifiedTriggerView
 							},
 							position: { x: -1, y: -1 },
 							type: 'forLoopEnd'
-						}
+						} as NodeLayout
 
 						nodes.push(startNode)
 						nodes.push(endNode)
@@ -404,6 +651,7 @@ export function graphBuilder(
 
 						processModules(
 							module.value.modules,
+							{ rootId: module.id, branch: 0 },
 							startNode,
 							endNode,
 							false,
@@ -417,30 +665,27 @@ export function graphBuilder(
 
 						previousId = endNode.id
 					} else if (module.value.type === 'whileloopflow') {
-						addNode(module, currentOffset, 'module', modules)
+						addNode(module, currentOffset)
 
 						const startNode = {
 							id: `${module.id}-start`,
 							data: {
 								offset: currentOffset + 25,
-								module: module,
-								modules: modules,
-								eventHandlers: eventHandlers,
-								...extra
+								eventHandlers: eventHandlers
 							},
 							position: { x: -1, y: -1 },
 							type: 'whileLoopStart'
-						}
-						addEdge(module.id, startNode.id, prefix, {
+						} as NodeLayout
+						addEdge(module.id, startNode.id, { rootId: module.id, branch: 0 }, prefix, {
 							type: 'empty'
 						})
 
 						const endNode = {
 							id: `${module.id}-end`,
-							data: { offset: currentOffset, module: module, modules: modules, ...extra },
+							data: { offset: currentOffset, ...extra },
 							position: { x: -1, y: -1 },
 							type: 'whileLoopEnd'
-						}
+						} as NodeLayout
 
 						nodes.push(startNode)
 						nodes.push(endNode)
@@ -449,6 +694,7 @@ export function graphBuilder(
 
 						processModules(
 							module.value.modules,
+							{ rootId: module.id, branch: 0 },
 							startNode,
 							endNode,
 							false,
@@ -462,14 +708,14 @@ export function graphBuilder(
 
 						previousId = endNode.id
 					} else if (module.value.type === 'branchone') {
-						addNode(module, currentOffset, 'module', modules)
+						addNode(module, currentOffset)
 
 						const endNode = {
 							id: `${module.id}-end`,
 							data: { offset: currentOffset, eventHandlers: eventHandlers },
 							position: { x: -1, y: -1 },
 							type: 'branchOneEnd'
-						}
+						} as NodeLayout
 						nodes.push(endNode)
 
 						// Add default branch
@@ -480,30 +726,30 @@ export function graphBuilder(
 								label: 'Default',
 								id: module.id,
 								branchIndex: -1,
-								modules: module.value.default,
 								eventHandlers: eventHandlers,
 								branchOne: true,
 								...extra
 							},
 							position: { x: -1, y: -1 },
 							type: 'noBranch'
-						}
+						} as NodeLayout
 
 						nodes.push(defaultBranch)
 
-						addEdge(module.id, defaultBranch.id, prefix, { type: 'empty' })
+						addEdge(module.id, defaultBranch.id, { rootId: module.id, branch: 0 }, prefix, {
+							type: 'empty'
+						})
 
-						const branchChosen = extra.flowModuleStates?.[module.id]?.branchChosen
 						processModules(
 							module.value.default,
+							{ rootId: module.id, branch: 0 },
 							defaultBranch,
 							endNode,
 							false,
 							prefix,
 							currentOffset,
 							localDisableMoveIds,
-							parentIndex ? `${parentIndex}-${index}` : index.toString(),
-							branchChosen == 0
+							parentIndex ? `${parentIndex}-${index}` : index.toString()
 						)
 
 						module.value.branches.forEach((branch, branchIndex) => {
@@ -517,28 +763,28 @@ export function graphBuilder(
 									preLabel: branch.summary ? '' : branch.expr,
 									id: module.id,
 									branchIndex: branchIndex,
-									modules: modules,
-									eventHandlers: eventHandlers,
-									...extra
+									eventHandlers: eventHandlers
 								},
 								position: { x: -1, y: -1 },
 								type: 'branchOneStart'
-							}
+							} as NodeLayout
 
 							nodes.push(startNode)
 
-							addEdge(module.id, startNode.id, prefix, { type: 'empty' })
+							addEdge(module.id, startNode.id, { rootId: module.id, branch: branchIndex }, prefix, {
+								type: 'empty'
+							})
 
 							processModules(
 								branch.modules,
+								{ rootId: module.id, branch: branchIndex + 1 },
 								startNode,
 								endNode,
 								false,
 								prefix,
 								currentOffset,
 								localDisableMoveIds,
-								parentIndex ? `${parentIndex}-${index}` : index.toString(),
-								branchChosen == branchIndex + 1
+								parentIndex ? `${parentIndex}-${index}` : index.toString()
 							)
 						})
 
@@ -546,6 +792,7 @@ export function graphBuilder(
 					} else {
 						let expanded = expandedSubflows[module.id]
 						if (expanded) {
+							expanded = $state.snapshot(expanded)
 							const startId = `${module.id}-subflow-start`
 							const idWithoutPrefix = module.id.startsWith('subflow:')
 								? module.id.substring(8)
@@ -557,20 +804,20 @@ export function graphBuilder(
 									label: `Start of subflow ${idWithoutPrefix}`,
 									id: startId,
 									subflowId: module.id,
-									modules: modules,
-									eventHandlers: eventHandlers,
-									...extra
+									eventHandlers: eventHandlers
 								},
 								position: { x: -1, y: -1 },
 								type: 'subflowBound'
-							}
+							} as NodeLayout
 
 							nodes.push(startNode)
 
 							if (previousId) {
-								addEdge(previousId!, startNode.id, prefix, { type: 'empty' })
+								addEdge(previousId!, startNode.id, undefined, prefix, {
+									type: 'empty'
+								})
 							} else {
-								addEdge(beforeNode.id, startNode.id, prefix, { type: 'empty' })
+								addEdge(beforeNode.id, startNode.id, undefined, prefix, { type: 'empty' })
 							}
 
 							const endId = `${module.id}-subflow-end`
@@ -581,18 +828,17 @@ export function graphBuilder(
 									label: `End of subflow ${idWithoutPrefix}`,
 									id: endId,
 									subflowId: module.id,
-									modules: modules,
-									eventHandlers: eventHandlers,
-									...extra
+									eventHandlers: eventHandlers
 								},
 								position: { x: -1, y: -1 },
 								type: 'subflowBound'
-							}
+							} as NodeLayout
 
 							nodes.push(endNode)
 
 							processModules(
 								expanded,
+								undefined,
 								startNode,
 								endNode,
 								false,
@@ -603,13 +849,13 @@ export function graphBuilder(
 
 							previousId = endNode.id
 						} else {
-							addNode(module, currentOffset, 'module', modules)
+							addNode(module, currentOffset)
 							previousId = module.id
 						}
 					}
 
 					if (index === 0 && expandedSubflows[module.id] == undefined) {
-						addEdge(beforeNode.id, module.id, prefix, {
+						addEdge(beforeNode.id, module.id, undefined, prefix, {
 							subModules: modules,
 							disableMoveIds,
 							disableInsert: simplifiedTriggerView
@@ -617,7 +863,7 @@ export function graphBuilder(
 					}
 
 					if (index === modules.length - 1 && previousId && nextNode) {
-						addEdge(previousId, nextNode.id, prefix, {
+						addEdge(previousId, nextNode.id, branch, prefix, {
 							subModules: modules,
 							disableMoveIds
 						})
@@ -627,9 +873,9 @@ export function graphBuilder(
 		}
 
 		if (simplifiableFlow?.simplifiedFlow === true && triggerNode) {
-			processModules(modules, triggerNode, undefined, true, undefined)
+			processModules(modules, undefined, triggerNode, undefined, true, undefined)
 		} else {
-			processModules(modules, inputNode, resultNode, false, undefined)
+			processModules(modules, undefined, inputNode, resultNode, false, undefined)
 		}
 
 		if (failureModule) {
@@ -644,26 +890,26 @@ export function graphBuilder(
 			})
 
 			Object.entries(toAdd).forEach((x) => {
-				addNode({ ...failureModule, id: x[1] }, 0, 'module')
-				addEdge(x[0], x[1], undefined, { type: 'empty' })
+				addNode({ ...failureModule, id: x[1] }, 0)
+				addEdge(x[0], x[1], undefined, undefined, { type: 'empty' })
 			})
 		}
 
 		if (preprocessorModule) {
-			addNode(preprocessorModule, 0, 'module')
+			addNode(preprocessorModule, 0)
 			const id = JSON.parse(JSON.stringify(preprocessorModule.id))
-			addEdge(id, 'Input', undefined, { type: 'empty' })
+			addEdge(id, 'Input', undefined, undefined, { type: 'empty' })
 		}
 
 		if (failureModule && !extra.flowModuleStates) {
-			addNode(failureModule, 0, 'module')
+			addNode(failureModule, 0)
 		}
 
 		Object.keys(parents).forEach((key) => {
 			const node = nodes.find((n) => n.id === key)
 
 			if (node) {
-				node.data.parentIds = parents[key]
+				node.parentIds = parents[key]
 			}
 		})
 
@@ -685,7 +931,7 @@ export function graphBuilder(
 							}
 						}
 
-						addEdge(pid, selectedId!, undefined, {
+						addEdge(pid, selectedId!, undefined, undefined, {
 							customId: `dep-${pid}-${selectedId}-${input}-${index}`,
 							type: 'dataflowedge'
 						})
@@ -695,7 +941,7 @@ export function graphBuilder(
 				Object.entries(deps.dependents).forEach((x, i) => {
 					let pid = x[0]
 
-					addEdge(selectedId!, pid, undefined, {
+					addEdge(selectedId!, pid, undefined, undefined, {
 						customId: `dep-${selectedId}-${pid}-${i}`,
 						type: 'dataflowedge'
 					})

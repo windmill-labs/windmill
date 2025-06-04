@@ -2,7 +2,6 @@
 	import {
 		FlowService,
 		type Flow,
-		type FlowModule,
 		DraftService,
 		type PathScript,
 		type OpenFlow,
@@ -493,7 +492,7 @@
 
 	const previewArgsStore = writable<Record<string, any>>(initialArgs)
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
-	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
+	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory($flowStore)
 	const pathStore = writable<string>(pathStoreInit ?? initialPath)
 	const captureOn = writable<boolean>(false)

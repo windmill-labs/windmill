@@ -13,7 +13,7 @@
 		pickFlow,
 		insertNewPreprocessorModule
 	} from '$lib/components/flows/flowStateUtils'
-	import type { FlowModule, RawScript, Script, ScriptLang } from '$lib/gen'
+	import type { FlowModule, ScriptLang } from '$lib/gen'
 	import { emptyFlowModuleState, initFlowStepWarnings } from '../utils'
 	import FlowSettingsItem from './FlowSettingsItem.svelte'
 	import FlowConstantsItem from './FlowConstantsItem.svelte'
@@ -35,18 +35,34 @@
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { JobService } from '$lib/gen'
+	import { dfsByModule } from '../previousResults'
+	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 
-	export let modules: FlowModule[] | undefined
-	export let sidebarSize: number | undefined = undefined
-	export let disableStaticInputs = false
-	export let disableTutorials = false
-	export let disableAi = false
-	export let disableSettings = false
-	export let newFlow: boolean = false
-	export let smallErrorHandler = false
-	export let workspace: string | undefined = $workspaceStore
+	interface Props {
+		modules: FlowModule[] | undefined
+		sidebarSize?: number | undefined
+		disableStaticInputs?: boolean
+		disableTutorials?: boolean
+		disableAi?: boolean
+		disableSettings?: boolean
+		newFlow?: boolean
+		smallErrorHandler?: boolean
+		workspace?: string | undefined
+	}
 
-	let flowTutorials: FlowTutorials | undefined = undefined
+	let {
+		modules = $bindable(undefined),
+		sidebarSize = $bindable(undefined),
+		disableStaticInputs = false,
+		disableTutorials = false,
+		disableAi = false,
+		disableSettings = false,
+		newFlow = false,
+		smallErrorHandler = false,
+		workspace = $workspaceStore
+	}: Props = $props()
+
+	let flowTutorials: FlowTutorials | undefined = $state(undefined)
 
 	const {
 		customUi,
@@ -64,24 +80,10 @@
 	export async function insertNewModuleAtIndex(
 		modules: FlowModule[],
 		index: number,
-		kind:
-			| 'script'
-			| 'forloop'
-			| 'whileloop'
-			| 'branchone'
-			| 'branchall'
-			| 'flow'
-			| 'trigger'
-			| 'approval'
-			| 'end',
+		kind: InsertKind,
 		wsScript?: { path: string; summary: string; hash: string | undefined },
 		wsFlow?: { path: string; summary: string },
-		inlineScript?: {
-			language: RawScript['language']
-			kind: Script['kind']
-			subkind: 'pgsql' | 'flow'
-			summary?: string
-		}
+		inlineScript?: InlineScript
 	): Promise<FlowModule[]> {
 		push(history, $flowStore)
 		var module = emptyModule($flowStateStore, $flowStore, kind == 'flow')
@@ -167,11 +169,9 @@
 		})
 	}
 
-	$: sidebarMode == 'graph' ? (sidebarSize = 40) : (sidebarSize = 20)
-
 	let sidebarMode: 'list' | 'graph' = 'graph'
 
-	let minHeight = 0
+	let minHeight = $state(0)
 
 	export function selectNextId(id: any) {
 		if (modules) {
@@ -184,8 +184,18 @@
 			}
 		}
 	}
-	export async function addBranch(module: FlowModule) {
+
+	function findModuleById(id: string) {
+		return dfsByModule(id, $flowStore.value.modules)[0]
+	}
+
+	async function addBranch(id: string) {
 		push(history, $flowStore)
+		let module = findModuleById(id)
+
+		if (!module) {
+			throw new Error(`Node ${id} not found`)
+		}
 
 		if (module.value.type === 'branchone' || module.value.type === 'branchall') {
 			module.value.branches.splice(module.value.branches.length, 0, {
@@ -196,8 +206,13 @@
 		}
 	}
 
-	export function removeBranch(module: FlowModule, index: number) {
+	function removeBranch(id: string, index: number) {
 		push(history, $flowStore)
+		let module = findModuleById(id)
+
+		if (!module) {
+			throw new Error(`Node ${id} not found`)
+		}
 
 		if (module.value.type === 'branchone' || module.value.type === 'branchall') {
 			const offset = module.value.type === 'branchone' ? 1 : 0
@@ -211,8 +226,8 @@
 		}
 	}
 
-	let deleteCallback: (() => void) | undefined = undefined
-	let dependents: Record<string, string[]> = {}
+	let deleteCallback: (() => void) | undefined = $state(undefined)
+	let dependents: Record<string, string[]> = $state({})
 
 	function shouldRunTutorial(tutorialName: string, name: string, index: number) {
 		return (
@@ -287,6 +302,9 @@
 			$flowStateStore = $flowStateStore
 		}
 	}
+	$effect(() => {
+		sidebarMode == 'graph' ? (sidebarSize = 40) : (sidebarSize = 20)
+	})
 </script>
 
 <Portal name="flow-module">
@@ -342,27 +360,26 @@
 			insertable
 			scroll
 			{minHeight}
-			moving={$moving?.module.id}
+			moving={$moving?.id}
 			maxHeight={minHeight}
-			modules={$flowStore.value?.modules}
+			modules={$flowStore.value.modules}
 			preprocessorModule={$flowStore.value?.preprocessor_module}
 			{selectedId}
 			{flowInputsStore}
 			{workspace}
 			editMode
-			on:delete={({ detail }) => {
-				let e = detail.detail
-				dependents = getDependentComponents(e.id, $flowStore)
+			onDelete={(id) => {
+				dependents = getDependentComponents(id, $flowStore)
 				const cb = () => {
 					push(history, $flowStore)
-					if (e.id === 'preprocessor') {
+					if (id === 'preprocessor') {
 						$selectedId = 'Input'
 						$flowStore.value.preprocessor_module = undefined
 					} else {
-						selectNextId(e.id)
-						removeAtId($flowStore.value.modules, e.id)
+						selectNextId(id)
+						removeAtId($flowStore.value.modules, id)
 						if ($flowInputsStore) {
-							delete $flowInputsStore[e.id]
+							delete $flowInputsStore[id]
 						}
 					}
 					$flowStore = $flowStore
@@ -376,8 +393,7 @@
 					cb()
 				}
 			}}
-			on:insert={async ({ detail }) => {
-				console.log(detail)
+			onInsert={async (detail) => {
 				if (shouldRunTutorial('forloop', detail.detail, 1)) {
 					flowTutorials?.runTutorialById('forloop', detail.index)
 				} else if (shouldRunTutorial('branchone', detail.detail, 2)) {
@@ -385,17 +401,38 @@
 				} else if (shouldRunTutorial('branchall', detail.detail, 3)) {
 					flowTutorials?.runTutorialById('branchall')
 				} else {
-					if (detail.modules && Array.isArray(detail.modules)) {
+					let originalModules
+					let targetModules
+					if (detail.sourceId == 'Input' || detail.targetId == 'result') {
+						targetModules = modules
+					}
+
+					dfs($flowStore.value.modules, (mod, modules, branches) => {
+						// console.log('mod', mod.id, $moving?.id, detail, branches)
+						if (mod.id == $moving?.id) {
+							originalModules = modules
+						}
+						if (detail.branch) {
+							if (mod.id == detail.branch.rootId) {
+								targetModules = branches[detail.branch.branch]
+							}
+						} else if (mod.id == detail.sourceId || mod.id == detail.targetId) {
+							targetModules = modules
+						}
+					})
+					if (modules && Array.isArray(modules)) {
 						await tick()
 						if ($moving) {
+							// console.log('modules', modules, movingModules, movingModule)
 							push(history, $flowStore)
-							let indexToRemove = $moving.modules.findIndex((m) => $moving?.module?.id == m.id)
-							$moving.modules.splice(indexToRemove, 1)
-							detail.modules.splice(detail.index, 0, $moving.module)
-							$selectedId = $moving.module.id
+							let indexToRemove = originalModules.findIndex((m) => $moving?.id == m.id)
+
+							let [removedModule] = originalModules.splice(indexToRemove, 1)
+							targetModules.splice(detail.index, 0, removedModule)
+							$selectedId = removedModule.id
 							$moving = undefined
 						} else {
-							if (detail.detail === 'preprocessor') {
+							if (detail.isPreprocessor) {
 								await insertNewPreprocessorModule(
 									flowStore,
 									flowStateStore,
@@ -414,14 +451,14 @@
 							} else {
 								const index = detail.index ?? 0
 								await insertNewModuleAtIndex(
-									detail.modules,
+									targetModules,
 									index,
 									detail.kind,
 									detail.script,
 									detail.flow,
 									detail.inlineScript
 								)
-								const id = detail.modules[index].id
+								const id = targetModules[index].id
 								$selectedId = id
 
 								if (detail.inlineScript?.instructions) {
@@ -433,27 +470,27 @@
 								}
 								if (detail.kind == 'trigger') {
 									await insertNewModuleAtIndex(
-										detail.modules,
+										targetModules,
 										index + 1,
 										'forloop',
 										undefined,
 										undefined,
 										undefined
 									)
-									setExpr(detail.modules[index + 1], `results.${id}`)
+									setExpr(targetModules[index + 1], `results.${id}`)
 									setScheduledPollSchedule(triggersState, triggersCount)
 								}
 
-								if (`flow` in detail) {
-									loadLastJob(detail.flow?.path, id)
-								} else if (`script` in detail) {
+								if (detail.flow?.path) {
+									loadLastJob(detail.flow.path, id)
+								} else if (detail.script?.path) {
 									loadLastJob(detail.script?.path, id)
 								}
 							}
 						}
 
 						if (['branchone', 'branchall'].includes(detail.kind)) {
-							await addBranch(detail.modules[detail.index ?? 0])
+							await addBranch(targetModules[detail.index ?? 0].id)
 						}
 						$flowStateStore = $flowStateStore
 						$flowStore = $flowStore
@@ -461,16 +498,16 @@
 					}
 				}
 			}}
-			on:newBranch={async ({ detail }) => {
-				if (detail.module) {
-					await addBranch(detail.module)
+			onNewBranch={async (id) => {
+				if (id) {
+					await addBranch(id)
 					$flowStore = $flowStore
 				}
 			}}
-			on:select={async ({ detail }) => {
+			onSelect={(id) => {
 				flowPropPickerConfig.set(undefined)
 			}}
-			on:changeId={({ detail }) => {
+			onChangeId={(detail) => {
 				let { id, newId, deps } = detail
 				dfs($flowStore.value.modules, (mod) => {
 					if (deps[mod.id]) {
@@ -507,23 +544,23 @@
 				$flowStore = $flowStore
 				$selectedId = newId
 			}}
-			on:deleteBranch={async ({ detail }) => {
-				if (detail.module) {
-					await removeBranch(detail.module, detail.index)
+			onDeleteBranch={async ({ id, index }) => {
+				if (id) {
+					await removeBranch(id, index)
 					$flowStore = $flowStore
-					$selectedId = detail.module.id
+					$selectedId = id
 				}
 			}}
-			on:move={async ({ detail }) => {
-				if (!$moving || $moving.module.id !== detail.module.id) {
-					if (detail.module && detail.modules) {
-						$moving = { module: detail.module, modules: detail.modules }
-					}
+			onMove={(id) => {
+				if (!$moving || $moving.id !== id) {
+					$moving = { id }
 				} else {
 					$moving = undefined
 				}
 			}}
-			on:updateMock={() => {
+			onUpdateMock={(detail) => {
+				let module = findModuleById(detail.id)
+				module.mock = $state.snapshot(detail.mock)
 				$flowStore = $flowStore
 			}}
 		/>

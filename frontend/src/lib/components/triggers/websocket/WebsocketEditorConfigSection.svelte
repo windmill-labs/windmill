@@ -137,7 +137,7 @@
 								bind:args={url_runnable_args}
 								bind:isValid={areRunnableArgsValid}
 								shouldHideNoInputs
-								class="text-xs"
+								className="text-xs"
 								disabled={!can_write}
 							/>
 						{/key}

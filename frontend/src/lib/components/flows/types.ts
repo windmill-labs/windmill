@@ -1,4 +1,4 @@
-import type { FlowModule, OpenFlow } from '$lib/gen'
+import type { OpenFlow } from '$lib/gen'
 import type { History } from '$lib/history'
 import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
@@ -43,6 +43,7 @@ export type FlowInputEditorState = {
 
 export type FlowEditorContext = {
 	selectedId: Writable<string>
+	moving: Writable<{ id: string } | undefined>
 	currentEditor: Writable<
 		| ((
 				| {
@@ -59,7 +60,6 @@ export type FlowEditorContext = {
 		  })
 		| undefined
 	>
-	moving: Writable<{ module: FlowModule; modules: FlowModule[] } | undefined>
 	previewArgs: Writable<Record<string, any>>
 	scriptEditorDrawer: Writable<ScriptEditorDrawer | undefined>
 	history: History<OpenFlow>

@@ -1,18 +1,21 @@
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
 
-	export let dropdownItems: Array<{
-		label: string
-		onClick: () => void
-		icon?: any
-		selected?: boolean
-	}> = []
+	interface Props {
+		dropdownItems?: Array<{
+			label: string
+			onClick: () => void
+			icon?: any
+			selected?: boolean
+		}>
+		fullMenu?: boolean
+		noTrigger?: boolean
+		close_button?: import('svelte').Snippet
+	}
 
-	export let fullMenu: boolean = false
-	export let noTrigger: boolean = false
-	export const expandRight: boolean = false
+	let { dropdownItems = [], fullMenu = false, noTrigger = false, close_button }: Props = $props()
 
-	let open = false
+	let open = $state(false)
 	let timeout: NodeJS.Timeout | null = null
 
 	function handleMouseEnter() {
@@ -30,17 +33,17 @@
 		open = false
 	}
 
-	let hasCloseButton = $$slots['close button']
+	let hasCloseButton = close_button
 </script>
 
-<!-- svelte-ignore a11y-no-static-element-interactions -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class="flex flex-col relative !overflow-visible w-[33px]"
-	on:mouseenter={handleMouseEnter}
-	on:mouseleave={handleMouseLeave}
+	onmouseenter={handleMouseEnter}
+	onmouseleave={handleMouseLeave}
 >
 	{#if hasCloseButton}
-		<slot name="close button" />
+		{@render close_button?.()}
 	{:else}
 		<div class="w-[31px]"></div>
 	{/if}
@@ -60,14 +63,14 @@
 					class="hover:bg-surface-hover p-2 transition-colors duration-0 w-full {item.selected
 						? 'bg-surface-selected'
 						: 'text-secondary'}"
-					on:click={() => {
+					onclick={() => {
 						item.onClick()
 						open = false
 					}}
 				>
 					<div class="flex flex-row items-center gap-2 min-h-[20px]">
 						{#if item.icon}
-							<svelte:component this={item.icon} size={14} />
+							<item.icon size={14} />
 						{/if}
 
 						{#if open}

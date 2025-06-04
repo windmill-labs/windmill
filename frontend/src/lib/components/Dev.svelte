@@ -11,7 +11,6 @@
 		OpenAPI,
 		type Preview,
 		type OpenFlow,
-		type FlowModule,
 		WorkspaceService,
 		type InputTransform,
 		type TriggersCount
@@ -455,7 +454,7 @@
 
 	const previewArgsStore = writable<Record<string, any>>({})
 	const scriptEditorDrawer = writable(undefined)
-	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
+	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory($flowStore)
 
 	const testStepStore = writable<Record<string, any>>({})

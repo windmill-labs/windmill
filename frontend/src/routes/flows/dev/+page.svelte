@@ -10,7 +10,7 @@
 		FlowInputEditorState
 	} from '$lib/components/flows/types'
 	import { writable } from 'svelte/store'
-	import { OpenAPI, type FlowModule, type OpenFlow, type TriggersCount } from '$lib/gen'
+	import { OpenAPI, type OpenFlow, type TriggersCount } from '$lib/gen'
 	import { initHistory } from '$lib/history'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
@@ -73,7 +73,7 @@
 
 	const previewArgsStore = writable<Record<string, any>>({})
 	const scriptEditorDrawer = writable(undefined)
-	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
+	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory($flowStore)
 
 	const testStepStore = writable<Record<string, any>>({})

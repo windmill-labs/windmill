@@ -13,10 +13,10 @@
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
-	let schema: Record<string, any> | undefined = undefined
+	let schema: Record<string, any> | undefined = $state(undefined)
 
-	let error: string | undefined = undefined
-	let mod: any | undefined = undefined
+	let error: string | undefined = $state(undefined)
+	let mod: any | undefined = $state(undefined)
 	async function loadSchema() {
 		try {
 			const res = await getFirstStepSchema($flowStateStore, flowStore)
@@ -27,7 +27,9 @@
 			error = e
 		}
 	}
-	$: $flowStore && $flowStateStore && loadSchema()
+	$effect(() => {
+		$flowStore && $flowStateStore && loadSchema()
+	})
 
 	function handleClick() {
 		selected = !selected
@@ -39,7 +41,7 @@
 		dispatch('select', undefined)
 	})
 
-	let selected: boolean = false
+	let selected: boolean = $state(false)
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && selected) {
@@ -50,14 +52,16 @@
 		}
 	}
 
-	let firstUpdate = true
-	$: if (schema && !selected && firstUpdate) {
-		firstUpdate = false
-		setTimeout(() => {
-			selected = true
-			dispatch('select', schema)
-		}, 200)
-	}
+	let firstUpdate = $state(true)
+	$effect(() => {
+		if (schema && !selected && firstUpdate) {
+			firstUpdate = false
+			setTimeout(() => {
+				selected = true
+				dispatch('select', schema)
+			}, 200)
+		}
+	})
 
 	export function resetSelected(dispatchEvent?: boolean) {
 		selected = false
@@ -67,7 +71,7 @@
 	}
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} />
 
 <div class="h-full">
 	{#if schema && mod}
@@ -77,10 +81,10 @@
 				selected ? 'bg-surface-selected' : 'hover:bg-surface-hover'
 			)}
 			disabled={!schema}
-			on:click={handleClick}
+			onclick={handleClick}
 		>
 			<FlowModuleSchemaItemViewer
-				on:click={handleClick}
+				onclick={handleClick}
 				deletable={false}
 				id={mod.id}
 				label={mod.summary ||
@@ -90,24 +94,26 @@
 						: 'To be defined')}
 				path={`path` in mod.value && mod.summary ? mod.value.path : ''}
 			>
-				<div slot="icon">
-					{#if mod.value.type === 'rawscript'}
-						<LanguageIcon lang={mod.value.language} width={16} height={16} />
-					{:else if mod.value.type === 'script'}
-						{#if mod.value.path.startsWith('hub/')}
-							<div>
-								<IconedResourceType
-									width="20px"
-									height="20px"
-									name={mod.value.path.split('/')[2]}
-									silent={true}
-								/>
-							</div>
-						{:else}
-							<Building size={14} />
+				{#snippet icon()}
+					<div>
+						{#if mod.value.type === 'rawscript'}
+							<LanguageIcon lang={mod.value.language} width={16} height={16} />
+						{:else if mod.value.type === 'script'}
+							{#if mod.value.path.startsWith('hub/')}
+								<div>
+									<IconedResourceType
+										width="20px"
+										height="20px"
+										name={mod.value.path.split('/')[2]}
+										silent={true}
+									/>
+								</div>
+							{:else}
+								<Building size={14} />
+							{/if}
 						{/if}
-					{/if}
-				</div>
+					</div>
+				{/snippet}
 			</FlowModuleSchemaItemViewer>
 		</button>
 	{:else}
