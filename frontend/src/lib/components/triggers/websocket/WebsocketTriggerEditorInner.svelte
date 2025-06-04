@@ -540,7 +540,7 @@
 														{schema}
 														bind:args={v.runnable_result.args}
 														shouldHideNoInputs
-														class="text-xs"
+														className="text-xs"
 														disabled={!can_write}
 													/>
 												{/await}

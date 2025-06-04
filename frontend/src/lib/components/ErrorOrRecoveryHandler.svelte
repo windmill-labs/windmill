@@ -329,7 +329,7 @@
 				schema={customHandlerSchema}
 				bind:args={handlerExtraArgs}
 				shouldHideNoInputs
-				class="text-xs"
+				className="text-xs"
 			/>
 		{/await}
 		{#if customHandlerSchema && customHandlerSchema.properties && Object.keys(customHandlerSchema.properties).length === 0}
@@ -368,7 +368,7 @@
 				}}
 				bind:args={handlerExtraArgs}
 				shouldHideNoInputs
-				class="text-xs"
+				className="text-xs"
 			/>
 		{/await}
 	{:else if workspaceConnectedToSlack == undefined}

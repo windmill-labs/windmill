@@ -182,7 +182,6 @@
 												.map(([k]) => k)}
 											schema={getSchema(runnable)}
 											bind:args
-											shouldCapitalize
 										/>
 									</div>
 								</Pane>
