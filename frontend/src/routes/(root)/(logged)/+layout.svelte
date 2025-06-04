@@ -458,7 +458,7 @@
 											icon={WandSparkles}
 											label="Ask AI"
 											class="!text-xs"
-											iconClasses="!text-violet-800 dark:!text-violet-400"
+											iconClasses="!text-violet-400 dark:!text-violet-400"
 										/>
 									</div>
 
@@ -634,7 +634,7 @@
 									icon={WandSparkles}
 									label="Ask AI"
 									class="!text-xs"
-									iconClasses="!text-violet-800 dark:!text-violet-400"
+									iconClasses="!text-violet-400 dark:!text-violet-400"
 								/>
 							</div>
 
