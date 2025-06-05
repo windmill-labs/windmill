@@ -129,7 +129,7 @@ lazy_static::lazy_static! {
 
     pub static ref ALL_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(vec![]));
 
-    static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^([\w-]+)\(((?:[\w-])+\+?)+\)$").unwrap();
+    static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^([\w-]+)\(((?:[\w-]+\+)*[\w-]+)\)$").unwrap();
 
     pub static ref DISABLE_BUNDLING: bool = std::env::var("DISABLE_BUNDLING")
     .ok()
@@ -267,7 +267,7 @@ fn format_pull_query(peek: String) -> String {
                 id, workspace_id, parent_job, created_by, created_at, runnable_id,
                 runnable_path, args, kind, trigger, trigger_kind,
                 permissioned_as, permissioned_as_email, script_lang,
-                flow_innermost_root_job, flow_step_id, 
+                flow_innermost_root_job, flow_step_id,
                 same_worker, pre_run_error, visible_to_owner, tag, concurrent_limit,
                 concurrency_time_window_s, timeout, cache_ttl, priority, raw_code, raw_lock,
                 raw_flow, script_entrypoint_override, preprocessed
@@ -275,13 +275,13 @@ fn format_pull_query(peek: String) -> String {
             WHERE id = (SELECT id FROM peek)
         ) SELECT j.id, j.workspace_id, j.parent_job, j.created_by, started_at, scheduled_for,
             j.runnable_id, j.runnable_path, j.args, canceled_by,
-            canceled_reason, j.kind, j.trigger, j.trigger_kind, j.permissioned_as, 
+            canceled_reason, j.kind, j.trigger, j.trigger_kind, j.permissioned_as,
             flow_status, j.script_lang,
-            j.same_worker, j.pre_run_error, j.visible_to_owner, 
+            j.same_worker, j.pre_run_error, j.visible_to_owner,
             j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job,
             j.timeout, j.flow_step_id, j.cache_ttl, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
             j.script_entrypoint_override, j.preprocessed, pj.runnable_path as parent_runnable_path,
-            COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin, 
+            COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
             p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders
         FROM q, j
             LEFT JOIN v2_job_status f USING (id)
@@ -1069,11 +1069,11 @@ pub async fn update_ping_for_failed_init_script_query(
     db: &DB,
 ) -> anyhow::Result<()> {
     sqlx::query!(
-        "UPDATE worker_ping SET 
-ping_at = now(), 
-jobs_executed = 1, 
-current_job_id = $1, 
-current_job_workspace_id = 'admins' 
+        "UPDATE worker_ping SET
+ping_at = now(),
+jobs_executed = 1,
+current_job_id = $1,
+current_job_workspace_id = 'admins'
 WHERE worker = $2",
         last_job_id,
         worker_name
@@ -1519,7 +1519,7 @@ pub struct WorkerConfig {
 
 impl std::fmt::Debug for WorkerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, init_bash: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?} }}", 
+        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, init_bash: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?} }}",
         self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.init_bash, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "))
     }
 }
