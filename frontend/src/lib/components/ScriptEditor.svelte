@@ -22,7 +22,16 @@
 	import { WebsocketProvider } from 'y-websocket'
 	import Modal from './common/modal/Modal.svelte'
 	import DiffEditor from './DiffEditor.svelte'
-	import { Clipboard, CornerDownLeft, ExternalLink, Github, Play, PlayIcon } from 'lucide-svelte'
+	import {
+		Clipboard,
+		CornerDownLeft,
+		ExternalLink,
+		Github,
+		Play,
+		PlayIcon,
+		Wand,
+		WandSparkles
+	} from 'lucide-svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import type { ScriptEditorWhitelabelCustomUi } from './custom_ui'
 	import Tabs from './common/tabs/Tabs.svelte'
@@ -39,7 +48,6 @@
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import TriggerableByAI from './TriggerableByAI.svelte'
-	import WindmillAiIcon from './icons/WindmillAiIcon.svelte'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -486,10 +494,7 @@
 								size="md"
 								usePopoverOverride={!$copilotInfo.enabled}
 								customHiddenIcon={{
-									icon: WindmillAiIcon,
-									props: {
-										className: 'm-[2px]'
-									}
+									icon: WandSparkles
 								}}
 								btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface"
 								on:click={() => {

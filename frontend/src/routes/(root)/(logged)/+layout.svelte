@@ -43,7 +43,7 @@
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
-	import { ArrowLeft, Search } from 'lucide-svelte'
+	import { ArrowLeft, Search, WandSparkles } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
 	import { workspaceAIClients } from '$lib/components/copilot/lib'
 	import { twMerge } from 'tailwind-merge'
@@ -55,7 +55,6 @@
 	import { Menubar } from '$lib/components/meltComponents'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import WindmillAiIcon from '$lib/components/icons/WindmillAiIcon.svelte'
 	import AiChat from '$lib/components/copilot/chat/AIChat.svelte'
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -456,7 +455,7 @@
 											stopPropagationOnClick={true}
 											on:click={() => aiChatManager.toggleOpen()}
 											isCollapsed={false}
-											icon={WindmillAiIcon}
+											icon={WandSparkles}
 											iconProps={{
 												forceDarkMode: true
 											}}
@@ -527,7 +526,7 @@
 									stopPropagationOnClick={true}
 									on:click={() => aiChatManager.toggleOpen()}
 									{isCollapsed}
-									icon={WindmillAiIcon}
+									icon={WandSparkles}
 									iconProps={{
 										forceDarkMode: true
 									}}
@@ -638,7 +637,7 @@
 									stopPropagationOnClick={true}
 									on:click={() => aiChatManager.toggleOpen()}
 									{isCollapsed}
-									icon={WindmillAiIcon}
+									icon={WandSparkles}
 									iconProps={{
 										forceDarkMode: true
 									}}

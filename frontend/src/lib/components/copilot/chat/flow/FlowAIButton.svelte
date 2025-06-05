@@ -6,7 +6,7 @@
 	import { ExternalLink } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { getModifierKey } from '$lib/utils'
-	import WindmillAiIcon from '$lib/components/icons/WindmillAiIcon.svelte'
+	import { WandSparkles } from 'lucide-svelte'
 
 	let { openPanel }: { openPanel: () => void } = $props()
 </script>
@@ -17,7 +17,7 @@
 		variant="border"
 		size="xs"
 		on:click={onClick}
-		startIcon={{ icon: WindmillAiIcon, props: { className: 'm-[1px]' } }}
+		startIcon={{ icon: WandSparkles }}
 		iconOnly
 		btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface"
 	>
