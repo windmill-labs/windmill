@@ -4,6 +4,7 @@ export const zIndexes = {
 	splitPanelHandle: 1001,
 	colorInput: 1002,
 	disposables: 1100, // Modals and Drawers
+	aiChat: 1200,
 	svelteSelectOptions: 5000,
 	popover: 5001,
 	contextMenu: 6000,

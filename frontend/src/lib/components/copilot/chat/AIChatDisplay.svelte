@@ -15,10 +15,9 @@
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import Markdown from 'svelte-exmarkdown'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 
 	let {
-		allowedModes,
 		messages,
 		pastChats,
 		hasDiff,
@@ -36,11 +35,6 @@
 		disabledMessage = '',
 		suggestions = []
 	}: {
-		allowedModes: {
-			script: boolean
-			flow: boolean
-			navigator: boolean
-		}
 		messages: DisplayMessage[]
 		pastChats: { id: string; title: string }[]
 		hasDiff?: boolean
@@ -330,17 +324,17 @@
 				<ChatQuickActions {askAi} {diffMode} />
 			{/if}
 			{#if disabled}
-				<div class="text-tertiary text-xs mt-2 px-2">
+				<div class="text-tertiary text-xs my-2 px-2">
 					<Markdown md={disabledMessage} />
 				</div>
 			{:else}
 				<div class="flex flex-row gap-2 min-w-0">
-					<ChatMode {allowedModes} />
+					<ChatMode />
 					<ProviderModelSelector />
 				</div>
 			{/if}
 		</div>
-		{#if aiChatManager.mode === 'navigator' && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
+		{#if (aiChatManager.mode === AIMode.NAVIGATOR || aiChatManager.mode === AIMode.ASK) && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
 			<div class="px-2 mt-4">
 				<div class="flex flex-col gap-2">
 					{#each suggestions as suggestion}

@@ -45,7 +45,7 @@
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import { getStringError } from './copilot/chat/utils'
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
-	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
+	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
 	import TriggerableByAI from './TriggerableByAI.svelte'
 
 	// Exported
@@ -202,7 +202,7 @@
 	onMount(() => {
 		inferSchema(code)
 		loadPastTests()
-		aiChatManager.changeMode('script')
+		aiChatManager.changeMode(AIMode.SCRIPT)
 	})
 
 	setLicense()
@@ -279,7 +279,7 @@
 		aiChatManager.scriptEditorApplyCode = undefined
 		aiChatManager.scriptEditorShowDiffMode = undefined
 		aiChatManager.scriptEditorOptions = undefined
-		aiChatManager.changeMode('navigator')
+		aiChatManager.changeMode(AIMode.NAVIGATOR)
 	})
 
 	function asKind(str: string | undefined) {

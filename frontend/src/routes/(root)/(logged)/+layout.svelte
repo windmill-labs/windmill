@@ -56,6 +56,7 @@
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import AiChat from '$lib/components/copilot/chat/AIChat.svelte'
+	import { zIndexes } from '$lib/zIndexes'
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
 	let globalSearchModal: GlobalSearchModal | undefined = undefined
@@ -708,7 +709,11 @@
 					</main>
 				</div>
 			</Pane>
-			<Pane bind:size={aiChatManager.size} minSize={15} class="flex flex-col min-h-0">
+			<Pane
+				bind:size={aiChatManager.size}
+				minSize={15}
+				class={`flex flex-col min-h-0 z-[${zIndexes.aiChat}]`}
+			>
 				<AiChat />
 			</Pane>
 		</Splitpanes>

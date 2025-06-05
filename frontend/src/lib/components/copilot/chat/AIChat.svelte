@@ -9,7 +9,7 @@
 		userStore,
 		workspaceStore
 	} from '$lib/stores'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import { base } from '$lib/base'
 	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 
@@ -39,7 +39,7 @@
 			removeDiff?: boolean
 			addBackCode?: boolean
 			instructions?: string
-			mode?: 'script' | 'flow' | 'navigator'
+			mode?: AIMode
 			lang?: ScriptLang | 'bunnative'
 			isPreprocessor?: boolean
 		} = {}
@@ -109,7 +109,6 @@
 
 <AIChatDisplay
 	bind:this={aiChatDisplay}
-	allowedModes={aiChatManager.allowedModes}
 	pastChats={historyManager.getPastChats()}
 	bind:selectedContext={
 		() => aiChatManager.contextManager.getSelectedContext(),
