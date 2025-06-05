@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO metrics (id, value) VALUES ('telemetry', $1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0cb84cbb9083d967cc8be1cccab5be61080c1003eef51eea41862b25c2b93de6"
+}

@@ -9,7 +9,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
     sed -i '' 's/^# \(samael = { git="https:\/\/github.com\/njaremko\/samael", rev="464d015e3ae393e4b5dd00b4d6baa1b617de0dd6", features = \["xmlsec"\] }\)/\1/' Cargo.toml
 fi
 
-cargo sqlx prepare --workspace -- --all-targets --features $(./all_features_oss.sh)
+cargo sqlx prepare --workspace -- --all-targets --all-features
 
 # Undo the samael changes on macOS
 if [[ "$(uname)" == "Darwin" ]]; then

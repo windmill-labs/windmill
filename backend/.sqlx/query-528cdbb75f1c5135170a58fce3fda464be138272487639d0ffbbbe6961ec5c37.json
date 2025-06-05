@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE job_logs SET logs = $1, log_offset = $2, \n        log_file_index = array_append(coalesce(log_file_index, array[]::text[]), $3) \n        WHERE workspace_id = $4 AND job_id = $5",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4",
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "528cdbb75f1c5135170a58fce3fda464be138272487639d0ffbbbe6961ec5c37"
+}

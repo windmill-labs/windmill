@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE \n                sqs_trigger \n            SET \n                aws_auth_resource_type = $1,\n                aws_resource_path = $2,\n                queue_url = $3,\n                message_attributes = $4, \n                is_flow = $5, \n                edited_by = $6, \n                email = $7,\n                script_path = $8,\n                path = $9,\n                edited_at = now(), \n                error = NULL,\n                server_id = NULL\n            WHERE \n                workspace_id = $10 AND \n                path = $11\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "aws_auth_resource_type",
+            "kind": {
+              "Enum": [
+                "oidc",
+                "credentials"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Varchar",
+        "TextArray",
+        "Bool",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8490024b96aa689d3c1bc5cbf94fcd8c5491732818404fee2397f00cccee0ad3"
+}
