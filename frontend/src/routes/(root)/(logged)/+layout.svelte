@@ -672,7 +672,7 @@
 						<div class="relative w-full flex-1 flex flex-col">
 							<div
 								class={classNames(
-									'py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-7xl mx-auto md:hidden',
+									'pt-2 px-4 sm:px-4 flex flex-row justify-between items-center shadow-sm max-w-7xl md:hidden',
 									devOnly || $userStore?.operator ? 'hidden' : ''
 								)}
 							>
@@ -682,7 +682,7 @@
 									on:click={() => {
 										menuOpen = true
 									}}
-									class="h-8 w-8 inline-flex items-center justify-center rounded-md text-tertiary hover:text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
+									class="h-8 w-8 inline-flex rounded-md text-tertiary hover:text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
 								>
 									<svg
 										class="h-6 w-6"
