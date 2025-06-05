@@ -1085,21 +1085,20 @@ pub async fn get_tracked_relations(
         let columns: Option<Vec<String>> = row.get("columns");
         let where_clause: Option<String> = row.get("where_clause");
 
-        let schema_name = schema_name.ok_or_else(|| Error::Anyhow {
-            error: anyhow!(
+        let schema_name = schema_name.ok_or_else::<Error, _>( || {
+            anyhow!(
                 "Unexpected NULL `schema_name` in publication entry (pubname: `{}`). This should never happen unless PostgreSQL internals are corrupted.",
                 publication_name,
-            ),
-            location: "postgres_triggers/handler.rs@1093".to_string(),
-        })?;
+            ).into()
+        }
+        )?;
 
-        let table_name = table_name.ok_or_else(|| Error::Anyhow {
-            error: anyhow!(
+        let table_name = table_name.ok_or_else::<Error, _>(|| {
+            anyhow!(
                 "Unexpected NULL `table_name` for schema `{}` in publication `{}`. This should never happen unless PostgreSQL internals are corrupted.",
                 schema_name,
                 publication_name,
-            ),
-            location: "postgres_triggers/handler.rs@1102".to_string(),
+            ).into()
         })?;
 
         let entry = table_to_track.entry(schema_name.clone());
@@ -1445,12 +1444,7 @@ pub async fn create_template_script(
 
     let relations = match relations {
         Some(r) => r,
-        None => {
-            return Err(Error::Anyhow {
-                error: anyhow!("You must at least choose schema to fetch table from"),
-                location: "postgres_trigger/handler.rs@1475".to_string(),
-            })
-        }
+        None => return Err(anyhow!("You must at least choose schema to fetch table from").into()),
     };
 
     let pg_connection: Client = get_default_pg_connection(
