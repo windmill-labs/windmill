@@ -296,6 +296,7 @@ impl PyV {
     ) -> Self {
         let mut err = None;
         let pyv = match INSTANCE_PYTHON_VERSION.read().await.clone() {
+            Some(v) if &v == "default" => PyVAlias::default().into(),
             Some(v) => pep440_rs::Version::from_str(&v).unwrap_or_else(|_| {
                 let v = PyVAlias::default().into();
                 err = Some(format!("\nCannot parse INSTANCE_PYTHON_VERSION ({:?}), fallback to latest_stable ({v:?})", *INSTANCE_PYTHON_VERSION));
