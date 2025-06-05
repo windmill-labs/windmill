@@ -3,9 +3,10 @@
 	import { copilotInfo } from '$lib/stores'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DarkPopover from '$lib/components/Popover.svelte'
-	import { ExternalLink, WandSparkles } from 'lucide-svelte'
+	import { ExternalLink } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { getModifierKey } from '$lib/utils'
+	import { WandSparkles } from 'lucide-svelte'
 
 	let { openPanel }: { openPanel: () => void } = $props()
 </script>

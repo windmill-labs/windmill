@@ -53,9 +53,9 @@
 	import { setContext } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
-	import GlobalChat from '$lib/components/copilot/chat/navigator/GlobalChat.svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import AiChat from '$lib/components/copilot/chat/AIChat.svelte'
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
 	let globalSearchModal: GlobalSearchModal | undefined = undefined
@@ -456,6 +456,9 @@
 											on:click={() => aiChatManager.toggleOpen()}
 											isCollapsed={false}
 											icon={WandSparkles}
+											iconProps={{
+												forceDarkMode: true
+											}}
 											label="Ask AI"
 											class="!text-xs"
 											iconClasses="!text-violet-400 dark:!text-violet-400"
@@ -524,6 +527,9 @@
 									on:click={() => aiChatManager.toggleOpen()}
 									{isCollapsed}
 									icon={WandSparkles}
+									iconProps={{
+										forceDarkMode: true
+									}}
 									label="Ask AI"
 									class="!text-xs"
 									iconClasses="!text-violet-400 dark:!text-violet-400"
@@ -632,6 +638,9 @@
 									on:click={() => aiChatManager.toggleOpen()}
 									{isCollapsed}
 									icon={WandSparkles}
+									iconProps={{
+										forceDarkMode: true
+									}}
 									label="Ask AI"
 									class="!text-xs"
 									iconClasses="!text-violet-400 dark:!text-violet-400"
@@ -650,7 +659,7 @@
 			</div>
 		{/if}
 		<Splitpanes horizontal={false} class="flex-1 min-h-0">
-			<Pane size={100 - aiChatManager.size} minSize={50} class="flex flex-col min-h-0">
+			<Pane size={99.8 - aiChatManager.size} minSize={50} class="flex flex-col min-h-0">
 				<div
 					id="content"
 					class={classNames(
@@ -700,7 +709,7 @@
 				</div>
 			</Pane>
 			<Pane bind:size={aiChatManager.size} minSize={15} class="flex flex-col min-h-0">
-				<GlobalChat />
+				<AiChat />
 			</Pane>
 		</Splitpanes>
 	</div>

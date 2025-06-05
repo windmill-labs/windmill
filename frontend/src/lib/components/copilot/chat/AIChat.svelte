@@ -1,6 +1,6 @@
 <script lang="ts">
 	import AIChatDisplay from './AIChatDisplay.svelte'
-	import { onDestroy, untrack, type Snippet } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import { type ScriptLang } from '$lib/gen'
 	import {
 		copilotInfo,
@@ -11,13 +11,7 @@
 	} from '$lib/stores'
 	import { aiChatManager } from './AIChatManager.svelte'
 	import { base } from '$lib/base'
-
-	interface Props {
-		headerLeft?: Snippet
-		headerRight?: Snippet
-	}
-
-	let { headerLeft, headerRight }: Props = $props()
+	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const hasCopilot = $derived($copilotInfo.enabled)
@@ -97,9 +91,21 @@
 		if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
 			e.preventDefault()
 			aiChatManager.toggleOpen()
+			aiChatDisplay?.focusInput()
 		}
 	}}
 />
+
+{#snippet headerLeft()}
+	<HideButton
+		hidden={false}
+		direction="right"
+		panelName="AI"
+		shortcut="L"
+		size="md"
+		on:click={() => aiChatManager.toggleOpen()}
+	/>
+{/snippet}
 
 <AIChatDisplay
 	bind:this={aiChatDisplay}
@@ -134,7 +140,6 @@
 	{cancel}
 	askAi={aiChatManager.askAi}
 	{headerLeft}
-	{headerRight}
 	hasDiff={aiChatManager.scriptEditorOptions &&
 		!!aiChatManager.scriptEditorOptions.lastDeployedCode &&
 		aiChatManager.scriptEditorOptions.lastDeployedCode !== aiChatManager.scriptEditorOptions.code}
