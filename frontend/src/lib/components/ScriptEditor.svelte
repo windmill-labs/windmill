@@ -29,7 +29,6 @@
 		Github,
 		Play,
 		PlayIcon,
-		Wand,
 		WandSparkles
 	} from 'lucide-svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
