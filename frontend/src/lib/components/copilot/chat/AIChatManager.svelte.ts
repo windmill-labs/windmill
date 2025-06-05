@@ -489,7 +489,7 @@ class AIChatManager {
 		if (!this.open) {
 			this.toggleOpen()
 		}
-		this.changeMode('script')
+		this.changeMode(AIMode.SCRIPT)
 		this.instructions = 'Fix the error'
 		this.contextManager?.setFixContext()
 		this.sendRequest()
@@ -499,7 +499,7 @@ class AIChatManager {
 		if (!this.open) {
 			this.toggleOpen()
 		}
-		this.changeMode('script')
+		this.changeMode(AIMode.SCRIPT)
 		this.contextManager?.addSelectedLinesToContext(lines, startLine, endLine)
 	}
 
