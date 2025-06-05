@@ -749,12 +749,6 @@
 	}
 
 	let flowPreviewButtons: FlowPreviewButtons
-
-	let flowEditor: FlowEditor | undefined = undefined
-	$: if (flowEditor) {
-		flowCopilotContext.toggleAiPanel = flowEditor.toggleAiPanel
-		flowCopilotContext.addSelectedLinesToAiChat = flowEditor.addSelectedLinesToAiChat
-	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -971,7 +965,6 @@
 			<!-- metadata -->
 			{#if $flowStateStore}
 				<FlowEditor
-					bind:this={flowEditor}
 					{disabledFlowInputs}
 					disableAi={disableAi || customUi?.stepInputs?.ai == false}
 					disableSettings={customUi?.settingsPanel === false}

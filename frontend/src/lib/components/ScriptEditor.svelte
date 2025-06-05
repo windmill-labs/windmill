@@ -45,7 +45,7 @@
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import { getStringError } from './copilot/chat/utils'
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
-	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
+	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
 	import TriggerableByAI from './TriggerableByAI.svelte'
 
 	// Exported
@@ -202,7 +202,7 @@
 	onMount(() => {
 		inferSchema(code)
 		loadPastTests()
-		aiChatManager.changeMode('script')
+		aiChatManager.changeMode(AIMode.SCRIPT)
 	})
 
 	setLicense()
@@ -279,7 +279,7 @@
 		aiChatManager.scriptEditorApplyCode = undefined
 		aiChatManager.scriptEditorShowDiffMode = undefined
 		aiChatManager.scriptEditorOptions = undefined
-		aiChatManager.changeMode('navigator')
+		aiChatManager.changeMode(AIMode.NAVIGATOR)
 	})
 
 	function asKind(str: string | undefined) {
@@ -311,16 +311,6 @@
 	let codePanelSize = 70
 	let testPanelSize = 30
 	let storedTestPanelSize = testPanelSize
-
-	function addSelectedLinesToAiChat(
-		e: CustomEvent<{ lines: string; startLine: number; endLine: number }>
-	) {
-		if (!aiChatManager.open) {
-			aiChatManager.toggleOpen()
-		}
-		aiChatManager.addSelectedLinesToContext(e.detail.lines, e.detail.startLine, e.detail.endLine)
-		// aiChatManager.focusTextArea() TODO: Add this back
-	}
 
 	$: !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') &&
 		!aiChatManager.open &&
@@ -530,7 +520,10 @@
 						}}
 						on:saveDraft
 						on:toggleAiPanel={() => aiChatManager.toggleOpen()}
-						on:addSelectedLinesToAiChat={addSelectedLinesToAiChat}
+						on:addSelectedLinesToAiChat={(e) => {
+							const { lines, startLine, endLine } = e.detail
+							aiChatManager.addSelectedLinesToContext(lines, startLine, endLine)
+						}}
 						on:toggleTestPanel={toggleTestPanel}
 						cmdEnterAction={async () => {
 							await inferSchema(code)
@@ -678,10 +671,6 @@
 					<Pane size={67} class="relative">
 						<LogPanel
 							bind:setFocusToLogs
-							on:fix={() => {
-								aiChatManager.fix()
-							}}
-							fixChatMode
 							{lang}
 							previewJob={testJob}
 							{pastPreviews}

@@ -13,7 +13,7 @@
 	import type { Flow } from '$lib/gen'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
-	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
+	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import TriggerableByAI from '../TriggerableByAI.svelte'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -39,20 +39,12 @@
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
 	})
 
-	export function addSelectedLinesToAiChat(lines: string, startLine: number, endLine: number) {
-		aiChatManager.addSelectedLinesToContext(lines, startLine, endLine)
-		if (!aiChatManager.open) {
-			aiChatManager.openChat()
-			aiChatManager.changeMode('script')
-		}
-	}
-
 	onMount(() => {
-		aiChatManager.changeMode('flow')
+		aiChatManager.changeMode(AIMode.FLOW)
 	})
 
 	onDestroy(() => {
-		aiChatManager.changeMode('navigator')
+		aiChatManager.changeMode(AIMode.NAVIGATOR)
 	})
 </script>
 
