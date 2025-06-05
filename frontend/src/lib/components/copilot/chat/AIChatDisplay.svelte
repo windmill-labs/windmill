@@ -15,7 +15,7 @@
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import Markdown from 'svelte-exmarkdown'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 
 	let {
 		messages,
@@ -334,7 +334,7 @@
 				</div>
 			{/if}
 		</div>
-		{#if aiChatManager.mode === 'navigator' && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
+		{#if (aiChatManager.mode === AIMode.NAVIGATOR || aiChatManager.mode === AIMode.ASK) && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
 			<div class="px-2 mt-4">
 				<div class="flex flex-col gap-2">
 					{#each suggestions as suggestion}
