@@ -372,7 +372,7 @@
 			return
 		}
 		code = ncode
-		dispatch('change', ncode)
+		dispatch('change', { code: ncode })
 	}
 
 	export function append(code: string): void {
