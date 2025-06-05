@@ -390,10 +390,6 @@
 											on:addSelectedLinesToAiChat={(e) => {
 												const { lines, startLine, endLine } = e.detail
 												aiChatManager.addSelectedLinesToContext(lines, startLine, endLine)
-												if (!aiChatManager.open) {
-													aiChatManager.openChat()
-													aiChatManager.changeMode('script')
-												}
 											}}
 											on:toggleAiPanel={() => {
 												aiChatManager.toggleOpen()

@@ -39,22 +39,6 @@
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
 	})
 
-	export function addSelectedLinesToAiChat(lines: string, startLine: number, endLine: number) {
-		aiChatManager.addSelectedLinesToContext(lines, startLine, endLine)
-		if (!aiChatManager.open) {
-			aiChatManager.openChat()
-			aiChatManager.changeMode('script')
-		}
-	}
-
-	export function aiFix() {
-		aiChatManager.fix()
-		if (!aiChatManager.open) {
-			aiChatManager.openChat()
-			aiChatManager.changeMode('script')
-		}
-	}
-
 	onMount(() => {
 		aiChatManager.changeMode('flow')
 	})
