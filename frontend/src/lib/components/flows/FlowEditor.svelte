@@ -47,6 +47,14 @@
 		}
 	}
 
+	export function aiFix() {
+		aiChatManager.fix()
+		if (!aiChatManager.open) {
+			aiChatManager.openChat()
+			aiChatManager.changeMode('script')
+		}
+	}
+
 	onMount(() => {
 		aiChatManager.changeMode('flow')
 	})

@@ -473,12 +473,20 @@ class AIChatManager {
 	}
 
 	fix = () => {
+		if (!this.open) {
+			this.toggleOpen()
+		}
+		this.changeMode('script')
 		this.instructions = 'Fix the error'
 		this.contextManager?.setFixContext()
 		this.sendRequest()
 	}
 
 	addSelectedLinesToContext = (lines: string, startLine: number, endLine: number) => {
+		if (!this.open) {
+			this.toggleOpen()
+		}
+		this.changeMode('script')
 		this.contextManager?.addSelectedLinesToContext(lines, startLine, endLine)
 	}
 
