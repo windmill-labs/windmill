@@ -1011,33 +1011,37 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED && !queued_job.is_flow() && _duration > 1000 {
-        let additional_usage = _duration / 1000;
-        let w_id = &queued_job.workspace_id;
-        let premium_workspace = windmill_common::workspaces::is_premium_workspace(db, w_id).await;
-        let _ = sqlx::query!(
-            "INSERT INTO usage (id, is_workspace, month_, usage) 
-            VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2) 
-            ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2",
-            w_id,
-            additional_usage as i32
-        )
-        .execute(db)
-        .await
-        .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")));
-
-        if !premium_workspace {
+        let db = db.clone();
+        let workspace_id = queued_job.workspace_id.clone();
+        let permissioned_as_email = queued_job.permissioned_as_email.clone();
+        tokio::task::spawn(async move {
+            let additional_usage = _duration / 1000;
+            let premium_workspace = windmill_common::workspaces::is_premium_workspace(&db, &workspace_id).await;
             let _ = sqlx::query!(
                 "INSERT INTO usage (id, is_workspace, month_, usage) 
-                VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2) 
+                VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2) 
                 ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2",
-                queued_job.permissioned_as_email,
+                workspace_id,
                 additional_usage as i32
             )
-            .execute(db)
+            .execute(&db)
             .await
             .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")));
-        }
+
+            if !premium_workspace {
+                let _ = sqlx::query!(
+                    "INSERT INTO usage (id, is_workspace, month_, usage) 
+                    VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2) 
+                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2",
+                    permissioned_as_email,
+                    additional_usage as i32
+                )
+                .execute(&db)
+                .await
+            .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")));
+      }});
     }
+    
 
     #[cfg(feature = "enterprise")]
     if !success {
