@@ -28,11 +28,19 @@ import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
 import type { DBSchemas } from '$lib/stores'
+import { askTools, prepareAskSystemMessage } from './ask/core'
 
 type TriggerablesMap = Record<
 	string,
 	{ description: string; onTrigger: ((value?: string) => void) | undefined }
 >
+
+export enum AIMode {
+	SCRIPT = 'script',
+	FLOW = 'flow',
+	NAVIGATOR = 'navigator',
+	ASK = 'ask'
+}
 
 class AIChatManager {
 	DEFAULT_SIZE = 22
@@ -40,11 +48,11 @@ class AIChatManager {
 	CONSIDERATIONS:
 	 - You are provided with a tool to switch to navigation mode, only use it when you are sure that the user is asking you to navigate the application or help them find something. Do not use it otherwise.
 	`
-
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
 	abortController: AbortController | undefined = undefined
 
+	mode = $state<AIMode>(AIMode.NAVIGATOR)
 	size = $state<number>(localStorage.getItem('ai-chat-open') === 'true' ? this.DEFAULT_SIZE : 0)
 	savedSize = $state<number>(0)
 	instructions = $state<string>('')
@@ -66,29 +74,29 @@ class AIChatManager {
 	scriptEditorApplyCode = $state<((code: string) => void) | undefined>(undefined)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
-	mode = $state<'script' | 'flow' | 'navigator'>('navigator')
 	pendingNewCode = $state<string | undefined>(undefined)
 
-	allowedModes = $derived({
+	allowedModes: Record<AIMode, boolean> = $derived({
 		script: this.scriptEditorOptions !== undefined,
 		flow: this.flowAiChatHelpers !== undefined,
-		navigator: true
+		navigator: true,
+		ask: true
 	})
 
 	open = $derived(this.size > 0)
 
-	updateMode(currentMode: 'script' | 'flow' | 'navigator') {
+	updateMode(currentMode: AIMode) {
 		if (
 			!this.allowedModes[currentMode] &&
 			Object.keys(this.allowedModes).filter((k) => this.allowedModes[k]).length === 1
 		) {
 			const firstKey = Object.keys(this.allowedModes).filter((k) => this.allowedModes[k])[0]
-			this.changeMode(firstKey as 'script' | 'flow' | 'navigator')
+			this.changeMode(firstKey as AIMode)
 		}
 	}
 
 	changeMode(
-		mode: 'script' | 'flow' | 'navigator',
+		mode: AIMode,
 		pendingPrompt?: string,
 		options?: {
 			closeScriptSettings?: boolean
@@ -96,7 +104,7 @@ class AIChatManager {
 	) {
 		this.mode = mode
 		this.pendingPrompt = pendingPrompt ?? ''
-		if (mode === 'script') {
+		if (mode === AIMode.SCRIPT) {
 			this.systemMessage = prepareScriptSystemMessage()
 			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
 			const context = this.contextManager.getSelectedContext()
@@ -111,19 +119,23 @@ class AIChatManager {
 					closeComponent.onTrigger?.()
 				}
 			}
-		} else if (mode === 'flow') {
+		} else if (mode === AIMode.FLOW) {
 			this.systemMessage = prepareFlowSystemMessage()
 			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
 			this.tools = [this.changeModeTool, ...flowTools]
 			this.helpers = this.flowAiChatHelpers
-		} else if (mode === 'navigator') {
+		} else if (mode === AIMode.NAVIGATOR) {
 			this.systemMessage = prepareNavigatorSystemMessage()
 			this.tools = [this.changeModeTool, ...navigatorTools]
+			this.helpers = {}
+		} else if (mode === AIMode.ASK) {
+			this.systemMessage = prepareAskSystemMessage()
+			this.tools = [...askTools]
 			this.helpers = {}
 		}
 	}
 
-	canApplyCode = $derived(this.allowedModes.script && this.mode === 'script')
+	canApplyCode = $derived(this.allowedModes.script && this.mode === AIMode.SCRIPT)
 
 	private changeModeTool = {
 		def: {
@@ -152,7 +164,7 @@ class AIChatManager {
 		},
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			toolCallbacks.onToolCall(toolId, 'Switching to ' + args.mode + ' mode...')
-			this.changeMode(args.mode as 'script' | 'flow' | 'navigator', args.pendingPrompt, {
+			this.changeMode(args.mode as AIMode, args.pendingPrompt, {
 				closeScriptSettings: true
 			})
 			toolCallbacks.onFinishToolCall(toolId, 'Switched to ' + args.mode + ' mode')
@@ -222,18 +234,18 @@ class AIChatManager {
 				let pendingPrompt = this.pendingPrompt
 				let pendingUserMessage: ChatCompletionUserMessageParam | undefined = undefined
 				if (pendingPrompt) {
-					if (this.mode === 'script') {
+					if (this.mode === AIMode.SCRIPT) {
 						pendingUserMessage = await prepareScriptUserMessage(
 							pendingPrompt,
 							this.scriptEditorOptions?.lang as ScriptLang | 'bunnative',
 							this.contextManager.getSelectedContext()
 						)
-					} else if (this.mode === 'flow') {
+					} else if (this.mode === AIMode.FLOW) {
 						pendingUserMessage = prepareFlowUserMessage(
 							pendingPrompt,
 							this.flowAiChatHelpers!.getFlowAndSelectedId()
 						)
-					} else if (this.mode === 'navigator') {
+					} else if (this.mode === AIMode.NAVIGATOR) {
 						pendingUserMessage = prepareNavigatorUserMessage(pendingPrompt)
 					}
 					this.pendingPrompt = ''
@@ -327,15 +339,15 @@ class AIChatManager {
 			removeDiff?: boolean
 			addBackCode?: boolean
 			instructions?: string
-			mode?: 'script' | 'flow' | 'navigator'
+			mode?: AIMode
 			lang?: ScriptLang | 'bunnative'
 			isPreprocessor?: boolean
 		} = {}
 	) => {
 		if (options.mode) {
-			this.changeMode(options.mode, '')
+			this.changeMode(options.mode)
 		} else {
-			this.changeMode(this.mode, '')
+			this.changeMode(this.mode)
 		}
 		if (options.instructions) {
 			this.instructions = options.instructions
@@ -345,7 +357,7 @@ class AIChatManager {
 		}
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
-			if (this.mode === 'script') {
+			if (this.mode === AIMode.SCRIPT) {
 				this.contextManager?.updateContextOnRequest(options)
 			}
 			this.loading = true
@@ -357,13 +369,13 @@ class AIChatManager {
 				{
 					role: 'user',
 					content: this.instructions,
-					contextElements: this.mode === 'script' ? oldSelectedContext : undefined
+					contextElements: this.mode === AIMode.SCRIPT ? oldSelectedContext : undefined
 				}
 			]
 			const oldInstructions = this.instructions
 			this.instructions = ''
 
-			if (this.mode === 'script' && !this.scriptEditorOptions && !options.lang) {
+			if (this.mode === AIMode.SCRIPT && !this.scriptEditorOptions && !options.lang) {
 				throw new Error('No script options passed')
 			}
 
@@ -372,9 +384,9 @@ class AIChatManager {
 				this.scriptEditorOptions?.path === 'preprocessor' || options.isPreprocessor
 
 			const userMessage =
-				this.mode === 'flow'
+				this.mode === AIMode.FLOW
 					? prepareFlowUserMessage(oldInstructions, this.flowAiChatHelpers!.getFlowAndSelectedId())
-					: this.mode === 'navigator'
+					: this.mode === AIMode.NAVIGATOR
 						? prepareNavigatorUserMessage(oldInstructions)
 						: await prepareScriptUserMessage(oldInstructions, lang, oldSelectedContext, {
 								isPreprocessor
@@ -405,7 +417,7 @@ class AIChatManager {
 									role: 'assistant',
 									content: this.currentReply,
 									contextElements:
-										this.mode === 'script'
+										this.mode === AIMode.SCRIPT
 											? oldSelectedContext.filter((c) => c.type === 'code')
 											: undefined
 								}
@@ -433,7 +445,7 @@ class AIChatManager {
 				}
 			}
 
-			if (this.mode === 'flow' && !this.flowAiChatHelpers) {
+			if (this.mode === AIMode.FLOW && !this.flowAiChatHelpers) {
 				throw new Error('No flow helpers found')
 			}
 			await this.chatRequest({
@@ -447,7 +459,7 @@ class AIChatManager {
 						role: 'assistant',
 						content: this.currentReply,
 						contextElements:
-							this.mode === 'script'
+							this.mode === AIMode.SCRIPT
 								? oldSelectedContext.filter((c) => c.type === 'code')
 								: undefined
 					}
@@ -505,7 +517,7 @@ class AIChatManager {
 		this.flowAiChatHelpers.selectStep(moduleId)
 		await this.sendRequest({
 			instructions: instructions,
-			mode: 'script',
+			mode: AIMode.SCRIPT,
 			lang: lang,
 			isPreprocessor: moduleId === 'preprocessor'
 		})

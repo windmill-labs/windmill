@@ -234,51 +234,53 @@ async function getDocumentation(args: { request: string }): Promise<string> {
 	return data.choices[0].message.content
 }
 
-export const navigatorTools: Tool<{}>[] = [
-	{
-		def: GET_TRIGGERABLE_COMPONENTS_TOOL,
-		fn: async ({ toolId, toolCallbacks }) => {
-			toolCallbacks.onToolCall(toolId, 'Looking for screen components...')
-			const components = getTriggerableComponents()
-			toolCallbacks.onFinishToolCall(toolId, 'Retrieved screen components')
-			return components
-		}
-	},
-	{
-		def: EXECUTE_COMMAND_TOOL,
-		fn: async ({ args, toolId, toolCallbacks }) => {
-			toolCallbacks.onToolCall(toolId, 'Clicking on component...')
-			const result = triggerComponent(args)
-			toolCallbacks.onFinishToolCall(
-				toolId,
-				'Clicked ' + args.description.charAt(0).toLowerCase() + args.description.slice(1)
-			)
-			return result
-		}
-	},
-	{
-		def: GET_DOCUMENTATION_TOOL,
-		fn: async ({ args, toolId, toolCallbacks }) => {
-			toolCallbacks.onToolCall(toolId, 'Getting documentation...')
-			try {
-				const docResult = await getDocumentation(args)
-				toolCallbacks.onFinishToolCall(toolId, 'Retrieved documentation')
-				return docResult
-			} catch (error) {
-				toolCallbacks.onFinishToolCall(toolId, 'Failed to get documentation')
-				console.error('Error getting documentation:', error)
-				return 'Failed to get documentation, pursuing with the user request...'
-			}
-		}
-	},
-	{
-		def: GET_CURRENT_PAGE_NAME_TOOL,
-		fn: async ({ toolId, toolCallbacks }) => {
-			const pageName = getCurrentPageName()
-			toolCallbacks.onFinishToolCall(toolId, 'Retrieved current page name')
-			return pageName
-		}
+const triggerComponentTool: Tool<{}> = {
+	def: EXECUTE_COMMAND_TOOL,
+	fn: async ({ args, toolId, toolCallbacks }) => {
+		toolCallbacks.onToolCall(toolId, 'Clicking on component...')
+		const result = triggerComponent(args)
+		toolCallbacks.onFinishToolCall(
+			toolId,
+			'Clicked ' + args.description.charAt(0).toLowerCase() + args.description.slice(1)
+		)
+		return result
 	}
+}
+
+const getTriggerableComponentsTool: Tool<{}> = {
+	def: GET_TRIGGERABLE_COMPONENTS_TOOL,
+	fn: async ({ toolId, toolCallbacks }) => {
+		toolCallbacks.onToolCall(toolId, 'Looking for screen components...')
+		const components = getTriggerableComponents()
+		toolCallbacks.onFinishToolCall(toolId, 'Retrieved screen components')
+		return components
+	}
+}
+
+const getCurrentPageNameTool: Tool<{}> = {
+	def: GET_CURRENT_PAGE_NAME_TOOL,
+	fn: async ({ toolId, toolCallbacks }) => {
+		const pageName = getCurrentPageName()
+		toolCallbacks.onFinishToolCall(toolId, 'Retrieved current page name')
+		return pageName
+	}
+}
+
+export const getDocumentationTool: Tool<{}> = {
+	def: GET_DOCUMENTATION_TOOL,
+	fn: async ({ args, toolId, toolCallbacks }) => {
+		toolCallbacks.onToolCall(toolId, 'Getting documentation...')
+		const docResult = await getDocumentation(args)
+		toolCallbacks.onFinishToolCall(toolId, 'Retrieved documentation')
+		return docResult
+	}
+}
+
+export const navigatorTools: Tool<{}>[] = [
+	getTriggerableComponentsTool,
+	triggerComponentTool,
+	getDocumentationTool,
+	getCurrentPageNameTool
 ]
 
 export function prepareNavigatorSystemMessage(): ChatCompletionSystemMessageParam {

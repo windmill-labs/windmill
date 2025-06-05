@@ -18,7 +18,6 @@
 	import { aiChatManager } from './AIChatManager.svelte'
 
 	let {
-		allowedModes,
 		messages,
 		pastChats,
 		hasDiff,
@@ -36,11 +35,6 @@
 		disabledMessage = '',
 		suggestions = []
 	}: {
-		allowedModes: {
-			script: boolean
-			flow: boolean
-			navigator: boolean
-		}
 		messages: DisplayMessage[]
 		pastChats: { id: string; title: string }[]
 		hasDiff?: boolean
@@ -330,12 +324,12 @@
 				<ChatQuickActions {askAi} {diffMode} />
 			{/if}
 			{#if disabled}
-				<div class="text-tertiary text-xs mt-2 px-2">
+				<div class="text-tertiary text-xs my-2 px-2">
 					<Markdown md={disabledMessage} />
 				</div>
 			{:else}
 				<div class="flex flex-row gap-2 min-w-0">
-					<ChatMode {allowedModes} />
+					<ChatMode />
 					<ProviderModelSelector />
 				</div>
 			{/if}
