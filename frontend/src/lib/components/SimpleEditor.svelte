@@ -169,7 +169,7 @@
 			return
 		}
 		code = ncode
-		dispatch('change', ncode)
+		dispatch('change', { code: ncode })
 	}
 
 	function updatePlaceholderVisibility(value: string) {
