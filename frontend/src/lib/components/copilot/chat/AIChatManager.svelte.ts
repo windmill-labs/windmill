@@ -67,6 +67,7 @@ class AIChatManager {
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	mode = $state<'script' | 'flow' | 'navigator'>('navigator')
+	pendingNewCode = $state<string | undefined>(undefined)
 
 	allowedModes = $derived({
 		script: this.scriptEditorOptions !== undefined,
