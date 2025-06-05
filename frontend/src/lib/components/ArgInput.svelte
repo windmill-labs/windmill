@@ -39,6 +39,7 @@
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
 	import type { ComponentCustomCSS } from './apps/types'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import TriggerableByAI from './TriggerableByAI.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -479,7 +480,32 @@
 		</div>
 	{/if}
 
-	<div class="flex space-x-1">
+	<TriggerableByAI
+		id={`${label}-input`}
+		description={description || `Input field for ${label}${type ? ` (${type})` : ''}`}
+		currentValue={value}
+		schema={{
+			type,
+			format,
+			description,
+			default: defaultValue,
+			required,
+			enum: enum_,
+			nullable,
+			title,
+			placeholder,
+			properties,
+			itemsType,
+			extra
+		}}
+		onTrigger={(newValue) => {
+			if (newValue !== undefined) {
+				value = newValue
+				dispatch('change')
+			}
+		}}
+	>
+		<div class="flex space-x-1">
 		{#if inputCat == 'number'}
 			{#if extra['min'] != undefined && extra['max'] != undefined}
 				<Range bind:value min={extra['min']} max={extra['max']} {defaultValue} />
@@ -1225,7 +1251,8 @@
 			</div>
 		{/if}
 		<slot name="actions" />
-	</div>
+		</div>
+	</TriggerableByAI>
 
 	{#if !compact || (error && error != '')}
 		<div class="text-right text-xs text-red-600 dark:text-red-400">

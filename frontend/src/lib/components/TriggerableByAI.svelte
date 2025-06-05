@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
-	let { id, description, onTrigger, children } = $props<{
+	let { id, description, onTrigger, children, currentValue, schema } = $props<{
 		id: string | undefined
 		description: string | undefined
 		onTrigger?: (value?: string) => void // Function to call when the trigger is activated, if not provided, the component is discoverable for information purposes only
 		children?: () => any
+		currentValue?: any // Current value of the input field
+		schema?: any // Schema details for the property (type, description, default, etc.)
 	}>()
 
 	let isAnimating = $state(false)
@@ -27,7 +29,7 @@
 
 		// register the triggerable
 		const currentId = id
-		const currentData = { description, onTrigger: handleTrigger }
+		const currentData = { description, onTrigger: handleTrigger, currentValue, schema }
 		const existingTriggerables = aiChatManager.triggerablesByAI
 		existingTriggerables[currentId] = currentData
 
