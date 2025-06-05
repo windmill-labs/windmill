@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                path,\n                is_flow,\n                workspace_id,\n                owner,\n                email,\n                trigger_config as \"trigger_config!: _\"\n            FROM\n                capture_config\n            WHERE\n                trigger_kind = 'sqs' AND\n                last_client_ping > NOW() - INTERVAL '10 seconds' AND\n                trigger_config IS NOT NULL AND\n                (last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "is_flow",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "owner",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "trigger_config!: _",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "1b33393fbbc7e681b4d355f6096d982b52b48c8c3da392b14963a1ec86811546"
+}

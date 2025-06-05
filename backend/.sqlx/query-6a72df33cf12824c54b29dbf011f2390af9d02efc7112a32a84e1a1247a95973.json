@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT worker, worker_instance, vcpus, memory, ping_at, started_at, worker_group FROM worker_ping WHERE ping_at > now() - interval '30 days' ORDER BY started_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "worker",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "worker_instance",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "vcpus",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "memory",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "ping_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "worker_group",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "6a72df33cf12824c54b29dbf011f2390af9d02efc7112a32a84e1a1247a95973"
+}

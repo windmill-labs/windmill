@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE \n                capture_config \n            SET \n                last_server_ping = now(), \n                error = $1 \n            WHERE \n                workspace_id = $2 AND \n                path = $3 AND \n                is_flow = $4 AND \n                trigger_kind = 'gcp' AND \n                server_id = $5 AND \n                last_client_ping > NOW() - INTERVAL '10 seconds' \n            RETURNING 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a7ffc5b983d365159ef379ec6a2ab0dc7217d1b3f86f362c213982984d2cf652"
+}
