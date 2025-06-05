@@ -27,6 +27,24 @@
 	type FileWithPath = File & { path?: string }
 	export let files: FileWithPath[] | undefined = undefined
 
+	let pointerStartX = 0
+	let pointerStartY = 0
+	let hasMoved = false
+
+	function handlePointerDown(e: PointerEvent) {
+		pointerStartX = e.clientX
+		pointerStartY = e.clientY
+		hasMoved = false
+	}
+
+	function handlePointerMove(e: PointerEvent) {
+		const deltaX = Math.abs(e.clientX - pointerStartX)
+		const deltaY = Math.abs(e.clientY - pointerStartY)
+		if (deltaX > 5 || deltaY > 5) {
+			hasMoved = true
+		}
+	}
+
 	async function onChange(fileList: FileWithPath[] | null) {
 		if (!fileList || !fileList.length) {
 			files = undefined
@@ -179,14 +197,24 @@
 
 <button
 	class={twMerge(
-		`relative center-center flex-col text-center font-medium text-tertiary 
-		border border-dashed border-gray-400 hover:border-blue-500 
-		focus-within:border-blue-300 hover:bg-blue-50 dark:hover:bg-frost-900  
+		`relative center-center flex-col text-center font-medium text-tertiary
+		border border-dashed border-gray-400 hover:border-blue-500
+		focus-within:border-blue-300 hover:bg-blue-50 dark:hover:bg-frost-900
 		duration-200 rounded-component p-1`,
 		c
 	)}
 	on:dragover={handleDragOver}
 	on:drop={handleDrop}
+	on:pointerdown={handlePointerDown}
+	on:pointermove={handlePointerMove}
+	on:click={(e) => {
+		if (hasMoved) {
+			e.preventDefault()
+			e.stopPropagation()
+			return
+		}
+		hasMoved = false
+	}}
 	{style}
 	{disabled}
 >
