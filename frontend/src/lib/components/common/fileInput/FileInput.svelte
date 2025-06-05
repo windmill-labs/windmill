@@ -29,20 +29,10 @@
 
 	let pointerStartX = 0
 	let pointerStartY = 0
-	let hasMoved = false
 
 	function handlePointerDown(e: PointerEvent) {
 		pointerStartX = e.clientX
 		pointerStartY = e.clientY
-		hasMoved = false
-	}
-
-	function handlePointerMove(e: PointerEvent) {
-		const deltaX = Math.abs(e.clientX - pointerStartX)
-		const deltaY = Math.abs(e.clientY - pointerStartY)
-		if (deltaX > 5 || deltaY > 5) {
-			hasMoved = true
-		}
 	}
 
 	async function onChange(fileList: FileWithPath[] | null) {
@@ -206,14 +196,14 @@
 	on:dragover={handleDragOver}
 	on:drop={handleDrop}
 	on:pointerdown={handlePointerDown}
-	on:pointermove={handlePointerMove}
 	on:click={(e) => {
-		if (hasMoved) {
+		const deltaX = Math.abs(e.clientX - pointerStartX)
+		const deltaY = Math.abs(e.clientY - pointerStartY)
+		if (deltaX > 5 || deltaY > 5) {
 			e.preventDefault()
 			e.stopPropagation()
 			return
 		}
-		hasMoved = false
 	}}
 	{style}
 	{disabled}
