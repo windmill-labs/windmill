@@ -42,7 +42,7 @@
 					<svelte:component this={icon} size={16} />
 				{/if}
 			</button>
-			{contextElement.title}
+			{contextElement.title.replace(/_/g, ' ')}
 		</div>
 	</svelte:fragment>
 	<svelte:fragment slot="content">

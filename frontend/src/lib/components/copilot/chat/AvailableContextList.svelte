@@ -8,7 +8,7 @@
 	export let stringSearch = ''
 	export let selectedIndex = 0
 
-	$: actualAvailableContext = showAllAvailable
+	$: actualAvailableContext = (showAllAvailable
 		? availableContext.filter(
 				(c) => !stringSearch || c.title.toLowerCase().includes(stringSearch.toLowerCase())
 			)
@@ -17,6 +17,12 @@
 					!selectedContext.find((sc) => sc.type === c.type && sc.title === c.title) &&
 					(!stringSearch || c.title.toLowerCase().includes(stringSearch.toLowerCase()))
 			)
+	).sort((a, b) => {
+		// Prioritize diff contexts first
+		if (a.type === 'diff' && b.type !== 'diff') return -1
+		if (a.type !== 'diff' && b.type === 'diff') return 1
+		return 0
+	})
 </script>
 
 <div class="flex flex-col gap-1 text-tertiary text-xs p-1 min-w-24 max-h-48 overflow-y-scroll">
@@ -32,7 +38,7 @@
 				on:click={() => onSelect(element)}
 			>
 				<svelte:component this={ContextIconMap[element.type]} size={16} />
-				{element.title}
+				{element.title.replace(/_/g, ' ')}
 			</button>
 		{/each}
 	{/if}
