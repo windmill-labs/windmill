@@ -1,7 +1,11 @@
 import { base } from '$lib/base'
 import { isCloudHosted } from '$lib/cloud'
+import { random_adj } from '$lib/components/random_positive_adjetive'
+import type { HttpMethod, NewHttpTrigger } from '$lib/gen'
 import { HttpTriggerService } from '$lib/gen/services.gen'
 import { sendUserToast } from '$lib/toast'
+import { OpenApi as WindmillOpenApi } from '$lib/utils'
+import { type OpenAPI } from 'openapi-types'
 import type { Writable } from 'svelte/store'
 import { get } from 'svelte/store'
 
@@ -75,4 +79,61 @@ export async function saveHttpRouteFromCfg(
 		sendUserToast(error.body || error.message, true)
 		return false
 	}
+}
+
+export type Source = 'OpenAPI' | 'OpenAPI_File' | 'OpenAPI_URL'
+
+function convertOpenApiPathToRoutePath(openApiPath: string) {
+	return openApiPath.replace(/{([^}]+)}/g, ':$1').slice(1)
+}
+
+function generateFolderPath(folderName: string, summary?: string) {
+	return `f/${folderName}/${summary?.toLowerCase().replaceAll(' ', '_') ?? random_adj()}`
+}
+
+function processOpenApiDocument(
+	document: OpenAPI.Document,
+	folderName: string,
+	_version?: WindmillOpenApi.OpenApiVersion
+) {
+	const paths = document.paths
+
+	const httpTrigger: NewHttpTrigger[] = []
+
+	for (const path in paths) {
+		const pathItem = paths[path]
+		if (!pathItem) continue
+
+		const methods: HttpMethod[] = ['get', 'post', 'put', 'patch', 'delete']
+
+		for (const method of methods) {
+			const routeDetail = pathItem[method]
+			if (!routeDetail) continue
+
+			httpTrigger.push({
+				route_path: convertOpenApiPathToRoutePath(path),
+				http_method: method,
+				authentication_method: 'none',
+				workspaced_route: false,
+				is_async: true,
+				script_path: '',
+				raw_string: false,
+				is_flow: false,
+				is_static_website: false,
+				wrap_body: false,
+				path: generateFolderPath(folderName, routeDetail.summary)
+			})
+		}
+	}
+
+	return httpTrigger
+}
+
+export async function generateHttpTriggerFromOpenApi(
+	api: string,
+	folderName: string
+): Promise<NewHttpTrigger[]> {
+	const [document] = await WindmillOpenApi.parse(api)
+
+	return processOpenApiDocument(document, folderName)
 }
