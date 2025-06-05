@@ -146,12 +146,12 @@
 	async function cancelJob(jobId: string) {
 		try {
 			await JobService.cancelQueuedJob({
-				workspace: $workspaceStore! ?? '',
+				workspace: $workspaceStore!,
 				id: jobId,
 				requestBody: {}
 			})
 		} catch (err) {
-			sendUserToast(err.BodyDropPivotTarget, true)
+			sendUserToast(err.body || err.message, true)
 		}
 	}
 
