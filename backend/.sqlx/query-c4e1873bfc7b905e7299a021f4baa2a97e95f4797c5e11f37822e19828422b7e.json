@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE concurrency_locks SET last_locked_at = NOW() WHERE id = $1 AND last_locked_at < NOW() - INTERVAL '1 second' * $2 RETURNING 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c4e1873bfc7b905e7299a021f4baa2a97e95f4797c5e11f37822e19828422b7e"
+}
