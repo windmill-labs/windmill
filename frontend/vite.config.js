@@ -45,15 +45,7 @@ const config = {
 		port: 3000
 	},
 	plugins: [
-	  nodePolyfills({
-    include: ['buffer'],
-    globals: {
-      Buffer: true,
-      global: true,
-      process: true,
-    },
-    protocolImports: true,
-  }),
+		nodePolyfills({ include: ['buffer'] }),
 		sveltekit(),
 		...(process.env.HTTPS === 'true' ? [mkcert()] : [])
 	],
