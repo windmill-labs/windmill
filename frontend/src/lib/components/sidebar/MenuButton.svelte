@@ -13,6 +13,7 @@
 	export let label: string | undefined = undefined
 	export let icon: any | undefined = undefined
 	export let iconClasses: string | null = null
+	export let iconProps: any | null = null
 	export let isCollapsed: boolean
 	export let disabled: boolean = false
 	export let lightMode: boolean = false
@@ -80,6 +81,7 @@
 							'transition-all',
 							iconClasses
 						)}
+						{...iconProps}
 					/>
 				{/if}
 

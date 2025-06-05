@@ -60,9 +60,14 @@
 	} = $props()
 
 	let contextTextareaComponent: ContextTextarea | undefined = $state()
+	let instructionsTextarea: HTMLTextAreaElement | undefined = $state()
 
 	export function focusInput() {
-		contextTextareaComponent?.focus()
+		if (aiChatManager.mode === 'script') {
+			contextTextareaComponent?.focus()
+		} else {
+			instructionsTextarea?.focus()
+		}
 	}
 
 	let scrollEl: HTMLDivElement | undefined = $state()
@@ -300,6 +305,7 @@
 		{:else}
 			<div class="relative w-full px-2 scroll-pb-2 pt-2">
 				<textarea
+					bind:this={instructionsTextarea}
 					bind:value={aiChatManager.instructions}
 					use:autosize
 					onkeydown={(e) => {

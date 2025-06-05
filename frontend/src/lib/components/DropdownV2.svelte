@@ -81,43 +81,38 @@
 
 <ResolveOpen {open} on:open on:close />
 
-<TriggerableByAI id={aiId} description={aiDescription} onTrigger={() => buttonEl?.click()}>
-	<button
-		bind:this={buttonEl}
-		class={twMerge(
-			'w-full flex items-center justify-end h-full',
-			fixedHeight && 'h-8',
-			$$props.class
-		)}
-		use:melt={$trigger}
-		{disabled}
-		on:click={(e) => e.stopPropagation()}
-		use:pointerDownOutside={{
-			capture: true,
-			stopPropagation: false,
-			exclude: getMenuElements,
-			customEventName: 'pointerdown_menu'
-		}}
-		on:pointerdown_outside={() => {
-			if (usePointerDownOutside) {
-				close()
-			}
-		}}
-		data-menu
-	>
-		{#if $$slots.buttonReplacement}
-			<slot name="buttonReplacement" />
-		{:else}
-			<Button
-				nonCaptureEvent
-				size="xs"
-				color="light"
-				startIcon={{ icon: MoreVertical }}
-				btnClasses="bg-transparent"
-			/>
-		{/if}
-	</button>
-</TriggerableByAI>
+<TriggerableByAI id={aiId} description={aiDescription} onTrigger={() => buttonEl?.click()} />
+<button
+	bind:this={buttonEl}
+	class={twMerge('w-full flex items-center justify-end', fixedHeight && 'h-8', $$props.class)}
+	use:melt={$trigger}
+	{disabled}
+	on:click={(e) => e.stopPropagation()}
+	use:pointerDownOutside={{
+		capture: true,
+		stopPropagation: false,
+		exclude: getMenuElements,
+		customEventName: 'pointerdown_menu'
+	}}
+	on:pointerdown_outside={() => {
+		if (usePointerDownOutside) {
+			close()
+		}
+	}}
+	data-menu
+>
+	{#if $$slots.buttonReplacement}
+		<slot name="buttonReplacement" />
+	{:else}
+		<Button
+			nonCaptureEvent
+			size="xs"
+			color="light"
+			startIcon={{ icon: MoreVertical }}
+			btnClasses="bg-transparent"
+		/>
+	{/if}
+</button>
 
 {#if open && !hidePopup}
 	<div use:melt={$menu} data-menu class="z-[6000] transition-all duration-100">
