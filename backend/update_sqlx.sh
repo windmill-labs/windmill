@@ -10,7 +10,6 @@ if [[ "$(uname)" == "Darwin" ]]; then
 fi
 
 cargo sqlx prepare --workspace -- --all-targets --features $(./all_features_oss.sh)
-./substitute_ee_code.sh -r --dir ../windmill-ee-private
 
 # Undo the samael changes on macOS
 if [[ "$(uname)" == "Darwin" ]]; then
