@@ -8,8 +8,6 @@
 </script>
 
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import type { Schema } from '$lib/common'
 	import type { InputCat } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -97,6 +95,16 @@
 	const propPickerWrapperContext: PropPickerWrapperContext | undefined =
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
 	const { inputMatches, focusProp, propPickerConfig, clearFocus } = propPickerWrapperContext ?? {}
+
+	let inputCat = $derived(
+		computeInputCat(
+			schema?.properties?.[argName]?.type,
+			schema?.properties?.[argName]?.format,
+			schema?.properties?.[argName]?.items?.type,
+			schema?.properties?.[argName]?.enum,
+			schema?.properties?.[argName]?.contentEncoding
+		)
+	)
 
 	function setExpr() {
 		const newArg = $exprsToSet?.[argName]
@@ -309,30 +317,21 @@
 
 	loadResourceTypes()
 
-	let inputCat = $derived(
-		computeInputCat(
-			schema?.properties?.[argName]?.type,
-			schema?.properties?.[argName]?.format,
-			schema?.properties?.[argName]?.items?.type,
-			schema?.properties?.[argName]?.enum,
-			schema?.properties?.[argName]?.contentEncoding
-		)
-	)
-	run(() => {
+	$effect(() => {
 		$exprsToSet?.[argName] && setExpr()
 	})
-	run(() => {
+	$effect(() => {
 		$shouldUpdatePropertyType?.[argName] &&
 			arg?.type === $shouldUpdatePropertyType?.[argName] &&
 			updatePropertyType()
 	})
-	run(() => {
+	$effect(() => {
 		inputCat && propertyType && arg && onArgChange()
 	})
-	run(() => {
+	$effect(() => {
 		updateFocused(focused)
 	})
-	run(() => {
+	$effect(() => {
 		schema?.properties?.[argName]?.default && setDefaultCode()
 	})
 	let connecting = $derived(
