@@ -348,7 +348,7 @@
 															workspace: $workspaceStore ?? '',
 															path
 														})
-														sendUserToast(`Successfully deleted trigger: ${path}`)
+														sendUserToast(`Successfully deleted HTTP route: ${path}`)
 														loadTriggers()
 													} catch (error) {
 														sendUserToast(error.body || error.message, true)

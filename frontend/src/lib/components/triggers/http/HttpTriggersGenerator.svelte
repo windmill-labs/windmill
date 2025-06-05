@@ -17,7 +17,6 @@
 	import Required from '$lib/components/Required.svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import { get } from 'svelte/store'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
 	type Props = {
 		closeFn: () => Promise<void>
@@ -143,7 +142,7 @@
 				startIcon={{ icon: Save }}
 				on:click={saveHttpTrigger}
 			>
-				Save HTTP routes
+				Save routes
 			</Button>
 		</svelte:fragment>
 		{@render config()}
@@ -257,70 +256,61 @@
 									</Button>
 								</div>
 							{/if}
+							{#if selected === 'OpenAPI' || (selected === 'OpenAPI_File' && !emptyStringTrimmed(openApiFile)) || (selected === 'OpenAPI_URL' && !emptyStringTrimmed(openApiUrl))}
+								{#key forceRerender}
+									<SimpleEditor class="h-96" {lang} bind:code />
+								{/key}
+							{/if}
+							<Button
+								spacingSize="sm"
+								size="xs"
+								btnClasses="h-8"
+								loading={isGeneratingHttpRoutes}
+								on:click={generateHttpTrigger}
+								disabled={code.length === 0}
+								color="light"
+								variant="border">Generate HTTP routes</Button
+							>
 						</div>
 					</Subsection>
-					<Splitpanes class="overflow-hidden flex flex-col" horizontal>
-						<Pane size={80} minSize={20}>
-							<div class="h-full flex flex-col gap-1">
-								{#if selected === 'OpenAPI' || (selected === 'OpenAPI_File' && !emptyStringTrimmed(openApiFile)) || (selected === 'OpenAPI_URL' && !emptyStringTrimmed(openApiUrl))}
-									{#key forceRerender}
-										<SimpleEditor class="min-h-0 flex-1" {lang} bind:code />
-									{/key}
-								{/if}
-								<Button
-									spacingSize="sm"
-									size="xs"
-									btnClasses="h-8"
-									loading={isGeneratingHttpRoutes}
-									on:click={generateHttpTrigger}
-									disabled={code.length === 0}
-									color="light"
-									variant="border">Generate HTTP routes</Button
-								>
-							</div>
-						</Pane>
-						<Pane class="flex-1 overflow-auto" minSize={20}>
-							<Subsection>
-								<div class="flex flex-col gap-1 mb-2">
-									{#each httpTriggers as httpTrigger, index}
-										<div
-											class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
-								first-of-type:rounded-t-md last-of-type:rounded-b-md flex justify-between mt-2"
-										>
-											<div>
-												<div class="text-primary">
-													{httpTrigger.http_method.toUpperCase()}
-													{isCloudHosted() || httpTrigger.workspaced_route
-														? $workspaceStore! + '/' + httpTrigger.route_path
-														: httpTrigger.route_path}
-												</div>
-												<div class="text-secondary text-xs truncate text-left font-light">
-													{httpTrigger.path}
-												</div>
-											</div>
 
-											<div class="flex gap-2 items-center justify-end">
-												<Button
-													on:click={() => {
-														callback = (newHttpTrigger) => {
-															httpTriggers[index] = newHttpTrigger as NewHttpTrigger
-															httpTriggers = httpTriggers
-														}
-														openRouteEditor(httpTriggers[index].path, httpTriggers[index])
-													}}
-													size="xs"
-													startIcon={{ icon: Pen }}
-													color="gray"
-												>
-													Edit
-												</Button>
-											</div>
-										</div>
-									{/each}
+					<div class="flex flex-col gap-1 mb-2">
+						{#each httpTriggers as httpTrigger, index}
+							<div
+								class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
+								first-of-type:rounded-t-md last-of-type:rounded-b-md flex justify-between mt-2"
+							>
+								<div>
+									<div class="text-primary">
+										{httpTrigger.http_method.toUpperCase()}
+										{isCloudHosted() || httpTrigger.workspaced_route
+											? $workspaceStore! + '/' + httpTrigger.route_path
+											: httpTrigger.route_path}
+									</div>
+									<div class="text-secondary text-xs truncate text-left font-light">
+										{httpTrigger.path}
+									</div>
 								</div>
-							</Subsection>
-						</Pane>
-					</Splitpanes>
+
+								<div class="flex gap-2 items-center justify-end">
+									<Button
+										on:click={() => {
+											callback = (newHttpTrigger) => {
+												httpTriggers[index] = newHttpTrigger as NewHttpTrigger
+												httpTriggers = httpTriggers
+											}
+											openRouteEditor(httpTriggers[index].path, httpTriggers[index])
+										}}
+										size="xs"
+										startIcon={{ icon: Pen }}
+										color="gray"
+									>
+										Edit
+									</Button>
+								</div>
+							</div>
+						{/each}
+					</div>
 				{/if}
 			</div>
 		</Section>

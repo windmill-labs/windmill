@@ -368,11 +368,14 @@ async fn create_trigger_inner(
     Ok(())
 }
 
-fn check_no_duplicates(new_http_triggers: &[NewTrigger]) -> Result<(), Error> {
+fn check_no_duplicates<'trigger>(
+    new_http_triggers: &[NewTrigger],
+    route_path_key: &[Cow<'trigger, str>],
+) -> Result<(), Error> {
     let mut seen = HashSet::with_capacity(new_http_triggers.len());
 
-    for trigger in new_http_triggers {
-        if !seen.insert((trigger.workspaced_route, &trigger.route_path, trigger.http_method)) {
+    for (i, trigger) in new_http_triggers.iter().enumerate() {
+        if !seen.insert((&route_path_key[i], trigger.http_method, trigger.workspaced_route)) {
             return Err(Error::BadRequest(format!(
             "Duplicate HTTP route detected: '{}'. Each HTTP route must have a unique 'route_path'.",
             &trigger.route_path
@@ -401,18 +404,30 @@ async fn create_many_http_trigger(
         .into()
     };
 
-    check_no_duplicates(&new_http_triggers)?;
-
-    let mut tx = user_db.begin(&authed).await?;
+    let mut route_path_keys = Vec::with_capacity(new_http_triggers.len());
 
     for new_http_trigger in new_http_triggers.iter() {
         let route_path_key = validate_http_trigger(&db, &w_id, new_http_trigger)
             .await
             .map_err(|err| error_wrapper(&new_http_trigger.route_path, err))?;
 
-        create_trigger_inner(&mut tx, &w_id, &authed, new_http_trigger, &route_path_key)
-            .await
-            .map_err(|err| error_wrapper(&new_http_trigger.route_path, err))?;
+        route_path_keys.push(route_path_key);
+    }
+
+    check_no_duplicates(&new_http_triggers, &route_path_keys)?;
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    for (i, new_http_trigger) in new_http_triggers.iter().enumerate() {
+        create_trigger_inner(
+            &mut tx,
+            &w_id,
+            &authed,
+            new_http_trigger,
+            &route_path_keys[i],
+        )
+        .await
+        .map_err(|err| error_wrapper(&new_http_trigger.route_path, err))?;
     }
 
     tx.commit().await?;
@@ -975,11 +990,7 @@ pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, Route
                 router
                     .insert(full_path.clone(), trigger.clone())
                     .unwrap_or_else(|e| {
-                        tracing::warn!(
-                            "Failed to consider HTTP route {}: {:?}",
-                            full_path,
-                            e,
-                        );
+                        tracing::warn!("Failed to consider HTTP route {}: {:?}", full_path, e,);
                     });
             }
 
