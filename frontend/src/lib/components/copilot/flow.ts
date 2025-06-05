@@ -12,7 +12,4 @@ export type FlowCopilotContext = {
 	exprsToSet: Writable<{
 		[key: string]: InputTransform | undefined
 	}>
-	toggleAiPanel?: () => void
-	addSelectedLinesToAiChat?: (lines: string, startLine: number, endLine: number) => void
-	fix?: () => void
 }
