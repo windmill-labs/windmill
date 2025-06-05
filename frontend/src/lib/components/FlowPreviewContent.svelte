@@ -5,7 +5,7 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
-	import { runFlowPreview } from './flows/utils'
+	import { loadIndividualStepsStates, runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import SchemaFormWithArgPicker from './SchemaFormWithArgPicker.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
@@ -18,7 +18,6 @@
 	import Toggle from './Toggle.svelte'
 	import JsonInputs from './JsonInputs.svelte'
 	import FlowHistoryJobPicker from './FlowHistoryJobPicker.svelte'
-	import { NEVER_TESTED_THIS_FAR } from './flows/models'
 	import { writable, type Writable } from 'svelte/store'
 	import type { DurationStatus, GraphModuleState } from './graph'
 
@@ -182,44 +181,6 @@
 	}
 
 	$: selectedJobStep !== undefined && onSelectedJobStepChange()
-
-	async function loadIndividualStepsStates() {
-		// console.log('loadIndividualStepsStates')
-		dfs($flowStore.value.modules, async (module) => {
-			// console.log('module', $flowStateStore[module.id], module.id)
-			const prev = $flowStateStore[module.id]?.previewResult
-			if (prev && prev != NEVER_TESTED_THIS_FAR) {
-				return
-			}
-			const previousJobId = await JobService.listJobs({
-				workspace: $workspaceStore!,
-				scriptPathExact:
-					`path` in module.value
-						? module.value.path
-						: ($initialPathStore == '' ? $pathStore : $initialPathStore) + '/' + module.id,
-				jobKinds: ['preview', 'script', 'flowpreview', 'flow', 'flowscript'].join(','),
-				page: 1,
-				perPage: 1
-			})
-			// console.log('previousJobId', previousJobId, module.id)
-
-			if (previousJobId.length > 0) {
-				const getJobResult = await JobService.getCompletedJobResultMaybe({
-					workspace: $workspaceStore!,
-					id: previousJobId[0].id
-				})
-				if ('result' in getJobResult) {
-					$flowStateStore[module.id] = {
-						...($flowStateStore[module.id] ?? {}),
-						previewResult: getJobResult.result,
-						previewJobId: previousJobId[0].id,
-						previewWorkspaceId: previousJobId[0].workspace_id,
-						previewSuccess: getJobResult.success
-					}
-				}
-			}
-		})
-	}
 
 	let scrollableDiv: HTMLDivElement | undefined = undefined
 	function handleScroll() {
@@ -477,7 +438,13 @@
 				<FlowHistoryJobPicker
 					selectInitial={jobId == undefined}
 					on:nohistory={() => {
-						loadIndividualStepsStates()
+						loadIndividualStepsStates(
+							$flowStore.value.modules,
+							flowStateStore,
+							$workspaceStore!,
+							$initialPathStore,
+							$pathStore
+						)
 					}}
 					on:select={(e) => {
 						if (!currentJobId) {
@@ -525,7 +492,13 @@
 					on:jobsLoaded={() => {
 						if (initial) {
 							console.log('loading initial steps after initial job loaded')
-							loadIndividualStepsStates()
+							loadIndividualStepsStates(
+								$flowStore.value.modules,
+								flowStateStore,
+								$workspaceStore!,
+								$initialPathStore,
+								$pathStore
+							)
 						}
 					}}
 					bind:selectedJobStep

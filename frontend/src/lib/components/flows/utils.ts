@@ -10,9 +10,10 @@ import {
 } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { cleanExpr, emptySchema } from '$lib/utils'
-import { get } from 'svelte/store'
+import { get, type Writable } from 'svelte/store'
 import type { FlowModuleState } from './flowState'
 import { type PickableProperties, dfs } from './previousResults'
+import { dfs as dfsModules } from './dfs'
 import { NEVER_TESTED_THIS_FAR } from './models'
 import { sendUserToast } from '$lib/toast'
 import type { Schema } from '$lib/common'
@@ -329,4 +330,51 @@ export function checkIfParentLoop(
 		}
 	}
 	return undefined
+}
+
+export async function loadIndividualStepsStates(
+	modules: FlowModule[],
+	flowStateStore: Writable<Record<string, FlowModuleState>>,
+	workspace_id: string,
+	initialPath: string,
+	path: string
+) {
+	// console.log('loadIndividualStepsStates')
+	dfsModules(modules, async (module) => {
+		// console.log('module', $flowStateStore[module.id], module.id)
+		const prev = get(flowStateStore)[module.id]?.previewResult
+		if (prev && prev != NEVER_TESTED_THIS_FAR) {
+			return
+		}
+		const previousJobId = await JobService.listJobs({
+			workspace: workspace_id,
+			scriptPathExact:
+				`path` in module.value
+					? module.value.path
+					: (initialPath == '' ? path : initialPath) + '/' + module.id,
+			jobKinds: ['preview', 'script', 'flowpreview', 'flow', 'flowscript'].join(','),
+			page: 1,
+			perPage: 1
+		})
+		// console.log('previousJobId', previousJobId, module.id)
+
+		if (previousJobId.length > 0) {
+			const getJobResult = await JobService.getCompletedJobResultMaybe({
+				workspace: workspace_id,
+				id: previousJobId[0].id
+			})
+			if ('result' in getJobResult) {
+				flowStateStore.update((state) => ({
+					...state,
+					[module.id]: {
+						...(state[module.id] ?? {}),
+						previewResult: getJobResult.result,
+						previewJobId: previousJobId[0].id,
+						previewWorkspaceId: previousJobId[0].workspace_id,
+						previewSuccess: getJobResult.success
+					}
+				}))
+			}
+		}
+	})
 }
