@@ -21,7 +21,7 @@
 	on:error
 	on:skipAll
 	getSteps={(driver, options) => {
-		const index = options?.indexToInsertAt ?? $flowStore.value.modules.length
+		const index = options?.indexToInsertAt ?? flowStore.value.modules.length
 
 		const steps = [
 			{

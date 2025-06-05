@@ -297,7 +297,7 @@ export function sliceModules(
 }
 
 export async function insertNewPreprocessorModule(
-	flowStore: Writable<ExtendedOpenFlow>,
+	flowStore: ExtendedOpenFlow,
 	flowStateStore: Writable<FlowState>,
 	inlineScript?: {
 		language: RawScript['language']
@@ -321,10 +321,7 @@ export async function insertNewPreprocessorModule(
 		;[module, state] = await pickScript(wsScript.path, wsScript.summary, module.id, wsScript.hash)
 	}
 
-	flowStore.update((fs) => {
-		fs.value.preprocessor_module = module
-		return fs
-	})
+	flowStore.value.preprocessor_module = module
 
 	flowStateStore.update((fss) => {
 		fss[module.id] = state
@@ -333,7 +330,7 @@ export async function insertNewPreprocessorModule(
 }
 
 export async function insertNewFailureModule(
-	flowStore: Writable<ExtendedOpenFlow>,
+	flowStore: ExtendedOpenFlow,
 	flowStateStore: Writable<FlowState>,
 	inlineScript?: {
 		language: RawScript['language']
@@ -362,10 +359,7 @@ export async function insertNewFailureModule(
 		;[module, state] = await pickScript(wsScript.path, wsScript.summary, module.id, wsScript.hash)
 	}
 
-	flowStore.update((fs) => {
-		fs.value.failure_module = module
-		return fs
-	})
+	flowStore.value.failure_module = module
 
 	flowStateStore.update((fss) => {
 		fss[module.id] = state

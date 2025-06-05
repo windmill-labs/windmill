@@ -4,7 +4,7 @@
 	import { classNames } from '$lib/utils'
 	import { Bug, X } from 'lucide-svelte'
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
-	import { insertNewFailureModule } from '$lib/components/flows/flowStateUtils'
+	import { insertNewFailureModule } from '$lib/components/flows/flowStateUtils.svelte'
 	import type { RawScript, ScriptLang } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
 
@@ -36,7 +36,6 @@
 		}
 
 		$selectedId = 'failure'
-		$flowStore = $flowStore
 	}
 </script>
 
@@ -54,27 +53,27 @@
 	)}
 	style="min-width: {small ? '200px' : '230px'}; max-width: 275px;"
 	on:click={() => {
-		if ($flowStore?.value?.failure_module) {
+		if (flowStore?.value?.failure_module) {
 			$selectedId = 'failure'
 		}
 	}}
 >
 	<div class="flex items-center grow-0 min-w-0 gap-2">
-		<Bug size={16} color={$flowStore?.value?.failure_module ? '#3b82f6' : '#9CA3AF'} />
+		<Bug size={16} color={flowStore?.value?.failure_module ? '#3b82f6' : '#9CA3AF'} />
 	</div>
 
-	{#if !$flowStore?.value?.failure_module}
+	{#if !flowStore?.value?.failure_module}
 		<div class="grow text-center font-bold text-xs">Error Handler</div>
 	{:else}
 		<div class="truncate grow min-w-0 text-center text-xs">
-			{$flowStore.value.failure_module?.summary ||
-				($flowStore.value.failure_module?.value.type === 'rawscript'
-					? `${$flowStore.value.failure_module?.value.language}`
+			{flowStore.value.failure_module?.summary ||
+				(flowStore.value.failure_module?.value.type === 'rawscript'
+					? `${flowStore.value.failure_module?.value.language}`
 					: 'TBD')}
 		</div>
 	{/if}
 
-	{#if !$flowStore?.value?.failure_module}
+	{#if !flowStore?.value?.failure_module}
 		<InsertModuleButton
 			index={0}
 			placement={'top-center'}
@@ -97,7 +96,7 @@
 				'bg-surface focus:outline-none hover:bg-surface-hover rounded '
 			)}
 			on:click={() => {
-				$flowStore.value.failure_module = undefined
+				flowStore.value.failure_module = undefined
 				$selectedId = 'settings-metadata'
 			}}
 		>

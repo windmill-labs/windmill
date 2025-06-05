@@ -171,7 +171,7 @@
 	}
 
 	function schemaFromPayload(payloadData: any) {
-		const payload = structuredClone(payloadData)
+		const payload = structuredClone($state.snapshot(payloadData))
 		const parsed = JSON.parse(JSON.stringify(payload))
 
 		if (!parsed) {
@@ -243,16 +243,16 @@
 			return
 		}
 		diff = {}
-		const diffSchema = computeDiff(newSchema, $flowStore.schema)
+		const diffSchema = computeDiff(newSchema, flowStore.schema)
 		diff = diffSchema
-		previewSchema = schemaFromDiff(diffSchema, $flowStore.schema)
+		previewSchema = schemaFromDiff(diffSchema, flowStore.schema)
 		runDisabled = true
 	}
 
 	async function applySchemaAndArgs() {
-		$flowStore.schema = applyDiff($flowStore.schema, diff)
+		flowStore.schema = applyDiff(flowStore.schema, diff)
 		if (previewArguments) {
-			savedPreviewArgs = structuredClone(previewArguments)
+			savedPreviewArgs = structuredClone($state.snapshot(previewArguments))
 		}
 		updatePreviewSchemaAndArgs(undefined)
 		if ($flowInputEditorState) {
@@ -265,8 +265,8 @@
 			previewArguments = savedPreviewArgs
 			return
 		}
-		savedPreviewArgs = structuredClone(previewArguments)
-		previewArguments = structuredClone(payloadData)
+		savedPreviewArgs = structuredClone($state.snapshot(previewArguments))
+		previewArguments = structuredClone($state.snapshot(payloadData))
 	}
 
 	let tabButtonWidth = 0
@@ -288,13 +288,13 @@
 	let preventEnter = $state(false)
 
 	async function acceptChange(arg: { label: string; nestedParent: any | undefined }) {
-		handleChange(arg, $flowStore.schema, diff, (newSchema) => {
-			$flowStore.schema = newSchema
+		handleChange(arg, flowStore.schema, diff, (newSchema) => {
+			flowStore.schema = newSchema
 		})
 	}
 
 	async function rejectChange(arg: { label: string; nestedParent: any | undefined }) {
-		const revertDiff = computeDiff($flowStore.schema, selectedSchema)
+		const revertDiff = computeDiff(flowStore.schema, selectedSchema)
 		handleChange(arg, selectedSchema, revertDiff, (newSchema) => {
 			selectedSchema = newSchema
 		})
@@ -324,8 +324,8 @@
 			updateCurrentSchema(schemaUpdated)
 		}
 
-		diff = computeDiff(selectedSchema, $flowStore.schema)
-		previewSchema = schemaFromDiff(diff, $flowStore.schema)
+		diff = computeDiff(selectedSchema, flowStore.schema)
+		previewSchema = schemaFromDiff(diff, flowStore.schema)
 	}
 
 	function resetArgs() {
@@ -370,7 +370,7 @@
 		<div class="py-2 px-4 h-full">
 			<EditableSchemaForm
 				bind:this={editableSchemaForm}
-				bind:schema={$flowStore.schema}
+				bind:schema={flowStore.schema}
 				isFlowInput
 				on:edit={(e) => {
 					addPropertyV2?.openDrawer(e.detail)
@@ -480,10 +480,9 @@
 						</div>
 					{:else}
 						<AddPropertyV2
-							bind:schema={$flowStore.schema}
+							bind:schema={flowStore.schema}
 							bind:this={addPropertyV2}
 							on:change={() => {
-								$flowStore = $flowStore
 								if (editableSchemaForm) {
 									editableSchemaForm.updateJson()
 								}
@@ -491,7 +490,6 @@
 							on:addNew={(e) => {
 								handleEditSchema('inputEditor')
 								editableSchemaForm?.openField(e.detail)
-								$flowStore = $flowStore
 							}}
 						>
 							{#snippet trigger()}
@@ -609,9 +607,9 @@
 								}}
 								on:select={(e) => {
 									if (e.detail) {
-										const diffSchema = computeDiff(e.detail, $flowStore.schema)
+										const diffSchema = computeDiff(e.detail, flowStore.schema)
 										diff = diffSchema
-										previewSchema = schemaFromDiff(diffSchema, $flowStore.schema)
+										previewSchema = schemaFromDiff(diffSchema, flowStore.schema)
 										runDisabled = true
 									} else {
 										updatePreviewSchemaAndArgs(undefined)
@@ -641,7 +639,7 @@
 		</div>
 	{:else}
 		<div class="p-4 border-b">
-			<FlowInputViewer schema={$flowStore.schema} />
+			<FlowInputViewer schema={flowStore.schema} />
 		</div>
 	{/if}
 </FlowCard>

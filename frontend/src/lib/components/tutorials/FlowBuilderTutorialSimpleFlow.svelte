@@ -25,7 +25,7 @@
 	bind:this={tutorial}
 	index={0}
 	name="action"
-	tainted={isFlowTainted($flowStore)}
+	tainted={isFlowTainted(flowStore)}
 	on:error
 	on:skipAll
 	getSteps={(driver) => [
@@ -182,8 +182,8 @@
 				title: 'Connection mode',
 				description: 'Once you pressed the connect button, you can choose what to connect to.',
 				onNextClick: () => {
-					if ($flowStore.value.modules[0].value.type === 'rawscript') {
-						$flowStore.value.modules[0].value.input_transforms = {
+					if (flowStore.value.modules[0].value.type === 'rawscript') {
+						flowStore.value.modules[0].value.input_transforms = {
 							x: {
 								type: 'javascript',
 								expr: 'flow_input.firstname'
@@ -191,7 +191,6 @@
 						}
 					}
 
-					$flowStore = $flowStore
 					dispatch('reload')
 
 					setTimeout(() => {

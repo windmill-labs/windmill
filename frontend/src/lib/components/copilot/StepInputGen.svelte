@@ -9,7 +9,7 @@
 	import type { FlowEditorContext } from '../flows/types'
 	import type { PickableProperties } from '../flows/previousResults'
 	import YAML from 'yaml'
-	import { sliceModules } from '../flows/flowStateUtils'
+	import { sliceModules } from '../flows/flowStateUtils.svelte'
 	import { dfs } from '../flows/dfs'
 	import { yamlStringifyExceptKeys } from './utils'
 	import type { FlowCopilotContext } from './flow'
@@ -48,14 +48,11 @@
 			return
 		}
 		const properties = {
-			...($flowStore.schema?.properties as Record<string, SchemaProperty> | undefined),
+			...(flowStore.schema?.properties as Record<string, SchemaProperty> | undefined),
 			[newFlowInput]: schemaProperty
 		}
-		const required = [
-			...(($flowStore.schema?.required as string[] | undefined) ?? []),
-			newFlowInput
-		]
-		$flowStore.schema = {
+		const required = [...((flowStore.schema?.required as string[] | undefined) ?? []), newFlowInput]
+		flowStore.schema = {
 			$schema: 'https://json-schema.org/draft/2020-12/schema',
 			properties,
 			required,
@@ -69,7 +66,7 @@
 		}
 		abortController = new AbortController()
 		loading = true
-		const flow: Flow = JSON.parse(JSON.stringify($flowStore))
+		const flow: Flow = JSON.parse(JSON.stringify(flowStore))
 		const idOrders = dfs(flow.value.modules, (x) => x.id)
 		const upToIndex = idOrders.indexOf($selectedId)
 		if (upToIndex === -1) {

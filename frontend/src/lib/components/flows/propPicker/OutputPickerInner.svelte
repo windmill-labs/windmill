@@ -599,7 +599,7 @@
 							if (mock?.enabled) {
 								const newMock = {
 									enabled: true,
-									return_value: structuredClone(detail)
+									return_value: structuredClone($state.snapshot(detail))
 								}
 								tmpMock = newMock
 							}

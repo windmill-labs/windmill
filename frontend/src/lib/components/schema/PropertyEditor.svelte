@@ -136,7 +136,7 @@
 			return
 		}
 		if (!deepEqual(extra, initialExtra)) {
-			initialExtra = structuredClone(extra)
+			initialExtra = structuredClone($state.snapshot(extra))
 			console.debug('property content updated')
 			dispatchIfMounted('change')
 		}

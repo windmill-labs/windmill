@@ -20,7 +20,7 @@
 	const { flowStateStore, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let scriptModules = $derived(
-		dfs($flowStore.value.modules, (x) => x)
+		dfs(flowStore.value.modules, (x) => x)
 			.map((x) => [x.value, x] as [FlowModuleValue, FlowModule])
 			.filter((x) => x[0].type == 'script' || x[0].type == 'rawscript' || x[0].type == 'flow') as [
 			PathScript | RawScript,
@@ -35,7 +35,7 @@
 					m.id,
 					Object.entries(v.input_transforms)
 						.map((x) => {
-							let schema = $flowStateStore[m.id]?.schema
+							let schema = flowStateStore[m.id]?.schema
 							let val: { argName: string; type: string } | undefined = undefined
 
 							const [k, inputTransform] = x
@@ -123,7 +123,7 @@
 			{/if}
 			{#if steps.length == 0}
 				<div class="mt-2"></div>
-				{#if $flowStore.value.modules.length == 0}
+				{#if flowStore.value.modules.length == 0}
 					<Alert type="warning" title="No steps" class="m-4">
 						This flow has no steps. Add a step to see its static inputs.
 					</Alert>

@@ -19,14 +19,14 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import type { FlowEditorContext, FlowInput } from '../types'
-	import { get, type Writable } from 'svelte/store'
+	import { type Writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
 	import IdEditorInput from '$lib/components/IdEditorInput.svelte'
 	import { dfs } from '../dfs'
 	import { Drawer } from '$lib/components/common'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { getDependeeAndDependentComponents } from '../flowExplorer'
-	import { replaceId } from '../flowStore'
+	import { replaceId } from '../flowStore.svelte'
 	import FlowModuleSchemaItemViewer from './FlowModuleSchemaItemViewer.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
@@ -164,7 +164,7 @@
 </script>
 
 {#if deletable && id && editId}
-	{@const flowStore = flowEditorContext?.flowStore ? get(flowEditorContext?.flowStore) : undefined}
+	{@const flowStore = flowEditorContext?.flowStore ?? undefined}
 	{@const getDeps = getDependeeAndDependentComponents(
 		id,
 		flowStore?.value.modules ?? [],

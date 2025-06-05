@@ -24,8 +24,8 @@
 		getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
 
 	let topFlowInput = $derived(
-		flowStore && previewArgs && $flowStore?.schema
-			? schemaToObject($flowStore.schema as Schema, $previewArgs || {})
+		flowStore && previewArgs && flowStore?.schema
+			? schemaToObject(flowStore.schema as Schema, $previewArgs || {})
 			: undefined
 	)
 </script>

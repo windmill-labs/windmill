@@ -84,7 +84,7 @@
 	})
 
 	let parentLoop = $derived(
-		flowStore && $flowStore && mod ? checkIfParentLoop($flowStore, mod.id) : undefined
+		flowStore && flowStore && mod ? checkIfParentLoop(flowStore, mod.id) : undefined
 	)
 </script>
 

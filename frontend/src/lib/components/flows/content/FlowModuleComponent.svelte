@@ -9,14 +9,14 @@
 	import EditorBar from '$lib/components/EditorBar.svelte'
 	import ModulePreview from '$lib/components/ModulePreview.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils'
+	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils.svelte'
 
 	import type { FlowModule, RawScript } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
-	import { getContext, onDestroy, tick } from 'svelte'
+	import { getContext, onDestroy, tick, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleScript from './FlowModuleScript.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
@@ -154,7 +154,7 @@
 						flowStepWarnings: await initFlowStepWarnings(
 							flowModule.value,
 							schema ?? {},
-							dfs($flowStore.value.modules, (fm) => fm.id)
+							dfs(flowStore.value.modules, (fm) => fm.id)
 						)
 					}
 				}
@@ -196,7 +196,7 @@
 
 	let forceReload = $state(0)
 	let editorPanelSize = $state(noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50)
-	let editorSettingsPanelSize = $state(100 - editorPanelSize)
+	let editorSettingsPanelSize = $state(100 - untrack(() => editorPanelSize))
 
 	function onSelectedIdChange() {
 		if (!$flowStateStore?.[$selectedId]?.schema && flowModule) {
@@ -211,7 +211,7 @@
 				flowModule.value,
 				$flowInputsStore[flowModule.id].flowStepWarnings ?? {},
 				$flowStateStore[$selectedId]?.schema,
-				dfs($flowStore?.value?.modules ?? [], (fm) => fm.id) ?? []
+				dfs(flowStore?.value?.modules ?? [], (fm) => fm.id) ?? []
 			).then((flowStepWarnings) => {
 				$flowInputsStore[flowModule.id].flowStepWarnings = flowStepWarnings
 			})
@@ -263,13 +263,13 @@
 
 	let stepPropPicker = $derived(
 		$executionCount != undefined && failureModule
-			? getFailureStepPropPicker($flowStateStore, $flowStore, $previewArgs)
+			? getFailureStepPropPicker($flowStateStore, flowStore, $previewArgs)
 			: getStepPropPicker(
 					$flowStateStore,
 					parentModule,
 					previousModule,
 					flowModule.id,
-					$flowStore,
+					flowStore,
 					$previewArgs,
 					false
 				)
@@ -284,7 +284,7 @@
 		}
 	})
 	let parentLoop = $derived(
-		$flowStore && flowModule ? checkIfParentLoop($flowStore, flowModule.id) : undefined
+		flowStore && flowModule ? checkIfParentLoop(flowStore, flowModule.id) : undefined
 	)
 	$effect(() => {
 		if (selected === 'test') {
@@ -850,7 +850,6 @@
 											on:updateMock={({ detail }) => {
 												flowModule.mock = detail
 												flowModule = flowModule
-												$flowStore = $flowStore
 											}}
 											{lastJob}
 											{scriptProgress}

@@ -64,7 +64,7 @@ export type FlowEditorContext = {
 	scriptEditorDrawer: Writable<ScriptEditorDrawer | undefined>
 	history: History<OpenFlow>
 	pathStore: Writable<string>
-	flowStore: Writable<ExtendedOpenFlow>
+	flowStore: ExtendedOpenFlow
 	flowInputEditorState: Writable<FlowInputEditorState>
 	flowStateStore: Writable<FlowState>
 	testStepStore: Writable<Record<string, any>>

@@ -55,7 +55,6 @@
 		diffViewer.closeDrawer()
 	}
 
-
 	function prepareDiff(data: Value) {
 		const metadata = structuredClone(cleanValueProperties(replaceFalseWithUndefined(data)))
 		const content = metadata['content']
@@ -126,8 +125,8 @@
 			data_[dataType]?.content !== data_.current.content
 				? 'content'
 				: data_[dataType]?.metadata !== data_.current.metadata
-				? 'metadata'
-				: undefined
+					? 'metadata'
+					: undefined
 	}
 
 	$: updateContentType(data, diffType)

@@ -960,13 +960,18 @@
 												{onlyMaskPassword}
 												{disablePortal}
 												{disabled}
-												schema={{
-													properties: obj.properties,
-													order: obj.order,
-													$schema: '',
-													required: obj.required ?? [],
-													type: 'object'
-												}}
+												bind:schema={
+													() => ({
+														properties: obj.properties ?? {},
+														order: obj.order,
+														$schema: '',
+														required: obj.required ?? [],
+														type: 'object'
+													}),
+													() => {
+														dispatch('nestedChange')
+													}
+												}
 												bind:args={value}
 												dndType={`nested-${title}`}
 												hiddenArgs={['label', 'kind']}
@@ -975,9 +980,6 @@
 														const keys = e.detail
 														oneOf[objIdx].order = keys
 													}
-												}}
-												on:change={() => {
-													dispatch('nestedChange')
 												}}
 												on:nestedChange
 												{shouldDispatchChanges}
@@ -1058,21 +1060,23 @@
 							{onlyMaskPassword}
 							{disablePortal}
 							{disabled}
-							schema={{
-								properties,
-								$schema: '',
-								required: nestedRequired ?? [],
-								type: 'object',
-								order
-							}}
+							bind:schema={
+								() => ({
+									properties,
+									$schema: '',
+									required: nestedRequired ?? [],
+									type: 'object',
+									order
+								}),
+								(newSchema) => {
+									dispatch('nestedChange')
+								}
+							}
 							bind:args={value}
 							dndType={`nested-${title}`}
 							on:reorder={(e) => {
 								const keys = e.detail
 								order = keys
-							}}
-							on:change={() => {
-								dispatch('nestedChange')
 							}}
 							diff={diffStatus && typeof diffStatus.diff === 'object' ? diffStatus.diff : {}}
 							on:acceptChange={(e) => {

@@ -4,7 +4,7 @@
 	import PropPickerWrapper from '$lib/components/flows/propPicker/PropPickerWrapper.svelte'
 	import type { Flow, FlowModule } from '$lib/gen'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import type { FlowEditorContext } from '../types'
+	import type { ExtendedOpenFlow, FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
 	import { NEVER_TESTED_THIS_FAR } from '../models'
 	import Section from '$lib/components/Section.svelte'
@@ -22,12 +22,12 @@
 		undefined,
 		undefined,
 		flowModule.id,
-		$flowStore,
+		flowStore,
 		$previewArgs,
 		false
 	)
 
-	function checkIfParentLoop(flowStore: typeof $flowStore): string | null {
+	function checkIfParentLoop(flowStore: ExtendedOpenFlow): string | null {
 		const flow: Flow = JSON.parse(JSON.stringify(flowStore))
 		const parents = dfs(flowModule.id, flow, true)
 		for (const parent of parents.slice(1)) {
@@ -37,14 +37,15 @@
 		}
 		return null
 	}
-	let raise_error_message_stop_after_all_if = flowModule.stop_after_all_iters_if?.error_message !== undefined
+	let raise_error_message_stop_after_all_if =
+		flowModule.stop_after_all_iters_if?.error_message !== undefined
 	let raise_error_message_stop_after_if = flowModule.stop_after_if?.error_message !== undefined
 	$: isLoop = flowModule.value.type === 'forloopflow' || flowModule.value.type === 'whileloopflow'
 	$: isBranchAll = flowModule.value.type === 'branchall'
 	$: isStopAfterIfEnabled = Boolean(flowModule.stop_after_if)
 	$: isStopAfterAllIterationsEnabled = Boolean(flowModule.stop_after_all_iters_if)
 	$: result = $flowStateStore[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR
-	$: parentLoopId = checkIfParentLoop($flowStore)
+	$: parentLoopId = checkIfParentLoop(flowStore)
 </script>
 
 <div class="flex flex-col items-start space-y-2 {$$props.class}">
@@ -232,7 +233,8 @@
 								bind:checked={raise_error_message_stop_after_all_if}
 								on:change={(event) => {
 									if (flowModule.stop_after_all_iters_if) {
-										flowModule.stop_after_all_iters_if.error_message = event.detail === false ? undefined : ''
+										flowModule.stop_after_all_iters_if.error_message =
+											event.detail === false ? undefined : ''
 									}
 								}}
 								options={{

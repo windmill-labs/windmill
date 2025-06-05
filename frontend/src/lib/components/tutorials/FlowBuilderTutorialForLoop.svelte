@@ -26,8 +26,8 @@
 	on:error
 	on:skipAll
 	getSteps={(driver, options) => {
-		const id = nextId($flowStateStore, $flowStore)
-		const index = options?.indexToInsertAt ?? $flowStore.value.modules.length
+		const id = nextId($flowStateStore, flowStore)
+		const index = options?.indexToInsertAt ?? flowStore.value.modules.length
 
 		let tempId = ''
 
@@ -84,7 +84,7 @@
 					description:
 						'The iterator expression is a JavaScript expression that respresents the array to iterate on. Here we will iterate on the firstname input letter by letter',
 					onNextClick: () => {
-						updateFlowModuleById($flowStore, id, (module) => {
+						updateFlowModuleById(flowStore, id, (module) => {
 							if (module.value.type === 'forloopflow') {
 								if (module.value.iterator.type === 'javascript') {
 									module.value.iterator.expr = '[1,2,3]'
@@ -108,8 +108,8 @@
 					description:
 						'We can refer to the result of previous steps using the results object: results.a or use static values like [1,2,3] in this case.',
 					onNextClick: () => {
-						updateFlowModuleById($flowStore, id, (module) => {
-							const newId = nextId($flowStateStore, $flowStore)
+						updateFlowModuleById(flowStore, id, (module) => {
+							const newId = nextId($flowStateStore, flowStore)
 							tempId = newId
 
 							if (module.value.type === 'forloopflow') {
@@ -159,7 +159,6 @@
 					description: 'We added an action to the loop. Let’s configure it',
 					onNextClick: () => {
 						$selectedId = tempId
-						$flowStore = $flowStore
 
 						dispatch('reload')
 						setTimeout(() => {
@@ -204,7 +203,7 @@
 					title: 'Connect',
 					description: 'As we did before, we can connect to the iterator of the loop',
 					onNextClick: () => {
-						updateFlowModuleById($flowStore, id, (module) => {
+						updateFlowModuleById(flowStore, id, (module) => {
 							if (
 								module.value.type === 'forloopflow' &&
 								module.value.modules[0].value.type === 'rawscript'

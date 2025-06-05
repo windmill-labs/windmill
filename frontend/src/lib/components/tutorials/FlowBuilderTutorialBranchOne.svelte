@@ -23,8 +23,8 @@
 	on:error
 	on:skipAll
 	getSteps={(driver, options) => {
-		const id = nextId($flowStateStore, $flowStore)
-		const index = options?.indexToInsertAt ?? $flowStore.value.modules.length
+		const id = nextId($flowStateStore, flowStore)
+		const index = options?.indexToInsertAt ?? flowStore.value.modules.length
 
 		const steps = [
 			{
@@ -77,7 +77,7 @@
 					onNextClick: () => {
 						clickButtonBySelector('#flow-editor-edit-predicate')
 
-						updateFlowModuleById($flowStore, id, (module) => {
+						updateFlowModuleById(flowStore, id, (module) => {
 							if (module.value.type === 'branchone') {
 								module.value.branches[0].expr = "result.a === 'foo'"
 							}

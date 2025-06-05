@@ -3,7 +3,7 @@
 
 	const bubble = createBubbler()
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
-	import { onMount, setContext } from 'svelte'
+	import { onMount, setContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -148,7 +148,7 @@
 	})
 	const darkMode: Writable<boolean> = writable(document.documentElement.classList.contains('dark'))
 
-	const worldStore = buildWorld(context)
+	const worldStore = buildWorld(untrack(() => context))
 	const previewTheme: Writable<string | undefined> = writable(undefined)
 	const initialized = writable({
 		initialized: false,

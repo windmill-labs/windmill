@@ -59,7 +59,7 @@
 			parentModule,
 			previousModule,
 			mod.id,
-			$flowStore,
+			flowStore,
 			$previewArgs,
 			false
 		)

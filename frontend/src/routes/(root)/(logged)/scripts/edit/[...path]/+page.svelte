@@ -27,7 +27,6 @@
 
 	let scriptLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
-
 	let script: (NewScript & { draft_triggers?: Trigger[] }) | undefined = undefined
 
 	let initialPath: string = ''

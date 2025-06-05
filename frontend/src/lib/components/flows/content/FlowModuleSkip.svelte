@@ -22,7 +22,7 @@
 		parentModule,
 		previousModule,
 		flowModule.id,
-		$flowStore,
+		flowStore,
 		$previewArgs,
 		false
 	)
@@ -55,7 +55,11 @@
 			}}
 		/>
 
-		<div class="w-full border p-2 mt-2 flex flex-col {flowModule.skip_if ? '' : 'bg-surface-secondary'}">
+		<div
+			class="w-full border p-2 mt-2 flex flex-col {flowModule.skip_if
+				? ''
+				: 'bg-surface-secondary'}"
+		>
 			{#if flowModule.skip_if}
 				<span class="mt-2 text-xs font-bold">Skip condition expression</span>
 				<div class="border w-full">

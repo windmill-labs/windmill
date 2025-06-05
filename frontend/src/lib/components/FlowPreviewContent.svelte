@@ -13,7 +13,7 @@
 	import { AlertTriangle, ArrowRight, CornerDownLeft, Play, RefreshCw, X } from 'lucide-svelte'
 	import { emptyString, sendUserToast } from '$lib/utils'
 	import { dfs } from './flows/dfs'
-	import { sliceModules } from './flows/flowStateUtils'
+	import { sliceModules } from './flows/flowStateUtils.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import Toggle from './Toggle.svelte'
 	import JsonInputs from './JsonInputs.svelte'
@@ -75,9 +75,9 @@
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
 		if (previewMode === 'whole') {
-			return $flowStore
+			return flowStore
 		} else {
-			const flow: Flow = JSON.parse(JSON.stringify($flowStore))
+			const flow: Flow = JSON.parse(JSON.stringify(flowStore))
 			const idOrders = dfs(flow.value.modules, (x) => x.id)
 			let upToIndex = idOrders.indexOf($selectedId)
 
@@ -97,7 +97,7 @@
 			initial = false
 		}
 		try {
-			lastPreviewFlow = JSON.stringify($flowStore)
+			lastPreviewFlow = JSON.stringify(flowStore)
 			jobProgressReset()
 			const newFlow = extractFlow(previewMode)
 			jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
@@ -185,7 +185,7 @@
 
 	async function loadIndividualStepsStates() {
 		// console.log('loadIndividualStepsStates')
-		dfs($flowStore.value.modules, async (module) => {
+		dfs(flowStore.value.modules, async (module) => {
 			// console.log('module', $flowStateStore[module.id], module.id)
 			const prev = $flowStateStore[module.id]?.previewResult
 			if (prev && prev != NEVER_TESTED_THIS_FAR) {
@@ -385,7 +385,7 @@
 		{/if}
 	</div>
 	<div class="w-full flex flex-col gap-y-1">
-		{#if lastPreviewFlow && JSON.stringify($flowStore) != lastPreviewFlow}
+		{#if lastPreviewFlow && JSON.stringify(flowStore) != lastPreviewFlow}
 			<div class="pt-1">
 				<div
 					class="bg-orange-200 text-orange-600 border border-orange-600 p-2 flex items-center gap-2 rounded"
@@ -458,7 +458,7 @@
 							<SchemaForm
 								noVariablePicker
 								compact
-								schema={$flowStore.schema}
+								schema={flowStore.schema}
 								bind:args={$previewArgs}
 								on:change={() => {
 									savedArgs = $previewArgs

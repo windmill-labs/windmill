@@ -12,7 +12,7 @@
 		pickScript,
 		pickFlow,
 		insertNewPreprocessorModule
-	} from '$lib/components/flows/flowStateUtils'
+	} from '$lib/components/flows/flowStateUtils.svelte'
 	import type { FlowModule, ScriptLang } from '$lib/gen'
 	import { emptyFlowModuleState, initFlowStepWarnings } from '../utils'
 	import FlowSettingsItem from './FlowSettingsItem.svelte'
@@ -31,7 +31,7 @@
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 	import { tutorialInProgress } from '$lib/tutorialUtils'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
-	import { replaceId } from '../flowStore'
+	import { replaceId } from '../flowStore.svelte'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { JobService } from '$lib/gen'
@@ -85,8 +85,8 @@
 		wsFlow?: { path: string; summary: string },
 		inlineScript?: InlineScript
 	): Promise<FlowModule[]> {
-		push(history, $flowStore)
-		var module = emptyModule($flowStateStore, $flowStore, kind == 'flow')
+		push(history, flowStore)
+		var module = emptyModule($flowStateStore, flowStore, kind == 'flow')
 		var state = emptyFlowModuleState()
 		$flowStateStore[module.id] = state
 		if (wsFlow) {
@@ -186,11 +186,11 @@
 	}
 
 	function findModuleById(id: string) {
-		return dfsByModule(id, $flowStore.value.modules)[0]
+		return dfsByModule(id, flowStore.value.modules)[0]
 	}
 
 	async function addBranch(id: string) {
-		push(history, $flowStore)
+		push(history, flowStore)
 		let module = findModuleById(id)
 
 		if (!module) {
@@ -207,7 +207,7 @@
 	}
 
 	function removeBranch(id: string, index: number) {
-		push(history, $flowStore)
+		push(history, flowStore)
 		let module = findModuleById(id)
 
 		if (!module) {
@@ -247,7 +247,7 @@
 		const keys = Object.keys(dependents ?? {})
 
 		for (const key of keys) {
-			const module = $flowStore.value.modules.find((m) => m.id === key)
+			const module = flowStore.value.modules.find((m) => m.id === key)
 
 			if (!module) {
 				continue
@@ -261,7 +261,7 @@
 				flowStepWarnings: await initFlowStepWarnings(
 					module.value,
 					$flowStateStore?.[module.id]?.schema,
-					dfs($flowStore.value.modules, (fm) => fm.id)
+					dfs(flowStore.value.modules, (fm) => fm.id)
 				)
 			}
 		}
@@ -351,8 +351,8 @@
 
 	<div class="z-10 flex-auto grow bg-surface-secondary" bind:clientHeight={minHeight}>
 		<FlowGraphV2
-			earlyStop={$flowStore.value?.skip_expr !== undefined}
-			cache={$flowStore.value?.cache_ttl !== undefined}
+			earlyStop={flowStore.value?.skip_expr !== undefined}
+			cache={flowStore.value?.cache_ttl !== undefined}
 			triggerNode={customUi?.triggers != false}
 			path={$pathStore}
 			{newFlow}
@@ -362,27 +362,26 @@
 			{minHeight}
 			moving={$moving?.id}
 			maxHeight={minHeight}
-			modules={$flowStore.value.modules}
-			preprocessorModule={$flowStore.value?.preprocessor_module}
+			modules={flowStore.value.modules}
+			preprocessorModule={flowStore.value?.preprocessor_module}
 			{selectedId}
 			{flowInputsStore}
 			{workspace}
 			editMode
 			onDelete={(id) => {
-				dependents = getDependentComponents(id, $flowStore)
+				dependents = getDependentComponents(id, flowStore)
 				const cb = () => {
-					push(history, $flowStore)
+					push(history, flowStore)
 					if (id === 'preprocessor') {
 						$selectedId = 'Input'
-						$flowStore.value.preprocessor_module = undefined
+						flowStore.value.preprocessor_module = undefined
 					} else {
 						selectNextId(id)
-						removeAtId($flowStore.value.modules, id)
+						removeAtId(flowStore.value.modules, id)
 						if ($flowInputsStore) {
 							delete $flowInputsStore[id]
 						}
 					}
-					$flowStore = $flowStore
 
 					updateFlowInputsStore()
 				}
@@ -407,7 +406,7 @@
 						targetModules = modules
 					}
 
-					dfs($flowStore.value.modules, (mod, modules, branches) => {
+					dfs(flowStore.value.modules, (mod, modules, branches) => {
 						// console.log('mod', mod.id, $moving?.id, detail, branches)
 						if (mod.id == $moving?.id) {
 							originalModules = modules
@@ -424,7 +423,7 @@
 						await tick()
 						if ($moving) {
 							// console.log('modules', modules, movingModules, movingModule)
-							push(history, $flowStore)
+							push(history, flowStore)
 							let indexToRemove = originalModules.findIndex((m) => $moving?.id == m.id)
 
 							let [removedModule] = originalModules.splice(indexToRemove, 1)
@@ -493,7 +492,6 @@
 							await addBranch(targetModules[detail.index ?? 0].id)
 						}
 						$flowStateStore = $flowStateStore
-						$flowStore = $flowStore
 						dispatch('change')
 					}
 				}
@@ -501,7 +499,6 @@
 			onNewBranch={async (id) => {
 				if (id) {
 					await addBranch(id)
-					$flowStore = $flowStore
 				}
 			}}
 			onSelect={(id) => {
@@ -509,7 +506,7 @@
 			}}
 			onChangeId={(detail) => {
 				let { id, newId, deps } = detail
-				dfs($flowStore.value.modules, (mod) => {
+				dfs(flowStore.value.modules, (mod) => {
 					if (deps[mod.id]) {
 						deps[mod.id].forEach((dep) => {
 							if (
@@ -541,13 +538,11 @@
 						mod.id = newId
 					}
 				})
-				$flowStore = $flowStore
 				$selectedId = newId
 			}}
 			onDeleteBranch={async ({ id, index }) => {
 				if (id) {
 					await removeBranch(id, index)
-					$flowStore = $flowStore
 					$selectedId = id
 				}
 			}}
@@ -561,7 +556,6 @@
 			onUpdateMock={(detail) => {
 				let module = findModuleById(detail.id)
 				module.mock = $state.snapshot(detail.mock)
-				$flowStore = $flowStore
 			}}
 		/>
 	</div>

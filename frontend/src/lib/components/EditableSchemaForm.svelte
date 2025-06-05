@@ -14,7 +14,7 @@
 	import FlowPropertyEditor from './schema/FlowPropertyEditor.svelte'
 	import PropertyEditor from './schema/PropertyEditor.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
-	import { createEventDispatcher, tick } from 'svelte'
+	import { createEventDispatcher, tick, untrack } from 'svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
@@ -168,12 +168,11 @@
 			}
 		}
 		if (editSchema) {
-			console.log('setSchema', schema)
 			schema = schema
 		}
 	}
 
-	let opened: string | undefined = $state(keys[0])
+	let opened: string | undefined = $state(untrack(() => keys[0]))
 	let selected = $state('')
 
 	export function openField(key: string) {
@@ -259,7 +258,10 @@
 	let editPanelSizeSmooth = tweened(editPanelSize, {
 		duration: 150
 	})
-	let inputPanelSizeSmooth = tweened(inputPanelSize, { duration: 150 })
+	let inputPanelSizeSmooth = tweened(
+		untrack(() => inputPanelSize),
+		{ duration: 150 }
+	)
 
 	function openEditTabFn() {
 		if (editPanelSize > 0) return
@@ -334,7 +336,13 @@
 					>
 						<SchemaFormDnd
 							nestedClasses={'flex flex-col gap-1'}
-							schema={schema2}
+							bind:schema={
+								() => schema2,
+								(newSchema) => {
+									schema = newSchema
+									tick().then(() => dispatch('change', schema))
+								}
+							}
 							{dndType}
 							{disableDnd}
 							{onlyMaskPassword}
@@ -344,10 +352,6 @@
 							}}
 							on:reorder={(e) => {
 								schema.order = e.detail
-								schema = schema
-								tick().then(() => dispatch('change', schema))
-							}}
-							on:change={() => {
 								schema = schema
 								tick().then(() => dispatch('change', schema))
 							}}

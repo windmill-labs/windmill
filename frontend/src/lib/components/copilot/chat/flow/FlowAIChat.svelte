@@ -14,7 +14,7 @@
 	import {
 		insertNewFailureModule,
 		insertNewPreprocessorModule
-	} from '$lib/components/flows/flowStateUtils'
+	} from '$lib/components/flows/flowStateUtils.svelte'
 	import type { ScriptOptions } from '../ContextManager.svelte'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
 
@@ -33,11 +33,11 @@
 
 	function getModule(id: string) {
 		if (id === 'preprocessor') {
-			return $flowStore.value.preprocessor_module
+			return flowStore.value.preprocessor_module
 		} else if (id === 'failure') {
-			return $flowStore.value.failure_module
+			return flowStore.value.failure_module
 		} else {
-			return dfs(id, $flowStore, false)[0]
+			return dfs(id, flowStore, false)[0]
 		}
 	}
 
@@ -81,7 +81,7 @@
 	const flowHelpers: FlowAIChatHelpers & {
 		getFlowAndSelectedId: () => { flow: OpenFlow; selectedId: string }
 	} = {
-		getFlowAndSelectedId: () => ({ flow: $flowStore, selectedId: $selectedId }),
+		getFlowAndSelectedId: () => ({ flow: flowStore, selectedId: $selectedId }),
 		setCode: async (id, code) => {
 			const module = getModule(id)
 			if (!module) {
@@ -91,7 +91,7 @@
 				module.value.content = code
 				const { input_transforms, schema } = await loadSchemaFromModule(module)
 				module.value.input_transforms = input_transforms
-				$flowStore = $flowStore
+
 				if ($flowStateStore[id]) {
 					$flowStateStore[id].schema = schema
 				} else {
@@ -111,23 +111,23 @@
 				location.type === 'start'
 					? {
 							index: -1,
-							modules: $flowStore.value.modules
+							modules: flowStore.value.modules
 						}
 					: location.type === 'start_inside_forloop'
 						? {
 								index: -1,
-								modules: getNestedModules($flowStore, location.inside)
+								modules: getNestedModules(flowStore, location.inside)
 							}
 						: location.type === 'start_inside_branch'
 							? {
 									index: -1,
-									modules: getNestedModules($flowStore, location.inside, location.branchIndex)
+									modules: getNestedModules(flowStore, location.inside, location.branchIndex)
 								}
 							: location.type === 'after'
-								? getIndexInNestedModules($flowStore, location.afterId)
+								? getIndexInNestedModules(flowStore, location.afterId)
 								: {
 										index: -1,
-										modules: $flowStore.value.modules
+										modules: flowStore.value.modules
 									}
 
 			const indexToInsertAt = index + 1
@@ -196,7 +196,7 @@
 
 			if (location.type === 'preprocessor' || location.type === 'failure') {
 				$flowStateStore = $flowStateStore
-				$flowStore = $flowStore
+
 				return location.type
 			} else {
 				const newModule = newModules?.[indexToInsertAt]
@@ -210,7 +210,6 @@
 				}
 
 				$flowStateStore = $flowStateStore
-				$flowStore = $flowStore
 
 				return newModule.id
 			}
@@ -218,19 +217,17 @@
 		removeStep: async (id) => {
 			flowModuleSchemaMap?.selectNextId(id)
 			if (id === 'preprocessor') {
-				$flowStore.value.preprocessor_module = undefined
+				flowStore.value.preprocessor_module = undefined
 			} else if (id === 'failure') {
-				$flowStore.value.failure_module = undefined
+				flowStore.value.failure_module = undefined
 			} else {
-				const { modules } = getIndexInNestedModules($flowStore, id)
+				const { modules } = getIndexInNestedModules(flowStore, id)
 				flowModuleSchemaMap?.removeAtId(modules, id)
 			}
 
 			if ($flowInputsStore) {
 				delete $flowInputsStore[id]
 			}
-
-			$flowStore = $flowStore
 
 			flowModuleSchemaMap?.updateFlowInputsStore()
 		},
@@ -284,14 +281,13 @@
 						expr: value
 					}
 				}
-				$flowStore = $flowStore
 			}
 		},
 		getFlowInputsSchema: async () => {
-			return $flowStore.schema ?? {}
+			return flowStore.schema ?? {}
 		},
 		setFlowInputsSchema: async (newInputs) => {
-			$flowStore.schema = newInputs
+			flowStore.schema = newInputs
 		},
 		selectStep: (id) => {
 			$selectedId = id
@@ -317,7 +313,7 @@
 
 				return getSubModules(module).flat()
 			}
-			return $flowStore.value.modules
+			return flowStore.value.modules
 		},
 		setBranchPredicate: async (id, branchIndex, expression) => {
 			const module = getModule(id)
@@ -332,7 +328,6 @@
 				throw new Error('Branch not found')
 			}
 			branch.expr = expression
-			$flowStore = $flowStore
 		},
 		addBranch: async (id) => {
 			const module = getModule(id)
@@ -343,7 +338,6 @@
 				throw new Error('Module is not a branchall or branchone')
 			}
 			flowModuleSchemaMap?.addBranch(module)
-			$flowStore = $flowStore
 		},
 		removeBranch: async (id, branchIndex) => {
 			const module = getModule(id)
@@ -359,7 +353,6 @@
 				module,
 				module.value.type === 'branchone' ? branchIndex + 1 : branchIndex
 			)
-			$flowStore = $flowStore
 		},
 		setForLoopIteratorExpression: async (id, expression) => {
 			if ($currentEditor && $currentEditor.type === 'iterator' && $currentEditor.stepId === id) {
@@ -373,7 +366,6 @@
 					throw new Error('Module is not a forloopflow')
 				}
 				module.value.iterator = { type: 'javascript', expr: expression }
-				$flowStore = $flowStore
 			}
 		}
 	}

@@ -17,7 +17,7 @@
 	import { fade } from 'svelte/transition'
 	import WorkerTagSelect from '$lib/components/WorkerTagSelect.svelte'
 
-	let scriptEditorDrawer: Drawer
+	let scriptEditorDrawer: Drawer | undefined = $state()
 
 	const dispatch = createEventDispatcher()
 
@@ -28,7 +28,7 @@
 			workspace: $workspaceStore!,
 			hash
 		})
-		savedScript = structuredClone(script)
+		savedScript = structuredClone($state.snapshot(script))
 		callback = cb
 	}
 
@@ -52,7 +52,7 @@
 				no_main_func?: boolean
 				has_preprocessor?: boolean
 		  }
-		| undefined = undefined
+		| undefined = $state(undefined)
 
 	let savedScript:
 		| {
@@ -73,7 +73,7 @@
 				no_main_func?: boolean
 				has_preprocessor?: boolean
 		  }
-		| undefined = undefined
+		| undefined = $state(undefined)
 
 	async function saveScript(): Promise<void> {
 		if (script) {
@@ -100,7 +100,7 @@
 						lock: undefined
 					}
 				})
-				savedScript = structuredClone(script)
+				savedScript = structuredClone($state.snapshot(script))
 				callback?.()
 			} catch (error) {
 				sendUserToast(`Impossible to save the script: ${error.body}`, true)
@@ -108,12 +108,12 @@
 		}
 	}
 
-	let closeAnyway = false
-	let diffDrawer: DiffDrawer
-	let unsavedModalOpen = false
+	let closeAnyway = $state(false)
+	let diffDrawer: DiffDrawer | undefined = $state()
+	let unsavedModalOpen = $state(false)
 	async function checkForUnsavedChanges() {
 		if (closeAnyway) {
-			scriptEditorDrawer.closeDrawer()
+			scriptEditorDrawer?.closeDrawer()
 			closeAnyway = false
 			return
 		}
@@ -123,7 +123,7 @@
 			if (orderedJsonStringify(saved) !== orderedJsonStringify(current)) {
 				unsavedModalOpen = true
 			} else {
-				scriptEditorDrawer.closeDrawer()
+				scriptEditorDrawer?.closeDrawer()
 			}
 		}
 	}
@@ -139,7 +139,7 @@
 	on:confirmed={() => {
 		unsavedModalOpen = false
 		closeAnyway = true
-		scriptEditorDrawer.closeDrawer()
+		scriptEditorDrawer?.closeDrawer()
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
@@ -155,9 +155,9 @@
 				}
 				unsavedModalOpen = false
 				closeAnyway = true
-				scriptEditorDrawer.closeDrawer()
+				scriptEditorDrawer?.closeDrawer()
 				diffDrawer?.openDrawer()
-				diffDrawer.setDiff({
+				diffDrawer?.setDiff({
 					title: 'Saved <> Current',
 					mode: 'simple',
 					original: savedScript,
@@ -166,7 +166,7 @@
 						text: 'Close anyway',
 						onClick: () => {
 							closeAnyway = true
-							diffDrawer.closeDrawer()
+							diffDrawer?.closeDrawer()
 						}
 					}
 				})
@@ -191,7 +191,7 @@
 		forceOverflowVisible
 		fullScreen
 		on:close={() => {
-			scriptEditorDrawer.closeDrawer()
+			scriptEditorDrawer?.closeDrawer()
 		}}
 	>
 		{#if script}
@@ -209,6 +209,7 @@
 					bind:code={script.content}
 					bind:schema={script.schema}
 				>
+					<!-- @migration-task: migrate this slot by hand, `editor-bar-right` is an invalid identifier -->
 					<div slot="editor-bar-right">
 						<WorkerTagSelect bind:tag={script.tag} />
 					</div>
@@ -223,7 +224,7 @@
 				<span class="text-xs mt-1">Loading</span>
 			</div>
 		{/if}
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button
 				disabled={!savedScript || !script}
 				color="light"
@@ -233,9 +234,9 @@
 						return
 					}
 					closeAnyway = true
-					scriptEditorDrawer.closeDrawer()
+					scriptEditorDrawer?.closeDrawer()
 					diffDrawer?.openDrawer()
-					diffDrawer.setDiff({
+					diffDrawer?.setDiff({
 						mode: 'simple',
 						original: savedScript,
 						current: script,
@@ -243,8 +244,8 @@
 						button: {
 							text: 'Restore to saved',
 							onClick: () => {
-								script = structuredClone(savedScript)
-								diffDrawer.closeDrawer()
+								script = structuredClone($state.snapshot(savedScript))
+								diffDrawer?.closeDrawer()
 							}
 						}
 					})
@@ -259,14 +260,14 @@
 				on:click={async () => {
 					await saveScript()
 					dispatch('save')
-					scriptEditorDrawer.closeDrawer()
+					scriptEditorDrawer?.closeDrawer()
 				}}
 				disabled={!script}
 				startIcon={{ icon: Save }}
 			>
 				Save
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>
 

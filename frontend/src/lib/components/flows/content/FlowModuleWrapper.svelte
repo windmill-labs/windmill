@@ -12,7 +12,7 @@
 		createInlineScriptModule,
 		pickFlow,
 		pickScript
-	} from '$lib/components/flows/flowStateUtils'
+	} from '$lib/components/flows/flowStateUtils.svelte'
 	import FlowInputs from './FlowInputs.svelte'
 	import { Alert } from '$lib/components/common'
 	import FlowInputsFlow from './FlowInputsFlow.svelte'
@@ -112,7 +112,7 @@
 				flowStepWarnings: await initFlowStepWarnings(
 					module?.value,
 					$flowStateStore[module?.id]?.schema,
-					dfs($flowStore.value.modules, (fm) => fm.id)
+					dfs(flowStore.value.modules, (fm) => fm.id)
 				)
 			}
 		}
@@ -198,7 +198,7 @@
 							flowStepWarnings: await initFlowStepWarnings(
 								module.value,
 								$flowStateStore[module.id].schema,
-								dfs($flowStore.value.modules, (fm) => fm.id)
+								dfs(flowStore.value.modules, (fm) => fm.id)
 							)
 						}
 					}
