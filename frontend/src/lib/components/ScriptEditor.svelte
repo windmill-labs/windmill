@@ -463,7 +463,9 @@
 							size="md"
 							panelName="Test"
 							shortcut="U"
-							customHiddenIcon={PlayIcon}
+							customHiddenIcon={{
+								icon: PlayIcon
+							}}
 							on:click={() => {
 								toggleTestPanel()
 							}}
@@ -480,7 +482,9 @@
 								shortcut="L"
 								size="md"
 								usePopoverOverride={!$copilotInfo.enabled}
-								customHiddenIcon={WandSparkles}
+								customHiddenIcon={{
+									icon: WandSparkles
+								}}
 								btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface"
 								on:click={() => {
 									aiChatManager.toggleOpen()

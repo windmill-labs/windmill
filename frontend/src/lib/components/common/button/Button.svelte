@@ -296,7 +296,7 @@
 				aiId={aiId ? `${aiId}-dropdown` : undefined}
 				aiDescription={aiDescription ? `${aiDescription} dropdown` : undefined}
 				items={computeDropdowns(dropdownItems)}
-				class="h-full w-fit"
+				class="h-auto w-fit"
 				hidePopup={hideDropdown}
 				usePointerDownOutside
 				on:open={() => dispatch('dropdownOpen', true)}
