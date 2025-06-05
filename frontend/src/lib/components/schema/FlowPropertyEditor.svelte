@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Label from '../Label.svelte'
 	import Toggle from '../Toggle.svelte'
@@ -77,6 +75,13 @@
 		displayWebhookWarning = true
 	}: Props = $props()
 
+	let schema = $state({
+		properties,
+		order,
+		required: requiredProperty,
+		oneOf: oneOf ? getOneOfWithoutLabel(oneOf) : undefined
+	})
+
 	function getOneOfWithoutLabel(oneOf: SchemaProperty[]) {
 		return oneOf.map((v) => ({
 			...v,
@@ -109,7 +114,7 @@
 			schema = schema
 		}
 	}
-	run(() => {
+	$effect(() => {
 		oneOfUpdate(oneOf)
 	})
 
@@ -120,7 +125,7 @@
 			schema = schema
 		}
 	}
-	run(() => {
+	$effect(() => {
 		orderUpdate(order)
 	})
 
@@ -134,13 +139,6 @@
 
 		return []
 	}
-
-	let schema = $state({
-		properties,
-		order,
-		required: requiredProperty,
-		oneOf: oneOf ? getOneOfWithoutLabel(oneOf) : undefined
-	})
 
 	function schemaUpdate(changedSchema: typeof schema) {
 		if (
@@ -175,7 +173,7 @@
 		}
 	}
 
-	run(() => {
+	$effect(() => {
 		schemaUpdate(schema)
 	})
 
