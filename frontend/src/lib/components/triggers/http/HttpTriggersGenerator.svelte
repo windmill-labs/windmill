@@ -172,7 +172,7 @@
 								} else if (selected === 'OpenAPI_File') {
 									openApiFileEditorValue = code
 								} else {
-									openApiUrlEditorValue
+									openApiUrlEditorValue = code
 								}
 
 								const type = detail as Source
