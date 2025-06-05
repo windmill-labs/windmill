@@ -2,11 +2,11 @@
 	import { onMount } from 'svelte'
 	import { Terminal } from 'xterm'
 	import 'xterm/css/xterm.css'
-	import { runScriptAndPollResult } from './jobs/utils'
+	import { pollJobResult, runScript } from './jobs/utils'
 	import { workspaceStore } from '$lib/stores'
 	import { Badge, Button, Drawer, DrawerContent, Skeleton } from './common'
 	import DarkModeObserver from './DarkModeObserver.svelte'
-	import { Library, Play } from 'lucide-svelte'
+	import { Eye, Library, Play, RefreshCw, Square } from 'lucide-svelte'
 	import Editor from './Editor.svelte'
 	import WorkspaceScriptPicker from './flows/pickers/WorkspaceScriptPicker.svelte'
 	import ToggleHubWorkspace from './ToggleHubWorkspace.svelte'
@@ -17,6 +17,10 @@
 	import { FitAddon } from '@xterm/addon-fit'
 	import { Readline } from 'xterm-readline'
 	import Tooltip from './Tooltip.svelte'
+	import { JobService, type QueuedJob } from '$lib/gen'
+	import { sendUserToast } from '$lib/toast'
+	import Select from './Select.svelte'
+	import { emptyString } from '$lib/utils'
 
 	let container: HTMLDivElement
 	let term: Terminal
@@ -29,12 +33,17 @@
 	let editor = $state<Editor | null>(null)
 	let darkMode = $state(false)
 	let pick_existing: 'workspace' | 'hub' = $state('workspace')
+	let jobId = $state('')
+	let selectedJobId = $state('')
 	let codeViewer: Drawer | undefined = $state()
 	let filter = $state('')
 	let { tag }: Props = $props()
 	let code: string = $state('')
 	let working_directory = $state('~')
 	let homeDirectory: string = '~'
+	let pendingsJobs: Array<QueuedJob> = $state([])
+	let loadingPendingJobs = $state(false)
+	let isCancelingJob = $state(false)
 	let prompt = $derived(
 		`$-${working_directory === '/' ? '/' : working_directory.split('/').at(-1)} `
 	)
@@ -86,7 +95,7 @@
 				}
 			}
 
-			let result: any = await runScriptAndPollResult({
+			jobId = await runScript({
 				workspace: $workspaceStore!,
 				requestBody: {
 					language: 'bash',
@@ -95,6 +104,9 @@
 					args: {}
 				}
 			})
+
+			let result: any = await pollJobResult(jobId, $workspaceStore!)
+
 			if (isOnlyCdCommand) {
 				working_directory = (result as string).replace(/(\r\n|\n|\r)/g, '')
 				result = ''
@@ -108,6 +120,40 @@
 	}
 
 	const rl = new Readline()
+
+	async function listPendingJobs() {
+		try {
+			loadingPendingJobs = true
+			pendingsJobs = await JobService.listQueue({
+				workspace: $workspaceStore!,
+				tag,
+				running: true
+			})
+		} catch (error) {
+			sendUserToast(error.body || error.message)
+		} finally {
+			loadingPendingJobs = false
+		}
+	}
+
+	async function listPendingJobsAndUpdateSelectedJobid() {
+		await listPendingJobs()
+		if (!pendingsJobs.find((pendingJob) => pendingJob.id === selectedJobId)) {
+			selectedJobId = ''
+		}
+	}
+
+	async function cancelJob(jobId: string) {
+		try {
+			await JobService.cancelQueuedJob({
+				workspace: $workspaceStore! ?? '',
+				id: jobId,
+				requestBody: {}
+			})
+		} catch (err) {
+			sendUserToast(err.BodyDropPivotTarget, true)
+		}
+	}
 
 	onMount(async () => {
 		term = new Terminal({
@@ -132,6 +178,11 @@
 			await handleCommand(text)
 			setTimeout(readLine)
 		}
+
+		rl.setCtrlCHandler(async () => {
+			await cancelJob(jobId)
+			rl.read(prompt).then(processLine)
+		})
 
 		const fitAddon = new FitAddon()
 		term.loadAddon(fitAddon)
@@ -176,9 +227,8 @@
 	}
 
 	async function onScriptPick(e: { detail: { path: string } }) {
-		codeObj = undefined
-		codeViewer?.openDrawer?.()
 		codeObj = await getScriptByPath(e.detail.path ?? '')
+		codeViewer?.openDrawer?.()
 	}
 
 	async function replacePromptWithCommand(command: string) {
@@ -192,6 +242,8 @@
 		await handleCommand(input)
 		term.write(prompt)
 	}
+
+	listPendingJobs()
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -221,8 +273,94 @@
 </Drawer>
 
 <div class="h-screen flex flex-col">
-	<div class="m-1">
-		<div class="flex flex-col">
+	<div class="m-1 flex flex-col gap-2">
+		<div class="flex flex-col gap-1">
+			{#if pendingsJobs.length === 0}
+				<Button
+					loading={loadingPendingJobs}
+					variant="border"
+					color="light"
+					wrapperClasses="self-stretch"
+					on:click={async () => {
+						await listPendingJobs()
+						if (pendingsJobs.length === 0) {
+							sendUserToast('No pending ssh jobs found')
+						}
+					}}
+					startIcon={{ icon: RefreshCw }}
+				>
+					Load pending ssh jobs</Button
+				>
+			{:else}
+				<div class="flex gap-1">
+					<Select
+						loading={loadingPendingJobs}
+						class="grow shrink"
+						bind:value={selectedJobId}
+						items={pendingsJobs.map((pendingJob) => ({ value: pendingJob.id }))}
+						placeholder="Choose a pending job id"
+						clearable
+						disablePortal
+					/>
+					<Button
+						variant="border"
+						color="light"
+						disabled={emptyString(selectedJobId)}
+						wrapperClasses="self-stretch"
+						on:click={listPendingJobsAndUpdateSelectedJobid}
+						startIcon={{ icon: RefreshCw }}
+						iconOnly
+					/>
+					<Button
+						color="light"
+						size="xs"
+						variant="border"
+						disabled={emptyString(selectedJobId)}
+						startIcon={{ icon: Eye }}
+						on:click={async () => {
+							const jobId = pendingsJobs.find((pendingsJob) => pendingsJob.id === selectedJobId)?.id
+							if (jobId) {
+								const job = await JobService.getJob({ workspace: $workspaceStore!, id: jobId })
+								codeObj = {
+									content: job.raw_code ?? '',
+									language: job.language ?? 'bash'
+								}
+								codeViewer?.openDrawer()
+							} else {
+								pendingsJobs = pendingsJobs.filter((pendingJob) => pendingJob.id !== selectedJobId)
+								selectedJobId = ''
+							}
+						}}
+						iconOnly
+					/>
+					<Button
+						loading={isCancelingJob}
+						disabled={emptyString(selectedJobId)}
+						color="red"
+						size="xs"
+						variant="border"
+						startIcon={{ icon: Square }}
+						on:click={async () => {
+							try {
+								isCancelingJob = true
+								await cancelJob(selectedJobId)
+								sendUserToast('Job cancelled successfully')
+								pendingsJobs = pendingsJobs.filter((pendingJob) => pendingJob.id !== selectedJobId)
+								selectedJobId = ''
+							} catch (error) {
+								sendUserToast(error.body || error.message, true)
+								await listPendingJobsAndUpdateSelectedJobid()
+							} finally {
+								isCancelingJob = false
+							}
+						}}
+						iconOnly
+					/>
+				</div>
+			{/if}
+		</div>
+
+		<div>
 			<div class="flex justify-start w-full mb-2">
 				<div class="flex flex-row">
 					<Badge
@@ -239,9 +377,9 @@
 				</div>
 				<input type="text" disabled bind:value={working_directory} />
 			</div>
-		</div>
 
-		<div bind:this={container}></div>
+			<div bind:this={container}></div>
+		</div>
 	</div>
 	<div class="flex flex-col h-full gap-1 mt-2">
 		<div class="flex flex-row w-full justify-between">
