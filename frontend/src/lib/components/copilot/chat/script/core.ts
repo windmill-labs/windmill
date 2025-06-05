@@ -306,7 +306,7 @@ export function prepareScriptTools(
 	language: ScriptLang | 'bunnative',
 	context: ContextElement[]
 ): Tool<ScriptChatHelpers>[] {
-	const tools: Tool<ScriptChatHelpers>[] = [resourceTypeTool, dbSchemaTool]
+	const tools: Tool<ScriptChatHelpers>[] = []
 	if (['python3', 'php', 'bun', 'deno', 'nativets', 'bunnative'].includes(language)) {
 		tools.push(resourceTypeTool)
 	}
