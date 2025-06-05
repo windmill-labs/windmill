@@ -18,6 +18,7 @@ export { sendUserToast }
 import type { AnyMeltElement } from '@melt-ui/svelte'
 import type { RunsSelectionMode } from './components/runs/RunsBatchActionsDropdown.svelte'
 import type { TriggerKind } from './components/triggers'
+import { stateSnapshot } from './svelte5Utils.svelte'
 
 export function isJobCancelable(j: Job): boolean {
 	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
@@ -32,7 +33,9 @@ export const AGENT_WORKER_NAME_PREFIX = 'ag'
 const SSH_AGENT_WORKER_SUFFIX = '/ssh'
 
 export function isAgentWorkerShell(workerName: string) {
-	return workerName.startsWith(AGENT_WORKER_NAME_PREFIX) && workerName.endsWith(SSH_AGENT_WORKER_SUFFIX)
+	return (
+		workerName.startsWith(AGENT_WORKER_NAME_PREFIX) && workerName.endsWith(SSH_AGENT_WORKER_SUFFIX)
+	)
 }
 
 export function isJobSelectable(selectionType: RunsSelectionMode) {
@@ -947,7 +950,7 @@ export type Value = {
 }
 
 export function replaceFalseWithUndefined(obj: any) {
-	return replaceFalseWithUndefinedRec(structuredClone(obj))
+	return replaceFalseWithUndefinedRec(structuredClone(stateSnapshot(obj)))
 }
 
 function replaceFalseWithUndefinedRec(obj: any) {
@@ -976,7 +979,7 @@ export function cleanValueProperties(obj: Value) {
 		let newObj: any = {}
 		for (const key of Object.keys(obj)) {
 			if (key !== 'parent_hash' && key !== 'draft' && key !== 'draft_only') {
-				newObj[key] = structuredClone(obj[key])
+				newObj[key] = structuredClone(stateSnapshot(obj[key]))
 			}
 		}
 		return newObj

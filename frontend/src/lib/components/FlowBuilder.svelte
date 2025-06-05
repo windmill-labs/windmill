@@ -207,11 +207,13 @@
 		if (savedFlow) {
 			const draftOrDeployed = cleanValueProperties(savedFlow.draft || savedFlow)
 			const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
-			const current = cleanValueProperties({
-				...flowStore,
-				path: $pathStore,
-				draft_triggers: currentDraftTriggers
-			})
+			const current = cleanValueProperties(
+				$state.snapshot({
+					...flowStore,
+					path: $pathStore,
+					draft_triggers: currentDraftTriggers
+				})
+			)
 			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 				sendUserToast('No changes detected, ignoring', false, [
 					{
@@ -467,7 +469,7 @@
 				draft_triggers: Trigger[]
 			}
 			savedFlow = {
-				...structuredClone(newSavedFlow),
+				...structuredClone($state.snapshot(newSavedFlow)),
 				path: $pathStore
 			} as Flow
 			setDraftTriggers([])
@@ -475,7 +477,7 @@
 			dispatch('deploy', $pathStore)
 		} catch (err) {
 			dispatch('deployError', err)
-			sendUserToast(`The flow could not be saved: ${err.body}`, true)
+			sendUserToast(`The flow could not be saved: ${err.body ?? err}`, true)
 			loadingSave = false
 		}
 	}

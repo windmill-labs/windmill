@@ -7,3 +7,7 @@ export function withProps<Component, Props>(component: Component, props: Props) 
 	})
 	return ret
 }
+
+export function stateSnapshot<T>(state: T) {
+	return $state.snapshot(state)
+}

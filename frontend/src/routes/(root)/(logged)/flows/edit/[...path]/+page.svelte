@@ -89,10 +89,12 @@
 			})
 
 			const draftOrDeployed = cleanValueProperties(savedFlow?.draft || savedFlow)
-			const urlScript = cleanValueProperties({
-				...stateLoadedFromUrl.flow,
-				draft_triggers: stateLoadedFromUrl.draft_triggers
-			})
+			const urlScript = cleanValueProperties(
+				$state.snapshot({
+					...stateLoadedFromUrl.flow,
+					draft_triggers: stateLoadedFromUrl.draft_triggers
+				})
+			)
 			flow = stateLoadedFromUrl.flow
 			draftTriggersFromUrl = stateLoadedFromUrl.draft_triggers
 			selectedTriggerIndexFromUrl = stateLoadedFromUrl.selected_trigger

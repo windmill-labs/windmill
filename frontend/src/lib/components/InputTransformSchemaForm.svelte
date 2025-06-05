@@ -107,7 +107,9 @@
 						bind:arg={args[argName]}
 						bind:schema
 						bind:argName={keys[index]}
-						bind:inputCheck={inputCheck[argName]}
+						bind:inputCheck={
+							() => inputCheck[argName] ?? false, (value) => (inputCheck[argName] = value)
+						}
 						bind:extraLib
 						{variableEditor}
 						{itemPicker}

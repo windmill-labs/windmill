@@ -111,7 +111,7 @@
 		Object.keys(schema?.properties ?? {}).forEach((key) => {
 			if (schema?.properties[key].default != undefined && args[key] == undefined) {
 				let value = schema?.properties[key].default
-				nargs[key] = value === 'object' ? structuredClone(value) : value
+				nargs[key] = value === 'object' ? structuredClone($state.snapshot(value)) : value
 			}
 		})
 		args = nargs
