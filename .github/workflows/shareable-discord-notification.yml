@@ -38,24 +38,44 @@ jobs:
       - name: Send Discord notification and start a thread
         env:
           WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          CHANNEL_ID: ${{ inputs.DISCORD_CHANNEL_ID }}
+          GUILD_ID: ${{ inputs.DISCORD_GUILD_ID }}
           PR_TITLE: ${{ inputs.PR_TITLE }}
           PR_NUMBER: ${{ inputs.PR_NUMBER }}
           PR_URL: ${{ inputs.PR_URL }}
           PR_AUTHOR: ${{ inputs.PR_AUTHOR }}
         run: |
-          payload=$(jq -n \
-            --arg content "${PR_URL}" \
-            --arg thread "#${PR_NUMBER}: $PR_TITLE by \`${PR_AUTHOR}\`" \
-            '{
-              content: $content,
-              thread_name: $thread,
-              auto_archive_duration: 10080
-            }'
-          )
-          curl -H "Content-Type: application/json" \
-            -X POST \
-            -d "$payload" \
-            "$WEBHOOK_URL"
+          # Check if thread already exists
+          thread_exists=false
+          if threads=$(curl -s -H "Authorization: Bot $BOT_TOKEN" "https://discord.com/api/v10/guilds/${GUILD_ID}/threads/active"); then
+            if thread_id=$(echo "$threads" | jq -r --arg cid "$CHANNEL_ID" --arg pref "#${PR_NUMBER}:" '.threads[] | select(.parent_id == $cid and (.name | startswith($pref))) | .id' 2>/dev/null); then
+              if [ -n "$thread_id" ]; then
+                thread_exists=true
+                echo "Thread already exists, skipping creation"
+              fi
+            fi
+          else
+            echo "Failed to check for existing threads, will create new thread"
+          fi
+
+          # Create thread if it doesn't exist or if check failed
+          if [ "$thread_exists" = false ]; then
+            echo "Creating new thread"
+            payload=$(jq -n \
+              --arg content "${PR_URL}" \
+              --arg thread "#${PR_NUMBER}: $PR_TITLE by \`${PR_AUTHOR}\`" \
+              '{
+                content: $content,
+                thread_name: $thread,
+                auto_archive_duration: 10080
+              }'
+            )
+            curl -H "Content-Type: application/json" \
+              -X POST \
+              -d "$payload" \
+              "$WEBHOOK_URL"
+          fi
 
   merge_success_emoji:
     runs-on: ubuntu-latest

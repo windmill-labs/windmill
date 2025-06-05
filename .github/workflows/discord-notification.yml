@@ -17,8 +17,11 @@ jobs:
       PR_AUTHOR: ${{ github.event.pull_request.user.login }}
       PR_STATUS: "opened"
       PR_NUMBER: ${{ github.event.pull_request.number }}
+      DISCORD_CHANNEL_ID: "1372204995868491786"
+      DISCORD_GUILD_ID: "930051556043276338"
     secrets:
       DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_PR_REVIEWS_WEBHOOK }}
+      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_AI_BOT_TOKEN }}
 
   merge_success_emoji:
     if: github.event.pull_request.merged == true

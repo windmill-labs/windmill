@@ -180,7 +180,7 @@
 </script>
 
 <div class="flex flex-col gap-0.5 rounded-lg relative not-prose">
-	{#if aiChatManager.canApplyCode}
+	{#if aiChatManager.canApplyCode && code !== aiChatManager.scriptEditorOptions?.code}
 		<div class="flex justify-end items-end">
 			<Button
 				color="dark"
@@ -189,7 +189,7 @@
 					aiChatManager.scriptEditorApplyCode?.(code ?? '')
 				}}
 			>
-				Apply
+				{aiChatManager.pendingNewCode ? 'Accept all' : 'Apply'}
 			</Button>
 		</div>
 	{/if}
