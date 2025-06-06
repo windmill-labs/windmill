@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.496.0](https://github.com/windmill-labs/windmill/compare/v1.495.1...v1.496.0) (2025-06-06)
+
+
+### Features
+
+* generate http route triggers from openapi spec ([#5857](https://github.com/windmill-labs/windmill/issues/5857)) ([5713483](https://github.com/windmill-labs/windmill/commit/571348377b73d54b4d2a1c5775ab00b247b01910))
+
+
+### Bug Fixes
+
+* allow fileupload drag and drop in edit mode on full component without triggering file picker ([#5889](https://github.com/windmill-labs/windmill/issues/5889)) ([9ae3212](https://github.com/windmill-labs/windmill/commit/9ae3212a1e0f88a8297bf41ab53e3c1be4bcc56c))
+* **python:** account instance version when cli deploy and local lockfile ([#5894](https://github.com/windmill-labs/windmill/issues/5894)) ([ec552d5](https://github.com/windmill-labs/windmill/commit/ec552d5ef6fdb5e824e453f196f9cf16629ee2ea))
+* use full client side js library for route gen from openapi ([#5891](https://github.com/windmill-labs/windmill/issues/5891)) ([3c3fdbd](https://github.com/windmill-labs/windmill/commit/3c3fdbdf26a9581b815210839b91ebdedb924093))
+
 ## [1.495.0](https://github.com/windmill-labs/windmill/compare/v1.494.0...v1.495.0) (2025-06-05)
 
 
