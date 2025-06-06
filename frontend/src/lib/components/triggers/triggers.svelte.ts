@@ -20,7 +20,7 @@ import type { Writable } from 'svelte/store'
 import type { TriggerType } from './utils'
 import type { UserExt } from '$lib/stores'
 import type { ScheduleTrigger } from '../triggers'
-import { canWrite, formatCron } from '$lib/utils'
+import { canWrite, formatCron, generateRandomString } from '$lib/utils'
 
 export class Triggers {
 	#triggers = $state<Trigger[]>([])
@@ -94,7 +94,7 @@ export class Triggers {
 		const primaryScheduleExists = this.#triggers.some((t) => t.type === 'schedule' && t.isPrimary)
 
 		// Create the new draft trigger
-		const draftId = crypto.randomUUID()
+		const draftId = generateRandomString()
 		const isPrimary = type === 'schedule' && !primaryScheduleExists
 		const newTrigger = {
 			id: draftId,

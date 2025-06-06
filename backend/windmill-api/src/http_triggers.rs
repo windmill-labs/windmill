@@ -1,7 +1,7 @@
 #[cfg(feature = "http_trigger")]
 use crate::http_trigger_args::{HttpMethod, RawHttpTriggerArgs};
 #[cfg(feature = "parquet")]
-use crate::job_helpers_ee::get_workspace_s3_resource;
+use crate::job_helpers_oss::get_workspace_s3_resource;
 use crate::resources::try_get_resource_from_db_as;
 use crate::trigger_helpers::{get_runnable_format, RunnableId};
 use crate::utils::{non_empty_str, ExpiringCacheEntry};
@@ -14,6 +14,7 @@ use crate::{
     },
     users::fetch_api_authed,
 };
+use anyhow::anyhow;
 use axum::response::Response;
 use axum::{
     extract::{Path, Query},
@@ -28,13 +29,14 @@ use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::prelude::FromRow;
-use sqlx::PgTransaction;
+use sqlx::PgConnection;
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{RwLock, RwLockReadGuard};
 use tower_http::cors::CorsLayer;
-use windmill_audit::{audit_ee::audit_log, ActionKind};
-use windmill_common::error::Error;
+use windmill_audit::{audit_oss::audit_log, ActionKind};
+use windmill_common::error::{Error, Result as WindmillResult};
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::build_object_store_client;
 use windmill_common::{
@@ -79,6 +81,7 @@ pub fn routes_global_service() -> Router {
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/create", post(create_trigger))
+        .route("/create_many", post(create_many_http_trigger))
         .route("/list", get(list_triggers))
         .route("/get/*path", get(get_trigger))
         .route("/update/*path", post(update_trigger))
@@ -273,7 +276,7 @@ async fn get_trigger(
 fn validate_authentication_method(
     authentication_method: AuthenticationMethod,
     raw_string: Option<bool>,
-) -> error::Result<()> {
+) -> WindmillResult<()> {
     match (authentication_method, raw_string) {
         (AuthenticationMethod::CustomScript, raw) if !raw.unwrap_or(false) == true => {
             return Err(Error::BadRequest(
@@ -287,57 +290,21 @@ fn validate_authentication_method(
     Ok(())
 }
 
-async fn increase_trigger_version_and_commit(mut tx: PgTransaction<'_>) -> error::Result<()> {
+async fn increase_trigger_version(tx: &mut PgConnection) -> WindmillResult<()> {
     sqlx::query!("SELECT nextval('http_trigger_version_seq')",)
-        .fetch_one(&mut *tx)
+        .fetch_one(tx)
         .await?;
-
-    tx.commit().await?;
 
     Ok(())
 }
 
-async fn create_trigger(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>,
-    Json(ct): Json<NewTrigger>,
-) -> error::Result<(StatusCode, String)> {
-    require_admin(authed.is_admin, &authed.username)?;
-
-    if !VALID_ROUTE_PATH_RE.is_match(&ct.route_path) {
-        return Err(error::Error::BadRequest("Invalid route path".to_string()));
-    }
-
-    validate_authentication_method(ct.authentication_method, ct.raw_string)?;
-
-    // route path key is extracted from the route path to check for uniqueness
-    // it replaces /?:{key} with :key
-    // it will also remove the leading / if present, not an issue as we only allow : after slashes
-    let route_path_key = ROUTE_PATH_KEY_RE.replace_all(&ct.route_path, ":key");
-    let exists = route_path_key_exists(
-        &route_path_key,
-        &ct.http_method,
-        &w_id,
-        None,
-        ct.workspaced_route,
-        &db,
-    )
-    .await?;
-    if exists {
-        return Err(error::Error::BadRequest(
-            "A route already exists with this path".to_string(),
-        ));
-    }
-
-    if *CLOUD_HOSTED && (ct.is_static_website || ct.static_asset_config.is_some()) {
-        return Err(error::Error::BadRequest(
-            "Static website and static asset are not supported on cloud".to_string(),
-        ));
-    }
-
-    let mut tx = user_db.begin(&authed).await?;
+async fn create_trigger_inner(
+    tx: &mut PgConnection,
+    w_id: &str,
+    authed: &ApiAuthed,
+    new_http_trigger: &NewTrigger,
+    route_path_key: &str,
+) -> WindmillResult<()> {
     sqlx::query!(
         r#"
         INSERT INTO http_trigger (
@@ -365,51 +332,199 @@ async fn create_trigger(
         )
         "#,
         w_id,
-        ct.path,
-        ct.route_path,
+        new_http_trigger.path,
+        new_http_trigger.route_path,
         &route_path_key,
-        ct.workspaced_route,
-        ct.authentication_resource_path,
-        ct.wrap_body.unwrap_or(false),
-        ct.raw_string.unwrap_or(false),
-        ct.script_path,
-        ct.is_flow,
-        ct.is_async,
-        ct.authentication_method as _,
-        ct.http_method as _,
-        ct.static_asset_config as _,
+        new_http_trigger.workspaced_route,
+        new_http_trigger.authentication_resource_path,
+        new_http_trigger.wrap_body.unwrap_or(false),
+        new_http_trigger.raw_string.unwrap_or(false),
+        new_http_trigger.script_path,
+        new_http_trigger.is_flow,
+        new_http_trigger.is_async,
+        new_http_trigger.authentication_method as _,
+        new_http_trigger.http_method as _,
+        new_http_trigger.static_asset_config as _,
         &authed.username,
         &authed.email,
-        ct.is_static_website
+        new_http_trigger.is_static_website
     )
     .execute(&mut *tx)
     .await?;
 
     audit_log(
         &mut *tx,
-        &authed,
+        authed,
         "http_triggers.create",
         ActionKind::Create,
         &w_id,
-        Some(ct.path.as_str()),
+        Some(new_http_trigger.path.as_str()),
         None,
     )
     .await?;
 
-    increase_trigger_version_and_commit(tx).await?;
+    increase_trigger_version(tx).await?;
+
+    Ok(())
+}
+
+fn check_no_duplicates<'trigger>(
+    new_http_triggers: &[NewTrigger],
+    route_path_key: &[Cow<'trigger, str>],
+) -> Result<(), Error> {
+    let mut seen = HashSet::with_capacity(new_http_triggers.len());
+
+    for (i, trigger) in new_http_triggers.iter().enumerate() {
+        if !seen.insert((&route_path_key[i], trigger.http_method, trigger.workspaced_route)) {
+            return Err(Error::BadRequest(format!(
+            "Duplicate HTTP route detected: '{}'. Each HTTP route must have a unique 'route_path'.",
+            &trigger.route_path
+        )));
+        }
+    }
+
+    Ok(())
+}
+
+async fn create_many_http_trigger(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(new_http_triggers): Json<Vec<NewTrigger>>,
+) -> WindmillResult<(StatusCode, String)> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let error_wrapper = |path: &str, error: Error| -> Error {
+        anyhow!(
+            "Error occurred for HTTP route at route path: {}, error: {}",
+            path,
+            error
+        )
+        .into()
+    };
+
+    let mut route_path_keys = Vec::with_capacity(new_http_triggers.len());
+
+    for new_http_trigger in new_http_triggers.iter() {
+        let route_path_key = validate_http_trigger(&db, &w_id, new_http_trigger)
+            .await
+            .map_err(|err| error_wrapper(&new_http_trigger.route_path, err))?;
+
+        route_path_keys.push(route_path_key);
+    }
+
+    check_no_duplicates(&new_http_triggers, &route_path_keys)?;
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    for (i, new_http_trigger) in new_http_triggers.iter().enumerate() {
+        create_trigger_inner(
+            &mut tx,
+            &w_id,
+            &authed,
+            new_http_trigger,
+            &route_path_keys[i],
+        )
+        .await
+        .map_err(|err| error_wrapper(&new_http_trigger.route_path, err))?;
+    }
+
+    tx.commit().await?;
+
+    for http_trigger in new_http_triggers.into_iter() {
+        handle_deployment_metadata(
+            &authed.email,
+            &authed.username,
+            &db,
+            &w_id,
+            windmill_git_sync::DeployedObject::HttpTrigger { path: http_trigger.path.clone() },
+            Some(format!("HTTP route '{}' created", http_trigger.path)),
+            true,
+        )
+        .await?;
+    }
+
+    Ok((StatusCode::CREATED, format!("Created all HTTP routes")))
+}
+
+async fn validate_http_trigger<'trigger>(
+    db: &DB,
+    w_id: &str,
+    new_http_trigger: &'trigger NewTrigger,
+) -> WindmillResult<Cow<'trigger, str>> {
+    if !VALID_ROUTE_PATH_RE.is_match(&new_http_trigger.route_path) {
+        return Err(error::Error::BadRequest("Invalid route path".to_string()));
+    }
+
+    validate_authentication_method(
+        new_http_trigger.authentication_method,
+        new_http_trigger.raw_string,
+    )?;
+
+    // route path key is extracted from the route path to check for uniqueness
+    // it replaces /?:{key} with :key
+    // it will also remove the leading / if present, not an issue as we only allow : after slashes
+    let route_path_key = ROUTE_PATH_KEY_RE.replace_all(&new_http_trigger.route_path, ":key");
+
+    let exists = route_path_key_exists(
+        &route_path_key,
+        &new_http_trigger.http_method,
+        &w_id,
+        None,
+        new_http_trigger.workspaced_route,
+        db,
+    )
+    .await?;
+
+    if exists {
+        return Err(error::Error::BadRequest(
+            "A route already exists with this path".to_string(),
+        ));
+    }
+
+    if *CLOUD_HOSTED
+        && (new_http_trigger.is_static_website || new_http_trigger.static_asset_config.is_some())
+    {
+        return Err(error::Error::BadRequest(
+            "Static website and static asset are not supported on cloud".to_string(),
+        ));
+    }
+
+    Ok(route_path_key)
+}
+
+async fn create_trigger(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(new_http_trigger): Json<NewTrigger>,
+) -> WindmillResult<(StatusCode, String)> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let route_path_key = validate_http_trigger(&db, &w_id, &new_http_trigger).await?;
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    let http_trigger_path = new_http_trigger.path.clone();
+
+    create_trigger_inner(&mut tx, &w_id, &authed, &new_http_trigger, &route_path_key).await?;
+
+    tx.commit().await?;
 
     handle_deployment_metadata(
         &authed.email,
         &authed.username,
         &db,
         &w_id,
-        windmill_git_sync::DeployedObject::HttpTrigger { path: ct.path.clone() },
-        Some(format!("HTTP trigger '{}' created", ct.path)),
+        windmill_git_sync::DeployedObject::HttpTrigger { path: new_http_trigger.path.clone() },
+        Some(format!("HTTP route '{}' created", new_http_trigger.path)),
         true,
     )
     .await?;
 
-    Ok((StatusCode::CREATED, format!("{}", ct.path)))
+    Ok((StatusCode::CREATED, format!("{}", http_trigger_path)))
 }
 
 async fn update_trigger(
@@ -418,8 +533,9 @@ async fn update_trigger(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ct): Json<EditTrigger>,
-) -> error::Result<String> {
+) -> WindmillResult<String> {
     let path = path.to_path();
+
     if *CLOUD_HOSTED && (ct.is_static_website || ct.static_asset_config.is_some()) {
         return Err(error::Error::BadRequest(
             "Static website and static asset are not supported on cloud".to_string(),
@@ -563,7 +679,9 @@ async fn update_trigger(
     )
     .await?;
 
-    increase_trigger_version_and_commit(tx).await?;
+    increase_trigger_version(&mut tx).await?;
+
+    tx.commit().await?;
 
     handle_deployment_metadata(
         &authed.email,
@@ -571,7 +689,7 @@ async fn update_trigger(
         &db,
         &w_id,
         windmill_git_sync::DeployedObject::HttpTrigger { path: ct.path.clone() },
-        Some(format!("HTTP trigger '{}' updated", ct.path)),
+        Some(format!("HTTP route '{}' updated", ct.path)),
         true,
     )
     .await?;
@@ -584,7 +702,7 @@ async fn delete_trigger(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> error::Result<String> {
+) -> WindmillResult<String> {
     require_admin(authed.is_admin, &authed.username)?;
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
@@ -609,7 +727,9 @@ async fn delete_trigger(
     )
     .await?;
 
-    increase_trigger_version_and_commit(tx).await?;
+    increase_trigger_version(&mut tx).await?;
+
+    tx.commit().await?;
 
     handle_deployment_metadata(
         &authed.email,
@@ -617,12 +737,12 @@ async fn delete_trigger(
         &db,
         &w_id,
         windmill_git_sync::DeployedObject::HttpTrigger { path: path.to_string() },
-        Some(format!("HTTP trigger '{}' deleted", path)),
+        Some(format!("HTTP route '{}' deleted", path)),
         true,
     )
     .await?;
 
-    Ok(format!("HTTP trigger {path} deleted"))
+    Ok(format!("HTTP route {path} deleted"))
 }
 
 async fn exists_trigger(
@@ -660,7 +780,7 @@ async fn route_path_key_exists(
     trigger_path: Option<&str>,
     workspaced_route: Option<bool>,
     db: &DB,
-) -> error::Result<bool> {
+) -> WindmillResult<bool> {
     let exists = if *CLOUD_HOSTED {
         sqlx::query_scalar!(
             r#"
@@ -861,7 +981,7 @@ pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, Route
                         .insert(format!("{}/*wm_subpath", full_path), trigger.clone())
                         .unwrap_or_else(|e| {
                             tracing::warn!(
-                                "Failed to consider http trigger route {}/*wm_subpath: {:?}",
+                                "Failed to consider HTTP route {}/*wm_subpath: {:?}",
                                 full_path,
                                 e,
                             );
@@ -870,11 +990,7 @@ pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, Route
                 router
                     .insert(full_path.clone(), trigger.clone())
                     .unwrap_or_else(|e| {
-                        tracing::warn!(
-                            "Failed to consider http trigger route {}: {:?}",
-                            full_path,
-                            e,
-                        );
+                        tracing::warn!("Failed to consider HTTP route {}: {:?}", full_path, e,);
                     });
             }
 
@@ -898,7 +1014,7 @@ async fn get_http_route_trigger(
     db: &DB,
     user_db: UserDB,
     method: &http::Method,
-) -> error::Result<(TriggerRoute, String, HashMap<String, String>, ApiAuthed)> {
+) -> WindmillResult<(TriggerRoute, String, HashMap<String, String>, ApiAuthed)> {
     let http_method: HttpMethod = method.try_into()?;
 
     let requested_path = format!("/{}", route_path);
@@ -947,11 +1063,11 @@ async fn get_http_route_trigger(
             );
             let exists = match HTTP_ACCESS_CACHE.get(&cache_key) {
                 Some(cache_entry) if cache_entry.expiry > std::time::Instant::now() => {
-                    tracing::debug!("HTTP access cache hit for trigger {}", trigger.path);
+                    tracing::debug!("HTTP access cache hit for route {}", trigger.path);
                     true
                 }
                 _ => {
-                    tracing::debug!("HTTP access cache miss for trigger {}", trigger.path);
+                    tracing::debug!("HTTP access cache miss for route {}", trigger.path);
                     let mut tx = user_db.begin(&authed).await?;
                     let exists = sqlx::query_scalar!(
                         r#"
@@ -1002,7 +1118,7 @@ async fn get_http_route_trigger(
         trigger.email.clone(),
         &trigger.workspace_id,
         &db,
-        Some(username_override.unwrap_or(format!("http-{}", trigger.path))),
+        Some(username_override.unwrap_or(format!("HTTP-{}", trigger.path))),
     )
     .await?;
 
@@ -1029,6 +1145,14 @@ async fn route_job(
     )
     .await
     .map_err(|e| e.into_response())?;
+
+    if trigger.script_path.is_empty() && trigger.static_asset_config.is_none() {
+        return Err(Error::BadRequest(format!(
+            "Script path of HTTP route at path: {} must not be empty",
+            trigger.path
+        ))
+        .into_response());
+    }
 
     let args = args
         .process_args(
@@ -1066,11 +1190,11 @@ async fn route_job(
 
             let authentication_method = match HTTP_AUTH_CACHE.get(&cache_key) {
                 Some(cache_entry) if cache_entry.expiry > std::time::Instant::now() => {
-                    tracing::debug!("HTTP auth method cache hit for trigger {}", trigger.path);
+                    tracing::debug!("HTTP auth method cache hit for route {}", trigger.path);
                     cache_entry.value
                 }
                 _ => {
-                    tracing::debug!("HTTP auth method cache miss for trigger {}", trigger.path);
+                    tracing::debug!("HTTP auth method cache miss for route {}", trigger.path);
                     let auth_method = try_get_resource_from_db_as::<
                         crate::http_trigger_auth::AuthenticationMethod,
                     >(

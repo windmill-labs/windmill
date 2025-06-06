@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
+private = ["windmill-audit/private"]
 enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker/enterprise"]
 stripe = []
 agent_worker_server = []

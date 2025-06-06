@@ -1,13 +1,14 @@
 <script lang="ts">
 	import autosize from '$lib/autosize'
 	import { createEventDispatcher } from 'svelte'
-	import type { ContextElement } from './core'
+	import type { ContextElement } from './context'
 	import AvailableContextList from './AvailableContextList.svelte'
 
 	export let instructions: string
 	export let availableContext: ContextElement[]
 	export let selectedContext: ContextElement[]
 	export let isFirstMessage: boolean
+	export let disabled: boolean = false
 
 	const dispatch = createEventDispatcher<{
 		updateInstructions: { value: string }
@@ -319,6 +320,7 @@
 		style={instructions.length > 0
 			? 'color: transparent; -webkit-text-fill-color: transparent;'
 			: ''}
+		{disabled}
 	></textarea>
 </div>
 

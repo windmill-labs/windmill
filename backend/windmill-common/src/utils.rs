@@ -7,9 +7,9 @@
  */
 
 use crate::auth::is_devops_email;
-use crate::ee::LICENSE_KEY_ID;
+use crate::ee_oss::LICENSE_KEY_ID;
 #[cfg(feature = "enterprise")]
-use crate::ee::{send_critical_alert, CriticalAlertKind};
+use crate::ee_oss::{send_critical_alert, CriticalAlertKind};
 use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
 use crate::DB;
@@ -25,13 +25,18 @@ use semver::Version;
 use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
-use std::str::FromStr;
+use std::{fs::DirBuilder as SyncDirBuilder, str::FromStr};
+use tokio::fs::DirBuilder as AsyncDirBuilder;
 
 pub const MAX_PER_PAGE: usize = 10000;
 pub const DEFAULT_PER_PAGE: usize = 1000;
 
 pub const GIT_VERSION: &str =
     git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
+
+pub const AGENT_JWT_PREFIX: &str = "jwt_agent_";
+pub const WORKER_NAME_PREFIX: &str = "wk";
+pub const AGENT_WORKER_NAME_PREFIX: &str = "ag";
 
 use crate::CRITICAL_ALERT_MUTE_UI_ENABLED;
 use std::panic::{self, AssertUnwindSafe, Location};
@@ -53,6 +58,12 @@ lazy_static::lazy_static! {
         }
     ).unwrap_or(Version::new(0, 1, 0));
 
+    pub static ref HOSTNAME :String = std::env::var("FORCE_HOSTNAME").unwrap_or_else(|_| {
+        gethostname()
+            .to_str()
+            .map(|x| x.to_string())
+            .unwrap_or_else(|| rd_string(5))
+    });
 
     pub static ref MODE_AND_ADDONS: ModeAndAddons = {
         let mut search_addon = false;
@@ -120,6 +131,10 @@ lazy_static::lazy_static! {
     };
 }
 
+lazy_static::lazy_static! {
+    pub static ref AGENT_TOKEN: String = std::env::var("AGENT_TOKEN").unwrap_or_default();
+}
+
 #[derive(Clone)]
 pub struct ModeAndAddons {
     pub indexer: bool,
@@ -167,15 +182,6 @@ pub async fn require_admin_or_devops(
     Ok(())
 }
 
-pub fn hostname() -> String {
-    std::env::var("FORCE_HOSTNAME").unwrap_or_else(|_| {
-        gethostname()
-            .to_str()
-            .map(|x| x.to_string())
-            .unwrap_or_else(|| rd_string(5))
-    })
-}
-
 fn instance_name(hostname: &str) -> String {
     hostname
         .replace(" ", "")
@@ -186,15 +192,30 @@ fn instance_name(hostname: &str) -> String {
         .to_string()
 }
 
-pub fn worker_suffix(hostname: &str, rd_string: &str) -> String {
-    format!("{}-{}", instance_name(hostname), rd_string)
+const DEFAULT_WORKER_SUFFIX_LEN: usize = 5;
+pub const SSH_AGENT_WORKER_SUFFIX: &'static str = "/ssh";
+
+pub fn create_worker_suffix(hostname: &str, rd_string_len: usize, ssh_ag_worker: bool) -> String {
+    let mut wk_suffix = format!("{}-{}", instance_name(hostname), rd_string(rd_string_len));
+    if ssh_ag_worker {
+        wk_suffix.push_str(SSH_AGENT_WORKER_SUFFIX);
+    }
+    wk_suffix
+}
+
+pub fn create_ssh_agent_worker_suffix(hostname: &str) -> String {
+    create_worker_suffix(hostname, DEFAULT_WORKER_SUFFIX_LEN, true)
+}
+
+pub fn create_default_worker_suffix(hostname: &str) -> String {
+    create_worker_suffix(hostname, DEFAULT_WORKER_SUFFIX_LEN, false)
 }
 
 pub fn worker_name_with_suffix(is_agent: bool, worker_group: &str, suffix: &str) -> String {
     if is_agent {
-        format!("ag-{}-{}", worker_group, suffix)
+        format!("{}-{}-{}", AGENT_WORKER_NAME_PREFIX, worker_group, suffix)
     } else {
-        format!("wk-{}-{}", worker_group, suffix)
+        format!("{}-{}-{}", WORKER_NAME_PREFIX, worker_group, suffix)
     }
 }
 
@@ -221,6 +242,21 @@ pub async fn now_from_db<'c, E: sqlx::PgExecutor<'c>>(
         .fetch_one(db)
         .await?
         .unwrap())
+}
+
+pub async fn create_directory_async(directory_path: &str) {
+    AsyncDirBuilder::new()
+        .recursive(true)
+        .create(directory_path)
+        .await
+        .expect("could not create dir");
+}
+
+pub fn create_directory_sync(directory_path: &str) {
+    SyncDirBuilder::new()
+        .recursive(true)
+        .create(directory_path)
+        .expect("could not create dir");
 }
 
 pub fn not_found_if_none<T, U: AsRef<str>>(opt: Option<T>, kind: &str, name: U) -> Result<T> {

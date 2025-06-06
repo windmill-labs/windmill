@@ -29,9 +29,9 @@ use windmill_api::{
 };
 
 #[cfg(feature = "enterprise")]
-use windmill_common::ee::low_disk_alerts;
+use windmill_common::ee_oss::low_disk_alerts;
 #[cfg(feature = "enterprise")]
-use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
+use windmill_common::ee_oss::{jobs_waiting_alerts, worker_groups_alerts};
 
 use windmill_common::client::AuthedClient;
 #[cfg(feature = "oauth2")]
@@ -41,7 +41,7 @@ use windmill_common::s3_helpers::reload_object_store_setting;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     auth::create_token_for_owner,
-    ee::CriticalErrorChannel,
+    ee_oss::CriticalErrorChannel,
     error,
     flow_status::{FlowStatus, FlowStatusModule},
     global_settings::{
@@ -87,9 +87,9 @@ use windmill_worker::{
 use windmill_common::s3_helpers::ObjectStoreReload;
 
 #[cfg(feature = "enterprise")]
-use crate::ee::verify_license_key;
+use crate::ee_oss::verify_license_key;
 
-use crate::ee::set_license_key;
+use crate::ee_oss::set_license_key;
 
 #[cfg(feature = "prometheus")]
 lazy_static::lazy_static! {
@@ -1609,7 +1609,7 @@ pub async fn reload_base_url_setting(conn: &Connection) -> error::Result<()> {
 
         if let Some(q) = q_oauth {
             if let Ok(v) = serde_json::from_value::<
-                Option<HashMap<String, windmill_api::oauth2_ee::OAuthClient>>,
+                Option<HashMap<String, windmill_api::oauth2_oss::OAuthClient>>,
             >(q.clone())
             {
                 v
@@ -1630,7 +1630,7 @@ pub async fn reload_base_url_setting(conn: &Connection) -> error::Result<()> {
     {
         if let Some(db) = conn.as_sql() {
             let mut l = windmill_api::OAUTH_CLIENTS.write().await;
-            *l = windmill_api::oauth2_ee::build_oauth_clients(&base_url, oauths, db).await
+            *l = windmill_api::oauth2_oss::build_oauth_clients(&base_url, oauths, db).await
             .map_err(|e| tracing::error!("Error building oauth clients (is the oauth.json mounted and in correct format? Use '{}' as minimal oauth.json): {}", "{}", e))
             .unwrap();
         }
@@ -1914,12 +1914,12 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         .await
         .expect("could not create job token");
 
-        let client = AuthedClient {
-            base_internal_url: base_internal_url.to_string(),
+        let client = AuthedClient::new(
+            base_internal_url.to_string(),
+            job.workspace_id.to_string(),
             token,
-            workspace: job.workspace_id.to_string(),
-            force_client: None,
-        };
+            None,
+        );
 
         let last_ping = job.last_ping.clone();
         let error_message = format!(
@@ -1938,7 +1938,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             None,
             error::Error::ExecutionErr(error_message),
             true,
-            same_worker_tx_never_used,
+            Some(&same_worker_tx_never_used),
             "",
             worker_name,
             send_result_never_used,

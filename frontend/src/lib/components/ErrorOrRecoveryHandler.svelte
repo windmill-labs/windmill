@@ -453,11 +453,14 @@
 					containerClass="flex-grow"
 					minWidth="200px"
 					placeholder="Select Teams channel"
-					channels={teams_channels as any[]}
-					on:change={(e) => (handlerExtraArgs['channel'] = e.detail.channel_id)}
-					selectedChannel={handlerExtraArgs['channel']
-						? (teams_channels.find((ch) => ch.channel_id === handlerExtraArgs['channel']) as any)
-						: undefined}
+					channels={teams_channels}
+					bind:selectedChannel={
+						() =>
+							handlerExtraArgs['channel']
+								? teams_channels.find((ch) => ch.channel_id === handlerExtraArgs['channel'])
+								: undefined,
+						(channel) => (handlerExtraArgs['channel'] = channel?.channel_id)
+					}
 				/>
 				<div class="flex-shrink-0">
 					<button

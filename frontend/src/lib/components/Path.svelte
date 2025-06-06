@@ -22,20 +22,19 @@
 		MqttTriggerService,
 		SqsTriggerService,
 		GcpTriggerService
-
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { writable } from 'svelte/store'
-	import { Alert, Button, Drawer, DrawerContent } from './common'
+	import { Alert, Button } from './common'
 	import Badge from './common/badge/Badge.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import FolderEditor from './FolderEditor.svelte'
 	import { random_adj } from './random_positive_adjetive'
-	import { Eye, Folder, Loader2, Plus, SearchCode, User } from 'lucide-svelte'
+	import { Folder, Loader2, SearchCode, User } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { tick } from 'svelte'
+	import FolderPicker from './FolderPicker.svelte'
 
 	type PathKind =
 		| 'resource'
@@ -162,20 +161,14 @@
 			initialFolder = initialPath?.split('/')?.[1]
 			initialFolders.push({ name: initialFolder, write: true })
 		}
+		const excludedFolders = [initialFolder, 'app_groups', 'app_custom', 'app_themes']
 		folders = initialFolders.concat(
 			(
 				await FolderService.listFolderNames({
 					workspace: $workspaceStore!
 				})
 			)
-				.filter(
-					(x) =>
-						x != initialFolder &&
-						x != 'app_groups' &&
-						x != 'app_custom' &&
-						x != 'app_themes' &&
-						x != 'app_custom'
-				)
+				.filter((x) => !excludedFolders.includes(x))
 				.map((x) => ({
 					name: x,
 					write:
@@ -318,24 +311,6 @@
 		}
 	}
 
-	let newFolder: Drawer
-	let viewFolder: Drawer
-	let newFolderName: string
-	let folderCreated: string | undefined = undefined
-
-	async function addFolder() {
-		await FolderService.createFolder({
-			workspace: $workspaceStore ?? '',
-			requestBody: { name: newFolderName }
-		})
-		folderCreated = newFolderName
-		$userStore?.folders?.push(newFolderName)
-		loadFolders()
-		if (meta) {
-			meta.owner = newFolderName
-		}
-	}
-
 	function setDirty() {
 		!dirty && (dirty = true)
 	}
@@ -378,33 +353,6 @@
 			path: initialPath
 		})
 </script>
-
-<Drawer bind:this={newFolder}>
-	<DrawerContent
-		title="New Folder"
-		on:close={() => {
-			newFolder.closeDrawer()
-			folderCreated = undefined
-		}}
-	>
-		{#if !folderCreated}
-			<div class="flex flex-col gap-2">
-				<input placeholder="New folder name" bind:value={newFolderName} />
-				<Button size="md" startIcon={{ icon: Plus }} disabled={!newFolderName} on:click={addFolder}>
-					New&nbsp;folder
-				</Button>
-			</div>
-		{:else}
-			<FolderEditor name={folderCreated} />
-		{/if}
-	</DrawerContent>
-</Drawer>
-
-<Drawer bind:this={viewFolder}>
-	<DrawerContent title="Folder {meta?.owner}" on:close={viewFolder.closeDrawer}>
-		<FolderEditor name={meta?.owner ?? ''} />
-	</DrawerContent>
-</Drawer>
 
 <div>
 	<div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 pb-0 mb-1">
@@ -474,44 +422,7 @@
 					</label>
 				{:else if meta.ownerKind === 'folder'}
 					<label class="block grow w-48">
-						<div class="flex flex-row items-center gap-1 w-full">
-							<select
-								class="grow w-full"
-								disabled={disabled || disableEditing}
-								bind:value={meta.owner}
-							>
-								{#if folders?.length == 0}
-									<option disabled>No folders</option>
-								{/if}
-								{#each folders as { name, write }}
-									<option disabled={!write}>{name}{write ? '' : ' (read-only)'}</option>
-								{/each}
-							</select>
-							<Button
-								title="View folder"
-								btnClasses="!p-1.5"
-								variant="border"
-								color="light"
-								size="xs"
-								disabled={!meta.owner || meta.owner == ''}
-								on:click={viewFolder.openDrawer}
-								iconOnly
-								startIcon={{ icon: Eye }}
-							/>
-							{#if !disableEditing}
-								<Button
-									title="New folder"
-									btnClasses="!p-1.5"
-									variant="border"
-									color="light"
-									size="xs"
-									{disabled}
-									on:click={newFolder.openDrawer}
-									iconOnly
-									startIcon={{ icon: Plus }}
-								/>
-							{/if}
-						</div>
+						<FolderPicker bind:folderName={meta.owner} {initialPath} {disabled} {disableEditing} />
 					</label>
 				{/if}
 			</div>

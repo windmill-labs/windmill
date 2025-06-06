@@ -3,6 +3,7 @@
 	import { BROWSER } from 'esm-env'
 	import Disposable from './Disposable.svelte'
 	import ConditionalPortal from './ConditionalPortal.svelte'
+	import { aiChatManager } from '../../copilot/chat/AIChatManager.svelte'
 
 	export let open = false
 	export let duration = 0.3
@@ -76,10 +77,11 @@
 	>
 		<aside
 			class="drawer windmill-app windmill-drawer {$$props.class ?? ''} {$$props.positionClass ??
-				''}"
+				''} {aiChatManager.open ? 'respect-global-chat' : ''}"
 			class:open
 			class:close={!open && timeout}
-			style={`${style}; --zIndex: ${zIndex};`}
+			class:global-chat-open={aiChatManager.open}
+			style={`${style}; --zIndex: ${zIndex}; --adjusted-offset: calc(${aiChatManager.open && placement === 'right' ? aiChatManager.size : 0}% + 4px)`}
 		>
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -108,8 +110,9 @@
 
 	.drawer.open {
 		height: 100%;
-		width: 100%;
 		z-index: var(--zIndex);
+		right: 0;
+		width: calc(100% - var(--adjusted-offset));
 		transition: z-index var(--duration) step-start;
 		pointer-events: auto;
 	}
@@ -126,6 +129,12 @@
 		transition: opacity var(--duration) ease;
 	}
 
+	.drawer.respect-global-chat.global-chat-open > .overlay {
+		width: 100%;
+		right: var(--adjusted-offset);
+		left: auto;
+	}
+
 	.drawer.open > .overlay {
 		opacity: 1;
 	}
@@ -140,7 +149,9 @@
 		width: 100%;
 		@apply bg-surface;
 		z-index: 3;
-		transition: transform var(--duration) ease, max-width var(--duration) ease,
+		transition:
+			transform var(--duration) ease,
+			max-width var(--duration) ease,
 			max-height var(--duration) ease;
 		height: 100%;
 	}
@@ -153,6 +164,11 @@
 	.panel.right {
 		right: 0;
 		transform: translate(100%, 0);
+	}
+
+	.drawer.respect-global-chat.global-chat-open > .panel.right {
+		right: var(--adjusted-offset);
+		width: calc(100vw - var(--adjusted-offset));
 	}
 
 	.panel.top {

@@ -12,7 +12,7 @@ use std::{
 };
 use tracing::{field, Instrument};
 #[cfg(not(feature = "otel"))]
-use windmill_common::otel_ee::FutureExt;
+use windmill_common::otel_oss::FutureExt;
 
 use uuid::Uuid;
 
@@ -32,7 +32,7 @@ use windmill_queue::{
     append_logs, get_queued_job, CanceledBy, JobCompleted, MiniPulledJob, WrappedError,
 };
 
-use serde_json::{json, value::RawValue};
+use serde_json::{json, value::RawValue, Value};
 
 use tokio::task::JoinHandle;
 
@@ -41,10 +41,10 @@ use windmill_queue::{add_completed_job, add_completed_job_error};
 use crate::{
     bash_executor::ANSI_ESCAPE_RE,
     common::{error_to_value, read_result, save_in_cache},
-    otel_ee::add_root_flow_job_to_otlp,
+    otel_oss::add_root_flow_job_to_otlp,
     worker_flow::update_flow_status_after_job_completion,
     JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult, UpdateFlow,
-    INIT_SCRIPT_TAG,
+    INIT_SCRIPT_TAG, SAME_WORKER_REQUIREMENTS,
 };
 use windmill_common::client::AuthedClient;
 
@@ -54,7 +54,7 @@ async fn process_jc(
     base_internal_url: &str,
     db: &DB,
     worker_dir: &str,
-    same_worker_tx: &SameWorkerSender,
+    same_worker_tx: Option<&SameWorkerSender>,
     job_completed_sender: &JobCompletedSender,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) {
@@ -76,7 +76,7 @@ async fn process_jc(
     } else {
         jc.job.id
     };
-    windmill_common::otel_ee::set_span_parent(&span, &rj);
+    windmill_common::otel_oss::set_span_parent(&span, &rj);
 
     if let Some(lg) = jc.job.script_lang.as_ref() {
         span.record("language", lg.as_str());
@@ -104,8 +104,8 @@ async fn process_jc(
         jc,
         &base_internal_url,
         &db,
-        &worker_dir,
-        &same_worker_tx,
+        worker_dir,
+        same_worker_tx,
         &worker_name,
         job_completed_sender.clone(),
         #[cfg(feature = "benchmark")]
@@ -117,6 +117,11 @@ async fn process_jc(
     if let Some(root_job) = root_job {
         add_root_flow_job_to_otlp(&root_job, success);
     }
+}
+
+enum JobCompletedRx {
+    JobCompleted(SendResult),
+    Killpill,
 }
 
 pub fn start_background_processor(
@@ -140,10 +145,6 @@ pub fn start_background_processor(
         #[cfg(feature = "benchmark")]
         let mut infos = BenchmarkInfo::new();
 
-        enum JobCompletedRx {
-            JobCompleted(SendResult),
-            Killpill,
-        }
         //if we have been killed, we want to drain the queue of jobs
         while let Some(sr) = {
             if has_been_killed && same_worker_queue_size.load(Ordering::SeqCst) == 0 {
@@ -186,7 +187,7 @@ pub fn start_background_processor(
                         &base_internal_url,
                         &db,
                         &worker_dir,
-                        &same_worker_tx,
+                        Some(&same_worker_tx),
                         &job_completed_sender,
                         #[cfg(feature = "benchmark")]
                         &mut bench,
@@ -229,19 +230,19 @@ pub fn start_background_processor(
                     tracing::info!(parent_flow = %flow, "updating flow status");
                     if let Err(e) = update_flow_status_after_job_completion(
                         &db,
-                        &AuthedClient {
-                            base_internal_url: base_internal_url.to_string(),
-                            workspace: w_id.clone(),
-                            token: token.clone(),
-                            force_client: None,
-                        },
+                        &AuthedClient::new(
+                            base_internal_url.to_string(),
+                            w_id.clone(),
+                            token.clone(),
+                            None,
+                        ),
                         flow,
                         &Uuid::nil(),
                         &w_id,
                         success,
                         Arc::new(result),
                         true,
-                        same_worker_tx.clone(),
+                        &same_worker_tx,
                         &worker_dir,
                         stop_early_override,
                         &worker_name,
@@ -276,7 +277,7 @@ pub fn start_background_processor(
 async fn send_job_completed(job_completed_tx: JobCompletedSender, jc: JobCompleted) {
     job_completed_tx
         .send_job(jc, true)
-        .with_context(windmill_common::otel_ee::otel_ctx())
+        .with_context(windmill_common::otel_oss::otel_ctx())
         .await
         .expect("send job completed")
 }
@@ -312,7 +313,7 @@ pub async fn process_result(
                     duration,
                 },
             )
-            .with_context(windmill_common::otel_ee::otel_ctx())
+            .with_context(windmill_common::otel_oss::otel_ctx())
             .await;
             Ok(true)
         }
@@ -374,7 +375,7 @@ pub async fn process_result(
                     duration,
                 },
             )
-            .with_context(windmill_common::otel_ee::otel_ctx())
+            .with_context(windmill_common::otel_oss::otel_ctx())
             .await;
             Ok(false)
         }
@@ -386,23 +387,19 @@ pub async fn handle_receive_completed_job(
     base_internal_url: &str,
     db: &DB,
     worker_dir: &str,
-    same_worker_tx: &SameWorkerSender,
+    same_worker_tx: Option<&SameWorkerSender>,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> Option<Arc<MiniPulledJob>> {
     let token = jc.token.clone();
     let workspace = jc.job.workspace_id.clone();
-    let client = AuthedClient {
-        base_internal_url: base_internal_url.to_string(),
-        workspace,
-        token,
-        force_client: None,
-    };
+    let client = AuthedClient::new(base_internal_url.to_string(), workspace, token, None);
     let job = jc.job.clone();
     let mem_peak = jc.mem_peak.clone();
     let canceled_by = jc.canceled_by.clone();
-    match process_completed_job(
+
+    let processed_completed_job = process_completed_job(
         jc,
         &client,
         db,
@@ -413,8 +410,9 @@ pub async fn handle_receive_completed_job(
         #[cfg(feature = "benchmark")]
         bench,
     )
-    .await
-    {
+    .await;
+
+    match processed_completed_job {
         Err(err) => {
             handle_job_error(
                 db,
@@ -454,7 +452,7 @@ pub async fn process_completed_job(
     client: &AuthedClient,
     db: &DB,
     worker_dir: &str,
-    same_worker_tx: SameWorkerSender,
+    same_worker_tx: Option<&SameWorkerSender>,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
@@ -530,7 +528,7 @@ pub async fn process_completed_job(
                     true,
                     result,
                     false,
-                    same_worker_tx.clone(),
+                    &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
                     None,
                     worker_name,
@@ -570,7 +568,7 @@ pub async fn process_completed_job(
                     false,
                     Arc::new(serde_json::value::to_raw_value(&result).unwrap()),
                     false,
-                    same_worker_tx,
+                    &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
                     None,
                     worker_name,
@@ -587,6 +585,34 @@ pub async fn process_completed_job(
     return Ok(None);
 }
 
+async fn handle_non_flow_job_error(
+    db: &DB,
+    job: &MiniPulledJob,
+    mem_peak: i32,
+    canceled_by: Option<CanceledBy>,
+    err: Value,
+    worker_name: &str,
+) -> Result<WrappedError, Error> {
+    append_logs(
+        &job.id,
+        &job.workspace_id,
+        format!("Unexpected error during job execution:\n{err:#?}"),
+        &db.into(),
+    )
+    .await;
+    add_completed_job_error(
+        db,
+        job,
+        mem_peak,
+        canceled_by,
+        err,
+        worker_name,
+        false,
+        None,
+    )
+    .await
+}
+
 #[tracing::instrument(name = "job_error", level = "info", skip_all, fields(job_id = %job.id))]
 pub async fn handle_job_error(
     db: &DB,
@@ -596,7 +622,7 @@ pub async fn handle_job_error(
     canceled_by: Option<CanceledBy>,
     err: Error,
     unrecoverable: bool,
-    same_worker_tx: SameWorkerSender,
+    same_worker_tx: Option<&SameWorkerSender>,
     worker_dir: &str,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
@@ -605,22 +631,13 @@ pub async fn handle_job_error(
     let err = error_to_value(err);
 
     let update_job_future = || async {
-        append_logs(
-            &job.id,
-            &job.workspace_id,
-            format!("Unexpected error during job execution:\n{err:#?}"),
-            &db.into(),
-        )
-        .await;
-        add_completed_job_error(
+        handle_non_flow_job_error(
             db,
             job,
             mem_peak,
             canceled_by.clone(),
             err.clone(),
             worker_name,
-            false,
-            None,
         )
         .await
     };
@@ -649,7 +666,7 @@ pub async fn handle_job_error(
             false,
             Arc::new(serde_json::value::to_raw_value(&wrapped_error).unwrap()),
             unrecoverable,
-            same_worker_tx,
+            &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).clone(),
             worker_dir,
             None,
             worker_name,

@@ -53,7 +53,7 @@ jobs:
         timeout-minutes: 16
         run: |
           mkdir -p fake_frontend_build
-          FRONTEND_BUILD_DIR=$(pwd)/fake_frontend_build SQLX_OFFLINE=true cargo check --all-features
+          FRONTEND_BUILD_DIR=$(pwd)/fake_frontend_build SQLX_OFFLINE=true cargo check --features $(./all_features_oss.sh)
 
   check_ee:
     runs-on: ubicloud-standard-8

@@ -9,6 +9,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import type { FlowEditorContext } from './flows/types'
 	import { getContext } from 'svelte'
+	import { getStringError } from './copilot/chat/utils'
 
 	export let lang: Script['language']
 	export let editor: Editor | undefined
@@ -70,14 +71,8 @@
 			{disableHistory}
 		>
 			<svelte:fragment slot="copilot-fix">
-				{#if lang && editor && diffEditor && $testStepStore[mod.id] && selectedJob && 'result' in selectedJob && selectedJob.result && typeof selectedJob.result == 'object' && `error` in selectedJob.result && selectedJob.result.error}
-					<ScriptFix
-						error={JSON.stringify(selectedJob.result.error)}
-						{lang}
-						{editor}
-						{diffEditor}
-						args={$testStepStore[mod.id]}
-					/>
+				{#if lang && editor && diffEditor && $testStepStore[mod.id] && selectedJob?.type === 'CompletedJob' && !selectedJob.success && getStringError(selectedJob.result)}
+					<ScriptFix {lang} />
 				{/if}
 			</svelte:fragment>
 		</OutputPickerInner>

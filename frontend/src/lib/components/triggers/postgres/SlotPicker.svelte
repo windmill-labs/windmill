@@ -1,8 +1,6 @@
 <script lang="ts">
-	import Select from '$lib/components/apps/svelte-select/lib/Select.svelte'
 	import { Button } from '$lib/components/common'
-	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
+	import Select from '$lib/components/Select.svelte'
 	import { PostgresTriggerService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -13,9 +11,13 @@
 	export let replication_slot_name: string = ''
 	export let postgres_resource_path: string = ''
 	export let disabled: boolean = false
+
+	let deletingSlot: boolean = false
+	let loadingSlot: boolean = false
 	let items: (string | undefined)[] = []
 	async function listDatabaseSlot() {
 		try {
+			loadingSlot = true
 			const result = await PostgresTriggerService.listPostgresReplicationSlot({
 				path: postgres_resource_path,
 				workspace: $workspaceStore!
@@ -41,11 +43,14 @@
 			}
 		} catch (error) {
 			sendUserToast(error.body, true)
+		} finally {
+			loadingSlot = false
 		}
 	}
 
 	async function deleteSlot() {
 		try {
+			deletingSlot = true
 			const message = await PostgresTriggerService.deletePostgresReplicationSlot({
 				path: postgres_resource_path,
 				workspace: $workspaceStore!,
@@ -58,33 +63,24 @@
 			sendUserToast(message)
 		} catch (error) {
 			sendUserToast(error.body, true)
+		} finally {
+			deletingSlot = false
 		}
 	}
 
 	listDatabaseSlot()
-
-	let darkMode = false
 </script>
-
-<DarkModeObserver bind:darkMode />
 
 <div class="flex gap-1">
 	<Select
+		loading={loadingSlot}
 		class="grow shrink max-w-full"
-		on:select={(e) => {
-			replication_slot_name = e.detail.value
-		}}
-		on:clear={() => {
-			replication_slot_name = ''
-		}}
-		value={replication_slot_name}
-		{items}
+		bind:value={replication_slot_name}
+		onClear={() => (replication_slot_name = '')}
+		items={items.map((value) => ({ value }))}
 		placeholder="Choose a slot name"
-		inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-		containerStyles={darkMode
-			? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-			: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-		portal={false}
+		disablePortal
+		clearable
 		{disabled}
 	/>
 	<Button
@@ -97,6 +93,7 @@
 		{disabled}
 	/>
 	<Button
+		loading={deletingSlot}
 		color="light"
 		size="xs"
 		variant="border"

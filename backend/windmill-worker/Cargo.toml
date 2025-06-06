@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
+private = []
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
 enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:pem", "dep:tokio-util"]
 mssql = ["dep:tiberius"]

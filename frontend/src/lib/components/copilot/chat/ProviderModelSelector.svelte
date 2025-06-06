@@ -8,6 +8,7 @@
 		copilotSessionModel
 	} from '$lib/stores'
 	import { storeLocalSetting } from '$lib/utils'
+	import { twMerge } from 'tailwind-merge'
 
 	$: providerModel = $copilotSessionModel ??
 		$copilotInfo.defaultModel ??
@@ -33,9 +34,12 @@
 		</svelte:fragment>
 		<svelte:fragment slot="content" let:close>
 			<div class="flex flex-col gap-1 p-1 min-w-24">
-				{#each $copilotInfo.aiModels.filter((m) => m.model !== providerModel.model) as providerModel}
+				{#each $copilotInfo.aiModels as providerModel}
 					<button
-						class="text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal"
+						class={twMerge(
+							'text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal',
+							providerModel.model === $copilotSessionModel?.model && 'bg-surface-hover'
+						)}
 						on:click={() => {
 							$copilotSessionModel = providerModel
 							storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, providerModel.model)

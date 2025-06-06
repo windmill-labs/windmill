@@ -1989,12 +1989,12 @@ async fn ansible_dep(
 
     let conn = &Connection::Sql(db.clone());
 
-    let authed_client = AuthedClient {
-        base_internal_url: base_internal_url.to_string(),
-        token: token.to_string(),
-        workspace: w_id.to_string(),
-        force_client: None,
-    };
+    let authed_client = AuthedClient::new(
+        base_internal_url.to_string(),
+        w_id.to_string(),
+        token.to_string(),
+        None,
+    );
 
     let git_ssh_cmd = get_git_ssh_cmd(&reqs, job_dir, &authed_client).await?;
 

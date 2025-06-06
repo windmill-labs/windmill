@@ -153,7 +153,7 @@
 	import { AIChatEditorHandler } from './copilot/chat/monaco-adapter'
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
 	import { writable } from 'svelte/store'
-	import { formatResourceTypes } from './copilot/chat/core'
+	import { formatResourceTypes } from './copilot/chat/script/core'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	// import EditorTheme from './EditorTheme.svelte'
 
@@ -187,7 +187,6 @@
 	export let files: Record<string, { code: string; readonly?: boolean }> | undefined = {}
 	export let extraLib: string | undefined = undefined
 	export let changeTimeout: number = 500
-	export let isAiPanelOpen: boolean = false
 	export let loadAsync = false
 
 	let lang = scriptLangToEditorLang(scriptLang)
@@ -367,13 +366,13 @@
 		}
 	}
 
-	function updateCode(): boolean {
+	function updateCode() {
 		const ncode = getCode()
 		if (code == ncode) {
-			return false
+			return
 		}
 		code = ncode
-		return true
+		dispatch('change', ncode)
 	}
 
 	export function append(code: string): void {
@@ -1287,9 +1286,7 @@
 		editor?.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
-				if (updateCode()) {
-					dispatch('change', code)
-				}
+				updateCode()
 			}, changeTimeout)
 
 			ataModel && clearTimeout(ataModel)
@@ -1335,9 +1332,6 @@
 						startLine: selection.startLineNumber,
 						endLine: selection.endLineNumber
 					})
-					if (!isAiPanelOpen) {
-						dispatch('toggleAiPanel')
-					}
 				} else {
 					dispatch('toggleAiPanel')
 				}

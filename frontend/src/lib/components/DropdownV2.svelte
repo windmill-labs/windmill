@@ -16,7 +16,10 @@
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import TriggerableByAI from './TriggerableByAI.svelte'
 
+	export let aiId: string | undefined = undefined
+	export let aiDescription: string | undefined = undefined
 	export let items: Item[] | (() => Item[]) | (() => Promise<Item[]>) = []
 	export let disabled = false
 	export let placement: Placement = 'bottom-end'
@@ -27,6 +30,8 @@
 	export let open = false
 	export let customWidth: number | undefined = undefined
 	export let customMenu = false
+
+	let buttonEl: HTMLButtonElement | undefined = undefined
 
 	const {
 		elements: { menu, item, trigger },
@@ -76,7 +81,9 @@
 
 <ResolveOpen {open} on:open on:close />
 
+<TriggerableByAI id={aiId} description={aiDescription} onTrigger={() => buttonEl?.click()} />
 <button
+	bind:this={buttonEl}
 	class={twMerge('w-full flex items-center justify-end', fixedHeight && 'h-8', $$props.class)}
 	use:melt={$trigger}
 	{disabled}
@@ -116,7 +123,7 @@
 				class="bg-surface border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
 				style={customWidth ? `width: ${customWidth}px` : ''}
 			>
-				<DropdownV2Inner items={computeItems} meltItem={item} />
+				<DropdownV2Inner {aiId} items={computeItems} meltItem={item} />
 			</div>
 		{/if}
 	</div>

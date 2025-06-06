@@ -13,10 +13,10 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-use crate::job_logger_ee::default_disk_log_storage;
+use crate::job_logger_oss::default_disk_log_storage;
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-use crate::job_logger_ee::s3_storage;
+use crate::job_logger_oss::s3_storage;
 
 pub enum CompactLogs {
     #[cfg(not(all(feature = "enterprise", feature = "parquet")))]

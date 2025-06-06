@@ -92,7 +92,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=embedding,parquet,openidconnect,jemalloc,license,http_trigger,zip,oauth2,dind,postgres_trigger,mqtt_trigger,websocket,smtp,static_frontend,agent_worker_server,all_languages,deno_core,mcp
+            features=embedding,parquet,openidconnect,jemalloc,license,http_trigger,zip,oauth2,dind,postgres_trigger,mqtt_trigger,websocket,smtp,static_frontend,agent_worker_server,all_languages,deno_core,mcp,private
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
             ${{ steps.meta-public.outputs.tags }}
@@ -154,7 +154,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,agent_worker_server,tantivy,license,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,otel,dind,postgres_trigger,mqtt_trigger,gcp_trigger,websocket,smtp,static_frontend,all_languages,deno_core,mcp
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,agent_worker_server,tantivy,license,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,otel,dind,postgres_trigger,mqtt_trigger,gcp_trigger,websocket,smtp,static_frontend,all_languages,private,deno_core,mcp
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
             ${{ steps.meta-ee-public.outputs.tags }}

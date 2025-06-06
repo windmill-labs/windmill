@@ -53,7 +53,7 @@ use futures::{
 
 use crate::common::{resolve_job_timeout, OccupancyMetrics};
 use crate::job_logger::{append_job_logs, append_with_limit};
-use crate::job_logger_ee::process_streaming_log_lines;
+use crate::job_logger_oss::process_streaming_log_lines;
 use crate::worker_utils::{ping_job_status, update_worker_ping_from_job};
 use crate::{MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM};
 
@@ -227,6 +227,7 @@ pub async fn handle_child(
                         if let Err(err) = client
                             .post::<_, ()>(
                                 &format!("/api/agent_workers/set_job_cancelled/{}", job_id),
+                                None,
                                 &JobCancelled {
                                     canceled_by: "timeout".to_string(),
                                     reason: format!("duration > {}", timeout_duration.as_secs()),

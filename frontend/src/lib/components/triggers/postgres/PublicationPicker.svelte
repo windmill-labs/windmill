@@ -1,8 +1,6 @@
 <script lang="ts">
-	import Select from '$lib/components/apps/svelte-select/lib/Select.svelte'
 	import { Button } from '$lib/components/common'
-	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
+	import Select from '$lib/components/Select.svelte'
 	import type { Relations } from '$lib/gen'
 	import { PostgresTriggerService } from '$lib/gen/services.gen'
 	import { workspaceStore } from '$lib/stores'
@@ -18,8 +16,12 @@
 	export let transaction_to_track: string[] = []
 	export let disabled: boolean = false
 
+	let loadingPublication: boolean = false
+	let deletingPublication: boolean = false
+	let updatingPublication: boolean = false
 	async function listDatabasePublication() {
 		try {
+			loadingPublication = true
 			const publications = await PostgresTriggerService.listPostgresPublication({
 				path: postgres_resource_path,
 				workspace: $workspaceStore!
@@ -28,11 +30,14 @@
 			items = publications
 		} catch (error) {
 			sendUserToast(error.body, true)
+		} finally {
+			loadingPublication = false
 		}
 	}
 
 	async function updatePublication() {
 		try {
+			updatingPublication = true
 			const message = await PostgresTriggerService.updatePostgresPublication({
 				path: postgres_resource_path,
 				workspace: $workspaceStore!,
@@ -45,11 +50,14 @@
 			sendUserToast(message)
 		} catch (error) {
 			sendUserToast(error.body, true)
+		} finally {
+			updatingPublication = false
 		}
 	}
 
 	async function deletePublication() {
 		try {
+			deletingPublication = true
 			const message = await PostgresTriggerService.deletePostgresPublication({
 				path: postgres_resource_path,
 				workspace: $workspaceStore!,
@@ -62,6 +70,8 @@
 			sendUserToast(message)
 		} catch (error) {
 			sendUserToast(error.body, true)
+		} finally {
+			deletingPublication = false
 		}
 	}
 
@@ -83,31 +93,19 @@
 	}
 
 	listDatabasePublication()
-
-	let darkMode = false
+	$: publication_name && getAllRelations()
 </script>
-
-<DarkModeObserver bind:darkMode />
 
 <div class="flex gap-1">
 	<Select
+		loading={loadingPublication}
 		disabled={!can_write || disabled}
-		class="grow shrink max-w-full"
-		on:select={async (e) => {
-			publication_name = e.detail.value
-			await getAllRelations()
-		}}
-		on:clear={() => {
-			publication_name = ''
-		}}
-		value={publication_name}
-		{items}
+		class="grow shrink"
+		bind:value={publication_name}
+		items={items.map((value) => ({ value }))}
 		placeholder="Choose a publication"
-		inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-		containerStyles={darkMode
-			? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-			: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-		portal={false}
+		clearable
+		disablePortal
 	/>
 	<Button
 		disabled={!can_write || disabled}
@@ -119,6 +117,7 @@
 		iconOnly
 	/>
 	<Button
+		loading={updatingPublication}
 		color="light"
 		size="xs"
 		variant="border"
@@ -126,6 +125,7 @@
 		on:click={updatePublication}>Update</Button
 	>
 	<Button
+		loading={deletingPublication}
 		color="light"
 		size="xs"
 		variant="border"
