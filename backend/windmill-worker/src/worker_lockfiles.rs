@@ -1965,11 +1965,10 @@ async fn ansible_dep(
     use windmill_parser_yaml::add_versions_to_requirements_yaml;
 
     use crate::ansible_executor::{
-            create_ansible_cfg, get_collection_locks, get_git_ssh_cmd, get_role_locks,
-            install_galaxy_collections,
-        };
+        create_ansible_cfg, get_collection_locks, get_git_ssh_cmd, get_role_locks,
+        install_galaxy_collections,
+    };
     use windmill_common::client::AuthedClient;
-
 
     let python_lockfile = python_dep(
         reqs.python_reqs.join("\n").to_string(),
@@ -2102,7 +2101,8 @@ async fn capture_dependency_job(
 
                     (
                         job_raw_code.to_owned(),
-                        crate::PyV::parse_from_requirements(&split_requirements(job_raw_code)),
+                        crate::PyV::try_parse_from_requirements(&split_requirements(job_raw_code))
+                            .unwrap_or(crate::PyV::gravitational_version(job_id, w_id, None).await),
                     )
                 } else {
                     let mut version_specifiers = vec![];
