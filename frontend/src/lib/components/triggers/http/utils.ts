@@ -97,7 +97,7 @@ function generateFolderPath(folderName: string, summary?: string) {
 	} else {
 		const remainingLen = MAX_PATH_LEN - prefix.length
 		if (summary.length > remainingLen) {
-			suffix = summary.substring(0, remainingLen)
+			suffix = summary.substring(0, remainingLen).replaceAll(' ', '_')
 		} else {
 			suffix = summary.replaceAll(' ', '_')
 		}
