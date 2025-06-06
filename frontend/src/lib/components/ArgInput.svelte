@@ -481,8 +481,10 @@
 	{/if}
 
 	<TriggerableByAI
-		id={`${label}-input`}
-		description={description || `Input field for ${label}${type ? ` (${type})` : ''}`}
+		id={isObjectCat(inputCat) || isRawStringEditor(inputCat) ? undefined : `${label}-input`}
+		description={isObjectCat(inputCat) || isRawStringEditor(inputCat)
+			? undefined
+			: description || `Input field for ${label}${type ? ` (${type})` : ''}`}
 		currentValue={value}
 		schema={{
 			type,
@@ -650,6 +652,8 @@
 															<Loader2 class="animate-spin" />
 														{:then Module}
 															<Module.default
+																aiId={`${label}-item-${i}-editor`}
+																aiDescription={`JSON editor for item ${i} in ${label} array. Expected format: ${itemsType?.type === 'object' ? 'JSON object with custom structure' : 'JSON value'}. This value will be stored at index ${i} of the ${label} array.`}
 																code={JSON.stringify(v, null, 2)}
 																bind:value={value[i]}
 															/>
@@ -684,6 +688,8 @@
 															<Loader2 class="animate-spin" />
 														{:then Module}
 															<Module.default
+																aiId={`${label}-resource-${i}-editor`}
+																aiDescription={`JSON editor for resource item ${i} in ${label} array. Expected format: Resource object with proper schema for resource type "${itemsType?.resourceType}". This should be a valid resource reference that may include fields like "path", "id", or resource-specific properties. This value will be stored at index ${i} of the ${label} array.`}
 																bind:editor
 																on:focus={(e) => {
 																	dispatch('focus')
@@ -824,6 +830,8 @@
 							<Loader2 class="animate-spin" />
 						{:then Module}
 							<Module.default
+								aiId={`${label}-s3-editor`}
+								aiDescription={`JSON editor for S3 object field ${label}. Expected format: S3 object reference with "s3" and optional "filename" fields. Example: {"s3": "path/to/s3/object.txt", "filename": "object.txt"}. The s3 field should contain the full path to the S3 object, and filename is the original file name.`}
 								bind:editor
 								on:focus={(e) => {
 									dispatch('focus')
@@ -963,6 +971,8 @@
 										<Loader2 class="animate-spin" />
 									{:then Module}
 										<Module.default
+											aiId={`${label}-oneof-editor`}
+											aiDescription={`JSON editor for oneOf variant of ${label}. This is a polymorphic object that must include a discriminator field ("${oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind')) ? 'kind' : 'label'}" field with value "${oneOfSelected}"). The object must conform to the schema of the selected variant and include all required fields for that variant. Current selected variant: "${oneOfSelected}".`}
 											bind:editor
 											on:focus={(e) => {
 												dispatch('focus')
@@ -986,6 +996,8 @@
 								<Loader2 class="animate-spin" />
 							{:then Module}
 								<Module.default
+									aiId={`${label}-oneof-fallback-editor`}
+									aiDescription={`JSON editor for oneOf object field ${label}. This is a polymorphic object that can have multiple variants defined by a discriminator field (either "kind" or "label"). Each variant has its own schema and required fields. The object must include the discriminator field with one of the allowed values: ${oneOf?.map((o) => `"${o.title}"`).join(', ')}.`}
 									bind:editor
 									on:focus={(e) => {
 										dispatch('focus')
@@ -1073,6 +1085,8 @@
 						<Loader2 class="animate-spin" />
 					{:then Module}
 						<Module.default
+							aiId={`${label}-object-editor`}
+							aiDescription={`JSON editor for object field ${label}. Expected format: ${properties ? `Complex object with defined schema containing properties: ${Object.keys(properties).join(', ')}. Required fields: ${nestedRequired?.join(', ') || 'none'}` : `Free-form JSON object for field "${label}" of type "${type}"`}${format ? ` with format "${format}"` : ''}${extra && Object.keys(extra).length > 0 ? `. Additional constraints: ${JSON.stringify(extra)}` : ''}.`}
 							bind:editor
 							on:focus={(e) => {
 								dispatch('focus')
@@ -1082,6 +1096,7 @@
 							}}
 							code={rawValue}
 							on:changeValue={(e) => {
+								console.log('onchangevalue', e.detail)
 								setNewValueFromCode(e.detail)
 							}}
 						/>

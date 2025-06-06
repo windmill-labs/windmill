@@ -44,8 +44,8 @@
 	<span class="text-tertiary">JSON to edit is too big</span>
 {:else}
 	<TriggerableByAI
-		id={'json-editor'}
-		description={'JSON editor'}
+		id={aiId}
+		description={aiDescription}
 		onTrigger={(newValue) => {
 			code = newValue
 			if (editor && typeof newValue === 'string') {
