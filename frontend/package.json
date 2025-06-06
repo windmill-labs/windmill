@@ -70,7 +70,6 @@
 		"typescript": "^5.5.0",
 		"vite": "^6.3.2",
 		"vite-plugin-mkcert": "^1.17.5",
-		"vite-plugin-node-polyfills": "^0.23.0",
 		"yootils": "^0.3.1"
 	},
 	"overrides": {
@@ -80,7 +79,6 @@
 	},
 	"type": "module",
 	"dependencies": {
-		"@apidevtools/swagger-parser": "^10.1.1",
 		"@aws-crypto/sha256-js": "^4.0.0",
 		"@codingame/monaco-vscode-configuration-service-override": "~16.1.1",
 		"@codingame/monaco-vscode-editor-api": "~16.1.1",
@@ -93,6 +91,7 @@
 		"@leeoniya/ufuzzy": "^1.0.8",
 		"@popperjs/core": "^2.11.6",
 		"@redocly/json-to-json-schema": "^0.0.1",
+		"@scalar/openapi-parser": "^0.15.0",
 		"@tanstack/svelte-table": "npm:tanstack-table-8-svelte-5@^0.1",
 		"@windmill-labs/svelte-dnd-action": "^0.9.48",
 		"@xterm/addon-fit": "^0.10.0",
