@@ -44,14 +44,14 @@
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import { isCloudHosted } from '$lib/cloud'
 	import { getHttpRoute } from '$lib/components/triggers/http/utils'
-	import HttpTriggersGenerator from '$lib/components/triggers/http/HttpTriggersGenerator.svelte'
+	import RoutesGenerator from '$lib/components/triggers/http/RoutesGenerator.svelte'
 
 	type TriggerW = HttpTrigger & { canWrite: boolean }
 
 	let triggers: TriggerW[] = []
 	let shareModal: ShareModal
 	let loading = true
-	let httpTriggersGenerator: HttpTriggersGenerator | undefined
+	let routesGenerator: RoutesGenerator | undefined
 	let deploymentDrawer: DeployWorkspaceDrawer
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
 
@@ -190,7 +190,7 @@
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <RouteEditor onUpdate={loadTriggers} bind:this={routeEditor} />
 
-<HttpTriggersGenerator closeFn={loadTriggers} bind:this={httpTriggersGenerator} />
+<RoutesGenerator closeFn={loadTriggers} bind:this={routesGenerator} />
 
 <SearchItems
 	{filter}
@@ -217,7 +217,7 @@
 						size="md"
 						startIcon={{ icon: Plus }}
 						on:click={() => {
-							httpTriggersGenerator?.openDrawer()
+							routesGenerator?.openDrawer()
 						}}
 					>
 						From OpenAPI spec
