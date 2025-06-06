@@ -23,6 +23,7 @@ INSTRUCTIONS:
 - Use get_triggerable_components to understand available options, and then trigger the components using trigger_component. Then wait a moment before rescanning the current page, and then continue with the next step. Do this 5 times max.
 - Make sure you navigated as far as possible before responding to the user. Always use get_triggerable_components one last time to make sure you didn't miss anything.
 - If you are not able to fulfill the user's request after 5 attempts, redirect the user to the documentation.
+- If you are asked to fill a form, you should toggle all json switch toggle to true, and then trigger the components.
 
 GENERAL PRINCIPLES:
 - Be concise but thorough

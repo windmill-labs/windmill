@@ -1,9 +1,12 @@
 <script lang="ts">
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { createEventDispatcher } from 'svelte'
+	import TriggerableByAI from './TriggerableByAI.svelte'
 
 	const dispatch = createEventDispatcher()
 
+	export let aiId: string | undefined = undefined
+	export let aiDescription: string | undefined = undefined
 	export let updateOnBlur = true
 	export let placeholder =
 		'Write a JSON payload. The input schema will be inferred.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}'
@@ -49,6 +52,16 @@
 <!-- Add a hidden button that can receive focus -->
 <button bind:this={focusTrap} class="sr-only" tabindex="-1" aria-hidden="true">Focus trap</button>
 
+<TriggerableByAI
+	id={aiId}
+	description={aiDescription}
+	onTrigger={(newValue) => {
+		if (newValue) {
+			simpleEditor?.setCode(newValue)
+			updatePayloadFromJson(newValue)
+		}
+	}}
+/>
 <div class="h-full">
 	<SimpleEditor
 		bind:this={simpleEditor}

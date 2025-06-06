@@ -24,6 +24,8 @@
 		}, 2000)
 	}
 
+	$inspect(aiChatManager.triggerablesByAI)
+
 	$effect(() => {
 		if (disabled) return
 

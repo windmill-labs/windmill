@@ -156,6 +156,8 @@
 		{:else if jsonView}
 			<div class="py-2" style="height: {schemaHeight}px" data-schema-picker>
 				<JsonInputs
+					aiId="run-form-json-editor"
+					aiDescription="JSON editor for run form. Schema used: {JSON.stringify(runnable.schema)}"
 					bind:this={jsonEditor}
 					on:select={(e) => {
 						if (e.detail) {
@@ -174,7 +176,7 @@
 							? {
 									type: 'hash',
 									hash: runnable.hash
-							  }
+								}
 							: undefined}
 						prettifyHeader
 						{noVariablePicker}
