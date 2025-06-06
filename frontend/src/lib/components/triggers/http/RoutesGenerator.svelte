@@ -25,7 +25,7 @@
 	let { closeFn }: Props = $props()
 
 	let routeEditor: RouteEditor
-	let httpTriggersGenerator: Drawer
+	let RoutesGenerator: Drawer
 
 	let selected: Source = $state('OpenAPI')
 	let openApiUrl = $state('')
@@ -66,7 +66,7 @@
 	})
 
 	export function openDrawer() {
-		httpTriggersGenerator.openDrawer()
+		RoutesGenerator.openDrawer()
 	}
 
 	async function fetchOpenApiConfig() {
@@ -94,7 +94,7 @@
 			})
 			sendUserToast(message)
 			await closeFn()
-			httpTriggersGenerator.closeDrawer()
+			RoutesGenerator.closeDrawer()
 			if (!get(usedTriggerKinds).includes('http')) {
 				usedTriggerKinds.update((t) => [...t, 'http'])
 			}
@@ -129,10 +129,10 @@
 
 <RouteEditor customSaveBehavior={callback} bind:this={routeEditor} />
 
-<Drawer size="700px" bind:this={httpTriggersGenerator}>
+<Drawer size="700px" bind:this={RoutesGenerator}>
 	<DrawerContent
 		title={'Generate HTTP routes from OpenAPI spec'}
-		on:close={() => httpTriggersGenerator.closeDrawer()}
+		on:close={() => RoutesGenerator.closeDrawer()}
 	>
 		<svelte:fragment slot="actions">
 			<Button

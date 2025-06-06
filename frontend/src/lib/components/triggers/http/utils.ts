@@ -4,7 +4,7 @@ import { random_adj } from '$lib/components/random_positive_adjetive'
 import type { HttpMethod, NewHttpTrigger } from '$lib/gen'
 import { HttpTriggerService } from '$lib/gen/services.gen'
 import { sendUserToast } from '$lib/toast'
-import { OpenApi as WindmillOpenApi } from '$lib/utils'
+import { generateRandomString, OpenApi as WindmillOpenApi } from '$lib/utils'
 import { type OpenAPI } from 'openapi-types'
 import type { Writable } from 'svelte/store'
 import { get } from 'svelte/store'
@@ -88,7 +88,7 @@ function convertOpenApiPathToRoutePath(openApiPath: string) {
 }
 
 function generateFolderPath(folderName: string, summary?: string) {
-	return `f/${folderName}/${summary?.toLowerCase().replaceAll(' ', '_') ?? random_adj()}`
+	return `f/${folderName}/${summary?.toLowerCase().replaceAll(' ', '_') ?? random_adj()}_${generateRandomString(5)}`
 }
 
 function processOpenApiDocument(
