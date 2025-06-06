@@ -87,8 +87,23 @@ function convertOpenApiPathToRoutePath(openApiPath: string) {
 	return openApiPath.replace(/{([^}]+)}/g, ':$1').slice(1)
 }
 
+const MAX_PATH_LEN = 255
+
 function generateFolderPath(folderName: string, summary?: string) {
-	return `f/${folderName}/${summary?.toLowerCase().replaceAll(' ', '_') ?? random_adj()}_${generateRandomString(5)}`
+	let suffix: string
+	const prefix = `f/${folderName}/`
+	if (!summary) {
+		suffix = `${random_adj()}_${generateRandomString(6)}`
+	} else {
+		const remainingLen = MAX_PATH_LEN - prefix.length
+		if (summary.length > remainingLen) {
+			suffix = summary.substring(0, remainingLen)
+		} else {
+			suffix = summary.replaceAll(' ', '_')
+		}
+	}
+
+	return prefix.concat(suffix).toLocaleLowerCase()
 }
 
 function processOpenApiDocument(

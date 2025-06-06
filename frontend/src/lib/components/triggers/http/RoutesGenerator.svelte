@@ -119,6 +119,9 @@
 		try {
 			isGeneratingHttpRoutes = true
 			httpTriggers = await generateHttpTriggerFromOpenApi(code, folderName)
+			if (httpTriggers.length === 0) {
+				sendUserToast('No paths defined in the OpenAPI spec. Cannot generate HTTP routes.', true)
+			}
 		} catch (error) {
 			sendUserToast(error.message || 'An unexpected error occurred', true)
 		} finally {
