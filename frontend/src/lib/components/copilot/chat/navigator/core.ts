@@ -135,7 +135,14 @@ function getTriggerableComponents(): string {
 
 		// List each registered component with its ID and description
 		Object.entries(registeredComponents).forEach(([id, component], index) => {
-			result += `[${index}] ID: "${id}" - Description: ${component.description} - Triggerable: ${component.onTrigger ? 'Yes' : 'No'}\n`
+			result += `
+				[${index}]
+				ID: "${id}"
+				Description: ${component.description}
+				Triggerable: ${component.onTrigger ? 'Yes' : 'No'}
+				Value: ${component.currentValue}
+				Schema: ${JSON.stringify(component.schema)}
+				\n`
 		})
 
 		return result
