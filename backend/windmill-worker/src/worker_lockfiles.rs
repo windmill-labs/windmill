@@ -2101,8 +2101,12 @@ async fn capture_dependency_job(
 
                     (
                         job_raw_code.to_owned(),
-                        crate::PyV::try_parse_from_requirements(&split_requirements(job_raw_code))
-                            .unwrap_or(crate::PyV::gravitational_version(job_id, w_id, None).await),
+                        match crate::PyV::try_parse_from_requirements(&split_requirements(
+                            job_raw_code,
+                        )) {
+                            Some(pyv) => pyv,
+                            None => crate::PyV::gravitational_version(job_id, w_id, None).await,
+                        },
                     )
                 } else {
                     let mut version_specifiers = vec![];
