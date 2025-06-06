@@ -15,21 +15,21 @@
 		default: 3
 	}
 
-	$: actualAvailableContext = (
-		showAllAvailable
-			? availableContext.filter(
-					(c) => !stringSearch || c.title.toLowerCase().includes(stringSearch.toLowerCase())
-				)
-			: availableContext.filter(
-					(c) =>
-						!selectedContext.find((sc) => sc.type === c.type && sc.title === c.title) &&
-						(!stringSearch || c.title.toLowerCase().includes(stringSearch.toLowerCase()))
-				)
-	).sort((a, b) => {
+	$: sortedAvailableContext = availableContext.sort((a, b) => {
 		const priorityA = typePriority[a.type] || typePriority.default
 		const priorityB = typePriority[b.type] || typePriority.default
 		return priorityA - priorityB
 	})
+
+	$: actualAvailableContext = showAllAvailable
+		? sortedAvailableContext.filter(
+				(c) => !stringSearch || c.title.toLowerCase().includes(stringSearch.toLowerCase())
+			)
+		: sortedAvailableContext.filter(
+				(c) =>
+					!selectedContext.find((sc) => sc.type === c.type && sc.title === c.title) &&
+					(!stringSearch || c.title.toLowerCase().includes(stringSearch.toLowerCase()))
+			)
 </script>
 
 <div class="flex flex-col gap-1 text-tertiary text-xs p-1 min-w-24 max-h-48 overflow-y-scroll">
