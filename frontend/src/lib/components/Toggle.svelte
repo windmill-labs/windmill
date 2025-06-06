@@ -61,6 +61,7 @@
 		id={aiId}
 		description={aiDescription}
 		onTrigger={() => {
+			checked = !checked
 			dispatch('change', checked)
 		}}
 	>
