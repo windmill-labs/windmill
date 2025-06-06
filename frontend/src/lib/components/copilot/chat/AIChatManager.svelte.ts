@@ -35,8 +35,6 @@ type TriggerablesMap = Record<
 	{
 		description: string
 		onTrigger: ((value?: string) => void) | undefined
-		schema: any
-		currentValue: any
 	}
 >
 

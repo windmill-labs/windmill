@@ -681,6 +681,8 @@
 								{inputSelected}
 							/>
 							<Toggle
+								aiId="json-view"
+								aiDescription="Toggle JSON view to be able to fill args from JSON"
 								bind:checked={jsonView}
 								label="JSON View"
 								size="xs"
