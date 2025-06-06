@@ -8,20 +8,27 @@
 	export let stringSearch = ''
 	export let selectedIndex = 0
 
-	$: actualAvailableContext = (showAllAvailable
-		? availableContext.filter(
-				(c) => !stringSearch || c.title.toLowerCase().includes(stringSearch.toLowerCase())
-			)
-		: availableContext.filter(
-				(c) =>
-					!selectedContext.find((sc) => sc.type === c.type && sc.title === c.title) &&
-					(!stringSearch || c.title.toLowerCase().includes(stringSearch.toLowerCase()))
-			)
+	// Define priority map for context types
+	const typePriority = {
+		code: 1,
+		diff: 2,
+		default: 3
+	}
+
+	$: actualAvailableContext = (
+		showAllAvailable
+			? availableContext.filter(
+					(c) => !stringSearch || c.title.toLowerCase().includes(stringSearch.toLowerCase())
+				)
+			: availableContext.filter(
+					(c) =>
+						!selectedContext.find((sc) => sc.type === c.type && sc.title === c.title) &&
+						(!stringSearch || c.title.toLowerCase().includes(stringSearch.toLowerCase()))
+				)
 	).sort((a, b) => {
-		// Prioritize diff contexts first
-		if (a.type === 'diff' && b.type !== 'diff') return -1
-		if (a.type !== 'diff' && b.type === 'diff') return 1
-		return 0
+		const priorityA = typePriority[a.type] || typePriority.default
+		const priorityB = typePriority[b.type] || typePriority.default
+		return priorityA - priorityB
 	})
 </script>
 
@@ -38,7 +45,7 @@
 				on:click={() => onSelect(element)}
 			>
 				<svelte:component this={ContextIconMap[element.type]} size={16} />
-				{element.title.replace(/_/g, ' ')}
+				{element.type === 'diff' ? element.title.replace(/_/g, ' ') : element.title}
 			</button>
 		{/each}
 	{/if}
