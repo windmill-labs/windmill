@@ -18,6 +18,7 @@ export { sendUserToast }
 import type { AnyMeltElement } from '@melt-ui/svelte'
 import type { RunsSelectionMode } from './components/runs/RunsBatchActionsDropdown.svelte'
 import type { TriggerKind } from './components/triggers'
+import { validate, dereference } from '@scalar/openapi-parser'
 
 export namespace OpenApi {
 	export enum OpenApiVersion {
@@ -38,10 +39,10 @@ export namespace OpenApi {
 		return 'openapi' in doc && typeof doc.openapi === 'string' && doc.openapi.startsWith('3.1')
 	}
 
-	export function getOpenApiVersion(doc: OpenAPI.Document): OpenApiVersion {
-		if (isV2(doc)) {
+	export function getOpenApiVersion(version: string): OpenApiVersion {
+		if (version.startsWith('2.0')) {
 			return OpenApiVersion.V2
-		} else if (isV3(doc)) {
+		} else if (version.startsWith('3.0')) {
 			return OpenApiVersion.V3
 		} else {
 			return OpenApiVersion.V3_1
@@ -59,20 +60,20 @@ export namespace OpenApi {
 	 * @throws Will throw an error if the specification is invalid or cannot be parsed.
 	 */
 	export async function parse(api: string): Promise<[OpenAPI.Document, OpenApiVersion]> {
-		let data: any
+		const { valid, errors } = await validate(api)
 
-		if (api.trimStart().at(0) === '{') {
-			data = JSON.parse(api)
-		} else {
-			data = YAML.parse(api)
+		if (!valid) {
+			const errorMessage = errors
+				? errors.map((error) => error.message).join('\n')
+				: 'Invalid OpenAPI document'
+			throw new Error(errorMessage)
 		}
 
-		const swaggerParser = (await import('@apidevtools/swagger-parser')).default
+		const document = await dereference(api)
 
-		const document = await swaggerParser.validate(data)
-		const version = getOpenApiVersion(document)
+		const version = getOpenApiVersion(document.version!)
 
-		return [document, version]
+		return [document.schema, version]
 	}
 }
 
@@ -89,7 +90,9 @@ export const AGENT_WORKER_NAME_PREFIX = 'ag'
 const SSH_AGENT_WORKER_SUFFIX = '/ssh'
 
 export function isAgentWorkerShell(workerName: string) {
-	return workerName.startsWith(AGENT_WORKER_NAME_PREFIX) && workerName.endsWith(SSH_AGENT_WORKER_SUFFIX)
+	return (
+		workerName.startsWith(AGENT_WORKER_NAME_PREFIX) && workerName.endsWith(SSH_AGENT_WORKER_SUFFIX)
+	)
 }
 
 export function isJobSelectable(selectionType: RunsSelectionMode) {
