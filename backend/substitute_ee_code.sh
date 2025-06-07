@@ -69,7 +69,7 @@ if [ "$REVERT" == "YES" ]; then
   for ee_file in $(find ${EE_CODE_DIR} -name "*ee.rs"); do
     ce_file="${ee_file/${EE_CODE_DIR}/}"
     ce_file="${root_dirpath}/backend/${ce_file}"
-    rm ${ce_file}
+    rm ${ce_file} || true
   done
 elif [ "$MOVE_NEW_FILES" == "NO" ]; then
   # This replaces all files in current repo with alternative EE files in windmill-ee-private
@@ -80,7 +80,7 @@ elif [ "$MOVE_NEW_FILES" == "NO" ]; then
       cp "${ee_file}" "${ce_file}"
       echo "File copied '${ee_file}' -->> '${ce_file}'"
     else
-      ln -s "${ee_file}" "${ce_file}"
+      ln -s "${ee_file}" "${ce_file}" || true
       echo "Symlink created '${ee_file}' -->> '${ce_file}'"
     fi
   done
