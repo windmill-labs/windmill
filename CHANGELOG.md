@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.496.1](https://github.com/windmill-labs/windmill/compare/v1.496.0...v1.496.1) (2025-06-07)
+
+
+### Bug Fixes
+
+* never consider minor version for global site packages ([#5893](https://github.com/windmill-labs/windmill/issues/5893)) ([22b2f49](https://github.com/windmill-labs/windmill/commit/22b2f4988db9314f2403508933d0aa932187c668))
+
 ## [1.496.0](https://github.com/windmill-labs/windmill/compare/v1.495.1...v1.496.0) (2025-06-06)
 
 
