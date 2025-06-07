@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.496.2](https://github.com/windmill-labs/windmill/compare/v1.496.1...v1.496.2) (2025-06-07)
+
+
+### Bug Fixes
+
+* add clearable by default for select ([#5900](https://github.com/windmill-labs/windmill/issues/5900)) ([b44b9c1](https://github.com/windmill-labs/windmill/commit/b44b9c1b82116ad5487af95d1f78226d56c75179))
+
 ## [1.496.1](https://github.com/windmill-labs/windmill/compare/v1.496.0...v1.496.1) (2025-06-07)
 
 
