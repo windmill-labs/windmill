@@ -32,7 +32,10 @@ import { askTools, prepareAskSystemMessage } from './ask/core'
 
 type TriggerablesMap = Record<
 	string,
-	{ description: string; onTrigger: ((value?: string) => void) | undefined }
+	{
+		description: string
+		onTrigger: ((value?: string) => void) | undefined
+	}
 >
 
 export enum AIMode {
