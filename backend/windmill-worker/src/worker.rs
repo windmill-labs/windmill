@@ -168,15 +168,10 @@ use windmill_common::bench::{benchmark_init, BenchmarkInfo, BenchmarkIter};
 
 use windmill_common::add_time;
 
-pub const PY310_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_310");
-pub const PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_311");
-pub const PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_312");
-pub const PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_313");
-
-pub const TAR_PY310_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_310");
-pub const TAR_PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_311");
-pub const TAR_PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_312");
-pub const TAR_PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_313");
+pub const PY310_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_3_10");
+pub const PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_3_11");
+pub const PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_3_12");
+pub const PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_3_13");
 
 pub const TAR_JAVA_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/java");
 
