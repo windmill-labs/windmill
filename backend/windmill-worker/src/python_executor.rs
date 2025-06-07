@@ -658,7 +658,7 @@ except BaseException as e:
 
     // Add /tmp/windmill/cache/python_x_y_z/global-site-packages to PYTHONPATH.
     // Usefull if certain wheels needs to be preinstalled before execution.
-    let global_site_packages_path = py_version.to_cache_dir() + "/global-site-packages";
+    let global_site_packages_path = py_version.to_cache_dir(true) + "/global-site-packages";
     let additional_python_paths_folders = {
         let mut paths = additional_python_paths.clone();
         if std::fs::metadata(&global_site_packages_path).is_ok() {
@@ -1489,7 +1489,7 @@ pub async fn handle_python_reqs(
         if req.starts_with('#') || req.starts_with('-') || req.trim().is_empty() {
             continue;
         }
-        let py_prefix = &py_version.to_cache_dir();
+        let py_prefix = &py_version.to_cache_dir(false);
 
         let venv_p = format!(
             "{py_prefix}/{}",
@@ -1740,7 +1740,7 @@ pub async fn handle_python_reqs(
                     tokio::select! {
                         // Cancel was called on the job
                         _ = kill_rx.recv() => return Err(anyhow::anyhow!("S3 pull was canceled")),
-                        pull = pull_from_tar(os, venv_p.clone(), py_version.to_cache_dir_top_level(), None, false) => {
+                        pull = pull_from_tar(os, venv_p.clone(), py_version.to_cache_dir_top_level(false), None, false) => {
                             if let Err(e) = pull {
                                 tracing::info!(
                                     workspace_id = %w_id,
@@ -1891,7 +1891,7 @@ pub async fn handle_python_reqs(
             #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
             if s3_push {
                 if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
-                    tokio::spawn(build_tar_and_push(os, venv_p.clone(), py_version.to_cache_dir_top_level(), None, false));
+                    tokio::spawn(build_tar_and_push(os, venv_p.clone(), py_version.to_cache_dir_top_level(false), None, false));
                 }
             }
 
