@@ -84,7 +84,13 @@
 <div class="flex flex-row items-center gap-4 w-full mt-2">
 	{#if options.length > 1}
 		<div>
-			<ToggleButtonGroup bind:selected={itemKind} let:item>
+			<ToggleButtonGroup
+				bind:selected={itemKind}
+				let:item
+				on:selected={() => {
+					scriptPath = ''
+				}}
+			>
 				{#each options as [label, value, icon, selectedColor]}
 					<ToggleButton {icon} {disabled} {value} {label} {selectedColor} {item} />
 				{/each}

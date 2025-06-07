@@ -506,7 +506,7 @@
 									allowEdit={!$userStore?.operator}
 								/>
 
-								{#if script_path === undefined}
+								{#if emptyString(script_path)}
 									<Button
 										btnClasses="ml-4 mt-2"
 										color="dark"
