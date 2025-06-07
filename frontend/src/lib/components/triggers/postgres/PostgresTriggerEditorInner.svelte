@@ -526,7 +526,7 @@
 							allowEdit={!$userStore?.operator}
 						/>
 
-						{#if emptyStringTrimmed(script_path) && is_flow === false}
+						{#if emptyString(script_path) && is_flow === false}
 							<div class="flex">
 								<Button
 									disabled={!can_write}
