@@ -30,8 +30,6 @@ use windmill_common::{
     worker::PythonAnnotations,
 };
 
-const DEF_MAIN: &str = "def main(";
-
 fn replace_import(x: String) -> String {
     SHORT_IMPORTS_MAP
         .get(&x)
@@ -143,8 +141,7 @@ struct ImportPin {
 }
 
 fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<NImport>> {
-    let mut code = code.split(DEF_MAIN).next().unwrap_or("").to_string();
-
+    let mut code = code.to_owned();
     // remove main function decorator from end of file if it exists
     if code
         .lines()
@@ -378,7 +375,7 @@ async fn parse_python_imports_inner(
                 })
                 .join("\n")
                 .parse::<toml::Table>()
-            .map_err(to_anyhow)?;
+                .map_err(to_anyhow)?;
 
             {
                 if let Some(v) = metadata.get("requires-python").and_then(|v| v.as_str()) {
