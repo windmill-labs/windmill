@@ -40,6 +40,8 @@
 		configuration
 	)
 
+	const modalId = crypto.randomUUID()
+
 	let css = initCss($app.css?.menucomponent, customCss)
 
 	let beforeIconComponent: any
@@ -103,6 +105,8 @@
 				justifyEnd={false}
 				class={resolvedConfig.fillContainer ? 'w-full h-full' : ''}
 				usePointerDownOutside={true}
+				clickOutsideExcludeIds={modalId ? [modalId] : []}
+				let:close
 				renderContent
 			>
 				<svelte:fragment slot="trigger" let:trigger>
@@ -166,6 +170,11 @@
 										componentInput={actionButton.componentInput}
 										noWFull={false}
 										isMenuItem={true}
+										{modalId}
+										onSuccess={() => {
+											close()
+										}}
+										modalWrapperClass="z-[7000]"
 									/>
 								</div>
 							{/if}
