@@ -14758,6 +14758,10 @@ components:
             - patch
         authentication_resource_path:
           type: string
+        summary:
+          type: string
+        description:
+          type: string
         is_async:
           type: boolean
         authentication_method:
@@ -14792,6 +14796,10 @@ components:
           type: string
         workspaced_route:
           type: boolean
+        summary:
+          type: string
+        description:
+          type: string
         static_asset_config:
           type: object
           properties:
@@ -14844,6 +14852,10 @@ components:
         script_path:
           type: string
         route_path:
+          type: string
+        summary:
+          type: string
+        description:
           type: string
         workspaced_route:
           type: boolean

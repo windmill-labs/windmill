@@ -32,6 +32,7 @@
 	import TestingBadge from '../testingBadge.svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { handleConfigChange } from '../utils'
+	import autosize from '$lib/autosize'
 
 	let {
 		useDrawer = true,
@@ -81,7 +82,8 @@
 	let signature_options_type = $state<'custom_script' | 'custom_signature'>('custom_signature')
 	let can_write = $state(true)
 	let extraPerms = $state<Record<string, string> | undefined>(undefined)
-
+	let summary: string | undefined = $state()
+	let routeDescription: string | undefined = $state()
 	// Component references
 	let s3FilePicker = $state<S3FilePicker | null>(null)
 	let s3Editor = $state<SimpleEditor | null>(null)
@@ -239,6 +241,8 @@
 		workspaced_route = cfg?.workspaced_route
 		wrap_body = cfg?.wrap_body
 		raw_string = cfg?.raw_string
+		summary = cfg?.summary
+		routeDescription = cfg?.description
 		authentication_resource_path = cfg?.authentication_resource_path ?? ''
 		if (cfg?.authentication_method === 'custom_script') {
 			authentication_method = 'signature'
@@ -310,7 +314,9 @@
 			authentication_method: auth_method,
 			static_asset_config,
 			is_static_website,
-			extra_perms: extraPerms
+			extra_perms: extraPerms,
+			summary,
+			description: routeDescription
 		}
 		return nCfg
 	}
@@ -360,19 +366,43 @@
 	{:else}
 		<div class="flex flex-col gap-12">
 			<Section label="Metadata">
-				<Label label="Path">
-					<Path
-						bind:dirty={dirtyPath}
-						bind:error={pathError}
-						bind:path
-						{initialPath}
-						checkInitialPathExistence={!edit}
-						namePlaceholder="route"
-						kind="http_trigger"
-						hideUser
-						disableEditing={!can_write}
-					/>
-				</Label>
+				<div class="flex flex-col gap-2">
+					<Label label="Summary">
+						<!-- svelte-ignore a11y_autofocus -->
+						<input
+							autofocus
+							type="text"
+							placeholder="Short summary to be displayed when listed"
+							class="text-sm w-full"
+							bind:value={summary}
+							disabled={!can_write}
+						/>
+					</Label>
+
+					<Label label="Path">
+						<Path
+							bind:dirty={dirtyPath}
+							bind:error={pathError}
+							bind:path
+							{initialPath}
+							checkInitialPathExistence={!edit}
+							namePlaceholder="route"
+							kind="http_trigger"
+							hideUser
+							disableEditing={!can_write}
+						/>
+					</Label>
+
+					<Label label="Description">
+						<textarea
+							rows="4"
+							use:autosize
+							bind:value={routeDescription}
+							placeholder="Describe the route"
+							disabled={!can_write}
+						></textarea>
+					</Label>
+				</div>
 			</Section>
 
 			{#if !hideTarget}

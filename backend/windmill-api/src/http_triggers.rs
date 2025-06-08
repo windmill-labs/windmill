@@ -111,6 +111,8 @@ struct NewTrigger {
     static_asset_config: Option<sqlx::types::Json<S3Object>>,
     http_method: HttpMethod,
     workspaced_route: Option<bool>,
+    summary: Option<String>,
+    description: Option<String>,
     is_static_website: bool,
     wrap_body: Option<bool>,
     raw_string: Option<bool>,
@@ -131,6 +133,8 @@ pub struct HttpTrigger {
     pub is_async: bool,
     pub authentication_method: AuthenticationMethod,
     pub http_method: HttpMethod,
+    pub summary: Option<String>,
+    pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub static_asset_config: Option<sqlx::types::Json<S3Object>>,
     pub is_static_website: bool,
@@ -150,6 +154,8 @@ struct EditTrigger {
     authentication_method: AuthenticationMethod,
     #[serde(deserialize_with = "non_empty_str")]
     authentication_resource_path: Option<String>,
+    summary: Option<String>,
+    description: Option<String>,
     http_method: HttpMethod,
     static_asset_config: Option<sqlx::types::Json<S3Object>>,
     workspaced_route: Option<bool>,
@@ -185,6 +191,8 @@ async fn list_triggers(
             "wrap_body",
             "raw_string",
             "script_path",
+            "summary",
+            "description",
             "is_flow",
             "http_method",
             "edited_by",
@@ -239,6 +247,8 @@ async fn get_trigger(
             route_path_key,
             workspaced_route,
             script_path, 
+            summary,
+            description,
             is_flow, 
             http_method as "http_method: _", 
             edited_by, 
@@ -350,6 +360,8 @@ async fn create_trigger(
             wrap_body,
             raw_string,
             script_path, 
+            summary,
+            description,
             is_flow, 
             is_async, 
             authentication_method, 
@@ -361,7 +373,7 @@ async fn create_trigger(
             is_static_website
         ) 
         VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now(), $17
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now(), $19
         )
         "#,
         w_id,
@@ -373,6 +385,8 @@ async fn create_trigger(
         ct.wrap_body.unwrap_or(false),
         ct.raw_string.unwrap_or(false),
         ct.script_path,
+        ct.summary,
+        ct.description,
         ct.is_flow,
         ct.is_async,
         ct.authentication_method as _,
@@ -478,11 +492,13 @@ async fn update_trigger(
                 email = $13, 
                 is_async = $14, 
                 authentication_method = $15, 
+                summary = $16,
+                description = $17,
                 edited_at = now(), 
-                is_static_website = $16
+                is_static_website = $18
             WHERE 
-                workspace_id = $17 AND 
-                path = $18
+                workspace_id = $19 AND 
+                path = $20
             "#,
             route_path,
             &route_path_key,
@@ -499,6 +515,8 @@ async fn update_trigger(
             &authed.email,
             ct.is_async,
             ct.authentication_method as _,
+            ct.summary,
+            ct.description,
             ct.is_static_website,
             w_id,
             path,
