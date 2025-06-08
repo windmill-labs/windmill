@@ -181,7 +181,12 @@
 		)
 	}
 
+	let lastNodes: [NodeLayout[], Node[]] | undefined = undefined
 	function layoutNodes(nodes: NodeLayout[]): Node[] {
+		let lastResult = lastNodes?.[1]
+		if (lastResult && deepEqual(nodes, lastNodes?.[0])) {
+			return lastResult
+		}
 		let seenId: string[] = []
 		for (const n of nodes) {
 			if (seenId.includes(n.id)) {
@@ -190,20 +195,37 @@
 			seenId.push(n.id)
 		}
 
-		const dag = dagStratify().id(({ id }: Node) => id)(nodes)
+		let nodeWidths: Record<string, number> = {}
+		const nodes2 = nodes.map((n) => {
+			return { ...n, position: { x: 0, y: 0 } }
+		})
+		for (const n of nodes.reverse()) {
+			const endId = n.id + '-end'
+
+			if (nodeWidths[endId] != undefined) {
+				nodeWidths[n.id] = Math.max(nodeWidths[n.id] ?? 0, nodeWidths[endId])
+			}
+			if (n.parentIds && n.parentIds?.length == 1) {
+				const parent = n.parentIds[0]
+				const nodeWidth = nodeWidths[n.id] ?? 1
+				nodeWidths[parent] = (nodeWidths[parent] ?? 0) + nodeWidth
+			}
+		}
+
+		const dag = dagStratify().id(({ id }: Node) => id)(nodes2)
 
 		let boxSize: any
 		try {
+			console.log(nodeWidths)
 			const layout = sugiyama()
 				.decross(nodes.length > 20 ? decrossTwoLayer() : decrossOpt())
 				.coord(coordCenter())
-				.nodeSize(
-					(d) =>
-						[NODE.width + NODE.gap.horizontal * 1, NODE.height + NODE.gap.vertical] as readonly [
-							number,
-							number
-						]
-				)
+				.nodeSize((d) => {
+					return [
+						(nodeWidths[d?.data?.['id'] ?? ''] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
+						NODE.height + NODE.gap.vertical
+					] as readonly [number, number]
+				})
 			boxSize = layout(dag as any)
 		} catch {
 			const layout = sugiyama()
@@ -231,6 +253,7 @@
 			}
 		}))
 
+		lastNodes = [nodes, newNodes]
 		return newNodes
 	}
 
@@ -432,7 +455,7 @@
 				{nodeTypes}
 				{height}
 				{width}
-				minZoom={0.5}
+				minZoom={0.2}
 				maxZoom={1.2}
 				connectionLineType={ConnectionLineType.SmoothStep}
 				defaultEdgeOptions={{ type: 'smoothstep' }}

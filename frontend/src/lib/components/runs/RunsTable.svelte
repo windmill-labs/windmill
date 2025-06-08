@@ -44,11 +44,13 @@
 		return job['started_at'] ?? job['scheduled_for'] ?? job['created_at']
 	}
 
-	let containsLabel = $state(false)
-	function groupJobsByDay(jobs: Job[]): Record<string, Job[]> {
-		const groupedLogs: Record<string, Job[]> = {}
+	function groupJobsByDay(jobs: Job[]): {
+		groupedJobs: Record<string, Job[]>
+		newContainsLabel: boolean | undefined
+	} {
+		const groupedJobs: Record<string, Job[]> = {}
 
-		if (!jobs) return groupedLogs
+		if (!jobs) return { groupedJobs, newContainsLabel: undefined }
 
 		let newContainsLabel = false
 		for (const job of jobs) {
@@ -66,31 +68,30 @@
 					day: 'numeric'
 				})
 
-				if (!groupedLogs[day]) {
-					groupedLogs[day] = []
+				if (!groupedJobs[day]) {
+					groupedJobs[day] = []
 				}
 
-				groupedLogs[day].push(job)
+				groupedJobs[day].push(job)
 			}
 		}
-		containsLabel = newContainsLabel
 
-		for (const day in groupedLogs) {
-			groupedLogs[day].sort((a, b) => {
+		for (const day in groupedJobs) {
+			groupedJobs[day].sort((a, b) => {
 				return new Date(getTime(b)!).getTime() - new Date(getTime(a)!).getTime()
 			})
 		}
 
-		const sortedLogs: Record<string, Job[]> = {}
-		Object.keys(groupedLogs)
+		const sortedJobs: Record<string, Job[]> = {}
+		Object.keys(groupedJobs)
 			.sort((a, b) => {
 				return new Date(b).getTime() - new Date(a).getTime()
 			})
 			.forEach((key) => {
-				sortedLogs[key] = groupedLogs[key]
+				sortedJobs[key] = groupedJobs[key]
 			})
 
-		return sortedLogs
+		return { groupedJobs: sortedJobs, newContainsLabel }
 	}
 
 	type FlatJobs =
@@ -186,13 +187,20 @@
 			}
 		}
 	}
-	let groupedJobs = $derived(
+	let { groupedJobs, newContainsLabel } = $derived(
 		jobs
 			? showExternalJobs
 				? groupJobsByDay([...jobs, ...externalJobs])
 				: groupJobsByDay(jobs)
-			: undefined
+			: { groupedJobs: undefined, newContainsLabel: undefined }
 	)
+
+	let containsLabel = $state(false)
+	$effect(() => {
+		if (newContainsLabel != undefined) {
+			containsLabel = newContainsLabel
+		}
+	})
 	let flatJobs = $derived(groupedJobs ? flattenJobs(groupedJobs) : undefined)
 	let stickyIndices = $derived.by(() => {
 		const nstickyIndices: number[] = []

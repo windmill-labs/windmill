@@ -1,5 +1,5 @@
 import type { FlowModule, RawScript, Script } from '$lib/gen'
-import { type Node, type Edge } from '@xyflow/svelte'
+import { type Edge } from '@xyflow/svelte'
 import { getDependeeAndDependentComponents } from '../flows/flowExplorer'
 import { dfsByModule } from '../flows/previousResults'
 import { defaultIfEmptyString } from '$lib/utils'
@@ -70,7 +70,6 @@ export function buildPrefix(prefix: string | undefined, id: string): string {
 
 export type NodeLayout = {
 	id: string
-	position: { x: number; y: number }
 	parentIds?: string[]
 } & FlowNode
 
@@ -331,7 +330,6 @@ export function graphBuilder(
 					insertable: extra.insertable,
 					editMode: extra.editMode
 				},
-				position: { x: -1, y: -1 },
 				type: 'module'
 			})
 
@@ -421,7 +419,6 @@ export function graphBuilder(
 
 		const inputNode = {
 			id: 'Input',
-			position: { x: -1, y: -1 },
 			type: 'input2',
 			data: {
 				eventHandlers: eventHandlers,
@@ -439,7 +436,6 @@ export function graphBuilder(
 		if (flowPathForTriggerNode) {
 			triggerNode = {
 				id: 'Trigger',
-				position: { x: -1, y: -1 },
 				type: 'trigger',
 				data: {
 					simplifiableFlow: simplifiableFlow,
@@ -467,7 +463,6 @@ export function graphBuilder(
 				eventHandlers: eventHandlers,
 				success: success
 			},
-			position: { x: -1, y: -1 },
 			type: 'result'
 		}
 
@@ -479,8 +474,8 @@ export function graphBuilder(
 		function processModules(
 			modules: FlowModule[],
 			branch: { rootId: string; branch: number } | undefined,
-			beforeNode: Node,
-			nextNode: Node | undefined,
+			beforeNode: NodeLayout,
+			nextNode: NodeLayout | undefined,
 			simplifiedTriggerView: boolean,
 			prefix: string | undefined,
 			currentOffset = 0,
@@ -528,7 +523,6 @@ export function graphBuilder(
 								id: module.id,
 								eventHandlers: eventHandlers
 							},
-							position: { x: -1, y: -1 },
 							type: 'branchAllEnd'
 						} as NodeLayout
 
@@ -546,7 +540,6 @@ export function graphBuilder(
 									flowModuleStates: extra.flowModuleStates,
 									branchOne: false
 								},
-								position: { x: -1, y: -1 },
 								type: 'noBranch'
 							} as NodeLayout
 
@@ -573,7 +566,6 @@ export function graphBuilder(
 										flowModuleStates: extra.flowModuleStates,
 										insertable: extra.insertable
 									},
-									position: { x: -1, y: -1 },
 									type: 'branchAllStart'
 								} as NodeLayout
 
@@ -618,7 +610,6 @@ export function graphBuilder(
 								simplifiedTriggerView,
 								eventHandlers: eventHandlers
 							},
-							position: { x: -1, y: -1 },
 							type: 'forLoopStart'
 						} as NodeLayout
 
@@ -640,7 +631,6 @@ export function graphBuilder(
 								eventHandlers: eventHandlers,
 								simplifiedTriggerView
 							},
-							position: { x: -1, y: -1 },
 							type: 'forLoopEnd'
 						} as NodeLayout
 
@@ -673,7 +663,6 @@ export function graphBuilder(
 								offset: currentOffset + 25,
 								eventHandlers: eventHandlers
 							},
-							position: { x: -1, y: -1 },
 							type: 'whileLoopStart'
 						} as NodeLayout
 						addEdge(module.id, startNode.id, { rootId: module.id, branch: 0 }, prefix, {
@@ -683,7 +672,6 @@ export function graphBuilder(
 						const endNode = {
 							id: `${module.id}-end`,
 							data: { offset: currentOffset, ...extra },
-							position: { x: -1, y: -1 },
 							type: 'whileLoopEnd'
 						} as NodeLayout
 
@@ -713,7 +701,6 @@ export function graphBuilder(
 						const endNode = {
 							id: `${module.id}-end`,
 							data: { offset: currentOffset, eventHandlers: eventHandlers },
-							position: { x: -1, y: -1 },
 							type: 'branchOneEnd'
 						} as NodeLayout
 						nodes.push(endNode)
@@ -730,7 +717,6 @@ export function graphBuilder(
 								branchOne: true,
 								...extra
 							},
-							position: { x: -1, y: -1 },
 							type: 'noBranch'
 						} as NodeLayout
 
@@ -765,7 +751,6 @@ export function graphBuilder(
 									branchIndex: branchIndex,
 									eventHandlers: eventHandlers
 								},
-								position: { x: -1, y: -1 },
 								type: 'branchOneStart'
 							} as NodeLayout
 
@@ -806,7 +791,6 @@ export function graphBuilder(
 									subflowId: module.id,
 									eventHandlers: eventHandlers
 								},
-								position: { x: -1, y: -1 },
 								type: 'subflowBound'
 							} as NodeLayout
 
@@ -830,7 +814,6 @@ export function graphBuilder(
 									subflowId: module.id,
 									eventHandlers: eventHandlers
 								},
-								position: { x: -1, y: -1 },
 								type: 'subflowBound'
 							} as NodeLayout
 
