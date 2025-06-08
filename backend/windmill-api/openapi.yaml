@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.495.1
+  version: 1.496.2
   title: Windmill API
 
   contact:
@@ -8451,6 +8451,31 @@ paths:
         "201":
           description: default error handler set
 
+  /w/{workspace}/http_triggers/create_many:
+    post:
+      summary: create many HTTP triggers
+      operationId: createHttpTriggers
+      tags:
+        - http_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new http trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/NewHttpTrigger"
+      responses:
+        "201":
+          description: http trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/http_triggers/create:
     post:
       summary: create http trigger
@@ -8602,8 +8627,7 @@ paths:
                 route_path:
                   type: string
                 http_method:
-                  type: string
-                  enum: ["get", "post", "put", "delete", "patch"]
+                  $ref: "#/components/schemas/HttpMethod"
                 trigger_path:
                   type: string
                 workspaced_route:
@@ -14730,6 +14754,15 @@ components:
         - custom_script
         - signature
 
+    HttpMethod:
+      type: string
+      enum:
+        - get
+        - post
+        - put
+        - delete
+        - patch
+
     HttpTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -14749,13 +14782,7 @@ components:
           required:
             - s3
         http_method:
-          type: string
-          enum:
-            - get
-            - post
-            - put
-            - delete
-            - patch
+          $ref: "#/components/schemas/HttpMethod"
         authentication_resource_path:
           type: string
         summary:
@@ -14814,13 +14841,7 @@ components:
         is_flow:
           type: boolean
         http_method:
-          type: string
-          enum:
-            - get
-            - post
-            - put
-            - delete
-            - patch
+          $ref: "#/components/schemas/HttpMethod"
         authentication_resource_path:
           type: string
         is_async:
@@ -14875,13 +14896,7 @@ components:
         is_flow:
           type: boolean
         http_method:
-          type: string
-          enum:
-            - get
-            - post
-            - put
-            - delete
-            - patch
+          $ref: "#/components/schemas/HttpMethod"
         is_async:
           type: boolean
         authentication_method:

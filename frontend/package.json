@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.495.1",
+	"version": "1.496.2",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -91,6 +91,7 @@
 		"@leeoniya/ufuzzy": "^1.0.8",
 		"@popperjs/core": "^2.11.6",
 		"@redocly/json-to-json-schema": "^0.0.1",
+		"@scalar/openapi-parser": "^0.15.0",
 		"@tanstack/svelte-table": "npm:tanstack-table-8-svelte-5@^0.1",
 		"@windmill-labs/svelte-dnd-action": "^0.9.48",
 		"@xterm/addon-fit": "^0.10.0",
@@ -122,6 +123,7 @@
 		"monaco-vim": "^0.4.1",
 		"ol": "^7.4.0",
 		"openai": "^4.87.1",
+		"openapi-types": "^12.1.3",
 		"p-limit": "^6.1.0",
 		"panzoom": "^9.4.3",
 		"pdfjs-dist": "4.8.69",
@@ -153,7 +155,7 @@
 		"xterm-readline": "^1.1.2",
 		"y-monaco": "^0.1.4",
 		"y-websocket": "^1.5.4",
-		"yaml": "^2.3.4",
+		"yaml": "^2.8.0",
 		"yjs": "^13.6.7",
 		"zod": "^3.24.2",
 		"zod-to-json-schema": "^3.24.5"
