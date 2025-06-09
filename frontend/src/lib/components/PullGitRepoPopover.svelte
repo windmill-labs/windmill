@@ -19,7 +19,6 @@
 	import { tryEvery } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import GitDiffPreview from './GitDiffPreview.svelte'
-	import yaml from 'js-yaml'
 	import { page } from '$app/stores'
 
 	let { gitRepoResourcePath, uiState, onFilterUpdate } = $props<{
@@ -28,15 +27,13 @@
 			include_path: string[]
 			include_type: string[]
 		}
-		onFilterUpdate: (filters: { yaml: string }) => void
+		onFilterUpdate: (filters: { include_path: string[], include_type: string[] }) => void
 	}>()
 
 	type PreviewResult = {
 		added: string[]
 		deleted: string[]
 		modified: string[]
-		repoWmillYaml?: string
-		yamlModified?: boolean
 	}
 
 	let previewResult = $state<PreviewResult | undefined>(undefined)
@@ -120,8 +117,7 @@
 				// For full sync mode, just use the CLI results directly
 				// The CLI already handles wmill.yaml changes with --include-wmill-yaml flag
 				previewResult = {
-					...result,
-					yamlModified: false // Don't add redundant YAML detection
+					...result
 				}
 				jobStatus.status = 'success'
 			} else {
@@ -143,58 +139,26 @@
 
 	async function pullFromRepo() {
 		const workspace = $workspaceStore
-		if (!workspace || !previewResult?.repoWmillYaml) return
+		if (!workspace) return
 
 		console.log('Pulling from repo:', gitRepoResourcePath)
 		isPulling = true
 		jobStatus = { id: null, status: undefined, type: 'pull' }
 
 		try {
-			const yamlObj = yaml.load(previewResult.repoWmillYaml) as any
-			if (!yamlObj || typeof yamlObj !== 'object') throw new Error('Invalid YAML')
-
-			// Convert YAML config to UI state format for JSON approach
-			const uiState = {
-				include_path: yamlObj.includes || ['f/**'],
-				include_type: [] as string[]
-			}
-
-			// Convert YAML flags back to include_type array
-			const includeTypes = ['script', 'flow', 'app', 'folder'] // Always include core types
-			if (!yamlObj.skipResourceTypes) includeTypes.push('resourcetype')
-			if (!yamlObj.skipResources) includeTypes.push('resource')
-			if (!yamlObj.skipVariables) includeTypes.push('variable')
-			if (!yamlObj.skipSecrets && !yamlObj.skipVariables) includeTypes.push('secret')
-			if (yamlObj.includeSchedules) includeTypes.push('schedule')
-			if (yamlObj.includeTriggers) includeTypes.push('trigger')
-			if (yamlObj.includeUsers) includeTypes.push('user')
-			if (yamlObj.includeGroups) includeTypes.push('group')
-
-			uiState.include_type = includeTypes
-
+			// Use init git repo script with dry_run: false (actual pull operation)
+			// The script will read wmill.yaml directly from the cloned repo, no need to pass settings
 			const jobId = await JobService.runScriptByPath({
 				workspace,
-				path: hubPaths.gitSyncPush,
+				path: hubPaths.gitInitRepo,
 				requestBody: {
-					payload: JSON.stringify({
-						pusher: {
-							name: 'workspace settings: windmill-pull'
-						},
-						ref: ''
-					}),
-					skip_secrets: yamlObj.skipSecrets ?? true,
-					skip_variables: yamlObj.skipVariables ?? true,
-					skip_resources: yamlObj.skipResources ?? true,
-					skip_resource_types: yamlObj.skipResourceTypes ?? true,
-					include_schedules: yamlObj.includeSchedules ?? false,
-					include_users: yamlObj.includeUsers ?? false,
-					include_groups: yamlObj.includeGroups ?? false,
-					include_settings: yamlObj.includeSettings ?? false,
-					include_key: yamlObj.includeKey ?? false,
-					includes: yamlObj.includes?.join(',') ?? '',
-					excludes: yamlObj.excludes?.join(',') ?? '',
-					message: '"Pull from Git repository"',
-					repo_resource_path: gitRepoResourcePath
+					workspace_id: workspace,
+					repo_url_resource_path: gitRepoResourcePath,
+					dry_run: false,
+					branch_to_push: '',
+					only_wmill_yaml: false,
+					pull: true,
+					settings_json: undefined // Let script use wmill.yaml from repo
 				},
 				skipPreprocessor: true
 			})
@@ -204,8 +168,23 @@
 			jobStatus.status = success ? 'success' : 'failure'
 
 			if (success) {
-				onFilterUpdate({ yaml: previewResult.repoWmillYaml })
-				sendUserToast('Successfully pulled workspace content from repository')
+				// Get the result which should contain the local git repo settings as JSON
+				const result = await JobService.getCompletedJobResult({ workspace, id: jobId }) as any
+				console.log('Pull result:', result)
+
+				// Apply the settings from the sync operation result to the UI
+				if (result?.settings_json) {
+					// Directly update the UI state with the JSON result - no YAML conversion needed!
+					const settingsJson = result.settings_json as { include_path: string[], include_type: string[] }
+					onFilterUpdate({
+						include_path: settingsJson.include_path || ['f/**'],
+						include_type: settingsJson.include_type || ['script', 'flow', 'app', 'folder']
+					})
+					sendUserToast('Successfully pulled workspace content from repository')
+				} else {
+					console.warn('No settings_json returned from pull operation')
+					sendUserToast('Pull completed but could not update filter settings', true)
+				}
 			}
 		} catch (error) {
 			console.error('Failed to pull from repo:', error)
@@ -357,7 +336,7 @@ wmill sync push --yes
 						>
 							Preview
 						</Button>
-						{#if previewResult.added?.length || previewResult.deleted?.length || previewResult.modified?.length || previewResult.yamlModified}
+						{#if previewResult.added?.length || previewResult.deleted?.length || previewResult.modified?.length}
 							<Button
 								color="red"
 								size="xs"

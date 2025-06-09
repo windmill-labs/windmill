@@ -10,6 +10,7 @@ import { Command } from "./deps.ts";
 import { GlobalOptions } from "./types.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
+import { uiStateToSyncOptions, parseJsonInput } from "./settings_utils.ts";
 
 export interface SimplifiedSettings {
   // slack_team_id?: string;
@@ -584,56 +585,9 @@ interface SettingsResult {
   error?: string;
 }
 
-// Helper functions for UI state ↔ SyncOptions conversion
-export interface UIState {
-  include_path: string[];
-  include_type: string[];
-}
-
-export function uiStateToSyncOptions(uiState: UIState): SyncOptions {
-  return {
-    defaultTs: 'bun',
-    includes: uiState.include_path.length > 0 ? uiState.include_path : ['f/**'],
-    excludes: [],
-    codebases: [],
-
-    // Convert include_type array to skip/include flags
-    skipVariables: !uiState.include_type.includes('variable'),
-    skipResources: !uiState.include_type.includes('resource'),
-    skipResourceTypes: !uiState.include_type.includes('resourcetype'),
-    skipSecrets: !uiState.include_type.includes('secret'),
-
-    includeSchedules: uiState.include_type.includes('schedule'),
-    includeTriggers: uiState.include_type.includes('trigger'),
-    includeUsers: uiState.include_type.includes('user'),
-    includeGroups: uiState.include_type.includes('group'),
-    includeSettings: uiState.include_type.includes('settings'),
-    includeKey: uiState.include_type.includes('key')
-  };
-}
-
-export function syncOptionsToUIState(syncOptions: SyncOptions): UIState {
-  const include_type: string[] = ['script', 'flow', 'app', 'folder']; // Always included
-
-  // Add types based on skip flags (default to included if not specified)
-  if (syncOptions.skipVariables !== true) include_type.push('variable');
-  if (syncOptions.skipResources !== true) include_type.push('resource');
-  if (syncOptions.skipResourceTypes !== true) include_type.push('resourcetype');
-  if (syncOptions.skipSecrets !== true) include_type.push('secret');
-
-  // Add types based on include flags (default to excluded if not specified)
-  if (syncOptions.includeSchedules === true) include_type.push('schedule');
-  if (syncOptions.includeTriggers === true) include_type.push('trigger');
-  if (syncOptions.includeUsers === true) include_type.push('user');
-  if (syncOptions.includeGroups === true) include_type.push('group');
-  if (syncOptions.includeSettings === true) include_type.push('settings');
-  if (syncOptions.includeKey === true) include_type.push('key');
-
-  return {
-    include_path: syncOptions.includes || ['f/**'],
-    include_type
-  };
-}
+// Import shared utility functions
+export type { UIState } from "./settings_utils.ts";
+export { uiStateToSyncOptions, syncOptionsToUIState, parseJsonInput } from "./settings_utils.ts";
 
 // ========== SHARED HELPER FUNCTIONS ==========
 
@@ -744,14 +698,7 @@ async function getYamlUtils() {
   return { stringify, parse };
 }
 
-// Helper function to handle JSON input parsing
-function parseJsonInput(jsonInput: string): UIState {
-  try {
-    return JSON.parse(jsonInput);
-  } catch (e) {
-    throw new Error("Invalid JSON in --from-json parameter: " + (e as Error).message);
-  }
-}
+
 
 // Helper function to read local settings file
 async function readLocalSettingsFile(filePath: string = 'wmill.yaml'): Promise<{ content: string; settings: SyncOptions }> {
@@ -823,6 +770,85 @@ async function updateGitSyncRepositories(workspace: { workspaceId: string }, loc
   }
 }
 
+// Helper function to handle fromJson processing (eliminating duplication between pull/push)
+async function handleFromJsonProcessing(
+  opts: { fromJson?: string; diff?: boolean; dryRun?: boolean },
+  operationType: 'pull' | 'push'
+): Promise<SettingsResult | null> {
+  if (!opts.fromJson) return null;
+
+  // Handle JSON input mode - JSON represents simulated backend state
+  const uiState = parseJsonInput(opts.fromJson);
+  const simulatedBackendSettings = uiStateToSyncOptions(uiState);
+
+  if (opts.diff) {
+    // For --from-json --diff: Compare JSON (simulated backend) with local wmill.yamlfile
+    try {
+      const { settings: actualLocalSettings } = await readLocalSettingsFile();
+      const { stringify } = await getYamlUtils();
+
+      const simulatedBackendYaml = stringify(simulatedBackendSettings as Record<string, unknown>);
+      const localYaml = stringify(actualLocalSettings as Record<string, unknown>);
+
+      const { file1: tmpSimulatedBackendFile, file2: tmpLocalFile } = await createTempDiffFiles(simulatedBackendYaml, localYaml);
+      const diff = await generateDiff(tmpLocalFile, tmpSimulatedBackendFile);
+
+      const message = operationType === 'pull'
+        ? "Diff between local file and JSON input (what local would become)"
+        : "Diff between local file and JSON input (what backend would become)";
+
+      return {
+        success: true,
+        yaml: localYaml,
+        settings: actualLocalSettings,
+        diff: diff,
+        message
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: `Could not read local wmill.yaml file: ${(error as Error).message}`
+      };
+    }
+  }
+
+  // For non-diff operations, use JSON as the settings
+  const { stringify } = await getYamlUtils();
+  const yamlContent = stringify(simulatedBackendSettings as Record<string, unknown>);
+
+  if (opts.dryRun) {
+    const message = operationType === 'pull'
+      ? "Dry run - showing what would be written to wmill.yaml from JSON input"
+      : "Dry run - showing what would be pushed from JSON input";
+
+    return {
+      success: true,
+      yaml: yamlContent,
+      settings: simulatedBackendSettings,
+      message
+    };
+  }
+
+  // For actual operations
+  if (operationType === 'pull') {
+    await Deno.writeTextFile('wmill.yaml', yamlContent);
+    return {
+      success: true,
+      yaml: yamlContent,
+      settings: simulatedBackendSettings,
+      message: "Settings written to wmill.yaml from JSON input"
+    };
+  } else {
+    // Push operation requires workspace parameter - will be handled by caller
+    return {
+      success: true,
+      yaml: yamlContent,
+      settings: simulatedBackendSettings,
+      message: "Settings ready to push from JSON input"
+    };
+  }
+}
+
 // ========== CORE FUNCTIONS ==========
 
 export async function pullSettings(opts: GlobalOptions & SyncOptions & {
@@ -839,64 +865,27 @@ export async function pullSettings(opts: GlobalOptions & SyncOptions & {
     let yamlContent: string;
 
     if (opts.fromJson) {
-      // Handle JSON input mode - JSON represents simulated backend state
-      const uiState = parseJsonInput(opts.fromJson);
-      const simulatedBackendSettings = uiStateToSyncOptions(uiState);
-
-      if (opts.diff) {
-        // For --from-json --diff: Compare JSON (simulated backend) with local file (what we want to push)
-        try {
-          const { settings: actualLocalSettings } = await readLocalSettingsFile();
-          const { stringify } = await getYamlUtils();
-
-          const simulatedBackendYaml = stringify(simulatedBackendSettings as Record<string, unknown>);
-          const localYaml = stringify(actualLocalSettings as Record<string, unknown>);
-
-          const { file1: tmpSimulatedBackendFile, file2: tmpLocalFile } = await createTempDiffFiles(simulatedBackendYaml, localYaml);
-          const diff = await generateDiff(tmpLocalFile, tmpSimulatedBackendFile);
-
-          return {
-            success: true,
-            yaml: localYaml,
-            settings: actualLocalSettings,
-            diff: diff,
-            message: "Diff between local file and JSON input (what local would become)"
-          };
-        } catch (error) {
-          return {
-            success: false,
-            error: `Could not read local wmill.yaml file: ${(error as Error).message}`
-          };
+      const result = await handleFromJsonProcessing(opts, 'pull');
+      if (result) {
+        if (!result.success) {
+          return result;
         }
+        // If handleFromJsonProcessing handled diff/dryRun, return immediately
+        if (opts.diff || opts.dryRun) {
+          return result;
+        }
+        currentSettings = result.settings!;
+        yamlContent = result.yaml!;
+      } else {
+        // This shouldn't happen since we checked opts.fromJson, but handle it
+        throw new Error("Failed to process JSON input");
       }
-
-      // For non-diff operations, use JSON as the settings to push
-      currentSettings = simulatedBackendSettings;
+    } else {
+      // Original backend pulling logic
+      currentSettings = await fetchBackendSettings(workspace);
       const { stringify } = await getYamlUtils();
       yamlContent = stringify(currentSettings as Record<string, unknown>);
-
-      if (opts.dryRun) {
-        return {
-          success: true,
-          yaml: yamlContent,
-          settings: currentSettings,
-          message: "Dry run - showing what would be written to wmill.yaml from JSON input"
-        };
-      }
-
-      await Deno.writeTextFile('wmill.yaml', yamlContent);
-      return {
-        success: true,
-        yaml: yamlContent,
-        settings: currentSettings,
-        message: "Settings written to wmill.yaml from JSON input"
-      };
     }
-
-    // Original backend pulling logic
-    currentSettings = await fetchBackendSettings(workspace);
-    const { stringify } = await getYamlUtils();
-    yamlContent = stringify(currentSettings as Record<string, unknown>);
 
     if (opts.diff) {
       // Compare backend with local wmill.yaml
@@ -969,56 +958,38 @@ export async function pushSettings(opts: GlobalOptions & SyncOptions & {
     let localSettings: SyncOptions;
 
     if (opts.fromJson) {
-      // Handle JSON input mode - JSON represents simulated backend state
-      const uiState = parseJsonInput(opts.fromJson);
-      const simulatedBackendSettings = uiStateToSyncOptions(uiState);
+      const result = await handleFromJsonProcessing(opts, 'push');
+      if (result) {
+        if (!result.success) {
+          return result;
+        }
+        // If handleFromJsonProcessing handled diff/dryRun, return immediately
+        if (opts.diff || opts.dryRun) {
+          return result;
+        }
+        localSettings = result.settings!;
 
-      if (opts.diff) {
-        // For --from-json --diff: Compare JSON (simulated backend) with local file (what we want to push)
-        try {
-          const { settings: actualLocalSettings } = await readLocalSettingsFile();
-          const { stringify } = await getYamlUtils();
+        const { stringify } = await getYamlUtils();
+        const yamlContent = stringify(localSettings as Record<string, unknown>);
 
-          const simulatedBackendYaml = stringify(simulatedBackendSettings as Record<string, unknown>);
-          const localYaml = stringify(actualLocalSettings as Record<string, unknown>);
-
-          const { file1: tmpSimulatedBackendFile, file2: tmpLocalFile } = await createTempDiffFiles(simulatedBackendYaml, localYaml);
-          const diff = await generateDiff(tmpLocalFile, tmpSimulatedBackendFile);
-
+        if (opts.dryRun) {
           return {
             success: true,
-            yaml: localYaml,
-            settings: actualLocalSettings,
-            diff: diff,
-            message: "Diff between local file and JSON input (what backend would become)"
-          };
-        } catch (error) {
-          return {
-            success: false,
-            error: `Could not read local wmill.yaml file: ${(error as Error).message}`
+            yaml: yamlContent,
+            settings: localSettings,
+            message: "Dry run - showing what would be pushed from JSON input"
           };
         }
-      }
 
-      // For non-diff operations, use JSON as the settings to push
-      localSettings = simulatedBackendSettings;
-      const { stringify } = await getYamlUtils();
-      const yamlContent = stringify(localSettings as Record<string, unknown>);
-
-      if (opts.dryRun) {
+        await updateGitSyncRepositories(workspace, localSettings);
         return {
           success: true,
-          yaml: yamlContent,
-          settings: localSettings,
-          message: "Dry run - showing what would be pushed from JSON input"
+          message: "Settings successfully pushed to workspace backend from JSON input"
         };
+      } else {
+        // This shouldn't happen since we checked opts.fromJson, but handle it
+        throw new Error("Failed to process JSON input");
       }
-
-      await updateGitSyncRepositories(workspace, localSettings);
-      return {
-        success: true,
-        message: "Settings successfully pushed to workspace backend from JSON input"
-      };
     }
 
     // Handle regular file/data input

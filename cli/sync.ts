@@ -45,6 +45,48 @@ import {
 } from "./metadata.ts";
 import { FlowModule, OpenFlow, RawScript } from "./gen/types.gen.ts";
 import { pushResource } from "./resource.ts";
+import { uiStateToSyncOptions, syncOptionsToUIState, parseJsonInput } from "./settings_utils.ts";
+import { readConfigFile } from "./conf.ts";
+
+
+
+// Helper function to override sync options with JSON settings
+function overrideSyncOptionsFromJson(opts: SyncOptions, jsonSettings?: string): void {
+  if (!jsonSettings) return;
+
+  console.log("DEBUG: Overriding sync configuration with JSON settings");
+  const uiState = parseJsonInput(jsonSettings);
+  const jsonSyncOptions = uiStateToSyncOptions(uiState);
+
+  // Merge the JSON settings into the existing options
+  Object.assign(opts, jsonSyncOptions);
+}
+
+// Helper function to add wmill.yaml change detection for JSON settings
+async function addWmillYamlChangeFromJson(opts: SyncOptions, modified: string[]): Promise<void> {
+  if (!opts.settingsFromJson) return;
+
+  // Parse the JSON input to get the new settings
+  const uiState = parseJsonInput(opts.settingsFromJson);
+  const newSyncOptions = uiStateToSyncOptions(uiState);
+  const afterContent = yamlStringify(newSyncOptions as Record<string, unknown>);
+
+  // Read current wmill.yaml if it exists
+  let beforeContent = '';
+  try {
+    beforeContent = await Deno.readTextFile(path.join(Deno.cwd(), "wmill.yaml"));
+  } catch {
+    beforeContent = '';
+  }
+
+  const hasDifferences = afterContent.trim() !== beforeContent.trim();
+
+  if (hasDifferences && !modified.includes('wmill.yaml')) {
+    modified.push('wmill.yaml');
+  }
+}
+
+
 
 type DynFSElement = {
   isDirectory: boolean;
@@ -1097,6 +1139,9 @@ async function buildTracker(changes: Change[]) {
 export async function pull(opts: GlobalOptions & SyncOptions) {
   opts = await mergeConfigWithConfigFile(opts);
 
+  // Override sync configuration with JSON settings if provided
+  overrideSyncOptionsFromJson(opts, opts.settingsFromJson);
+
   if (opts.stateful) {
     await ensureDir(path.join(Deno.cwd(), ".wmill"));
   }
@@ -1155,6 +1200,33 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
     true
   );
 
+  // Add wmill.yaml change from JSON settings if requested
+  if (opts.settingsFromJson) {
+    // Parse the JSON input to get the new settings
+    const uiState = parseJsonInput(opts.settingsFromJson);
+    const newSyncOptions = uiStateToSyncOptions(uiState);
+    const afterContent = yamlStringify(newSyncOptions as Record<string, unknown>);
+
+    // Read current wmill.yaml if it exists
+    let beforeContent = '';
+    try {
+      beforeContent = await Deno.readTextFile(path.join(Deno.cwd(), "wmill.yaml"));
+    } catch {
+      beforeContent = '';
+    }
+
+    const hasDifferences = afterContent.trim() !== beforeContent.trim();
+
+    if (hasDifferences && !changes.some(c => c.path === 'wmill.yaml')) {
+      changes.push({
+        name: "edited",
+        path: "wmill.yaml",
+        before: beforeContent,
+        after: afterContent
+      });
+    }
+  }
+
   log.info(
     `remote (${workspace.name}) -> local: ${changes.length} changes to apply`
   );
@@ -1190,6 +1262,9 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
             }
           }
         }
+
+        // Add wmill.yaml change detection from JSON settings if requested
+        await addWmillYamlChangeFromJson(opts, modified);
 
         const result = {
           success: true,
@@ -1405,6 +1480,10 @@ function removeSuffix(str: string, suffix: string) {
 
 export async function push(opts: GlobalOptions & SyncOptions) {
   opts = await mergeConfigWithConfigFile(opts);
+
+  // Override sync configuration with JSON settings if provided
+  overrideSyncOptionsFromJson(opts, opts.settingsFromJson);
+
   const codebases = await listSyncCodebases(opts);
   if (opts.raw) {
     log.info("--raw is now the default, you can remove it as a flag");
@@ -1469,6 +1548,33 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     codebases,
     false
   );
+
+  // Add wmill.yaml change from JSON settings if requested
+  if (opts.settingsFromJson) {
+    // Parse the JSON input to get the new settings
+    const uiState = parseJsonInput(opts.settingsFromJson);
+    const newSyncOptions = uiStateToSyncOptions(uiState);
+    const afterContent = yamlStringify(newSyncOptions as Record<string, unknown>);
+
+    // Read current wmill.yaml if it exists
+    let beforeContent = '';
+    try {
+      beforeContent = await Deno.readTextFile(path.join(Deno.cwd(), "wmill.yaml"));
+    } catch {
+      beforeContent = '';
+    }
+
+    const hasDifferences = afterContent.trim() !== beforeContent.trim();
+
+    if (hasDifferences && !changes.some(c => c.path === 'wmill.yaml')) {
+      changes.push({
+        name: "edited",
+        path: "wmill.yaml",
+        before: beforeContent,
+        after: afterContent
+      });
+    }
+  }
 
   const globalDeps = await findGlobalDeps();
 
@@ -1535,6 +1641,34 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     `remote (${workspace.name}) <- local: ${changes.length} changes to apply`
   );
 
+  // Handle JSON output when there are no changes
+  if (changes.length === 0 && opts.jsonOutput) {
+    try {
+      const localConfig = await readConfigFile();
+      const localUIState = syncOptionsToUIState(localConfig);
+      const result = {
+        success: true,
+        message: "No changes to push",
+        settings_json: localUIState,
+        added: [],
+        deleted: [],
+        modified: []
+      };
+      console.log(JSON.stringify(result));
+    } catch (error) {
+      console.log(JSON.stringify({
+        success: true,
+        message: "No changes to push",
+        settings_json: null,
+        added: [],
+        deleted: [],
+        modified: [],
+        error: `Could not read local wmill.yaml: ${(error as Error).message}`
+      }));
+    }
+    return;
+  }
+
   if (changes.length > 0) {
     prettyChanges(changes);
     if (opts.dryRun) {
@@ -1567,6 +1701,9 @@ export async function push(opts: GlobalOptions & SyncOptions) {
             }
           }
         }
+
+        // Add wmill.yaml change detection from JSON settings if requested
+        await addWmillYamlChangeFromJson(opts, modified);
 
         const result = {
           success: true,
@@ -1647,6 +1784,12 @@ export async function push(opts: GlobalOptions & SyncOptions) {
               } catch {
                 stateTarget = undefined;
               }
+            }
+
+            // Skip writing wmill.yaml changes during push operations (they're only for display in dry-run)
+            if (change.path === "wmill.yaml") {
+              log.info(`Skipping wmill.yaml modification during push (settings used for sync logic only)`);
+              continue;
             }
 
             if (change.name === "edited") {
@@ -1941,6 +2084,27 @@ export async function push(opts: GlobalOptions & SyncOptions) {
         } named ${workspace.name} (${(performance.now() - start).toFixed(0)}ms)`
       )
     );
+
+    // Output local wmill.yaml settings as JSON if requested
+    if (opts.jsonOutput) {
+      try {
+        const localConfig = await readConfigFile();
+        const localUIState = syncOptionsToUIState(localConfig);
+        const result = {
+          success: true,
+          message: "Push completed successfully",
+          settings_json: localUIState
+        };
+        console.log(JSON.stringify(result));
+      } catch (error) {
+        console.log(JSON.stringify({
+          success: true,
+          message: "Push completed successfully",
+          settings_json: null,
+          error: `Could not read local wmill.yaml: ${(error as Error).message}`
+        }));
+      }
+    }
   }
 }
 
@@ -1986,6 +2150,7 @@ const command = new Command()
   )
   .option("--json-output", "Output changes in JSON format for frontend integration")
   .option("--include-wmill-yaml", "Include wmill.yaml changes in output when using --json-output")
+  .option("--settings-from-json <json:string>", "Configure sync settings using JSON format (include_path, include_type) as alternative to individual flags")
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
   .command("push")
@@ -2028,6 +2193,7 @@ const command = new Command()
   .option("--parallel <number>", "Number of changes to process in parallel")
   .option("--json-output", "Output changes in JSON format for frontend integration")
   .option("--include-wmill-yaml", "Include wmill.yaml changes in output when using --json-output")
+  .option("--settings-from-json <json:string>", "Configure sync settings using JSON format (include_path, include_type) as alternative to individual flags")
   // deno-lint-ignore no-explicit-any
   .action(push as any);
 
