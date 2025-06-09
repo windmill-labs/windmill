@@ -216,6 +216,7 @@
 
 		let boxSize: any
 		try {
+			console.log(nodeWidths)
 			const layout = sugiyama()
 				.decross(nodes.length > 20 ? decrossTwoLayer() : decrossOpt())
 				.coord(coordCenter())
@@ -381,6 +382,7 @@
 		modules && onModulesChange2(modules)
 	})
 	let graph = $derived.by(() => {
+		console.log('graph', moduleCounter)
 		moduleCounter
 		return graphBuilder(
 			untrack(() => modules),
