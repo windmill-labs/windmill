@@ -1289,6 +1289,11 @@ async fn raw_script_by_path_unpinned(
     raw_script_by_path_internal(path, user_db, db, authed, w_id, true).await
 }
 
+lazy_static::lazy_static! {
+    static ref DEBUG_RAW_SCRIPT_ENDPOINTS: bool =
+        std::env::var("DEBUG_RAW_SCRIPT_ENDPOINTS").is_ok();
+}
+
 async fn raw_script_by_path_internal(
     path: StripPath,
     user_db: UserDB,
@@ -1341,6 +1346,19 @@ async fn raw_script_by_path_internal(
                 "Script {path} exists but {} does not have permissions to access it",
                 authed.username
             )));
+        } else {
+            if *DEBUG_RAW_SCRIPT_ENDPOINTS {
+                let other_script_o = sqlx::query_scalar!(
+                    "SELECT path FROM script WHERE workspace_id = $1 AND archived = false",
+                    w_id
+                )
+                .fetch_all(&db)
+                .await?;
+                tracing::info!(
+                    "Script {path} does not exist in workspace {w_id} but these paths do: {:?}",
+                    other_script_o.join(", ")
+                )
+            }
         }
     }
 

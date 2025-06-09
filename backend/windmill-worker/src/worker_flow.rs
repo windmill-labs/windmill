@@ -627,9 +627,10 @@ pub async fn update_flow_status_after_job_completion_internal(
                         sqlx::query!(
                             "UPDATE v2_job_queue q SET suspend = 0
                              FROM v2_job j, v2_job_status f
-                             WHERE parent_job = $1
+                             WHERE q.workspace_id = $1 AND q.suspend = $3 AND j.parent_job = $2
                                  AND f.id = j.id AND q.id = j.id
-                                 AND suspend = $2 AND (f.flow_status->'step')::int = 0",
+                                 AND (f.flow_status->'step')::int = 0",
+                            w_id,
                             flow,
                             nindex
                         )
