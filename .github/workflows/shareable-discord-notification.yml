@@ -62,9 +62,10 @@ jobs:
           # Create thread if it doesn't exist or if check failed
           if [ "$thread_exists" = false ]; then
             echo "Creating new thread"
+            THREAD_TITLE="#${PR_NUMBER}: ${PR_TITLE} by \`${PR_AUTHOR}\`"
             payload=$(jq -n \
               --arg content "${PR_URL}" \
-              --arg thread "#${PR_NUMBER}: $PR_TITLE by \`${PR_AUTHOR}\`" \
+              --arg thread "${THREAD_TITLE:0:99}" \
               '{
                 content: $content,
                 thread_name: $thread,
