@@ -13,7 +13,7 @@
 
 	async function fillFormWithAI() {
 		aiChatManager.openChat()
-		aiChatManager.askAi(`Fill the form for this ${runnableType}`)
+		aiChatManager.askAi(`Analyze the ${runnableType} form on this page and fill the inputs for me`)
 	}
 </script>
 
