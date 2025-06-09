@@ -10,7 +10,8 @@
 	import { sendUserToast } from '$lib/toast'
 	import { Loader2 } from 'lucide-svelte'
 
-	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore } = flowEditorContext
 
 	export let drawer: Drawer | undefined
 
@@ -44,6 +45,7 @@
 			flowStore.value = parsed.value
 			flowStore.schema = parsed.schema
 			flowStore.tag = parsed.tag
+			flowEditorContext.flowStore = flowStore
 		} catch (e) {
 			sendUserToast('Error parsing yaml: ' + e), true
 		}

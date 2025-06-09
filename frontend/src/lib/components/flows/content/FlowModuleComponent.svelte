@@ -56,6 +56,7 @@
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 	const {
 		selectedId,
 		currentEditor,
@@ -67,7 +68,7 @@
 		flowInputsStore,
 		customUi,
 		executionCount
-	} = getContext<FlowEditorContext>('FlowEditorContext')
+	} = flowEditorContext
 
 	interface Props {
 		flowModule: FlowModule
@@ -850,6 +851,7 @@
 											on:updateMock={({ detail }) => {
 												flowModule.mock = detail
 												flowModule = flowModule
+												flowEditorContext.flowStore = flowStore
 											}}
 											{lastJob}
 											{scriptProgress}

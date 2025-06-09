@@ -26,8 +26,9 @@
 		headerLeft: Snippet
 	} = $props()
 
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 	const { flowStore, flowStateStore, selectedId, currentEditor, flowInputsStore } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+		flowEditorContext
 
 	const { exprsToSet } = getContext<FlowCopilotContext | undefined>('FlowCopilotContext') ?? {}
 
@@ -91,6 +92,7 @@
 				module.value.content = code
 				const { input_transforms, schema } = await loadSchemaFromModule(module)
 				module.value.input_transforms = input_transforms
+				flowEditorContext.flowStore = flowStore
 
 				if ($flowStateStore[id]) {
 					$flowStateStore[id].schema = schema
@@ -196,6 +198,7 @@
 
 			if (location.type === 'preprocessor' || location.type === 'failure') {
 				$flowStateStore = $flowStateStore
+				flowEditorContext.flowStore = flowStore
 
 				return location.type
 			} else {
@@ -210,6 +213,7 @@
 				}
 
 				$flowStateStore = $flowStateStore
+				flowEditorContext.flowStore = flowStore
 
 				return newModule.id
 			}
@@ -228,6 +232,8 @@
 			if ($flowInputsStore) {
 				delete $flowInputsStore[id]
 			}
+
+			flowEditorContext.flowStore = flowStore
 
 			flowModuleSchemaMap?.updateFlowInputsStore()
 		},
@@ -281,6 +287,7 @@
 						expr: value
 					}
 				}
+				flowEditorContext.flowStore = flowStore
 			}
 		},
 		getFlowInputsSchema: async () => {
@@ -328,6 +335,7 @@
 				throw new Error('Branch not found')
 			}
 			branch.expr = expression
+			flowEditorContext.flowStore = flowStore
 		},
 		addBranch: async (id) => {
 			const module = getModule(id)
@@ -338,6 +346,7 @@
 				throw new Error('Module is not a branchall or branchone')
 			}
 			flowModuleSchemaMap?.addBranch(module)
+			flowEditorContext.flowStore = flowStore
 		},
 		removeBranch: async (id, branchIndex) => {
 			const module = getModule(id)
@@ -353,6 +362,7 @@
 				module,
 				module.value.type === 'branchone' ? branchIndex + 1 : branchIndex
 			)
+			flowEditorContext.flowStore = flowStore
 		},
 		setForLoopIteratorExpression: async (id, expression) => {
 			if ($currentEditor && $currentEditor.type === 'iterator' && $currentEditor.stepId === id) {
@@ -366,6 +376,7 @@
 					throw new Error('Module is not a forloopflow')
 				}
 				module.value.iterator = { type: 'javascript', expr: expression }
+				flowEditorContext.flowStore = flowStore
 			}
 		}
 	}

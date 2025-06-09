@@ -14,8 +14,8 @@
 		generateStep: { moduleId: string; instructions: string; lang: ScriptLang }
 	}>()
 
-	const { selectedId, flowStateStore, flowStore } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, flowStateStore, flowStore } = flowEditorContext
 
 	async function insertFailureModule(
 		inlineScript?: {
@@ -36,6 +36,7 @@
 		}
 
 		$selectedId = 'failure'
+		flowEditorContext.flowStore = flowStore
 	}
 </script>
 

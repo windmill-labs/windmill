@@ -448,30 +448,44 @@
 		showCaptureHint: writable(undefined),
 		triggersState: new Triggers()
 	})
-	setContext<FlowEditorContext>('FlowEditorContext', {
-		selectedId: selectedIdStore,
-		previewArgs: previewArgsStore,
-		scriptEditorDrawer,
-		moving,
-		history,
-		pathStore: writable(''),
-		flowStateStore,
-		flowStore: flowStore.flowStore,
-		testStepStore,
-		saveDraft: () => {},
-		initialPathStore: writable(''),
-		fakeInitialPath: '',
-		flowInputsStore: writable<FlowInput>({}),
-		customUi: {},
-		insertButtonOpen: writable(false),
-		executionCount: writable(0),
-		flowInputEditorState: writable<FlowInputEditorState>({
-			selectedTab: undefined,
-			editPanelSize: undefined,
-			payloadData: undefined
-		}),
-		currentEditor: writable(undefined)
-	})
+	let flowEditorContext: FlowEditorContext = new Proxy(
+		{
+			selectedId: selectedIdStore,
+			previewArgs: previewArgsStore,
+			scriptEditorDrawer,
+			moving,
+			history,
+			pathStore: writable(''),
+			flowStateStore,
+			flowStore: flowStore.flowStore,
+			testStepStore,
+			saveDraft: () => {},
+			initialPathStore: writable(''),
+			fakeInitialPath: '',
+			flowInputsStore: writable<FlowInput>({}),
+			customUi: {},
+			insertButtonOpen: writable(false),
+			executionCount: writable(0),
+			flowInputEditorState: writable<FlowInputEditorState>({
+				selectedTab: undefined,
+				editPanelSize: undefined,
+				payloadData: undefined
+			}),
+			currentEditor: writable(undefined)
+		},
+		{
+			get: (obj, prop) => (prop === 'flowStore' ? flowStore : obj[prop]),
+			set(obj, prop, value: OpenFlow) {
+				if (prop === 'flowStore') {
+					flowStore.flowStore = $state.snapshot(value)
+				} else {
+					obj[prop] = value
+				}
+				return true
+			}
+		}
+	)
+	setContext<FlowEditorContext>('FlowEditorContext', flowEditorContext)
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)

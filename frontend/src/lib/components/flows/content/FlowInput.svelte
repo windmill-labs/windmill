@@ -51,6 +51,7 @@
 
 	let { noEditor, disabled }: Props = $props()
 
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 	const {
 		flowStore,
 		previewArgs,
@@ -58,7 +59,7 @@
 		initialPathStore,
 		fakeInitialPath,
 		flowInputEditorState
-	} = getContext<FlowEditorContext>('FlowEditorContext')
+	} = flowEditorContext
 
 	let addPropertyV2: AddPropertyV2 | undefined = $state(undefined)
 	let previewSchema: Record<string, any> | undefined = $state(undefined)
@@ -483,6 +484,7 @@
 							bind:schema={flowStore.schema}
 							bind:this={addPropertyV2}
 							on:change={() => {
+								flowEditorContext.flowStore = flowStore
 								if (editableSchemaForm) {
 									editableSchemaForm.updateJson()
 								}
@@ -490,6 +492,7 @@
 							on:addNew={(e) => {
 								handleEditSchema('inputEditor')
 								editableSchemaForm?.openField(e.detail)
+								flowEditorContext.flowStore = flowStore
 							}}
 						>
 							{#snippet trigger()}
