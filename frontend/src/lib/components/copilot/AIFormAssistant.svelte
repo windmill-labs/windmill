@@ -22,8 +22,9 @@
 		<div class="flex flex-col gap-1">
 			<h3 class="text-sm font-medium">Fill the inputs with AI</h3>
 			<p class="text-sm text-tertiary">
-				{'Instructions: ' + instructions ||
-					'No AI instructions provided. Click edit to add guidance for AI form filling.'}
+				{instructions
+					? 'Instructions: ' + instructions
+					: 'No AI instructions provided. Click edit to add guidance for AI form filling.'}
 			</p>
 		</div>
 		<Button

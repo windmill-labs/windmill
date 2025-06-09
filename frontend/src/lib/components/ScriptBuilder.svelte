@@ -12,6 +12,7 @@
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
+	import AIFormSettings from './copilot/AIFormSettings.svelte'
 	import {
 		defaultScripts,
 		enterpriseLicense,
@@ -1049,28 +1050,11 @@
 												/>
 											</Label>
 											{#if script.schema}
-												<Toggle
-													size="sm"
-													checked={script.schema?.prompt_for_ai !== undefined}
-													on:change={() => {
-														if (script.schema?.prompt_for_ai !== undefined) {
-															script.schema.prompt_for_ai = undefined
-														} else if (script.schema) {
-															script.schema.prompt_for_ai = ''
-														}
-													}}
-													options={{
-														right: 'Enable filling script inputs with AI'
-													}}
-												/>
-												{#if script.schema?.prompt_for_ai !== undefined}
-													<Label label="Instructions">
-														<textarea
-															bind:value={script.schema.prompt_for_ai}
-															placeholder="Instructions for the AI about how to fill the form"
-														></textarea>
-													</Label>
-												{/if}
+												<div class="mt-3">
+													<AIFormSettings
+														bind:prompt={script.schema.prompt_for_ai as string | undefined}
+													/>
+												</div>
 											{/if}
 										</div>
 									</Section>

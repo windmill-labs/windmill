@@ -101,6 +101,7 @@
 <TriggerableByAI
 	id={`run-form-${runnable?.path ?? ''}`}
 	description={`Form to fill the inputs to run ${runnable?.summary ?? runnable?.path ?? ''}.
+	## Script description: ${runnable?.description ?? ''}.
 	## Schema used: ${JSON.stringify(runnable?.schema)}.
 	## Current args: ${JSON.stringify(args)}}`}
 	onTrigger={(value) => {
