@@ -60,7 +60,9 @@
 		Table2,
 		Trash,
 		Play,
-		ClipboardCopy
+		ClipboardCopy,
+		Pencil,
+		WandSparkles
 	} from 'lucide-svelte'
 	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
 	import { scriptToHubUrl } from '$lib/hub'
@@ -82,6 +84,7 @@
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
 	import TriggersEditor from '$lib/components/triggers/TriggersEditor.svelte'
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
+	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -514,6 +517,11 @@
 	let rightPaneSelected = 'saved_inputs'
 
 	let savedInputsV2: SavedInputsV2 | undefined = undefined
+
+	async function fillFormWithAI() {
+		aiChatManager.openChat()
+		aiChatManager.askAi('Fill this form')
+	}
 </script>
 
 <MoveDrawer
@@ -697,6 +705,42 @@
 								}}
 							/>
 						</div>
+
+						{#if script?.schema?.prompt_for_ai !== undefined}
+							<div class="my-3 p-3 bg-surface-secondary rounded-md">
+								<div class="flex justify-between items-center mb-4">
+									<h3 class="text-sm font-medium">AI Form Assistant</h3>
+									<Button
+										size="xs2"
+										startIcon={{
+											icon: WandSparkles
+										}}
+										on:click={fillFormWithAI}
+									>
+										Fill with AI
+									</Button>
+								</div>
+								<div class="mt-2">
+									<div class="flex justify-between items-center gap-2">
+										<p class="text-sm text-tertiary">
+											{script.schema?.prompt_for_ai ||
+												'No AI instructions provided. Click edit to add guidance for AI form filling.'}
+										</p>
+										<Button
+											color="light"
+											size="xs2"
+											startIcon={{
+												icon: Pencil
+											}}
+											iconOnly
+											on:click={() => {
+												goto(`/scripts/edit/${script?.path}?metadata_open=true`)
+											}}
+										/>
+									</div>
+								</div>
+							</div>
+						{/if}
 
 						<RunForm
 							bind:scheduledForStr

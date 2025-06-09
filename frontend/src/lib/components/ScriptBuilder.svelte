@@ -143,6 +143,7 @@
 	let metadataOpen =
 		!neverShowMeta &&
 		(showMeta ||
+			searchParams.get('metadata_open') == 'true' ||
 			(initialPath == '' &&
 				searchParams.get('state') == undefined &&
 				searchParams.get('collab') == undefined))
@@ -1048,12 +1049,29 @@
 												/>
 											</Label>
 											{#if script.schema}
-												<Label label="Prompt for AI">
-													<textarea
-														bind:value={script.schema.prompt_for_ai}
-														placeholder="Prompt for AI"
-													></textarea>
-												</Label>
+												<Toggle
+													size="sm"
+													checked={script.schema?.prompt_for_ai !== undefined}
+													on:change={() => {
+														if (script.schema?.prompt_for_ai !== undefined) {
+															console.log('deleting')
+															script.schema.prompt_for_ai = undefined
+														} else if (script.schema) {
+															script.schema.prompt_for_ai = ''
+														}
+													}}
+													options={{
+														right: 'Enable filling script inputs with AI'
+													}}
+												/>
+												{#if script.schema?.prompt_for_ai !== undefined}
+													<Label label="Instructions">
+														<textarea
+															bind:value={script.schema.prompt_for_ai}
+															placeholder="Instructions for the AI about how to fill the form"
+														></textarea>
+													</Label>
+												{/if}
 											{/if}
 										</div>
 									</Section>
