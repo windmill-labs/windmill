@@ -266,7 +266,6 @@
 			onInsert?.(detail)
 		},
 		select: (modId) => {
-			console.log('select', modId, notSelectable)
 			if (!notSelectable) {
 				if ($selectedId != modId) {
 					$selectedId = modId
