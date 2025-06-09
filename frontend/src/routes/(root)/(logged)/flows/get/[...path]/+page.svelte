@@ -537,7 +537,7 @@
 							<AIFormAssistant
 								instructions={flow.schema?.prompt_for_ai as string}
 								onEditInstructions={() => {
-									goto(`/flows/edit/${flow?.path}?metadata_open=true`)
+									goto(`/flows/edit/${flow?.path}`)
 								}}
 								runnableType="flow"
 							/>

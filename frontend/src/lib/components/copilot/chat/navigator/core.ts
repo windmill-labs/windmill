@@ -257,9 +257,9 @@ const triggerComponentTool: Tool<{}> = {
 const getTriggerableComponentsTool: Tool<{}> = {
 	def: GET_TRIGGERABLE_COMPONENTS_TOOL,
 	fn: async ({ toolId, toolCallbacks }) => {
-		toolCallbacks.onToolCall(toolId, 'Looking for screen components...')
+		toolCallbacks.onToolCall(toolId, 'Scanning the page...')
 		const components = getTriggerableComponents()
-		toolCallbacks.onFinishToolCall(toolId, 'Retrieved screen components')
+		toolCallbacks.onFinishToolCall(toolId, 'Scanned the page')
 		return components
 	}
 }
