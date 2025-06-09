@@ -1,11 +1,20 @@
 import type { Flow, OpenFlow } from '$lib/gen'
 import { writable, type Writable } from 'svelte/store'
-import { type FlowState } from './flowState'
+import { initFlowState, type FlowState } from './flowState'
 import { sendUserToast } from '$lib/toast'
 
 export type FlowMode = 'push' | 'pull'
 
 export const importFlowStore = writable<Flow | undefined>(undefined)
+
+export async function initFlow(
+	flow: Flow,
+	flowStore: { flowStore: Flow },
+	flowStateStore: Writable<FlowState>
+) {
+	await initFlowState(flow, flowStateStore)
+	flowStore.flowStore = flow
+}
 
 export async function copyFirstStepSchema(flowState: FlowState, flowStore: Writable<OpenFlow>) {
 	flowStore.update((flow) => {

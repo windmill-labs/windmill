@@ -5,10 +5,11 @@
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import { cleanValueProperties, decodeState, emptySchema, orderedJsonStringify } from '$lib/utils'
+	import { initFlow } from '$lib/components/flows/flowStore.svelte'
 	import { goto } from '$lib/navigation'
 	import { afterNavigate, replaceState } from '$app/navigation'
 	import { writable } from 'svelte/store'
-	import { initFlowState, type FlowState } from '$lib/components/flows/flowState'
+	import type { FlowState } from '$lib/components/flows/flowState'
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
@@ -39,15 +40,17 @@
 		}
 	})
 
-	let flowStore: Flow = $state({
-		summary: '',
-		value: { modules: [] },
-		path: '',
-		edited_at: '',
-		edited_by: '',
-		archived: false,
-		extra_perms: {},
-		schema: emptySchema()
+	export const flowStore: { flowStore: Flow } = $state({
+		flowStore: {
+			summary: '',
+			value: { modules: [] },
+			path: '',
+			edited_at: '',
+			edited_by: '',
+			archived: false,
+			extra_perms: {},
+			schema: emptySchema()
+		}
 	})
 	const flowStateStore = writable<FlowState>({})
 
@@ -198,8 +201,7 @@
 			}
 		}
 
-		await initFlowState(flow, flowStateStore)
-		flowStore = flow
+		await initFlow(flow, flowStore, flowStateStore)
 		loading = false
 		selectedId = stateLoadedFromUrl?.selectedId ?? $page.url.searchParams.get('selected')
 	}
@@ -259,7 +261,7 @@
 	on:historyRestore={() => {
 		loadFlow()
 	}}
-	{flowStore}
+	flowStore={flowStore.flowStore}
 	{flowStateStore}
 	initialPath={$page.params.path}
 	newFlow={false}

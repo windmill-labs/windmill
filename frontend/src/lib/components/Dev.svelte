@@ -21,7 +21,7 @@
 	import { setCopilotInfo, userStore, workspaceStore } from '$lib/stores'
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { onDestroy, onMount, setContext, untrack } from 'svelte'
+	import { onDestroy, onMount, setContext } from 'svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
 	import { page } from '$app/stores'
 	import { getUserExt } from '$lib/user'
@@ -396,12 +396,14 @@
 
 	let mode: 'script' | 'flow' = $state('script')
 
-	let flowStore = $state({
-		summary: '',
-		value: { modules: [] },
-		extra_perms: {},
-		schema: emptySchema()
-	} as OpenFlow)
+	const flowStore = $state({
+		flowStore: {
+			summary: '',
+			value: { modules: [] },
+			extra_perms: {},
+			schema: emptySchema()
+		} as OpenFlow
+	})
 
 	type LastEditFlow = {
 		flow: OpenFlow
@@ -421,7 +423,7 @@
 				if (!lastEdit.flow.value?.modules) {
 					lastEdit.flow.value = { modules: [] }
 				}
-				flowStore = lastEdit.flow
+				flowStore.flowStore = lastEdit.flow
 				inferModuleArgs($selectedIdStore)
 			}
 		} catch (e) {
@@ -434,7 +436,7 @@
 	const previewArgsStore = writable<Record<string, any>>({})
 	const scriptEditorDrawer = writable(undefined)
 	const moving = writable<{ id: string } | undefined>(undefined)
-	const history = initHistory(untrack(() => flowStore))
+	const history = initHistory(flowStore.flowStore)
 
 	const testStepStore = writable<Record<string, any>>({})
 	const selectedIdStore = writable('settings-metadata')
@@ -455,7 +457,7 @@
 			history,
 			pathStore: writable(''),
 			flowStateStore,
-			flowStore: (() => flowStore)(),
+			flowStore: flowStore.flowStore,
 			testStepStore,
 			saveDraft: () => {},
 			initialPathStore: writable(''),
@@ -475,7 +477,7 @@
 			get: (obj, prop) => (prop === 'flowStore' ? flowStore : obj[prop]),
 			set(obj, prop, value: OpenFlow) {
 				if (prop === 'flowStore') {
-					flowStore = $state.snapshot(value)
+					flowStore.flowStore = $state.snapshot(value)
 				} else {
 					obj[prop] = value
 				}
@@ -563,7 +565,7 @@
 			initializeMode()
 	})
 	run(() => {
-		updateFlow(flowStore)
+		updateFlow(flowStore.flowStore)
 	})
 	run(() => {
 		$selectedIdStore && inferModuleArgs($selectedIdStore)
@@ -710,7 +712,7 @@
 				</div>
 				<Splitpanes horizontal class="h-full max-h-screen grow">
 					<Pane size={67}>
-						{#if flowStore?.value?.modules}
+						{#if flowStore.flowStore?.value?.modules}
 							<div id="flow-editor"></div>
 							<FlowModuleSchemaMap
 								disableAi
