@@ -154,3 +154,29 @@ export async function generateHttpTriggerFromOpenApi(
 
 	return processOpenApiDocument(document, folderName)
 }
+
+export const INFO_TEMPLATE = `{
+  "title": "My API",
+  "version": "1.0.0",
+  "description": "A short description of your API",
+  "contact": {
+    "name": "Jane Doe",
+    "email": "jane@example.com",
+    "url": "https://example.com"
+  },
+  "license": {
+    "name": "MIT",
+    "url": "https://opensource.org/licenses/MIT"
+  }
+}`
+
+export const SERVER_TEMPLATES = `[
+  {
+    "url": "https://api.example.com",
+    "description": "Production server"
+  },
+  {
+    "url": "https://staging-api.example.com",
+    "description": "Staging server"
+  }
+]`
