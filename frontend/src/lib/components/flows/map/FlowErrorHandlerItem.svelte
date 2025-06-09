@@ -36,6 +36,7 @@
 		}
 
 		$selectedId = 'failure'
+		flowStore.val = flowStore.val
 	}
 </script>
 

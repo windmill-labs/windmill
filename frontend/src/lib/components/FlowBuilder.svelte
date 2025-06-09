@@ -532,40 +532,26 @@
 
 	let insertButtonOpen = writable<boolean>(false)
 
-	let flowEditorContext: FlowEditorContext = new Proxy(
-		{
-			selectedId: selectedIdStore,
-			currentEditor: writable(undefined),
-			previewArgs: previewArgsStore,
-			scriptEditorDrawer,
-			moving,
-			history,
-			flowStateStore,
-			flowStore,
-			pathStore,
-			testStepStore,
-			saveDraft,
-			initialPathStore,
-			fakeInitialPath,
-			flowInputsStore: writable<FlowInput>({}),
-			customUi,
-			insertButtonOpen,
-			executionCount: writable(0),
-			flowInputEditorState: flowInputEditorStateStore
-		},
-		{
-			get: (obj, prop) => (prop === 'flowStore.val' ? flowStore.val : obj[prop]),
-			set(obj, prop, value: OpenFlow) {
-				if (prop === 'flowStore.val') {
-					flowStore.val = $state.snapshot(value)
-				} else {
-					obj[prop] = value
-				}
-				return true
-			}
-		}
-	)
-	setContext<FlowEditorContext>('FlowEditorContext', flowEditorContext)
+	setContext<FlowEditorContext>('FlowEditorContext', {
+		selectedId: selectedIdStore,
+		currentEditor: writable(undefined),
+		previewArgs: previewArgsStore,
+		scriptEditorDrawer,
+		moving,
+		history,
+		flowStateStore,
+		flowStore,
+		pathStore,
+		testStepStore,
+		saveDraft,
+		initialPathStore,
+		fakeInitialPath,
+		flowInputsStore: writable<FlowInput>({}),
+		customUi,
+		insertButtonOpen,
+		executionCount: writable(0),
+		flowInputEditorState: flowInputEditorStateStore
+	})
 
 	// Add triggers context store
 	const triggersState = $state(

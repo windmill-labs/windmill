@@ -380,6 +380,7 @@
 							delete $flowInputsStore[id]
 						}
 					}
+					flowStore.val = flowStore.val
 
 					updateFlowInputsStore()
 				}
@@ -490,6 +491,7 @@
 							await addBranch(targetModules[detail.index ?? 0].id)
 						}
 						$flowStateStore = $flowStateStore
+						flowStore.val = flowStore.val
 						dispatch('change')
 					}
 				}
@@ -497,6 +499,7 @@
 			onNewBranch={async (id) => {
 				if (id) {
 					await addBranch(id)
+					flowStore.val = flowStore.val
 				}
 			}}
 			onSelect={(id) => {
@@ -536,11 +539,13 @@
 						mod.id = newId
 					}
 				})
+				flowStore.val = flowStore.val
 				$selectedId = newId
 			}}
 			onDeleteBranch={async ({ id, index }) => {
 				if (id) {
 					await removeBranch(id, index)
+					flowStore.val = flowStore.val
 					$selectedId = id
 				}
 			}}
@@ -554,6 +559,7 @@
 			onUpdateMock={(detail) => {
 				let module = findModuleById(detail.id)
 				module.mock = $state.snapshot(detail.mock)
+				flowStore.val = flowStore.val
 			}}
 		/>
 	</div>

@@ -850,6 +850,7 @@
 											on:updateMock={({ detail }) => {
 												flowModule.mock = detail
 												flowModule = flowModule
+												flowStore.val = flowStore.val
 											}}
 											{lastJob}
 											{scriptProgress}

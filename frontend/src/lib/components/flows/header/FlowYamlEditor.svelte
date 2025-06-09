@@ -44,6 +44,7 @@
 			flowStore.val.value = parsed.value
 			flowStore.val.schema = parsed.schema
 			flowStore.val.tag = parsed.tag
+			flowStore.val = flowStore.val
 		} catch (e) {
 			sendUserToast('Error parsing yaml: ' + e), true
 		}

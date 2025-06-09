@@ -191,6 +191,7 @@
 						}
 					}
 
+					flowStore.val = flowStore.val
 					dispatch('reload')
 
 					setTimeout(() => {

@@ -483,6 +483,7 @@
 							bind:schema={flowStore.val.schema}
 							bind:this={addPropertyV2}
 							on:change={() => {
+								flowStore.val = flowStore.val
 								if (editableSchemaForm) {
 									editableSchemaForm.updateJson()
 								}
@@ -490,6 +491,7 @@
 							on:addNew={(e) => {
 								handleEditSchema('inputEditor')
 								editableSchemaForm?.openField(e.detail)
+								flowStore.val = flowStore.val
 							}}
 						>
 							{#snippet trigger()}

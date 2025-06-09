@@ -91,6 +91,7 @@
 				module.value.content = code
 				const { input_transforms, schema } = await loadSchemaFromModule(module)
 				module.value.input_transforms = input_transforms
+				flowStore.val = flowStore.val
 
 				if ($flowStateStore[id]) {
 					$flowStateStore[id].schema = schema
@@ -196,6 +197,7 @@
 
 			if (location.type === 'preprocessor' || location.type === 'failure') {
 				$flowStateStore = $flowStateStore
+				flowStore.val = flowStore.val
 
 				return location.type
 			} else {
@@ -210,6 +212,7 @@
 				}
 
 				$flowStateStore = $flowStateStore
+				flowStore.val = flowStore.val
 
 				return newModule.id
 			}
@@ -228,6 +231,8 @@
 			if ($flowInputsStore) {
 				delete $flowInputsStore[id]
 			}
+
+			flowStore.val = flowStore.val
 
 			flowModuleSchemaMap?.updateFlowInputsStore()
 		},
@@ -281,6 +286,7 @@
 						expr: value
 					}
 				}
+				flowStore.val = flowStore.val
 			}
 		},
 		getFlowInputsSchema: async () => {
@@ -328,6 +334,7 @@
 				throw new Error('Branch not found')
 			}
 			branch.expr = expression
+			flowStore.val = flowStore.val
 		},
 		addBranch: async (id) => {
 			const module = getModule(id)
@@ -338,6 +345,7 @@
 				throw new Error('Module is not a branchall or branchone')
 			}
 			flowModuleSchemaMap?.addBranch(module)
+			flowStore.val = flowStore.val
 		},
 		removeBranch: async (id, branchIndex) => {
 			const module = getModule(id)
@@ -353,6 +361,7 @@
 				module,
 				module.value.type === 'branchone' ? branchIndex + 1 : branchIndex
 			)
+			flowStore.val = flowStore.val
 		},
 		setForLoopIteratorExpression: async (id, expression) => {
 			if ($currentEditor && $currentEditor.type === 'iterator' && $currentEditor.stepId === id) {
@@ -366,6 +375,7 @@
 					throw new Error('Module is not a forloopflow')
 				}
 				module.value.iterator = { type: 'javascript', expr: expression }
+				flowStore.val = flowStore.val
 			}
 		}
 	}
