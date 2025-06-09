@@ -18,27 +18,25 @@
 </script>
 
 <div class="my-3 p-3 bg-surface-secondary rounded-md">
-	<div class="flex mb-2">
-		<h3 class="text-sm font-medium">AI Form Assistant</h3>
-	</div>
-	<div class="mt-2">
-		<div class="flex justify-between items-center gap-2">
+	<div class="flex flex-row justify-between items-center">
+		<div class="flex flex-col gap-1">
+			<h3 class="text-sm font-medium">Fill the inputs with AI</h3>
 			<p class="text-sm text-tertiary">
-				{instructions ||
+				{'Instructions: ' + instructions ||
 					'No AI instructions provided. Click edit to add guidance for AI form filling.'}
 			</p>
-			<Button
-				color="light"
-				size="xs2"
-				startIcon={{
-					icon: Pencil
-				}}
-				iconOnly
-				on:click={onEditInstructions}
-			/>
 		</div>
+		<Button
+			color="light"
+			size="xs2"
+			startIcon={{
+				icon: Pencil
+			}}
+			iconOnly
+			on:click={onEditInstructions}
+		/>
 	</div>
-	<div class="flex justify-end mt-4">
+	<div class="flex justify-end mt-2">
 		<Button
 			size="xs2"
 			startIcon={{

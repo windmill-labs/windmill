@@ -6,6 +6,9 @@ import type {
 } from 'openai/resources/index.mjs'
 import type { Tool } from '../shared'
 import { aiChatManager } from '../AIChatManager.svelte'
+import { ResourceService } from '$lib/gen'
+import { workspaceStore } from '$lib/stores'
+import { get } from 'svelte/store'
 
 export const CHAT_SYSTEM_PROMPT = `
 You are Windmill's intelligent assistant, designed to help users navigate the application and answer questions about its functionality. It is your only purpose to help the user in the context of the windmill application.
@@ -24,6 +27,7 @@ INSTRUCTIONS:
 - Make sure you navigated as far as possible before responding to the user. Always use get_triggerable_components one last time to make sure you didn't miss anything.
 - If you are not able to fulfill the user's request after 5 attempts, redirect the user to the documentation.
 - If you are asked to fill a form or act on an input, input the existing json object and change the fields the user asked you to change. Take into account the prompt_for_ai field of the schema to know what and how to do changes. Then tell the user that you have updated the form, and ask him to review the changes before running the script or flow.
+- For form inputs where format starts with "resource-", fetch the available resources using get_available_resources, and then use the resource_path prefixed with "$res:" to fill the input.
 
 GENERAL PRINCIPLES:
 - Be concise but thorough
@@ -119,6 +123,24 @@ const GET_CURRENT_PAGE_NAME_TOOL: ChatCompletionTool = {
 			type: 'object',
 			properties: {},
 			required: []
+		}
+	}
+}
+
+const GET_AVAILABLE_RESOURCES_TOOL: ChatCompletionTool = {
+	type: 'function',
+	function: {
+		name: 'get_available_resources',
+		description: 'Get the available resources to the user',
+		parameters: {
+			type: 'object',
+			properties: {
+				resource_type: {
+					type: 'string',
+					description: 'The type of resource to get, separated by ","'
+				}
+			},
+			required: ['resource_type']
 		}
 	}
 }
@@ -240,6 +262,14 @@ async function getDocumentation(args: { request: string }): Promise<string> {
 	return data.choices[0].message.content
 }
 
+async function getAvailableResources(args: { resource_type: string }): Promise<string> {
+	const resources = await ResourceService.listResource({
+		workspace: get(workspaceStore) as string,
+		resourceType: args.resource_type
+	})
+	return JSON.stringify(resources)
+}
+
 const triggerComponentTool: Tool<{}> = {
 	def: EXECUTE_COMMAND_TOOL,
 	fn: async ({ args, toolId, toolCallbacks }) => {
@@ -283,11 +313,22 @@ export const getDocumentationTool: Tool<{}> = {
 	}
 }
 
+const getAvailableResourcesTool: Tool<{}> = {
+	def: GET_AVAILABLE_RESOURCES_TOOL,
+	fn: async ({ args, toolId, toolCallbacks }) => {
+		toolCallbacks.onToolCall(toolId, 'Getting available resources...')
+		const resources = await getAvailableResources(args)
+		toolCallbacks.onFinishToolCall(toolId, 'Retrieved available resources')
+		return resources
+	}
+}
+
 export const navigatorTools: Tool<{}>[] = [
 	getTriggerableComponentsTool,
 	triggerComponentTool,
 	getDocumentationTool,
-	getCurrentPageNameTool
+	getCurrentPageNameTool,
+	getAvailableResourcesTool
 ]
 
 export function prepareNavigatorSystemMessage(): ChatCompletionSystemMessageParam {
