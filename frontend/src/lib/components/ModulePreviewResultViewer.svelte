@@ -24,7 +24,7 @@
 	export let disableMock: boolean = false
 	export let disableHistory: boolean = false
 
-	const { flowStore, testStepStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, testSteps } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let selectedJob: Job | undefined = undefined
 	let fetchingLastJob = false
@@ -70,13 +70,13 @@
 			{disableHistory}
 		>
 			<svelte:fragment slot="copilot-fix">
-				{#if lang && editor && diffEditor && $testStepStore[mod.id] && selectedJob && 'result' in selectedJob && selectedJob.result && typeof selectedJob.result == 'object' && `error` in selectedJob.result && selectedJob.result.error}
+				{#if lang && editor && diffEditor && testSteps.getStepArgs(mod.id) && selectedJob && 'result' in selectedJob && selectedJob.result && typeof selectedJob.result == 'object' && `error` in selectedJob.result && selectedJob.result.error}
 					<ScriptFix
 						error={JSON.stringify(selectedJob.result.error)}
 						{lang}
 						{editor}
 						{diffEditor}
-						args={$testStepStore[mod.id]}
+						args={testSteps.getStepArgs(mod.id) ?? {}}
 					/>
 				{/if}
 			</svelte:fragment>

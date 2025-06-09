@@ -6,6 +6,7 @@ import type { FlowState } from './flowState'
 import type { FlowBuilderWhitelabelCustomUi } from '../custom_ui'
 import type Editor from '../Editor.svelte'
 import type SimpleEditor from '../SimpleEditor.svelte'
+import type { TestSteps } from './testSteps'
 
 export type FlowInput = Record<
 	string,
@@ -67,7 +68,7 @@ export type FlowEditorContext = {
 	flowStore: Writable<ExtendedOpenFlow>
 	flowInputEditorState: Writable<FlowInputEditorState>
 	flowStateStore: Writable<FlowState>
-	testStepStore: Writable<Record<string, any>>
+	testSteps: TestSteps
 	saveDraft: () => void
 	initialPathStore: Writable<string>
 	fakeInitialPath: string

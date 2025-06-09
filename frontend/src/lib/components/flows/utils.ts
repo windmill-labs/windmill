@@ -41,12 +41,12 @@ function make_context_evaluator(eval_string, context): (context) => any {
 export function evalValue(
 	k: string,
 	mod: FlowModule,
-	testStepStore: Record<string, any>,
+	testStep: Record<string, any>,
 	pickableProperties: PickableProperties | undefined,
 	showError: boolean
 ) {
 	let inputTransforms = (mod.value['input_transforms'] ?? {}) as Record<string, InputTransform>
-	let v = testStepStore[mod.id]?.[k]
+	let v = testStep[mod.id]?.[k]
 	let t = inputTransforms?.[k]
 	if (!v) {
 		if (t.type == 'static') {

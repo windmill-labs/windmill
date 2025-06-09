@@ -8,34 +8,40 @@
 	import ModuleTest from './ModuleTest.svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
-	import { evalValue } from './flows/utils'
 
-	export let mod: FlowModule
-	export let schema: Schema | { properties?: Record<string, any> }
-	export let pickableProperties: PickableProperties | undefined
-	export let testJob: Job | undefined = undefined
-	export let testIsLoading = false
-	export let noEditor = false
-	export let scriptProgress = undefined
+	interface Props {
+		mod: FlowModule
+		schema: Schema | { properties?: Record<string, any> }
+		pickableProperties: PickableProperties | undefined
+		testJob?: Job | undefined
+		testIsLoading?: boolean
+		noEditor?: boolean
+		scriptProgress?: any
+	}
 
-	const { flowStore, testStepStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	let {
+		mod,
+		schema,
+		pickableProperties,
+		testJob = $bindable(undefined),
+		testIsLoading = $bindable(false),
+		noEditor = false,
+		scriptProgress = $bindable(undefined)
+	}: Props = $props()
 
-	let moduleTest: ModuleTest
-	let stepArgs: Record<string, any> | undefined = Object.fromEntries(
-		Object.keys(schema.properties ?? {}).map((k) => [
-			k,
-			evalValue(k, mod, $testStepStore, pickableProperties, false)
-		])
-	)
+	const { flowStore, testSteps } = getContext<FlowEditorContext>('FlowEditorContext')
+
+	let moduleTest: ModuleTest | undefined = $state()
 
 	export function runTestWithStepArgs() {
-		moduleTest?.runTest(stepArgs)
+		moduleTest?.runTest(testSteps.getStepArgs(mod.id))
 	}
+
+	testSteps.initializeFromSchema(mod, schema, pickableProperties)
 </script>
 
 <ModuleTest
 	{mod}
-	{stepArgs}
 	{noEditor}
 	bind:testJob
 	bind:testIsLoading
@@ -71,5 +77,10 @@
 		{/if}
 	</div>
 
-	<ModulePreviewForm {pickableProperties} {mod} {schema} bind:args={stepArgs} />
+	<ModulePreviewForm
+		{pickableProperties}
+		{mod}
+		{schema}
+		bind:args={() => testSteps.getStepArgs(mod.id), (v) => testSteps.setStepArgs(mod.id, v)}
+	/>
 </div>

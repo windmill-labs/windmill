@@ -199,7 +199,6 @@
 			bind:this={moduleTest}
 			mod={flowStore?.value.modules.find((m) => m.id === id)!}
 			bind:testIsLoading
-			{stepArgs}
 		/>
 	{/if}
 {/if}
@@ -340,6 +339,7 @@
 				let:isConnecting
 				let:selectConnection
 				{historyOpen}
+				{stepArgs}
 			>
 				<OutputPickerInner
 					bind:this={outputPickerInner}

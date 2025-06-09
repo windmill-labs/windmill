@@ -69,6 +69,7 @@
 	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
+	import { TestSteps } from './flows/testSteps.svelte'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -505,7 +506,7 @@
 	})
 	$: initialPath && ($pathStore = initialPath)
 
-	const testStepStore = writable<Record<string, any>>({})
+	const testSteps = new TestSteps()
 
 	function select(selectedId: string) {
 		selectedIdStore.set(selectedId)
@@ -523,7 +524,7 @@
 		flowStateStore,
 		flowStore,
 		pathStore,
-		testStepStore,
+		testSteps,
 		saveDraft,
 		initialPathStore,
 		fakeInitialPath,
@@ -981,7 +982,7 @@
 					{newFlow}
 					on:applyArgs={(ev) => {
 						if (ev.detail.kind === 'preprocessor') {
-							$testStepStore['preprocessor'] = ev.detail.args ?? {}
+							testSteps.setStepArgs('preprocessor', ev.detail.args ?? {})
 							$selectedIdStore = 'preprocessor'
 						}
 					}}

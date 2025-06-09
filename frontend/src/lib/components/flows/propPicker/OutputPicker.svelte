@@ -4,12 +4,14 @@
 	import { getContext, tick } from 'svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
+	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 
 	export let selected: boolean = false
 	export let hover: boolean = false
 	export let isConnectingCandidate: boolean = false
 	export let variant: 'default' | 'virtual' = 'default'
 	export let historyOpen: boolean = false
+	export let stepArgs: Record<string, any> | undefined = undefined
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
 	const flowPropPickerConfig = context?.flowPropPickerConfig
@@ -116,7 +118,11 @@
 						In
 					</button>
 				</svelte:fragment>
-				<svelte:fragment slot="content">Input here</svelte:fragment>
+				<svelte:fragment slot="content">
+					<div class="p-2">
+						<ObjectViewer json={stepArgs} />
+					</div>
+				</svelte:fragment>
 			</Popover>
 			<Popover
 				floatingConfig={{

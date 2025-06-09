@@ -21,7 +21,7 @@
 	export let isValid: boolean = true
 	export let autofocus = false
 
-	const { testStepStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { testSteps } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let inputCheck: { [id: string]: boolean } = {}
 	$: isValid = allTrue(inputCheck) ?? false
@@ -51,7 +51,7 @@
 
 	function plugIt(argName: string) {
 		args[argName] = structuredClone(
-			evalValue(argName, mod, testStepStore, pickableProperties, true)
+			evalValue(argName, mod, testSteps.getStepArgs(mod.id) ?? {}, pickableProperties, true)
 		)
 		try {
 			editor?.[argName]?.setCode(JSON.stringify(args[argName], null, 4))

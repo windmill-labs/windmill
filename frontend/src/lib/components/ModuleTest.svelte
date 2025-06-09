@@ -2,11 +2,8 @@
 	import { ScriptService, type FlowModule, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getScriptByPath } from '$lib/scripts'
-
 	import { getContext } from 'svelte'
-
 	import type { FlowEditorContext } from './flows/types'
-
 	import TestJobLoader from './TestJobLoader.svelte'
 
 	export let mod: FlowModule
@@ -14,21 +11,15 @@
 	export let testIsLoading = false
 	export let noEditor = false
 	export let scriptProgress = undefined
-	export let stepArgs: Record<string, any> | undefined
 
-	const { flowStore, flowStateStore, testStepStore, pathStore } =
+	const { flowStore, flowStateStore, pathStore, testSteps } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	// Test
-
 	let testJobLoader: TestJobLoader
-
 	let jobProgressReset: () => void = () => {}
 
-	$: $testStepStore[mod.id] = stepArgs
-
 	export function runTestWithStepArgs() {
-		runTest(stepArgs)
+		runTest(testSteps.getStepArgs(mod.id))
 	}
 
 	export async function runTest(args: any) {

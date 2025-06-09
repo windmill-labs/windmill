@@ -12,7 +12,7 @@
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import FlowJobsMenu from './FlowJobsMenu.svelte'
 	import { isTriggerStep } from '$lib/components/graph/graphBuilder'
-	import { checkIfParentLoop, evalValue } from '$lib/components/flows/utils'
+	import { checkIfParentLoop } from '$lib/components/flows/utils'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 
 	export let mod: FlowModule
@@ -38,7 +38,7 @@
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
 
-	const { flowStore, testStepStore, flowStateStore } =
+	const { flowStore, testSteps } =
 		getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
 
 	const dispatch = createEventDispatcher<{
@@ -73,19 +73,6 @@
 	function onDelete(event: CustomEvent<MouseEvent>) {
 		dispatch('delete', event)
 	}
-
-	function getStepArgs() {
-		if (!mod.id || !$flowStateStore?.[mod.id]?.schema?.properties || !$testStepStore) return
-
-		return Object.fromEntries(
-			Object.keys($flowStateStore?.[mod.id]?.schema?.properties ?? {}).map((k) => [
-				k,
-				evalValue(k, mod, $testStepStore, undefined, false)
-			])
-		)
-	}
-
-	let stepArgs: Record<string, any> | undefined = getStepArgs()
 </script>
 
 {#if mod}
@@ -225,7 +212,7 @@
 					isTrigger={isTriggerStep(mod)}
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:') && mod.id !== 'preprocessor'}
 					loopStatus={parentLoop ? { type: 'inside', flow: parentLoop.type } : undefined}
-					{stepArgs}
+					stepArgs={testSteps?.getStepArgs(mod.id)}
 				>
 					<div slot="icon">
 						{#if mod.value.type === 'rawscript'}

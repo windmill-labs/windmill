@@ -49,6 +49,7 @@
 	import type { FlowPropPickerConfig, PropPickerContext } from './prop_picker'
 	import type { PickableProperties } from './flows/previousResults'
 	import { Triggers } from './triggers/triggers.svelte'
+	import { TestSteps } from './flows/testSteps.svelte'
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
 	$: workspace = $page.url.searchParams.get('workspace') ?? undefined
 	$: themeDarkRaw = $page.url.searchParams.get('activeColorTheme')
@@ -458,7 +459,7 @@
 	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
 	const history = initHistory($flowStore)
 
-	const testStepStore = writable<Record<string, any>>({})
+	const testSteps = new TestSteps()
 	const selectedIdStore = writable('settings-metadata')
 
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
@@ -477,7 +478,7 @@
 		pathStore: writable(''),
 		flowStateStore,
 		flowStore,
-		testStepStore,
+		testSteps,
 		saveDraft: () => {},
 		initialPathStore: writable(''),
 		fakeInitialPath: '',
@@ -706,7 +707,7 @@
 								noEditor
 								on:applyArgs={(ev) => {
 									if (ev.detail.kind === 'preprocessor') {
-										$testStepStore['preprocessor'] = ev.detail.args ?? {}
+										testSteps.setStepArgs('preprocessor', ev.detail.args ?? {})
 										$selectedIdStore = 'preprocessor'
 									} else {
 										$previewArgsStore = ev.detail.args ?? {}
