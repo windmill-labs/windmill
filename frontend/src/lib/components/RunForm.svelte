@@ -100,7 +100,12 @@
 
 <TriggerableByAI
 	id={`run-form-${runnable?.path ?? ''}`}
-	description={`Form to fill the inputs to run ${runnable?.summary ?? runnable?.path ?? ''}`}
+	description={`Form to fill the inputs to run ${runnable?.summary ?? runnable?.path ?? ''}.
+	## Schema used: ${JSON.stringify(runnable?.schema)}.
+	## Current args: ${JSON.stringify(args)}}`}
+	onTrigger={(value) => {
+		args = JSON.parse(value ?? '{}')
+	}}
 />
 <div class="max-w-3xl">
 	{#if detailed}
@@ -165,11 +170,6 @@
 		{:else if jsonView}
 			<div class="py-2" style="height: {schemaHeight}px" data-schema-picker>
 				<JsonInputs
-					aiId="run-form-json-editor"
-					aiDescription={`
-						JSON editor to fill the form inputs.
-						## Schema used: ${JSON.stringify(runnable.schema)}.
-						## Current args: ${JSON.stringify(args)}}`}
 					bind:this={jsonEditor}
 					on:select={(e) => {
 						if (e.detail) {
