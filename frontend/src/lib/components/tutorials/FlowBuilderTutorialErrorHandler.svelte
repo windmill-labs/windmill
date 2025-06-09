@@ -27,7 +27,7 @@
 				title: 'Error handler tutorial',
 				description: 'Learn how to recover from an error. You can use arrow keys to navigate.',
 				onNextClick: () => {
-					flowStore.value.modules = [
+					flowStore.val.value.modules = [
 						{
 							id: 'a',
 							value: {

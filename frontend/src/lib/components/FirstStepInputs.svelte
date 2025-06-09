@@ -19,7 +19,7 @@
 	let mod: any | undefined = $state(undefined)
 	async function loadSchema() {
 		try {
-			const res = await getFirstStepSchema($flowStateStore, flowStore)
+			const res = await getFirstStepSchema($flowStateStore, flowStore.val)
 			schema = res.schema
 			mod = res.mod
 			dispatch('connectFirstNode', { connectFirstNode: res.connectFirstNode })
@@ -28,7 +28,7 @@
 		}
 	}
 	$effect(() => {
-		flowStore && $flowStateStore && loadSchema()
+		flowStore.val && $flowStateStore && loadSchema()
 	})
 
 	function handleClick() {

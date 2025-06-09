@@ -1302,3 +1302,7 @@ import type { Snippet } from 'svelte'
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))
 }
+
+export type StateStore<T> = {
+	val: T
+}

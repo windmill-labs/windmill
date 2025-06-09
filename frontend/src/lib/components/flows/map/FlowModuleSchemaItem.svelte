@@ -167,8 +167,8 @@
 	{@const flowStore = flowEditorContext?.flowStore ?? undefined}
 	{@const getDeps = getDependeeAndDependentComponents(
 		id,
-		flowStore?.value.modules ?? [],
-		flowStore?.value.failure_module
+		flowStore?.val?.value.modules ?? [],
+		flowStore?.val?.value.failure_module
 	)}
 	<Drawer bind:open={editId}>
 		<DrawerContent title="Edit Step Id {id}" on:close={() => (editId = false)}>
@@ -179,7 +179,7 @@
 					label=""
 					initialId={id}
 					acceptUnderScores
-					reservedIds={dfs(flowStore?.value.modules ?? [], (x) => x.id)}
+					reservedIds={dfs(flowStore?.val?.value.modules ?? [], (x) => x.id)}
 					bind:value={newId}
 					on:save={(e) => {
 						dispatch('changeId', { id, newId: e.detail, deps: getDeps?.dependents ?? {} })

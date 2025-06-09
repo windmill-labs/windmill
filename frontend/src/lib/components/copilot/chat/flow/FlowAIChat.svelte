@@ -33,11 +33,11 @@
 
 	function getModule(id: string) {
 		if (id === 'preprocessor') {
-			return flowStore.value.preprocessor_module
+			return flowStore.val.value.preprocessor_module
 		} else if (id === 'failure') {
-			return flowStore.value.failure_module
+			return flowStore.val.value.failure_module
 		} else {
-			return dfs(id, flowStore, false)[0]
+			return dfs(id, flowStore.val, false)[0]
 		}
 	}
 
@@ -81,7 +81,7 @@
 	const flowHelpers: FlowAIChatHelpers & {
 		getFlowAndSelectedId: () => { flow: OpenFlow; selectedId: string }
 	} = {
-		getFlowAndSelectedId: () => ({ flow: flowStore, selectedId: $selectedId }),
+		getFlowAndSelectedId: () => ({ flow: flowStore.val, selectedId: $selectedId }),
 		setCode: async (id, code) => {
 			const module = getModule(id)
 			if (!module) {
@@ -111,23 +111,23 @@
 				location.type === 'start'
 					? {
 							index: -1,
-							modules: flowStore.value.modules
+							modules: flowStore.val.value.modules
 						}
 					: location.type === 'start_inside_forloop'
 						? {
 								index: -1,
-								modules: getNestedModules(flowStore, location.inside)
+								modules: getNestedModules(flowStore.val, location.inside)
 							}
 						: location.type === 'start_inside_branch'
 							? {
 									index: -1,
-									modules: getNestedModules(flowStore, location.inside, location.branchIndex)
+									modules: getNestedModules(flowStore.val, location.inside, location.branchIndex)
 								}
 							: location.type === 'after'
-								? getIndexInNestedModules(flowStore, location.afterId)
+								? getIndexInNestedModules(flowStore.val, location.afterId)
 								: {
 										index: -1,
-										modules: flowStore.value.modules
+										modules: flowStore.val.value.modules
 									}
 
 			const indexToInsertAt = index + 1
@@ -141,9 +141,9 @@
 						subkind: 'flow' as const
 					}
 					if (location.type === 'preprocessor') {
-						await insertNewPreprocessorModule(flowStore, flowStateStore, inlineScript)
+						await insertNewPreprocessorModule(flowStore.val, flowStateStore, inlineScript)
 					} else if (location.type === 'failure') {
-						await insertNewFailureModule(flowStore, flowStateStore, inlineScript)
+						await insertNewFailureModule(flowStore.val, flowStateStore, inlineScript)
 					} else {
 						newModules = await flowModuleSchemaMap?.insertNewModuleAtIndex(
 							modules,
@@ -163,9 +163,9 @@
 						hash: undefined
 					}
 					if (location.type === 'preprocessor') {
-						await insertNewPreprocessorModule(flowStore, flowStateStore, undefined, wsScript)
+						await insertNewPreprocessorModule(flowStore.val, flowStateStore, undefined, wsScript)
 					} else if (location.type === 'failure') {
-						await insertNewFailureModule(flowStore, flowStateStore, undefined, wsScript)
+						await insertNewFailureModule(flowStore.val, flowStateStore, undefined, wsScript)
 					} else {
 						newModules = await flowModuleSchemaMap?.insertNewModuleAtIndex(
 							modules,
@@ -217,11 +217,11 @@
 		removeStep: async (id) => {
 			flowModuleSchemaMap?.selectNextId(id)
 			if (id === 'preprocessor') {
-				flowStore.value.preprocessor_module = undefined
+				flowStore.val.value.preprocessor_module = undefined
 			} else if (id === 'failure') {
-				flowStore.value.failure_module = undefined
+				flowStore.val.value.failure_module = undefined
 			} else {
-				const { modules } = getIndexInNestedModules(flowStore, id)
+				const { modules } = getIndexInNestedModules(flowStore.val, id)
 				flowModuleSchemaMap?.removeAtId(modules, id)
 			}
 
@@ -284,10 +284,10 @@
 			}
 		},
 		getFlowInputsSchema: async () => {
-			return flowStore.schema ?? {}
+			return flowStore.val.schema ?? {}
 		},
 		setFlowInputsSchema: async (newInputs) => {
-			flowStore.schema = newInputs
+			flowStore.val.schema = newInputs
 		},
 		selectStep: (id) => {
 			$selectedId = id
@@ -313,7 +313,7 @@
 
 				return getSubModules(module).flat()
 			}
-			return flowStore.value.modules
+			return flowStore.val.value.modules
 		},
 		setBranchPredicate: async (id, branchIndex, expression) => {
 			const module = getModule(id)

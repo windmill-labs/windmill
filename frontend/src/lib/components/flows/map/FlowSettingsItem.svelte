@@ -25,7 +25,7 @@
 	>
 		<span>Settings</span>
 		<span class="h-[18px] flex items-center">
-			{#if flowStore.value.same_worker}
+			{#if flowStore.val.value.same_worker}
 				<Badge color="blue" baseClass="truncate">./shared</Badge>
 			{/if}
 		</span>

@@ -4,7 +4,13 @@
 	import { page } from '$app/stores'
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
-	import { cleanValueProperties, decodeState, emptySchema, orderedJsonStringify } from '$lib/utils'
+	import {
+		cleanValueProperties,
+		decodeState,
+		emptySchema,
+		orderedJsonStringify,
+		type StateStore
+	} from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore.svelte'
 	import { goto } from '$lib/navigation'
 	import { afterNavigate, replaceState } from '$app/navigation'
@@ -40,8 +46,8 @@
 		}
 	})
 
-	export const flowStore: { flowStore: Flow } = $state({
-		flowStore: {
+	export const flowStore: StateStore<Flow> = $state({
+		val: {
 			summary: '',
 			value: { modules: [] },
 			path: '',
@@ -261,7 +267,7 @@
 	on:historyRestore={() => {
 		loadFlow()
 	}}
-	flowStore={flowStore.flowStore}
+	{flowStore}
 	{flowStateStore}
 	initialPath={$page.params.path}
 	newFlow={false}

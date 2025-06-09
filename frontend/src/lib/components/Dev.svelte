@@ -397,7 +397,7 @@
 	let mode: 'script' | 'flow' = $state('script')
 
 	const flowStore = $state({
-		flowStore: {
+		val: {
 			summary: '',
 			value: { modules: [] },
 			extra_perms: {},
@@ -423,7 +423,7 @@
 				if (!lastEdit.flow.value?.modules) {
 					lastEdit.flow.value = { modules: [] }
 				}
-				flowStore.flowStore = lastEdit.flow
+				flowStore.val = lastEdit.flow
 				inferModuleArgs($selectedIdStore)
 			}
 		} catch (e) {
@@ -436,7 +436,7 @@
 	const previewArgsStore = writable<Record<string, any>>({})
 	const scriptEditorDrawer = writable(undefined)
 	const moving = writable<{ id: string } | undefined>(undefined)
-	const history = initHistory(flowStore.flowStore)
+	const history = initHistory(flowStore.val)
 
 	const testStepStore = writable<Record<string, any>>({})
 	const selectedIdStore = writable('settings-metadata')
@@ -456,7 +456,7 @@
 		history,
 		pathStore: writable(''),
 		flowStateStore,
-		flowStore: flowStore.flowStore,
+		flowStore,
 		testStepStore,
 		saveDraft: () => {},
 		initialPathStore: writable(''),
@@ -551,7 +551,7 @@
 			initializeMode()
 	})
 	run(() => {
-		updateFlow(flowStore.flowStore)
+		updateFlow(flowStore.val)
 	})
 	run(() => {
 		$selectedIdStore && inferModuleArgs($selectedIdStore)
@@ -698,10 +698,10 @@
 				</div>
 				<Splitpanes horizontal class="h-full max-h-screen grow">
 					<Pane size={67}>
-						{#if flowStore.flowStore?.value?.modules}
+						{#if flowStore.val?.value?.modules}
 							<div id="flow-editor"></div>
 							<FlowModuleSchemaMap
-								bind:modules={flowStore.flowStore.value.modules}
+								bind:modules={flowStore.val.value.modules}
 								disableAi
 								disableTutorials
 								smallErrorHandler={true}

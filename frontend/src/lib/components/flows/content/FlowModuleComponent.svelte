@@ -154,7 +154,7 @@
 						flowStepWarnings: await initFlowStepWarnings(
 							flowModule.value,
 							schema ?? {},
-							dfs(flowStore.value.modules, (fm) => fm.id)
+							dfs(flowStore.val.value.modules, (fm) => fm.id)
 						)
 					}
 				}
@@ -211,7 +211,7 @@
 				flowModule.value,
 				$flowInputsStore[flowModule.id].flowStepWarnings ?? {},
 				$flowStateStore[$selectedId]?.schema,
-				dfs(flowStore?.value?.modules ?? [], (fm) => fm.id) ?? []
+				dfs(flowStore.val?.value?.modules ?? [], (fm) => fm.id) ?? []
 			).then((flowStepWarnings) => {
 				$flowInputsStore[flowModule.id].flowStepWarnings = flowStepWarnings
 			})
@@ -263,13 +263,13 @@
 
 	let stepPropPicker = $derived(
 		$executionCount != undefined && failureModule
-			? getFailureStepPropPicker($flowStateStore, flowStore, $previewArgs)
+			? getFailureStepPropPicker($flowStateStore, flowStore.val, $previewArgs)
 			: getStepPropPicker(
 					$flowStateStore,
 					parentModule,
 					previousModule,
 					flowModule.id,
-					flowStore,
+					flowStore.val,
 					$previewArgs,
 					false
 				)
@@ -284,7 +284,7 @@
 		}
 	})
 	let parentLoop = $derived(
-		flowStore && flowModule ? checkIfParentLoop(flowStore, flowModule.id) : undefined
+		flowStore.val && flowModule ? checkIfParentLoop(flowStore.val, flowModule.id) : undefined
 	)
 	$effect(() => {
 		if (selected === 'test') {

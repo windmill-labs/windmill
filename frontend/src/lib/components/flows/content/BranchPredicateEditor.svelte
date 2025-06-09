@@ -29,7 +29,7 @@
 		parentModule,
 		previousModule,
 		parentModule.id,
-		flowStore,
+		flowStore.val,
 		$previewArgs,
 		false
 	)

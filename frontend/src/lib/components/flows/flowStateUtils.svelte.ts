@@ -19,7 +19,7 @@ import { loadSchemaFromModule } from './flowInfers'
 import { nextId } from './flowModuleNextId'
 import { findNextAvailablePath } from '$lib/path'
 import type { ExtendedOpenFlow } from './types'
-import { emptySchema } from '$lib/utils'
+import { emptySchema, type StateStore } from '$lib/utils'
 
 export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowModuleState> {
 	try {
@@ -297,7 +297,7 @@ export function sliceModules(
 }
 
 export async function insertNewPreprocessorModule(
-	flowStore: ExtendedOpenFlow,
+	flowStore: StateStore<ExtendedOpenFlow>,
 	flowStateStore: Writable<FlowState>,
 	inlineScript?: {
 		language: RawScript['language']
@@ -321,7 +321,7 @@ export async function insertNewPreprocessorModule(
 		;[module, state] = await pickScript(wsScript.path, wsScript.summary, module.id, wsScript.hash)
 	}
 
-	flowStore.value.preprocessor_module = module
+	flowStore.val.value.preprocessor_module = module
 
 	flowStateStore.update((fss) => {
 		fss[module.id] = state
@@ -330,7 +330,7 @@ export async function insertNewPreprocessorModule(
 }
 
 export async function insertNewFailureModule(
-	flowStore: ExtendedOpenFlow,
+	flowStore: StateStore<ExtendedOpenFlow>,
 	flowStateStore: Writable<FlowState>,
 	inlineScript?: {
 		language: RawScript['language']
@@ -359,7 +359,7 @@ export async function insertNewFailureModule(
 		;[module, state] = await pickScript(wsScript.path, wsScript.summary, module.id, wsScript.hash)
 	}
 
-	flowStore.value.failure_module = module
+	flowStore.val.value.failure_module = module
 
 	flowStateStore.update((fss) => {
 		fss[module.id] = state

@@ -112,7 +112,7 @@
 				flowStepWarnings: await initFlowStepWarnings(
 					module?.value,
 					$flowStateStore[module?.id]?.schema,
-					dfs(flowStore.value.modules, (fm) => fm.id)
+					dfs(flowStore.val.value.modules, (fm) => fm.id)
 				)
 			}
 		}
@@ -198,7 +198,7 @@
 							flowStepWarnings: await initFlowStepWarnings(
 								module.value,
 								$flowStateStore[module.id].schema,
-								dfs(flowStore.value.modules, (fm) => fm.id)
+								dfs(flowStore.val.value.modules, (fm) => fm.id)
 							)
 						}
 					}

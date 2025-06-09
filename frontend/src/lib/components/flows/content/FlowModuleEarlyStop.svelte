@@ -22,13 +22,13 @@
 		undefined,
 		undefined,
 		flowModule.id,
-		flowStore,
+		flowStore.val,
 		$previewArgs,
 		false
 	)
 
-	function checkIfParentLoop(flowStore: ExtendedOpenFlow): string | null {
-		const flow: Flow = JSON.parse(JSON.stringify(flowStore))
+	function checkIfParentLoop(flowStoreValue: ExtendedOpenFlow): string | null {
+		const flow: Flow = JSON.parse(JSON.stringify(flowStoreValue))
 		const parents = dfs(flowModule.id, flow, true)
 		for (const parent of parents.slice(1)) {
 			if (parent.value.type === 'forloopflow' || parent.value.type === 'whileloopflow') {
@@ -45,7 +45,7 @@
 	$: isStopAfterIfEnabled = Boolean(flowModule.stop_after_if)
 	$: isStopAfterAllIterationsEnabled = Boolean(flowModule.stop_after_all_iters_if)
 	$: result = $flowStateStore[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR
-	$: parentLoopId = checkIfParentLoop(flowStore)
+	$: parentLoopId = checkIfParentLoop(flowStore.val)
 </script>
 
 <div class="flex flex-col items-start space-y-2 {$$props.class}">

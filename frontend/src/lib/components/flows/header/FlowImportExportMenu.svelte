@@ -13,8 +13,8 @@
 
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent title="OpenFlow" on:close={() => drawer?.toggleDrawer()}>
-		{#if flowStore}
-			<FlowViewer flow={cleanInputs(flowStore)} tab="raw" />
+		{#if flowStore.val}
+			<FlowViewer flow={cleanInputs(flowStore.val)} tab="raw" />
 		{/if}
 	</DrawerContent>
 </Drawer>

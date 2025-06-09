@@ -57,7 +57,7 @@
 	}
 
 	const flowStore = $state({
-		flowStore: {
+		val: {
 			summary: '',
 			value: { modules: [] },
 			extra_perms: {},
@@ -71,7 +71,7 @@
 	const previewArgsStore = writable<Record<string, any>>({})
 	const scriptEditorDrawer = writable(undefined)
 	const moving = writable<{ id: string } | undefined>(undefined)
-	const history = initHistory(flowStore.flowStore)
+	const history = initHistory(flowStore.val)
 
 	const testStepStore = writable<Record<string, any>>({})
 	const selectedIdStore = writable('settings-metadata')
@@ -91,7 +91,7 @@
 		history,
 		pathStore: writable(''),
 		flowStateStore,
-		flowStore: flowStore.flowStore,
+		flowStore,
 		testStepStore,
 		saveDraft: () => {},
 		initialPathStore: writable(''),
@@ -224,7 +224,7 @@
 	function updateFromCode(code: string) {
 		try {
 			if (!deepEqual(JSON.parse(code), flowStore)) {
-				flowStore.flowStore = JSON.parse(code)
+				flowStore.val = JSON.parse(code)
 			}
 		} catch (e) {
 			console.error('issue parsing new change:', code, e)
@@ -240,7 +240,7 @@
 			initializeMode()
 	})
 	$effect(() => {
-		updateCode(editor, flowStore.flowStore)
+		updateCode(editor, flowStore.val)
 	})
 </script>
 
@@ -271,9 +271,9 @@
 			</div>
 			<Splitpanes horizontal class="h-full max-h-screen grow">
 				<Pane size={33}>
-					{#if flowStore.flowStore?.value?.modules}
+					{#if flowStore.val?.value?.modules}
 						<FlowModuleSchemaMap
-							bind:modules={flowStore.flowStore.value.modules}
+							bind:modules={flowStore.val.value.modules}
 							disableAi
 							disableTutorials
 							smallErrorHandler={true}

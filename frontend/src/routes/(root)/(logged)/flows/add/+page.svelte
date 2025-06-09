@@ -10,10 +10,9 @@
 	import { FlowService, type Flow } from '$lib/gen'
 	import { initialArgsStore, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { decodeState, emptySchema } from '$lib/utils'
+	import { decodeState, emptySchema, type StateStore } from '$lib/utils'
 	import { tick } from 'svelte'
 	import { writable } from 'svelte/store'
-	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import type { Trigger } from '$lib/components/triggers/utils'
 
@@ -45,8 +44,8 @@
 	}
 	let flowBuilder: FlowBuilder | undefined = $state(undefined)
 
-	let flowStore: { flowStore: Flow } = $state({
-		flowStore: {
+	let flowStore: StateStore<Flow> = $state({
+		val: {
 			summary: '',
 			value: { modules: [] },
 			path: '',
@@ -89,7 +88,7 @@
 				{
 					label: 'Start from blank instead',
 					callback: () => {
-						flowStore.flowStore = {
+						flowStore.val = {
 							summary: '',
 							value: { modules: [] },
 							path: '',
@@ -177,7 +176,7 @@
 	bind:this={flowBuilder}
 	newFlow
 	{initialArgs}
-	flowStore={flowStore.flowStore}
+	{flowStore}
 	{flowStateStore}
 	{selectedId}
 	{loading}

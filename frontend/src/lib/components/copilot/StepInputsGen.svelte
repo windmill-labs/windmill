@@ -41,7 +41,7 @@
 		abortController = new AbortController()
 		loading = true
 		stepInputsLoading?.set(true)
-		const flow: Flow = JSON.parse(JSON.stringify(flowStore))
+		const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
 		const idOrders = dfs(flow.value.modules, (x) => x.id)
 		const upToIndex = idOrders.indexOf($selectedId)
 		if (upToIndex === -1) {
@@ -127,17 +127,17 @@ input_name2: expression2
 			return
 		}
 		const properties = {
-			...(flowStore.schema?.properties as Record<string, SchemaProperty> | undefined),
+			...(flowStore.val.schema?.properties as Record<string, SchemaProperty> | undefined),
 			...newFlowInputs.reduce((acc, x) => {
 				acc[x] = (schema?.properties ?? {})[x]
 				return acc
 			}, {})
 		}
 		const required = [
-			...((flowStore.schema?.required as string[] | undefined) ?? []),
+			...((flowStore.val.schema?.required as string[] | undefined) ?? []),
 			...newFlowInputs
 		]
-		flowStore.schema = {
+		flowStore.val.schema = {
 			$schema: 'https://json-schema.org/draft/2020-12/schema',
 			properties,
 			required,

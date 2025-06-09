@@ -75,9 +75,9 @@
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
 		if (previewMode === 'whole') {
-			return flowStore
+			return flowStore.val
 		} else {
-			const flow: Flow = JSON.parse(JSON.stringify(flowStore))
+			const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
 			const idOrders = dfs(flow.value.modules, (x) => x.id)
 			let upToIndex = idOrders.indexOf($selectedId)
 
@@ -97,7 +97,7 @@
 			initial = false
 		}
 		try {
-			lastPreviewFlow = JSON.stringify(flowStore)
+			lastPreviewFlow = JSON.stringify(flowStore.val)
 			jobProgressReset()
 			const newFlow = extractFlow(previewMode)
 			jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
@@ -185,7 +185,7 @@
 
 	async function loadIndividualStepsStates() {
 		// console.log('loadIndividualStepsStates')
-		dfs(flowStore.value.modules, async (module) => {
+		dfs(flowStore.val.value.modules, async (module) => {
 			// console.log('module', $flowStateStore[module.id], module.id)
 			const prev = $flowStateStore[module.id]?.previewResult
 			if (prev && prev != NEVER_TESTED_THIS_FAR) {
@@ -385,7 +385,7 @@
 		{/if}
 	</div>
 	<div class="w-full flex flex-col gap-y-1">
-		{#if lastPreviewFlow && JSON.stringify(flowStore) != lastPreviewFlow}
+		{#if lastPreviewFlow && JSON.stringify(flowStore.val) != lastPreviewFlow}
 			<div class="pt-1">
 				<div
 					class="bg-orange-200 text-orange-600 border border-orange-600 p-2 flex items-center gap-2 rounded"
@@ -458,7 +458,7 @@
 							<SchemaForm
 								noVariablePicker
 								compact
-								schema={flowStore.schema}
+								schema={flowStore.val.schema}
 								bind:args={$previewArgs}
 								on:change={() => {
 									savedArgs = $previewArgs

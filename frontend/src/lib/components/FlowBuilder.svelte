@@ -25,6 +25,7 @@
 		generateRandomString,
 		orderedJsonStringify,
 		replaceFalseWithUndefined,
+		type StateStore,
 		type Value
 	} from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
@@ -78,7 +79,7 @@
 		selectedId: string | undefined
 		initialArgs?: Record<string, any>
 		loading?: boolean
-		flowStore: OpenFlow
+		flowStore: StateStore<OpenFlow>
 		flowStateStore: Writable<FlowState>
 		savedFlow?: FlowWithDraftAndDraftTriggers | undefined
 		diffDrawer?: DiffDrawer | undefined
@@ -100,7 +101,7 @@
 		selectedId,
 		initialArgs = {},
 		loading = false,
-		flowStore = $bindable(),
+		flowStore,
 		flowStateStore,
 		savedFlow = $bindable(undefined),
 		diffDrawer = undefined,
@@ -147,7 +148,7 @@
 		return {
 			savedValue: savedFlow,
 			modifiedValue: {
-				...flowStore,
+				...flowStore.val,
 				draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
 			}
 		}
@@ -209,7 +210,7 @@
 			const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
 			const current = cleanValueProperties(
 				$state.snapshot({
-					...flowStore,
+					...flowStore.val,
 					path: $pathStore,
 					draft_triggers: currentDraftTriggers
 				})
@@ -228,7 +229,7 @@
 		}
 		loadingDraft = true
 		try {
-			const flow = cleanInputs(flowStore)
+			const flow = cleanInputs(flowStore.val)
 			try {
 				localStorage.removeItem('flow')
 				localStorage.removeItem(`flow-${$pathStore}`)
@@ -285,13 +286,13 @@
 			savedFlow = {
 				...(newFlow || savedFlow?.draft_only
 					? {
-							...structuredClone($state.snapshot(flowStore)),
+							...structuredClone($state.snapshot(flowStore.val)),
 							path: $pathStore,
 							draft_only: true
 						}
 					: savedFlow),
 				draft: {
-					...structuredClone($state.snapshot(flowStore)),
+					...structuredClone($state.snapshot(flowStore.val)),
 					path: $pathStore,
 					draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
 				}
@@ -338,9 +339,9 @@
 
 			if (
 				deployedValue &&
-				flowStore &&
+				flowStore.val &&
 				orderedJsonStringify(deployedValue) ===
-					orderedJsonStringify(replaceFalseWithUndefined({ ...flowStore, path: $pathStore }))
+					orderedJsonStringify(replaceFalseWithUndefined({ ...flowStore.val, path: $pathStore }))
 			) {
 				await saveFlow(deploymentMsg)
 			} else {
@@ -383,7 +384,7 @@
 
 		loadingSave = true
 		try {
-			const flow = cleanInputs(flowStore)
+			const flow = cleanInputs(flowStore.val)
 			// console.log('flow', computeUnlockedSteps(flow)) // del
 			// loadingSave = false // del
 			// return
@@ -465,7 +466,7 @@
 				})
 			}
 
-			const { draft_triggers: _, ...newSavedFlow } = flowStore as OpenFlow & {
+			const { draft_triggers: _, ...newSavedFlow } = flowStore.val as OpenFlow & {
 				draft_triggers: Trigger[]
 			}
 			savedFlow = {
@@ -491,7 +492,7 @@
 				localStorage.setItem(
 					initialPath && initialPath != '' ? `flow-${initialPath}` : 'flow',
 					encodeState({
-						flow: flowStore,
+						flow: flowStore.val,
 						path: $pathStore,
 						selectedId: $selectedIdStore,
 						draft_triggers: triggersState.getDraftTriggersSnapshot(),
@@ -513,7 +514,7 @@
 	const previewArgsStore = writable<Record<string, any>>(initialArgs)
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
 	const moving = writable<{ id: string } | undefined>(undefined)
-	const history = initHistory(flowStore)
+	const history = initHistory(flowStore.val)
 	const pathStore = writable<string>(pathStoreInit ?? initialPath)
 	const captureOn = writable<boolean>(false)
 	const showCaptureHint = writable<boolean | undefined>(undefined)
@@ -531,26 +532,40 @@
 
 	let insertButtonOpen = writable<boolean>(false)
 
-	setContext<FlowEditorContext>('FlowEditorContext', {
-		selectedId: selectedIdStore,
-		currentEditor: writable(undefined),
-		previewArgs: previewArgsStore,
-		scriptEditorDrawer,
-		moving,
-		history,
-		flowStateStore,
-		flowStore,
-		pathStore,
-		testStepStore,
-		saveDraft,
-		initialPathStore,
-		fakeInitialPath,
-		flowInputsStore: writable<FlowInput>({}),
-		customUi,
-		insertButtonOpen,
-		executionCount: writable(0),
-		flowInputEditorState: flowInputEditorStateStore
-	})
+	let flowEditorContext: FlowEditorContext = new Proxy(
+		{
+			selectedId: selectedIdStore,
+			currentEditor: writable(undefined),
+			previewArgs: previewArgsStore,
+			scriptEditorDrawer,
+			moving,
+			history,
+			flowStateStore,
+			flowStore,
+			pathStore,
+			testStepStore,
+			saveDraft,
+			initialPathStore,
+			fakeInitialPath,
+			flowInputsStore: writable<FlowInput>({}),
+			customUi,
+			insertButtonOpen,
+			executionCount: writable(0),
+			flowInputEditorState: flowInputEditorStateStore
+		},
+		{
+			get: (obj, prop) => (prop === 'flowStore.val' ? flowStore.val : obj[prop]),
+			set(obj, prop, value: OpenFlow) {
+				if (prop === 'flowStore.val') {
+					flowStore.val = $state.snapshot(value)
+				} else {
+					obj[prop] = value
+				}
+				return true
+			}
+		}
+	)
+	setContext<FlowEditorContext>('FlowEditorContext', flowEditorContext)
 
 	// Add triggers context store
 	const triggersState = $state(
@@ -606,13 +621,13 @@
 		switch (event.key) {
 			case 'Z':
 				if (event.ctrlKey || event.metaKey) {
-					flowStore = redo(history)
+					flowStore.val = redo(history)
 					event.preventDefault()
 				}
 				break
 			case 'z':
 				if (event.ctrlKey || event.metaKey) {
-					flowStore = undo(history, flowStore)
+					flowStore.val = undo(history, flowStore.val)
 					$selectedIdStore = 'Input'
 					event.preventDefault()
 				}
@@ -653,7 +668,7 @@
 			'settings-metadata',
 			'constants',
 			'preprocessor',
-			...dfsApply(flowStore.value.modules, (module) => module.id)
+			...dfsApply(flowStore.val.value.modules, (module) => module.id)
 		]
 	}
 
@@ -771,7 +786,7 @@
 		setContext('customUi', customUi)
 	})
 	run(() => {
-		if (flowStore || $selectedIdStore) {
+		if (flowStore.val || $selectedIdStore) {
 			saveSessionDraft()
 		}
 	})
@@ -805,7 +820,7 @@
 	bind:open
 	{diffDrawer}
 	bind:deployedValue
-	currentValue={flowStore}
+	currentValue={flowStore.val}
 />
 
 <DraftTriggersConfirmationModal
@@ -835,18 +850,18 @@
 				<div class="flex w-full max-w-md gap-4 items-center">
 					<Summary
 						disabled={customUi?.topBar?.editableSummary == false}
-						bind:value={flowStore.summary}
+						bind:value={flowStore.val.summary}
 					/>
 
 					<UndoRedo
 						undoProps={{ disabled: $history.index === 0 }}
 						redoProps={{ disabled: $history.index === $history.history.length - 1 }}
 						on:undo={() => {
-							const currentModules = flowStore?.value?.modules
+							const currentModules = flowStore.val?.value?.modules
 
-							flowStore = undo(history, flowStore)
+							flowStore.val = undo(history, flowStore.val)
 
-							const newModules = flowStore?.value?.modules
+							const newModules = flowStore.val?.value?.modules
 							const restoredModules = newModules?.filter(
 								(node) => !currentModules?.some((currentNode) => currentNode?.id === node?.id)
 							)
@@ -864,7 +879,7 @@
 							$selectedIdStore = 'Input'
 						}}
 						on:redo={() => {
-							flowStore = redo(history)
+							flowStore.val = redo(history)
 						}}
 					/>
 				</div>
@@ -959,7 +974,11 @@
 									mode: 'normal',
 									deployed: deployedValue ?? savedFlow,
 									draft: savedFlow?.draft,
-									current: { ...flowStore, path: $pathStore, draft_triggers: currentDraftTriggers }
+									current: {
+										...flowStore.val,
+										path: $pathStore,
+										draft_triggers: currentDraftTriggers
+									}
 								})
 							}}
 							disabled={!savedFlow}

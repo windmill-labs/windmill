@@ -17,33 +17,33 @@
 	let code = ''
 
 	function reload() {
-		code = YAML.stringify(filteredContentForExport(flowStore))
+		code = YAML.stringify(filteredContentForExport(flowStore.val))
 	}
 
 	function apply() {
 		try {
 			const parsed = YAML.parse(code)
 			if (parsed.summary && typeof parsed.summary === 'string') {
-				flowStore.summary = parsed.summary
+				flowStore.val.summary = parsed.summary
 			}
 			if (parsed.description && typeof parsed.description === 'string') {
-				flowStore.description = parsed.description
+				flowStore.val.description = parsed.description
 			}
 			if (parsed['ws_error_handler_muted'] !== undefined) {
-				flowStore.ws_error_handler_muted = parsed['ws_error_handler_muted']
+				flowStore.val.ws_error_handler_muted = parsed['ws_error_handler_muted']
 			}
 			if (parsed['dedicated_worker'] !== undefined) {
-				flowStore.dedicated_worker = parsed['dedicated_worker']
+				flowStore.val.dedicated_worker = parsed['dedicated_worker']
 			}
 			if (parsed['visible_to_runner_only'] !== undefined) {
-				flowStore.visible_to_runner_only = parsed['visible_to_runner_only']
+				flowStore.val.visible_to_runner_only = parsed['visible_to_runner_only']
 			}
 			if (parsed['on_behalf_of_email'] !== undefined) {
-				flowStore.on_behalf_of_email = parsed['on_behalf_of_email']
+				flowStore.val.on_behalf_of_email = parsed['on_behalf_of_email']
 			}
-			flowStore.value = parsed.value
-			flowStore.schema = parsed.schema
-			flowStore.tag = parsed.tag
+			flowStore.val.value = parsed.value
+			flowStore.val.schema = parsed.schema
+			flowStore.val.tag = parsed.tag
 		} catch (e) {
 			sendUserToast('Error parsing yaml: ' + e), true
 		}
@@ -57,7 +57,7 @@
 			<Button color="dark" size="sm" on:click={apply}>Apply changes</Button>
 		</svelte:fragment>
 
-		{#if flowStore}
+		{#if flowStore.val}
 			{#await import('../../SimpleEditor.svelte')}
 				<Loader2 class="animate-spin" />
 			{:then Module}

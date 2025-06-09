@@ -243,14 +243,14 @@
 			return
 		}
 		diff = {}
-		const diffSchema = computeDiff(newSchema, flowStore.schema)
+		const diffSchema = computeDiff(newSchema, flowStore.val.schema)
 		diff = diffSchema
-		previewSchema = schemaFromDiff(diffSchema, flowStore.schema)
+		previewSchema = schemaFromDiff(diffSchema, flowStore.val.schema)
 		runDisabled = true
 	}
 
 	async function applySchemaAndArgs() {
-		flowStore.schema = applyDiff(flowStore.schema, diff)
+		flowStore.val.schema = applyDiff(flowStore.val.schema, diff)
 		if (previewArguments) {
 			savedPreviewArgs = structuredClone($state.snapshot(previewArguments))
 		}
@@ -288,13 +288,13 @@
 	let preventEnter = $state(false)
 
 	async function acceptChange(arg: { label: string; nestedParent: any | undefined }) {
-		handleChange(arg, flowStore.schema, diff, (newSchema) => {
-			flowStore.schema = newSchema
+		handleChange(arg, flowStore.val.schema, diff, (newSchema) => {
+			flowStore.val.schema = newSchema
 		})
 	}
 
 	async function rejectChange(arg: { label: string; nestedParent: any | undefined }) {
-		const revertDiff = computeDiff(flowStore.schema, selectedSchema)
+		const revertDiff = computeDiff(flowStore.val.schema, selectedSchema)
 		handleChange(arg, selectedSchema, revertDiff, (newSchema) => {
 			selectedSchema = newSchema
 		})
@@ -324,8 +324,8 @@
 			updateCurrentSchema(schemaUpdated)
 		}
 
-		diff = computeDiff(selectedSchema, flowStore.schema)
-		previewSchema = schemaFromDiff(diff, flowStore.schema)
+		diff = computeDiff(selectedSchema, flowStore.val.schema)
+		previewSchema = schemaFromDiff(diff, flowStore.val.schema)
 	}
 
 	function resetArgs() {
@@ -370,7 +370,7 @@
 		<div class="py-2 px-4 h-full">
 			<EditableSchemaForm
 				bind:this={editableSchemaForm}
-				bind:schema={flowStore.schema}
+				bind:schema={flowStore.val.schema}
 				isFlowInput
 				on:edit={(e) => {
 					addPropertyV2?.openDrawer(e.detail)
@@ -480,7 +480,7 @@
 						</div>
 					{:else}
 						<AddPropertyV2
-							bind:schema={flowStore.schema}
+							bind:schema={flowStore.val.schema}
 							bind:this={addPropertyV2}
 							on:change={() => {
 								if (editableSchemaForm) {
@@ -607,9 +607,9 @@
 								}}
 								on:select={(e) => {
 									if (e.detail) {
-										const diffSchema = computeDiff(e.detail, flowStore.schema)
+										const diffSchema = computeDiff(e.detail, flowStore.val.schema)
 										diff = diffSchema
-										previewSchema = schemaFromDiff(diffSchema, flowStore.schema)
+										previewSchema = schemaFromDiff(diffSchema, flowStore.val.schema)
 										runDisabled = true
 									} else {
 										updatePreviewSchemaAndArgs(undefined)
@@ -639,7 +639,7 @@
 		</div>
 	{:else}
 		<div class="p-4 border-b">
-			<FlowInputViewer schema={flowStore.schema} />
+			<FlowInputViewer schema={flowStore.val.schema} />
 		</div>
 	{/if}
 </FlowCard>
