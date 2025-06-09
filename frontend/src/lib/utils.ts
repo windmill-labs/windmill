@@ -1306,3 +1306,6 @@ export function cn(...inputs: ClassValue[]) {
 export type StateStore<T> = {
 	val: T
 }
+export function refreshStateStore<T>(store: StateStore<T>): void {
+	store.val = $state.snapshot(store.val) as any
+}

@@ -9,6 +9,7 @@
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import { Loader2 } from 'lucide-svelte'
+	import { refreshStateStore } from '$lib/utils'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -44,7 +45,7 @@
 			flowStore.val.value = parsed.value
 			flowStore.val.schema = parsed.schema
 			flowStore.val.tag = parsed.tag
-			flowStore.val = flowStore.val
+			refreshStateStore(flowStore)
 		} catch (e) {
 			sendUserToast('Error parsing yaml: ' + e), true
 		}

@@ -47,7 +47,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { loadSchemaFromModule } from '../flowInfers'
 	import { computeFlowStepWarning, initFlowStepWarnings } from '../utils'
-	import { debounce } from '$lib/utils'
+	import { debounce, refreshStateStore } from '$lib/utils'
 	import { dfs } from '../dfs'
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
 	import { type Job, JobService } from '$lib/gen'
@@ -850,7 +850,7 @@
 											on:updateMock={({ detail }) => {
 												flowModule.mock = detail
 												flowModule = flowModule
-												flowStore.val = flowStore.val
+												refreshStateStore(flowStore)
 											}}
 											{lastJob}
 											{scriptProgress}

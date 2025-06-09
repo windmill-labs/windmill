@@ -37,6 +37,7 @@
 	import { JobService } from '$lib/gen'
 	import { dfsByModule } from '../previousResults'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
+	import { refreshStateStore } from '$lib/utils'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -380,7 +381,7 @@
 							delete $flowInputsStore[id]
 						}
 					}
-					flowStore.val = flowStore.val
+					refreshStateStore(flowStore)
 
 					updateFlowInputsStore()
 				}
@@ -491,7 +492,7 @@
 							await addBranch(targetModules[detail.index ?? 0].id)
 						}
 						$flowStateStore = $flowStateStore
-						flowStore.val = flowStore.val
+						refreshStateStore(flowStore)
 						dispatch('change')
 					}
 				}
@@ -499,7 +500,7 @@
 			onNewBranch={async (id) => {
 				if (id) {
 					await addBranch(id)
-					flowStore.val = flowStore.val
+					refreshStateStore(flowStore)
 				}
 			}}
 			onSelect={(id) => {
@@ -539,13 +540,13 @@
 						mod.id = newId
 					}
 				})
-				flowStore.val = flowStore.val
+				refreshStateStore(flowStore)
 				$selectedId = newId
 			}}
 			onDeleteBranch={async ({ id, index }) => {
 				if (id) {
 					await removeBranch(id, index)
-					flowStore.val = flowStore.val
+					refreshStateStore(flowStore)
 					$selectedId = id
 				}
 			}}
@@ -559,7 +560,7 @@
 			onUpdateMock={(detail) => {
 				let module = findModuleById(detail.id)
 				module.mock = $state.snapshot(detail.mock)
-				flowStore.val = flowStore.val
+				refreshStateStore(flowStore)
 			}}
 		/>
 	</div>

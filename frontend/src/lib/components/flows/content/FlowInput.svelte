@@ -42,7 +42,7 @@
 	} from '$lib/components/schema/schemaUtils'
 	import SideBarTab from '$lib/components/meltComponents/SideBarTab.svelte'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
-	import { isObjectTooBig } from '$lib/utils'
+	import { isObjectTooBig, refreshStateStore } from '$lib/utils'
 
 	interface Props {
 		noEditor: boolean
@@ -483,7 +483,7 @@
 							bind:schema={flowStore.val.schema}
 							bind:this={addPropertyV2}
 							on:change={() => {
-								flowStore.val = flowStore.val
+								refreshStateStore(flowStore)
 								if (editableSchemaForm) {
 									editableSchemaForm.updateJson()
 								}
@@ -491,7 +491,7 @@
 							on:addNew={(e) => {
 								handleEditSchema('inputEditor')
 								editableSchemaForm?.openField(e.detail)
-								flowStore.val = flowStore.val
+								refreshStateStore(flowStore)
 							}}
 						>
 							{#snippet trigger()}

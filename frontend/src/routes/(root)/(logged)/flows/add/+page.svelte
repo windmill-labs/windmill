@@ -44,7 +44,7 @@
 	}
 	let flowBuilder: FlowBuilder | undefined = $state(undefined)
 
-	let flowStore: StateStore<Flow> = $state({
+	const flowStore: StateStore<Flow> = $state({
 		val: {
 			summary: '',
 			value: { modules: [] },

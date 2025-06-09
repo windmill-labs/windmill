@@ -10,6 +10,7 @@
 		waitForElementLoading
 	} from './utils'
 	import Tutorial from './Tutorial.svelte'
+	import { refreshStateStore } from '$lib/utils'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
@@ -191,7 +192,7 @@
 						}
 					}
 
-					flowStore.val = flowStore.val
+					refreshStateStore(flowStore)
 					dispatch('reload')
 
 					setTimeout(() => {
