@@ -1054,7 +1054,6 @@
 													checked={script.schema?.prompt_for_ai !== undefined}
 													on:change={() => {
 														if (script.schema?.prompt_for_ai !== undefined) {
-															console.log('deleting')
 															script.schema.prompt_for_ai = undefined
 														} else if (script.schema) {
 															script.schema.prompt_for_ai = ''

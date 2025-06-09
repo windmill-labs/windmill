@@ -23,6 +23,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
+	import AIFormAssistant from '$lib/components/copilot/AIFormAssistant.svelte'
 	import {
 		FolderOpen,
 		Archive,
@@ -531,6 +532,16 @@
 								}}
 							/>
 						</div>
+
+						{#if flow.schema?.prompt_for_ai !== undefined}
+							<AIFormAssistant
+								instructions={flow.schema?.prompt_for_ai as string}
+								onEditInstructions={() => {
+									goto(`/flows/edit/${flow?.path}?metadata_open=true`)
+								}}
+								runnableType="flow"
+							/>
+						{/if}
 
 						<RunForm
 							bind:scheduledForStr

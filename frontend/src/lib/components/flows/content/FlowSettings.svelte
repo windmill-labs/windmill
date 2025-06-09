@@ -112,6 +112,30 @@
 						}}
 					/>
 				</Label>
+
+				<div class="flex flex-col gap-2">
+					<Toggle
+						checked={$flowStore.schema?.prompt_for_ai !== undefined}
+						on:change={() => {
+							if ($flowStore.schema?.prompt_for_ai !== undefined) {
+								$flowStore.schema.prompt_for_ai = undefined
+							} else if ($flowStore.schema) {
+								$flowStore.schema.prompt_for_ai = ''
+							}
+						}}
+						options={{
+							right: 'Enable filling flow inputs with AI'
+						}}
+					/>
+					{#if $flowStore.schema?.prompt_for_ai !== undefined}
+						<Label label="Instructions">
+							<textarea
+								bind:value={$flowStore.schema.prompt_for_ai}
+								placeholder="Instructions for the AI about how to fill the form"
+							></textarea>
+						</Label>
+					{/if}
+				</div>
 			</div>
 
 			<!-- Deployable Section -->

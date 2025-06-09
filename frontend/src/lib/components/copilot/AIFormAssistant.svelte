@@ -1,0 +1,52 @@
+<script lang="ts">
+	import { Button } from '$lib/components/common'
+	import { WandSparkles, Pencil } from 'lucide-svelte'
+	import { aiChatManager } from './chat/AIChatManager.svelte'
+
+	interface Props {
+		onEditInstructions: () => void
+		instructions: string
+		runnableType: 'script' | 'flow'
+	}
+
+	const { onEditInstructions, instructions, runnableType }: Props = $props()
+
+	async function fillFormWithAI() {
+		aiChatManager.openChat()
+		aiChatManager.askAi(`Fill the form for this ${runnableType}`)
+	}
+</script>
+
+<div class="my-3 p-3 bg-surface-secondary rounded-md">
+	<div class="flex mb-2">
+		<h3 class="text-sm font-medium">AI Form Assistant</h3>
+	</div>
+	<div class="mt-2">
+		<div class="flex justify-between items-center gap-2">
+			<p class="text-sm text-tertiary">
+				{instructions ||
+					'No AI instructions provided. Click edit to add guidance for AI form filling.'}
+			</p>
+			<Button
+				color="light"
+				size="xs2"
+				startIcon={{
+					icon: Pencil
+				}}
+				iconOnly
+				on:click={onEditInstructions}
+			/>
+		</div>
+	</div>
+	<div class="flex justify-end mt-4">
+		<Button
+			size="xs2"
+			startIcon={{
+				icon: WandSparkles
+			}}
+			on:click={fillFormWithAI}
+		>
+			Fill with AI
+		</Button>
+	</div>
+</div>

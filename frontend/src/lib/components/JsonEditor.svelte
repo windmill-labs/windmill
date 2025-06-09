@@ -19,7 +19,6 @@
 
 	function parseJson() {
 		try {
-			console.log('parseJson', code)
 			if (code == '') {
 				value = undefined
 				error = ''
@@ -33,7 +32,6 @@
 		}
 	}
 	$: code != undefined && parseJson()
-	$: console.log('code', code)
 </script>
 
 {#if tooBig}
