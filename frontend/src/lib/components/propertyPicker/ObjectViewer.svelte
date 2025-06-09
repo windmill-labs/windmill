@@ -27,6 +27,7 @@
 		prefix?: string
 		expandedEvenOnLevel0?: string | undefined
 		connecting?: boolean
+		small?: boolean
 	}
 
 	let {
@@ -41,7 +42,8 @@
 		collapseLevel = undefined,
 		prefix = '',
 		expandedEvenOnLevel0 = undefined,
-		connecting = false
+		connecting = false,
+		small = false
 	}: Props = $props()
 
 	let jsonFiltered = $state(json)
@@ -142,15 +144,17 @@
 		title={JSON.stringify(v)}
 	>
 		{#if v === NEVER_TESTED_THIS_FAR}
-			<span class="text-2xs text-tertiary font-normal"> Test the flow to see a value </span>
+			<span class="{small ? 'text-[10px]' : 'text-2xs'} text-tertiary font-normal">
+				Test the flow to see a value
+			</span>
 		{:else if v == undefined}
-			<span class="text-2xs">undefined</span>
+			<span class={small ? 'text-[10px]' : 'text-2xs'}>undefined</span>
 		{:else if v == null}
-			<span class="text-2xs">null</span>
+			<span class={small ? 'text-[10px]' : 'text-2xs'}>null</span>
 		{:else if typeof v == 'string'}
-			<span class="text-2xs">"{truncate(v, 200)}"</span>
+			<span class={small ? 'text-[10px]' : 'text-2xs'}>"{truncate(v, 200)}"</span>
 		{:else if typeof v == 'number' && Number.isInteger(v) && !Number.isSafeInteger(v)}
-			<span class="inline-flex flex-row gap-1 items-center text-2xs">
+			<span class="inline-flex flex-row gap-1 items-center {small ? 'text-[10px]' : 'text-2xs'}">
 				{truncate(JSON.stringify(v), 200)}
 				<Popover>
 					<TriangleAlertIcon size={14} class="text-yellow-500 mb-0.5" />
@@ -160,7 +164,7 @@
 				</Popover>
 			</span>
 		{:else}
-			<span class="text-2xs">
+			<span class={small ? 'text-[10px]' : 'text-2xs'}>
 				{truncate(JSON.stringify(v), 200)}
 			</span>
 		{/if}
@@ -182,7 +186,7 @@
 						event.stopPropagation()
 					}}
 					type="text"
-					class="!h-6 !text-2xs mt-0.5"
+					class="!h-6 {small ? '!text-[10px]' : '!text-2xs'} mt-0.5"
 					bind:value={search}
 					placeholder="Search..."
 				/>
@@ -219,8 +223,9 @@
 					variant="border"
 					on:click={collapse}
 					wrapperClasses="!inline-flex w-fit"
-					btnClasses="font-mono h-4 text-2xs px-1 font-thin text-primary rounded-[0.275rem]"
-					>-</Button
+					btnClasses="font-mono h-4 {small
+						? 'text-[10px]'
+						: 'text-2xs'} px-1 font-thin text-primary rounded-[0.275rem]">-</Button
 				>
 			{/if}
 			{#if level == 0 && topBrackets}<span class="text-tertiary">{openBracket}</span>{/if}
@@ -248,13 +253,15 @@
 								color="light"
 								variant="border"
 								wrapperClasses="p-0 whitespace-nowrap w-fit"
-								btnClasses="font-mono h-4 py-1 text-2xs font-thin px-1 rounded-[0.275rem]"
+								btnClasses="font-mono h-4 py-1 {small
+									? 'text-[10px]'
+									: 'text-2xs'} font-thin px-1 rounded-[0.275rem]"
 								title={computeFullKey(key, rawKey)}
 							>
 								<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index} </span>
 							</Button>
 						</AnimatedButton>
-						<span class="text-2xs -ml-0.5 text-tertiary">:</span>
+						<span class="{small ? 'text-[10px]' : 'text-2xs'} -ml-0.5 text-tertiary">:</span>
 
 						{#if getTypeAsString(jsonFiltered[key]) === 'object'}
 							<ObjectViewer
@@ -269,6 +276,7 @@
 								collapsed={collapseLevel !== undefined
 									? level + 1 >= collapseLevel && key != expandedEvenOnLevel0
 									: undefined}
+								{small}
 							/>
 						{:else}
 							{@render renderScalar(key, jsonFiltered[key])}
@@ -277,7 +285,10 @@
 				{/each}
 				{#if keys.length > keyLimit}
 					{@const increment = Math.min(100, keys.length - keyLimit)}
-					<button onclick={() => (keyLimit += increment)} class="text-2xs px-2 text-secondary">
+					<button
+						onclick={() => (keyLimit += increment)}
+						class="{small ? 'text-[10px]' : 'text-2xs'} px-2 text-secondary"
+					>
 						{keyLimit}/{keys.length}: Load {increment} more...
 					</button>
 				{/if}
@@ -287,7 +298,9 @@
 					<span class="text-tertiary">{closeBracket}</span>
 					{#if getTypeAsString(jsonFiltered) === 's3object'}
 						<a
-							class="text-secondary underline font-semibold text-2xs whitespace-nowrap ml-1 w-fit"
+							class="text-secondary underline font-semibold {small
+								? 'text-[10px]'
+								: 'text-2xs'} whitespace-nowrap ml-1 w-fit"
 							href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(
 								jsonFiltered?.s3 ?? ''
 							)}${jsonFiltered?.storage ? `&storage=${jsonFiltered.storage}` : ''}`}
@@ -296,7 +309,9 @@
 							<span class="flex items-center gap-1"><Download size={12} />download</span>
 						</a>
 						<button
-							class="text-secondary underline text-2xs whitespace-nowrap ml-1"
+							class="text-secondary underline {small
+								? 'text-[10px]'
+								: 'text-2xs'} whitespace-nowrap ml-1"
 							onclick={() => {
 								s3FileViewer?.open?.(jsonFiltered)
 							}}
@@ -328,11 +343,11 @@
 {:else if topBrackets}
 	<span class="text-primary">{openBracket}{closeBracket}</span>
 {:else if jsonFiltered == undefined}
-	<span class="text-tertiary text-2xs ml-2">undefined</span>
+	<span class="text-tertiary {small ? 'text-[10px]' : 'text-2xs'} ml-2">undefined</span>
 {:else if typeof jsonFiltered != 'object'}
 	{@render renderScalar('', jsonFiltered)}
 {:else}
-	<span class="text-tertiary text-2xs ml-2">No items</span>
+	<span class="text-tertiary {small ? 'text-[10px]' : 'text-2xs'} ml-2">No items</span>
 {/if}
 
 <style lang="postcss">
