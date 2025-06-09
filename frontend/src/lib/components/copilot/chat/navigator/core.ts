@@ -307,9 +307,15 @@ export const getDocumentationTool: Tool<{}> = {
 	def: GET_DOCUMENTATION_TOOL,
 	fn: async ({ args, toolId, toolCallbacks }) => {
 		toolCallbacks.onToolCall(toolId, 'Getting documentation...')
-		const docResult = await getDocumentation(args)
-		toolCallbacks.onFinishToolCall(toolId, 'Retrieved documentation')
-		return docResult
+		try {
+			const docResult = await getDocumentation(args)
+			toolCallbacks.onFinishToolCall(toolId, 'Retrieved documentation')
+			return docResult
+		} catch (error) {
+			toolCallbacks.onFinishToolCall(toolId, 'Error getting documentation')
+			console.error('Error getting documentation:', error)
+			return 'Failed to get documentation, pursuing with the user request...'
+		}
 	}
 }
 
@@ -317,9 +323,15 @@ const getAvailableResourcesTool: Tool<{}> = {
 	def: GET_AVAILABLE_RESOURCES_TOOL,
 	fn: async ({ args, toolId, toolCallbacks }) => {
 		toolCallbacks.onToolCall(toolId, 'Getting available resources...')
-		const resources = await getAvailableResources(args)
-		toolCallbacks.onFinishToolCall(toolId, 'Retrieved available resources')
-		return resources
+		try {
+			const resources = await getAvailableResources(args)
+			toolCallbacks.onFinishToolCall(toolId, 'Retrieved available resources')
+			return resources
+		} catch (error) {
+			toolCallbacks.onFinishToolCall(toolId, 'Error getting available resources')
+			console.error('Error getting available resources:', error)
+			return 'Failed to get available resources, pursuing with the user request...'
+		}
 	}
 }
 
