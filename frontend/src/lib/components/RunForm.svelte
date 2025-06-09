@@ -104,7 +104,7 @@
 	## Schema used: ${JSON.stringify(runnable?.schema)}.
 	## Current args: ${JSON.stringify(args)}}`}
 	onTrigger={(value) => {
-		args = JSON.parse(value ?? '{}')
+		setArgs(JSON.parse(value ?? '{}'))
 	}}
 />
 <div class="max-w-3xl">
