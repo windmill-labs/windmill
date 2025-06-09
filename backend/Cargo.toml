@@ -96,7 +96,9 @@ csharp = ["windmill-worker/csharp"]
 nu = ["windmill-worker/nu"]
 java = ["windmill-worker/java"]
 all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql", "bigquery", "csharp", "nu", "php", "java"]
-
+# For windows we have another set of languages enabled
+# NOTE: DuckDB is ignored because of compilation problems
+all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "mssql", "bigquery", "csharp", "nu", "php", "java"]
 
 [patch.crates-io]
 object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7" } 
