@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { WandSparkles, Pencil } from 'lucide-svelte'
+	import { Pencil } from 'lucide-svelte'
 	import { aiChatManager } from './chat/AIChatManager.svelte'
 	import AskAiButton from './AskAiButton.svelte'
 
