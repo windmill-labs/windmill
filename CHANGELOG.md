@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.496.3](https://github.com/windmill-labs/windmill/compare/v1.496.2...v1.496.3) (2025-06-09)
+
+
+### Bug Fixes
+
+* improve concurrent job parallelism performance ([e8836a3](https://github.com/windmill-labs/windmill/commit/e8836a393a872bb91e68ba0037681caf24149470))
+* Prioritize diff contexts in script mode for ai chat ([#5888](https://github.com/windmill-labs/windmill/issues/5888)) ([a47939d](https://github.com/windmill-labs/windmill/commit/a47939d13c30e2d4b41efd539f845959174d4fb1))
+
 ## [1.496.2](https://github.com/windmill-labs/windmill/compare/v1.496.1...v1.496.2) (2025-06-07)
 
 
