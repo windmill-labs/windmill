@@ -64,7 +64,6 @@
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
 
-	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 	const {
 		customUi,
 		selectedId,
@@ -74,7 +73,7 @@
 		flowStore,
 		flowInputsStore,
 		pathStore
-	} = flowEditorContext
+	} = getContext<FlowEditorContext>('FlowEditorContext')
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
@@ -383,7 +382,6 @@
 							delete $flowInputsStore[id]
 						}
 					}
-					flowEditorContext.flowStore = flowStore
 
 					updateFlowInputsStore()
 				}
@@ -494,7 +492,6 @@
 							await addBranch(targetModules[detail.index ?? 0].id)
 						}
 						$flowStateStore = $flowStateStore
-						flowEditorContext.flowStore = flowStore
 						dispatch('change')
 					}
 				}
@@ -502,7 +499,6 @@
 			onNewBranch={async (id) => {
 				if (id) {
 					await addBranch(id)
-					flowEditorContext.flowStore = flowStore
 				}
 			}}
 			onSelect={(id) => {
@@ -542,13 +538,11 @@
 						mod.id = newId
 					}
 				})
-				flowEditorContext.flowStore = flowStore
 				$selectedId = newId
 			}}
 			onDeleteBranch={async ({ id, index }) => {
 				if (id) {
 					await removeBranch(id, index)
-					flowEditorContext.flowStore = flowStore
 					$selectedId = id
 				}
 			}}
@@ -562,7 +556,6 @@
 			onUpdateMock={(detail) => {
 				let module = findModuleById(detail.id)
 				module.mock = $state.snapshot(detail.mock)
-				flowEditorContext.flowStore = flowStore
 			}}
 		/>
 	</div>

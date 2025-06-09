@@ -11,8 +11,7 @@
 	} from './utils'
 	import Tutorial from './Tutorial.svelte'
 
-	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
-	const { flowStore } = flowEditorContext
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
 	let tutorial: Tutorial | undefined = undefined
@@ -192,7 +191,6 @@
 						}
 					}
 
-					flowEditorContext.flowStore = flowStore
 					dispatch('reload')
 
 					setTimeout(() => {
