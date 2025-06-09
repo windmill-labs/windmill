@@ -681,8 +681,8 @@
 								{inputSelected}
 							/>
 							<Toggle
-								aiId="json-view"
-								aiDescription="Toggle JSON view to be able to fill args from JSON"
+								aiId={`json-view-${script.path}`}
+								aiDescription="Toggle JSON view to be able to fill the form inputs from JSON."
 								bind:checked={jsonView}
 								label="JSON View"
 								size="xs"

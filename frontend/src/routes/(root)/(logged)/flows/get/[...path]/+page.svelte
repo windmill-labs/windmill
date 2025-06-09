@@ -518,6 +518,8 @@
 								{inputSelected}
 							/>
 							<Toggle
+								aiId={`json-view-${flow.path}`}
+								aiDescription="Toggle JSON view to be able to fill the form inputs from JSON."
 								bind:checked={jsonView}
 								label="JSON View"
 								size="xs"

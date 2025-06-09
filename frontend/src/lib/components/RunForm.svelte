@@ -100,7 +100,7 @@
 
 <TriggerableByAI
 	id={`run-form-${runnable?.path ?? ''}`}
-	description={`Run form to run the script ${runnable?.summary ?? runnable?.path ?? ''}`}
+	description={`Form to run ${runnable?.summary ?? runnable?.path ?? ''}`}
 />
 <div class="max-w-3xl">
 	{#if detailed}
