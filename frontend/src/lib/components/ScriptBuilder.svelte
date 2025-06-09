@@ -1047,6 +1047,14 @@
 													}}
 												/>
 											</Label>
+											{#if script.schema}
+												<Label label="Prompt for AI">
+													<textarea
+														bind:value={script.schema.prompt_for_ai}
+														placeholder="Prompt for AI"
+													></textarea>
+												</Label>
+											{/if}
 										</div>
 									</Section>
 
