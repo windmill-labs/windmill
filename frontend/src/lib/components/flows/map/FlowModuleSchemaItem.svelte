@@ -31,7 +31,6 @@
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
-	import { useSvelteFlow } from '@xyflow/svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import { Button } from '$lib/components/common'
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
@@ -96,8 +95,6 @@
 	let historyOpen = false
 	let moduleTest: ModuleTest | undefined = undefined
 	let testIsLoading = false
-
-	const { viewport } = useSvelteFlow()
 
 	$: flowStateStore = flowEditorContext?.flowStateStore
 
@@ -210,11 +207,7 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
-	class={classNames(
-		'w-full module flex rounded-sm cursor-pointer max-w-full outline-offset-0 outline-slate-500 dark:outline-gray-400',
-		selected ? 'outline outline-2' : 'active:outline active:outline-2',
-		'flex relative'
-	)}
+	class={classNames('w-full module flex rounded-sm cursor-pointer max-w-full ', 'flex relative')}
 	style="width: 275px; height: 34px; background-color: {hover && bgHoverColor
 		? bgHoverColor
 		: bgColor};"
@@ -222,6 +215,13 @@
 	on:mouseleave={() => (hover = false)}
 	on:pointerdown|preventDefault|stopPropagation={() => dispatch('pointerdown')}
 >
+	<div
+		class={classNames(
+			'absolute rounded-sm outline-offset-0 outline-slate-500 dark:outline-gray-400',
+			selected ? 'outline outline-2' : 'active:outline active:outline-2'
+		)}
+		style="width: 275px; height: 51px;"
+	></div>
 	<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
 		{#if retry}
 			<Popover notClickable>
@@ -333,7 +333,6 @@
 		{#if editMode && (isConnectingCandidate || alwaysShowOutputPicker)}
 			<OutputPicker
 				bind:this={outputPicker}
-				zoom={$viewport?.zoom ?? 1}
 				{selected}
 				{hover}
 				let:allowCopy
@@ -363,26 +362,24 @@
 	</div>
 
 	{#if deletable}
-		<Button
-			size="sm"
-			color="dark"
-			wrapperClasses="absolute top-1/2 -translate-y-1/2 -left-[28px] {hover || selected
-				? ''
-				: '!hidden'}"
-			title="Run"
-			btnClasses="p-1"
-			on:click={() => {
-				console.log('dbg runTestWithStepArgs', stepArgs)
-				moduleTest?.runTestWithStepArgs()
-			}}
-		>
-			{#if testIsLoading}
-				<Loader2 size={12} class="animate-spin" />
-			{:else}
-				<Play size={12} />
-			{/if}
-		</Button>
-
+		<div class="absolute top-1/2 -translate-y-1/2 -left-[36px] center-center w-8 h-8">
+			<Button
+				size="sm"
+				color="dark"
+				wrapperClasses={hover || selected ? '' : '!hidden'}
+				title="Run"
+				btnClasses="p-1.5"
+				on:click={() => {
+					moduleTest?.runTestWithStepArgs()
+				}}
+			>
+				{#if testIsLoading}
+					<Loader2 size={12} class="animate-spin" />
+				{:else}
+					<Play size={12} />
+				{/if}
+			</Button>
+		</div>
 		<button
 			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
 outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-red-400 hover:text-white

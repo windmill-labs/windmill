@@ -1,12 +1,10 @@
 <script lang="ts">
-	import { ChevronDown } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { getContext, tick } from 'svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 
-	export let zoom: number = 1
 	export let selected: boolean = false
 	export let hover: boolean = false
 	export let isConnectingCandidate: boolean = false
@@ -19,6 +17,8 @@
 	const MIN_HEIGHT = 275
 
 	let isConnecting = false
+	let outputOpen = false
+	let inputOpen = false
 
 	async function updateConnecting() {
 		await tick()
@@ -38,9 +38,6 @@
 
 	let popover: Popover | undefined = undefined
 
-	$: width = Math.max(MIN_WIDTH * zoom, 375)
-	$: height = Math.max(MIN_HEIGHT * zoom, 375)
-
 	const virtualItemClasses = {
 		bar: 'dark:hover:bg-[#525d6f] dark:bg-[#414958] bg-[#d7dfea] hover:bg-slate-300'
 	}
@@ -56,74 +53,121 @@
 			popover?.open()
 		}
 	}
+
+	$: bottomBarOpen = inputOpen || outputOpen || selected || hover || showConnecting
 </script>
 
-<!-- svelte-ignore element_invalid_self_closing_tag -->
-<Popover
-	floatingConfig={{
-		placement: 'bottom',
-		gutter: 24, // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
-		overflowPadding: historyOpen ? 250 : 8
-	}}
-	usePointerDownOutside
-	closeOnOutsideClick={false}
-	on:click={(e) => {
+<div
+	class="relative h-1 w-[275px]"
+	on:pointerdown={(e) => {
 		e.preventDefault()
 		e.stopPropagation()
 	}}
-	bind:this={popover}
-	allowFullScreen
-	contentClasses="overflow-hidden resize rounded-md"
-	contentStyle={`width: calc(${width}px); min-width: calc(${width}px); height: calc(${height}px); min-height: calc(${height}px);`}
-	extraProps={{ 'data-prop-picker': true }}
-	closeOnOtherPopoverOpen
-	class="outline-none"
 >
-	<svelte:fragment slot="trigger" let:isOpen>
-		<div
-			class="relative h-1"
-			on:pointerdown={(e) => {
-				e.preventDefault()
-				e.stopPropagation()
-			}}
-		>
-			<!-- Invisible hover area to maintain consistent height -->
-			<div class="absolute w-[275px] h-[16px]" />
-			<div
-				class={twMerge(
-					'bg-slate-200 absolute w-[275px]',
-					variant === 'virtual'
-						? `${virtualItemClasses.bar} ${isOpen || selected || hover || showConnecting ? 'bg-slate-300 dark:bg-[#525d6f]' : ''}`
-						: `${defaultClasses.bar} ${isOpen || selected || hover || showConnecting ? 'bg-surface-hover dark:bg-[#576278]' : ''}`,
-					'shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)] rounded-b-sm',
-					'group transition-all duration-100',
-					'flex flex-row items-center justify-center',
-					'h-1 hover:h-[16px]',
-					(isOpen || selected || hover || showConnecting) && 'h-[16px]',
-					showConnecting && 'text-blue-500 bg-surface'
-				)}
-				data-prop-picker
-				title={`${isOpen ? 'Close' : 'Open'} step output`}
+	<!-- Invisible hover area to maintain consistent height -->
+	<div class="absolute w-full h-[20px]"></div>
+	<div
+		class={twMerge(
+			'bg-slate-200 absolute w-full',
+			variant === 'virtual'
+				? `${virtualItemClasses.bar} ${bottomBarOpen ? 'bg-slate-300 dark:bg-[#525d6f]' : ''}`
+				: `${defaultClasses.bar} ${bottomBarOpen ? 'bg-surface-hover dark:bg-[#576278]' : ''}`,
+			'shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)] rounded-b-sm',
+			'group transition-all duration-100',
+			'flex flex-row items-center justify-center',
+			'h-1 hover:h-[20px]',
+			bottomBarOpen && 'h-[20px]',
+			showConnecting && 'text-blue-500 bg-surface'
+		)}
+		data-prop-picker
+	>
+		<div class="flex flex-row items-center justify-center w-full h-full">
+			<Popover
+				floatingConfig={{
+					placement: 'bottom',
+					gutter: 0,
+					offset: { mainAxis: 3, crossAxis: 69 },
+					overflowPadding: historyOpen ? 250 : 8
+				}}
+				usePointerDownOutside
+				closeOnOutsideClick={false}
+				on:click={(e) => {
+					e.preventDefault()
+					e.stopPropagation()
+				}}
+				allowFullScreen
+				contentClasses="overflow-hidden resize rounded-t-none"
+				contentStyle={`width: calc(${MIN_WIDTH}px); min-width: calc(${MIN_WIDTH}px); height: calc(${MIN_HEIGHT}px); min-height: calc(${MIN_HEIGHT}px); `}
+				extraProps={{ 'data-prop-picker': true }}
+				closeOnOtherPopoverOpen
+				class="flex-1 h-full"
+				portal="#node"
+				bind:isOpen={inputOpen}
 			>
-				<AnimatedButton
-					animate={showConnecting}
-					wrapperClasses={twMerge(
-						'relative w-10 h-full center-center transition-opacity duration-150',
-						isOpen || selected || hover || showConnecting ? 'opacity-100' : 'opacity-0',
-						'group-hover:opacity-100'
-					)}
-					baseRadius="6px"
-					marginWidth="1px"
-				>
-					<p class="text-xs">O</p>
-				</AnimatedButton>
-			</div>
+				<svelte:fragment slot="trigger">
+					<button
+						class={twMerge(
+							'h-full center-center transition-opacity duration-150 w-full',
+							bottomBarOpen ? 'opacity-100' : 'opacity-0',
+							'text-2xs font-normal w-full h-full border-t-2 border-transparent',
+							inputOpen ? 'border-primary' : 'hover:border-primary/20'
+						)}
+					>
+						In
+					</button>
+				</svelte:fragment>
+				<svelte:fragment slot="content">Input here</svelte:fragment>
+			</Popover>
+			<Popover
+				floatingConfig={{
+					placement: 'bottom',
+					gutter: 0,
+					offset: { mainAxis: 3, crossAxis: -69 },
+					overflowPadding: historyOpen ? 250 : 8
+				}}
+				usePointerDownOutside
+				closeOnOutsideClick={false}
+				on:click={(e) => {
+					e.preventDefault()
+					e.stopPropagation()
+				}}
+				bind:this={popover}
+				allowFullScreen
+				contentClasses="overflow-hidden resize rounded-t-none"
+				contentStyle={`width: calc(${MIN_WIDTH}px); min-width: calc(${MIN_WIDTH}px); height: calc(${MIN_HEIGHT}px); min-height: calc(${MIN_HEIGHT}px); `}
+				extraProps={{ 'data-prop-picker': true }}
+				closeOnOtherPopoverOpen
+				class="flex-1 h-full"
+				portal="#node"
+				bind:isOpen={outputOpen}
+			>
+				<svelte:fragment slot="trigger">
+					<AnimatedButton
+						animate={showConnecting}
+						wrapperClasses={twMerge(
+							'h-full center-center transition-opacity duration-150 w-full',
+							bottomBarOpen ? 'opacity-100' : 'opacity-0'
+						)}
+						baseRadius="6px"
+						marginWidth="1px"
+					>
+						<button
+							class={twMerge(
+								'text-2xs font-normal w-full h-full border-t-2 border-transparent',
+								outputOpen ? 'border-primary' : 'hover:border-primary/20'
+							)}
+						>
+							Out
+						</button>
+					</AnimatedButton>
+				</svelte:fragment>
+				<svelte:fragment slot="content">
+					<slot allowCopy={!$flowPropPickerConfig} {isConnecting} {selectConnection} />
+				</svelte:fragment>
+			</Popover>
 		</div>
-	</svelte:fragment>
-	<svelte:fragment slot="content">
-		<slot allowCopy={!$flowPropPickerConfig} {isConnecting} {selectConnection} />
-	</svelte:fragment>
-</Popover>
+	</div>
+</div>
 
 <style>
 	@keyframes moveGradient {
