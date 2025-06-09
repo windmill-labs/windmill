@@ -2,6 +2,7 @@
 	import { Button } from '$lib/components/common'
 	import { WandSparkles, Pencil } from 'lucide-svelte'
 	import { aiChatManager } from './chat/AIChatManager.svelte'
+	import AskAiButton from './AskAiButton.svelte'
 
 	interface Props {
 		onEditInstructions: () => void
@@ -21,31 +22,25 @@
 	<div class="flex flex-row justify-between items-center">
 		<div class="flex flex-col gap-1">
 			<h3 class="text-sm font-medium">Fill the inputs with AI</h3>
-			<p class="text-sm text-tertiary">
-				{instructions
-					? 'Instructions: ' + instructions
-					: 'No AI instructions provided. Click edit to add guidance for AI form filling.'}
-			</p>
+			<div class="flex flex-row gap-2 items-center">
+				<p class="text-sm text-tertiary">
+					{instructions
+						? 'Instructions: ' + instructions
+						: 'No AI instructions provided. Click edit to add guidance for AI form filling.'}
+				</p>
+				<Button
+					color="light"
+					size="xs2"
+					startIcon={{
+						icon: Pencil
+					}}
+					iconOnly
+					on:click={onEditInstructions}
+				/>
+			</div>
 		</div>
-		<Button
-			color="light"
-			size="xs2"
-			startIcon={{
-				icon: Pencil
-			}}
-			iconOnly
-			on:click={onEditInstructions}
-		/>
 	</div>
 	<div class="flex justify-end mt-2">
-		<Button
-			size="xs2"
-			startIcon={{
-				icon: WandSparkles
-			}}
-			on:click={fillFormWithAI}
-		>
-			Fill with AI
-		</Button>
+		<AskAiButton label="Fill with AI" onClick={fillFormWithAI} />
 	</div>
 </div>
