@@ -42,7 +42,9 @@
 					<svelte:component this={icon} size={16} />
 				{/if}
 			</button>
-			{contextElement.title}
+			{contextElement.type === 'diff'
+				? contextElement.title.replace(/_/g, ' ')
+				: contextElement.title}
 		</div>
 	</svelte:fragment>
 	<svelte:fragment slot="content">
