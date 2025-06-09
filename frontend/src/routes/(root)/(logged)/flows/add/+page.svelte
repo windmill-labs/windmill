@@ -5,8 +5,8 @@
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
-	import type { FlowState } from '$lib/components/flows/flowState'
-	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore.svelte'
+	import { initFlowState, type FlowState } from '$lib/components/flows/flowState'
+	import { importFlowStore } from '$lib/components/flows/flowStore.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
 	import { initialArgsStore, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -44,17 +44,15 @@
 	}
 	let flowBuilder: FlowBuilder | undefined = $state(undefined)
 
-	let flowStore: { flowStore: Flow } = $state({
-		flowStore: {
-			summary: '',
-			value: { modules: [] },
-			path: '',
-			edited_at: '',
-			edited_by: '',
-			archived: false,
-			extra_perms: {},
-			schema: emptySchema()
-		}
+	let flowStore: Flow = $state({
+		summary: '',
+		value: { modules: [] },
+		path: '',
+		edited_at: '',
+		edited_by: '',
+		archived: false,
+		extra_perms: {},
+		schema: emptySchema()
 	})
 	const flowStateStore = writable<FlowState>({})
 
@@ -88,7 +86,7 @@
 				{
 					label: 'Start from blank instead',
 					callback: () => {
-						flowStore.flowStore = {
+						flowStore = {
 							summary: '',
 							value: { modules: [] },
 							path: '',
@@ -152,7 +150,8 @@
 				})
 			}
 		}
-		await initFlow(flow, flowStore, flowStateStore)
+		await initFlowState(flow, flowStateStore)
+		flowStore = flow
 		loading = false
 	}
 
@@ -176,7 +175,7 @@
 	bind:this={flowBuilder}
 	newFlow
 	{initialArgs}
-	flowStore={flowStore.flowStore}
+	{flowStore}
 	{flowStateStore}
 	{selectedId}
 	{loading}
