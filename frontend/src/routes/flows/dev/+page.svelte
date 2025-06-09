@@ -273,7 +273,6 @@
 				<Pane size={33}>
 					{#if flowStore.val?.value?.modules}
 						<FlowModuleSchemaMap
-							bind:modules={flowStore.val.value.modules}
 							disableAi
 							disableTutorials
 							smallErrorHandler={true}
