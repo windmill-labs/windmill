@@ -44,7 +44,7 @@ use windmill_common::{
     error::{self, JsonResult},
     s3_helpers::S3Object,
     triggers::TriggerKind,
-    utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
+    utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath, empty_as_none},
     worker::CLOUD_HOSTED,
 };
 use windmill_git_sync::handle_deployment_metadata;
@@ -173,6 +173,7 @@ pub struct ListTriggerQuery {
     pub per_page: Option<usize>,
     pub path: Option<String>,
     pub is_flow: Option<bool>,
+    #[serde(default, deserialize_with = "empty_as_none")]
     pub path_start: Option<String>,
 }
 

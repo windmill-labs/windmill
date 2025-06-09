@@ -1,11 +1,11 @@
 import { base } from '$lib/base'
 import { isCloudHosted } from '$lib/cloud'
 import { random_adj } from '$lib/components/random_positive_adjetive'
-import type { HttpMethod, NewHttpTrigger } from '$lib/gen'
+import type { HttpMethod, HttpTrigger, NewHttpTrigger } from '$lib/gen'
 import { HttpTriggerService } from '$lib/gen/services.gen'
 import { sendUserToast } from '$lib/toast'
 import { generateRandomString, OpenApi as WindmillOpenApi } from '$lib/utils'
-import { type OpenAPI } from 'openapi-types'
+import { type OpenAPI, type OpenAPIV3_1 } from 'openapi-types'
 import type { Writable } from 'svelte/store'
 import { get } from 'svelte/store'
 
@@ -180,3 +180,78 @@ export const SERVER_TEMPLATES = `[
     "description": "Staging server"
   }
 ]`
+
+type OpenAPIParameter = {
+	name: string
+	in: 'path'
+	required: true
+	schema: {
+		type: 'string' // You can make this dynamic if needed
+	}
+	description?: string
+}
+
+function fromHttpRoutePathToOpenAPIPath(httpRoutePath: string): [string, OpenAPIParameter[]] {
+	const parameters: OpenAPIParameter[] = []
+	const openapiPath = httpRoutePath.replace(/:([\w]+)/g, (_, paramName) => {
+		parameters.push({
+			name: paramName,
+			in: 'path',
+			required: true,
+			schema: { type: 'string' },
+			description: `Path parameter '${paramName}'`
+		})
+		return `{${paramName}}`
+	})
+
+	return [`/${openapiPath}`, parameters]
+}
+
+function generatePathObjectFromHttpRoutes(httpRoutes: HttpTrigger[]): OpenAPIV3_1.PathsObject {
+	const paths = {}
+
+	const okAsyncResponse = {
+		200: {
+			description: 'Job queued successfully',
+			content: {
+				'application/json': {
+					schema: {
+						type: 'string',
+						format: 'uuid',
+						example: 'f7641d4a-7890-4c83-9e8d-9d2d3bc5aeca'
+					}
+				}
+			}
+		}
+	}
+
+	httpRoutes.forEach((httpRoute) => {
+		const [openapiPath, parameters] = fromHttpRoutePathToOpenAPIPath(httpRoute.route_path)
+		paths[openapiPath] = {
+			...paths[openapiPath],
+			[httpRoute.http_method]: {
+				parameters,
+				requestBody: {},
+				respones: httpRoute.is_async ? okAsyncResponse : {}
+			}
+		}
+	})
+
+	return paths
+}
+
+export function generateOpenAPIspec(
+	info: OpenAPIV3_1.InfoObject,
+	servers: OpenAPIV3_1.ServerObject[],
+	httpRoutes: HttpTrigger[]
+): string {
+	const paths = generatePathObjectFromHttpRoutes(httpRoutes)
+
+	const spec = {
+		info,
+		servers,
+		paths
+	}
+
+	return JSON.stringify(spec)
+}
