@@ -108,7 +108,7 @@
 						bind:selectedTeam
 						minWidth="180px"
 						disabled={!$enterpriseLicense}
-						on:error={(e) => sendUserToast('Failed to load teams: ' + e.detail.message, true)}
+						onError={(e) => sendUserToast('Failed to load teams: ' + e.message, true)}
 					/>
 				{/if}
 			{:else}

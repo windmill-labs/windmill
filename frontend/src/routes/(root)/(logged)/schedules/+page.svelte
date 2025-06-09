@@ -256,8 +256,14 @@
 			tooltip="Trigger Scripts and Flows according to a cron schedule"
 			documentationLink="https://www.windmill.dev/docs/core_concepts/scheduling"
 		>
-			<Button size="md" startIcon={{ icon: Plus }} on:click={() => scheduleEditor.openNew(false)}>
-				New&nbsp;schedule
+			<Button
+				size="md"
+				startIcon={{ icon: Plus }}
+				on:click={() => scheduleEditor.openNew(false)}
+				aiId="schedules-add-schedule"
+				aiDescription="Add schedule"
+			>
+				New schedule
 			</Button>
 		</PageHeader>
 		<div class="w-full h-full flex flex-col">

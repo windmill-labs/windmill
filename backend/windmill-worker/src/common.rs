@@ -492,6 +492,7 @@ pub async fn update_worker_ping_for_failed_init_script(
             if let Err(e) = client
                 .post::<_, ()>(
                     UPDATE_PING_URL,
+                    None,
                     &Ping {
                         last_job_executed: Some(last_job_id),
                         last_job_workspace_id: None,
@@ -728,7 +729,7 @@ async fn get_workspace_s3_resource_path(
     storage: Option<&String>,
 ) -> windmill_common::error::Result<Option<ObjectStoreResource>> {
     use windmill_common::{
-        job_s3_helpers_ee::get_s3_resource_internal, s3_helpers::StorageResourceType,
+        job_s3_helpers_oss::get_s3_resource_internal, s3_helpers::StorageResourceType,
     };
 
     let raw_lfs_opt = if let Some(storage) = storage {
@@ -786,7 +787,7 @@ async fn get_workspace_s3_resource_path(
     get_s3_resource_internal(
         rt,
         s3_resource_value_raw,
-        windmill_common::job_s3_helpers_ee::TokenGenerator::AsClient(client),
+        windmill_common::job_s3_helpers_oss::TokenGenerator::AsClient(client),
         db,
     )
     .await
@@ -1209,8 +1210,8 @@ pub async fn par_install_language_dependencies<'a>(
     }
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     let is_not_pro = !matches!(
-        windmill_common::ee::get_license_plan().await,
-        windmill_common::ee::LicensePlan::Pro
+        windmill_common::ee_oss::get_license_plan().await,
+        windmill_common::ee_oss::LicensePlan::Pro
     );
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if is_not_pro && matches!(install_fn, InstallStrategy::AllAtOnce(_)) {

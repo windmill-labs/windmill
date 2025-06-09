@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.493.2
+  version: 1.496.3
   title: Windmill API
 
   contact:
@@ -377,6 +377,9 @@ paths:
                   type: string
                 company:
                   type: string
+                skip_email:
+                  type: boolean
+                  description: Skip sending email notifications to the user
               required:
                 - email
                 - password
@@ -4498,6 +4501,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: languages
+          in: query
+          description: |
+            Filter to only include scripts written in the given languages.
+            Accepts multiple values as a comma-separated list.
+          schema:
+            type: string
       responses:
         "200":
           description: All scripts
@@ -4893,8 +4903,6 @@ paths:
           description: Script version/hash
           content:
             application/json:
-              required: false
-
               schema:
                 $ref: "#/components/schemas/ScriptHistory"
 
@@ -5456,8 +5464,6 @@ paths:
           description: Flow version
           content:
             application/json:
-              required: false
-
               schema:
                 $ref: "#/components/schemas/FlowVersion"
 
@@ -5487,8 +5493,7 @@ paths:
       operationId: getFlowVersion
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - type: string
-          name: version
+        - name: version
           in: path
           required: true
           schema:
@@ -5510,8 +5515,7 @@ paths:
       operationId: updateFlowHistory
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - type: string
-          name: version
+        - name: version
           in: path
           required: true
           schema:
@@ -6139,10 +6143,8 @@ paths:
           description: App version
           content:
             application/json:
-              required: false
               schema:
                 $ref: "#/components/schemas/AppHistory"
-
   /w/{workspace}/apps/list_paths_from_workspace_runnable/{runnable_kind}/{path}:
     get:
       summary: list app paths from workspace runnable
@@ -6731,11 +6733,6 @@ paths:
       responses:
         "201":
           description: stream of created job uuids separated by \n. Lines may start with 'Error:'
-          example: |
-            a1a74c0d-708e-4539-9768-e8b3d37996bd
-            f0949132-5b30-48fe-bac8-873f047df810
-            Error: Could not re-run 0b885808-ae89-4458-af95-c1ca3a13b0a5
-            52b9c01d-1125-4bbb-8bee-d41f26b70066
           content:
             text/event-stream:
               schema:
@@ -7592,7 +7589,8 @@ paths:
           description: job log
           content:
             text/plain:
-              type: string
+              schema:
+                type: string
 
   /w/{workspace}/jobs_u/get_flow_debug_info/{id}:
     get:
@@ -8453,6 +8451,31 @@ paths:
         "201":
           description: default error handler set
 
+  /w/{workspace}/http_triggers/create_many:
+    post:
+      summary: create many HTTP triggers
+      operationId: createHttpTriggers
+      tags:
+        - http_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new http trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/NewHttpTrigger"
+      responses:
+        "201":
+          description: http trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/http_triggers/create:
     post:
       summary: create http trigger
@@ -8604,8 +8627,7 @@ paths:
                 route_path:
                   type: string
                 http_method:
-                  type: string
-                  enum: ["get", "post", "put", "delete", "patch"]
+                  $ref: "#/components/schemas/HttpMethod"
                 trigger_path:
                   type: string
                 workspaced_route:
@@ -9830,6 +9852,23 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/postgres_triggers/postgres/version/{path}:
+    get:
+      summary: get postgres version
+      operationId: getPostgresVersion
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: postgres version
+          content:
+            application/json:
+              schema:
+                type: string
+  
   /w/{workspace}/postgres_triggers/is_valid_postgres_configuration/{path}:
     get:
       summary: check if postgres configuration is set to logical
@@ -12469,7 +12508,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
   /concurrency_groups/list:
     get:
       summary: List all concurrency groups
@@ -13175,7 +13213,51 @@ components:
         enum: [script, flow]
 
   schemas:
-    $ref: "../../openflow.openapi.yaml#/components/schemas"
+    # NOTE: Not so many generators and validators support this format:
+    # $ref: "../../openflow.openapi.yaml#/components/schemas"
+    # This is why it is better to inline each of schemas for better compat
+    # Do not change next line. It is used by python-client for pre-processing
+    # -- INLINE START --
+    OpenFlow:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
+    FlowValue:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowValue"
+    Retry:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+    StopAfterIf:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/StopAfterIf"
+    FlowModule:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowModule"
+    InputTransform:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/InputTransform"
+    StaticTransform:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/StaticTransform"
+    JavascriptTransform:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/JavascriptTransform"
+    FlowModuleValue:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowModuleValue"
+    RawScript:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/RawScript"
+    PathScript:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/PathScript"
+    PathFlow:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/PathFlow"
+    ForloopFlow:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/ForloopFlow"
+    WhileloopFlow:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/WhileloopFlow"
+    BranchOne:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/BranchOne"
+    BranchAll:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/BranchAll"
+    Identity:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/Identity"
+    FlowStatus:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
+    FlowStatusModule:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatusModule"
+    # -- INLINE END --
+    # Do not change line above
 
     AIProvider:
       type: string
@@ -14672,6 +14754,15 @@ components:
         - custom_script
         - signature
 
+    HttpMethod:
+      type: string
+      enum:
+        - get
+        - post
+        - put
+        - delete
+        - patch
+
     HttpTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -14691,13 +14782,7 @@ components:
           required:
             - s3
         http_method:
-          type: string
-          enum:
-            - get
-            - post
-            - put
-            - delete
-            - patch
+          $ref: "#/components/schemas/HttpMethod"
         authentication_resource_path:
           type: string
         is_async:
@@ -14748,13 +14833,7 @@ components:
         is_flow:
           type: boolean
         http_method:
-          type: string
-          enum:
-            - get
-            - post
-            - put
-            - delete
-            - patch
+          $ref: "#/components/schemas/HttpMethod"
         authentication_resource_path:
           type: string
         is_async:
@@ -14805,13 +14884,7 @@ components:
         is_flow:
           type: boolean
         http_method:
-          type: string
-          enum:
-            - get
-            - post
-            - put
-            - delete
-            - patch
+          $ref: "#/components/schemas/HttpMethod"
         is_async:
           type: boolean
         authentication_method:
@@ -16225,10 +16298,8 @@ components:
         - access_token
 
     HubScriptKind:
-      name: kind
-      schema:
-        type: string
-        enum: [script, failure, trigger, approval]
+      type: string
+      enum: [script, failure, trigger, approval]
 
     PolarsClientKwargs:
       type: object

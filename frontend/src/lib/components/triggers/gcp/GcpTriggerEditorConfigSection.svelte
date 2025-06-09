@@ -2,7 +2,7 @@
 	import Section from '$lib/components/Section.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import { emptyStringTrimmed } from '$lib/utils'
+	import { emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import {
@@ -15,15 +15,13 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { base } from '$lib/base'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
-	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
-	import Select from '$lib/components/apps/svelte-select/lib/Select.svelte'
 	import { workspaceStore } from '$lib/stores'
 
 	import { Button, Url } from '$lib/components/common'
 	import { RefreshCw } from 'lucide-svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import TestingBadge from '../testingBadge.svelte'
+	import Select from '$lib/components/Select.svelte'
 
 	export let can_write: boolean = false
 	export let headless: boolean = false
@@ -40,7 +38,8 @@
 
 	let topic_items: string[] = []
 	let subscription_items: string[] = []
-	let darkMode = false
+	let loadingTopic = false
+	let loadingSubscription = false
 
 	const DEFAULT_PUSH_CONFIG: PushConfig = {
 		audience: getBaseUrl(),
@@ -49,22 +48,34 @@
 
 	async function loadAllPubSubTopicsFromProject() {
 		if (!emptyStringTrimmed(gcp_resource_path)) {
-			topic_items = await GcpTriggerService.listGoogleTopics({
-				workspace: $workspaceStore!,
-				path: gcp_resource_path
-			})
+			try {
+				loadingTopic = true
+				topic_items = await GcpTriggerService.listGoogleTopics({
+					workspace: $workspaceStore!,
+					path: gcp_resource_path
+				})
+			} catch (error) {
+				sendUserToast(error.body, true)
+			}
+			loadingTopic = false
 		}
 	}
 
 	async function loadAllSubscriptionFromGooglePubSubTopic() {
 		if (!emptyStringTrimmed(gcp_resource_path) && !emptyStringTrimmed(topic_id)) {
-			subscription_items = await GcpTriggerService.listAllTgoogleTopicSubscriptions({
-				workspace: $workspaceStore!,
-				path: gcp_resource_path,
-				requestBody: {
-					topic_id
-				}
-			})
+			try {
+				loadingSubscription = true
+				subscription_items = await GcpTriggerService.listAllTgoogleTopicSubscriptions({
+					workspace: $workspaceStore!,
+					path: gcp_resource_path,
+					requestBody: {
+						topic_id
+					}
+				})
+			} catch (error) {
+				sendUserToast(error.body, true)
+			}
+			loadingSubscription = false
 		}
 	}
 
@@ -95,8 +106,6 @@
 	}
 </script>
 
-<DarkModeObserver bind:darkMode />
-
 <div>
 	<Section label="GCP Pub/Sub" {headless}>
 		<svelte:fragment slot="header">
@@ -120,42 +129,41 @@
 				</div>
 			</Subsection>
 
-			<div class="flex flex-col gap-1">
-				<Subsection
-					label="Topic"
-					tooltip="Select the Pub/Sub topic that this subscription will be attached to. Messages published to this topic will be delivered to your subscription."
-				>
-					<div class="flex gap-1 mt-2">
-						<Select
-							class="grow shrink max-w-full"
-							on:change={(e) => {
-								topic_id = e.detail.value
-								loadAllSubscriptionFromGooglePubSubTopic()
-							}}
-							on:clear={() => {
-								topic_id = ''
-							}}
-							value={topic_id}
-							items={topic_items}
-							placeholder="Choose a topic"
-							inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-							containerStyles={darkMode
-								? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-								: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-							portal={false}
-						/>
-						<Button
-							disabled={!can_write}
-							variant="border"
-							color="light"
-							wrapperClasses="self-stretch"
-							on:click={loadAllPubSubTopicsFromProject}
-							startIcon={{ icon: RefreshCw }}
-							iconOnly
-						/>
-					</div>
-				</Subsection>
-			</div>
+			{#if gcp_resource_path}
+				<div class="flex flex-col gap-1">
+					<Subsection
+						label="Topic"
+						tooltip="Select the Pub/Sub topic that this subscription will be attached to. Messages published to this topic will be delivered to your subscription."
+					>
+						<div class="flex flex-row gap-1 mt-2">
+							<Select
+								loading={loadingTopic}
+								disablePortal
+								clearable
+								class="grow shrink"
+								bind:value={
+									() => topic_id,
+									(t) => {
+										topic_id = t
+										loadAllSubscriptionFromGooglePubSubTopic()
+									}
+								}
+								items={topic_items.map((value) => ({ value }))}
+								placeholder="Choose a topic"
+							/>
+							<Button
+								disabled={!can_write}
+								variant="border"
+								color="light"
+								wrapperClasses="self-stretch"
+								on:click={loadAllPubSubTopicsFromProject}
+								startIcon={{ icon: RefreshCw }}
+								iconOnly
+							/>
+						</div>
+					</Subsection>
+				</div>
+			{/if}
 			{#if !emptyStringTrimmed(gcp_resource_path) && !emptyStringTrimmed(topic_id)}
 				<Section
 					label="Subscription"
@@ -264,22 +272,17 @@
 							<div class="flex flex-col gap-3">
 								<div class="flex gap-1">
 									<Select
-										class="grow shrink max-w-full"
-										on:change={(e) => {
-											subscription_id = e.detail.value
-											cloud_subscription_id = e.detail.value
-										}}
-										on:clear={() => {
-											subscription_id = ''
-										}}
-										value={cloud_subscription_id}
-										items={subscription_items}
+										loading={loadingSubscription}
+										disablePortal
+										clearable
+										class="grow shrink"
+										bind:value={
+											() => cloud_subscription_id,
+											(t) => ((subscription_id = t), (cloud_subscription_id = t))
+										}
+										onClear={() => (subscription_id = '')}
+										items={subscription_items.map((value) => ({ value }))}
 										placeholder="Choose a subscription"
-										inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-										containerStyles={darkMode
-											? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-											: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-										portal={false}
 									/>
 									<Button
 										disabled={!can_write}

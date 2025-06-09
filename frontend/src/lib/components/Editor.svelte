@@ -153,7 +153,7 @@
 	import { AIChatEditorHandler } from './copilot/chat/monaco-adapter'
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
 	import { writable } from 'svelte/store'
-	import { formatResourceTypes } from './copilot/chat/core'
+	import { formatResourceTypes } from './copilot/chat/script/core'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	// import EditorTheme from './EditorTheme.svelte'
 
@@ -187,7 +187,6 @@
 	export let files: Record<string, { code: string; readonly?: boolean }> | undefined = {}
 	export let extraLib: string | undefined = undefined
 	export let changeTimeout: number = 500
-	export let isAiPanelOpen: boolean = false
 	export let loadAsync = false
 
 	let lang = scriptLangToEditorLang(scriptLang)
@@ -344,7 +343,10 @@
 	}
 
 	export function setCode(ncode: string, noHistory: boolean = false): void {
-		code = ncode
+		if (code != ncode) {
+			code = ncode
+		}
+
 		if (noHistory) {
 			editor?.setValue(ncode)
 		} else {
@@ -362,6 +364,15 @@
 				editor.pushUndoStop()
 			}
 		}
+	}
+
+	function updateCode() {
+		const ncode = getCode()
+		if (code == ncode) {
+			return
+		}
+		code = ncode
+		dispatch('change', ncode)
 	}
 
 	export function append(code: string): void {
@@ -387,7 +398,7 @@
 
 	export async function format() {
 		if (editor) {
-			code = getCode()
+			updateCode()
 			if (lang != 'shell' && lang != 'nu') {
 				if ($formatOnSave != false) {
 					if (scriptLang == 'deno' && languageClients.length > 0) {
@@ -424,7 +435,7 @@
 						await editor?.getAction('editor.action.formatDocument')?.run()
 					}
 				}
-				code = getCode()
+				updateCode()
 			}
 			if (formatAction) {
 				formatAction()
@@ -1275,9 +1286,7 @@
 		editor?.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
-				let ncode = getCode()
-				code = ncode
-				dispatch('change', ncode)
+				updateCode()
 			}, changeTimeout)
 
 			ataModel && clearTimeout(ataModel)
@@ -1296,12 +1305,12 @@
 			dispatch('focus')
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
-				code = getCode()
+				updateCode()
 				shouldBindKey && format && format()
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {
-				code = getCode()
+				updateCode()
 				shouldBindKey && cmdEnterAction && cmdEnterAction()
 			})
 
@@ -1323,9 +1332,6 @@
 						startLine: selection.startLineNumber,
 						endLine: selection.endLineNumber
 					})
-					if (!isAiPanelOpen) {
-						dispatch('toggleAiPanel')
-					}
 				} else {
 					dispatch('toggleAiPanel')
 				}

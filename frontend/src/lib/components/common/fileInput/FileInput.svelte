@@ -18,7 +18,7 @@
 	export let iconSize = 36
 	export let returnFileNames = false
 	export let submittedText: string | undefined = undefined
-	export let defaultFile: string | undefined = undefined
+	export let defaultFile: string | string[] | undefined = undefined
 	export let disabled: boolean | undefined = undefined
 	export let folderOnly = false
 
@@ -26,6 +26,14 @@
 	let input: HTMLInputElement
 	type FileWithPath = File & { path?: string }
 	export let files: FileWithPath[] | undefined = undefined
+
+	let pointerStartX = 0
+	let pointerStartY = 0
+
+	function handlePointerDown(e: PointerEvent) {
+		pointerStartX = e.clientX
+		pointerStartY = e.clientY
+	}
 
 	async function onChange(fileList: FileWithPath[] | null) {
 		if (!fileList || !fileList.length) {
@@ -160,9 +168,8 @@
 		files = files
 		if (convertTo && files) {
 			const promises = files.map(convertFile)
-			let converted: ConvertedFile[] | { name: string; data: ConvertedFile }[] = await Promise.all(
-				promises
-			)
+			let converted: ConvertedFile[] | { name: string; data: ConvertedFile }[] =
+				await Promise.all(promises)
 			if (returnFileNames) {
 				converted = converted.map((c, i) => ({ name: files![i].name, data: c }))
 			}
@@ -180,14 +187,24 @@
 
 <button
 	class={twMerge(
-		`relative center-center flex-col text-center font-medium text-tertiary 
-		border border-dashed border-gray-400 hover:border-blue-500 
-		focus-within:border-blue-300 hover:bg-blue-50 dark:hover:bg-frost-900  
+		`relative center-center flex-col text-center font-medium text-tertiary
+		border border-dashed border-gray-400 hover:border-blue-500
+		focus-within:border-blue-300 hover:bg-blue-50 dark:hover:bg-frost-900
 		duration-200 rounded-component p-1`,
 		c
 	)}
 	on:dragover={handleDragOver}
 	on:drop={handleDrop}
+	on:pointerdown={handlePointerDown}
+	on:click={(e) => {
+		const deltaX = Math.abs(e.clientX - pointerStartX)
+		const deltaY = Math.abs(e.clientY - pointerStartY)
+		if (deltaX > 5 || deltaY > 5) {
+			e.preventDefault()
+			e.stopPropagation()
+			return
+		}
+	}}
 	{style}
 	{disabled}
 >
@@ -239,7 +256,7 @@
 		{multiple}
 		{...$$restProps}
 	/>
-	{#if defaultFile}
+	{#if defaultFile && (!Array.isArray(defaultFile) || defaultFile.length > 0)}
 		<div class="w-full border-dashed border-t-2 text-2xs pt-1 text-tertiary mt-2">
 			Default file: <span class="text-blue-500">{defaultFile}</span>
 		</div>

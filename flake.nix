@@ -81,17 +81,22 @@
           buildInputs = buildInputs ++ (with pkgs; [
             # Essentials
             rust
+            cargo-sweep
             git
             xcaddy
             sqlx-cli
             sccache
             nsjail
+            openapi-generator-cli
 
             # Python
             flock
             python3
             python3Packages.pip
             uv
+            poetry
+            pyright
+            openapi-python-client
 
             # Other languages
             deno
@@ -186,6 +191,7 @@
           # for related places search: ADD_NEW_LANG
           FLOCK_PATH = "${pkgs.flock}/bin/flock";
           CARGO_PATH = "${rust}/bin/cargo";
+          CARGO_SWEEP_PATH = "${pkgs.cargo-sweep}/bin/cargo-sweep";
           DOTNET_PATH = "${pkgs.dotnet-sdk_9}/bin/dotnet";
           DOTNET_ROOT = "${pkgs.dotnet-sdk_9}/share/dotnet";
           ORACLE_LIB_DIR = "${pkgs.oracle-instantclient.lib}/lib";

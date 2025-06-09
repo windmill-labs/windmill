@@ -7,7 +7,8 @@
 		type Script,
 		type TriggersCount,
 		PostgresTriggerService,
-		CaptureService
+		CaptureService,
+		type ScriptLang
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
@@ -883,6 +884,47 @@
 				newSavedDraftTrigers.length > 0 ? newSavedDraftTrigers : undefined
 		}
 	}
+
+	function onScriptLanguageTrigger(lang: 'docker' | 'bunnative' | ScriptLang) {
+		if (lang == 'docker') {
+			if (isCloudHosted()) {
+				sendUserToast(
+					'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
+					true,
+					[
+						{
+							label: 'Learn more',
+							callback: () => {
+								window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
+							}
+						}
+					]
+				)
+				return
+			}
+			template = 'docker'
+		} else if (lang == 'bunnative') {
+			template = 'bunnative'
+		} else {
+			template = 'script'
+		}
+		let language = langToLanguage(lang)
+		//
+		initContent(language, script.kind, template)
+		script.language = language
+	}
+
+	function onSummaryChange(value: string) {
+		if (initialPath == '' && value?.length > 0 && !dirtyPath) {
+			path?.setName(
+				value
+					.toLowerCase()
+					.replace(/[^a-z0-9_]/g, '_')
+					.replace(/-+/g, '_')
+					.replace(/^-|-$/g, '')
+			)
+		}
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -912,18 +954,28 @@
 		bind:open={metadataOpen}
 		size={selectedTab === 'ui' || selectedTab === 'triggers' ? '1200px' : '800px'}
 	>
-		<DrawerContent noPadding title="Settings" on:close={() => (metadataOpen = false)}>
+		<DrawerContent
+			noPadding
+			title="Settings"
+			on:close={() => (metadataOpen = false)}
+			aiId="script-builder-settings"
+			aiDescription="Script builder settings"
+		>
 			<!-- svelte-ignore a11y-autofocus -->
 			<div class="flex flex-col h-full">
 				<Tabs bind:selected={selectedTab} wrapperClass="flex-none w-full">
 					{#if customUi?.settingsPanel?.disableMetadata !== true}
-						<Tab value="metadata">Metadata</Tab>
+						<Tab value="metadata" aiId="script-builder-metadata" aiDescription="Metadata settings">
+							Metadata
+						</Tab>
 					{/if}
 					{#if customUi?.settingsPanel?.disableRuntime !== true}
-						<Tab value="runtime">Runtime</Tab>
+						<Tab value="runtime" aiId="script-builder-runtime" aiDescription="Runtime settings">
+							Runtime
+						</Tab>
 					{/if}
 					{#if customUi?.settingsPanel?.disableGeneratedUi !== true}
-						<Tab value="ui">
+						<Tab value="ui" aiId="script-builder-ui" aiDescription="Generated UI settings">
 							Generated UI
 							<Tooltip
 								documentationLink="https://www.windmill.dev/docs/core_concepts/json_schema_and_parsing"
@@ -934,7 +986,7 @@
 						</Tab>
 					{/if}
 					{#if customUi?.settingsPanel?.disableTriggers !== true}
-						<Tab value="triggers">
+						<Tab value="triggers" aiId="script-builder-triggers" aiDescription="Triggers settings">
 							Triggers
 							<Tooltip documentationLink="https://www.windmill.dev/docs/getting_started/triggers">
 								Configure how this script will be triggered.
@@ -962,23 +1014,15 @@
 										<div class="flex flex-col gap-4">
 											<Label label="Summary">
 												<MetadataGen
+													aiId="create-script-summary-input"
+													aiDescription="Summary / Title of the new script"
 													label="Summary"
 													bind:content={script.summary}
 													lang={script.language}
 													code={script.content}
 													promptConfigName="summary"
 													generateOnAppear
-													on:change={() => {
-														if (initialPath == '' && script.summary?.length > 0 && !dirtyPath) {
-															path?.setName(
-																script.summary
-																	.toLowerCase()
-																	.replace(/[^a-z0-9_]/g, '_')
-																	.replace(/-+/g, '_')
-																	.replace(/^-|-$/g, '')
-															)
-														}
-													}}
+													on:change={() => onSummaryChange(script.summary)}
 													elementProps={{
 														type: 'text',
 														placeholder: 'Short summary to be displayed when listed'
@@ -1037,43 +1081,15 @@
 													disablePopup={!enterpriseLangs.includes(lang) || !!$enterpriseLicense}
 												>
 													<Button
+														aiId={`create-script-language-button-${lang}`}
+														aiDescription={`Choose ${lang} as the language of the script`}
 														size="sm"
 														variant="border"
 														color={isPicked ? 'blue' : 'light'}
 														btnClasses={isPicked
 															? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
 															: 'm-[1px]'}
-														on:click={() => {
-															if (lang == 'docker') {
-																if (isCloudHosted()) {
-																	sendUserToast(
-																		'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
-																		true,
-																		[
-																			{
-																				label: 'Learn more',
-																				callback: () => {
-																					window.open(
-																						'https://www.windmill.dev/docs/advanced/docker',
-																						'_blank'
-																					)
-																				}
-																			}
-																		]
-																	)
-																	return
-																}
-																template = 'docker'
-															} else if (lang == 'bunnative') {
-																template = 'bunnative'
-															} else {
-																template = 'script'
-															}
-															let language = langToLanguage(lang)
-															//
-															initContent(language, script.kind, template)
-															script.language = language
-														}}
+														on:click={() => onScriptLanguageTrigger(lang)}
 														disabled={lockedLanguage ||
 															(enterpriseLangs.includes(lang) && !$enterpriseLicense)}
 													>
@@ -1642,6 +1658,8 @@
 				<div class="flex flex-row gap-x-1 lg:gap-x-2">
 					{#if customUi?.topBar?.settings != false}
 						<Button
+							aiId="script-builder-settings"
+							aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
 							color="light"
 							variant="border"
 							size="xs"

@@ -2,7 +2,7 @@
 	import { BROWSER } from 'esm-env'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import { type CompletedJob, type Job, JobService, type Preview } from '$lib/gen'
+	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
 	import { copilotInfo, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
@@ -38,11 +38,14 @@
 	import { slide } from 'svelte/transition'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import CaptureButton from './triggers/CaptureButton.svelte'
-	import AIChat from './copilot/chat/AIChat.svelte'
 	import { setContext } from 'svelte'
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
 	import { base } from '$lib/base'
-	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/core'
+	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/script/core'
+	import { getStringError } from './copilot/chat/utils'
+	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
+	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
+	import TriggerableByAI from './TriggerableByAI.svelte'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -124,9 +127,6 @@
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
 			event.preventDefault()
 			runTest()
-		} else if ((event.ctrlKey || event.metaKey) && event.key == 'l') {
-			event.preventDefault()
-			toggleAiPanel()
 		} else if ((event.ctrlKey || event.metaKey) && event.key == 'u') {
 			event.preventDefault()
 			toggleTestPanel()
@@ -200,6 +200,7 @@
 	onMount(() => {
 		inferSchema(code)
 		loadPastTests()
+		aiChatManager.changeMode(AIMode.SCRIPT)
 	})
 
 	setLicense()
@@ -273,6 +274,10 @@
 
 	onDestroy(() => {
 		disableCollaboration()
+		aiChatManager.scriptEditorApplyCode = undefined
+		aiChatManager.scriptEditorShowDiffMode = undefined
+		aiChatManager.scriptEditorOptions = undefined
+		aiChatManager.changeMode(AIMode.NAVIGATOR)
 	})
 
 	function asKind(str: string | undefined) {
@@ -301,41 +306,13 @@
 
 	setContext('disableTooltips', customUi?.disableTooltips === true)
 
-	let aiPanelSize =
-		!$copilotInfo.enabled ||
-		!SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') ||
-		localStorage.getItem('aiPanelOpen') === 'false'
-			? 0
-			: 30
-	let codePanelSize = 40 + (30 - aiPanelSize)
-	let storedAiPanelSize = aiPanelSize > 0 ? aiPanelSize : 30
+	let codePanelSize = 70
 	let testPanelSize = 30
 	let storedTestPanelSize = testPanelSize
 
-	function toggleAiPanel() {
-		if (!$copilotInfo.enabled) return
-		if (aiPanelSize > 0) {
-			storedAiPanelSize = aiPanelSize
-			codePanelSize += aiPanelSize
-			aiPanelSize = 0
-			localStorage.setItem('aiPanelOpen', 'false')
-		} else {
-			codePanelSize -= storedAiPanelSize
-			aiPanelSize = storedAiPanelSize
-			localStorage.setItem('aiPanelOpen', 'true')
-		}
-	}
-
-	function addSelectedLinesToAiChat(
-		e: CustomEvent<{ lines: string; startLine: number; endLine: number }>
-	) {
-		if (aiChat) {
-			aiChat.addSelectedLinesToContext(e.detail.lines, e.detail.startLine, e.detail.endLine)
-			aiChat.focusTextArea()
-		}
-	}
-
-	$: !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') && aiPanelSize > 0 && toggleAiPanel()
+	$: !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') &&
+		!aiChatManager.open &&
+		aiChatManager.toggleOpen()
 
 	function toggleTestPanel() {
 		if (testPanelSize > 0) {
@@ -348,18 +325,9 @@
 		}
 	}
 
-	let aiChat: AIChat | undefined = undefined
-
-	function getStringError(job: Job | undefined) {
-		if (
-			job != undefined &&
-			job.type === 'CompletedJob' &&
-			typeof job.result == 'object' &&
-			job.result != null &&
-			`error` in job.result &&
-			job.result.error
-		) {
-			return JSON.stringify(job.result.error, null, 2)
+	function getError(job: Job | undefined) {
+		if (job != undefined && job.type === 'CompletedJob' && !job.success) {
+			return getStringError(job.result)
 		}
 		return undefined
 	}
@@ -378,7 +346,26 @@
 		editor?.show()
 	}
 
-	$: error = getStringError(testJob)
+	$: error = getError(testJob)
+
+	$: {
+		const options: ScriptOptions = {
+			code,
+			lang: lang as ScriptLang,
+			error,
+			args,
+			path,
+			lastSavedCode,
+			lastDeployedCode,
+			diffMode
+		}
+		aiChatManager.scriptEditorOptions = options
+		aiChatManager.scriptEditorApplyCode = (code: string) => {
+			hideDiffMode()
+			editor?.reviewAndApplyCode(code)
+		}
+		aiChatManager.scriptEditorShowDiffMode = showDiffMode
+	}
 </script>
 
 <TestJobLoader
@@ -390,6 +377,8 @@
 />
 
 <svelte:window on:keydown={onKeyDown} />
+
+<TriggerableByAI id="script-editor" description="Component to edit a script" />
 
 <Modal title="Invite others" bind:open={showCollabPopup}>
 	<div>Have others join by sharing the following url:</div>
@@ -465,7 +454,24 @@
 		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
 			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
 				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
-					{#if aiPanelSize === 0}
+					{#if testPanelSize === 0}
+						<HideButton
+							hidden={true}
+							direction="right"
+							size="md"
+							panelName="Test"
+							shortcut="U"
+							customHiddenIcon={{
+								icon: PlayIcon
+							}}
+							on:click={() => {
+								toggleTestPanel()
+							}}
+							btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
+							color="marine"
+						/>
+					{/if}
+					{#if !aiChatManager.open}
 						{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
 							<HideButton
 								hidden={true}
@@ -474,10 +480,12 @@
 								shortcut="L"
 								size="md"
 								usePopoverOverride={!$copilotInfo.enabled}
-								customHiddenIcon={WandSparkles}
+								customHiddenIcon={{
+									icon: WandSparkles
+								}}
 								btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface"
 								on:click={() => {
-									toggleAiPanel()
+									aiChatManager.toggleOpen()
 								}}
 							>
 								<svelte:fragment slot="popoverOverride">
@@ -492,21 +500,6 @@
 									</div>
 								</svelte:fragment>
 							</HideButton>
-						{/if}
-						{#if testPanelSize === 0}
-							<HideButton
-								hidden={true}
-								direction="right"
-								size="md"
-								panelName="Test"
-								shortcut="U"
-								customHiddenIcon={PlayIcon}
-								on:click={() => {
-									toggleTestPanel()
-								}}
-								btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
-								color="marine"
-							/>
 						{/if}
 					{/if}
 				</div>
@@ -524,10 +517,12 @@
 							inferSchema(e.detail)
 						}}
 						on:saveDraft
-						on:toggleAiPanel={toggleAiPanel}
-						on:addSelectedLinesToAiChat={addSelectedLinesToAiChat}
+						on:toggleAiPanel={() => aiChatManager.toggleOpen()}
+						on:addSelectedLinesToAiChat={(e) => {
+							const { lines, startLine, endLine } = e.detail
+							aiChatManager.addSelectedLinesToContext(lines, startLine, endLine)
+						}}
 						on:toggleTestPanel={toggleTestPanel}
-						isAiPanelOpen={aiPanelSize > 0}
 						cmdEnterAction={async () => {
 							await inferSchema(code)
 							runTest()
@@ -562,57 +557,6 @@
 				{/key}
 			</div>
 		</Pane>
-		{#if lang && $copilotInfo.enabled}
-			<Pane bind:size={aiPanelSize} minSize={0}>
-				<AIChat
-					bind:this={aiChat}
-					{code}
-					{lang}
-					{error}
-					{args}
-					{path}
-					on:applyCode={(e) => {
-						hideDiffMode()
-						editor?.reviewAndApplyCode(e.detail.code)
-					}}
-					on:showDiffMode={showDiffMode}
-					{lastSavedCode}
-					{lastDeployedCode}
-					{diffMode}
-				>
-					<svelte:fragment slot="header-left">
-						<HideButton
-							hidden={false}
-							direction="right"
-							panelName="AI"
-							shortcut="L"
-							size="md"
-							on:click={() => {
-								toggleAiPanel()
-							}}
-						/>
-					</svelte:fragment>
-					<svelte:fragment slot="header-right">
-						{#if testPanelSize === 0}
-							<div class="bg-gray-200 h-6 w-[1px] rounded-full dark:bg-gray-600"></div>
-							<HideButton
-								hidden={true}
-								direction="right"
-								panelName="Test"
-								shortcut="U"
-								size="md"
-								customHiddenIcon={PlayIcon}
-								on:click={() => {
-									toggleTestPanel()
-								}}
-								btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
-								color="marine"
-							/>
-						{/if}
-					</svelte:fragment>
-				</AIChat>
-			</Pane>
-		{/if}
 		<Pane bind:size={testPanelSize} minSize={0}>
 			<div class="flex flex-col h-full">
 				{#if showTabs}
@@ -725,10 +669,6 @@
 					<Pane size={67} class="relative">
 						<LogPanel
 							bind:setFocusToLogs
-							on:fix={() => {
-								aiChat?.fix()
-							}}
-							fixChatMode
 							{lang}
 							previewJob={testJob}
 							{pastPreviews}

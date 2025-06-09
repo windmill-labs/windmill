@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Popover } from '$lib/components/meltComponents'
 	import { Loader2, X } from 'lucide-svelte'
-	import { ContextIconMap, type ContextElement } from './core'
+	import { ContextIconMap, type ContextElement } from './context'
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import { twMerge } from 'tailwind-merge'
@@ -42,7 +42,9 @@
 					<svelte:component this={icon} size={16} />
 				{/if}
 			</button>
-			{contextElement.title}
+			{contextElement.type === 'diff'
+				? contextElement.title.replace(/_/g, ' ')
+				: contextElement.title}
 		</div>
 	</svelte:fragment>
 	<svelte:fragment slot="content">

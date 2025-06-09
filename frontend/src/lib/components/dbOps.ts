@@ -4,7 +4,7 @@ import {
 	type DbType
 } from './apps/components/display/dbtable/utils'
 import { makeSelectQuery } from './apps/components/display/dbtable/queries/select'
-import { runPreviewJobAndPollResult } from './jobs/utils'
+import { runScriptAndPollResult } from './jobs/utils'
 import { makeCountQuery } from './apps/components/display/dbtable/queries/count'
 import { makeUpdateQuery } from './apps/components/display/dbtable/queries/update'
 import { makeDeleteQuery } from './apps/components/display/dbtable/queries/delete'
@@ -55,7 +55,7 @@ export function dbTableOpsWithPreviewScripts({
 		colDefs,
 		getCount: async ({ quicksearch }) => {
 			const countQuery = makeCountQuery(resourceType, tableKey, undefined, colDefs)
-			const result = await runPreviewJobAndPollResult({
+			const result = await runScriptAndPollResult({
 				workspace,
 				requestBody: {
 					args: { database: '$res:' + resourcePath, quicksearch },
@@ -68,7 +68,7 @@ export function dbTableOpsWithPreviewScripts({
 		},
 		getRows: async (params) => {
 			const query = makeSelectQuery(tableKey, colDefs, undefined, resourceType as DbType)
-			let items = (await runPreviewJobAndPollResult({
+			let items = (await runScriptAndPollResult({
 				workspace,
 				requestBody: {
 					args: { database: '$res:' + resourcePath, ...params },
@@ -85,7 +85,7 @@ export function dbTableOpsWithPreviewScripts({
 		onUpdate: async ({ values }, colDef, newValue) => {
 			const updateQuery = makeUpdateQuery(tableKey, colDef, colDefs, resourceType)
 
-			await runPreviewJobAndPollResult({
+			await runScriptAndPollResult({
 				workspace,
 				requestBody: {
 					args: {
@@ -101,7 +101,7 @@ export function dbTableOpsWithPreviewScripts({
 		onDelete: async ({ values }) => {
 			const deleteQuery = makeDeleteQuery(tableKey, colDefs, resourceType)
 
-			await runPreviewJobAndPollResult({
+			await runScriptAndPollResult({
 				workspace,
 				requestBody: {
 					args: { database: '$res:' + resourcePath, ...values },
@@ -112,7 +112,7 @@ export function dbTableOpsWithPreviewScripts({
 		},
 		onInsert: async ({ values }) => {
 			const insertQuery = makeInsertQuery(tableKey, colDefs, resourceType)
-			runPreviewJobAndPollResult({
+			runScriptAndPollResult({
 				workspace,
 				requestBody: {
 					args: { database: '$res:' + resourcePath, ...values },
@@ -155,7 +155,7 @@ export function dbDeleteTableActionWithPreviewScript({
 		successText: `Table '${tableKey}' deleted successfully`,
 		action: async () => {
 			const deleteQuery = makeDeleteTableQuery(tableKey, resourceType)
-			await runPreviewJobAndPollResult({
+			await runScriptAndPollResult({
 				workspace,
 				requestBody: {
 					args: { database: '$res:' + resourcePath },

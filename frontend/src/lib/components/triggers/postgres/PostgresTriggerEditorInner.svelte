@@ -70,33 +70,39 @@
 	let drawer: Drawer | undefined = $state(undefined)
 	let is_flow: boolean = $state(false)
 	let initialPath = $state('')
-	let edit = $state(true)
+	let edit: boolean = $state(true)
 	let itemKind: 'flow' | 'script' = $state('script')
-	let script_path = $state('')
-	let initialScriptPath = $state('')
-	let fixedScriptPath = $state('')
+	let script_path: string = $state('')
+	let initialScriptPath: string = $state('')
+	let fixedScriptPath: string = $state('')
 	let path: string = $state('')
 	let pathError = $state('')
-	let enabled = $state(false)
-	let dirtyPath = $state(false)
-	let can_write = $state(true)
-	let drawerLoading = $state(true)
-	let showLoading = $state(false)
-	let postgres_resource_path = $state('')
+	let enabled: boolean = $state(false)
+	let dirtyPath: boolean = $state(false)
+	let can_write: boolean = $state(true)
+	let drawerLoading: boolean = $state(true)
+	let showLoading: boolean = $state(false)
+	let postgres_resource_path: string = $state('')
 	let publication_name: string = $state('')
 	let replication_slot_name: string = $state('')
 	let relations: Relations[] | undefined = $state([])
 	let transaction_to_track: string[] = $state([])
 	let language: Language = 'Typescript'
 	let loading = $state(false)
+	let postgresVersion: string = $state('')
+	let loadingPostgres: boolean = $state(false)
 	type actions = 'create' | 'get'
 	let selectedPublicationAction: actions | undefined = $state(undefined)
 	let selectedSlotAction: actions | undefined = $state(undefined)
 	let publicationItems: string[] = $state([])
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
 	let tab: 'advanced' | 'basic' = $state('basic')
+	let basic_mode = $derived(tab === 'basic')
 	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
+	let creatingSlot: boolean = $state(false)
+	let creatingPublication: boolean = $state(false)
+	let pg14: boolean = $derived(postgresVersion.startsWith('14'))
 
 	const errorMessage = $derived.by(() => {
 		if (relations && relations.length > 0) {
@@ -108,16 +114,6 @@
 		return ''
 	})
 
-	const isValid = $derived(
-		!emptyString(postgres_resource_path) &&
-			!emptyString(script_path) &&
-			!emptyString(publication_name) &&
-			!emptyString(replication_slot_name) &&
-			!errorMessage
-	)
-	const postgresConfig = $derived.by(getSaveCfg)
-	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
-
 	function isAdvancedTab(t: 'advanced' | 'basic'): boolean {
 		return t === 'advanced'
 	}
@@ -126,20 +122,26 @@
 		return t === 'basic'
 	}
 
-	let saveDisabled = $derived(
-		pathError !== '' ||
-			emptyString(postgres_resource_path) ||
-			emptyString(script_path) ||
-			(isAdvancedTab(tab) && emptyString(replication_slot_name)) ||
-			emptyString(publication_name) ||
-			(relations && isBasicTab(tab) && relations.length === 0) ||
-			transaction_to_track.length === 0 ||
-			drawerLoading ||
-			!can_write
+	const isValid = $derived(
+		!emptyString(postgres_resource_path) &&
+			transaction_to_track.length > 0 &&
+			((isAdvancedTab(tab) &&
+				!emptyString(replication_slot_name) &&
+				!emptyString(publication_name)) ||
+				(isBasicTab(tab) && (!relations || relations.length > 0))) &&
+			!errorMessage
+	)
+
+	const postgresConfig = $derived.by(getSaveCfg)
+	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
+
+	const saveDisabled = $derived(
+		pathError !== '' || emptyString(script_path) || drawerLoading || !can_write || !isValid
 	)
 
 	async function createPublication() {
 		try {
+			creatingPublication = true
 			const message = await PostgresTriggerService.createPostgresPublication({
 				path: postgres_resource_path,
 				publication: publication_name as string,
@@ -153,11 +155,14 @@
 			sendUserToast(message)
 		} catch (error) {
 			sendUserToast(error.body, true)
+		} finally {
+			creatingPublication = false
 		}
 	}
 
 	async function createSlot() {
 		try {
+			creatingSlot = true
 			const message = await PostgresTriggerService.createPostgresReplicationSlot({
 				path: postgres_resource_path,
 				workspace: $workspaceStore!,
@@ -168,6 +173,8 @@
 			sendUserToast(message)
 		} catch (error) {
 			sendUserToast(error.body, true)
+		} finally {
+			creatingSlot = false
 		}
 	}
 
@@ -318,6 +325,7 @@
 	function getCaptureConfig() {
 		return {
 			postgres_resource_path,
+			basic_mode,
 			publication:
 				!edit || tab === 'basic'
 					? {
@@ -395,6 +403,25 @@
 			handleConfigChange(postgresConfig, initialConfig, saveDisabled, edit, onConfigChange)
 		}
 	})
+
+	$effect(() => {
+		if (postgres_resource_path) {
+			loadingPostgres = true
+			PostgresTriggerService.getPostgresVersion({
+				workspace: $workspaceStore!,
+				path: postgres_resource_path
+			})
+				.then((version: string) => {
+					postgresVersion = version
+				})
+				.catch((error: any) => {
+					sendUserToast(error.body, true)
+				})
+				.finally(() => {
+					loadingPostgres = false
+				})
+		}
+	})
 </script>
 
 {#if useDrawer}
@@ -448,8 +475,10 @@
 {#snippet content()}
 	{#if drawerLoading}
 		{#if showLoading}
-			<Loader2 size="50" class="animate-spin" />
-			<p>Loading...</p>
+			<div class="flex flex-col items-center justify-center h-full w-full">
+				<Loader2 size="50" class="animate-spin" />
+				<p>Loading...</p>
+			</div>
 		{/if}
 	{:else}
 		<div class="flex flex-col gap-4">
@@ -497,7 +526,7 @@
 							allowEdit={!$userStore?.operator}
 						/>
 
-						{#if emptyStringTrimmed(script_path) && is_flow === false}
+						{#if emptyString(script_path) && is_flow === false}
 							<div class="flex">
 								<Button
 									disabled={!can_write}
@@ -538,8 +567,12 @@
 						/>
 						<CheckPostgresRequirement bind:postgres_resource_path bind:can_write />
 					</div>
-
-					{#if postgres_resource_path}
+					{#if loadingPostgres}
+						<div class="flex flex-col items-center justify-center h-full w-full">
+							<Loader2 size="50" class="animate-spin" />
+							<p>Loading...</p>
+						</div>
+					{:else if postgres_resource_path}
 						<Label label="Transactions">
 							{#snippet header()}
 								<Tooltip>
@@ -633,7 +666,7 @@
 								<svelte:fragment slot="content">
 									<div class="mt-5 overflow-hidden bg-surface">
 										<TabContent value="basic">
-											<RelationPicker {can_write} bind:relations disabled={!can_write} />
+											<RelationPicker {can_write} bind:pg14 bind:relations disabled={!can_write} />
 										</TabContent>
 										<TabContent value="advanced">
 											<div class="flex flex-col gap-6"
@@ -665,6 +698,7 @@
 																	disabled={!can_write}
 																/>
 																<Button
+																	loading={creatingSlot}
 																	color="light"
 																	size="xs"
 																	variant="border"
@@ -720,6 +754,7 @@
 																	placeholder={'Publication Name'}
 																/>
 																<Button
+																	loading={creatingPublication}
 																	color="light"
 																	size="xs"
 																	variant="border"
@@ -740,7 +775,12 @@
 																disabled={!can_write}
 															/>
 														{/if}
-														<RelationPicker {can_write} bind:relations disabled={!can_write} />
+														<RelationPicker
+															bind:pg14
+															{can_write}
+															bind:relations
+															disabled={!can_write}
+														/>
 													</div>
 												</Section></div
 											>

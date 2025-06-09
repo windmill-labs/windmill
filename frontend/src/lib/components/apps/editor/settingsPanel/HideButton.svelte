@@ -4,7 +4,6 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { getModifierKey } from '$lib/utils'
 	import {
-		type Icon,
 		PanelBottomClose,
 		PanelBottomOpen,
 		PanelLeftClose,
@@ -12,7 +11,6 @@
 		PanelRightClose,
 		PanelRightOpen
 	} from 'lucide-svelte'
-	import type { ComponentType } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	export let btnClasses: string | undefined = undefined
@@ -24,7 +22,7 @@
 	export let hidden: boolean = false
 	export let shortcut: string | undefined = undefined
 	export let panelName: string | undefined = undefined
-	export let customHiddenIcon: ComponentType<Icon> | undefined = undefined
+	export let customHiddenIcon: ButtonType.Icon | undefined = undefined
 	export let usePopoverOverride: boolean = false
 
 	const OpenIconMap = {
@@ -62,9 +60,13 @@
 	</svelte:fragment>
 	<Button
 		iconOnly
-		startIcon={{
-			icon: hidden ? customHiddenIcon ?? OpenIconMap[direction] : CloseIconMap[direction]
-		}}
+		startIcon={hidden
+			? (customHiddenIcon ?? {
+					icon: OpenIconMap[direction]
+				})
+			: {
+					icon: CloseIconMap[direction]
+				}}
 		{size}
 		btnClasses={twMerge(
 			'p-1 text-gray-300 hover:!text-gray-600 dark:text-gray-500 dark:hover:!text-gray-200 bg-transparent',
