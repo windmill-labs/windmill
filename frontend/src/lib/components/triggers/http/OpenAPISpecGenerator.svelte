@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { DrawerContent } from '$lib/components/common'
+	import Button from '$lib/components/common/button/Button.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import Section from '$lib/components/Section.svelte'
@@ -7,6 +8,7 @@
 	import { HttpTriggerService, type HttpTrigger } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
+	import { Notebook } from 'lucide-svelte'
 
 	let openAPIGenerator: Drawer
 
@@ -40,10 +42,10 @@
 </script>
 
 <Drawer size="700px" bind:this={openAPIGenerator}>
-	<DrawerContent
-		title={'Generate OpenAPI spec from HTTP routes'}
-		on:close={() => openAPIGenerator.closeDrawer()}
-	>
+	<DrawerContent title={'Generate OpenAPI document'} on:close={() => openAPIGenerator.closeDrawer()}>
+		<svelte:fragment slot="actions">
+			<Button startIcon={{ icon: Notebook }}>Generate</Button>
+		</svelte:fragment>
 		<Section label="Generate OpenAPI spec" headless>
 			<div class="flex flex-col gap-2">
 				<Subsection label="Info" collapsable>
@@ -127,9 +129,7 @@
 					</label>
 				</Subsection>
 				<Subsection label="servers" collapsable></Subsection>
-				<Subsection label="paths">
-                    
-                </Subsection>
+				<Subsection label="paths" collapsable></Subsection>
 			</div>
 		</Section>
 	</DrawerContent>
