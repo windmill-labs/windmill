@@ -93,7 +93,7 @@ export default class ContextManager {
 			if (scriptOptions.lastSavedCode && scriptOptions.lastSavedCode !== scriptOptions.code) {
 				newAvailableContext.push({
 					type: 'diff',
-					title: 'diff_with_last_saved_draft',
+					title: 'diff_with_last_saved_draft', // can't use spaces in the title, because it will break the word match in the context text area hightlighting logic
 					content: scriptOptions.lastSavedCode ?? '',
 					diff: diffLines(scriptOptions.lastSavedCode ?? '', scriptOptions.code),
 					lang: scriptOptions.lang
