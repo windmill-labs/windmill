@@ -715,7 +715,6 @@
 						{#if flowStore.flowStore?.value?.modules}
 							<div id="flow-editor"></div>
 							<FlowModuleSchemaMap
-								bind:modules={flowStore.flowStore.value.modules}
 								disableAi
 								disableTutorials
 								smallErrorHandler={true}

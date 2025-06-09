@@ -39,7 +39,6 @@
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 
 	interface Props {
-		modules: FlowModule[] | undefined
 		sidebarSize?: number | undefined
 		disableStaticInputs?: boolean
 		disableTutorials?: boolean
@@ -51,7 +50,6 @@
 	}
 
 	let {
-		modules = $bindable(undefined),
 		sidebarSize = $bindable(undefined),
 		disableStaticInputs = false,
 		disableTutorials = false,
@@ -175,8 +173,8 @@
 	let minHeight = $state(0)
 
 	export function selectNextId(id: any) {
-		if (modules) {
-			let allIds = dfs(modules, (mod) => mod.id)
+		if (flowStore.value.modules) {
+			let allIds = dfs(flowStore.value.modules, (mod) => mod.id)
 			if (allIds.length > 1) {
 				const idx = allIds.indexOf(id)
 				$selectedId = idx == 0 ? allIds[0] : allIds[idx - 1]
@@ -405,7 +403,7 @@
 					let originalModules
 					let targetModules
 					if (detail.sourceId == 'Input' || detail.targetId == 'result') {
-						targetModules = modules
+						targetModules = flowStore.value.modules
 					}
 
 					dfs(flowStore.value.modules, (mod, modules, branches) => {
@@ -421,7 +419,7 @@
 							targetModules = modules
 						}
 					})
-					if (modules && Array.isArray(modules)) {
+					if (flowStore.value.modules && Array.isArray(flowStore.value.modules)) {
 						await tick()
 						if ($moving) {
 							// console.log('modules', modules, movingModules, movingModule)

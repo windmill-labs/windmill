@@ -13,7 +13,6 @@
 	import { decodeState, emptySchema } from '$lib/utils'
 	import { tick } from 'svelte'
 	import { writable } from 'svelte/store'
-	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import type { Trigger } from '$lib/components/triggers/utils'
 
