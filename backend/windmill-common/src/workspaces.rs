@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct WorkspaceGitSyncSettings {
-    // pub include_path: Vec<String>,
-    // pub include_type: Vec<ObjectType>,
+    pub include_path: Vec<String>,
+    pub include_type: Vec<ObjectType>,
     pub repositories: Vec<GitRepositorySettings>,
 }
 
@@ -35,6 +35,7 @@ pub enum ObjectType {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GitRepositorySettings {
+    pub exclude_types_override: Option<Vec<ObjectType>>,
     pub script_path: String,
     pub git_repo_resource_path: String,
     pub use_individual_branch: Option<bool>,

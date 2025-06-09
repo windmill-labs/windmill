@@ -231,7 +231,7 @@ export function getTypeStrFromPath(
     parsed.ext == ".cs" ||
     parsed.ext == ".nu" ||
     parsed.ext == ".java" ||
-		// for related places search: ADD_NEW_LANG 
+		// for related places search: ADD_NEW_LANG
     (parsed.ext == ".yml" && parsed.name.split(".").pop() == "playbook")
   ) {
     return "script";
@@ -239,6 +239,10 @@ export function getTypeStrFromPath(
 
   if (parsed.name === "folder.meta") {
     return "folder";
+  }
+
+  if (parsed.base === "wmill.yaml") {
+    return "settings";
   }
 
   const typeEnding = parsed.name.split(".").at(-1);

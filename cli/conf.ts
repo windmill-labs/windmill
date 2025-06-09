@@ -28,6 +28,7 @@ export interface SyncOptions {
   parallel?: number;
   jsonOutput?: boolean;
   includeWmillYaml?: boolean;
+  settingsFromJson?: string;
 }
 
 export interface Codebase {

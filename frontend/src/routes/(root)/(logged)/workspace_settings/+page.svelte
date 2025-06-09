@@ -1346,10 +1346,10 @@
 															include_path: repo.settings.include_path,
 															include_type: repo.settings.include_type
 														}}
-														onFilterUpdate={(filters) => {
-															if (gitSyncComponent) {
-																gitSyncComponent.setSettings(filters)
-															}
+														onFilterUpdate={(filters: { include_path: string[], include_type: string[] }) => {
+															// Direct prop update - much simpler!
+															repo.settings.include_path = filters.include_path
+															repo.settings.include_type = filters.include_type as ObjectType[]
 														}}
 													/>
 												</div>
