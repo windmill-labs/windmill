@@ -14,8 +14,8 @@
 
 	const dispatch = createEventDispatcher()
 
-	export let aiId: string | undefined
-	export let aiDescription: string | undefined
+	export let aiId: string | undefined = undefined
+	export let aiDescription: string | undefined = undefined
 	export let kind: 'script' | 'flow' | 'app' | 'raw_app' = 'script'
 	export let summary: string | undefined = undefined
 	export let path: string

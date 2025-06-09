@@ -692,6 +692,7 @@
 								}}
 								lightMode
 								on:change={(e) => {
+									console.log('onchange', args)
 									runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
 								}}
 							/>

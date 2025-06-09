@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
-	let { id, description, onTrigger, children, currentValue, schema } = $props<{
+	let { id, description, onTrigger, children } = $props<{
 		id: string | undefined
 		description: string | undefined
 		onTrigger?: (value?: string) => void // Function to call when the trigger is activated, if not provided, the component is discoverable for information purposes only
@@ -22,7 +22,7 @@
 		}, 2000)
 	}
 
-	$inspect(aiChatManager.triggerablesByAI)
+	// $inspect(aiChatManager.triggerablesByAI)
 
 	$effect(() => {
 		if (disabled) return

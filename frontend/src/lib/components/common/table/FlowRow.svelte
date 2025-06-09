@@ -81,6 +81,8 @@
 {/if}
 
 <Row
+	aiId={`flow-row-${flow.path}`}
+	aiDescription={`Button to run the flow ${flow.summary ?? flow.path}`}
 	href={flow.draft_only
 		? `${base}/flows/edit/${flow.path}?nodraft=true`
 		: `${base}/flows/get/${flow.path}?workspace=${$workspaceStore}`}

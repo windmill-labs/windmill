@@ -62,7 +62,9 @@
 		description={aiDescription}
 		onTrigger={() => {
 			checked = !checked
-			dispatch('change', checked)
+			setTimeout(() => {
+				dispatch('change', checked)
+			}, 500)
 		}}
 	>
 		<div class="relative" on:click|stopPropagation>

@@ -18,6 +18,7 @@
 	import { page } from '$app/stores'
 	import { replaceState } from '$app/navigation'
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
+	import TriggerableByAI from './TriggerableByAI.svelte'
 
 	export let runnable:
 		| {
@@ -137,6 +138,10 @@
 				</div>
 			</div>
 		{:else}
+			<TriggerableByAI
+				id="run-form-loading"
+				description="Run form is loading, should scan the page until this is gone"
+			/>
 			<h1>Loading...</h1>
 		{/if}
 	{/if}
@@ -157,7 +162,10 @@
 			<div class="py-2" style="height: {schemaHeight}px" data-schema-picker>
 				<JsonInputs
 					aiId="run-form-json-editor"
-					aiDescription="JSON editor for run form. Schema used: {JSON.stringify(runnable.schema)}"
+					aiDescription={`
+						JSON editor to fill the form inputs.
+						## Schema used: ${JSON.stringify(runnable.schema)}.
+						## Current args: ${JSON.stringify(args)}}`}
 					bind:this={jsonEditor}
 					on:select={(e) => {
 						if (e.detail) {
