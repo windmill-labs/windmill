@@ -1,5 +1,6 @@
 [package]
 name = "wmill"
+# Version will be replaced by the build script (dev.nu) no need to stage or keep it up to date
 version = """
 1.496.3
 """

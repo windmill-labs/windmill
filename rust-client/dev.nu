@@ -71,10 +71,10 @@ where
 
     print Publishing windmill-api
     cd windmill_api
-    cargo publish --token $env.CRATES_IO_TOKEN
+    cargo publish --token $env.CRATES_IO_TOKEN --allow-dirty
 
     print Publishing wmill
     cd ../
-    cargo publish --token $env.CRATES_IO_TOKEN
+    cargo publish --token $env.CRATES_IO_TOKEN  --allow-dirty
   }
 }
