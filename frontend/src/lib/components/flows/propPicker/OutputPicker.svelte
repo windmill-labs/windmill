@@ -54,8 +54,8 @@
 		bar: 'bg-surface-disabled hover:bg-surface-hover dark:bg-[#454e5f] dark:hover:bg-[#576278]'
 	}
 
-	export function toggleOpen() {
-		if (popover?.isOpened()) {
+	export function toggleOpen(forceOpen: boolean = false) {
+		if (popover?.isOpened() && !forceOpen) {
 			popover?.close()
 		} else {
 			popover?.open()

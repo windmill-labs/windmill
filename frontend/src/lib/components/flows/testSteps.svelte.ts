@@ -1,5 +1,11 @@
-import type { FlowModule } from '$lib/gen'
-import type { PickableProperties } from './previousResults'
+import type { FlowModule, OpenFlow } from '$lib/gen'
+import type { FlowState } from './flowState'
+import {
+	dfs,
+	getPreviousModule,
+	getStepPropPicker,
+	type PickableProperties
+} from './previousResults'
 import { evalValue } from './utils'
 
 export class TestSteps {
@@ -27,5 +33,37 @@ export class TestSteps {
 			])
 		)
 		this.setStepArgs(mod.id, args)
+	}
+
+	updateStepArgs(
+		id: string,
+		flowState: FlowState | undefined,
+		flow: OpenFlow | undefined,
+		previewArgs: Record<string, any> | undefined
+	) {
+		console.log('dbg updateStepArgs', id, flowState, flow, previewArgs)
+		if (!flowState || !flow) {
+			return
+		}
+		const modules = dfs(id, flow, true)
+		const previousModule = getPreviousModule(id, flow)
+		if (modules.length < 1) {
+			return
+		}
+		let parentModule: FlowModule | undefined = undefined
+		if (modules.length > 2) {
+			parentModule = modules[-1]
+		}
+		const stepPropPicker = getStepPropPicker(
+			flowState,
+			parentModule,
+			previousModule,
+			id,
+			flow,
+			previewArgs,
+			false
+		)
+		const pickableProperties = stepPropPicker.pickableProperties
+		this.initializeFromSchema(modules[0], flowState[id]?.schema ?? {}, pickableProperties)
 	}
 }

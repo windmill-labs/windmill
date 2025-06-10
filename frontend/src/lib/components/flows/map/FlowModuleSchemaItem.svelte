@@ -202,6 +202,9 @@
 			bind:this={moduleTest}
 			mod={flowStore?.value.modules.find((m) => m.id === id)!}
 			bind:testIsLoading
+			onJobDone={() => {
+				outputPicker?.toggleOpen(true)
+			}}
 		/>
 	{/if}
 {/if}

@@ -11,14 +11,20 @@
 	export let testIsLoading = false
 	export let noEditor = false
 	export let scriptProgress = undefined
+	export let onJobDone: (() => void) | undefined = undefined
 
-	const { flowStore, flowStateStore, pathStore, testSteps } =
+	const { flowStore, flowStateStore, pathStore, testSteps, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let testJobLoader: TestJobLoader
 	let jobProgressReset: () => void = () => {}
 
 	export function runTestWithStepArgs() {
+		runTest(testSteps.getStepArgs(mod.id))
+	}
+
+	export function loadArgsAndRunTest() {
+		testSteps?.updateStepArgs(mod.id, $flowStateStore, $flowStore, $previewArgs)
 		runTest(testSteps.getStepArgs(mod.id))
 	}
 
@@ -67,6 +73,7 @@
 			}
 		}
 		testJob = undefined
+		onJobDone?.()
 	}
 </script>
 
