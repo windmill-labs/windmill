@@ -80,7 +80,7 @@
 	}
 
 	let {
-		schema = $bindable(emptySchema()),
+		schema = $bindable(),
 		code = $bindable(),
 		path,
 		lang,
@@ -108,6 +108,11 @@
 		editor_bar_right
 	}: Props = $props()
 
+	$effect.pre(() => {
+		if (schema == undefined) {
+			schema = emptySchema()
+		}
+	})
 	let showHistoryDrawer = $state(false)
 
 	let jobProgressReset: (() => void) | undefined = $state(undefined)
@@ -331,7 +336,7 @@
 		!hasPreprocessor && (selectedTab = 'main')
 	})
 	$effect(() => {
-		selectedTab && inferSchema(code)
+		selectedTab && code && untrack(() => inferSchema(code))
 	})
 
 	let argsRender = $state(0)

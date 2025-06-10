@@ -216,7 +216,6 @@
 
 	$effect(() => {
 		if (args == undefined || typeof args !== 'object') {
-			console.log('2', args)
 			args = {}
 		}
 	})

@@ -689,12 +689,13 @@
 				}
 			})
 
+			const clonedScript = structuredClone($state.snapshot(script))
 			savedScript = {
 				...(initialPath == '' || savedScript?.draft_only
-					? { ...structuredClone(script), draft_only: true }
+					? { ...clonedScript, draft_only: true }
 					: savedScript),
 				draft: {
-					...structuredClone(script),
+					...clonedScript,
 					draft_triggers: draftTriggers
 				}
 			} as NewScriptWithDraftAndDraftTriggers

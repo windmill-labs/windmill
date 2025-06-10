@@ -191,15 +191,15 @@
 	})
 
 	let oneOfSelected: string | undefined = $state(undefined)
+	let tagKey = $derived(
+		oneOf?.find((o) => Object.keys(o.properties ?? {})?.includes('kind')) ? 'kind' : 'label'
+	)
 	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
 		if (
 			oneOf &&
 			oneOf.length >= 2 &&
 			(!oneOfSelected || !oneOf.some((o) => o.title === oneOfSelected) || !value)
 		) {
-			const tagKey = oneOf.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
-				? 'kind'
-				: 'label'
 			if (value && value[tagKey] && oneOf.some((o) => o.title === value[tagKey])) {
 				const existingValue = JSON.parse(JSON.stringify(value))
 				oneOfSelected = value[tagKey]
@@ -457,9 +457,11 @@
 	let debounced = debounce(() => compareValues(value), 50)
 	let inputCat = $derived(computeInputCat(type, format, itemsType?.type, enum_, contentEncoding))
 	$effect(() => {
+		console.log('oneOf 1', oneOf)
 		oneOf && untrack(() => updateOneOfSelected(oneOf))
 	})
 	$effect(() => {
+		console.log('oneOf 2', oneOf, value)
 		oneOf && value && untrack(() => onOneOfChange())
 	})
 	$effect(() => {
@@ -1007,7 +1009,12 @@
 													required: obj.required ?? [],
 													type: 'object'
 												}}
-												bind:args={value}
+												bind:args={
+													() => value,
+													(v) => {
+														value = { ...v, [tagKey]: oneOfSelected }
+													}
+												}
 												{shouldDispatchChanges}
 												on:change={() => {
 													dispatch('nestedChange')
