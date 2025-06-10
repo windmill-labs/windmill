@@ -246,7 +246,7 @@
 
 			schema = schema
 			dispatch('change', schema)
-			sendUserToast('Argument renamed successfully')
+			sendUserToast('Argument renamed')
 		}
 	}
 

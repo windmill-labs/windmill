@@ -513,7 +513,7 @@
 		return $selectedIdStore
 	}
 
-	const previewArgsStore = writable<Record<string, any>>(initialArgs)
+	const previewArgsStore = $state({ val: initialArgs })
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
 	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory(flowStore.val)
@@ -1025,7 +1025,7 @@
 						}
 					}}
 					on:testWithArgs={(e) => {
-						$previewArgsStore = JSON.parse(JSON.stringify(e.detail))
+						previewArgsStore.val = JSON.parse(JSON.stringify(e.detail))
 						flowPreviewButtons?.openPreview(true)
 					}}
 					{savedFlow}
