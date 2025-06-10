@@ -190,7 +190,7 @@
 		}
 	}
 
-	let args: Record<string, any> = $state.raw({})
+	let args: Record<string, any> = $state({})
 
 	let hash = window.location.hash
 	if (hash.length > 1) {

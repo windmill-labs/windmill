@@ -66,7 +66,7 @@
 	let connectsManual:
 		| [string, { img?: string; instructions: string[]; key?: string }][]
 		| undefined = $state(undefined)
-	let args: any = $state.raw({})
+	let args: any = $state({})
 	let renderDescription = $state(true)
 
 	function computeCandidates(resourceType: string, argsKeys: string[], passwords: string[]) {

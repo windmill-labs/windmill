@@ -160,7 +160,7 @@
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
 	let open: boolean = $state(false) // Is confirmation modal open
-	let args: Record<string, any> = $state.raw(initialArgs) // Test args input
+	let args: Record<string, any> = $state(initialArgs) // Test args input
 	let selectedInputTab: 'main' | 'preprocessor' = $state('main')
 	let hasPreprocessor = $state(false)
 

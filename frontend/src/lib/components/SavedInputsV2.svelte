@@ -72,7 +72,7 @@
 		}
 	}
 
-	let searchArgs = $state.raw({})
+	let searchArgs = $state({})
 	let appliedSearchArgs = $state({})
 
 	let searchArgsFields = $state([] as string[])

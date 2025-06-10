@@ -127,7 +127,7 @@
 			}
 		}
 	}
-	let args = $state.raw({})
+	let args = $state({})
 </script>
 
 <ConfirmationModal

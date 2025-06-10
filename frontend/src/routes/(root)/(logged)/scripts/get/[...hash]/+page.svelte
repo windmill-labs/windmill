@@ -248,7 +248,7 @@
 		}
 	}
 
-	let args: Record<string, any> | undefined = $state.raw({})
+	let args: Record<string, any> | undefined = $state({})
 	let hash = window.location.hash
 	if (hash.length > 1) {
 		try {

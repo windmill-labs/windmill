@@ -26,7 +26,7 @@
 		scriptEditorDrawer?.openDrawer?.()
 	}
 
-	let args = $state.raw({})
+	let args = $state({})
 </script>
 
 <Drawer bind:open={isOpen} bind:this={scriptEditorDrawer} size="1200px">

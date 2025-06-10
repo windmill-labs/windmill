@@ -47,7 +47,7 @@
 
 	let jobProgressReset: () => void = () => {}
 
-	let stepArgs: Record<string, any> | undefined = $state.raw(
+	let stepArgs: Record<string, any> | undefined = $state(
 		Object.fromEntries(
 			Object.keys(schema.properties ?? {}).map((k) => [
 				k,
