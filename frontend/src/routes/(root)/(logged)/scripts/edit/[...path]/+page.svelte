@@ -11,34 +11,32 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
-	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
 	import type { Trigger } from '$lib/components/triggers/utils'
+	import { get } from 'svelte/store'
+	import { untrack } from 'svelte'
 
 	let initialState = window.location.hash != '' ? window.location.hash.slice(1) : undefined
-	let initialArgs = {}
+	let initialArgs = get(initialArgsStore) ?? {}
+	if (get(initialArgsStore)) $initialArgsStore = undefined
 
-	if ($initialArgsStore) {
-		initialArgs = $initialArgsStore
-		$initialArgsStore = undefined
-	}
 	let topHash = $page.url.searchParams.get('topHash') ?? undefined
 
 	let hash = $page.url.searchParams.get('hash') ?? undefined
 
 	let scriptLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
-	let script: (NewScript & { draft_triggers?: Trigger[] }) | undefined = undefined
+	let script: (NewScript & { draft_triggers?: Trigger[] }) | undefined = $state(undefined)
 
-	let initialPath: string = ''
+	let initialPath: string = $state('')
 
-	let scriptBuilder: ScriptBuilder | undefined = undefined
+	let scriptBuilder: ScriptBuilder | undefined = $state(undefined)
 
 	let reloadAction: () => Promise<void> = async () => {}
 
-	let savedScript: NewScriptWithDraft | undefined = undefined
-	let fullyLoaded = false
+	let savedScript: NewScriptWithDraft | undefined = $state(undefined)
+	let fullyLoaded = $state(false)
 
-	let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
+	let savedPrimarySchedule: ScheduleTrigger | undefined = $state(undefined)
 
 	async function loadScript(): Promise<void> {
 		fullyLoaded = false
@@ -69,8 +67,8 @@
 						{
 							label: 'Show diff',
 							callback: async () => {
-								diffDrawer.openDrawer()
-								diffDrawer.setDiff({
+								diffDrawer?.openDrawer()
+								diffDrawer?.setDiff({
 									mode: 'simple',
 									original: draftOrDeployed,
 									current: urlScript,
@@ -126,8 +124,8 @@
 							{
 								label: 'Show diff',
 								callback: async () => {
-									diffDrawer.openDrawer()
-									diffDrawer.setDiff({
+									diffDrawer?.openDrawer()
+									diffDrawer?.setDiff({
 										mode: 'simple',
 										original: deployed,
 										current: draft,
@@ -165,20 +163,20 @@
 		fullyLoaded = true
 	}
 
-	$: {
+	$effect(() => {
 		if ($workspaceStore) {
-			loadScript()
+			untrack(() => loadScript())
 		}
-	}
+	})
 
-	let diffDrawer: DiffDrawer
+	let diffDrawer: DiffDrawer | undefined = $state()
 
 	async function restoreDraft() {
 		if (!savedScript || !savedScript.draft) {
 			sendUserToast('Could not restore to draft', true)
 			return
 		}
-		diffDrawer.closeDrawer()
+		diffDrawer?.closeDrawer()
 		goto(`/scripts/edit/${savedScript.draft.path}`)
 		scriptLoadedFromUrl = undefined
 		loadScript()
@@ -189,7 +187,7 @@
 			sendUserToast('Could not restore to deployed', true)
 			return
 		}
-		diffDrawer.closeDrawer()
+		diffDrawer?.closeDrawer()
 		if (savedScript.draft) {
 			await DraftService.deleteDraft({
 				workspace: $workspaceStore!,
@@ -201,8 +199,6 @@
 		scriptLoadedFromUrl = undefined
 		loadScript()
 	}
-
-	let getInitialAndModifiedValues: GetInitialAndModifiedValues = undefined
 </script>
 
 <DiffDrawer bind:this={diffDrawer} {restoreDraft} {restoreDeployed} />
@@ -221,7 +217,6 @@
 			let newHash = e.detail
 			goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
 		}}
-		bind:getInitialAndModifiedValues
 		on:saveInitial={(e) => {
 			let path = e.detail
 			goto(`/scripts/edit/${path}`)
@@ -234,6 +229,9 @@
 			replaceState(path, $page.state)
 		}}
 	>
-		<UnsavedConfirmationModal {diffDrawer} {getInitialAndModifiedValues} />
+		<UnsavedConfirmationModal
+			{diffDrawer}
+			getInitialAndModifiedValues={scriptBuilder?.getInitialAndModifiedValues}
+		/>
 	</ScriptBuilder>
 {/if}
