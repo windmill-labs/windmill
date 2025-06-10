@@ -34,7 +34,7 @@
 
 	let timeout: NodeJS.Timeout | undefined = undefined
 	let error: string | undefined = $state(undefined)
-	let default_payload: any = $state.raw({})
+	let default_payload: any = $state({})
 	let enum_payload: object = $state({})
 	let description: any = $state(undefined)
 

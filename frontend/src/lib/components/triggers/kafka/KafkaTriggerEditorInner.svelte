@@ -72,7 +72,7 @@
 	let extra_perms = $state<Record<string, any> | undefined>(undefined)
 	let kafkaCfgValid = $state(false)
 	let kafkaResourcePath = $state('')
-	let kafkaCfg: Record<string, any> = $state.raw({})
+	let kafkaCfg: Record<string, any> = $state({})
 	let deploymentLoading = $state(false)
 
 	const isValid = $derived(
