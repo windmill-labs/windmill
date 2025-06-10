@@ -132,7 +132,7 @@ impl Windmill {
     async fn get_variable_inner<'a>(&'a self, path: &'a str) -> Result<Value, SdkError> {
         let raw = self.get_variable_raw_inner(path).await?;
         Ok(serde_json::from_str(&raw)
-            .or(dbg!(serde_yaml::from_str(&raw)))
+            .or(serde_yaml::from_str(&raw))
             .unwrap_or(json!(raw)))
     }
 
@@ -565,7 +565,6 @@ impl Windmill {
             let job_id = self
                 .run_script_async_inner(ident, ident_is_hash, args, scheduled_in_secs)
                 .await?;
-            dbg!("WAIT");
             self.wait_job_inner(
                 &job_id.to_string(),
                 timeout_secs,
@@ -647,9 +646,7 @@ impl Windmill {
             args["scheduled_in_secs"] = json!(scheduled_in_secs);
         }
 
-        dbg!("RUN");
         let uuid = if ident_is_hash {
-            dbg!("HASH");
             job_api::run_script_by_hash(
                 &self.client_config,
                 &self.workspace,
