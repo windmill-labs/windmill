@@ -18,6 +18,7 @@
 	import MetadataGen from '$lib/components/copilot/MetadataGen.svelte'
 	import Badge from '$lib/components/Badge.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
+	import AIFormSettings from '$lib/components/copilot/AIFormSettings.svelte'
 
 	export let noEditor: boolean
 
@@ -112,6 +113,10 @@
 						}}
 					/>
 				</Label>
+
+				{#if $flowStore.schema}
+					<AIFormSettings bind:prompt={$flowStore.schema.prompt_for_ai as string | undefined} />
+				{/if}
 			</div>
 
 			<!-- Deployable Section -->
