@@ -68,7 +68,7 @@
 		}
 	})
 
-	$positioning = floatingConfig ?? {
+	$: $positioning = floatingConfig ?? {
 		placement,
 		strategy: 'absolute',
 		x: undefined,

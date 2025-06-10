@@ -13,6 +13,7 @@
 	export let historyOpen: boolean = false
 	export let stepArgs: Record<string, any> | undefined = undefined
 	export let inputTransform: Record<string, any> | undefined = undefined
+	export let zoom: number = 1
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
 	const flowPropPickerConfig = context?.flowPropPickerConfig
@@ -22,6 +23,9 @@
 	let isConnecting = false
 	let outputOpen = false
 	let inputOpen = false
+
+	$: width = Math.max(MIN_WIDTH * zoom, 375)
+	$: height = Math.max(MIN_HEIGHT * zoom, 375)
 
 	async function updateConnecting() {
 		await tick()
@@ -89,7 +93,7 @@
 				floatingConfig={{
 					placement: 'bottom',
 					gutter: 0,
-					offset: { mainAxis: 3, crossAxis: 69 },
+					offset: { mainAxis: 3, crossAxis: 69 * zoom },
 					overflowPadding: historyOpen ? 250 : 8
 				}}
 				usePointerDownOutside
@@ -100,7 +104,7 @@
 				}}
 				allowFullScreen
 				contentClasses="overflow-hidden resize rounded-t-none"
-				contentStyle={`width: calc(${MIN_WIDTH}px); min-width: calc(${MIN_WIDTH}px); height: calc(${MIN_HEIGHT}px); min-height: calc(${MIN_HEIGHT}px); `}
+				contentStyle={`width: calc(${width}px); min-width: calc(${width}px); height: calc(${height}px); min-height: calc(${height}px); `}
 				extraProps={{ 'data-prop-picker': true }}
 				closeOnOtherPopoverOpen
 				class="flex-1 h-full"
@@ -119,7 +123,7 @@
 					</button>
 				</svelte:fragment>
 				<svelte:fragment slot="content">
-					<div class="p-2">
+					<div class="p-4 h-full overflow-y-auto">
 						<ObjectViewer json={stepArgs} {inputTransform} />
 					</div>
 				</svelte:fragment>
@@ -128,7 +132,7 @@
 				floatingConfig={{
 					placement: 'bottom',
 					gutter: 0,
-					offset: { mainAxis: 3, crossAxis: -69 },
+					offset: { mainAxis: 3, crossAxis: -69 * zoom },
 					overflowPadding: historyOpen ? 250 : 8
 				}}
 				usePointerDownOutside
@@ -140,7 +144,7 @@
 				bind:this={popover}
 				allowFullScreen
 				contentClasses="overflow-hidden resize rounded-t-none"
-				contentStyle={`width: calc(${MIN_WIDTH}px); min-width: calc(${MIN_WIDTH}px); height: calc(${MIN_HEIGHT}px); min-height: calc(${MIN_HEIGHT}px); `}
+				contentStyle={`width: calc(${width}px); min-width: calc(${width}px); height: calc(${height}px); min-height: calc(${height}px); `}
 				extraProps={{ 'data-prop-picker': true }}
 				closeOnOtherPopoverOpen
 				class="flex-1 h-full"

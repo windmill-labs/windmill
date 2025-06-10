@@ -34,6 +34,7 @@
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import { Button } from '$lib/components/common'
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
+	import { useSvelteFlow } from '@xyflow/svelte'
 
 	export let selected: boolean = false
 	export let deletable: boolean = false
@@ -96,6 +97,8 @@
 	let historyOpen = false
 	let moduleTest: ModuleTest | undefined = undefined
 	let testIsLoading = false
+
+	const { viewport } = useSvelteFlow()
 
 	$: flowStateStore = flowEditorContext?.flowStateStore
 
@@ -342,6 +345,7 @@
 				{historyOpen}
 				{stepArgs}
 				{inputTransform}
+				zoom={$viewport?.zoom ?? 1}
 			>
 				<OutputPickerInner
 					bind:this={outputPickerInner}
