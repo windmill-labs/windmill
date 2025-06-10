@@ -749,7 +749,8 @@ export function graphBuilder(
 									preLabel: branch.summary ? '' : branch.expr,
 									id: module.id,
 									branchIndex: branchIndex,
-									eventHandlers: eventHandlers
+									eventHandlers: eventHandlers,
+									insertable: extra.insertable
 								},
 								type: 'branchOneStart'
 							} as NodeLayout
