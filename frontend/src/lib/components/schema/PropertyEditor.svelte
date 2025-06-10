@@ -178,6 +178,7 @@
 				rows="2"
 				bind:value={description}
 				onkeydown={onKeyDown}
+				onchange={() => dispatch('change')}
 				placeholder="Field description"
 			></textarea>
 		</Label>
@@ -186,7 +187,12 @@
 			{#snippet header()}
 				<Tooltip light>Will be displayed in the UI instead of the field name.</Tooltip>
 			{/snippet}
-			<input bind:value={title} onkeydown={onKeyDown} placeholder="Field title" />
+			<input
+				bind:value={title}
+				onchange={() => dispatch('change')}
+				onkeydown={onKeyDown}
+				placeholder="Field title"
+			/>
 		</Label>
 
 		<Label label="Placeholder">

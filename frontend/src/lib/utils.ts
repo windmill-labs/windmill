@@ -1365,3 +1365,16 @@ export function cn(...inputs: ClassValue[]) {
 export type StateStore<T> = {
 	val: T
 }
+
+export function readFieldsRecursively(obj: any): void {
+	if (Array.isArray(obj)) {
+		// <= in case a new object is added. should read as undefined
+		for (let i = 0; i <= obj.length; i++) {
+			if (obj[i] && typeof obj[i] === 'object') {
+				readFieldsRecursively(obj[i])
+			}
+		}
+	} else if (obj !== null && typeof obj === 'object') {
+		Object.keys(obj).forEach((key) => readFieldsRecursively(obj[key]))
+	}
+}

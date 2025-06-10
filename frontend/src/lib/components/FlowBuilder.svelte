@@ -24,6 +24,7 @@
 		encodeState,
 		generateRandomString,
 		orderedJsonStringify,
+		readFieldsRecursively,
 		replaceFalseWithUndefined,
 		type StateStore,
 		type Value
@@ -773,6 +774,7 @@
 	})
 	run(() => {
 		if (flowStore.val || $selectedIdStore) {
+			readFieldsRecursively(flowStore.val)
 			saveSessionDraft()
 		}
 	})
