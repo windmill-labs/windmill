@@ -204,6 +204,7 @@
 	}
 
 	async function pathExists(path: string, kind: PathKind): Promise<boolean> {
+		if (!path.length) return false
 		if (kind == 'flow') {
 			return await FlowService.existsFlowByPath({ workspace: $workspaceStore!, path: path })
 		} else if (kind == 'script') {
