@@ -1,5 +1,5 @@
-#[cfg(feature = "async")]
-use futures::future::BoxFuture;
+// #[cfg(feature = "async")]
+// use futures::future::BoxFuture;
 
 /// A conditional type that represents either:
 /// - A boxed future (async mode)
