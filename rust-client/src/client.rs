@@ -7,7 +7,7 @@ use windmill_api::{
         resource_api::{self, get_resource_value_interpolated},
         variable_api,
     },
-    models::GetCompletedJobResultMaybe200Response,
+    models::{EditResource, GetCompletedJobResultMaybe200Response},
 };
 
 use serde::Deserialize;
@@ -20,6 +20,7 @@ use std::{
 
 use crate::{maybe_future::maybe_future::MaybeFuture, ret};
 
+#[derive(Debug, Clone)]
 pub struct Windmill {
     pub workspace: String,
     pub token: String,
@@ -73,7 +74,8 @@ impl Windmill {
                 .or(var("BASE_INTERNAL_URL").ok())
                 .ok_or(SdkError::BadValue(
                     "BASE_INTERNAL_URL is not set nor was provided in constructor".to_owned(),
-                ))?,
+                ))?
+                + "/api",
             workspace
                 .or(var("WM_WORKSPACE").ok())
                 .ok_or(SdkError::BadValue(
@@ -386,18 +388,37 @@ impl Windmill {
         path: &'a str,
         resource_type: &'a str,
     ) -> Result<(), SdkError> {
-        resource_api::create_resource(
-            &self.client_config,
-            &self.workspace,
-            windmill_api::models::CreateResource {
-                path: path.to_owned(),
-                value,
-                description: None,
-                resource_type: resource_type.to_owned(),
-            },
-            Some(true),
-        )
-        .await?;
+        // if resource_api::get_resource(&self.client_config, &self.workspace, path)
+        //     .await
+        //     .is_err()
+        if !resource_api::exists_resource(&self.client_config, &self.workspace, path).await? {
+            resource_api::create_resource(
+                &self.client_config,
+                &self.workspace,
+                windmill_api::models::CreateResource {
+                    path: path.to_owned(),
+                    value,
+                    description: None,
+                    resource_type: resource_type.to_owned(),
+                    // resource_type: "any".to_owned(),
+                },
+                // Some(true),
+                None,
+            )
+            .await?;
+        } else {
+            resource_api::update_resource(
+                &self.client_config,
+                &self.workspace,
+                path,
+                EditResource {
+                    path: None,
+                    description: None,
+                    value: Some(value),
+                },
+            )
+            .await?;
+        }
         Ok(())
     }
 
