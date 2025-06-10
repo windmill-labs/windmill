@@ -190,7 +190,7 @@
 		}
 	}
 
-	let args: Record<string, any> | undefined = $state.raw(undefined)
+	let args: Record<string, any> = $state.raw({})
 
 	let hash = window.location.hash
 	if (hash.length > 1) {
@@ -533,7 +533,7 @@
 									}}
 									lightMode
 									on:change={(e) => {
-										runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+										runForm?.setCode(JSON.stringify(args, null, '\t'))
 									}}
 								/>
 							</div>
@@ -604,7 +604,7 @@
 				{jsonView}
 				flowPath={flow?.path}
 				{isValid}
-				args={args ?? {}}
+				{args}
 				bind:inputSelected
 				on:selected_args={(e) => {
 					const nargs = JSON.parse(JSON.stringify(e.detail))

@@ -248,7 +248,7 @@
 		}
 	}
 
-	let args: Record<string, any> | undefined = $state(undefined)
+	let args: Record<string, any> | undefined = $state.raw({})
 	let hash = window.location.hash
 	if (hash.length > 1) {
 		try {
@@ -700,7 +700,7 @@
 									}}
 									lightMode
 									on:change={(e) => {
-										runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+										runForm?.setCode(JSON.stringify(args, null, '\t'))
 									}}
 								/>
 							</div>
