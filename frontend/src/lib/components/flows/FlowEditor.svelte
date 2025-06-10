@@ -71,7 +71,6 @@
 						{disableSettings}
 						{smallErrorHandler}
 						{newFlow}
-						bind:modules={flowStore.val.value.modules}
 						on:reload
 						on:generateStep={({ detail }) => {
 							if (!aiChatManager.open) {

@@ -240,7 +240,7 @@
 										schema={displayedSchema}
 										{extraLib}
 										previousModuleId={undefined}
-										pickablepropertyMap={{
+										pickableProperties={{
 											hasResume: false,
 											previousId: undefined,
 											priorIds: {},

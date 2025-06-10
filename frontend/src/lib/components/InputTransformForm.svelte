@@ -57,6 +57,7 @@
 		enableAi?: boolean
 		hideHelpButton?: boolean
 		class?: string
+		editor?: SimpleEditor | undefined
 	}
 
 	let {
@@ -77,7 +78,8 @@
 		pickableProperties = undefined,
 		enableAi = false,
 		hideHelpButton = false,
-		class: className = ''
+		class: className = '',
+		editor = $bindable(undefined)
 	}: Props = $props()
 
 	let monaco: SimpleEditor | undefined = $state(undefined)
@@ -88,6 +90,10 @@
 	const dispatch = createEventDispatcher()
 
 	let propertyType = $state(getPropertyType(arg))
+
+	$effect(() => {
+		editor = monaco
+	})
 
 	const { shouldUpdatePropertyType, exprsToSet } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}

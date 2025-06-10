@@ -765,7 +765,6 @@
 
 	let flowPreviewButtons: FlowPreviewButtons | undefined = $state()
 
-	let flowEditor: FlowEditor | undefined = $state(undefined)
 	run(() => {
 		initialPathStore.set(initialPath)
 	})
@@ -788,12 +787,6 @@
 	})
 	run(() => {
 		onCustomUiChange(customUi)
-	})
-	run(() => {
-		if (flowEditor) {
-			flowCopilotContext.toggleAiPanel = flowEditor.toggleAiPanel
-			flowCopilotContext.addSelectedLinesToAiChat = flowEditor.addSelectedLinesToAiChat
-		}
 	})
 </script>
 

@@ -6,6 +6,8 @@
 	import { createEventDispatcher } from 'svelte'
 
 	interface Props {
+		aiId?: string | undefined
+		aiDescription?: string | undefined
 		title?: string | undefined
 		overflow_y?: boolean
 		noPadding?: boolean
@@ -19,6 +21,8 @@
 	}
 
 	let {
+		aiId,
+		aiDescription,
 		title = undefined,
 		overflow_y = true,
 		noPadding = false,

@@ -14,6 +14,7 @@
 	} from '$lib/components/flows/flowStateUtils.svelte'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
 	import { aiChatManager } from '../AIChatManager.svelte'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 
 	let {
 		flowModuleSchemaMap
@@ -37,7 +38,7 @@
 	}
 
 	const flowHelpers: FlowAIChatHelpers = {
-		getFlowAndSelectedId: () => ({ flow: $flowStore, selectedId: $selectedId }),
+		getFlowAndSelectedId: () => ({ flow: flowStore.val, selectedId: $selectedId }),
 		setCode: async (id, code) => {
 			const module = getModule(id)
 			if (!module) {
@@ -344,7 +345,7 @@
 	$effect(() => {
 		const cleanup = aiChatManager.listenForSelectedIdChanges(
 			$selectedId,
-			$flowStore,
+			flowStore.val,
 			$flowStateStore,
 			$currentEditor
 		)

@@ -55,6 +55,7 @@
 	import { checkIfParentLoop } from '../utils'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 
 	const {
 		selectedId,
@@ -127,9 +128,6 @@
 			? savedModule.value.content
 			: undefined
 	}
-
-	const { addSelectedLinesToAiChat, toggleAiPanel } =
-		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
