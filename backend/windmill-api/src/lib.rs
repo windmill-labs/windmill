@@ -523,7 +523,7 @@ pub async fn run_server(
     let mcp_router = {
         #[cfg(feature = "mcp")]
         if server_mode || mcp_mode {
-            let mcp_router = setup_mcp_server(addr).await?;
+            let mcp_router = setup_mcp_server().await?;
             // #[cfg(feature = "mcp")]
             // let mcp_main_ct = mcp_sse_server.config.ct.clone(); // Token to signal shutdown *to* MCP
             // #[cfg(feature = "mcp")]
