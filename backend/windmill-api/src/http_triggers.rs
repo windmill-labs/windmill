@@ -25,6 +25,7 @@ use axum::{
 #[cfg(feature = "parquet")]
 use http::header::IF_NONE_MATCH;
 use http::{HeaderMap, StatusCode};
+use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
@@ -35,8 +36,10 @@ use std::collections::HashSet;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{RwLock, RwLockReadGuard};
 use tower_http::cors::CorsLayer;
+use url::Url;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::error::{Error, Result as WindmillResult};
+use windmill_common::openapi::{generate_openapi_document, FuturePath, Info};
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::build_object_store_client;
 use windmill_common::{
@@ -44,7 +47,7 @@ use windmill_common::{
     error::{self, JsonResult},
     s3_helpers::S3Object,
     triggers::TriggerKind,
-    utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath, empty_as_none},
+    utils::{empty_as_none, not_found_if_none, paginate, require_admin, Pagination, StripPath},
     worker::CLOUD_HOSTED,
 };
 use windmill_git_sync::handle_deployment_metadata;
@@ -88,6 +91,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete/*path", delete(delete_trigger))
         .route("/exists/*path", get(exists_trigger))
         .route("/route_exists", post(exists_route))
+        .route("/generate_openapi_spec", post(generate_openapi_spec))
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
@@ -390,7 +394,11 @@ fn check_no_duplicates<'trigger>(
     let mut seen = HashSet::with_capacity(new_http_triggers.len());
 
     for (i, trigger) in new_http_triggers.iter().enumerate() {
-        if !seen.insert((&route_path_key[i], trigger.http_method, trigger.workspaced_route)) {
+        if !seen.insert((
+            &route_path_key[i],
+            trigger.http_method,
+            trigger.workspaced_route,
+        )) {
             return Err(Error::BadRequest(format!(
             "Duplicate HTTP route detected: '{}'. Each HTTP route must have a unique 'route_path'.",
             &trigger.route_path
@@ -1439,4 +1447,95 @@ async fn route_job(
     };
 
     Ok(response)
+}
+
+#[derive(Debug, Deserialize)]
+struct GenerateOpenAPIQuery {
+    path_regex: Option<String>,
+    route_path_regex: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GenerateOpenAPI {
+    info: Option<Info>,
+    url: Option<Url>,
+}
+
+async fn generate_openapi_spec(
+    Extension(authed): Extension<ApiAuthed>,
+    Extension(user_db): Extension<UserDB>,
+    Query(generate_openapi_query): Query<GenerateOpenAPIQuery>,
+    Json(generate_openapi): Json<GenerateOpenAPI>,
+) -> WindmillResult<String> {
+    let transform_to_postgres_compliant_regex = |regex: &str| -> String { regex.replace('*', "%") };
+
+    //todo! sanitize input
+
+    let path_regex = generate_openapi_query
+        .path_regex
+        .as_deref()
+        .map(transform_to_postgres_compliant_regex)
+        .unwrap_or_else(|| ".*".to_string());
+
+    let route_path_regex = generate_openapi_query
+        .route_path_regex
+        .as_deref()
+        .map(transform_to_postgres_compliant_regex)
+        .unwrap_or_else(|| ".*".to_string());
+
+    #[derive(Debug, Deserialize)]
+    struct MinifiedHttpTrigger {
+        route_path: String,
+        http_method: HttpMethod,
+        is_async: bool,
+    }
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    let http_routes = sqlx::query_as!(
+        MinifiedHttpTrigger,
+        r#"
+        SELECT
+            route_path,
+            http_method AS "http_method: _",
+            is_async
+        FROM
+            http_trigger
+        WHERE
+           path ~ $1 AND
+           route_path ~ $2
+    "#,
+        path_regex,
+        route_path_regex
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    let openapi_future_paths = http_routes
+        .into_iter()
+        .map(|http_route| {
+            //not good
+            let method = match http_route.http_method {
+                HttpMethod::Get => http::Method::GET,
+                HttpMethod::Post => http::Method::POST,
+                HttpMethod::Patch => http::Method::PATCH,
+                HttpMethod::Delete => http::Method::DELETE,
+                HttpMethod::Put => http::Method::PUT,
+            };
+
+            let future_path = FuturePath::new(http_route.route_path, method, http_route.is_async);
+
+            future_path
+        })
+        .collect_vec();
+
+    let openapi_document = generate_openapi_document(
+        generate_openapi.info.as_ref(),
+        generate_openapi.url.as_ref(),
+        Some(openapi_future_paths),
+    );
+
+    openapi_document
 }

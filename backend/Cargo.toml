@@ -228,7 +228,7 @@ php-parser-rs = { git = "https://github.com/php-rust-tools/parser", rev = "ec4cb
 cron = "^0"
 mail-send = { version = "0.4.0", features = ["builder"], default-features=false }
 urlencoding = "^2"
-url = "^2"
+url = { version = "^2" , features = ["serde"]}
 async-oauth2 = "^0"
 reqwest = { version = "^0.12", features = ["json", "stream", "gzip"] }
 time = "^0"

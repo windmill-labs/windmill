@@ -7,6 +7,7 @@
 	let name: string = ''
 	export let customName: string | undefined = undefined
 	export let disabled: boolean = false
+	export let placeholder: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -24,7 +25,7 @@
 		<div class="flex flex-row gap-2 p-2 rounded-md">
 			<input
 				bind:value={name}
-				placeholder={`${customName ?? 'Field'} name`}
+				placeholder={placeholder ?? `${customName ?? 'Field'} name`}
 				on:keydown={(event) => {
 					if (event.key === 'Enter') {
 						addField()

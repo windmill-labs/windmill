@@ -8,11 +8,16 @@
 	import { HttpTriggerService, type HttpTrigger } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Eye, Notebook, Trash } from 'lucide-svelte'
+	import { Eye, Notebook, Plus, Trash } from 'lucide-svelte'
 	import RouteEditor from './RouteEditor.svelte'
 	import { generateOpenAPIspec } from './utils'
 	import type { OpenAPIV3_1 } from 'openapi-types'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import { emptyStringTrimmed } from '$lib/utils'
+	import Errors from '$lib/components/Errors.svelte'
+	import AddPropertyFormV2 from '$lib/components/schema/AddPropertyFormV2.svelte'
+	import Label from '$lib/components/Label.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	let openAPIGenerator: Drawer
 
@@ -35,6 +40,18 @@
 	let httpRoutes: HttpTrigger[] = $state([])
 	let routeEditor: RouteEditor
 	let callback: ((cfg?: Record<string, unknown>) => void) | undefined = $state()
+	let errors: string[] = $state([])
+
+	function setErrorsIfAny() {
+		if (emptyStringTrimmed(title)) {
+			errors.push('Title must not be empty')
+		}
+
+		if (emptyStringTrimmed(version)) {
+			errors.push('Version must not be empty')
+		}
+	}
+
 	async function loadHttpRoutes() {
 		try {
 			isLoadingHttpTriggers = true
@@ -50,21 +67,52 @@
 		}
 	}
 
-	function generateSpec() {
+	function buildObjectAndDiscardEmptyField(fields: object) {
+		return Object.fromEntries(Object.entries(fields).filter(([_, v]) => !emptyStringTrimmed(v)))
+	}
+
+	function buildInfo() {
 		const info: OpenAPIV3_1.InfoObject = {
 			title,
-			version,
-			description,
-			contact: {
-				name: contactName,
-				url: contactUrl,
-				email: contactEmail
-			},
-			license: {
-				name: licenseName,
-				url: licenseUrl
-			}
+			version
 		}
+
+		const contact = buildObjectAndDiscardEmptyField({
+			name: contactName,
+			url: contactUrl,
+			email: contactEmail
+		})
+
+		if (Object.keys(contact).length != 0) {
+			info.contact = contact
+		}
+
+		const license = buildObjectAndDiscardEmptyField({
+			name: licenseName,
+			url: licenseUrl
+		})
+
+		if (Object.keys(license).length != 0) {
+			info.license = license as any
+		}
+
+		if (!emptyStringTrimmed(description)) {
+			Object.assign(info, description)
+		}
+
+		return info
+	}
+
+	function generateSpec() {
+		errors = []
+
+		setErrorsIfAny()
+
+		if (errors.length != 0) {
+			return
+		}
+
+		const info = buildInfo()
 
 		generatedOpenAPIspec = generateOpenAPIspec(info, servers, httpRoutes)
 		codeViewer?.openDrawer()
@@ -103,6 +151,9 @@
 				on:click={generateSpec}>Generate</Button
 			>
 		</svelte:fragment>
+		<div class="mb-2">
+			<Errors {errors} />
+		</div>
 		<Section label="Generate OpenAPI spec" wrapperClass="h-full" headless>
 			<div class="flex flex-col gap-2">
 				<Subsection label="Info" collapsable>
@@ -163,7 +214,57 @@
 						/>
 					</label>
 				</Subsection>
-				<Subsection label="servers" collapsable></Subsection>
+				<Subsection label="servers" collapsable>
+					<div class="flex flex-col gap-4 grow min-h-0 overflow-y-auto">
+						{#each servers as server}
+							<div class="flex w-full gap-3 items-center">
+								<div class="w-full flex flex-col gap-2 border py-2 px-4 rounded-md">
+									<Label label="Server URL" required>
+										<svelte:fragment slot="header">
+											<Tooltip small>Enter the name of the table you want to track.</Tooltip>
+										</svelte:fragment>
+										<input type="text" bind:value={server.url} class="!bg-surface mt-1" />
+									</Label>
+									<Label label="Server URL" required>
+										<svelte:fragment slot="header">
+											<Tooltip small>Enter the name of the table you want to track.</Tooltip>
+										</svelte:fragment>
+										<textarea placeholder="Optional URL description" bind:value={server.description}
+										></textarea>
+									</Label>
+								</div>
+							</div>
+						{/each}
+						<div class="grow min-w-0">
+							<AddPropertyFormV2
+								customName="Server"
+								placeholder="Server url"
+								on:add={({ detail }) => {
+									if (servers == undefined || !Array.isArray(servers)) {
+										servers = [{ url: detail.url }]
+									} else {
+										servers = servers.concat({
+											url: detail.url
+										})
+									}
+								}}
+							>
+								<svelte:fragment slot="trigger">
+									<Button
+										variant="border"
+										color="light"
+										size="xs"
+										btnClasses="w-full"
+										startIcon={{ icon: Plus }}
+										nonCaptureEvent
+									>
+										Add server
+									</Button>
+								</svelte:fragment>
+							</AddPropertyFormV2>
+						</div>
+					</div>
+				</Subsection>
 				<Subsection label="paths" headless>
 					<label class="block pb-2">
 						<span class="text-xs text-gray-500"

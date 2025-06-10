@@ -14781,6 +14781,7 @@ dependencies = [
  "tracing-loki",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "url",
  "uuid",
  "windmill-macros",
  "windmill-parser-py",

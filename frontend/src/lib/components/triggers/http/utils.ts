@@ -207,23 +207,43 @@ function fromHttpRoutePathToOpenAPIPath(httpRoutePath: string): [string, OpenAPI
 	return [`/${openapiPath}`, parameters]
 }
 
-function generatePathObjectFromHttpRoutes(httpRoutes: HttpTrigger[]): OpenAPIV3_1.PathsObject {
-	const paths = {}
-
-	const okAsyncResponse = {
-		200: {
-			description: 'Job queued successfully',
-			content: {
-				'application/json': {
-					schema: {
-						type: 'string',
-						format: 'uuid',
-						example: 'f7641d4a-7890-4c83-9e8d-9d2d3bc5aeca'
-					}
+const okAsyncResponse = {
+	200: {
+		description: 'Job queued successfully',
+		content: {
+			'application/json': {
+				schema: {
+					type: 'string',
+					format: 'uuid',
+					example: 'f7641d4a-7890-4c83-9e8d-9d2d3bc5aeca'
 				}
 			}
 		}
 	}
+}
+
+const okSyncResponseDefault = {
+	200: {
+		description: 'Result of the script executed synchronously',
+		content: {
+			'application/json': {
+				schema: {
+					oneOf: [
+						{ type: 'object', additionalProperties: true },
+						{ type: 'array', items: {} },
+						{ type: 'string' },
+						{ type: 'number' },
+						{ type: 'boolean' },
+						{ type: 'null' }
+					]
+				},
+				example: 'This could be any return value from the script'
+			}
+		}
+	}
+}
+function generatePathObjectFromHttpRoutes(httpRoutes: HttpTrigger[]): OpenAPIV3_1.PathsObject {
+	const paths = {}
 
 	httpRoutes.forEach((httpRoute) => {
 		const [openapiPath, parameters] = fromHttpRoutePathToOpenAPIPath(httpRoute.route_path)
@@ -232,7 +252,7 @@ function generatePathObjectFromHttpRoutes(httpRoutes: HttpTrigger[]): OpenAPIV3_
 			[httpRoute.http_method]: {
 				parameters,
 				requestBody: {},
-				respones: httpRoute.is_async ? okAsyncResponse : {}
+				respones: httpRoute.is_async ? okAsyncResponse : okSyncResponseDefault
 			}
 		}
 	})
