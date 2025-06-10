@@ -18,29 +18,25 @@
 	}
 </script>
 
-<div class="my-3 p-3 bg-surface-secondary rounded-md">
-	<div class="flex flex-row justify-between items-center">
-		<div class="flex flex-col gap-1">
-			<h3 class="text-sm font-medium">Fill the inputs with AI</h3>
-			<div class="flex flex-row gap-2 items-center">
-				<p class="text-sm text-tertiary">
-					{instructions
-						? 'Instructions: ' + instructions
-						: 'No AI instructions provided. Click edit to add guidance for AI form filling.'}
-				</p>
-				<Button
-					color="light"
-					size="xs2"
-					startIcon={{
-						icon: Pencil
-					}}
-					iconOnly
-					on:click={onEditInstructions}
-				/>
-			</div>
-		</div>
-	</div>
-	<div class="flex justify-end mt-2">
+<div class="my-3 p-3 bg-surface-secondary rounded-md relative flex flex-col gap-3">
+	<div class="flex flex-row gap-2 justify-between items-center">
+		<h3 class="text-sm font-medium">Fill the inputs with AI</h3>
 		<AskAiButton label="Fill with AI" onClick={fillFormWithAI} />
+	</div>
+	<div class="flex flex-row gap-2 items-center">
+		<p class="text-sm text-tertiary">
+			{instructions
+				? 'Instructions: ' + instructions
+				: 'No AI instructions provided. Click edit to add guidance for AI form filling.'}
+		</p>
+		<Button
+			color="light"
+			size="xs2"
+			startIcon={{
+				icon: Pencil
+			}}
+			iconOnly
+			on:click={onEditInstructions}
+		/>
 	</div>
 </div>

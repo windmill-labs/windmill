@@ -676,7 +676,7 @@
 					<div class="flex flex-col align-left">
 						<div class="flex flex-row justify-between">
 							<InputSelectedBadge
-								on:click={() => {
+								onReject={() => {
 									savedInputsV2?.resetSelected()
 								}}
 								{inputSelected}
