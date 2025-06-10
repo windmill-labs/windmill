@@ -634,6 +634,9 @@
 								outerDivClass={'dark:!border-gray-500 !border-gray-300'}
 								{disabled}
 								bind:selected={value}
+								onremove={(e) => {
+									if (Array.isArray(value)) value = value.filter((v) => v !== e.option)
+								}}
 								options={itemsType?.multiselect ?? []}
 								selectedOptionsDraggable={true}
 								onopen={() => {
@@ -647,6 +650,9 @@
 								ulOptionsClass={'p-2 !bg-surface-secondary'}
 								outerDivClass={'dark:!border-gray-500 !border-gray-300'}
 								{disabled}
+								onremove={(e) => {
+									if (Array.isArray(value)) value = value.filter((v) => v !== e.option)
+								}}
 								bind:selected={
 									() => [...value],
 									(v) => {
