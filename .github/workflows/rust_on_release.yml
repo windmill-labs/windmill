@@ -11,7 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v20
+        env:
+          CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
-      - run: cd rust-client && nix develop ../ --command ./dev.nu --test --publish 
+      - run: cd rust-client && nix develop ../ --command ./dev.nu --check --publish 

@@ -68,7 +68,13 @@ where
 
   if $publish {
     print "Publishing..."
-    cd windmill_api; cargo publish
-    cargo publish
+
+    print Publishing windmill-api
+    cd windmill_api
+    cargo publish --token $env.CRATES_IO_TOKEN
+
+    print Publishing wmill
+    cd ../
+    cargo publish --token $env.CRATES_IO_TOKEN
   }
 }
