@@ -19,7 +19,7 @@ use crate::oauth2_oss::SlackVerifier;
 use crate::smtp_server_oss::SmtpServer;
 
 #[cfg(feature = "mcp")]
-use crate::mcp::{setup_mcp_server, Runner as McpRunner};
+use crate::mcp::{extract_and_store_workspace_id, setup_mcp_server, Runner as McpRunner};
 use crate::tracing_init::MyOnFailure;
 use crate::{
     tracing_init::{MyMakeSpan, MyOnResponse},
@@ -660,7 +660,11 @@ pub async fn run_server(
                         .layer(from_extractor::<OptAuthed>())
                         .layer(cors.clone()),
                 )
-                .nest("/mcp/w/:workspace_id", mcp_router)
+                .nest(
+                    "/mcp/w/:workspace_id",
+                    mcp_router
+                        .route_layer(axum::middleware::from_fn(extract_and_store_workspace_id)),
+                )
                 .layer(from_extractor::<OptAuthed>())
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]

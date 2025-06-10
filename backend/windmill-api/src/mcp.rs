@@ -4,6 +4,13 @@ use std::sync::Arc;
 use std::{borrow::Cow, time::Duration};
 
 use axum::body::to_bytes;
+use axum::{
+    async_trait,
+    extract::{FromRequestParts, Path, State}, // Path for extraction
+    http::{request::Parts as HttpRequestParts, Request},
+    middleware::Next,
+    response::Response,
+};
 use axum::{Extension, Router};
 use rmcp::{
     handler::server::ServerHandler,
@@ -859,28 +866,44 @@ impl ServerHandler for Runner {
             })
         };
 
-        let authed = context
+        let http_parts = context
             .extensions
-            .get::<ApiAuthed>()
-            .ok_or_else(|| Error::internal_error("ApiAuthed not found", None))?;
-        let db = context
-            .extensions
-            .get::<DB>()
-            .ok_or_else(|| Error::internal_error("DB not found", None))?;
-        let user_db = context
-            .extensions
-            .get::<UserDB>()
-            .ok_or_else(|| Error::internal_error("UserDB not found", None))?;
+            .get::<axum::http::request::Parts>()
+            .ok_or_else(|| {
+                tracing::error!("http::request::Parts not found");
+                Error::internal_error("http::request::Parts not found", None)
+            })?;
+
+        let authed = http_parts.extensions.get::<ApiAuthed>().ok_or_else(|| {
+            tracing::error!("ApiAuthed Axum extension not found");
+            Error::internal_error("ApiAuthed Axum extension not found", None)
+        })?;
+        let db = http_parts.extensions.get::<DB>().ok_or_else(|| {
+            tracing::error!("DB Axum extension not found");
+            Error::internal_error("DB Axum extension not found", None)
+        })?;
+        let user_db = http_parts.extensions.get::<UserDB>().ok_or_else(|| {
+            tracing::error!("UserDB Axum extension not found");
+            Error::internal_error("UserDB Axum extension not found", None)
+        })?;
         let args = parse_args(request.arguments)?;
+
+        let workspace_id = http_parts
+            .extensions
+            .get::<WorkspaceId>()
+            .ok_or_else(|| {
+                tracing::error!("WorkspaceId not found");
+                Error::internal_error("WorkspaceId not found", None)
+            })
+            .map(|w_id| w_id.0.clone())?;
 
         let (tool_type, path, is_hub) =
             Runner::reverse_transform(&request.name).unwrap_or_default();
 
-        let w_id = "admin".to_string();
         let item_schema = if is_hub {
             Runner::get_hub_script_schema(&format!("hub/{}", path), db).await?
         } else {
-            Runner::get_item_schema(&path, user_db, authed, &w_id, &tool_type).await?
+            Runner::get_item_schema(&path, user_db, authed, &workspace_id, &tool_type).await?
         };
 
         let schema_obj = if let Some(ref s) = item_schema {
@@ -909,8 +932,6 @@ impl ServerHandler for Runner {
         } else {
             windmill_queue::PushArgsOwned::default()
         };
-
-        let w_id = "admin".to_string();
         let script_or_flow_path = if is_hub {
             StripPath(format!("hub/{}", path))
         } else {
@@ -925,7 +946,7 @@ impl ServerHandler for Runner {
                 script_or_flow_path,
                 authed.clone(),
                 user_db.clone(),
-                w_id.clone(),
+                workspace_id.clone(),
                 push_args,
             )
             .await
@@ -937,7 +958,7 @@ impl ServerHandler for Runner {
                 authed.clone(),
                 user_db.clone(),
                 push_args,
-                w_id.clone(),
+                workspace_id.clone(),
             )
             .await
         };
@@ -981,8 +1002,6 @@ impl ServerHandler for Runner {
         _request: Option<PaginatedRequestParam>,
         mut _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, Error> {
-        let workspace_id = "test".to_string();
-
         let http_parts = _context
             .extensions
             .get::<axum::http::request::Parts>()
@@ -1005,6 +1024,15 @@ impl ServerHandler for Runner {
             tracing::error!("ApiAuthed Axum extension not found");
             Error::internal_error("ApiAuthed Axum extension not found", None)
         })?;
+
+        let workspace_id = http_parts
+            .extensions
+            .get::<WorkspaceId>()
+            .ok_or_else(|| {
+                tracing::error!("WorkspaceId not found");
+                Error::internal_error("WorkspaceId not found", None)
+            })
+            .map(|w_id| w_id.0.clone())?;
 
         let owned_scope = authed.scopes.as_ref().and_then(|scopes| {
             scopes
@@ -1140,6 +1168,19 @@ impl ServerHandler for Runner {
     ) -> Result<ListResourceTemplatesResult, Error> {
         Ok(ListResourceTemplatesResult::default())
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct WorkspaceId(pub String);
+
+pub async fn extract_and_store_workspace_id(
+    Path(params): Path<String>,
+    mut request: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
+    let workspace_id = params;
+    request.extensions_mut().insert(WorkspaceId(workspace_id));
+    next.run(request).await
 }
 
 pub async fn setup_mcp_server() -> anyhow::Result<Router> {
