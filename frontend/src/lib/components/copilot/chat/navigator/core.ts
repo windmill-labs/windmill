@@ -106,12 +106,13 @@ const EXECUTE_COMMAND_TOOL: ChatCompletionTool = {
 					type: 'string',
 					description: 'Value to pass to the AI-triggerable component trigger function'
 				},
-				description: {
+				actionTaken: {
 					type: 'string',
-					description: 'Description of the component'
+					description:
+						'Short description of the action taken. Can be clicked, filled, etc. Includes which component was triggered.'
 				}
 			},
-			required: ['id', 'description']
+			required: ['id', 'actionTaken']
 		}
 	}
 }
@@ -275,12 +276,11 @@ async function getAvailableResources(args: { resource_type: string }): Promise<s
 const triggerComponentTool: Tool<{}> = {
 	def: EXECUTE_COMMAND_TOOL,
 	fn: async ({ args, toolId, toolCallbacks }) => {
-		toolCallbacks.onToolCall(toolId, 'Clicking on component...')
+		toolCallbacks.onToolCall(toolId, 'Triggering component...')
 		const result = triggerComponent(args)
-		const displayableDescription = args.description.split('#')[0]
 		toolCallbacks.onFinishToolCall(
 			toolId,
-			'Clicked ' + displayableDescription.charAt(0).toLowerCase() + displayableDescription.slice(1)
+			args.actionTaken.charAt(0).toUpperCase() + args.actionTaken.slice(1)
 		)
 		return result
 	}

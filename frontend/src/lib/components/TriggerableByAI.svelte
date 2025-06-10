@@ -60,8 +60,6 @@
 				class="absolute -top-2.5 left-1/2 -translate-x-1/2 w-10 h-10 bg-blue-500/90 rounded-full z-[9999] pointer-events-none animate-ping"
 			></div>
 		{/if}
-		<div class="contents h-full">
-			{@render children?.()}
-		</div>
+		{@render children?.()}
 	</div>
 {/if}
