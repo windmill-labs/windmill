@@ -408,7 +408,7 @@
 		)
 	})
 	$effect(() => {
-		;(graph || allowSimplifiedPoll) && updateStores()
+		;(graph || allowSimplifiedPoll) && untrack(() => updateStores())
 	})
 	let showDataflow = $derived(
 		$selectedId != undefined &&

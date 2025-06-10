@@ -192,7 +192,6 @@
 
 	let oneOfSelected: string | undefined = $state(undefined)
 	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
-		console.log('updateOneOfSelected', oneOf)
 		if (
 			oneOf &&
 			oneOf.length >= 2 &&
@@ -215,7 +214,6 @@
 	}
 
 	function onOneOfChange() {
-		console.log('onOneOfChange', value)
 		const label = value?.['label']
 		const kind = value?.['kind']
 		if (label && oneOf && oneOf.some((o) => o.title == label) && oneOfSelected != label) {
@@ -245,7 +243,6 @@
 		defaultValue?: any,
 		nnullable?: boolean
 	) {
-		console.log('computeDefaultValue', nvalue, value, inputCat, defaultValue, nnullable)
 		if (label == 'toString' && typeof value == 'function') {
 			value = undefined
 		}

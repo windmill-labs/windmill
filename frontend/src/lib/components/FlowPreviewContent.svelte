@@ -459,7 +459,13 @@
 								noVariablePicker
 								compact
 								schema={flowStore.val.schema}
-								bind:args={$previewArgs}
+								bind:args={
+									() => $previewArgs,
+									(v) => {
+										// Changes are already written to the store.
+										// Don't write them again to avoid infinite loop
+									}
+								}
 								on:change={() => {
 									savedArgs = $previewArgs
 								}}

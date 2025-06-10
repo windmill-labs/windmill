@@ -234,10 +234,6 @@
 	$effect(() => {
 		isValid = allTrue(inputCheck ?? {})
 	})
-
-	$effect(() => {
-		console.log('3', args)
-	})
 	const actions_render = $derived(actions)
 </script>
 
