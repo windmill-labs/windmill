@@ -89,7 +89,7 @@
 					flows: '',
 					resources: '',
 					scripts: ''
-			  }
+				}
 			: {
 					all: getCounts(
 						filteredAppItems.length +
@@ -101,7 +101,7 @@
 					resources: getCounts(filteredResourceItems.length),
 					flows: getCounts(filteredFlowItems.length),
 					scripts: getCounts(filteredScriptItems.length)
-			  }
+				}
 
 	let showNbScripts = 10
 	let showNbApps = 10

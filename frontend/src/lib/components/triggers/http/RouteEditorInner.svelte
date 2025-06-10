@@ -749,9 +749,9 @@
 				: 'New route'}
 			on:close={() => drawer?.closeDrawer()}
 		>
-			<svelte:fragment slot="actions">
+			{#snippet actions()}
 				{@render saveButton()}
-			</svelte:fragment>
+			{/snippet}
 			{@render config()}
 		</DrawerContent>
 	</Drawer>

@@ -390,7 +390,7 @@
 		}
 	}
 
-	const dispatch = createEventDispatcher()
+	const dispatch = createEventDispatcher<{ error: string; refresh: string; close: void }>()
 
 	let filteredConnects: { key: string }[] = $state([])
 	let filteredConnectsManual: [string, { img?: string; instructions: string[]; key?: string }][] =

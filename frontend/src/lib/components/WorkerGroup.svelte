@@ -766,7 +766,7 @@
 				</div>
 			</div>
 		</Section>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<div class="flex gap-4 items-center">
 				<div class="flex gap-2 items-center">
 					{#if dirty}
@@ -828,7 +828,7 @@
 					</Button>
 				</div>
 			</div>
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>
 

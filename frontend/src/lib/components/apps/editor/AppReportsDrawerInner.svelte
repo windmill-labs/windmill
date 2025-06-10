@@ -558,7 +558,8 @@ export async function main(
 	title="Schedule Reports"
 	tooltip="Send a PDF or PNG preview of any app at a given schedule"
 	documentationLink="https://www.windmill.dev/docs/apps/schedule_reports"
-	><svelte:fragment slot="actions">
+>
+	{#snippet actions()}
 		<div class="mr-4 center-center">
 			<Toggle
 				checked={appReportingEnabled}
@@ -587,7 +588,7 @@ export async function main(
 		>
 			{appReportingEnabled ? 'Update' : 'Save and enable'}
 		</Button>
-	</svelte:fragment>
+	{/snippet}
 	<div class="flex flex-col gap-8">
 		<Alert type="info" title="Scheduled PDF/PNG reports"
 			>Send a PDF or PNG preview of the app at a given schedule. Enabling this feature will create a

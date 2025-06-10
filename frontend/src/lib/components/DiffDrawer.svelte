@@ -255,7 +255,7 @@
 				<Loader2 class="animate-spin" />
 			{/if}
 		</div>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			{#if data?.button}
 				<Button
 					color="light"
@@ -267,6 +267,6 @@
 					}}>{data.button.text}</Button
 				>
 			{/if}
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

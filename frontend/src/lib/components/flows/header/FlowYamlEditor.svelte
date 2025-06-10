@@ -54,10 +54,10 @@
 
 <Drawer on:open={reload} bind:this={drawer} size="800px">
 	<DrawerContent title="OpenFlow" on:close={() => drawer?.toggleDrawer()}>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button color="dark" size="sm" on:click={reload}>Reset code</Button>
 			<Button color="dark" size="sm" on:click={apply}>Apply changes</Button>
-		</svelte:fragment>
+		{/snippet}
 
 		{#if flowStore.val}
 			{#await import('../../SimpleEditor.svelte')}

@@ -229,15 +229,11 @@
 				</div>
 			</Section>
 			<Section label="Description">
-				<textarea
-					rows="4"
-					use:autosize
-					bind:value={variable.description}
-					placeholder="Used for X"
+				<textarea rows="4" use:autosize bind:value={variable.description} placeholder="Used for X"
 				></textarea>
 			</Section>
 		</div>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button
 				on:click={() => (edit ? updateVariable() : createVariable())}
 				disabled={!can_write || !valid || pathError != ''}
@@ -247,6 +243,6 @@
 			>
 				{edit ? 'Update' : 'Save'}
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>
