@@ -1700,12 +1700,8 @@
 			{customUi}
 			collabMode
 			edit={initialPath != ''}
-			on:format={() => {
-				saveDraft()
-			}}
-			on:saveDraft={() => {
-				saveDraft()
-			}}
+			onFormat={() => saveDraft()}
+			onSaveDraft={() => saveDraft()}
 			on:openTriggers={openTriggers}
 			on:applyArgs={applyArgs}
 			on:addPreprocessor={addPreprocessor}

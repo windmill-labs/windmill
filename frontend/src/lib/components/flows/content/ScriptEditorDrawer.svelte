@@ -198,9 +198,7 @@
 			{#key script.hash}
 				<ScriptEditor
 					showCaptures={false}
-					on:saveDraft={() => {
-						saveScript()
-					}}
+					onSaveDraft={() => saveScript()}
 					noSyncFromGithub
 					lang={script.language}
 					path={script.path}
@@ -209,7 +207,7 @@
 					bind:code={script.content}
 					bind:schema={script.schema}
 				>
-					<div slot="editor-bar-right">
+					<div slot="editor_bar_right">
 						<WorkerTagSelect bind:tag={script.tag} />
 					</div>
 				</ScriptEditor>
