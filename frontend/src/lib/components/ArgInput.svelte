@@ -457,11 +457,9 @@
 	let debounced = debounce(() => compareValues(value), 50)
 	let inputCat = $derived(computeInputCat(type, format, itemsType?.type, enum_, contentEncoding))
 	$effect(() => {
-		console.log('oneOf 1', oneOf)
 		oneOf && untrack(() => updateOneOfSelected(oneOf))
 	})
 	$effect(() => {
-		console.log('oneOf 2', oneOf, value)
 		oneOf && value && untrack(() => onOneOfChange())
 	})
 	$effect(() => {

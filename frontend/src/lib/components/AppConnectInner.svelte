@@ -125,7 +125,9 @@
 	async function loadConnects() {
 		if (!connects) {
 			try {
-				connects = (await OauthService.listOauthConnects()).filter((x) => x != 'supabase_wizard')
+				connects = (await OauthService.listOauthConnects())
+					.filter((x) => x != 'supabase_wizard')
+					.sort((a, b) => a.localeCompare(b))
 			} catch (e) {
 				connects = []
 				console.error('Error loading OAuth connects', e)
@@ -171,14 +173,18 @@
 
 		connectsManual = availableRts
 			.filter((x) => connectAndManual.includes(x) || !Object.keys(connects ?? {}).includes(x))
-			.map((x) => [
-				x,
-				apiTokenApps[x] ?? {
-					instructions: '',
-					img: undefined,
-					linkedSecret: undefined
-				}
-			])
+			.map(
+				(x) =>
+					[
+						x,
+						apiTokenApps[x] ?? {
+							instructions: '',
+							img: undefined,
+							linkedSecret: undefined
+						}
+					] as [string, { img?: string; instructions: string[]; key?: string }]
+			)
+			.sort((a, b) => a[0].localeCompare(b[0]))
 		const filteredNativeLanguages = filteredConnectsManual?.filter(
 			(o) => nativeLanguagesCategory?.includes(o[0]) ?? false
 		)
@@ -403,18 +409,16 @@
 	<SearchItems
 		{filter}
 		items={connects
-			? connects
-					.sort((a, b) => a.localeCompare(b))
-					.map((key) => ({
-						key
-					}))
+			? connects.map((key) => ({
+					key
+				}))
 			: undefined}
 		bind:filteredItems={filteredConnects}
 		f={(x) => x.key}
 	/>
 	<SearchItems
 		{filter}
-		items={connectsManual?.sort((a, b) => a[0].localeCompare(b[0]))}
+		items={connectsManual}
 		bind:filteredItems={filteredConnectsManual}
 		f={(x) => x[0]}
 	/>
