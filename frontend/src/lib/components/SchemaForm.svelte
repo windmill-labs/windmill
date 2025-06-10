@@ -14,7 +14,7 @@
 	import { getResourceTypes } from './resourceTypesStore'
 	import { Plus } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { deepEqual } from 'fast-equals'
 	import { dragHandleZone, type Options as DndOptions } from '@windmill-labs/svelte-dnd-action'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
@@ -116,6 +116,7 @@
 
 	$effect.pre(() => {
 		if (args == undefined) {
+			console.log('1', args)
 			args = {}
 		}
 	})
@@ -216,6 +217,7 @@
 
 	$effect(() => {
 		if (args == undefined || typeof args !== 'object') {
+			console.log('2', args)
 			args = {}
 		}
 	})
@@ -223,16 +225,19 @@
 		keys = Array.isArray(schema?.order) ? schema?.order : Object.keys(schema?.properties ?? {})
 	})
 	$effect(() => {
-		schema && (reorder(), (hidden = {}))
+		schema && (untrack(() => reorder()), (hidden = {}))
 	})
 	let fields = $derived(items ?? keys.map((x) => ({ id: x, value: x })))
 	$effect(() => {
-		handleHiddenFields(schema, args ?? {})
+		handleHiddenFields(schema, untrack(() => args) ?? {})
 	})
 	$effect(() => {
 		isValid = allTrue(inputCheck ?? {})
 	})
 
+	$effect(() => {
+		console.log('3', args)
+	})
 	const actions_render = $derived(actions)
 </script>
 

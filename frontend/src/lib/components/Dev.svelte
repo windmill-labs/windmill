@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { Button } from '$lib/components/common'
@@ -525,35 +523,35 @@
 	let workspace = $derived($page.url.searchParams.get('workspace') ?? undefined)
 	let themeDarkRaw = $derived($page.url.searchParams.get('activeColorTheme'))
 	let themeDark = $derived(themeDarkRaw == '2' || themeDarkRaw == '4')
-	run(() => {
+	$effect(() => {
 		if (token) {
 			OpenAPI.WITH_CREDENTIALS = true
 			OpenAPI.TOKEN = token
 			loadUser()
 		}
 	})
-	run(() => {
+	$effect(() => {
 		if (workspace) {
 			$workspaceStore = workspace
 			setupCopilotInfo()
 		}
 	})
-	run(() => {
+	$effect(() => {
 		if (workspace && token) {
 			loadUser()
 		}
 	})
-	run(() => {
+	$effect(() => {
 		darkModeToggle &&
 			themeDark != darkMode &&
 			darkMode != undefined &&
 			!modeInitialized &&
 			initializeMode()
 	})
-	run(() => {
+	$effect(() => {
 		updateFlow(flowStore.val)
 	})
-	run(() => {
+	$effect(() => {
 		$selectedIdStore && inferModuleArgs($selectedIdStore)
 	})
 </script>

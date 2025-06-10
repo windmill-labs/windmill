@@ -419,13 +419,32 @@
 			$selectedId !== 'Result' &&
 			$selectedId !== 'triggers'
 	)
+	let debouncedWidth: number | undefined = $state(undefined)
+	let timeout: NodeJS.Timeout | undefined = $state(undefined)
+	$effect(() => {
+		if (!debouncedWidth) {
+			return
+		}
+		if (untrack(() => width) == undefined) {
+			width = debouncedWidth
+			return
+		}
+		if (untrack(() => timeout)) {
+			clearTimeout(untrack(() => timeout))
+		}
+		timeout = setTimeout(() => {
+			if (debouncedWidth && untrack(() => width) != debouncedWidth) {
+				width = debouncedWidth
+			}
+		}, 10)
+	})
 </script>
 
 {#if insertable}
 	<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 {/if}
 
-<div style={`height: ${height}px; max-height: ${maxHeight}px;`} bind:clientWidth={width}>
+<div style={`height: ${height}px; max-height: ${maxHeight}px;`} bind:clientWidth={debouncedWidth}>
 	{#if graph?.error}
 		<div class="center-center p-2">
 			<Alert title="Error parsing the flow" type="error" class="max-w-1/2">

@@ -4,11 +4,25 @@
 	import HighlightTheme from '../HighlightTheme.svelte'
 	import FlowViewerInner from '../FlowViewerInner.svelte'
 
-	export let flow_json: any | undefined = undefined
+	interface Props {
+		flow_json?: any | undefined
+		isOperator?: boolean
+		selected: string
+		save_inputs?: import('svelte').Snippet
+		script?: import('svelte').Snippet
+		triggers?: import('svelte').Snippet
+		flow_step?: import('svelte').Snippet
+	}
 
-	export let isOperator: boolean = false
-
-	export let selected: string
+	let {
+		flow_json = undefined,
+		isOperator = false,
+		selected = $bindable(),
+		save_inputs,
+		script,
+		triggers,
+		flow_step
+	}: Props = $props()
 </script>
 
 <HighlightTheme />
@@ -28,26 +42,26 @@
 			<Tab value="flow_step">Step</Tab>
 		{/if}
 
-		<svelte:fragment slot="content">
+		{#snippet content()}
 			<div class="min-h-0 grow">
 				<TabContent value="saved_inputs" class="h-full">
-					<slot name="save_inputs" />
+					{@render save_inputs?.()}
 				</TabContent>
 				<TabContent value="script" class="h-full">
-					<slot name="script" />
+					{@render script?.()}
 				</TabContent>
 				<TabContent value="triggers" class="h-full">
-					<slot name="triggers" />
+					{@render triggers?.()}
 				</TabContent>
 				{#if flow_json}
 					<TabContent value="raw" class="flex flex-col flex-1 h-full overflow-auto p-2">
 						<FlowViewerInner flow={flow_json} />
 					</TabContent>
 					<TabContent value="flow_step" class="flex flex-col flex-1 h-full">
-						<slot name="flow_step" />
+						{@render flow_step?.()}
 					</TabContent>
 				{/if}
 			</div>
-		</svelte:fragment>
+		{/snippet}
 	</Tabs>
 </div>

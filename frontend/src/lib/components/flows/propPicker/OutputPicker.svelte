@@ -2,7 +2,7 @@
 	import { ChevronDown } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { getContext, tick } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 
@@ -29,19 +29,9 @@
 	const MIN_WIDTH = 375
 	const MIN_HEIGHT = 375
 
-	let isConnecting = $state(false)
-
-	async function updateConnecting() {
-		await tick()
-		isConnecting = $flowPropPickerConfig?.insertionMode === 'connect'
-	}
-
-	$effect(() => {
-		$flowPropPickerConfig
-		updateConnecting()
-	})
-
-	let showConnecting = $derived(isConnectingCandidate && isConnecting)
+	let showConnecting = $derived(
+		isConnectingCandidate && $flowPropPickerConfig?.insertionMode === 'connect'
+	)
 
 	function selectConnection(event: CustomEvent) {
 		if ($flowPropPickerConfig?.onSelect(event.detail)) {
@@ -135,7 +125,11 @@
 		</div>
 	{/snippet}
 	{#snippet content()}
-		{@render children?.({ allowCopy: !$flowPropPickerConfig, isConnecting, selectConnection })}
+		{@render children?.({
+			allowCopy: !$flowPropPickerConfig,
+			isConnecting: showConnecting,
+			selectConnection
+		})}
 	{/snippet}
 </Popover>
 

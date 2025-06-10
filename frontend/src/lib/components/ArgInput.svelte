@@ -10,7 +10,7 @@
 		getSchemaFromProperties
 	} from '$lib/utils'
 	import { DollarSign, Pipette, Plus, X, Check, Loader2 } from 'lucide-svelte'
-	import { createEventDispatcher, onMount, tick } from 'svelte'
+	import { createEventDispatcher, onMount, tick, untrack } from 'svelte'
 	import Multiselect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
 	import { Button, SecondsInput } from './common'
@@ -192,6 +192,7 @@
 
 	let oneOfSelected: string | undefined = $state(undefined)
 	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
+		console.log('updateOneOfSelected', oneOf)
 		if (
 			oneOf &&
 			oneOf.length >= 2 &&
@@ -214,6 +215,7 @@
 	}
 
 	function onOneOfChange() {
+		console.log('onOneOfChange', value)
 		const label = value?.['label']
 		const kind = value?.['kind']
 		if (label && oneOf && oneOf.some((o) => o.title == label) && oneOfSelected != label) {
@@ -243,6 +245,7 @@
 		defaultValue?: any,
 		nnullable?: boolean
 	) {
+		console.log('computeDefaultValue', nvalue, value, inputCat, defaultValue, nnullable)
 		if (label == 'toString' && typeof value == 'function') {
 			value = undefined
 		}
@@ -264,7 +267,9 @@
 		}
 
 		if (nnullable && type === 'string' && value === '') {
-			value = null
+			if (value != null) {
+				value = null
+			}
 		}
 	}
 
@@ -455,10 +460,10 @@
 	let debounced = debounce(() => compareValues(value), 50)
 	let inputCat = $derived(computeInputCat(type, format, itemsType?.type, enum_, contentEncoding))
 	$effect(() => {
-		updateOneOfSelected(oneOf)
+		oneOf && untrack(() => updateOneOfSelected(oneOf))
 	})
 	$effect(() => {
-		oneOf && value && onOneOfChange()
+		oneOf && value && untrack(() => onOneOfChange())
 	})
 	$effect(() => {
 		computeDefaultValue(value, inputCat, defaultValue, nullable)
@@ -472,7 +477,7 @@
 			checkArrayValueType()
 	})
 	$effect(() => {
-		defaultValue != undefined && handleDefaultValueChange()
+		defaultValue != undefined && untrack(() => handleDefaultValueChange())
 	})
 	$effect(() => {
 		;(inputCat &&
@@ -481,6 +486,7 @@
 			evalValueToRaw()) ||
 			value
 	})
+
 	$effect(() => {
 		validateInput(pattern, value, required)
 	})
