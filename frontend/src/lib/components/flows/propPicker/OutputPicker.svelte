@@ -12,7 +12,6 @@
 	export let variant: 'default' | 'virtual' = 'default'
 	export let historyOpen: boolean = false
 	export let stepArgs: Record<string, any> | undefined = undefined
-	export let small: boolean = false
 	export let inputTransform: Record<string, any> | undefined = undefined
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
@@ -105,7 +104,6 @@
 				extraProps={{ 'data-prop-picker': true }}
 				closeOnOtherPopoverOpen
 				class="flex-1 h-full"
-				portal="#node"
 				bind:isOpen={inputOpen}
 			>
 				<svelte:fragment slot="trigger">
@@ -122,7 +120,7 @@
 				</svelte:fragment>
 				<svelte:fragment slot="content">
 					<div class="p-2">
-						<ObjectViewer json={stepArgs} {inputTransform} small />
+						<ObjectViewer json={stepArgs} {inputTransform} />
 					</div>
 				</svelte:fragment>
 			</Popover>
@@ -146,7 +144,6 @@
 				extraProps={{ 'data-prop-picker': true }}
 				closeOnOtherPopoverOpen
 				class="flex-1 h-full"
-				portal="#node"
 				bind:isOpen={outputOpen}
 			>
 				<svelte:fragment slot="trigger">

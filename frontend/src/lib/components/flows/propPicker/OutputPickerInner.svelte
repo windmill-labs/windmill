@@ -58,7 +58,6 @@
 	export let disableHistory: boolean = false
 	export let derivedHistoryOpen: boolean = false // derived from historyOpen
 	export let historyOffset = { mainAxis: 8, crossAxis: -4.5 }
-	export let small: boolean = false
 
 	type SelectedJob =
 		| Job
@@ -213,14 +212,13 @@
 </script>
 
 <div
-	class={twMerge('w-full h-full flex flex-col ', $$props.class)}
+	class={twMerge('w-full h-full flex flex-col', $$props.class)}
 	bind:clientHeight
 	style={canEditWithDblClick ? 'cursor: text;' : ''}
 >
 	<div
 		class={twMerge(
-			'text-xs',
-			small ? 'px-0.5' : 'px-1',
+			'text-xs px-1',
 			'border-none',
 			hideHeaderBar || connectingData ? 'hidden' : 'block',
 			hasOverflow ? 'shadow-sm' : ''
@@ -251,9 +249,9 @@
 						<svelte:fragment slot="trigger">
 							<Button
 								color="light"
-								size={small ? 'xs3' : 'xs2'}
+								size="xs2"
 								variant="contained"
-								btnClasses="bg-surface h-[22.5px]"
+								btnClasses="bg-surface h-[27px]"
 								startIcon={{ icon: History }}
 								nonCaptureEvent
 							/>
@@ -314,8 +312,7 @@
 				{#if !isLoading}
 					<div
 						class={twMerge(
-							'w-grow min-w-0 flex gap-1 items-center rounded-md group',
-							small ? 'h-[22.5px]' : 'h-[27px]',
+							'w-grow min-w-0 flex gap-1 items-center h-[27px] rounded-md  group',
 							preview || selectedJob?.id !== lastJob?.id ? 'p-[2px] bg-surface-secondary' : ''
 						)}
 					>
@@ -323,8 +320,7 @@
 							<div
 								class={twMerge(
 									'min-w-16 rounded-md py-1 px-2 justify-center',
-									mockUpdateStatus ? 'bg-surface h-[23px]' : 'bg-surface-secondary',
-									small ? 'h-[22.5px]' : 'h-[27px]'
+									mockUpdateStatus ? 'bg-surface h-[23px]' : 'bg-surface-secondary h-[27px]'
 								)}
 							>
 								<span
@@ -340,11 +336,10 @@
 							<div
 								class={twMerge(
 									'min-w-16 text-secondary flex flex-row w-fit items-center gap-2 rounded-md bg-surface-secondary p-1 px-2',
-									mockUpdateStatus ? 'bg-surface h-[23px]' : 'bg-surface-secondary',
-									small ? 'h-[22.5px]' : 'h-[27px]'
+									mockUpdateStatus ? 'bg-surface h-[23px]' : 'bg-surface-secondary h-[27px]'
 								)}
 							>
-								<Pin size={small ? 10 : 12} />
+								<Pin size={12} />
 								<span class="text-xs text-secondary truncate"
 									>{mock?.enabled ? 'Pin' : 'Last pin'}</span
 								>
@@ -354,10 +349,8 @@
 								job={selectedJob}
 								class={twMerge(
 									'min-w-16 text-secondary',
-									preview || selectedJob?.id !== lastJob?.id ? 'bg-surface shadow-sm' : '',
-									small ? 'h-[22.5px]' : 'h-[27px]'
+									preview || selectedJob?.id !== lastJob?.id ? 'bg-surface shadow-sm h-[23px]' : ''
 								)}
-								{small}
 							/>
 						{/if}
 
@@ -380,11 +373,10 @@
 					<Tooltip disablePopup={mock?.enabled}>
 						<Button
 							color="light"
-							size={small ? 'xs3' : 'xs2'}
+							size="xs2"
 							variant="contained"
 							btnClasses={twMerge(
-								'bg-transparent',
-								small ? 'h-[22.5px]' : 'h-[27px]',
+								'bg-transparent h-[27px]',
 								mock?.enabled || mockUpdateStatus === 'override'
 									? 'text-white bg-blue-500 hover:text-primary hover:bg-blue-700 hover:text-gray-100'
 									: '',
@@ -404,11 +396,11 @@
 
 				{#if jsonView}
 					<Button
-						size={small ? 'xs3' : 'xs2'}
+						size="xs2"
 						color="green"
 						variant="contained"
 						startIcon={{ icon: Check }}
-						btnClasses={small ? 'h-[22.5px]' : 'h-[27px]'}
+						btnClasses="h-[27px]"
 						on:click={() => {
 							if (!tmpMock) {
 								return
@@ -424,11 +416,11 @@
 						disabled={!!error || !tmpMock}
 					/>
 					<Button
-						size={small ? 'xs3' : 'xs2'}
+						size="xs2"
 						color="red"
 						variant="contained"
 						startIcon={{ icon: X }}
-						btnClasses={small ? 'h-[22.5px]' : 'h-[27px]'}
+						btnClasses="h-[27px]"
 						on:click={() => {
 							jsonView = false
 							tmpMock = undefined
@@ -437,7 +429,7 @@
 				{:else if mock?.enabled && !preview}
 					<Tooltip disablePopup={mock?.enabled}>
 						<Button
-							size={small ? 'xs3' : 'xs2'}
+							size="xs2"
 							color="light"
 							variant="contained"
 							startIcon={{ icon: Pen }}
@@ -448,8 +440,7 @@
 							}}
 							disabled={!mock?.enabled || !!connectingData}
 							btnClasses={twMerge(
-								'transition-all duration-100',
-								small ? 'h-[22.5px]' : 'h-[27px]',
+								'transition-all duration-100 h-[27px]',
 								debouncedCanEditWithDblClick
 									? 'bg-blue-500/10 text-blue-800 dark:text-blue-200'
 									: ''
@@ -557,7 +548,6 @@
 					{prefix}
 					on:select
 					{allowCopy}
-					{small}
 				/>
 			{:else if jsonView}
 				{#await import('$lib/components/JsonEditor.svelte')}
@@ -607,7 +597,6 @@
 							: mock?.return_value}
 						topBrackets={false}
 						pureViewer={false}
-						{small}
 					/>
 				{/if}
 			{:else if selectedJob != undefined && 'result' in selectedJob}
@@ -640,7 +629,6 @@
 							: selectedJob.result}
 						topBrackets={false}
 						pureViewer={false}
-						{small}
 					/>
 				{/if}
 			{:else if !lastJob}

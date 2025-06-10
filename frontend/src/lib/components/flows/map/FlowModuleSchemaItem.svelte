@@ -341,7 +341,6 @@
 				let:selectConnection
 				{historyOpen}
 				{stepArgs}
-				small
 				{inputTransform}
 			>
 				<OutputPickerInner
@@ -358,8 +357,7 @@
 					rightMargin
 					bind:derivedHistoryOpen={historyOpen}
 					historyOffset={{ mainAxis: 12, crossAxis: -9 }}
-					class="p-0.5"
-					small
+					class="p-1"
 				/>
 			</OutputPicker>
 		{/if}

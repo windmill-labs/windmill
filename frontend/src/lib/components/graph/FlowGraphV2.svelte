@@ -13,8 +13,7 @@
 		ConnectionLineType,
 		Controls,
 		ControlButton,
-		type Viewport,
-		ViewportPortal
+		type Viewport
 	} from '@xyflow/svelte'
 	import { graphBuilder, isTriggerStep, type SimplifiableFlow } from './graphBuilder'
 	import ModuleNode from './renderers/nodes/ModuleNode.svelte'
@@ -433,10 +432,6 @@
 					/>
 				{/if}
 			</Controls>
-
-			<ViewportPortal>
-				<div id="node"> </div>
-			</ViewportPortal>
 		</SvelteFlow>
 	{/if}
 </div>
