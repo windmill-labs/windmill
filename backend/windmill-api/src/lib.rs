@@ -520,17 +520,17 @@ pub async fn run_server(
 
     // Setup MCP server
     #[allow(unused_variables)]
-    let (mcp_router, mcp_main_ct, mcp_service_ct) = {
+    let mcp_router = {
         #[cfg(feature = "mcp")]
         if server_mode || mcp_mode {
-            let (mcp_sse_server, mcp_router) = setup_mcp_server(addr, "/api/mcp/w/:workspace_id")?;
-            #[cfg(feature = "mcp")]
-            let mcp_main_ct = mcp_sse_server.config.ct.clone(); // Token to signal shutdown *to* MCP
-            #[cfg(feature = "mcp")]
-            let mcp_service_ct = mcp_sse_server.with_service(McpRunner::new); // Token to wait for MCP *service* shutdown
-            (mcp_router, Some(mcp_main_ct), Some(mcp_service_ct))
+            let mcp_router = setup_mcp_server(addr).await?;
+            // #[cfg(feature = "mcp")]
+            // let mcp_main_ct = mcp_sse_server.config.ct.clone(); // Token to signal shutdown *to* MCP
+            // #[cfg(feature = "mcp")]
+            // let mcp_service_ct = mcp_sse_server.with_service(McpRunner::new); // Token to wait for MCP *service* shutdown
+            mcp_router
         } else {
-            (Router::new(), None, None)
+            Router::new()
         }
 
         #[cfg(not(feature = "mcp"))]
@@ -818,18 +818,18 @@ pub async fn run_server(
         }
         tracing::info!("Graceful shutdown of server");
 
-        #[cfg(feature = "mcp")]
-        {
-            if let Some(mcp_main_ct) = mcp_main_ct {
-                tracing::info!("Received shutdown signal, cancelling MCP server...");
-                mcp_main_ct.cancel();
-            }
-            if let Some(mcp_service_ct) = mcp_service_ct {
-                tracing::info!("Waiting for MCP service cancellation...");
-                mcp_service_ct.cancelled().await;
-                tracing::info!("MCP service cancelled.");
-            }
-        }
+        // #[cfg(feature = "mcp")]
+        // {
+        //     if let Some(mcp_main_ct) = mcp_main_ct {
+        //         tracing::info!("Received shutdown signal, cancelling MCP server...");
+        //         mcp_main_ct.cancel();
+        //     }
+        //     if let Some(mcp_service_ct) = mcp_service_ct {
+        //         tracing::info!("Waiting for MCP service cancellation...");
+        //         mcp_service_ct.cancelled().await;
+        //         tracing::info!("MCP service cancelled.");
+        //     }
+        // }
     });
 
     server.await?;

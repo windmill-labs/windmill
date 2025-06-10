@@ -1,11 +1,10 @@
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::{borrow::Cow, time::Duration};
 
 use axum::body::to_bytes;
-use axum::Router;
-use rmcp::transport::sse_server::{SseServer, SseServerConfig};
+use axum::{Extension, Router};
 use rmcp::{
     handler::server::ServerHandler,
     model::*,
@@ -24,12 +23,19 @@ use windmill_common::{DB, HUB_BASE_URL};
 
 use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
 
-use crate::db::ApiAuthed;
 use crate::jobs::{
     run_wait_result_flow_by_path_internal, run_wait_result_script_by_path_internal, RunJobQuery,
 };
 use crate::HTTP_CLIENT;
+use crate::{db::ApiAuthed, users::OptAuthed};
+use rmcp::transport::streamable_http_server::{
+    session::local::LocalSessionManager, StreamableHttpService,
+};
+use rmcp::transport::StreamableHttpServerConfig;
 use windmill_common::utils::{query_elems_from_hub, StripPath};
+
+#[derive(Debug, Clone)]
+pub struct MyTestMarker(pub String);
 
 /// Transforms the path for workspace scripts/flows.
 ///
@@ -857,15 +863,15 @@ impl ServerHandler for Runner {
         };
 
         let authed = context
-            .req_extensions
+            .extensions
             .get::<ApiAuthed>()
             .ok_or_else(|| Error::internal_error("ApiAuthed not found", None))?;
         let db = context
-            .req_extensions
+            .extensions
             .get::<DB>()
             .ok_or_else(|| Error::internal_error("DB not found", None))?;
         let user_db = context
-            .req_extensions
+            .extensions
             .get::<UserDB>()
             .ok_or_else(|| Error::internal_error("UserDB not found", None))?;
         let args = parse_args(request.arguments)?;
@@ -873,11 +879,11 @@ impl ServerHandler for Runner {
         let (tool_type, path, is_hub) =
             Runner::reverse_transform(&request.name).unwrap_or_default();
 
+        let w_id = "admin".to_string();
         let item_schema = if is_hub {
             Runner::get_hub_script_schema(&format!("hub/{}", path), db).await?
         } else {
-            Runner::get_item_schema(&path, user_db, authed, &context.workspace_id, &tool_type)
-                .await?
+            Runner::get_item_schema(&path, user_db, authed, &w_id, &tool_type).await?
         };
 
         let schema_obj = if let Some(ref s) = item_schema {
@@ -907,7 +913,7 @@ impl ServerHandler for Runner {
             windmill_queue::PushArgsOwned::default()
         };
 
-        let w_id = context.workspace_id.clone();
+        let w_id = "admin".to_string();
         let script_or_flow_path = if is_hub {
             StripPath(format!("hub/{}", path))
         } else {
@@ -978,17 +984,53 @@ impl ServerHandler for Runner {
         _request: Option<PaginatedRequestParam>,
         mut _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, Error> {
-        let workspace_id = _context.workspace_id.clone();
-        let db = _context
-            .req_extensions
-            .get::<DB>()
-            .ok_or_else(|| Error::internal_error("DB not found", None))?;
+        println!("list_tools");
+
+        println!(
+            "[HANDLER DEBUG] _context.extensions contains http::Parts? {:?}",
+            _context.extensions.get::<http::request::Parts>().is_some()
+        );
+
+        // 1. Get http::request::Parts from MCP extensions
+        let http_parts = _context
+            .extensions
+            .get::<axum::http::request::Parts>() // Ensure http::request::Parts is in scope
+            .ok_or_else(|| {
+                println!("CRITICAL: http::request::Parts not found in MCP extensions. Was it injected by the transport layer?");
+                Error::internal_error("http::request::Parts not found", None)
+            })?;
+
+        println!("http_parts: {:?}", http_parts);
+
+        // 2. Get your Axum extension (e.g., DB) from http_parts.extensions
+        //    Axum stores extensions wrapped in axum::extract::Extension
+        let db_axum_extension = http_parts
+            .extensions
+            .get::<axum::extract::Extension<MyTestMarker>>() // Ensure axum::extract::Extension is in scope
+            .ok_or_else(|| {
+                println!("DB Axum extension not found");
+                // Error::internal_error("DB Axum extension not found", None)
+            });
+
+        let authed_axum_extension = http_parts
+            .extensions
+            .get::<axum::extract::Extension<OptAuthed>>() // Ensure axum::extract::Extension is in scope
+            .ok_or_else(|| {
+                println!("Authed Axum extension not found");
+                Error::internal_error("Authed Axum extension not found", None)
+            })?;
+
+        let workspace_id = "admin".to_string();
+        let db = _context.extensions.get::<DB>().ok_or_else(|| {
+            println!("DB not found");
+            Error::internal_error("DB not found", None)
+        })?;
         let user_db = _context
-            .req_extensions
+            .extensions
             .get::<UserDB>()
             .ok_or_else(|| Error::internal_error("UserDB not found", None))?;
         let authed = _context
-            .req_extensions
+            .extensions
             .get::<ApiAuthed>()
             .ok_or_else(|| Error::internal_error("ApiAuthed not found", None))?;
         let owned_scope = authed.scopes.as_ref().and_then(|scopes| {
@@ -1079,6 +1121,8 @@ impl ServerHandler for Runner {
             );
         }
 
+        println!("tools: {:?}", tools);
+
         Ok(ListToolsResult { tools, next_cursor: None })
     }
 
@@ -1127,15 +1171,13 @@ impl ServerHandler for Runner {
     }
 }
 
-pub fn setup_mcp_server(addr: SocketAddr, path: &str) -> anyhow::Result<(SseServer, Router)> {
-    let config = SseServerConfig {
-        bind: addr,
-        sse_path: "/sse".to_string(),
-        post_path: "/message".to_string(),
-        full_message_path: path.to_string(),
-        ct: CancellationToken::new(),
-        sse_keep_alive: None,
-    };
+pub async fn setup_mcp_server(addr: SocketAddr) -> anyhow::Result<Router> {
+    let config = StreamableHttpServerConfig { sse_keep_alive: None, stateful_mode: true };
+    let service =
+        StreamableHttpService::new(Runner::new, LocalSessionManager::default().into(), config);
 
-    Ok(SseServer::new(config))
+    let router = axum::Router::new()
+        .nest_service("/", service)
+        .layer(Extension(MyTestMarker("hello_from_axum_layer".to_string())));
+    Ok(router)
 }
