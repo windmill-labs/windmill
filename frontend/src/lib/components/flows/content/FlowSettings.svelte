@@ -256,7 +256,7 @@
 										bind:code={flowStore.val.value.skip_expr}
 										class="small-editor"
 										extraLib={`declare const flow_input = ${JSON.stringify(
-											schemaToObject(asSchema(flowStore.val.schema), $previewArgs)
+											schemaToObject(asSchema(flowStore.val.schema), previewArgs.val)
 										)};
 									declare const WM_SCHEDULED_FOR: string;`}
 									/>

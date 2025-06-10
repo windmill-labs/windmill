@@ -14,17 +14,23 @@
 	const { flowStateStore, flowStore, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	export let flowModule: FlowModule
+	interface Props {
+		flowModule: FlowModule
+	}
 
-	let editor: SimpleEditor | undefined = undefined
-	$: stepPropPicker = getStepPropPicker(
-		$flowStateStore,
-		undefined,
-		undefined,
-		flowModule.id,
-		flowStore.val,
-		$previewArgs,
-		false
+	let { flowModule = $bindable() }: Props = $props()
+
+	let editor: SimpleEditor | undefined = $state(undefined)
+	let stepPropPicker = $derived(
+		getStepPropPicker(
+			$flowStateStore,
+			undefined,
+			undefined,
+			flowModule.id,
+			flowStore.val,
+			previewArgs.val,
+			false
+		)
 	)
 
 	function checkIfParentLoop(flowStoreValue: ExtendedOpenFlow): string | null {
@@ -37,18 +43,23 @@
 		}
 		return null
 	}
-	let raise_error_message_stop_after_all_if =
+	let raise_error_message_stop_after_all_if = $state(
 		flowModule.stop_after_all_iters_if?.error_message !== undefined
-	let raise_error_message_stop_after_if = flowModule.stop_after_if?.error_message !== undefined
-	$: isLoop = flowModule.value.type === 'forloopflow' || flowModule.value.type === 'whileloopflow'
-	$: isBranchAll = flowModule.value.type === 'branchall'
-	$: isStopAfterIfEnabled = Boolean(flowModule.stop_after_if)
-	$: isStopAfterAllIterationsEnabled = Boolean(flowModule.stop_after_all_iters_if)
-	$: result = $flowStateStore[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR
-	$: parentLoopId = checkIfParentLoop(flowStore.val)
+	)
+	let raise_error_message_stop_after_if = $state(
+		flowModule.stop_after_if?.error_message !== undefined
+	)
+	let isLoop = $derived(
+		flowModule.value.type === 'forloopflow' || flowModule.value.type === 'whileloopflow'
+	)
+	let isBranchAll = $derived(flowModule.value.type === 'branchall')
+	let isStopAfterIfEnabled = $derived(Boolean(flowModule.stop_after_if))
+	let isStopAfterAllIterationsEnabled = $derived(Boolean(flowModule.stop_after_all_iters_if))
+	let result = $derived($flowStateStore[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR)
+	let parentLoopId = $derived(checkIfParentLoop(flowStore.val))
 </script>
 
-<div class="flex flex-col items-start space-y-2 {$$props.class}">
+<div class="flex flex-col items-start space-y-2">
 	{#if !isBranchAll}
 		<Section
 			label={(isLoop
@@ -58,12 +69,12 @@
 					: 'Stop flow early') + (isLoop ? ' (evaluated after each iteration)' : '')}
 			class="w-full"
 		>
-			<svelte:fragment slot="header">
+			{#snippet header()}
 				<Tooltip documentationLink="https://www.windmill.dev/docs/flows/early_stop">
 					If defined, at the end of the step, the predicate expression will be evaluated to decide
 					if the flow should stop early or break if inside a for/while loop.
 				</Tooltip>
-			</svelte:fragment>
+			{/snippet}
 
 			<Toggle
 				checked={isStopAfterIfEnabled}
@@ -188,12 +199,12 @@
 					: ' (evaluated after all iterations)')}
 			class="w-full"
 		>
-			<svelte:fragment slot="header">
+			{#snippet header()}
 				<Tooltip documentationLink="https://www.windmill.dev/docs/flows/early_stop">
 					If defined, at the end of the step, the predicate expression will be evaluated to decide
 					if the flow should stop early or break if inside a for/while loop.
 				</Tooltip>
-			</svelte:fragment>
+			{/snippet}
 
 			<Toggle
 				checked={isStopAfterAllIterationsEnabled}

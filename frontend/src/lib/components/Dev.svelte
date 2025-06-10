@@ -431,7 +431,7 @@
 
 	const flowStateStore = writable({} as FlowState)
 
-	const previewArgsStore = writable<Record<string, any>>({})
+	const previewArgsStore = $state({ val: {} })
 	const scriptEditorDrawer = writable(undefined)
 	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory(flowStore.val)
@@ -718,7 +718,7 @@
 										$testStepStore['preprocessor'] = ev.detail.args ?? {}
 										$selectedIdStore = 'preprocessor'
 									} else {
-										$previewArgsStore = ev.detail.args ?? {}
+										previewArgsStore.val = ev.detail.args ?? {}
 										flowPreviewButtons?.openPreview()
 									}
 								}}

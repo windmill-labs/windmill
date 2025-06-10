@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import SavedInputsPicker from '$lib/components/SavedInputsPicker.svelte'
 	import { createEventDispatcher, tick } from 'svelte'
 	import HistoricInputs from '$lib/components/HistoricInputs.svelte'
@@ -49,7 +47,7 @@
 	let historicInputs: HistoricInputs | undefined = $state(undefined)
 
 	let runnableId = $derived(scriptHash || scriptPath || flowPath || undefined)
-	run(() => {
+	$effect(() => {
 		runnableType = scriptHash
 			? 'ScriptHash'
 			: scriptPath

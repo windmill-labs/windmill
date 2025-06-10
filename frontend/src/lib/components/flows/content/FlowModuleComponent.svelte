@@ -261,14 +261,14 @@
 
 	let stepPropPicker = $derived(
 		$executionCount != undefined && failureModule
-			? getFailureStepPropPicker($flowStateStore, flowStore.val, $previewArgs)
+			? getFailureStepPropPicker($flowStateStore, flowStore.val, previewArgs.val)
 			: getStepPropPicker(
 					$flowStateStore,
 					parentModule,
 					previousModule,
 					flowModule.id,
 					flowStore.val,
-					$previewArgs,
+					previewArgs.val,
 					false
 				)
 	)

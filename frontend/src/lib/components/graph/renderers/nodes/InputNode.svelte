@@ -25,7 +25,7 @@
 
 	let topFlowInput = $derived(
 		flowStore?.val && previewArgs && flowStore?.val?.schema
-			? schemaToObject(flowStore?.val.schema as Schema, $previewArgs || {})
+			? schemaToObject(flowStore?.val.schema as Schema, previewArgs.val || {})
 			: undefined
 	)
 </script>

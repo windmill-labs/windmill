@@ -108,7 +108,7 @@
 		on:updateSchema={(e) => {
 			const { payloadData, redirect } = e.detail
 			if (payloadData) {
-				$previewArgs = JSON.parse(JSON.stringify(payloadData))
+				previewArgs.val = JSON.parse(JSON.stringify(payloadData))
 			}
 			if (redirect) {
 				$selectedId = 'Input'
@@ -125,7 +125,7 @@
 		isFlow={true}
 		hasPreprocessor={!!flowStore.val.value.preprocessor_module}
 		canHavePreprocessor={true}
-		args={$previewArgs}
+		args={previewArgs.val}
 		isDeployed={savedFlow && !savedFlow?.draft_only}
 		schema={flowStore.val.schema}
 		{onDeployTrigger}

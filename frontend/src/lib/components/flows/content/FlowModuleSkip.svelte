@@ -12,32 +12,38 @@
 	const { flowStateStore, flowStore, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	export let flowModule: FlowModule
-	export let parentModule: FlowModule | undefined
-	export let previousModule: FlowModule | undefined
+	interface Props {
+		flowModule: FlowModule
+		parentModule: FlowModule | undefined
+		previousModule: FlowModule | undefined
+	}
 
-	let editor: SimpleEditor | undefined = undefined
-	$: stepPropPicker = getStepPropPicker(
-		$flowStateStore,
-		parentModule,
-		previousModule,
-		flowModule.id,
-		flowStore.val,
-		$previewArgs,
-		false
+	let { flowModule = $bindable(), parentModule, previousModule }: Props = $props()
+
+	let editor: SimpleEditor | undefined = $state(undefined)
+	let stepPropPicker = $derived(
+		getStepPropPicker(
+			$flowStateStore,
+			parentModule,
+			previousModule,
+			flowModule.id,
+			flowStore.val,
+			previewArgs.val,
+			false
+		)
 	)
 
-	$: isSkipEnabled = Boolean(flowModule.skip_if)
+	let isSkipEnabled = $derived(Boolean(flowModule.skip_if))
 </script>
 
-<div class="flex flex-col items-start space-y-2 {$$props.class}">
+<div class="flex flex-col items-start space-y-2">
 	<Section label="Skip" class="w-full">
-		<svelte:fragment slot="header">
+		{#snippet header()}
 			<Tooltip>
 				If the condition is met, the step will behave as an identity step, passing the previous
 				step's result through unchanged.
 			</Tooltip>
-		</svelte:fragment>
+		{/snippet}
 
 		<Toggle
 			checked={isSkipEnabled}

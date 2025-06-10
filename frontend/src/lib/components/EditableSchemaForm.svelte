@@ -75,7 +75,7 @@
 	let {
 		schema = $bindable(),
 		hiddenArgs = [],
-		args = $bindable({}),
+		args = $bindable(undefined),
 		shouldHideNoInputs = false,
 		noVariablePicker = false,
 		flexWrap = false,
@@ -104,12 +104,18 @@
 		extraTab
 	}: Props = $props()
 
+	$effect.pre(() => {
+		if (args == undefined) {
+			args = {}
+		}
+	})
+
 	let schema2 = $derived(previewSchema ? previewSchema : schema)
 	export function setDefaults() {
 		const nargs = {}
 
 		Object.keys(schema?.properties ?? {}).forEach((key) => {
-			if (schema?.properties[key].default != undefined && args[key] == undefined) {
+			if (schema?.properties[key].default != undefined && args?.[key] == undefined) {
 				let value = schema?.properties[key].default
 				nargs[key] = value === 'object' ? structuredClone($state.snapshot(value)) : value
 			}
@@ -180,7 +186,7 @@
 	}
 
 	export function deleteField(key: string) {
-		delete args[key]
+		delete args?.[key]
 		delete schema.properties[key]
 		if (schema.required?.includes(key)) {
 			schema.required = schema.required?.filter((x) => x !== key)
@@ -216,8 +222,10 @@
 			// clear the input
 			el.value = oldName
 		} else {
-			args[newName] = args[oldName]
-			delete args[oldName]
+			if (args) {
+				args[newName] = args[oldName]
+				delete args[oldName]
+			}
 
 			schema.properties[newName] = schema.properties[oldName]
 			delete schema.properties[oldName]
@@ -706,7 +714,9 @@
 		bind:this={itemPicker}
 		pickCallback={(path, _) => {
 			if (pickForField) {
-				args[pickForField] = '$var:' + path
+				if (args) {
+					args[pickForField] = '$var:' + path
+				}
 			}
 		}}
 		itemName="Variable"

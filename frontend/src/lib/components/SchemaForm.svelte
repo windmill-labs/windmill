@@ -116,7 +116,6 @@
 
 	$effect.pre(() => {
 		if (args == undefined) {
-			console.log('1', args)
 			args = {}
 		}
 	})

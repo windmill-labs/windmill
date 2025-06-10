@@ -64,7 +64,7 @@
 	let addPropertyV2: AddPropertyV2 | undefined = $state(undefined)
 	let previewSchema: Record<string, any> | undefined = $state(undefined)
 	let payloadData: Record<string, any> | undefined = undefined
-	let previewArguments: Record<string, any> | undefined = $state($previewArgs)
+	let previewArguments: Record<string, any> | undefined = $state(previewArgs.val)
 	let dropdownItems: Array<{
 		label: string
 		onClick: () => void
@@ -209,7 +209,7 @@
 
 	function runPreview() {
 		if (previewArguments) {
-			$previewArgs = structuredClone($state.snapshot(previewArguments))
+			previewArgs.val = structuredClone($state.snapshot(previewArguments))
 		}
 		previewOpen = true
 		flowPreviewContent?.test()

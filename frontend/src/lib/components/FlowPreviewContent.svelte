@@ -53,7 +53,7 @@
 
 	export function test() {
 		renderCount++
-		runPreview($previewArgs, undefined)
+		runPreview(previewArgs.val, undefined)
 	}
 
 	const {
@@ -103,7 +103,7 @@
 			jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
 			isRunning = true
 			if (inputSelected) {
-				savedArgs = $previewArgs
+				savedArgs = previewArgs.val
 				inputSelected = undefined
 			}
 		} catch (e) {
@@ -120,7 +120,7 @@
 				case 'Enter':
 					if (event.ctrlKey || event.metaKey) {
 						event.preventDefault()
-						runPreview($previewArgs, undefined)
+						runPreview(previewArgs.val, undefined)
 					}
 					break
 
@@ -156,20 +156,20 @@
 		}
 	}
 
-	let savedArgs = $previewArgs
+	let savedArgs = previewArgs.val
 	let inputSelected: 'captures' | 'history' | 'saved' | undefined = undefined
 	async function selectInput(input, type?: 'captures' | 'history' | 'saved' | undefined) {
 		if (!input) {
-			$previewArgs = savedArgs
+			previewArgs.val = savedArgs
 			inputSelected = undefined
 			setTimeout(() => {
 				preventEscape = false
 			}, 100)
 		} else {
-			$previewArgs = input
+			previewArgs.val = input
 			inputSelected = type
 			preventEscape = true
-			jsonEditor?.setCode(JSON.stringify($previewArgs ?? {}, null, '\t'))
+			jsonEditor?.setCode(JSON.stringify(previewArgs.val ?? {}, null, '\t'))
 		}
 	}
 
@@ -283,7 +283,7 @@
 							variant="border"
 							title={`Re-start this flow from step ${selectedJobStep} (included).`}
 							on:click={() => {
-								runPreview($previewArgs, {
+								runPreview(previewArgs.val, {
 									flow_job_id: jobId,
 									step_id: selectedJobStep,
 									branch_or_iteration_n: 0
@@ -308,7 +308,7 @@
 									color="blue"
 									startIcon={{ icon: RefreshCw }}
 									on:click={() => {
-										runPreview($previewArgs, {
+										runPreview(previewArgs.val, {
 											flow_job_id: jobId,
 											step_id: selectedJobStep,
 											branch_or_iteration_n: 0
@@ -354,7 +354,7 @@
 											btnClasses="!p-1 !w-[34px] !ml-1"
 											aria-label="Restart flow"
 											on:click|once={() => {
-												runPreview($previewArgs, {
+												runPreview(previewArgs.val, {
 													flow_job_id: jobId,
 													step_id: selectedJobStep,
 													branch_or_iteration_n: branchOrIterationN
@@ -375,7 +375,7 @@
 					color="dark"
 					size="sm"
 					btnClasses="w-full max-w-lg"
-					on:click={() => runPreview($previewArgs, undefined)}
+					on:click={() => runPreview(previewArgs.val, undefined)}
 					id="flow-editor-test-flow-drawer"
 					shortCut={{ Icon: CornerDownLeft }}
 				>
@@ -409,7 +409,7 @@
 				runnableId={$initialPathStore}
 				stablePathForCaptures={$initialPathStore || fakeInitialPath}
 				runnableType={'FlowPath'}
-				previewArgs={$previewArgs}
+				previewArgs={previewArgs.val}
 				on:openTriggers
 				on:select={(e) => {
 					selectInput(e.detail.payload, e.detail?.type)
@@ -433,7 +433,7 @@
 							}}
 							lightMode
 							on:change={(e) => {
-								jsonEditor?.setCode(JSON.stringify($previewArgs ?? {}, null, '\t'))
+								jsonEditor?.setCode(JSON.stringify(previewArgs.val ?? {}, null, '\t'))
 								refresh()
 							}}
 						/>
@@ -445,7 +445,7 @@
 							bind:this={jsonEditor}
 							on:select={(e) => {
 								if (e.detail) {
-									$previewArgs = e.detail
+									previewArgs.val = e.detail
 								}
 							}}
 							updateOnBlur={false}
@@ -459,15 +459,9 @@
 								noVariablePicker
 								compact
 								schema={flowStore.val.schema}
-								bind:args={
-									() => $previewArgs,
-									(v) => {
-										// Changes are already written to the store.
-										// Don't write them again to avoid infinite loop
-									}
-								}
+								bind:args={previewArgs.val}
 								on:change={() => {
-									savedArgs = $previewArgs
+									savedArgs = previewArgs.val
 								}}
 								bind:isValid
 							/>

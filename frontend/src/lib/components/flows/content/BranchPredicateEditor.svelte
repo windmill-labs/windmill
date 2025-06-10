@@ -30,7 +30,7 @@
 		previousModule,
 		parentModule.id,
 		flowStore.val,
-		$previewArgs,
+		previewArgs.val,
 		false
 	)
 </script>

@@ -62,7 +62,7 @@ export type FlowEditorContext = {
 	selectedId: Writable<string>
 	currentEditor: Writable<CurrentEditor>
 	moving: Writable<{ id: string } | undefined>
-	previewArgs: Writable<Record<string, any>>
+	previewArgs: StateStore<Record<string, any>>
 	scriptEditorDrawer: Writable<ScriptEditorDrawer | undefined>
 	history: History<OpenFlow>
 	pathStore: Writable<string>
