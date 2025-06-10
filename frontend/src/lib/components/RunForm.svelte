@@ -100,13 +100,14 @@
 
 <TriggerableByAI
 	id={`run-form-${runnable?.path ?? ''}`}
-	description={`Form to fill the inputs to run ${runnable?.summary ?? runnable?.path ?? ''}.
+	description={`Form to fill the inputs to run ${runnable?.summary && runnable?.summary.length > 0 ? runnable?.summary : runnable?.path}.
 	## Script description: ${runnable?.description ?? ''}.
 	## Schema used: ${JSON.stringify(runnable?.schema)}.
 	## Current args: ${JSON.stringify(args)}}`}
 	onTrigger={(value) => {
 		setArgs(JSON.parse(value ?? '{}'))
 	}}
+	showAnimation={false}
 />
 <div class="max-w-3xl">
 	{#if detailed}
