@@ -37,7 +37,7 @@
 	import { JobService } from '$lib/gen'
 	import { dfsByModule } from '../previousResults'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
-	import { refreshStateStore } from '$lib/utils'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 
 	interface Props {
 		sidebarSize?: number | undefined

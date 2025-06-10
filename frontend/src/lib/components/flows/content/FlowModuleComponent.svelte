@@ -47,7 +47,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { loadSchemaFromModule } from '../flowInfers'
 	import { computeFlowStepWarning, initFlowStepWarnings } from '../utils'
-	import { debounce, refreshStateStore } from '$lib/utils'
+	import { debounce } from '$lib/utils'
 	import { dfs } from '../dfs'
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
 	import { type Job, JobService } from '$lib/gen'
@@ -55,6 +55,7 @@
 	import { checkIfParentLoop } from '../utils'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 
 	const {
 		selectedId,

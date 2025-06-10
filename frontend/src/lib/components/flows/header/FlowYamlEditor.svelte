@@ -9,7 +9,7 @@
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import { Loader2 } from 'lucide-svelte'
-	import { refreshStateStore } from '$lib/utils'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 

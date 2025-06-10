@@ -1,12 +1,13 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import { classNames, refreshStateStore } from '$lib/utils'
+	import { classNames } from '$lib/utils'
 	import { Bug, X } from 'lucide-svelte'
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 	import { insertNewFailureModule } from '$lib/components/flows/flowStateUtils.svelte'
 	import type { RawScript, ScriptLang } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 
 	export let small: boolean
 

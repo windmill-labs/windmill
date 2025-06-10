@@ -42,7 +42,8 @@
 	} from '$lib/components/schema/schemaUtils'
 	import SideBarTab from '$lib/components/meltComponents/SideBarTab.svelte'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
-	import { isObjectTooBig, refreshStateStore } from '$lib/utils'
+	import { isObjectTooBig } from '$lib/utils'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 
 	interface Props {
 		noEditor: boolean

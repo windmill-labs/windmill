@@ -17,6 +17,7 @@
 	} from '$lib/components/flows/flowStateUtils.svelte'
 	import type { ScriptOptions } from '../ContextManager.svelte'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 
 	let {
 		flowModuleSchemaMap,
@@ -142,9 +143,9 @@
 						subkind: 'flow' as const
 					}
 					if (location.type === 'preprocessor') {
-						await insertNewPreprocessorModule(flowStore.val, flowStateStore, inlineScript)
+						await insertNewPreprocessorModule(flowStore, flowStateStore, inlineScript)
 					} else if (location.type === 'failure') {
-						await insertNewFailureModule(flowStore.val, flowStateStore, inlineScript)
+						await insertNewFailureModule(flowStore, flowStateStore, inlineScript)
 					} else {
 						newModules = await flowModuleSchemaMap?.insertNewModuleAtIndex(
 							modules,
@@ -164,9 +165,9 @@
 						hash: undefined
 					}
 					if (location.type === 'preprocessor') {
-						await insertNewPreprocessorModule(flowStore.val, flowStateStore, undefined, wsScript)
+						await insertNewPreprocessorModule(flowStore, flowStateStore, undefined, wsScript)
 					} else if (location.type === 'failure') {
-						await insertNewFailureModule(flowStore.val, flowStateStore, undefined, wsScript)
+						await insertNewFailureModule(flowStore, flowStateStore, undefined, wsScript)
 					} else {
 						newModules = await flowModuleSchemaMap?.insertNewModuleAtIndex(
 							modules,

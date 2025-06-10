@@ -10,7 +10,7 @@
 		waitForElementLoading
 	} from './utils'
 	import Tutorial from './Tutorial.svelte'
-	import { refreshStateStore } from '$lib/utils'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
