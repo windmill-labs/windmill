@@ -35,6 +35,14 @@ default-features = false
 [dependencies.once_cell]
 version = "1.18"
 
+[dev-dependencies.tokio]
+version = "1"
+default-features = false
+features = [
+    "rt",
+    "macros",
+]
+
 [features]
 default = []
 async = []

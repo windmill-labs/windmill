@@ -15,11 +15,13 @@ fn wm() -> Windmill {
     .unwrap()
 }
 
+#[cfg(not(feature = "async"))]
 #[test]
 fn create() {
     wm();
 }
 
+#[cfg(not(feature = "async"))]
 #[test]
 fn resources() {
     #[derive(Deserialize, Debug, PartialEq, PartialOrd)]
@@ -54,6 +56,7 @@ fn resources() {
     }
 }
 
+#[cfg(not(feature = "async"))]
 #[test]
 fn variables() {
     let wm = wm();
@@ -95,6 +98,7 @@ fn variables() {
     }
 }
 
+#[cfg(not(feature = "async"))]
 #[test]
 fn create_and_run() {
     let wm = wm();
@@ -152,4 +156,60 @@ fn create_and_run() {
         )
         .unwrap()
     );
+}
+
+// ASYNC TESTS
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn simple() {
+    let wm = wm();
+    let path = format!("f/tests/delete_me_{}", Uuid::new_v4());
+
+    // Create new
+    wm.set_variable(
+        ":0".into(),
+        &path,
+        // TODO: Test with true
+        false,
+    )
+    .await
+    .unwrap();
+
+    wm.call_api(apis::script_api::create_script(
+        &wm.client_config,
+        &wm.workspace,
+        windmill_api::models::NewScript {
+            path: path.clone(),
+            parent_hash: None,
+            summary: "auto-generated script from rust sdk | testing".into(),
+            description: "auto-generated script from rust sdk | testing".into(),
+            content: r#"echo "Hello World!""#.into(),
+            schema: None,
+            is_template: None,
+            lock: None,
+            language: windmill_api::models::ScriptLang::Bash,
+            kind: Some(windmill_api::models::new_script::Kind::Script),
+            tag: Some("bash".into()),
+            draft_only: None,
+            envs: None,
+            concurrent_limit: None,
+            concurrency_time_window_s: None,
+            cache_ttl: None,
+            dedicated_worker: None,
+            ws_error_handler_muted: None,
+            priority: None,
+            restart_unless_cancelled: None,
+            timeout: None,
+            delete_after_use: None,
+            deployment_message: None,
+            concurrency_key: None,
+            visible_to_runner_only: None,
+            no_main_func: None,
+            codebase: None,
+            has_preprocessor: None,
+            on_behalf_of_email: None,
+        },
+    ))
+    .await
+    .unwrap();
 }

@@ -984,7 +984,10 @@ impl Windmill {
     /// println!("User details: {:?}", user);
     /// # Ok::<(), wmill::SdkError>(())
     /// ```
-    pub fn call_api<'a, T>(&'a self, callback: impl Future<Output = T>) -> MaybeFuture<'a, T> {
+    pub fn call_api<'a, T>(
+        &'a self,
+        callback: impl Future<Output = T> + std::marker::Send + 'a,
+    ) -> MaybeFuture<'a, T> {
         ret!(callback);
     }
 
