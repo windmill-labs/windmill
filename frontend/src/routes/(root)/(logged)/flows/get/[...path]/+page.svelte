@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run as run_1 } from 'svelte/legacy'
-
 	import { page } from '$app/stores'
 	import {
 		FlowService,
@@ -191,7 +189,7 @@
 		}
 	}
 
-	let args: Record<string, any> = $state({})
+	let args: Record<string, any> | undefined = $state(undefined)
 
 	let hash = window.location.hash
 	if (hash.length > 1) {
@@ -380,7 +378,7 @@
 	let savedInputsV2: SavedInputsV2 | undefined = $state(undefined)
 	let flowHistory: FlowHistory | undefined = $state(undefined)
 	let path = $derived($page.params.path)
-	run_1(() => {
+	$effect(() => {
 		const cliTrigger = triggersState.triggers.find((t) => t.type === 'cli')
 		if (cliTrigger) {
 			cliTrigger.extra = {
@@ -388,7 +386,7 @@
 			}
 		}
 	})
-	run_1(() => {
+	$effect(() => {
 		if ($workspaceStore && $userStore && $page.params.path) {
 			if (previousPath !== path) {
 				previousPath = path
@@ -519,7 +517,7 @@
 						<div class="flex flex-col align-left">
 							<div class="flex flex-row justify-between">
 								<InputSelectedBadge
-									on:click={() => {
+									onReject={() => {
 										savedInputsV2?.resetSelected()
 									}}
 									{inputSelected}
@@ -534,10 +532,20 @@
 									}}
 									lightMode
 									on:change={(e) => {
-										runForm?.setCode(JSON.stringify(args, null, '\t'))
+										runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
 									}}
 								/>
 							</div>
+
+							{#if flow.schema?.prompt_for_ai !== undefined}
+								<AIFormAssistant
+									instructions={flow.schema?.prompt_for_ai as string}
+									onEditInstructions={() => {
+										goto(`/flows/edit/${flow?.path}`)
+									}}
+									runnableType="flow"
+								/>
+							{/if}
 
 							<RunForm
 								bind:scheduledForStr
@@ -574,7 +582,6 @@
 							{/if}
 						</div>
 					</div>
-<<<<<<< HEAD
 					<div class="mt-8">
 						<FlowGraphViewer
 							triggerNode={true}
@@ -594,70 +601,6 @@
 							on:triggerDetail={(e) => {
 								rightPaneSelected = 'triggers'
 							}}
-=======
-
-					{#if deploymentInProgress}
-						<HeaderBadge color="yellow">
-							<Loader2 size={12} class="inline animate-spin mr-1" />
-							Deployment in progress
-						</HeaderBadge>
-					{/if}
-					{#if flow.lock_error_logs && flow.lock_error_logs != ''}
-						<div class="bg-red-100 dark:bg-red-700 border-l-4 border-red-500 p-4" role="alert">
-							<p class="font-bold">Error deploying this flow</p>
-							<p> This flow has not been deployed successfully because of the following errors: </p>
-							<LogViewer content={flow.lock_error_logs} isLoading={false} tag={undefined} />
-						</div>
-					{/if}
-
-					<div class="flex flex-col align-left">
-						<div class="flex flex-row justify-between">
-							<InputSelectedBadge
-								onReject={() => {
-									savedInputsV2?.resetSelected()
-								}}
-								{inputSelected}
-							/>
-							<Toggle
-								bind:checked={jsonView}
-								label="JSON View"
-								size="xs"
-								options={{
-									right: 'JSON',
-									rightTooltip: 'Fill args from JSON'
-								}}
-								lightMode
-								on:change={(e) => {
-									runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
-								}}
-							/>
-						</div>
-
-						{#if flow.schema?.prompt_for_ai !== undefined}
-							<AIFormAssistant
-								instructions={flow.schema?.prompt_for_ai as string}
-								onEditInstructions={() => {
-									goto(`/flows/edit/${flow?.path}`)
-								}}
-								runnableType="flow"
-							/>
-						{/if}
-
-						<RunForm
-							bind:scheduledForStr
-							bind:invisible_to_owner
-							bind:overrideTag
-							viewKeybinding
-							{loading}
-							autofocus
-							detailed={false}
-							bind:isValid
-							runnable={flow}
-							runAction={runFlow}
-							bind:args
-							bind:this={runForm}
-							{jsonView}
->>>>>>> main
 						/>
 					</div>
 				</div>
@@ -670,7 +613,7 @@
 				{jsonView}
 				flowPath={flow?.path}
 				{isValid}
-				{args}
+				args={args ?? {}}
 				bind:inputSelected
 				on:selected_args={(e) => {
 					const nargs = JSON.parse(JSON.stringify(e.detail))
@@ -678,9 +621,12 @@
 				}}
 			/>
 		{/snippet}
+
 		{#snippet flow_step()}
-			{#if flow && stepDetail}
-				<FlowGraphViewerStep schema={flow.schema} {stepDetail} />
+			{#if flow}
+				{#if stepDetail}
+					<FlowGraphViewerStep schema={flow.schema} {stepDetail} />
+				{/if}
 			{/if}
 		{/snippet}
 		{#snippet triggers()}
