@@ -120,7 +120,11 @@
 		order
 	})
 
-	let initialExtra: any = structuredClone({ order: undefined, properties: undefined, ...extra })
+	let initialExtra: any = structuredClone({
+		order: undefined,
+		properties: undefined,
+		...$state.snapshot(extra)
+	})
 
 	let mounted = $state(false)
 	let firstOnContentChange = true

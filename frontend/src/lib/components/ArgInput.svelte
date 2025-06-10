@@ -247,7 +247,7 @@
 			value = undefined
 		}
 		if ((value == undefined || value == null) && !ignoreValueUndefined) {
-			value = structuredClone(defaultValue)
+			value = structuredClone($state.snapshot(defaultValue))
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
 					value = nullable ? null : ''
@@ -298,7 +298,7 @@
 		lastValue = value
 	}
 
-	let oldDefaultValue = structuredClone(defaultValue)
+	let oldDefaultValue = structuredClone($state.snapshot(defaultValue))
 	function handleDefaultValueChange() {
 		if (
 			deepEqual(value, oldDefaultValue) &&
@@ -307,7 +307,7 @@
 		) {
 			value = defaultValue
 		}
-		oldDefaultValue = structuredClone(defaultValue)
+		oldDefaultValue = structuredClone($state.snapshot(defaultValue))
 	}
 
 	function isObjectCat(inputCat?: string) {

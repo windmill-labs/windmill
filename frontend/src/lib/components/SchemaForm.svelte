@@ -125,12 +125,12 @@
 	let inputCheck: { [id: string]: boolean } = $state({})
 
 	export function setDefaults() {
-		const nargs = structuredClone(defaultValues)
+		const nargs = structuredClone($state.snapshot(defaultValues))
 
 		Object.keys(schema?.properties ?? {}).forEach((key) => {
 			if (schema?.properties[key].default != undefined && args && args[key] == undefined) {
 				let value = schema?.properties[key].default
-				nargs[key] = value === 'object' ? structuredClone(value) : value
+				nargs[key] = value === 'object' ? structuredClone($state.snapshot(value)) : value
 			}
 		})
 		args = nargs
@@ -277,7 +277,8 @@
 								required={formerProperty?.required}
 								pattern={formerProperty?.pattern}
 								valid={inputCheck[argName]}
-								defaultValue={defaultValues?.[argName] ?? structuredClone(formerProperty?.default)}
+								defaultValue={defaultValues?.[argName] ??
+									structuredClone($state.snapshot(formerProperty?.default))}
 								enum_={dynamicEnums?.[argName] ?? formerProperty?.enum}
 								format={formerProperty?.format}
 								contentEncoding={formerProperty?.contentEncoding}
@@ -348,7 +349,7 @@
 									pattern={schema.properties[argName].pattern}
 									bind:valid={inputCheck[argName]}
 									defaultValue={defaultValues?.[argName] ??
-										structuredClone(schema.properties[argName].default)}
+										structuredClone($state.snapshot(schema.properties[argName].default))}
 									enum_={dynamicEnums?.[argName] ?? schema.properties[argName].enum}
 									format={schema.properties[argName].format}
 									contentEncoding={schema.properties[argName].contentEncoding}
