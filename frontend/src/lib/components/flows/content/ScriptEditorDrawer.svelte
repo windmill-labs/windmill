@@ -127,6 +127,7 @@
 			}
 		}
 	}
+	let args = $state.raw({})
 </script>
 
 <ConfirmationModal
@@ -208,9 +209,10 @@
 					fixedOverflowWidgets={false}
 					bind:code={script.content}
 					bind:schema={script.schema}
+					{args}
 				>
-					<!-- @migration-task: migrate this slot by hand, `editor-bar-right` is an invalid identifier -->
-					<div slot="editor-bar-right">
+					<!-- @migration-task: migrate this slot by hand, `editor_bar_right` is an invalid identifier -->
+					<div slot="editor_bar_right">
 						<WorkerTagSelect bind:tag={script.tag} />
 					</div>
 				</ScriptEditor>

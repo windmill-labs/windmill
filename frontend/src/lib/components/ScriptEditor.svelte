@@ -48,72 +48,106 @@
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
 	import TriggerableByAI from './TriggerableByAI.svelte'
 
-	// Exported
-	export let schema: Schema | any = emptySchema()
-	export let code: string
-	export let path: string | undefined
-	export let lang: Preview['language']
-	export let kind: string | undefined = undefined
-	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' =
-		'script'
-	export let tag: string | undefined
-	export let initialArgs: Record<string, any> = {}
-	export let fixedOverflowWidgets = true
-	export let noSyncFromGithub = false
-	export let editor: Editor | undefined = undefined
-	export let diffEditor: DiffEditor | undefined = undefined
-	export let collabMode = false
-	export let edit = true
-	export let noHistory = false
-	export let saveToWorkspace = false
-	export let watchChanges = false
-	export let customUi: ScriptEditorWhitelabelCustomUi | undefined = undefined
-	export let args: Record<string, any> = initialArgs
-	export let selectedTab: 'main' | 'preprocessor' = 'main'
-	export let hasPreprocessor = false
-	export let captureTable: CaptureTable | undefined = undefined
-	export let showCaptures: boolean = true
-	export let stablePathForCaptures: string = ''
-	export let lastSavedCode: string | undefined = undefined
-	export let lastDeployedCode: string | undefined = undefined
+	interface Props {
+		// Exported
+		schema?: Schema | any
+		code: string
+		path: string | undefined
+		lang: Preview['language']
+		kind?: string | undefined
+		template?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative'
+		tag: string | undefined
+		initialArgs?: Record<string, any>
+		fixedOverflowWidgets?: boolean
+		noSyncFromGithub?: boolean
+		editor?: Editor | undefined
+		diffEditor?: DiffEditor | undefined
+		collabMode?: boolean
+		edit?: boolean
+		noHistory?: boolean
+		saveToWorkspace?: boolean
+		watchChanges?: boolean
+		customUi?: ScriptEditorWhitelabelCustomUi | undefined
+		args: Record<string, any>
+		selectedTab?: 'main' | 'preprocessor'
+		hasPreprocessor?: boolean
+		captureTable?: CaptureTable | undefined
+		showCaptures?: boolean
+		stablePathForCaptures?: string
+		lastSavedCode?: string | undefined
+		lastDeployedCode?: string | undefined
+		editor_bar_right?: import('svelte').Snippet
+	}
 
-	let showHistoryDrawer = false
+	let {
+		schema = $bindable(emptySchema()),
+		code = $bindable(),
+		path,
+		lang,
+		kind = undefined,
+		template = 'script',
+		tag,
+		fixedOverflowWidgets = true,
+		noSyncFromGithub = false,
+		editor = $bindable(undefined),
+		diffEditor = $bindable(undefined),
+		collabMode = false,
+		edit = true,
+		noHistory = false,
+		saveToWorkspace = false,
+		watchChanges = false,
+		customUi = undefined,
+		args = $bindable(),
+		selectedTab = $bindable('main'),
+		hasPreprocessor = $bindable(false),
+		captureTable = $bindable(undefined),
+		showCaptures = true,
+		stablePathForCaptures = '',
+		lastSavedCode = undefined,
+		lastDeployedCode = undefined,
+		editor_bar_right
+	}: Props = $props()
 
-	let jobProgressReset: () => void
-	let diffMode = false
+	let showHistoryDrawer = $state(false)
 
-	let websocketAlive = {
+	let jobProgressReset: (() => void) | undefined = $state(undefined)
+	let diffMode = $state(false)
+
+	let websocketAlive = $state({
 		pyright: false,
 		deno: false,
 		go: false,
 		ruff: false,
 		shellcheck: false
-	}
+	})
 
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
-	$: watchChanges &&
-		(code != undefined || schema != undefined) &&
-		dispatchIfMounted('change', { code, schema })
+	$effect(() => {
+		watchChanges &&
+			(code != undefined || schema != undefined) &&
+			dispatchIfMounted('change', { code, schema })
+	})
 
-	let width = 1200
+	let width = $state(1200)
 
-	let testJobLoader: TestJobLoader
+	let testJobLoader: TestJobLoader | undefined = $state(undefined)
 
-	let isValid: boolean = true
-	let scriptProgress = undefined
+	let isValid: boolean = $state(true)
+	let scriptProgress = $state(undefined)
 
+	let logPanel: LogPanel | undefined = $state(undefined)
 	// Test
-	let testIsLoading = false
-	let testJob: Job | undefined
-	let pastPreviews: CompletedJob[] = []
-	let validCode = true
+	let testIsLoading = $state(false)
+	let testJob: Job | undefined = $state()
+	let pastPreviews: CompletedJob[] = $state([])
+	let validCode = $state(true)
 
-	let wsProvider: WebsocketProvider | undefined = undefined
-	let yContent: Y.Text | undefined = undefined
-	let peers: { name: string }[] = []
-	let showCollabPopup = false
+	let wsProvider: WebsocketProvider | undefined = $state(undefined)
+	let yContent: Y.Text | undefined = $state(undefined)
+	let peers: { name: string }[] = $state([])
+	let showCollabPopup = $state(false)
 
 	const url = new URL(window.location.toString())
 	let initialCollab = /true|1/i.test(url.searchParams.get('collab') ?? '0')
@@ -148,11 +182,11 @@
 			code,
 			lang,
 			selectedTab === 'preprocessor' || kind === 'preprocessor'
-				? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args }
-				: args,
+				? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...(args ?? {}) }
+				: (args ?? {}),
 			tag
 		)
-		setFocusToLogs()
+		logPanel?.setFocusToLogs()
 		return job
 	}
 
@@ -292,11 +326,15 @@
 		return `${url}?collab=1` + (edit ? '' : `&path=${path}`)
 	}
 
-	$: showTabs = hasPreprocessor
-	$: !hasPreprocessor && (selectedTab = 'main')
-	$: selectedTab && inferSchema(code)
+	let showTabs = $derived(hasPreprocessor)
+	$effect(() => {
+		!hasPreprocessor && (selectedTab = 'main')
+	})
+	$effect(() => {
+		selectedTab && inferSchema(code)
+	})
 
-	let argsRender = 0
+	let argsRender = $state(0)
 	export async function updateArgs(newArgs: Record<string, any>) {
 		if (Object.keys(newArgs).length > 0) {
 			args = { ...newArgs }
@@ -304,17 +342,17 @@
 		}
 	}
 
-	let setFocusToLogs = () => {}
-
 	setContext('disableTooltips', customUi?.disableTooltips === true)
 
-	let codePanelSize = 70
-	let testPanelSize = 30
+	let codePanelSize = $state(70)
+	let testPanelSize = $state(30)
 	let storedTestPanelSize = testPanelSize
 
-	$: !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') &&
-		!aiChatManager.open &&
-		aiChatManager.toggleOpen()
+	$effect(() => {
+		!SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') &&
+			!aiChatManager.open &&
+			aiChatManager.toggleOpen()
+	})
 
 	function toggleTestPanel() {
 		if (testPanelSize > 0) {
@@ -348,14 +386,14 @@
 		editor?.show()
 	}
 
-	$: error = getError(testJob)
+	let error = $derived(getError(testJob))
 
-	$: {
+	$effect(() => {
 		const options: ScriptOptions = {
 			code,
 			lang: lang as ScriptLang,
 			error,
-			args,
+			args: args ?? {},
 			path,
 			lastSavedCode,
 			lastDeployedCode,
@@ -367,7 +405,7 @@
 			editor?.reviewAndApplyCode(code)
 		}
 		aiChatManager.scriptEditorShowDiffMode = showDiffMode
-	}
+	})
 </script>
 
 <TestJobLoader
@@ -378,7 +416,7 @@
 	bind:job={testJob}
 />
 
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} />
 
 <TriggerableByAI id="script-editor" description="Component to edit a script" />
 
@@ -397,42 +435,46 @@
 </Modal>
 <div class="border-b shadow-sm px-1 pr-4" bind:clientWidth={width}>
 	<div class="flex justify-between space-x-2">
-		<EditorBar
-			scriptPath={edit ? path : undefined}
-			on:toggleCollabMode={() => {
-				if (wsProvider?.shouldConnect) {
-					disableCollaboration()
-				} else {
-					setCollaborationMode()
-				}
-			}}
-			on:showDiffMode={showDiffMode}
-			on:hideDiffMode={hideDiffMode}
-			customUi={{ ...customUi?.editorBar, aiGen: false }}
-			collabLive={wsProvider?.shouldConnect}
-			{collabMode}
-			{validCode}
-			iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
-			on:collabPopup={() => (showCollabPopup = true)}
-			{editor}
-			{lang}
-			on:createScriptFromInlineScript
-			{websocketAlive}
-			collabUsers={peers}
-			kind={asKind(kind)}
-			{template}
-			{diffEditor}
-			{args}
-			{noHistory}
-			{saveToWorkspace}
-			lastDeployedCode={lastDeployedCode && lastDeployedCode !== code
-				? lastDeployedCode
-				: undefined}
-			{diffMode}
-			bind:showHistoryDrawer
-		>
-			<slot name="editor-bar-right" slot="right" />
-		</EditorBar>
+		{#if args}
+			<EditorBar
+				scriptPath={edit ? path : undefined}
+				on:toggleCollabMode={() => {
+					if (wsProvider?.shouldConnect) {
+						disableCollaboration()
+					} else {
+						setCollaborationMode()
+					}
+				}}
+				on:showDiffMode={showDiffMode}
+				on:hideDiffMode={hideDiffMode}
+				customUi={{ ...customUi?.editorBar, aiGen: false }}
+				collabLive={wsProvider?.shouldConnect}
+				{collabMode}
+				{validCode}
+				iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
+				on:collabPopup={() => (showCollabPopup = true)}
+				{editor}
+				{lang}
+				on:createScriptFromInlineScript
+				{websocketAlive}
+				collabUsers={peers}
+				kind={asKind(kind)}
+				{template}
+				{diffEditor}
+				{args}
+				{noHistory}
+				{saveToWorkspace}
+				lastDeployedCode={lastDeployedCode && lastDeployedCode !== code
+					? lastDeployedCode
+					: undefined}
+				{diffMode}
+				bind:showHistoryDrawer
+			>
+				{#snippet right()}
+					{@render editor_bar_right?.()}
+				{/snippet}
+			</EditorBar>
+		{/if}
 		{#if !noSyncFromGithub && customUi?.editorBar?.useVsCode != false}
 			<div class="py-1">
 				<Button
@@ -490,7 +532,7 @@
 									aiChatManager.toggleOpen()
 								}}
 							>
-								<svelte:fragment slot="popoverOverride">
+								{#snippet popoverOverride()}
 									<div class="text-sm">
 										Enable Windmill AI in the <a
 											href="{base}/workspace_settings?tab=ai"
@@ -500,7 +542,7 @@
 											workspace settings <ExternalLink size={16} />
 										</a>
 									</div>
-								</svelte:fragment>
+								{/snippet}
 							</HideButton>
 						{/if}
 					{/if}
@@ -670,7 +712,7 @@
 					</Pane>
 					<Pane size={67} class="relative">
 						<LogPanel
-							bind:setFocusToLogs
+							bind:this={logPanel}
 							{lang}
 							previewJob={testJob}
 							{pastPreviews}
@@ -690,7 +732,7 @@
 									compact={true}
 								/>
 							{/if}
-							<svelte:fragment slot="capturesTab">
+							{#snippet capturesTab()}
 								<div class="h-full p-2">
 									<CaptureTable
 										bind:this={captureTable}
@@ -704,7 +746,7 @@
 										on:addPreprocessor
 									/>
 								</div>
-							</svelte:fragment>
+							{/snippet}
 						</LogPanel>
 					</Pane>
 				</Splitpanes>

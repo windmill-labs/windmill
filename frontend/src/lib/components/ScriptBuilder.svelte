@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run, createBubbler } from 'svelte/legacy'
+	import { createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()
 	import {
@@ -160,7 +160,7 @@
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
 	let open: boolean = $state(false) // Is confirmation modal open
-	let args: Record<string, any> = $state(initialArgs) // Test args input
+	let args: Record<string, any> = $state.raw(initialArgs) // Test args input
 	let selectedInputTab: 'main' | 'preprocessor' = $state('main')
 	let hasPreprocessor = $state(false)
 
@@ -915,7 +915,7 @@
 			)
 		}
 	}
-	run(() => {
+	$effect(() => {
 		initialPath != '' && loadTriggers()
 	})
 	let langs = $derived(
@@ -929,14 +929,14 @@
 				return customUi.settingsPanel.metadata.languages.includes(x[1] as SupportedLanguage)
 			}) as [string, SupportedLanguage | 'docker' | 'bunnative'][]
 	)
-	run(() => {
+	$effect(() => {
 		;['collab', 'path'].forEach((x) => {
 			if (searchParams.get(x)) {
 				searchParams.delete(x)
 			}
 		})
 	})
-	run(() => {
+	$effect(() => {
 		!disableHistoryChange && encodeScriptState(script)
 	})
 </script>
@@ -1739,7 +1739,6 @@
 			stablePathForCaptures={initialPath || fakeInitialPath}
 			bind:code={script.content}
 			lang={script.language}
-			{initialArgs}
 			kind={script.kind}
 			{template}
 			tag={script.tag}

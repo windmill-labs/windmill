@@ -5,16 +5,28 @@
 	import type { InlineScript } from '../../types'
 	import { Save } from 'lucide-svelte'
 
-	let scriptEditorDrawer: Drawer
-	export let appPath: string
-	export let inlineScript: InlineScript
-	export let editor: Editor | undefined = undefined
-	export let isOpen: boolean | undefined = undefined
-	export let id: string
+	let scriptEditorDrawer: Drawer | undefined = $state(undefined)
+	interface Props {
+		appPath: string
+		inlineScript: InlineScript
+		editor?: Editor | undefined
+		isOpen?: boolean | undefined
+		id: string
+	}
+
+	let {
+		appPath,
+		inlineScript = $bindable(),
+		editor = undefined,
+		isOpen = $bindable(undefined),
+		id
+	}: Props = $props()
 
 	export function openDrawer() {
-		scriptEditorDrawer.openDrawer?.()
+		scriptEditorDrawer?.openDrawer?.()
 	}
+
+	let args = $state.raw({})
 </script>
 
 <Drawer bind:open={isOpen} bind:this={scriptEditorDrawer} size="1200px">
@@ -23,7 +35,7 @@
 		noPadding
 		forceOverflowVisible
 		on:close={() => {
-			scriptEditorDrawer.closeDrawer()
+			scriptEditorDrawer?.closeDrawer()
 			editor?.setCode(inlineScript.content)
 		}}
 	>
@@ -40,10 +52,11 @@
 				on:createScriptFromInlineScript
 				tag={undefined}
 				saveToWorkspace
+				{args}
 			/>
 		{/if}
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button size="xs" startIcon={{ icon: Save }} disabled>Automatically synced</Button>
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>
