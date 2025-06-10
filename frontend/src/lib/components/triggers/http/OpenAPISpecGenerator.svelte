@@ -8,16 +8,13 @@
 	import { HttpTriggerService, type HttpTrigger } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Eye, Notebook, Plus, Trash } from 'lucide-svelte'
+	import { Eye, Notebook, Trash } from 'lucide-svelte'
 	import RouteEditor from './RouteEditor.svelte'
 	import { generateOpenAPIspec } from './utils'
 	import type { OpenAPIV3_1 } from 'openapi-types'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { emptyStringTrimmed } from '$lib/utils'
 	import Errors from '$lib/components/Errors.svelte'
-	import AddPropertyFormV2 from '$lib/components/schema/AddPropertyFormV2.svelte'
-	import Label from '$lib/components/Label.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	let openAPIGenerator: Drawer
 
@@ -213,57 +210,6 @@
 							bind:value={licenseUrl}
 						/>
 					</label>
-				</Subsection>
-				<Subsection label="servers" collapsable>
-					<div class="flex flex-col gap-4 grow min-h-0 overflow-y-auto">
-						{#each servers as server}
-							<div class="flex w-full gap-3 items-center">
-								<div class="w-full flex flex-col gap-2 border py-2 px-4 rounded-md">
-									<Label label="Server URL" required>
-										<svelte:fragment slot="header">
-											<Tooltip small>Enter the name of the table you want to track.</Tooltip>
-										</svelte:fragment>
-										<input type="text" bind:value={server.url} class="!bg-surface mt-1" />
-									</Label>
-									<Label label="Server URL" required>
-										<svelte:fragment slot="header">
-											<Tooltip small>Enter the name of the table you want to track.</Tooltip>
-										</svelte:fragment>
-										<textarea placeholder="Optional URL description" bind:value={server.description}
-										></textarea>
-									</Label>
-								</div>
-							</div>
-						{/each}
-						<div class="grow min-w-0">
-							<AddPropertyFormV2
-								customName="Server"
-								placeholder="Server url"
-								on:add={({ detail }) => {
-									if (servers == undefined || !Array.isArray(servers)) {
-										servers = [{ url: detail.url }]
-									} else {
-										servers = servers.concat({
-											url: detail.url
-										})
-									}
-								}}
-							>
-								<svelte:fragment slot="trigger">
-									<Button
-										variant="border"
-										color="light"
-										size="xs"
-										btnClasses="w-full"
-										startIcon={{ icon: Plus }}
-										nonCaptureEvent
-									>
-										Add server
-									</Button>
-								</svelte:fragment>
-							</AddPropertyFormV2>
-						</div>
-					</div>
 				</Subsection>
 				<Subsection label="paths" headless>
 					<label class="block pb-2">

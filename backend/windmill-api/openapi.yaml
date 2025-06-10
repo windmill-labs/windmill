@@ -8451,6 +8451,28 @@ paths:
         "201":
           description: default error handler set
 
+  /w/{workspace}/http_triggers/generate_openapi_spec:
+    post:
+      summary: generate openapi spec from http routes/webhook
+      operationId: generateOpenapiSpec
+      tags:
+        - http_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: openapi spec info and url
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/generateOpenapiSpec"
+      responses:
+        "200":
+          description: openapi spec
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/http_triggers/create_many:
     post:
       summary: create many HTTP triggers

@@ -39,7 +39,7 @@ use tower_http::cors::CorsLayer;
 use url::Url;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::error::{Error, Result as WindmillResult};
-use windmill_common::openapi::{generate_openapi_document, FuturePath, Info};
+use windmill_common::openapi::{generate_openapi_document, Format, FuturePath, Info};
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::build_object_store_client;
 use windmill_common::{
@@ -1449,10 +1449,14 @@ async fn route_job(
     Ok(response)
 }
 
+
+
 #[derive(Debug, Deserialize)]
 struct GenerateOpenAPIQuery {
     path_regex: Option<String>,
     route_path_regex: Option<String>,
+    #[serde(default)]
+    format: Format
 }
 
 #[derive(Debug, Deserialize)]
@@ -1535,6 +1539,7 @@ async fn generate_openapi_spec(
         generate_openapi.info.as_ref(),
         generate_openapi.url.as_ref(),
         Some(openapi_future_paths),
+        generate_openapi_query.format
     );
 
     openapi_document

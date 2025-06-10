@@ -19,6 +19,18 @@ lazy_static::lazy_static! {
 
 const DEFAULT_OPENAPI_GENERATED_VERSION: &'static str = "3.1.0";
 
+#[derive(Debug, Deserialize, Clone, Copy)]
+pub enum Format {
+    JSON,
+    YAML
+}
+
+impl Default for Format {
+    fn default() -> Self {
+        Self::YAML
+    }
+}
+
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct Contact {
     name: String,
@@ -181,6 +193,7 @@ pub fn generate_openapi_document(
     info: Option<&Info>,
     url: Option<&Url>,
     paths: Option<Vec<FuturePath>>,
+    format: Format
 ) -> Result<String> {
     let servers = url.map_or_else(
         || vec![],
