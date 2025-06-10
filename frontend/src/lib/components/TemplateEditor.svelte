@@ -483,7 +483,7 @@
 				return
 			}
 			code = ncode
-			dispatch('change', code)
+			dispatch('change', { code: ncode })
 		}
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined

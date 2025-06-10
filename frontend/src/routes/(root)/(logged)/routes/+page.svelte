@@ -11,7 +11,8 @@
 		displayDate,
 		getLocalSetting,
 		storeLocalSetting,
-		removeTriggerKindIfUnused
+		removeTriggerKindIfUnused,
+		sendUserToast
 	} from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -43,12 +44,14 @@
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import { isCloudHosted } from '$lib/cloud'
 	import { getHttpRoute } from '$lib/components/triggers/http/utils'
+	import RoutesGenerator from '$lib/components/triggers/http/RoutesGenerator.svelte'
 
 	type TriggerW = HttpTrigger & { canWrite: boolean }
 
 	let triggers: TriggerW[] = []
 	let shareModal: ShareModal
 	let loading = true
+	let routesGenerator: RoutesGenerator | undefined
 	let deploymentDrawer: DeployWorkspaceDrawer
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
 
@@ -77,7 +80,6 @@
 		}
 	}
 	let routeEditor: RouteEditor
-
 	let filteredItems: (TriggerW & { marked?: any })[] | undefined = []
 	let items: typeof filteredItems | undefined = []
 	let preFilteredItems: typeof filteredItems | undefined = []
@@ -188,6 +190,8 @@
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <RouteEditor onUpdate={loadTriggers} bind:this={routeEditor} />
 
+<RoutesGenerator closeFn={loadTriggers} bind:this={routesGenerator} />
+
 <SearchItems
 	{filter}
 	items={preFilteredItems}
@@ -208,9 +212,20 @@
 			documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing"
 		>
 			{#if $userStore?.is_admin || $userStore?.is_super_admin}
-				<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor.openNew(false)}>
-					New&nbsp;route
-				</Button>
+				<div class="flex flex-row gap-2">
+					<Button
+						size="md"
+						startIcon={{ icon: Plus }}
+						on:click={() => {
+							routesGenerator?.openDrawer()
+						}}
+					>
+						From OpenAPI spec
+					</Button>
+					<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor.openNew(false)}>
+						New&nbsp;route
+					</Button>
+				</div>
 			{/if}
 		</PageHeader>
 		<div class="w-full h-full flex flex-col">
@@ -328,11 +343,16 @@
 												disabled:
 													!canWrite || !($userStore?.is_admin || $userStore?.is_super_admin),
 												action: async () => {
-													await HttpTriggerService.deleteHttpTrigger({
-														workspace: $workspaceStore ?? '',
-														path
-													})
-													loadTriggers()
+													try {
+														await HttpTriggerService.deleteHttpTrigger({
+															workspace: $workspaceStore ?? '',
+															path
+														})
+														sendUserToast(`Successfully deleted HTTP route: ${path}`)
+														loadTriggers()
+													} catch (error) {
+														sendUserToast(error.body || error.message, true)
+													}
 												}
 											},
 											{

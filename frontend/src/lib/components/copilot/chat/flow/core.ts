@@ -1,5 +1,15 @@
-import { ScriptService, type FlowModule, type RawScript, type Script } from '$lib/gen'
-import type { ChatCompletionTool } from 'openai/resources/chat/completions.mjs'
+import {
+	ScriptService,
+	type FlowModule,
+	type OpenFlow,
+	type RawScript,
+	type Script
+} from '$lib/gen'
+import type {
+	ChatCompletionSystemMessageParam,
+	ChatCompletionTool,
+	ChatCompletionUserMessageParam
+} from 'openai/resources/chat/completions.mjs'
 import YAML from 'yaml'
 import { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
@@ -15,6 +25,7 @@ import type { Tool } from '../shared'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 
 export interface FlowAIChatHelpers {
+	getFlowAndSelectedId: () => { flow: OpenFlow; selectedId: string }
 	insertStep: (location: InsertLocation, step: NewStep) => Promise<string>
 	removeStep: (id: string) => Promise<void>
 	getStepInputs: (id: string) => Promise<Record<string, any>>
@@ -331,12 +342,19 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: searchScriptsToolDef,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-			toolCallbacks.onToolCall(toolId, 'Searching workspace scripts...')
+			toolCallbacks.onToolCall(
+				toolId,
+				'Searching for workspace scripts related to "' + args.query + '"...'
+			)
 			const parsedArgs = searchScriptsSchema.parse(args)
 			const scriptResults = await workspaceScriptsSearch.search(parsedArgs.query, workspace)
 			toolCallbacks.onFinishToolCall(
 				toolId,
-				'Found ' + scriptResults.length + ' relevant scripts in the workspace'
+				'Found ' +
+					scriptResults.length +
+					' scripts in the workspace related to "' +
+					args.query +
+					'"'
 			)
 			return JSON.stringify(scriptResults)
 		}
@@ -344,7 +362,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: searchHubScriptsToolDef,
 		fn: async ({ args, toolId, toolCallbacks }) => {
-			toolCallbacks.onToolCall(toolId, 'Searching hub scripts...')
+			toolCallbacks.onToolCall(
+				toolId,
+				'Searching for hub scripts related to "' + args.query + '"...'
+			)
 			const parsedArgs = searchScriptsSchema.parse(args)
 			const scripts = await ScriptService.queryHubScripts({
 				text: parsedArgs.query,
@@ -352,7 +373,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			})
 			toolCallbacks.onFinishToolCall(
 				toolId,
-				'Found ' + scripts.length + ' relevant scripts in the hub'
+				'Found ' + scripts.length + ' scripts in the hub related to "' + args.query + '"'
 			)
 			return JSON.stringify(
 				scripts.map((s) => ({
@@ -387,19 +408,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			toolCallbacks.onFinishToolCall(toolId, `Added step '${id}'`)
 
-			if (parsedArgs.step.type === 'rawscript') {
-				return `Step ${id} added. Here is the updated flow, make sure to take it into account when adding another step:\n${YAML.stringify(helpers.getModules())}`
-			} else {
-				if (
-					parsedArgs.location.type === 'start_inside_branch' ||
-					parsedArgs.location.type === 'start_inside_forloop'
-				) {
-					const parentId = parsedArgs.location.inside
-					return `Step ${id} added. Here is the updated subflow of step ${parentId}:\n${YAML.stringify(helpers.getModules(parentId))}`
-				} else {
-					return `Step ${id} added. Here is the updated flow:\n${YAML.stringify(helpers.getModules())}`
-				}
-			}
+			return `Step ${id} added. Here is the updated flow, make sure to take it into account when adding another step:\n${YAML.stringify(helpers.getModules())}`
 		}
 	},
 	{
@@ -564,11 +573,8 @@ function createToolDef(
 	}
 }
 
-export function prepareFlowSystemMessage(): {
-	role: 'system'
-	content: string
-} {
-	const content = `You are a helpful assitant that creates and edit workflows on the Windmill platform. You're provided with a a bunch of tools to help you edit the flow.
+export function prepareFlowSystemMessage(): ChatCompletionSystemMessageParam {
+	const content = `You are a helpful assistant that creates and edits workflows on the Windmill platform. You're provided with a bunch of tools to help you edit the flow.
 Follow the user instructions carefully.
 Go step by step, and explain what you're doing as you're doing it.
 DO NOT wait for user confirmation before performing an action. Only do it if the user explicitly asks you to wait in their initial instructions.
@@ -593,10 +599,11 @@ If you use flow_input in the step inputs, make sure to add the missing propertie
 
 ### Branchone/branchall and forloop
 You can add branchone/branchall and forloops to the flow. Make sure to set the predicates for the branches (of branchone only) and the iterator expression for the forloops.
-You can also add or remove branches. 
+You can also add or remove branches. Steps can be added inside branches and forloops.
 
-### Adding multiple steps
-After adding a step, make sure to consider the updated flow when adding another step so that the step is added in the right place.
+### Special instructions when adding steps
+When adding a step, always consider the current sequence of steps to ensure the new step is inserted in the correct position.
+Important: Steps are executed in the order they appear in the flow definition — not in the order they were added or by the alphanumeric order of their IDs.
 
 ### Flow inputs schema
 You can use the set_flow_inputs_schema tool to set the flow inputs schema.
@@ -631,10 +638,21 @@ If the user wants a specific resource as step input, you should set the step val
 
 export function prepareFlowUserMessage(
 	instructions: string,
-	flowAndSelectedId: { flow: ExtendedOpenFlow; selectedId: string }
-) {
-	const { flow, selectedId } = flowAndSelectedId
-	return `## FLOW:
+	flowAndSelectedId?: { flow: ExtendedOpenFlow; selectedId: string }
+): ChatCompletionUserMessageParam {
+	const flow = flowAndSelectedId?.flow
+	const selectedId = flowAndSelectedId?.selectedId
+
+	if (!flow || !selectedId) {
+		return {
+			role: 'user',
+			content: `## INSTRUCTIONS:
+${instructions}`
+		}
+	}
+	return {
+		role: 'user',
+		content: `## FLOW:
 flow_input schema:
 ${JSON.stringify(flow.schema ?? emptySchema())}
 
@@ -652,4 +670,5 @@ ${selectedId}
 
 ## INSTRUCTIONS:
 ${instructions}`
+	}
 }

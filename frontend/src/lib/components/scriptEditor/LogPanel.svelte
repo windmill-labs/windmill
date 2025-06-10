@@ -29,6 +29,7 @@
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { PreviewPanelUi } from '../custom_ui'
+	import { getStringError } from '../copilot/chat/utils'
 
 	export let lang: Preview['language'] | undefined
 	export let previewIsLoading = false
@@ -40,7 +41,6 @@
 	export let workspace: string | undefined = undefined
 	export let showCaptures: boolean = false
 	export let customUi: PreviewPanelUi | undefined = undefined
-	export let fixChatMode: boolean = false
 
 	type DrawerContent = {
 		mode: 'json' | Preview['language'] | 'plain'
@@ -141,16 +141,8 @@
 												language={lang}
 											>
 												<svelte:fragment slot="copilot_fix">
-													{#if lang && editor && diffEditor && args && previewJob?.result && typeof previewJob?.result == 'object' && `error` in previewJob?.result && previewJob?.result.error}
-														<ScriptFix
-															on:fix
-															chatMode={fixChatMode}
-															error={JSON.stringify(previewJob.result.error)}
-															{lang}
-															{editor}
-															{diffEditor}
-															{args}
-														/>
+													{#if lang && editor && diffEditor && args && previewJob && !previewJob.success && getStringError(previewJob.result)}
+														<ScriptFix {lang} />
 													{/if}
 												</svelte:fragment>
 											</DisplayResult>

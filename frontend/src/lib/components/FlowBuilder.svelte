@@ -71,6 +71,7 @@
 	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
+	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 
 	interface Props {
 		initialPath?: string
@@ -975,8 +976,8 @@
 							</div>
 						</Button>
 					{/if}
-					{#if !disableAi && customUi?.topBar?.aiBuilder != false && flowEditor?.getIsAiPanelClosed()}
-						<FlowAIButton openPanel={() => flowEditor?.toggleAiPanel()} />
+					{#if !disableAi && customUi?.topBar?.aiBuilder != false && !aiChatManager.open}
+						<FlowAIButton openPanel={() => aiChatManager.openChat()} />
 					{/if}
 					<FlowPreviewButtons
 						on:openTriggers={(e) => {
@@ -1014,7 +1015,6 @@
 			<!-- metadata -->
 			{#if $flowStateStore}
 				<FlowEditor
-					bind:this={flowEditor}
 					{disabledFlowInputs}
 					disableAi={disableAi || customUi?.stepInputs?.ai == false}
 					disableSettings={customUi?.settingsPanel === false}

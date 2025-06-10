@@ -1,4 +1,4 @@
-import type { OpenFlow } from '$lib/gen'
+import type { FlowModule, OpenFlow } from '$lib/gen'
 import type { History } from '$lib/history'
 import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
@@ -42,25 +42,26 @@ export type FlowInputEditorState = {
 	payloadData: Record<string, any> | undefined
 }
 
+export type CurrentEditor =
+	| ((
+			| {
+					type: 'script'
+					editor: Editor
+					showDiffMode: () => void
+					hideDiffMode: () => void
+					diffMode: boolean
+					lastDeployedCode: string | undefined
+			  }
+			| { type: 'iterator'; editor: SimpleEditor }
+	  ) & {
+			stepId: string
+	  })
+	| undefined
+
 export type FlowEditorContext = {
 	selectedId: Writable<string>
-	moving: Writable<{ id: string } | undefined>
-	currentEditor: Writable<
-		| ((
-				| {
-						type: 'script'
-						editor: Editor
-						showDiffMode: () => void
-						hideDiffMode: () => void
-						diffMode: boolean
-						lastDeployedCode: string | undefined
-				  }
-				| { type: 'iterator'; editor: SimpleEditor }
-		  ) & {
-				stepId: string
-		  })
-		| undefined
-	>
+	currentEditor: Writable<CurrentEditor>
+	moving: Writable<{ module: FlowModule; modules: FlowModule[] } | undefined>
 	previewArgs: Writable<Record<string, any>>
 	scriptEditorDrawer: Writable<ScriptEditorDrawer | undefined>
 	history: History<OpenFlow>

@@ -19,6 +19,64 @@ import type { AnyMeltElement } from '@melt-ui/svelte'
 import type { RunsSelectionMode } from './components/runs/RunsBatchActionsDropdown.svelte'
 import type { TriggerKind } from './components/triggers'
 import { stateSnapshot } from './svelte5Utils.svelte'
+import { validate, dereference } from '@scalar/openapi-parser'
+
+export namespace OpenApi {
+	export enum OpenApiVersion {
+		V2,
+		V3,
+		V3_1
+	}
+
+	export function isV2(doc: OpenAPI.Document): doc is OpenAPIV2.Document {
+		return 'swagger' in doc && doc.swagger === '2.0'
+	}
+
+	export function isV3(doc: OpenAPI.Document): doc is OpenAPIV3.Document {
+		return 'openapi' in doc && typeof doc.openapi === 'string' && doc.openapi.startsWith('3.0')
+	}
+
+	export function isV3_1(doc: OpenAPI.Document): doc is OpenAPIV3_1.Document {
+		return 'openapi' in doc && typeof doc.openapi === 'string' && doc.openapi.startsWith('3.1')
+	}
+
+	export function getOpenApiVersion(version: string): OpenApiVersion {
+		if (version.startsWith('2.0')) {
+			return OpenApiVersion.V2
+		} else if (version.startsWith('3.0')) {
+			return OpenApiVersion.V3
+		} else {
+			return OpenApiVersion.V3_1
+		}
+	}
+
+	/**
+	 * Parses and validates an OpenAPI specification provided as a string in either JSON or YAML format.
+	 *
+	 * @param api - A string containing a valid OpenAPI specification in JSON or YAML format.
+	 * @returns A promise that resolves to a tuple:
+	 *   - The first element is the validated OpenAPI document.
+	 *   - The second element is the detected OpenAPI version (2, 3.0, or 3.1).
+	 *
+	 * @throws Will throw an error if the specification is invalid or cannot be parsed.
+	 */
+	export async function parse(api: string): Promise<[OpenAPI.Document, OpenApiVersion]> {
+		const { valid, errors } = await validate(api)
+
+		if (!valid) {
+			const errorMessage = errors
+				? errors.map((error) => error.message).join('\n')
+				: 'Invalid OpenAPI document'
+			throw new Error(errorMessage)
+		}
+
+		const document = await dereference(api)
+
+		const version = getOpenApiVersion(document.version!)
+
+		return [document.schema, version]
+	}
+}
 
 export function isJobCancelable(j: Job): boolean {
 	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
@@ -1298,6 +1356,7 @@ export function getOS() {
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import type { Snippet } from 'svelte'
+import type { OpenAPI, OpenAPIV2, OpenAPIV3, OpenAPIV3_1 } from 'openapi-types'
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))

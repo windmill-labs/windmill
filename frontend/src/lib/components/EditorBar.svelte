@@ -635,6 +635,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		<div class="flex items-center gap-0.5">
 			{#if showContextVarPicker && customUi?.contextVar != false}
 				<Button
+					aiId="editor-bar-add-context-variable"
+					aiDescription="Add context variable"
 					title="Add context variable"
 					color="light"
 					on:click={contextualVariablePicker.openDrawer}
@@ -648,6 +650,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{/if}
 			{#if showVarPicker && customUi?.variable != false}
 				<Button
+					aiId="editor-bar-add-variable"
+					aiDescription="Add variable"
 					title="Add variable"
 					color="light"
 					btnClasses="!font-medium text-tertiary"
@@ -663,6 +667,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 
 			{#if showResourcePicker && customUi?.resource != false}
 				<Button
+					aiId="editor-bar-add-resource"
+					aiDescription="Add resource"
 					title="Add resource"
 					btnClasses="!font-medium text-tertiary"
 					size="xs"
@@ -678,6 +684,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 
 			{#if showResourceTypePicker && customUi?.type != false}
 				<Button
+					aiId="editor-bar-add-resource-type"
+					aiDescription="Add resource type"
 					title="Add resource type"
 					btnClasses="!font-medium text-tertiary"
 					size="xs"
@@ -693,6 +701,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 
 			{#if customUi?.reset != false}
 				<Button
+					aiId="editor-bar-reset-content"
+					aiDescription="Reset content"
 					title="Reset Content"
 					btnClasses="!font-medium text-tertiary"
 					size="xs"
@@ -709,6 +719,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{#if customUi?.assistants != false}
 				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash' || lang == 'nu'}
 					<Button
+						aiId="editor-bar-reload-assistants"
+						aiDescription="Reload assistants"
 						btnClasses="!font-medium text-tertiary"
 						size="xs"
 						spacingSize="md"

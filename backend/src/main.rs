@@ -80,8 +80,7 @@ use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR,
     DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR,
     JAVA_CACHE_DIR, NU_CACHE_DIR, POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR,
-    PY312_CACHE_DIR, PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR, TAR_PY310_CACHE_DIR,
-    TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR, TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
+    PY312_CACHE_DIR, PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -861,6 +860,11 @@ Windmill Community Edition {GIT_VERSION}
                                                         }
                                                     };
                                                 },
+                                                "notify_token_invalidation" => {
+                                                    let token = n.payload();
+                                                    tracing::info!("Token invalidation detected for token: {}...", &token[..token.len().min(8)]);
+                                                    windmill_api::auth::invalidate_token_from_cache(token);
+                                                },
                                                 "notify_global_setting_change" => {
                                                     tracing::info!("Global setting change detected: {}", n.payload());
                                                     match n.payload() {
@@ -893,7 +897,7 @@ Windmill Community Edition {GIT_VERSION}
                                                             if let Err(e) = load_tag_per_workspace_workspaces(&db).await {
                                                                 tracing::error!("Error loading default tag per workspace workspaces: {e:#}");
                                                             }
-                                                        }
+                                                        },
                                                         SMTP_SETTING => {
                                                             reload_smtp_config(&db).await;
                                                         },
@@ -1010,7 +1014,6 @@ Windmill Community Edition {GIT_VERSION}
                                                                 tracing::error!(error = %e, "Could not reload critical alert UI setting");
                                                             }
                                                         },
-
                                                         a @_ => {
                                                             tracing::info!("Unrecognized Global Setting Change Payload: {:?}", a);
                                                         }
@@ -1183,6 +1186,7 @@ async fn listen_pg(url: &str) -> Option<PgListener> {
         "notify_webhook_change",
         "notify_workspace_envs_change",
         "notify_runnable_version_change",
+        "notify_token_invalidation",
     ];
 
     #[cfg(feature = "http_trigger")]
@@ -1276,10 +1280,6 @@ pub async fn run_workers(
         PY311_CACHE_DIR,
         PY312_CACHE_DIR,
         PY313_CACHE_DIR,
-        TAR_PY310_CACHE_DIR,
-        TAR_PY311_CACHE_DIR,
-        TAR_PY312_CACHE_DIR,
-        TAR_PY313_CACHE_DIR,
         BUN_BUNDLE_CACHE_DIR,
         GO_CACHE_DIR,
         GO_BIN_CACHE_DIR,

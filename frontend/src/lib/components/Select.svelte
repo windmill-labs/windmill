@@ -14,7 +14,7 @@
 		value = $bindable(),
 		filterText: _filterTextBind = $bindable(undefined),
 		class: className = '',
-		clearable = false,
+		clearable = true,
 		listAutoWidth = true,
 		disabled: _disabled = false,
 		containerStyle = '',

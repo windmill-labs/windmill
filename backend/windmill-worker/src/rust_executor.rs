@@ -66,6 +66,7 @@ mount {
 #[cfg(not(debug_assertions))]
 const DEV_CONF_NSJAIL: &'static str = "";
 
+#[cfg(not(windows))]
 lazy_static::lazy_static! {
     static ref CARGO_HOME_DEFAULT: String = format!("{}/.cargo", *HOME_DIR);
     static ref RUSTUP_HOME_DEFAULT: String = format!("{}/.rustup", *HOME_DIR);

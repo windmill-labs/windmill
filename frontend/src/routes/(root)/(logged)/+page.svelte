@@ -214,7 +214,7 @@
 </Drawer>
 
 <div>
-	<div class="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 h-fit-content">
+	<div class="max-w-7xl mx-auto px-4 sm:px-8 md:px-8 h-fit-content">
 		{#if $workspaceStore == 'admins'}
 			<div class="my-4"></div>
 
@@ -227,7 +227,7 @@
 			<div class="flex flex-row gap-4 flex-wrap justify-end items-center">
 				{#if !$userStore?.operator}
 					<span class="text-sm text-secondary">Create a</span>
-					<CreateActionsScript />
+					<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
 					{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
 					{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
 				{/if}

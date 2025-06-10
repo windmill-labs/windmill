@@ -1011,33 +1011,43 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED && !queued_job.is_flow() && _duration > 1000 {
-        let additional_usage = _duration / 1000;
-        let w_id = &queued_job.workspace_id;
-        let premium_workspace = windmill_common::workspaces::is_premium_workspace(db, w_id).await;
-        let _ = sqlx::query!(
-            "INSERT INTO usage (id, is_workspace, month_, usage) 
-            VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2) 
-            ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2",
-            w_id,
-            additional_usage as i32
-        )
-        .execute(db)
-        .await
-        .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")));
-
-        if !premium_workspace {
+        let db = db.clone();
+        let w_id = queued_job.workspace_id.clone();
+        let email = queued_job.permissioned_as_email.clone();
+        let w_id2 = w_id.clone();
+        let email2 = email.clone();
+        tokio::task::spawn(async move {
+            let additional_usage = _duration / 1000;
+            let premium_workspace = windmill_common::workspaces::is_premium_workspace(&db, &w_id).await;
+            tokio::time::timeout(std::time::Duration::from_secs(10), async move {
             let _ = sqlx::query!(
                 "INSERT INTO usage (id, is_workspace, month_, usage) 
-                VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2) 
+                VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2) 
                 ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2",
-                queued_job.permissioned_as_email,
+                w_id,
                 additional_usage as i32
             )
-            .execute(db)
+            .execute(&db)
             .await
             .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")));
-        }
+
+            if !premium_workspace {
+                let _ = sqlx::query!(
+                    "INSERT INTO usage (id, is_workspace, month_, usage) 
+                    VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2) 
+                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2",
+                    email,
+                    additional_usage as i32
+                )
+                .execute(&db)
+                .await
+            .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")));
+        }}).await.unwrap_or_else(|_| {
+            tracing::error!("Could not update usage for workspace {w_id2} and permissioned as {email2}, stopped after 10s");
+        });
+    });
     }
+    
 
     #[cfg(feature = "enterprise")]
     if !success {
@@ -3269,35 +3279,40 @@ pub async fn push<'c, 'd>(
             job_payload,
             JobPayload::Flow { .. } | JobPayload::RawFlow { .. }
         ) {
-            let workspace_usage = sqlx::query_scalar!(
-                    "INSERT INTO usage (id, is_workspace, month_, usage)
-                    VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 1)
-                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 
-                    RETURNING usage.usage",
-                    workspace_id
-                )
-                .fetch_one(_db)
-                .await
-                .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")))?;
+            tokio::time::timeout(std::time::Duration::from_secs(10), async move {
+                let workspace_usage = sqlx::query_scalar!(
+                        "INSERT INTO usage (id, is_workspace, month_, usage)
+                        VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 1)
+                        ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 
+                        RETURNING usage.usage",
+                        workspace_id
+                    )
+                    .fetch_one(_db)
+                    .await
+                    .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")))?;
 
-            let user_usage = if !premium_workspace {
-                Some(sqlx::query_scalar!(
-                    "INSERT INTO usage (id, is_workspace, month_, usage)
-                    VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 1)
-                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 
-                    RETURNING usage.usage",
-                    email
-                )
-                .fetch_one(_db)
-                .await
-                .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")))?)
-            } else {
-                None
-            };
-            (Some(workspace_usage), user_usage)
+                let user_usage = if !premium_workspace {
+                    Some(sqlx::query_scalar!(
+                        "INSERT INTO usage (id, is_workspace, month_, usage)
+                        VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 1)
+                        ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 
+                        RETURNING usage.usage",
+                        email
+                    )
+                    .fetch_one(_db)
+                    .await
+                    .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")))?)
+                } else {
+                    None
+                };
+                Ok((Some(workspace_usage), user_usage))
+            }).await.unwrap_or_else(|e| {
+                tracing::error!("Could not update usage for workspace {workspace_id} and permissioned as {email}, stopped after 10s: {e:#}");
+                Err(Error::internal_err(format!("Could not update usage for workspace {workspace_id} and permissioned as {email}, stopped after 10s: {e:#}")))
+            })
         } else {
-            (None, None)
-        };
+            Ok((None, None))
+        }?;
 
         if !premium_workspace {
             let is_super_admin =
