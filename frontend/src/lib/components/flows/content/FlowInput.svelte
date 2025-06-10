@@ -414,6 +414,7 @@
 					if (!previewSchema) {
 						savedPreviewArgs = structuredClone($state.snapshot(previewArguments))
 					}
+					refreshStateStore(flowStore)
 				}}
 				on:schemaChange={() => {
 					resetArgs()
