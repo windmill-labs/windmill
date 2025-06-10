@@ -1,0 +1,47 @@
+[package]
+name = "wmill"
+version = """
+1.496.3
+"""
+edition = "2024"
+description = "A client library for accessing Windmill server wrapping the Windmill client API"
+license = "Apache-2.0"
+homepage = "https://windmill.dev"
+
+[workspace]
+resolver = "3"
+members = ["windmill_api"]
+
+[dependencies]
+serde_yaml = "0.9"
+serde_json = "1.0"
+serde = "1.0"
+thiserror = "2"
+anyhow = "1.0"
+uuid = "1"
+
+[dependencies.windmill-api]
+path = "./windmill_api"
+version = "1.496.3"
+
+[dependencies.futures]
+version = "0.3"
+
+[dependencies.tokio]
+version = "1"
+default-features = false
+
+[dependencies.once_cell]
+version = "1.18"
+
+[dev-dependencies.tokio]
+version = "1"
+default-features = false
+features = [
+    "rt",
+    "macros",
+]
+
+[features]
+default = []
+async = []
