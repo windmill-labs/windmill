@@ -22,7 +22,7 @@ wmill = { version = "0.1.0", features = ["async"] }
 
 ### Initialize Client
 
-```rust
+```ignore
 use wmill::Windmill;
 
 #[tokio::main]
@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### Variables
 
-```rust
+```ignore
 // Get variable (auto-parsed)
 let db_config: serde_json::Value = wm.get_variable("u/admin/db_config").await?;
 
@@ -56,7 +56,7 @@ wm.set_variable("new_value".to_string(), "u/user/my_var", false).await?;
 
 ### Resources
 
-```rust
+```ignore
 // Get resource (typed)
 #[derive(serde::Deserialize)]
 struct DbConfig { host: String, port: u16 }
@@ -76,7 +76,7 @@ wm.set_resource(
 
 ### Scripts
 
-```rust
+```ignore
 // Run script async
 let job_id = wm.run_script_async(
     "u/user/my_script",
@@ -99,7 +99,7 @@ let result = wm.run_script_sync(
 
 ### Jobs
 
-```rust
+```ignore
 // Wait for job completion
 let result = wm.wait_job(&job_id, Some(60), true, true).await?;
 
@@ -112,7 +112,7 @@ let result = wm.get_result(&job_id).await?;
 
 ### State Management
 
-```rust
+```ignore
 // Get typed state
 #[derive(serde::Deserialize)]
 struct ScriptState { counter: i32 }
@@ -128,7 +128,7 @@ wm.set_state(Some(serde_json::json!({"counter": 42}))).await?;
 
 ### Progress Tracking
 
-```rust
+```ignore
 // Set job progress
 wm.set_progress(75, None).await?; // Uses current job ID from env
 
@@ -140,7 +140,7 @@ let progress = wm.get_progress(Some(job_id.to_string())).await?;
 
 The SDK provides direct access to underlying API endpoints through the ```call_api``` method, which works in both async and sync contexts:
 
-```rust
+```ignore
 // Async usage
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

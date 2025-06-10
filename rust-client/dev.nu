@@ -20,10 +20,11 @@ def main [ --publish(-p) --check(-c) --test(-t) ] {
 
   # Patch windmill_api/Cargo.toml
   open windmill_api/Cargo.toml
+  # Use rustls - otherwise compilation will fail due to missing libssl
   | update dependencies.reqwest.features [json, multipart, rustls-tls]
+  | insert dependencies.reqwest.default-features false
   | update package.license "Apache-2.0"
   | insert package.homepage "https://windmill.dev"
-  | insert package.repository "https://github.com/windmill-labs/windmill-rust-client"
   | save -f windmill_api/Cargo.toml
   
   # Recursively replace serde_json::from_str with our patched version
@@ -62,8 +63,8 @@ where
 
   if $test {
     print "Testing..."
-    cargo test --no-default-features
     cargo test --features async simple
+    cargo test --no-default-features
   }
 
   if $publish {

@@ -1,6 +1,5 @@
 [package]
 name = "wmill"
-# Version will be replaced by the build script (dev.nu) no need to stage or keep it up to date
 version = """
 1.496.3
 """
@@ -8,7 +7,6 @@ edition = "2024"
 description = "A client library for accessing Windmill server wrapping the Windmill client API"
 license = "Apache-2.0"
 homepage = "https://windmill.dev"
-repository = "https://github.com/windmill-labs/windmill-rust-client"
 
 [workspace]
 resolver = "3"
