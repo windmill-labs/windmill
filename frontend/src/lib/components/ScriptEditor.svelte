@@ -13,7 +13,7 @@
 	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from './EditorBar.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
 	import { Button } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
@@ -346,7 +346,7 @@
 
 	let codePanelSize = $state(70)
 	let testPanelSize = $state(30)
-	let storedTestPanelSize = testPanelSize
+	let storedTestPanelSize = untrack(() => testPanelSize)
 
 	$effect(() => {
 		!SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') &&

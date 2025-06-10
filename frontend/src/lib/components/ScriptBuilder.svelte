@@ -71,7 +71,7 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { createEventDispatcher, onMount, setContext } from 'svelte'
+	import { createEventDispatcher, onMount, setContext, untrack } from 'svelte'
 	import Summary from './Summary.svelte'
 	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
@@ -937,7 +937,7 @@
 		})
 	})
 	$effect(() => {
-		!disableHistoryChange && encodeScriptState(script)
+		!disableHistoryChange && untrack(() => encodeScriptState(script))
 	})
 </script>
 
