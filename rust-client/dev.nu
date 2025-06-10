@@ -2,7 +2,7 @@
 
 let version = open ../version.txt;
 
-def main [ --publish --test ] {
+def main [ --publish(-p) --check(-c) --test(-t) ] {
   mkdir api/a/
 
   open ../backend/windmill-api/openapi.yaml
@@ -54,11 +54,16 @@ where
 }
   ` | save --append ./windmill_api/src/lib.rs
 
-  if $test {
+  if $check {
     print "Checking..."
-    cargo check
-    # cargo check --features "async"
-    # cargo test
+    cargo check --no-default-features
+    cargo check --features "async"
+  }
+
+  if $test {
+    print "Testing..."
+    cargo test --no-default-features
+    cargo test --features async simple
   }
 
   if $publish {
