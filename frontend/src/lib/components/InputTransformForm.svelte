@@ -89,8 +89,6 @@
 
 	const dispatch = createEventDispatcher()
 
-	let propertyType = $state(getPropertyType(arg))
-
 	$effect(() => {
 		editor = monaco
 	})
@@ -111,6 +109,8 @@
 			schema?.properties?.[argName]?.contentEncoding
 		)
 	)
+
+	let propertyType = $state(getPropertyType(arg))
 
 	function setExpr() {
 		const newArg = $exprsToSet?.[argName]
