@@ -1,0 +1,17 @@
+name: Publish rust-client to crates.io on release
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build_rust_and_publish_to_crates_io:
+    runs-on: ubicloud-standard-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v20
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - run: cd rust-client && nix develop ../ --command ./dev.nu --test --publish 
