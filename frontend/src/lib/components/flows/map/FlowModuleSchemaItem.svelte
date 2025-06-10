@@ -51,6 +51,7 @@
 		| undefined = { enabled: false }
 	export let bold: boolean = false
 	export let id: string | undefined = undefined
+	export let inputTransform: Record<string, any> | undefined = undefined
 	export let label: string
 	export let path: string = ''
 	export let modType: string | undefined = undefined
@@ -341,6 +342,7 @@
 				{historyOpen}
 				{stepArgs}
 				small
+				{inputTransform}
 			>
 				<OutputPickerInner
 					bind:this={outputPickerInner}

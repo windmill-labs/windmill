@@ -213,6 +213,7 @@
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:') && mod.id !== 'preprocessor'}
 					loopStatus={parentLoop ? { type: 'inside', flow: parentLoop.type } : undefined}
 					stepArgs={testSteps?.getStepArgs(mod.id)}
+					inputTransform={mod.value.type !== 'identity' ? mod.value.input_transforms : undefined}
 				>
 					<div slot="icon">
 						{#if mod.value.type === 'rawscript'}

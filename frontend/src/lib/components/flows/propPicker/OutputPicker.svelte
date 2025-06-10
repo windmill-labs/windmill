@@ -13,6 +13,7 @@
 	export let historyOpen: boolean = false
 	export let stepArgs: Record<string, any> | undefined = undefined
 	export let small: boolean = false
+	export let inputTransform: Record<string, any> | undefined = undefined
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
 	const flowPropPickerConfig = context?.flowPropPickerConfig
@@ -120,8 +121,8 @@
 					</button>
 				</svelte:fragment>
 				<svelte:fragment slot="content">
-					<div class="p-1.5">
-						<ObjectViewer json={stepArgs} {small} />
+					<div class="p-2">
+						<ObjectViewer json={stepArgs} {inputTransform} small />
 					</div>
 				</svelte:fragment>
 			</Popover>

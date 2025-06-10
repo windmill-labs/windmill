@@ -8,11 +8,21 @@
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
 	import Portal from '$lib/components/Portal.svelte'
 	import { Button } from '$lib/components/common'
-	import { Download, PanelRightOpen, Search, TriangleAlertIcon, X } from 'lucide-svelte'
+	import {
+		DollarSign,
+		Download,
+		PanelRightOpen,
+		Search,
+		SquareFunction,
+		TriangleAlertIcon,
+		X
+	} from 'lucide-svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import Popover from '../Popover.svelte'
+	import type { InputTransform } from '$lib/gen'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		json: any
@@ -28,6 +38,7 @@
 		expandedEvenOnLevel0?: string | undefined
 		connecting?: boolean
 		small?: boolean
+		inputTransform?: Record<string, InputTransform>
 	}
 
 	let {
@@ -43,8 +54,13 @@
 		prefix = '',
 		expandedEvenOnLevel0 = undefined,
 		connecting = false,
-		small = false
+		small = false,
+		inputTransform = {}
 	}: Props = $props()
+
+	$effect(() => {
+		console.log('dbg input object viewer', inputTransform)
+	})
 
 	let jsonFiltered = $state(json)
 
@@ -171,6 +187,25 @@
 	</span>
 {/snippet}
 
+{#snippet metaData(key: string)}
+	{#if inputTransform[key]}
+		<span
+			class={twMerge(
+				'inline-flex items-center h-4 text-blue-500 border dark:bg-blue-200 dark:text-blue-900 px-1 rounded-[0.275rem] rounded-l-none border-l-0 gap-0.5',
+				small ? 'text-[10px]' : 'text-2xs',
+				inputTransform[key].type === 'javascript' ? 'text-blue-500' : 'text-tertiary font-mono'
+			)}
+			title={inputTransform[key].type === 'javascript' ? inputTransform[key].expr : undefined}
+		>
+			{#if inputTransform[key].type === 'javascript'}
+				<SquareFunction size={small ? 12 : 14} class="-my-1" />
+			{:else if inputTransform[key].type === 'static'}
+				<DollarSign size={small ? 10 : 12} class="-my-1" />
+			{/if}
+		</span>
+	{/if}
+{/snippet}
+
 <Portal name="object-viewer">
 	<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
 </Portal>
@@ -253,13 +288,17 @@
 								color="light"
 								variant="border"
 								wrapperClasses="p-0 whitespace-nowrap w-fit"
-								btnClasses="font-mono h-4 py-1 {small
-									? 'text-[10px]'
-									: 'text-2xs'} font-thin px-1 rounded-[0.275rem]"
+								btnClasses={twMerge(
+									'font-mono h-4 py-1',
+									small ? 'text-[10px]' : 'text-2xs',
+									'font-thin px-1 rounded-[0.275rem]',
+									inputTransform[key] ? 'rounded-r-none border-r-0.5' : ''
+								)}
 								title={computeFullKey(key, rawKey)}
 							>
-								<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index} </span>
+								<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index}</span>
 							</Button>
+							{@render metaData(key)}
 						</AnimatedButton>
 						<span class="{small ? 'text-[10px]' : 'text-2xs'} -ml-0.5 text-tertiary">:</span>
 
