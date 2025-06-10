@@ -56,10 +56,6 @@
 		inputTransform = {}
 	}: Props = $props()
 
-	$effect(() => {
-		console.log('dbg input object viewer', inputTransform)
-	})
-
 	let jsonFiltered = $state(json)
 
 	let search = $state('')

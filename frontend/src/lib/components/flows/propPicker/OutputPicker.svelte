@@ -4,16 +4,17 @@
 	import { getContext, tick } from 'svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
-	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
+	import InputPickerInner from './InputPickerInner.svelte'
 
 	export let selected: boolean = false
 	export let hover: boolean = false
 	export let isConnectingCandidate: boolean = false
 	export let variant: 'default' | 'virtual' = 'default'
 	export let historyOpen: boolean = false
-	export let stepArgs: Record<string, any> | undefined = undefined
 	export let inputTransform: Record<string, any> | undefined = undefined
 	export let zoom: number = 1
+	export let onEvaluateArgs: () => void = () => {}
+	export let id: string
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
 	const flowPropPickerConfig = context?.flowPropPickerConfig
@@ -109,6 +110,11 @@
 				closeOnOtherPopoverOpen
 				class="flex-1 h-full"
 				bind:isOpen={inputOpen}
+				on:openChange={(e) => {
+					if (e.detail) {
+						onEvaluateArgs()
+					}
+				}}
 			>
 				<svelte:fragment slot="trigger">
 					<button
@@ -123,9 +129,7 @@
 					</button>
 				</svelte:fragment>
 				<svelte:fragment slot="content">
-					<div class="p-4 h-full overflow-y-auto">
-						<ObjectViewer json={stepArgs} {inputTransform} />
-					</div>
+					<InputPickerInner {inputTransform} {id} />
 				</svelte:fragment>
 			</Popover>
 			<Popover

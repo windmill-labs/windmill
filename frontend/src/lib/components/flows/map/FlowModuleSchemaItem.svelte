@@ -67,7 +67,6 @@
 	export let loopStatus:
 		| { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' }
 		| undefined = undefined
-	export let stepArgs: Record<string, any> | undefined = undefined
 
 	let pickableIds: Record<string, any> | undefined = undefined
 
@@ -333,7 +332,7 @@
 			</svelte:fragment>
 		</FlowModuleSchemaItemViewer>
 
-		{#if editMode && (isConnectingCandidate || alwaysShowOutputPicker)}
+		{#if editMode && (isConnectingCandidate || alwaysShowOutputPicker) && id}
 			<OutputPicker
 				bind:this={outputPicker}
 				{selected}
@@ -343,9 +342,9 @@
 				let:isConnecting
 				let:selectConnection
 				{historyOpen}
-				{stepArgs}
-				{inputTransform}
 				zoom={$viewport?.zoom ?? 1}
+				{inputTransform}
+				{id}
 			>
 				<OutputPickerInner
 					bind:this={outputPickerInner}

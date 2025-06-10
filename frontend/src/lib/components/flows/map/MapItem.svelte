@@ -38,8 +38,7 @@
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
 
-	const { flowStore, testSteps } =
-		getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
+	const { flowStore } = getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
 
 	const dispatch = createEventDispatcher<{
 		delete: CustomEvent<MouseEvent>
@@ -212,7 +211,6 @@
 					isTrigger={isTriggerStep(mod)}
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:') && mod.id !== 'preprocessor'}
 					loopStatus={parentLoop ? { type: 'inside', flow: parentLoop.type } : undefined}
-					stepArgs={testSteps?.getStepArgs(mod.id)}
 					inputTransform={mod.value.type !== 'identity' ? mod.value.input_transforms : undefined}
 				>
 					<div slot="icon">

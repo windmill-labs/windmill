@@ -6,7 +6,7 @@ import type { FlowState } from './flowState'
 import type { FlowBuilderWhitelabelCustomUi } from '../custom_ui'
 import type Editor from '../Editor.svelte'
 import type SimpleEditor from '../SimpleEditor.svelte'
-import type { TestSteps } from './testSteps'
+import type { TestSteps } from './testSteps.svelte'
 
 export type FlowInput = Record<
 	string,
