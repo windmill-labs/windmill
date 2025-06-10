@@ -13,15 +13,19 @@
 
 	import TimeAgo from './TimeAgo.svelte'
 	import Popover from './meltComponents/Popover.svelte'
-	import { Calendar, CornerDownLeft } from 'lucide-svelte'
+	import { Calendar, Check, CornerDownLeft } from 'lucide-svelte'
 	import RunFormAdvancedPopup from './RunFormAdvancedPopup.svelte'
 	import { page } from '$app/stores'
 	import { replaceState } from '$app/navigation'
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
+	import TriggerableByAI from './TriggerableByAI.svelte'
+	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 
 	let reloadArgs = $state(0)
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
 	let schemaHeight = $state(0)
+	let showInputSelectedBadge = $state(false)
+	let savedPreviousArgs: Record<string, any> | undefined = $state(undefined)
 
 	export async function setArgs(nargs: Record<string, any>) {
 		args = nargs
@@ -117,6 +121,49 @@
 	})
 </script>
 
+<TriggerableByAI
+	id={`run-form-${runnable?.path ?? ''}`}
+	description={`Form to fill the inputs to run ${runnable?.summary && runnable?.summary.length > 0 ? runnable?.summary : runnable?.path}.
+	## Script description: ${runnable?.description ?? ''}.
+	## Schema used: ${JSON.stringify(runnable?.schema)}.
+	## Current args: ${JSON.stringify(args)}}`}
+	onTrigger={(value) => {
+		savedPreviousArgs = args
+		setArgs(JSON.parse(value ?? '{}'))
+		showInputSelectedBadge = true
+	}}
+	showAnimation={false}
+/>
+
+{#snippet acceptButton()}
+	<Button
+		startIcon={{
+			icon: Check
+		}}
+		size="xs2"
+		btnClasses="border border-gray-200 dark:border-gray-600 !bg-surface text-primary"
+		on:click={() => {
+			showInputSelectedBadge = false
+			savedPreviousArgs = undefined
+		}}
+	>
+		Accept
+	</Button>
+{/snippet}
+
+{#if showInputSelectedBadge}
+	<InputSelectedBadge
+		inputSelected="ai"
+		labelColor="text-violet-800 dark:text-primary"
+		className="dark:!bg-violet-800 !bg-violet-200 !border-violet-200 dark:!border-violet-800"
+		{acceptButton}
+		onReject={() => {
+			setArgs(savedPreviousArgs ?? {})
+			savedPreviousArgs = undefined
+			showInputSelectedBadge = false
+		}}
+	/>
+{/if}
 <div class="max-w-3xl">
 	{#if detailed}
 		{#if runnable}
@@ -157,6 +204,10 @@
 				</div>
 			</div>
 		{:else}
+			<TriggerableByAI
+				id="run-form-loading"
+				description="Run form is loading, should scan the page until this is gone"
+			/>
 			<h1>Loading...</h1>
 		{/if}
 	{/if}

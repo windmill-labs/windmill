@@ -20,6 +20,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
+	import AIFormAssistant from '$lib/components/copilot/AIFormAssistant.svelte'
 
 	import { onDestroy, setContext, tick } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
@@ -670,22 +671,95 @@
 								</div>
 							{/if}
 
-							{#if !emptyString(script.description)}
-								<GfmMarkdown md={defaultIfEmptyString(script?.description, 'No description')} />
-							{/if}
+						{#if !emptyString(script.description)}
+							<GfmMarkdown md={defaultIfEmptyString(script?.description, 'No description')} />
+						{/if}
+					</div>
+
+					{#if deploymentInProgress}
+						<Badge color="yellow">
+							<Loader2 size={12} class="inline animate-spin mr-1" />
+							Deployment in progress
+						</Badge>
+					{/if}
+
+					<div class="flex flex-col align-left">
+						<div class="flex flex-row justify-between">
+							<InputSelectedBadge
+								onReject={() => {
+									savedInputsV2?.resetSelected()
+								}}
+								{inputSelected}
+							/>
+							<Toggle
+								bind:checked={jsonView}
+								label="JSON View"
+								size="xs"
+								options={{
+									right: 'JSON',
+									rightTooltip: 'Fill args from JSON'
+								}}
+								lightMode
+								on:change={(e) => {
+									runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+								}}
+							/>
 						</div>
 
-						{#if deploymentInProgress}
-							<Badge color="yellow">
-								<Loader2 size={12} class="inline animate-spin mr-1" />
-								Deployment in progress
+						{#if script?.schema?.prompt_for_ai !== undefined}
+							<AIFormAssistant
+								instructions={script.schema?.prompt_for_ai as string}
+								onEditInstructions={() => {
+									goto(`/scripts/edit/${script?.path}?metadata_open=true`)
+								}}
+								runnableType="script"
+							/>
+						{/if}
+
+						<RunForm
+							bind:scheduledForStr
+							bind:invisible_to_owner
+							bind:overrideTag
+							viewKeybinding
+							loading={runLoading}
+							autofocus
+							detailed={false}
+							bind:isValid
+							runnable={script}
+							runAction={runScript}
+							bind:args
+							schedulable={true}
+							bind:this={runForm}
+							{jsonView}
+						/>
+					</div>
+
+					<div class="py-10"></div>
+					{#if !emptyString(script.summary)}
+						<div class="mb-2">
+							<span class="!text-tertiary">{script.path}</span>
+						</div>
+					{/if}
+					<div class="flex flex-row gap-x-2 flex-wrap items-center">
+						<span class="text-sm text-tertiary">
+							Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by || 'unknown'}
+						</span>
+						<Badge small color="gray">
+							{truncateHash(script?.hash ?? '')}
+						</Badge>
+						{#if script?.is_template}
+							<Badge color="blue">Template</Badge>
+						{/if}
+						{#if script && script.kind !== 'script'}
+							<Badge color="blue">
+								{script?.kind}
 							</Badge>
 						{/if}
 
 						<div class="flex flex-col align-left">
 							<div class="flex flex-row justify-between">
 								<InputSelectedBadge
-									on:click={() => {
+									onReject={() => {
 										savedInputsV2?.resetSelected()
 									}}
 									{inputSelected}

@@ -25,6 +25,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
+	import AIFormAssistant from '$lib/components/copilot/AIFormAssistant.svelte'
 	import {
 		FolderOpen,
 		Archive,
@@ -573,6 +574,7 @@
 							{/if}
 						</div>
 					</div>
+<<<<<<< HEAD
 					<div class="mt-8">
 						<FlowGraphViewer
 							triggerNode={true}
@@ -592,6 +594,70 @@
 							on:triggerDetail={(e) => {
 								rightPaneSelected = 'triggers'
 							}}
+=======
+
+					{#if deploymentInProgress}
+						<HeaderBadge color="yellow">
+							<Loader2 size={12} class="inline animate-spin mr-1" />
+							Deployment in progress
+						</HeaderBadge>
+					{/if}
+					{#if flow.lock_error_logs && flow.lock_error_logs != ''}
+						<div class="bg-red-100 dark:bg-red-700 border-l-4 border-red-500 p-4" role="alert">
+							<p class="font-bold">Error deploying this flow</p>
+							<p> This flow has not been deployed successfully because of the following errors: </p>
+							<LogViewer content={flow.lock_error_logs} isLoading={false} tag={undefined} />
+						</div>
+					{/if}
+
+					<div class="flex flex-col align-left">
+						<div class="flex flex-row justify-between">
+							<InputSelectedBadge
+								onReject={() => {
+									savedInputsV2?.resetSelected()
+								}}
+								{inputSelected}
+							/>
+							<Toggle
+								bind:checked={jsonView}
+								label="JSON View"
+								size="xs"
+								options={{
+									right: 'JSON',
+									rightTooltip: 'Fill args from JSON'
+								}}
+								lightMode
+								on:change={(e) => {
+									runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+								}}
+							/>
+						</div>
+
+						{#if flow.schema?.prompt_for_ai !== undefined}
+							<AIFormAssistant
+								instructions={flow.schema?.prompt_for_ai as string}
+								onEditInstructions={() => {
+									goto(`/flows/edit/${flow?.path}`)
+								}}
+								runnableType="flow"
+							/>
+						{/if}
+
+						<RunForm
+							bind:scheduledForStr
+							bind:invisible_to_owner
+							bind:overrideTag
+							viewKeybinding
+							{loading}
+							autofocus
+							detailed={false}
+							bind:isValid
+							runnable={flow}
+							runAction={runFlow}
+							bind:args
+							bind:this={runForm}
+							{jsonView}
+>>>>>>> main
 						/>
 					</div>
 				</div>

@@ -92,6 +92,8 @@
 {/if}
 
 <Row
+	aiId={`script-run-button-${script.path}`}
+	aiDescription={`Button to access the form to run the script ${script.summary ?? script.path}`}
 	href={script.draft_only || script.kind !== 'script' || script.no_main_func
 		? `${base}/scripts/edit/${script.path}`
 		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}

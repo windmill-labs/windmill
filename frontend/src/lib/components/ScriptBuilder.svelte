@@ -15,6 +15,7 @@
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
+	import AIFormSettings from './copilot/AIFormSettings.svelte'
 	import {
 		defaultScripts,
 		enterpriseLicense,
@@ -167,6 +168,7 @@
 	let metadataOpen = $state(
 		!neverShowMeta &&
 			(showMeta ||
+				searchParams.get('metadata_open') == 'true' ||
 				(initialPath == '' &&
 					searchParams.get('state') == undefined &&
 					searchParams.get('collab') == undefined))
@@ -1076,6 +1078,13 @@
 													}}
 												/>
 											</Label>
+											{#if script.schema}
+												<div class="mt-3">
+													<AIFormSettings
+														bind:prompt={script.schema.prompt_for_ai as string | undefined}
+													/>
+												</div>
+											{/if}
 										</div>
 									</Section>
 
