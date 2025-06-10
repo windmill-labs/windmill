@@ -1,38 +1,17 @@
 #! /usr/bin/env nu
 
-let v = git rev-parse --abbrev-ref HEAD
-let dir = $"local/($v)/a/b/"
+let version = open ../version.txt;
 
-def main [] {
-  mkdir $dir
+def main [ --publish --test ] {
+  mkdir api/a/
 
-  # http get $"https://raw.githubusercontent.com/windmill-labs/windmill/($v)/openflow.openapi.yaml"
-  # | save -f $"local/($v)/openflow.openapi.yaml";
+  open ../backend/windmill-api/openapi.yaml
+    # openapi-generator confused with these two, so we just drop them
+    | reject paths."/w/{workspace}/apps/create_raw"
+    | reject paths."/w/{workspace}/apps/update_raw/{path}"
+    | save -f api/openapi.yaml;
 
-  # http get $"https://raw.githubusercontent.com/windmill-labs/windmill/($v)/backend/windmill-api/openapi.yaml"
-  # # openapi-generator confused with these two, so we just drop them
-  # | reject paths."/w/{workspace}/apps/create_raw"
-  # | reject paths."/w/{workspace}/apps/update_raw/{path}"
-  # | save -f $"local/($v)/a/b/openapi.yaml";
-
-  openapi-generator-cli generate -i $"local/($v)/a/b/openapi.yaml" -g rust -o ./windmill_api --strict-spec true --additional-properties=packageName="windmill-api"
-
-  patch
-}
-
-def 'main publish' [] {
-  
-}
-
-def 'main test' [] {
-  cargo check
-  cargo check --features "async"
-  cargo test
-}
-
-
-def patch [] {
-  let version = http get $"https://raw.githubusercontent.com/windmill-labs/windmill/main/version.txt"
+  openapi-generator-cli generate -i api/openapi.yaml -g rust -o ./windmill_api --strict-spec true --additional-properties=packageName="windmill-api"
 
   # Patch Cargo.toml
   open Cargo.toml
@@ -58,7 +37,7 @@ def patch [] {
 
   # Inject patched from_str
   echo `  
-// NOTE: Injected by /dev.nu
+// NOTE: Injected by rust-client/dev.nu
 pub fn from_str_patched<'a, T>(s: &'a str) -> Result<T, serde_json::Error>
 where
     T: serde::de::DeserializeOwned + 'static,
@@ -74,6 +53,17 @@ where
     }
 }
   ` | save --append ./windmill_api/src/lib.rs
+
+  if $test {
+    print "Checking..."
+    cargo check
+    # cargo check --features "async"
+    # cargo test
+  }
+
+  if $publish {
+    print "Publishing..."
+    cd windmill_api; cargo publish
+    cargo publish
+  }
 }
-# TODO:
-# Build docs
