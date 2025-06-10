@@ -4,6 +4,7 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+
 	export let code: string | undefined
 	export let value: any = undefined
 	export let error = ''

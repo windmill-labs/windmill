@@ -23,6 +23,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
+	import AIFormAssistant from '$lib/components/copilot/AIFormAssistant.svelte'
 	import {
 		FolderOpen,
 		Archive,
@@ -512,7 +513,7 @@
 					<div class="flex flex-col align-left">
 						<div class="flex flex-row justify-between">
 							<InputSelectedBadge
-								on:click={() => {
+								onReject={() => {
 									savedInputsV2?.resetSelected()
 								}}
 								{inputSelected}
@@ -531,6 +532,16 @@
 								}}
 							/>
 						</div>
+
+						{#if flow.schema?.prompt_for_ai !== undefined}
+							<AIFormAssistant
+								instructions={flow.schema?.prompt_for_ai as string}
+								onEditInstructions={() => {
+									goto(`/flows/edit/${flow?.path}`)
+								}}
+								runnableType="flow"
+							/>
+						{/if}
 
 						<RunForm
 							bind:scheduledForStr

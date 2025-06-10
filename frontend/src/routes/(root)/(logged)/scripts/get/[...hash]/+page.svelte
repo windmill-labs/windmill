@@ -20,6 +20,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
+	import AIFormAssistant from '$lib/components/copilot/AIFormAssistant.svelte'
 
 	import { onDestroy, setContext, tick } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
@@ -675,7 +676,7 @@
 					<div class="flex flex-col align-left">
 						<div class="flex flex-row justify-between">
 							<InputSelectedBadge
-								on:click={() => {
+								onReject={() => {
 									savedInputsV2?.resetSelected()
 								}}
 								{inputSelected}
@@ -694,6 +695,16 @@
 								}}
 							/>
 						</div>
+
+						{#if script?.schema?.prompt_for_ai !== undefined}
+							<AIFormAssistant
+								instructions={script.schema?.prompt_for_ai as string}
+								onEditInstructions={() => {
+									goto(`/scripts/edit/${script?.path}?metadata_open=true`)
+								}}
+								runnableType="script"
+							/>
+						{/if}
 
 						<RunForm
 							bind:scheduledForStr

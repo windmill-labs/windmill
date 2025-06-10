@@ -463,6 +463,7 @@
 											label="Ask AI"
 											class="!text-xs"
 											iconClasses="!text-violet-400 dark:!text-violet-400"
+											shortcut={`${getModifierKey()}L`}
 										/>
 									</div>
 
@@ -534,6 +535,7 @@
 									label="Ask AI"
 									class="!text-xs"
 									iconClasses="!text-violet-400 dark:!text-violet-400"
+									shortcut={`${getModifierKey()}L`}
 								/>
 							</div>
 
@@ -645,6 +647,7 @@
 									label="Ask AI"
 									class="!text-xs"
 									iconClasses="!text-violet-400 dark:!text-violet-400"
+									shortcut={`${getModifierKey()}L`}
 								/>
 							</div>
 

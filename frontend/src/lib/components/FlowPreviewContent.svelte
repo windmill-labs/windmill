@@ -419,7 +419,7 @@
 			>
 				<div class="w-full flex flex-row justify-between">
 					<InputSelectedBadge
-						on:click={() => schemaFormWithArgPicker?.resetSelected()}
+						onReject={() => schemaFormWithArgPicker?.resetSelected()}
 						{inputSelected}
 					/>
 					<div class="flex flex-row gap-2">
