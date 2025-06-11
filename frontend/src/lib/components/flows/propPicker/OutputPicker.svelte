@@ -33,7 +33,7 @@
 		isConnectingCandidate && $flowPropPickerConfig?.insertionMode === 'connect'
 	)
 
-	function selectConnection(value: any) {
+	function selectConnection(value: string) {
 		if ($flowPropPickerConfig?.onSelect(value)) {
 			$flowPropPickerConfig?.clearFocus()
 			popover?.close()

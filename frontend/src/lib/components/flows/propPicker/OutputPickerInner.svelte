@@ -586,7 +586,6 @@
 					pureViewer={false}
 					{prefix}
 					on:select={(e) => {
-						console.log('select', e.detail)
 						onSelect?.(e.detail)
 					}}
 					{allowCopy}
