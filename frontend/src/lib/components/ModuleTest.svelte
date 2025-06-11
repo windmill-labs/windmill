@@ -6,17 +6,28 @@
 	import type { FlowEditorContext } from './flows/types'
 	import TestJobLoader from './TestJobLoader.svelte'
 
-	export let mod: FlowModule
-	export let testJob: Job | undefined = undefined
-	export let testIsLoading = false
-	export let noEditor = false
-	export let scriptProgress = undefined
-	export let onJobDone: (() => void) | undefined = undefined
+	interface Props {
+		mod: FlowModule
+		testJob?: Job | undefined
+		testIsLoading?: boolean
+		noEditor?: boolean
+		scriptProgress?: any
+		onJobDone?: ((job: Job | undefined) => void) | undefined
+	}
+
+	let {
+		mod,
+		testJob = $bindable(undefined),
+		testIsLoading = $bindable(false),
+		noEditor = false,
+		scriptProgress = $bindable(undefined),
+		onJobDone = undefined
+	}: Props = $props()
 
 	const { flowStore, flowStateStore, pathStore, testSteps, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	let testJobLoader: TestJobLoader
+	let testJobLoader: TestJobLoader | undefined = $state(undefined)
 	let jobProgressReset: () => void = () => {}
 
 	export function runTestWithStepArgs() {
@@ -72,8 +83,13 @@
 				$flowStateStore = $flowStateStore
 			}
 		}
+		const finishedJob = testJob
 		testJob = undefined
-		onJobDone?.()
+		onJobDone?.(finishedJob)
+	}
+
+	export function cancelJob() {
+		testJobLoader?.cancelJob()
 	}
 </script>
 

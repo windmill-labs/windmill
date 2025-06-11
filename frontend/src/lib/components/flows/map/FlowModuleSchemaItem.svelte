@@ -130,6 +130,7 @@
 	let lastJob: any | undefined = $state(undefined)
 	let outputPicker: OutputPicker | undefined = $state(undefined)
 	let historyOpen = $state(false)
+	let testJob: any | undefined = $state(undefined)
 
 	let flowStateStore = $derived(flowEditorContext?.flowStateStore)
 
@@ -166,6 +167,18 @@
 		console.log('updateLastJob')
 		flowStateStore && updateLastJob($flowStateStore)
 	})
+
+	let nlastJob = $derived.by(() => {
+		if (testJob) {
+			return { ...testJob, preview: true }
+		}
+		if (lastJob) {
+			return { ...lastJob, preview: false }
+		}
+		return undefined
+	})
+
+	$inspect('dbg nlastJob', nlastJob)
 
 	let isConnectingCandidate = $derived(
 		!!id && !!$flowPropPickerConfig && !!pickableIds && Object.keys(pickableIds).includes(id)
@@ -244,7 +257,8 @@
 			bind:this={moduleTest}
 			{mod}
 			bind:testIsLoading
-			onJobDone={() => {
+			onJobDone={(job) => {
+				testJob = job
 				outputPicker?.toggleOpen(true)
 			}}
 		/>
@@ -405,7 +419,7 @@
 						prefix={'results'}
 						connectingData={isConnecting ? connectingData : undefined}
 						{mock}
-						{lastJob}
+						lastJob={nlastJob}
 						on:select={selectConnection}
 						moduleId={id}
 						on:updateMock
