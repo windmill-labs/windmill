@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { getContext, tick } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import InputPickerInner from './InputPickerInner.svelte'
@@ -34,20 +34,12 @@
 	const MIN_WIDTH = 375
 	const MIN_HEIGHT = 375
 
-	let isConnecting = $state(false)
 	let outputOpen = $state(false)
 	let inputOpen = $state(false)
 
-	async function updateConnecting() {
-		await tick()
-		isConnecting = $flowPropPickerConfig?.insertionMode === 'connect'
-	}
-
-	$effect(() => {
-		updateConnecting()
-	})
-
-	const showConnecting = $derived(isConnectingCandidate && isConnecting)
+	const showConnecting = $derived(
+		isConnectingCandidate && $flowPropPickerConfig?.insertionMode === 'connect'
+	)
 
 	function selectConnection(event: CustomEvent) {
 		if ($flowPropPickerConfig?.onSelect(event.detail)) {
@@ -214,7 +206,7 @@
 				{#snippet content()}
 					{@render children?.({
 						allowCopy: !$flowPropPickerConfig,
-						isConnecting,
+						isConnecting: showConnecting,
 						selectConnection
 					})}
 				{/snippet}
