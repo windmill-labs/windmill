@@ -334,7 +334,8 @@
 		use:autosize
 		rows={3}
 		on:input={handleInput}
-		on:blur={() => {
+		on:blur={(e) => {
+			e.preventDefault()
 			setTimeout(() => {
 				showContextTooltip = false
 			}, 100)
