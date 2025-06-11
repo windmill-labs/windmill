@@ -247,7 +247,7 @@
 								bind:currencyLocale={extra['currencyLocale']}
 							/>
 						{:else if type == 'object' && oneOf && oneOf.length >= 2 && !isFlowInput && !isAppInput}
-							<ToggleButtonGroup bind:selected={oneOfSelected} class="mb-2">
+							<ToggleButtonGroup bind:selected={oneOfSelected} className="mb-2">
 								{#snippet children({ item })}
 									{#each oneOf as obj}
 										<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />

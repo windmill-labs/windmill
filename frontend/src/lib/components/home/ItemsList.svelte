@@ -347,7 +347,7 @@
 						}
 						setQuery($page.url, 'kind', itemKind)
 					}}
-					class="h-10"
+					className="h-10"
 					let:item
 				>
 					<ToggleButton value="all" label="All" class="text-sm px-4 py-2" {item} />

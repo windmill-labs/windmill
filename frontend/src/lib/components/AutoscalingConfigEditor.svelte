@@ -258,7 +258,7 @@
 			<ToggleButtonGroup
 				on:selected={(e) => dispatch('dirty')}
 				bind:selected={config.integration.type}
-				class="mb-4 mt-2"
+				className="mb-4 mt-2"
 				let:item
 			>
 				<ToggleButton
@@ -337,7 +337,7 @@
 				</div>
 			{/if}
 		{:else}
-			<ToggleButtonGroup selected={'script'} disabled class="mb-4 mt-2" let:item>
+			<ToggleButtonGroup selected={'script'} disabled className="mb-4 mt-2" let:item>
 				<ToggleButton value="dryrun" label="Dry run" {item} />
 				<ToggleButton value="script" label="Custom script" {item} />
 				<ToggleButton value="ecs" label="ECS (soon)" {item} />

@@ -157,7 +157,7 @@
 <div class="flex flex-col gap-2">
 	<div class="flex gap-2 flex-wrap sticky top-0 left-0 right-0 bg-surface">
 		<div class="p-2">
-			<ToggleButtonGroup bind:selected={searchKind} class="h-10 " let:item>
+			<ToggleButtonGroup bind:selected={searchKind} className="h-10 " let:item>
 				<ToggleButton small light value="all" label={'All' + counts.all} {item} />
 				<ToggleButton
 					small

@@ -62,7 +62,7 @@
 										goto('#superadmin-settings')
 									}
 								}
-						  ]
+							]
 						: []
 				)
 			}
@@ -92,7 +92,7 @@
 			{/if}
 
 			<span class="text-xs mb-1 pt-2 leading-6">Role</span>
-			<ToggleButtonGroup bind:selected class="mb-4" let:item>
+			<ToggleButtonGroup bind:selected className="mb-4" let:item>
 				<ToggleButton
 					value="operator"
 					label="Operator"

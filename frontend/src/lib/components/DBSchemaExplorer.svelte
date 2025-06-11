@@ -21,7 +21,7 @@
 
 {#if dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC || dbSchema.schema?.dbo)}
 	<ToggleButtonGroup
-		class="mb-4"
+		className="mb-4"
 		selected={dbSchema.publicOnly ? 'dbo' : 'all'}
 		on:selected={handleSelected}
 		let:item

@@ -546,7 +546,7 @@
 								<Label label="Request type" class="w-full">
 									<svelte:fragment slot="action">
 										<ToggleButtonGroup
-											class="w-auto h-full"
+											className="w-auto h-full"
 											selected={is_async ? 'async' : 'sync'}
 											on:selected={({ detail }) => {
 												is_async = detail === 'async'
@@ -577,7 +577,7 @@
 						<Label label="Authentication" class="w-full">
 							<svelte:fragment slot="action">
 								<ToggleButtonGroup
-									class="w-auto h-full"
+									className="w-auto h-full"
 									bind:selected={authentication_method}
 									on:selected={(e) => {
 										if (e.detail === 'signature' && signature_options_type === 'custom_script') {
@@ -602,7 +602,7 @@
 												</svelte:fragment>
 												<svelte:fragment slot="content">
 													<ToggleButtonGroup
-														class="w-auto h-full"
+														className="w-auto h-full"
 														bind:selected={signature_options_type}
 														on:selected={(e) => {
 															if (e.detail === 'custom_script') {

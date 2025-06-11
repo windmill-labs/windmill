@@ -1,24 +1,45 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import type { TabsContext } from '$lib/components/apps/editor/settingsPanel/inputEditor/tabs.svelte'
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
 
-	export let aiId: string | undefined = undefined
-	export let aiDescription: string | undefined = undefined
-	export let value: string
-	export let size: 'xs' | 'sm' | 'md' | 'lg' | 'xl' = 'sm'
-	let c = ''
-	export { c as class }
-	export let style = ''
-	export let selectedClass = ''
-	export let selectedStyle = ''
-	export let id: string | undefined = undefined
-	export let active: boolean | undefined = false
-	export let exact = false
-	export let otherValues: string[] = []
+	interface Props {
+		aiId?: string | undefined
+		aiDescription?: string | undefined
+		value: string
+		size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl'
+		class?: string
+		style?: string
+		selectedClass?: string
+		selectedStyle?: string
+		id?: string | undefined
+		active?: boolean | undefined
+		exact?: boolean
+		otherValues?: string[]
+		disabled?: boolean
+		children?: import('svelte').Snippet
+	}
 
-	export let disabled: boolean = false
+	let {
+		aiId = undefined,
+		aiDescription = undefined,
+		value,
+		size = 'sm',
+		class: c = '',
+		style = '',
+		selectedClass = '',
+		selectedStyle = '',
+		id = undefined,
+		active = false,
+		exact = false,
+		otherValues = [],
+		disabled = false,
+		children
+	}: Props = $props()
 	const { selected, update, hashNavigation } = getContext<TabsContext>('Tabs')
 
 	function getIsSelectedFn(exact: boolean, otherValues: string[]) {
@@ -31,9 +52,9 @@
 		}
 	}
 
-	$: isSelectedFn = getIsSelectedFn(exact, otherValues)
+	let isSelectedFn = $derived(getIsSelectedFn(exact, otherValues))
 
-	$: isSelected = isSelectedFn($selected)
+	let isSelected = $derived(isSelectedFn($selected))
 
 	const fontSizeClasses = {
 		xs: 'text-xs',
@@ -67,19 +88,19 @@
 			disabled ? 'cursor-not-allowed text-tertiary' : ''
 		)}
 		style={`${style} ${isSelected ? selectedStyle : ''}`}
-		on:click={() => {
+		onclick={() => {
 			if (hashNavigation) {
 				window.location.hash = value
 			} else {
 				update(value)
 			}
 		}}
-		on:pointerdown|stopPropagation
+		onpointerdown={stopPropagation(bubble('pointerdown'))}
 		{disabled}
 		{id}
 	>
 		<div class={twMerge(active ? 'bg-blue-50 text-blue-800 rounded-md ' : '', 'px-2 ')}>
-			<slot />
+			{@render children?.()}
 		</div>
 	</button>
 </TriggerableByAI>
