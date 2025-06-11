@@ -23,6 +23,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import IdEditorInput from '$lib/components/IdEditorInput.svelte'
 	import { dfs } from '../dfs'
+	import { dfs as dfsPreviousResults } from '../previousResults'
 	import { Drawer } from '$lib/components/common'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { getDependeeAndDependentComponents } from '../flowExplorer'
@@ -197,12 +198,13 @@
 	</Drawer>
 {/if}
 
-{#if deletable && id}
+{#if deletable && id && flowEditorContext?.flowStore}
 	{@const flowStore = flowEditorContext?.flowStore ? get(flowEditorContext?.flowStore) : undefined}
-	{#if flowStore?.value.modules.find((m) => m.id === id) !== undefined && $flowStateStore[id]}
+	{@const mod = flowStore?.value ? dfsPreviousResults(id, flowStore, false)[0] : undefined}
+	{#if mod && $flowStateStore[id]}
 		<ModuleTest
 			bind:this={moduleTest}
-			mod={flowStore?.value.modules.find((m) => m.id === id)!}
+			{mod}
 			bind:testIsLoading
 			onJobDone={() => {
 				outputPicker?.toggleOpen(true)

@@ -187,7 +187,7 @@
 				'text-2xs',
 				inputTransform[key].type === 'javascript' ? 'text-blue-500' : 'text-tertiary font-mono'
 			)}
-			title={inputTransform[key].type === 'javascript' ? inputTransform[key].expr : undefined}
+			title={inputTransform[key].type === 'javascript' ? inputTransform[key].expr : 'Static'}
 		>
 			{#if inputTransform[key].type === 'javascript'}
 				<SquareFunction size={14} class="-my-1" />
