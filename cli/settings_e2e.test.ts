@@ -229,7 +229,8 @@ includes:
 
     // Should fail with JSON parse error
     assertEquals(result.code !== 0, true);
-    assertStringIncludes(result.stderr.toLowerCase(), "json");
+    // When using --json-output, error should be in stdout as JSON
+    assertStringIncludes((result.stdout + result.stderr).toLowerCase(), "invalid json");
   });
 });
 

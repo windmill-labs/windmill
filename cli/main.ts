@@ -2,10 +2,8 @@ import {
   Command,
   CompletionsCommand,
   UpgradeCommand,
-  colors,
   esMain,
   log,
-  yamlStringify,
 } from "./deps.ts";
 import flow from "./flow.ts";
 import app from "./apps.ts";
@@ -22,6 +20,7 @@ import sync from "./sync.ts";
 import instance from "./instance.ts";
 import workerGroups from "./worker_groups.ts";
 import settings from "./settings.ts";
+import init from "./init.ts";
 
 import dev from "./dev.ts";
 import { fetchVersion } from "./context.ts";
@@ -34,7 +33,6 @@ import { pull, push } from "./sync.ts";
 import { add as workspaceAdd } from "./workspace.ts";
 import workers from "./workers.ts";
 import queues from "./queues.ts";
-import { readLockfile } from "./metadata.ts";
 
 export {
   flow,
@@ -96,29 +94,7 @@ const command = new Command()
   )
   .version(VERSION)
   .versionOption(false)
-  .command("init", "Bootstrap a windmill project with a wmill.yaml file")
-  .action(async () => {
-    if (await Deno.stat("wmill.yaml").catch(() => null)) {
-      log.error(colors.green("wmill.yaml already exists"));
-    } else {
-      await Deno.writeTextFile(
-        "wmill.yaml",
-        yamlStringify({
-          defaultTs: "bun",
-          includes: ["f/**"],
-          excludes: [],
-          codebases: [],
-          skipVariables: true,
-          skipResources: true,
-          skipSecrets: true,
-          includeSchedules: false,
-          includeTriggers: false,
-        })
-      );
-      log.info(colors.green("wmill.yaml created"));
-    }
-    await readLockfile();
-  })
+  .command("init", init)
   .command("app", app)
   .command("flow", flow)
   .command("script", script)
