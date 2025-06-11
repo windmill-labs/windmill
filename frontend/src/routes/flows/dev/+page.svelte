@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { onDestroy, onMount, setContext } from 'svelte'
+	import { onDestroy, onMount, setContext, untrack } from 'svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import FlowPreviewButtons from '$lib/components/flows/header/FlowPreviewButtons.svelte'
 	import type {
@@ -237,10 +237,11 @@
 			themeDark != darkMode &&
 			darkMode != undefined &&
 			!modeInitialized &&
-			initializeMode()
+			untrack(() => initializeMode())
 	})
 	$effect(() => {
-		updateCode(editor, flowStore.val)
+		const args = [editor, flowStore.val] as const
+		untrack(() => updateCode(...args))
 	})
 </script>
 

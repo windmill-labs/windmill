@@ -4,7 +4,7 @@
 	import type { Schema } from '$lib/common'
 	import { ResourceService, type Resource, type ResourceType } from '$lib/gen'
 	import { canWrite, emptyString, isOwner, urlize } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { Alert, Skeleton } from './common'
 	import Path from './Path.svelte'
 	import Required from './Required.svelte'
@@ -184,13 +184,13 @@
 		watchChanges && dispatchIfMounted('change', { path, args, description })
 	})
 	run(() => {
-		rawCode && parseJson()
+		rawCode && untrack(() => parseJson())
 	})
 	run(() => {
-		linkedVars.length > 0 && path && updateArgsFromLinkedVars()
+		linkedVars.length > 0 && path && untrack(() => updateArgsFromLinkedVars())
 	})
 	run(() => {
-		textFileContent && parseTextFileContent()
+		textFileContent && untrack(() => parseTextFileContent())
 	})
 </script>
 

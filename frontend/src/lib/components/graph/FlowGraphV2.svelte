@@ -375,10 +375,10 @@
 	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
 
 	$effect(() => {
-		allowSimplifiedPoll && onModulesChange(modules ?? [])
+		allowSimplifiedPoll && modules && untrack(() => onModulesChange(modules ?? []))
 	})
 	$effect(() => {
-		modules && onModulesChange2(modules)
+		modules && untrack(() => onModulesChange2(modules))
 	})
 	let graph = $derived.by(() => {
 		moduleCounter

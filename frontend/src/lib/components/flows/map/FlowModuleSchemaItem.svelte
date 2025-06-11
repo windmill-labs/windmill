@@ -16,7 +16,7 @@
 		Pin,
 		X
 	} from 'lucide-svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import type { FlowEditorContext, FlowInput } from '../types'
 	import { type Writable } from 'svelte/store'
@@ -135,7 +135,8 @@
 				: (flowStateStore?.[id]?.previewResult ?? {})
 	}
 	$effect(() => {
-		updateConnectingData(id, pickableIds, $flowPropPickerConfig, $flowStateStore)
+		const args = [id, pickableIds, $flowPropPickerConfig, $flowStateStore] as const
+		untrack(() => updateConnectingData(...args))
 	})
 
 	function updateLastJob(flowStateStore: any | undefined) {
@@ -152,8 +153,7 @@
 	}
 
 	$effect(() => {
-		console.log('updateLastJob')
-		flowStateStore && updateLastJob($flowStateStore)
+		flowStateStore && $flowStateStore && untrack(() => updateLastJob($flowStateStore))
 	})
 
 	let isConnectingCandidate = $derived(

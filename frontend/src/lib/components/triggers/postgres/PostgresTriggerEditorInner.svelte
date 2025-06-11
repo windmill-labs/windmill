@@ -25,7 +25,7 @@
 	import { invalidRelations, savePostgresTriggerFromCfg } from './utils'
 	import CheckPostgresRequirement from './CheckPostgresRequirement.svelte'
 	import { base } from '$lib/base'
-	import type { Snippet } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 	import { handleConfigChange, type Trigger } from '../utils'
@@ -395,7 +395,8 @@
 	}
 
 	$effect(() => {
-		onCaptureConfigChange?.(captureConfig, isValid)
+		const args = [captureConfig, isValid] as const
+		untrack(() => onCaptureConfigChange?.(...args))
 	})
 
 	$effect(() => {

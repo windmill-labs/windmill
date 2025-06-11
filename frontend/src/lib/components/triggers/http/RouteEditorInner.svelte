@@ -32,6 +32,7 @@
 	import TestingBadge from '../testingBadge.svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { handleConfigChange } from '../utils'
+	import { untrack } from 'svelte'
 
 	let {
 		useDrawer = true,
@@ -337,7 +338,8 @@
 	}
 
 	$effect(() => {
-		onCaptureConfigChange?.(captureConfig, isValid)
+		const args = [captureConfig, isValid] as const
+		untrack(() => onCaptureConfigChange?.(...args))
 	})
 
 	$effect(() => {

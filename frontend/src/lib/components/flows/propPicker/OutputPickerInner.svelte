@@ -20,7 +20,7 @@
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import StepHistory from './StepHistory.svelte'
 	import { Popover } from '$lib/components/meltComponents'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
 	import type { Job } from '$lib/gen'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -239,7 +239,7 @@
 			!preview
 		if (newValue != canEditWithDblClick) {
 			canEditWithDblClick = newValue
-			updateCanEditWithDblClick(newValue)
+			untrack(() => updateCanEditWithDblClick(newValue))
 		}
 	})
 

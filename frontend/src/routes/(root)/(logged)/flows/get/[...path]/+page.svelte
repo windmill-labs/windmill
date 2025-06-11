@@ -53,7 +53,7 @@
 	import { writable } from 'svelte/store'
 	import InputSelectedBadge from '$lib/components/schema/InputSelectedBadge.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { onDestroy, tick } from 'svelte'
+	import { onDestroy, tick, untrack } from 'svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import TriggersEditor from '$lib/components/triggers/TriggersEditor.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
@@ -390,9 +390,11 @@
 		if ($workspaceStore && $userStore && $page.params.path) {
 			if (previousPath !== path) {
 				previousPath = path
-				loadFlow()
-				loadTriggersCount()
-				loadTriggers()
+				untrack(() => {
+					loadFlow()
+					loadTriggersCount()
+					loadTriggers()
+				})
 			}
 		}
 	})

@@ -2,7 +2,7 @@
 	import EmptyInlineScript from '../apps/editor/inlineScriptsPanel/EmptyInlineScript.svelte'
 	import InlineScriptRunnableByPath from '../apps/editor/inlineScriptsPanel/InlineScriptRunnableByPath.svelte'
 	import type { Runnable, RunnableWithFields, StaticAppInput } from '../apps/inputType'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import RawAppInlineScriptEditor from './RawAppInlineScriptEditor.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Tabs from '../common/tabs/Tabs.svelte'
@@ -89,7 +89,8 @@
 		}
 	}
 	$effect(() => {
-		onFieldsChange(runnable?.fields ?? {})
+		;[runnable?.fields]
+		untrack(() => onFieldsChange(runnable?.fields ?? {}))
 	})
 </script>
 

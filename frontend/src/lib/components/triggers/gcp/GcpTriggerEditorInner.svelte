@@ -18,7 +18,7 @@
 	import Required from '$lib/components/Required.svelte'
 	import GcpTriggerEditorConfigSection from './GcpTriggerEditorConfigSection.svelte'
 	import { base } from '$app/paths'
-	import type { Snippet } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveGcpTriggerFromCfg } from './utils'
 	import { handleConfigChange, type Trigger } from '../utils'
@@ -234,7 +234,8 @@
 	}
 
 	$effect(() => {
-		onCaptureConfigChange?.(captureConfig, isValid)
+		const args = [captureConfig, isValid] as const
+		untrack(() => onCaptureConfigChange?.(...args))
 	})
 
 	$effect(() => {
