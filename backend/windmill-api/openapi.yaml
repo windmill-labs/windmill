@@ -8464,7 +8464,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/generateOpenapiSpec"
+              $ref: "#/components/schemas/GenerateOpenapiSpec"
       responses:
         "200":
           description: openapi spec
@@ -14775,6 +14775,76 @@ components:
         - basic_http
         - custom_script
         - signature
+
+    OpenapiSpecFormat:
+      type: string
+      enum:
+        - yaml
+        - json
+
+    OpenapiHttpRouteFilters:
+      type: object
+      properties:
+        folder_regex:
+          type: string
+        path_regex:
+          type: string
+        route_path_regex:
+          type: string
+      required:
+        - folder_regex
+        - path_regex
+        - route_path_regex
+
+    GenerateOpenapiSpec:
+      type: object
+      properties:
+        info:
+          type: object
+          properties:
+            title:
+              type: string
+            version:
+              type: string
+            description:
+              type: string
+            terms_of_service:
+              type: string
+            contact:
+              type: object
+              properties:
+                name:
+                  type: string
+                url:
+                  type: string
+                email:
+                  type: string
+            license:
+              type: object
+              properties:
+                name:
+                  type: string
+                identifier:
+                  type: string
+                url:
+                  type: string
+              required:
+                - name
+          required:
+            - title
+            - version
+        url:
+          type: string
+        openapi_spec_format:
+          $ref: "#/components/schemas/OpenapiSpecFormat"
+        http_route_filters:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpenapiHttpRouteFilters"
+        webhook_filters:
+          type: array
+          items:
+            type: string
 
     HttpMethod:
       type: string

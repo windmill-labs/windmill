@@ -39,7 +39,9 @@ use tower_http::cors::CorsLayer;
 use url::Url;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::error::{Error, Result as WindmillResult};
-use windmill_common::openapi::{generate_openapi_document, Format, FuturePath, Info};
+use windmill_common::openapi::{
+    generate_openapi_document, transform_to_minified_postgres_regex, Format, FuturePath, Info,
+};
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::build_object_store_client;
 use windmill_common::{
@@ -1449,73 +1451,100 @@ async fn route_job(
     Ok(response)
 }
 
-
-
 #[derive(Debug, Deserialize)]
-struct GenerateOpenAPIQuery {
-    path_regex: Option<String>,
-    route_path_regex: Option<String>,
-    #[serde(default)]
-    format: Format
+struct HttpRouteFilter {
+    folder_regex: String,
+    path_regex: String,
+    route_path_regex: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct GenerateOpenAPI {
     info: Option<Info>,
     url: Option<Url>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    http_route_filters: Option<Vec<HttpRouteFilter>>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    webhook_filters: Option<Vec<String>>,
+    #[serde(default)]
+    format: Format,
 }
 
 async fn generate_openapi_spec(
     Extension(authed): Extension<ApiAuthed>,
     Extension(user_db): Extension<UserDB>,
-    Query(generate_openapi_query): Query<GenerateOpenAPIQuery>,
+    Path(w_id): Path<String>,
     Json(generate_openapi): Json<GenerateOpenAPI>,
 ) -> WindmillResult<String> {
-    let transform_to_postgres_compliant_regex = |regex: &str| -> String { regex.replace('*', "%") };
+    let GenerateOpenAPI { info, url, http_route_filters, webhook_filters, format } =
+        generate_openapi;
 
-    //todo! sanitize input
-
-    let path_regex = generate_openapi_query
-        .path_regex
-        .as_deref()
-        .map(transform_to_postgres_compliant_regex)
-        .unwrap_or_else(|| ".*".to_string());
-
-    let route_path_regex = generate_openapi_query
-        .route_path_regex
-        .as_deref()
-        .map(transform_to_postgres_compliant_regex)
-        .unwrap_or_else(|| ".*".to_string());
-
-    #[derive(Debug, Deserialize)]
-    struct MinifiedHttpTrigger {
-        route_path: String,
-        http_method: HttpMethod,
-        is_async: bool,
+    if http_route_filters.is_none() && webhook_filters.is_none() {
+        return Err(Error::BadRequest(
+            "Expected http route filter and/or webhook filters".to_string(),
+        ));
     }
 
-    let mut tx = user_db.begin(&authed).await?;
+    let mut http_routes = Vec::new();
 
-    let http_routes = sqlx::query_as!(
-        MinifiedHttpTrigger,
-        r#"
+    if let Some(http_route_filters) = http_route_filters {
+        //todo! sanitize input
+
+        let path_regex = http_route_filters
+            .iter()
+            .map(|filter| {
+                transform_to_minified_postgres_regex(&format!(
+                    "f/{}/{}",
+                    filter.folder_regex, filter.path_regex
+                ))
+            })
+            .collect_vec();
+
+        let route_path_regex = http_route_filters
+            .iter()
+            .map(|filter| transform_to_minified_postgres_regex(&filter.route_path_regex))
+            .collect_vec();
+
+        #[derive(Debug, Deserialize)]
+        struct MinifiedHttpTrigger {
+            route_path: String,
+            http_method: HttpMethod,
+            is_async: bool,
+            workspaced_route: bool,
+        }
+
+        let mut tx = user_db.begin(&authed).await?;
+
+        println!("path regex: {:#?} route path regex: {:#?}", &path_regex, &route_path_regex);
+
+        http_routes = sqlx::query_as!(
+            MinifiedHttpTrigger,
+            r#"
         SELECT
             route_path,
             http_method AS "http_method: _",
-            is_async
+            is_async,
+            workspaced_route
         FROM
             http_trigger
         WHERE
-           path ~ $1 AND
-           route_path ~ $2
-    "#,
-        path_regex,
-        route_path_regex
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+           path ~ ANY($1) AND
+           route_path ~ ANY($2) AND
+           workspace_id = $3
+        "#,
+            &path_regex,
+            &route_path_regex,
+            &w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
 
-    tx.commit().await?;
+        tx.commit().await?;
+    }
+
+    if http_routes.is_empty() {
+        return Err(Error::NotFound("Found no matching http routes".to_string()));
+    }
 
     let openapi_future_paths = http_routes
         .into_iter()
@@ -1529,17 +1558,23 @@ async fn generate_openapi_spec(
                 HttpMethod::Put => http::Method::PUT,
             };
 
-            let future_path = FuturePath::new(http_route.route_path, method, http_route.is_async);
+            let route_path = if http_route.workspaced_route {
+                format!("{}/{}", &w_id, http_route.route_path)
+            } else {
+                http_route.route_path
+            };
+
+            let future_path = FuturePath::new(route_path, method, http_route.is_async);
 
             future_path
         })
         .collect_vec();
 
     let openapi_document = generate_openapi_document(
-        generate_openapi.info.as_ref(),
-        generate_openapi.url.as_ref(),
+        info.as_ref(),
+        url.as_ref(),
         Some(openapi_future_paths),
-        generate_openapi_query.format
+        format,
     );
 
     openapi_document

@@ -22,7 +22,7 @@ const DEFAULT_OPENAPI_GENERATED_VERSION: &'static str = "3.1.0";
 #[derive(Debug, Deserialize, Clone, Copy)]
 pub enum Format {
     JSON,
-    YAML
+    YAML,
 }
 
 impl Default for Format {
@@ -33,15 +33,20 @@ impl Default for Format {
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct Contact {
-    name: String,
-    url: String,
-    email: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    email: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct License {
     name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     identifier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     url: Option<Url>,
 }
 
@@ -49,16 +54,22 @@ struct License {
 pub struct Info {
     title: String,
     version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     terms_of_service: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     contact: Option<Contact>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     license: Option<License>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Server {
     url: Url,
+    #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     variables: Option<HashMap<String, Value>>,
 }
 
@@ -107,17 +118,55 @@ fn from_route_path_to_openapi_path(route_path: &str) -> Result<(String, Option<B
         Some(to_raw_value(&parameters))
     };
 
-    let normalized_path = if route_path.starts_with('/') {
-        route_path.to_string()
+    let normalized_path = if openapi_path.starts_with('/') {
+        openapi_path
     } else {
-        format!("/{}", route_path)
+        format!("/{}", openapi_path)
     };
 
     Ok((normalized_path, parameters_json))
 }
 
-fn generate_paths(paths: Vec<FuturePath>) -> Result<HashMap<String, Value>> {
-    let mut map: IndexMap<String, HashMap<String, Box<RawValue>>> = IndexMap::new();
+fn generate_paths(
+    paths: Vec<FuturePath>,
+) -> Result<IndexMap<String, IndexMap<String, Box<RawValue>>>> {
+    let mut map: IndexMap<String, IndexMap<String, Box<RawValue>>> = IndexMap::new();
+
+    let generate_default_request = || {
+        serde_json::json!({
+            "description": "This route may or may not require a request body, but its structure and content type are unknown.",
+            "required": false,
+            "content": {}
+        })
+    };
+
+    let generate_response = |is_async: bool| {
+        let responses = if is_async {
+            serde_json::json!({
+                "200": {
+                    "description": "Returns a job ID as a UUID string.",
+                    "content": {
+                        "text/plain": {
+                            "schema": {
+                                "type": "string",
+                                "format": "uuid",
+                                "example": "550e8400-e29b-41d4-a716-446655440000"
+                            }
+                        }
+                    }
+                }
+            })
+        } else {
+            serde_json::json!(serde_json::json!({
+                "200": {
+                    "description": "This route may return a response, but its structure and content type are unknown.",
+                    "content": {}
+                }
+            }))
+        };
+
+        responses
+    };
 
     for path in paths {
         let (route_path, parameters) = from_route_path_to_openapi_path(&path.route_path)?;
@@ -131,69 +180,60 @@ fn generate_paths(paths: Vec<FuturePath>) -> Result<HashMap<String, Value>> {
                     return Err(anyhow!("Found duplicate route: {}", path.route_path).into());
                 }
 
-                let responses = if path.is_async {
-                    serde_json::json!({
-                        "200": {
-                            "description": "Returns a job ID as a UUID string.",
-                            "content": {
-                                "text/plain": {
-                                    "schema": {
-                                        "type": "string",
-                                        "format": "uuid",
-                                        "example": "550e8400-e29b-41d4-a716-446655440000"
-                                    }
-                                }
-                            }
-                        }
-                    })
-                } else {
-                    serde_json::json!({
-                        "200": {
-                            "description": "Response.",
-                            "content": {
-                                "*/*": {
-                                    "schema": {}
-                                }
-                            }
-                        }
-                    })
-                };
+                let mut request_response_map = IndexMap::with_capacity(2);
 
-                let request_response_body = serde_json::json!({
-                    "requestBody": {
-                        "description": "The request body",
-                        "content": {
-                            "application/json": { "schema": {} },
-                            "application/cloudevents+json": { "schema": {} },
-                            "text/plain": { "schema": {} },
-                            "application/x-www-form-urlencoded": { "schema": {} },
-                            "application/xml": { "schema": {} },
-                            "text/xml": { "schema": {} },
-                            "multipart/form-data": { "schema": {} }
-                        }
-                    },
-                    "responses": responses
-                });
+                if path.http_method != HttpMethod::GET {
+                    request_response_map.insert("requestBody", generate_default_request());
+                }
 
-                paths.insert(http_method, to_raw_value(&request_response_body));
+                request_response_map.insert("responses", generate_response(path.is_async));
+
+                paths.insert(http_method, to_raw_value(&request_response_map));
             }
             None => {
-                map.insert(
-                    route_path,
-                    HashMap::from([("parameters".to_string(), to_raw_value(&parameters))]),
-                );
+                let mut request_response_map = IndexMap::with_capacity(2);
+
+                if path.http_method != HttpMethod::GET {
+                    request_response_map.insert("requestBody", generate_default_request());
+                }
+
+                request_response_map.insert("responses", generate_response(path.is_async));
+
+                let mut path_object = IndexMap::new();
+                if parameters.is_some() {
+                    path_object.insert("parameters".to_string(), to_raw_value(&parameters));
+                }
+                path_object.insert(http_method, to_raw_value(&request_response_map));
+                map.insert(route_path, path_object);
             }
         }
     }
 
-    return Ok(HashMap::new());
+    return Ok(map);
+}
+
+pub fn transform_to_minified_postgres_regex(glob: &str) -> String {
+    let mut regex = String::from("^");
+    for ch in glob.chars() {
+        match ch {
+            '*' => regex.push_str(".*"),
+            '.' | '+' | '(' | ')' | '|' | '^' | '$' | '{' | '}' | '[' | ']' | '\\' => {
+                regex.push('\\');
+                regex.push(ch);
+            }
+            _ => regex.push(ch),
+        }
+    }
+
+    regex.push('$');
+    regex
 }
 
 pub fn generate_openapi_document(
     info: Option<&Info>,
     url: Option<&Url>,
     paths: Option<Vec<FuturePath>>,
-    format: Format
+    format: Format,
 ) -> Result<String> {
     let servers = url.map_or_else(
         || vec![],
