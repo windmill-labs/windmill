@@ -1,6 +1,6 @@
 <script lang="ts">
 	import autosize from '$lib/autosize'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, tick } from 'svelte'
 	import type { ContextElement } from './context'
 	import AvailableContextList from './AvailableContextList.svelte'
 
@@ -20,6 +20,7 @@
 	let contextTooltipWord = ''
 	let tooltipPosition = { x: 0, y: 0 }
 	let textarea: HTMLTextAreaElement
+	let tooltipElement: HTMLDivElement
 	let selectedSuggestionIndex = 0
 
 	// Properties to copy for caret position calculation
@@ -164,7 +165,7 @@
 		showContextTooltip = false
 	}
 
-	function updateTooltipPosition(
+	async function updateTooltipPosition(
 		availableContext: ContextElement[],
 		showContextTooltip: boolean,
 		contextTooltipWord: string
@@ -193,6 +194,8 @@
 			const estimatedTooltipHeight = Math.min(uncappedHeight, maxHeight)
 			const margin = 6 // Small margin between caret and tooltip
 
+			// Initial position calculation
+			let finalX = rect.left + coords.left - 70
 			let finalY: number
 
 			if (isFirstMessage) {
@@ -203,9 +206,30 @@
 				finalY = rect.top + coords.top - estimatedTooltipHeight - margin
 			}
 
+			// Set initial position
 			tooltipPosition = {
-				x: rect.left + coords.left - 70,
+				x: finalX,
 				y: finalY
+			}
+
+			// Wait for tooltip to render with initial position
+			await tick()
+
+			// Get actual tooltip width if tooltip is rendered
+			if (tooltipElement) {
+				const tooltipRect = tooltipElement.getBoundingClientRect()
+				const tooltipWidth = tooltipRect.width
+
+				// Adjust position if tooltip would overflow right edge
+				if (finalX + tooltipWidth > window.innerWidth) {
+					finalX = Math.max(10, window.innerWidth - tooltipWidth - 10)
+
+					// Update position after measuring actual width
+					tooltipPosition = {
+						x: finalX,
+						y: finalY
+					}
+				}
 			}
 		} catch (error) {
 			// Hide tooltip on any error related to position calculation
@@ -326,6 +350,7 @@
 
 {#if showContextTooltip}
 	<div
+		bind:this={tooltipElement}
 		class="absolute bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50"
 		style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px;"
 	>
