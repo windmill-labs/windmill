@@ -216,9 +216,7 @@
 	}
 
 	$effect(() => {
-		console.log('args', typeof args, args)
 		if (args == undefined || typeof args !== 'object') {
-			console.log('set')
 			args = {}
 		}
 	})
