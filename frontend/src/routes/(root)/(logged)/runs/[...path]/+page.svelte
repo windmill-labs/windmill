@@ -45,64 +45,72 @@
 	import BatchReRunOptionsPane, {
 		type BatchReRunOptions
 	} from '$lib/components/runs/BatchReRunOptionsPane.svelte'
+	import { untrack } from 'svelte'
 
-	let jobs: Job[] | undefined
-	let selectedIds: string[] = []
-	let loadingSelectedIds = false
-	$: loadingSelectedIds && selectedIds.length && setTimeout(() => (loadingSelectedIds = false), 250)
-	let selectedWorkspace: string | undefined = undefined
+	let jobs: Job[] | undefined = $state()
+	let selectedIds: string[] = $state([])
+	let loadingSelectedIds = $state(false)
+	let selectedWorkspace: string | undefined = $state(undefined)
 
-	let batchReRunOptions: BatchReRunOptions = { flow: {}, script: {} }
+	let batchReRunOptions: BatchReRunOptions = $state({ flow: {}, script: {} })
 
 	// All Filters
 	// Filter by
-	let path: string | null = $page.params.path
-	let worker: string | null = $page.url.searchParams.get('worker')
-	let user: string | null = $page.url.searchParams.get('user')
-	let folder: string | null = $page.url.searchParams.get('folder')
-	let label: string | null = $page.url.searchParams.get('label')
-	let allowWildcards: boolean = $page.url.searchParams.get('allow_wildcards') == 'true'
-	let concurrencyKey: string | null = $page.url.searchParams.get('concurrency_key')
-	let tag: string | null = $page.url.searchParams.get('tag')
+	let path: string | null = $state($page.params.path)
+	let worker: string | null = $state($page.url.searchParams.get('worker'))
+	let user: string | null = $state($page.url.searchParams.get('user'))
+	let folder: string | null = $state($page.url.searchParams.get('folder'))
+	let label: string | null = $state($page.url.searchParams.get('label'))
+	let allowWildcards: boolean = $state($page.url.searchParams.get('allow_wildcards') == 'true')
+	let concurrencyKey: string | null = $state($page.url.searchParams.get('concurrency_key'))
+	let tag: string | null = $state($page.url.searchParams.get('tag'))
 	// Rest of filters handled by RunsFilter
-	let success: 'running' | 'suspended' | 'waiting' | 'success' | 'failure' | undefined =
+	let success: 'running' | 'suspended' | 'waiting' | 'success' | 'failure' | undefined = $state(
 		($page.url.searchParams.get('success') ?? undefined) as
 			| 'running'
 			| 'success'
 			| 'failure'
 			| undefined
-	let isSkipped: boolean | undefined =
+	)
+	let isSkipped: boolean | undefined = $state(
 		$page.url.searchParams.get('is_skipped') != undefined
 			? $page.url.searchParams.get('is_skipped') == 'true'
 			: false
+	)
 
-	let showSchedules: boolean =
+	let showSchedules: boolean = $state(
 		$page.url.searchParams.get('show_schedules') != undefined
 			? $page.url.searchParams.get('show_schedules') == 'true'
 			: localStorage.getItem('show_schedules_in_run') == 'false'
 				? false
 				: true
-	let showFutureJobs: boolean =
+	)
+	let showFutureJobs: boolean = $state(
 		$page.url.searchParams.get('show_future_jobs') != undefined
 			? $page.url.searchParams.get('show_future_jobs') == 'true'
 			: localStorage.getItem('show_future_jobs') == 'false'
 				? false
 				: true
+	)
 
-	let argFilter: any = $page.url.searchParams.get('arg')
-		? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
-		: undefined
-	let resultFilter: any = $page.url.searchParams.get('result')
-		? JSON.parse(decodeURIComponent($page.url.searchParams.get('result') ?? '{}'))
-		: undefined
+	let argFilter: any = $state(
+		$page.url.searchParams.get('arg')
+			? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
+			: undefined
+	)
+	let resultFilter: any = $state(
+		$page.url.searchParams.get('result')
+			? JSON.parse(decodeURIComponent($page.url.searchParams.get('result') ?? '{}'))
+			: undefined
+	)
 
 	// Handled on the main page
-	let minTs = $page.url.searchParams.get('min_ts') ?? undefined
-	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
-	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
-	let jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
-	let allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true'
-	let lastFetchWentToEnd = false
+	let minTs = $state($page.url.searchParams.get('min_ts') ?? undefined)
+	let maxTs = $state($page.url.searchParams.get('max_ts') ?? undefined)
+	let schedulePath = $state($page.url.searchParams.get('schedule_path') ?? undefined)
+	let jobKindsCat = $state($page.url.searchParams.get('job_kinds') ?? 'runs')
+	let allWorkspaces = $state($page.url.searchParams.get('all_workspaces') == 'true')
+	let lastFetchWentToEnd = $state(false)
 
 	function loadFromQuery() {
 		path = $page.params.path
@@ -152,23 +160,23 @@
 		allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true'
 	}
 
-	let queue_count: Tweened<number> | undefined = undefined
-	let suspended_count: Tweened<number> | undefined = undefined
+	let queue_count: Tweened<number> | undefined = $state(undefined)
+	let suspended_count: Tweened<number> | undefined = $state(undefined)
 
 	let jobKinds: string | undefined = undefined
-	let loading: boolean = false
-	let paths: string[] = []
-	let usernames: string[] = []
-	let folders: string[] = []
-	let completedJobs: CompletedJob[] | undefined = undefined
-	let extendedJobs: ExtendedJobs | undefined = undefined
-	let argError = ''
-	let resultError = ''
+	let loading: boolean = $state(false)
+	let paths: string[] = $state([])
+	let usernames: string[] = $state([])
+	let folders: string[] = $state([])
+	let completedJobs: CompletedJob[] | undefined = $state(undefined)
+	let extendedJobs: ExtendedJobs | undefined = $state(undefined)
+	let argError = $state('')
+	let resultError = $state('')
 	let filterTimeout: NodeJS.Timeout | undefined = undefined
-	let selectedManualDate = 0
-	let autoRefresh: boolean = getAutoRefresh()
-	let runDrawer: Drawer
-	let lookback: number = 1
+	let selectedManualDate = $state(0)
+	let autoRefresh: boolean = $state(getAutoRefresh())
+	let runDrawer: Drawer | undefined = $state(undefined)
+	let lookback: number = $state(1)
 	let askingForConfirmation:
 		| undefined
 		| {
@@ -178,7 +186,7 @@
 				preContent?: string
 				onConfirm?: () => void
 				type?: ConfirmationModal['$$prop_def']['type']
-		  } = undefined
+		  } = $state(undefined)
 
 	function getAutoRefresh() {
 		try {
@@ -189,42 +197,18 @@
 		}
 	}
 
-	let innerWidth = window.innerWidth
-	let jobLoader: JobLoader | undefined = undefined
-	let externalJobs: Job[] | undefined = undefined
+	let innerWidth = $state(window.innerWidth)
+	let jobLoader: JobLoader | undefined = $state(undefined)
+	let externalJobs: Job[] | undefined = $state(undefined)
 
-	let graph: 'RunChart' | 'ConcurrencyChart' = typeOfChart($page.url.searchParams.get('graph'))
-	let graphIsRunsChart: boolean = graph === 'RunChart'
+	let graph: 'RunChart' | 'ConcurrencyChart' = $state(
+		typeOfChart($page.url.searchParams.get('graph'))
+	)
+	let graphIsRunsChart: boolean = $state(graph === 'RunChart')
 
-	let manualDatePicker: ManuelDatePicker
+	let manualDatePicker: ManuelDatePicker | undefined = $state(undefined)
 
-	let runsTable: RunsTable
-
-	$: (user ||
-		worker ||
-		label ||
-		folder ||
-		path ||
-		success !== undefined ||
-		isSkipped ||
-		showSchedules ||
-		showFutureJobs ||
-		argFilter ||
-		resultFilter ||
-		schedulePath ||
-		jobKindsCat ||
-		concurrencyKey ||
-		tag ||
-		graph ||
-		maxTs ||
-		minTs ||
-		allWorkspaces ||
-		allowWildcards ||
-		$workspaceStore) &&
-		setQuery(false)
-
-	$: minTs || setQuery(true)
-	$: maxTs || setQuery(true)
+	let runsTable: RunsTable | undefined = $state(undefined)
 
 	function setQuery(replaceState: boolean) {
 		let searchParams = new URLSearchParams()
@@ -394,12 +378,6 @@
 		paths = npaths_scripts.concat(npaths_flows).sort()
 	}
 
-	$: if ($workspaceStore) {
-		loadUsernames()
-		loadFolders()
-		loadPaths()
-	}
-
 	function filterByPath(e: CustomEvent<string>) {
 		path = e.detail
 		user = null
@@ -490,7 +468,7 @@
 		allowWildcards = false
 	}
 
-	let calendarChangeTimeout: NodeJS.Timeout | undefined = undefined
+	let calendarChangeTimeout: NodeJS.Timeout | undefined = $state(undefined)
 
 	function typeOfChart(s: string | null): 'RunChart' | 'ConcurrencyChart' {
 		switch (s) {
@@ -503,7 +481,7 @@
 		}
 	}
 
-	let selectionMode: RunsSelectionMode | false = false
+	let selectionMode: RunsSelectionMode | false = $state(false)
 
 	async function onSetSelectionMode(mode: RunsSelectionMode | false) {
 		selectionMode = mode
@@ -720,11 +698,6 @@
 	const warnJobLimitMsg =
 		'The exact number of concurrent jobs at the beginning of the time range may be incorrect as only the last 1000 jobs are taken into account: a job that was started earlier than this limit will not be taken into account'
 
-	$: warnJobLimit =
-		graph === 'ConcurrencyChart' &&
-		extendedJobs !== undefined &&
-		extendedJobs.jobs.length + extendedJobs.obscured_jobs.length >= 1000
-
 	function jobsFilter(f: 'waiting' | 'suspended') {
 		path = null
 		user = null
@@ -743,7 +716,60 @@
 		jobKindsCat = 'all'
 	}
 
-	let schedulesWidth = 0
+	let schedulesWidth = $state(0)
+	$effect(() => {
+		loadingSelectedIds && selectedIds.length && setTimeout(() => (loadingSelectedIds = false), 250)
+	})
+	$effect(() => {
+		;[
+			user,
+			worker,
+			label,
+			folder,
+			path,
+			success !== undefined,
+			isSkipped,
+			showSchedules,
+			showFutureJobs,
+			argFilter,
+			resultFilter,
+			schedulePath,
+			jobKindsCat,
+			concurrencyKey,
+			tag,
+			graph,
+			maxTs,
+			minTs,
+			allWorkspaces,
+			allowWildcards,
+			$workspaceStore
+		]
+
+		untrack(() => setQuery(false))
+	})
+	$effect(() => {
+		minTs || untrack(() => setQuery(true))
+	})
+	$effect(() => {
+		maxTs || untrack(() => setQuery(true))
+	})
+	$effect(() => {
+		if ($workspaceStore) {
+			untrack(() => {
+				loadUsernames()
+				loadFolders()
+				loadPaths()
+			})
+		}
+	})
+	let warnJobLimit = $derived.by(() => {
+		let extended = extendedJobs as ExtendedJobs | undefined
+		return (
+			graph === 'ConcurrencyChart' &&
+			extended !== undefined &&
+			extended.jobs.length + extended.obscured_jobs.length >= 1000
+		)
+	})
 </script>
 
 <JobLoader
@@ -816,7 +842,7 @@
 
 <svelte:window
 	bind:innerWidth
-	on:popstate={() => {
+	onpopstate={() => {
 		reset()
 		loadFromQuery()
 	}}
@@ -891,16 +917,17 @@
 								graph = detail
 								graphIsRunsChart = graph === 'RunChart'
 							}}
-							let:item
 						>
-							<ToggleButton value="RunChart" label="Duration" {item} />
-							<ToggleButton
-								{item}
-								value="ConcurrencyChart"
-								label="Concurrency"
-								icon={warnJobLimit ? AlertTriangle : undefined}
-								tooltip={warnJobLimit ? warnJobLimitMsg : undefined}
-							/>
+							{#snippet children({ item })}
+								<ToggleButton value="RunChart" label="Duration" {item} />
+								<ToggleButton
+									{item}
+									value="ConcurrencyChart"
+									label="Concurrency"
+									icon={warnJobLimit ? AlertTriangle : undefined}
+									tooltip={warnJobLimit ? warnJobLimitMsg : undefined}
+								/>
+							{/snippet}
 						</ToggleButtonGroup>
 					</div>
 					{#if !graphIsRunsChart}
@@ -924,7 +951,7 @@
 								}
 							]}
 						>
-							<svelte:fragment slot="buttonReplacement">
+							{#snippet buttonReplacement()}
 								<div
 									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
 								>
@@ -936,7 +963,7 @@
 										the computation of the graph
 									</Tooltip>
 								</div>
-							</svelte:fragment>
+							{/snippet}
 						</DropdownV2>
 					{/if}
 				</div>
@@ -958,7 +985,7 @@
 						jobLoader?.loadJobs(minTs, maxTs, true)
 					}}
 					on:pointClicked={(e) => {
-						runsTable.scrollToRun(e.detail)
+						runsTable?.scrollToRun(e.detail)
 					}}
 				/>
 			{:else if graph === 'ConcurrencyChart'}
@@ -1227,10 +1254,11 @@
 							graph = detail
 							graphIsRunsChart = graph == 'RunChart'
 						}}
-						let:item
 					>
-						<ToggleButton value="RunChart" label="Duration" {item} />
-						<ToggleButton value="ConcurrencyChart" label="Concurrency" {item} />
+						{#snippet children({ item })}
+							<ToggleButton value="RunChart" label="Duration" {item} />
+							<ToggleButton value="ConcurrencyChart" label="Concurrency" {item} />
+						{/snippet}
 					</ToggleButtonGroup>
 					{#if !graphIsRunsChart}
 						<DropdownV2
@@ -1253,7 +1281,7 @@
 								}
 							]}
 						>
-							<svelte:fragment slot="buttonReplacement">
+							{#snippet buttonReplacement()}
 								<div
 									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
 								>
@@ -1265,7 +1293,7 @@
 										the computation of the graph
 									</Tooltip>
 								</div>
-							</svelte:fragment>
+							{/snippet}
 						</DropdownV2>
 					{/if}
 				</div>
@@ -1287,7 +1315,7 @@
 						jobLoader?.loadJobs(minTs, maxTs, true)
 					}}
 					on:pointClicked={(e) => {
-						runsTable.scrollToRun(e.detail)
+						runsTable?.scrollToRun(e.detail)
 					}}
 				/>
 			{:else if graph === 'ConcurrencyChart'}
@@ -1460,7 +1488,7 @@
 				bind:lastFetchWentToEnd
 				on:loadExtra={loadExtra}
 				on:select={() => {
-					if (!selectionMode) runDrawer.openDrawer()
+					if (!selectionMode) runDrawer?.openDrawer()
 				}}
 				on:filterByPath={filterByPath}
 				on:filterByUser={filterByUser}
