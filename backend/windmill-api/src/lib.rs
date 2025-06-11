@@ -20,6 +20,9 @@ use crate::smtp_server_oss::SmtpServer;
 
 #[cfg(feature = "mcp")]
 use crate::mcp::{extract_and_store_workspace_id, setup_mcp_server, shutdown_mcp_server};
+#[cfg(feature = "mcp")]
+use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
+
 use crate::tracing_init::MyOnFailure;
 use crate::{
     tracing_init::{MyMakeSpan, MyOnResponse},
@@ -523,17 +526,14 @@ pub async fn run_server(
         #[cfg(feature = "mcp")]
         if server_mode || mcp_mode {
             let (mcp_router, mcp_session_manager) = setup_mcp_server().await?;
-            // #[cfg(feature = "mcp")]
-            // let mcp_main_ct = mcp_sse_server.config.ct.clone(); // Token to signal shutdown *to* MCP
-            // #[cfg(feature = "mcp")]
-            // let mcp_service_ct = mcp_sse_server.with_service(McpRunner::new); // Token to wait for MCP *service* shutdown
-            (mcp_router, Some(mcp_session_manager))
+            let mcp_middleware = axum::middleware::from_fn(extract_and_store_workspace_id);
+            (mcp_router.layer(mcp_middleware), Some(mcp_session_manager))
         } else {
-            (Router::new(), None)
+            (Router::new(), Option::<Arc<LocalSessionManager>>::None)
         }
 
         #[cfg(not(feature = "mcp"))]
-        (Router::new(), None)
+        (Router::new(), Option::<()>::None)
     };
 
     #[cfg(feature = "agent_worker_server")]
@@ -603,12 +603,7 @@ pub async fn run_server(
                         .nest("/sqs_triggers", sqs_triggers_service)
                         .nest("/gcp_triggers", gcp_triggers_service)
                         .nest("/postgres_triggers", postgres_triggers_service)
-                        .nest(
-                            "/mcp",
-                            mcp_router.clone().route_layer(axum::middleware::from_fn(
-                                extract_and_store_workspace_id,
-                            )),
-                        ),
+                        .nest("/mcp", mcp_router.clone()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -666,11 +661,7 @@ pub async fn run_server(
                         .layer(cors.clone()),
                 )
                 // DEPRECATED new path is /api/w/:workspace_id/mcp
-                .nest(
-                    "/mcp/w/:workspace_id",
-                    mcp_router
-                        .route_layer(axum::middleware::from_fn(extract_and_store_workspace_id)),
-                )
+                .nest("/mcp/w/:workspace_id", mcp_router)
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
                     {
