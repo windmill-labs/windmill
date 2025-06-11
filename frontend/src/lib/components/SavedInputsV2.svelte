@@ -42,20 +42,14 @@
 	}
 
 	let savedArgs: any = undefined
-	let runnableType: RunnableType | undefined = $state(undefined)
 	let savedInputsPicker: SavedInputsPicker | undefined = $state(undefined)
 	let historicInputs: HistoricInputs | undefined = $state(undefined)
 
 	let runnableId = $derived(scriptHash || scriptPath || flowPath || undefined)
-	$effect(() => {
-		runnableType = scriptHash
-			? 'ScriptHash'
-			: scriptPath
-				? 'ScriptPath'
-				: flowPath
-					? 'FlowPath'
-					: undefined
-	})
+
+	let runnableType: RunnableType | undefined = $derived(
+		scriptHash ? 'ScriptHash' : scriptPath ? 'ScriptPath' : flowPath ? 'FlowPath' : undefined
+	)
 
 	function selectArgs(selected_args: any, type: 'saved' | 'history' | undefined) {
 		if (selected_args) {
