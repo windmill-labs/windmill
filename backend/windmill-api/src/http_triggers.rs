@@ -1515,8 +1515,6 @@ async fn generate_openapi_spec(
 
         let mut tx = user_db.begin(&authed).await?;
 
-        println!("path regex: {:#?} route path regex: {:#?}", &path_regex, &route_path_regex);
-
         http_routes = sqlx::query_as!(
             MinifiedHttpTrigger,
             r#"
