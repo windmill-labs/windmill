@@ -74,48 +74,6 @@
 	}: Props = $props()
 
 	let oneOfSelected: string | undefined = $state(undefined)
-	// function oneOfUpdate(oneOf: SchemaProperty[] | undefined) {
-	// 	if (oneOf && oneOf.length >= 2) {
-	// 		if (!oneOfSelected) {
-	// 			oneOfSelected = oneOf[0].title
-	// 		}
-
-	// 		if (
-	// 			!schema.oneOf ||
-	// 			!deepEqual(
-	// 				oneOf.map((v) => [v.title, v.order]),
-	// 				schema.oneOf.map((v) => [v.title, v.order])
-	// 			)
-	// 		) {
-	// 			// update schema if not exists or order changed
-	// 			schema.oneOf = getOneOfWithoutLabel(oneOf)
-	// 		}
-	// 	} else if (!oneOf) {
-	// 		schema.oneOf = undefined
-	// 	}
-	// 	schema = schema
-	// }
-	// $effect(() => {
-	// 	oneOfUpdate(oneOf)
-	// })
-
-	// function orderUpdate(order) {
-	// 	console.log('orderUpdate pre', $state.snapshot(schema.order), $state.snapshot(order))
-	// 	if (order && !deepEqual($state.snapshot(order), $state.snapshot(schema.order))) {
-	// 		// update from external reordering
-	// 		console.log('orderUpdate aft', $state.snapshot(schema.order), $state.snapshot(order))
-	// 		schema.order = $state.snapshot(order)
-	// 		schema = schema
-	// 	}
-	// }
-	// $effect(() => {
-	// 	console.log(
-	// 		'orderUpdate effect',
-	// 		untrack(() => schema.order),
-	// 		order
-	// 	)
-	// 	orderUpdate(order)
-	// })
 
 	const dispatch = createEventDispatcher()
 
@@ -126,11 +84,6 @@
 
 		return []
 	}
-
-	// $effect(() => {
-	// 	console.log('schemaUpdate effect', $state.snapshot(schema.order))
-	// 	schemaUpdate(schema)
-	// })
 
 	let variantName = $state('')
 	function createVariant(name: string) {

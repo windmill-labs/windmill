@@ -308,7 +308,6 @@
 	})
 </script>
 
-<!-- {JSON.stringify(schema2)} -->
 <div class="w-full h-full">
 	<div class="relative z-[100000]">
 		<div
