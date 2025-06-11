@@ -6,7 +6,6 @@
 	import { Button } from '$lib/components/common'
 	import { Clipboard, Plus } from 'lucide-svelte'
 	import { workspaceStore, userWorkspaces, type UserWorkspace } from '$lib/stores'
-	import { createEventDispatcher } from 'svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import Toggle from '../Toggle.svelte'
@@ -22,6 +21,7 @@
 		defaultNewTokenLabel?: string
 		defaultNewTokenWorkspace?: string
 		scopes?: string[]
+		onTokenCreated: (token: string) => void
 	}
 
 	let {
@@ -29,7 +29,8 @@
 		openWithMcpMode = false,
 		defaultNewTokenLabel,
 		defaultNewTokenWorkspace,
-		scopes
+		scopes,
+		onTokenCreated
 	}: Props = $props()
 
 	// --- Local State ---
@@ -63,8 +64,7 @@
 	}
 
 	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $workspaceStore))
-	const mcpBaseUrl = $derived(`${window.location.origin}/api/mcp/w/${newTokenWorkspace}/sse?token=`)
-	const dispatch = createEventDispatcher()
+	const mcpBaseUrl = $derived(`${window.location.origin}/api/w/${newTokenWorkspace}/mcp?token=`)
 
 	$effect(() => {
 		if (openWithMcpMode) {
@@ -112,7 +112,7 @@
 				newToken = `${createdToken}`
 			}
 
-			dispatch('tokenCreated', newToken ?? newMcpToken)
+			onTokenCreated(newToken ?? newMcpToken ?? '')
 			listTokens()
 			mcpCreationMode = false
 			displayCreateToken = false
