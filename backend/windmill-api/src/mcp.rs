@@ -1,17 +1,10 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::sync::Arc;
-use std::{borrow::Cow, time::Duration};
 
 use axum::body::to_bytes;
-use axum::{
-    async_trait,
-    extract::{FromRequestParts, Path, State}, // Path for extraction
-    http::{request::Parts as HttpRequestParts, Request},
-    middleware::Next,
-    response::Response,
-};
-use axum::{Extension, Router};
+use axum::Router;
+use axum::{extract::Path, http::Request, middleware::Next, response::Response};
 use rmcp::{
     handler::server::ServerHandler,
     model::*,
@@ -23,22 +16,20 @@ use serde_json::Value;
 use sql_builder::prelude::*;
 use sqlx::FromRow;
 use tokio::try_join;
-use tokio_util::sync::CancellationToken;
 use windmill_common::db::UserDB;
 use windmill_common::worker::to_raw_value;
 use windmill_common::{DB, HUB_BASE_URL};
 
 use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
 
+use crate::db::ApiAuthed;
 use crate::jobs::{
     run_wait_result_flow_by_path_internal, run_wait_result_script_by_path_internal, RunJobQuery,
 };
 use crate::HTTP_CLIENT;
-use crate::{db::ApiAuthed, users::OptAuthed};
 use rmcp::transport::streamable_http_server::{
-    session::local::LocalSessionManager, StreamableHttpService,
+    session::local::LocalSessionManager, SessionManager, StreamableHttpService,
 };
-use rmcp::transport::StreamableHttpServerConfig;
 use windmill_common::utils::{query_elems_from_hub, StripPath};
 
 /// Transforms the path for workspace scripts/flows.
@@ -1183,13 +1174,42 @@ pub async fn extract_and_store_workspace_id(
     next.run(request).await
 }
 
-pub async fn setup_mcp_server() -> anyhow::Result<Router> {
-    let service = StreamableHttpService::new(
-        Runner::new,
-        LocalSessionManager::default().into(),
-        Default::default(),
-    );
+pub async fn setup_mcp_server() -> anyhow::Result<(Router, Arc<LocalSessionManager>)> {
+    let session_manager = Arc::new(LocalSessionManager::default());
+    let service_config = Default::default();
+    let service = StreamableHttpService::new(Runner::new, session_manager.clone(), service_config);
 
     let router = axum::Router::new().nest_service("/", service);
-    Ok(router)
+    Ok((router, session_manager))
+}
+
+pub async fn shutdown_mcp_server(session_manager: Arc<LocalSessionManager>) {
+    // 1. Get all active session IDs
+    let session_ids_to_close = {
+        let sessions_map = session_manager.sessions.read().await;
+        sessions_map.keys().cloned().collect::<Vec<_>>()
+    };
+
+    if !session_ids_to_close.is_empty() {
+        tracing::info!(
+            "Closing {} active MCP session(s)...",
+            session_ids_to_close.len()
+        );
+        let mut close_handles = Vec::new();
+        for session_id in session_ids_to_close {
+            let manager_clone = session_manager.clone();
+            let handle = tokio::spawn(async move {
+                if let Err(e) = manager_clone.close_session(&session_id).await {
+                    tracing::warn!("Error sending close to MCP session {}: {:?}", session_id, e);
+                }
+            });
+            close_handles.push(handle);
+        }
+        let join_results = futures::future::join_all(close_handles).await;
+        for result in join_results.iter() {
+            if let Err(_) = result {
+                tracing::warn!("Error joining close task for session");
+            }
+        }
+    }
 }
