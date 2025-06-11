@@ -11,9 +11,11 @@
 			name: { type: 'string' }
 		}
 	})
+
+	let addPropertyV2: AddPropertyV2 | undefined = $state(undefined)
 </script>
 
-<AddPropertyV2 bind:schema>
+<AddPropertyV2 bind:this={addPropertyV2} bind:schema>
 	{#snippet trigger()}
 		<div
 			class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
@@ -23,6 +25,16 @@
 		</div>
 	{/snippet}
 </AddPropertyV2>
-<EditableSchemaForm isAppInput bind:schema editTab="inputEditor" />
+<EditableSchemaForm
+	isFlowInput
+	on:edit={(e) => {
+		addPropertyV2?.openDrawer(e.detail)
+	}}
+	on:delete={(e) => {
+		addPropertyV2?.handleDeleteArgument([e.detail])
+	}}
+	bind:schema
+	editTab="inputEditor"
+/>
 
 <pre class="text-xs">{JSON.stringify(schema, null, 2)}</pre>

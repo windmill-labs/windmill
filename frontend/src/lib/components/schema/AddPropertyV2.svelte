@@ -109,7 +109,7 @@
 			oldArgName = undefined
 		}
 
-		schema = schema
+		schema = $state.snapshot(schema)
 
 		if (argError !== '') {
 			sendUserToast(argError, true)
@@ -142,12 +142,13 @@
 				if (modifiedObject.order) {
 					modifiedObject.order = modifiedObject.order.filter((arg) => arg !== argName)
 				}
-				schema = schema
 				dispatch('change', schema)
 			} else {
 				throw Error('Argument not found!')
 			}
 			syncOrders()
+			schema = $state.snapshot(schema)
+
 			dispatch('change', schema)
 		} catch (err) {
 			sendUserToast(`Could not delete argument: ${err}`, true)

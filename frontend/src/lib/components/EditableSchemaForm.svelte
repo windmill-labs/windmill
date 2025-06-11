@@ -240,7 +240,7 @@
 
 			opened = newName
 
-			schema = schema
+			schema = $state.snapshot(schema)
 			dispatch('change', schema)
 			sendUserToast('Argument renamed')
 		}
@@ -339,14 +339,13 @@
 						<!-- {JSON.stringify(schema2.properties)}
 						{JSON.stringify(schema.properties)} -->
 						<!-- {JSON.stringify({ previewSchema })} -->
+						<!-- {JSON.stringify(schema.properties)} -->
 						<SchemaFormDnd
 							nestedClasses={'flex flex-col gap-1'}
 							bind:schema={
 								() => (previewSchema ? previewSchema : schema),
 								(newSchema) => {
-									console.log('schemaUpdate 2', $state.snapshot(newSchema.order))
 									schema = newSchema
-									console.log('schemaUpdate', $state.snapshot(schema.order))
 									tick().then(() => dispatch('change', schema))
 								}
 							}
