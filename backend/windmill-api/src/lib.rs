@@ -602,8 +602,7 @@ pub async fn run_server(
                         .nest("/mqtt_triggers", mqtt_triggers_service)
                         .nest("/sqs_triggers", sqs_triggers_service)
                         .nest("/gcp_triggers", gcp_triggers_service)
-                        .nest("/postgres_triggers", postgres_triggers_service)
-                        .nest("/mcp", mcp_router.clone()),
+                        .nest("/postgres_triggers", postgres_triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -660,7 +659,6 @@ pub async fn run_server(
                         .layer(from_extractor::<OptAuthed>())
                         .layer(cors.clone()),
                 )
-                // DEPRECATED new path is /api/w/:workspace_id/mcp
                 .nest("/mcp/w/:workspace_id/sse", mcp_router)
                 .layer(from_extractor::<OptAuthed>())
                 .nest("/agent_workers", {
