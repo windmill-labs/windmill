@@ -984,6 +984,9 @@
 						$previewArgsStore = JSON.parse(JSON.stringify(e.detail))
 						flowPreviewButtons?.openPreview(true)
 					}}
+					onTestUpTo={() => {
+						flowPreviewButtons?.testUpTo()
+					}}
 					{savedFlow}
 					onDeployTrigger={handleDeployTrigger}
 				/>

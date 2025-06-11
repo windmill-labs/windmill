@@ -41,7 +41,6 @@ export class TestSteps {
 		flow: OpenFlow | undefined,
 		previewArgs: Record<string, any> | undefined
 	) {
-		console.log('dbg updateStepArgs', id, flowState, flow, previewArgs)
 		if (!flowState || !flow) {
 			return
 		}

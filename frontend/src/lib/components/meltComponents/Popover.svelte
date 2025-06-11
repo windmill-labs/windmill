@@ -16,6 +16,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { Button } from '$lib/components/common'
 	import DocLink from '$lib/components/apps/editor/settingsPanel/DocLink.svelte'
+	import type { FloatingConfig } from '@melt-ui/svelte/internal/actions/floating'
 
 	export let closeButton: boolean = false
 	export let displayArrow: boolean = false
@@ -68,7 +69,7 @@
 		}
 	})
 
-	$: $positioning = floatingConfig ?? {
+	$positioning = floatingConfig ?? {
 		placement,
 		strategy: 'absolute',
 		x: undefined,
@@ -92,6 +93,12 @@
 
 	export function isOpened() {
 		return isOpen
+	}
+
+	export function updatePositioning(pos: FloatingConfig) {
+		if (positioning) {
+			$positioning = pos
+		}
 	}
 
 	async function getMenuElements(): Promise<HTMLElement[]> {

@@ -22,6 +22,7 @@
 	export let bgHoverColor: string = ''
 	export let moving: string | undefined = undefined
 	export let duration_ms: number | undefined = undefined
+	export let onTestUpTo: ((id: string) => void) | undefined = undefined
 
 	export let retries: number | undefined = undefined
 	export let flowJobs:
@@ -138,6 +139,7 @@
 						: ''}
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:')}
 					loopStatus={{ type: 'self', flow: mod.value.type }}
+					{onTestUpTo}
 				>
 					<div slot="icon">
 						<Repeat size={16} />
@@ -156,6 +158,7 @@
 					label={mod.summary || 'Run one branch'}
 					{bgColor}
 					{bgHoverColor}
+					{onTestUpTo}
 				>
 					<div slot="icon">
 						<GitBranch size={16} />
@@ -174,6 +177,7 @@
 					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
 					{bgColor}
 					{bgHoverColor}
+					{onTestUpTo}
 				>
 					<div slot="icon">
 						<GitBranch size={16} />
@@ -212,6 +216,7 @@
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:') && mod.id !== 'preprocessor'}
 					loopStatus={parentLoop ? { type: 'inside', flow: parentLoop.type } : undefined}
 					inputTransform={mod.value.type !== 'identity' ? mod.value.input_transforms : undefined}
+					{onTestUpTo}
 				>
 					<div slot="icon">
 						{#if mod.value.type === 'rawscript'}

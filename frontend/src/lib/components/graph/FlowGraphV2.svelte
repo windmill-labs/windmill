@@ -61,6 +61,7 @@
 	export let cache: boolean = false
 	export let scroll = false
 	export let moving: string | undefined = undefined
+	export let onTestUpTo: ((id: string) => void) | undefined = undefined
 
 	// Download: display a top level button to open the graph in a new tab
 	export let download = false
@@ -259,7 +260,8 @@
 		moving,
 		simplifiableFlow,
 		triggerNode ? path : undefined,
-		expandedSubflows
+		expandedSubflows,
+		onTestUpTo
 	)
 
 	const nodes = writable<Node[]>([])

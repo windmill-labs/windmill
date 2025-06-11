@@ -25,6 +25,7 @@
 		  })
 		| undefined = undefined
 	export let onDeployTrigger: (trigger: Trigger) => void = () => {}
+
 	const {
 		selectedId,
 		flowStore,

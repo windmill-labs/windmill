@@ -27,6 +27,7 @@
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		selected: boolean
 		editMode: boolean
+		onTestUpTo: ((id: string) => void) | undefined
 	}
 
 	$: type = data.flowModuleStates?.[data.module.id]?.type
@@ -78,6 +79,7 @@
 		duration_ms={state?.duration_ms}
 		retries={data.retries}
 		{flowJobs}
+		onTestUpTo={data.onTestUpTo}
 		on:delete={(e) => {
 			data.eventHandlers.delete(e.detail, '')
 		}}

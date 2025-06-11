@@ -45,7 +45,8 @@ export function graphBuilder(
 	moving: string | undefined,
 	simplifiableFlow: SimplifiableFlow | undefined,
 	flowPathForTriggerNode: string | undefined,
-	expandedSubflows: Record<string, FlowModule[]>
+	expandedSubflows: Record<string, FlowModule[]>,
+	onTestUpTo: ((id: string) => void) | undefined
 	// triggerProps?: {
 	// 	path?: string
 	// 	flowIsSimplifiable?: boolean
@@ -84,6 +85,7 @@ export function graphBuilder(
 					parentIds: [],
 					eventHandlers: eventHandlers,
 					moving: moving,
+					onTestUpTo: onTestUpTo,
 					...extra
 				},
 				position: { x: -1, y: -1 },

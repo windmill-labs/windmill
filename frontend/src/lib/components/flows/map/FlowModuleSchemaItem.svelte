@@ -68,6 +68,7 @@
 	export let loopStatus:
 		| { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' }
 		| undefined = undefined
+	export let onTestUpTo: ((id: string) => void) | undefined = undefined
 
 	let pickableIds: Record<string, any> | undefined = undefined
 
@@ -374,7 +375,7 @@
 	</div>
 
 	{#if deletable}
-		<div class="absolute top-1/2 -translate-y-1/2 -left-[36px] center-center w-9 h-9">
+		<div class="absolute top-1/2 -translate-y-1/2 -left-[54px] center-center w-12 h-9">
 			{#if hover || selected}
 				<div transition:fade={{ duration: 100 }}>
 					<Button
@@ -385,6 +386,17 @@
 						on:click={() => {
 							moduleTest?.runTestWithStepArgs()
 						}}
+						dropdownItems={[
+							{
+								label: 'test up to here',
+								onClick: () => {
+									if (id) {
+										onTestUpTo?.(id)
+									}
+								}
+							}
+						]}
+						dropdownBtnClasses="!w-4 px-1"
 					>
 						{#if testIsLoading}
 							<Loader2 size={12} class="animate-spin" />

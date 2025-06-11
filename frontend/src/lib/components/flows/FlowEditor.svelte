@@ -31,6 +31,7 @@
 		  })
 		| undefined = undefined
 	export let onDeployTrigger: (trigger: Trigger) => void = () => {}
+	export let onTestUpTo: ((id: string) => void) | undefined = undefined
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined
 
@@ -79,6 +80,7 @@
 							}
 							aiChatManager.generateStep(detail.moduleId, detail.lang, detail.instructions)
 						}}
+						{onTestUpTo}
 					/>
 				{/if}
 			</div>

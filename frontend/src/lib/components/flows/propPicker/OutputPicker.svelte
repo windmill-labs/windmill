@@ -45,6 +45,7 @@
 	}
 
 	let popover: Popover | undefined = undefined
+	let inputPopover: Popover | undefined = undefined
 
 	const virtualItemClasses = {
 		bar: 'dark:hover:bg-[#525d6f] dark:bg-[#414958] bg-[#d7dfea] hover:bg-slate-300'
@@ -65,6 +66,23 @@
 	$: bottomBarOpen = inputOpen || outputOpen || selected || hover || showConnecting
 
 	$: showInput = variant === 'default' && !showConnecting
+
+	function updatePositioning(zoom: number, historyOpen: boolean) {
+		inputPopover?.updatePositioning({
+			placement: 'bottom',
+			gutter: 0,
+			offset: { mainAxis: 3, crossAxis: 69 * zoom },
+			overflowPadding: historyOpen ? 250 : 8
+		})
+		popover?.updatePositioning({
+			placement: 'bottom',
+			gutter: 0,
+			offset: { mainAxis: 3, crossAxis: showInput ? -69 * zoom : 0 },
+			overflowPadding: historyOpen ? 250 : 8
+		})
+	}
+
+	$: updatePositioning(zoom, historyOpen)
 </script>
 
 <div
@@ -112,6 +130,7 @@
 					closeOnOtherPopoverOpen
 					class="flex-1 h-full"
 					bind:isOpen={inputOpen}
+					bind:this={inputPopover}
 				>
 					<svelte:fragment slot="trigger">
 						<button

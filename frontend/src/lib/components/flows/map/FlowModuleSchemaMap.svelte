@@ -45,6 +45,7 @@
 	export let newFlow: boolean = false
 	export let smallErrorHandler = false
 	export let workspace: string | undefined = $workspaceStore
+	export let onTestUpTo: ((id: string) => void) | undefined = undefined
 
 	let flowTutorials: FlowTutorials | undefined = undefined
 
@@ -350,6 +351,7 @@
 			{flowInputsStore}
 			{workspace}
 			editMode
+			{onTestUpTo}
 			on:delete={({ detail }) => {
 				let e = detail.detail
 				dependents = getDependentComponents(e.id, $flowStore)
