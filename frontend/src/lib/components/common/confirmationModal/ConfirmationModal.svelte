@@ -13,6 +13,8 @@
 		loading?: boolean
 		open?: boolean
 		type?: 'danger' | 'reload'
+		modalId?: string
+		wrapperClass?: string
 		showIcon?: boolean
 	}
 
@@ -23,6 +25,8 @@
 		loading = false,
 		open = false,
 		type: _type,
+		modalId = undefined,
+		wrapperClass = '',
 		showIcon = true
 	}: Props = $props()
 	const type = $derived(_type ?? 'danger')
@@ -72,10 +76,16 @@
 <svelte:window on:keydown|capture={onKeyDown} />
 
 {#if open}
+	<!-- svelte-ignore a11y_interactive_supports_focus -->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
 		transition:fadeFast|local
-		class={'absolute top-0 bottom-0 left-0 right-0 z-[5000]'}
+		class={twMerge('absolute top-0 bottom-0 left-0 right-0 z-[5000]', wrapperClass)}
 		role="dialog"
+		id={modalId}
+		onclick={(e) => {
+			e.stopPropagation()
+		}}
 	>
 		<div
 			class={classNames(

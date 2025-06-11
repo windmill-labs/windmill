@@ -15,12 +15,17 @@
 	export let createMenu: MenubarBuilders['createMenu']
 	export let invisible: boolean = false
 	export let usePointerDownOutside: boolean = false
+	export let clickOutsideExcludeIds: string[] = []
 	export let menuClass: string = ''
 	export let open = false
 	export let renderContent: boolean = false
 
 	// Use the passed createMenu function
-	const menu = createMenu({
+	const {
+		elements: { menu: menuElement, trigger, item },
+		ids: { menu: menuId },
+		states
+	} = createMenu({
 		positioning: {
 			placement,
 			fitViewport: true,
@@ -28,12 +33,6 @@
 		},
 		loop: true
 	})
-
-	//Melt
-	const {
-		elements: { trigger, menu: menuElement, item },
-		states
-	} = menu
 
 	const sync = createSync(states)
 	$: sync.open(open, (v) => (open = Boolean(v)))
@@ -43,7 +42,21 @@
 	}
 
 	async function getMenuElements(): Promise<HTMLElement[]> {
-		return Array.from(document.querySelectorAll('[data-menu]')) as HTMLElement[]
+		const elements: HTMLElement[] = []
+
+		const menuElement = document.getElementById($menuId)
+		if (menuElement) {
+			elements.push(menuElement as HTMLElement)
+		}
+
+		for (const id of clickOutsideExcludeIds) {
+			const element = document.getElementById(id)
+			if (element) {
+				elements.push(element as HTMLElement)
+			}
+		}
+
+		return elements
 	}
 </script>
 
@@ -64,7 +77,6 @@
 				close()
 			}
 		}}
-		data-menu
 	>
 		<slot name="trigger" {trigger} />
 	</button>
@@ -73,7 +85,6 @@
 	{#if open || renderContent}
 		<div
 			use:melt={$menuElement}
-			data-menu
 			class={twMerge(
 				'z-[6000] border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto',
 				lightMode ? 'bg-surface-inverse' : 'bg-surface',
@@ -83,7 +94,7 @@
 			on:click
 		>
 			<div class="py-1" style="max-height: {maxHeight}px; ">
-				<slot {item} {open} />
+				<slot {item} {open} {close} />
 			</div>
 		</div>
 	{/if}
