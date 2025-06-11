@@ -25,6 +25,8 @@
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
 	<Button
+		aiId="apps-create-actions-app"
+		aiDescription="Create a new low-code app"
 		size="sm"
 		spacingSize="xl"
 		startIcon={{ icon: Plus }}

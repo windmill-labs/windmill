@@ -1,22 +1,22 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT tag FROM v2_job WHERE id = $1",
+  "query": "SELECT path FROM script WHERE workspace_id = $1 AND archived = false",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "tag",
+        "name": "path",
         "type_info": "Varchar"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Text"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "faf2c77242e0ab39b33886edf3b742531bf1351d0be1c3631bde0adfe375497a"
+  "hash": "3e244a5057d4f1b4a18c0edac52cdf695c7e7aa0468d2686255de3d83719e6d0"
 }

@@ -21,5 +21,7 @@ duration-200 rounded-lg p-1 gap-2"
 	download={s3object?.s3.split('/').pop() ?? 'unnamed_download.file'}
 >
 	<Download />
-	<span>s3://{s3object.s3} {s3object.storage ? ` (${s3object.storage})` : ''}</span>
+	<span>
+		{s3object.storage ? `s3://${s3object.storage}/${s3object.s3}` : `s3:///${s3object.s3}`}
+	</span>
 </a>

@@ -5,6 +5,7 @@ root_dirpath="$(cd "${script_dirpath}/.." && pwd)"
 
 REVERT="NO"
 COPY="NO"
+MOVE_NEW_FILES="NO"
 EE_CODE_DIR="../windmill-ee-private/"
 
 while [[ $# -gt 0 ]]; do
@@ -15,6 +16,7 @@ while [[ $# -gt 0 ]]; do
       # this to work (commit hooks should prevent this from happening, as well as the fact
       # that we're using symlinks by default).
       REVERT="YES"
+      MOVE_NEW_FILES="YES"
       shift
       ;;
     -c|--copy)
@@ -23,6 +25,11 @@ while [[ $# -gt 0 ]]; do
       # to not follow symlinks. For local development, symlinks should be preferred as they
       # adds a safeguards EE files can't be commited to the OSS repo.
       COPY="YES"
+      shift # past argument
+      ;;
+    -m|--move-new-files)
+      # This moves all new EE files from the public repository to the private repository.
+      MOVE_NEW_FILES="YES"
       shift # past argument
       ;;
     -d|--dir)
@@ -62,9 +69,9 @@ if [ "$REVERT" == "YES" ]; then
   for ee_file in $(find ${EE_CODE_DIR} -name "*ee.rs"); do
     ce_file="${ee_file/${EE_CODE_DIR}/}"
     ce_file="${root_dirpath}/backend/${ce_file}"
-    rm ${ce_file}
+    rm ${ce_file} || true
   done
-else
+elif [ "$MOVE_NEW_FILES" == "NO" ]; then
   # This replaces all files in current repo with alternative EE files in windmill-ee-private
   for ee_file in $(find "${EE_CODE_DIR}" -name "*ee.rs"); do
   ce_file="${ee_file/${EE_CODE_DIR}/}"
@@ -73,8 +80,23 @@ else
       cp "${ee_file}" "${ce_file}"
       echo "File copied '${ee_file}' -->> '${ce_file}'"
     else
-      ln -s "${ee_file}" "${ce_file}"
+      ln -s "${ee_file}" "${ce_file}" || true
       echo "Symlink created '${ee_file}' -->> '${ce_file}'"
+    fi
+  done
+fi
+
+if [ "$MOVE_NEW_FILES" == "YES" ]; then
+  for ce_file in $(find "${root_dirpath}"/backend/windmill-*/src/ -name "*ee.rs"); do
+    backend_dirpath="${root_dirpath}/backend/"
+    ee_file="${ce_file/${backend_dirpath}/}"
+    ee_file="${EE_CODE_DIR}${ee_file}"
+    if [ ! -f "${ee_file}" ]; then
+      mv "${ce_file}" "${ee_file}"
+      if [ ! "$REVERT" == "YES" ]; then
+        ln -s "${ee_file}" "${ce_file}"
+      fi
+      echo "File moved '${ce_file}' -->> '${ee_file}'"
     fi
   done
 fi

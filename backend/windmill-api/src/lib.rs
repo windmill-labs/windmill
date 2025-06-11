@@ -69,7 +69,7 @@ mod ai;
 mod apps;
 pub mod args;
 mod audit;
-mod auth;
+pub mod auth;
 mod capture;
 mod concurrency_groups;
 mod configs;
@@ -93,6 +93,9 @@ pub mod http_triggers;
 #[cfg(feature = "private")]
 pub mod indexer_ee;
 mod indexer_oss;
+#[cfg(feature = "private")]
+mod inkeep_ee;
+mod inkeep_oss;
 mod inputs;
 mod integration;
 #[cfg(feature = "postgres_trigger")]
@@ -619,6 +622,7 @@ pub async fn run_server(
                 .nest("/schedules", schedule::global_service())
                 .nest("/embeddings", embeddings::global_service())
                 .nest("/ai", ai::global_service())
+                .nest("/inkeep", inkeep_oss::global_service())
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest("/jobs", jobs::global_root_service())

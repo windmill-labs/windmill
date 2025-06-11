@@ -43,7 +43,10 @@ const config = {
 	preview: {
 		port: 3000
 	},
-	plugins: [sveltekit(), ...(process.env.HTTPS === 'true' ? [mkcert()] : [])],
+	plugins: [
+		sveltekit(),
+		...(process.env.HTTPS === 'true' ? [mkcert()] : [])
+	],
 	define: {
 		__pkg__: version
 	},

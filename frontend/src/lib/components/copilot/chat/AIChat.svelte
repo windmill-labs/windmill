@@ -1,286 +1,65 @@
 <script lang="ts">
-	import { writable, type Writable } from 'svelte/store'
 	import AIChatDisplay from './AIChatDisplay.svelte'
+	import { onDestroy, untrack } from 'svelte'
+	import { type ScriptLang } from '$lib/gen'
 	import {
-		dbSchemaTool,
-		prepareScriptSystemMessage,
-		prepareScriptUserMessage,
-		resourceTypeTool,
-		type ScriptChatHelpers
-	} from './script/core'
-	import {
-		chatRequest,
-		type AIChatContext,
-		type DisplayMessage,
-		type Tool,
-		type ToolCallbacks
-	} from './shared'
-	import { onDestroy, setContext, untrack, type Snippet } from 'svelte'
-	import { type OpenFlow, type ScriptLang } from '$lib/gen'
-	import { sendUserToast } from '$lib/toast'
-	import ContextManager, { type ScriptOptions } from './ContextManager.svelte'
-	import HistoryManager from './HistoryManager.svelte'
-	import {
-		flowTools,
-		prepareFlowSystemMessage,
-		prepareFlowUserMessage,
-		type FlowAIChatHelpers
-	} from './flow/core'
-	import type {
-		ChatCompletionMessageParam,
-		ChatCompletionSystemMessageParam
-	} from 'openai/resources/index.mjs'
-	import { chatMode, copilotSessionModel, dbSchemas, workspaceStore } from '$lib/stores'
-	interface Props {
-		scriptOptions?: ScriptOptions
-		flowHelpers?: FlowAIChatHelpers & {
-			getFlowAndSelectedId: () => { flow: OpenFlow; selectedId: string }
-		}
-		showDiffMode: () => void
-		applyCode: (code: string) => void
-		headerLeft?: Snippet
-		headerRight?: Snippet
+		copilotInfo,
+		copilotSessionModel,
+		dbSchemas,
+		userStore,
+		workspaceStore
+	} from '$lib/stores'
+	import { aiChatManager, AIMode } from './AIChatManager.svelte'
+	import { base } from '$lib/base'
+	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
+
+	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
+	const hasCopilot = $derived($copilotInfo.enabled)
+	const disabledMessage = $derived(
+		hasCopilot
+			? ''
+			: isAdmin
+				? `Enable Windmill AI in your [workspace settings](${base}/workspace_settings?tab=ai) to use this chat`
+				: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
+	)
+
+	const suggestions = [
+		'Where can I see my latest runs?',
+		'How do I trigger a script with a webhook endpoint?',
+		'How can I connect to a database?',
+		'How do I schedule a recurring job?'
+	]
+
+	export async function generateStep(moduleId: string, lang: ScriptLang, instructions: string) {
+		aiChatManager.generateStep(moduleId, lang, instructions)
 	}
-
-	let { scriptOptions, flowHelpers, applyCode, showDiffMode, headerLeft, headerRight }: Props =
-		$props()
-
-	let instructions = $state('')
-	let loading = writable(false)
-	let currentReply: Writable<string> = writable('')
-	let allowedModes = $derived({
-		script: scriptOptions !== undefined,
-		flow: flowHelpers !== undefined
-	})
-
-	async function updateMode(currentMode: 'script' | 'flow') {
-		if (!allowedModes[currentMode]) {
-			chatMode.set(currentMode === 'script' ? 'flow' : 'script')
-		}
-	}
-	$effect(() => {
-		updateMode(untrack(() => $chatMode))
-	})
-
-	let displayMessages: DisplayMessage[] = $state([])
-	let abortController: AbortController | undefined = undefined
-	let messages: ChatCompletionMessageParam[] = $state([])
-
-	setContext<AIChatContext>('AIChatContext', {
-		loading,
-		currentReply,
-		canApplyCode: () => allowedModes.script && $chatMode === 'script',
-		applyCode
-	})
 
 	export async function sendRequest(
 		options: {
 			removeDiff?: boolean
 			addBackCode?: boolean
 			instructions?: string
-			mode?: 'script' | 'flow'
+			mode?: AIMode
 			lang?: ScriptLang | 'bunnative'
 			isPreprocessor?: boolean
 		} = {}
 	) {
-		if (options.mode) {
-			$chatMode = options.mode
-		}
-		if (options.instructions) {
-			instructions = options.instructions
-		}
-		if (!instructions.trim()) {
-			return
-		}
-		try {
-			const oldSelectedContext = contextManager?.getSelectedContext() ?? []
-			if ($chatMode === 'script') {
-				contextManager?.updateContextOnRequest(options)
-			}
-			loading.set(true)
-			aiChatDisplay?.enableAutomaticScroll()
-			abortController = new AbortController()
-
-			displayMessages = [
-				...displayMessages,
-				{
-					role: 'user',
-					content: instructions,
-					contextElements: $chatMode === 'script' ? oldSelectedContext : undefined
-				}
-			]
-			const oldInstructions = instructions
-			instructions = ''
-
-			const systemMessage =
-				$chatMode === 'script' ? prepareScriptSystemMessage() : prepareFlowSystemMessage()
-
-			if ($chatMode === 'flow' && !flowHelpers) {
-				throw new Error('No flow helpers passed')
-			}
-
-			if ($chatMode === 'script' && !scriptOptions && !options.lang) {
-				throw new Error('No script options passed')
-			}
-
-			const lang = scriptOptions?.lang ?? options.lang ?? 'bun'
-			const isPreprocessor = scriptOptions?.path === 'preprocessor' || options.isPreprocessor
-
-			const userMessage =
-				$chatMode === 'flow'
-					? prepareFlowUserMessage(oldInstructions, flowHelpers!.getFlowAndSelectedId())
-					: await prepareScriptUserMessage(oldInstructions, lang, oldSelectedContext, {
-							isPreprocessor
-						})
-
-			messages.push({ role: 'user', content: userMessage })
-			await historyManager.saveChat(displayMessages, messages)
-
-			$currentReply = ''
-
-			const params: {
-				systemMessage: ChatCompletionSystemMessageParam
-				messages: ChatCompletionMessageParam[]
-				abortController: AbortController
-				callbacks: ToolCallbacks & {
-					onNewToken: (token: string) => void
-					onMessageEnd: () => void
-				}
-			} = {
-				systemMessage,
-				messages,
-				abortController,
-				callbacks: {
-					onNewToken: (token) => currentReply.update((prev) => prev + token),
-					onMessageEnd: () => {
-						if ($currentReply) {
-							displayMessages = [
-								...displayMessages,
-								{
-									role: 'assistant',
-									content: $currentReply,
-									contextElements:
-										$chatMode === 'script'
-											? oldSelectedContext.filter((c) => c.type === 'code')
-											: undefined
-								}
-							]
-						}
-						currentReply.set('')
-					},
-					onToolCall: (id, content) => {
-						displayMessages = [...displayMessages, { role: 'tool', tool_call_id: id, content }]
-					},
-					onFinishToolCall: (id, content) => {
-						console.log('onFinishToolCall', id, content)
-						const existingIdx = displayMessages.findIndex(
-							(m) => m.role === 'tool' && m.tool_call_id === id
-						)
-						if (existingIdx !== -1) {
-							displayMessages[existingIdx].content = content
-						} else {
-							displayMessages.push({ role: 'tool', tool_call_id: id, content })
-						}
-					}
-				}
-			}
-
-			if ($chatMode === 'flow') {
-				if (!flowHelpers) {
-					throw new Error('No flow helpers found')
-				}
-				await chatRequest({
-					...params,
-					tools: flowTools,
-					helpers: flowHelpers
-				})
-			} else {
-				const tools: Tool<ScriptChatHelpers>[] = []
-				if (['python3', 'php', 'bun', 'deno', 'nativets', 'bunnative'].includes(lang)) {
-					tools.push(resourceTypeTool)
-				}
-				if (oldSelectedContext.filter((c) => c.type === 'db').length > 0) {
-					tools.push(dbSchemaTool)
-				}
-				await chatRequest({
-					...params,
-					tools,
-					helpers: {
-						getLang: () => lang
-					}
-				})
-			}
-
-			if ($currentReply) {
-				// just in case the onMessageEnd is not called (due to an error for instance)
-				displayMessages = [
-					...displayMessages,
-					{
-						role: 'assistant',
-						content: $currentReply,
-						contextElements:
-							$chatMode === 'script'
-								? oldSelectedContext.filter((c) => c.type === 'code')
-								: undefined
-					}
-				]
-				currentReply.set('')
-			}
-
-			await historyManager.saveChat(displayMessages, messages)
-		} catch (err) {
-			console.error(err)
-			if (err instanceof Error) {
-				sendUserToast('Failed to send request: ' + err.message, true)
-			} else {
-				sendUserToast('Failed to send request', true)
-			}
-		} finally {
-			loading.set(false)
-		}
+		aiChatManager.sendRequest(options)
 	}
 
 	function cancel() {
-		currentReply.set('')
-		abortController?.abort()
+		aiChatManager.cancel()
 	}
 
 	export function addSelectedLinesToContext(lines: string, startLine: number, endLine: number) {
-		contextManager?.addSelectedLinesToContext(lines, startLine, endLine)
-	}
-
-	export function fix() {
-		instructions = 'Fix the error'
-		contextManager?.setFixContext()
-		sendRequest()
-	}
-
-	export function askAi(
-		prompt: string,
-		options: { withCode?: boolean; withDiff?: boolean } = {
-			withCode: true,
-			withDiff: false
-		}
-	) {
-		if (!scriptOptions) {
-			throw new Error('No script options passed')
-		}
-		instructions = prompt
-		contextManager.setAskAiContext(options)
-		sendRequest({
-			removeDiff: options.withDiff,
-			addBackCode: options.withCode === false
-		})
-		if (options.withDiff) {
-			showDiffMode()
-		}
+		aiChatManager.contextManager.addSelectedLinesToContext(lines, startLine, endLine)
 	}
 
 	export function focusTextArea() {
 		aiChatDisplay?.focusInput()
 	}
 
-	const historyManager = new HistoryManager()
+	const historyManager = aiChatManager.historyManager
 	historyManager.init()
 
 	onDestroy(() => {
@@ -289,73 +68,82 @@
 	})
 
 	let aiChatDisplay: AIChatDisplay | undefined = $state(undefined)
-	// let contextManager: ContextManager | undefined = $state(undefined)
-
-	const contextManager = new ContextManager()
 
 	$effect(() => {
-		if (scriptOptions) {
-			contextManager.updateAvailableContext(
-				scriptOptions,
-				$dbSchemas,
-				$workspaceStore ?? '',
-				!$copilotSessionModel?.model.endsWith('/thinking'),
-				untrack(() => contextManager.getSelectedContext())
-			)
-		}
+		aiChatManager.listenForDbSchemasChanges($dbSchemas)
 	})
 
 	$effect(() => {
-		displayMessages = ContextManager.updateDisplayMessages(
-			untrack(() => displayMessages),
-			$dbSchemas
+		aiChatManager.listenForScriptEditorContextChange(
+			$dbSchemas,
+			$workspaceStore,
+			$copilotSessionModel
 		)
+	})
+
+	$effect(() => {
+		aiChatManager.updateMode(untrack(() => aiChatManager.mode))
 	})
 </script>
 
+<svelte:window
+	on:keydown={(e) => {
+		if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+			e.preventDefault()
+			aiChatManager.toggleOpen()
+			aiChatDisplay?.focusInput()
+		}
+	}}
+/>
+
+{#snippet headerLeft()}
+	<HideButton
+		hidden={false}
+		direction="right"
+		panelName="AI"
+		shortcut="L"
+		size="md"
+		on:click={() => aiChatManager.toggleOpen()}
+	/>
+{/snippet}
+
 <AIChatDisplay
 	bind:this={aiChatDisplay}
-	{allowedModes}
 	pastChats={historyManager.getPastChats()}
 	bind:selectedContext={
-		() => contextManager.getSelectedContext(),
+		() => aiChatManager.contextManager.getSelectedContext(),
 		(sc) => {
-			scriptOptions && contextManager.setSelectedContext(sc)
+			aiChatManager.scriptEditorOptions && aiChatManager.contextManager.setSelectedContext(sc)
 		}
 	}
-	availableContext={contextManager.getAvailableContext()}
-	messages={$currentReply
+	availableContext={aiChatManager.contextManager.getAvailableContext()}
+	messages={aiChatManager.currentReply
 		? [
-				...displayMessages,
+				...aiChatManager.displayMessages,
 				{
 					role: 'assistant',
-					content: $currentReply,
-					contextElements: contextManager.getSelectedContext().filter((c) => c.type === 'code')
+					content: aiChatManager.currentReply,
+					contextElements: aiChatManager.contextManager
+						.getSelectedContext()
+						.filter((c) => c.type === 'code')
 				}
 			]
-		: displayMessages}
-	bind:instructions
-	{sendRequest}
-	saveAndClear={async () => {
-		await historyManager.save(displayMessages, messages)
-		displayMessages = []
-		messages = []
+		: aiChatManager.displayMessages}
+	saveAndClear={aiChatManager.saveAndClear}
+	deletePastChat={(id) => {
+		historyManager.deletePastChat(id)
 	}}
-	deletePastChat={historyManager.deletePastChat}
 	loadPastChat={(id) => {
-		const chat = historyManager.loadPastChat(id)
-		if (chat) {
-			displayMessages = ContextManager.updateDisplayMessages(chat.displayMessages, $dbSchemas)
-			messages = chat.actualMessages
-			aiChatDisplay?.enableAutomaticScroll()
-		}
+		aiChatManager.loadPastChat(id)
 	}}
 	{cancel}
-	{askAi}
+	askAi={aiChatManager.askAi}
 	{headerLeft}
-	{headerRight}
-	hasDiff={scriptOptions &&
-		!!scriptOptions.lastDeployedCode &&
-		scriptOptions.lastDeployedCode !== scriptOptions.code}
-	diffMode={scriptOptions?.diffMode ?? false}
+	hasDiff={aiChatManager.scriptEditorOptions &&
+		!!aiChatManager.scriptEditorOptions.lastDeployedCode &&
+		aiChatManager.scriptEditorOptions.lastDeployedCode !== aiChatManager.scriptEditorOptions.code}
+	diffMode={aiChatManager.scriptEditorOptions?.diffMode ?? false}
+	disabled={!hasCopilot}
+	{disabledMessage}
+	{suggestions}
 ></AIChatDisplay>

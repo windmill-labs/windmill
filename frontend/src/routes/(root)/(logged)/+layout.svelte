@@ -43,7 +43,7 @@
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
-	import { ArrowLeft, Search } from 'lucide-svelte'
+	import { ArrowLeft, Search, WandSparkles } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
 	import { workspaceAIClients } from '$lib/components/copilot/lib'
 	import { twMerge } from 'tailwind-merge'
@@ -53,7 +53,10 @@
 	import { setContext } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
-
+	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import AiChat from '$lib/components/copilot/chat/AIChat.svelte'
+	import { zIndexes } from '$lib/zIndexes'
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
 	let globalSearchModal: GlobalSearchModal | undefined = undefined
@@ -367,7 +370,7 @@
 	{#if mountModal}
 		<CriticalAlertModal bind:muteSettings bind:numUnacknowledgedCriticalAlerts />
 	{/if}
-	<div>
+	<div class="h-screen flex flex-col">
 		{#if !menuHidden}
 			{#if !$userStore?.operator}
 				{#if innerWidth < 768}
@@ -449,6 +452,19 @@
 											class="!text-xs"
 											shortcut={`${getModifierKey()}k`}
 										/>
+										<MenuButton
+											stopPropagationOnClick={true}
+											on:click={() => aiChatManager.toggleOpen()}
+											isCollapsed={false}
+											icon={WandSparkles}
+											iconProps={{
+												forceDarkMode: true
+											}}
+											label="Ask AI"
+											class="!text-xs"
+											iconClasses="!text-violet-400 dark:!text-violet-400"
+											shortcut={`${getModifierKey()}L`}
+										/>
 									</div>
 
 									<SidebarContent
@@ -508,6 +524,19 @@
 									class="!text-xs"
 									shortcut={`${getModifierKey()}k`}
 								/>
+								<MenuButton
+									stopPropagationOnClick={true}
+									on:click={() => aiChatManager.toggleOpen()}
+									{isCollapsed}
+									icon={WandSparkles}
+									iconProps={{
+										forceDarkMode: true
+									}}
+									label="Ask AI"
+									class="!text-xs"
+									iconClasses="!text-violet-400 dark:!text-violet-400"
+									shortcut={`${getModifierKey()}L`}
+								/>
 							</div>
 
 							<SidebarContent
@@ -545,7 +574,7 @@
 			<div
 				class={classNames(
 					'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300  !dark',
-					'opacity-0'
+					'opacity-0 pointer-events-none'
 				)}
 			>
 				<div class={twMerge('fixed inset-0 flex ', '-z-0')}>
@@ -607,6 +636,19 @@
 									class="!text-xs"
 									shortcut={`${getModifierKey()}k`}
 								/>
+								<MenuButton
+									stopPropagationOnClick={true}
+									on:click={() => aiChatManager.toggleOpen()}
+									{isCollapsed}
+									icon={WandSparkles}
+									iconProps={{
+										forceDarkMode: true
+									}}
+									label="Ask AI"
+									class="!text-xs"
+									iconClasses="!text-violet-400 dark:!text-violet-400"
+									shortcut={`${getModifierKey()}L`}
+								/>
 							</div>
 
 							<SidebarContent
@@ -620,47 +662,64 @@
 				</div>
 			</div>
 		{/if}
-		<div
-			id="content"
-			class={classNames(
-				'w-full flex flex-col flex-1 h-full',
-				devOnly || $userStore?.operator ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
-				'transition-all ease-in-out duration-200'
-			)}
-		>
-			<main class="min-h-screen">
-				<div class="relative w-full h-full">
-					<div
-						class={classNames(
-							'py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-7xl mx-auto md:hidden',
-							devOnly || $userStore?.operator ? 'hidden' : ''
-						)}
-					>
-						<button
-							aria-label="Menu"
-							type="button"
-							on:click={() => {
-								menuOpen = true
-							}}
-							class="h-8 w-8 inline-flex items-center justify-center rounded-md text-tertiary hover:text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
-						>
-							<svg
-								class="h-6 w-6"
-								xmlns="http://www.w3.org/2000/svg"
-								fill="none"
-								viewBox="0 0 24 24"
-								stroke-width="2"
-								stroke="currentColor"
-								aria-hidden="true"
+		<Splitpanes horizontal={false} class="flex-1 min-h-0">
+			<Pane size={99.8 - aiChatManager.size} minSize={50} class="flex flex-col min-h-0">
+				<div
+					id="content"
+					class={classNames(
+						'w-full flex-1 flex flex-col overflow-y-auto',
+						devOnly || $userStore?.operator ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
+						'transition-all ease-in-out duration-200'
+					)}
+				>
+					<main class="flex-1 flex flex-col">
+						<div class="relative w-full flex-1 flex flex-col">
+							<div
+								class={classNames(
+									'pt-2 px-4 sm:px-4 flex flex-row justify-between items-center shadow-sm max-w-7xl md:hidden',
+									devOnly || $userStore?.operator ? 'hidden' : ''
+								)}
 							>
-								<path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-							</svg>
-						</button>
-					</div>
-					<slot />
+								<button
+									aria-label="Menu"
+									type="button"
+									on:click={() => {
+										menuOpen = true
+									}}
+									class="h-8 w-8 inline-flex items-center justify-center rounded-md text-tertiary hover:text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
+								>
+									<svg
+										class="h-6 w-6"
+										xmlns="http://www.w3.org/2000/svg"
+										fill="none"
+										viewBox="0 0 24 24"
+										stroke-width="2"
+										stroke="currentColor"
+										aria-hidden="true"
+									>
+										<path
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											d="M4 6h16M4 12h16M4 18h16"
+										/>
+									</svg>
+								</button>
+							</div>
+							<div class="flex-1">
+								<slot />
+							</div>
+						</div>
+					</main>
 				</div>
-			</main>
-		</div>
+			</Pane>
+			<Pane
+				bind:size={aiChatManager.size}
+				minSize={15}
+				class={`flex flex-col min-h-0 z-[${zIndexes.aiChat}]`}
+			>
+				<AiChat />
+			</Pane>
+		</Splitpanes>
 	</div>
 {:else}
 	<CenteredModal title="Loading user...">

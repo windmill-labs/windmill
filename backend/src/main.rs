@@ -53,7 +53,10 @@ use windmill_common::{
     scripts::ScriptLang,
     stats_oss::schedule_stats,
     triggers::TriggerKind,
-    utils::{hostname, rd_string, Mode, GIT_VERSION, MODE_AND_ADDONS},
+    utils::{
+        create_default_worker_suffix, create_ssh_agent_worker_suffix, worker_name_with_suffix,
+        Mode, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS,
+    },
     worker::{
         reload_custom_tags_setting, Connection, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
     },
@@ -77,8 +80,7 @@ use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR,
     DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR,
     JAVA_CACHE_DIR, NU_CACHE_DIR, POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR,
-    PY312_CACHE_DIR, PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR, TAR_PY310_CACHE_DIR,
-    TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR, TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
+    PY312_CACHE_DIR, PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -265,7 +267,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         tracing::error!("Failed to install rustls crypto provider");
     }
 
-    let hostname = hostname();
+    let hostname = HOSTNAME.to_owned();
 
     let mode_and_addons = MODE_AND_ADDONS.clone();
     let mode = mode_and_addons.mode;
@@ -344,7 +346,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             "Creating http client for cluster using base internal url {}",
             std::env::var("BASE_INTERNAL_URL").unwrap_or_default()
         );
-        let suffix = windmill_common::utils::worker_suffix(&hostname, &rd_string(5));
+        let suffix = create_ssh_agent_worker_suffix(&hostname);
         (
             Connection::Http(build_agent_http_client(&suffix)),
             Some(suffix),
@@ -679,19 +681,21 @@ Windmill Community Edition {GIT_VERSION}
                 let base_internal_url = base_internal_rx.await?;
                 if worker_mode {
                     let mut workers = vec![];
+
                     for i in 0..num_workers {
-                        let suffix: String = if i == 0 && first_suffix.as_ref().is_some() {
+                        let suffix = if i == 0 && first_suffix.is_some() {
                             first_suffix.as_ref().unwrap().clone()
                         } else {
-                            windmill_common::utils::worker_suffix(&hostname, &rd_string(5))
+                            create_default_worker_suffix(&hostname)
                         };
+
                         let worker_conn = WorkerConn {
                             conn: if i == 0 || mode != Mode::Agent {
                                 conn.clone()
                             } else {
                                 Connection::Http(build_agent_http_client(&suffix))
                             },
-                            worker_name: windmill_common::utils::worker_name_with_suffix(
+                            worker_name: worker_name_with_suffix(
                                 mode == Mode::Agent,
                                 WORKER_GROUP.as_str(),
                                 &suffix,
@@ -856,6 +860,11 @@ Windmill Community Edition {GIT_VERSION}
                                                         }
                                                     };
                                                 },
+                                                "notify_token_invalidation" => {
+                                                    let token = n.payload();
+                                                    tracing::info!("Token invalidation detected for token: {}...", &token[..token.len().min(8)]);
+                                                    windmill_api::auth::invalidate_token_from_cache(token);
+                                                },
                                                 "notify_global_setting_change" => {
                                                     tracing::info!("Global setting change detected: {}", n.payload());
                                                     match n.payload() {
@@ -888,7 +897,7 @@ Windmill Community Edition {GIT_VERSION}
                                                             if let Err(e) = load_tag_per_workspace_workspaces(&db).await {
                                                                 tracing::error!("Error loading default tag per workspace workspaces: {e:#}");
                                                             }
-                                                        }
+                                                        },
                                                         SMTP_SETTING => {
                                                             reload_smtp_config(&db).await;
                                                         },
@@ -1005,7 +1014,6 @@ Windmill Community Edition {GIT_VERSION}
                                                                 tracing::error!(error = %e, "Could not reload critical alert UI setting");
                                                             }
                                                         },
-
                                                         a @_ => {
                                                             tracing::info!("Unrecognized Global Setting Change Payload: {:?}", a);
                                                         }
@@ -1178,6 +1186,7 @@ async fn listen_pg(url: &str) -> Option<PgListener> {
         "notify_webhook_change",
         "notify_workspace_envs_change",
         "notify_runnable_version_change",
+        "notify_token_invalidation",
     ];
 
     #[cfg(feature = "http_trigger")]
@@ -1271,10 +1280,6 @@ pub async fn run_workers(
         PY311_CACHE_DIR,
         PY312_CACHE_DIR,
         PY313_CACHE_DIR,
-        TAR_PY310_CACHE_DIR,
-        TAR_PY311_CACHE_DIR,
-        TAR_PY312_CACHE_DIR,
-        TAR_PY313_CACHE_DIR,
         BUN_BUNDLE_CACHE_DIR,
         GO_CACHE_DIR,
         GO_BIN_CACHE_DIR,

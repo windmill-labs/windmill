@@ -1,8 +1,6 @@
 <script lang="ts">
-	import Select from '$lib/components/apps/svelte-select/lib/Select.svelte'
 	import { Button } from '$lib/components/common'
-	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
+	import Select from '$lib/components/Select.svelte'
 	import type { Relations } from '$lib/gen'
 	import { PostgresTriggerService } from '$lib/gen/services.gen'
 	import { workspaceStore } from '$lib/stores'
@@ -95,32 +93,19 @@
 	}
 
 	listDatabasePublication()
-
-	let darkMode = false
+	$: publication_name && getAllRelations()
 </script>
-
-<DarkModeObserver bind:darkMode />
 
 <div class="flex gap-1">
 	<Select
 		loading={loadingPublication}
 		disabled={!can_write || disabled}
-		class="grow shrink max-w-full"
-		on:select={async (e) => {
-			publication_name = e.detail.value
-			await getAllRelations()
-		}}
-		on:clear={() => {
-			publication_name = ''
-		}}
-		value={publication_name}
-		{items}
+		class="grow shrink"
+		bind:value={publication_name}
+		items={items.map((value) => ({ value }))}
 		placeholder="Choose a publication"
-		inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-		containerStyles={darkMode
-			? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-			: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-		portal={false}
+		clearable
+		disablePortal
 	/>
 	<Button
 		disabled={!can_write || disabled}
