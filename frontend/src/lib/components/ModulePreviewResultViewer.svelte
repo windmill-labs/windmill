@@ -23,6 +23,7 @@
 		testIsLoading?: boolean
 		disableMock?: boolean
 		disableHistory?: boolean
+		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 	}
 
 	let {
@@ -36,7 +37,8 @@
 		mod,
 		testIsLoading = false,
 		disableMock = false,
-		disableHistory = false
+		disableHistory = false,
+		onUpdateMock
 	}: Props = $props()
 
 	const { testStepStore } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -76,7 +78,7 @@
 			moduleId={mod.id}
 			closeOnOutsideClick={true}
 			getLogs
-			on:updateMock
+			{onUpdateMock}
 			mock={mod.mock}
 			bind:forceJson
 			bind:selectedJob

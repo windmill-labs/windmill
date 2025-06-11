@@ -845,7 +845,7 @@
 											loopStatus={parentLoop
 												? { type: 'inside', flow: parentLoop.type }
 												: undefined}
-											on:updateMock={({ detail }) => {
+											onUpdateMock={(detail) => {
 												flowModule.mock = detail
 												flowModule = flowModule
 												refreshStateStore(flowStore)

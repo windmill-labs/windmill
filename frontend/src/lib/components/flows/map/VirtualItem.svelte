@@ -26,6 +26,7 @@
 		earlyStop?: boolean
 		editMode?: boolean
 		icon?: import('svelte').Snippet
+		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 	}
 
 	let {
@@ -45,7 +46,8 @@
 		cache = false,
 		earlyStop = false,
 		editMode = false,
-		icon
+		icon,
+		onUpdateMock
 	}: Props = $props()
 </script>
 
@@ -85,9 +87,9 @@
 							{allowCopy}
 							{prefix}
 							connectingData={isConnecting ? inputJson : undefined}
-							on:select={selectConnection}
+							onSelect={selectConnection}
 							moduleId={''}
-							on:updateMock
+							{onUpdateMock}
 							hideHeaderBar
 							simpleViewer={inputJson}
 							rightMargin

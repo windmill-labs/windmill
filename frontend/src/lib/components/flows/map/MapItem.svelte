@@ -39,6 +39,10 @@
 		editMode?: boolean
 		onSelectedIteration: onSelectedIteration
 		onSelect: (id: string | FlowModule) => void
+		onUpdateMock?: (detail: {
+			id: string
+			mock: { enabled: boolean; return_value?: unknown }
+		}) => void
 	}
 
 	let {
@@ -54,7 +58,8 @@
 		retries = undefined,
 		flowJobs,
 		editMode = false,
-		onSelect
+		onSelect,
+		onUpdateMock
 	}: Props = $props()
 
 	const { selectedId } = getContext<{
@@ -68,7 +73,6 @@
 		select: string
 		newBranch: { id: string }
 		move: { module: FlowModule } | undefined
-		updateMock: { mock: FlowModule['mock']; id: string }
 	}>()
 
 	let itemProps = $derived({
@@ -137,9 +141,9 @@
 					on:move
 					on:delete
 					on:pointerdown={() => onSelect(mod.id)}
-					on:updateMock={({ detail }) => {
-						mod.mock = detail
-						dispatch('updateMock', { mock: detail, id: mod.id })
+					onUpdateMock={(mock) => {
+						mod.mock = mock
+						onUpdateMock?.({ id: mod.id, mock })
 					}}
 					{...itemProps}
 					{bgColor}
@@ -206,9 +210,11 @@
 					on:pointerdown={() => onSelect(mod.id)}
 					on:delete
 					on:move
-					on:updateMock={({ detail }) => {
-						mod.mock = detail
-						dispatch('updateMock', { mock: detail, id: mod.id })
+					onUpdateMock={(mock) => {
+						console.log('onUpdateMock', mock)
+
+						mod.mock = mock
+						onUpdateMock?.({ id: mod.id, mock })
 					}}
 					deletable={insertable}
 					id={mod.id}

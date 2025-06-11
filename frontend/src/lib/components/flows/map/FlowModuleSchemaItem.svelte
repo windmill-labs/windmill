@@ -63,6 +63,7 @@
 		alwaysShowOutputPicker?: boolean
 		loopStatus?: { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' } | undefined
 		icon?: import('svelte').Snippet
+		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 	}
 
 	let {
@@ -89,7 +90,8 @@
 		editMode = false,
 		alwaysShowOutputPicker = false,
 		loopStatus = undefined,
-		icon
+		icon,
+		onUpdateMock
 	}: Props = $props()
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
@@ -371,9 +373,9 @@
 						connectingData={isConnecting ? connectingData : undefined}
 						{mock}
 						{lastJob}
-						on:select={selectConnection}
+						onSelect={selectConnection}
 						moduleId={id}
-						on:updateMock
+						{onUpdateMock}
 						{path}
 						{loopStatus}
 						rightMargin
