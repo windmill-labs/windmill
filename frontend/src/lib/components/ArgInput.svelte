@@ -463,7 +463,12 @@
 		oneOf && value && untrack(() => onOneOfChange())
 	})
 	$effect(() => {
-		computeDefaultValue(value, inputCat, defaultValue, nullable)
+		let args = [value, inputCat, defaultValue, nullable]
+
+		untrack(() => {
+			if (deepEqual(value, lastValue)) return
+			computeDefaultValue(...args)
+		})
 	})
 	$effect(() => {
 		!isListJson &&
