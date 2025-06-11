@@ -5,6 +5,7 @@
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import InputPickerInner from './InputPickerInner.svelte'
+	import { ChevronDown, Plug } from 'lucide-svelte'
 
 	export let selected: boolean = false
 	export let hover: boolean = false
@@ -13,7 +14,6 @@
 	export let historyOpen: boolean = false
 	export let inputTransform: Record<string, any> | undefined = undefined
 	export let zoom: number = 1
-	export let onEvaluateArgs: () => void = () => {}
 	export let id: string
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
@@ -63,6 +63,8 @@
 	}
 
 	$: bottomBarOpen = inputOpen || outputOpen || selected || hover || showConnecting
+
+	$: showInput = variant === 'default' && !showConnecting
 </script>
 
 <div
@@ -84,59 +86,55 @@
 			'group transition-all duration-100',
 			'flex flex-row items-center justify-center',
 			'h-1 hover:h-[20px]',
-			bottomBarOpen && 'h-[20px]',
-			showConnecting && 'text-blue-500 bg-surface'
+			bottomBarOpen && 'h-[20px]'
 		)}
 		data-prop-picker
 	>
 		<div class="flex flex-row items-center justify-center w-full h-full">
+			{#if showInput}
+				<Popover
+					floatingConfig={{
+						placement: 'bottom',
+						gutter: 0,
+						offset: { mainAxis: 3, crossAxis: 69 * zoom },
+						overflowPadding: historyOpen ? 250 : 8
+					}}
+					usePointerDownOutside
+					closeOnOutsideClick={false}
+					on:click={(e) => {
+						e.preventDefault()
+						e.stopPropagation()
+					}}
+					allowFullScreen
+					contentClasses="overflow-hidden resize rounded-t-none"
+					contentStyle={`width: calc(${width}px); min-width: calc(${width}px); height: calc(${height}px); min-height: calc(${height}px); `}
+					extraProps={{ 'data-prop-picker': true }}
+					closeOnOtherPopoverOpen
+					class="flex-1 h-full"
+					bind:isOpen={inputOpen}
+				>
+					<svelte:fragment slot="trigger">
+						<button
+							class={twMerge(
+								'h-full center-center transition-opacity duration-150 w-full',
+								bottomBarOpen ? 'opacity-100' : 'opacity-0',
+								'text-2xs font-normal w-full h-full border-t-2 border-transparent',
+								inputOpen ? 'border-primary' : 'hover:border-primary/20'
+							)}
+						>
+							In
+						</button>
+					</svelte:fragment>
+					<svelte:fragment slot="content">
+						<InputPickerInner {inputTransform} {id} />
+					</svelte:fragment>
+				</Popover>
+			{/if}
 			<Popover
 				floatingConfig={{
 					placement: 'bottom',
 					gutter: 0,
-					offset: { mainAxis: 3, crossAxis: 69 * zoom },
-					overflowPadding: historyOpen ? 250 : 8
-				}}
-				usePointerDownOutside
-				closeOnOutsideClick={false}
-				on:click={(e) => {
-					e.preventDefault()
-					e.stopPropagation()
-				}}
-				allowFullScreen
-				contentClasses="overflow-hidden resize rounded-t-none"
-				contentStyle={`width: calc(${width}px); min-width: calc(${width}px); height: calc(${height}px); min-height: calc(${height}px); `}
-				extraProps={{ 'data-prop-picker': true }}
-				closeOnOtherPopoverOpen
-				class="flex-1 h-full"
-				bind:isOpen={inputOpen}
-				on:openChange={(e) => {
-					if (e.detail) {
-						onEvaluateArgs()
-					}
-				}}
-			>
-				<svelte:fragment slot="trigger">
-					<button
-						class={twMerge(
-							'h-full center-center transition-opacity duration-150 w-full',
-							bottomBarOpen ? 'opacity-100' : 'opacity-0',
-							'text-2xs font-normal w-full h-full border-t-2 border-transparent',
-							inputOpen ? 'border-primary' : 'hover:border-primary/20'
-						)}
-					>
-						In
-					</button>
-				</svelte:fragment>
-				<svelte:fragment slot="content">
-					<InputPickerInner {inputTransform} {id} />
-				</svelte:fragment>
-			</Popover>
-			<Popover
-				floatingConfig={{
-					placement: 'bottom',
-					gutter: 0,
-					offset: { mainAxis: 3, crossAxis: -69 * zoom },
+					offset: { mainAxis: 3, crossAxis: showInput ? -69 * zoom : 0 },
 					overflowPadding: historyOpen ? 250 : 8
 				}}
 				usePointerDownOutside
@@ -161,16 +159,23 @@
 							'h-full center-center transition-opacity duration-150 w-full',
 							bottomBarOpen ? 'opacity-100' : 'opacity-0'
 						)}
-						baseRadius="6px"
+						baseRadius="2px"
 						marginWidth="1px"
 					>
 						<button
 							class={twMerge(
 								'text-2xs font-normal w-full h-full border-t-2 border-transparent',
-								outputOpen ? 'border-primary' : 'hover:border-primary/20'
+								outputOpen ? 'border-primary' : 'hover:border-primary/20',
+								showConnecting ? 'bg-surface-hover rounded-sm border-0' : ''
 							)}
 						>
-							Out
+							{#if showInput}
+								Out
+							{:else if showConnecting}
+								<Plug size={12} class="w-full text-blue-500" />
+							{:else}
+								<ChevronDown size={12} class="w-full" />
+							{/if}
 						</button>
 					</AnimatedButton>
 				</svelte:fragment>

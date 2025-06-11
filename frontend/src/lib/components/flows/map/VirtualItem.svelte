@@ -27,6 +27,9 @@
 	export let editMode: boolean = false
 
 	const { viewport } = useSvelteFlow()
+
+	$: outputPickerVisible =
+		(alwaysPluggable || (inputJson && Object.keys(inputJson).length > 0)) && editMode
 </script>
 
 <VirtualItemWrapper
@@ -36,6 +39,7 @@
 	{selected}
 	{selectable}
 	{id}
+	{outputPickerVisible}
 	on:select
 	let:hover
 >
@@ -66,11 +70,12 @@
 				</div>
 			{/if}
 		</div>
-		{#if (alwaysPluggable || (inputJson && Object.keys(inputJson).length > 0)) && editMode}
+		{#if outputPickerVisible}
 			<OutputPicker
 				zoom={$viewport?.zoom ?? 1}
 				{selected}
 				{hover}
+				id={id ?? ''}
 				let:allowCopy
 				isConnectingCandidate={true}
 				let:isConnecting

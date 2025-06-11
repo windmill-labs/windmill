@@ -52,7 +52,7 @@
 	{#if data?.insertable && !$useDataflow && !data?.moving}
 		<div
 			class={twMerge('edgeButtonContainer nodrag nopan top-0')}
-			style:transform="translate(-50%, 50%) translate({sourceX}px,{sourceY + 2}px)"
+			style:transform="translate(-50%, 50%) translate({sourceX}px,{sourceY + 10}px)"
 		>
 			<InsertModuleButton
 				disableAi={data.disableAi}

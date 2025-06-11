@@ -135,6 +135,8 @@
 
 	$: isConnectingCandidate =
 		!!id && !!$flowPropPickerConfig && !!pickableIds && Object.keys(pickableIds).includes(id)
+
+	$: outputPickerVisible = editMode && (isConnectingCandidate || alwaysShowOutputPicker) && !!id
 </script>
 
 {#if deletable && id && editId}
@@ -225,7 +227,7 @@
 			'absolute rounded-sm outline-offset-0 outline-slate-500 dark:outline-gray-400',
 			selected ? 'outline outline-2' : 'active:outline active:outline-2'
 		)}
-		style="width: 275px; height: 51px;"
+		style={`width: 275px; height: ${outputPickerVisible ? '51px' : '34px'};`}
 	></div>
 	<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
 		{#if retry}
@@ -335,7 +337,7 @@
 			</svelte:fragment>
 		</FlowModuleSchemaItemViewer>
 
-		{#if editMode && (isConnectingCandidate || alwaysShowOutputPicker) && id}
+		{#if outputPickerVisible}
 			<OutputPicker
 				bind:this={outputPicker}
 				{selected}
@@ -347,7 +349,7 @@
 				{historyOpen}
 				zoom={$viewport?.zoom ?? 1}
 				{inputTransform}
-				{id}
+				id={id ?? ''}
 			>
 				<OutputPickerInner
 					bind:this={outputPickerInner}
@@ -370,23 +372,26 @@
 	</div>
 
 	{#if deletable}
-		<div class="absolute top-1/2 -translate-y-1/2 -left-[36px] center-center w-8 h-8">
-			<Button
-				size="sm"
-				color="dark"
-				wrapperClasses={hover || selected ? '' : '!hidden'}
-				title="Run"
-				btnClasses="p-1.5"
-				on:click={() => {
-					moduleTest?.runTestWithStepArgs()
-				}}
-			>
-				{#if testIsLoading}
-					<Loader2 size={12} class="animate-spin" />
-				{:else}
-					<Play size={12} />
-				{/if}
-			</Button>
+		<div class="absolute top-1/2 -translate-y-1/2 -left-[36px] center-center w-9 h-9">
+			{#if hover || selected}
+				<div transition:fade={{ duration: 100 }}>
+					<Button
+						size="sm"
+						color="dark"
+						title="Run"
+						btnClasses="p-1.5"
+						on:click={() => {
+							moduleTest?.runTestWithStepArgs()
+						}}
+					>
+						{#if testIsLoading}
+							<Loader2 size={12} class="animate-spin" />
+						{:else}
+							<Play size={12} />
+						{/if}
+					</Button>
+				</div>
+			{/if}
 		</div>
 		<button
 			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
