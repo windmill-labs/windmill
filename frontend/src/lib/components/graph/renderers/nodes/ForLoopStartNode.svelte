@@ -20,7 +20,8 @@
 	function filterIterFromInput(inputJson: Record<string, any> | undefined): Record<string, any> {
 		if (!inputJson || typeof inputJson !== 'object' || (!inputJson.iter && !inputJson.iter_parent))
 			return {}
-		const selectedIdIsDescendant = isSelectedDescendant(data.module, data.selectedId)
+		const selectedIdIsDescendant =
+			data.selectedId !== undefined && isSelectedDescendant(data.module, data.selectedId)
 		if (selectedIdIsDescendant === 'child') {
 			return { iter: inputJson.iter }
 		}
