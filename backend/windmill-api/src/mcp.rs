@@ -1184,7 +1184,6 @@ pub async fn setup_mcp_server() -> anyhow::Result<(Router, Arc<LocalSessionManag
 }
 
 pub async fn shutdown_mcp_server(session_manager: Arc<LocalSessionManager>) {
-    // 1. Get all active session IDs
     let session_ids_to_close = {
         let sessions_map = session_manager.sessions.read().await;
         sessions_map.keys().cloned().collect::<Vec<_>>()
