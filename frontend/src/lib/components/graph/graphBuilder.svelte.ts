@@ -128,6 +128,7 @@ export type BranchAllStartN = {
 		eventHandlers: GraphEventHandlers
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		insertable: boolean
+		branchOne: boolean
 	}
 }
 
@@ -159,7 +160,7 @@ export type ForLoopStartN = {
 		id: string
 		eventHandlers: GraphEventHandlers
 		flowModuleStates: Record<string, GraphModuleState> | undefined
-		selectedId: string
+		selectedId: string | undefined
 		editMode: boolean
 		simplifiedTriggerView: boolean
 		module: FlowModule
@@ -236,6 +237,8 @@ export type NoBranchN = {
 		eventHandlers: GraphEventHandlers
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		branchOne: boolean
+		label: string
+		branchIndex: number
 	}
 }
 
@@ -417,7 +420,7 @@ export function graphBuilder(
 			})
 		}
 
-		const inputNode = {
+		const inputNode: NodeLayout = {
 			id: 'Input',
 			type: 'input2',
 			data: {
@@ -430,7 +433,7 @@ export function graphBuilder(
 				earlyStop: extra.earlyStop,
 				editMode: extra.editMode
 			}
-		} as NodeLayout
+		}
 
 		let triggerNode: NodeLayout | undefined = undefined
 		if (flowPathForTriggerNode) {
@@ -442,9 +445,10 @@ export function graphBuilder(
 					path: flowPathForTriggerNode,
 					newFlow: extra.newFlow,
 					eventHandlers: eventHandlers,
-					isEditor: extra.insertable
+					isEditor: extra.insertable,
+					disableAi: extra.disableAi
 				}
-			} as NodeLayout
+			}
 			nodes.push(triggerNode)
 			if (preprocessorModule != null && preprocessorModule != undefined) {
 				addEdge('Trigger', preprocessorModule.id, undefined, undefined, {
@@ -516,21 +520,22 @@ export function graphBuilder(
 						addNode(module, currentOffset)
 
 						// "Collect result of each branch" node
-						const endNode = {
+						const endNode: NodeLayout = {
 							id: `${module.id}-end`,
 							data: {
 								offset: currentOffset,
 								id: module.id,
-								eventHandlers: eventHandlers
+								eventHandlers: eventHandlers,
+								flowModuleStates: extra.flowModuleStates
 							},
 							type: 'branchAllEnd'
-						} as NodeLayout
+						}
 
 						nodes.push(endNode)
 
 						if (module.value.branches.length === 0) {
 							// Add a "No branches" node
-							const startNode = {
+							const startNode: NodeLayout = {
 								id: `${module.id}-branch-0`,
 								data: {
 									offset: currentOffset,
@@ -538,10 +543,11 @@ export function graphBuilder(
 									branchIndex: -1,
 									eventHandlers: eventHandlers,
 									flowModuleStates: extra.flowModuleStates,
-									branchOne: false
+									branchOne: false,
+									label: 'No branches'
 								},
 								type: 'noBranch'
-							} as NodeLayout
+							}
 
 							nodes.push(startNode)
 
@@ -555,7 +561,7 @@ export function graphBuilder(
 							module.value.branches.forEach((branch, branchIndex) => {
 								// Start node by branch
 
-								const startNode = {
+								const startNode: NodeLayout = {
 									id: `${module.id}-branch-${branchIndex}`,
 									data: {
 										offset: currentOffset,
@@ -564,10 +570,11 @@ export function graphBuilder(
 										branchIndex: branchIndex,
 										eventHandlers: eventHandlers,
 										flowModuleStates: extra.flowModuleStates,
-										insertable: extra.insertable
+										insertable: extra.insertable,
+										branchOne: false
 									},
 									type: 'branchAllStart'
-								} as NodeLayout
+								}
 
 								nodes.push(startNode)
 
@@ -601,17 +608,20 @@ export function graphBuilder(
 							addNode(module, currentOffset)
 						}
 
-						const startNode = {
+						const startNode: NodeLayout = {
 							id: `${module.id}-start`,
 							data: {
 								offset: currentOffset + 25,
 								id: module.id,
 								module: module,
 								simplifiedTriggerView,
-								eventHandlers: eventHandlers
+								eventHandlers: eventHandlers,
+								editMode: extra.editMode,
+								flowModuleStates: extra.flowModuleStates,
+								selectedId: extra.selectedId
 							},
 							type: 'forLoopStart'
-						} as NodeLayout
+						}
 
 						if (!simplifiedTriggerView) {
 							addEdge(module.id, startNode.id, undefined, prefix, {
@@ -623,16 +633,17 @@ export function graphBuilder(
 							})
 						}
 
-						const endNode = {
+						const endNode: NodeLayout = {
 							id: `${module.id}-end`,
 							data: {
 								offset: currentOffset,
 								id: module.id,
 								eventHandlers: eventHandlers,
-								simplifiedTriggerView
+								simplifiedTriggerView,
+								flowModuleStates: extra.flowModuleStates
 							},
 							type: 'forLoopEnd'
-						} as NodeLayout
+						}
 
 						nodes.push(startNode)
 						nodes.push(endNode)
@@ -657,23 +668,23 @@ export function graphBuilder(
 					} else if (module.value.type === 'whileloopflow') {
 						addNode(module, currentOffset)
 
-						const startNode = {
+						const startNode: NodeLayout = {
 							id: `${module.id}-start`,
 							data: {
 								offset: currentOffset + 25,
 								eventHandlers: eventHandlers
 							},
 							type: 'whileLoopStart'
-						} as NodeLayout
+						}
 						addEdge(module.id, startNode.id, { rootId: module.id, branch: 0 }, prefix, {
 							type: 'empty'
 						})
 
-						const endNode = {
+						const endNode: NodeLayout = {
 							id: `${module.id}-end`,
 							data: { offset: currentOffset, ...extra },
 							type: 'whileLoopEnd'
-						} as NodeLayout
+						}
 
 						nodes.push(startNode)
 						nodes.push(endNode)
@@ -698,15 +709,20 @@ export function graphBuilder(
 					} else if (module.value.type === 'branchone') {
 						addNode(module, currentOffset)
 
-						const endNode = {
+						const endNode: NodeLayout = {
 							id: `${module.id}-end`,
-							data: { offset: currentOffset, eventHandlers: eventHandlers },
+							data: {
+								offset: currentOffset,
+								eventHandlers: eventHandlers,
+								flowModuleStates: extra.flowModuleStates,
+								id: module.id
+							},
 							type: 'branchOneEnd'
-						} as NodeLayout
+						}
 						nodes.push(endNode)
 
 						// Add default branch
-						const defaultBranch = {
+						const defaultBranch: NodeLayout = {
 							id: `${module.id}-default`,
 							data: {
 								offset: currentOffset,
@@ -718,7 +734,7 @@ export function graphBuilder(
 								...extra
 							},
 							type: 'noBranch'
-						} as NodeLayout
+						}
 
 						nodes.push(defaultBranch)
 
@@ -741,7 +757,7 @@ export function graphBuilder(
 						module.value.branches.forEach((branch, branchIndex) => {
 							// Start node by branch
 
-							const startNode = {
+							const startNode: NodeLayout = {
 								id: `${module.id}-branch-${branchIndex}`,
 								data: {
 									offset: currentOffset,
@@ -750,10 +766,13 @@ export function graphBuilder(
 									id: module.id,
 									branchIndex: branchIndex,
 									eventHandlers: eventHandlers,
-									insertable: extra.insertable
+									insertable: extra.insertable,
+									flowModuleStates: extra.flowModuleStates,
+									selected: false,
+									modules: branch.modules
 								},
 								type: 'branchOneStart'
-							} as NodeLayout
+							}
 
 							nodes.push(startNode)
 
@@ -783,17 +802,19 @@ export function graphBuilder(
 							const idWithoutPrefix = module.id.startsWith('subflow:')
 								? module.id.substring(8)
 								: module.id
-							const startNode = {
+							const startNode: NodeLayout = {
 								id: startId,
 								data: {
 									offset: currentOffset,
 									label: `Start of subflow ${idWithoutPrefix}`,
 									id: startId,
 									subflowId: module.id,
-									eventHandlers: eventHandlers
+									eventHandlers: eventHandlers,
+									preLabel: '',
+									selected: false
 								},
 								type: 'subflowBound'
-							} as NodeLayout
+							}
 
 							nodes.push(startNode)
 
@@ -806,17 +827,19 @@ export function graphBuilder(
 							}
 
 							const endId = `${module.id}-subflow-end`
-							const endNode = {
+							const endNode: NodeLayout = {
 								id: endId,
 								data: {
 									offset: currentOffset,
 									label: `End of subflow ${idWithoutPrefix}`,
 									id: endId,
 									subflowId: module.id,
-									eventHandlers: eventHandlers
+									eventHandlers: eventHandlers,
+									preLabel: '',
+									selected: false
 								},
 								type: 'subflowBound'
-							} as NodeLayout
+							}
 
 							nodes.push(endNode)
 
