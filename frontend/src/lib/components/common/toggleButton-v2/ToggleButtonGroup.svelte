@@ -24,12 +24,14 @@
 			if (next === undefined && !allowEmpty) {
 				return curr
 			}
-			if (curr !== next && curr !== undefined) {
+			if (waitedTimeout && curr !== next && curr !== undefined) {
 				dispatch('selected', next)
 			}
 			return next
 		}
 	})
+
+	let waitedTimeout: boolean = (setTimeout(() => (waitedTimeout = true), 100), false)
 
 	$: $disabledOption = disabled
 
