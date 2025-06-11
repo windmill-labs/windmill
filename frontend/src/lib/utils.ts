@@ -18,6 +18,7 @@ export { sendUserToast }
 import type { AnyMeltElement } from '@melt-ui/svelte'
 import type { RunsSelectionMode } from './components/runs/RunsBatchActionsDropdown.svelte'
 import type { TriggerKind } from './components/triggers'
+import { stateSnapshot } from './svelte5Utils.svelte'
 import { validate, dereference } from '@scalar/openapi-parser'
 
 export namespace OpenApi {
@@ -1007,7 +1008,7 @@ export type Value = {
 }
 
 export function replaceFalseWithUndefined(obj: any) {
-	return replaceFalseWithUndefinedRec(structuredClone(obj))
+	return replaceFalseWithUndefinedRec(structuredClone(stateSnapshot(obj)))
 }
 
 function replaceFalseWithUndefinedRec(obj: any) {
@@ -1036,7 +1037,7 @@ export function cleanValueProperties(obj: Value) {
 		let newObj: any = {}
 		for (const key of Object.keys(obj)) {
 			if (key !== 'parent_hash' && key !== 'draft' && key !== 'draft_only') {
-				newObj[key] = structuredClone(obj[key])
+				newObj[key] = structuredClone(stateSnapshot(obj[key]))
 			}
 		}
 		return newObj
@@ -1359,4 +1360,21 @@ import type { OpenAPI, OpenAPIV2, OpenAPIV3, OpenAPIV3_1 } from 'openapi-types'
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))
+}
+
+export type StateStore<T> = {
+	val: T
+}
+
+export function readFieldsRecursively(obj: any): void {
+	if (Array.isArray(obj)) {
+		// <= in case a new object is added. should read as undefined
+		for (let i = 0; i <= obj.length; i++) {
+			if (obj[i] && typeof obj[i] === 'object') {
+				readFieldsRecursively(obj[i])
+			}
+		}
+	} else if (obj !== null && typeof obj === 'object') {
+		Object.keys(obj).forEach((key) => readFieldsRecursively(obj[key]))
+	}
 }

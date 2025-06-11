@@ -1,7 +1,7 @@
 <script lang="ts">
+	import type { TabsContext } from '$lib/components/apps/editor/settingsPanel/inputEditor/tabs.svelte'
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { TabsContext } from './Tabs.svelte'
 	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
 
 	export let aiId: string | undefined = undefined

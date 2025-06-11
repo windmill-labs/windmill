@@ -33,7 +33,7 @@
 
 <Drawer bind:this={jsonViewer} size="800px">
 	<DrawerContent title="Argument Details" on:close={jsonViewer.closeDrawer}>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button
 				on:click={() => copyToClipboard(JSON.stringify(jsonViewerContent, null, 4))}
 				color="light"
@@ -42,7 +42,7 @@
 			>
 				Copy
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 		{#if isString(jsonViewerContent)}
 			<pre>{jsonViewerContent}</pre>
 		{:else}

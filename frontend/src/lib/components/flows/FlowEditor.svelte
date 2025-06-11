@@ -63,7 +63,7 @@
 							<Skeleton layout={[[2], 1.5]} />
 						{/each}
 					</div>
-				{:else if $flowStore.value.modules}
+				{:else if flowStore.val.value.modules}
 					<FlowModuleSchemaMap
 						bind:this={flowModuleSchemaMap}
 						{disableStaticInputs}
@@ -72,7 +72,6 @@
 						{disableSettings}
 						{smallErrorHandler}
 						{newFlow}
-						bind:modules={$flowStore.value.modules}
 						on:reload
 						on:generateStep={({ detail }) => {
 							if (!aiChatManager.open) {

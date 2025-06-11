@@ -250,9 +250,9 @@
 				: 'New SQS trigger'}
 			on:close={drawer.closeDrawer}
 		>
-			<svelte:fragment slot="actions">
-				{@render actions()}
-			</svelte:fragment>
+			{#snippet actions()}
+				{@render actionsSnippet()}
+			{/snippet}
 			{@render config()}
 		</DrawerContent>
 	</Drawer>
@@ -264,13 +264,13 @@
 			{/if}
 		</svelte:fragment>
 		<svelte:fragment slot="action">
-			{@render actions()}
+			{@render actionsSnippet()}
 		</svelte:fragment>
 		{@render config()}
 	</Section>
 {/if}
 
-{#snippet actions()}
+{#snippet actionsSnippet()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
 			{trigger}

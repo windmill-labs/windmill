@@ -14,7 +14,7 @@
 		getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
 
 	onMount(() => {
-		testSteps?.updateStepArgs(id, $flowStateStore, $flowStore, $previewArgs)
+		testSteps?.updateStepArgs(id, $flowStateStore, flowStore?.val, previewArgs?.val)
 	})
 </script>
 

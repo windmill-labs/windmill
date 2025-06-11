@@ -7,35 +7,47 @@
 	import InputPickerInner from './InputPickerInner.svelte'
 	import { ChevronDown, Plug } from 'lucide-svelte'
 
-	export let selected: boolean = false
-	export let hover: boolean = false
-	export let isConnectingCandidate: boolean = false
-	export let variant: 'default' | 'virtual' = 'default'
-	export let historyOpen: boolean = false
-	export let inputTransform: Record<string, any> | undefined = undefined
-	export let zoom: number = 1
-	export let id: string
+	interface Props {
+		selected?: boolean
+		hover?: boolean
+		isConnectingCandidate?: boolean
+		variant?: 'default' | 'virtual'
+		historyOpen?: boolean
+		children?: import('svelte').Snippet<[any]>
+		inputTransform?: Record<string, any> | undefined
+		id: string
+	}
+
+	let {
+		selected = false,
+		hover = false,
+		isConnectingCandidate = false,
+		variant = 'default',
+		historyOpen = false,
+		children,
+		inputTransform,
+		id
+	}: Props = $props()
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
 	const flowPropPickerConfig = context?.flowPropPickerConfig
-	const MIN_WIDTH = 275
-	const MIN_HEIGHT = 275
+	const MIN_WIDTH = 375
+	const MIN_HEIGHT = 375
 
-	let isConnecting = false
-	let outputOpen = false
-	let inputOpen = false
-
-	$: width = Math.max(MIN_WIDTH * zoom, 375)
-	$: height = Math.max(MIN_HEIGHT * zoom, 375)
+	let isConnecting = $state(false)
+	let outputOpen = $state(false)
+	let inputOpen = $state(false)
 
 	async function updateConnecting() {
 		await tick()
 		isConnecting = $flowPropPickerConfig?.insertionMode === 'connect'
 	}
 
-	$: $flowPropPickerConfig, updateConnecting()
+	$effect(() => {
+		updateConnecting()
+	})
 
-	$: showConnecting = isConnectingCandidate && isConnecting
+	const showConnecting = $derived(isConnectingCandidate && isConnecting)
 
 	function selectConnection(event: CustomEvent) {
 		if ($flowPropPickerConfig?.onSelect(event.detail)) {
@@ -44,8 +56,8 @@
 		}
 	}
 
-	let popover: Popover | undefined = undefined
-	let inputPopover: Popover | undefined = undefined
+	let inputPopover: Popover | undefined = $state(undefined)
+	let popover: Popover | undefined = $state(undefined)
 
 	const virtualItemClasses = {
 		bar: 'dark:hover:bg-[#525d6f] dark:bg-[#414958] bg-[#d7dfea] hover:bg-slate-300'
@@ -63,31 +75,32 @@
 		}
 	}
 
-	$: bottomBarOpen = inputOpen || outputOpen || selected || hover || showConnecting
+	const bottomBarOpen = $derived(inputOpen || outputOpen || selected || hover || showConnecting)
+	const showInput = $derived(variant === 'default' && !showConnecting)
 
-	$: showInput = variant === 'default' && !showConnecting
-
-	function updatePositioning(zoom: number, historyOpen: boolean) {
+	function updatePositioning(historyOpen: boolean) {
 		inputPopover?.updatePositioning({
 			placement: 'bottom',
 			gutter: 0,
-			offset: { mainAxis: 3, crossAxis: 69 * zoom },
+			offset: { mainAxis: 3, crossAxis: 69 },
 			overflowPadding: historyOpen ? 250 : 8
 		})
 		popover?.updatePositioning({
 			placement: 'bottom',
 			gutter: 0,
-			offset: { mainAxis: 3, crossAxis: showInput ? -69 * zoom : 0 },
+			offset: { mainAxis: 3, crossAxis: showInput ? -69 : 0 },
 			overflowPadding: historyOpen ? 250 : 8
 		})
 	}
 
-	$: updatePositioning(zoom, historyOpen)
+	$effect(() => {
+		updatePositioning(historyOpen)
+	})
 </script>
 
 <div
 	class="relative h-1 w-[275px]"
-	on:pointerdown={(e) => {
+	onpointerdown={(e) => {
 		e.preventDefault()
 		e.stopPropagation()
 	}}
@@ -114,7 +127,7 @@
 					floatingConfig={{
 						placement: 'bottom',
 						gutter: 0,
-						offset: { mainAxis: 3, crossAxis: 69 * zoom },
+						offset: { mainAxis: 3, crossAxis: 69 },
 						overflowPadding: historyOpen ? 250 : 8
 					}}
 					usePointerDownOutside
@@ -125,14 +138,14 @@
 					}}
 					allowFullScreen
 					contentClasses="overflow-hidden resize rounded-t-none"
-					contentStyle={`width: calc(${width}px); min-width: calc(${width}px); height: calc(${height}px); min-height: calc(${height}px); `}
+					contentStyle={`width: calc(${MIN_WIDTH}px); min-width: calc(${MIN_WIDTH}px); height: calc(${MIN_HEIGHT}px); min-height: calc(${MIN_HEIGHT}px); `}
 					extraProps={{ 'data-prop-picker': true }}
 					closeOnOtherPopoverOpen
 					class="flex-1 h-full"
 					bind:isOpen={inputOpen}
 					bind:this={inputPopover}
 				>
-					<svelte:fragment slot="trigger">
+					{#snippet trigger({ isOpen })}
 						<button
 							class={twMerge(
 								'h-full center-center transition-opacity duration-150 w-full',
@@ -143,17 +156,17 @@
 						>
 							In
 						</button>
-					</svelte:fragment>
-					<svelte:fragment slot="content">
+					{/snippet}
+					{#snippet content()}
 						<InputPickerInner {inputTransform} {id} />
-					</svelte:fragment>
+					{/snippet}
 				</Popover>
 			{/if}
 			<Popover
 				floatingConfig={{
 					placement: 'bottom',
 					gutter: 0,
-					offset: { mainAxis: 3, crossAxis: showInput ? -69 * zoom : 0 },
+					offset: { mainAxis: 3, crossAxis: showInput ? -69 : 0 },
 					overflowPadding: historyOpen ? 250 : 8
 				}}
 				usePointerDownOutside
@@ -165,13 +178,13 @@
 				bind:this={popover}
 				allowFullScreen
 				contentClasses="overflow-hidden resize rounded-t-none"
-				contentStyle={`width: calc(${width}px); min-width: calc(${width}px); height: calc(${height}px); min-height: calc(${height}px); `}
+				contentStyle={`width: calc(${MIN_WIDTH}px); min-width: calc(${MIN_WIDTH}px); height: calc(${MIN_HEIGHT}px); min-height: calc(${MIN_HEIGHT}px); `}
 				extraProps={{ 'data-prop-picker': true }}
 				closeOnOtherPopoverOpen
 				class="flex-1 h-full"
 				bind:isOpen={outputOpen}
 			>
-				<svelte:fragment slot="trigger">
+				{#snippet trigger({ isOpen })}
 					<AnimatedButton
 						animate={showConnecting}
 						wrapperClasses={twMerge(
@@ -197,10 +210,14 @@
 							{/if}
 						</button>
 					</AnimatedButton>
-				</svelte:fragment>
-				<svelte:fragment slot="content">
-					<slot allowCopy={!$flowPropPickerConfig} {isConnecting} {selectConnection} />
-				</svelte:fragment>
+				{/snippet}
+				{#snippet content()}
+					{@render children?.({
+						allowCopy: !$flowPropPickerConfig,
+						isConnecting,
+						selectConnection
+					})}
+				{/snippet}
 			</Popover>
 		</div>
 	</div>

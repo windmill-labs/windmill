@@ -57,7 +57,7 @@
 				bind:canSave
 			/>
 		{/await}
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button
 				startIcon={{ icon: Save }}
 				on:click={() => {
@@ -72,6 +72,6 @@
 			>
 				Save
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

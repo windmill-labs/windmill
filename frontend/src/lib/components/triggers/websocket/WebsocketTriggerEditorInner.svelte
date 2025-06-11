@@ -317,9 +317,9 @@
 				: 'New WebSocket trigger'}
 			on:close={drawer.closeDrawer}
 		>
-			<svelte:fragment slot="actions">
+			{#snippet actions()}
 				{@render actionsButtons()}
-			</svelte:fragment>
+			{/snippet}
 			{@render config()}
 		</DrawerContent>
 	</Drawer>
@@ -540,7 +540,7 @@
 														{schema}
 														bind:args={v.runnable_result.args}
 														shouldHideNoInputs
-														class="text-xs"
+														className="text-xs"
 														disabled={!can_write}
 													/>
 												{/await}

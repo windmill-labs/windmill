@@ -352,26 +352,31 @@
 		if (!divEl) {
 			return
 		}
-		editor = meditor.create(divEl as HTMLDivElement, {
-			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
-			model,
-			lineDecorationsWidth: 6,
-			lineNumbersMinChars: 2,
-			fontSize: fontSize,
-			quickSuggestions: disableSuggestions
-				? { other: false, comments: false, strings: false }
-				: { other: true, comments: true, strings: true },
-			suggestOnTriggerCharacters: !disableSuggestions,
-			wordBasedSuggestions: disableSuggestions ? 'off' : 'matchingDocuments',
-			parameterHints: { enabled: !disableSuggestions },
-			suggest: {
-				showIcons: !disableSuggestions,
-				showSnippets: !disableSuggestions,
-				showKeywords: !disableSuggestions,
-				showWords: !disableSuggestions,
-				snippetsPreventQuickSuggestions: disableSuggestions
-			}
-		})
+		try {
+			editor = meditor.create(divEl as HTMLDivElement, {
+				...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
+				model,
+				lineDecorationsWidth: 6,
+				lineNumbersMinChars: 2,
+				fontSize: fontSize,
+				quickSuggestions: disableSuggestions
+					? { other: false, comments: false, strings: false }
+					: { other: true, comments: true, strings: true },
+				suggestOnTriggerCharacters: !disableSuggestions,
+				wordBasedSuggestions: disableSuggestions ? 'off' : 'matchingDocuments',
+				parameterHints: { enabled: !disableSuggestions },
+				suggest: {
+					showIcons: !disableSuggestions,
+					showSnippets: !disableSuggestions,
+					showKeywords: !disableSuggestions,
+					showWords: !disableSuggestions,
+					snippetsPreventQuickSuggestions: disableSuggestions
+				}
+			})
+		} catch (e) {
+			console.error('Error loading monaco:', e)
+			return
+		}
 		keepModelAroundToAvoidDisposalOfWorkers()
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined

@@ -14,9 +14,13 @@
 	import TestJobLoader from '../TestJobLoader.svelte'
 	import type { Job } from '$lib/gen'
 
-	export let runnable: RunnableWithFields | undefined
-	export let id: string
-	export let appPath: string
+	interface Props {
+		runnable: RunnableWithFields | undefined
+		id: string
+		appPath: string
+	}
+
+	let { runnable = $bindable(), id, appPath }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -35,8 +39,8 @@
 					}
 	}
 
-	let selectedTab = 'inputs'
-	let args = {}
+	let selectedTab = $state('inputs')
+	let args = $state({})
 
 	function getSchema(runnable: RunnableWithFields) {
 		if (runnable?.type == 'runnableByPath') {
@@ -48,12 +52,10 @@
 		return {}
 	}
 
-	let testJobLoader: TestJobLoader | undefined
-	let testJob: Job | undefined
-	let testIsLoading = false
-	let scriptProgress = 0
-
-	$: onFieldsChange(runnable?.fields ?? {})
+	let testJobLoader: TestJobLoader | undefined = $state()
+	let testJob: Job | undefined = $state()
+	let testIsLoading = $state(false)
+	let scriptProgress = $state(0)
 
 	function onFieldsChange(fields: Record<string, StaticAppInput>) {
 		if (args == undefined) {
@@ -86,6 +88,9 @@
 			}
 		}
 	}
+	$effect(() => {
+		onFieldsChange(runnable?.fields ?? {})
+	})
 </script>
 
 <TestJobLoader
@@ -141,7 +146,7 @@
 			<Tabs bind:selected={selectedTab}>
 				<Tab value="inputs">Inputs</Tab>
 				<Tab value="test">Test</Tab>
-				<svelte:fragment slot="content">
+				{#snippet content()}
 					{#if selectedTab == 'inputs'}
 						{#if runnable?.fields}
 							<div class="w-full flex flex-col gap-4 p-2">
@@ -177,12 +182,11 @@
 									<div class="px-2 py-3 h-full overflow-auto">
 										<SchemaForm
 											on:keydownCmdEnter={testPreview}
-											disabledArgs={Object.entries(runnable.fields ?? {})
+											disabledArgs={Object.entries(runnable?.fields ?? {})
 												.filter(([k, v]) => v.type == 'static')
 												.map(([k]) => k)}
-											schema={getSchema(runnable)}
+											schema={runnable ? getSchema(runnable) : {}}
 											bind:args
-											shouldCapitalize
 										/>
 									</div>
 								</Pane>
@@ -192,7 +196,7 @@
 							</Splitpanes>
 						</SplitPanesWrapper>
 					{/if}
-				</svelte:fragment>
+				{/snippet}
 			</Tabs>
 		</Pane>
 	</Splitpanes>

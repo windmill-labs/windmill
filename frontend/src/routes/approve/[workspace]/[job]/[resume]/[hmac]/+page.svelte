@@ -24,25 +24,19 @@
 	$workspaceStore = $page.params.workspace
 	let rd = $page.url.href.replace($page.url.origin, '')
 
-	let job: Job | undefined = undefined
-	let currentApprovers: { resume_id: number; approver: string }[] = []
+	let job: Job | undefined = $state(undefined)
+	let currentApprovers: { resume_id: number; approver: string }[] = $state([])
 	let approver = $page.url.searchParams.get('approver') ?? undefined
 
-	let completed: boolean = false
-	$: completed = job?.type == 'CompletedJob'
-	$: alreadyResumed = currentApprovers
-		.map((x) => x.resume_id)
-		.includes(new Number($page.params.resume).valueOf())
+	let completed: boolean = $state(false)
 
-	let dynamicSchema: any = {}
+	let dynamicSchema: any = $state({})
 
-	$: approvalStep = (job?.flow_status?.step ?? 1) - 1
-	$: schema = job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? dynamicSchema
 	let timeout: NodeJS.Timeout | undefined = undefined
-	let error: string | undefined = undefined
-	let default_payload: any = {}
-	let enum_payload: object = {}
-	let description: any = undefined
+	let error: string | undefined = $state(undefined)
+	let default_payload: any = $state({})
+	let enum_payload: object = $state({})
+	let description: any = $state(undefined)
 
 	setLicense()
 
@@ -72,10 +66,9 @@
 		timeout && clearInterval(timeout)
 	})
 
-	let argsFetched = false
-	$: job && !argsFetched && getDefaultArgs()
+	let argsFetched = $state(false)
 
-	let valid = true
+	let valid = $state(true)
 	async function getDefaultArgs() {
 		argsFetched = true
 		let jobId = job?.flow_status?.modules?.[approvalStep]?.job
@@ -106,7 +99,7 @@
 			signature: $page.params.hmac,
 			approver
 		})
-		job = suspendedJobFlow.job
+		job = suspendedJobFlow.job as Job
 		currentApprovers = suspendedJobFlow.approvers
 	}
 
@@ -140,11 +133,25 @@
 		userStore.set(await getUserExt($page.params.workspace))
 	}
 
-	$: if (job?.raw_flow?.modules?.[approvalStep]?.suspend?.user_auth_required && !$userStore) {
-		loadUser()
-	}
-
-	let scheduleEditor: ScheduleEditor
+	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
+	$effect(() => {
+		completed = job?.type == 'CompletedJob'
+	})
+	let alreadyResumed = $derived(
+		currentApprovers.map((x) => x.resume_id).includes(new Number($page.params.resume).valueOf())
+	)
+	let approvalStep = $derived.by(() => (job?.flow_status?.step ?? 1) - 1)
+	let schema = $derived.by(
+		() => job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? dynamicSchema
+	)
+	$effect(() => {
+		job && !argsFetched && getDefaultArgs()
+	})
+	$effect(() => {
+		if (job?.raw_flow?.modules?.[approvalStep]?.suspend?.user_auth_required && !$userStore) {
+			loadUser()
+		}
+	})
 </script>
 
 <ScheduleEditor bind:this={scheduleEditor} />

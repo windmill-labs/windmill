@@ -25,29 +25,41 @@
 	import { Loader2, Github, RotateCw, Plus, Minus, Download } from 'lucide-svelte'
 	import { onDestroy } from 'svelte'
 
-	export let resourceType: string
-	export let resourceTypeInfo: ResourceType | undefined
-	export let args: Record<string, any> | any = {}
-	export let linkedSecret: string | undefined = undefined
-	export let isValid = true
-	export let linkedSecretCandidates: string[] | undefined = undefined
-	export let description: string | undefined = undefined
+	interface Props {
+		resourceType: string
+		resourceTypeInfo: ResourceType | undefined
+		args?: Record<string, any> | any
+		linkedSecret?: string | undefined
+		isValid?: boolean
+		linkedSecretCandidates?: string[] | undefined
+		description?: string | undefined
+	}
 
-	let schema = emptySchema()
-	let notFound = false
+	let {
+		resourceType,
+		resourceTypeInfo,
+		args = $bindable({}),
+		linkedSecret = $bindable(undefined),
+		isValid = $bindable(true),
+		linkedSecretCandidates = undefined,
+		description = $bindable(undefined)
+	}: Props = $props()
 
-	let supabaseWizard = false
+	let schema = $state(emptySchema())
+	let notFound = $state(false)
 
-	let loadingGithubInstallations = false
-	let githubInstallations: GetGlobalConnectedRepositoriesResponse = []
-	let workspaceGithubInstallations: GetGlobalConnectedRepositoriesResponse = []
-	let selectedGHAppAccountId: string | undefined = undefined
-	let selectedGHAppRepository: string | undefined = undefined
-	let githubInstallationUrl: string | undefined = undefined
+	let supabaseWizard = $state(false)
+
+	let loadingGithubInstallations = $state(false)
+	let githubInstallations: GetGlobalConnectedRepositoriesResponse = $state([])
+	let workspaceGithubInstallations: GetGlobalConnectedRepositoriesResponse = $state([])
+	let selectedGHAppAccountId: string | undefined = $state(undefined)
+	let selectedGHAppRepository: string | undefined = $state(undefined)
+	let githubInstallationUrl: string | undefined = $state(undefined)
 	let installationCheckInterval: number | undefined = undefined
-	let isCheckingInstallation = false
-	let importJwt = ''
-	let githubAppPopover: { open: () => void; close: () => void } | null = null
+	let isCheckingInstallation = $state(false)
+	let importJwt = $state('')
+	let githubAppPopover: { open: () => void; close: () => void } | null = $state(null)
 
 	async function loadGithubInstallations() {
 		if (!$enterpriseLicense) return
@@ -159,9 +171,6 @@
 			notFound = true
 		}
 	}
-	$: $workspaceStore && loadSchema()
-
-	$: notFound && rawCode && parseJson()
 
 	function parseJson() {
 		try {
@@ -173,13 +182,9 @@
 			error = e.message
 		}
 	}
-	let error = ''
-	let rawCode = ''
-	let viewJsonSchema = false
-
-	$: rawCode && parseJson()
-
-	$: textFileContent && parseTextFileContent()
+	let error = $state('')
+	let rawCode = $state('')
+	let viewJsonSchema = $state(false)
 
 	function switchTab(asJson: boolean) {
 		viewJsonSchema = asJson
@@ -193,11 +198,8 @@
 		}
 	}
 
-	$: resourceType == 'postgresql' && isSupabaseAvailable()
-	$: resourceType == 'git_repository' && $userStore?.is_admin && loadGithubInstallations()
-
-	let connectionString = ''
-	let validConnectionString = true
+	let connectionString = $state('')
+	let validConnectionString = $state(true)
 	function parseConnectionString(close: (_: any) => void) {
 		const regex =
 			/postgres(?:ql)?:\/\/(?<user>[^:@]+)(?::(?<password>[^@]+))?@(?<host>[^:\/?]+)(?::(?<port>\d+))?\/(?<dbname>[^\?]+)?(?:\?.*sslmode=(?<sslmode>[^&]+))?/
@@ -241,21 +243,14 @@
 		close(null)
 	}
 
-	let rawCodeEditor: SimpleEditor | undefined = undefined
-	let textFileContent: string
+	let rawCodeEditor: SimpleEditor | undefined = $state(undefined)
+	let textFileContent: string | undefined = $state(undefined)
 
 	function parseTextFileContent() {
 		args = {
 			content: textFileContent
 		}
 	}
-
-	$: githubInstallationsNotInWorkspace = githubInstallations.filter((installation) => {
-		return !workspaceGithubInstallations.some(
-			(workspaceInstallation) =>
-				workspaceInstallation.installation_id === installation.installation_id
-		)
-	})
 
 	async function deleteInstallation(installation_id: number) {
 		if (!$workspaceStore) {
@@ -329,6 +324,32 @@
 			}
 		}
 	}
+	$effect(() => {
+		$workspaceStore && loadSchema()
+	})
+	$effect(() => {
+		notFound && rawCode && parseJson()
+	})
+	$effect(() => {
+		rawCode && parseJson()
+	})
+	$effect(() => {
+		textFileContent && parseTextFileContent()
+	})
+	$effect(() => {
+		resourceType == 'postgresql' && isSupabaseAvailable()
+	})
+	$effect(() => {
+		resourceType == 'git_repository' && $userStore?.is_admin && loadGithubInstallations()
+	})
+	let githubInstallationsNotInWorkspace = $derived(
+		githubInstallations.filter((installation) => {
+			return !workspaceGithubInstallations.some(
+				(workspaceInstallation) =>
+					workspaceInstallation.installation_id === installation.installation_id
+			)
+		})
+	)
 </script>
 
 {#if !notFound}
@@ -346,7 +367,7 @@
 					placement: 'bottom'
 				}}
 			>
-				<svelte:fragment slot="trigger">
+				{#snippet trigger()}
 					<Button
 						spacingSize="sm"
 						size="xs"
@@ -357,8 +378,8 @@
 					>
 						From connection string
 					</Button>
-				</svelte:fragment>
-				<svelte:fragment slot="content" let:close>
+				{/snippet}
+				{#snippet content({ close })}
 					<div class="block text-primary p-4">
 						<div class="w-[550px] flex flex-col items-start gap-1">
 							<div class="flex flex-row gap-1 w-full">
@@ -384,7 +405,7 @@
 							{/if}
 						</div>
 					</div>
-				</svelte:fragment>
+				{/snippet}
 			</Popover>
 		{/if}
 		{#if resourceType == 'postgresql' && supabaseWizard}
@@ -419,7 +440,7 @@
 					}}
 					disabled={!$enterpriseLicense || loadingGithubInstallations}
 				>
-					<svelte:fragment slot="trigger">
+					{#snippet trigger()}
 						<Button
 							color="none"
 							variant="border"
@@ -433,8 +454,8 @@
 						>
 							{$enterpriseLicense ? 'GitHub App' : 'GitHub App (ee only)'}
 						</Button>
-					</svelte:fragment>
-					<svelte:fragment slot="content" let:close>
+					{/snippet}
+					{#snippet content({ close })}
 						<div class="block text-primary p-4">
 							<div class="flex flex-col gap-4 w-[600px]">
 								{#if workspaceGithubInstallations.length > 0}
@@ -654,7 +675,7 @@
 								</div>
 							</div>
 						</div>
-					</svelte:fragment>
+					{/snippet}
 				</Popover>
 			{:else}
 				<Button

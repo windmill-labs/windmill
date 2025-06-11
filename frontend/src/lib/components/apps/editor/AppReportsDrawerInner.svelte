@@ -24,47 +24,53 @@
 	import { CUSTOM_TAGS_SETTING, WORKSPACE_SLACK_BOT_TOKEN_PATH } from '$lib/consts'
 	import { loadSchemaFromPath } from '$lib/infer'
 	import { hubPaths } from '$lib/hub'
-	export let appPath: string
-	export let open = false
+	interface Props {
+		appPath: string
+		open?: boolean
+	}
 
-	let appReportingEnabled = false
-	let appReportingStartupDuration = 5
+	let { appPath, open = $bindable(false) }: Props = $props()
+
+	let appReportingEnabled = $state(false)
+	let appReportingStartupDuration = $state(5)
 	let appReportingSchedule: {
 		cron: string
 		timezone: string
-	} = {
+	} = $state({
 		cron: '0 0 12 * *',
 		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-	}
-	let selectedTab: 'email' | 'slack' | 'discord' | 'custom' = $enterpriseLicense
-		? 'slack'
-		: 'custom'
+	})
+	let selectedTab: 'email' | 'slack' | 'discord' | 'custom' = $state(
+		$enterpriseLicense ? 'slack' : 'custom'
+	)
 
-	let screenshotKind: 'pdf' | 'png' = 'pdf'
+	let screenshotKind: 'pdf' | 'png' = $state('pdf')
 
-	let customPath: string | undefined = undefined
-	let customPathSchema: Record<string, any> = {}
-	let args: Record<string, any> = {}
-	let areArgsValid = true
-	let customWidth: null | number = 1200
-	let customHeight: null | number = null
+	let customPath: string | undefined = $state(undefined)
+	let customPathSchema: Record<string, any> = $state({})
+	let args: Record<string, any> = $state({})
+	let areArgsValid = $state(true)
+	let customWidth: null | number = $state(1200)
+	let customHeight: null | number = $state(null)
 
-	$: customPath
-		? loadSchemaFromPath(customPath).then((schema) => {
-				customPathSchema = schema
-					? {
-							...schema,
-							properties: Object.fromEntries(
-								Object.entries(schema.properties ?? {}).filter(
-									([key, _]) => key !== 'screenshot' && key !== 'app_path' && key !== 'kind'
+	$effect(() => {
+		customPath
+			? loadSchemaFromPath(customPath).then((schema) => {
+					customPathSchema = schema
+						? {
+								...schema,
+								properties: Object.fromEntries(
+									Object.entries(schema.properties ?? {}).filter(
+										([key, _]) => key !== 'screenshot' && key !== 'app_path' && key !== 'kind'
+									)
 								)
-							)
-						}
-					: {}
-			})
-		: (customPathSchema = {})
+							}
+						: {}
+				})
+			: (customPathSchema = {})
+	})
 
-	let isSlackConnectedWorkspace = false
+	let isSlackConnectedWorkspace = $state(false)
 	async function getWorspaceSlackSetting() {
 		const settings = await WorkspaceService.getSettings({
 			workspace: $workspaceStore!
@@ -134,7 +140,9 @@
 		} catch (err) {}
 	}
 
-	$: appPath && getAppReportingInfo()
+	$effect(() => {
+		appPath && getAppReportingInfo()
+	})
 
 	async function disableAppReporting() {
 		const flowPath = appPath + '_reports'
@@ -496,7 +504,7 @@ export async function main(
 		appReportingEnabled = true
 	}
 
-	let testLoading = false
+	let testLoading = $state(false)
 	async function testReport() {
 		try {
 			testLoading = true
@@ -545,12 +553,14 @@ export async function main(
 		}
 	}
 
-	let disabled = true
-	$: disabled =
-		emptyString(appReportingSchedule.cron) ||
-		(selectedTab === 'custom' && emptyString(customPath)) ||
-		(selectedTab === 'slack' && !isSlackConnectedWorkspace) ||
-		!areArgsValid
+	let disabled = $state(true)
+	$effect(() => {
+		disabled =
+			emptyString(appReportingSchedule.cron) ||
+			(selectedTab === 'custom' && emptyString(customPath)) ||
+			(selectedTab === 'slack' && !isSlackConnectedWorkspace) ||
+			!areArgsValid
+	})
 </script>
 
 <DrawerContent
@@ -558,7 +568,8 @@ export async function main(
 	title="Schedule Reports"
 	tooltip="Send a PDF or PNG preview of any app at a given schedule"
 	documentationLink="https://www.windmill.dev/docs/apps/schedule_reports"
-	><svelte:fragment slot="actions">
+>
+	{#snippet actions()}
 		<div class="mr-4 center-center">
 			<Toggle
 				checked={appReportingEnabled}
@@ -587,7 +598,7 @@ export async function main(
 		>
 			{appReportingEnabled ? 'Update' : 'Save and enable'}
 		</Button>
-	</svelte:fragment>
+	{/snippet}
 	<div class="flex flex-col gap-8">
 		<Alert type="info" title="Scheduled PDF/PNG reports"
 			>Send a PDF or PNG preview of the app at a given schedule. Enabling this feature will create a

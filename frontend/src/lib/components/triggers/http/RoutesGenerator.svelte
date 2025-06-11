@@ -137,7 +137,7 @@
 		title={'Generate HTTP routes from OpenAPI spec'}
 		on:close={() => routesGenerator.closeDrawer()}
 	>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button
 				size="sm"
 				loading={isCreating}
@@ -147,7 +147,7 @@
 			>
 				Save routes
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 		{@render config()}
 	</DrawerContent>
 </Drawer>

@@ -429,9 +429,9 @@
 			class="h-full"
 			fixedOverflowWidgets={false}
 		/>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button size="sm" on:click={inferJson}>Infer</Button>
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>
 
@@ -466,9 +466,9 @@
 
 <Drawer bind:this={editResourceTypeDrawer} size="800px">
 	<DrawerContent title="Edit resource type" on:close={editResourceTypeDrawer.closeDrawer}>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button startIcon={{ icon: Save }} on:click={updateResourceType}>Update</Button>
-		</svelte:fragment>
+		{/snippet}
 		<div class="flex flex-col gap-6">
 			<label for="inp">
 				<div class="mb-1 font-semibold text-secondary gap-1 flex flex-row items-center"
@@ -515,13 +515,13 @@
 
 <Drawer bind:this={resourceTypeDrawer} size="1200px">
 	<DrawerContent title="Create resource type" on:close={resourceTypeDrawer.closeDrawer}>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button
 				startIcon={{ icon: Save }}
 				on:click={addResourceType}
 				disabled={!isNewResourceTypeNameValid}>Save</Button
 			>
-		</svelte:fragment>
+		{/snippet}
 		<div class="flex flex-col gap-6">
 			<label for="inp">
 				<div class="mb-1 font-semibold text-secondary gap-1 flex flex-row items-center"

@@ -5,7 +5,7 @@
 	import SimpleEditor from '../SimpleEditor.svelte'
 	import type ItemPicker from '../ItemPicker.svelte'
 	import type VariableEditor from '../VariableEditor.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import ArgInput from '../ArgInput.svelte'
 	import ObjectTypeNarrowing from '../ObjectTypeNarrowing.svelte'
 	import Tabs from '../common/tabs/Tabs.svelte'
@@ -20,34 +20,67 @@
 	import { deepEqual } from 'fast-equals'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
-	export let format: string | undefined = undefined
-	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
-	export let type: string | undefined = undefined
-	export let oneOf: SchemaProperty[] | undefined = undefined
-	export let required = false
-	export let pattern: undefined | string = undefined
-	export let password: undefined | boolean = undefined
-	export let variableEditor: VariableEditor | undefined = undefined
-	export let itemPicker: ItemPicker | undefined = undefined
-	export let nullable: boolean | undefined = undefined
-	export let disabled: boolean | undefined = undefined
-	export let defaultValue: any = undefined
-	export let propsNames: any = []
-	export let showExpr: string | undefined = undefined
-	export let extra: Record<string, any> = {}
-	export let customErrorMessage: string | undefined = undefined
-	export let itemsType:
-		| {
-				type?: 'string' | 'number' | 'bytes' | 'object'
-				contentEncoding?: 'base64'
-				enum?: string[]
-				multiselect?: string[]
-		  }
-		| undefined = undefined
-	export let properties: Record<string, any> | undefined = undefined
-	export let order: string[] | undefined = undefined
-	export let requiredProperty: string[] | undefined = undefined
-	export let displayWebhookWarning: boolean = true
+	interface Props {
+		format?: string | undefined
+		contentEncoding?: 'base64' | 'binary' | undefined
+		type?: string | undefined
+		oneOf?: SchemaProperty[] | undefined
+		required?: boolean
+		pattern?: undefined | string
+		password?: undefined | boolean
+		variableEditor?: VariableEditor | undefined
+		itemPicker?: ItemPicker | undefined
+		nullable?: boolean | undefined
+		disabled?: boolean | undefined
+		defaultValue?: any
+		propsNames?: any
+		showExpr?: string | undefined
+		extra?: Record<string, any>
+		customErrorMessage?: string | undefined
+		itemsType?:
+			| {
+					type?: 'string' | 'number' | 'bytes' | 'object'
+					contentEncoding?: 'base64'
+					enum?: string[]
+					multiselect?: string[]
+			  }
+			| undefined
+		properties?: Record<string, any> | undefined
+		order?: string[] | undefined
+		requiredProperty?: string[] | undefined
+		displayWebhookWarning?: boolean
+	}
+
+	let {
+		format = $bindable(undefined),
+		contentEncoding = undefined,
+		type = undefined,
+		oneOf = $bindable(undefined),
+		required = false,
+		pattern = undefined,
+		password = undefined,
+		variableEditor = undefined,
+		itemPicker = undefined,
+		nullable = $bindable(undefined),
+		disabled = $bindable(undefined),
+		defaultValue = $bindable(undefined),
+		propsNames = [],
+		showExpr = $bindable(undefined),
+		extra = {},
+		customErrorMessage = undefined,
+		itemsType = undefined,
+		properties = $bindable(undefined),
+		order = $bindable(undefined),
+		requiredProperty = $bindable(undefined),
+		displayWebhookWarning = true
+	}: Props = $props()
+
+	let schema = $state({
+		properties,
+		order,
+		required: requiredProperty,
+		oneOf: oneOf ? getOneOfWithoutLabel(oneOf) : undefined
+	})
 
 	function getOneOfWithoutLabel(oneOf: SchemaProperty[]) {
 		return oneOf.map((v) => ({
@@ -58,7 +91,7 @@
 		}))
 	}
 
-	let oneOfSelected: string | undefined = undefined
+	let oneOfSelected: string | undefined = $state(undefined)
 	function oneOfUpdate(oneOf: SchemaProperty[] | undefined) {
 		if (oneOf && oneOf.length >= 2) {
 			if (!oneOfSelected) {
@@ -81,7 +114,9 @@
 			schema = schema
 		}
 	}
-	$: oneOfUpdate(oneOf)
+	$effect(() => {
+		oneOfUpdate(oneOf)
+	})
 
 	function orderUpdate(order) {
 		if (order && !deepEqual(order, schema.order)) {
@@ -90,7 +125,9 @@
 			schema = schema
 		}
 	}
-	$: orderUpdate(order)
+	$effect(() => {
+		orderUpdate(order)
+	})
 
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
@@ -103,13 +140,6 @@
 		return []
 	}
 
-	let schema = {
-		properties,
-		order,
-		required: requiredProperty,
-		oneOf: oneOf ? getOneOfWithoutLabel(oneOf) : undefined
-	}
-
 	function schemaUpdate(changedSchema: typeof schema) {
 		if (
 			!deepEqual(changedSchema, {
@@ -119,9 +149,9 @@
 				oneOf: oneOf ? getOneOfWithoutLabel(oneOf) : undefined
 			})
 		) {
-			properties = structuredClone(changedSchema.properties)
-			order = structuredClone(changedSchema.order)
-			requiredProperty = structuredClone(changedSchema.required)
+			properties = structuredClone($state.snapshot(changedSchema.properties))
+			order = structuredClone($state.snapshot(changedSchema.order))
+			requiredProperty = structuredClone($state.snapshot(changedSchema.required))
 
 			const tagKey = oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
 				? 'kind'
@@ -143,9 +173,11 @@
 		}
 	}
 
-	$: schemaUpdate(schema)
+	$effect(() => {
+		schemaUpdate(schema)
+	})
 
-	let variantName = ''
+	let variantName = $state('')
 	function createVariant(name: string) {
 		if (schema.oneOf) {
 			if (schema.oneOf.some((obj) => obj.title === name)) {
@@ -181,8 +213,9 @@
 		}
 	}
 
-	let initialObjectSelected =
-		Object.keys(schema?.properties ?? {}).length == 0 ? 'resource' : 'custom-object'
+	let initialObjectSelected = $state(
+		Object.keys(untrack(() => schema)?.properties ?? {}).length == 0 ? 'resource' : 'custom-object'
+	)
 </script>
 
 <div class="flex flex-col gap-2">
@@ -192,23 +225,24 @@
 				bind:selected={oneOfSelected}
 				class="h-auto w-auto"
 				tabListClass="flex-wrap"
-				let:item
 			>
-				{#each schema.oneOf as obj}
-					<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
-				{/each}
+				{#snippet children({ item })}
+					{#each schema.oneOf ?? [] as obj}
+						<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
+					{/each}
+				{/snippet}
 			</ToggleButtonGroup>
 
 			<Popover placement="bottom-end" closeButton>
-				<svelte:fragment slot="trigger">
+				{#snippet trigger()}
 					<Button size="xs2" color="light" nonCaptureEvent startIcon={{ icon: Plus }} />
-				</svelte:fragment>
-				<svelte:fragment slot="content" let:close>
+				{/snippet}
+				{#snippet content({ close })}
 					<Label label="Label" class="p-2 flex flex-col gap-2">
 						<input
 							type="text"
 							class="w-full !bg-surface"
-							on:keydown={(event) => {
+							onkeydown={(event) => {
 								if (event.key === 'Enter') {
 									createVariant(variantName)
 									close()
@@ -229,7 +263,7 @@
 							Add
 						</Button>
 					</Label>
-				</svelte:fragment>
+				{/snippet}
 			</Popover>
 		</div>
 		<div class="flex flex-row gap-2 items-center">
@@ -240,7 +274,7 @@
 				containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
 				closeButton
 			>
-				<svelte:fragment slot="trigger">
+				{#snippet trigger()}
 					<Button
 						size="xs2"
 						color="light"
@@ -253,13 +287,13 @@
 							}
 						}}
 					/>
-				</svelte:fragment>
-				<svelte:fragment slot="content" let:close>
+				{/snippet}
+				{#snippet content({ close })}
 					<Label label="Label" class="p-2 flex flex-col gap-2">
 						<input
 							type="text"
 							class="w-full !bg-surface"
-							on:keydown={(event) => {
+							onkeydown={(event) => {
 								if (event.key === 'Enter') {
 									if (oneOfSelected) {
 										renameVariant(variantName, oneOfSelected)
@@ -284,7 +318,7 @@
 							Rename
 						</Button>
 					</Label>
-				</svelte:fragment>
+				{/snippet}
 			</Popover>
 			<Button
 				size="xs2"
@@ -321,7 +355,7 @@
 		>
 			<Tab value="resource">Resource</Tab>
 			<Tab value="custom-object">Custom Object</Tab>
-			<svelte:fragment slot="content">
+			{#snippet content()}
 				<div class="pt-2">
 					<TabContent value="custom-object">
 						<EditableSchemaDrawer bind:schema on:change={() => dispatch('schemaChange')} />
@@ -331,7 +365,7 @@
 						<ObjectTypeNarrowing on:change={() => dispatch('schemaChange')} bind:format />
 					</TabContent>
 				</div>
-			</svelte:fragment>
+			{/snippet}
 		</Tabs>
 	{/if}
 

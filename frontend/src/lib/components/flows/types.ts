@@ -1,4 +1,4 @@
-import type { FlowModule, OpenFlow } from '$lib/gen'
+import type { OpenFlow } from '$lib/gen'
 import type { History } from '$lib/history'
 import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
@@ -7,6 +7,7 @@ import type { FlowBuilderWhitelabelCustomUi } from '../custom_ui'
 import type Editor from '../Editor.svelte'
 import type SimpleEditor from '../SimpleEditor.svelte'
 import type { TestSteps } from './testSteps.svelte'
+import type { StateStore } from '$lib/utils'
 
 export type FlowInput = Record<
 	string,
@@ -61,12 +62,12 @@ export type CurrentEditor =
 export type FlowEditorContext = {
 	selectedId: Writable<string>
 	currentEditor: Writable<CurrentEditor>
-	moving: Writable<{ module: FlowModule; modules: FlowModule[] } | undefined>
-	previewArgs: Writable<Record<string, any>>
+	moving: Writable<{ id: string } | undefined>
+	previewArgs: StateStore<Record<string, any>>
 	scriptEditorDrawer: Writable<ScriptEditorDrawer | undefined>
 	history: History<OpenFlow>
 	pathStore: Writable<string>
-	flowStore: Writable<ExtendedOpenFlow>
+	flowStore: StateStore<ExtendedOpenFlow>
 	flowInputEditorState: Writable<FlowInputEditorState>
 	flowStateStore: Writable<FlowState>
 	testSteps: TestSteps

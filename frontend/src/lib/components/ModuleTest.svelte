@@ -24,7 +24,7 @@
 	}
 
 	export function loadArgsAndRunTest() {
-		testSteps?.updateStepArgs(mod.id, $flowStateStore, $flowStore, $previewArgs)
+		testSteps?.updateStepArgs(mod.id, $flowStateStore, flowStore?.val, previewArgs?.val)
 		runTest(testSteps.getStepArgs(mod.id))
 	}
 
@@ -40,7 +40,7 @@
 				val.content,
 				val.language,
 				mod.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args } : args,
-				$flowStore?.tag ?? val.tag
+				flowStore?.val?.tag ?? val.tag
 			)
 		} else if (val.type == 'script') {
 			const script = val.hash
@@ -51,7 +51,7 @@
 				script.content,
 				script.language,
 				mod.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args } : args,
-				$flowStore?.tag ?? (val.tag_override ? val.tag_override : script.tag),
+				flowStore?.val?.tag ?? (val.tag_override ? val.tag_override : script.tag),
 				script.lock,
 				val.hash ?? script.hash
 			)

@@ -11,32 +11,52 @@
 	import { getContext } from 'svelte'
 	import { getStringError } from './copilot/chat/utils'
 
-	export let lang: Script['language']
-	export let editor: Editor | undefined
-	export let diffEditor: DiffEditor | undefined
-	export let loopStatus:
-		| { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' }
-		| undefined = undefined
-	export let lastJob: Job | undefined = undefined
-	export let scriptProgress: number | undefined = undefined
-	export let testJob: Job | undefined = undefined
-	export let mod: FlowModule
-	export let testIsLoading: boolean = false
-	export let disableMock: boolean = false
-	export let disableHistory: boolean = false
+	interface Props {
+		lang: Script['language']
+		editor: Editor | undefined
+		diffEditor: DiffEditor | undefined
+		loopStatus?: { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' } | undefined
+		lastJob?: Job | undefined
+		scriptProgress?: number | undefined
+		testJob?: Job | undefined
+		mod: FlowModule
+		testIsLoading?: boolean
+		disableMock?: boolean
+		disableHistory?: boolean
+	}
 
-	const { flowStore, testSteps } = getContext<FlowEditorContext>('FlowEditorContext')
+	let {
+		lang,
+		editor,
+		diffEditor,
+		loopStatus = undefined,
+		lastJob = undefined,
+		scriptProgress = $bindable(undefined),
+		testJob = undefined,
+		mod,
+		testIsLoading = false,
+		disableMock = false,
+		disableHistory = false
+	}: Props = $props()
 
-	let selectedJob: Job | undefined = undefined
+	const { testSteps } = getContext<FlowEditorContext>('FlowEditorContext')
+
+	let selectedJob: Job | undefined = $state(undefined)
 	let fetchingLastJob = false
-	let preview: 'mock' | 'job' | undefined = undefined
-	let outputPicker: OutputPickerInner | undefined = undefined
-	let jobProgressReset: () => void = () => {}
+	let preview: 'mock' | 'job' | undefined = $state(undefined)
+	let jobProgressReset: () => void = $state(() => {})
 
-	$: lastJob && outputPicker?.setLastJob(lastJob, false)
-	$: testJob && outputPicker?.setLastJob(testJob, true)
+	let nlastJob = $derived.by(() => {
+		if (testJob) {
+			return { ...testJob, preview: true }
+		}
+		if (lastJob) {
+			return { ...lastJob, preview: false }
+		}
+		return undefined
+	})
 
-	let forceJson = false
+	let forceJson = $state(false)
 </script>
 
 <Splitpanes horizontal>
@@ -51,15 +71,12 @@
 		{/if}
 
 		<OutputPickerInner
-			bind:this={outputPicker}
+			lastJob={nlastJob}
 			fullResult
 			moduleId={mod.id}
 			closeOnOutsideClick={true}
 			getLogs
-			on:updateMock={({ detail }) => {
-				mod.mock = detail
-				$flowStore = $flowStore
-			}}
+			on:updateMock
 			mock={mod.mock}
 			bind:forceJson
 			bind:selectedJob
@@ -70,11 +87,11 @@
 			{disableMock}
 			{disableHistory}
 		>
-			<svelte:fragment slot="copilot-fix">
+			{#snippet copilot_fix()}
 				{#if lang && editor && diffEditor && testSteps.getStepArgs(mod.id) && selectedJob?.type === 'CompletedJob' && !selectedJob.success && getStringError(selectedJob.result)}
 					<ScriptFix {lang} />
 				{/if}
-			</svelte:fragment>
+			{/snippet}
 		</OutputPickerInner>
 	</Pane>
 	<Pane size={50} minSize={10}>

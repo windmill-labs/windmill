@@ -256,9 +256,9 @@
 				: 'New Kafka trigger'}
 			on:close={drawer.closeDrawer}
 		>
-			<svelte:fragment slot="actions">
+			{#snippet actions()}
 				{@render actionsButtons('sm')}
-			</svelte:fragment>
+			{/snippet}
 			{@render config()}
 		</DrawerContent>
 	</Drawer>

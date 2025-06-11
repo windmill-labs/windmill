@@ -1,4 +1,4 @@
-<script context="module">
+<script module>
 	function useResizeObserver(node, callback) {
 		const observer = new ResizeObserver(() => {
 			callback()
@@ -29,60 +29,92 @@
 	import DisplayResultControlBar from '$lib/components/DisplayResultControlBar.svelte'
 	import { base } from '$lib/base'
 
-	export let prefix: string = ''
-	export let allowCopy: boolean = false
-	export let connectingData: any | undefined = undefined
-	export let mock:
-		| {
-				enabled?: boolean
-				return_value?: unknown
-		  }
-		| undefined = { enabled: false }
-	export let moduleId: string = ''
-	export let fullResult: boolean = false
-	export let closeOnOutsideClick: boolean = false
-	export let getLogs: boolean = false
-	export let selectedJob: SelectedJob = undefined
-	export let forceJson: boolean = false
-	export let isLoading: boolean = false
-	export let preview: 'mock' | 'job' | undefined = undefined
-	export let hideHeaderBar: boolean = false
-	export let simpleViewer: any | undefined = undefined
-	export let path: string = ''
-	export let loopStatus:
-		| { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' }
-		| undefined = undefined
-	export let customHeight: number | undefined = undefined
-	export let rightMargin: boolean = false
-	export let disableMock: boolean = false
-	export let disableHistory: boolean = false
-	export let derivedHistoryOpen: boolean = false // derived from historyOpen
-	export let historyOffset = { mainAxis: 8, crossAxis: -4.5 }
+	interface Props {
+		prefix?: string
+		allowCopy?: boolean
+		connectingData?: any | undefined
+		mock?:
+			| {
+					enabled?: boolean
+					return_value?: unknown
+			  }
+			| undefined
+		moduleId?: string
+		fullResult?: boolean
+		closeOnOutsideClick?: boolean
+		getLogs?: boolean
+		selectedJob?: SelectedJob
+		forceJson?: boolean
+		isLoading?: boolean
+		preview?: 'mock' | 'job' | undefined
+		hideHeaderBar?: boolean
+		simpleViewer?: any | undefined
+		path?: string
+		loopStatus?: { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' } | undefined
+		customHeight?: number | undefined
+		rightMargin?: boolean
+		disableMock?: boolean
+		disableHistory?: boolean
+		lastJob?: SelectedJob
+		derivedHistoryOpen?: boolean // derived from historyOpen
+		historyOffset?: any
+		clazz?: string
+		copilot_fix?: import('svelte').Snippet
+	}
+
+	let {
+		lastJob = undefined,
+		prefix = '',
+		allowCopy = false,
+		connectingData = undefined,
+		mock = $bindable({ enabled: false }),
+		moduleId = '',
+		fullResult = false,
+		closeOnOutsideClick = false,
+		getLogs = false,
+		selectedJob = $bindable(undefined),
+		forceJson = $bindable(false),
+		isLoading = $bindable(false),
+		preview = $bindable(undefined),
+		hideHeaderBar = false,
+		simpleViewer = undefined,
+		path = '',
+		loopStatus = undefined,
+		customHeight = undefined,
+		rightMargin = false,
+		disableMock = false,
+		disableHistory = false,
+		derivedHistoryOpen = $bindable(false),
+		historyOffset = { mainAxis: 8, crossAxis: -4.5 },
+		clazz,
+		copilot_fix
+	}: Props = $props()
 
 	type SelectedJob =
-		| Job
-		| {
-				id: string
-				result: unknown
-				type: 'CompletedJob'
-				workspace_id: string
-				success: boolean
-		  }
+		| ((
+				| Job
+				| {
+						id: string
+						result: unknown
+						type: 'CompletedJob'
+						workspace_id: string
+						success: boolean
+				  }
+		  ) & { preview?: boolean })
 		| undefined
 
 	const dispatch = createEventDispatcher<{
 		updateMock: { enabled: boolean; return_value?: unknown }
 	}>()
 
-	let jsonView = false
-	let clientHeight: number = 0
-	let tmpMock: { enabled: boolean; return_value?: unknown } | undefined = undefined
-	let error = ''
-	let stepHistoryPopover: Popover | undefined = undefined
-	let lastJob: SelectedJob = undefined
-	let historyOpen = false
-	let contentEl: HTMLDivElement | undefined = undefined
-	let hasOverflow = false
+	let jsonView = $state(false)
+	let clientHeight: number = $state(0)
+	let tmpMock: { enabled: boolean; return_value?: unknown } | undefined = $state(undefined)
+	let error = $state('')
+	let stepHistoryPopover: Popover | undefined = $state(undefined)
+	let historyOpen = $state(false)
+	let contentEl: HTMLDivElement | undefined = $state(undefined)
+	let hasOverflow = $state(false)
 
 	function checkOverflow() {
 		if (contentEl) {
@@ -98,16 +130,16 @@
 		}
 	}
 
-	export function setLastJob(job: SelectedJob, setPreview: boolean = false) {
-		if (!job || !('result' in job)) {
+	$effect(() => {
+		if (!lastJob || !('result' in lastJob)) {
 			return
 		}
-		lastJob = structuredClone(job)
 		selectJob(lastJob)
-		if (setPreview && mock?.enabled) {
+
+		if (lastJob.preview) {
 			preview = 'job'
 		}
-	}
+	})
 
 	function togglePreview(nPrev: 'mock' | 'job' | undefined) {
 		if (!nPrev && preview === 'job') {
@@ -117,46 +149,15 @@
 		preview = nPrev
 	}
 
-	$: mockUpdateStatus =
-		preview === 'mock' && !mock?.enabled
-			? 'restore'
-			: preview === 'job' && mock?.enabled && selectedJob?.type === 'CompletedJob'
-				? 'override'
-				: undefined
-
-	let dblClickDisabled = false
-	let hoveringResult = false
-	let debouncedCanEditWithDblClick = false
+	let dblClickDisabled = $state(false)
+	let hoveringResult = $state(false)
+	let debouncedCanEditWithDblClick = $state(false)
 	let debounceTimeout: ReturnType<typeof setTimeout> | null = null
-	let canEditWithDblClick = false
-	let displayResultJob: DisplayResult | undefined = undefined
-	let displayResultMock: DisplayResult | undefined = undefined
-	let toolbarLocationJob: 'self' | 'external' | undefined = undefined
-	let toolbarLocationMock: 'self' | 'external' | undefined = undefined
-
-	$: derivedHistoryOpen = historyOpen
-
-	$: if (displayResultJob && typeof displayResultJob.getToolbarLocation === 'function') {
-		toolbarLocationJob = displayResultJob.getToolbarLocation()
-	}
-
-	$: if (displayResultMock && typeof displayResultMock.getToolbarLocation === 'function') {
-		toolbarLocationMock = displayResultMock.getToolbarLocation()
-	}
-
-	$: {
-		const newValue =
-			!!mock?.enabled &&
-			!connectingData &&
-			!dblClickDisabled &&
-			hoveringResult &&
-			!jsonView &&
-			!preview
-		if (newValue != canEditWithDblClick) {
-			canEditWithDblClick = newValue
-			updateCanEditWithDblClick(newValue)
-		}
-	}
+	let canEditWithDblClick = $state(false)
+	let displayResultJob: DisplayResult | undefined = $state(undefined)
+	let displayResultMock: DisplayResult | undefined = $state(undefined)
+	let toolbarLocationJob: 'self' | 'external' | undefined = $state(undefined)
+	let toolbarLocationMock: 'self' | 'external' | undefined = $state(undefined)
 
 	function updateCanEditWithDblClick(newValue: boolean) {
 		canEditWithDblClick = newValue
@@ -183,7 +184,7 @@
 			})
 		} else if (selectedJob && 'result' in selectedJob) {
 			// Pin the job
-			let mockValue = structuredClone(selectedJob.result)
+			let mockValue: any = structuredClone($state.snapshot(selectedJob.result))
 			if (selectedJob.result === 'never tested this far') {
 				mockValue = { example: 'value' }
 			}
@@ -208,11 +209,47 @@
 		}
 	}
 
-	$: popoverHeight = customHeight ?? (clientHeight > 0 ? clientHeight : 0)
+	let mockUpdateStatus = $derived(
+		preview === 'mock' && !mock?.enabled
+			? 'restore'
+			: preview === 'job' && mock?.enabled && selectedJob?.type === 'CompletedJob'
+				? 'override'
+				: undefined
+	)
+	$effect(() => {
+		derivedHistoryOpen = historyOpen
+	})
+	$effect(() => {
+		if (displayResultJob && typeof displayResultJob.getToolbarLocation === 'function') {
+			toolbarLocationJob = displayResultJob.getToolbarLocation()
+		}
+	})
+	$effect(() => {
+		if (displayResultMock && typeof displayResultMock.getToolbarLocation === 'function') {
+			toolbarLocationMock = displayResultMock.getToolbarLocation()
+		}
+	})
+	$effect(() => {
+		const newValue =
+			!!mock?.enabled &&
+			!connectingData &&
+			!dblClickDisabled &&
+			hoveringResult &&
+			!jsonView &&
+			!preview
+		if (newValue != canEditWithDblClick) {
+			canEditWithDblClick = newValue
+			updateCanEditWithDblClick(newValue)
+		}
+	})
+
+	let popoverHeight = $derived(customHeight ?? (clientHeight > 0 ? clientHeight : 0))
+
+	const copilot_fix_render = $derived(copilot_fix)
 </script>
 
 <div
-	class={twMerge('w-full h-full flex flex-col', $$props.class)}
+	class={twMerge('w-full h-full flex flex-col', clazz)}
 	bind:clientHeight
 	style={canEditWithDblClick ? 'cursor: text;' : ''}
 >
@@ -246,7 +283,7 @@
 						disablePopup={!!connectingData || jsonView}
 						bind:isOpen={historyOpen}
 					>
-						<svelte:fragment slot="trigger">
+						{#snippet trigger()}
 							<Button
 								color="light"
 								size="xs2"
@@ -255,8 +292,8 @@
 								startIcon={{ icon: History }}
 								nonCaptureEvent
 							/>
-						</svelte:fragment>
-						<svelte:fragment slot="content">
+						{/snippet}
+						{#snippet content()}
 							<div class="rounded-[inherit]" style={`height: ${popoverHeight}px`}>
 								<StepHistory
 									{moduleId}
@@ -306,7 +343,7 @@
 										: undefined}
 								/>
 							</div>
-						</svelte:fragment>
+						{/snippet}
 					</Popover>
 				{/if}
 				{#if !isLoading}
@@ -357,7 +394,7 @@
 						{#if preview}
 							<button
 								class="px-1 shrink-0 text-secondary text-xs text-thin"
-								on:click={() => {
+								onclick={() => {
 									if (historyOpen) {
 										// closing history popover exits preview
 										stepHistoryPopover?.close()
@@ -390,7 +427,9 @@
 								Override pin
 							{/if}
 						</Button>
-						<svelte:fragment slot="text">Pin data</svelte:fragment>
+						{#snippet text()}
+							Pin data
+						{/snippet}
 					</Tooltip>
 				{/if}
 
@@ -446,9 +485,9 @@
 									: ''
 							)}
 						/>
-						<svelte:fragment slot="text">
+						{#snippet text()}
 							{'Pin the output to allow editing'}
-						</svelte:fragment>
+						{/snippet}
 					</Tooltip>
 				{/if}
 			</div>
@@ -484,8 +523,8 @@
 		</div>
 	</div>
 
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<!-- svelte-ignore a11y_mouse_events_have_key_events -->
 	<div
 		class={twMerge(
 			'grow min-h-0 rounded-md w-full pl-2 py-1 pb-2 overflow-auto',
@@ -497,9 +536,9 @@
 		<div
 			class={twMerge('h-full w-full rounded-md')}
 			bind:this={contentEl}
-			on:scroll={checkOverflow}
+			onscroll={checkOverflow}
 			use:useResizeObserver={checkOverflow}
-			on:mouseover={(event) => {
+			onmouseover={(event) => {
 				if (
 					!event.target ||
 					!(event.target instanceof HTMLElement) ||
@@ -518,17 +557,17 @@
 					dblClickDisabled = false
 				}
 			}}
-			on:dblclick={() => {
+			ondblclick={() => {
 				if (canEditWithDblClick) {
 					stepHistoryPopover?.close()
 					jsonView = true
 					tmpMock = undefined
 				}
 			}}
-			on:mouseenter={() => {
+			onmouseenter={() => {
 				hoveringResult = true
 			}}
-			on:mouseleave={() => {
+			onmouseleave={() => {
 				hoveringResult = false
 			}}
 		>
@@ -560,7 +599,7 @@
 							if (mock?.enabled) {
 								const newMock = {
 									enabled: true,
-									return_value: structuredClone(detail)
+									return_value: structuredClone($state.snapshot(detail))
 								}
 								tmpMock = newMock
 							}
@@ -614,9 +653,9 @@
 									toolbarLocationJob = detail
 								}}
 							>
-								<svelte:fragment slot="copilot-fix">
-									<slot name="copilot-fix" />
-								</svelte:fragment>
+								{#snippet copilot_fix()}
+									{@render copilot_fix_render?.()}
+								{/snippet}
 							</DisplayResult>
 						{/key}
 					</div>
@@ -638,7 +677,7 @@
 							{' or'}
 							<button
 								class="text-blue-500 hover:text-blue-700 underline"
-								on:click={() => {
+								onclick={() => {
 									const newMock = {
 										enabled: true,
 										return_value: mock?.return_value ?? { example: 'value' }

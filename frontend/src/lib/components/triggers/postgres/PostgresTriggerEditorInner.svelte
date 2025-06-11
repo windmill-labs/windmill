@@ -434,7 +434,7 @@
 				: 'New Postgres trigger'}
 			on:close={drawer.closeDrawer}
 		>
-			<svelte:fragment slot="actions">{@render actions()}</svelte:fragment>
+			{#snippet actions()}{@render actionsSnippet()}{/snippet}
 			{@render content()}
 		</DrawerContent>
 	</Drawer>
@@ -446,13 +446,13 @@
 			{/if}
 		</svelte:fragment>
 		<svelte:fragment slot="action">
-			{@render actions()}
+			{@render actionsSnippet()}
 		</svelte:fragment>
 		{@render content()}
 	</Section>
 {/if}
 
-{#snippet actions()}
+{#snippet actionsSnippet()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
 			{trigger}
@@ -599,7 +599,6 @@
 								--sms-open-z-index="100"
 								disabled={!can_write}
 							>
-								<!-- @migration-task: migrate this slot by hand, `remove-icon` is an invalid identifier -->
 								<svelte:fragment slot="remove-icon">
 									<div class="hover:text-primary p-0.5">
 										<X size={12} />

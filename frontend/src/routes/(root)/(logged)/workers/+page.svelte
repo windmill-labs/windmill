@@ -286,9 +286,9 @@
 			class="h-full"
 			fixedOverflowWidgets={false}
 		/>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button size="sm" on:click={importConfigFromYaml} disabled={!importConfigCode}>Import</Button>
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>
 
@@ -628,7 +628,9 @@
 									</tr>
 									{#if workers}
 										{@const sshWorker = workers.find((worker) => {
-											return isAgentWorkerShell(worker.worker) && isWorkerMaybeAlive(worker.last_ping)
+											return (
+												isAgentWorkerShell(worker.worker) && isWorkerMaybeAlive(worker.last_ping)
+											)
 										})?.worker}
 										{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
 											{@const isWorkerAlive = isWorkerMaybeAlive(last_ping)}

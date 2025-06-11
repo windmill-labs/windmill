@@ -11,7 +11,7 @@
 	import { dfs } from '../dfs'
 	import FlowPreprocessorModule from './FlowPreprocessorModule.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
-	import { insertNewPreprocessorModule } from '../flowStateUtils'
+	import { insertNewPreprocessorModule } from '../flowStateUtils.svelte'
 	import TriggersEditor from '../../triggers/TriggersEditor.svelte'
 	import { handleSelectTriggerFromKind, type Trigger } from '$lib/components/triggers/utils'
 
@@ -52,7 +52,7 @@
 	}
 
 	async function initWarnings() {
-		for (const module of $flowStore?.value?.modules) {
+		for (const module of flowStore.val?.value?.modules) {
 			if (!module) {
 				continue
 			}
@@ -65,7 +65,7 @@
 				flowStepWarnings: await initFlowStepWarnings(
 					module.value,
 					$flowStateStore?.[module?.id]?.schema,
-					dfs($flowStore.value.modules, (fm) => fm.id)
+					dfs(flowStore.val.value.modules, (fm) => fm.id)
 				)
 			}
 		}
@@ -109,7 +109,7 @@
 		on:updateSchema={(e) => {
 			const { payloadData, redirect } = e.detail
 			if (payloadData) {
-				$previewArgs = JSON.parse(JSON.stringify(payloadData))
+				previewArgs.val = JSON.parse(JSON.stringify(payloadData))
 			}
 			if (redirect) {
 				$selectedId = 'Input'
@@ -124,11 +124,11 @@
 		{noEditor}
 		newItem={newFlow}
 		isFlow={true}
-		hasPreprocessor={!!$flowStore.value.preprocessor_module}
+		hasPreprocessor={!!flowStore.val.value.preprocessor_module}
 		canHavePreprocessor={true}
-		args={$previewArgs}
+		args={previewArgs.val}
 		isDeployed={savedFlow && !savedFlow?.draft_only}
-		schema={$flowStore.schema}
+		schema={flowStore.val.schema}
 		{onDeployTrigger}
 	/>
 {:else if $selectedId.startsWith('subflow:')}
@@ -136,16 +136,16 @@
 		>Selected step is witin an expanded subflow and is not directly editable in the flow editor</div
 	>
 {:else}
-	{@const dup = checkDup($flowStore.value.modules)}
+	{@const dup = checkDup(flowStore.val.value.modules)}
 	{#if dup}
 		<div class="text-red-600 text-xl p-2">There are duplicate modules in the flow at id: {dup}</div>
 	{:else}
 		{#key $selectedId}
-			{#each $flowStore.value.modules as flowModule, index (flowModule.id ?? index)}
+			{#each flowStore.val.value.modules as flowModule, index (flowModule.id ?? index)}
 				<FlowModuleWrapper
 					{noEditor}
-					bind:flowModule={$flowStore.value.modules[index]}
-					previousModule={$flowStore.value.modules[index - 1]}
+					bind:flowModule={flowStore.val.value.modules[index]}
+					previousModule={flowStore.val.value.modules[index - 1]}
 					{enableAi}
 					savedModule={savedFlow?.value.modules[index]}
 				/>

@@ -21,48 +21,11 @@
 	import TriggerableByAI from './TriggerableByAI.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 
-	export let runnable:
-		| {
-				summary?: string
-				schema?: Schema | any
-				description?: string
-				path?: string
-				is_template?: boolean
-				hash?: string
-				kind?: string
-				can_write?: boolean
-				created_at?: string
-				created_by?: string
-				extra_perms?: Record<string, boolean>
-		  }
-		| undefined
-	export let runAction: (
-		scheduledForStr: string | undefined,
-		args: Record<string, any>,
-		invisible_to_owner: boolean | undefined,
-		overrideTag: string | undefined
-	) => void
-	export let buttonText = 'Run'
-	export let schedulable = true
-	export let detailed = true
-	export let autofocus = false
-	export let topButton = false
-	export let loading = false
-	export let noVariablePicker = false
-	export let viewKeybinding = false
-
-	export let scheduledForStr: string | undefined
-	export let invisible_to_owner: boolean | undefined
-	export let overrideTag: string | undefined
-
-	export let args: Record<string, any> = {}
-	export let jsonView = false
-
-	let reloadArgs = 0
-	let jsonEditor: JsonInputs | undefined = undefined
-	let schemaHeight = 0
-	let showInputSelectedBadge = false
-	let savedPreviousArgs: Record<string, any> | undefined = undefined
+	let reloadArgs = $state(0)
+	let jsonEditor: JsonInputs | undefined = $state(undefined)
+	let schemaHeight = $state(0)
+	let showInputSelectedBadge = $state(false)
+	let savedPreviousArgs: Record<string, any> | undefined = $state(undefined)
 
 	export async function setArgs(nargs: Record<string, any>) {
 		args = nargs
@@ -70,12 +33,72 @@
 	}
 
 	export function run() {
-		runAction(scheduledForStr, args, invisible_to_owner, overrideTag)
+		runAction(scheduledForStr, args ?? {}, invisible_to_owner, overrideTag)
 	}
 
-	export let isValid = true
+	interface Props {
+		runnable:
+			| {
+					summary?: string
+					schema?: Schema | any
+					description?: string
+					path?: string
+					is_template?: boolean
+					hash?: string
+					kind?: string
+					can_write?: boolean
+					created_at?: string
+					created_by?: string
+					extra_perms?: Record<string, boolean>
+			  }
+			| undefined
+		runAction: (
+			scheduledForStr: string | undefined,
+			args: Record<string, any>,
+			invisible_to_owner: boolean | undefined,
+			overrideTag: string | undefined
+		) => void
+		buttonText?: string
+		schedulable?: boolean
+		detailed?: boolean
+		autofocus?: boolean
+		topButton?: boolean
+		loading?: boolean
+		noVariablePicker?: boolean
+		viewKeybinding?: boolean
+		scheduledForStr: string | undefined
+		invisible_to_owner: boolean | undefined
+		overrideTag: string | undefined
+		args?: Record<string, any>
+		jsonView?: boolean
+		isValid?: boolean
+	}
 
-	$: onArgsChange(args)
+	let {
+		runnable = $bindable(),
+		runAction,
+		buttonText = 'Run',
+		schedulable = true,
+		detailed = true,
+		autofocus = false,
+		topButton = false,
+		loading = false,
+		noVariablePicker = false,
+		viewKeybinding = false,
+		scheduledForStr = $bindable(),
+		invisible_to_owner = $bindable(),
+		overrideTag = $bindable(),
+		args = $bindable(),
+		jsonView = false,
+		isValid = $bindable(true)
+	}: Props = $props()
+
+	$effect.pre(() => {
+		if (args == undefined) {
+			args = {}
+		}
+	})
+
 	let debounced: NodeJS.Timeout | undefined = undefined
 
 	function onArgsChange(args: any) {
@@ -99,6 +122,9 @@
 	export function setCode(code: string) {
 		jsonEditor?.setCode(code)
 	}
+	$effect(() => {
+		onArgsChange(args)
+	})
 </script>
 
 <TriggerableByAI
@@ -195,7 +221,7 @@
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
 			disabled={!isValid || jsonView}
-			on:click={() => runAction(undefined, args, invisible_to_owner, overrideTag)}
+			on:click={() => runAction(undefined, args ?? {}, invisible_to_owner, overrideTag)}
 		>
 			{buttonText}
 		</Button>
@@ -249,26 +275,26 @@
 					color="dark"
 					btnClasses="!px-6 !py-1 !h-8 inline-flex gap-2"
 					disabled={!isValid || jsonView}
-					on:click={() => runAction(scheduledForStr, args, invisible_to_owner, overrideTag)}
+					on:click={() => runAction(scheduledForStr, args ?? {}, invisible_to_owner, overrideTag)}
 					shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 				>
 					{scheduledForStr ? 'Schedule to run later' : buttonText}
 				</Button>
 				<div>
 					<Popover placement="bottom" closeButton usePointerDownOutside>
-						<svelte:fragment slot="trigger">
+						{#snippet trigger()}
 							<Button nonCaptureEvent startIcon={{ icon: Calendar }} size="xs" color="light">
 								Advanced
 							</Button>
-						</svelte:fragment>
-						<svelte:fragment slot="content">
+						{/snippet}
+						{#snippet content()}
 							<RunFormAdvancedPopup
 								bind:scheduledForStr
 								bind:invisible_to_owner
 								bind:overrideTag
 								bind:runnable
 							/>
-						</svelte:fragment>
+						{/snippet}
 					</Popover>
 				</div>
 			</div>
@@ -287,7 +313,7 @@
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
 			disabled={!isValid || jsonView}
-			on:click={() => runAction(undefined, args, invisible_to_owner, overrideTag)}
+			on:click={() => runAction(undefined, args ?? {}, invisible_to_owner, overrideTag)}
 			shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 		>
 			{buttonText}

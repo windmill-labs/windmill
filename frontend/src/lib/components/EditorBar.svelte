@@ -1,8 +1,10 @@
-<script context="module" lang="ts">
+<script module lang="ts">
 	export const EDITOR_BAR_WIDTH_THRESHOLD = 1044
 </script>
 
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { ResourceService, VariableService, type Script } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
@@ -47,110 +49,145 @@
 	import type { EditorBarUi } from './custom_ui'
 	import EditorSettings from './EditorSettings.svelte'
 
-	export let lang: SupportedLanguage | 'bunnative' | undefined
-	export let editor: Editor | undefined
-	export let websocketAlive: {
-		pyright: boolean
-		ruff: boolean
-		deno: boolean
-		go: boolean
-		shellcheck: boolean
+	interface Props {
+		lang: SupportedLanguage | 'bunnative' | undefined
+		editor: Editor | undefined
+		websocketAlive: {
+			pyright: boolean
+			ruff: boolean
+			deno: boolean
+			go: boolean
+			shellcheck: boolean
+		}
+		iconOnly?: boolean
+		validCode?: boolean
+		kind?: 'script' | 'trigger' | 'approval'
+		template?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative'
+		collabMode?: boolean
+		collabLive?: boolean
+		collabUsers?: { name: string }[]
+		scriptPath?: string | undefined
+		diffEditor?: DiffEditor | undefined
+		args: Record<string, any>
+		noHistory?: boolean
+		saveToWorkspace?: boolean
+		customUi?: EditorBarUi
+		lastDeployedCode?: string | undefined
+		diffMode?: boolean
+		showHistoryDrawer?: boolean
+		right?: import('svelte').Snippet
 	}
-	export let iconOnly: boolean = false
-	export let validCode: boolean = true
-	export let kind: 'script' | 'trigger' | 'approval' = 'script'
-	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' =
-		'script'
-	export let collabMode = false
-	export let collabLive = false
-	export let collabUsers: { name: string }[] = []
-	export let scriptPath: string | undefined = undefined
-	export let diffEditor: DiffEditor | undefined = undefined
-	export let args: Record<string, any>
-	export let noHistory = false
-	export let saveToWorkspace = false
-	export let customUi: EditorBarUi = {}
-	export let lastDeployedCode: string | undefined = undefined
-	export let diffMode: boolean = false
-	export let showHistoryDrawer: boolean = false
 
-	let contextualVariablePicker: ItemPicker
-	let variablePicker: ItemPicker
-	let resourcePicker: ItemPicker
-	let resourceTypePicker: ItemPicker
-	let variableEditor: VariableEditor
-	let resourceEditor: ResourceEditorDrawer
-	let showContextVarPicker = false
-	let showVarPicker = false
-	let showResourcePicker = false
-	let showResourceTypePicker = false
+	let {
+		lang,
+		editor,
+		websocketAlive,
+		iconOnly = false,
+		validCode = true,
+		kind = 'script',
+		template = 'script',
+		collabMode = false,
+		collabLive = false,
+		collabUsers = [],
+		scriptPath = undefined,
+		diffEditor = undefined,
+		args,
+		noHistory = false,
+		saveToWorkspace = false,
+		customUi = {},
+		lastDeployedCode = undefined,
+		diffMode = false,
+		showHistoryDrawer = $bindable(false),
+		right
+	}: Props = $props()
 
-	$: showContextVarPicker = [
-		'python3',
-		'bash',
-		'powershell',
-		'go',
-		'deno',
-		'bun',
-		'bunnative',
-		'nativets',
-		'php',
-		'rust',
-		'csharp',
-		'nu',
-		'java'
-		// for related places search: ADD_NEW_LANG
-	].includes(lang ?? '')
-	$: showVarPicker = [
-		'python3',
-		'bash',
-		'powershell',
-		'go',
-		'deno',
-		'bun',
-		'bunnative',
-		'nativets',
-		'php',
-		'rust',
-		'csharp',
-		'nu',
-		'java'
-		// for related places search: ADD_NEW_LANG
-	].includes(lang ?? '')
-	$: showResourcePicker = [
-		'python3',
-		'bash',
-		'powershell',
-		'go',
-		'deno',
-		'bun',
-		'bunnative',
-		'nativets',
-		'php',
-		'rust',
-		'csharp',
-		'nu',
-		'java'
-		// for related places search: ADD_NEW_LANG
-	].includes(lang ?? '')
-	$: showResourceTypePicker =
-		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
-		lang === 'python3' ||
-		lang === 'php'
+	let contextualVariablePicker: ItemPicker | undefined = $state()
+	let variablePicker: ItemPicker | undefined = $state()
+	let resourcePicker: ItemPicker | undefined = $state()
+	let resourceTypePicker: ItemPicker | undefined = $state()
+	let variableEditor: VariableEditor | undefined = $state()
+	let resourceEditor: ResourceEditorDrawer | undefined = $state()
+	let showContextVarPicker = $state(false)
+	let showVarPicker = $state(false)
+	let showResourcePicker = $state(false)
+	let showResourceTypePicker = $state(false)
 
-	let codeViewer: Drawer
-	let codeObj: { language: SupportedLanguage; content: string } | undefined = undefined
+	run(() => {
+		showContextVarPicker = [
+			'python3',
+			'bash',
+			'powershell',
+			'go',
+			'deno',
+			'bun',
+			'bunnative',
+			'nativets',
+			'php',
+			'rust',
+			'csharp',
+			'nu',
+			'java'
+			// for related places search: ADD_NEW_LANG
+		].includes(lang ?? '')
+	})
+	run(() => {
+		showVarPicker = [
+			'python3',
+			'bash',
+			'powershell',
+			'go',
+			'deno',
+			'bun',
+			'bunnative',
+			'nativets',
+			'php',
+			'rust',
+			'csharp',
+			'nu',
+			'java'
+			// for related places search: ADD_NEW_LANG
+		].includes(lang ?? '')
+	})
+	run(() => {
+		showResourcePicker = [
+			'python3',
+			'bash',
+			'powershell',
+			'go',
+			'deno',
+			'bun',
+			'bunnative',
+			'nativets',
+			'php',
+			'rust',
+			'csharp',
+			'nu',
+			'java'
+			// for related places search: ADD_NEW_LANG
+		].includes(lang ?? '')
+	})
+	run(() => {
+		showResourceTypePicker =
+			['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
+			lang === 'python3' ||
+			lang === 'php'
+	})
+
+	let codeViewer: Drawer | undefined = $state()
+	let codeObj: { language: SupportedLanguage; content: string } | undefined = $state(undefined)
 
 	function addEditorActions() {
 		editor?.addAction('insert-variable', 'Windmill: Insert variable', () => {
-			variablePicker.openDrawer()
+			variablePicker?.openDrawer()
 		})
 		editor?.addAction('insert-resource', 'Windmill: Insert resource', () => {
-			resourcePicker.openDrawer()
+			resourcePicker?.openDrawer()
 		})
 	}
 
-	$: editor && addEditorActions()
+	run(() => {
+		editor && addEditorActions()
+	})
 
 	async function loadVariables() {
 		return await VariableService.listVariable({ workspace: $workspaceStore ?? '' })
@@ -162,9 +199,9 @@
 		})
 	}
 
-	let scriptPicker: Drawer
-	let pick_existing: 'hub' | 'workspace' = 'hub'
-	let filter = ''
+	let scriptPicker: Drawer | undefined = $state()
+	let pick_existing: 'hub' | 'workspace' = $state('hub')
+	let filter = $state('')
 
 	async function onScriptPick(e: { detail: { path: string } }) {
 		codeObj = undefined
@@ -462,21 +499,23 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 	itemName="Variable"
 	extraField="path"
 	loadItems={loadVariables}
-	buttons={{ 'Edit/View': (x) => variableEditor.editVariable(x) }}
+	buttons={{ 'Edit/View': (x) => variableEditor?.editVariable(x) }}
 >
-	<div slot="submission" class="flex flex-row">
-		<Button
-			variant="border"
-			color="blue"
-			size="sm"
-			startIcon={{ icon: Plus }}
-			on:click={() => {
-				variableEditor.initNew()
-			}}
-		>
-			New variable
-		</Button>
-	</div>
+	{#snippet submission()}
+		<div class="flex flex-row">
+			<Button
+				variant="border"
+				color="blue"
+				size="sm"
+				startIcon={{ icon: Plus }}
+				on:click={() => {
+					variableEditor?.initNew()
+				}}
+			>
+				New variable
+			</Button>
+		</div>
+	{/snippet}
 </ItemPicker>
 
 <ItemPicker
@@ -548,24 +587,26 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 	tooltip="Resources represent connections to third party systems. Resources are a good way to define a connection to a frequently used third party system such as a database."
 	documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
 	itemName="Resource"
-	buttons={{ 'Edit/View': (x) => resourceEditor.initEdit(x) }}
+	buttons={{ 'Edit/View': (x) => resourceEditor?.initEdit(x) }}
 	extraField="description"
 	extraField2="resource_type"
 	loadItems={async () =>
 		await ResourceService.listResource({ workspace: $workspaceStore ?? 'NO_W' })}
 >
-	<div slot="submission" class="flex flex-row gap-x-1 mr-2">
-		<Button
-			startIcon={{ icon: Plus }}
-			target="_blank"
-			variant="border"
-			color="blue"
-			size="sm"
-			href="{base}/resources?connect_app=undefined"
-		>
-			Add resource
-		</Button>
-	</div>
+	{#snippet submission()}
+		<div class="flex flex-row gap-x-1 mr-2">
+			<Button
+				startIcon={{ icon: Plus }}
+				target="_blank"
+				variant="border"
+				color="blue"
+				size="sm"
+				href="{base}/resources?connect_app=undefined"
+			>
+				Add resource
+			</Button>
+		</div>
+	{/snippet}
 </ItemPicker>
 
 {#if showResourceTypePicker}
@@ -650,7 +691,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					size="xs"
 					spacingSize="md"
 					color="light"
-					on:click={resourceTypePicker.openDrawer}
+					on:click={() => resourceTypePicker?.openDrawer()}
 					{iconOnly}
 					startIcon={{ icon: Package }}
 				>
@@ -724,7 +765,9 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						}}
 					/>
 					<Popover>
-						<svelte:fragment slot="text">Toggle diff mode</svelte:fragment>
+						{#snippet text()}
+							Toggle diff mode
+						{/snippet}
 						<DiffIcon class="ml-1 text-tertiary" size={14} />
 					</Popover>
 				</div>
@@ -739,14 +782,16 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						on:change={() => dispatch('toggleCollabMode')}
 					/>
 					<Popover>
-						<svelte:fragment slot="text">Multiplayer</svelte:fragment>
+						{#snippet text()}
+							Multiplayer
+						{/snippet}
 						<Users class="ml-1 text-tertiary" size={14} />
 					</Popover>
 					{#if collabLive}
 						<button
 							title="Show invite link"
 							class="p-1 rounded hover:bg-gray-400 mx-1 border"
-							on:click={() => dispatch('collabPopup')}><Link size={14} /></button
+							onclick={() => dispatch('collabPopup')}><Link size={14} /></button
 						>
 						<div class="isolate flex -space-x-2 pl-2">
 							{#each collabUsers as user}
@@ -773,7 +818,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 	</div>
 
 	<div class="flex flex-row items-center gap-2">
-		<slot name="right" />
+		{@render right?.()}
 		{#if scriptPath && !noHistory}
 			<Button
 				btnClasses="!font-medium text-tertiary"
