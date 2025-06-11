@@ -24,7 +24,7 @@ use axum::{
 };
 #[cfg(feature = "parquet")]
 use http::header::IF_NONE_MATCH;
-use http::{HeaderMap, StatusCode};
+use http::{HeaderMap, Method, StatusCode};
 use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
@@ -44,6 +44,7 @@ use windmill_common::openapi::{
 };
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::build_object_store_client;
+use windmill_common::utils::RunnableKind;
 use windmill_common::{
     db::UserDB,
     error::{self, JsonResult},
@@ -1459,13 +1460,21 @@ struct HttpRouteFilter {
 }
 
 #[derive(Debug, Deserialize)]
+struct WebhookFilter {
+    user_or_folder_regex: String,
+    user_or_folder_regex_value: String,
+    path: String,
+    runnable_kind: RunnableKind,
+}
+
+#[derive(Debug, Deserialize)]
 struct GenerateOpenAPI {
     info: Option<Info>,
     url: Option<Url>,
     #[serde(default, deserialize_with = "empty_as_none")]
     http_route_filters: Option<Vec<HttpRouteFilter>>,
     #[serde(default, deserialize_with = "empty_as_none")]
-    webhook_filters: Option<Vec<String>>,
+    webhook_filters: Option<Vec<WebhookFilter>>,
     #[serde(default)]
     format: Format,
 }
@@ -1486,6 +1495,8 @@ async fn generate_openapi_spec(
     }
 
     let mut http_routes = Vec::new();
+
+    let mut tx = user_db.begin(&authed).await?;
 
     if let Some(http_route_filters) = http_route_filters {
         //todo! sanitize input
@@ -1513,8 +1524,6 @@ async fn generate_openapi_spec(
             workspaced_route: bool,
         }
 
-        let mut tx = user_db.begin(&authed).await?;
-
         http_routes = sqlx::query_as!(
             MinifiedHttpTrigger,
             r#"
@@ -1536,15 +1545,110 @@ async fn generate_openapi_spec(
         )
         .fetch_all(&mut *tx)
         .await?;
-
-        tx.commit().await?;
     }
 
-    if http_routes.is_empty() {
+    let mut futures_path_webhook = Vec::new();
+
+    if let Some(webhook_filters) = webhook_filters.as_ref() {
+        println!("{:#?}", webhook_filters);
+        let script_webhook_filter = webhook_filters
+            .iter()
+            .filter_map(|filter| {
+                let RunnableKind::Script = filter.runnable_kind else {
+                    return None;
+                };
+                let full_regex = transform_to_minified_postgres_regex(&format!(
+                    "{}/{}/{}",
+                    &filter.user_or_folder_regex, &filter.user_or_folder_regex_value, &filter.path
+                ));
+
+                Some(full_regex)
+            })
+            .collect_vec();
+
+        println!("{:#?}", &script_webhook_filter);
+
+        let flow_webhook_filter = webhook_filters
+            .iter()
+            .filter_map(|filter| {
+                let RunnableKind::Flow = filter.runnable_kind else {
+                    return None;
+                };
+                let full_regex = transform_to_minified_postgres_regex(&format!(
+                    "{}/{}/{}",
+                    &filter.user_or_folder_regex, &filter.user_or_folder_regex_value, &filter.path
+                ));
+
+                Some(full_regex)
+            })
+            .collect_vec();
+
+        println!("{:#?}", &flow_webhook_filter);
+
+        let script_paths = sqlx::query_scalar!(
+            r#"SELECT 
+                    path
+                FROM
+                    script
+                WHERE
+                    path ~ ANY($1) AND
+                    workspace_id = $2
+            "#,
+            &script_webhook_filter,
+            &w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .unique()
+        .collect_vec();
+
+        let flow_paths = sqlx::query_scalar!(
+            r#"SELECT 
+                    path
+                FROM
+                    flow
+                WHERE
+                    path ~ ANY($1) AND
+                    workspace_id = $2
+            "#,
+            &flow_webhook_filter,
+            &w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .unique()
+        .collect_vec();
+
+        futures_path_webhook = Vec::with_capacity(script_paths.len() + flow_paths.len());
+
+        for script_path in script_paths {
+            futures_path_webhook.push(FuturePath::new(
+                script_path,
+                Method::POST,
+                true,
+                Some(RunnableKind::Script),
+            ));
+        }
+
+        for flow_path in flow_paths {
+            futures_path_webhook.push(FuturePath::new(
+                flow_path,
+                Method::POST,
+                true,
+                Some(RunnableKind::Flow),
+            ));
+        }
+    }
+
+    tx.commit().await?;
+
+    if http_routes.is_empty() && futures_path_webhook.is_empty() {
         return Err(Error::NotFound("Found no matching http routes".to_string()));
     }
 
-    let openapi_future_paths = http_routes
+    let mut openapi_future_paths = http_routes
         .into_iter()
         .map(|http_route| {
             //not good
@@ -1562,18 +1666,16 @@ async fn generate_openapi_spec(
                 http_route.route_path
             };
 
-            let future_path = FuturePath::new(route_path, method, http_route.is_async);
+            let future_path = FuturePath::new(route_path, method, http_route.is_async, None);
 
             future_path
         })
         .collect_vec();
 
-    let openapi_document = generate_openapi_document(
-        info.as_ref(),
-        url.as_ref(),
-        Some(openapi_future_paths),
-        format,
-    );
+    openapi_future_paths.append(&mut futures_path_webhook);
+
+    let openapi_document =
+        generate_openapi_document(info.as_ref(), url.as_ref(), openapi_future_paths, format);
 
     openapi_document
 }

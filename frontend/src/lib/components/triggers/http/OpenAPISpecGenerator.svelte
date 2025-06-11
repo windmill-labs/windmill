@@ -8,7 +8,8 @@
 	import {
 		HttpTriggerService,
 		type OpenapiHttpRouteFilters,
-		type OpenapiSpecFormat
+		type OpenapiSpecFormat,
+		type WebhookFilters
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
@@ -18,6 +19,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Trash } from 'lucide-svelte'
+	import Select from '$lib/components/Select.svelte'
 
 	let openAPIGenerator: Drawer
 
@@ -32,7 +34,7 @@
 	let isLoadingHttpTriggers = $state(false)
 	let openapiDocument = $state('')
 	let httpRouteFilters: OpenapiHttpRouteFilters[] = $state([])
-	let webhookFilters: string[] = $state([])
+	let webhookFilters: WebhookFilters[] = $state([])
 	let lang: OpenapiSpecFormat = $state('json')
 
 	async function generateOpenapiSpec() {
@@ -41,7 +43,7 @@
 			requestBody: {
 				openapi_spec_format: lang,
 				info: undefined,
-				url: `${window.location.origin}${base}/api/r`,
+				url: `${window.location.origin}${base}`,
 				http_route_filters: httpRouteFilters,
 				webhook_filters: webhookFilters
 			}
@@ -121,20 +123,142 @@
 							</label>
 						</Subsection>
 						<Subsection label="Filters">
-							<Subsection label="Http route filter" headless>
-								<div class="flex flex-col gap-2">
-									{#if httpRouteFilters.length > 0}
-										<div class="flex flex-col gap-2">
-											{#each httpRouteFilters as httpRouteFilter, i}
-												{@const postgresqlRegex = `f/${httpRouteFilter.folder_regex}/${httpRouteFilter.path_regex}`}
+							<div class="flex flex-col gap-2">
+								<Subsection label="Http route filter" headless>
+									<div class="flex flex-col gap-2">
+										{#if httpRouteFilters.length > 0}
+											<div class="flex flex-col gap-2">
+												{#each httpRouteFilters as httpRouteFilter, i}
+													{@const postgresqlRegex = `f/${httpRouteFilter.folder_regex}/${httpRouteFilter.path_regex}`}
 
+													<div class="flex flex-row items-center gap-2">
+														<div class="border w-full rounded-md py-2 px-4 gap-2">
+															<Label label="Route path filter" class="w-full">
+																<svelte:fragment slot="header">
+																	<Tooltip small>
+																		<p>
+																			Match routes using a simple pattern. For example, <code
+																				>/user/*</code
+																			>
+																			will match any route that starts with <code>/user/</code>,
+																			such as
+																			<code>/user/123</code>
+																			or <code>/user/:id</code>. Only the <code>*</code> wildcard is
+																			supported.
+																		</p>
+																	</Tooltip>
+																</svelte:fragment>
+
+																<input
+																	type="text"
+																	placeholder="products"
+																	bind:value={httpRouteFilter.route_path_regex}
+																	onchange={() => {
+																		if (httpRouteFilter.route_path_regex.length === 0) {
+																			httpRouteFilter.route_path_regex = '*'
+																		}
+																	}}
+																/>
+															</Label>
+
+															<Label label="Path filter">
+																<div class="flex flex-col gap-2">
+																	<div
+																		class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 pb-0 mb-1"
+																	>
+																		<div>
+																			<input
+																				bind:value={httpRouteFilter.folder_regex}
+																				onchange={() => {
+																					if (httpRouteFilter.folder_regex.length === 0) {
+																						httpRouteFilter.folder_regex = '*'
+																					}
+																				}}
+																				type="text"
+																				id="folder"
+																				autocomplete="off"
+																			/>
+																		</div>
+																		<span class="text-xl">/</span>
+																		<label class="block grow w-full max-w-md">
+																			<input
+																				bind:value={httpRouteFilter.path_regex}
+																				onchange={() => {
+																					if (httpRouteFilter.path_regex?.length === 0) {
+																						httpRouteFilter.path_regex = '*'
+																					}
+																				}}
+																				type="text"
+																				id="path"
+																				autocomplete="off"
+																			/>
+																		</label>
+																	</div>
+
+																	<div class="flex flex-col w-full">
+																		<div class="flex justify-start w-full">
+																			<Badge
+																				color="gray"
+																				class="center-center !bg-surface-secondary !text-tertiary !w-[70px] !h-[24px] rounded-r-none border"
+																			>
+																				Full path
+																			</Badge>
+																			<input
+																				type="text"
+																				readonly
+																				value={postgresqlRegex}
+																				size={postgresqlRegex.length}
+																				class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
+																			/>
+																		</div>
+																	</div>
+																</div>
+															</Label>
+														</div>
+														<Button
+															variant="border"
+															color="light"
+															size="xs"
+															btnClasses="bg-surface-secondary hover:bg-red-500 hover:text-white p-2 rounded-full"
+															aria-label="Clear"
+															on:click={() => {
+																httpRouteFilters = httpRouteFilters.filter(
+																	(_, index) => index !== i
+																)
+															}}
+														>
+															<Trash size={14} />
+														</Button>
+													</div>
+												{/each}
+											</div>
+										{/if}
+										<Button
+											spacingSize="sm"
+											size="xs"
+											color="light"
+											variant="border"
+											on:click={() => {
+												httpRouteFilters.push({
+													path_regex: '*',
+													folder_regex: '*',
+													route_path_regex: '*'
+												})
+											}}>Add HTTP routes filter</Button
+										>
+									</div>
+								</Subsection>
+								<Subsection label="Webhook filters">
+									<div class="flex flex-col gap-2">
+										{#if webhookFilters.length > 0}
+											{#each webhookFilters as _, i}
 												<div class="flex flex-row items-center gap-2">
 													<div class="border w-full rounded-md py-2 px-4 gap-2">
-														<Label label="Route path filter" class="w-full">
+														<Label label="Filter">
 															<svelte:fragment slot="header">
 																<Tooltip small>
 																	<p>
-																		Match routes using a simple pattern. For example, <code
+																		Match webhook using a simple pattern. For example, <code
 																			>/user/*</code
 																		>
 																		will match any route that starts with <code>/user/</code>, such
@@ -145,29 +269,33 @@
 																</Tooltip>
 															</svelte:fragment>
 
-															<input
-																type="text"
-																placeholder="products"
-																bind:value={httpRouteFilter.route_path_regex}
-																onchange={() => {
-																	if (httpRouteFilter.route_path_regex.length === 0) {
-																		httpRouteFilter.route_path_regex = '*'
-																	}
-																}}
-															/>
-														</Label>
-
-														<Label label="Path filter">
 															<div class="flex flex-col gap-2">
+																<ToggleButtonGroup
+																	bind:selected={webhookFilters[i].runnable_kind}
+																	let:item
+																>
+																	<ToggleButton value="script" label="script" {item} />
+																	<ToggleButton value="flow" label="flow" {item} />
+																</ToggleButtonGroup>
+
 																<div
 																	class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 pb-0 mb-1"
 																>
+																	<Select
+																		clearable
+																		class="grow shrink"
+																		bind:value={webhookFilters[i].user_or_folder_regex}
+																		items={['*', 'u', 'f'].map((value) => ({ value }))}
+																	/>
+																	<span class="text-xl">/</span>
 																	<div>
 																		<input
-																			bind:value={httpRouteFilter.folder_regex}
+																			bind:value={webhookFilters[i].user_or_folder_regex_value}
 																			onchange={() => {
-																				if (httpRouteFilter.folder_regex.length === 0) {
-																					httpRouteFilter.folder_regex = '*'
+																				if (
+																					webhookFilters[i].user_or_folder_regex_value.length === 0
+																				) {
+																					webhookFilters[i].user_or_folder_regex_value = '*'
 																				}
 																			}}
 																			type="text"
@@ -178,10 +306,10 @@
 																	<span class="text-xl">/</span>
 																	<label class="block grow w-full max-w-md">
 																		<input
-																			bind:value={httpRouteFilter.path_regex}
+																			bind:value={webhookFilters[i].path}
 																			onchange={() => {
-																				if (httpRouteFilter.path_regex?.length === 0) {
-																					httpRouteFilter.path_regex = '*'
+																				if (webhookFilters[i].path.length === 0) {
+																					webhookFilters[i].path = '*'
 																				}
 																			}}
 																			type="text"
@@ -189,24 +317,6 @@
 																			autocomplete="off"
 																		/>
 																	</label>
-																</div>
-
-																<div class="flex flex-col w-full">
-																	<div class="flex justify-start w-full">
-																		<Badge
-																			color="gray"
-																			class="center-center !bg-surface-secondary !text-tertiary !w-[70px] !h-[24px] rounded-r-none border"
-																		>
-																			Full path
-																		</Badge>
-																		<input
-																			type="text"
-																			readonly
-																			value={postgresqlRegex}
-																			size={postgresqlRegex.length}
-																			class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
-																		/>
-																	</div>
 																</div>
 															</div>
 														</Label>
@@ -218,33 +328,34 @@
 														btnClasses="bg-surface-secondary hover:bg-red-500 hover:text-white p-2 rounded-full"
 														aria-label="Clear"
 														on:click={() => {
-															httpRouteFilters = httpRouteFilters.filter((_, index) => index !== i)
+															webhookFilters = webhookFilters.filter((_, index) => index !== i)
 														}}
 													>
 														<Trash size={14} />
 													</Button>
 												</div>
 											{/each}
-										</div>
-									{/if}
-									<Button
-										spacingSize="sm"
-										size="xs"
-										color="light"
-										variant="border"
-										on:click={() => {
-											httpRouteFilters.push({
-												path_regex: '*',
-												folder_regex: '*',
-												route_path_regex: '*'
-											})
-										}}>Add HTTP routes filter</Button
-									>
-								</div>
-							</Subsection>
+										{/if}
+										<Button
+											spacingSize="sm"
+											size="xs"
+											color="light"
+											variant="border"
+											on:click={() => {
+												webhookFilters.push({
+													path: '*',
+													user_or_folder_regex: '*',
+													user_or_folder_regex_value: '*',
+													runnable_kind: 'script'
+												})
+											}}>Add webhook filter</Button
+										>
+									</div>
+								</Subsection>
+							</div>
 						</Subsection>
 						<Button
-							disabled={httpRouteFilters.length === 0}
+							disabled={httpRouteFilters.length === 0 && webhookFilters.length === 0}
 							spacingSize="sm"
 							size="xs"
 							btnClasses="mb-2"

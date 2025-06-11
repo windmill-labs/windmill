@@ -25,6 +25,7 @@ use semver::Version;
 use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
+use std::fmt::Display;
 use std::{fs::DirBuilder as SyncDirBuilder, str::FromStr};
 use tokio::fs::DirBuilder as AsyncDirBuilder;
 
@@ -781,5 +782,22 @@ impl<F: Future> Future for WarnAfterFuture<F> {
             }
             Poll::Pending => Poll::Pending,
         }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RunnableKind {
+    Script,
+    Flow,
+}
+
+impl Display for RunnableKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let runnable_kind = match self {
+            RunnableKind::Script => "script",
+            RunnableKind::Flow => "flow"
+        };
+        write!(f, "{}", runnable_kind)
     }
 }

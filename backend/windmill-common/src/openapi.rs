@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{error::Result, worker::to_raw_value};
+use crate::{error::Result, utils::RunnableKind, worker::to_raw_value};
 use anyhow::anyhow;
 use axum::http;
 use http::Method as HttpMethod;
@@ -66,7 +66,7 @@ pub struct Info {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Server {
-    url: Url,
+    url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -77,11 +77,17 @@ pub struct FuturePath {
     route_path: String,
     http_method: HttpMethod,
     is_async: bool,
+    runnable_kind: Option<RunnableKind>,
 }
 
 impl FuturePath {
-    pub fn new(route_path: String, http_method: HttpMethod, is_async: bool) -> FuturePath {
-        FuturePath { route_path, http_method, is_async }
+    pub fn new(
+        route_path: String,
+        http_method: HttpMethod,
+        is_async: bool,
+        runnable_kind: Option<RunnableKind>,
+    ) -> FuturePath {
+        FuturePath { route_path, http_method, is_async, runnable_kind }
     }
 }
 
@@ -129,6 +135,7 @@ fn from_route_path_to_openapi_path(route_path: &str) -> Result<(String, Option<B
 
 fn generate_paths(
     paths: Vec<FuturePath>,
+    url: Option<&Url>,
 ) -> Result<IndexMap<String, IndexMap<String, Box<RawValue>>>> {
     let mut map: IndexMap<String, IndexMap<String, Box<RawValue>>> = IndexMap::new();
 
@@ -191,6 +198,47 @@ fn generate_paths(
                 paths.insert(http_method, to_raw_value(&request_response_map));
             }
             None => {
+                let mut path_object = IndexMap::new();
+                if let Some(url) = url {
+                    let url = url.as_str().trim_end_matches('/');
+
+                    let server = match path.runnable_kind {
+                        Some(RunnableKind::Script) => Server {
+                            url: format!("{}/api/w/{{workspace}}/jobs/run/p", &url),
+                            variables: Some(HashMap::from([(
+                                "workspace".to_string(),
+                                serde_json::json!({
+                                    "default": "test",
+                                    "description": "Workspace identifier"
+                                }),
+                            )])),
+                            description: None,
+                        },
+                        Some(RunnableKind::Flow) => Server {
+                            url: format!("{}/api/w/{{workspace}}/jobs/run/f", &url),
+                            variables: Some(HashMap::from([(
+                                "workspace".to_string(),
+                                serde_json::json!({
+                                    "default": "test",
+                                    "description": "Workspace identifier"
+                                }),
+                            )])),
+                            description: None,
+                        },
+                        None => Server {
+                            url: format!("{}/api/r", url),
+                            description: None,
+                            variables: None,
+                        },
+                    };
+
+                    path_object.insert("servers".to_string(), to_raw_value(&vec![server]));
+                }
+
+                if parameters.is_some() {
+                    path_object.insert("parameters".to_string(), to_raw_value(&parameters));
+                }
+
                 let mut request_response_map = IndexMap::with_capacity(2);
 
                 if path.http_method != HttpMethod::GET {
@@ -199,11 +247,8 @@ fn generate_paths(
 
                 request_response_map.insert("responses", generate_response(path.is_async));
 
-                let mut path_object = IndexMap::new();
-                if parameters.is_some() {
-                    path_object.insert("parameters".to_string(), to_raw_value(&parameters));
-                }
                 path_object.insert(http_method, to_raw_value(&request_response_map));
+
                 map.insert(route_path, path_object);
             }
         }
@@ -229,18 +274,26 @@ pub fn transform_to_minified_postgres_regex(glob: &str) -> String {
     regex
 }
 
+#[derive(Debug, Default)]
+pub struct ServerToSet {
+    pub http_route: bool,
+    pub webhook_flow: bool,
+    pub webhook_script: bool,
+}
+
+impl ServerToSet {
+    pub fn new(http_route: bool, webhook_flow: bool, webhook_script: bool) -> ServerToSet {
+        ServerToSet { http_route, webhook_flow, webhook_script }
+    }
+}
+
 pub fn generate_openapi_document(
     info: Option<&Info>,
     url: Option<&Url>,
-    paths: Option<Vec<FuturePath>>,
+    paths: Vec<FuturePath>,
     format: Format,
 ) -> Result<String> {
-    let servers = url.map_or_else(
-        || vec![],
-        |url| vec![Server { url: url.to_owned(), description: None, variables: None }],
-    );
-
-    let paths = paths.map(generate_paths).transpose()?;
+    let paths = generate_paths(paths, url)?;
 
     let mut openapi_doc: IndexMap<&'static str, Box<RawValue>> = IndexMap::new();
 
@@ -250,16 +303,17 @@ pub fn generate_openapi_document(
         to_raw_value(info.unwrap_or(&DEFAULT_OPENAPI_INFO_OBJECT)),
     );
 
-    if !servers.is_empty() {
-        openapi_doc.insert("servers", to_raw_value(&servers));
-    }
+    openapi_doc.insert("paths", to_raw_value(&paths));
 
-    if let Some(paths) = paths {
-        openapi_doc.insert("paths", to_raw_value(&paths));
-    }
+    let openapi_document = match format {
+        Format::YAML => "".to_string(),
+        Format::JSON => serde_json::to_string_pretty(&openapi_doc).map_err(|err| {
+            anyhow!(
+                "Could not generate OpenAPI document in JSON format: {}",
+                err
+            )
+        })?,
+    };
 
-    let pretiffied_json = serde_json::to_string_pretty(&openapi_doc)
-        .map_err(|err| anyhow!("Could not generate OpenAPI document: {}", err))?;
-
-    Ok(pretiffied_json)
+    Ok(openapi_document)
 }

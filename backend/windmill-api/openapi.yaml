@@ -14776,6 +14776,12 @@ components:
         - custom_script
         - signature
 
+    RunnableKind:
+      type: string
+      enum:
+        - script
+        - flow
+
     OpenapiSpecFormat:
       type: string
       enum:
@@ -14796,6 +14802,27 @@ components:
         - path_regex
         - route_path_regex
 
+    WebhookFilters:
+      type: object
+      properties:
+        user_or_folder_regex:
+          type: string
+          enum:
+            - "*"
+            - u
+            - f
+        user_or_folder_regex_value:
+          type: string
+        path:
+          type: string
+        runnable_kind:
+          $ref: "#/components/schemas/RunnableKind"
+      required:
+        - user_or_folder_regex
+        - user_or_folder_regex_value
+        - path
+        - runnable_kind
+    
     GenerateOpenapiSpec:
       type: object
       properties:
@@ -14844,7 +14871,7 @@ components:
         webhook_filters:
           type: array
           items:
-            type: string
+            $ref: "#/components/schemas/WebhookFilters"
 
     HttpMethod:
       type: string
