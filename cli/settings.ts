@@ -813,6 +813,10 @@ function extractSyncOptions(config: SyncOptions): SyncOptions {
     skipResources: config.skipResources,
     skipResourceTypes: config.skipResourceTypes,
     skipSecrets: config.skipSecrets,
+    skipScripts: config.skipScripts,
+    skipFlows: config.skipFlows,
+    skipApps: config.skipApps,
+    skipFolders: config.skipFolders,
     includeSchedules: config.includeSchedules,
     includeTriggers: config.includeTriggers,
     includeUsers: config.includeUsers,
@@ -869,6 +873,10 @@ function extractRepositorySyncOptions(config: SyncOptions): any {
     skipResources: config.skipResources,
     skipResourceTypes: config.skipResourceTypes,
     skipSecrets: config.skipSecrets,
+    skipScripts: config.skipScripts,
+    skipFlows: config.skipFlows,
+    skipApps: config.skipApps,
+    skipFolders: config.skipFolders,
     includeSchedules: config.includeSchedules,
     includeTriggers: config.includeTriggers,
     includeUsers: config.includeUsers,
@@ -963,7 +971,10 @@ async function updateGitSyncRepositories(workspace: { workspaceId: string }, loc
           settings: {
             include_path: localSettings.includes || ['f/**'],
             include_type: [
-              'script', 'flow', 'app', 'folder',
+              ...(localSettings.skipScripts === false ? ['script'] as const : []),
+              ...(localSettings.skipFlows === false ? ['flow'] as const : []),
+              ...(localSettings.skipApps === false ? ['app'] as const : []),
+              ...(localSettings.skipFolders === false ? ['folder'] as const : []),
               ...(localSettings.skipVariables === false ? ['variable'] as const : []),
               ...(localSettings.skipResources === false ? ['resource'] as const : []),
               ...(localSettings.skipResourceTypes === false ? ['resourcetype'] as const : []),
@@ -1625,6 +1636,10 @@ const settingsCommand = new Command()
             if (repoSettings.skipResources) syncOptions.push("skip resources");
             if (repoSettings.skipResourceTypes) syncOptions.push("skip resource types");
             if (repoSettings.skipSecrets) syncOptions.push("skip secrets");
+            if (repoSettings.skipScripts) syncOptions.push("skip scripts");
+            if (repoSettings.skipFlows) syncOptions.push("skip flows");
+            if (repoSettings.skipApps) syncOptions.push("skip apps");
+            if (repoSettings.skipFolders) syncOptions.push("skip folders");
             if (repoSettings.includeSchedules) syncOptions.push("include schedules");
             if (repoSettings.includeTriggers) syncOptions.push("include triggers");
             if (repoSettings.includeUsers) syncOptions.push("include users");

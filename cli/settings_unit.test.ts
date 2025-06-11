@@ -236,6 +236,12 @@ Deno.test("Field mapping: all skip flags work correctly", () => {
   assertEquals(result.skipResources, true);
   assertEquals(result.skipResourceTypes, true);
   assertEquals(result.skipSecrets, true);
+
+  // New core skip flags should be applied (they default to include when not specified)
+  assertEquals(result.skipScripts, false);
+  assertEquals(result.skipFlows, false);
+  assertEquals(result.skipApps, false);
+  assertEquals(result.skipFolders, false);
 });
 
 Deno.test("Field mapping: all include flags work correctly", () => {
@@ -252,4 +258,44 @@ Deno.test("Field mapping: all include flags work correctly", () => {
   assertEquals(result.includeGroups, true);
   assertEquals(result.includeSettings, true);
   assertEquals(result.includeKey, true);
+});
+
+Deno.test("Core skip flags: skipScripts/skipFlows/skipApps/skipFolders", () => {
+  const uiState: UIState = {
+    include_path: ["f/**"],
+    include_type: ["variable"] // exclude core types on purpose
+  };
+
+  const result = uiStateToSyncOptions(uiState);
+
+  // Core types not included means skip flags should be true
+  assertEquals(result.skipScripts, true);
+  assertEquals(result.skipFlows, true);
+  assertEquals(result.skipApps, true);
+  assertEquals(result.skipFolders, true);
+});
+
+Deno.test("Core include flags roundtrip", () => {
+  const options: SyncOptions = {
+    ...mockSyncOptions,
+    skipScripts: true,
+    skipFlows: true,
+    skipApps: false,
+    skipFolders: false,
+  };
+
+  const uiState = syncOptionsToUIState(options);
+
+  // scripts & flows should be absent, apps & folders present
+  assertEquals(uiState.include_type.includes("script"), false);
+  assertEquals(uiState.include_type.includes("flow"), false);
+  assertEquals(uiState.include_type.includes("app"), true);
+  assertEquals(uiState.include_type.includes("folder"), true);
+
+  // convert back
+  const roundtrip = uiStateToSyncOptions(uiState);
+  assertEquals(roundtrip.skipScripts, true);
+  assertEquals(roundtrip.skipFlows, true);
+  assertEquals(roundtrip.skipApps, false);
+  assertEquals(roundtrip.skipFolders, false);
 });

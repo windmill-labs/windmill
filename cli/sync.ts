@@ -722,6 +722,14 @@ export async function elementsToMap(
     if (json && path.endsWith(".yaml") && !isFileResource(path)) continue;
     if (!json && path.endsWith(".json") && !isFileResource(path)) continue;
     const ext = json ? ".json" : ".yaml";
+    // Core object type skip checks
+    {
+      const _t = getTypeStrFromPath(path);
+      if (skips.skipScripts && _t === "script") continue;
+      if (skips.skipFlows && _t === "flow") continue;
+      if (skips.skipApps && _t === "app") continue;
+      if (skips.skipFolders && _t === "folder") continue;
+    }
     if (!skips.includeSchedules && path.endsWith(".schedule" + ext)) continue;
     if (
       !skips.includeTriggers &&
@@ -805,6 +813,10 @@ export interface Skips {
   includeGroups?: boolean | undefined;
   includeSettings?: boolean | undefined;
   includeKey?: boolean | undefined;
+  skipScripts?: boolean | undefined;
+  skipFlows?: boolean | undefined;
+  skipApps?: boolean | undefined;
+  skipFolders?: boolean | undefined;
 }
 
 async function compareDynFSElement(
@@ -2214,6 +2226,10 @@ const command = new Command()
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
   .option("--skip-resource-types", "Skip syncing  resource types")
+  .option("--skip-scripts", "Skip syncing scripts")
+  .option("--skip-flows", "Skip syncing flows")
+  .option("--skip-apps", "Skip syncing apps")
+  .option("--skip-folders", "Skip syncing folders")
   // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing  schedules")
   .option("--include-triggers", "Include syncing triggers")
@@ -2252,6 +2268,10 @@ const command = new Command()
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
   .option("--skip-resource-types", "Skip syncing  resource types")
+  .option("--skip-scripts", "Skip syncing scripts")
+  .option("--skip-flows", "Skip syncing flows")
+  .option("--skip-apps", "Skip syncing apps")
+  .option("--skip-folders", "Skip syncing folders")
 
   // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing schedules")
@@ -2302,6 +2322,10 @@ function generateWmillYamlFromOpts(opts: SyncOptions): string {
     includes: opts.includes || DEFAULT_SYNC_OPTIONS.includes,
     excludes: opts.excludes || [],
     codebases: opts.codebases || [],
+    skipScripts: opts.skipScripts ?? false,
+    skipFlows: opts.skipFlows ?? false,
+    skipApps: opts.skipApps ?? false,
+    skipFolders: opts.skipFolders ?? false,
     skipVariables: opts.skipVariables ?? false,
     skipResources: opts.skipResources ?? false,
     skipResourceTypes: opts.skipResourceTypes ?? false,

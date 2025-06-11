@@ -13,6 +13,10 @@ export interface SyncOptions {
   skipResources?: boolean;
   skipResourceTypes?: boolean;
   skipSecrets?: boolean;
+  skipScripts?: boolean;
+  skipFlows?: boolean;
+  skipApps?: boolean;
+  skipFolders?: boolean;
   includeSchedules?: boolean;
   includeTriggers?: boolean;
   includeUsers?: boolean;
@@ -37,6 +41,7 @@ export interface SyncOptions {
 export const DEFAULT_SYNC_OPTIONS: Readonly<Required<Pick<SyncOptions,
   'defaultTs' | 'includes' | 'excludes' | 'codebases' | 'skipVariables' | 'skipResources' |
   'skipResourceTypes' | 'skipSecrets' | 'includeSchedules' | 'includeTriggers' |
+  'skipScripts' | 'skipFlows' | 'skipApps' | 'skipFolders' |
   'includeUsers' | 'includeGroups' | 'includeSettings' | 'includeKey'
 >>> = {
   defaultTs: 'bun',
@@ -47,6 +52,10 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<Required<Pick<SyncOptions,
   skipResources: false,
   skipResourceTypes: false,
   skipSecrets: false,
+  skipScripts: false,
+  skipFlows: false,
+  skipApps: false,
+  skipFolders: false,
   includeSchedules: false,
   includeTriggers: false,
   includeUsers: false,
@@ -67,6 +76,10 @@ export interface RepositorySyncOptions {
   skipResources?: boolean;
   skipResourceTypes?: boolean;
   skipSecrets?: boolean;
+  skipScripts?: boolean;
+  skipFlows?: boolean;
+  skipApps?: boolean;
+  skipFolders?: boolean;
   includeSchedules?: boolean;
   includeTriggers?: boolean;
   includeUsers?: boolean;

@@ -56,7 +56,13 @@ export function uiStateToSyncOptions(uiState: UIState): SyncOptions {
     ...DEFAULT_SYNC_OPTIONS,
     includes: uiState.include_path.length > 0 ? uiState.include_path : DEFAULT_SYNC_OPTIONS.includes,
 
-    // Convert include_type array to skip/include flags
+    // Core types
+    skipScripts: !uiState.include_type.includes('script'),
+    skipFlows: !uiState.include_type.includes('flow'),
+    skipApps: !uiState.include_type.includes('app'),
+    skipFolders: !uiState.include_type.includes('folder'),
+
+    // Secondary types
     skipVariables: !uiState.include_type.includes('variable'),
     skipResources: !uiState.include_type.includes('resource'),
     skipResourceTypes: !uiState.include_type.includes('resourcetype'),
@@ -72,9 +78,15 @@ export function uiStateToSyncOptions(uiState: UIState): SyncOptions {
 }
 
 export function syncOptionsToUIState(syncOptions: SyncOptions): UIState {
-  const include_type: string[] = ['script', 'flow', 'app', 'folder']; // Always included
+  const include_type: string[] = [];
 
-  // Add types based on skip flags (default to included if not specified)
+  // Core types (default to included unless explicitly skipped)
+  if (syncOptions.skipScripts !== true) include_type.push('script');
+  if (syncOptions.skipFlows !== true) include_type.push('flow');
+  if (syncOptions.skipApps !== true) include_type.push('app');
+  if (syncOptions.skipFolders !== true) include_type.push('folder');
+
+  // Secondary types based on skip flags (default to included if not specified)
   if (syncOptions.skipVariables !== true) include_type.push('variable');
   if (syncOptions.skipResources !== true) include_type.push('resource');
   if (syncOptions.skipResourceTypes !== true) include_type.push('resourcetype');
