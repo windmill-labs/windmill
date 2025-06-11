@@ -494,36 +494,51 @@ export function filterDraftTriggers(
 	triggersState: Triggers
 ): FlowWithDraftAndDraftTriggers | NewScriptWithDraftAndDraftTriggers {
 	const deployedTriggers = triggersState.triggers.filter((t) => !t.draftConfig && !t.isDraft)
-	let newSavedValue = savedValue
 
-	const filterMatchingTriggers = (savedTriggers: Trigger[], deployedTriggers: Trigger[]) => {
-		return savedTriggers.filter(
-			(savedTrigger) =>
-				!deployedTriggers.some(
-					(deployedTrigger) =>
-						deployedTrigger.path === savedTrigger.draftConfig?.path &&
-						deployedTrigger.type === savedTrigger.type
-				)
-		)
+	// Early return if no deployed triggers or no draft triggers to filter
+	if (deployedTriggers.length === 0 || !savedValue?.draft?.draft_triggers?.length) {
+		return savedValue
 	}
 
-	const savedDraftTriggersFiltered = filterMatchingTriggers(
-		newSavedValue?.draft?.draft_triggers ?? [],
-		deployedTriggers
+	const deployedTriggerKeys = new Set(deployedTriggers.map((t) => `${t.path}:${t.type}`))
+
+	const originalSavedDraftTriggers = savedValue.draft.draft_triggers
+	const keptTriggers: Trigger[] = []
+	const removedTriggers: Trigger[] = []
+
+	// Single pass to separate kept vs removed triggers
+	for (const savedTrigger of originalSavedDraftTriggers) {
+		const triggerKey = `${savedTrigger.draftConfig?.path}:${savedTrigger.type}`
+		if (deployedTriggerKeys.has(triggerKey)) {
+			removedTriggers.push(savedTrigger)
+		} else {
+			keptTriggers.push(savedTrigger)
+		}
+	}
+
+	// Early return if nothing was filtered
+	if (removedTriggers.length === 0) {
+		return savedValue
+	}
+
+	// Update saved value
+	const newSavedValue = {
+		...savedValue,
+		draft: {
+			...savedValue.draft,
+			draft_triggers: keptTriggers.length > 0 ? keptTriggers : undefined
+		}
+	} as typeof savedValue
+
+	const removedTriggerKeys = new Set(removedTriggers.map((t) => `${t.draftConfig?.path}:${t.type}`))
+
+	// Remove filtered triggers from triggersState
+	triggersState.setTriggers(
+		triggersState.triggers.filter((trigger) => {
+			const triggerKey = `${trigger.draftConfig?.path}:${trigger.type}`
+			return !removedTriggerKeys.has(triggerKey)
+		})
 	)
-	if (newSavedValue?.draft?.draft_triggers) {
-		newSavedValue = {
-			...newSavedValue,
-			draft: {
-				...newSavedValue.draft,
-				draft_triggers:
-					savedDraftTriggersFiltered.length > 0 ? savedDraftTriggersFiltered : undefined
-			}
-		} as typeof newSavedValue
-	}
-	triggersState.setTriggers([
-		...triggersState.triggers.filter((t) => !t.draftConfig),
-		...savedDraftTriggersFiltered
-	])
+
 	return newSavedValue
 }
