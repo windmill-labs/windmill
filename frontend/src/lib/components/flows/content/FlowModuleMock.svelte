@@ -6,6 +6,7 @@
 	import type { FlowModule } from '$lib/gen'
 	import { Section } from '$lib/components/common'
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
+	import { untrack } from 'svelte'
 
 	interface Props {
 		flowModule: FlowModule
@@ -40,7 +41,7 @@
 		}
 	}
 	run(() => {
-		updateMock(flowModule.mock)
+		flowModule.mock, untrack(() => updateMock(flowModule.mock))
 	})
 
 	function updateMockValue({ detail }: any) {

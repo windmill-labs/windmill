@@ -204,7 +204,7 @@
 	let graph: 'RunChart' | 'ConcurrencyChart' = $state(
 		typeOfChart($page.url.searchParams.get('graph'))
 	)
-	let graphIsRunsChart: boolean = $state(graph === 'RunChart')
+	let graphIsRunsChart: boolean = $state(untrack(() => graph) === 'RunChart')
 
 	let manualDatePicker: ManuelDatePicker | undefined = $state(undefined)
 

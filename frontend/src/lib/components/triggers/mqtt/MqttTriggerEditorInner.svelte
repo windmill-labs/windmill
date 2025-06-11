@@ -247,7 +247,8 @@
 	}
 
 	$effect(() => {
-		onCaptureConfigChange?.(captureConfig, isValid ?? false)
+		let args = [captureConfig, isValid ?? false] as const
+		onCaptureConfigChange?.(...args)
 	})
 
 	$effect(() => {

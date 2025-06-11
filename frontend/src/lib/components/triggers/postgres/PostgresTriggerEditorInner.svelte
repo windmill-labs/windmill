@@ -25,7 +25,7 @@
 	import { invalidRelations, savePostgresTriggerFromCfg } from './utils'
 	import CheckPostgresRequirement from './CheckPostgresRequirement.svelte'
 	import { base } from '$lib/base'
-	import type { Snippet } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 	import { handleConfigChange, type Trigger } from '../utils'
@@ -395,7 +395,8 @@
 	}
 
 	$effect(() => {
-		onCaptureConfigChange?.(captureConfig, isValid)
+		const args = [captureConfig, isValid] as const
+		untrack(() => onCaptureConfigChange?.(...args))
 	})
 
 	$effect(() => {
@@ -662,7 +663,7 @@
 										></div
 									></Tab
 								>
-								<svelte:fragment slot="content">
+								{#snippet content()}
 									<div class="mt-5 overflow-hidden bg-surface">
 										<TabContent value="basic">
 											<RelationPicker {can_write} bind:pg14 bind:relations disabled={!can_write} />
@@ -785,7 +786,7 @@
 											>
 										</TabContent>
 									</div>
-								</svelte:fragment>
+								{/snippet}
 							</Tabs>
 						</Label>
 					{/if}

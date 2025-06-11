@@ -20,7 +20,7 @@
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Section from './Section.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
 	import TableSimple from './TableSimple.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
@@ -476,7 +476,7 @@
 		}
 	}
 	run(() => {
-		filter != undefined && onFilterChange()
+		filter != undefined && untrack(() => onFilterChange())
 	})
 </script>
 

@@ -15,6 +15,7 @@
 
 	import { argSigToJsonSchemaType } from '$lib/inferArgSig'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import { untrack } from 'svelte'
 
 	let schema: Schema | undefined = $state(undefined)
 
@@ -152,7 +153,8 @@
 			}) as FieldMetadata[] | undefined
 	)
 	$effect(() => {
-		builtSchema(fields ?? [], dbType)
+		;[fields, dbType]
+		untrack(() => builtSchema(fields ?? [], dbType))
 	})
 	$effect(() => {
 		if (schema) {

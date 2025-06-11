@@ -20,7 +20,7 @@
 <Tabs bind:selected={tab}>
 	<Tab value="button">Buttons</Tab>
 
-	<svelte:fragment slot="content">
+	{#snippet content()}
 		<TabContent value="button" class="p-4 flex gap-4 flex-col ">
 			<div class="font-bold text-md">Contained buttons</div>
 			<div class="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-6">
@@ -72,5 +72,5 @@
 				<Button variant="border" {dropdownItems} color="red">Lorem</Button>
 			</div>
 		</TabContent>
-	</svelte:fragment>
+	{/snippet}
 </Tabs>

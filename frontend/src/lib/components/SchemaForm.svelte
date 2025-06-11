@@ -232,7 +232,8 @@
 		schema && (untrack(() => reorder()), (hidden = {}))
 	})
 	$effect(() => {
-		handleHiddenFields(schema, untrack(() => args) ?? {})
+		;[schema, args]
+		untrack(() => handleHiddenFields(schema, args ?? {}))
 	})
 	$effect(() => {
 		isValid = allTrue(inputCheck ?? {})

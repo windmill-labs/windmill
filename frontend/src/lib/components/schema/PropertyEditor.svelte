@@ -16,7 +16,7 @@
 	import type { SchemaProperty } from '$lib/common'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
-	import { createEventDispatcher, onMount } from 'svelte'
+	import { createEventDispatcher, onMount, untrack } from 'svelte'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	interface Props {
@@ -157,13 +157,14 @@
 		}
 	}
 	$effect(() => {
-		updateOneOfSchemas(oneOf)
+		;[oneOf]
+		untrack(() => updateOneOfSchemas(oneOf))
 	})
 	run(() => {
-		extra && mounted && onContentChange()
+		extra && mounted && untrack(() => onContentChange())
 	})
 	run(() => {
-		;(properties || order) && updateSchema()
+		;(properties || order) && untrack(() => updateSchema())
 	})
 </script>
 

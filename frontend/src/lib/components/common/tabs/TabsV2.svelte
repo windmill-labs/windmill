@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { setContext } from 'svelte'
+	import { setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
 	import type { TabsContext } from '$lib/components/apps/editor/settingsPanel/inputEditor/tabs.svelte'
@@ -56,10 +56,10 @@
 		}
 	}
 	$effect(() => {
-		selected && updateSelected()
+		selected && untrack(() => updateSelected())
 	})
 	$effect(() => {
-		$selectedStore && onSelectedChange?.($selectedStore)
+		$selectedStore && untrack(() => onSelectedChange?.($selectedStore))
 	})
 
 	let hashValues = $derived(values ? values.map((x) => '#' + x) : undefined)

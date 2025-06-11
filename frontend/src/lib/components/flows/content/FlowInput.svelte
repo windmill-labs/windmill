@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { ButtonType } from '$lib/components/common/button/model'
-	import { getContext, tick } from 'svelte'
+	import { getContext, tick, untrack } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import type { FlowEditorContext } from '../types'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -283,7 +283,12 @@
 		}
 	}
 	$effect(() => {
-		$flowInputEditorState && ((dropdownItems = getDropdownItems()), initPayloadData())
+		if ($flowInputEditorState) {
+			untrack(() => {
+				dropdownItems = getDropdownItems()
+				initPayloadData()
+			})
+		}
 	})
 
 	let preventEnter = $state(false)

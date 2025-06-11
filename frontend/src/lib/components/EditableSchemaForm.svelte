@@ -196,7 +196,7 @@
 					: 'object'
 	}
 
-	let selected = $state(computeSelected(schema.properties[opened]))
+	let selected = $state(computeSelected(schema.properties[untrack(() => opened ?? '')]))
 
 	export function openField(key: string) {
 		opened = key
@@ -299,7 +299,7 @@
 		}
 	})
 	$effect(() => {
-		schema && onSchemaChange()
+		schema && untrack(() => onSchemaChange())
 	})
 	$effect(() => {
 		opened && updateSelected(schema.properties[opened])

@@ -33,7 +33,7 @@
 	import { Drawer } from '$lib/components/common'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
-	import { onMount, setContext, type ComponentType } from 'svelte'
+	import { onMount, setContext, untrack, type ComponentType } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Badge, Button, UndoRedo } from './common'
@@ -776,20 +776,20 @@
 	run(() => {
 		if (flowStore.val || $selectedIdStore) {
 			readFieldsRecursively(flowStore.val)
-			saveSessionDraft()
+			untrack(() => saveSessionDraft())
 		}
 	})
 	run(() => {
 		initialPath && ($pathStore = initialPath)
 	})
 	run(() => {
-		selectedId && select(selectedId)
+		selectedId && untrack(() => select(selectedId))
 	})
 	run(() => {
-		initialPath && initialPath != '' && $workspaceStore && loadTriggers()
+		initialPath && initialPath != '' && $workspaceStore && untrack(() => loadTriggers())
 	})
 	run(() => {
-		onCustomUiChange(customUi)
+		customUi && untrack(() => onCustomUiChange(customUi))
 	})
 </script>
 

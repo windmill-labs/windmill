@@ -336,7 +336,7 @@ done`
 			{/if}
 			<Tab value="fetch" size="xs">Fetch</Tab>
 
-			<svelte:fragment slot="content">
+			{#snippet content()}
 				{#key token}
 					<TabContent value="rest" class="flex flex-col flex-1 h-full ">
 						<div class="flex flex-col gap-2">
@@ -400,7 +400,7 @@ done`
 						{/key}
 					</TabContent>
 				{/key}
-			</svelte:fragment>
+			{/snippet}
 		</Tabs>
 	</div>
 	<TriggerTokens bind:this={triggerTokens} {isFlow} {path} labelPrefix="webhook" />

@@ -22,7 +22,7 @@
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 	import AIFormAssistant from '$lib/components/copilot/AIFormAssistant.svelte'
 
-	import { onDestroy, setContext, tick } from 'svelte'
+	import { onDestroy, setContext, tick, untrack } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import {
 		Tabs,
@@ -512,7 +512,7 @@
 		if ($workspaceStore) {
 			if (previousHash != $page.params.hash) {
 				previousHash = $page.params.hash
-				loadScript($page.params.hash)
+				untrack(() => loadScript($page.params.hash))
 			}
 		}
 	})

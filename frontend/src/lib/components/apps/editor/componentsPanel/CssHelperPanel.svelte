@@ -136,84 +136,86 @@
 										</div>
 									</Tab>
 								{/if}
-								<div slot="content" class="h-full">
-									<TabContent value="selectors" class="h-full mt-2 ">
-										<DataTable size="sm">
-											<Head>
-												<tr>
-													<Cell head first>Selector</Cell>
-													<Cell head>Comment</Cell>
-													<Cell head last />
-												</tr>
-											</Head>
-											{#each customisation.selectors as { selector, comment }}
-												<Row>
-													<Cell first>
-														<Badge color="gray">{selector}</Badge>
-													</Cell>
-													<Cell>
-														{#if comment}
-															<div class="max-w-24 whitespace-pre-wrap">{comment}</div>
-														{/if}
-													</Cell>
-													<Cell>
-														<Button
-															size="xs2"
-															color="light"
-															on:click={() => {
-																dispatch('insertSelector', `${selector} {}`)
-															}}
-														>
-															<ArrowUpSquare size={16} />
-														</Button>
-													</Cell>
-												</Row>
-											{/each}
-										</DataTable>
-									</TabContent>
-									<TabContent value="variables" class="h-full mt-2">
-										<DataTable>
-											<Head>
-												<tr>
-													<Cell head first>Variable</Cell>
-													<Cell head>Default value</Cell>
-													<Cell head>Comment</Cell>
-													<Cell head last />
-												</tr>
-											</Head>
-											{#each customisation.variables as { variable, value, comment }}
-												<Row>
-													<Cell first>
-														<Badge color="gray">{variable}</Badge>
-													</Cell>
-													<Cell>
-														<Badge color="gray">{value}</Badge>
-													</Cell>
-													<Cell>
-														{#if comment}
-															<div class="w-80 whitespace-pre-wrap">{comment}</div>
-														{/if}
-													</Cell>
-													<Cell sticky>
-														<Button
-															size="xs2"
-															color="light"
-															on:click={() => {
-																dispatch(
-																	'insertSelector',
-																	`${customisation.root} { ${variable}: ${value};}`
-																)
-															}}
-															wrapperClasses="px-2 py-3.5 bg-surface"
-														>
-															<ArrowUpSquare size={16} />
-														</Button>
-													</Cell>
-												</Row>
-											{/each}
-										</DataTable>
-									</TabContent>
-								</div>
+								{#snippet content()}
+									<div class="h-full">
+										<TabContent value="selectors" class="h-full mt-2 ">
+											<DataTable size="sm">
+												<Head>
+													<tr>
+														<Cell head first>Selector</Cell>
+														<Cell head>Comment</Cell>
+														<Cell head last />
+													</tr>
+												</Head>
+												{#each customisation.selectors as { selector, comment }}
+													<Row>
+														<Cell first>
+															<Badge color="gray">{selector}</Badge>
+														</Cell>
+														<Cell>
+															{#if comment}
+																<div class="max-w-24 whitespace-pre-wrap">{comment}</div>
+															{/if}
+														</Cell>
+														<Cell>
+															<Button
+																size="xs2"
+																color="light"
+																on:click={() => {
+																	dispatch('insertSelector', `${selector} {}`)
+																}}
+															>
+																<ArrowUpSquare size={16} />
+															</Button>
+														</Cell>
+													</Row>
+												{/each}
+											</DataTable>
+										</TabContent>
+										<TabContent value="variables" class="h-full mt-2">
+											<DataTable>
+												<Head>
+													<tr>
+														<Cell head first>Variable</Cell>
+														<Cell head>Default value</Cell>
+														<Cell head>Comment</Cell>
+														<Cell head last />
+													</tr>
+												</Head>
+												{#each customisation.variables as { variable, value, comment }}
+													<Row>
+														<Cell first>
+															<Badge color="gray">{variable}</Badge>
+														</Cell>
+														<Cell>
+															<Badge color="gray">{value}</Badge>
+														</Cell>
+														<Cell>
+															{#if comment}
+																<div class="w-80 whitespace-pre-wrap">{comment}</div>
+															{/if}
+														</Cell>
+														<Cell sticky>
+															<Button
+																size="xs2"
+																color="light"
+																on:click={() => {
+																	dispatch(
+																		'insertSelector',
+																		`${customisation.root} { ${variable}: ${value};}`
+																	)
+																}}
+																wrapperClasses="px-2 py-3.5 bg-surface"
+															>
+																<ArrowUpSquare size={16} />
+															</Button>
+														</Cell>
+													</Row>
+												{/each}
+											</DataTable>
+										</TabContent>
+									</div>
+								{/snippet}
 							</Tabs>
 						{/each}
 					</div>

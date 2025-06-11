@@ -12,7 +12,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
-	import type { Snippet } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveKafkaTriggerFromCfg } from './utils'
 	import { handleConfigChange, type Trigger } from '../utils'
@@ -236,7 +236,8 @@
 	}
 
 	$effect(() => {
-		onCaptureConfigChange?.(captureConfig, isValid)
+		const args = [captureConfig, isValid] as const
+		untrack(() => onCaptureConfigChange?.(...args))
 	})
 
 	$effect(() => {

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { dragHandle } from '@windmill-labs/svelte-dnd-action'
 	import SchemaForm from '../SchemaForm.svelte'
 	import { GripVertical } from 'lucide-svelte'
@@ -87,7 +87,7 @@
 		dispatch('reorder', newOrder)
 	}
 	$effect(() => {
-		schema && dragDisabled && updateItems()
+		schema && dragDisabled && untrack(() => updateItems())
 	})
 </script>
 

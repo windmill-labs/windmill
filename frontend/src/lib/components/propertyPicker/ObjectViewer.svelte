@@ -129,7 +129,7 @@
 		jsonFiltered = onJsonChange(json)
 	})
 	$effect(() => {
-		search != undefined && searchOpen && onSearch()
+		search != undefined && searchOpen && untrack(() => onSearch())
 	})
 	let keys = $derived(
 		['object', 's3object'].includes(getTypeAsString(jsonFiltered)) ? Object.keys(jsonFiltered) : []

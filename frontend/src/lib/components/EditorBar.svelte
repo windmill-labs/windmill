@@ -21,7 +21,7 @@
 	import ToggleHubWorkspace from './ToggleHubWorkspace.svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import { SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS } from '$lib/consts'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
 	import Toggle from './Toggle.svelte'
@@ -186,7 +186,7 @@
 	}
 
 	run(() => {
-		editor && addEditorActions()
+		editor && untrack(() => addEditorActions())
 	})
 
 	async function loadVariables() {

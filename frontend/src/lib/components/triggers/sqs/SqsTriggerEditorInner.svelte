@@ -12,7 +12,7 @@
 	import Section from '$lib/components/Section.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Required from '$lib/components/Required.svelte'
-	import type { Snippet } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveSqsTriggerFromCfg } from './utils'
 	import { handleConfigChange, type Trigger } from '../utils'
@@ -230,7 +230,8 @@
 	}
 
 	$effect(() => {
-		onCaptureConfigChange?.(captureConfig, isValid)
+		const args = [captureConfig, isValid] as const
+		untrack(() => onCaptureConfigChange?.(...args))
 	})
 
 	$effect(() => {

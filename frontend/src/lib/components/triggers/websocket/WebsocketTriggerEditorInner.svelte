@@ -24,7 +24,7 @@
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import WebsocketEditorConfigSection from './WebsocketEditorConfigSection.svelte'
-	import type { Snippet } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveWebsocketTriggerFromCfg } from './utils'
@@ -256,7 +256,8 @@
 			.filter((v): v is { path: string; is_flow: boolean; args: ScriptArgs } => !!v)
 	)
 	$effect(() => {
-		loadInitialMessageRunnableSchemas(initialMessageRunnables)
+		;[initialMessageRunnables]
+		untrack(() => loadInitialMessageRunnableSchemas(initialMessageRunnables))
 	})
 
 	async function updateTrigger(): Promise<void> {
@@ -297,7 +298,8 @@
 	}
 
 	$effect(() => {
-		onCaptureConfigChange?.(captureConfig, isValid)
+		const args = [captureConfig, isValid] as const
+		untrack(() => onCaptureConfigChange?.(...args))
 	})
 
 	$effect(() => {

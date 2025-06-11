@@ -274,11 +274,11 @@
 	)
 
 	$effect(() => {
-		$selectedId && onSelectedIdChange()
+		$selectedId && untrack(() => onSelectedIdChange())
 	})
 	$effect(() => {
 		if ($workspaceStore && $pathStore && flowModule?.id && $flowStateStore) {
-			getLastJob()
+			untrack(() => getLastJob())
 		}
 	})
 	let parentLoop = $derived(

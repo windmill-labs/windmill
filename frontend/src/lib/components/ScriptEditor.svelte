@@ -356,7 +356,7 @@
 	$effect(() => {
 		!SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') &&
 			!aiChatManager.open &&
-			aiChatManager.toggleOpen()
+			untrack(() => aiChatManager.toggleOpen())
 	})
 
 	function toggleTestPanel() {
@@ -404,12 +404,14 @@
 			lastDeployedCode,
 			diffMode
 		}
-		aiChatManager.scriptEditorOptions = options
-		aiChatManager.scriptEditorApplyCode = (code: string) => {
-			hideDiffMode()
-			editor?.reviewAndApplyCode(code)
-		}
-		aiChatManager.scriptEditorShowDiffMode = showDiffMode
+		untrack(() => {
+			aiChatManager.scriptEditorOptions = options
+			aiChatManager.scriptEditorApplyCode = (code: string) => {
+				hideDiffMode()
+				editor?.reviewAndApplyCode(code)
+			}
+			aiChatManager.scriptEditorShowDiffMode = showDiffMode
+		})
 	})
 </script>
 

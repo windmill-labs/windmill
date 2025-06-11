@@ -7,7 +7,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
-	import { onDestroy, onMount } from 'svelte'
+	import { onDestroy, onMount, untrack } from 'svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
@@ -145,11 +145,11 @@
 		() => job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? dynamicSchema
 	)
 	$effect(() => {
-		job && !argsFetched && getDefaultArgs()
+		job && !argsFetched && untrack(() => getDefaultArgs())
 	})
 	$effect(() => {
 		if (job?.raw_flow?.modules?.[approvalStep]?.suspend?.user_auth_required && !$userStore) {
-			loadUser()
+			untrack(() => loadUser())
 		}
 	})
 </script>

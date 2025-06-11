@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { useSvelteFlow } from '@xyflow/svelte'
+	import { untrack } from 'svelte'
 
 	let { width } = $props()
 	const { setViewport, getViewport } = useSvelteFlow()
 
 	$effect(() => {
-		onWidthChange(width)
+		;[width]
+		untrack(() => onWidthChange(width))
 	})
 	let lastWidth: number | undefined = undefined
 

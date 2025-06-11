@@ -5,6 +5,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
 	import type { onSelectedIteration } from '$lib/components/graph/graphBuilder.svelte'
+	import { untrack } from 'svelte'
 
 	interface Props {
 		id: string
@@ -67,7 +68,7 @@
 	let isOpen = $state(false)
 
 	$effect(() => {
-		isOpen && flowJobs && updateItems()
+		isOpen && flowJobs && untrack(() => updateItems())
 	})
 </script>
 

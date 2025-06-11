@@ -444,6 +444,7 @@
 		dispatch('toolbar-location-changed', undefined)
 	})
 	$effect(() => {
+		;[result]
 		resultKind = inferResultKind(result)
 	})
 	$effect(() => {

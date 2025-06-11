@@ -10,7 +10,7 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import type { InputCat } from '$lib/utils'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 
 	import ArgInput from './ArgInput.svelte'
 	import FieldHeader from './FieldHeader.svelte'
@@ -324,21 +324,22 @@
 	loadResourceTypes()
 
 	$effect(() => {
-		$exprsToSet?.[argName] && setExpr()
+		$exprsToSet?.[argName] && untrack(() => setExpr())
 	})
 	$effect(() => {
 		$shouldUpdatePropertyType?.[argName] &&
 			arg?.type === $shouldUpdatePropertyType?.[argName] &&
-			updatePropertyType()
+			untrack(() => updatePropertyType())
 	})
 	$effect(() => {
-		inputCat && propertyType && arg && onArgChange()
+		inputCat && propertyType && arg && untrack(() => onArgChange())
 	})
 	$effect(() => {
-		updateFocused(focused)
+		;[focused]
+		untrack(() => updateFocused(focused))
 	})
 	$effect(() => {
-		schema?.properties?.[argName]?.default && setDefaultCode()
+		schema?.properties?.[argName]?.default && untrack(() => setDefaultCode())
 	})
 	let connecting = $derived(
 		$propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'

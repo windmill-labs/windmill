@@ -30,7 +30,7 @@
 		SunMoon,
 		Zap
 	} from 'lucide-svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import {
 		cleanValueProperties,
 		orderedJsonStringify,
@@ -922,10 +922,10 @@
 		}
 	})
 	$effect(() => {
-		$appPath && $appPath != '' && secretUrl == undefined && getSecretUrl()
+		$appPath && $appPath != '' && secretUrl == undefined && untrack(() => getSecretUrl())
 	})
 	$effect(() => {
-		saveDrawerOpen && compareVersions()
+		saveDrawerOpen && untrack(() => compareVersions())
 	})
 	let hasErrors = $derived(Object.keys($errorByComponent).length > 0)
 	let fullCustomUrl = $derived(
@@ -934,7 +934,8 @@
 		}${customPath}`
 	)
 	$effect(() => {
-		customPath !== undefined && validateCustomPath(customPath)
+		;[customPath]
+		untrack(() => customPath !== undefined && validateCustomPath(customPath))
 	})
 </script>
 

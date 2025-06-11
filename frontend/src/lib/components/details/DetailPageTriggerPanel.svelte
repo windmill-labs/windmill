@@ -102,7 +102,7 @@
 				</span>
 			</Tab>
 
-			<svelte:fragment slot="content">
+			{#snippet content()}
 				<div class="min-h-0 grow overflow-y-auto">
 					{#if triggerSelected === 'webhooks'}
 						<slot name="webhooks" />
@@ -141,7 +141,7 @@
 						<slot name="cli" />
 					{/if}
 				</div>
-			</svelte:fragment>
+			{/snippet}
 		</Tabs>
 	</div>
 {:else}
