@@ -662,7 +662,7 @@
 										></div
 									></Tab
 								>
-								<svelte:fragment slot="content">
+								{#snippet content()}
 									<div class="mt-5 overflow-hidden bg-surface">
 										<TabContent value="basic">
 											<RelationPicker {can_write} bind:pg14 bind:relations disabled={!can_write} />
@@ -785,7 +785,7 @@
 											>
 										</TabContent>
 									</div>
-								</svelte:fragment>
+								{/snippet}
 							</Tabs>
 						</Label>
 					{/if}

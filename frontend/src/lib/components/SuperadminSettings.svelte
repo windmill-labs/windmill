@@ -145,7 +145,7 @@
 							{category}
 						</Tab>
 					{/each}
-					<svelte:fragment slot="content">
+					{#snippet content()}
 						<div class="pt-4"></div>
 						<TabContent value="users">
 							<div class="h-full">
@@ -378,7 +378,7 @@
 								{closeDrawer}
 							/>
 						</TabContent>
-					</svelte:fragment>
+					{/snippet}
 				</Tabs>
 			</div>
 		</div>
