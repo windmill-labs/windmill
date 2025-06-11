@@ -531,12 +531,12 @@
 														bind:args={
 															() => {
 																// @ts-ignore
-																return flowModule.value.input_transforms
+																return flowModule?.value?.input_transforms
 															},
 															(v) => {
 																if (
-																	typeof flowModule.value === 'object' &&
-																	flowModule.value !== null
+																	typeof flowModule?.value === 'object' &&
+																	flowModule?.value !== null
 																) {
 																	// @ts-ignore
 																	flowModule.value.input_transforms = v

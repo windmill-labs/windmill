@@ -402,7 +402,11 @@
 				} else {
 					let originalModules
 					let targetModules
-					if (detail.sourceId == 'Input' || detail.targetId == 'result') {
+					if (
+						detail.sourceId == 'Input' ||
+						detail.targetId == 'result' ||
+						detail.kind == 'trigger'
+					) {
 						targetModules = flowStore.val.value.modules
 					}
 
