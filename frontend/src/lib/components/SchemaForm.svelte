@@ -200,8 +200,8 @@
 
 	function handleHiddenFields(schema: Schema | any, args: Record<string, any>) {
 		for (const x of fields) {
-			if (schema?.properties[x.value]?.showExpr) {
-				if (computeShow(x.value, schema.properties[x.value].showExpr, args)) {
+			if (schema?.properties?.[x.value]?.showExpr) {
+				if (computeShow(x.value, schema.properties?.[x.value]?.showExpr, args)) {
 					hidden[x.value] = false
 				} else if (!hidden[x.value]) {
 					hidden[x.value] = true

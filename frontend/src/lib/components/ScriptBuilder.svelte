@@ -151,9 +151,9 @@
 	// used for new scripts for captures
 	const fakeInitialPath =
 		'u/' +
-		($userStore!.username?.includes('@')
-			? $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
-			: $userStore!.username!) +
+		($userStore?.username?.includes('@')
+			? $userStore?.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
+			: $userStore?.username!) +
 		'/' +
 		generateRandomString(12)
 

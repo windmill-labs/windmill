@@ -347,7 +347,9 @@
 							bind:schema={
 								() => schema2,
 								(newSchema) => {
+									console.log('schemaUpdate 2', $state.snapshot(newSchema.order))
 									schema = newSchema
+									console.log('schemaUpdate', $state.snapshot(schema.order))
 									tick().then(() => dispatch('change', schema))
 								}
 							}
@@ -359,8 +361,10 @@
 								opened = e.detail
 							}}
 							on:reorder={(e) => {
-								schema.order = e.detail
-								schema = schema
+								schema = {
+									...schema,
+									order: e.detail
+								}
 								tick().then(() => dispatch('change', schema))
 							}}
 							prettifyHeader={isAppInput}
@@ -604,11 +608,8 @@
 																						type: e.detail
 																					}
 																				}
-																				// No better solution than this, needs future rework
-																				setTimeout(() => {
-																					schema = schema
-																					dispatch('change', schema)
-																				}, 100)
+
+																				dispatch('change', schema)
 																				dispatch('schemaChange')
 																			}}
 																		>
@@ -657,7 +658,6 @@
 																		dispatch('change', schema)
 																	}}
 																	on:schemaChange={(e) => {
-																		schema = schema
 																		dispatch('change', schema)
 																		dispatch('schemaChange')
 																	}}
