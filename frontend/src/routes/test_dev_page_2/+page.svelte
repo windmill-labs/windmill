@@ -23,6 +23,6 @@
 		</div>
 	{/snippet}
 </AddPropertyV2>
-<EditableSchemaForm isFlowInput bind:schema editTab="inputEditor" />
+<EditableSchemaForm isAppInput bind:schema editTab="inputEditor" />
 
 <pre class="text-xs">{JSON.stringify(schema, null, 2)}</pre>

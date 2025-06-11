@@ -612,6 +612,8 @@
 																					}
 																				}
 
+																				schema = schema
+
 																				dispatch('change', schema)
 																				dispatch('schemaChange')
 																			}}
