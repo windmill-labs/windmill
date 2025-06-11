@@ -1194,21 +1194,17 @@ pub async fn shutdown_mcp_server(session_manager: Arc<LocalSessionManager>) {
             "Closing {} active MCP session(s)...",
             session_ids_to_close.len()
         );
-        let mut close_handles = Vec::new();
-        for session_id in session_ids_to_close {
-            let manager_clone = session_manager.clone();
-            let handle = tokio::spawn(async move {
-                if let Err(e) = manager_clone.close_session(&session_id).await {
-                    tracing::warn!("Error sending close to MCP session {}: {:?}", session_id, e);
+        let close_futures = session_ids_to_close
+            .iter()
+            .map(|session_id| {
+                let manager_clone = session_manager.clone();
+                async move {
+                    if let Err(_) = manager_clone.close_session(session_id).await {
+                        tracing::warn!("Error closing MCP session");
+                    }
                 }
-            });
-            close_handles.push(handle);
-        }
-        let join_results = futures::future::join_all(close_handles).await;
-        for result in join_results.iter() {
-            if let Err(_) = result {
-                tracing::warn!("Error joining close task for session");
-            }
-        }
+            })
+            .collect::<Vec<_>>();
+        futures::future::join_all(close_futures).await;
     }
 }
