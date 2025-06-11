@@ -110,7 +110,6 @@
 		}
 	})
 
-	let schema2 = $derived(previewSchema ? previewSchema : schema)
 	export function setDefaults() {
 		const nargs = {}
 
@@ -335,10 +334,15 @@
 					<div
 						class="min-h-0 overflow-y-auto grow rounded-md {runButton ? 'flex flex-col gap-2' : ''}"
 					>
+						<!-- {JSON.stringify(schema)}
+						{JSON.stringify(schema2)} -->
+						<!-- {JSON.stringify(schema2.properties)}
+						{JSON.stringify(schema.properties)} -->
+						<!-- {JSON.stringify({ previewSchema })} -->
 						<SchemaFormDnd
 							nestedClasses={'flex flex-col gap-1'}
 							bind:schema={
-								() => schema2,
+								() => (previewSchema ? previewSchema : schema),
 								(newSchema) => {
 									console.log('schemaUpdate 2', $state.snapshot(newSchema.order))
 									schema = newSchema
