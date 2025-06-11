@@ -334,17 +334,12 @@
 					<div
 						class="min-h-0 overflow-y-auto grow rounded-md {runButton ? 'flex flex-col gap-2' : ''}"
 					>
-						<!-- {JSON.stringify(schema)}
-						{JSON.stringify(schema2)} -->
-						<!-- {JSON.stringify(schema2.properties)}
-						{JSON.stringify(schema.properties)} -->
-						<!-- {JSON.stringify({ previewSchema })} -->
-						<!-- {JSON.stringify(schema.properties)} -->
 						<SchemaFormDnd
 							nestedClasses={'flex flex-col gap-1'}
 							bind:schema={
 								() => (previewSchema ? previewSchema : schema),
 								(newSchema) => {
+									console.log('schemaChange set', $state.snapshot(newSchema))
 									schema = newSchema
 									tick().then(() => dispatch('change', schema))
 								}
@@ -523,7 +518,7 @@
 															{isFlowInput}
 															{isAppInput}
 															on:change={() => {
-																schema = schema
+																schema = $state.snapshot(schema)
 																dispatch('change', schema)
 															}}
 														>
@@ -656,6 +651,7 @@
 																		dispatch('change', schema)
 																	}}
 																	on:schemaChange={(e) => {
+																		schema = $state.snapshot(schema)
 																		dispatch('change', schema)
 																		dispatch('schemaChange')
 																	}}
