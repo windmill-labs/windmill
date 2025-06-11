@@ -17,7 +17,7 @@
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { deepEqual } from 'fast-equals'
 	import { dragHandleZone, type Options as DndOptions } from '@windmill-labs/svelte-dnd-action'
-	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
+	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { ComponentCustomCSS } from './apps/types'
 
 	interface Props {

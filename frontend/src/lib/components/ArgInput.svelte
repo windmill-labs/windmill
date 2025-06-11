@@ -39,7 +39,7 @@
 	import { deepEqual } from 'fast-equals'
 	import DynSelect from './DynSelect.svelte'
 	import type { Script } from '$lib/gen'
-	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
+	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { ComponentCustomCSS } from './apps/types'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 

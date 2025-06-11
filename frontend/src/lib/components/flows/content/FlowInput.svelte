@@ -39,7 +39,7 @@
 		schemaFromDiff,
 		computeDiff,
 		applyDiff
-	} from '$lib/components/schema/schemaUtils'
+	} from '$lib/components/schema/schemaUtils.svelte'
 	import SideBarTab from '$lib/components/meltComponents/SideBarTab.svelte'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import { isObjectTooBig } from '$lib/utils'

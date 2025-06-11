@@ -5,7 +5,7 @@
 	import { GripVertical } from 'lucide-svelte'
 	import type { Schema } from '$lib/common'
 	import { deepEqual } from 'fast-equals'
-	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
+	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	interface Props {
 		dndType?: string | undefined
 		schema: Schema
