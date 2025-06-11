@@ -334,11 +334,10 @@
 		use:autosize
 		rows={3}
 		on:input={handleInput}
-		on:blur={(e) => {
-			e.preventDefault()
+		on:blur={() => {
 			setTimeout(() => {
 				showContextTooltip = false
-			}, 100)
+			}, 200)
 		}}
 		placeholder={isFirstMessage ? 'Ask anything' : 'Ask followup'}
 		class="resize-none bg-transparent caret-black dark:caret-white"
