@@ -25,7 +25,7 @@
 
 	import { type Writable } from 'svelte/store'
 	import type { AppComponent, DecisionTreeNode } from '../../component'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { AppViewerContext } from '$lib/components/apps/types'
 	import { deleteGridItem } from '../../appUtils'
 
