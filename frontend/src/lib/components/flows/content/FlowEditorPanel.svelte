@@ -46,7 +46,7 @@
 		fakeInitialPath,
 		previewArgs,
 		flowInputEditorState
-	} = $state(getContext<FlowEditorContext>('FlowEditorContext'))
+	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const { showCaptureHint, triggersState, triggersCount } =
 		getContext<TriggerContext>('TriggerContext')
