@@ -189,36 +189,39 @@
 								forceRerender = !forceRerender
 							}}
 							bind:selected
-							let:item
 						>
-							<ToggleButton
-								tooltip="Paste an OpenAPI JSON/YAML specification directly to generate HTTP routes."
-								showTooltipIcon
-								label="Paste OpenAPI spec"
-								value="OpenAPI"
-								{item}
-							/>
-							<ToggleButton
-								tooltip="Upload an OpenAPI file in JSON/YAML format to generate HTTP routes."
-								showTooltipIcon
-								label="From OpenAPI file"
-								value="OpenAPI_File"
-								{item}
-							/>
-							<ToggleButton
-								tooltip="Provide a publicly accessible URL to an OpenAPI specification in JSON/YAML format to generate HTTP routes."
-								showTooltipIcon
-								label="From OpenAPI URL"
-								value="OpenAPI_URL"
-								{item}
-							/>
+							{#snippet children({ item })}
+								<ToggleButton
+									tooltip="Paste an OpenAPI JSON/YAML specification directly to generate HTTP routes."
+									showTooltipIcon
+									label="Paste OpenAPI spec"
+									value="OpenAPI"
+									{item}
+								/>
+								<ToggleButton
+									tooltip="Upload an OpenAPI file in JSON/YAML format to generate HTTP routes."
+									showTooltipIcon
+									label="From OpenAPI file"
+									value="OpenAPI_File"
+									{item}
+								/>
+								<ToggleButton
+									tooltip="Provide a publicly accessible URL to an OpenAPI specification in JSON/YAML format to generate HTTP routes."
+									showTooltipIcon
+									label="From OpenAPI URL"
+									value="OpenAPI_URL"
+									{item}
+								/>
+							{/snippet}
 						</ToggleButtonGroup>
 
 						<div class="flex flex-col gap-2 mt-2">
 							{#if selected === 'OpenAPI'}
-								<ToggleButtonGroup bind:selected={lang} let:item>
-									<ToggleButton value="yaml" label="YAML" {item} />
-									<ToggleButton value="json" label="JSON" {item} />
+								<ToggleButtonGroup bind:selected={lang}>
+									{#snippet children({ item })}
+										<ToggleButton value="yaml" label="YAML" {item} />
+										<ToggleButton value="json" label="JSON" {item} />
+									{/snippet}
 								</ToggleButtonGroup>
 							{:else if selected === 'OpenAPI_File'}
 								<FileInput
