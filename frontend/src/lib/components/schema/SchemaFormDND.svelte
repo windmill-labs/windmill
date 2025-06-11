@@ -73,7 +73,6 @@
 	function handleConsider(e) {
 		dragDisabled = false
 		const { items: newItems } = e.detail
-
 		items = newItems
 	}
 
@@ -83,10 +82,9 @@
 		dragDisabled = true
 		items = newItems
 
-		dispatch(
-			'reorder',
-			items.map((item) => item.value)
-		)
+		const newOrder = items.map((item) => item.value)
+		// console.log('handleFinalize', newOrder, e.detail)
+		dispatch('reorder', newOrder)
 	}
 	$effect(() => {
 		schema && dragDisabled && updateItems()

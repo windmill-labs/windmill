@@ -237,36 +237,33 @@
 
 	let rawValue: string | undefined = $state(undefined)
 
-	function computeDefaultValue(
-		nvalue?: any,
-		inputCat?: string,
-		defaultValue?: any,
-		nnullable?: boolean
-	) {
+	function computeDefaultValue(inputCat?: string, defaultValue?: any, nnullable?: boolean) {
+		let nvalue: any = null
 		if (label == 'toString' && typeof value == 'function') {
-			value = undefined
+			nvalue = undefined
 		}
 		if ((value == undefined || value == null) && !ignoreValueUndefined) {
-			value = structuredClone($state.snapshot(defaultValue))
+			nvalue = structuredClone($state.snapshot(defaultValue))
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
-					value = nullable ? null : ''
+					nvalue = nullable ? null : ''
 				} else if (inputCat == 'enum' && required) {
-					value = enum_?.[0]
+					nvalue = enum_?.[0]
 				} else if (inputCat == 'boolean') {
-					value = false
+					nvalue = false
 				} else if (inputCat == 'list') {
-					value = []
+					nvalue = []
 				}
 			} else if (inputCat === 'object') {
 				evalValueToRaw()
 			}
 		}
 
-		if (nnullable && type === 'string' && value === '') {
-			if (value != null) {
-				value = null
-			}
+		if (nnullable && type === 'string' && value === '' && nvalue != null) {
+			value = null
+		} else if (nvalue != null && !deepEqual(nvalue, value)) {
+			console.log('set value 2', label, nvalue, value)
+			value = nvalue
 		}
 	}
 
@@ -463,7 +460,13 @@
 		oneOf && value && untrack(() => onOneOfChange())
 	})
 	$effect(() => {
-		computeDefaultValue(value, inputCat, defaultValue, nullable)
+		value
+		let args = [inputCat, defaultValue, nullable]
+
+		untrack(() => {
+			if (deepEqual(value, lastValue)) return
+			computeDefaultValue(...args)
+		})
 	})
 	$effect(() => {
 		!isListJson &&
@@ -719,7 +722,6 @@
 													{/await}
 												{:else if Array.isArray(itemsType?.enum)}
 													<ArgEnum
-														required
 														create={extra['disableCreate'] != true}
 														on:focus={() => {
 															dispatch('focus')
@@ -1170,7 +1172,6 @@
 		{:else if inputCat == 'enum'}
 			<div class="flex flex-row w-full gap-1">
 				<ArgEnum
-					{required}
 					create={extra['disableCreate'] != true}
 					{defaultValue}
 					valid={valid ?? true}

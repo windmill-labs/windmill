@@ -197,11 +197,12 @@
 	}
 
 	let hidden: Record<string, boolean> = $state({})
+	let fields = $derived(items ?? keys.map((x) => ({ id: x, value: x })))
 
 	function handleHiddenFields(schema: Schema | any, args: Record<string, any>) {
 		for (const x of fields) {
-			if (schema?.properties[x.value]?.showExpr) {
-				if (computeShow(x.value, schema.properties[x.value].showExpr, args)) {
+			if (schema?.properties?.[x.value]?.showExpr) {
+				if (computeShow(x.value, schema.properties?.[x.value]?.showExpr, args)) {
 					hidden[x.value] = false
 				} else if (!hidden[x.value]) {
 					hidden[x.value] = true
@@ -220,12 +221,16 @@
 		}
 	})
 	$effect(() => {
-		keys = Array.isArray(schema?.order) ? schema?.order : Object.keys(schema?.properties ?? {})
+		const newKeys = Array.isArray(schema?.order)
+			? schema?.order
+			: Object.keys(schema?.properties ?? {})
+		if (!deepEqual(keys, newKeys)) {
+			keys = newKeys
+		}
 	})
 	$effect(() => {
 		schema && (untrack(() => reorder()), (hidden = {}))
 	})
-	let fields = $derived(items ?? keys.map((x) => ({ id: x, value: x })))
 	$effect(() => {
 		handleHiddenFields(schema, untrack(() => args) ?? {})
 	})

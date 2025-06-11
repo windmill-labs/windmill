@@ -21,6 +21,7 @@
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
+	import { untrack } from 'svelte'
 
 	let version: undefined | number = $state(undefined)
 	let nodraft = $page.url.searchParams.get('nodraft')
@@ -76,6 +77,7 @@
 	let flowBuilder: FlowBuilder | undefined = $state(undefined)
 
 	async function loadFlow(): Promise<void> {
+		console.log('loadFlow')
 		loading = true
 		let flow: Flow
 		let statePath = stateLoadedFromUrl?.path
@@ -214,7 +216,7 @@
 
 	$effect(() => {
 		if ($workspaceStore) {
-			loadFlow()
+			untrack(() => loadFlow())
 		}
 	})
 

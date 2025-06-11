@@ -21,9 +21,11 @@
 		inputClass = '',
 		disablePortal = false,
 		loading = false,
+		autofocus,
 		groupBy,
 		sortBy,
 		onFocus,
+		onBlur,
 		onClear
 	}: {
 		items?: Item[]
@@ -38,9 +40,11 @@
 		inputClass?: string
 		disablePortal?: boolean
 		loading?: boolean
+		autofocus?: boolean
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onFocus?: () => void
+		onBlur?: () => void
 		onClear?: () => void
 	} = $props()
 
@@ -78,7 +82,9 @@
 				label: getLabel(item)
 			})) ?? []
 		if (filterText) {
-			items2 = items2.filter((item) => item.label.toLowerCase().includes(filterText.toLowerCase()))
+			items2 = items2.filter((item) =>
+				item?.label?.toLowerCase().includes(filterText?.toLowerCase())
+			)
 		}
 		if (groupBy) {
 			items2 =
@@ -164,6 +170,7 @@
 	use:clickOutside={{ onClickOutside: () => (open = false) }}
 	onpointerdown={() => onFocus?.()}
 	onfocus={() => onFocus?.()}
+	onblur={() => onBlur?.()}
 >
 	{#if clearable && !disabled && value}
 		<div class="absolute z-10 right-2 h-full flex items-center">
@@ -175,7 +182,9 @@
 			<Loader2 size={20} class="animate-spin" />
 		</div>
 	{/if}
+	<!-- svelte-ignore a11y_autofocus -->
 	<input
+		{autofocus}
 		{disabled}
 		type="text"
 		bind:value={() => filterText, (v) => (filterText = v)}

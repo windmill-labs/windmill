@@ -179,7 +179,24 @@
 	}
 
 	let opened: string | undefined = $state(untrack(() => keys[0]))
-	let selected = $state('')
+
+	function updateSelected(property: any) {
+		if (!property) return
+		selected = computeSelected(property)
+	}
+
+	function computeSelected(property: any) {
+		if (!opened) return ''
+		return property.type !== 'object'
+			? property.type
+			: property.format === 'resource-s3_object'
+				? 'S3'
+				: property.oneOf && property.oneOf.length >= 2
+					? 'oneOf'
+					: 'object'
+	}
+
+	let selected = $state(computeSelected(schema.properties[opened]))
 
 	export function openField(key: string) {
 		opened = key
@@ -194,19 +211,6 @@
 		if (schema.order) {
 			schema.order = schema.order.filter((x) => x !== key)
 		}
-	}
-
-	function updateSelected(property: any) {
-		if (!property) return
-		selected = opened
-			? property.type !== 'object'
-				? property.type
-				: property.format === 'resource-s3_object'
-					? 'S3'
-					: property.oneOf && property.oneOf.length >= 2
-						? 'oneOf'
-						: 'object'
-			: ''
 	}
 
 	function renameProperty(oldName: string, key: string) {
@@ -308,7 +312,6 @@
 	})
 </script>
 
-<!-- {JSON.stringify(schema2)} -->
 <div class="w-full h-full">
 	<div class="relative z-[100000]">
 		<div
@@ -347,7 +350,9 @@
 							bind:schema={
 								() => schema2,
 								(newSchema) => {
+									console.log('schemaUpdate 2', $state.snapshot(newSchema.order))
 									schema = newSchema
+									console.log('schemaUpdate', $state.snapshot(schema.order))
 									tick().then(() => dispatch('change', schema))
 								}
 							}
@@ -359,8 +364,10 @@
 								opened = e.detail
 							}}
 							on:reorder={(e) => {
-								schema.order = e.detail
-								schema = schema
+								schema = {
+									...schema,
+									order: e.detail
+								}
 								tick().then(() => dispatch('change', schema))
 							}}
 							prettifyHeader={isAppInput}
@@ -604,11 +611,10 @@
 																						type: e.detail
 																					}
 																				}
-																				// No better solution than this, needs future rework
-																				setTimeout(() => {
-																					schema = schema
-																					dispatch('change', schema)
-																				}, 100)
+
+																				schema = schema
+
+																				dispatch('change', schema)
 																				dispatch('schemaChange')
 																			}}
 																		>
@@ -657,7 +663,6 @@
 																		dispatch('change', schema)
 																	}}
 																	on:schemaChange={(e) => {
-																		schema = schema
 																		dispatch('change', schema)
 																		dispatch('schemaChange')
 																	}}

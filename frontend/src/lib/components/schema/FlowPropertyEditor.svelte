@@ -5,7 +5,7 @@
 	import SimpleEditor from '../SimpleEditor.svelte'
 	import type ItemPicker from '../ItemPicker.svelte'
 	import type VariableEditor from '../VariableEditor.svelte'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 	import ArgInput from '../ArgInput.svelte'
 	import ObjectTypeNarrowing from '../ObjectTypeNarrowing.svelte'
 	import Tabs from '../common/tabs/Tabs.svelte'
@@ -17,8 +17,6 @@
 	import Button from '../common/button/Button.svelte'
 	import { Pen, Plus, Trash2 } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { deepEqual } from 'fast-equals'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	interface Props {
 		format?: string | undefined
@@ -75,62 +73,9 @@
 		displayWebhookWarning = true
 	}: Props = $props()
 
-	let schema = $state({
-		properties,
-		order,
-		required: requiredProperty,
-		oneOf: oneOf ? getOneOfWithoutLabel(oneOf) : undefined
-	})
-
-	function getOneOfWithoutLabel(oneOf: SchemaProperty[]) {
-		return oneOf.map((v) => ({
-			...v,
-			properties: Object.fromEntries(
-				Object.entries(v.properties ?? {}).filter(([k, v]) => k !== 'label' && k !== 'kind')
-			)
-		}))
-	}
-
 	let oneOfSelected: string | undefined = $state(undefined)
-	function oneOfUpdate(oneOf: SchemaProperty[] | undefined) {
-		if (oneOf && oneOf.length >= 2) {
-			if (!oneOfSelected) {
-				oneOfSelected = oneOf[0].title
-			}
-
-			if (
-				!schema.oneOf ||
-				!deepEqual(
-					oneOf.map((v) => [v.title, v.order]),
-					schema.oneOf.map((v) => [v.title, v.order])
-				)
-			) {
-				// update schema if not exists or order changed
-				schema.oneOf = getOneOfWithoutLabel(oneOf)
-				schema = schema
-			}
-		} else if (!oneOf) {
-			schema.oneOf = undefined
-			schema = schema
-		}
-	}
-	$effect(() => {
-		oneOfUpdate(oneOf)
-	})
-
-	function orderUpdate(order) {
-		if (order && !deepEqual(order, schema.order)) {
-			// update from external reordering
-			schema.order = order
-			schema = schema
-		}
-	}
-	$effect(() => {
-		orderUpdate(order)
-	})
 
 	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function getResourceTypesFromFormat(format: string | undefined): string[] {
 		if (format?.startsWith('resource-')) {
@@ -140,53 +85,16 @@
 		return []
 	}
 
-	function schemaUpdate(changedSchema: typeof schema) {
-		if (
-			!deepEqual(changedSchema, {
-				properties,
-				order,
-				required: requiredProperty,
-				oneOf: oneOf ? getOneOfWithoutLabel(oneOf) : undefined
-			})
-		) {
-			properties = structuredClone($state.snapshot(changedSchema.properties))
-			order = structuredClone($state.snapshot(changedSchema.order))
-			requiredProperty = structuredClone($state.snapshot(changedSchema.required))
-
-			const tagKey = oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
-				? 'kind'
-				: 'label'
-
-			oneOf = changedSchema.oneOf?.map((v) => {
-				return {
-					...v,
-					properties: {
-						...(v.properties ?? {}),
-						[tagKey]: {
-							type: 'string',
-							enum: [v.title ?? '']
-						}
-					}
-				}
-			})
-			dispatchIfMounted('schemaChange', { properties, order, requiredProperty, oneOf })
-		}
-	}
-
-	$effect(() => {
-		schemaUpdate(schema)
-	})
-
 	let variantName = $state('')
 	function createVariant(name: string) {
-		if (schema.oneOf) {
-			if (schema.oneOf.some((obj) => obj.title === name)) {
+		if (oneOf) {
+			if (oneOf.some((obj) => obj.title === name)) {
 				throw new Error('Variant name already exists')
 			}
-			const idx = schema.oneOf.findIndex((obj) => obj.title === name)
+			const idx = oneOf.findIndex((obj) => obj.title === name)
 			if (idx === -1) {
-				schema.oneOf = [
-					...schema.oneOf,
+				oneOf = [
+					...oneOf,
 					{
 						title: name,
 						type: 'object',
@@ -200,13 +108,13 @@
 	}
 
 	function renameVariant(name: string, selected: string) {
-		if (schema.oneOf) {
-			if (schema.oneOf.some((obj) => obj.title === name)) {
+		if (oneOf) {
+			if (oneOf.some((obj) => obj.title === name)) {
 				throw new Error('Variant name already exists')
 			}
-			const idx = schema.oneOf.findIndex((obj) => obj.title === selected)
+			const idx = oneOf.findIndex((obj) => obj.title === selected)
 			if (idx !== -1) {
-				schema.oneOf[idx].title = name
+				oneOf[idx].title = name
 				oneOfSelected = name
 			}
 			variantName = ''
@@ -214,12 +122,12 @@
 	}
 
 	let initialObjectSelected = $state(
-		Object.keys(untrack(() => schema)?.properties ?? {}).length == 0 ? 'resource' : 'custom-object'
+		Object.keys(properties ?? {}).length == 0 ? 'resource' : 'custom-object'
 	)
 </script>
 
 <div class="flex flex-col gap-2">
-	{#if type === 'object' && schema.oneOf && schema.oneOf.length >= 2}
+	{#if type === 'object' && oneOf && oneOf.length >= 2}
 		<div class="flex flex-row gap-1 items-center justify-start">
 			<ToggleButtonGroup
 				bind:selected={oneOfSelected}
@@ -227,7 +135,7 @@
 				tabListClass="flex-wrap"
 			>
 				{#snippet children({ item })}
-					{#each schema.oneOf ?? [] as obj}
+					{#each oneOf ?? [] as obj}
 						<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
 					{/each}
 				{/snippet}
@@ -325,20 +233,52 @@
 				color="red"
 				startIcon={{ icon: Trash2 }}
 				iconOnly
-				disabled={schema.oneOf.length <= 2}
+				disabled={(oneOf?.length ?? 0) <= 2}
 				on:click={() => {
-					if (schema.oneOf && oneOfSelected) {
-						const idx = schema.oneOf.findIndex((obj) => obj.title === oneOfSelected)
-						schema.oneOf = schema.oneOf.filter((_, i) => i !== idx)
-						oneOfSelected = schema.oneOf[0].title
+					if (oneOf && oneOfSelected) {
+						const idx = oneOf.findIndex((obj) => obj.title === oneOfSelected)
+						oneOf = oneOf.filter((_, i) => i !== idx)
+						oneOfSelected = oneOf[0].title
 					}
 				}}
 			/>
 		</div>
-		{#if oneOfSelected && schema.oneOf}
-			{@const idx = schema.oneOf.findIndex((obj) => obj.title === oneOfSelected)}
+		{#if oneOfSelected && oneOf}
+			{@const idx = oneOf.findIndex((obj) => obj.title === oneOfSelected)}
 			<EditableSchemaDrawer
-				bind:schema={schema.oneOf[idx]}
+				bind:schema={
+					() => {
+						if (oneOf?.[idx]) {
+							return {
+								...oneOf[idx],
+								properties: Object.fromEntries(
+									Object.entries(oneOf[idx].properties ?? {}).filter(
+										([k]) => k !== 'label' && k !== 'kind'
+									)
+								)
+							}
+						}
+					},
+					(v) => {
+						if (oneOf?.[idx]) {
+							const tagKey = oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
+								? 'kind'
+								: 'label'
+
+							oneOf[idx] = {
+								...(v ?? {}),
+								type: 'object',
+								properties: {
+									...(v?.properties ?? {}),
+									[tagKey]: {
+										type: 'string',
+										enum: [v?.title ?? '']
+									}
+								}
+							}
+						}
+					}
+				}
 				on:change={() => {
 					dispatch('schemaChange')
 				}}
@@ -358,7 +298,23 @@
 			{#snippet content()}
 				<div class="pt-2">
 					<TabContent value="custom-object">
-						<EditableSchemaDrawer bind:schema on:change={() => dispatch('schemaChange')} />
+						<EditableSchemaDrawer
+							bind:schema={
+								() => {
+									return {
+										properties: properties,
+										order: order,
+										required: requiredProperty
+									}
+								},
+								(v) => {
+									properties = v.properties
+									order = v.order
+									requiredProperty = v.required
+									dispatch('schemaChange')
+								}
+							}
+						/>
 					</TabContent>
 
 					<TabContent value="resource">

@@ -512,39 +512,45 @@
 		jobKinds = computeJobKinds(jobKindsCat)
 	})
 	$effect(() => {
-		;($workspaceStore ||
-			(path &&
-				label &&
-				success &&
-				worker &&
-				isSkipped != undefined &&
-				jobKinds &&
-				concurrencyKey &&
-				tag &&
-				lookback &&
-				user &&
-				folder &&
-				allowWildcards &&
-				schedulePath != undefined &&
-				showFutureJobs != undefined &&
-				showSchedules != undefined &&
-				allWorkspaces != undefined &&
-				argFilter != undefined &&
-				resultFilter != undefined)) &&
-			untrack(() => onParamChanges())
+		;[
+			$workspaceStore,
+			path,
+			label,
+			success,
+			worker,
+			isSkipped,
+			jobKinds,
+			concurrencyKey,
+			tag,
+			lookback,
+			user,
+			folder,
+			allowWildcards,
+			schedulePath,
+			showFutureJobs,
+			showSchedules,
+			allWorkspaces,
+			argFilter,
+			resultFilter
+		]
+
+		untrack(() => onParamChanges())
 	})
 	$effect(() => {
-		if (!intervalId && autoRefresh) {
-			intervalId = setInterval(
-				untrack(() => syncer),
-				refreshRate
-			)
-		}
+		;[autoRefresh, refreshRate]
+		untrack(() => {
+			if (!intervalId && autoRefresh) {
+				intervalId = setInterval(syncer, refreshRate)
+			}
+		})
 	})
 	$effect(() => {
-		if (intervalId && !autoRefresh) {
-			clearInterval(intervalId)
-			intervalId = undefined
-		}
+		autoRefresh
+		untrack(() => {
+			if (intervalId && !autoRefresh) {
+				clearInterval(intervalId)
+				intervalId = undefined
+			}
+		})
 	})
 </script>

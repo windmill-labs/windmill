@@ -123,6 +123,9 @@
 		jsonEditor?.setCode(code)
 	}
 	$effect(() => {
+		Object.keys(args ?? {}).forEach((key) => {
+			console.log('key', key, args?.[key])
+		})
 		onArgsChange(args)
 	})
 </script>

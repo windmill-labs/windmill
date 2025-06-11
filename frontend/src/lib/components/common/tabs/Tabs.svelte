@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
-	import { setContext } from 'svelte'
+	import { setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -50,6 +48,8 @@
 		selectedStore.set(selected)
 	}
 
+	let hashValues = $derived(values ? values.map((x) => '#' + x) : undefined)
+
 	function hashChange() {
 		if (hashNavigation) {
 			const hash = window.location.hash
@@ -60,13 +60,17 @@
 			}
 		}
 	}
-	run(() => {
-		selected && updateSelected()
+	$effect(() => {
+		selected && untrack(() => updateSelected())
 	})
-	run(() => {
-		$selectedStore && dispatchIfMounted('selected', $selectedStore)
+
+	let lastSelected: string | undefined = $state(undefined)
+	$effect(() => {
+		if ($selectedStore !== untrack(() => lastSelected)) {
+			lastSelected = $selectedStore
+			$selectedStore && dispatchIfMounted('selected', $selectedStore)
+		}
 	})
-	let hashValues = $derived(values ? values.map((x) => '#' + x) : undefined)
 </script>
 
 <svelte:window onhashchange={hashChange} />
