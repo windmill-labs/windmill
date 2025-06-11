@@ -559,7 +559,7 @@
 				)
 			}
 
-			const { draft_triggers: _, ...newScript } = structuredClone(script)
+			const { draft_triggers: _, ...newScript } = structuredClone($state.snapshot(script))
 			savedScript = structuredClone(newScript) as NewScriptWithDraft
 			setDraftTriggers([])
 
