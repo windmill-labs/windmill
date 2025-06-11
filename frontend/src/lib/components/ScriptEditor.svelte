@@ -354,10 +354,9 @@
 	let storedTestPanelSize = untrack(() => testPanelSize)
 
 	$effect(() => {
-		let supported = SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')
-		if (supported != untrack(() => aiChatManager.open)) {
-			aiChatManager.toggleOpen()
-		}
+		!SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') &&
+			!aiChatManager.open &&
+			untrack(() => aiChatManager.toggleOpen())
 	})
 
 	function toggleTestPanel() {
@@ -405,12 +404,14 @@
 			lastDeployedCode,
 			diffMode
 		}
-		aiChatManager.scriptEditorOptions = options
-		aiChatManager.scriptEditorApplyCode = (code: string) => {
-			hideDiffMode()
-			editor?.reviewAndApplyCode(code)
-		}
-		aiChatManager.scriptEditorShowDiffMode = showDiffMode
+		untrack(() => {
+			aiChatManager.scriptEditorOptions = options
+			aiChatManager.scriptEditorApplyCode = (code: string) => {
+				hideDiffMode()
+				editor?.reviewAndApplyCode(code)
+			}
+			aiChatManager.scriptEditorShowDiffMode = showDiffMode
+		})
 	})
 </script>
 

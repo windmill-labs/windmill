@@ -5,7 +5,7 @@
 	import { RefreshCw } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
 	import { Button } from './common'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { evalValue } from './flows/utils'
 	import type { FlowModule } from '$lib/gen'
@@ -59,7 +59,7 @@
 		let lkeys = Object.keys(schema?.properties ?? {})
 		if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {
 			keys = lkeys
-			removeExtraKey()
+			untrack(() => removeExtraKey())
 		}
 	})
 

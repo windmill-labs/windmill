@@ -919,7 +919,7 @@
 		}
 	}
 	$effect(() => {
-		initialPath != '' && loadTriggers()
+		initialPath != '' && untrack(() => loadTriggers())
 	})
 	let langs = $derived(
 		processLangs(script.language, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))

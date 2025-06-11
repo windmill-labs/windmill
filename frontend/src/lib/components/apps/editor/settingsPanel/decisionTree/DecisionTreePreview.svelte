@@ -390,7 +390,8 @@
 	}
 
 	$effect(() => {
-		graphBuilder(nodes)
+		;[nodes]
+		untrack(() => graphBuilder(nodes))
 	})
 
 	function layoutNodes(nodes: Node[]): Node[] {

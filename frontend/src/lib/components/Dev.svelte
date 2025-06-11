@@ -19,7 +19,7 @@
 	import { setCopilotInfo, userStore, workspaceStore } from '$lib/stores'
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { onDestroy, onMount, setContext } from 'svelte'
+	import { onDestroy, onMount, setContext, untrack } from 'svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
 	import { page } from '$app/stores'
 	import { getUserExt } from '$lib/user'
@@ -527,18 +527,18 @@
 		if (token) {
 			OpenAPI.WITH_CREDENTIALS = true
 			OpenAPI.TOKEN = token
-			loadUser()
+			untrack(() => loadUser())
 		}
 	})
 	$effect(() => {
 		if (workspace) {
 			$workspaceStore = workspace
-			setupCopilotInfo()
+			untrack(() => setupCopilotInfo())
 		}
 	})
 	$effect(() => {
 		if (workspace && token) {
-			loadUser()
+			untrack(() => loadUser())
 		}
 	})
 	$effect(() => {
@@ -546,13 +546,13 @@
 			themeDark != darkMode &&
 			darkMode != undefined &&
 			!modeInitialized &&
-			initializeMode()
+			untrack(() => initializeMode())
 	})
 	$effect(() => {
-		updateFlow(flowStore.val)
+		flowStore.val && untrack(() => updateFlow(flowStore.val))
 	})
 	$effect(() => {
-		$selectedIdStore && inferModuleArgs($selectedIdStore)
+		$selectedIdStore && untrack(() => inferModuleArgs($selectedIdStore))
 	})
 </script>
 

@@ -69,7 +69,7 @@
 
 	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
 
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import domContent from '$lib/dom.d.ts.txt?raw'
@@ -238,13 +238,13 @@
 
 	$effect(() => {
 		if (allowVim && editor !== null && $vimMode && statusDiv) {
-			onVimMode()
+			untrack(() => onVimMode())
 		}
 	})
 
 	$effect(() => {
 		if (!$vimMode && vimDisposable) {
-			onVimDisable()
+			untrack(() => onVimDisable())
 		}
 	})
 
@@ -303,7 +303,7 @@
 
 	$effect(() => {
 		if (editor !== null && (lang || disableLinting || disableSuggestions || hideLineNumbers)) {
-			updateModelAndOptions()
+			untrack(() => updateModelAndOptions())
 		}
 	})
 
@@ -580,7 +580,7 @@
 
 	$effect(() => {
 		if (mounted && extraLib && initialized) {
-			loadExtraLib()
+			untrack(() => loadExtraLib())
 		}
 	})
 

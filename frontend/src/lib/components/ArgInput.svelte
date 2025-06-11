@@ -474,7 +474,7 @@
 			value != lastValue &&
 			itemsType?.type &&
 			!hasIsListJsonChanged &&
-			checkArrayValueType()
+			untrack(() => checkArrayValueType())
 	})
 	$effect(() => {
 		defaultValue != undefined && untrack(() => handleDefaultValueChange())
@@ -483,12 +483,13 @@
 		;(inputCat &&
 			(isObjectCat(inputCat) || isRawStringEditor(inputCat)) &&
 			!oneOf &&
-			evalValueToRaw()) ||
+			untrack(() => evalValueToRaw())) ||
 			value
 	})
 
 	$effect(() => {
-		validateInput(pattern, value, required)
+		let args = [pattern, value, required] as const
+		untrack(() => validateInput(...args))
 	})
 	$effect(() => {
 		shouldDispatchChanges && debounced(value)

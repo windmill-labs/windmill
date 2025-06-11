@@ -299,7 +299,7 @@
 		}
 	})
 	$effect(() => {
-		schema && onSchemaChange()
+		schema && untrack(() => onSchemaChange())
 	})
 	$effect(() => {
 		opened && updateSelected(schema.properties[opened])

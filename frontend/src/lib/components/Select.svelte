@@ -5,6 +5,7 @@
 	import ConditionalPortal from './common/drawer/ConditionalPortal.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { Loader2 } from 'lucide-svelte'
+	import { untrack } from 'svelte'
 
 	type Value = Item['value']
 
@@ -140,7 +141,7 @@
 			if (!deepEqual(nPos, dropdownPos)) dropdownPos = nPos
 			if (open) requestAnimationFrame(updateDropdownPos)
 		}
-		if (open) updateDropdownPos()
+		if (open) untrack(() => updateDropdownPos())
 	})
 </script>
 

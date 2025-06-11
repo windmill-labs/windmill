@@ -3,7 +3,7 @@
 	import { VariableService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { Button } from './common'
 	import StepInputsGen from './copilot/StepInputsGen.svelte'
 	import type { PickableProperties } from './flows/previousResults'
@@ -75,7 +75,7 @@
 		let lkeys = Object.keys(schema?.properties ?? {})
 		if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {
 			keys = lkeys
-			removeExtraKey()
+			untrack(() => removeExtraKey())
 		}
 	})
 </script>

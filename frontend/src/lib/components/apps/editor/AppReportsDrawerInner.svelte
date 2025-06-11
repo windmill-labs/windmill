@@ -24,6 +24,7 @@
 	import { CUSTOM_TAGS_SETTING, WORKSPACE_SLACK_BOT_TOKEN_PATH } from '$lib/consts'
 	import { loadSchemaFromPath } from '$lib/infer'
 	import { hubPaths } from '$lib/hub'
+	import { untrack } from 'svelte'
 	interface Props {
 		appPath: string
 		open?: boolean
@@ -141,7 +142,7 @@
 	}
 
 	$effect(() => {
-		appPath && getAppReportingInfo()
+		appPath && untrack(() => getAppReportingInfo())
 	})
 
 	async function disableAppReporting() {

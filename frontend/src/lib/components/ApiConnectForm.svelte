@@ -23,7 +23,7 @@
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
 	import { Loader2, Github, RotateCw, Plus, Minus, Download } from 'lucide-svelte'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 
 	interface Props {
 		resourceType: string
@@ -325,22 +325,24 @@
 		}
 	}
 	$effect(() => {
-		$workspaceStore && loadSchema()
+		$workspaceStore && untrack(() => loadSchema())
 	})
 	$effect(() => {
-		notFound && rawCode && parseJson()
+		notFound && rawCode && untrack(() => parseJson())
 	})
 	$effect(() => {
-		rawCode && parseJson()
+		rawCode && untrack(() => parseJson())
 	})
 	$effect(() => {
-		textFileContent && parseTextFileContent()
+		textFileContent && untrack(() => parseTextFileContent())
 	})
 	$effect(() => {
-		resourceType == 'postgresql' && isSupabaseAvailable()
+		resourceType == 'postgresql' && untrack(() => isSupabaseAvailable())
 	})
 	$effect(() => {
-		resourceType == 'git_repository' && $userStore?.is_admin && loadGithubInstallations()
+		resourceType == 'git_repository' &&
+			$userStore?.is_admin &&
+			untrack(() => loadGithubInstallations())
 	})
 	let githubInstallationsNotInWorkspace = $derived(
 		githubInstallations.filter((installation) => {

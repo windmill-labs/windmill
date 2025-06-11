@@ -20,6 +20,7 @@
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
 	import TriggerableByAI from './TriggerableByAI.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
+	import { untrack } from 'svelte'
 
 	let reloadArgs = $state(0)
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
@@ -126,7 +127,7 @@
 		Object.keys(args ?? {}).forEach((key) => {
 			console.log('key', key, args?.[key])
 		})
-		onArgsChange(args)
+		untrack(() => onArgsChange(args))
 	})
 </script>
 

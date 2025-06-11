@@ -757,10 +757,10 @@
 	let forceDeactivatePanzoom = $state(false)
 
 	$effect(() => {
-		path && onPathChange()
+		path && untrack(() => onPathChange())
 	})
 	$effect(() => {
-		$appStore && saveFrontendDraft()
+		$appStore && untrack(() => saveFrontendDraft())
 	})
 	$effect(() => {
 		context.mode = $mode == 'dnd' ? 'editor' : 'viewer'
@@ -774,7 +774,7 @@
 		if ($selectedComponent?.[0] != befSelected) {
 			befSelected = $selectedComponent?.[0]
 			if ($selectedComponent?.[0] != undefined) {
-				onSelectedComponentChange()
+				untrack(() => onSelectedComponentChange())
 			}
 		}
 	})
@@ -785,7 +785,8 @@
 	})
 	// Animation logic for cssInput
 	$effect(() => {
-		animateCssInput($cssEditorOpen)
+		;[$cssEditorOpen]
+		untrack(() => animateCssInput($cssEditorOpen))
 	})
 	$effect(() => {
 		$cssEditorOpen &&
@@ -794,19 +795,22 @@
 			})
 	})
 	$effect(() => {
-		$cssEditorOpen && selectCss()
+		$cssEditorOpen && untrack(() => selectCss())
 	})
 	$effect(() => {
-		addOrRemoveCss(true, $mode === 'preview')
+		;[$mode]
+		untrack(() => addOrRemoveCss(true, $mode === 'preview'))
 	})
 	$effect(() => {
-		updateCssContent(css, $previewTheme)
+		;[css, $previewTheme]
+		untrack(() => updateCssContent(css, $previewTheme))
 	})
 	$effect(() => {
-		setGridPanelSize($componentActive)
+		;[$componentActive]
+		untrack(() => setGridPanelSize($componentActive))
 	})
 	$effect(() => {
-		$connectingInput.opened, updatePannelInConnecting()
+		$connectingInput.opened, untrack(() => updatePannelInConnecting())
 	})
 	$effect(() => {
 		forceDeactivatePanzoom = isModifierKeyPressed && handMode
@@ -819,7 +823,8 @@
 			mouseOverGridView
 	})
 	$effect(() => {
-		updateCursorStyle(!!$connectingInput.opened && !$panzoomActive)
+		;[!!$connectingInput.opened, !$panzoomActive]
+		untrack(() => updateCursorStyle(!!$connectingInput.opened && !$panzoomActive))
 	})
 
 	const unsavedConfirmationModal_render = $derived(unsavedConfirmationModal)
