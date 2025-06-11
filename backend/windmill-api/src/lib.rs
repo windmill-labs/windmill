@@ -661,7 +661,8 @@ pub async fn run_server(
                         .layer(cors.clone()),
                 )
                 // DEPRECATED new path is /api/w/:workspace_id/mcp
-                .nest("/mcp/w/:workspace_id", mcp_router)
+                .nest("/mcp/w/:workspace_id/sse", mcp_router)
+                .layer(from_extractor::<OptAuthed>())
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
                     {
