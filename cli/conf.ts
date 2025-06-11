@@ -29,6 +29,55 @@ export interface SyncOptions {
   jsonOutput?: boolean;
   includeWmillYaml?: boolean;
   settingsFromJson?: string;
+  workspaces?: { [workspaceName: string]: WorkspaceProfile };
+  defaultWorkspace?: string;
+}
+
+// Default sync options - shared across the codebase to prevent duplication
+export const DEFAULT_SYNC_OPTIONS: Readonly<Required<Pick<SyncOptions,
+  'defaultTs' | 'includes' | 'excludes' | 'codebases' | 'skipVariables' | 'skipResources' |
+  'skipResourceTypes' | 'skipSecrets' | 'includeSchedules' | 'includeTriggers' |
+  'includeUsers' | 'includeGroups' | 'includeSettings' | 'includeKey'
+>>> = {
+  defaultTs: 'bun',
+  includes: ['f/**'],
+  excludes: [],
+  codebases: [],
+  skipVariables: false,
+  skipResources: false,
+  skipResourceTypes: false,
+  skipSecrets: false,
+  includeSchedules: false,
+  includeTriggers: false,
+  includeUsers: false,
+  includeGroups: false,
+  includeSettings: false,
+  includeKey: false
+} as const;
+
+export interface WorkspaceProfile {
+  baseUrl: string;
+  workspaceId: string;
+  repositories?: { [repositoryPath: string]: RepositorySyncOptions };
+  currentRepository?: string;
+}
+
+export interface RepositorySyncOptions {
+  skipVariables?: boolean;
+  skipResources?: boolean;
+  skipResourceTypes?: boolean;
+  skipSecrets?: boolean;
+  includeSchedules?: boolean;
+  includeTriggers?: boolean;
+  includeUsers?: boolean;
+  includeGroups?: boolean;
+  includeSettings?: boolean;
+  includeKey?: boolean;
+  includes?: string[];
+  extraIncludes?: string[];
+  excludes?: string[];
+  defaultTs?: "bun" | "deno";
+  codebases?: Codebase[];
 }
 
 export interface Codebase {
@@ -60,6 +109,55 @@ export async function readConfigFile(): Promise<SyncOptions> {
     );
     return {};
   }
+}
+
+export function getWorkspaceProfile(
+  config: SyncOptions,
+  workspaceName: string
+): WorkspaceProfile | undefined {
+  return config.workspaces?.[workspaceName];
+}
+
+export function getWorkspaceRepositorySettings(
+  config: SyncOptions,
+  workspaceName: string,
+  repositoryPath: string
+): SyncOptions {
+  const workspaceProfile = config.workspaces?.[workspaceName];
+  if (!workspaceProfile) {
+    // Fallback to legacy format - just return base config (no repository awareness)
+    return config;
+  }
+
+  // Get only repository-specific settings (no workspace defaults)
+  const repositorySettings = workspaceProfile.repositories?.[repositoryPath];
+  if (!repositorySettings) {
+    // No repository settings - return base config
+    return config;
+  }
+
+  return {
+    ...config,
+    ...repositorySettings,
+  };
+}
+
+export function listWorkspaces(config: SyncOptions): string[] {
+  if (config.workspaces) {
+    return Object.keys(config.workspaces);
+  }
+  return [];
+}
+
+export function listWorkspaceRepositories(
+  config: SyncOptions,
+  workspaceName: string
+): string[] {
+  const workspaceProfile = config.workspaces?.[workspaceName];
+  if (workspaceProfile?.repositories) {
+    return Object.keys(workspaceProfile.repositories);
+  }
+  return [];
 }
 
 export async function mergeConfigWithConfigFile<T>(

@@ -1,4 +1,5 @@
 import { fetchVersion, requireLogin, resolveWorkspace } from "./context.ts";
+import { Workspace } from "./workspace.ts";
 import {
   colors,
   Command,
@@ -35,7 +36,7 @@ import {
 
 import { handleFile } from "./script.ts";
 import { deepEqual, isFileResource } from "./utils.ts";
-import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
+import { SyncOptions, DEFAULT_SYNC_OPTIONS, WorkspaceProfile } from "./conf.ts";
 import { removePathPrefix } from "./types.ts";
 import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
 import {
@@ -45,7 +46,7 @@ import {
 } from "./metadata.ts";
 import { FlowModule, OpenFlow, RawScript } from "./gen/types.gen.ts";
 import { pushResource } from "./resource.ts";
-import { uiStateToSyncOptions, syncOptionsToUIState, parseJsonInput } from "./settings_utils.ts";
+import { uiStateToSyncOptions, syncOptionsToUIState, parseJsonInput, resolveWorkspaceAndRepositoryForSync } from "./settings_utils.ts";
 import { readConfigFile } from "./conf.ts";
 
 
@@ -83,6 +84,28 @@ async function addWmillYamlChangeFromJson(opts: SyncOptions, modified: string[])
 
   if (hasDifferences && !modified.includes('wmill.yaml')) {
     modified.push('wmill.yaml');
+  }
+}
+
+// Helper function to create workspace object with proper token resolution
+async function createWorkspaceWithToken(
+  workspaceProfile: WorkspaceProfile,
+  workspaceName: string | undefined,
+  opts: GlobalOptions
+): Promise<Workspace> {
+  // Import and use tryGetLoginInfo to get token properly
+  const { tryGetLoginInfo } = await import("./login.ts");
+  const token = await tryGetLoginInfo(opts);
+  if (!token || !workspaceName) {
+    // If no global token or no workspace name, fall back to resolveWorkspace which handles auth properly
+    return await resolveWorkspace(opts);
+  } else {
+    return {
+      workspaceId: workspaceProfile.workspaceId,
+      name: workspaceName,
+      remote: workspaceProfile.baseUrl,
+      token: token
+    };
   }
 }
 
@@ -1136,18 +1159,47 @@ async function buildTracker(changes: Change[]) {
   return tracker;
 }
 
-export async function pull(opts: GlobalOptions & SyncOptions) {
-  opts = await mergeConfigWithConfigFile(opts);
+export async function pull(opts: GlobalOptions & SyncOptions & { repository?: string; workspace?: string }) {
+  let workspace: any;
+  let repositoryPath: string | undefined;
+
+  try {
+    // Try to resolve using workspace-aware method
+    const { workspaceName, workspaceProfile, repositoryPath: resolvedRepo, syncOptions } =
+      await resolveWorkspaceAndRepositoryForSync(opts.workspace, opts.repository);
+
+    if (workspaceProfile) {
+      // Use workspace profile to create workspace object with proper token resolution
+      workspace = await createWorkspaceWithToken(workspaceProfile, workspaceName, opts);
+    } else {
+      // Fallback to normal workspace resolution
+      workspace = await resolveWorkspace(opts);
+    }
+
+    repositoryPath = resolvedRepo;
+    // Merge resolved repository options with command line options
+    opts = { ...syncOptions, ...opts };
+  } catch (error) {
+    // Fall back to legacy resolution
+    workspace = await resolveWorkspace(opts);
+    repositoryPath = opts.repository; // Legacy: just use specified repository
+    const { mergeConfigWithConfigFile } = await import("./conf.ts");
+    const legacyConfig = await mergeConfigWithConfigFile({});
+    opts = { ...legacyConfig, ...opts };
+  }
+
+  await requireLogin(opts);
 
   // Override sync configuration with JSON settings if provided
   overrideSyncOptionsFromJson(opts, opts.settingsFromJson);
 
+  if (repositoryPath) {
+    log.info(colors.gray(`Syncing with repository: ${repositoryPath}`));
+  }
+
   if (opts.stateful) {
     await ensureDir(path.join(Deno.cwd(), ".wmill"));
   }
-
-  const workspace = await resolveWorkspace(opts);
-  await requireLogin(opts);
 
   const codebases = await listSyncCodebases(opts);
 
@@ -1230,50 +1282,54 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
   log.info(
     `remote (${workspace.name}) -> local: ${changes.length} changes to apply`
   );
+
+  // Handle JSON output for dry-run (both with and without changes)
+  if (opts.dryRun && opts.jsonOutput) {
+    // Convert changes to frontend-compatible format
+    const added: string[] = [];
+    const deleted: string[] = [];
+    const modified: string[] = [];
+
+    for (const change of changes) {
+      if (change.name === "added") {
+        added.push(change.path);
+      } else if (change.name === "deleted") {
+        deleted.push(change.path);
+      } else if (change.name === "edited") {
+        modified.push(change.path);
+      }
+    }
+
+    // Add wmill.yaml change detection if requested
+    if (opts.includeWmillYaml) {
+      // Check if settings would generate a different wmill.yaml
+      const currentWmillYaml = await readCurrentWmillYaml();
+      const generatedWmillYaml = generateWmillYamlFromOpts(opts);
+
+      if (currentWmillYaml !== generatedWmillYaml) {
+        if (!modified.includes('wmill.yaml')) {
+          modified.push('wmill.yaml');
+        }
+      }
+    }
+
+    // Add wmill.yaml change detection from JSON settings if requested
+    await addWmillYamlChangeFromJson(opts, modified);
+
+    const result = {
+      success: true,
+      added,
+      deleted,
+      modified
+    };
+    console.log(JSON.stringify(result));
+    return;
+  }
+
   if (changes.length > 0) {
     prettyChanges(changes);
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
-      if (opts.jsonOutput) {
-        // Convert changes to frontend-compatible format
-        const added: string[] = [];
-        const deleted: string[] = [];
-        const modified: string[] = [];
-
-        for (const change of changes) {
-          if (change.name === "added") {
-            added.push(change.path);
-          } else if (change.name === "deleted") {
-            deleted.push(change.path);
-          } else if (change.name === "edited") {
-            modified.push(change.path);
-          }
-        }
-
-        // Add wmill.yaml change detection if requested
-        if (opts.includeWmillYaml) {
-          // Check if settings would generate a different wmill.yaml
-          const currentWmillYaml = await readCurrentWmillYaml();
-          const generatedWmillYaml = generateWmillYamlFromOpts(opts);
-
-          if (currentWmillYaml !== generatedWmillYaml) {
-            if (!modified.includes('wmill.yaml')) {
-              modified.push('wmill.yaml');
-            }
-          }
-        }
-
-        // Add wmill.yaml change detection from JSON settings if requested
-        await addWmillYamlChangeFromJson(opts, modified);
-
-        const result = {
-          success: true,
-          added,
-          deleted,
-          modified
-        };
-        console.log(JSON.stringify(result));
-      }
       return;
     }
     if (
@@ -1478,11 +1534,43 @@ function removeSuffix(str: string, suffix: string) {
   return str.slice(0, str.length - suffix.length);
 }
 
-export async function push(opts: GlobalOptions & SyncOptions) {
-  opts = await mergeConfigWithConfigFile(opts);
+export async function push(opts: GlobalOptions & SyncOptions & { repository?: string; workspace?: string }) {
+  let workspace: any;
+  let repositoryPath: string | undefined;
+
+  try {
+    // Try to resolve using workspace-aware method
+    const { workspaceName, workspaceProfile, repositoryPath: resolvedRepo, syncOptions } =
+      await resolveWorkspaceAndRepositoryForSync(opts.workspace, opts.repository);
+
+    if (workspaceProfile) {
+      // Use workspace profile to create workspace object with proper token resolution
+      workspace = await createWorkspaceWithToken(workspaceProfile, workspaceName, opts);
+    } else {
+      // Fallback to normal workspace resolution
+      workspace = await resolveWorkspace(opts);
+    }
+
+    repositoryPath = resolvedRepo;
+    // Merge resolved repository options with command line options
+    opts = { ...syncOptions, ...opts };
+  } catch (error) {
+    // Fall back to legacy resolution
+    workspace = await resolveWorkspace(opts);
+    repositoryPath = opts.repository; // Legacy: just use specified repository
+    const { mergeConfigWithConfigFile } = await import("./conf.ts");
+    const legacyConfig = await mergeConfigWithConfigFile({});
+    opts = { ...legacyConfig, ...opts };
+  }
+
+  await requireLogin(opts);
 
   // Override sync configuration with JSON settings if provided
   overrideSyncOptionsFromJson(opts, opts.settingsFromJson);
+
+  if (repositoryPath) {
+    log.info(colors.gray(`Syncing with repository: ${repositoryPath}`));
+  }
 
   const codebases = await listSyncCodebases(opts);
   if (opts.raw) {
@@ -1493,14 +1581,11 @@ export async function push(opts: GlobalOptions & SyncOptions) {
       log.info(
         colors.gray("You need to be up-to-date before pushing, pulling first.")
       );
-      await pull(opts);
+      await pull({ ...opts, repository: opts.repository });
       log.info(colors.green("Pull done, now pushing."));
       log.info("\n");
     }
   }
-
-  const workspace = await resolveWorkspace(opts);
-  await requireLogin(opts);
 
   log.info(
     colors.gray(
@@ -2151,6 +2236,7 @@ const command = new Command()
   .option("--json-output", "Output changes in JSON format for frontend integration")
   .option("--include-wmill-yaml", "Include wmill.yaml changes in output when using --json-output")
   .option("--settings-from-json <json:string>", "Configure sync settings using JSON format (include_path, include_type) as alternative to individual flags")
+  .option("--repository <repo:string>", "Specify git repository path (e.g. u/user/repo)")
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
   .command("push")
@@ -2194,6 +2280,7 @@ const command = new Command()
   .option("--json-output", "Output changes in JSON format for frontend integration")
   .option("--include-wmill-yaml", "Include wmill.yaml changes in output when using --json-output")
   .option("--settings-from-json <json:string>", "Configure sync settings using JSON format (include_path, include_type) as alternative to individual flags")
+  .option("--repository <repo:string>", "Specify git repository path (e.g. u/user/repo)")
   // deno-lint-ignore no-explicit-any
   .action(push as any);
 
@@ -2211,8 +2298,8 @@ async function readCurrentWmillYaml(): Promise<string | null> {
 
 function generateWmillYamlFromOpts(opts: SyncOptions): string {
   const config = {
-    defaultTs: opts.defaultTs ?? "bun",
-    includes: opts.includes || ["f/**"],
+    defaultTs: opts.defaultTs ?? DEFAULT_SYNC_OPTIONS.defaultTs,
+    includes: opts.includes || DEFAULT_SYNC_OPTIONS.includes,
     excludes: opts.excludes || [],
     codebases: opts.codebases || [],
     skipVariables: opts.skipVariables ?? false,
