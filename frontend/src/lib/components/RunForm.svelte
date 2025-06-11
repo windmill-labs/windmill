@@ -33,7 +33,7 @@
 	}
 
 	export function run() {
-		runAction(scheduledForStr, args, invisible_to_owner, overrideTag)
+		runAction(scheduledForStr, args ?? {}, invisible_to_owner, overrideTag)
 	}
 
 	interface Props {
@@ -88,10 +88,16 @@
 		scheduledForStr = $bindable(),
 		invisible_to_owner = $bindable(),
 		overrideTag = $bindable(),
-		args = $bindable({}),
+		args = $bindable(),
 		jsonView = false,
 		isValid = $bindable(true)
 	}: Props = $props()
+
+	$effect.pre(() => {
+		if (args == undefined) {
+			args = {}
+		}
+	})
 
 	let debounced: NodeJS.Timeout | undefined = undefined
 
@@ -215,7 +221,7 @@
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
 			disabled={!isValid || jsonView}
-			on:click={() => runAction(undefined, args, invisible_to_owner, overrideTag)}
+			on:click={() => runAction(undefined, args ?? {}, invisible_to_owner, overrideTag)}
 		>
 			{buttonText}
 		</Button>
@@ -269,7 +275,7 @@
 					color="dark"
 					btnClasses="!px-6 !py-1 !h-8 inline-flex gap-2"
 					disabled={!isValid || jsonView}
-					on:click={() => runAction(scheduledForStr, args, invisible_to_owner, overrideTag)}
+					on:click={() => runAction(scheduledForStr, args ?? {}, invisible_to_owner, overrideTag)}
 					shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 				>
 					{scheduledForStr ? 'Schedule to run later' : buttonText}
@@ -307,7 +313,7 @@
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
 			disabled={!isValid || jsonView}
-			on:click={() => runAction(undefined, args, invisible_to_owner, overrideTag)}
+			on:click={() => runAction(undefined, args ?? {}, invisible_to_owner, overrideTag)}
 			shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 		>
 			{buttonText}
