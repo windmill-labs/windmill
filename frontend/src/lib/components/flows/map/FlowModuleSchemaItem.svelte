@@ -131,6 +131,7 @@
 	let outputPicker: OutputPicker | undefined = $state(undefined)
 	let historyOpen = $state(false)
 	let testJob: any | undefined = $state(undefined)
+	let outputPickerBarOpen = $state(false)
 
 	let flowStateStore = $derived(flowEditorContext?.flowStateStore)
 
@@ -177,8 +178,6 @@
 		}
 		return undefined
 	})
-
-	$inspect('dbg nlastJob', nlastJob)
 
 	let isConnectingCandidate = $derived(
 		!!id && !!$flowPropPickerConfig && !!pickableIds && Object.keys(pickableIds).includes(id)
@@ -283,7 +282,10 @@
 		)}
 		style={`width: 275px; height: ${outputPickerVisible ? '51px' : '34px'};`}
 	></div>
-	<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
+	<div
+		class="absolute text-sm right-2 flex flex-row gap-1 z-10 transition-all duration-100"
+		style={`bottom: ${outputPickerBarOpen ? '-38px' : '-12px'}`}
+	>
 		{#if retry}
 			<Popover notClickable>
 				<div
@@ -412,6 +414,7 @@
 				{historyOpen}
 				{inputTransform}
 				id={id ?? ''}
+				bind:bottomBarOpen={outputPickerBarOpen}
 			>
 				{#snippet children({ allowCopy, isConnecting, selectConnection })}
 					<OutputPickerInner

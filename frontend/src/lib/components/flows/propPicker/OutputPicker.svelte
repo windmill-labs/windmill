@@ -6,6 +6,7 @@
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import InputPickerInner from './InputPickerInner.svelte'
 	import { ChevronDown, Plug } from 'lucide-svelte'
+	import { useSvelteFlow } from '@xyflow/svelte'
 
 	interface Props {
 		selected?: boolean
@@ -16,6 +17,7 @@
 		children?: import('svelte').Snippet<[any]>
 		inputTransform?: Record<string, any> | undefined
 		id: string
+		bottomBarOpen?: boolean
 	}
 
 	let {
@@ -26,7 +28,8 @@
 		historyOpen = false,
 		children,
 		inputTransform,
-		id
+		id,
+		bottomBarOpen = $bindable(false)
 	}: Props = $props()
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
@@ -40,6 +43,7 @@
 	const showConnecting = $derived(
 		isConnectingCandidate && $flowPropPickerConfig?.insertionMode === 'connect'
 	)
+	const zoom = $derived.by(useSvelteFlow().getZoom)
 
 	function selectConnection(event: CustomEvent) {
 		if ($flowPropPickerConfig?.onSelect(event.detail)) {
@@ -67,26 +71,29 @@
 		}
 	}
 
-	const bottomBarOpen = $derived(inputOpen || outputOpen || selected || hover || showConnecting)
+	$effect(() => {
+		bottomBarOpen = inputOpen || outputOpen || selected || hover || showConnecting
+	})
+
 	const showInput = $derived(variant === 'default' && !showConnecting)
 
-	function updatePositioning(historyOpen: boolean) {
+	function updatePositioning(historyOpen: boolean, zoom: number) {
 		inputPopover?.updatePositioning({
 			placement: 'bottom',
 			gutter: 0,
-			offset: { mainAxis: 3, crossAxis: 69 },
+			offset: { mainAxis: 3, crossAxis: 69 * zoom },
 			overflowPadding: historyOpen ? 250 : 8
 		})
 		popover?.updatePositioning({
 			placement: 'bottom',
 			gutter: 0,
-			offset: { mainAxis: 3, crossAxis: showInput ? -69 : 0 },
+			offset: { mainAxis: 3, crossAxis: showInput ? -69 * zoom : 0 },
 			overflowPadding: historyOpen ? 250 : 8
 		})
 	}
 
 	$effect(() => {
-		updatePositioning(historyOpen)
+		updatePositioning(historyOpen, zoom)
 	})
 </script>
 
@@ -129,7 +136,7 @@
 						e.stopPropagation()
 					}}
 					allowFullScreen
-					contentClasses="overflow-hidden resize rounded-t-none"
+					contentClasses="overflow-hidden resize"
 					contentStyle={`width: calc(${MIN_WIDTH}px); min-width: calc(${MIN_WIDTH}px); height: calc(${MIN_HEIGHT}px); min-height: calc(${MIN_HEIGHT}px); `}
 					extraProps={{ 'data-prop-picker': true }}
 					closeOnOtherPopoverOpen
@@ -169,7 +176,7 @@
 				}}
 				bind:this={popover}
 				allowFullScreen
-				contentClasses="overflow-hidden resize rounded-t-none"
+				contentClasses="overflow-hidden resize"
 				contentStyle={`width: calc(${MIN_WIDTH}px); min-width: calc(${MIN_WIDTH}px); height: calc(${MIN_HEIGHT}px); min-height: calc(${MIN_HEIGHT}px); `}
 				extraProps={{ 'data-prop-picker': true }}
 				closeOnOtherPopoverOpen

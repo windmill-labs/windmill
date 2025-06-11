@@ -18,6 +18,6 @@
 	})
 </script>
 
-<div class="p-4 h-full overflow-y-auto">
+<div class="p-4 pr-6 h-full overflow-y-auto">
 	<ObjectViewer json={testSteps?.getStepArgs(id)} {inputTransform} />
 </div>
