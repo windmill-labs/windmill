@@ -3,7 +3,7 @@
 	import { VariableService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue } from '$lib/utils'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { untrack } from 'svelte'
 	import { Button } from './common'
 	import StepInputsGen from './copilot/StepInputsGen.svelte'
 	import type { PickableProperties } from './flows/previousResults'
@@ -39,8 +39,6 @@
 	}: Props = $props()
 
 	let inputCheck: { [id: string]: boolean } = $state({})
-
-	const dispatch = createEventDispatcher()
 
 	$effect(() => {
 		isValid = allTrue(inputCheck) ?? false
@@ -117,10 +115,6 @@
 						{noDynamicToggle}
 						{pickableProperties}
 						{enableAi}
-						on:change={(e) => {
-							const { argName } = e.detail
-							dispatch('changeArg', { argName })
-						}}
 					/>
 				</div>
 			{/if}

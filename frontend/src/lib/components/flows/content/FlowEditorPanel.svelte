@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleWrapper from './FlowModuleWrapper.svelte'
 	import FlowSettings from './FlowSettings.svelte'
@@ -7,24 +7,35 @@
 	import FlowFailureModule from './FlowFailureModule.svelte'
 	import FlowConstants from './FlowConstants.svelte'
 	import type { FlowModule, Flow } from '$lib/gen'
-	import { initFlowStepWarnings } from '../utils'
-	import { dfs } from '../dfs'
 	import FlowPreprocessorModule from './FlowPreprocessorModule.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { insertNewPreprocessorModule } from '../flowStateUtils.svelte'
 	import TriggersEditor from '../../triggers/TriggersEditor.svelte'
 	import { handleSelectTriggerFromKind, type Trigger } from '$lib/components/triggers/utils'
+	import { computeMissingInputWarnings } from '../missingInputWarnings'
 
-	export let noEditor = false
-	export let enableAi = false
-	export let newFlow = false
-	export let disabledFlowInputs = false
-	export let savedFlow:
-		| (Flow & {
-				draft?: Flow | undefined
-		  })
-		| undefined = undefined
-	export let onDeployTrigger: (trigger: Trigger) => void = () => {}
+	interface Props {
+		noEditor?: boolean
+		enableAi?: boolean
+		newFlow?: boolean
+		disabledFlowInputs?: boolean
+		savedFlow?:
+			| (Flow & {
+					draft?: Flow | undefined
+			  })
+			| undefined
+		onDeployTrigger?: (trigger: Trigger) => void
+	}
+
+	let {
+		noEditor = false,
+		enableAi = false,
+		newFlow = false,
+		disabledFlowInputs = false,
+		savedFlow = undefined,
+		onDeployTrigger = () => {}
+	}: Props = $props()
+
 	const {
 		selectedId,
 		flowStore,
@@ -35,7 +46,7 @@
 		fakeInitialPath,
 		previewArgs,
 		flowInputEditorState
-	} = getContext<FlowEditorContext>('FlowEditorContext')
+	} = $state(getContext<FlowEditorContext>('FlowEditorContext'))
 
 	const { showCaptureHint, triggersState, triggersCount } =
 		getContext<TriggerContext>('TriggerContext')
@@ -50,28 +61,8 @@
 		}
 	}
 
-	async function initWarnings() {
-		for (const module of flowStore.val?.value?.modules) {
-			if (!module) {
-				continue
-			}
-
-			if (!$flowInputsStore) {
-				$flowInputsStore = {}
-			}
-
-			$flowInputsStore[module?.id] = {
-				flowStepWarnings: await initFlowStepWarnings(
-					module.value,
-					$flowStateStore?.[module?.id]?.schema,
-					dfs(flowStore.val.value.modules, (fm) => fm.id)
-				)
-			}
-		}
-	}
-
-	onMount(() => {
-		initWarnings()
+	$effect(() => {
+		computeMissingInputWarnings(flowStore, $flowStateStore, flowInputsStore)
 	})
 </script>
 

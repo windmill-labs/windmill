@@ -68,9 +68,9 @@ function getModelSpecificConfig(
 					}
 				: {
 						model: modelProvider.model,
-						temperature: 0,
-						...(tools && tools.length > 0 ? { tools } : {})
+						temperature: 0
 					}),
+			...(tools && tools.length > 0 ? { tools } : {}),
 			max_completion_tokens: getModelMaxTokens(modelProvider.model)
 		}
 	}
