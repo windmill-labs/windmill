@@ -179,7 +179,24 @@
 	}
 
 	let opened: string | undefined = $state(untrack(() => keys[0]))
-	let selected = $state('')
+
+	function updateSelected(property: any) {
+		if (!property) return
+		selected = computeSelected(property)
+	}
+
+	function computeSelected(property: any) {
+		if (!opened) return ''
+		return property.type !== 'object'
+			? property.type
+			: property.format === 'resource-s3_object'
+				? 'S3'
+				: property.oneOf && property.oneOf.length >= 2
+					? 'oneOf'
+					: 'object'
+	}
+
+	let selected = $state(computeSelected(schema.properties[opened]))
 
 	export function openField(key: string) {
 		opened = key
@@ -194,19 +211,6 @@
 		if (schema.order) {
 			schema.order = schema.order.filter((x) => x !== key)
 		}
-	}
-
-	function updateSelected(property: any) {
-		if (!property) return
-		selected = opened
-			? property.type !== 'object'
-				? property.type
-				: property.format === 'resource-s3_object'
-					? 'S3'
-					: property.oneOf && property.oneOf.length >= 2
-						? 'oneOf'
-						: 'object'
-			: ''
 	}
 
 	function renameProperty(oldName: string, key: string) {
