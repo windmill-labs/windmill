@@ -338,15 +338,29 @@
 
 	let resourceNameToFileExtMap: any = undefined
 
+	let loadingResourceNameToFileExt = false
 	async function resourceNameToFileExt(resourceName: string) {
-		if (resourceNameToFileExtMap == undefined) {
-			resourceNameToFileExtMap = await ResourceService.fileResourceTypeToFileExtMap({
-				workspace: $workspaceStore!
-			})
+		if (resourceNameToFileExtMap == undefined && !loadingResourceNameToFileExt) {
+			loadingResourceNameToFileExt = true
+			try {
+				resourceNameToFileExtMap = await ResourceService.fileResourceTypeToFileExtMap({
+					workspace: $workspaceStore!
+				})
+			} catch (e) {
+				console.error('Error loading resourceNameToFileExtMap', e)
+			} finally {
+				loadingResourceNameToFileExt = false
+			}
+		} else {
+			while (resourceNameToFileExtMap == undefined) {
+				console.log('waiting for resourceNameToFileExtMap')
+				await new Promise((resolve) => setTimeout(resolve, 100))
+			}
 		}
 
 		return resourceNameToFileExtMap[resourceName]
 	}
+
 	let owners = $derived(
 		Array.from(
 			new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])

@@ -200,7 +200,7 @@
 	}
 
 	function popupListener(event) {
-		console.log('Received oauth popup message')
+		console.log('Received oauth popup message', event)
 		let data = event.data
 		if (event.origin == null || event.origin !== window.location.origin) {
 			console.log(
