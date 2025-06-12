@@ -367,7 +367,7 @@ pub async fn install_go_dependencies(
     occupation_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     if raw_deps {
-        fs::write(format!("{job_dir}/go.mod"), dbg!(code)).await?;
+        fs::write(format!("{job_dir}/go.mod"), code).await?;
     }
     if !raw_deps && !skip_go_mod {
         gen_go_mymod(code, job_dir).await?;
