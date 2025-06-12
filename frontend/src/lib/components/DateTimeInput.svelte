@@ -1,24 +1,39 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
+	import { createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { Button } from './common'
 	import { Clock, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	// import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	// import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
-	export let value: string | undefined = undefined
+	interface Props {
+		// import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+		value?: string | undefined
+		clearable?: boolean
+		autofocus?: boolean | null
+		useDropdown?: boolean
+		minDate?: string | undefined
+		maxDate?: string | undefined
+		disabled?: boolean | undefined
+		inputClass?: string | undefined
+	}
 
-	export let clearable: boolean = false
-	export let autofocus: boolean | null = false
-	export let useDropdown: boolean = false
-	export let minDate: string | undefined = undefined
-	export let maxDate: string | undefined = undefined
-	export let disabled: boolean | undefined = undefined
-	export let inputClass: string | undefined = undefined
+	let {
+		value = $bindable(undefined),
+		clearable = false,
+		autofocus = false,
+		useDropdown = false,
+		minDate = undefined,
+		maxDate = undefined,
+		disabled = undefined,
+		inputClass = undefined
+	}: Props = $props()
 
-	let date: string | undefined = undefined
-	let time: string | undefined = undefined
+	let date: string | undefined = $state(undefined)
+	let time: string | undefined = $state(undefined)
 
 	// let format: 'local' | 'utc' = 'local'
 
@@ -38,7 +53,12 @@
 			: '12:00'
 	}
 
-	$: parseValue(value)
+	$effect(() => {
+		value
+		untrack(() => {
+			parseValue(value)
+		})
+	})
 
 	let initialDate = date
 	let initialTime = time
@@ -54,7 +74,12 @@
 		}
 	}
 
-	$: parseDateAndTime(date, time)
+	$effect(() => {
+		;[date, time]
+		untrack(() => {
+			parseDateAndTime(date, time)
+		})
+	})
 
 	function isValidDate(d: Date | undefined): boolean {
 		return d instanceof Date && !isNaN(d as any)
@@ -73,8 +98,13 @@
 	let randomId = 'datetarget-' + Math.random().toString(36).substring(7)
 </script>
 
-<div class="flex flex-row gap-1 items-center w-full" id={randomId} on:pointerdown on:focus>
-	<!-- svelte-ignore a11y-autofocus -->
+<div
+	class="flex flex-row gap-1 items-center w-full"
+	id={randomId}
+	onpointerdown={bubble('pointerdown')}
+	onfocus={bubble('focus')}
+>
+	<!-- svelte-ignore a11y_autofocus -->
 	<input
 		type="date"
 		bind:value={date}
