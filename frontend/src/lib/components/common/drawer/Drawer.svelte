@@ -13,6 +13,7 @@
 	export let shouldUsePortal: boolean = true
 	export let offset: number = 0
 	export let preventEscape = false
+	export let disableChatOffset: boolean = false
 
 	let disposable: Disposable | undefined = undefined
 
@@ -81,7 +82,7 @@
 			class:open
 			class:close={!open && timeout}
 			class:global-chat-open={aiChatManager.open}
-			style={`${style}; --zIndex: ${zIndex}; --adjusted-offset: calc(${aiChatManager.open && placement === 'right' ? aiChatManager.size : 0}% + 4px)`}
+			style={`${style}; --zIndex: ${zIndex}; --adjusted-offset: calc(${aiChatManager.open && placement === 'right' && !disableChatOffset ? aiChatManager.size : 0}% + 4px)`}
 		>
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
