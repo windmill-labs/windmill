@@ -27,7 +27,8 @@
 		sortBy,
 		onFocus,
 		onBlur,
-		onClear
+		onClear,
+		onCreateItem
 	}: {
 		items?: Item[]
 		value: Value | undefined
@@ -47,6 +48,7 @@
 		onFocus?: () => void
 		onBlur?: () => void
 		onClear?: () => void
+		onCreateItem?: (value: string) => void
 	} = $props()
 
 	let disabled = $derived(_disabled || loading)
@@ -76,7 +78,9 @@
 		if (!open) filterText = ''
 	})
 
-	let processedItems: (Item & { __select_group?: string; label: string })[] = $derived.by(() => {
+	type ProcessedItem = Item & { __select_group?: string; __is_create?: true; label: string }
+
+	let processedItems: ProcessedItem[] = $derived.by(() => {
 		let items2 =
 			items?.map((item) => ({
 				...item,
@@ -97,12 +101,23 @@
 		if (sortBy) {
 			items2 = items2?.sort(sortBy)
 		}
+		if (onCreateItem && filterText && !items2.some((item) => item.label === filterText)) {
+			items2.push({
+				label: `Add new: "${filterText}"`,
+				value: filterText,
+				__is_create: true
+			} as any)
+		}
 		return items2
 	})
 	let valueEntry = $derived(value && processedItems?.find((item) => item.value === value))
 
-	function setValue(item: Item) {
-		value = item.value
+	function setValue(item: ProcessedItem) {
+		if (item.__is_create && onCreateItem) {
+			onCreateItem(item.value)
+		} else {
+			value = item.value
+		}
 		filterText = ''
 		open = false
 	}

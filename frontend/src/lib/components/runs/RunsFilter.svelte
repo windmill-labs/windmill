@@ -21,6 +21,7 @@
 	import { createEventDispatcher, untrack } from 'svelte'
 	import ToggleButtonMore from '../common/toggleButton-v2/ToggleButtonMore.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import Select from '../Select.svelte'
 
 	interface Props {
 		// Filters
@@ -180,104 +181,42 @@
 			{#if filterBy == 'user'}
 				{#key user}
 					<div class="relative">
-						{#if user}
-							<button
-								class="absolute top-2 right-2 z-50"
-								onclick={() => {
-									user = null
-									dispatch('reset')
-								}}
-							>
-								<X size={14} />
-							</button>
-						{:else}
-							<ChevronDown class="absolute top-2 right-2" size={14} />
-						{/if}
-
 						<span class="text-xs absolute -top-4">User</span>
-						<AutoComplete
-							create
-							onCreate={(user) => {
-								usernames.push(user)
-								return user
-							}}
-							createText="Press enter to use this value"
-							noInputStyles
-							items={usernames}
-							value={user}
-							bind:selectedItem={user}
-							inputClassName="!h-[32px] py-1 !text-xs !w-64"
-							hideArrow
-							className={user ? '!font-bold' : ''}
-							dropdownClassName="!font-normal !w-64 !max-w-64"
+						<Select
+							items={usernames.map((p) => ({ label: p, value: p }))}
+							bind:value={() => user ?? undefined, (v) => (user = v ?? null)}
+							clearable
+							onClear={() => ((user = null), dispatch('reset'))}
+							inputClass="!h-[32px]"
+							onCreateItem={(item) => (usernames.push(item), (user = item))}
 						/>
 					</div>
 				{/key}
 			{:else if filterBy == 'folder'}
 				{#key folder}
 					<div class="relative">
-						{#if folder}
-							<button
-								class="absolute top-2 right-2 z-50"
-								onclick={() => {
-									folder = null
-									dispatch('reset')
-								}}
-							>
-								<X size={14} />
-							</button>
-						{:else}
-							<ChevronDown class="absolute top-2 right-2" size={14} />
-						{/if}
-
 						<span class="text-xs absolute -top-4">Folder</span>
 
-						<AutoComplete
-							noInputStyles
-							items={folders}
-							value={folder}
-							bind:selectedItem={folder}
-							inputClassName="!h-[32px] py-1 !text-xs !w-64"
-							hideArrow
-							className={folder ? '!font-bold' : ''}
-							dropdownClassName="!font-normal !w-64 !max-w-64"
+						<Select
+							items={folders.map((p) => ({ label: p, value: p }))}
+							bind:value={() => folder ?? undefined, (v) => (folder = v ?? null)}
+							clearable
+							onClear={() => ((folder = null), dispatch('reset'))}
+							inputClass="!h-[32px]"
 						/>
 					</div>
 				{/key}
 			{:else if filterBy === 'path'}
 				{#key path}
 					<div class="relative">
-						{#if path}
-							<button
-								class="absolute top-2 right-2 z-50"
-								onclick={() => {
-									path = null
-									dispatch('reset')
-								}}
-							>
-								<X size={14} />
-							</button>
-						{:else}
-							<ChevronDown class="absolute top-2 right-2" size={14} />
-						{/if}
-
 						<span class="text-xs absolute -top-4">Path</span>
-
-						<AutoComplete
-							create
-							onCreate={(path) => {
-								paths.push(path)
-								return path
-							}}
-							createText="Press enter to use this value"
-							noInputStyles
-							items={paths}
-							value={path}
-							bind:selectedItem={path}
-							inputClassName="!h-[32px] py-1 !text-xs !w-64"
-							hideArrow
-							className={path ? '!font-bold' : ''}
-							dropdownClassName="!font-normal !w-64 !max-w-64"
+						<Select
+							items={paths.map((p) => ({ label: p, value: p }))}
+							bind:value={() => path ?? undefined, (v) => (path = v ?? null)}
+							clearable
+							onClear={() => ((path = null), dispatch('reset'))}
+							inputClass="!h-[32px]"
+							onCreateItem={(item) => (paths.push(item), (path = item))}
 						/>
 					</div>
 				{/key}
