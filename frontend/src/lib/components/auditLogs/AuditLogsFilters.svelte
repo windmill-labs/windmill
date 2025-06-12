@@ -395,6 +395,7 @@
 
 		<Select
 			onCreateItem={(r) => (resources.value?.push(r), (resource = r))}
+			createText="Press enter to use this value"
 			bind:value={resource}
 			items={['all', ...(resources.value ?? [])].map((r) => ({ value: r, label: r }))}
 			inputClass="dark:!bg-gray-700"

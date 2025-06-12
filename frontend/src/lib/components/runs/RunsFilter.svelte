@@ -180,6 +180,7 @@
 							onClear={() => ((user = null), dispatch('reset'))}
 							inputClass="!h-[32px]"
 							onCreateItem={(item) => (usernames.push(item), (user = item))}
+							createText="Press enter to use this value"
 						/>
 					</div>
 				{/key}
@@ -208,6 +209,7 @@
 							onClear={() => ((path = null), dispatch('reset'))}
 							inputClass="!h-[32px]"
 							onCreateItem={(item) => (paths.push(item), (path = item))}
+							createText="Press enter to use this value"
 						/>
 					</div>
 				{/key}
