@@ -590,7 +590,7 @@
 									<Cell head>Limits</Cell>
 									<Cell head>Version</Cell>
 									<Cell head>Liveness</Cell>
-									<Cell head last
+									<Cell head last 
 										>Live Shell <Tooltip>
 											<p class="text-sm">
 												Open a live shell to execute bash commands on the machine where the worker
@@ -718,6 +718,7 @@
 												<Cell last>
 													<Button
 														size="xs"
+														btnClasses="pl-0"
 														color="light"
 														on:click={() => {
 															if (isWorkerAlive === false) {
