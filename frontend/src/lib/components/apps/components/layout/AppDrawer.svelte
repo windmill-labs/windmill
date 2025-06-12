@@ -136,6 +136,7 @@
 				outputs?.open.set(false)
 				onCloseRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
 			}}
+			disableChatOffset={true}
 		>
 			<DrawerContent
 				title={resolvedConfig.drawerTitle}
