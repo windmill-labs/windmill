@@ -3,6 +3,11 @@
 
 	import { SvelteToast } from '@zerodevx/svelte-toast'
 	import '$lib/assets/app.css'
+	interface Props {
+		children?: import('svelte').Snippet
+	}
+
+	let { children }: Props = $props()
 
 	// Default toast options
 	const toastOptions = {
@@ -30,7 +35,7 @@
 	<title>{$page.data?.stuff?.title ? `${$page.data?.stuff?.title} | ` : ''}Windmill</title>
 </svelte:head>
 
-<slot />
+{@render children?.()}
 
 <div class="wrap">
 	<SvelteToast options={toastOptions} />
