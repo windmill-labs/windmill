@@ -1,85 +1,82 @@
-export const action = (node) => {
-	/* Constants */
-	const update = new Event('update')
+import { tick } from 'svelte'
 
-	/* Functions */
-	const init = () => {
-		addStyles()
-		observeElement()
-		addEventListeners()
-		setInitialHeight()
-	}
+type TextArea = HTMLTextAreaElement
 
-	const dispatchUpdateEvent = () => {
-		node.dispatchEvent(update)
-	}
+export const autosize = (node: TextArea) => {
+	/* ------------------------------------------------------------------
+	 * Constants
+	 * ---------------------------------------------------------------- */
+	const UPDATE_EVENT = new Event('update')
+	const MIN_HEIGHT = 30 // px
+	const EXTRA = 2 // px added to scrollHeight
 
-	const setInitialHeight = () => {
-		let height = 0
-		if (node.value) {
-			height = Math.max(node.scrollHeight ?? 0, 30) + 2
-		} else {
-			if (node.placeholder) {
-				node.value = node.placeholder
-				height = Math.max(node.scrollHeight ?? 0, 30) + 2
-				node.value = ''
-			} else {
-				node.value = '|'
-				node.style.height = '0px'
-				height = Math.max(node.scrollHeight ?? 0, 30) + 2
-				node.value = ''
-			}
-		}
-
-		node.style.height = height + 'px'
-	}
-
-	const setHeight = () => {
+	/* ------------------------------------------------------------------
+	 * Core resize routine
+	 * ---------------------------------------------------------------- */
+	const resize = () => {
 		node.style.height = 'auto'
-		node.style.height = Math.max(node.scrollHeight ?? 0, 30) + 2 + 'px'
+		node.style.height = `${Math.max(node.scrollHeight, MIN_HEIGHT) + EXTRA}px`
 	}
 
-	const addStyles = () => {
-		node.style.boxSizing = 'border-box'
-	}
+	/* ------------------------------------------------------------------
+	 * Patch `value` so programmatic changes trigger resize
+	 * ---------------------------------------------------------------- */
+	const proto = Object.getPrototypeOf(node)
+	const desc = Object.getOwnPropertyDescriptor(proto, 'value')
 
-	const observeElement = () => {
-		let elementPrototype = Object.getPrototypeOf(node)
-		let descriptor = Object.getOwnPropertyDescriptor(elementPrototype, 'value')
+	if (desc) {
 		Object.defineProperty(node, 'value', {
-			get: function () {
-				return descriptor?.get?.apply(this, arguments as any)
+			get() {
+				return desc.get?.call(this)
 			},
-			set: function () {
-				descriptor?.set?.apply(this, arguments as any)
-				dispatchUpdateEvent()
+			set(v: unknown) {
+				desc.set?.call(this, v)
+				node.dispatchEvent(UPDATE_EVENT)
 			}
 		})
 	}
 
-	const addEventListeners = () => {
-		node.addEventListener('input', (e) => {
-			dispatchUpdateEvent()
-		})
-		node.addEventListener('update', setHeight)
-	}
+	/* ------------------------------------------------------------------
+	 * Event listeners
+	 * ---------------------------------------------------------------- */
+	const onInput = () => node.dispatchEvent(UPDATE_EVENT)
 
-	const removeEventListeners = () => {
-		node.removeEventListener('input', dispatchUpdateEvent)
-		node.removeEventListener('update', setHeight)
-	}
+	node.addEventListener('input', onInput)
+	node.addEventListener('update', resize)
 
-	if (node.tagName.toLowerCase() !== 'textarea') {
-		throw new Error('svelte-textarea-auto-height can only be used on textarea elements.')
-	} else {
-		init()
+	/* ------------------------------------------------------------------
+	 * Inline styling
+	 * ---------------------------------------------------------------- */
+	node.style.boxSizing = 'border-box'
 
-		return {
-			destroy() {
-				removeEventListeners()
-			}
+	/* ------------------------------------------------------------------
+	 * Wait for DOM mount, then do an initial measure.
+	 * If the <textarea> is already visible (offsetWidth > 0) this covers it;
+	 * otherwise the first ResizeObserver callback will.
+	 * ---------------------------------------------------------------- */
+	;(async () => {
+		await tick()
+		resize()
+	})()
+
+	/* ------------------------------------------------------------------
+	 * ResizeObserver – handles:
+	 *   • first time the element gets a real width
+	 *   • container/window resizes afterwards
+	 * ---------------------------------------------------------------- */
+	const ro = new ResizeObserver(resize)
+	ro.observe(node)
+
+	/* ------------------------------------------------------------------
+	 * Action lifecycle
+	 * ---------------------------------------------------------------- */
+	return {
+		destroy() {
+			ro.disconnect()
+			node.removeEventListener('input', onInput)
+			node.removeEventListener('update', resize)
 		}
 	}
 }
 
-export default action
+export default autosize
