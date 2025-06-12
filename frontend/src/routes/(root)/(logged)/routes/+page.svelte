@@ -250,7 +250,7 @@
 					>
 						To OpenAPI spec
 					</Button>
-					<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor.openNew(false)}>
+					<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor?.openNew(false)}>
 						New&nbsp;route
 					</Button>
 				</div>

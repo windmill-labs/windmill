@@ -405,12 +405,11 @@
 												<div class="border w-full rounded-md py-2 px-4 gap-2">
 													<Label label="Filter" headless>
 														<div class="flex flex-col gap-2">
-															<ToggleButtonGroup
-																bind:selected={webhookFilters[i].runnable_kind}
-																let:item
-															>
-																<ToggleButton value="script" label="script" {item} />
-																<ToggleButton value="flow" label="flow" {item} />
+															<ToggleButtonGroup bind:selected={webhookFilters[i].runnable_kind}>
+																{#snippet children({ item })}
+																	<ToggleButton value="script" label="script" {item} />
+																	<ToggleButton value="flow" label="flow" {item} />
+																{/snippet}
 															</ToggleButtonGroup>
 
 															<Label label="Path regex">
@@ -559,10 +558,11 @@
 							await generateOpenapiSpec(detail)
 						}
 					}}
-					let:item
 				>
-					<ToggleButton value="yaml" label="yaml" {item} />
-					<ToggleButton value="json" label="json" {item} />
+					{#snippet children({ item })}
+						<ToggleButton value="yaml" label="yaml" {item} />
+						<ToggleButton value="json" label="json" {item} />
+					{/snippet}
 				</ToggleButtonGroup>
 				<SimpleEditor bind:this={editor} class="h-full" {lang} code={openapiDocument} />
 			</div>
