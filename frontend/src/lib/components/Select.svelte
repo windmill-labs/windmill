@@ -24,6 +24,7 @@
 		loading = false,
 		autofocus,
 		RightIcon,
+		createText,
 		groupBy,
 		sortBy,
 		onFocus,
@@ -45,6 +46,7 @@
 		loading?: boolean
 		autofocus?: boolean
 		RightIcon?: any
+		createText?: string
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onFocus?: () => void
@@ -105,7 +107,7 @@
 		}
 		if (onCreateItem && filterText && !items2.some((item) => item.label === filterText)) {
 			items2.push({
-				label: `Add new: "${filterText}"`,
+				label: createText ?? `Add new: "${filterText}"`,
 				value: filterText,
 				__is_create: true
 			} as any)
