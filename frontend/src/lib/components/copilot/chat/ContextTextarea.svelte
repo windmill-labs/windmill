@@ -1,27 +1,36 @@
 <script lang="ts">
 	import autosize from '$lib/autosize'
-	import { createEventDispatcher, tick } from 'svelte'
+	import { tick } from 'svelte'
 	import type { ContextElement } from './context'
 	import AvailableContextList from './AvailableContextList.svelte'
+	import { aiChatManager } from './AIChatManager.svelte'
 
-	export let instructions: string
-	export let availableContext: ContextElement[]
-	export let selectedContext: ContextElement[]
-	export let isFirstMessage: boolean
-	export let disabled: boolean = false
+	interface Props {
+		availableContext: ContextElement[]
+		selectedContext: ContextElement[]
+		isFirstMessage: boolean
+		disabled: boolean
+		onUpdateInstructions: (value: string) => void
+		onSendRequest: () => void
+		onAddContext: (contextElement: ContextElement) => void
+	}
 
-	const dispatch = createEventDispatcher<{
-		updateInstructions: { value: string }
-		sendRequest: null
-		addContext: { contextElement: ContextElement }
-	}>()
+	const {
+		availableContext,
+		selectedContext,
+		isFirstMessage,
+		disabled,
+		onUpdateInstructions,
+		onSendRequest,
+		onAddContext
+	}: Props = $props()
 
-	let showContextTooltip = false
-	let contextTooltipWord = ''
-	let tooltipPosition = { x: 0, y: 0 }
-	let textarea: HTMLTextAreaElement
-	let tooltipElement: HTMLDivElement
-	let selectedSuggestionIndex = 0
+	let showContextTooltip = $state(false)
+	let contextTooltipWord = $state('')
+	let tooltipPosition = $state({ x: 0, y: 0 })
+	let textarea = $state<HTMLTextAreaElement | undefined>(undefined)
+	let tooltipElement = $state<HTMLDivElement | undefined>(undefined)
+	let selectedSuggestionIndex = $state(0)
 
 	// Properties to copy for caret position calculation
 	const properties = [
@@ -148,14 +157,15 @@
 	}
 
 	function addContextToSelection(contextElement: ContextElement) {
-		dispatch('addContext', { contextElement })
+		onAddContext(contextElement)
 	}
 
 	function updateInstructionsWithContext(contextElement: ContextElement) {
-		const index = instructions.lastIndexOf('@')
+		const index = aiChatManager.instructions.lastIndexOf('@')
 		if (index !== -1) {
-			const newInstructions = instructions.substring(0, index) + `@${contextElement.title}`
-			dispatch('updateInstructions', { value: newInstructions })
+			const newInstructions =
+				aiChatManager.instructions.substring(0, index) + `@${contextElement.title}`
+			onUpdateInstructions(newInstructions)
 		}
 	}
 
@@ -240,7 +250,7 @@
 
 	function handleInput(e: Event) {
 		textarea = e.target as HTMLTextAreaElement
-		const words = instructions.split(/\s+/)
+		const words = aiChatManager.instructions.split(/\s+/)
 		const lastWord = words[words.length - 1]
 
 		if (
@@ -255,7 +265,7 @@
 			contextTooltipWord = ''
 			selectedSuggestionIndex = 0
 		}
-		dispatch('updateInstructions', { value: instructions })
+		onUpdateInstructions(aiChatManager.instructions)
 	}
 
 	function handleKeyPress(e: KeyboardEvent) {
@@ -271,8 +281,11 @@
 						(c) => c.title === contextElement.title && c.type === contextElement.type
 					)
 					// If the context element is already in the selected context and the last word in the instructions is the same as the context element title, send request
-					if (isInSelectedContext && instructions.split(' ').pop() === '@' + contextElement.title) {
-						dispatch('sendRequest')
+					if (
+						isInSelectedContext &&
+						aiChatManager.instructions.split(' ').pop() === '@' + contextElement.title
+					) {
+						onSendRequest()
 						return
 					}
 					handleContextSelection(contextElement)
@@ -280,7 +293,7 @@
 					handleContextSelection(availableContext[0])
 				}
 			} else {
-				dispatch('sendRequest')
+				onSendRequest()
 			}
 		}
 	}
@@ -310,7 +323,9 @@
 		}
 	}
 
-	$: updateTooltipPosition(availableContext, showContextTooltip, contextTooltipWord)
+	$effect(() => {
+		updateTooltipPosition(availableContext, showContextTooltip, contextTooltipWord)
+	})
 
 	export function focus() {
 		textarea?.focus()
@@ -323,25 +338,25 @@
 		style="line-height: 1.72"
 	>
 		<span class="break-words" style="white-space: pre-wrap;">
-			{@html getHighlightedText(instructions)}
+			{@html getHighlightedText(aiChatManager.instructions)}
 		</span>
 	</div>
 	<textarea
 		bind:this={textarea}
-		on:keypress={handleKeyPress}
-		on:keydown={handleKeyDown}
-		bind:value={instructions}
+		onkeypress={handleKeyPress}
+		onkeydown={handleKeyDown}
+		bind:value={aiChatManager.instructions}
 		use:autosize
 		rows={3}
-		on:input={handleInput}
-		on:blur={() => {
+		oninput={handleInput}
+		onblur={() => {
 			setTimeout(() => {
 				showContextTooltip = false
 			}, 200)
 		}}
 		placeholder={isFirstMessage ? 'Ask anything' : 'Ask followup'}
 		class="resize-none bg-transparent caret-black dark:caret-white"
-		style={instructions.length > 0
+		style={aiChatManager.instructions.length > 0
 			? 'color: transparent; -webkit-text-fill-color: transparent;'
 			: ''}
 		{disabled}
