@@ -15,12 +15,12 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
-	import AutoComplete from 'simple-svelte-autocomplete'
 	import YAML from 'yaml'
 	import Toggle from './Toggle.svelte'
 	import { defaultTags, nativeTags, type AutoscalingConfig } from './worker_group'
 	import AutoscalingConfigEditor from './AutoscalingConfigEditor.svelte'
 	import TagsToListenTo from './TagsToListenTo.svelte'
+	import Select from './Select.svelte'
 
 	function computeVCpuAndMemory(workers: [string, WorkerPing[]][]) {
 		let vcpus = 0
@@ -338,16 +338,10 @@
 						</Button>
 
 						{#if defaultTagPerWorkspace}
-							<AutoComplete
-								bind:selectedItem={workspaceTag}
-								noInputStyles
-								hideArrow={true}
-								items={workspaces.map((w) => w.id)}
-								inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary'}
-								dropdownClassName="!text-sm !py-2 !rounded-sm  !border-gray-200 !border !shadow-md"
-								className="!font-gray-600 !font-primary !bg-surface-primary"
-								create
-								onCreate={(c) => c}
+							<Select
+								bind:value={workspaceTag}
+								items={workspaces.map((w) => ({ value: w.id, label: w.id }))}
+								onCreateItem={(c) => (workspaceTag = c)}
 								placeholder="Workspace ID"
 							/>
 						{/if}

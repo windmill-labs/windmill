@@ -262,7 +262,6 @@
 												? o.split('.')[1]
 												: o
 									}))}
-									clearable={false}
 								/>
 							</Cell>
 							<Cell>
