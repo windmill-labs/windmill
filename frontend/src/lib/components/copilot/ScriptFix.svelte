@@ -36,9 +36,9 @@
 					color="light"
 					spacingSize="xs2"
 					startIcon={{ icon: WandSparkles }}
-					on:click={() => {
+					on:click={async () => {
 						if ($copilotInfo.enabled) {
-							aiChatManager.fix()
+							await aiChatManager.fix()
 						}
 					}}
 					btnClasses="text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700 min-w-[84px]"
