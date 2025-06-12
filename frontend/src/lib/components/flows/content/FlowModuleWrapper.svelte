@@ -19,13 +19,10 @@
 	import FlowBranchesAllWrapper from './FlowBranchesAllWrapper.svelte'
 	import FlowBranchesOneWrapper from './FlowBranchesOneWrapper.svelte'
 	import FlowWhileLoop from './FlowWhileLoop.svelte'
-	import { initFlowStepWarnings } from '../utils'
-	import { dfs } from '../dfs'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { formatCron } from '$lib/utils'
 
-	const { selectedId, flowStateStore, flowInputsStore, flowStore } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
@@ -106,16 +103,6 @@
 
 		flowModule = module
 		$flowStateStore[module.id] = state
-
-		if ($flowInputsStore) {
-			$flowInputsStore[module?.id] = {
-				flowStepWarnings: await initFlowStepWarnings(
-					module?.value,
-					$flowStateStore[module?.id]?.schema,
-					dfs(flowStore.val.value.modules, (fm) => fm.id)
-				)
-			}
-		}
 	}
 </script>
 
@@ -192,16 +179,6 @@
 
 					flowModule = module
 					$flowStateStore[module.id] = state
-
-					if ($flowInputsStore) {
-						$flowInputsStore[module.id] = {
-							flowStepWarnings: await initFlowStepWarnings(
-								module.value,
-								$flowStateStore[module.id].schema,
-								dfs(flowStore.val.value.modules, (fm) => fm.id)
-							)
-						}
-					}
 				}}
 				failureModule={$selectedId === 'failure'}
 				preprocessorModule={$selectedId === 'preprocessor'}

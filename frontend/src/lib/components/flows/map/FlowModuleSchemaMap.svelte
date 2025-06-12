@@ -14,7 +14,7 @@
 		insertNewPreprocessorModule
 	} from '$lib/components/flows/flowStateUtils.svelte'
 	import type { FlowModule, ScriptLang } from '$lib/gen'
-	import { emptyFlowModuleState, initFlowStepWarnings } from '../utils'
+	import { emptyFlowModuleState } from '../utils'
 	import FlowSettingsItem from './FlowSettingsItem.svelte'
 	import FlowConstantsItem from './FlowConstantsItem.svelte'
 
@@ -242,30 +242,6 @@
 		change: void
 	}>()
 
-	export async function updateFlowInputsStore() {
-		const keys = Object.keys(dependents ?? {})
-
-		for (const key of keys) {
-			const module = flowStore.val.value.modules.find((m) => m.id === key)
-
-			if (!module) {
-				continue
-			}
-
-			if (!$flowInputsStore) {
-				$flowInputsStore = {}
-			}
-
-			$flowInputsStore[module.id] = {
-				flowStepWarnings: await initFlowStepWarnings(
-					module.value,
-					$flowStateStore?.[module.id]?.schema,
-					dfs(flowStore.val.value.modules, (fm) => fm.id)
-				)
-			}
-		}
-	}
-
 	export function setExpr(module: FlowModule, expr: string) {
 		if (module.value.type == 'forloopflow') {
 			module.value.iterator = { type: 'javascript', expr }
@@ -377,13 +353,8 @@
 					} else {
 						selectNextId(id)
 						removeAtId(flowStore.val.value.modules, id)
-						if ($flowInputsStore) {
-							delete $flowInputsStore[id]
-						}
 					}
 					refreshStateStore(flowStore)
-
-					updateFlowInputsStore()
 				}
 
 				if (Object.keys(dependents).length > 0) {

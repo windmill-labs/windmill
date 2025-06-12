@@ -46,9 +46,6 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import { loadSchemaFromModule } from '../flowInfers'
-	import { computeFlowStepWarning, initFlowStepWarnings } from '../utils'
-	import { debounce } from '$lib/utils'
-	import { dfs } from '../dfs'
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
 	import { type Job, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -65,7 +62,6 @@
 		flowStore,
 		pathStore,
 		saveDraft,
-		flowInputsStore,
 		customUi,
 		executionCount
 	} = getContext<FlowEditorContext>('FlowEditorContext')
@@ -147,15 +143,6 @@
 
 			if (inputTransformSchemaForm) {
 				inputTransformSchemaForm.setArgs(input_transforms)
-				if (!deepEqual(schema, $flowStateStore[flowModule.id]?.schema)) {
-					$flowInputsStore[flowModule?.id] = {
-						flowStepWarnings: await initFlowStepWarnings(
-							flowModule.value,
-							schema ?? {},
-							dfs(flowStore.val.value.modules, (fm) => fm.id)
-						)
-					}
-				}
 			} else {
 				if (
 					flowModule.value.type == 'rawscript' ||
@@ -200,27 +187,6 @@
 		if (!$flowStateStore?.[$selectedId]?.schema && flowModule) {
 			reload(flowModule)
 		}
-	}
-
-	let debouncedWarning = debounce((argName: string) => {
-		if ($flowInputsStore) {
-			computeFlowStepWarning(
-				argName,
-				flowModule.value,
-				$flowInputsStore[flowModule.id].flowStepWarnings ?? {},
-				$flowStateStore[$selectedId]?.schema,
-				dfs(flowStore.val?.value?.modules ?? [], (fm) => fm.id) ?? []
-			).then((flowStepWarnings) => {
-				$flowInputsStore[flowModule.id].flowStepWarnings = flowStepWarnings
-			})
-		}
-	}, 100)
-
-	function setFlowInput(argName: string) {
-		if ($flowInputsStore && flowModule.id && $flowInputsStore?.[flowModule.id] === undefined) {
-			$flowInputsStore[flowModule.id] = {}
-		}
-		debouncedWarning(argName)
 	}
 
 	async function getLastJob() {
@@ -545,10 +511,6 @@
 														}
 														extraLib={stepPropPicker.extraLib}
 														{enableAi}
-														on:changeArg={(e) => {
-															const { argName } = e.detail
-															setFlowInput(argName)
-														}}
 													/>
 												</PropPickerWrapper>
 											</div>
