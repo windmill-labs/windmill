@@ -5,7 +5,7 @@
 </script>
 
 <script lang="ts">
-	import { createEventDispatcher, setContext } from 'svelte'
+	import { createEventDispatcher, setContext, untrack } from 'svelte'
 	import Button from '../common/button/Button.svelte'
 	import { ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -101,7 +101,7 @@
 
 	$effect(() => {
 		if (tableContainer && hasMore && !loading) {
-			checkScrollStatus()
+			untrack(() => checkScrollStatus())
 		}
 	})
 </script>

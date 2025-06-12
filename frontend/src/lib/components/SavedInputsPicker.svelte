@@ -1,11 +1,9 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import { Button } from '$lib/components/common'
 	import { InputService, type Input, type RunnableType } from '$lib/gen/index.js'
 	import { userStore, workspaceStore } from '$lib/stores.js'
 	import { sendUserToast } from '$lib/utils.js'
-	import { createEventDispatcher, onDestroy } from 'svelte'
+	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { Edit, Trash2, Save } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import { Cell } from './table/index'
@@ -199,11 +197,11 @@
 		viewerOpen = Object.values(openStates).some((state) => state)
 	}
 
-	run(() => {
+	$effect(() => {
 		$workspaceStore &&
 			runnableId &&
 			runnableType &&
-			(infiniteList && initLoadInputs(), (draft = false))
+			(infiniteList && untrack(() => initLoadInputs()), (draft = false))
 	})
 </script>
 
