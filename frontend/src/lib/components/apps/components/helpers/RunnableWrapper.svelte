@@ -280,7 +280,7 @@
 		fields={componentInput.fields}
 		bind:result
 		runnable={componentInput.runnable}
-		hideRefreshButton={componentInput.hideRefreshButton ?? hideRefreshButton}
+		hideRefreshButton={hideRefreshButton ?? componentInput.hideRefreshButton}
 		transformer={componentInput.transformer}
 		{autoRefresh}
 		{overrideCallback}
