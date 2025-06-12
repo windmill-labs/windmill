@@ -444,7 +444,7 @@
 					{/each}
 					{#if extraTriggerLinks.length > 0 && !$userStore?.operator}
 						<Menu {createMenu} usePointerDownOutside>
-							{#snippet trigger({ trigger })}
+							{#snippet triggr({ trigger })}
 								<MeltButton
 									class={twMerge(
 										'w-full text-gray-400 text-2xs flex flex-row gap-1 py-1 items-center px-2 hover:bg-[#2A3648] dark:hover:bg-[#30404e] rounded',
@@ -492,7 +492,7 @@
 					{#if menuLink.subItems}
 						{@const notificationsCount = computeAllNotificationsCount(menuLink.subItems)}
 						<Menu {createMenu} usePointerDownOutside>
-							{#snippet trigger({ trigger })}
+							{#snippet triggr({ trigger })}
 								<MenuButton
 									class="!text-2xs"
 									{...menuLink}
@@ -550,7 +550,7 @@
 				{#each thirdMenuLinks as menuLink (menuLink)}
 					{#if menuLink.subItems}
 						<Menu {createMenu} usePointerDownOutside>
-							{#snippet trigger({ trigger })}
+							{#snippet triggr({ trigger })}
 								<button
 									class="relative w-full"
 									onclick={() => {

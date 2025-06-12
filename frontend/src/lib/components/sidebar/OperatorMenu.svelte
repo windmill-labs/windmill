@@ -159,7 +159,7 @@
 <Menubar>
 	{#snippet children({ createMenu })}
 		<Menu {createMenu} usePointerDownOutside>
-			{#snippet trigger({ trigger })}
+			{#snippet triggr({ trigger })}
 				<MenuButton
 					class="!text-xs"
 					icon={MenuIcon}
