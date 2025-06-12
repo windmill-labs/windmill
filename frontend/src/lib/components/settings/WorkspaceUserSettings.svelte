@@ -23,16 +23,16 @@
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { truncate } from '$lib/utils'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 
-	let users: User[] | undefined = undefined
-	let invites: WorkspaceInvite[] = []
-	let filteredUsers: User[] | undefined = undefined
-	let userFilter = ''
-	let auto_invite_domain: string | undefined
-	let operatorOnly: boolean | undefined = undefined
-	let autoAdd: boolean | undefined = undefined
-	let nbDisplayed = 30
+	let users: User[] | undefined = $state(undefined)
+	let invites: WorkspaceInvite[] = $state([])
+	let filteredUsers: User[] | undefined = $state(undefined)
+	let userFilter = $state('')
+	let auto_invite_domain: string | undefined = $state()
+	let operatorOnly: boolean | undefined = $state(undefined)
+	let autoAdd: boolean | undefined = $state(undefined)
+	let nbDisplayed = $state(30)
 
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
@@ -43,7 +43,7 @@
 
 	let getUsagePromise: CancelablePromise<UserUsage[]> | undefined = undefined
 
-	let usage: Record<string, number> | undefined = undefined
+	let usage: Record<string, number> | undefined = $state(undefined)
 
 	async function getUsage() {
 		try {
@@ -71,23 +71,25 @@
 		invites = await WorkspaceService.listPendingInvites({ workspace: $workspaceStore! })
 	}
 
-	let allowedAutoDomain = false
+	let allowedAutoDomain = $state(false)
 
 	async function getDisallowedAutoDomain() {
 		allowedAutoDomain = await WorkspaceService.isDomainAllowed()
 	}
 
-	$: domain = $userStore?.email.split('@')[1]
+	let domain = $derived($userStore?.email.split('@')[1])
 
-	$: {
+	$effect(() => {
 		if ($workspaceStore) {
-			getDisallowedAutoDomain()
-			listUsers()
-			getUsage()
-			listInvites()
-			loadSettings()
+			untrack(() => {
+				getDisallowedAutoDomain()
+				listUsers()
+				getUsage()
+				listInvites()
+				loadSettings()
+			})
 		}
-	}
+	})
 
 	onDestroy(() => {
 		try {
@@ -97,7 +99,7 @@
 		}
 	})
 
-	let deleteConfirmedCallback: (() => void) | undefined = undefined
+	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
 
 	async function removeAllInvitesFromDomain() {
 		await Promise.all(
@@ -118,10 +120,12 @@
 		)
 	}
 
-	let nbInviteDisplayed = 50
+	let nbInviteDisplayed = $state(50)
 
-	let showInvites = false
-	$: showInvites = invites?.length > 0 || (auto_invite_domain != undefined && !autoAdd)
+	let showInvites = $state(false)
+	$effect(() => {
+		showInvites = invites?.length > 0 || (auto_invite_domain != undefined && !autoAdd)
+	})
 </script>
 
 <SearchItems
@@ -161,7 +165,7 @@
 			floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 			usePointerDownOutside
 		>
-			<svelte:fragment slot="trigger">
+			{#snippet trigger()}
 				<Button
 					color={auto_invite_domain != undefined ? 'green' : 'red'}
 					variant="border"
@@ -172,8 +176,8 @@
 						? 'ON'
 						: 'OFF'}
 				</Button>
-			</svelte:fragment>
-			<svelte:fragment slot="content">
+			{/snippet}
+			{#snippet content()}
 				<div class="flex flex-col items-start p-4">
 					<span class="text-sm leading-6 font-semibold">
 						{isCloudHosted()
@@ -208,10 +212,11 @@
 									autoAdd = e.detail === 'add'
 								}
 							}}
-							let:item
 						>
-							<ToggleButton value="invite" size="xs" label="Auto-invite" {item} />
-							<ToggleButton value="add" size="xs" label="Auto-add" {item} />
+							{#snippet children({ item })}
+								<ToggleButton value="invite" size="xs" label="Auto-invite" {item} />
+								<ToggleButton value="add" size="xs" label="Auto-add" {item} />
+							{/snippet}
 						</ToggleButtonGroup>
 					{/if}
 
@@ -239,20 +244,21 @@
 								operatorOnly = e.detail === 'operator'
 							}
 						}}
-						let:item
 					>
-						<ToggleButton
-							value="operator"
-							label="Operator"
-							tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-							{item}
-						/>
-						<ToggleButton
-							value="developer"
-							label="Developer"
-							tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-							{item}
-						/>
+						{#snippet children({ item })}
+							<ToggleButton
+								value="operator"
+								label="Operator"
+								tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
+								{item}
+							/>
+							<ToggleButton
+								value="developer"
+								label="Developer"
+								tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
+								{item}
+							/>
+						{/snippet}
 					</ToggleButtonGroup>
 					<div class="pt-2">
 						<Toggle
@@ -284,7 +290,7 @@
 						<div class="text-red-400 text-xs">{domain} domain not allowed for auto-add</div>
 					{/if}
 				</div>
-			</svelte:fragment>
+			{/snippet}
 		</Popover>
 		<AddUser
 			on:new={() => {
@@ -501,35 +507,36 @@
 											})
 											listUsers()
 										}}
-										let:item
 									>
-										<ToggleButton
-											value="operator"
-											label="Operator"
-											tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-											{item}
-										/>
+										{#snippet children({ item })}
+											<ToggleButton
+												value="operator"
+												label="Operator"
+												tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
+												{item}
+											/>
 
-										<ToggleButton
-											value="developer"
-											label="Developer"
-											tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-											{item}
-										/>
+											<ToggleButton
+												value="developer"
+												label="Developer"
+												tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
+												{item}
+											/>
 
-										<ToggleButton
-											value="admin"
-											label="Admin"
-											tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
-											{item}
-										/>
+											<ToggleButton
+												value="admin"
+												label="Admin"
+												tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
+												{item}
+											/>
+										{/snippet}
 									</ToggleButtonGroup>
 								</div>
 							</Cell>
 							<Cell last>
 								<button
 									class="ml-2 text-red-500"
-									on:click={async () => {
+									onclick={async () => {
 										await WorkspaceService.deleteInvite({
 											workspace: $workspaceStore ?? '',
 											requestBody: {
@@ -558,7 +565,7 @@
 		{#if invites && invites?.length > 50 && nbInviteDisplayed < invites.length}
 			<span class="text-xs"
 				>{nbInviteDisplayed} invites out of {invites.length}
-				<button class="ml-4" on:click={() => (nbInviteDisplayed += 50)}>load 50 more</button></span
+				<button class="ml-4" onclick={() => (nbInviteDisplayed += 50)}>load 50 more</button></span
 			>
 		{/if}
 	</div>

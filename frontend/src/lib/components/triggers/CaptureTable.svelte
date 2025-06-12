@@ -7,7 +7,7 @@
 	import CustomPopover from '../CustomPopover.svelte'
 	import { Webhook, Route, Unplug, Mail, Play } from 'lucide-svelte'
 	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
-	import { createEventDispatcher, onDestroy } from 'svelte'
+	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { type TriggerKind } from '../triggers'
 	import { CaptureService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -20,28 +20,47 @@
 	import { AwsIcon, MqttIcon } from '../icons'
 	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 
-	export let path: string
-	export let hasPreprocessor = false
-	export let canHavePreprocessor = false
-	export let isFlow = false
-	export let captureType: CaptureTriggerKind | undefined = undefined
-	export let headless = false
-	export let addButton = false
-	export let canEdit = false
-	export let fullHeight = true
-	export let limitPayloadSize = false
-	export let noBorder = false
-	export let captureActiveIndicator: boolean | undefined = undefined
+	interface Props {
+		path: string
+		hasPreprocessor?: boolean
+		canHavePreprocessor?: boolean
+		isFlow?: boolean
+		captureType?: CaptureTriggerKind | undefined
+		headless?: boolean
+		addButton?: boolean
+		canEdit?: boolean
+		fullHeight?: boolean
+		limitPayloadSize?: boolean
+		noBorder?: boolean
+		captureActiveIndicator?: boolean | undefined
+	}
 
-	let selected: number | undefined = undefined
-	let testKind: 'preprocessor' | 'main' = 'main'
-	let isEmpty: boolean = true
-	let infiniteList: InfiniteList | null = null
-	let capturesLength = 0
+	let {
+		path,
+		hasPreprocessor = false,
+		canHavePreprocessor = false,
+		isFlow = false,
+		captureType = undefined,
+		headless = false,
+		addButton = false,
+		canEdit = false,
+		fullHeight = true,
+		limitPayloadSize = false,
+		noBorder = false,
+		captureActiveIndicator = undefined
+	}: Props = $props()
+
+	let selected: number | undefined = $state(undefined)
+	let testKind: 'preprocessor' | 'main' = $state('main')
+	let isEmpty: boolean = $state(true)
+	let infiniteList: InfiniteList | null = $state(null)
+	let capturesLength = $state(0)
 	let openStates: Record<string, boolean> = {}
-	let viewerOpen = false
+	let viewerOpen = $state(false)
 
-	$: hasPreprocessor && (testKind = 'preprocessor')
+	$effect(() => {
+		hasPreprocessor && (testKind = 'preprocessor')
+	})
 
 	const dispatch = createEventDispatcher<{
 		openTriggers: {
@@ -218,13 +237,15 @@
 		viewerOpen = Object.values(openStates).some((state) => state)
 	}
 
-	$: path && infiniteList && initLoadCaptures()
+	$effect(() => {
+		path && infiniteList && untrack(() => initLoadCaptures())
+	})
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} />
 
 <Label label="Trigger captures" {headless} class="h-full {headless ? '' : 'flex flex-col gap-1'}">
-	<svelte:fragment slot="header">
+	{#snippet header()}
 		{#if addButton}
 			<div class="inline-block">
 				<CaptureButton small={true} on:openTriggers />
@@ -233,30 +254,31 @@
 		{#if captureActiveIndicator}
 			<Loader2 class="animate-spin" size={16} />
 		{/if}
-	</svelte:fragment>
-	<svelte:fragment slot="action">
+	{/snippet}
+	{#snippet action()}
 		{#if canHavePreprocessor && !isEmpty}
 			<div>
 				<ToggleButtonGroup
 					bind:selected={testKind}
-					class="h-full"
+					className="h-full"
 					on:selected={(e) => {
 						initLoadCaptures(e.detail)
 					}}
-					let:item
 				>
-					<ToggleButton value="main" label={isFlow ? 'Flow' : 'Main'} small {item} />
-					<ToggleButton
-						value="preprocessor"
-						label="Preprocessor"
-						small
-						tooltip="When the runnable has a preprocessor, it receives additional information about the request"
-						{item}
-					/>
+					{#snippet children({ item })}
+						<ToggleButton value="main" label={isFlow ? 'Flow' : 'Main'} small {item} />
+						<ToggleButton
+							value="preprocessor"
+							label="Preprocessor"
+							small
+							tooltip="When the runnable has a preprocessor, it receives additional information about the request"
+							{item}
+						/>
+					{/snippet}
 				</ToggleButtonGroup>
 			</div>
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 
 	<div
 		class={fullHeight
@@ -277,14 +299,14 @@
 			{noBorder}
 			neverShowLoader={captureActiveIndicator !== undefined}
 		>
-			<svelte:fragment slot="columns">
+			{#snippet columns()}
 				<colgroup>
 					<col class="w-8" />
 					<col class="w-16" />
 					<col />
 				</colgroup>
-			</svelte:fragment>
-			<svelte:fragment let:item let:hover>
+			{/snippet}
+			{#snippet children({ item, hover })}
 				{@const captureIcon = captureKindToIcon[item.trigger_kind]}
 				<SchemaPickerRow
 					date={item.created_at}
@@ -296,13 +318,15 @@
 					{viewerOpen}
 					{limitPayloadSize}
 				>
-					<svelte:fragment slot="start">
-						<div class="center-center">
-							<svelte:component this={captureIcon} size={12} />
-						</div>
-					</svelte:fragment>
+					{#snippet start()}
+						{@const SvelteComponent = captureIcon}
 
-					<svelte:fragment slot="extra" let:isTooBig>
+						<div class="center-center">
+							<SvelteComponent size={12} />
+						</div>
+					{/snippet}
+
+					{#snippet extra({ isTooBig })}
 						{#if canEdit}
 							<div class="flex flex-row items-center gap-2 px-2">
 								{#if testKind === 'preprocessor' && !hasPreprocessor}
@@ -318,7 +342,7 @@
 										>
 											Apply args
 										</Button>
-										<svelte:fragment slot="overlay">
+										{#snippet overlay()}
 											<div class="text-sm p-2 flex flex-col gap-1 items-start">
 												<p> You need to add a preprocessor to use preprocessor captures as args </p>
 												<Button
@@ -331,7 +355,7 @@
 													Add preprocessor
 												</Button>
 											</div>
-										</svelte:fragment>
+										{/snippet}
 									</CustomPopover>
 								{:else}
 									<Button
@@ -388,12 +412,12 @@
 								/>
 							</div>
 						{/if}
-					</svelte:fragment>
+					{/snippet}
 				</SchemaPickerRow>
-			</svelte:fragment>
-			<svelte:fragment slot="empty">
+			{/snippet}
+			{#snippet empty()}
 				<div class="text-center text-xs text-tertiary py-2">No captures yet</div>
-			</svelte:fragment>
+			{/snippet}
 		</InfiniteList>
 	</div>
 </Label>
