@@ -1,8 +1,10 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import type { Schema } from '$lib/common'
 	import { ResourceService, type Resource, type ResourceType } from '$lib/gen'
 	import { canWrite, emptyString, isOwner, urlize } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { Alert, Skeleton } from './common'
 	import Path from './Path.svelte'
 	import Required from './Required.svelte'
@@ -20,44 +22,48 @@
 	import TestTriggerConnection from './triggers/TestTriggerConnection.svelte'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
-	export let canSave = true
-	export let resource_type: string | undefined = undefined
-	export let path: string = ''
-	export let newResource: boolean = false
-	export let hidePath: boolean = false
-	export let watchChanges: boolean = false
-	export let defaultValues: Record<string, any> | undefined = undefined
-
-	$: if (defaultValues && Object.keys(defaultValues).length > 0) {
-		args = defaultValues
+	interface Props {
+		canSave?: boolean
+		resource_type?: string | undefined
+		path?: string
+		newResource?: boolean
+		hidePath?: boolean
+		watchChanges?: boolean
+		defaultValues?: Record<string, any> | undefined
 	}
 
-	let isValid = true
-	let jsonError = ''
-	let can_write = true
+	let {
+		canSave = $bindable(true),
+		resource_type = $bindable(undefined),
+		path = $bindable(''),
+		newResource = false,
+		hidePath = false,
+		watchChanges = false,
+		defaultValues = undefined
+	}: Props = $props()
 
-	$: canSave = can_write && isValid && jsonError == ''
+	let isValid = $state(true)
+	let jsonError = $state('')
+	let can_write = $state(true)
 
 	let initialPath = path
 
-	let resourceToEdit: Resource | undefined = undefined
+	let resourceToEdit: Resource | undefined = $state(undefined)
 
-	let description: string = ''
+	let description: string = $state('')
 	let DESCRIPTION_PLACEHOLDER = `Describe what this resource is for`
-	let resourceSchema: Schema | undefined = undefined
-	let args: Record<string, any> = {}
-	let loadingSchema = true
-	let linkedVars: string[] = []
-	let resourceTypeInfo: ResourceType | undefined = undefined
-	let editDescription = false
-	let viewJsonSchema = false
+	let resourceSchema: Schema | undefined = $state(undefined)
+	let args: Record<string, any> = $state({})
+	let loadingSchema = $state(true)
+	let linkedVars: string[] = $state([])
+	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
+	let editDescription = $state(false)
+	let viewJsonSchema = $state(false)
 
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
-	$: watchChanges && dispatchIfMounted('change', { path, args, description })
-
-	let rawCode: string | undefined = undefined
+	let rawCode: string | undefined = $state(undefined)
 
 	async function initEdit() {
 		resourceToEdit = await ResourceService.getResource({ workspace: $workspaceStore!, path })
@@ -80,9 +86,6 @@
 	} else {
 		sendUserToast('Resource type cannot be undefined for new resource creation', true)
 	}
-
-	$: rawCode && parseJson()
-	$: linkedVars.length > 0 && path && updateArgsFromLinkedVars()
 
 	export async function editResource(): Promise<void> {
 		if (resourceToEdit) {
@@ -150,8 +153,7 @@
 		})
 	}
 
-	let textFileContent: string = ''
-	$: textFileContent && parseTextFileContent()
+	let textFileContent: string = $state('')
 
 	function switchTab(asJson: boolean) {
 		viewJsonSchema = asJson
@@ -170,6 +172,26 @@
 			content: textFileContent
 		}
 	}
+	run(() => {
+		if (defaultValues && Object.keys(defaultValues).length > 0) {
+			args = defaultValues
+		}
+	})
+	run(() => {
+		canSave = can_write && isValid && jsonError == ''
+	})
+	run(() => {
+		watchChanges && dispatchIfMounted('change', { path, args, description })
+	})
+	run(() => {
+		rawCode && untrack(() => parseJson())
+	})
+	run(() => {
+		linkedVars.length > 0 && path && untrack(() => updateArgsFromLinkedVars())
+	})
+	run(() => {
+		textFileContent && untrack(() => parseTextFileContent())
+	})
 </script>
 
 <div>

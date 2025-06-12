@@ -178,7 +178,7 @@
 						bind:open={menuOpen}
 						disabled={!triggersGrouped[type]}
 					>
-						{#snippet trigger({ trigger })}
+						{#snippet triggr({ trigger })}
 							{@render triggerButton({
 								type,
 								isSelected,
@@ -208,7 +208,7 @@
 				class="h-fit center-center mr-1"
 				bind:open={menuOpen}
 			>
-				{#snippet trigger({ trigger })}
+				{#snippet triggr({ trigger })}
 					<MeltButton
 						class="w-[23px] h-[23px] rounded-md center-center text-[12px] hover:bg-slate-300 transition-all duration-100 font-normal text-secondary hover:text-primary"
 						meltElement={trigger}

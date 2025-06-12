@@ -714,15 +714,17 @@
 			/>
 			<div class="py-4"></div>
 
-			<div slot="actions">
-				<Button
-					startIcon={{ icon: Save }}
-					disabled={pathError != '' || app == undefined}
-					on:click={() => saveInitialDraft()}
-				>
-					Save initial draft
-				</Button>
-			</div>
+			{#snippet actions()}
+				<div>
+					<Button
+						startIcon={{ icon: Save }}
+						disabled={pathError != '' || app == undefined}
+						on:click={() => saveInitialDraft()}
+					>
+						Save initial draft
+					</Button>
+				</div>
+			{/snippet}
 		</DrawerContent>
 	</Drawer>
 {/if}
@@ -781,63 +783,65 @@
 			autofocus={false}
 		/>
 
-		<div slot="actions" class="flex flex-row gap-4">
-			<Button
-				variant="border"
-				color="light"
-				disabled={!savedApp || savedApp.draft_only}
-				on:click={async () => {
-					if (!savedApp) {
-						return
-					}
-					// deployedValue should be syncronized when we open Diff
-					await syncWithDeployed()
+		{#snippet actions()}
+			<div class="flex flex-row gap-4">
+				<Button
+					variant="border"
+					color="light"
+					disabled={!savedApp || savedApp.draft_only}
+					on:click={async () => {
+						if (!savedApp) {
+							return
+						}
+						// deployedValue should be syncronized when we open Diff
+						await syncWithDeployed()
 
-					saveDrawerOpen = false
-					diffDrawer?.openDrawer()
-					diffDrawer?.setDiff({
-						mode: 'normal',
-						deployed: deployedValue ?? savedApp,
-						draft: savedApp.draft,
-						current: {
-							summary: summary,
-							value: app,
-							path: newEditedPath || savedApp.draft?.path || savedApp.path,
-							policy,
-							custom_path: customPath
-						},
-						button: {
-							text: 'Looks good, deploy',
-							onClick: () => {
-								if (appPath == '') {
-									createApp(newEditedPath)
-								} else {
-									handleUpdateApp(newEditedPath)
+						saveDrawerOpen = false
+						diffDrawer?.openDrawer()
+						diffDrawer?.setDiff({
+							mode: 'normal',
+							deployed: deployedValue ?? savedApp,
+							draft: savedApp.draft,
+							current: {
+								summary: summary,
+								value: app,
+								path: newEditedPath || savedApp.draft?.path || savedApp.path,
+								policy,
+								custom_path: customPath
+							},
+							button: {
+								text: 'Looks good, deploy',
+								onClick: () => {
+									if (appPath == '') {
+										createApp(newEditedPath)
+									} else {
+										handleUpdateApp(newEditedPath)
+									}
 								}
 							}
+						})
+					}}
+				>
+					<div class="flex flex-row gap-2 items-center">
+						<DiffIcon size={14} />
+						Diff
+					</div>
+				</Button>
+				<Button
+					startIcon={{ icon: Save }}
+					disabled={pathError != '' || customPathError != '' || app == undefined}
+					on:click={() => {
+						if (appPath == '') {
+							createApp(newEditedPath)
+						} else {
+							handleUpdateApp(newEditedPath)
 						}
-					})
-				}}
-			>
-				<div class="flex flex-row gap-2 items-center">
-					<DiffIcon size={14} />
-					Diff
-				</div>
-			</Button>
-			<Button
-				startIcon={{ icon: Save }}
-				disabled={pathError != '' || customPathError != '' || app == undefined}
-				on:click={() => {
-					if (appPath == '') {
-						createApp(newEditedPath)
-					} else {
-						handleUpdateApp(newEditedPath)
-					}
-				}}
-			>
-				Deploy
-			</Button>
-		</div>
+					}}
+				>
+					Deploy
+				</Button>
+			</div>
+		{/snippet}
 		<div class="py-2"></div>
 		{#if appPath == ''}
 			<Alert title="Require saving" type="error">
