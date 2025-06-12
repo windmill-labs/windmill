@@ -137,7 +137,7 @@
 				const fullPayload = await input.getFullPayload?.()
 				dispatch('select', fullPayload)
 			} else {
-				selectedArgs = structuredClone(input.payloadData ?? {})
+				selectedArgs = structuredClone($state.snapshot(input.payloadData) ?? {})
 				dispatch('select', selectedArgs)
 			}
 		}

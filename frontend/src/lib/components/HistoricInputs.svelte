@@ -47,7 +47,10 @@
 			const fullPayload = await data.getFullPayload?.()
 			dispatch('select', { args: fullPayload, jobId: data.id })
 		} else {
-			dispatch('select', { args: structuredClone(data.payloadData), jobId: data.id })
+			dispatch('select', {
+				args: structuredClone($state.snapshot(data.payloadData)),
+				jobId: data.id
+			})
 		}
 	}
 

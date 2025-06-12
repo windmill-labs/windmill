@@ -125,7 +125,7 @@
 	}
 	$effect(() => {
 		Object.keys(args ?? {}).forEach((key) => {
-			console.log('key', key, args?.[key])
+			args?.[key]
 		})
 		untrack(() => onArgsChange(args))
 	})
