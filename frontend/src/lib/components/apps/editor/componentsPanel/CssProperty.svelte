@@ -18,26 +18,47 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { tailwindClasses } from './tailwindUtils'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import { deepEqual } from 'fast-equals'
 
-	export let name: string
-	export let value: ComponentCssProperty = {}
-	export let forceStyle: boolean = false
-	export let forceClass: boolean = false
-	export let quickStyleProperties: PropertyGroup[] | undefined = undefined
-	export let componentType: TypedComponent['type'] | undefined = undefined
-	export let tooltip: string | undefined = undefined
-	export let shouldDisplayLeft: boolean = false
-	export let shouldDisplayRight: boolean = false
-	export let overriden: boolean = false
-	export let overridding: boolean = false
-	export let wmClass: string | undefined = undefined
+	interface Props {
+		name: string
+		value?: ComponentCssProperty
+		forceStyle?: boolean
+		forceClass?: boolean
+		quickStyleProperties?: PropertyGroup[] | undefined
+		componentType?: TypedComponent['type'] | undefined
+		tooltip?: string | undefined
+		shouldDisplayLeft?: boolean
+		shouldDisplayRight?: boolean
+		overriden?: boolean
+		overridding?: boolean
+		wmClass?: string | undefined
+	}
+
+	let {
+		name,
+		value = $bindable({}),
+		forceStyle = false,
+		forceClass = false,
+		quickStyleProperties = undefined,
+		componentType = undefined,
+		tooltip = undefined,
+		shouldDisplayLeft = false,
+		shouldDisplayRight = false,
+		overriden = false,
+		overridding = false,
+		wmClass = undefined
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
-	let isQuickMenuOpen = false
+	let isQuickMenuOpen = $state(false)
 
-	$: dispatchIfMounted('change', value)
+	let prevValue = structuredClone(value)
+	$effect(() => {
+		if (deepEqual(prevValue, value)) return
+		prevValue = structuredClone(value)
+		dispatch('change', value)
+	})
 
 	function toggleQuickMenu() {
 		try {
@@ -52,10 +73,10 @@
 		}
 	}
 
-	let richEditorOpen = false
+	let richEditorOpen = $state(false)
 
-	let dynamicClass: boolean = value?.evalClass !== undefined
-	let render = 0
+	let dynamicClass: boolean = $state(value?.evalClass !== undefined)
+	let render = $state(0)
 </script>
 
 {#key render}
@@ -73,7 +94,9 @@
 						startIcon={{ icon: MoveLeft }}
 						on:click={() => dispatch('left')}
 					/>
-					<svelte:fragment slot="text">{'Copy for this component'}</svelte:fragment>
+					{#snippet text()}
+						{'Copy for this component'}
+					{/snippet}
 				</Popover>
 			{/if}
 			{#if shouldDisplayRight}
@@ -85,9 +108,9 @@
 						startIcon={{ icon: MoveRight }}
 						on:click={() => dispatch('right')}
 					/>
-					<svelte:fragment slot="text">
+					{#snippet text()}
 						Copy for every {componentType ? ccomponents[componentType].name : 'component'}
-					</svelte:fragment>
+					{/snippet}
 				</Popover>
 			{/if}
 			<Popover placement="bottom" notClickable disappearTimeout={0}>
@@ -98,9 +121,9 @@
 					startIcon={{ icon: Copy }}
 					on:click={() => copyToClipboard(wmClass)}
 				/>
-				<svelte:fragment slot="text">
+				{#snippet text()}
 					Copy {wmClass}
-				</svelte:fragment>
+				{/snippet}
 			</Popover>
 		</div>
 	</div>
@@ -113,7 +136,7 @@
 
 			{#if value.style !== undefined || forceStyle}
 				<div class="pb-2">
-					<!-- svelte-ignore a11y-label-has-associated-control -->
+					<!-- svelte-ignore a11y_label_has_associated_control -->
 					<div class="block w-full">
 						<div class="flex flex-row justify-between items-center w-full h-8 mb-1">
 							<div class="text-xs font-medium text-tertiary"> Plain CSS </div>
@@ -134,24 +157,25 @@
 												richEditorOpen = isQuickMenuOpen
 											}
 										}}
-										let:item
 									>
-										<ToggleButton
-											small
-											light
-											value={'false'}
-											icon={Code}
-											tooltip="Edit the CSS directly"
-											{item}
-										/>
-										<ToggleButton
-											small
-											light
-											value={'true'}
-											icon={Paintbrush2}
-											tooltip="Open the rich editor to style the component with a visual interface"
-											{item}
-										/>
+										{#snippet children({ item })}
+											<ToggleButton
+												small
+												light
+												value={'false'}
+												icon={Code}
+												tooltip="Edit the CSS directly"
+												{item}
+											/>
+											<ToggleButton
+												small
+												light
+												value={'true'}
+												icon={Paintbrush2}
+												tooltip="Open the rich editor to style the component with a visual interface"
+												{item}
+											/>
+										{/snippet}
 									</ToggleButtonGroup>
 								{/if}
 							</div>
@@ -195,7 +219,7 @@
 			{/if}
 
 			{#if value.class !== undefined || forceClass}
-				<!-- svelte-ignore a11y-label-has-associated-control -->
+				<!-- svelte-ignore a11y_label_has_associated_control -->
 				<label class="block">
 					<div class="text-xs font-medium text-tertiary mb-1">
 						Tailwind classes

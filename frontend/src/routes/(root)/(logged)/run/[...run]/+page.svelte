@@ -361,7 +361,7 @@
 {#if (job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)) && job?.['running'] && job?.parent_job == undefined}
 	<Drawer bind:this={debugViewer} size="800px">
 		<DrawerContent title="Debug Detail" on:close={debugViewer.closeDrawer}>
-			<svelte:fragment slot="actions">
+			{#snippet actions()}
 				<div class="flex items-center gap-1">
 					<div class="w-60 pt-2">
 						<Toggle bind:checked={redactSensitive} options={{ right: 'Redact args/result/logs' }} />
@@ -377,7 +377,7 @@
 						<div class="flex gap-2 items-center">Copy <ClipboardCopy /> </div>
 					</Button>
 				</div>
-			</svelte:fragment>
+			{/snippet}
 			<pre
 				><code class="text-2xs p-2">
 					<Highlight

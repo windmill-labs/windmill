@@ -10,24 +10,39 @@
 	import AddPropertyV2 from '$lib/components/schema/AddPropertyV2.svelte'
 	import { Plus } from 'lucide-svelte'
 
-	export let schema: Schema | undefined | any
-	export let uiOnly: boolean = false
-	export let noPreview: boolean = false
-	export let fullHeight: boolean = true
-	export let formatExtension: string | undefined = undefined
+	interface Props {
+		schema: Schema | undefined | any
+		uiOnly?: boolean
+		noPreview?: boolean
+		fullHeight?: boolean
+		formatExtension?: string | undefined
+	}
 
-	let resourceIsTextFile: boolean = false
-	let addProperty: AddPropertyV2 | undefined = undefined
-	let editableSchemaForm: EditableSchemaForm | undefined = undefined
+	let {
+		schema = $bindable(),
+		uiOnly = false,
+		noPreview = false,
+		fullHeight = true,
+		formatExtension = $bindable(undefined)
+	}: Props = $props()
+
+	let resourceIsTextFile: boolean = $state(false)
+	let addPropertyComponent: AddPropertyV2 | undefined = $state(undefined)
+	let editableSchemaForm: EditableSchemaForm | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 
-	$: !resourceIsTextFile && (formatExtension = undefined)
+	$effect(() => {
+		if (!resourceIsTextFile && formatExtension !== undefined) {
+			formatExtension = undefined
+		}
+	})
 
-	$: invalidExtension =
+	let invalidExtension = $derived(
 		formatExtension && formatExtension != ''
 			? !validateFileExtension(formatExtension ?? 'txt')
 			: false
+	)
 
 	function switchResourceIsFile() {
 		if (!resourceIsTextFile) {
@@ -74,7 +89,7 @@
 		'xml',
 		'yml'
 	]
-	let autocompleteExtension = true
+	let autocompleteExtension = $state(true)
 </script>
 
 {#if !resourceIsTextFile}
@@ -88,19 +103,19 @@
 		{#if noPreview}
 			<AddPropertyV2
 				bind:schema
-				bind:this={addProperty}
+				bind:this={addPropertyComponent}
 				on:change={() => dispatch('change', schema)}
 				on:addNew={(e) => {
 					editableSchemaForm?.openField(e.detail)
 				}}
 			>
-				<svelte:fragment slot="trigger">
+				{#snippet trigger()}
 					<div
 						class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
 					>
 						<Plus size={14} />
 					</div>
-				</svelte:fragment>
+				{/snippet}
 			</AddPropertyV2>
 		{/if}
 		<EditableSchemaForm
@@ -110,32 +125,32 @@
 			on:change={() => dispatch('change', schema)}
 			isFlowInput
 			on:edit={(e) => {
-				addProperty?.openDrawer(e.detail)
+				addPropertyComponent?.openDrawer(e.detail)
 			}}
 			on:delete={(e) => {
-				addProperty?.handleDeleteArgument([e.detail])
+				addPropertyComponent?.handleDeleteArgument([e.detail])
 			}}
 			{uiOnly}
 			{noPreview}
 			editTab="inputEditor"
 		>
-			<svelte:fragment slot="addProperty">
+			{#snippet addProperty()}
 				{#if !noPreview}
 					<AddPropertyV2
 						bind:schema
-						bind:this={addProperty}
+						bind:this={addPropertyComponent}
 						on:change={() => dispatch('change', schema)}
 					>
-						<svelte:fragment slot="trigger">
+						{#snippet trigger()}
 							<div
 								class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
 							>
 								<Plus size={14} />
 							</div>
-						</svelte:fragment>
+						{/snippet}
 					</AddPropertyV2>
 				{/if}
-			</svelte:fragment>
+			{/snippet}
 		</EditableSchemaForm>
 	</div>
 {/if}
@@ -172,13 +187,13 @@
 				lock={true}
 			/>
 		{:else}
-			<!-- svelte-ignore a11y-autofocus -->
+			<!-- svelte-ignore a11y_autofocus -->
 			<input
 				autofocus={true}
 				bind:value={formatExtension}
 				class="!h-[32px] py-1 !text-xs !w-64"
 				placeholder="Enter your extension"
-				on:keydown={(event) => {
+				onkeydown={(event) => {
 					if (event.key === 'Enter') {
 						if (formatExtension && !suggestedFileExtensions.includes(formatExtension))
 							suggestedFileExtensions.push(formatExtension)

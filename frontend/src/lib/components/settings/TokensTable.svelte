@@ -281,19 +281,21 @@
 				{#if mcpCreationMode}
 					<div>
 						<span class="block mb-1">Scope</span>
-						<ToggleButtonGroup bind:selected={newMcpScope} allowEmpty={false} let:item>
-							<ToggleButton
-								{item}
-								value="favorites"
-								label="Favorites only"
-								tooltip="Make only your favorite scripts and flows available as tools"
-							/>
-							<ToggleButton
-								{item}
-								value="all"
-								label="All scripts/flows"
-								tooltip="Make all your scripts and flows available as tools"
-							/>
+						<ToggleButtonGroup bind:selected={newMcpScope} allowEmpty={false}>
+							{#snippet children({ item })}
+								<ToggleButton
+									{item}
+									value="favorites"
+									label="Favorites only"
+									tooltip="Make only your favorite scripts and flows available as tools"
+								/>
+								<ToggleButton
+									{item}
+									value="all"
+									label="All scripts/flows"
+									tooltip="Make all your scripts and flows available as tools"
+								/>
+							{/snippet}
 						</ToggleButtonGroup>
 					</div>
 
@@ -371,6 +373,7 @@
 
 <div class="overflow-auto">
 	<TableCustom>
+		<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
 		<tr slot="header-row">
 			<th>prefix</th>
 			<th>label</th>
@@ -378,32 +381,34 @@
 			<th>scopes</th>
 			<th></th>
 		</tr>
-		<tbody slot="body">
-			{#if tokens && tokens.length > 0}
-				{#each tokens as { token_prefix, expiration, label, scopes }}
-					<tr>
-						<td class="grow">{token_prefix}****</td>
-						<td class="grow">{label ?? ''}</td>
-						<td class="grow">{displayDate(expiration ?? '')}</td>
-						<td class="grow">{scopes?.join(', ') ?? ''}</td>
-						<td class="grow">
-							<button
-								class="text-red-500 text-xs underline"
-								onclick={() => handleDeleteClick(token_prefix)}
-							>
-								Delete
-							</button>
-						</td>
+		{#snippet body()}
+			<tbody>
+				{#if tokens && tokens.length > 0}
+					{#each tokens as { token_prefix, expiration, label, scopes }}
+						<tr>
+							<td class="grow">{token_prefix}****</td>
+							<td class="grow">{label ?? ''}</td>
+							<td class="grow">{displayDate(expiration ?? '')}</td>
+							<td class="grow">{scopes?.join(', ') ?? ''}</td>
+							<td class="grow">
+								<button
+									class="text-red-500 text-xs underline"
+									onclick={() => handleDeleteClick(token_prefix)}
+								>
+									Delete
+								</button>
+							</td>
+						</tr>
+					{/each}
+				{:else if tokens && tokens.length === 0}
+					<tr class="px-6">
+						<td class="text-secondary italic text-xs"> There are no tokens yet</td>
 					</tr>
-				{/each}
-			{:else if tokens && tokens.length === 0}
-				<tr class="px-6">
-					<td class="text-secondary italic text-xs"> There are no tokens yet</td>
-				</tr>
-			{:else}
-				<tr><td>Loading...</td></tr>
-			{/if}
-		</tbody>
+				{:else}
+					<tr><td>Loading...</td></tr>
+				{/if}
+			</tbody>
+		{/snippet}
 	</TableCustom>
 	<div class="flex flex-row-reverse gap-2 w-full">
 		{#if tokens?.length == 100}

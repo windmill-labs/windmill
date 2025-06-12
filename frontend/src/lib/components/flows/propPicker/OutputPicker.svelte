@@ -2,44 +2,45 @@
 	import { ChevronDown } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { getContext, tick } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 
-	export let zoom: number = 1
-	export let selected: boolean = false
-	export let hover: boolean = false
-	export let isConnectingCandidate: boolean = false
-	export let variant: 'default' | 'virtual' = 'default'
-	export let historyOpen: boolean = false
+	interface Props {
+		selected?: boolean
+		hover?: boolean
+		isConnectingCandidate?: boolean
+		variant?: 'default' | 'virtual'
+		historyOpen?: boolean
+		children?: import('svelte').Snippet<[any]>
+	}
+
+	let {
+		selected = false,
+		hover = false,
+		isConnectingCandidate = false,
+		variant = 'default',
+		historyOpen = false,
+		children
+	}: Props = $props()
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
 	const flowPropPickerConfig = context?.flowPropPickerConfig
-	const MIN_WIDTH = 275
-	const MIN_HEIGHT = 275
+	const MIN_WIDTH = 375
+	const MIN_HEIGHT = 375
 
-	let isConnecting = false
+	let showConnecting = $derived(
+		isConnectingCandidate && $flowPropPickerConfig?.insertionMode === 'connect'
+	)
 
-	async function updateConnecting() {
-		await tick()
-		isConnecting = $flowPropPickerConfig?.insertionMode === 'connect'
-	}
-
-	$: $flowPropPickerConfig, updateConnecting()
-
-	$: showConnecting = isConnectingCandidate && isConnecting
-
-	function selectConnection(event: CustomEvent) {
-		if ($flowPropPickerConfig?.onSelect(event.detail)) {
+	function selectConnection(value: string) {
+		if ($flowPropPickerConfig?.onSelect(value)) {
 			$flowPropPickerConfig?.clearFocus()
 			popover?.close()
 		}
 	}
 
-	let popover: Popover | undefined = undefined
-
-	$: width = Math.max(MIN_WIDTH * zoom, 375)
-	$: height = Math.max(MIN_HEIGHT * zoom, 375)
+	let popover: Popover | undefined = $state(undefined)
 
 	const virtualItemClasses = {
 		bar: 'dark:hover:bg-[#525d6f] dark:bg-[#414958] bg-[#d7dfea]  hover:bg-slate-300',
@@ -76,12 +77,12 @@
 	bind:this={popover}
 	allowFullScreen
 	contentClasses="overflow-hidden resize rounded-md"
-	contentStyle={`width: calc(${width}px); min-width: calc(${width}px); height: calc(${height}px); min-height: calc(${height}px);`}
+	contentStyle={`width: calc(${MIN_WIDTH}px); min-width: calc(${MIN_WIDTH}px); height: calc(${MIN_HEIGHT}px); min-height: calc(${MIN_HEIGHT}px);`}
 	extraProps={{ 'data-prop-picker': true }}
 	closeOnOtherPopoverOpen
 	class="outline-none"
 >
-	<svelte:fragment slot="trigger" let:isOpen>
+	{#snippet trigger({ isOpen })}
 		<div
 			class={twMerge(
 				'bg-slate-200',
@@ -90,7 +91,7 @@
 				'shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)] rounded-b-sm',
 				'group'
 			)}
-			on:pointerdown={(e) => {
+			onpointerdown={(e) => {
 				e.preventDefault()
 				e.stopPropagation()
 			}}
@@ -122,10 +123,14 @@
 				</AnimatedButton>
 			</div>
 		</div>
-	</svelte:fragment>
-	<svelte:fragment slot="content">
-		<slot allowCopy={!$flowPropPickerConfig} {isConnecting} {selectConnection} />
-	</svelte:fragment>
+	{/snippet}
+	{#snippet content()}
+		{@render children?.({
+			allowCopy: !$flowPropPickerConfig,
+			isConnecting: showConnecting,
+			selectConnection
+		})}
+	{/snippet}
 </Popover>
 
 <style>

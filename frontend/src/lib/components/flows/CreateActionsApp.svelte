@@ -75,8 +75,8 @@
 				fixedOverflowWidgets={false}
 			/>
 		{/await}
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button size="sm" on:click={importRaw}>Import</Button>
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

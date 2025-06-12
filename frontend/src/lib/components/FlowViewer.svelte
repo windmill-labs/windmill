@@ -8,20 +8,30 @@
 	import FlowViewerInner from './FlowViewerInner.svelte'
 	import FlowInputViewer from './FlowInputViewer.svelte'
 
-	export let flow: {
-		summary: string
-		description?: string
-		value: FlowValue
-		schema?: any
+	interface Props {
+		flow: {
+			summary: string
+			description?: string
+			value: FlowValue
+			schema?: any
+		}
+		initialOpen?: number | undefined
+		noSide?: boolean
+		noGraph?: boolean
+		tab?: 'ui' | 'raw' | 'schema'
+		noSummary?: boolean
+		noGraphDownload?: boolean
 	}
-	export let initialOpen: number | undefined = undefined
-	export let noSide = false
 
-	export let noGraph: boolean = false
-
-	export let tab: 'ui' | 'raw' | 'schema' = noGraph ? 'schema' : 'ui'
-	export let noSummary = false
-	export let noGraphDownload = false
+	let {
+		flow,
+		initialOpen = undefined,
+		noSide = false,
+		noGraph = false,
+		tab = $bindable(noGraph ? 'schema' : 'ui'),
+		noSummary = false,
+		noGraphDownload = false
+	}: Props = $props()
 
 	let open: { [id: number]: boolean } = {}
 	if (initialOpen) {
@@ -38,7 +48,7 @@
 	<Tab value="raw">Raw</Tab>
 	<Tab value="schema">Input Schema</Tab>
 
-	<svelte:fragment slot="content">
+	{#snippet content()}
 		<TabContent value="ui">
 			<div class="flow-root w-full pb-4">
 				{#if !noSummary}
@@ -65,5 +75,5 @@
 			<div class="my-4"></div>
 			<SchemaViewer schema={flow.schema} />
 		</TabContent>
-	</svelte:fragment>
+	{/snippet}
 </Tabs>

@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { run, createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import {
 		File as FileIcon,
 		FolderClosed,
@@ -17,47 +20,57 @@
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Section from './Section.svelte'
-	import { createEventDispatcher } from 'svelte'
-	import VirtualList from 'svelte-tiny-virtual-list'
+	import { createEventDispatcher, untrack } from 'svelte'
+	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
 	import TableSimple from './TableSimple.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import FileUploadModal from './common/fileUpload/FileUploadModal.svelte'
 	import PdfViewer from './display/PdfViewer.svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	let deletionModalOpen = false
-	let fileDeletionInProgress = false
+	let deletionModalOpen = $state(false)
+	let fileDeletionInProgress = $state(false)
 
-	let fileListUnavailable: boolean | undefined = undefined
+	let fileListUnavailable: boolean | undefined = $state(undefined)
 
-	let moveModalOpen = false
-	let moveDestKey: string | undefined = undefined
-	let fileMoveInProgress = false
+	let moveModalOpen = $state(false)
+	let moveDestKey: string | undefined = $state(undefined)
+	let fileMoveInProgress = $state(false)
 
-	let uploadModalOpen = false
+	let uploadModalOpen = $state(false)
 
-	let workspaceSettingsInitialized = true
+	let workspaceSettingsInitialized = $state(true)
 
-	export let fromWorkspaceSettings: boolean = false
-	export let readOnlyMode: boolean
-
-	export let initialFileKey: { s3: string; storage?: string } | undefined = undefined
 	let initialFileKeyInternalCopy: { s3: string; storage?: string }
-	export let selectedFileKey: { s3: string; storage?: string } | undefined = undefined
-	export let folderOnly = false
-	export let regexFilter: RegExp | undefined = undefined
+	interface Props {
+		fromWorkspaceSettings?: boolean
+		readOnlyMode: boolean
+		initialFileKey?: { s3: string; storage?: string } | undefined
+		selectedFileKey?: { s3: string; storage?: string } | undefined
+		folderOnly?: boolean
+		regexFilter?: RegExp | undefined
+	}
 
-	let csvSeparatorChar: string = ','
-	let csvHasHeader: boolean = true
+	let {
+		fromWorkspaceSettings = false,
+		readOnlyMode,
+		initialFileKey = $bindable(undefined),
+		selectedFileKey = $bindable(undefined),
+		folderOnly = false,
+		regexFilter = undefined
+	}: Props = $props()
+
+	let csvSeparatorChar: string = $state(',')
+	let csvHasHeader: boolean = $state(true)
 
 	let dispatch = createEventDispatcher<{
 		close: { s3: string; storage: string | undefined } | undefined
 	}>()
 
-	let drawer: Drawer
+	let drawer: Drawer | undefined = $state()
 
-	let fileInfoLoading: boolean = true
-	let fileListLoading: boolean = true
+	let fileInfoLoading: boolean = $state(true)
+	let fileListLoading: boolean = $state(true)
 	let allFilesByKey: Record<
 		string,
 		{
@@ -69,10 +82,10 @@
 			nestingLevel: number
 			count: number
 		}
-	> = {}
-	let displayedFileKeys: string[] = []
+	> = $state({})
+	let displayedFileKeys: string[] = $state([])
 
-	let listDivHeight: number = 0
+	let listDivHeight: number = $state(0)
 
 	let fileMetadata:
 		| {
@@ -82,29 +95,28 @@
 				sizeStr: string | undefined
 				lastModified: string | undefined
 		  }
-		| undefined = undefined
-	let filePreviewLoading: boolean = false
+		| undefined = $state(undefined)
+	let filePreviewLoading: boolean = $state(false)
 	let filePreview:
 		| {
 				fileKey: string
 				contentPreview: string | undefined
 				contentType: string | undefined
 		  }
-		| undefined = undefined
+		| undefined = $state(undefined)
 
 	let listMarkers: string[]
-	let page = 0
+	let page = $state(0)
 
 	const maxKeys = 1000
 
-	let count = 0
-	let displayedCount = 0
+	let count = $state(0)
+	let displayedCount = $state(0)
 
-	let filter = ''
+	let filter = $state('')
 
 	let timeout: NodeJS.Timeout | undefined = undefined
 	let firstLoad = true
-	$: filter != undefined && onFilterChange()
 
 	function onFilterChange() {
 		if (!firstLoad) {
@@ -117,7 +129,7 @@
 		}
 	}
 
-	let lastKeyFolders: string[] = []
+	let lastKeyFolders: string[] = $state([])
 	async function loadFiles() {
 		fileListLoading = true
 		let availableFiles = await HelpersService.listStoredFiles({
@@ -364,7 +376,7 @@
 		await loadFileMetadataPlusPreviewAsync(selectedFileKey.s3)
 	}
 
-	let storage: string | undefined = undefined
+	let storage: string | undefined = $state(undefined)
 	export async function open(
 		preSelectedFileKey: { s3: string; storage?: string } | undefined = undefined
 	) {
@@ -374,7 +386,7 @@
 			selectedFileKey = { ...preSelectedFileKey }
 		}
 		reloadContent()
-		drawer.openDrawer?.()
+		drawer?.openDrawer?.()
 	}
 
 	async function reloadContent() {
@@ -405,14 +417,14 @@
 	}
 
 	async function selectAndClose() {
-		drawer.closeDrawer?.()
+		drawer?.closeDrawer?.()
 	}
 
 	async function exit() {
 		if (initialFileKeyInternalCopy !== undefined) {
 			selectedFileKey = { ...initialFileKeyInternalCopy }
 		}
-		drawer.closeDrawer?.()
+		drawer?.closeDrawer?.()
 	}
 
 	function selectItem(index: number, toggleCollapsed: boolean = true) {
@@ -463,10 +475,13 @@
 			loadFileMetadataPlusPreviewAsync(selectedFileKey.s3)
 		}
 	}
+	run(() => {
+		filter != undefined && untrack(() => onFilterChange())
+	})
 </script>
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<!-- svelte-ignore a11y-no-static-element-interactions -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <Drawer
 	bind:this={drawer}
 	on:close={() => {
@@ -551,51 +566,55 @@
 									itemCount={displayedFileKeys.length}
 									itemSize={42}
 								>
-									<div
-										slot="item"
-										let:index
-										let:style
-										{style}
-										class={twMerge(
-											'hover:bg-surface-hover border-b',
-											index === displayedFileKeys.length - 1 && 'border-b-0'
-										)}
-									>
+									{#snippet header()}{/snippet}
+									{#snippet footer()}{/snippet}
+									{#snippet children({ index, style })}
 										{@const file_info = allFilesByKey[displayedFileKeys[index]]}
-										{#if file_info}
-											<div
-												on:click={() => selectItem(index)}
-												class={twMerge(
-													'flex flex-row h-full font-semibold text-xs items-center justify-start',
-													selectedFileKey !== undefined && selectedFileKey.s3 === file_info.full_key
-														? 'bg-surface-hover'
-														: ''
-												)}
-											>
+
+										<div
+											{style}
+											class={twMerge(
+												'hover:bg-surface-hover border-b',
+												index === displayedFileKeys.length - 1 && 'border-b-0'
+											)}
+										>
+											{#if file_info}
 												<div
-													class={`flex flex-row w-full gap-2 h-full items-center`}
-													style={`margin-left: ${(2 + file_info.nestingLevel) * 0.25}rem;`}
+													onclick={() => selectItem(index)}
+													class={twMerge(
+														'flex flex-row h-full font-semibold text-xs items-center justify-start',
+														selectedFileKey !== undefined &&
+															selectedFileKey.s3 === file_info.full_key
+															? 'bg-surface-hover'
+															: ''
+													)}
 												>
-													{#if file_info.type === 'folder'}
-														{#if file_info.collapsed}<FolderClosed size={16} />{:else}<FolderOpen
-																size={16}
-															/>{/if}
-														<div class="truncate text-ellipsis w-56">
-															{file_info.display_name} ({file_info.count}{count % 1000 === 0 &&
-															lastKeyFolders[file_info.nestingLevel / 2] === file_info.display_name
-																? '+'
-																: ''} item{file_info.count === 1 ? '' : 's'})
-														</div>
-													{:else}
-														<FileIcon size={16} />
-														<div class="truncate text-ellipsis w-56">
-															{file_info.display_name}
-														</div>
-													{/if}
+													<div
+														class={`flex flex-row w-full gap-2 h-full items-center`}
+														style={`margin-left: ${(2 + file_info.nestingLevel) * 0.25}rem;`}
+													>
+														{#if file_info.type === 'folder'}
+															{#if file_info.collapsed}<FolderClosed size={16} />{:else}<FolderOpen
+																	size={16}
+																/>{/if}
+															<div class="truncate text-ellipsis w-56">
+																{file_info.display_name} ({file_info.count}{count % 1000 === 0 &&
+																lastKeyFolders[file_info.nestingLevel / 2] ===
+																	file_info.display_name
+																	? '+'
+																	: ''} item{file_info.count === 1 ? '' : 's'})
+															</div>
+														{:else}
+															<FileIcon size={16} />
+															<div class="truncate text-ellipsis w-56">
+																{file_info.display_name}
+															</div>
+														{/if}
+													</div>
 												</div>
-											</div>
-										{/if}
-									</div>
+											{/if}
+										</div>
+									{/snippet}
 								</VirtualList>
 							</div>
 							<div
@@ -643,42 +662,44 @@
 					{:else}
 						<div class="p-4 gap-2">
 							<Section label={fileMetadata.fileKey} breakAll>
-								<div slot="action" class="flex gap-2">
-									{#if filePreview !== undefined}
-										<Button
-											title="Download file from S3"
-											variant="border"
-											color="light"
-											href={`${base}/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(
-												fileMetadata?.fileKey ?? ''
-											)}${storage ? `&storage=${storage}` : ''}`}
-											download={fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}
-											startIcon={{ icon: Download }}
-											iconOnly={true}
-										/>
-										<Button
-											title="Move file"
-											variant="border"
-											color="light"
-											on:click={() => {
-												moveDestKey = fileMetadata?.fileKey ?? ''
-												moveModalOpen = true
-											}}
-											startIcon={{ icon: MoveRight }}
-											iconOnly={true}
-										/>
-										<Button
-											title="Delete file from S3"
-											variant="border"
-											color="red"
-											on:click={() => {
-												deletionModalOpen = true
-											}}
-											startIcon={{ icon: Trash }}
-											iconOnly={true}
-										/>
-									{/if}
-								</div>
+								{#snippet action()}
+									<div class="flex gap-2">
+										{#if filePreview !== undefined}
+											<Button
+												title="Download file from S3"
+												variant="border"
+												color="light"
+												href={`${base}/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(
+													fileMetadata?.fileKey ?? ''
+												)}${storage ? `&storage=${storage}` : ''}`}
+												download={fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}
+												startIcon={{ icon: Download }}
+												iconOnly={true}
+											/>
+											<Button
+												title="Move file"
+												variant="border"
+												color="light"
+												on:click={() => {
+													moveDestKey = fileMetadata?.fileKey ?? ''
+													moveModalOpen = true
+												}}
+												startIcon={{ icon: MoveRight }}
+												iconOnly={true}
+											/>
+											<Button
+												title="Delete file from S3"
+												variant="border"
+												color="red"
+												on:click={() => {
+													deletionModalOpen = true
+												}}
+												startIcon={{ icon: Trash }}
+												iconOnly={true}
+											/>
+										{/if}
+									</div>
+								{/snippet}
 							</Section>
 							<TableSimple
 								headers={['Last modified', 'Size', 'Type']}
@@ -721,7 +742,7 @@
 											<select
 												class="h-8"
 												bind:value={csvSeparatorChar}
-												on:change={(e) =>
+												onchange={(e) =>
 													loadFilePreview(
 														fileMetadata?.fileKey ?? '',
 														fileMetadata?.size,
@@ -737,19 +758,20 @@
 										Header row:
 										<div class="inline-flex item-center w-4 ml-2 mr-2">
 											<input
-												on:focus
-												on:click
+												onfocus={bubble('focus')}
+												onclick={bubble('click')}
 												disabled={false}
 												type="checkbox"
 												id="csv-header"
 												class="h-5"
 												bind:checked={csvHasHeader}
-												on:change|stopPropagation={(e) =>
+												onchange={stopPropagation((e) =>
 													loadFilePreview(
 														fileMetadata?.fileKey ?? '',
 														fileMetadata?.size,
 														fileMetadata?.mimeType
-													)}
+													)
+												)}
 											/>
 										</div>
 									{:else}
@@ -766,27 +788,29 @@
 			</div>
 		{/if}
 
-		<div slot="actions" class="flex gap-1">
-			{#if !readOnlyMode}
-				<Button
-					variant="border"
-					color="light"
-					disabled={workspaceSettingsInitialized === false}
-					startIcon={{ icon: FileUp }}
-					on:click={() => {
-						uploadModalOpen = true
-					}}>Upload File</Button
-				>
-				{#if !fromWorkspaceSettings}
+		{#snippet actions()}
+			<div class="flex gap-1">
+				{#if !readOnlyMode}
 					<Button
-						disabled={selectedFileKey === undefined ||
-							emptyString(selectedFileKey.s3) ||
-							(folderOnly && allFilesByKey[selectedFileKey.s3]?.type !== 'folder')}
-						on:click={selectAndClose}>Select</Button
+						variant="border"
+						color="light"
+						disabled={workspaceSettingsInitialized === false}
+						startIcon={{ icon: FileUp }}
+						on:click={() => {
+							uploadModalOpen = true
+						}}>Upload File</Button
 					>
+					{#if !fromWorkspaceSettings}
+						<Button
+							disabled={selectedFileKey === undefined ||
+								emptyString(selectedFileKey.s3) ||
+								(folderOnly && allFilesByKey[selectedFileKey.s3]?.type !== 'folder')}
+							on:click={selectAndClose}>Select</Button
+						>
+					{/if}
 				{/if}
-			{/if}
-		</div>
+			</div>
+		{/snippet}
 	</DrawerContent>
 </Drawer>
 

@@ -397,8 +397,8 @@
 				class="mb-4 {planTitle === 'Team'
 					? 'text-blue-500'
 					: planTitle === 'Enterprise'
-					? 'text-teal-600'
-					: ''}"
+						? 'text-teal-600'
+						: ''}"
 			>
 				{planTitle}
 			</h2>

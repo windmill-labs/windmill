@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
 	import { CaptureService, type CaptureConfig, type CaptureTriggerKind } from '$lib/gen'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import { isObject, sendUserToast, sleep } from '$lib/utils'
 	import RouteCapture from './http/RouteCapture.svelte'
 	import type { ConnectionInfo } from '../common/alert/ConnectionIndicator.svelte'
@@ -174,7 +174,8 @@
 		}
 	}
 	$effect(() => {
-		updateConnectionInfo(config, captureActive)
+		const args = [config, captureActive] as const
+		untrack(() => updateConnectionInfo(...args))
 	})
 
 	let captureInfo: CaptureInfo = $derived({

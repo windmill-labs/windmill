@@ -29,8 +29,8 @@
 		parentModule,
 		previousModule,
 		parentModule.id,
-		$flowStore,
-		$previewArgs,
+		flowStore.val,
+		previewArgs.val,
 		false
 	)
 </script>

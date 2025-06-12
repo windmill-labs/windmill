@@ -32,6 +32,7 @@
 	import TestingBadge from '../testingBadge.svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { handleConfigChange } from '../utils'
+	import { untrack } from 'svelte'
 
 	let {
 		useDrawer = true,
@@ -337,7 +338,8 @@
 	}
 
 	$effect(() => {
-		onCaptureConfigChange?.(captureConfig, isValid)
+		const args = [captureConfig, isValid] as const
+		untrack(() => onCaptureConfigChange?.(...args))
 	})
 
 	$effect(() => {
@@ -410,12 +412,12 @@
 									static_asset_config = undefined
 								}
 							}}
-							let:item
-							let:disabled
 						>
-							<ToggleButton label="Runnable" value="runnable" {item} {disabled} />
-							<ToggleButton label="Static asset" value="static_asset" {item} {disabled} />
-							<ToggleButton label="Static website" value="static_website" {item} {disabled} />
+							{#snippet children({ item, disabled })}
+								<ToggleButton label="Runnable" value="runnable" {item} {disabled} />
+								<ToggleButton label="Static asset" value="static_asset" {item} {disabled} />
+								<ToggleButton label="Static website" value="static_website" {item} {disabled} />
+							{/snippet}
 						</ToggleButtonGroup>
 					{/if}
 
@@ -550,23 +552,23 @@
 												is_async = detail === 'async'
 											}}
 											disabled={!can_write || !!static_asset_config}
-											let:item
-											let:disabled
 										>
-											<ToggleButton
-												label="Async"
-												value="async"
-												tooltip="The returning value is the uuid of the job assigned to execute the job."
-												{item}
-												{disabled}
-											/>
-											<ToggleButton
-												label="Sync"
-												value="sync"
-												tooltip="Triggers the execution, wait for the job to complete and return it as a response."
-												{item}
-												{disabled}
-											/>
+											{#snippet children({ item, disabled })}
+												<ToggleButton
+													label="Async"
+													value="async"
+													tooltip="The returning value is the uuid of the job assigned to execute the job."
+													{item}
+													{disabled}
+												/>
+												<ToggleButton
+													label="Sync"
+													value="sync"
+													tooltip="Triggers the execution, wait for the job to complete and return it as a response."
+													{item}
+													{disabled}
+												/>
+											{/snippet}
 										</ToggleButtonGroup>
 									</svelte:fragment>
 								</Label>
@@ -583,63 +585,63 @@
 										}
 									}}
 									disabled={!can_write}
-									let:item
-									let:disabled
 								>
-									{#each authentication_options as option}
-										{#if option.value === 'signature'}
-											<Popover placement="top-end" usePointerDownOutside>
-												<svelte:fragment slot="trigger">
-													<ToggleButton
-														label={option.label}
-														value={option.value}
-														tooltip={option.tooltip}
-														{item}
-														{disabled}
-													/>
-												</svelte:fragment>
-												<svelte:fragment slot="content">
-													<ToggleButtonGroup
-														class="w-auto h-full"
-														bind:selected={signature_options_type}
-														on:selected={(e) => {
-															if (e.detail === 'custom_script') {
-																if (!raw_string) {
-																	raw_string = true
+									{#snippet children({ item, disabled })}
+										{#each authentication_options as option}
+											{#if option.value === 'signature'}
+												<Popover placement="top-end" usePointerDownOutside>
+													<svelte:fragment slot="trigger">
+														<ToggleButton
+															label={option.label}
+															value={option.value}
+															tooltip={option.tooltip}
+															{item}
+															{disabled}
+														/>
+													</svelte:fragment>
+													<svelte:fragment slot="content">
+														<ToggleButtonGroup
+															class="w-auto h-full"
+															bind:selected={signature_options_type}
+															on:selected={(e) => {
+																if (e.detail === 'custom_script') {
+																	if (!raw_string) {
+																		raw_string = true
+																	}
 																}
-															}
-														}}
-														disabled={!can_write}
-														let:item
-														let:disabled
-													>
-														<ToggleButton
-															label="Signature validation"
-															value="custom_signature"
-															tooltip="Use a predefined or custom signature-based authentication scheme"
-															{item}
-															{disabled}
-														/>
-														<ToggleButton
-															label="Custom script"
-															value="custom_script"
-															tooltip="Use your own script logic"
-															{item}
-															{disabled}
-														/>
-													</ToggleButtonGroup>
-												</svelte:fragment>
-											</Popover>
-										{:else}
-											<ToggleButton
-												label={option.label}
-												value={option.value}
-												tooltip={option.tooltip}
-												{item}
-												{disabled}
-											/>
-										{/if}
-									{/each}
+															}}
+															disabled={!can_write}
+														>
+															{#snippet children({ item, disabled })}
+																<ToggleButton
+																	label="Signature validation"
+																	value="custom_signature"
+																	tooltip="Use a predefined or custom signature-based authentication scheme"
+																	{item}
+																	{disabled}
+																/>
+																<ToggleButton
+																	label="Custom script"
+																	value="custom_script"
+																	tooltip="Use your own script logic"
+																	{item}
+																	{disabled}
+																/>
+															{/snippet}
+														</ToggleButtonGroup>
+													</svelte:fragment>
+												</Popover>
+											{:else}
+												<ToggleButton
+													label={option.label}
+													value={option.value}
+													tooltip={option.tooltip}
+													{item}
+													{disabled}
+												/>
+											{/if}
+										{/each}
+									{/snippet}
 								</ToggleButtonGroup>
 							</svelte:fragment>
 						</Label>
@@ -749,9 +751,9 @@
 				: 'New route'}
 			on:close={() => drawer?.closeDrawer()}
 		>
-			<svelte:fragment slot="actions">
+			{#snippet actions()}
 				{@render saveButton()}
-			</svelte:fragment>
+			{/snippet}
 			{@render config()}
 		</DrawerContent>
 	</Drawer>
@@ -784,19 +786,21 @@
 	loadItems={loadVariables}
 	buttons={{ 'Edit/View': (x) => variableEditor?.editVariable(x) }}
 >
-	<div slot="submission" class="flex flex-row">
-		<Button
-			variant="border"
-			color="blue"
-			size="sm"
-			startIcon={{ icon: Plus }}
-			on:click={() => {
-				variableEditor?.initNew()
-			}}
-		>
-			New variable
-		</Button>
-	</div>
+	{#snippet submission()}
+		<div class="flex flex-row">
+			<Button
+				variant="border"
+				color="blue"
+				size="sm"
+				startIcon={{ icon: Plus }}
+				on:click={() => {
+					variableEditor?.initNew()
+				}}
+			>
+				New variable
+			</Button>
+		</div>
+	{/snippet}
 </ItemPicker>
 
 <VariableEditor bind:this={variableEditor} on:create={(e) => variablePicker?.openDrawer()} />

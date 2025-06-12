@@ -1,8 +1,14 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
 
-	export let title: string
-	export let href: string
+	interface Props {
+		title: string
+		href: string
+		actions?: import('svelte').Snippet
+		children?: import('svelte').Snippet
+	}
+
+	let { title, href, actions, children }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -12,7 +18,7 @@
 		<a
 			class="text-sm text-blue-500 truncate hover:underline"
 			{href}
-			on:click={() => {
+			onclick={() => {
 				dispatch('close')
 			}}
 		>
@@ -20,8 +26,8 @@
 		</a>
 
 		<div class="flex flex-row gap-2 items-center">
-			<slot name="actions" />
+			{@render actions?.()}
 		</div>
 	</div>
-	<slot />
+	{@render children?.()}
 </div>

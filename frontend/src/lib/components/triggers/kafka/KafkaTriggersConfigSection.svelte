@@ -6,6 +6,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import TestingBadge from '../testingBadge.svelte'
+	import { untrack } from 'svelte'
 
 	interface Props {
 		path: string
@@ -55,7 +56,7 @@
 	}
 
 	$effect(() => {
-		path && setGroupId()
+		path && untrack(() => setGroupId())
 	})
 </script>
 

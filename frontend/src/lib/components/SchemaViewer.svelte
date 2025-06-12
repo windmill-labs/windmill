@@ -13,7 +13,11 @@
 	import Button from './common/button/Button.svelte'
 	import { ClipboardCopy } from 'lucide-svelte'
 
-	export let schema: Schema | undefined | any = emptySchema()
+	interface Props {
+		schema?: Schema | undefined | any
+	}
+
+	let { schema = emptySchema() }: Props = $props()
 
 	function getProperties(schema: Schema) {
 		if (schema.properties) {
@@ -29,12 +33,13 @@
 	<Tabs selected="arguments">
 		<Tab value="arguments">Arguments</Tab>
 		<Tab value="advanced">Advanced</Tab>
-		<svelte:fragment slot="content">
+		{#snippet content()}
 			<div class="overflow-auto pt-2">
 				<TabContent value="arguments">
 					{#if schema && schema.properties && Object.keys(schema.properties).length > 0 && schema.required}
 						<div class="flex flex-row">
 							<TableCustom>
+								<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
 								<tr slot="header-row" class="underline">
 									<th>name</th>
 									<th>type</th>
@@ -43,37 +48,43 @@
 									<th>format</th>
 									<th>required</th>
 								</tr>
-								<tbody slot="body">
-									{#each getProperties(schema) as [name, property] (name)}
-										<tr>
-											<td class="font-semibold pl-1">{name}</td>
-											<td
-												><Badge color="blue"
-													>{#if !property.type} any {:else} {property.type} {/if}</Badge
-												></td
-											>
-											<td>{property.description ?? ''}</td>
-											<td
-												>{property.default == '<function call>'
-													? '<function call>'
-													: property.default
-													? JSON.stringify(property.default)
-													: ''}</td
-											>
-											<td
-												>{property.format ?? ''}
-												{property.contentEncoding
-													? `(encoding: ${property.contentEncoding})`
-													: ''}</td
-											>
-											<td
-												>{#if schema.required.includes(name)}
-													<span class="text-red-600 font-bold text-lg">*</span>
-												{/if}</td
-											>
-										</tr>
-									{/each}
-								</tbody>
+								{#snippet body()}
+									<tbody>
+										{#each getProperties(schema) as [name, property] (name)}
+											<tr>
+												<td class="font-semibold pl-1">{name}</td>
+												<td
+													><Badge color="blue"
+														>{#if !property.type}
+															any
+														{:else}
+															{property.type}
+														{/if}</Badge
+													></td
+												>
+												<td>{property.description ?? ''}</td>
+												<td
+													>{property.default == '<function call>'
+														? '<function call>'
+														: property.default
+															? JSON.stringify(property.default)
+															: ''}</td
+												>
+												<td
+													>{property.format ?? ''}
+													{property.contentEncoding
+														? `(encoding: ${property.contentEncoding})`
+														: ''}</td
+												>
+												<td
+													>{#if schema.required.includes(name)}
+														<span class="text-red-600 font-bold text-lg">*</span>
+													{/if}</td
+												>
+											</tr>
+										{/each}
+									</tbody>
+								{/snippet}
 							</TableCustom>
 						</div>
 					{:else}
@@ -96,6 +107,6 @@
 					</div>
 				</TabContent>
 			</div>
-		</svelte:fragment>
+		{/snippet}
 	</Tabs>
 </div>

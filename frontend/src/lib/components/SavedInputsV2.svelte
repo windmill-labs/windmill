@@ -13,15 +13,28 @@
 	import MultiSelect from './multiselect/MultiSelectWrapper.svelte'
 	const dispatch = createEventDispatcher()
 
-	export let scriptHash: string | null = null
-	export let scriptPath: string | null = null
-	export let flowPath: string | null = null
-	export let inputSelected: 'saved' | 'history' | undefined = undefined
-	export let jsonView: boolean = false
-	export let schema: any
-	// Are the current Inputs valid and able to be saved?
-	export let isValid: boolean
-	export let args: object
+	interface Props {
+		scriptHash?: string | null
+		scriptPath?: string | null
+		flowPath?: string | null
+		inputSelected?: 'saved' | 'history' | undefined
+		jsonView?: boolean
+		schema: any
+		// Are the current Inputs valid and able to be saved?
+		isValid: boolean
+		args: object
+	}
+
+	let {
+		scriptHash = null,
+		scriptPath = null,
+		flowPath = null,
+		inputSelected = $bindable(undefined),
+		jsonView = false,
+		schema,
+		isValid,
+		args
+	}: Props = $props()
 
 	export function resetSelected() {
 		historicInputs?.resetSelected(true)
@@ -29,18 +42,14 @@
 	}
 
 	let savedArgs: any = undefined
-	let runnableType: RunnableType | undefined = undefined
-	let savedInputsPicker: SavedInputsPicker | undefined = undefined
-	let historicInputs: HistoricInputs | undefined = undefined
+	let savedInputsPicker: SavedInputsPicker | undefined = $state(undefined)
+	let historicInputs: HistoricInputs | undefined = $state(undefined)
 
-	$: runnableId = scriptHash || scriptPath || flowPath || undefined
-	$: runnableType = scriptHash
-		? 'ScriptHash'
-		: scriptPath
-			? 'ScriptPath'
-			: flowPath
-				? 'FlowPath'
-				: undefined
+	let runnableId = $derived(scriptHash || scriptPath || flowPath || undefined)
+
+	let runnableType: RunnableType | undefined = $derived(
+		scriptHash ? 'ScriptHash' : scriptPath ? 'ScriptPath' : flowPath ? 'FlowPath' : undefined
+	)
 
 	function selectArgs(selected_args: any, type: 'saved' | 'history' | undefined) {
 		if (selected_args) {
@@ -55,18 +64,18 @@
 		}
 	}
 
-	let searchArgs = {}
-	let appliedSearchArgs = {}
+	let searchArgs = $state({})
+	let appliedSearchArgs = $state({})
 
-	let searchArgsFields = [] as string[]
+	let searchArgsFields = $state([] as string[])
 
-	$: emptySearchArgs = Object.keys(appliedSearchArgs).length === 0
+	let emptySearchArgs = $derived(Object.keys(appliedSearchArgs).length === 0)
 
-	$: filteredSchema = {
+	let filteredSchema = $derived({
 		properties: Object.fromEntries(
 			Object.entries(schema?.properties ?? {}).filter(([key]) => searchArgsFields.includes(key))
 		)
-	}
+	})
 </script>
 
 <div class="min-w-[300px] h-full flex flex-col">
@@ -78,7 +87,7 @@
 				wrapperClass="h-full"
 				small={true}
 			>
-				<svelte:fragment slot="action">
+				{#snippet action()}
 					<SaveInputsButton
 						{args}
 						disabled={!isValid || jsonView}
@@ -88,7 +97,7 @@
 							savedInputsPicker?.refresh()
 						}}
 					/>
-				</svelte:fragment>
+				{/snippet}
 
 				<SavedInputsPicker
 					bind:this={savedInputsPicker}
@@ -107,7 +116,7 @@
 
 		<Pane class="px-4 py-4 h-full">
 			<Section label="History" wrapperClass="h-full" small={true}>
-				<svelte:fragment slot="action">
+				{#snippet action()}
 					<div class="flex space-x-2">
 						<Popover
 							class="w-fit"
@@ -118,7 +127,7 @@
 							}}
 							floatingConfig={{ placement: 'top-end' }}
 						>
-							<svelte:fragment slot="trigger">
+							{#snippet trigger()}
 								<Button
 									variant="contained"
 									size="xs2"
@@ -130,9 +139,9 @@
 								>
 									{emptySearchArgs ? '' : 'Active filters'}
 								</Button>
-							</svelte:fragment>
+							{/snippet}
 
-							<svelte:fragment slot="content">
+							{#snippet content()}
 								<div id="multi-select-search"></div>
 								<div class="p-2 overflow-auto max-h-[400px] min-h-[300px] w-[400px]">
 									<div class="flex items-center flex-wrap gap-x-2 justify-between">
@@ -180,7 +189,7 @@
 										<div class="text-secondary text-sm my-8 mx-auto">No filters</div>
 									{/if}
 								</div>
-							</svelte:fragment>
+							{/snippet}
 						</Popover>
 						<Button
 							size="xs2"
@@ -194,7 +203,7 @@
 							All runs
 						</Button>
 					</div>
-				</svelte:fragment>
+				{/snippet}
 				<HistoricInputs
 					bind:this={historicInputs}
 					{runnableId}

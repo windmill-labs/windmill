@@ -1,16 +1,18 @@
 <script lang="ts">
 	import uFuzzy from '@leeoniya/ufuzzy'
+	import { untrack } from 'svelte'
 
-	export let filter: string = ''
-	export let items: any[] | undefined
-	export let f: (item: any) => string
-	export let filteredItems: (any & { marked: string })[] | undefined
-	export let opts: uFuzzy.Options = {}
+	interface Props {
+		filter?: string
+		items: any[] | undefined
+		f: (item: any) => string
+		filteredItems: (any & { marked: string })[] | undefined
+		opts?: uFuzzy.Options
+	}
+
+	let { filter = '', items, f, filteredItems = $bindable(), opts = {} }: Props = $props()
 
 	let uf = new uFuzzy(opts)
-	$: plaintextItems = items?.map((item) => f(item)) ?? []
-
-	$: plaintextItems && filter != undefined && setTimeout(() => filterItems(), 0)
 
 	function filterItems() {
 		let trimmed = filter.trim()
@@ -35,4 +37,9 @@
 		}
 		filteredItems = result
 	}
+	let plaintextItems = $derived(items?.map((item) => f(item)) ?? [])
+
+	$effect(() => {
+		plaintextItems && filter != undefined && setTimeout(() => untrack(() => filterItems()), 0)
+	})
 </script>

@@ -109,7 +109,7 @@
 										deploymentDrawer.openDrawer(path, 'raw_app')
 									}
 								}
-						  ]
+							]
 						: []),
 					{
 						displayName: canWrite ? 'Share' : 'See Permissions',

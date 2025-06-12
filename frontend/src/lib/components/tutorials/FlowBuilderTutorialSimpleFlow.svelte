@@ -10,6 +10,7 @@
 		waitForElementLoading
 	} from './utils'
 	import Tutorial from './Tutorial.svelte'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
@@ -25,7 +26,7 @@
 	bind:this={tutorial}
 	index={0}
 	name="action"
-	tainted={isFlowTainted($flowStore)}
+	tainted={isFlowTainted(flowStore.val)}
 	on:error
 	on:skipAll
 	getSteps={(driver) => [
@@ -182,8 +183,8 @@
 				title: 'Connection mode',
 				description: 'Once you pressed the connect button, you can choose what to connect to.',
 				onNextClick: () => {
-					if ($flowStore.value.modules[0].value.type === 'rawscript') {
-						$flowStore.value.modules[0].value.input_transforms = {
+					if (flowStore.val.value.modules[0].value.type === 'rawscript') {
+						flowStore.val.value.modules[0].value.input_transforms = {
 							x: {
 								type: 'javascript',
 								expr: 'flow_input.firstname'
@@ -191,7 +192,7 @@
 						}
 					}
 
-					$flowStore = $flowStore
+					refreshStateStore(flowStore)
 					dispatch('reload')
 
 					setTimeout(() => {

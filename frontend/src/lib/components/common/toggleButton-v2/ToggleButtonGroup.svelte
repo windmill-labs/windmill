@@ -3,16 +3,30 @@
 	import { twMerge } from 'tailwind-merge'
 	import { createSync } from '@melt-ui/svelte'
 
-	export let id: string | null | undefined = undefined
-	export let selected: string | string[] | undefined = undefined
-	export let noWFull: boolean = false
-	export let disabled: boolean = false
-	export let tabListClass: string = ''
-	export let allowEmpty: boolean = false
-
 	const dispatch = createEventDispatcher()
 
 	import { createToggleGroup, melt } from '@melt-ui/svelte'
+	interface Props {
+		id?: string | null | undefined
+		selected?: string | string[] | undefined
+		noWFull?: boolean
+		disabled?: boolean
+		tabListClass?: string
+		allowEmpty?: boolean
+		class?: string
+		children?: import('svelte').Snippet<[any]>
+	}
+
+	let {
+		id = undefined,
+		selected = $bindable(undefined),
+		noWFull = false,
+		disabled = false,
+		tabListClass = '',
+		allowEmpty = false,
+		class: className = '',
+		children
+	}: Props = $props()
 
 	const {
 		elements: { root, item },
@@ -31,23 +45,27 @@
 		}
 	})
 
-	$: $disabledOption = disabled
+	$effect(() => {
+		$disabledOption = disabled
+	})
 
 	const sync = createSync(states)
-	$: sync.value(selected, (v) => (selected = v))
+	$effect(() => {
+		sync.value(selected, (v) => (selected = v))
+	})
 </script>
 
 <div
 	use:melt={$root}
 	class={twMerge(
 		`h-8 flex ${noWFull ? '' : 'w-full'} ${disabled ? 'disabled' : ''}`,
-		$$props.class,
+		className,
 		'flex items-center data-[orientation="vertical"]:flex-col'
 	)}
 	aria-label="Toggle button group"
 	{id}
 >
 	<div class={twMerge('flex bg-surface-secondary rounded-md p-0.5 gap-1 h-full ', tabListClass)}>
-		<slot {item} {disabled} />
+		{@render children?.({ item, disabled })}
 	</div>
 </div>

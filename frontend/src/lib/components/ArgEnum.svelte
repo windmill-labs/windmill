@@ -1,60 +1,67 @@
 <script lang="ts">
 	import type { EnumType } from '$lib/common'
-	import AutoComplete from 'simple-svelte-autocomplete'
 	import { createEventDispatcher } from 'svelte'
-	import { twMerge } from 'tailwind-merge'
+	import Select from './Select.svelte'
 
-	export let disabled: boolean
-	export let value: any
-	export let enum_: EnumType
-	export let autofocus: boolean | null
-	export let defaultValue: string | undefined
-	export let valid: boolean
-	export let create: boolean
-	export let required: boolean
-	export let enumLabels: Record<string, string> | undefined = undefined
+	interface Props {
+		disabled: boolean
+		value: string | undefined
+		enum_: EnumType
+		autofocus: boolean | null
+		defaultValue: string | undefined
+		valid: boolean
+		create: boolean
+		enumLabels?: Record<string, string> | undefined
+	}
+
+	let {
+		disabled,
+		value = $bindable(),
+		enum_,
+		autofocus,
+		defaultValue,
+		valid,
+		create,
+		enumLabels = undefined
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
-	let customItems: string[] = []
+	let customItems: string[] = $state([])
 
-	function onCreate(newItem: string) {
-		console.log(newItem)
-		customItems = [...customItems, newItem]
+	let items = $derived.by(() => {
+		const l = [...(enum_ ? enum_ : []), ...customItems].map((item) => ({
+			value: item,
+			label: enumLabels?.[item] ?? item
+		}))
+		if (create && filterText && l.every((i) => i.value !== filterText)) {
+			l.push({ value: filterText, label: `Add new: ${filterText}` })
+		}
+		return l
+	})
 
-		return newItem
-	}
+	let filterText = $state('')
 </script>
 
 <div class="w-full flex-col">
 	<div class="w-full">
-		<AutoComplete
-			items={[...(required ? [] : ['']), ...(enum_ ? enum_ : []), ...customItems]}
-			labelFunction={(val) => (enumLabels ? enumLabels[val] ?? val : val)}
-			bind:selectedItem={value}
-			inputClassName={twMerge(
-				'bg-surface-secondary flex',
-				valid
-					? ''
-					: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'
-			)}
-			value={value ?? defaultValue}
-			hideArrow={true}
-			dropdownClassName="!text-sm !py-2 !rounded-sm !border-gray-200 !border !shadow-md !bg-surface-primary"
-			className="w-full"
-			noInputStyles
-			onFocus={() => {
-				dispatch('focus')
-			}}
-			onBlur={() => {
-				dispatch('blur')
-			}}
-			{create}
-			{required}
-			{onCreate}
+		<Select
+			inputClass={valid ? '' : '!border-red-500/60'}
+			clearable
 			{disabled}
-			{autofocus}
-			createText="Press enter to use this non-predefined value"
+			autofocus={autofocus ?? undefined}
+			bind:filterText
+			{items}
+			bind:value={
+				() => value ?? defaultValue,
+				(newValue) => {
+					if (newValue && items.findIndex((i) => i.value === newValue) === -1)
+						customItems.push(newValue)
+					value = newValue
+				}
+			}
+			onFocus={() => dispatch('focus')}
+			onBlur={() => dispatch('blur')}
 		/>
 	</div>
 </div>

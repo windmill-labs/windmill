@@ -149,7 +149,7 @@
 
 <Drawer bind:this={logViewer} bind:open={drawerOpen} size="900px">
 	<DrawerContent title="Expanded Logs" on:close={logViewer.closeDrawer}>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			{#if jobId && download}
 				<Button
 					href="{base}/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
@@ -174,7 +174,7 @@
 			>
 				Copy to clipboard
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 		<div>
 			<pre
 				class="bg-surface-secondary text-secondary text-xs w-full p-2 whitespace-pre-wrap border rounded-md"

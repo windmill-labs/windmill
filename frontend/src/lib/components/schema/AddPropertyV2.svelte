@@ -8,7 +8,12 @@
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import AddPropertyFormV2 from './AddPropertyFormV2.svelte'
-	export let schema: Schema | any = emptySchema()
+	interface Props {
+		schema?: Schema | any
+		trigger?: import('svelte').Snippet
+	}
+
+	let { schema = $bindable(emptySchema()), trigger }: Props = $props()
 
 	export const DEFAULT_PROPERTY: ModalSchemaProperty = {
 		selectedType: 'string',
@@ -104,7 +109,7 @@
 			oldArgName = undefined
 		}
 
-		schema = schema
+		schema = $state.snapshot(schema)
 
 		if (argError !== '') {
 			sendUserToast(argError, true)
@@ -137,17 +142,20 @@
 				if (modifiedObject.order) {
 					modifiedObject.order = modifiedObject.order.filter((arg) => arg !== argName)
 				}
-				schema = schema
 				dispatch('change', schema)
 			} else {
 				throw Error('Argument not found!')
 			}
 			syncOrders()
+			schema = $state.snapshot(schema)
+
 			dispatch('change', schema)
 		} catch (err) {
 			sendUserToast(`Could not delete argument: ${err}`, true)
 		}
 	}
+
+	const trigger_render = $derived(trigger)
 </script>
 
 <AddPropertyFormV2
@@ -164,7 +172,7 @@
 		}
 	}}
 >
-	<svelte:fragment slot="trigger">
-		<slot name="trigger" />
-	</svelte:fragment>
+	{#snippet trigger()}
+		{@render trigger_render?.()}
+	{/snippet}
 </AddPropertyFormV2>

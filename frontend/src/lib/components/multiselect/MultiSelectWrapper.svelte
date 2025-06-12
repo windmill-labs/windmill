@@ -23,7 +23,9 @@
 		allowUserOptions?: boolean | 'append'
 	}>()
 
-	$effect.pre(() => {  if (value === undefined) value = []  })
+	$effect.pre(() => {
+		if (value === undefined) value = []
+	})
 
 	const [floatingRef, floatingContent] = createFloatingActions({
 		strategy: 'absolute',

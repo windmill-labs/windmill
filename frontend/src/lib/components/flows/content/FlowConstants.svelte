@@ -10,71 +10,81 @@
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 	import type { FlowEditorContext } from '../types'
 
-	export let noEditor: boolean
-
-	let hideOptional = false
-	const { flowStateStore, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
-
-	$: scriptModules = dfs($flowStore.value.modules, (x) => x)
-		.map((x) => [x.value, x] as [FlowModuleValue, FlowModule])
-		.filter((x) => x[0].type == 'script' || x[0].type == 'rawscript' || x[0].type == 'flow') as [
-		PathScript | RawScript,
-		FlowModule
-	][]
-
-	$: resources = Object.fromEntries(
-		scriptModules
-			.map(([v, m]) => [
-				m.id,
-				Object.entries(v.input_transforms)
-					.map((x) => {
-						let schema = $flowStateStore[m.id]?.schema
-						let val: { argName: string; type: string } | undefined = undefined
-
-						const [k, inputTransform] = x
-						const v = schema?.properties[k]
-
-						if (
-							v?.format?.includes('resource') &&
-							inputTransform.type === 'static' &&
-							(inputTransform.value === '' ||
-								inputTransform.value === undefined ||
-								inputTransform.value === null)
-						) {
-							val = {
-								argName: k,
-								type: v.format.split('-')[1]
-							}
-						}
-						return val
-					})
-					.filter(Boolean)
-			])
-			.filter((x) => x[1].length > 0)
-	) as {
-		[k: string]: {
-			argName: string
-			type: string
-		}[]
+	interface Props {
+		noEditor: boolean
 	}
 
-	$: steps = scriptModules
-		.map(
-			([v, m]) =>
-				[
-					v.input_transforms,
+	let { noEditor }: Props = $props()
+
+	let hideOptional = $state(false)
+	const { flowStateStore, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+
+	let scriptModules = $derived(
+		dfs(flowStore.val.value.modules, (x) => x)
+			.map((x) => [x.value, x] as [FlowModuleValue, FlowModule])
+			.filter((x) => x[0].type == 'script' || x[0].type == 'rawscript' || x[0].type == 'flow') as [
+			PathScript | RawScript,
+			FlowModule
+		][]
+	)
+
+	let resources = $derived(
+		Object.fromEntries(
+			scriptModules
+				.map(([v, m]) => [
+					m.id,
 					Object.entries(v.input_transforms)
-						.filter((x) => {
-							const shouldDisplay = hideOptional
-								? $flowStateStore[m.id]?.schema?.required?.includes(x[0])
-								: true
-							return x[1].type == 'static' && shouldDisplay
+						.map((x) => {
+							let schema = flowStateStore[m.id]?.schema
+							let val: { argName: string; type: string } | undefined = undefined
+
+							const [k, inputTransform] = x
+							const v = schema?.properties[k]
+
+							if (
+								v?.format?.includes('resource') &&
+								inputTransform.type === 'static' &&
+								(inputTransform.value === '' ||
+									inputTransform.value === undefined ||
+									inputTransform.value === null)
+							) {
+								val = {
+									argName: k,
+									type: v.format.split('-')[1]
+								}
+							}
+							return val
 						})
-						.map((x) => x[0]),
-					m
-				] as [Record<string, InputTransform>, string[], FlowModule]
-		)
-		.filter(([i, f, m]) => f.length > 0)
+						.filter(Boolean)
+				])
+				.filter((x) => x[1].length > 0)
+		) as {
+			[k: string]: {
+				argName: string
+				type: string
+			}[]
+		}
+	)
+
+	let steps = $derived(
+		scriptModules
+			.map(
+				([v, m]) =>
+					[
+						v.input_transforms,
+						Object.entries(v.input_transforms)
+							.filter((x) => {
+								const shouldDisplay = hideOptional
+									? $flowStateStore[m.id]?.schema?.required?.includes(x[0])
+									: true
+								return x[1].type == 'static' && shouldDisplay
+							})
+							.map((x) => x[0]),
+						m
+					] as [Record<string, InputTransform>, string[], FlowModule]
+			)
+			.filter(([i, f, m]) => f.length > 0)
+	)
 
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		inputMatches: writable(undefined),
@@ -86,13 +96,15 @@
 
 <div class="min-h-full">
 	<FlowCard {noEditor} title="All Static Inputs">
-		<Toggle slot="header" bind:checked={hideOptional} options={{ left: 'Hide optional inputs' }} />
+		{#snippet header()}
+			<Toggle bind:checked={hideOptional} options={{ left: 'Hide optional inputs' }} />
+		{/snippet}
 		<div class="min-h-full flex-1">
 			<Alert type="info" title="Static Inputs" class="m-4"
-				>This page centralizes the static inputs of every steps. It is aking to a file containing all
-				constants. Modifying a value here modifies it in the step input directly. It is especially
-				useful when forking a flow to get an overview of all the variables to parametrize that are
-				not exposed directly as flow inputs.</Alert
+				>This page centralizes the static inputs of every steps. It is aking to a file containing
+				all constants. Modifying a value here modifies it in the step input directly. It is
+				especially useful when forking a flow to get an overview of all the variables to parametrize
+				that are not exposed directly as flow inputs.</Alert
 			>
 			{#if Object.keys(resources).length > 0}
 				<Alert type="warning" title="Missing resources" class="m-4">
@@ -111,7 +123,7 @@
 			{/if}
 			{#if steps.length == 0}
 				<div class="mt-2"></div>
-				{#if $flowStore.value.modules.length == 0}
+				{#if flowStore.val.value.modules.length == 0}
 					<Alert type="warning" title="No steps" class="m-4">
 						This flow has no steps. Add a step to see its static inputs.
 					</Alert>
@@ -122,7 +134,7 @@
 					</Alert>
 				{/if}
 			{/if}
-			{#each steps as [args, filter, m], index (m.id + index)}
+			{#each steps as [_args, filter, m], index (m.id + index)}
 				{#if filter.length > 0}
 					<div class="relative h-full border-t p-4">
 						<h2 class="sticky w-full top-0 z-10 inline-flex items-center py-2">
@@ -135,7 +147,7 @@
 							{filter}
 							class="mt-2"
 							schema={$flowStateStore[m.id]?.schema ?? {}}
-							bind:args
+							bind:args={steps[index][0]}
 						/>
 					</div>
 				{/if}

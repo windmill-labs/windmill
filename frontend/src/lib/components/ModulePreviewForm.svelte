@@ -5,7 +5,7 @@
 	import { RefreshCw } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
 	import { Button } from './common'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { evalValue } from './flows/utils'
 	import type { FlowModule } from '$lib/gen'
@@ -13,22 +13,36 @@
 	import type SimpleEditor from './SimpleEditor.svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 
-	export let schema: Schema | { properties?: Record<string, any>; required?: string[] }
-	export let args: Record<string, any> = {}
-	export let mod: FlowModule
-	export let pickableProperties: PickableProperties | undefined
+	interface Props {
+		schema: Schema | { properties?: Record<string, any>; required?: string[] }
+		args?: Record<string, any>
+		mod: FlowModule
+		pickableProperties: PickableProperties | undefined
+		isValid?: boolean
+		autofocus?: boolean
+	}
 
-	export let isValid: boolean = true
-	export let autofocus = false
+	let {
+		schema,
+		args = $bindable({}),
+		mod,
+		pickableProperties,
+		isValid = $bindable(true),
+		autofocus = false
+	}: Props = $props()
 
 	const { testStepStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	let inputCheck: { [id: string]: boolean } = {}
-	$: isValid = allTrue(inputCheck) ?? false
+	let inputCheck: { [id: string]: boolean } = $state({})
+	$effect(() => {
+		isValid = allTrue(inputCheck) ?? false
+	})
 
-	$: if (args == undefined || typeof args !== 'object') {
-		args = {}
-	}
+	$effect(() => {
+		if (args == undefined || typeof args !== 'object') {
+			args = {}
+		}
+	})
 
 	function removeExtraKey() {
 		const nargs = {}
@@ -40,14 +54,14 @@
 		args = nargs
 	}
 
-	let keys: string[] = []
-	$: {
+	let keys: string[] = $state([])
+	$effect(() => {
 		let lkeys = Object.keys(schema?.properties ?? {})
 		if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {
 			keys = lkeys
-			removeExtraKey()
+			untrack(() => removeExtraKey())
 		}
-	}
+	})
 
 	function plugIt(argName: string) {
 		args[argName] = structuredClone(
@@ -60,9 +74,9 @@
 		}
 	}
 
-	let editor: Record<string, SimpleEditor | undefined> = {}
+	let editor: Record<string, SimpleEditor | undefined> = $state({})
 
-	let resourceTypes: string[] | undefined = undefined
+	let resourceTypes: string[] | undefined = $state(undefined)
 
 	async function loadResourceTypes() {
 		resourceTypes = await getResourceTypes()

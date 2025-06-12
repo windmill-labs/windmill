@@ -109,7 +109,7 @@ ${Object.entries(args)
 
 <Drawer bind:this={jsonViewer} size="900px">
 	<DrawerContent title="Expanded Args" on:close={jsonViewer.closeDrawer}>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button
 				download="windmill-args.json"
 				href={id && workspace
@@ -137,7 +137,7 @@ ${Object.entries(args)
 			>
 				Copy to clipboard
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 		{#if jsonStr.length > 100000 || (id && workspace && args && isWindmillTooBigObject(args))}
 			<div class="text-sm mb-2 text-tertiary">
 				<a

@@ -11,25 +11,38 @@
 	import InfiniteList from '$lib/components/InfiniteList.svelte'
 	import { JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { getContext, createEventDispatcher } from 'svelte'
+	import { getContext, createEventDispatcher, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { Pin } from 'lucide-svelte'
 	import { Cell } from '$lib/components/table'
 	import JobPickerLight from './JobPickerLight.svelte'
 
-	export let selected: string | undefined = undefined
-	export let moduleId: string = ''
-	export let getLogs: boolean = false
-	export let mockValue: any = undefined
-	export let mockEnabled: boolean = false
-	export let path: string = ''
-	export let staticInputs: undefined | StepHistoryData[] = undefined
-	export let noHistory: 'isLoop' | 'isInsideLoop' | undefined = undefined
+	interface Props {
+		selected?: string | undefined
+		moduleId?: string
+		getLogs?: boolean
+		mockValue?: any
+		mockEnabled?: boolean
+		path?: string
+		staticInputs?: undefined | StepHistoryData[]
+		noHistory?: 'isLoop' | 'isInsideLoop' | undefined
+	}
+
+	let {
+		selected = $bindable(undefined),
+		moduleId = '',
+		getLogs = false,
+		mockValue = undefined,
+		mockEnabled = false,
+		path = '',
+		staticInputs = undefined,
+		noHistory = undefined
+	}: Props = $props()
 
 	const { pathStore } = getContext<FlowEditorContext>('FlowEditorContext') ?? {}
 	const dispatch = createEventDispatcher()
 
-	let infiniteList: InfiniteList | undefined = undefined
+	let infiniteList: InfiniteList | undefined = $state(undefined)
 	let loadInputsPageFn:
 		| ((page: number, perPage: number) => Promise<StepHistoryData[]>)
 		| undefined = undefined
@@ -55,7 +68,9 @@
 		infiniteList?.setLoader(loadInputsPageFn)
 	}
 
-	$: staticInputs && infiniteList?.loadData('forceRefresh')
+	$effect(() => {
+		staticInputs && infiniteList?.loadData('forceRefresh')
+	})
 
 	async function getJobResultAndLogs(jobId: string, noLogs: boolean) {
 		try {
@@ -71,7 +86,9 @@
 		}
 	}
 
-	$: infiniteList && !noHistory && initLoadInputs()
+	$effect(() => {
+		infiniteList && !noHistory && untrack(() => initLoadInputs())
+	})
 
 	function handleSelect(e: CustomEvent) {
 		if (e.detail === 'extraRow') {
@@ -111,7 +128,7 @@
 		class: 'bg-blue-50 dark:bg-blue-700/40'
 	}}
 >
-	<svelte:fragment slot="extra-row">
+	{#snippet extra_row()}
 		{#if mockValue}
 			<Cell wrap colspan="2">
 				<div
@@ -125,17 +142,17 @@
 				</div>
 			</Cell>
 		{/if}
-	</svelte:fragment>
-	<svelte:fragment slot="columns">
+	{/snippet}
+	{#snippet columns()}
 		<colgroup>
 			<col class="w-28" />
 			<col />
 		</colgroup>
-	</svelte:fragment>
-	<svelte:fragment let:item>
+	{/snippet}
+	{#snippet children({ item })}
 		<JobPickerLight job={item} />
-	</svelte:fragment>
-	<svelte:fragment slot="empty">
+	{/snippet}
+	{#snippet empty()}
 		<div class="text-center text-tertiary text-xs py-2 px-2">
 			{noHistory === 'isLoop'
 				? 'History is not available with loops.'
@@ -143,5 +160,5 @@
 					? 'History is not available inside loops.'
 					: 'No run in history for this step'}
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </InfiniteList>

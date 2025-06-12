@@ -21,22 +21,53 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 
-	let usernames: string[]
-	let resources: string[]
-	let loading: boolean = false
+	let usernames: string[] | undefined = $state()
+	let resources: string[] | undefined = $state()
+	let loading: boolean = $state(false)
 	let page: number | undefined = undefined
 
-	export let logs: AuditLog[] = []
-	export let username: string = 'all'
-	export let pageIndex: number | undefined = 1
-	export let hasMore: boolean = false
-	export let before: string | undefined = undefined
-	export let after: string | undefined = undefined
-	export let perPage: number | undefined = 100
-	export let operation: string = 'all'
-	export let resource: string | undefined = 'all'
-	export let actionKind: ActionKind | 'all' = 'all'
-	export let scope: undefined | 'all_workspaces' | 'instance' = undefined
+	interface Props {
+		logs?: AuditLog[]
+		username?: string
+		pageIndex?: number | undefined
+		hasMore?: boolean
+		before?: string | undefined
+		after?: string | undefined
+		perPage?: number | undefined
+		operation?: string
+		resource?: string | undefined
+		actionKind?: ActionKind | 'all'
+		scope?: undefined | 'all_workspaces' | 'instance'
+	}
+
+	let {
+		logs = $bindable(undefined),
+		username = $bindable('all'),
+		pageIndex = $bindable(1),
+		hasMore = $bindable(false),
+		before = $bindable(undefined),
+		after = $bindable(undefined),
+		perPage = $bindable(100),
+		operation = $bindable(),
+		resource = $bindable() as string | undefined,
+		actionKind = $bindable(undefined),
+		scope = $bindable(undefined)
+	}: Props = $props()
+
+	$effect.pre(() => {
+		if (logs == undefined) {
+			logs = []
+		}
+		if (operation == undefined) {
+			operation = 'all'
+		}
+		if (resource == undefined) {
+			resource = 'all'
+		}
+		if (actionKind == undefined) {
+			actionKind = 'all'
+		}
+	})
 
 	async function loadLogs(
 		username: string | undefined,
@@ -112,8 +143,6 @@
 			.sort()
 	}
 
-	$: $workspaceStore && refresh && refreshLogs()
-
 	let initialLoad = true
 	function refreshLogs() {
 		loadUsers()
@@ -167,12 +196,6 @@
 		page = pageIndex
 		updateLogs()
 	}
-
-	// observe all the variables that should trigger an update
-	$: username, perPage, before, after, operation, resource, actionKind, scope, updateQueryParams()
-
-	// observe the pageIndex variable that should trigger an update
-	$: updatePageQueryParams(pageIndex)
 
 	window.addEventListener('popstate', handlePopState)
 
@@ -282,7 +305,19 @@
 		WORKSPACES_DELETE: 'workspaces.delete'
 	}
 
-	let refresh = 1
+	let refresh = $state(1)
+	$effect(() => {
+		$workspaceStore && refresh && refreshLogs()
+	})
+	// observe all the variables that should trigger an update
+	$effect(() => {
+		;[username, perPage, before, after, operation, resource, actionKind, scope]
+		updateQueryParams()
+	})
+	// observe the pageIndex variable that should trigger an update
+	$effect(() => {
+		updatePageQueryParams(pageIndex)
+	})
 </script>
 
 <div class="flex flex-col items-center gap-6 2xl:gap-1 2xl:flex-row mt-4 xl:mt-0">
@@ -294,26 +329,27 @@
 				on:selected={({ detail }) => {
 					scope = detail === 'admins' ? undefined : detail
 				}}
-				let:item
 			>
-				<ToggleButton
-					value={'admins'}
-					label="Admins"
-					tooltip="Displays events from the admins workspace only."
-					{item}
-				/>
-				<ToggleButton
-					value="all_workspaces"
-					label="All"
-					tooltip="Displays events from all workspaces."
-					{item}
-				/>
-				<ToggleButton
-					value="instance"
-					label="Instance"
-					tooltip="Displays instance-scope events, such as user logins and registrations, instance user and group management, and worker configuration changes."
-					{item}
-				/>
+				{#snippet children({ item })}
+					<ToggleButton
+						value={'admins'}
+						label="Admins"
+						tooltip="Displays events from the admins workspace only."
+						{item}
+					/>
+					<ToggleButton
+						value="all_workspaces"
+						label="All"
+						tooltip="Displays events from all workspaces."
+						{item}
+					/>
+					<ToggleButton
+						value="instance"
+						label="Instance"
+						tooltip="Displays instance-scope events, such as user logins and registrations, instance user and group management, and worker configuration changes."
+						{item}
+					/>
+				{/snippet}
 			</ToggleButtonGroup>
 		</div>
 	{/if}
@@ -365,7 +401,7 @@
 		<AutoComplete
 			create
 			onCreate={(resource) => {
-				resources.push(resource)
+				resources?.push(resource)
 				return resource
 			}}
 			createText="Press enter to use this value"

@@ -12,7 +12,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import NatsTriggersConfigSection from './NatsTriggersConfigSection.svelte'
-	import type { Snippet } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveNatsTriggerFromCfg } from './utils'
 	import { handleConfigChange, type Trigger } from '../utils'
@@ -241,7 +241,8 @@
 	}
 
 	$effect(() => {
-		onCaptureConfigChange?.(captureConfig, isValid)
+		const args = [captureConfig, isValid] as const
+		untrack(() => onCaptureConfigChange?.(...args))
 	})
 
 	$effect(() => {
@@ -260,9 +261,9 @@
 				: 'New NATS trigger'}
 			on:close={drawer.closeDrawer}
 		>
-			<svelte:fragment slot="actions">
-				{@render actions()}
-			</svelte:fragment>
+			{#snippet actions()}
+				{@render actionsSnippet()}
+			{/snippet}
 			{@render config()}
 		</DrawerContent>
 	</Drawer>
@@ -274,13 +275,13 @@
 			{/if}
 		</svelte:fragment>
 		<svelte:fragment slot="action">
-			{@render actions()}
+			{@render actionsSnippet()}
 		</svelte:fragment>
 		{@render config()}
 	</Section>
 {/if}
 
-{#snippet actions()}
+{#snippet actionsSnippet()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
 			{trigger}

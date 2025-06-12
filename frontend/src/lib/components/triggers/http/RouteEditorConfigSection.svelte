@@ -119,14 +119,14 @@
 				class="w-auto"
 				bind:selected={http_method}
 				disabled={!userCanEditConfig || !can_write || !!static_asset_config}
-				let:item
-				let:disabled
 			>
-				<ToggleButton label="GET" value="get" {item} {disabled} />
-				<ToggleButton label="POST" value="post" {item} {disabled} />
-				<ToggleButton label="PUT" value="put" {item} {disabled} />
-				<ToggleButton label="PATCH" value="patch" {item} {disabled} />
-				<ToggleButton label="DELETE" value="delete" {item} {disabled} />
+				{#snippet children({ item, disabled })}
+					<ToggleButton label="GET" value="get" {item} {disabled} />
+					<ToggleButton label="POST" value="post" {item} {disabled} />
+					<ToggleButton label="PUT" value="put" {item} {disabled} />
+					<ToggleButton label="PATCH" value="patch" {item} {disabled} />
+					<ToggleButton label="DELETE" value="delete" {item} {disabled} />
+				{/snippet}
 			</ToggleButtonGroup>
 			<div class="flex flex-col w-full">
 				<Url url={fullRoute} label="Production URL" />

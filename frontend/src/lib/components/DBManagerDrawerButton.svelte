@@ -249,7 +249,7 @@
 					</Pane>
 				</Splitpanes>
 			{/if}
-			<svelte:fragment slot="actions">
+			{#snippet actions()}
 				<Button
 					loading={refreshing}
 					on:click={() => refresh()}
@@ -266,7 +266,7 @@
 					size="xs"
 					color="light"
 				/>
-			</svelte:fragment>
+			{/snippet}
 		</DrawerContent>
 	</Drawer>
 {/if}

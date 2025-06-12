@@ -69,7 +69,7 @@
 
 	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
 
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import domContent from '$lib/dom.d.ts.txt?raw'
@@ -238,13 +238,13 @@
 
 	$effect(() => {
 		if (allowVim && editor !== null && $vimMode && statusDiv) {
-			onVimMode()
+			untrack(() => onVimMode())
 		}
 	})
 
 	$effect(() => {
 		if (!$vimMode && vimDisposable) {
-			onVimDisable()
+			untrack(() => onVimDisable())
 		}
 	})
 
@@ -303,7 +303,7 @@
 
 	$effect(() => {
 		if (editor !== null && (lang || disableLinting || disableSuggestions || hideLineNumbers)) {
-			updateModelAndOptions()
+			untrack(() => updateModelAndOptions())
 		}
 	})
 
@@ -352,26 +352,31 @@
 		if (!divEl) {
 			return
 		}
-		editor = meditor.create(divEl as HTMLDivElement, {
-			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
-			model,
-			lineDecorationsWidth: 6,
-			lineNumbersMinChars: 2,
-			fontSize: fontSize,
-			quickSuggestions: disableSuggestions
-				? { other: false, comments: false, strings: false }
-				: { other: true, comments: true, strings: true },
-			suggestOnTriggerCharacters: !disableSuggestions,
-			wordBasedSuggestions: disableSuggestions ? 'off' : 'matchingDocuments',
-			parameterHints: { enabled: !disableSuggestions },
-			suggest: {
-				showIcons: !disableSuggestions,
-				showSnippets: !disableSuggestions,
-				showKeywords: !disableSuggestions,
-				showWords: !disableSuggestions,
-				snippetsPreventQuickSuggestions: disableSuggestions
-			}
-		})
+		try {
+			editor = meditor.create(divEl as HTMLDivElement, {
+				...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
+				model,
+				lineDecorationsWidth: 6,
+				lineNumbersMinChars: 2,
+				fontSize: fontSize,
+				quickSuggestions: disableSuggestions
+					? { other: false, comments: false, strings: false }
+					: { other: true, comments: true, strings: true },
+				suggestOnTriggerCharacters: !disableSuggestions,
+				wordBasedSuggestions: disableSuggestions ? 'off' : 'matchingDocuments',
+				parameterHints: { enabled: !disableSuggestions },
+				suggest: {
+					showIcons: !disableSuggestions,
+					showSnippets: !disableSuggestions,
+					showKeywords: !disableSuggestions,
+					showWords: !disableSuggestions,
+					snippetsPreventQuickSuggestions: disableSuggestions
+				}
+			})
+		} catch (e) {
+			console.error('Error loading monaco:', e)
+			return
+		}
 		keepModelAroundToAvoidDisposalOfWorkers()
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
@@ -575,7 +580,7 @@
 
 	$effect(() => {
 		if (mounted && extraLib && initialized) {
-			loadExtraLib()
+			untrack(() => loadExtraLib())
 		}
 	})
 

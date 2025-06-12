@@ -45,7 +45,7 @@
 
 <Drawer bind:this={insertDrawer} size="800px">
 	<DrawerContent title="Insert row" on:close={insertDrawer.closeDrawer}>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button
 				color="dark"
 				size="xs"
@@ -55,7 +55,7 @@
 			>
 				Insert
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 		<InsertRow bind:args bind:isInsertable {columnDefs} {dbType} />
 	</DrawerContent>
 </Drawer>

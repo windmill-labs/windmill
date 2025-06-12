@@ -19,7 +19,7 @@
 		type ConnectionInfo
 	} from '../common/alert/ConnectionIndicator.svelte'
 	import CaptureTable from './CaptureTable.svelte'
-	import { createEventDispatcher, onDestroy, getContext, onMount } from 'svelte'
+	import { createEventDispatcher, onDestroy, getContext, onMount, untrack } from 'svelte'
 	import type { CaptureTriggerKind, Capture } from '$lib/gen'
 	import CaptureIcon from './CaptureIcon.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
@@ -247,9 +247,9 @@
 	// Start or stop capture listening based on active state
 	$effect(() => {
 		if (captureInfo.active) {
-			listenForCaptures()
+			untrack(() => listenForCaptures())
 		} else {
-			stopCaptureListening()
+			untrack(() => stopCaptureListening())
 		}
 	})
 
@@ -432,7 +432,7 @@
 
 								dispatch('applyArgs', {
 									kind: testKind,
-									args: { ...structuredClone(payloadData), ...trigger_extra }
+									args: { ...structuredClone($state.snapshot(payloadData)), ...trigger_extra }
 								})
 							}
 						}}

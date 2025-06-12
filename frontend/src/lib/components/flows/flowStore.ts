@@ -2,7 +2,7 @@ import type { Flow, OpenFlow } from '$lib/gen'
 import { writable, type Writable } from 'svelte/store'
 import { initFlowState, type FlowState } from './flowState'
 import { sendUserToast } from '$lib/toast'
-import { get } from 'svelte/store'
+import type { StateStore } from '$lib/utils'
 
 export type FlowMode = 'push' | 'pull'
 
@@ -10,11 +10,11 @@ export const importFlowStore = writable<Flow | undefined>(undefined)
 
 export async function initFlow(
 	flow: Flow,
-	flowStore: Writable<Flow>,
+	flowStore: StateStore<Flow>,
 	flowStateStore: Writable<FlowState>
 ) {
 	await initFlowState(flow, flowStateStore)
-	flowStore.set(flow)
+	flowStore.val = flow
 }
 
 export async function copyFirstStepSchema(flowState: FlowState, flowStore: Writable<OpenFlow>) {
@@ -41,8 +41,8 @@ export async function copyFirstStepSchema(flowState: FlowState, flowStore: Writa
 	})
 }
 
-export async function getFirstStepSchema(flowState: FlowState, flowStore: Writable<OpenFlow>) {
-	const flow = get(flowStore)
+export async function getFirstStepSchema(flowState: FlowState, flowStore: StateStore<OpenFlow>) {
+	const flow = flowStore.val
 	const firstModuleId = flow.value.modules[0]?.id
 
 	if (!firstModuleId || !flowState[firstModuleId]) {

@@ -29,42 +29,83 @@
 
 	import Toggle from '$lib/components/Toggle.svelte'
 
-	export let id: string
-	export let componentInput: RichConfiguration
-	export let key: string
-	export let userInputEnabled: boolean = false
-	export let shouldCapitalize: boolean = true
-	export let resourceOnly = false
-	export let tooltip: string | undefined = undefined
-	export let fieldType: InputType
-	export let subFieldType: InputType | undefined
-	export let format: string | undefined
-	export let selectOptions: string[] | undefined
-	export let fileUpload: UploadAppInput['fileUpload'] | undefined = undefined
-	export let fileUploadS3: UploadAppInput['fileUploadS3'] | undefined = undefined
-	export let placeholder: string | undefined
-	export let customTitle: string | undefined = undefined
-	export let displayType: boolean = false
-	export let allowTypeChange: boolean = true
-	export let shouldFormatExpression: boolean = false
-	export let fixedOverflowWidgets: boolean = true
-	export let loading: boolean = false
-	export let acceptSelf: boolean = false
-	export let recomputeOnInputChanged = true
-	export let showOnDemandOnlyToggle = true
-	export let documentationLink: string | undefined = undefined
-	export let markdownTooltip: string | undefined = undefined
-	export let securedContext = false
+	interface Props {
+		id: string
+		componentInput: RichConfiguration
+		key: string
+		userInputEnabled?: boolean
+		shouldCapitalize?: boolean
+		resourceOnly?: boolean
+		tooltip?: string | undefined
+		fieldType: InputType
+		subFieldType: InputType | undefined
+		format: string | undefined
+		selectOptions: string[] | undefined
+		fileUpload?: UploadAppInput['fileUpload'] | undefined
+		fileUploadS3?: UploadAppInput['fileUploadS3'] | undefined
+		placeholder: string | undefined
+		customTitle?: string | undefined
+		displayType?: boolean
+		allowTypeChange?: boolean
+		shouldFormatExpression?: boolean
+		fixedOverflowWidgets?: boolean
+		loading?: boolean
+		acceptSelf?: boolean
+		recomputeOnInputChanged?: boolean
+		showOnDemandOnlyToggle?: boolean
+		documentationLink?: string | undefined
+		markdownTooltip?: string | undefined
+		securedContext?: boolean
+	}
+
+	let {
+		id,
+		componentInput = $bindable(),
+		key,
+		userInputEnabled = false,
+		shouldCapitalize = true,
+		resourceOnly = false,
+		tooltip = undefined,
+		fieldType,
+		subFieldType,
+		format,
+		selectOptions,
+		fileUpload = undefined,
+		fileUploadS3 = undefined,
+		placeholder,
+		customTitle = undefined,
+		displayType = false,
+		allowTypeChange = true,
+		shouldFormatExpression = false,
+		fixedOverflowWidgets = true,
+		loading = false,
+		acceptSelf = false,
+		recomputeOnInputChanged = true,
+		showOnDemandOnlyToggle = true,
+		documentationLink = undefined,
+		markdownTooltip = undefined,
+		securedContext = false
+	}: Props = $props()
+
+	$effect.pre(() => {
+		if (componentInput == undefined) {
+			//@ts-ignore
+			componentInput = {
+				type: 'static',
+				value: undefined
+			}
+		}
+	})
 
 	const { connectingInput, app, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
 	const dispatch = createEventDispatcher()
 
-	let evalV2editor: EvalV2InputEditor
-	let s3FilePicker: S3FilePicker | undefined
-	let s3PickerSelection: { s3: string; storage?: string } | undefined = undefined
-	let s3FolderPrefix: string = ''
-	let s3FileUploadRawMode = componentInput?.type == 'uploadS3' && !!componentInput.value?.s3
+	let evalV2editor: EvalV2InputEditor | undefined = $state()
+	let s3FilePicker: S3FilePicker | undefined = $state()
+	let s3PickerSelection: { s3: string; storage?: string } | undefined = $state(undefined)
+	let s3FolderPrefix: string = $state('')
+	let s3FileUploadRawMode = $state(componentInput?.type == 'uploadS3' && !!componentInput.value?.s3)
 
 	function updateSelectedS3File() {
 		if (s3PickerSelection) {
@@ -90,14 +131,6 @@
 		}
 		evalV2editor?.setCode(expr)
 		$app = $app
-	}
-
-	$: if (componentInput == undefined) {
-		//@ts-ignore
-		componentInput = {
-			type: 'static',
-			value: undefined
-		}
 	}
 
 	function closeConnection() {
@@ -174,37 +207,38 @@
 								componentInput['expr'] = JSON.stringify(JSON.parse(componentInput['expr']), null, 4)
 							}
 						}}
-						let:item
 					>
-						<ToggleButton value="static" icon={Pen} iconOnly tooltip="Static" {item} />
-						{#if userInputEnabled}
-							<ToggleButton value="user" icon={User} iconOnly tooltip="User Input" {item} />
-						{/if}
-						{#if fileUpload}
-							<ToggleButton value="upload" icon={Upload} iconOnly tooltip="Upload" {item} />
-						{/if}
-						{#if fileUploadS3}
-							<ToggleButton
-								value="uploadS3"
-								icon={UploadCloud}
-								iconOnly
-								tooltip="Upload S3"
-								{item}
-							/>
-						{/if}
-						{#if componentInput?.type === 'connected'}
-							<ToggleButton value="connected" icon={Plug2} iconOnly tooltip="Connect" {item} />
-						{/if}
-						{#if componentInput?.type === 'eval'}
-							<ToggleButton
-								value="eval"
-								icon={FunctionSquare}
-								iconOnly
-								tooltip="Eval Legacy"
-								{item}
-							/>
-						{/if}
-						<ToggleButton value="evalv2" icon={FunctionSquare} iconOnly tooltip="Eval" {item} />
+						{#snippet children({ item })}
+							<ToggleButton value="static" icon={Pen} iconOnly tooltip="Static" {item} />
+							{#if userInputEnabled}
+								<ToggleButton value="user" icon={User} iconOnly tooltip="User Input" {item} />
+							{/if}
+							{#if fileUpload}
+								<ToggleButton value="upload" icon={Upload} iconOnly tooltip="Upload" {item} />
+							{/if}
+							{#if fileUploadS3}
+								<ToggleButton
+									value="uploadS3"
+									icon={UploadCloud}
+									iconOnly
+									tooltip="Upload S3"
+									{item}
+								/>
+							{/if}
+							{#if componentInput?.type === 'connected'}
+								<ToggleButton value="connected" icon={Plug2} iconOnly tooltip="Connect" {item} />
+							{/if}
+							{#if componentInput?.type === 'eval'}
+								<ToggleButton
+									value="eval"
+									icon={FunctionSquare}
+									iconOnly
+									tooltip="Eval Legacy"
+									{item}
+								/>
+							{/if}
+							<ToggleButton value="evalv2" icon={FunctionSquare} iconOnly tooltip="Eval" {item} />
+						{/snippet}
 					</ToggleButtonGroup>
 					<ConnectionButton {closeConnection} {openConnection} isOpen={!!$connectingInput.opened} />
 				{/if}

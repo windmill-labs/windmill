@@ -13,17 +13,33 @@
 	} from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	export let btnClasses: string | undefined = undefined
-	export let size: ButtonType.Size = 'xs'
+	interface Props {
+		btnClasses?: string | undefined
+		size?: ButtonType.Size
+		variant?: ButtonType.Variant
+		color?: ButtonType.Color
+		direction?: 'left' | 'right' | 'bottom'
+		hidden?: boolean
+		shortcut?: string | undefined
+		panelName?: string | undefined
+		customHiddenIcon?: ButtonType.Icon | undefined
+		usePopoverOverride?: boolean
+		popoverOverride?: import('svelte').Snippet
+	}
 
-	export let variant: ButtonType.Variant = 'contained'
-	export let color: ButtonType.Color = 'light'
-	export let direction: 'left' | 'right' | 'bottom' = 'right'
-	export let hidden: boolean = false
-	export let shortcut: string | undefined = undefined
-	export let panelName: string | undefined = undefined
-	export let customHiddenIcon: ButtonType.Icon | undefined = undefined
-	export let usePopoverOverride: boolean = false
+	let {
+		btnClasses = undefined,
+		size = 'xs',
+		variant = 'contained',
+		color = 'light',
+		direction = 'right',
+		hidden = false,
+		shortcut = undefined,
+		panelName = undefined,
+		customHiddenIcon = undefined,
+		usePopoverOverride = false,
+		popoverOverride
+	}: Props = $props()
 
 	const OpenIconMap = {
 		left: PanelLeftOpen,
@@ -45,9 +61,9 @@
 </script>
 
 <Popover>
-	<svelte:fragment slot="text">
-		{#if usePopoverOverride && $$slots.popoverOverride}
-			<slot name="popoverOverride" />
+	{#snippet text()}
+		{#if usePopoverOverride && popoverOverride}
+			{@render popoverOverride?.()}
 		{:else}
 			<div class="flex flex-row gap-1">
 				{hidden ? 'Show' : 'Hide '} the {panelName ?? direction} panel.
@@ -57,7 +73,7 @@
 				</div>
 			</div>
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 	<Button
 		iconOnly
 		startIcon={hidden

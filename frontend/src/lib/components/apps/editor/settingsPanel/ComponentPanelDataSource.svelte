@@ -11,11 +11,16 @@
 	import type { InputConnectionEval } from '../../inputType'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 
-	export let component: AppComponent
-	let convertToUIEditorCallback: (() => void) | undefined = undefined
+	interface Props {
+		component: AppComponent
+		children?: import('svelte').Snippet
+	}
 
-	let selected = 'ui-editor'
-	let renderCount = 0
+	let { component = $bindable(), children }: Props = $props()
+	let convertToUIEditorCallback: (() => void) | undefined = $state(undefined)
+
+	let selected = $state('ui-editor')
+	let renderCount = $state(0)
 
 	onMount(() => {
 		if (
@@ -397,20 +402,21 @@
 			on:selected={({ detail }) => {
 				handleSelected(detail)
 			}}
-			let:item
 		>
-			<ToggleButton
-				value="ui-editor"
-				label="UI Editor"
-				tooltip="Use the UI editor to quickly create a plotly chart."
-				{item}
-			/>
-			<ToggleButton
-				value="json"
-				label="JSON"
-				tooltip="Switch to JSON mode for complete customization of Plotly settings."
-				{item}
-			/>
+			{#snippet children({ item })}
+				<ToggleButton
+					value="ui-editor"
+					label="UI Editor"
+					tooltip="Use the UI editor to quickly create a plotly chart."
+					{item}
+				/>
+				<ToggleButton
+					value="json"
+					label="JSON"
+					tooltip="Switch to JSON mode for complete customization of Plotly settings."
+					{item}
+				/>
+			{/snippet}
 		</ToggleButtonGroup>
 	</div>
 
@@ -437,10 +443,10 @@
 			{/if}
 		{/key}
 	{:else}
-		<slot />
+		{@render children?.()}
 	{/if}
 {:else}
-	<slot />
+	{@render children?.()}
 {/if}
 
 <ConfirmationModal

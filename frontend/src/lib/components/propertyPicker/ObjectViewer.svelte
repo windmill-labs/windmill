@@ -3,7 +3,7 @@
 
 	import { copyToClipboard, truncate } from '$lib/utils'
 
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { computeKey, keepByKeyOrValue } from './utils'
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
 	import Portal from '$lib/components/Portal.svelte'
@@ -117,7 +117,7 @@
 		jsonFiltered = onJsonChange(json)
 	})
 	$effect(() => {
-		search != undefined && searchOpen && onSearch()
+		search != undefined && searchOpen && untrack(() => onSearch())
 	})
 	let keys = $derived(
 		['object', 's3object'].includes(getTypeAsString(jsonFiltered)) ? Object.keys(jsonFiltered) : []

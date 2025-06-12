@@ -202,7 +202,6 @@
 							defaultValue={undefined}
 							valid={true}
 							create={false}
-							required={false}
 						/>
 					{/key}
 				</Label>
@@ -232,7 +231,6 @@
 								defaultValue={undefined}
 								valid={true}
 								create={false}
-								required={false}
 							/>
 							<p class="text-xs">
 								We highly recommend using Mistral's Codestral model for code completion.

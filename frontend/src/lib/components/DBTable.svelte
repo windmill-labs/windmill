@@ -13,6 +13,7 @@
 	import { deepEqual } from 'fast-equals'
 	import 'ag-grid-community/styles/ag-grid.css'
 	import '$lib/components/apps/components/display/table/theme/windmill-theme.css'
+	import { untrack } from 'svelte'
 
 	type Props = {
 		dbTableOps: IDbTableOps
@@ -45,7 +46,7 @@
 	let refreshCount = $state(0)
 	const refresh = () => (refreshCount += 1)
 
-	$effect(() => eGui && mountGrid())
+	$effect(() => eGui && untrack(() => mountGrid()))
 	function mountGrid() {
 		if (eGui && !api) {
 			createGrid(eGui, {
@@ -95,7 +96,7 @@
 		const key = { quicksearch, colDefs: dbTableOps.colDefs, refreshCount }
 		if (deepEqual(key, prevUpdateKey)) return
 		prevUpdateKey = key
-		updateGrid()
+		untrack(() => updateGrid())
 	})
 	function updateGrid() {
 		dbTableOps.getCount({ quicksearch }).then((result) => (rowCount = result))

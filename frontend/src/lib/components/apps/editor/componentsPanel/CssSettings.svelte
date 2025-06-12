@@ -43,7 +43,7 @@
 <Tabs bind:selected={selectedTab}>
 	<Tab size="xs" value="css">Code</Tab>
 	<Tab size="xs" value="theme">Theme</Tab>
-	<svelte:fragment slot="content">
+	{#snippet content()}
 		{#if selectedTab === 'css'}
 			<SplitPanesWrapper>
 				<Splitpanes horizontal>
@@ -116,5 +116,5 @@
 				}}
 			/>
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 </Tabs>

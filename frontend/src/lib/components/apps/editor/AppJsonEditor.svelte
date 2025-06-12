@@ -85,7 +85,7 @@
 			<JsonEditor bind:code />
 		{/if}
 
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			{#if !$userStore?.operator}
 				<Button on:click={saveDraft} startIcon={{ icon: Save }} color="dark" size="xs">
 					Save as draft
@@ -94,6 +94,6 @@
 					Deploy
 				</Button>
 			{/if}
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

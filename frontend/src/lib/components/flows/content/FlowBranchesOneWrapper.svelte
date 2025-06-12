@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Alert, Badge, Tab } from '$lib/components/common'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
-	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import TabsV2 from '$lib/components/common/tabs/TabsV2.svelte'
 
 	import type { BranchOne, FlowModule } from '$lib/gen'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -15,18 +15,30 @@
 	import FlowModuleMock from './FlowModuleMock.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
-	// import FlowRetries from './FlowRetries.svelte'
 
-	export let flowModule: FlowModule
-	export let previousModule: FlowModule | undefined
-	export let parentModule: FlowModule | undefined
-	export let noEditor: boolean
-	export let enableAi = false
+	interface Props {
+		// import FlowRetries from './FlowRetries.svelte'
+		flowModule: FlowModule
+		previousModule: FlowModule | undefined
+		parentModule: FlowModule | undefined
+		noEditor: boolean
+		enableAi?: boolean
+	}
 
-	let value = flowModule.value as BranchOne
-	$: value = flowModule.value as BranchOne
+	let {
+		flowModule = $bindable(),
+		previousModule,
+		parentModule,
+		noEditor,
+		enableAi = false
+	}: Props = $props()
 
-	let selected = 'early-stop'
+	let value = $state(flowModule.value as BranchOne)
+	$effect(() => {
+		value = flowModule.value as BranchOne
+	})
+
+	let selected = $state('early-stop')
 </script>
 
 <div class="h-full" id="flow-editor-branch-one-wrapper">
@@ -89,14 +101,14 @@
 				</Pane>
 				{#if flowModule}
 					<Pane size={40}>
-						<Tabs bind:selected>
+						<TabsV2 bind:selected>
 							<Tab value="early-stop">Early Stop/Break</Tab>
 							<Tab value="skip">Skip</Tab>
 							<Tab value="suspend">Suspend/Approval/Prompt</Tab>
 							<Tab value="sleep">Sleep</Tab>
 							<Tab value="mock">Mock</Tab>
 							<Tab value="lifetime">Lifetime</Tab>
-							<svelte:fragment slot="content">
+							{#snippet content()}
 								<div class="overflow-hidden bg-surface">
 									<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 										<div class="p-4 overflow-y-auto">
@@ -129,8 +141,8 @@
 										</div>
 									</TabContent>
 								</div>
-							</svelte:fragment>
-						</Tabs>
+							{/snippet}
+						</TabsV2>
 					</Pane>
 				{/if}
 			</Splitpanes>

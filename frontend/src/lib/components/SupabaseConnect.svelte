@@ -175,12 +175,14 @@
 			>
 			<Highlight language={json} code={JSON.stringify(resourceValue, null, 4)} />
 		{/if}
-		<div slot="actions" class="flex gap-1">
-			{#if step == 'resource' && selectedDatabase != undefined}
-				<Button variant="border" on:click={() => (step = 'init')}>Back</Button>
+		{#snippet actions()}
+			<div class="flex gap-1">
+				{#if step == 'resource' && selectedDatabase != undefined}
+					<Button variant="border" on:click={() => (step = 'init')}>Back</Button>
 
-				<Button {disabled} on:click={save}>Save</Button>
-			{/if}
-		</div>
+					<Button {disabled} on:click={save}>Save</Button>
+				{/if}
+			</div>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

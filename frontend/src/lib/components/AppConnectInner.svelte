@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { userStore, workspaceStore } from '$lib/stores'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import {
@@ -27,14 +29,25 @@
 	import { apiTokenApps, forceSecretValue, linkedSecretValue } from './app_connect'
 	import type { SchemaProperty } from '$lib/common'
 
-	export let step = 1
-	export let resourceType = ''
-	export let isGoogleSignin = false
-	export let disabled = false
-	export let manual = true
-	export let express = false
+	interface Props {
+		step?: number
+		resourceType?: string
+		isGoogleSignin?: boolean
+		disabled?: boolean
+		manual?: boolean
+		express?: boolean
+	}
 
-	let isValid = true
+	let {
+		step = $bindable(1),
+		resourceType = $bindable(''),
+		isGoogleSignin = $bindable(false),
+		disabled = $bindable(false),
+		manual = $bindable(true),
+		express = false
+	}: Props = $props()
+
+	let isValid = $state(true)
 
 	const nativeLanguagesCategory = [
 		'postgresql',
@@ -46,15 +59,15 @@
 		'oracledb'
 	]
 
-	let filter = ''
-	let value: string = ''
+	let filter = $state('')
+	let value: string = $state('')
 	let valueToken: TokenResponse | undefined = undefined
-	let connects: string[] | undefined = undefined
+	let connects: string[] | undefined = $state(undefined)
 	let connectsManual:
 		| [string, { img?: string; instructions: string[]; key?: string }][]
-		| undefined = undefined
-	let args: any = {}
-	let renderDescription = true
+		| undefined = $state(undefined)
+	let args: any = $state({})
+	let renderDescription = $state(true)
 
 	function computeCandidates(resourceType: string, argsKeys: string[], passwords: string[]) {
 		return apiTokenApps[resourceType]?.linkedSecret
@@ -66,8 +79,8 @@
 				)
 	}
 
-	let linkedSecret: string | undefined = undefined
-	let linkedSecretCandidates: string[] | undefined = undefined
+	let linkedSecret: string | undefined = $state(undefined)
+	let linkedSecretCandidates: string[] | undefined = $state(undefined)
 	function computeLinkedSecret(resourceType: string, argsKeys: string[], passwords: string[]) {
 		linkedSecretCandidates = computeCandidates(resourceType, argsKeys, passwords)
 		return (
@@ -76,14 +89,14 @@
 		)
 	}
 
-	let scopes: string[] = []
+	let scopes: string[] = $state([])
 	let extra_params: [string, string][] = []
-	let path: string
-	let description = ''
+	let path: string = $state('')
+	let description = $state('')
 
-	let resourceTypeInfo: ResourceType | undefined = undefined
+	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
 
-	let pathError = ''
+	let pathError = $state('')
 
 	export async function open(rt?: string) {
 		if (!rt) {
@@ -112,7 +125,9 @@
 	async function loadConnects() {
 		if (!connects) {
 			try {
-				connects = (await OauthService.listOauthConnects()).filter((x) => x != 'supabase_wizard')
+				connects = (await OauthService.listOauthConnects())
+					.filter((x) => x != 'supabase_wizard')
+					.sort((a, b) => a.localeCompare(b))
 			} catch (e) {
 				connects = []
 				console.error('Error loading OAuth connects', e)
@@ -122,27 +137,31 @@
 
 	const connectAndManual = ['gitlab']
 
-	$: isGoogleSignin =
-		step == 1 &&
-		(resourceType == 'google' ||
-			resourceType == 'gmail' ||
-			resourceType == 'gcal' ||
-			resourceType == 'gdrive' ||
-			resourceType == 'gsheets')
+	run(() => {
+		isGoogleSignin =
+			step == 1 &&
+			(resourceType == 'google' ||
+				resourceType == 'gmail' ||
+				resourceType == 'gcal' ||
+				resourceType == 'gdrive' ||
+				resourceType == 'gsheets')
+	})
 
-	$: disabled =
-		(step == 1 && resourceType == '') ||
-		(step == 2 &&
-			value == '' &&
-			args &&
-			args['token'] == '' &&
-			args['password'] == '' &&
-			args['api_key'] == '' &&
-			args['key'] == '' &&
-			linkedSecret != undefined) ||
-		step == 3 ||
-		(step == 4 && pathError != '') ||
-		!isValid
+	run(() => {
+		disabled =
+			(step == 1 && resourceType == '') ||
+			(step == 2 &&
+				value == '' &&
+				args &&
+				args['token'] == '' &&
+				args['password'] == '' &&
+				args['api_key'] == '' &&
+				args['key'] == '' &&
+				linkedSecret != undefined) ||
+			step == 3 ||
+			(step == 4 && pathError != '') ||
+			!isValid
+	})
 
 	export async function loadResourceTypes() {
 		if (connectsManual) {
@@ -154,14 +173,18 @@
 
 		connectsManual = availableRts
 			.filter((x) => connectAndManual.includes(x) || !Object.keys(connects ?? {}).includes(x))
-			.map((x) => [
-				x,
-				apiTokenApps[x] ?? {
-					instructions: '',
-					img: undefined,
-					linkedSecret: undefined
-				}
-			])
+			.map(
+				(x) =>
+					[
+						x,
+						apiTokenApps[x] ?? {
+							instructions: '',
+							img: undefined,
+							linkedSecret: undefined
+						}
+					] as [string, { img?: string; instructions: string[]; key?: string }]
+			)
+			.sort((a, b) => a[0].localeCompare(b[0]))
 		const filteredNativeLanguages = filteredConnectsManual?.filter(
 			(o) => nativeLanguagesCategory?.includes(o[0]) ?? false
 		)
@@ -177,7 +200,7 @@
 	}
 
 	function popupListener(event) {
-		console.log('Received oauth popup message')
+		console.log('Received oauth popup message', event)
 		let data = event.data
 		if (event.origin == null || event.origin !== window.location.origin) {
 			console.log(
@@ -280,6 +303,9 @@
 			// 	dispatch('close')
 			// }
 		} else {
+			if (!path) {
+				throw Error('Path is not set')
+			}
 			let exists = await VariableService.existsVariable({
 				workspace: $workspaceStore!,
 				path
@@ -370,31 +396,29 @@
 		}
 	}
 
-	const dispatch = createEventDispatcher()
+	const dispatch = createEventDispatcher<{ error: string; refresh: string; close: void }>()
 
-	let filteredConnects: { key: string }[] = []
+	let filteredConnects: { key: string }[] = $state([])
 	let filteredConnectsManual: [string, { img?: string; instructions: string[]; key?: string }][] =
-		[]
+		$state([])
 
-	let editScopes = false
+	let editScopes = $state(false)
 </script>
 
 {#if !express}
 	<SearchItems
 		{filter}
 		items={connects
-			? connects
-					.sort((a, b) => a.localeCompare(b))
-					.map((key) => ({
-						key
-					}))
+			? connects.map((key) => ({
+					key
+				}))
 			: undefined}
 		bind:filteredItems={filteredConnects}
 		f={(x) => x.key}
 	/>
 	<SearchItems
 		{filter}
-		items={connectsManual?.sort((a, b) => a[0].localeCompare(b[0]))}
+		items={connectsManual}
 		bind:filteredItems={filteredConnectsManual}
 		f={(x) => x[0]}
 	/>
@@ -590,7 +614,7 @@
 			</div>
 			<h3 class="mb-4 flex gap-4"
 				>Scopes <button
-					on:click={() => {
+					onclick={() => {
 						editScopes = !editScopes
 					}}><Pen size={14} /></button
 				></h3

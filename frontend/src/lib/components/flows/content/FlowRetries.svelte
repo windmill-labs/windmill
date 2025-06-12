@@ -5,12 +5,17 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { AlertTriangle } from 'lucide-svelte'
+	import { untrack } from 'svelte'
 
-	export let flowModuleRetry: Retry | undefined
-	export let disabled: boolean = false
+	interface Props {
+		flowModuleRetry: Retry | undefined
+		disabled?: boolean
+	}
 
-	let delayType: 'disabled' | 'constant' | 'exponential'
-	let loaded = false
+	let { flowModuleRetry = $bindable(), disabled = false }: Props = $props()
+
+	let delayType = $state() as 'disabled' | 'constant' | 'exponential' | undefined
+	let loaded = $state(false)
 
 	function setConstantRetries() {
 		flowModuleRetry = {
@@ -48,13 +53,17 @@
 		delayType = 'disabled'
 	}
 
-	$: flowModuleRetry === undefined && resetDelayType()
-	$: !loaded && initialLoad()
+	$effect(() => {
+		flowModuleRetry === undefined && resetDelayType()
+	})
+	$effect(() => {
+		!loaded && untrack(() => initialLoad())
+	})
 
 	const u32Max = 4294967295
 </script>
 
-<div class="h-full flex flex-col {$$props.class ?? ''}">
+<div class="h-full flex flex-col">
 	<ToggleButtonGroup
 		bind:selected={delayType}
 		class={`h-10 ${disabled ? 'disabled' : ''}`}
@@ -68,11 +77,12 @@
 				setExponentialRetries()
 			}
 		}}
-		let:item
 	>
-		<ToggleButton light value="disabled" label="Disabled" {item} />
-		<ToggleButton light value="constant" label="Constant" {item} />
-		<ToggleButton light value="exponential" label="Exponential" {item} />
+		{#snippet children({ item })}
+			<ToggleButton light value="disabled" label="Disabled" {item} />
+			<ToggleButton light value="constant" label="Constant" {item} />
+			<ToggleButton light value="exponential" label="Exponential" {item} />
+		{/snippet}
 	</ToggleButtonGroup>
 	<div class="flex h-[calc(100%-22px)]">
 		<div class="w-1/2 h-full overflow-auto pr-2">
@@ -87,7 +97,7 @@
 						/>
 						<button
 							class="text-xs"
-							on:click={() =>
+							onclick={() =>
 								flowModuleRetry?.constant && (flowModuleRetry.constant.attempts = u32Max)}
 							>max</button
 						>
@@ -102,7 +112,7 @@
 						<input max="100" bind:value={flowModuleRetry.exponential.attempts} type="number" />
 						<button
 							class="text-xs"
-							on:click={() =>
+							onclick={() =>
 								flowModuleRetry?.exponential && (flowModuleRetry.exponential.attempts = 100)}
 							>max</button
 						>

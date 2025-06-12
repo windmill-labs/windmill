@@ -8,21 +8,34 @@
 	import HistoricList from './HistoricList.svelte'
 	import { Loader2 } from 'lucide-svelte'
 
-	export let runnableId: string | undefined = undefined
-	export let runnableType: RunnableType | undefined = undefined
-	export let loading: boolean = false
-	export let selected: string | undefined = undefined
-	export let showAuthor = false
-	export let placement: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end' = 'top-end'
-	export let limitPayloadSize = false
-	export let searchArgs: Record<string, any> | undefined = undefined
+	interface Props {
+		runnableId?: string | undefined
+		runnableType?: RunnableType | undefined
+		loading?: boolean
+		selected?: string | undefined
+		showAuthor?: boolean
+		placement?: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end'
+		limitPayloadSize?: boolean
+		searchArgs?: Record<string, any> | undefined
+	}
 
-	let historicList: HistoricList | undefined = undefined
+	let {
+		runnableId = undefined,
+		runnableType = undefined,
+		loading = $bindable(false),
+		selected = $bindable(undefined),
+		showAuthor = false,
+		placement = 'top-end',
+		limitPayloadSize = false,
+		searchArgs = undefined
+	}: Props = $props()
+
+	let historicList: HistoricList | undefined = $state(undefined)
 	const dispatch = createEventDispatcher()
 
-	let jobs: Job[] = []
+	let jobs: Job[] = $state([])
 	let hasMoreCurrentRuns = false
-	let page = 1
+	let page = $state(1)
 
 	async function handleSelected(data: any) {
 		if (selected === data.id) {
@@ -34,7 +47,10 @@
 			const fullPayload = await data.getFullPayload?.()
 			dispatch('select', { args: fullPayload, jobId: data.id })
 		} else {
-			dispatch('select', { args: structuredClone(data.payloadData), jobId: data.id })
+			dispatch('select', {
+				args: structuredClone($state.snapshot(data.payloadData)),
+				jobId: data.id
+			})
 		}
 	}
 
@@ -77,11 +93,11 @@
 		} else if (runnableType === 'ScriptHash') {
 			return 'script,preview'
 		}
-		return 'all'
+		return ''
 	}
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} />
 
 {#if runnableId}
 	<JobLoader

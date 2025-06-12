@@ -59,9 +59,12 @@
 		queuedJobs = loadingQueuedJobs
 		const endStart = new Date().getTime()
 		// toggle queuedJobsLoading to false in 1 secs to let some time for the animation to play
-		setTimeout(() => {
-			queuedJobsLoading = false
-		}, 3000 - (endStart - timeStart))
+		setTimeout(
+			() => {
+				queuedJobsLoading = false
+			},
+			3000 - (endStart - timeStart)
+		)
 	}
 
 	async function scaleToZero() {
@@ -167,18 +170,20 @@
 			</tbody>
 		</TableCustom>
 
-		<div slot="actions" class="flex gap-1">
-			<Button
-				color="red"
-				disabled={cancellingInProgress === true || queuedJobs.length === 0}
-				on:click={scaleToZero}
-			>
-				{#if cancellingInProgress}
-					<Loader2 class="animate-spin" /> Stopping jobs
-				{:else}
-					Scale down to 0
-				{/if}
-			</Button>
-		</div>
+		{#snippet actions()}
+			<div class="flex gap-1">
+				<Button
+					color="red"
+					disabled={cancellingInProgress === true || queuedJobs.length === 0}
+					on:click={scaleToZero}
+				>
+					{#if cancellingInProgress}
+						<Loader2 class="animate-spin" /> Stopping jobs
+					{:else}
+						Scale down to 0
+					{/if}
+				</Button>
+			</div>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

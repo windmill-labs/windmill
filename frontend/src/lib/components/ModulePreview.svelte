@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import type { Schema } from '$lib/common'
 	import { ScriptService, type FlowModule, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -16,31 +18,47 @@
 	import { evalValue } from './flows/utils'
 	import type { PickableProperties } from './flows/previousResults'
 
-	export let mod: FlowModule
-	export let schema: Schema | { properties?: Record<string, any> }
-	export let pickableProperties: PickableProperties | undefined
-	export let testJob: Job | undefined = undefined
-	export let testIsLoading = false
-	export let noEditor = false
-	export let scriptProgress = undefined
+	interface Props {
+		mod: FlowModule
+		schema: Schema | { properties?: Record<string, any> }
+		pickableProperties: PickableProperties | undefined
+		testJob?: Job | undefined
+		testIsLoading?: boolean
+		noEditor?: boolean
+		scriptProgress?: any
+	}
+
+	let {
+		mod,
+		schema,
+		pickableProperties,
+		testJob = $bindable(undefined),
+		testIsLoading = $bindable(false),
+		noEditor = false,
+		scriptProgress = $bindable(undefined)
+	}: Props = $props()
 
 	const { flowStore, flowStateStore, testStepStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	// Test
 
-	let testJobLoader: TestJobLoader
+	let testJobLoader: TestJobLoader | undefined = $state()
 
 	let jobProgressReset: () => void = () => {}
 
-	let stepArgs: Record<string, any> | undefined = Object.fromEntries(
-		Object.keys(schema.properties ?? {}).map((k) => [
-			k,
-			evalValue(k, mod, $testStepStore, pickableProperties, false)
-		])
+	let stepArgs: Record<string, any> | undefined = $state(
+		Object.fromEntries(
+			Object.keys(schema.properties ?? {}).map((k) => [
+				k,
+				evalValue(k, mod, $testStepStore, pickableProperties, false)
+			])
+		)
 	)
 
-	$: $testStepStore[mod.id] = stepArgs
+	run(() => {
+		$testStepStore[mod.id] = stepArgs
+	})
 
 	export function runTestWithStepArgs() {
 		runTest(stepArgs)
@@ -58,7 +76,7 @@
 				val.content,
 				val.language,
 				mod.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args } : args,
-				$flowStore?.tag ?? val.tag
+				flowStore.val?.tag ?? val.tag
 			)
 		} else if (val.type == 'script') {
 			const script = val.hash
@@ -69,7 +87,7 @@
 				script.content,
 				script.language,
 				mod.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args } : args,
-				$flowStore?.tag ?? (val.tag_override ? val.tag_override : script.tag),
+				flowStore.val?.tag ?? (val.tag_override ? val.tag_override : script.tag),
 				script.lock,
 				val.hash ?? script.hash
 			)
@@ -104,7 +122,7 @@
 />
 
 <div class="p-4">
-	{#if $flowStore.value.same_worker}
+	{#if flowStore.val.value.same_worker}
 		<div class="mb-1 bg-yellow-100 text-yellow-700 p-1 text-xs"
 			>The `./shared` folder is not passed across individual "Test this step"</div
 		>

@@ -69,7 +69,7 @@
 				<textarea rows="4" use:autosize bind:value placeholder="Variable value"></textarea>
 			</Section>
 		</div>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button
 				on:click={() => updateVariable()}
 				disabled={value === '' || name === ''}
@@ -79,6 +79,6 @@
 			>
 				{edit ? 'Update' : 'Save'}
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

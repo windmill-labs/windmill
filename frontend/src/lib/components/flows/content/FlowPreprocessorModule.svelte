@@ -10,13 +10,10 @@
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
-{#if $flowStore.value.preprocessor_module}
+{#if flowStore.val.value.preprocessor_module}
 	<FlowModuleWrapper
 		{noEditor}
-		bind:flowModule={$flowStore.value.preprocessor_module}
-		on:delete={() => {
-			$flowStore.value.preprocessor_module = undefined
-		}}
+		bind:flowModule={flowStore.val.value.preprocessor_module}
 		previousModule={undefined}
 		{savedModule}
 	/>

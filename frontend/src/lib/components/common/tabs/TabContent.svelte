@@ -1,6 +1,6 @@
 <script lang="ts">
+	import type { TabsContext } from '$lib/components/apps/editor/settingsPanel/inputEditor/tabs.svelte'
 	import { getContext } from 'svelte'
-	import type { TabsContext } from './Tabs.svelte'
 
 	export let value: string
 	export let alwaysMounted: boolean = false
