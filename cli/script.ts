@@ -869,11 +869,13 @@ export type GlobalDeps = {
   pkgs: Record<string, string>;
   reqs: Record<string, string>;
   composers: Record<string, string>;
+  goMods: Record<string, string>;
 };
 export async function findGlobalDeps(): Promise<GlobalDeps> {
   const pkgs: { [key: string]: string } = {};
   const reqs: { [key: string]: string } = {};
   const composers: { [key: string]: string } = {};
+  const goMods: { [key: string]: string } = {};
   const els = await FSFSElement(Deno.cwd(), [], false);
   for await (const entry of readDirRecursiveWithIgnore((p, isDir) => {
     p = SEP + p;
@@ -882,7 +884,8 @@ export async function findGlobalDeps(): Promise<GlobalDeps> {
       !(
         p.endsWith(SEP + "package.json") ||
         p.endsWith(SEP + "requirements.txt") ||
-        p.endsWith(SEP + "composer.json")
+        p.endsWith(SEP + "composer.json") ||
+        p.endsWith(SEP + "go.mod")
       )
     );
   }, els)) {
@@ -894,9 +897,11 @@ export async function findGlobalDeps(): Promise<GlobalDeps> {
       reqs[entry.path.substring(0, entry.path.length - 16)] = content;
     } else if (entry.path.endsWith("composer.json")) {
       composers[entry.path.substring(0, entry.path.length - 13)] = content;
+    } else if (entry.path.endsWith("go.mod")) {
+      goMods[entry.path.substring(0, entry.path.length - 13)] = content;
     }
   }
-  return { pkgs, reqs, composers };
+  return { pkgs, reqs, composers, goMods };
 }
 async function generateMetadata(
   opts: GlobalOptions & {
