@@ -8,11 +8,21 @@
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
 	import Portal from '$lib/components/Portal.svelte'
 	import { Button } from '$lib/components/common'
-	import { Download, PanelRightOpen, Search, TriangleAlertIcon, X } from 'lucide-svelte'
+	import {
+		DollarSign,
+		Download,
+		PanelRightOpen,
+		Search,
+		SquareFunction,
+		TriangleAlertIcon,
+		X
+	} from 'lucide-svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import Popover from '../Popover.svelte'
+	import type { InputTransform } from '$lib/gen'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		json: any
@@ -27,6 +37,7 @@
 		prefix?: string
 		expandedEvenOnLevel0?: string | undefined
 		connecting?: boolean
+		inputTransform?: Record<string, InputTransform>
 	}
 
 	let {
@@ -41,7 +52,8 @@
 		collapseLevel = undefined,
 		prefix = '',
 		expandedEvenOnLevel0 = undefined,
-		connecting = false
+		connecting = false,
+		inputTransform = {}
 	}: Props = $props()
 
 	let jsonFiltered = $state(json)
@@ -167,6 +179,25 @@
 	</span>
 {/snippet}
 
+{#snippet metaData(key: string)}
+	{#if inputTransform[key]}
+		<span
+			class={twMerge(
+				'inline-flex items-center h-4 text-blue-500 border dark:bg-blue-200 dark:text-blue-900 px-1 rounded-[0.275rem] rounded-l-none border-l-0 gap-0.5',
+				'text-2xs',
+				inputTransform[key].type === 'javascript' ? 'text-blue-500' : 'text-tertiary font-mono'
+			)}
+			title={inputTransform[key].type === 'javascript' ? inputTransform[key].expr : 'Static'}
+		>
+			{#if inputTransform[key].type === 'javascript'}
+				<SquareFunction size={14} class="-my-1" />
+			{:else if inputTransform[key].type === 'static'}
+				<DollarSign size={12} class="-my-1" />
+			{/if}
+		</span>
+	{/if}
+{/snippet}
+
 <Portal name="object-viewer">
 	<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
 </Portal>
@@ -248,11 +279,16 @@
 								color="light"
 								variant="border"
 								wrapperClasses="p-0 whitespace-nowrap w-fit"
-								btnClasses="font-mono h-4 py-1 text-2xs font-thin px-1 rounded-[0.275rem]"
+								btnClasses={twMerge(
+									'font-mono h-4 py-1 text-2xs',
+									'font-thin px-1 rounded-[0.275rem]',
+									inputTransform[key] ? 'rounded-r-none border-r-0.5' : ''
+								)}
 								title={computeFullKey(key, rawKey)}
 							>
-								<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index} </span>
+								<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index}</span>
 							</Button>
+							{@render metaData(key)}
 						</AnimatedButton>
 						<span class="text-2xs -ml-0.5 text-tertiary">:</span>
 

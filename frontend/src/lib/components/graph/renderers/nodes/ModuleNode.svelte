@@ -89,6 +89,7 @@
 			onSelectedIteration={(e) => {
 				data.eventHandlers.selectedIteration(e)
 			}}
+			onTestUpTo={data.eventHandlers.testUpTo}
 			onUpdateMock={(detail) => {
 				data.eventHandlers.updateMock(detail)
 			}}

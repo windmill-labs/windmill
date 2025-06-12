@@ -48,6 +48,7 @@
 		newFlow?: boolean
 		smallErrorHandler?: boolean
 		workspace?: string | undefined
+		onTestUpTo?: ((id: string) => void) | undefined
 	}
 
 	let {
@@ -58,7 +59,8 @@
 		disableSettings = false,
 		newFlow = false,
 		smallErrorHandler = false,
-		workspace = $workspaceStore
+		workspace = $workspaceStore,
+		onTestUpTo
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -343,6 +345,7 @@
 			{flowInputsStore}
 			{workspace}
 			editMode
+			{onTestUpTo}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)
 				const cb = () => {

@@ -39,6 +39,7 @@
 		editMode?: boolean
 		onSelectedIteration: onSelectedIteration
 		onSelect: (id: string | FlowModule) => void
+		onTestUpTo?: ((id: string) => void) | undefined
 		onUpdateMock?: (detail: {
 			id: string
 			mock: { enabled: boolean; return_value?: unknown }
@@ -59,6 +60,7 @@
 		flowJobs,
 		editMode = false,
 		onSelect,
+		onTestUpTo,
 		onUpdateMock
 	}: Props = $props()
 
@@ -155,6 +157,7 @@
 						: ''}
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:')}
 					loopStatus={{ type: 'self', flow: mod.value.type }}
+					{onTestUpTo}
 				>
 					{#snippet icon()}
 						<div>
@@ -175,6 +178,7 @@
 					label={mod.summary || 'Run one branch'}
 					{bgColor}
 					{bgHoverColor}
+					{onTestUpTo}
 				>
 					{#snippet icon()}
 						<div>
@@ -195,6 +199,7 @@
 					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
 					{bgColor}
 					{bgHoverColor}
+					{onTestUpTo}
 				>
 					{#snippet icon()}
 						<div>
@@ -236,6 +241,8 @@
 					isTrigger={isTriggerStep(mod)}
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:') && mod.id !== 'preprocessor'}
 					loopStatus={parentLoop ? { type: 'inside', flow: parentLoop.type } : undefined}
+					inputTransform={mod.value.type !== 'identity' ? mod.value.input_transforms : undefined}
+					{onTestUpTo}
 				>
 					{#snippet icon()}
 						<div>

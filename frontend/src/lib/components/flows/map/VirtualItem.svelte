@@ -49,9 +49,22 @@
 		icon,
 		onUpdateMock
 	}: Props = $props()
+
+	const outputPickerVisible = $derived(
+		(alwaysPluggable || (inputJson && Object.keys(inputJson).length > 0)) && editMode
+	)
 </script>
 
-<VirtualItemWrapper {label} {bgColor} {bgHoverColor} {selected} {selectable} {id} on:select>
+<VirtualItemWrapper
+	{label}
+	{bgColor}
+	{bgHoverColor}
+	{selected}
+	{selectable}
+	{id}
+	outputPickerVisible={outputPickerVisible ?? false}
+	on:select
+>
 	{#snippet children({ hover })}
 		<div class="flex flex-col w-full">
 			<div
@@ -80,8 +93,14 @@
 					</div>
 				{/if}
 			</div>
-			{#if (alwaysPluggable || (inputJson && Object.keys(inputJson).length > 0)) && editMode}
-				<OutputPicker {selected} {hover} isConnectingCandidate={true} variant="virtual">
+			{#if outputPickerVisible}
+				<OutputPicker
+					{selected}
+					{hover}
+					id={id ?? ''}
+					isConnectingCandidate={true}
+					variant="virtual"
+				>
 					{#snippet children({ allowCopy, isConnecting, selectConnection })}
 						<OutputPickerInner
 							{allowCopy}
