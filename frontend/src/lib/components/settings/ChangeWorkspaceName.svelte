@@ -5,6 +5,7 @@
 	import { WorkspaceService } from '$lib/gen'
 	import Modal from '../common/modal/Modal.svelte'
 	import { Pen } from 'lucide-svelte'
+	import { untrack } from 'svelte'
 
 	let { open = false } = $props<{ open?: boolean }>()
 
@@ -13,7 +14,7 @@
 
 	$effect(() => {
 		if ($workspaceStore) {
-			getWorkspaceName()
+			untrack(() => getWorkspaceName())
 		}
 	})
 

@@ -15,24 +15,26 @@
 	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
 
-	let username: string = $page.url.searchParams.get('username') ?? 'all'
-	let pageIndex: number | undefined = Number($page.url.searchParams.get('page')) || 0
-	let before: string | undefined = $page.url.searchParams.get('before') ?? undefined
-	let hasMore: boolean = false
-	let after: string | undefined = $page.url.searchParams.get('after') ?? undefined
-	let perPage: number | undefined = Number($page.url.searchParams.get('perPage')) || 100
-	let operation: string = $page.url.searchParams.get('operation') ?? 'all'
-	let resource: string | undefined = $page.url.searchParams.get('resource') ?? undefined
-	let scope: undefined | 'all_workspaces' | 'instance' = ($page.url.searchParams.get('scope') ??
-		undefined) as undefined | 'all_workspaces' | 'instance'
+	let username: string = $state($page.url.searchParams.get('username') ?? 'all')
+	let pageIndex: number | undefined = $state(Number($page.url.searchParams.get('page')) || 0)
+	let before: string | undefined = $state($page.url.searchParams.get('before') ?? undefined)
+	let hasMore: boolean = $state(false)
+	let after: string | undefined = $state($page.url.searchParams.get('after') ?? undefined)
+	let perPage: number | undefined = $state(Number($page.url.searchParams.get('perPage')) || 100)
+	let operation: string = $state($page.url.searchParams.get('operation') ?? 'all')
+	let resource: string | undefined = $state($page.url.searchParams.get('resource') ?? undefined)
+	let scope: undefined | 'all_workspaces' | 'instance' = $state(
+		($page.url.searchParams.get('scope') ?? undefined) as undefined | 'all_workspaces' | 'instance'
+	)
 
-	let actionKind: ActionKind | 'all' =
+	let actionKind: ActionKind | 'all' = $state(
 		($page.url.searchParams.get('actionKind') as ActionKind) ?? 'all'
+	)
 
-	let logs: AuditLog[]
+	let logs: AuditLog[] | undefined = $state()
 
-	let selectedId: number | undefined = undefined
-	let auditLogDrawer: Drawer
+	let selectedId: number | undefined = $state(undefined)
+	let auditLogDrawer: Drawer | undefined = $state()
 </script>
 
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.audit_logs}
@@ -67,7 +69,7 @@
 				</div>
 				<div class="2xl:hidden">
 					<AuditLogMobileFilters>
-						<svelte:fragment slot="filters">
+						{#snippet filters()}
 							<AuditLogsFilters
 								bind:logs
 								bind:username
@@ -79,7 +81,7 @@
 								bind:scope
 								bind:hasMore
 							/>
-						</svelte:fragment>
+						{/snippet}
 					</AuditLogMobileFilters>
 				</div>
 			</div>
@@ -110,7 +112,9 @@
 					/>
 				</Pane>
 				<Pane size={30} minSize={15}>
-					<AuditLogDetails {logs} {selectedId} />
+					{#if logs}
+						<AuditLogDetails {logs} {selectedId} />
+					{/if}
 				</Pane>
 			</Splitpanes>
 		</SplitPanesWrapper>
@@ -128,7 +132,7 @@
 				on:select={(e) => {
 					selectedId = e.detail
 
-					auditLogDrawer.openDrawer()
+					auditLogDrawer?.openDrawer()
 				}}
 			/>
 		</div>
@@ -137,6 +141,8 @@
 
 <Drawer bind:this={auditLogDrawer}>
 	<DrawerContent title="Log details" on:close={auditLogDrawer.closeDrawer}>
-		<AuditLogDetails {logs} {selectedId} />
+		{#if logs}
+			<AuditLogDetails {logs} {selectedId} />
+		{/if}
 	</DrawerContent>
 </Drawer>

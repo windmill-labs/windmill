@@ -283,17 +283,16 @@
 			</div>
 			<ContextTextarea
 				bind:this={contextTextareaComponent}
-				instructions={aiChatManager.instructions}
 				{availableContext}
 				{selectedContext}
 				isFirstMessage={messages.length === 0}
-				on:addContext={(e) => addContextToSelection(e.detail.contextElement)}
-				on:sendRequest={() => {
+				onAddContext={(contextElement) => addContextToSelection(contextElement)}
+				onSendRequest={() => {
 					if (!aiChatManager.loading) {
 						aiChatManager.sendRequest()
 					}
 				}}
-				on:updateInstructions={(e) => (aiChatManager.instructions = e.detail.value)}
+				onUpdateInstructions={(value) => (aiChatManager.instructions = value)}
 				{disabled}
 			/>
 		{:else}

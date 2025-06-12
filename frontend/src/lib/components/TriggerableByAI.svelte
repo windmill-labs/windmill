@@ -1,11 +1,18 @@
 <script lang="ts">
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
-	let { id, description, onTrigger, children } = $props<{
+	let {
+		id,
+		description,
+		onTrigger,
+		children,
+		showAnimation = true
+	} = $props<{
 		id: string | undefined
 		description: string | undefined
 		onTrigger?: (value?: string) => void // Function to call when the trigger is activated, if not provided, the component is discoverable for information purposes only
 		children?: () => any
+		showAnimation?: boolean
 	}>()
 
 	let isAnimating = $state(false)
@@ -15,6 +22,10 @@
 
 	function handleTrigger(value?: string) {
 		if (disabled || !onTrigger) return
+		if (!showAnimation) {
+			onTrigger(value)
+			return
+		}
 		isAnimating = true
 		onTrigger(value)
 		setTimeout(() => {
@@ -49,8 +60,6 @@
 				class="absolute -top-2.5 left-1/2 -translate-x-1/2 w-10 h-10 bg-blue-500/90 rounded-full z-[9999] pointer-events-none animate-ping"
 			></div>
 		{/if}
-		<div class="contents h-full">
-			{@render children?.()}
-		</div>
+		{@render children?.()}
 	</div>
 {/if}

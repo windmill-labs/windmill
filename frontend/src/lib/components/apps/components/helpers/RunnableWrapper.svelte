@@ -280,13 +280,13 @@
 		fields={componentInput.fields}
 		bind:result
 		runnable={componentInput.runnable}
-		hideRefreshButton={componentInput.hideRefreshButton ?? hideRefreshButton}
+		hideRefreshButton={hideRefreshButton ?? componentInput.hideRefreshButton}
 		transformer={componentInput.transformer}
 		{autoRefresh}
 		{overrideCallback}
 		{overrideAutoRefresh}
 		recomputableByRefreshButton={componentInput.autoRefresh ?? true}
-		bind:recomputeOnInputChanged={componentInput.recomputeOnInputChanged}
+		recomputeOnInputChanged={componentInput.recomputeOnInputChanged}
 		{id}
 		{extraQueryParams}
 		{forceSchemaDisplay}

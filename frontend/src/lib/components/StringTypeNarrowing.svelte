@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import type { EnumType } from '$lib/common'
 	import { computeKind } from '$lib/utils'
 	import Label from './Label.svelte'
@@ -12,28 +14,48 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import RegexGen from './copilot/RegexGen.svelte'
 
-	export let pattern: string | undefined
-	export let enum_: EnumType
-	export let format: string | undefined
-	export let contentEncoding: 'base64' | 'binary' | undefined
-	export let customErrorMessage: string | undefined
-	export let minRows: number | undefined = undefined
-	export let disableCreate: boolean | undefined = undefined
-	export let disableVariablePicker: boolean | undefined = undefined
-	export let password: boolean | undefined = undefined
-	export let noExtra = false
-	export let dateFormat: string | undefined
-	export let enumLabels: Record<string, string> | undefined = undefined
-	export let overrideAllowKindChange: boolean = true
-	export let originalType: string | undefined = undefined
+	interface Props {
+		pattern: string | undefined
+		enum_: EnumType
+		format: string | undefined
+		contentEncoding: 'base64' | 'binary' | undefined
+		customErrorMessage: string | undefined
+		minRows?: number | undefined
+		disableCreate?: boolean | undefined
+		disableVariablePicker?: boolean | undefined
+		password?: boolean | undefined
+		noExtra?: boolean
+		dateFormat: string | undefined
+		enumLabels?: Record<string, string> | undefined
+		overrideAllowKindChange?: boolean
+		originalType?: string | undefined
+	}
 
-	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' | 'date-time' =
+	let {
+		pattern = $bindable(),
+		enum_ = $bindable(),
+		format = $bindable(),
+		contentEncoding = $bindable(),
+		customErrorMessage = $bindable(),
+		minRows = $bindable(undefined),
+		disableCreate = $bindable(undefined),
+		disableVariablePicker = $bindable(undefined),
+		password = $bindable(undefined),
+		noExtra = false,
+		dateFormat = $bindable(),
+		enumLabels = $bindable(undefined),
+		overrideAllowKindChange = true,
+		originalType = undefined
+	}: Props = $props()
+
+	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' | 'date-time' = $state(
 		computeKind(enum_, contentEncoding, pattern, format)
+	)
 
 	const allowKindChange = overrideAllowKindChange || originalType === 'string'
 
-	let patternStr: string = pattern ?? ''
-	let resource: string | undefined
+	let patternStr: string = $state(pattern ?? '')
+	let resource: string | undefined = $state()
 
 	const FORMATS = [
 		'email',
@@ -60,16 +82,22 @@
 		['Pattern', 'pattern']
 	]
 
-	$: format =
-		kind == 'resource' ? (resource != undefined ? `resource-${resource}` : 'resource') : format
-	$: pattern = patternStr == '' ? undefined : patternStr
-	$: contentEncoding = kind == 'base64' ? 'base64' : undefined
+	run(() => {
+		format =
+			kind == 'resource' ? (resource != undefined ? `resource-${resource}` : 'resource') : format
+	})
+	run(() => {
+		pattern = patternStr == '' ? undefined : patternStr
+	})
+	run(() => {
+		contentEncoding = kind == 'base64' ? 'base64' : undefined
+	})
 
-	$: {
+	run(() => {
 		if (format == 'email') {
 			pattern = '^[\\w-+.]+@([\\w-]+\\.)+[\\w-]{2,63}$'
 		}
-	}
+	})
 
 	function add() {
 		if (enumLabels === undefined) {
@@ -133,27 +161,28 @@
 					disableVariablePicker = undefined
 				}
 			}}
-			let:item
 		>
-			{#each FIELD_SETTINGS as x}
-				<ToggleButton
-					value={x[1]}
-					label={x[0]}
-					tooltip={x[2]}
-					showTooltipIcon={Boolean(x[2])}
-					{item}
-				/>
-			{/each}
+			{#snippet children({ item })}
+				{#each FIELD_SETTINGS as x}
+					<ToggleButton
+						value={x[1]}
+						label={x[0]}
+						tooltip={x[2]}
+						showTooltipIcon={Boolean(x[2])}
+						{item}
+					/>
+				{/each}
+			{/snippet}
 		</ToggleButtonGroup>
 	{/if}
 	{#if kind == 'pattern'}
 		<Label label="Pattern (Regex)">
-			<svelte:fragment slot="header">
+			{#snippet header()}
 				<Tooltip light>
 					Setting a pattern will allow you to specify a regular expression that the input should
 					adhere to. You can use the regex generator to help you create a pattern.
 				</Tooltip>
-			</svelte:fragment>
+			{/snippet}
 			<div class="flex flex-row gap-1">
 				<ClearableInput
 					id="input"
@@ -171,13 +200,13 @@
 			</div>
 		</Label>
 		<Label label="Custom error message" class="w-full">
-			<svelte:fragment slot="header">
+			{#snippet header()}
 				<Tooltip light>
 					Setting a custom error message will allow you to specify a message that will be shown when
 					the input does not match the pattern.
 				</Tooltip>
-			</svelte:fragment>
-			<svelte:fragment slot="action">
+			{/snippet}
+			{#snippet action()}
 				<Toggle
 					size="xs"
 					options={{ right: 'Enable' }}
@@ -190,7 +219,7 @@
 						}
 					}}
 				/>
-			</svelte:fragment>
+			{/snippet}
 			<input
 				type="text"
 				bind:value={customErrorMessage}
@@ -199,43 +228,45 @@
 		</Label>
 	{:else if kind == 'enum'}
 		<Label label="Enums">
-			<svelte:fragment slot="header">
+			{#snippet header()}
 				<Tooltip light>
 					Setting enums will allow you to specify a list of values that the input can take. If you
 					want to allow custom values, you can disable the option below.
 				</Tooltip>
-			</svelte:fragment>
+			{/snippet}
 			<div class="flex flex-col gap-1">
-				{#each enum_ || [] as e}
-					<div class="flex flex-row w-full gap-2 pt-2">
-						<input
-							id="input"
-							type="text"
-							bind:value={e}
-							on:input={(event) => onEnumKeyChange(event?.currentTarget.value, e)}
-						/>
-						{#if enumLabels !== undefined}
+				{#if enum_}
+					{#each enum_ as _, i}
+						<div class="flex flex-row w-full gap-2 pt-2">
 							<input
 								id="input"
 								type="text"
-								bind:value={enumLabels[e]}
-								placeholder="Optional title..."
-								on:input={(event) => {
-									if (event?.currentTarget.value === '') {
-										if (enumLabels === undefined) {
-											enumLabels = {}
-										}
-										delete enumLabels[e]
-									}
-								}}
+								bind:value={enum_[i]}
+								oninput={(event) => enum_ && onEnumKeyChange(event?.currentTarget.value, enum_[i])}
 							/>
-						{/if}
+							{#if enumLabels !== undefined}
+								<input
+									id="input"
+									type="text"
+									bind:value={enumLabels[enum_[i]]}
+									placeholder="Optional title..."
+									oninput={(event) => {
+										if (event?.currentTarget.value === '') {
+											if (enumLabels === undefined) {
+												enumLabels = {}
+											}
+											enum_ && delete enumLabels[enum_[i]]
+										}
+									}}
+								/>
+							{/if}
 
-						{#if allowKindChange}
-							<Button size="sm" on:click={() => remove(e)}>-</Button>
-						{/if}
-					</div>
-				{/each}
+							{#if allowKindChange}
+								<Button size="sm" on:click={() => enum_ && remove(enum_[i])}>-</Button>
+							{/if}
+						</div>
+					{/each}
+				{/if}
 			</div>
 			{#if allowKindChange}
 				<div class="flex flex-row my-1">
@@ -262,11 +293,11 @@
 		<ResourceTypePicker bind:value={resource} />
 	{:else if kind == 'format'}
 		<Label label="Format">
-			<svelte:fragment slot="header">
+			{#snippet header()}
 				<Tooltip light>
 					Setting the format will allow you to specify a format that the input should adhere to.
 				</Tooltip>
-			</svelte:fragment>
+			{/snippet}
 			<select bind:value={format}>
 				<option value={undefined}></option>
 				{#each FORMATS as f}
@@ -279,12 +310,12 @@
 
 			<div class="grid grid-cols-3 gap-2">
 				<Label label="Date format passed to script" class="col-span-2">
-					<svelte:fragment slot="header">
+					{#snippet header()}
 						<Tooltip light>
 							Setting the date output format will allow you to specify how the date will be passed
 							to the script.
 						</Tooltip>
-					</svelte:fragment>
+					{/snippet}
 					<ClearableInput type="text" bind:value={dateFormat} placeholder="yyyy-MM-dd" />
 				</Label>
 				<Label label="Presets">

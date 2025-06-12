@@ -49,7 +49,7 @@
 							bind:component
 							{paneHeight}
 							{paneWidth}
-							on:render={() => {
+							onrender={() => {
 								renderCount++
 							}}
 						/>

@@ -5,6 +5,7 @@
 	import ConditionalPortal from './common/drawer/ConditionalPortal.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { Loader2 } from 'lucide-svelte'
+	import { untrack } from 'svelte'
 
 	type Value = Item['value']
 
@@ -14,17 +15,22 @@
 		value = $bindable(),
 		filterText: _filterTextBind = $bindable(undefined),
 		class: className = '',
-		clearable = true,
+		clearable = false,
 		listAutoWidth = true,
 		disabled: _disabled = false,
 		containerStyle = '',
 		inputClass = '',
 		disablePortal = false,
 		loading = false,
+		autofocus,
+		RightIcon,
+		createText,
 		groupBy,
 		sortBy,
 		onFocus,
-		onClear
+		onBlur,
+		onClear,
+		onCreateItem
 	}: {
 		items?: Item[]
 		value: Value | undefined
@@ -38,10 +44,15 @@
 		inputClass?: string
 		disablePortal?: boolean
 		loading?: boolean
+		autofocus?: boolean
+		RightIcon?: any
+		createText?: string
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onFocus?: () => void
+		onBlur?: () => void
 		onClear?: () => void
+		onCreateItem?: (value: string) => void
 	} = $props()
 
 	let disabled = $derived(_disabled || loading)
@@ -71,14 +82,18 @@
 		if (!open) filterText = ''
 	})
 
-	let processedItems: (Item & { __select_group?: string; label: string })[] = $derived.by(() => {
+	type ProcessedItem = Item & { __select_group?: string; __is_create?: true; label: string }
+
+	let processedItems: ProcessedItem[] = $derived.by(() => {
 		let items2 =
 			items?.map((item) => ({
 				...item,
 				label: getLabel(item)
 			})) ?? []
 		if (filterText) {
-			items2 = items2.filter((item) => item.label.toLowerCase().includes(filterText.toLowerCase()))
+			items2 = items2.filter((item) =>
+				item?.label?.toLowerCase().includes(filterText?.toLowerCase())
+			)
 		}
 		if (groupBy) {
 			items2 =
@@ -90,12 +105,23 @@
 		if (sortBy) {
 			items2 = items2?.sort(sortBy)
 		}
+		if (onCreateItem && filterText && !items2.some((item) => item.label === filterText)) {
+			items2.push({
+				label: createText ?? `Add new: "${filterText}"`,
+				value: filterText,
+				__is_create: true
+			} as any)
+		}
 		return items2
 	})
 	let valueEntry = $derived(value && processedItems?.find((item) => item.value === value))
 
-	function setValue(item: Item) {
-		value = item.value
+	function setValue(item: ProcessedItem) {
+		if (item.__is_create && onCreateItem) {
+			onCreateItem(item.value)
+		} else {
+			value = item.value
+		}
 		filterText = ''
 		open = false
 	}
@@ -134,7 +160,7 @@
 			if (!deepEqual(nPos, dropdownPos)) dropdownPos = nPos
 			if (open) requestAnimationFrame(updateDropdownPos)
 		}
-		if (open) updateDropdownPos()
+		if (open) untrack(() => updateDropdownPos())
 	})
 </script>
 
@@ -164,18 +190,24 @@
 	use:clickOutside={{ onClickOutside: () => (open = false) }}
 	onpointerdown={() => onFocus?.()}
 	onfocus={() => onFocus?.()}
+	onblur={() => onBlur?.()}
 >
-	{#if clearable && !disabled && value}
+	{#if loading}
+		<div class="absolute z-10 right-2 h-full flex items-center">
+			<Loader2 size={18} class="animate-spin" />
+		</div>
+	{:else if clearable && !disabled && value}
 		<div class="absolute z-10 right-2 h-full flex items-center">
 			<CloseButton noBg small on:close={clearValue} />
 		</div>
-	{/if}
-	{#if loading}
+	{:else if RightIcon}
 		<div class="absolute z-10 right-2 h-full flex items-center">
-			<Loader2 size={20} class="animate-spin" />
+			<RightIcon size={18} class="text-tertiary/35" />
 		</div>
 	{/if}
+	<!-- svelte-ignore a11y_autofocus -->
 	<input
+		{autofocus}
 		{disabled}
 		type="text"
 		bind:value={() => filterText, (v) => (filterText = v)}
@@ -185,7 +217,7 @@
 			'!bg-surface text-ellipsis',
 			open ? '' : 'cursor-pointer',
 			valueEntry && !loading ? '!placeholder-primary' : '',
-			clearable && !disabled && value ? '!pr-8' : '',
+			(clearable || RightIcon) && !disabled && value ? '!pr-8' : '',
 			inputClass ?? ''
 		)}
 		autocomplete="off"

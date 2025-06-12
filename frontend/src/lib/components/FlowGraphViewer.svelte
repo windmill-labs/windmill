@@ -45,8 +45,7 @@
 				modules={flow?.value?.modules}
 				failureModule={flow?.value?.failure_module}
 				preprocessorModule={flow?.value?.preprocessor_module}
-				on:select={(e) => {
-					let nodeId = e?.detail
+				onSelect={(nodeId) => {
 					if (nodeId === 'triggers') {
 						dispatch('triggerDetail')
 						return
@@ -55,7 +54,7 @@
 					} else if (nodeId === 'preprocessor') {
 						stepDetail = flow?.value?.preprocessor_module
 					} else {
-						stepDetail = dfs(flow?.value?.modules ?? [], (m) => m).find((m) => m?.id === e?.detail)
+						stepDetail = dfs(flow?.value?.modules ?? [], (m) => m).find((m) => m?.id === nodeId)
 					}
 					stepDetail = stepDetail ?? nodeId
 					dispatch('select', stepDetail)

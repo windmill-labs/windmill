@@ -15,18 +15,31 @@
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let recomputeIds: string[] | undefined = undefined
-	export let extraQueryParams: Record<string, any> = {}
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'formbuttoncomponent'> | undefined = undefined
-	export let render: boolean
-	export let errorHandledByComponent: boolean | undefined = false
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		recomputeIds?: string[] | undefined
+		extraQueryParams?: Record<string, any>
+		horizontalAlignment?: 'left' | 'center' | 'right' | undefined
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		customCss?: ComponentCustomCSS<'formbuttoncomponent'> | undefined
+		render: boolean
+		errorHandledByComponent?: boolean | undefined
+	}
 
-	$: errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
+	let {
+		id,
+		componentInput,
+		configuration,
+		recomputeIds = undefined,
+		extraQueryParams = {},
+		horizontalAlignment = undefined,
+		verticalAlignment = undefined,
+		customCss = undefined,
+		render,
+		errorHandledByComponent = $bindable(false)
+	}: Props = $props()
 
 	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -50,25 +63,28 @@
 		loading: false
 	})
 
-	let resolvedConfig = initConfig(
-		components['formbuttoncomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['formbuttoncomponent'].initialData.configuration, configuration)
 	)
-	let runnableComponent: RunnableComponent
+	let runnableComponent: RunnableComponent | undefined = $state()
 
 	let errors: Record<string, string> = {}
 
-	$: errorsMessage = Object.values(errors)
-		.filter((x) => x != '')
-		.join('\n')
-
-	$: noInputs =
+	let css = $state(initCss($app?.css?.formbuttoncomponent, customCss))
+	let runnableWrapper: RunnableWrapper | undefined = $state()
+	let loading = $state(false)
+	let modal: AlwaysMountedModal | undefined = $state()
+	$effect(() => {
+		errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
+	})
+	let errorsMessage = $derived(
+		Object.values(errors)
+			.filter((x) => x != '')
+			.join('\n')
+	)
+	let noInputs = $derived(
 		componentInput?.type != 'runnable' || Object.keys(componentInput?.fields ?? {}).length == 0
-
-	let css = initCss($app?.css?.formbuttoncomponent, customCss)
-	let runnableWrapper: RunnableWrapper
-	let loading = false
-	let modal: AlwaysMountedModal
+	)
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}

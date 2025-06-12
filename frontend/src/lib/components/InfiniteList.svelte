@@ -6,26 +6,48 @@
 
 	const dispatch = createEventDispatcher()
 
-	export let loading = false
-	export let items: any[] | undefined = undefined
-	export let selectedItemId: any | undefined = undefined
-	export let isEmpty: boolean = true
-	export let length: number = 0
-	export let rounded: boolean = true
-	export let noBorder: boolean = false
-	export let extraRowClasses: { bgSelected: string; bgHover: string; class: string } = {
-		bgSelected: '',
-		bgHover: '',
-		class: ''
+	interface Props {
+		loading?: boolean
+		items?: any[] | undefined
+		selectedItemId?: any | undefined
+		isEmpty?: boolean
+		length?: number
+		rounded?: boolean
+		noBorder?: boolean
+		extraRowClasses?: { bgSelected: string; bgHover: string; class: string }
+		neverShowLoader?: boolean
+		columns?: import('svelte').Snippet
+		extra_row?: import('svelte').Snippet<[any]>
+		children?: import('svelte').Snippet<[any]>
+		empty?: import('svelte').Snippet<[any]>
 	}
-	export let neverShowLoader = false
+
+	let {
+		loading = $bindable(false),
+		items = $bindable(undefined),
+		selectedItemId = $bindable(undefined),
+		isEmpty = $bindable(true),
+		length = $bindable(0),
+		rounded = true,
+		noBorder = false,
+		extraRowClasses = {
+			bgSelected: '',
+			bgHover: '',
+			class: ''
+		},
+		neverShowLoader = false,
+		columns,
+		extra_row,
+		children,
+		empty
+	}: Props = $props()
 
 	const perPage = 20
 
-	let hasMore = false
+	let hasMore = $state(false)
 	let page = 1
 	let hasAlreadyFailed = false
-	let hovered: any | undefined = undefined
+	let hovered: any | undefined = $state(undefined)
 	let initLoad = false
 	let loadInputs: ((page: number, perPage: number) => Promise<any[]>) | undefined = undefined
 	let deleteItemFn: ((id: any) => Promise<any>) | undefined = undefined
@@ -39,7 +61,7 @@
 		page = 1
 	}
 
-	let loadingMore = false
+	let loadingMore = $state(false)
 
 	export async function loadData(loadOption: 'refresh' | 'forceRefresh' | 'loadMore' = 'loadMore') {
 		// console.log('loadData', loadOption, length, items?.length)
@@ -146,7 +168,7 @@
 	{noBorder}
 	{neverShowLoader}
 >
-	<slot name="columns" />
+	{@render columns?.()}
 
 	<tbody class="h-full w-full">
 		<Row
@@ -158,7 +180,7 @@
 			)}
 			on:hover={(e) => (hovered = e.detail ? 'extraRow' : undefined)}
 		>
-			<slot name="extra-row" hover={hovered === 'extraRow'} />
+			{@render extra_row?.({ hover: hovered === 'extraRow' })}
 		</Row>
 		{#each items ?? [] as item, index}
 			{@const hover = item.id === hovered}
@@ -171,16 +193,16 @@
 				)}
 				on:hover={(e) => (hovered = e.detail ? item.id : undefined)}
 			>
-				<slot {item} {hover} />
+				{@render children?.({ item, hover })}
 			</Row>
 		{/each}
 	</tbody>
 
-	<svelte:fragment slot="emptyMessage">
+	{#snippet emptyMessage()}
 		{#if (!items || items?.length === 0) && (!loading || neverShowLoader)}
-			<slot name="empty" {items} />
+			{@render empty?.({ items })}
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 </DataTable>
 
 <style>

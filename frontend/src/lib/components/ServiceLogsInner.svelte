@@ -399,7 +399,7 @@
 
 <Drawer bind:this={logDrawer} bind:open={logDrawerOpen} size="1400px">
 	<DrawerContent title="See context" on:close={logDrawer.closeDrawer}>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button
 				on:click={() => copyToClipboard(content)}
 				color="light"
@@ -410,7 +410,7 @@
 			>
 				Copy to clipboard
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 		<div class="w-fit">
 			<pre
 				class="bg-surface-secondary text-secondary text-xs w-full p-2 whitespace-pre border rounded-md"

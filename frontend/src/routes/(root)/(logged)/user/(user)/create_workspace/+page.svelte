@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
 	import {
@@ -28,18 +30,18 @@
 
 	const rd = $page.url.searchParams.get('rd')
 
-	let id = ''
-	let name = ''
-	let username = ''
+	let id = $state('')
+	let name = $state('')
+	let username = $state('')
 
-	let errorId = ''
-	let errorUser = ''
-	let aiKey = ''
-	let codeCompletionEnabled = true
-	let checking = false
+	let errorId = $state('')
+	let errorUser = $state('')
+	let aiKey = $state('')
+	let codeCompletionEnabled = $state(true)
+	let checking = $state(false)
 
-	let workspaceColor: string | null = null
-	let colorEnabled = false
+	let workspaceColor: string | null = $state(null)
+	let colorEnabled = $state(false)
 
 	function generateRandomColor() {
 		const randomColor =
@@ -49,12 +51,6 @@
 				.padStart(6, '0')
 		workspaceColor = randomColor
 	}
-
-	$: id = name.toLowerCase().replace(/\s/gi, '-')
-
-	$: validateName(id)
-	$: errorUser = validateUsername(username)
-	$: colorEnabled && !workspaceColor && generateRandomColor()
 
 	async function validateName(id: string): Promise<void> {
 		checking = true
@@ -129,7 +125,7 @@
 							code_completion_model: codeCompletionEnabled
 								? { model: AI_DEFAULT_MODELS[selected][0], provider: selected }
 								: undefined
-					  }
+						}
 					: {}
 			})
 		}
@@ -162,7 +158,7 @@
 		}
 	}
 
-	let automateUsernameCreation = false
+	let automateUsernameCreation = $state(false)
 	async function getAutomateUsernameCreationSetting() {
 		automateUsernameCreation =
 			((await SettingService.getGlobal({ key: 'automate_username_creation' })) as any) ?? false
@@ -190,20 +186,31 @@
 		})
 	})
 
-	let isDomainAllowed: undefined | boolean = undefined
+	let isDomainAllowed: undefined | boolean = $state(undefined)
 
-	$: domain = $usersWorkspaceStore?.email.split('@')[1]
-
-	let auto_invite = false
-	let operatorOnly = false
-	let selected: Exclude<AIProvider, 'customai'> = 'openai'
+	let auto_invite = $state(false)
+	let operatorOnly = $state(false)
+	let selected: Exclude<AIProvider, 'customai'> = $state('openai')
+	run(() => {
+		id = name.toLowerCase().replace(/\s/gi, '-')
+	})
+	run(() => {
+		validateName(id)
+	})
+	run(() => {
+		errorUser = validateUsername(username)
+	})
+	run(() => {
+		colorEnabled && !workspaceColor && generateRandomColor()
+	})
+	let domain = $derived($usersWorkspaceStore?.email.split('@')[1])
 </script>
 
 <CenteredModal title="New Workspace">
 	<label class="block pb-4 pt-4">
 		<span class="text-secondary text-sm">Workspace name</span>
 		<span class="ml-4 text-tertiary text-xs">Displayable name</span>
-		<!-- svelte-ignore a11y-autofocus -->
+		<!-- svelte-ignore a11y_autofocus -->
 		<input autofocus type="text" bind:value={name} />
 	</label>
 	<label class="block pb-4">
@@ -239,7 +246,7 @@
 	{#if !automateUsernameCreation}
 		<label class="block pb-4">
 			<span class="text-secondary text-sm">Your username in that workspace</span>
-			<input type="text" bind:value={username} on:keyup={handleKeyUp} />
+			<input type="text" bind:value={username} onkeyup={handleKeyUp} />
 			{#if errorUser}
 				<span class="text-red-500 text-xs">{errorUser}</span>
 			{/if}
@@ -260,11 +267,13 @@
 			</span>
 
 			<div class="pb-2">
-				<ToggleButtonGroup bind:selected let:item>
-					<ToggleButton value="openai" label="OpenAI" {item} />
-					<ToggleButton value="anthropic" label="Anthropic" {item} />
-					<ToggleButton value="mistral" label="Mistral" {item} />
-					<ToggleButton value="deepseek" label="DeepSeek" {item} />
+				<ToggleButtonGroup bind:selected>
+					{#snippet children({ item })}
+						<ToggleButton value="openai" label="OpenAI" {item} />
+						<ToggleButton value="anthropic" label="Anthropic" {item} />
+						<ToggleButton value="mistral" label="Mistral" {item} />
+						<ToggleButton value="deepseek" label="DeepSeek" {item} />
+					{/snippet}
 				</ToggleButtonGroup>
 			</div>
 		</label>
@@ -275,7 +284,7 @@
 				type="password"
 				autocomplete="new-password"
 				bind:value={aiKey}
-				on:keyup={handleKeyUp}
+				onkeyup={handleKeyUp}
 			/>
 			<TestAIKey
 				apiKey={aiKey}
@@ -317,10 +326,11 @@
 			on:selected={(e) => {
 				operatorOnly = e.detail == 'operator'
 			}}
-			let:item
 		>
-			<ToggleButton value="operator" size="xs" label="Operator" {item} />
-			<ToggleButton value="developer" size="xs" label="Developer" {item} />
+			{#snippet children({ item })}
+				<ToggleButton value="operator" size="xs" label="Operator" {item} />
+				<ToggleButton value="developer" size="xs" label="Developer" {item} />
+			{/snippet}
 		</ToggleButtonGroup>
 	</div>
 	<div class="flex flex-wrap flex-row justify-between pt-10 gap-1">

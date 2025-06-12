@@ -246,7 +246,7 @@
 			<Tab value={category}>{category}</Tab>
 		{/each}
 
-		<svelte:fragment slot="content">
+		{#snippet content()}
 			{#each Object.keys(settings) as category}
 				<TabContent value={category}>
 					{#if category == 'SMTP'}
@@ -362,7 +362,7 @@
 					</div>
 				</TabContent>
 			{/each}
-		</svelte:fragment>
+		{/snippet}
 	</Tabs>
 </div>
 

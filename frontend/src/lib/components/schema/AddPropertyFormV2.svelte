@@ -4,10 +4,14 @@
 	import { CornerDownLeft } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 
-	let name: string = ''
-	export let customName: string | undefined = undefined
-	export let disabled: boolean = false
-	export let placeholder: string | undefined = undefined
+	let name: string = $state('')
+	interface Props {
+		customName?: string | undefined
+		disabled?: boolean
+		trigger?: import('svelte').Snippet
+	}
+
+	let { customName = undefined, disabled = false, trigger }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -15,18 +19,20 @@
 		dispatch('add', { name })
 		name = ''
 	}
+
+	const trigger_render = $derived(trigger)
 </script>
 
 <Popover closeButton={false} class="w-full" {disabled}>
-	<svelte:fragment slot="trigger">
-		<slot name="trigger" />
-	</svelte:fragment>
-	<svelte:fragment slot="content" let:close>
+	{#snippet trigger()}
+		{@render trigger_render?.()}
+	{/snippet}
+	{#snippet content({ close })}
 		<div class="flex flex-row gap-2 p-2 rounded-md">
 			<input
 				bind:value={name}
-				placeholder={placeholder ?? `${customName ?? 'Field'} name`}
-				on:keydown={(event) => {
+				placeholder={`${customName ?? 'Field'} name`}
+				onkeydown={(event) => {
 					if (event.key === 'Enter') {
 						addField()
 						close()
@@ -49,5 +55,5 @@
 				Add {customName ? customName.toLowerCase() : 'field'}
 			</Button>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </Popover>
