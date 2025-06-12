@@ -1,20 +1,29 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import { Section } from '$lib/components/common'
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
+	import { untrack } from 'svelte'
 
-	export let flowModule: FlowModule
+	interface Props {
+		flowModule: FlowModule
+	}
 
-	let code: string | undefined = flowModule.mock?.return_value
-		? JSON.stringify(flowModule.mock?.return_value, null, 2)
-		: undefined
-	let isMockEnabled: boolean | undefined = Boolean(flowModule.mock?.enabled)
+	let { flowModule = $bindable() }: Props = $props()
+
+	let code: string | undefined = $state(
+		flowModule.mock?.return_value
+			? JSON.stringify(flowModule.mock?.return_value, null, 2)
+			: undefined
+	)
+	let isMockEnabled: boolean | undefined = $state(Boolean(flowModule.mock?.enabled))
 
 	// Track the last value to prevent circular updates
 	let lastMockValue = JSON.stringify(flowModule.mock)
-	let renderCount = 0
+	let renderCount = $state(0)
 
 	function updateMock(
 		newMock: { enabled?: boolean | undefined; return_value?: unknown } | undefined
@@ -31,7 +40,9 @@
 			isMockEnabled = Boolean(newMock?.enabled)
 		}
 	}
-	$: updateMock(flowModule.mock)
+	run(() => {
+		flowModule.mock, untrack(() => updateMock(flowModule.mock))
+	})
 
 	function updateMockValue({ detail }: any) {
 		const newMock = {
@@ -46,7 +57,7 @@
 </script>
 
 <Section label="Mock">
-	<svelte:fragment slot="header">
+	{#snippet header()}
 		<div class="flex flex-row items-center gap-2">
 			<Tooltip>
 				If defined and enabled, the step will immediately return the mock value instead of being
@@ -71,7 +82,7 @@
 				size="xs"
 			/>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 
 	<div>
 		<span class="text-xs py-1">Mocked Return value</span>

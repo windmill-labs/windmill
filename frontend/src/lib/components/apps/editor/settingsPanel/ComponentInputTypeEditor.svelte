@@ -9,20 +9,26 @@
 	import ConnectionButton from '$lib/components/common/button/ConnectionButton.svelte'
 	import type EvalV2InputEditor from './inputEditor/EvalV2InputEditor.svelte'
 
-	export let componentInput: AppInput
-	export let disableStatic: boolean = false
-	export let evalV2editor: EvalV2InputEditor | undefined
+	interface Props {
+		componentInput: AppInput
+		disableStatic?: boolean
+		evalV2editor: EvalV2InputEditor | undefined
+	}
+
+	let { componentInput = $bindable(), disableStatic = false, evalV2editor }: Props = $props()
 
 	const { onchange, connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
 	const dispatch = createEventDispatcher()
 
-	$: if (componentInput.fieldType == 'template' && componentInput.type == 'static') {
-		//@ts-ignore
-		componentInput.type = 'templatev2'
-		componentInput['eval'] = componentInput.value
-		componentInput['connections'] = [{ componentId: 'ctx', id: 'email' }]
-	}
+	$effect(() => {
+		if (componentInput.fieldType == 'template' && componentInput.type == 'static') {
+			//@ts-ignore
+			componentInput.type = 'templatev2'
+			componentInput['eval'] = componentInput.value
+			componentInput['connections'] = [{ componentId: 'ctx', id: 'email' }]
+		}
+	})
 
 	function applyConnection(connection: InputConnection) {
 		console.log(connection)
@@ -43,7 +49,7 @@
 		$app = $app
 	}
 
-	let clientWidth: number
+	let clientWidth: number = $state(0)
 	const iconOnlyThreshold = 300
 </script>
 
@@ -56,63 +62,64 @@
 				}}
 				noWFull
 				bind:selected={componentInput.type}
-				let:item
 			>
-				{#if componentInput.fieldType === 'template'}
-					{#if componentInput.type == 'template'}
+				{#snippet children({ item })}
+					{#if componentInput.fieldType === 'template'}
+						{#if componentInput.type == 'template'}
+							<ToggleButton
+								tooltip={`Templated string (use \$\{<output>.x\} )`}
+								value="template"
+								disabled={disableStatic}
+								icon={CurlyBraces}
+								label="Template"
+								{item}
+							/>
+						{:else}
+							<ToggleButton
+								tooltip={`Templated string (use \$\{<output>.x\} )`}
+								value="templatev2"
+								disabled={disableStatic}
+								icon={CurlyBraces}
+								label="Template"
+								{item}
+							/>
+						{/if}
+					{:else if componentInput.noStatic !== true}
 						<ToggleButton
-							tooltip={`Templated string (use \$\{<output>.x\} )`}
-							value="template"
+							label="Static"
+							value="static"
 							disabled={disableStatic}
-							icon={CurlyBraces}
-							label="Template"
-							{item}
-						/>
-					{:else}
-						<ToggleButton
-							tooltip={`Templated string (use \$\{<output>.x\} )`}
-							value="templatev2"
-							disabled={disableStatic}
-							icon={CurlyBraces}
-							label="Template"
+							iconOnly={clientWidth < iconOnlyThreshold}
+							icon={Pen}
 							{item}
 						/>
 					{/if}
-				{:else if componentInput.noStatic !== true}
+					{#if componentInput.type == 'connected'}
+						<ToggleButton
+							value="connected"
+							icon={Plug2}
+							iconOnly={clientWidth < iconOnlyThreshold}
+							label="Connect"
+							{item}
+						/>
+					{/if}
 					<ToggleButton
-						label="Static"
-						value="static"
-						disabled={disableStatic}
+						value="evalv2"
+						icon={FunctionSquare}
 						iconOnly={clientWidth < iconOnlyThreshold}
-						icon={Pen}
+						label="Eval"
 						{item}
 					/>
-				{/if}
-				{#if componentInput.type == 'connected'}
-					<ToggleButton
-						value="connected"
-						icon={Plug2}
-						iconOnly={clientWidth < iconOnlyThreshold}
-						label="Connect"
-						{item}
-					/>
-				{/if}
-				<ToggleButton
-					value="evalv2"
-					icon={FunctionSquare}
-					iconOnly={clientWidth < iconOnlyThreshold}
-					label="Eval"
-					{item}
-				/>
 
-				<ToggleButton
-					value="runnable"
-					icon={Code}
-					iconOnly={clientWidth < iconOnlyThreshold}
-					label="Compute"
-					{item}
-					id="data-source-compute"
-				/>
+					<ToggleButton
+						value="runnable"
+						icon={Code}
+						iconOnly={clientWidth < iconOnlyThreshold}
+						label="Compute"
+						{item}
+						id="data-source-compute"
+					/>
+				{/snippet}
 			</ToggleButtonGroup>
 
 			<div class="flex">

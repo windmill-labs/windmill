@@ -200,7 +200,7 @@
 </script>
 
 <!-- {JSON.stringify($values, null, 2)} -->
-{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, $values) && !(setting.hiddenIfNull && $values[setting.key] == null)}
+{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, $values) && !(setting.hiddenIfNull && $values[setting.key] == null) && !(setting.hiddenIfEmpty && !$values[setting.key])}
 	{#if setting.ee_only != undefined && !$enterpriseLicense}
 		<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap">
 			<AlertTriangle size={16} />
@@ -218,15 +218,17 @@
 					</span>
 				{/if}
 			</label>
-			<ToggleButtonGroup bind:selected={$values[setting.key]} let:item={toggleButton}>
-				{#each setting.select_items ?? [] as item}
-					<ToggleButton
-						value={item.value ?? item.label}
-						label={item.label}
-						tooltip={item.tooltip}
-						item={toggleButton}
-					/>
-				{/each}
+			<ToggleButtonGroup bind:selected={$values[setting.key]}>
+				{#snippet children({ item: toggleButton })}
+					{#each setting.select_items ?? [] as item}
+						<ToggleButton
+							value={item.value ?? item.label}
+							label={item.label}
+							tooltip={item.tooltip}
+							item={toggleButton}
+						/>
+					{/each}
+				{/snippet}
 			</ToggleButtonGroup>
 		</div>
 	{:else if setting.fieldType == 'select_python'}
@@ -241,52 +243,55 @@
 				{/if}
 			</label>
 
-			<ToggleButtonGroup bind:selected={$values[setting.key]} let:item={toggleButtonn}>
-				{#each setting.select_items ?? [] as item}
-					<ToggleButton
-						value={item.value ?? item.label}
-						label={item.label}
-						tooltip={item.tooltip}
-						item={toggleButtonn}
-					/>
-				{/each}
-				<PopoverMelt closeButton={!isPyFetching}>
-					<svelte:fragment slot="trigger">
-						{#if setting.select_items?.some((e) => e.label == $values[setting.key] || e.value == $values[setting.key])}
-							<Button
-								variant="border"
-								color="dark"
-								btnClasses="px-1.5 py-1.5 text-2xs bg-surface-secondary border-0"
-								nonCaptureEvent={true}>Select Custom</Button
-							>
-						{:else}
-							<Button
-								variant="border"
-								color="dark"
-								btnClasses="px-1.5 py-1.5 text-2xs border-0 shadow-md"
-								nonCaptureEvent={true}>Custom | {$values[setting.key]}</Button
-							>
-						{/if}
-					</svelte:fragment>
-					<svelte:fragment slot="content">
-						{#if isPyFetching}
-							<div class="p-4">
-								<LoadingIcon />
-							</div>
-						{:else}
-							<ToggleButtonGroup
-								bind:selected={$values[setting.key]}
-								let:item={toggleButtonn}
-								class="mr-10 h-full"
-								tabListClass="flex-wrap p-2"
-							>
-								{#each pythonAvailableVersions as item}
-									<ToggleButton value={item} label={item} tooltip={item} item={toggleButtonn} />
-								{/each}
-							</ToggleButtonGroup>
-						{/if}
-					</svelte:fragment>
-				</PopoverMelt>
+			<ToggleButtonGroup bind:selected={$values[setting.key]}>
+				{#snippet children({ item: toggleButtonn })}
+					{#each setting.select_items ?? [] as item}
+						<ToggleButton
+							value={item.value ?? item.label}
+							label={item.label}
+							tooltip={item.tooltip}
+							item={toggleButtonn}
+						/>
+					{/each}
+					<PopoverMelt closeButton={!isPyFetching}>
+						<svelte:fragment slot="trigger">
+							{#if setting.select_items?.some((e) => e.label == $values[setting.key] || e.value == $values[setting.key])}
+								<Button
+									variant="border"
+									color="dark"
+									btnClasses="px-1.5 py-1.5 text-2xs bg-surface-secondary border-0"
+									nonCaptureEvent={true}>Select Custom</Button
+								>
+							{:else}
+								<Button
+									variant="border"
+									color="dark"
+									btnClasses="px-1.5 py-1.5 text-2xs border-0 shadow-md"
+									nonCaptureEvent={true}>Custom | {$values[setting.key]}</Button
+								>
+							{/if}
+						</svelte:fragment>
+						<svelte:fragment slot="content">
+							{#if isPyFetching}
+								<div class="p-4">
+									<LoadingIcon />
+								</div>
+							{:else}
+								<ToggleButtonGroup
+									bind:selected={$values[setting.key]}
+									class="mr-10 h-full"
+									tabListClass="flex-wrap p-2"
+								>
+									{#snippet children({ item: toggleButtonn })}
+										{#each pythonAvailableVersions as item}
+											<ToggleButton value={item} label={item} tooltip={item} item={toggleButtonn} />
+										{/each}
+									{/snippet}
+								</ToggleButtonGroup>
+							{/if}
+						</svelte:fragment>
+					</PopoverMelt>
+				{/snippet}
 			</ToggleButtonGroup>
 		</div>
 	{:else}

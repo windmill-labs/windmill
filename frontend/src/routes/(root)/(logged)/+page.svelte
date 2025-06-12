@@ -81,7 +81,7 @@
 
 <Drawer bind:this={codeViewer} size="900px">
 	<DrawerContent title={codeViewerObj?.summary ?? ''} on:close={codeViewer.closeDrawer}>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button
 				href="{$hubBaseUrlStore}/scripts/{codeViewerObj?.app ?? ''}/{codeViewerObj?.ask_id ?? 0}"
 				variant="contained"
@@ -104,7 +104,7 @@
 			>
 				Fork
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 		{#if codeViewerObj != undefined && codeViewerLanguage != undefined}
 			<HighlightCode language={codeViewerLanguage} code={codeViewerContent} />
 		{:else}
@@ -117,7 +117,7 @@
 
 <Drawer bind:this={flowViewer} size="1200px">
 	<DrawerContent title="Hub flow" on:close={flowViewer.closeDrawer}>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button
 				href="{$hubBaseUrlStore}/flows/{flowViewerFlow?.flow?.id}"
 				variant="contained"
@@ -141,7 +141,7 @@
 			>
 				Fork
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 
 		{#if flowViewerFlow?.flow}
 			{#await import('$lib/components/FlowViewer.svelte')}
@@ -159,7 +159,7 @@
 
 <Drawer bind:this={appViewer} size="1200px">
 	<DrawerContent title="Hub app" on:close={appViewer.closeDrawer}>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button
 				href="{$hubBaseUrlStore}/apps/{appViewerApp?.app?.id}"
 				variant="contained"
@@ -183,7 +183,7 @@
 			>
 				Fork
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 
 		{#if appViewerApp?.app}
 			<div class="p-4">

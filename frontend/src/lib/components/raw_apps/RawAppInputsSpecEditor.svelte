@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { addWhitespaceBeforeCapitals, capitalize, classNames } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
@@ -12,30 +14,54 @@
 	import type { RichConfiguration } from '../apps/types'
 	import type { InputType } from '../apps/inputType'
 
-	export let id: string
-	export let componentInput: RichConfiguration
-	export let key: string
-	export let shouldCapitalize: boolean = true
-	export let resourceOnly = false
-	export let tooltip: string | undefined = undefined
-	export let fieldType: InputType
-	export let subFieldType: InputType | undefined
-	export let format: string | undefined
-	export let selectOptions: string[] | undefined
-	export let placeholder: string | undefined
-	export let customTitle: string | undefined = undefined
-	export let displayType: boolean = false
-	export let allowTypeChange: boolean = true
-	export let loading: boolean = false
-	export let documentationLink: string | undefined = undefined
-	export let markdownTooltip: string | undefined = undefined
-
-	$: if (componentInput == undefined) {
-		//@ts-ignore
-		componentInput = {
-			type: 'user'
-		}
+	interface Props {
+		id: string
+		componentInput: RichConfiguration
+		key: string
+		shouldCapitalize?: boolean
+		resourceOnly?: boolean
+		tooltip?: string | undefined
+		fieldType: InputType
+		subFieldType: InputType | undefined
+		format: string | undefined
+		selectOptions: string[] | undefined
+		placeholder: string | undefined
+		customTitle?: string | undefined
+		displayType?: boolean
+		allowTypeChange?: boolean
+		loading?: boolean
+		documentationLink?: string | undefined
+		markdownTooltip?: string | undefined
 	}
+
+	let {
+		id,
+		componentInput = $bindable(),
+		key,
+		shouldCapitalize = true,
+		resourceOnly = false,
+		tooltip = undefined,
+		fieldType,
+		subFieldType,
+		format,
+		selectOptions,
+		placeholder,
+		customTitle = undefined,
+		displayType = false,
+		allowTypeChange = true,
+		loading = false,
+		documentationLink = undefined,
+		markdownTooltip = undefined
+	}: Props = $props()
+
+	run(() => {
+		if (componentInput == undefined) {
+			//@ts-ignore
+			componentInput = {
+				type: 'user'
+			}
+		}
+	})
 </script>
 
 {#if !(resourceOnly && (fieldType !== 'object' || !format?.startsWith('resource-')))}
@@ -70,9 +96,11 @@
 
 			<div class={classNames('flex gap-x-2 gap-y-1 justify-end items-center')}>
 				{#if componentInput?.type && allowTypeChange !== false}
-					<ToggleButtonGroup class="h-7" bind:selected={componentInput.type} let:item>
-						<ToggleButton {item} value="user" icon={User} iconOnly tooltip="User Input" />
-						<ToggleButton {item} value="static" icon={Pen} iconOnly tooltip="Static" />
+					<ToggleButtonGroup class="h-7" bind:selected={componentInput.type}>
+						{#snippet children({ item })}
+							<ToggleButton {item} value="user" icon={User} iconOnly tooltip="User Input" />
+							<ToggleButton {item} value="static" icon={Pen} iconOnly tooltip="Static" />
+						{/snippet}
 					</ToggleButtonGroup>
 				{/if}
 			</div>

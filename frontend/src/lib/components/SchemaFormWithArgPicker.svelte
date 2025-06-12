@@ -94,7 +94,7 @@
 <div class="h-fit">
 	<div class="relative z-[100000] w-full">
 		<div class="absolute" style="right: calc({100 - inputPanelSize}%); top: -1px;">
-			<SideBarTab expandRight={rightPanelOpen} {dropdownItems} fullMenu={true} noTrigger={true} />
+			<SideBarTab {dropdownItems} fullMenu={true} noTrigger={true} />
 		</div>
 	</div>
 	<Splitpanes class={!rightPanelOpen ? 'splitter-hidden' : ''}>
