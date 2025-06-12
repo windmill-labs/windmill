@@ -77,7 +77,6 @@ export function buildToolsFromOpenApi(
 		pathFilter?: (path: string) => boolean
 		operationFilter?: (operation: OpenAPIOperation) => boolean
 		methodFilter?: string[]
-		toolNamePrefix?: string
 	} = {}
 ): { tools: ChatCompletionTool[]; endpointMap: Record<string, string> } {
 	const tools: ChatCompletionTool[] = []
@@ -85,8 +84,7 @@ export function buildToolsFromOpenApi(
 	const {
 		pathFilter,
 		operationFilter,
-		methodFilter = ['get', 'post', 'put', 'delete', 'patch'],
-		toolNamePrefix = ''
+		methodFilter = ['get', 'post', 'put', 'delete', 'patch']
 	} = options
 
 	// Iterate through all paths in the OpenAPI spec
@@ -113,8 +111,6 @@ export function buildToolsFromOpenApi(
 
 			// Generate a function name from the operationId or path
 			const functionName = op.operationId
-				? `${toolNamePrefix}${op.operationId}`
-				: `${toolNamePrefix}${method}_${path.replace(/[\/{}]/g, '_').replace(/_+/g, '_')}`
 
 			// Build the parameters schema
 			const parameters: Record<string, any> = {
