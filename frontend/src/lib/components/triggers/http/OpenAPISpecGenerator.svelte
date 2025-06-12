@@ -19,10 +19,10 @@
 	import { base } from '$lib/base'
 	import Label from '$lib/components/Label.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { Trash } from 'lucide-svelte'
+	import { ClipboardCopy, Download, Trash } from 'lucide-svelte'
 	import Select from '$lib/components/Select.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { emptyString } from '$lib/utils'
+	import { copyToClipboard, emptyString } from '$lib/utils'
 	let openAPIGenerator: Drawer
 
 	let title = $state('')
@@ -34,42 +34,95 @@
 	let licenseName = $state('')
 	let licenseUrl = $state('')
 	let isGeneratingOpenapiSpec = $state(false)
+	let isDownloading = $state(false)
 	let openapiDocument = $state('')
 	let httpRouteFilters: OpenapiHttpRouteFilters[] = $state([])
 	let webhookFilters: WebhookFilters[] = $state([])
 	let lang: OpenapiSpecFormat = $state('yaml')
 	let editor: SimpleEditor | undefined = $state()
+	let isValid = $derived(httpRouteFilters.length === 0 && webhookFilters.length === 0)
+
+	function buildInfo() {
+		const isTitle = !emptyString(title)
+		const isVersion = !emptyString(version)
+
+		let info: OpenapiV3Info | undefined = undefined
+
+		if (isTitle && !isVersion) {
+			throw new Error('Please fill version input')
+		} else if (!isTitle && isVersion) {
+			throw new Error('Please fill title input')
+		} else if (isTitle && isVersion) {
+			info = {
+				title,
+				version,
+				description,
+				contact: {
+					name: contactName,
+					url: contactUrl,
+					email: contactEmail
+				},
+				license: {
+					name: licenseName,
+					url: licenseUrl
+				}
+			}
+		}
+		return info
+	}
+
+	async function downloadSpec() {
+		try {
+			isDownloading = true
+			const info = buildInfo()
+			const content = await HttpTriggerService.downloadOpenapiSpec({
+				workspace: $workspaceStore!,
+				requestBody: {
+					openapi_spec_format: lang,
+					info,
+					url: `${window.location.origin}${base}`,
+					http_route_filters: httpRouteFilters,
+					webhook_filters: webhookFilters
+				}
+			})
+
+			const url = window.URL.createObjectURL(content)
+			const a = document.createElement('a')
+			a.href = url
+			a.download = `openapi-3.1.${lang}`
+			a.click()
+		} catch (error) {
+			sendUserToast(error.body || error.message, true)
+		} finally {
+			isDownloading = false
+		}
+	}
+
+	async function CopyCommand() {
+		try {
+			const info = buildInfo()
+			const obj = {
+				openapi_spec_format: lang,
+				info,
+				url: `${window.location.origin}${base}`,
+				http_route_filters: httpRouteFilters,
+				webhook_filters: webhookFilters
+			}
+
+			copyToClipboard(
+				`curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/http_triggers/openapi/generate" \
+-H "Authorization: Bearer YOUR_TOKEN_HERE" \
+-H "Content-Type: application/json" \
+-d '${JSON.stringify(obj)}'`
+			)
+		} catch (error) {
+			sendUserToast(error.message || error, true)
+		}
+	}
 
 	async function generateOpenapiSpec(openapi_spec_format: OpenapiSpecFormat) {
 		try {
-			const isTitle = !emptyString(title)
-			const isVersion = !emptyString(version)
-
-			let info: OpenapiV3Info | undefined = undefined
-
-			if (isTitle && !isVersion) {
-				sendUserToast('Please fill version input', true)
-				return
-			} else if (!isTitle && isVersion) {
-				sendUserToast('Please fill title input', true)
-				return
-			} else if (isTitle && isVersion) {
-				info = {
-					title,
-					version,
-					description,
-					contact: {
-						name: contactName,
-						url: contactUrl,
-						email: contactEmail
-					},
-					license: {
-						name: licenseName,
-						url: licenseUrl
-					}
-				}
-			}
-
+			const info = buildInfo()
 			isGeneratingOpenapiSpec = true
 			openapiDocument = await HttpTriggerService.generateOpenapiSpec({
 				workspace: $workspaceStore!,
@@ -83,7 +136,7 @@
 			})
 		} catch (error) {
 			openapiDocument = ''
-			sendUserToast(error.body, true)
+			sendUserToast(error.body || error.message, true)
 		} finally {
 			editor?.setCode(openapiDocument, true)
 			isGeneratingOpenapiSpec = false
@@ -101,17 +154,38 @@
 		on:close={() => openAPIGenerator.closeDrawer()}
 	>
 		<svelte:fragment slot="actions">
-			<Button
-				disabled={httpRouteFilters.length === 0 && webhookFilters.length === 0}
-				spacingSize="sm"
-				btnClasses="mb-2"
-				loading={isGeneratingOpenapiSpec}
-				on:click={async () => {
-					await generateOpenapiSpec(lang)
-				}}
-			>
-				Generate OpenAPI document
-			</Button>
+			<div class="flex flex-row gap-2">
+				<Button
+					disabled={isValid}
+					spacingSize="sm"
+					btnClasses="mb-2"
+					loading={isDownloading}
+					on:click={downloadSpec}
+					startIcon={{ icon: Download }}
+				>
+					Download OpenAPI document
+				</Button>
+				<Button
+					disabled={isValid}
+					spacingSize="sm"
+					btnClasses="mb-2"
+					on:click={CopyCommand}
+					startIcon={{ icon: ClipboardCopy }}
+				>
+					Copy cURL command
+				</Button>
+				<Button
+					disabled={isValid}
+					spacingSize="sm"
+					btnClasses="mb-2"
+					loading={isGeneratingOpenapiSpec}
+					on:click={async () => {
+						await generateOpenapiSpec(lang)
+					}}
+				>
+					Generate OpenAPI document
+				</Button>
+			</div>
 		</svelte:fragment>
 
 		<div class="flex flex-row h-full gap-2">

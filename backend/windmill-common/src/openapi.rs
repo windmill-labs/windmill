@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 use crate::{error::Result, utils::deserialize_url, utils::RunnableKind};
 use anyhow::anyhow;
@@ -24,6 +24,16 @@ const DEFAULT_OPENAPI_GENERATED_VERSION: &'static str = "3.1.0";
 pub enum Format {
     JSON,
     YAML,
+}
+
+impl Display for Format {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let format = match self {
+            Format::JSON => "json",
+            Format::YAML => "yaml",
+        };
+        write!(f, "{}", format)
+    }
 }
 
 impl Default for Format {

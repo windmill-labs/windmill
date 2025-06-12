@@ -15,6 +15,7 @@ use crate::{
     users::fetch_api_authed,
 };
 use anyhow::anyhow;
+use axum::body::Body;
 use axum::response::Response;
 use axum::{
     extract::{Path, Query},
@@ -24,7 +25,7 @@ use axum::{
 };
 #[cfg(feature = "parquet")]
 use http::header::IF_NONE_MATCH;
-use http::{HeaderMap, Method, StatusCode};
+use http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
@@ -84,6 +85,12 @@ pub fn routes_global_service() -> Router {
         .layer(cors)
 }
 
+pub fn openapi_service() -> Router {
+    Router::new()
+        .route("/generate", post(generate_openapi_spec))
+        .route("/download", post(download_spec))
+}
+
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/create", post(create_trigger))
@@ -94,7 +101,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete/*path", delete(delete_trigger))
         .route("/exists/*path", get(exists_trigger))
         .route("/route_exists", post(exists_route))
-        .route("/generate_openapi_spec", post(generate_openapi_spec))
+        .nest("/openapi", openapi_service())
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
@@ -1479,15 +1486,13 @@ struct GenerateOpenAPI {
     openapi_spec_format: Format,
 }
 
-async fn generate_openapi_spec(
-    Extension(authed): Extension<ApiAuthed>,
-    Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>,
-    Json(generate_openapi): Json<GenerateOpenAPI>,
-) -> WindmillResult<String> {
-    let GenerateOpenAPI { info, url, http_route_filters, webhook_filters, openapi_spec_format } =
-        generate_openapi;
-
+async fn generate_openapi_future_path(
+    user_db: UserDB,
+    authed: &ApiAuthed,
+    http_route_filters: Option<&[HttpRouteFilter]>,
+    webhook_filters: Option<&[WebhookFilter]>,
+    w_id: &str,
+) -> WindmillResult<Vec<FuturePath>> {
     if http_route_filters.is_none() && webhook_filters.is_none() {
         return Err(Error::BadRequest(
             "Expected http route filter and/or webhook filters".to_string(),
@@ -1496,7 +1501,7 @@ async fn generate_openapi_spec(
 
     let mut http_routes = Vec::new();
 
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = user_db.begin(authed).await?;
 
     if let Some(http_route_filters) = http_route_filters {
         let path_regex = http_route_filters
@@ -1547,7 +1552,7 @@ async fn generate_openapi_spec(
 
     let mut futures_path_webhook = Vec::new();
 
-    if let Some(webhook_filters) = webhook_filters.as_ref() {
+    if let Some(webhook_filters) = webhook_filters {
         let mut script_webhook_filter = Vec::new();
         let mut flow_webhook_filter = Vec::new();
 
@@ -1659,12 +1664,64 @@ async fn generate_openapi_spec(
 
     openapi_future_paths.append(&mut futures_path_webhook);
 
+    Ok(openapi_future_paths)
+}
+
+async fn generate_openapi_spec(
+    Extension(authed): Extension<ApiAuthed>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(generate_openapi): Json<GenerateOpenAPI>,
+) -> WindmillResult<String> {
+    let openapi_future_paths = generate_openapi_future_path(
+        user_db,
+        &authed,
+        generate_openapi.http_route_filters.as_deref(),
+        generate_openapi.webhook_filters.as_deref(),
+        &w_id,
+    )
+    .await?;
+
     let openapi_document = generate_openapi_document(
-        info.as_ref(),
-        url.as_ref(),
+        generate_openapi.info.as_ref(),
+        generate_openapi.url.as_ref(),
         openapi_future_paths,
-        openapi_spec_format,
+        generate_openapi.openapi_spec_format,
     );
 
     openapi_document
+}
+
+async fn download_spec(
+    Extension(authed): Extension<ApiAuthed>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(generate_openapi): Json<GenerateOpenAPI>,
+) -> WindmillResult<Response> {
+    let openapi_future_paths = generate_openapi_future_path(
+        user_db,
+        &authed,
+        generate_openapi.http_route_filters.as_deref(),
+        generate_openapi.webhook_filters.as_deref(),
+        &w_id,
+    )
+    .await?;
+
+    let openapi_document = generate_openapi_document(
+        generate_openapi.info.as_ref(),
+        generate_openapi.url.as_ref(),
+        openapi_future_paths,
+        generate_openapi.openapi_spec_format,
+    )?;
+
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .header(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/octet-stream"),
+        )
+        .body(Body::from(openapi_document))
+        .unwrap();
+
+    Ok(response)
 }
