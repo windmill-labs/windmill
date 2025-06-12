@@ -30,7 +30,7 @@
 	} from '$lib/gen'
 
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { Loader2, RefreshCcw } from 'lucide-svelte'
+	import { ChevronDown, Loader2, RefreshCcw } from 'lucide-svelte'
 	import { onDestroy, tick, untrack } from 'svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
@@ -394,26 +394,23 @@
 		<span class="text-xs absolute -top-4">Resource</span>
 
 		<Select
-			onCreateItem={(r) => {
-				resources.value?.push(r)
-				resource = r
-			}}
+			onCreateItem={(r) => (resources.value?.push(r), (resource = r))}
 			bind:value={resource}
-			items={resources.value?.map((r) => ({ value: r, label: r }))}
-			clearable
+			items={['all', ...(resources.value ?? [])].map((r) => ({ value: r, label: r }))}
 			inputClass="dark:!bg-gray-700"
+			RightIcon={ChevronDown}
 		/>
 	</div>
 
 	<div class="flex gap-1 relative w-full">
 		<span class="text-xs absolute -top-4">Operation</span>
 
-		<select bind:value={operation}>
-			<option selected value="all">all</option>
-			{#each Object.keys(operations) as e}
-				<option value={operations[e]}>{e}</option>
-			{/each}
-		</select>
+		<Select
+			bind:value={operation}
+			items={['all', ...Object.keys(operations)].map((r) => ({ value: r, label: r }))}
+			inputClass="dark:!bg-gray-700"
+			RightIcon={ChevronDown}
+		/>
 	</div>
 
 	<div class="flex gap-1 relative w-full">

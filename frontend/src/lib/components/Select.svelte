@@ -23,6 +23,7 @@
 		disablePortal = false,
 		loading = false,
 		autofocus,
+		RightIcon,
 		groupBy,
 		sortBy,
 		onFocus,
@@ -43,6 +44,7 @@
 		disablePortal?: boolean
 		loading?: boolean
 		autofocus?: boolean
+		RightIcon?: any
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onFocus?: () => void
@@ -188,14 +190,17 @@
 	onfocus={() => onFocus?.()}
 	onblur={() => onBlur?.()}
 >
-	{#if clearable && !disabled && value}
+	{#if loading}
+		<div class="absolute z-10 right-2 h-full flex items-center">
+			<Loader2 size={18} class="animate-spin" />
+		</div>
+	{:else if clearable && !disabled && value}
 		<div class="absolute z-10 right-2 h-full flex items-center">
 			<CloseButton noBg small on:close={clearValue} />
 		</div>
-	{/if}
-	{#if loading}
+	{:else if RightIcon}
 		<div class="absolute z-10 right-2 h-full flex items-center">
-			<Loader2 size={20} class="animate-spin" />
+			<RightIcon size={18} class="text-tertiary/35" />
 		</div>
 	{/if}
 	<!-- svelte-ignore a11y_autofocus -->
@@ -210,7 +215,7 @@
 			'!bg-surface text-ellipsis',
 			open ? '' : 'cursor-pointer',
 			valueEntry && !loading ? '!placeholder-primary' : '',
-			clearable && !disabled && value ? '!pr-8' : '',
+			(clearable || RightIcon) && !disabled && value ? '!pr-8' : '',
 			inputClass ?? ''
 		)}
 		autocomplete="off"
