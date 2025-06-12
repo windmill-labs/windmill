@@ -585,14 +585,17 @@
 									<Cell head>Limits</Cell>
 									<Cell head>Version</Cell>
 									<Cell head>Liveness</Cell>
-									<Cell head last
-										>Live Shell <Tooltip>
-											<p class="text-sm">
-												Open a live shell to execute bash commands on the machine where the worker
-												runs — useful for quick access, inspection, and real-time debugging
-											</p>
-										</Tooltip></Cell
-									>
+									{#if $superadmin}
+										<Cell head>
+											Live Shell
+											<Tooltip>
+												<p class="text-sm">
+													Open a live shell to execute bash commands on the machine where the worker
+													runs — useful for quick access, inspection, and real-time debugging
+												</p>
+											</Tooltip>
+										</Cell>
+									{/if}
 								</tr>
 							</Head>
 							<tbody class="divide-y">
@@ -602,7 +605,7 @@
 										<Cell
 											first
 											colspan={(!config || config?.dedicated_worker == undefined) && $superadmin
-												? 11
+												? 12
 												: 9}
 											scope="colgroup"
 											class="bg-surface-secondary/30 !py-1 border-b !text-xs"
@@ -712,34 +715,36 @@
 															: 'Unknown'}
 													</Badge>
 												</Cell>
-												<Cell last>
-													<Button
-														size="xs"
-														color="light"
-														on:click={() => {
-															if (isWorkerAlive === false) {
-																sendUserToast('Worker must be alive', true)
-																return
-															}
-															if (worker.startsWith(AGENT_WORKER_NAME_PREFIX)) {
-																if (!sshWorker) {
-																	sendUserToast(
-																		'Unexpected error could not find agent worker handling repl feature',
-																		true
-																	)
+												{#if $superadmin}
+													<Cell>
+														<Button
+															size="xs"
+															color="light"
+															on:click={() => {
+																if (isWorkerAlive === false) {
+																	sendUserToast('Worker must be alive', true)
 																	return
 																}
-																tag = sshWorker
-															} else {
-																tag = hostname
-															}
-															replForWorkerDrawer?.openDrawer()
-														}}
-														startIcon={{ icon: Terminal }}
-													>
-														Command
-													</Button>
-												</Cell>
+																if (worker.startsWith(AGENT_WORKER_NAME_PREFIX)) {
+																	if (!sshWorker) {
+																		sendUserToast(
+																			'Unexpected error could not find agent worker handling repl feature',
+																			true
+																		)
+																		return
+																	}
+																	tag = sshWorker
+																} else {
+																	tag = hostname
+																}
+																replForWorkerDrawer?.openDrawer()
+															}}
+															startIcon={{ icon: Terminal }}
+														>
+															ssh
+														</Button>
+													</Cell>
+												{/if}
 											</tr>
 										{/each}
 									{/if}

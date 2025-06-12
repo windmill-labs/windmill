@@ -41,7 +41,6 @@
 	import type { Script } from '$lib/gen'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { ComponentCustomCSS } from './apps/types'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	interface Props {
 		label?: string
@@ -224,7 +223,6 @@
 	}
 
 	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	let ignoreValueUndefined = $state(false)
 	let error: string = $state('')
@@ -447,7 +445,7 @@
 	function compareValues(value) {
 		if (!deepEqual(oldValue, value)) {
 			oldValue = value
-			dispatchIfMounted('change')
+			dispatch('change')
 		}
 	}
 

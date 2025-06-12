@@ -38,14 +38,12 @@
 	import type { DisplayResultUi } from './custom_ui'
 	import { getContext, hasContext, createEventDispatcher, onDestroy } from 'svelte'
 	import { toJsonStr } from '$lib/utils'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
 	const DISPLAY_MAX_SIZE = 100000
 
 	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	let resultKind:
 		| 'json'
@@ -433,7 +431,7 @@
 		} else {
 			toolbarLocation = 'self'
 		}
-		dispatchIfMounted('toolbar-location-changed', toolbarLocation)
+		dispatch('toolbar-location-changed', toolbarLocation)
 	}
 
 	export function getToolbarLocation() {
