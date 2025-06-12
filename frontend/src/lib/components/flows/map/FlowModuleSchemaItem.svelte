@@ -70,6 +70,7 @@
 		icon?: import('svelte').Snippet
 		onTestUpTo?: ((id: string) => void) | undefined
 		inputTransform?: Record<string, any> | undefined
+		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 	}
 
 	let {
@@ -98,7 +99,8 @@
 		loopStatus = undefined,
 		icon,
 		onTestUpTo,
-		inputTransform
+		inputTransform,
+		onUpdateMock
 	}: Props = $props()
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
@@ -423,9 +425,9 @@
 						connectingData={isConnecting ? connectingData : undefined}
 						{mock}
 						lastJob={nlastJob}
-						on:select={selectConnection}
 						moduleId={id}
-						on:updateMock
+						onSelect={selectConnection}
+						{onUpdateMock}
 						{path}
 						{loopStatus}
 						rightMargin

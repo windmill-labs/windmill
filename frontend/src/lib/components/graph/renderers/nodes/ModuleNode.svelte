@@ -89,10 +89,10 @@
 			onSelectedIteration={(e) => {
 				data.eventHandlers.selectedIteration(e)
 			}}
-			on:updateMock={({ detail }) => {
+			onTestUpTo={data.eventHandlers.testUpTo}
+			onUpdateMock={(detail) => {
 				data.eventHandlers.updateMock(detail)
 			}}
-			onTestUpTo={data.eventHandlers.testUpTo}
 		/>
 
 		<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10">

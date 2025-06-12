@@ -26,6 +26,7 @@
 		earlyStop?: boolean
 		editMode?: boolean
 		icon?: import('svelte').Snippet
+		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 	}
 
 	let {
@@ -45,7 +46,8 @@
 		cache = false,
 		earlyStop = false,
 		editMode = false,
-		icon
+		icon,
+		onUpdateMock
 	}: Props = $props()
 
 	const outputPickerVisible = $derived(
@@ -60,7 +62,7 @@
 	{selected}
 	{selectable}
 	{id}
-	{outputPickerVisible}
+	outputPickerVisible={outputPickerVisible ?? false}
 	on:select
 >
 	{#snippet children({ hover })}
@@ -72,7 +74,7 @@
 					: 'items-baseline'} w-full overflow-hidden rounded-sm border p-2 text-2xs module text-primary border-gray-400 dark:border-gray-600"
 			>
 				{#if icon}
-					{@render icon()}
+					{@render icon?.()}
 					<span class="mr-2"></span>
 				{/if}
 				<div class="flex flex-col flex-grow shrink-0 max-w-full min-w-0">
@@ -104,9 +106,9 @@
 							{allowCopy}
 							{prefix}
 							connectingData={isConnecting ? inputJson : undefined}
-							on:select={selectConnection}
+							onSelect={selectConnection}
 							moduleId={''}
-							on:updateMock
+							{onUpdateMock}
 							hideHeaderBar
 							simpleViewer={inputJson}
 							rightMargin
@@ -117,7 +119,6 @@
 				</OutputPicker>
 			{/if}
 		</div>
-
 		<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
 			{#if cache}
 				<Popover notClickable>

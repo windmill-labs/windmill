@@ -190,6 +190,13 @@
 				dispatch('change')
 			}
 		}
+		// let missingKeys = keys.filter((x) => args && !(x in args))
+		// console.log('missingKeys', missingKeys)
+		// missingKeys.forEach((x) => {
+		// 	if (args) {
+		// 		args[x] = undefined
+		// 	}
+		// })
 
 		if (!noDelete && hasExtraKeys()) {
 			removeExtraKey()
@@ -241,7 +248,6 @@
 	const actions_render = $derived(actions)
 </script>
 
-<!-- {JSON.stringify(args)} -->
 {#if showReset}
 	<div class="flex flex-row-reverse w-full">
 		<Button size="xs" color="light" on:click={() => setDefaults()}>

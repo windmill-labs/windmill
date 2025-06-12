@@ -183,7 +183,10 @@
 	<Drawer bind:this={schemaFormDrawer} size="1200px">
 		<DrawerContent title="UI Customisation" on:close={schemaFormDrawer.closeDrawer}>
 			<EditableSchemaForm
-				on:change
+				on:change={(e) => {
+					schema = $state.snapshot(schema)
+					dispatch('change', schema)
+				}}
 				bind:this={editableSchemaForm}
 				bind:schema
 				isAppInput
@@ -201,6 +204,7 @@
 						bind:schema
 						on:change
 						on:addNew={(e) => {
+							schema = $state.snapshot(schema)
 							editableSchemaForm?.openField(e.detail)
 						}}
 					>

@@ -42,7 +42,6 @@
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
 	import { base } from '$lib/base'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/script/core'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import { getStringError } from './copilot/chat/utils'
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
@@ -127,12 +126,11 @@
 	})
 
 	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	$effect(() => {
 		watchChanges &&
 			(code != undefined || schema != undefined) &&
-			dispatchIfMounted('change', { code, schema })
+			dispatch('change', { code, schema })
 	})
 
 	let width = $state(1200)
@@ -352,12 +350,6 @@
 	let codePanelSize = $state(70)
 	let testPanelSize = $state(30)
 	let storedTestPanelSize = untrack(() => testPanelSize)
-
-	$effect(() => {
-		!SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') &&
-			!aiChatManager.open &&
-			untrack(() => aiChatManager.toggleOpen())
-	})
 
 	function toggleTestPanel() {
 		if (testPanelSize > 0) {

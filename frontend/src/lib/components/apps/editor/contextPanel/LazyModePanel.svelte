@@ -9,13 +9,11 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
-	let code = JSON.stringify($app.lazyInitRequire)
+	let code = $state(JSON.stringify($app.lazyInitRequire))
 
-	let selectedRendering = $app.eagerRendering
-		? 'eager'
-		: $app.lazyInitRequire
-		? 'lazy'
-		: 'semi-lazy'
+	let selectedRendering = $state(
+		$app.eagerRendering ? 'eager' : $app.lazyInitRequire ? 'lazy' : 'semi-lazy'
+	)
 </script>
 
 <div class="flex flex-col gap-8" style="all:none;">
@@ -31,7 +29,6 @@
 	</Alert>
 
 	<ToggleButtonGroup
-		label="Rendering"
 		bind:selected={selectedRendering}
 		on:selected={(e) => {
 			if (e.detail == 'eager') {
@@ -46,11 +43,12 @@
 				code = JSON.stringify($app.lazyInitRequire)
 			}
 		}}
-		let:item
 	>
-		<ToggleButton value="eager" label="Eager" {item} />
-		<ToggleButton value="semi-lazy" label="Semi-Lazy" {item} />
-		<ToggleButton value="lazy" label="Lazy" {item} />
+		{#snippet children({ item })}
+			<ToggleButton value="eager" label="Eager" {item} />
+			<ToggleButton value="semi-lazy" label="Semi-Lazy" {item} />
+			<ToggleButton value="lazy" label="Lazy" {item} />
+		{/snippet}
 	</ToggleButtonGroup>
 	{#if selectedRendering == 'eager'}
 		<Section label="Eager mode">

@@ -55,7 +55,7 @@
 		Share,
 		Trash
 	} from 'lucide-svelte'
-	import { onMount } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 	import autosize from '$lib/autosize'
 	import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
@@ -66,95 +66,53 @@
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
 
-	let cacheResources: ResourceW[] | undefined
-	let stateResources: ResourceW[] | undefined
-	let resources: ResourceW[] | undefined
-	let resourceTypes: ResourceTypeW[] | undefined
+	let cacheResources: ResourceW[] | undefined = $state()
+	let stateResources: ResourceW[] | undefined = $state()
+	let resources: ResourceW[] | undefined = $state()
+	let resourceTypes: ResourceTypeW[] | undefined = $state()
 
-	let filteredItems: (ResourceW & { marked?: string })[] | undefined = undefined
+	let filteredItems: (ResourceW & { marked?: string })[] | undefined = $state(undefined) as
+		| (ResourceW & { marked?: string })[]
+		| undefined
 
-	let resourceTypeViewer: Drawer
-	let resourceTypeViewerObj = {
+	let resourceTypeViewer: Drawer | undefined = $state(undefined)
+	let resourceTypeViewerObj = $state({
 		rt: '',
 		description: '',
 		schema: emptySchema(),
 		formatExtension: undefined as string | undefined
-	}
+	})
 
-	let resourceTypeDrawer: Drawer
-	let editResourceTypeDrawer: Drawer
-	let newResourceType = {
+	let resourceTypeDrawer: Drawer | undefined = $state(undefined)
+	let editResourceTypeDrawer: Drawer | undefined = $state(undefined)
+	let newResourceType = $state({
 		name: '',
 		schema: emptySchema(),
 		description: '',
 		formatExtension: undefined
-	}
-	let isNewResourceTypeNameValid: boolean
+	})
+	let isNewResourceTypeNameValid: boolean = $state(false)
 
-	let editResourceType = {
+	let editResourceType = $state({
 		name: '',
 		schema: emptySchema(),
 		description: '',
 		formatExtension: undefined as string | undefined
-	}
-	let resourceEditor: ResourceEditorDrawer | undefined
-	let shareModal: ShareModal
-	let appConnect: AppConnect
-	let supabaseConnect: SupabaseConnect
-	let deleteConfirmedCallback: (() => void) | undefined = undefined
-	let loading = {
+	})
+	let resourceEditor: ResourceEditorDrawer | undefined = $state(undefined)
+	let shareModal: ShareModal | undefined = $state(undefined)
+	let appConnect: AppConnect | undefined = $state(undefined)
+	let supabaseConnect: SupabaseConnect | undefined = $state(undefined)
+	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
+	let loading = $state({
 		resources: true,
 		types: true
-	}
+	})
 
-	$: owners = Array.from(
-		new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-	).sort()
+	let filter = $state('')
+	let ownerFilter: string | undefined = $state(undefined)
 
-	$: types = Array.from(new Set(filteredItems?.map((x) => x.resource_type))).sort()
-
-	let filter = ''
-	let ownerFilter: string | undefined = undefined
-
-	$: if ($workspaceStore) {
-		ownerFilter = undefined
-	}
-
-	let typeFilter: string | undefined = undefined
-
-	$: currentResources =
-		tab == 'cache' ? cacheResources : tab == 'states' ? stateResources : resources
-
-	$: preFilteredItemsOwners =
-		ownerFilter == undefined
-			? currentResources
-			: currentResources?.filter((x) => x.path.startsWith(ownerFilter ?? ''))
-
-	$: preFilteredType =
-		typeFilter == undefined
-			? preFilteredItemsOwners?.filter((x) => {
-					return tab === 'workspace'
-						? x.resource_type !== 'app_theme' &&
-								x.resource_type !== 'state' &&
-								x.resource_type !== 'cache'
-						: tab === 'states'
-							? x.resource_type === 'state'
-							: tab === 'cache'
-								? x.resource_type === 'cache'
-								: tab === 'theme'
-									? x.resource_type === 'app_theme'
-									: true
-				})
-			: preFilteredItemsOwners?.filter((x) => {
-					return (
-						x.resource_type === typeFilter &&
-						(tab === 'workspace'
-							? x.resource_type !== 'app_theme' &&
-								x.resource_type !== 'state' &&
-								x.resource_type !== 'cache'
-							: true)
-					)
-				})
+	let typeFilter: string | undefined = $state(undefined)
 
 	async function loadResources(): Promise<void> {
 		resources = await loadResourceInternal(undefined, 'cache,state')
@@ -226,7 +184,7 @@
 				format_extension: newResourceType.formatExtension
 			}
 		})
-		resourceTypeDrawer.closeDrawer?.()
+		resourceTypeDrawer?.closeDrawer?.()
 		sendUserToast('Resource type created')
 		loadResourceTypes()
 		$resourceTypesStore = undefined
@@ -241,7 +199,7 @@
 				description: editResourceType.description
 			}
 		})
-		editResourceTypeDrawer.closeDrawer?.()
+		editResourceTypeDrawer?.closeDrawer?.()
 		sendUserToast('Resource type updated')
 		loadResourceTypes()
 	}
@@ -271,7 +229,7 @@
 		}
 		validateResourceTypeName()
 
-		resourceTypeDrawer.openDrawer?.()
+		resourceTypeDrawer?.openDrawer?.()
 	}
 
 	async function startEditResourceType(name: string) {
@@ -282,29 +240,22 @@
 			description: rt.description ?? '',
 			formatExtension: rt.format_extension
 		}
-		editResourceTypeDrawer.openDrawer?.()
-	}
-
-	$: {
-		if ($workspaceStore && $userStore) {
-			loadResources()
-			loadResourceTypes()
-		}
+		editResourceTypeDrawer?.openDrawer?.()
 	}
 
 	onMount(() => {
 		const callback = $page.url.searchParams.get('callback')
 		if (callback == 'supabase_wizard') {
-			supabaseConnect.open?.()
+			supabaseConnect?.open?.()
 		}
 
 		const connect_app = $page.url.searchParams.get('connect_app')
 		if (connect_app) {
 			const rt = connect_app ?? undefined
 			if (rt == 'undefined') {
-				appConnect.open?.()
+				appConnect?.open?.()
 			} else {
-				appConnect.open?.(rt)
+				appConnect?.open?.(rt)
 			}
 		}
 	})
@@ -313,11 +264,16 @@
 		inferrer?.openDrawer?.()
 	}
 
-	let disableCustomPrefix = false
-	let tab: 'workspace' | 'types' | 'states' | 'cache' | 'theme' = 'workspace'
+	let disableCustomPrefix = $state(false)
+	let tab: 'workspace' | 'types' | 'states' | 'cache' | 'theme' = $state('workspace') as
+		| 'workspace'
+		| 'types'
+		| 'states'
+		| 'cache'
+		| 'theme'
 
-	let inferrer: Drawer | undefined = undefined
-	let inferrerJson = ''
+	let inferrer: Drawer | undefined = $state(undefined)
+	let inferrerJson = $state('')
 
 	function inferJson(): void {
 		try {
@@ -332,7 +288,7 @@
 		}
 		inferrer?.closeDrawer?.()
 	}
-	let deploymentDrawer: DeployWorkspaceDrawer
+	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
 
 	async function reload() {
 		loading = {
@@ -353,7 +309,7 @@
 		}
 	}
 
-	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
 
 	async function getDeployUiSettings() {
 		if (!$enterpriseLicense) {
@@ -382,15 +338,82 @@
 
 	let resourceNameToFileExtMap: any = undefined
 
+	let loadingResourceNameToFileExt = false
 	async function resourceNameToFileExt(resourceName: string) {
-		if (resourceNameToFileExtMap == undefined) {
-			resourceNameToFileExtMap = await ResourceService.fileResourceTypeToFileExtMap({
-				workspace: $workspaceStore!
-			})
+		if (resourceNameToFileExtMap == undefined && !loadingResourceNameToFileExt) {
+			loadingResourceNameToFileExt = true
+			try {
+				resourceNameToFileExtMap = await ResourceService.fileResourceTypeToFileExtMap({
+					workspace: $workspaceStore!
+				})
+			} catch (e) {
+				console.error('Error loading resourceNameToFileExtMap', e)
+			} finally {
+				loadingResourceNameToFileExt = false
+			}
+		} else {
+			while (resourceNameToFileExtMap == undefined) {
+				console.log('waiting for resourceNameToFileExtMap')
+				await new Promise((resolve) => setTimeout(resolve, 100))
+			}
 		}
 
 		return resourceNameToFileExtMap[resourceName]
 	}
+
+	let owners = $derived(
+		Array.from(
+			new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+		).sort()
+	)
+	let types = $derived(Array.from(new Set(filteredItems?.map((x) => x.resource_type))).sort())
+	$effect(() => {
+		if ($workspaceStore) {
+			ownerFilter = undefined
+		}
+	})
+	let currentResources = $derived(
+		tab == 'cache' ? cacheResources : tab == 'states' ? stateResources : resources
+	)
+	let preFilteredItemsOwners = $derived(
+		ownerFilter == undefined
+			? currentResources
+			: currentResources?.filter((x) => x.path.startsWith(ownerFilter ?? ''))
+	)
+	let preFilteredType = $derived(
+		typeFilter == undefined
+			? preFilteredItemsOwners?.filter((x) => {
+					return tab === 'workspace'
+						? x.resource_type !== 'app_theme' &&
+								x.resource_type !== 'state' &&
+								x.resource_type !== 'cache'
+						: tab === 'states'
+							? x.resource_type === 'state'
+							: tab === 'cache'
+								? x.resource_type === 'cache'
+								: tab === 'theme'
+									? x.resource_type === 'app_theme'
+									: true
+				})
+			: preFilteredItemsOwners?.filter((x) => {
+					return (
+						x.resource_type === typeFilter &&
+						(tab === 'workspace'
+							? x.resource_type !== 'app_theme' &&
+								x.resource_type !== 'state' &&
+								x.resource_type !== 'cache'
+							: true)
+					)
+				})
+	)
+	$effect(() => {
+		if ($workspaceStore && $userStore) {
+			untrack(() => {
+				loadResources()
+				loadResourceTypes()
+			})
+		}
+	})
 </script>
 
 <ConfirmationModal
@@ -546,7 +569,7 @@
 								type="text"
 								bind:value={newResourceType.name}
 								class={classNames('!h-8  !border ', !disableCustomPrefix ? '!rounded-l-none' : '')}
-								on:input={validateResourceTypeName}
+								oninput={validateResourceTypeName}
 							/>
 						</div>
 					</div>
@@ -561,7 +584,7 @@
 					{#if !isNewResourceTypeNameValid}
 						<p class="mt-1 px-2 text-red-600 dark:text-red-400 text-2xs"
 							>Name must be snake_case!
-							<button on:click={toSnakeCase} class="text-blue-600">Fix...</button></p
+							<button onclick={toSnakeCase} class="text-blue-600">Fix...</button></p
 						>
 					{/if}
 				{/if}
@@ -629,7 +652,7 @@
 				<Button
 					size="md"
 					startIcon={{ icon: Link }}
-					on:click={() => appConnect.open?.()}
+					on:click={() => appConnect?.open?.()}
 					aiId="resources-add-resource"
 					aiDescription="Add resource"
 				>
@@ -762,14 +785,14 @@
 											<a
 												class="break-all"
 												href="#{path}"
-												on:click={() => resourceEditor?.initEdit?.(path)}
+												onclick={() => resourceEditor?.initEdit?.(path)}
 												>{#if marked}{@html marked}{:else}{path}{/if}</a
 											>
 										</Cell>
 										<Cell>
 											<a
 												href="#{name}"
-												on:click={() => {
+												onclick={() => {
 													const linkedRt = resourceTypes?.find((rt) => rt.name === resource_type)
 													if (linkedRt) {
 														resourceTypeViewerObj = {
@@ -779,7 +802,7 @@
 															description: linkedRt.description ?? '',
 															formatExtension: linkedRt.format_extension
 														}
-														resourceTypeViewer.openDrawer?.()
+														resourceTypeViewer?.openDrawer?.()
 													} else {
 														sendUserToast(
 															`Resource type ${resource_type} not found in workspace.`,
@@ -806,10 +829,12 @@
 													{#if is_linked}
 														<Popover>
 															<Link />
-															<div slot="text">
-																This resource is linked with a variable of the same path. They are
-																deleted and renamed together.
-															</div>
+															{#snippet text()}
+																<div>
+																	This resource is linked with a variable of the same path. They are
+																	deleted and renamed together.
+																</div>
+															{/snippet}
 														</Popover>
 													{/if}
 												</div>
@@ -817,10 +842,12 @@
 													{#if is_refreshed}
 														<Popover>
 															<RotateCw />
-															<div slot="text">
-																The OAuth token will be kept up-to-date in the background by
-																Windmill using its refresh token
-															</div>
+															{#snippet text()}
+																<div>
+																	The OAuth token will be kept up-to-date in the background by
+																	Windmill using its refresh token
+																</div>
+															{/snippet}
 														</Popover>
 													{/if}
 												</div>
@@ -833,9 +860,11 @@
 																	class="text-red-600 animate-[pulse_5s_linear_infinite] fill-current"
 																	size={12}
 																/>
-																<div slot="text">
-																	Latest exchange of the refresh token did not succeed. Error: {refresh_error}
-																</div>
+																{#snippet text()}
+																	<div>
+																		Latest exchange of the refresh token did not succeed. Error: {refresh_error}
+																	</div>
+																{/snippet}
 															</Popover>
 														{:else if is_expired}
 															<Popover>
@@ -844,11 +873,13 @@
 																	size={12}
 																/>
 
-																<div slot="text">
-																	The access_token is expired, it will get renewed the next time
-																	this variable is fetched or you can request is to be refreshed in
-																	the dropdown on the right.
-																</div>
+																{#snippet text()}
+																	<div>
+																		The access_token is expired, it will get renewed the next time
+																		this variable is fetched or you can request is to be refreshed
+																		in the dropdown on the right.
+																	</div>
+																{/snippet}
 															</Popover>
 														{:else}
 															<Popover>
@@ -856,10 +887,12 @@
 																	class="text-green-600 animate-[pulse_5s_linear_infinite] fill-current"
 																	size={12}
 																/>
-																<div slot="text">
-																	The resource was connected through OAuth and the token is not
-																	expired.
-																</div>
+																{#snippet text()}
+																	<div>
+																		The resource was connected through OAuth and the token is not
+																		expired.
+																	</div>
+																{/snippet}
 															</Popover>
 														{/if}
 													</div>
@@ -881,7 +914,7 @@
 														displayName: !canWrite ? 'View Permissions' : 'Share',
 														icon: Share,
 														action: () => {
-															shareModal.openDrawer?.(path, 'resource')
+															shareModal?.openDrawer?.(path, 'resource')
 														}
 													},
 													{
@@ -898,7 +931,7 @@
 																	displayName: 'Deploy to prod/staging',
 																	icon: FileUp,
 																	action: () => {
-																		deploymentDrawer.openDrawer(path, 'resource')
+																		deploymentDrawer?.openDrawer(path, 'resource')
 																	}
 																}
 															]
@@ -972,7 +1005,7 @@
 										<Cell first>
 											<a
 												href="#{name}"
-												on:click={() => {
+												onclick={() => {
 													resourceTypeViewerObj = {
 														rt: name,
 														//@ts-ignore
@@ -981,7 +1014,7 @@
 														formatExtension: format_extension
 													}
 
-													resourceTypeViewer.openDrawer?.()
+													resourceTypeViewer?.openDrawer?.()
 												}}
 											>
 												<IconedResourceType

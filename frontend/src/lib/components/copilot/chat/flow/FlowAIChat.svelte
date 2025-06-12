@@ -22,7 +22,7 @@
 		flowModuleSchemaMap: FlowModuleSchemaMap | undefined
 	} = $props()
 
-	const { flowStore, flowStateStore, selectedId, currentEditor, flowInputsStore } =
+	const { flowStore, flowStateStore, selectedId, currentEditor } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	const { exprsToSet } = getContext<FlowCopilotContext | undefined>('FlowCopilotContext') ?? {}
@@ -183,10 +183,6 @@
 			} else {
 				const { modules } = getIndexInNestedModules(flowStore.val, id)
 				flowModuleSchemaMap?.removeAtId(modules, id)
-			}
-
-			if ($flowInputsStore) {
-				delete $flowInputsStore[id]
 			}
 
 			refreshStateStore(flowStore)

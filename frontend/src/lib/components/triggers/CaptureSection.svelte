@@ -432,7 +432,7 @@
 
 								dispatch('applyArgs', {
 									kind: testKind,
-									args: { ...structuredClone(payloadData), ...trigger_extra }
+									args: { ...structuredClone($state.snapshot(payloadData)), ...trigger_extra }
 								})
 							}
 						}}

@@ -41,7 +41,6 @@
 	import type { Script } from '$lib/gen'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { ComponentCustomCSS } from './apps/types'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	interface Props {
 		label?: string
@@ -224,7 +223,6 @@
 	}
 
 	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	let ignoreValueUndefined = $state(false)
 	let error: string = $state('')
@@ -447,7 +445,7 @@
 	function compareValues(value) {
 		if (!deepEqual(oldValue, value)) {
 			oldValue = value
-			dispatchIfMounted('change')
+			dispatch('change')
 		}
 	}
 
@@ -648,7 +646,7 @@
 								}}
 							/>
 						</div>
-					{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && Array.isArray(value)}
+					{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && (Array.isArray(value) || value == undefined)}
 						<div class="items-start">
 							<Multiselect
 								ulOptionsClass={'p-2 !bg-surface-secondary'}
@@ -658,7 +656,7 @@
 									if (Array.isArray(value)) value = value.filter((v) => v !== e.option)
 								}}
 								bind:selected={
-									() => [...value],
+									() => [...(value ?? [])],
 									(v) => {
 										if (!deepEqual(v, value)) {
 											value = v

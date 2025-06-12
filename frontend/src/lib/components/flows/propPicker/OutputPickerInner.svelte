@@ -20,7 +20,7 @@
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import StepHistory from './StepHistory.svelte'
 	import { Popover } from '$lib/components/meltComponents'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { untrack } from 'svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
 	import type { Job } from '$lib/gen'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -60,6 +60,8 @@
 		historyOffset?: any
 		clazz?: string
 		copilot_fix?: import('svelte').Snippet
+		onSelect?: (key: string) => void
+		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 	}
 
 	let {
@@ -87,7 +89,9 @@
 		derivedHistoryOpen = $bindable(false),
 		historyOffset = { mainAxis: 8, crossAxis: -4.5 },
 		clazz,
-		copilot_fix
+		copilot_fix,
+		onSelect,
+		onUpdateMock
 	}: Props = $props()
 
 	type SelectedJob =
@@ -102,10 +106,6 @@
 				  }
 		  ) & { preview?: boolean })
 		| undefined
-
-	const dispatch = createEventDispatcher<{
-		updateMock: { enabled: boolean; return_value?: unknown }
-	}>()
 
 	let jsonView = $state(false)
 	let clientHeight: number = $state(0)
@@ -172,13 +172,13 @@
 	function togglePin() {
 		if (mock?.enabled && !preview) {
 			// Unpin
-			dispatch('updateMock', {
+			onUpdateMock?.({
 				...mock,
 				enabled: false
 			})
 		} else if (preview === 'mock') {
 			// Restore the pin
-			dispatch('updateMock', {
+			onUpdateMock?.({
 				...mock,
 				enabled: true
 			})
@@ -192,10 +192,10 @@
 				enabled: true,
 				return_value: mockValue
 			}
-			dispatch('updateMock', newMock)
+			onUpdateMock?.(newMock)
 		} else {
 			// Fallback to mock
-			dispatch('updateMock', {
+			onUpdateMock?.({
 				enabled: true,
 				return_value: { example: 'value' }
 			})
@@ -446,7 +446,7 @@
 							}
 							jsonView = false
 							mock = tmpMock
-							dispatch('updateMock', {
+							onUpdateMock?.({
 								enabled: tmpMock?.enabled ?? false,
 								return_value: tmpMock?.return_value
 							})
@@ -575,7 +575,7 @@
 				<div class="flex flex-col items-center justify-center">
 					<Loader2 class="animate-spin" />
 				</div>
-			{:else if connectingData || simpleViewer}
+			{:else if connectingData !== undefined || simpleViewer}
 				<ObjectViewer
 					json={moduleId
 						? {
@@ -585,7 +585,9 @@
 					topBrackets={false}
 					pureViewer={false}
 					{prefix}
-					on:select
+					on:select={(e) => {
+						onSelect?.(e.detail)
+					}}
 					{allowCopy}
 				/>
 			{:else if jsonView}
@@ -682,7 +684,7 @@
 										enabled: true,
 										return_value: mock?.return_value ?? { example: 'value' }
 									}
-									dispatch('updateMock', newMock)
+									onUpdateMock?.(newMock)
 								}}>pin data<Pin size={16} class="inline" /></button
 							>{:else}.{/if}
 					</p>

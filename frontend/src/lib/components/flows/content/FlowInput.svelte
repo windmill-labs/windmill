@@ -403,7 +403,6 @@
 				{diff}
 				disableDnd={!!previewSchema}
 				on:rejectChange={(e) => {
-					console.log('rejectChange')
 					rejectChange(e.detail).then(() => {
 						updatePreviewSchema(selectedSchema)
 					})

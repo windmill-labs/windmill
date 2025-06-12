@@ -371,7 +371,7 @@
 				bind:delivery_config
 				bind:topic_id
 				bind:subscription_mode
-				bind:path
+				{path}
 				cloud_subscription_id={subscription_id}
 				create_update_subscription_id={subscription_id}
 				{can_write}

@@ -29,15 +29,12 @@
 		scriptProgress = $bindable(undefined)
 	}: Props = $props()
 
-	let moduleTest: ModuleTest | undefined = $state()
-
 	const { flowStore, testSteps } = getContext<FlowEditorContext>('FlowEditorContext')
+	let moduleTest: ModuleTest | undefined = $state()
 
 	export function runTestWithStepArgs() {
 		moduleTest?.runTest(testSteps.getStepArgs(mod.id))
 	}
-
-	testSteps.initializeFromSchema(mod, schema, pickableProperties)
 </script>
 
 <ModuleTest

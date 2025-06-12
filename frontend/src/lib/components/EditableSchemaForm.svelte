@@ -27,11 +27,9 @@
 	import { tweened } from 'svelte/motion'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { EditableSchemaFormUi } from '$lib/components/custom_ui'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	// export let openEditTab: () => void = () => {}
 	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	interface Props {
 		schema: Schema | any
@@ -110,7 +108,6 @@
 		}
 	})
 
-	let schema2 = $derived(previewSchema ? previewSchema : schema)
 	export function setDefaults() {
 		const nargs = {}
 
@@ -180,11 +177,6 @@
 
 	let opened: string | undefined = $state(untrack(() => keys[0]))
 
-	function updateSelected(property: any) {
-		if (!property) return
-		selected = computeSelected(property)
-	}
-
 	function computeSelected(property: any) {
 		if (!opened) return ''
 		return property.type !== 'object'
@@ -195,8 +187,6 @@
 					? 'oneOf'
 					: 'object'
 	}
-
-	let selected = $state(computeSelected(schema.properties[untrack(() => opened ?? '')]))
 
 	export function openField(key: string) {
 		opened = key
@@ -248,7 +238,7 @@
 
 			opened = newName
 
-			schema = schema
+			schema = $state.snapshot(schema)
 			dispatch('change', schema)
 			sendUserToast('Argument renamed')
 		}
@@ -289,7 +279,7 @@
 	function updatePanelSizes(editSize: number, inputSize: number) {
 		editPanelSize = editSize
 		inputPanelSize = inputSize
-		dispatchIfMounted('editPanelSizeChanged', editSize)
+		dispatch('editPanelSizeChanged', editSize)
 	}
 
 	let panelButtonWidth: number = $state(0)
@@ -300,9 +290,6 @@
 	})
 	$effect(() => {
 		schema && untrack(() => onSchemaChange())
-	})
-	$effect(() => {
-		opened && updateSelected(schema.properties[opened])
 	})
 	$effect(() => {
 		updatePanelSizes($editPanelSizeSmooth, $inputPanelSizeSmooth)
@@ -348,11 +335,10 @@
 						<SchemaFormDnd
 							nestedClasses={'flex flex-col gap-1'}
 							bind:schema={
-								() => schema2,
+								() => (previewSchema ? previewSchema : schema),
 								(newSchema) => {
-									console.log('schemaUpdate 2', $state.snapshot(newSchema.order))
+									console.log('schemaChange set', $state.snapshot(newSchema))
 									schema = newSchema
-									console.log('schemaUpdate', $state.snapshot(schema.order))
 									tick().then(() => dispatch('change', schema))
 								}
 							}
@@ -530,7 +516,7 @@
 															{isFlowInput}
 															{isAppInput}
 															on:change={() => {
-																schema = schema
+																schema = $state.snapshot(schema)
 																dispatch('change', schema)
 															}}
 														>
@@ -540,80 +526,80 @@
 																		<ToggleButtonGroup
 																			tabListClass="flex-wrap"
 																			class="h-auto"
-																			bind:selected
+																			bind:selected={
+																				() => computeSelected(schema.properties[opened ?? '']),
+																				(v) => {
+																					const isS3 = v == 'S3'
+																					const isOneOf = v == 'oneOf'
+
+																					const emptyProperty = {
+																						contentEncoding: undefined,
+																						enum_: undefined,
+																						pattern: undefined,
+																						default: undefined,
+																						min: undefined,
+																						max: undefined,
+																						currency: undefined,
+																						currencyLocale: undefined,
+																						multiselect: undefined,
+																						password: undefined,
+																						dateFormat: undefined,
+																						...(v == 'array' ? { items: { type: 'string' } } : {}),
+																						showExpr: undefined,
+																						nullable: undefined,
+																						required: undefined
+																					}
+
+																					if (isS3) {
+																						schema.properties[argName] = {
+																							...emptyProperty,
+																							type: 'object',
+																							format: 'resource-s3_object'
+																						}
+																					} else if (isOneOf) {
+																						schema.properties[argName] = {
+																							...emptyProperty,
+																							type: 'object',
+																							oneOf: [
+																								{
+																									title: 'Option 1',
+																									type: 'object',
+																									properties: {
+																										label: {
+																											type: 'string',
+																											enum: ['Option 1']
+																										},
+																										property_1: {
+																											type: 'string'
+																										}
+																									}
+																								},
+																								{
+																									title: 'Option 2',
+																									type: 'object',
+																									properties: {
+																										label: {
+																											type: 'string',
+																											enum: ['Option 2']
+																										},
+																										property_2: {
+																											type: 'string'
+																										}
+																									}
+																								}
+																							]
+																						}
+																					} else {
+																						schema.properties[argName] = {
+																							...emptyProperty,
+																							format: undefined,
+																							type: v
+																						}
+																					}
+																				}
+																			}
 																			on:selected={(e) => {
-																				const isS3 = e.detail == 'S3'
-																				const isOneOf = e.detail == 'oneOf'
-
-																				const emptyProperty = {
-																					contentEncoding: undefined,
-																					enum_: undefined,
-																					pattern: undefined,
-																					default: undefined,
-																					min: undefined,
-																					max: undefined,
-																					currency: undefined,
-																					currencyLocale: undefined,
-																					multiselect: undefined,
-																					password: undefined,
-																					dateFormat: undefined,
-																					...(e.detail == 'array'
-																						? { items: { type: 'string' } }
-																						: {}),
-																					showExpr: undefined,
-																					nullable: undefined,
-																					required: undefined
-																				}
-
-																				if (isS3) {
-																					schema.properties[argName] = {
-																						...emptyProperty,
-																						type: 'object',
-																						format: 'resource-s3_object'
-																					}
-																				} else if (isOneOf) {
-																					schema.properties[argName] = {
-																						...emptyProperty,
-																						type: 'object',
-																						oneOf: [
-																							{
-																								title: 'Option 1',
-																								type: 'object',
-																								properties: {
-																									label: {
-																										type: 'string',
-																										enum: ['Option 1']
-																									},
-																									property_1: {
-																										type: 'string'
-																									}
-																								}
-																							},
-																							{
-																								title: 'Option 2',
-																								type: 'object',
-																								properties: {
-																									label: {
-																										type: 'string',
-																										enum: ['Option 2']
-																									},
-																									property_2: {
-																										type: 'string'
-																									}
-																								}
-																							}
-																						]
-																					}
-																				} else {
-																					schema.properties[argName] = {
-																						...emptyProperty,
-																						format: undefined,
-																						type: e.detail
-																					}
-																				}
-
 																				schema = schema
-
 																				dispatch('change', schema)
 																				dispatch('schemaChange')
 																			}}
@@ -663,6 +649,7 @@
 																		dispatch('change', schema)
 																	}}
 																	on:schemaChange={(e) => {
+																		schema = $state.snapshot(schema)
 																		dispatch('change', schema)
 																		dispatch('schemaChange')
 																	}}

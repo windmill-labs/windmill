@@ -40,13 +40,14 @@
 	let outputOpen = $state(false)
 	let inputOpen = $state(false)
 
-	const showConnecting = $derived(
-		isConnectingCandidate && $flowPropPickerConfig?.insertionMode === 'connect'
-	)
 	const zoom = $derived.by(useSvelteFlow().getZoom)
 
-	function selectConnection(event: CustomEvent) {
-		if ($flowPropPickerConfig?.onSelect(event.detail)) {
+	let showConnecting = $derived(
+		isConnectingCandidate && $flowPropPickerConfig?.insertionMode === 'connect'
+	)
+
+	function selectConnection(value: string) {
+		if ($flowPropPickerConfig?.onSelect(value)) {
 			$flowPropPickerConfig?.clearFocus()
 			popover?.close()
 		}
