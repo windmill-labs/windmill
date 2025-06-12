@@ -37,7 +37,7 @@
 			<div class="text-red-600 text-2xs grow">{passwordError}</div>
 		{/if}
 		<div class="flex flex-col gap-2 w-full">
-			<div class="mt-4">
+			<form class="mt-4">
 				<label class="block w-60 mb-2 text-tertiary">
 					<div class="text-secondary">email</div>
 					<input type="text" disabled value={$usersWorkspaceStore?.email} class="input mt-1" />
@@ -46,6 +46,7 @@
 					<label class="block w-120">
 						<div class="text-secondary">password</div>
 						<input
+							autocomplete="new-password"
 							type="password"
 							bind:value={newPassword}
 							class="
@@ -66,7 +67,7 @@
 				{:else if login_type == 'github'}
 					<span class="text-sm">Authenticated through Github OAuth2. Cannot set a password.</span>
 				{/if}
-			</div>
+			</form>
 		</div>
 	</div>
 </div>

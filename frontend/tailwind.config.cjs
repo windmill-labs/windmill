@@ -1,5 +1,6 @@
 const plugin = require('tailwindcss/plugin')
 const { tailwindClasses } = require('./src/lib/components/apps/editor/componentsPanel/tailwindUtils')
+const { zIndexes } = require('./src/lib/zIndexes')
 
 const lightTheme = {
 	surface: '#ffffff',
@@ -82,6 +83,7 @@ const config = {
 		'autocomplete-list-item-create',
 		'selected',
 		'wm-tab-selected',
+		...Object.values(zIndexes).map((zIndex) => `z-[${zIndex}]`),
 		...tailwindClasses
 	],
 	theme: {
