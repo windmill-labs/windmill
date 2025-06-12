@@ -113,7 +113,7 @@
 			bind:this={menu}
 			usePointerDownOutside
 		>
-			{#snippet trigger({ trigger })}
+			{#snippet triggr({ trigger })}
 				<MeltButton
 					title="Pick an iteration"
 					id={`flow-editor-iteration picker-${id}`}

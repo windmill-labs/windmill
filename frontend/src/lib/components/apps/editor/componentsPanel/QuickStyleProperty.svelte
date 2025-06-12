@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { getContext } from 'svelte'
 	import { Button, ClearableInput, Menu } from '../../../common'
 	import Popover from '../../../Popover.svelte'
 	import ColorInput from '../settingsPanel/inputEditor/ColorInput.svelte'
@@ -11,18 +11,16 @@
 		type StyleStoreValue,
 		type StylePropertyValue
 	} from './quickStyleProperties'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	interface Props {
 		prop: StyleStoreValue['style'][number]['prop']
 		value: string | undefined
 		inline?: boolean
+		onChange?: (value: string) => void
 	}
 
-	let { prop, value = $bindable(), inline = false }: Props = $props()
+	let { prop, value = $bindable(), inline = false, onChange }: Props = $props()
 	const styleStore = getContext<StyleStore>(STYLE_STORE_KEY)
-	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 	const key = prop.key
 	const type = prop.value?.['type']
 	let unit: (typeof StylePropertyUnits)[number] = $state(StylePropertyUnits[0])
@@ -43,17 +41,15 @@
 		return ''
 	}
 
-	$effect(() => {
-		dispatchIfMounted('change', value)
-	})
-
 	function updateValue(next: number) {
 		value = next ? next + unit : ''
+		onChange?.(value ?? '')
 	}
 
 	function updateUnit(next: (typeof StylePropertyUnits)[number]) {
 		value = value?.replace(unit, next) || ''
 		unit = next
+		onChange?.(value ?? '')
 	}
 </script>
 
