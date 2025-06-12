@@ -131,7 +131,6 @@ class AIChatManager {
 		} else if (mode === AIMode.NAVIGATOR) {
 			this.systemMessage = prepareNavigatorSystemMessage()
 			const apiTools = await loadApiTools()
-			console.log('apiTools', apiTools)
 			this.tools = [this.changeModeTool, ...navigatorTools, ...apiTools]
 			this.helpers = {}
 		} else if (mode === AIMode.ASK) {

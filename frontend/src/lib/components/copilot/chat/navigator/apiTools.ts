@@ -268,12 +268,12 @@ export async function loadApiTools(): Promise<Tool<{}>[]> {
 		]
 
 		const { tools: apiTools, endpointMap } = buildToolsFromOpenApi(openApiSpec, {
-			pathFilter: (path) =>
-				path.startsWith('/w/') && pathsToInclude.some((p) => path.includes(`/${p}/`)),
+			pathFilter: (path) => pathsToInclude.some((p) => path.includes(`/${p}/`)),
 			methodFilter: ['get']
 		})
 
 		const executableApiTools = createApiTools(apiTools, endpointMap)
+		console.log('executableApiTools', executableApiTools.length)
 		return executableApiTools
 	} catch (error) {
 		console.error('Failed to load API tools:', error)
