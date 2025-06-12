@@ -28,7 +28,6 @@
 	import { computeWorkspaceS3FileInputPolicy } from '../../editor/appUtilsS3'
 	import { executeRunnable } from './executeRunnable'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	interface Props {
 		// Component props
@@ -123,7 +122,6 @@
 	const groupContext = getContext<GroupContext>('GroupContext')
 
 	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	$runnableComponents = $runnableComponents
 
@@ -735,7 +733,7 @@
 	})
 	let ignoreFirst = true
 	$effect(() => {
-		runnableInputValues && !ignoreFirst && dispatchIfMounted('argsChanged')
+		runnableInputValues && !ignoreFirst && dispatch('argsChanged')
 		ignoreFirst = false
 	})
 	let refreshOn = $derived(

@@ -27,11 +27,9 @@
 	import { tweened } from 'svelte/motion'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { EditableSchemaFormUi } from '$lib/components/custom_ui'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	// export let openEditTab: () => void = () => {}
 	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	interface Props {
 		schema: Schema | any
@@ -281,7 +279,7 @@
 	function updatePanelSizes(editSize: number, inputSize: number) {
 		editPanelSize = editSize
 		inputPanelSize = inputSize
-		dispatchIfMounted('editPanelSizeChanged', editSize)
+		dispatch('editPanelSizeChanged', editSize)
 	}
 
 	let panelButtonWidth: number = $state(0)
