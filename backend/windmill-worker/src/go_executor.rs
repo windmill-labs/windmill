@@ -373,7 +373,6 @@ pub async fn install_go_dependencies(
             } else {
                 format!("module mymod\n{code}")
             };
-
         fs::write(format!("{job_dir}/go.mod"), go_mod).await?;
     }
     if !raw_deps && !skip_go_mod {
