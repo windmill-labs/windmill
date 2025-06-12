@@ -18,7 +18,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { tailwindClasses } from './tailwindUtils'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import { deepEqual } from 'fast-equals'
 
 	interface Props {
 		name: string
@@ -51,11 +51,13 @@
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 	let isQuickMenuOpen = $state(false)
 
+	let prevValue = structuredClone(value)
 	$effect(() => {
-		dispatchIfMounted('change', value)
+		if (deepEqual(prevValue, value)) return
+		prevValue = structuredClone(value)
+		dispatch('change', value)
 	})
 
 	function toggleQuickMenu() {
