@@ -24,7 +24,7 @@ lazy_static::lazy_static! {
     pub static ref AI_REQUEST_CACHE: Cache<(String, AIProvider), ExpiringAIRequestConfig> = Cache::new(500);
 }
 
-const AZURE_API_VERSION: &str = "2024-10-21";
+const AZURE_API_VERSION: &str = "2025-04-01-preview";
 const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 
 #[derive(Deserialize, Debug)]
@@ -143,16 +143,32 @@ impl AIRequestConfig {
         path: &str,
         body: Bytes,
     ) -> Result<RequestBuilder> {
-        let url = format!("{}/{}", self.base_url, path);
-
         let body = if let Some(user) = self.user {
             Self::add_user_to_body(body, user)?
         } else {
             body
         };
 
-        let is_azure = matches!(provider, AIProvider::OpenAI) && self.base_url != OPENAI_BASE_URL
+        let base_url = self.base_url.trim_end_matches('/');
+
+        let is_azure = matches!(provider, AIProvider::OpenAI) && base_url != OPENAI_BASE_URL
             || matches!(provider, AIProvider::AzureOpenAI);
+
+        let url = if is_azure {
+            if base_url.ends_with("/deployments") {
+                let model = Self::get_azure_model(&body)?;
+                format!("{}/{}/{}", base_url, model, path)
+            } else if base_url.ends_with("/openai") {
+                let model = Self::get_azure_model(&body)?;
+                format!("{}/deployments/{}/{}", base_url, model, path)
+            } else {
+                format!("{}/{}", base_url, path)
+            }
+        } else {
+            format!("{}/{}", base_url, path)
+        };
+
+        tracing::debug!("AI request URL: {}", url);
 
         let mut request = HTTP_CLIENT
             .post(url)
@@ -198,6 +214,18 @@ impl AIRequestConfig {
         Ok(serde_json::to_vec(&json_body)
             .map_err(|e| Error::internal_err(format!("Failed to reserialize request body: {}", e)))?
             .into())
+    }
+
+    fn get_azure_model(body: &Bytes) -> Result<String> {
+        #[derive(Deserialize, Debug)]
+        struct AzureModel {
+            model: String,
+        }
+
+        let azure_model: AzureModel = serde_json::from_slice(body)
+            .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
+
+        Ok(azure_model.model)
     }
 }
 

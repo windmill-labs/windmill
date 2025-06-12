@@ -39,6 +39,7 @@ export interface Setting {
 		checked: (values: Record<string, any>) => boolean
 	}
 	hiddenIfNull?: boolean
+	hiddenIfEmpty?: boolean
 	requiresReloadOnChange?: boolean
 	isValid?: (value: any) => boolean
 	error?: string
@@ -83,9 +84,9 @@ export const settings: Record<string, Setting[]> = {
 			isValid: (value: string | undefined) =>
 				value
 					? value?.startsWith('http') &&
-					  value.includes('://') &&
-					  !value?.endsWith('/') &&
-					  !value?.endsWith(' ')
+						value.includes('://') &&
+						!value?.endsWith('/') &&
+						!value?.endsWith(' ')
 					: false
 		},
 		{
@@ -188,7 +189,8 @@ export const settings: Record<string, Setting[]> = {
 			key: 'openai_azure_base_path',
 			fieldType: 'text',
 			storage: 'setting',
-			ee_only: ''
+			ee_only: '',
+			hiddenIfEmpty: true
 		},
 		{
 			label: 'Private Hub base url',
@@ -321,7 +323,7 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'boolean',
 			storage: 'setting',
 			ee_only: ''
-		},
+		}
 	],
 	Alerts: [
 		{
