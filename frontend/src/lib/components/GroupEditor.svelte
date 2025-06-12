@@ -7,7 +7,6 @@
 		type InstanceGroup
 	} from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import AutoComplete from 'simple-svelte-autocomplete'
 	import { createEventDispatcher } from 'svelte'
 	import { Button } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
@@ -18,6 +17,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
+	import Select from './Select.svelte'
 
 	export let name: string
 	let can_write = false
@@ -129,7 +129,7 @@
 <Section label={`Members (${members?.length ?? 0})`}>
 	{#if can_write}
 		<div class="flex items-start">
-			<AutoComplete required noInputStyles items={usernames} bind:selectedItem={username} />
+			<Select items={usernames?.map((u) => ({ value: u, label: u }))} bind:value={username} />
 			<Button variant="contained" color="blue" size="sm" btnClasses="!ml-4" on:click={addToGroup}>
 				Add member
 			</Button>
