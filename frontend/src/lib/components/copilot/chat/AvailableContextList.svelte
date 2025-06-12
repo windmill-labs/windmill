@@ -26,26 +26,19 @@
 		default: 3
 	}
 
-	const sortedAvailableContext = $derived.by(() => {
-		let copy = [...availableContext]
-		copy.sort((a, b) => {
-			const priorityA = typePriority[a.type] || typePriority.default
-			const priorityB = typePriority[b.type] || typePriority.default
-			return priorityA - priorityB
-		})
-		return copy
-	})
-
 	const actualAvailableContext = $derived(
-		showAllAvailable
-			? sortedAvailableContext.filter(
-					(c) => !stringSearch || c.title.toLowerCase().includes(stringSearch.toLowerCase())
-				)
-			: sortedAvailableContext.filter(
-					(c) =>
-						!selectedContext.find((sc) => sc.type === c.type && sc.title === c.title) &&
-						(!stringSearch || c.title.toLowerCase().includes(stringSearch.toLowerCase()))
-				)
+		availableContext
+			.filter(
+				(c) =>
+					(showAllAvailable ||
+						!selectedContext.some((sc) => sc.type === c.type && sc.title === c.title)) &&
+					(!stringSearch || c.title.toLowerCase().includes(stringSearch.toLowerCase()))
+			)
+			.sort((a, b) => {
+				const priorityA = typePriority[a.type] || typePriority.default
+				const priorityB = typePriority[b.type] || typePriority.default
+				return priorityA - priorityB
+			})
 	)
 </script>
 
