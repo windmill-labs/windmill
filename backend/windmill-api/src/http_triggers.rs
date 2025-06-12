@@ -1476,7 +1476,7 @@ struct GenerateOpenAPI {
     #[serde(default, deserialize_with = "empty_as_none")]
     webhook_filters: Option<Vec<WebhookFilter>>,
     #[serde(default)]
-    format: Format,
+    openapi_spec_format: Format,
 }
 
 async fn generate_openapi_spec(
@@ -1485,7 +1485,7 @@ async fn generate_openapi_spec(
     Path(w_id): Path<String>,
     Json(generate_openapi): Json<GenerateOpenAPI>,
 ) -> WindmillResult<String> {
-    let GenerateOpenAPI { info, url, http_route_filters, webhook_filters, format } =
+    let GenerateOpenAPI { info, url, http_route_filters, webhook_filters, openapi_spec_format } =
         generate_openapi;
 
     if http_route_filters.is_none() && webhook_filters.is_none() {
@@ -1499,8 +1499,6 @@ async fn generate_openapi_spec(
     let mut tx = user_db.begin(&authed).await?;
 
     if let Some(http_route_filters) = http_route_filters {
-        //todo! sanitize input
-
         let path_regex = http_route_filters
             .iter()
             .map(|filter| {
@@ -1550,40 +1548,24 @@ async fn generate_openapi_spec(
     let mut futures_path_webhook = Vec::new();
 
     if let Some(webhook_filters) = webhook_filters.as_ref() {
-        println!("{:#?}", webhook_filters);
-        let script_webhook_filter = webhook_filters
-            .iter()
-            .filter_map(|filter| {
-                let RunnableKind::Script = filter.runnable_kind else {
-                    return None;
-                };
-                let full_regex = transform_to_minified_postgres_regex(&format!(
-                    "{}/{}/{}",
-                    &filter.user_or_folder_regex, &filter.user_or_folder_regex_value, &filter.path
-                ));
+        let mut script_webhook_filter = Vec::new();
+        let mut flow_webhook_filter = Vec::new();
 
-                Some(full_regex)
-            })
-            .collect_vec();
+        for webhook in webhook_filters {
+            let full_regex = transform_to_minified_postgres_regex(&format!(
+                "{}/{}/{}",
+                &webhook.user_or_folder_regex, &webhook.user_or_folder_regex_value, &webhook.path
+            ));
 
-        println!("{:#?}", &script_webhook_filter);
-
-        let flow_webhook_filter = webhook_filters
-            .iter()
-            .filter_map(|filter| {
-                let RunnableKind::Flow = filter.runnable_kind else {
-                    return None;
-                };
-                let full_regex = transform_to_minified_postgres_regex(&format!(
-                    "{}/{}/{}",
-                    &filter.user_or_folder_regex, &filter.user_or_folder_regex_value, &filter.path
-                ));
-
-                Some(full_regex)
-            })
-            .collect_vec();
-
-        println!("{:#?}", &flow_webhook_filter);
+            match webhook.runnable_kind {
+                RunnableKind::Script => {
+                    script_webhook_filter.push(full_regex);
+                }
+                RunnableKind::Flow => {
+                    flow_webhook_filter.push(full_regex);
+                }
+            }
+        }
 
         let script_paths = sqlx::query_scalar!(
             r#"SELECT 
@@ -1651,7 +1633,6 @@ async fn generate_openapi_spec(
     let mut openapi_future_paths = http_routes
         .into_iter()
         .map(|http_route| {
-            //not good
             let method = match http_route.http_method {
                 HttpMethod::Get => http::Method::GET,
                 HttpMethod::Post => http::Method::POST,
@@ -1661,7 +1642,11 @@ async fn generate_openapi_spec(
             };
 
             let route_path = if http_route.workspaced_route {
-                format!("{}/{}", &w_id, http_route.route_path)
+                format!(
+                    "{}/{}",
+                    &w_id,
+                    http_route.route_path.trim_start_matches('/')
+                )
             } else {
                 http_route.route_path
             };
@@ -1674,8 +1659,12 @@ async fn generate_openapi_spec(
 
     openapi_future_paths.append(&mut futures_path_webhook);
 
-    let openapi_document =
-        generate_openapi_document(info.as_ref(), url.as_ref(), openapi_future_paths, format);
+    let openapi_document = generate_openapi_document(
+        info.as_ref(),
+        url.as_ref(),
+        openapi_future_paths,
+        openapi_spec_format,
+    );
 
     openapi_document
 }

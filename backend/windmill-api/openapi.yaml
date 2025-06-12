@@ -14823,43 +14823,46 @@ components:
         - path
         - runnable_kind
     
+    OpenapiV3Info:
+      type: object
+      properties:
+        title:
+          type: string
+        version:
+          type: string
+        description:
+          type: string
+        terms_of_service:
+          type: string
+        contact:
+          type: object
+          properties:
+            name:
+              type: string
+            url:
+              type: string
+            email:
+              type: string
+        license:
+          type: object
+          properties:
+            name:
+              type: string
+            identifier:
+              type: string
+            url:
+              type: string
+          required:
+            - name
+      required:
+        - title
+        - version
+
     GenerateOpenapiSpec:
       type: object
       properties:
         info:
-          type: object
-          properties:
-            title:
-              type: string
-            version:
-              type: string
-            description:
-              type: string
-            terms_of_service:
-              type: string
-            contact:
-              type: object
-              properties:
-                name:
-                  type: string
-                url:
-                  type: string
-                email:
-                  type: string
-            license:
-              type: object
-              properties:
-                name:
-                  type: string
-                identifier:
-                  type: string
-                url:
-                  type: string
-              required:
-                - name
-          required:
-            - title
-            - version
+          $ref: "#/components/schemas/OpenapiV3Info"
         url:
           type: string
         openapi_spec_format:

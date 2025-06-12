@@ -22,9 +22,11 @@ use croner::Cron;
 use rand::{distr::Alphanumeric, rng, Rng};
 use reqwest::Client;
 use semver::Version;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de::Error as SerdeDeserializerError};
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
+use url::Url;
+use std::borrow::Cow;
 use std::fmt::Display;
 use std::{fs::DirBuilder as SyncDirBuilder, str::FromStr};
 use tokio::fs::DirBuilder as AsyncDirBuilder;
@@ -532,6 +534,18 @@ where
     let option = <Option<T> as serde::Deserialize>::deserialize(deserializer)?;
     Ok(option.filter(|s| !s.is_empty()))
 }
+
+pub fn deserialize_url<'de, D: Deserializer<'de>>(de: D) -> std::result::Result<Option<Url>, D::Error> {
+    let intermediate = <Option<Cow<'de, str>>>::deserialize(de)?;
+
+    match intermediate.as_deref() {
+        None | Some("") => Ok(None),
+        Some(non_empty_string) => Url::parse(non_empty_string)
+            .map(Some)
+            .map_err(D::Error::custom),
+    }
+}
+
 
 pub async fn fetch_mute_workspace(_db: &DB, workspace_id: &str) -> Result<bool> {
     match sqlx::query!(

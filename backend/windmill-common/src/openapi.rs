@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
-use crate::{error::Result, utils::RunnableKind, worker::to_raw_value};
+use crate::{error::Result, utils::deserialize_url, utils::RunnableKind};
 use anyhow::anyhow;
 use axum::http;
 use http::Method as HttpMethod;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use serde_json::{value::RawValue, Value};
+use serde_json::{to_value, Value};
 use url::Url;
 
 lazy_static::lazy_static! {
@@ -20,6 +20,7 @@ lazy_static::lazy_static! {
 const DEFAULT_OPENAPI_GENERATED_VERSION: &'static str = "3.1.0";
 
 #[derive(Debug, Deserialize, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
 pub enum Format {
     JSON,
     YAML,
@@ -46,7 +47,11 @@ struct License {
     name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     identifier: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_url",
+        skip_serializing_if = "Option::is_none"
+    )]
     url: Option<Url>,
 }
 
@@ -73,6 +78,7 @@ struct Server {
     variables: Option<HashMap<String, Value>>,
 }
 
+#[derive(Debug)]
 pub struct FuturePath {
     route_path: String,
     http_method: HttpMethod,
@@ -91,7 +97,7 @@ impl FuturePath {
     }
 }
 
-fn from_route_path_to_openapi_path(route_path: &str) -> Result<(String, Option<Box<RawValue>>)> {
+fn from_route_path_to_openapi_path(route_path: &str) -> Result<(String, Option<Value>)> {
     let mut openapi_path = String::new();
     let mut parameters = Vec::new();
 
@@ -121,7 +127,7 @@ fn from_route_path_to_openapi_path(route_path: &str) -> Result<(String, Option<B
     let parameters_json = if parameters.is_empty() {
         None
     } else {
-        Some(to_raw_value(&parameters))
+        Some(Value::Array(parameters))
     };
 
     let normalized_path = if openapi_path.starts_with('/') {
@@ -136,14 +142,12 @@ fn from_route_path_to_openapi_path(route_path: &str) -> Result<(String, Option<B
 fn generate_paths(
     paths: Vec<FuturePath>,
     url: Option<&Url>,
-) -> Result<IndexMap<String, IndexMap<String, Box<RawValue>>>> {
-    let mut map: IndexMap<String, IndexMap<String, Box<RawValue>>> = IndexMap::new();
+) -> Result<IndexMap<String, IndexMap<String, Value>>> {
+    let mut map: IndexMap<String, IndexMap<String, Value>> = IndexMap::new();
 
     let generate_default_request = || {
         serde_json::json!({
-            "description": "This route may or may not require a request body, but its structure and content type are unknown.",
-            "required": false,
-            "content": {}
+            "$ref": "#/components/requestBodies/DefaultRequest"
         })
     };
 
@@ -151,23 +155,13 @@ fn generate_paths(
         let responses = if is_async {
             serde_json::json!({
                 "200": {
-                    "description": "Returns a job ID as a UUID string.",
-                    "content": {
-                        "text/plain": {
-                            "schema": {
-                                "type": "string",
-                                "format": "uuid",
-                                "example": "550e8400-e29b-41d4-a716-446655440000"
-                            }
-                        }
-                    }
+                    "$ref": "#/components/responses/AsyncResponse"
                 }
             })
         } else {
             serde_json::json!(serde_json::json!({
                 "200": {
-                    "description": "This route may return a response, but its structure and content type are unknown.",
-                    "content": {}
+                   "$ref": "#/components/responses/SyncResponse"
                 }
             }))
         };
@@ -195,7 +189,7 @@ fn generate_paths(
 
                 request_response_map.insert("responses", generate_response(path.is_async));
 
-                paths.insert(http_method, to_raw_value(&request_response_map));
+                paths.insert(http_method, to_value(&request_response_map)?);
             }
             None => {
                 let mut path_object = IndexMap::new();
@@ -232,11 +226,11 @@ fn generate_paths(
                         },
                     };
 
-                    path_object.insert("servers".to_string(), to_raw_value(&vec![server]));
+                    path_object.insert("servers".to_string(), to_value(vec![server])?);
                 }
 
                 if parameters.is_some() {
-                    path_object.insert("parameters".to_string(), to_raw_value(&parameters));
+                    path_object.insert("parameters".to_string(), to_value(parameters)?);
                 }
 
                 let mut request_response_map = IndexMap::with_capacity(2);
@@ -247,7 +241,7 @@ fn generate_paths(
 
                 request_response_map.insert("responses", generate_response(path.is_async));
 
-                path_object.insert(http_method, to_raw_value(&request_response_map));
+                path_object.insert(http_method, to_value(&request_response_map)?);
 
                 map.insert(route_path, path_object);
             }
@@ -293,20 +287,57 @@ pub fn generate_openapi_document(
     paths: Vec<FuturePath>,
     format: Format,
 ) -> Result<String> {
-    let paths = generate_paths(paths, url)?;
+    let mut openapi_doc: IndexMap<&'static str, Value> = IndexMap::new();
 
-    let mut openapi_doc: IndexMap<&'static str, Box<RawValue>> = IndexMap::new();
-
-    openapi_doc.insert("openapi", to_raw_value(&DEFAULT_OPENAPI_GENERATED_VERSION));
+    openapi_doc.insert("openapi", to_value(&DEFAULT_OPENAPI_GENERATED_VERSION)?);
     openapi_doc.insert(
         "info",
-        to_raw_value(info.unwrap_or(&DEFAULT_OPENAPI_INFO_OBJECT)),
+        to_value(info.unwrap_or(&DEFAULT_OPENAPI_INFO_OBJECT))?,
     );
 
-    openapi_doc.insert("paths", to_raw_value(&paths));
+    openapi_doc.insert("components", serde_json::json!(
+        {
+            "requestBodies": {
+                "DefaultRequest": {
+                    "description": "This route may or may not require a request body, but its structure and content type are unknown.",
+                    "required": false,
+                    "content": {
+                        "application/octet-stream": {}
+                    }
+                }
+            },
+            "responses": {
+                "AsyncResponse": {
+                    "description": "Returns a job ID as a UUID string.",
+                    "content": {
+                        "text/plain": {
+                            "schema": {
+                            "type": "string",
+                            "format": "uuid",
+                            "example": "550e8400-e29b-41d4-a716-446655440000"
+                            }
+                        }
+                    }
+                },
+                "SyncResponse": {
+                    "description": "This route may return a response, but its structure and content type are unknown.",
+                    "content": {
+                        "application/octet-stream": {}
+                    }
+                }
+            }
+        }
+    ));
+
+    openapi_doc.insert("paths", to_value(generate_paths(paths, url)?)?);
 
     let openapi_document = match format {
-        Format::YAML => "".to_string(),
+        Format::YAML => serde_yml::to_string(&openapi_doc).map_err(|err| {
+            anyhow!(
+                "Could not generate OpenAPI document in YAML format: {}",
+                err
+            )
+        })?,
         Format::JSON => serde_json::to_string_pretty(&openapi_doc).map_err(|err| {
             anyhow!(
                 "Could not generate OpenAPI document in JSON format: {}",
