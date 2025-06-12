@@ -286,7 +286,7 @@
 		{overrideCallback}
 		{overrideAutoRefresh}
 		recomputableByRefreshButton={componentInput.autoRefresh ?? true}
-		bind:recomputeOnInputChanged={componentInput.recomputeOnInputChanged}
+		recomputeOnInputChanged={componentInput.recomputeOnInputChanged}
 		{id}
 		{extraQueryParams}
 		{forceSchemaDisplay}

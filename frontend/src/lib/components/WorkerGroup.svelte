@@ -6,7 +6,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { ConfigService, WorkspaceService, type WorkerPing, type Workspace } from '$lib/gen'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString, pluralize } from '$lib/utils'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
