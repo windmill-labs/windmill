@@ -5,7 +5,6 @@
 
 	import { GroupService, UserService, GranularAclService } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
-	import AutoComplete from 'simple-svelte-autocomplete'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -14,6 +13,7 @@
 	import { isOwner } from '$lib/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import Select from './Select.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -137,11 +137,11 @@
 							</ToggleButtonGroup>
 						</div>
 						{#key ownerKind}
-							<AutoComplete
-								required
-								noInputStyles
-								items={ownerKind === 'user' ? usernames : groups}
-								bind:selectedItem={owner}
+							<Select
+								items={(ownerKind === 'user' ? usernames : groups)
+									.map((x) => x.toString())
+									.map((x) => ({ value: x, label: x }))}
+								bind:value={owner}
 							/>
 						{/key}
 						<Button size="sm" on:click={() => addAcl(newOwner, write)}>Add permission</Button>

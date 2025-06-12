@@ -34,13 +34,13 @@
 	} from '$lib/utils'
 	import { AlertTriangle, LineChart, List, Plus, Search, Terminal } from 'lucide-svelte'
 	import { getContext, onDestroy, onMount } from 'svelte'
-	import AutoComplete from 'simple-svelte-autocomplete'
 
 	import YAML from 'yaml'
 	import { DEFAULT_TAGS_WORKSPACES_SETTING } from '$lib/consts'
 	import AutoscalingEvents from '$lib/components/AutoscalingEvents.svelte'
 	import HttpAgentWorkerDrawer from '$lib/components/HttpAgentWorkerDrawer.svelte'
 	import WorkerRepl from '$lib/components/WorkerRepl.svelte'
+	import Select from '$lib/components/Select.svelte'
 
 	let workers: WorkerPing[] | undefined = undefined
 	let workerGroups: Record<string, any> | undefined = undefined
@@ -484,14 +484,9 @@
 			{#if (groupedWorkers ?? []).length > 5}
 				<div class="flex gap-2 items-center">
 					<div class="text-secondary text-sm">Worker group:</div>
-					<AutoComplete
-						noInputStyles
-						items={groupedWorkers.map((x) => x[0])}
-						bind:selectedItem={selectedTab}
-						hideArrow={true}
-						inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary"'}
-						dropdownClassName="!text-sm !py-2 !rounded-sm  !border-gray-200 !border !shadow-md"
-						className="!font-gray-600 !font-primary !bg-surface-primary"
+					<Select
+						items={groupedWorkers.map((x) => ({ value: x[0], label: x[0] }))}
+						bind:value={selectedTab}
 					/>
 
 					<!-- <select

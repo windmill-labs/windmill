@@ -5,10 +5,10 @@
 	import { createEventDispatcher } from 'svelte'
 	import Toggle from '../Toggle.svelte'
 	import { emptySchema, validateFileExtension } from '$lib/utils'
-	import AutoComplete from 'simple-svelte-autocomplete'
 	import { Alert } from '../common'
 	import AddPropertyV2 from '$lib/components/schema/AddPropertyV2.svelte'
 	import { Plus } from 'lucide-svelte'
+	import Select from '../Select.svelte'
 
 	interface Props {
 		schema: Schema | undefined | any
@@ -62,22 +62,7 @@
 		dispatch('change', schema)
 	}
 
-	function numberOfMatches(listItem: string | undefined, searchWords: string[]): number {
-		if (!listItem) {
-			return 0
-		}
-
-		let matches = 0
-		searchWords.forEach((searchWord) => {
-			const searchLetters = searchWord.split('')
-			if (searchLetters.every((l) => listItem.includes(l))) {
-				matches++
-			}
-		})
-		return matches
-	}
-
-	let suggestedFileExtensions = [
+	let suggestedFileExtensions = $state([
 		'json',
 		'yaml',
 		'jinja',
@@ -88,8 +73,7 @@
 		'html',
 		'xml',
 		'yml'
-	]
-	let autocompleteExtension = $state(true)
+	])
 </script>
 
 {#if !resourceIsTextFile}
@@ -155,55 +139,18 @@
 	</div>
 {/if}
 {#if resourceIsTextFile}
-	<div class="flex items-center space-x-2 w-5/12">
-		<label for="format-extension" class="text-base font-medium whitespace-nowrap">
-			File extension{autocompleteExtension ? '' : ' (free text)'}:
-		</label>
-		{#if autocompleteExtension}
-			<AutoComplete
-				inputId="format-extension"
-				autofocus={true}
-				items={[...suggestedFileExtensions, 'Choose another extension']}
-				onChange={(a) => {
-					if (a == 'Choose another extension') {
-						formatExtension = ''
-						autocompleteExtension = false
-					}
-				}}
-				itemFilterFunction={(listItem, searchWords) => {
-					if (searchWords.length == 0 || listItem === 'Choose another extension') {
-						return true
-					}
-					return numberOfMatches(listItem, searchWords) > 0
-				}}
-				noResultsText="No matches, try the 'Choose another extension' option"
-				bind:selectedItem={formatExtension}
-				inputClassName="!h-[32px] py-1 !text-xs !w-64"
-				hideArrow
-				className={'!font-bold'}
-				dropdownClassName="!font-normal !w-64 !max-w-64"
-				maxItemsToShowInList={8}
-				moreItemsText={null}
-				lock={true}
-			/>
-		{:else}
-			<!-- svelte-ignore a11y_autofocus -->
-			<input
-				autofocus={true}
-				bind:value={formatExtension}
-				class="!h-[32px] py-1 !text-xs !w-64"
-				placeholder="Enter your extension"
-				onkeydown={(event) => {
-					if (event.key === 'Enter') {
-						if (formatExtension && !suggestedFileExtensions.includes(formatExtension))
-							suggestedFileExtensions.push(formatExtension)
-
-						autocompleteExtension = true
-					}
-				}}
-			/>
-		{/if}
-	</div>
+	<label
+		for="format-extension"
+		class="text-base font-medium whitespace-nowrap flex items-center gap-4"
+	>
+		File extension :
+		<Select
+			autofocus
+			items={suggestedFileExtensions.map((e) => ({ value: e, label: e }))}
+			bind:value={formatExtension}
+			onCreateItem={(ext) => ((formatExtension = ext), suggestedFileExtensions.push(ext))}
+		/>
+	</label>
 
 	{#if invalidExtension}
 		<Alert title="Invalid file extension" type="error">

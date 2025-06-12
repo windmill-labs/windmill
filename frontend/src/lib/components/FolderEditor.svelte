@@ -7,7 +7,6 @@
 		GranularAclService,
 		GroupService
 	} from '$lib/gen'
-	import AutoComplete from 'simple-svelte-autocomplete'
 	import TableCustom from './TableCustom.svelte'
 	import { Alert, Button, Drawer, DrawerContent } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
@@ -19,6 +18,7 @@
 	import Label from './Label.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { createEventDispatcher } from 'svelte'
+	import Select from './Select.svelte'
 
 	export let name: string
 	let can_write = false
@@ -193,14 +193,11 @@
 				</div>
 
 				{#key ownerKind}
-					<AutoComplete
-						required
-						noInputStyles
-						items={ownerKind === 'user'
+					{@const items =
+						ownerKind === 'user'
 							? usernames.filter((x) => !perms?.map((y) => y.owner_name).includes('u/' + x))
 							: groups.filter((x) => !perms?.map((y) => y.owner_name).includes('g/' + x))}
-						bind:selectedItem={ownerItem}
-					/>
+					<Select items={items.map((x) => ({ label: x, value: x }))} bind:value={ownerItem} />
 					{#if ownerKind == 'group'}
 						<Button
 							title="View Group"
