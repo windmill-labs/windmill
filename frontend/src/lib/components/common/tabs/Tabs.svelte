@@ -3,11 +3,9 @@
 	import { writable } from 'svelte/store'
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import type { TabsContext } from '$lib/components/apps/editor/settingsPanel/inputEditor/tabs.svelte'
 
 	const dispatch = createEventDispatcher<{ selected: string }>()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	interface Props {
 		selected: string
@@ -68,7 +66,7 @@
 	$effect(() => {
 		if ($selectedStore !== untrack(() => lastSelected)) {
 			lastSelected = $selectedStore
-			$selectedStore && dispatchIfMounted('selected', $selectedStore)
+			$selectedStore && dispatch('selected', $selectedStore)
 		}
 	})
 </script>
