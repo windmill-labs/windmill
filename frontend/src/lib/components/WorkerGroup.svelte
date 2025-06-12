@@ -6,7 +6,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { ConfigService, WorkspaceService, type WorkerPing, type Workspace } from '$lib/gen'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString, pluralize } from '$lib/utils'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
@@ -155,13 +155,16 @@
 	let drawer: Drawer | undefined = $state()
 	let vcpus_memory = $derived(computeVCpuAndMemory(workers))
 	let selected = $derived(nconfig?.dedicated_worker != undefined ? 'dedicated' : 'normal')
-	$effect(() => {
-		selectedPriorityTags = []
-		if (nconfig?.priority_tags !== undefined) {
-			for (const [tag, _] of Object.entries(nconfig?.priority_tags)) {
-				selectedPriorityTags.push(tag)
+	$effect.pre(() => {
+		;[nconfig?.priority_tags]
+		untrack(() => {
+			selectedPriorityTags = []
+			if (nconfig?.priority_tags !== undefined) {
+				for (const [tag, _] of Object.entries(nconfig?.priority_tags)) {
+					selectedPriorityTags.push(tag)
+				}
 			}
-		}
+		})
 	})
 	$effect(() => {
 		$superadmin && listWorkspaces()
