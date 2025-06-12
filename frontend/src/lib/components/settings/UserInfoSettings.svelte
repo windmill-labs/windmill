@@ -46,6 +46,7 @@
 					<label class="block w-120">
 						<div class="text-secondary">password</div>
 						<input
+							autocomplete="new-password"
 							type="password"
 							bind:value={newPassword}
 							class="
