@@ -41,18 +41,33 @@
 	}
 
 	let {
-		logs = $bindable([]),
+		logs = $bindable(undefined),
 		username = $bindable('all'),
 		pageIndex = $bindable(1),
 		hasMore = $bindable(false),
 		before = $bindable(undefined),
 		after = $bindable(undefined),
 		perPage = $bindable(100),
-		operation = $bindable('all'),
-		resource = $bindable('all') as string | undefined,
-		actionKind = $bindable('all'),
+		operation = $bindable(),
+		resource = $bindable() as string | undefined,
+		actionKind = $bindable(undefined),
 		scope = $bindable(undefined)
 	}: Props = $props()
+
+	$effect.pre(() => {
+		if (logs == undefined) {
+			logs = []
+		}
+		if (operation == undefined) {
+			operation = 'all'
+		}
+		if (resource == undefined) {
+			resource = 'all'
+		}
+		if (actionKind == undefined) {
+			actionKind = 'all'
+		}
+	})
 
 	async function loadLogs(
 		username: string | undefined,
