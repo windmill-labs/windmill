@@ -196,6 +196,7 @@
 					$stateId++
 				}
 			}
+			$app = $app
 		}
 	}
 

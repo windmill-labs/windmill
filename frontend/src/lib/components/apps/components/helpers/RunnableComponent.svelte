@@ -221,6 +221,7 @@
 	)
 
 	function stripSchema(inputs: AppInputs, s: any): Schema {
+		console.log('stripSchema', inputs, s)
 		if (inputs === undefined) {
 			return emptySchema()
 		}
