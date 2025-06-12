@@ -20,24 +20,24 @@
 
 	const dispatch = createEventDispatcher()
 
-	let path: string = ''
+	let path: string = $state('')
 
 	let variable: {
 		value: string
 		is_secret: boolean
 		description: string
-	} = {
+	} = $state({
 		value: '',
 		is_secret: true,
 		description: ''
-	}
-	let valid = true
+	})
+	let valid = $state(true)
 
-	let drawer: Drawer
-	let edit = false
-	let initialPath: string
-	let pathError = ''
-	let can_write = true
+	let drawer: Drawer = $state()
+	let edit = $state(false)
+	let initialPath: string = $state()
+	let pathError = $state('')
+	let can_write = $state(true)
 
 	export function initNew(): void {
 		variable = {
@@ -85,7 +85,9 @@
 
 	const MAX_VARIABLE_LENGTH = 10000
 
-	$: valid = variable.value.length <= MAX_VARIABLE_LENGTH
+	$effect(() => {
+		valid = variable.value.length <= MAX_VARIABLE_LENGTH
+	})
 
 	async function createVariable(): Promise<void> {
 		await VariableService.createVariable({
@@ -127,8 +129,8 @@
 			sendUserToast(`Could not update variable: ${err.body}`, true)
 		}
 	}
-	let editorKind: 'plain' | 'json' | 'yaml' = 'plain'
-	let editor: SimpleEditor | undefined = undefined
+	let editorKind: 'plain' | 'json' | 'yaml' = $state('plain')
+	let editor: SimpleEditor | undefined = $state(undefined)
 </script>
 
 <Drawer bind:this={drawer} size="900px">
@@ -168,11 +170,11 @@
 				</div>
 			</Section>
 			<Section label="Variable value">
-				<svelte:fragment slot="header">
+				{#snippet header()}
 					<span class="text-sm text-tertiary mr-4 font-normal">
 						({variable.value.length}/{MAX_VARIABLE_LENGTH} characters)
 					</span>
-				</svelte:fragment>
+				{/snippet}
 				<div>
 					<div class="mb-1">
 						{#if edit && variable.is_secret}{#if $userStore?.operator}
@@ -183,10 +185,12 @@
 								>{/if}{/if}
 					</div>
 					<div class="flex flex-col gap-2">
-						<ToggleButtonGroup bind:selected={editorKind} let:item>
-							<ToggleButton value="plain" label="Plain" {item} />
-							<ToggleButton value="json" label="Json" {item} />
-							<ToggleButton value="yaml" label="YAML" {item} />
+						<ToggleButtonGroup bind:selected={editorKind}>
+							{#snippet children({ item })}
+								<ToggleButton value="plain" label="Plain" {item} />
+								<ToggleButton value="json" label="Json" {item} />
+								<ToggleButton value="yaml" label="YAML" {item} />
+							{/snippet}
 						</ToggleButtonGroup>
 						{#if editorKind == 'plain'}
 							<textarea

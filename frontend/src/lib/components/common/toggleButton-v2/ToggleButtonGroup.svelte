@@ -13,7 +13,7 @@
 		disabled?: boolean
 		tabListClass?: string
 		allowEmpty?: boolean
-		className?: string
+		class?: string
 		children?: import('svelte').Snippet<[any]>
 	}
 
@@ -24,7 +24,7 @@
 		disabled = false,
 		tabListClass = '',
 		allowEmpty = false,
-		className = '',
+		class: className = '',
 		children
 	}: Props = $props()
 

@@ -49,12 +49,15 @@
 		try {
 			getUsagePromise = UserService.listUsersUsage({ workspace: $workspaceStore! })
 			const res = await getUsagePromise
-			usage = res.reduce((acc, { email, executions }) => {
-				if (email) {
-					acc[email] = executions ?? 0
-				}
-				return acc
-			}, {} as Record<string, number>)
+			usage = res.reduce(
+				(acc, { email, executions }) => {
+					if (email) {
+						acc[email] = executions ?? 0
+					}
+					return acc
+				},
+				{} as Record<string, number>
+			)
 		} catch (e) {
 			console.warn(e)
 		}
@@ -176,7 +179,7 @@
 						{isCloudHosted()
 							? `Auto-add anyone from ${
 									auto_invite_domain != undefined ? auto_invite_domain : domain
-							  }`
+								}`
 							: `Auto-add anyone joining the instance`}
 					</span>
 
@@ -225,7 +228,7 @@
 									requestBody: {
 										operator: e.detail === 'operator',
 										invite_all: !isCloudHosted(),
-										auto_add: showInvites ? autoAdd ?? false : true
+										auto_add: showInvites ? (autoAdd ?? false) : true
 									}
 								})
 								operatorOnly = e.detail === 'operator'
@@ -263,8 +266,8 @@
 										? {
 												operator: operatorOnly ?? false,
 												invite_all: !isCloudHosted(),
-												auto_add: showInvites ? autoAdd ?? false : true
-										  }
+												auto_add: showInvites ? (autoAdd ?? false) : true
+											}
 										: { operator: undefined, auto_add: undefined }
 								})
 								loadSettings()
@@ -358,8 +361,8 @@
 											e.detail == 'admin'
 												? { is_admin: true, operator: false }
 												: e.detail == 'operator'
-												? { is_admin: false, operator: true }
-												: { is_admin: false, operator: false }
+													? { is_admin: false, operator: true }
+													: { is_admin: false, operator: false }
 										await UserService.updateUser({
 											workspace: $workspaceStore ?? '',
 											username,
@@ -367,28 +370,29 @@
 										})
 										listUsers()
 									}}
-									let:item
 								>
-									<ToggleButton
-										value="operator"
-										label="Operator"
-										tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-										{item}
-									/>
+									{#snippet children({ item })}
+										<ToggleButton
+											value="operator"
+											label="Operator"
+											tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
+											{item}
+										/>
 
-									<ToggleButton
-										value="developer"
-										label="Developer"
-										tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-										{item}
-									/>
+										<ToggleButton
+											value="developer"
+											label="Developer"
+											tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
+											{item}
+										/>
 
-									<ToggleButton
-										value="admin"
-										label="Admin"
-										tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
-										{item}
-									/>
+										<ToggleButton
+											value="admin"
+											label="Admin"
+											tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
+											{item}
+										/>
+									{/snippet}
 								</ToggleButtonGroup>
 							</div>
 						</Cell>
@@ -486,8 +490,8 @@
 												e.detail == 'admin'
 													? { is_admin: true, operator: false }
 													: e.detail == 'operator'
-													? { is_admin: false, operator: true }
-													: { is_admin: false, operator: false }
+														? { is_admin: false, operator: true }
+														: { is_admin: false, operator: false }
 											await WorkspaceService.inviteUser({
 												workspace: $workspaceStore ?? '',
 												requestBody: {
