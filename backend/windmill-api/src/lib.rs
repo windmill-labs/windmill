@@ -19,14 +19,16 @@ use crate::oauth2_oss::SlackVerifier;
 use crate::smtp_server_oss::SmtpServer;
 
 #[cfg(feature = "mcp")]
-use crate::mcp::{setup_mcp_server, Runner as McpRunner};
+use crate::mcp::{extract_and_store_workspace_id, setup_mcp_server, shutdown_mcp_server};
+#[cfg(feature = "mcp")]
+use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
+
 use crate::tracing_init::MyOnFailure;
 use crate::{
     tracing_init::{MyMakeSpan, MyOnResponse},
     users::OptAuthed,
     webhook_util::WebhookShared,
 };
-
 #[cfg(feature = "agent_worker_server")]
 use agent_workers_oss::AgentCache;
 
@@ -520,21 +522,18 @@ pub async fn run_server(
 
     // Setup MCP server
     #[allow(unused_variables)]
-    let (mcp_router, mcp_main_ct, mcp_service_ct) = {
+    let (mcp_router, mcp_session_manager) = {
         #[cfg(feature = "mcp")]
         if server_mode || mcp_mode {
-            let (mcp_sse_server, mcp_router) = setup_mcp_server(addr, "/api/mcp/w/:workspace_id")?;
-            #[cfg(feature = "mcp")]
-            let mcp_main_ct = mcp_sse_server.config.ct.clone(); // Token to signal shutdown *to* MCP
-            #[cfg(feature = "mcp")]
-            let mcp_service_ct = mcp_sse_server.with_service(McpRunner::new); // Token to wait for MCP *service* shutdown
-            (mcp_router, Some(mcp_main_ct), Some(mcp_service_ct))
+            let (mcp_router, mcp_session_manager) = setup_mcp_server().await?;
+            let mcp_middleware = axum::middleware::from_fn(extract_and_store_workspace_id);
+            (mcp_router.layer(mcp_middleware), Some(mcp_session_manager))
         } else {
-            (Router::new(), None, None)
+            (Router::new(), Option::<Arc<LocalSessionManager>>::None)
         }
 
         #[cfg(not(feature = "mcp"))]
-        (Router::new(), None::<()>, None::<()>)
+        (Router::new(), Option::<()>::None)
     };
 
     #[cfg(feature = "agent_worker_server")]
@@ -660,7 +659,7 @@ pub async fn run_server(
                         .layer(from_extractor::<OptAuthed>())
                         .layer(cors.clone()),
                 )
-                .nest("/mcp/w/:workspace_id", mcp_router)
+                .nest("/mcp/w/:workspace_id/sse", mcp_router)
                 .layer(from_extractor::<OptAuthed>())
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
@@ -819,16 +818,9 @@ pub async fn run_server(
         tracing::info!("Graceful shutdown of server");
 
         #[cfg(feature = "mcp")]
-        {
-            if let Some(mcp_main_ct) = mcp_main_ct {
-                tracing::info!("Received shutdown signal, cancelling MCP server...");
-                mcp_main_ct.cancel();
-            }
-            if let Some(mcp_service_ct) = mcp_service_ct {
-                tracing::info!("Waiting for MCP service cancellation...");
-                mcp_service_ct.cancelled().await;
-                tracing::info!("MCP service cancelled.");
-            }
+        if let Some(mcp_session_manager) = mcp_session_manager {
+            shutdown_mcp_server(mcp_session_manager).await;
+            tracing::info!("MCP server shutdown");
         }
     });
 
