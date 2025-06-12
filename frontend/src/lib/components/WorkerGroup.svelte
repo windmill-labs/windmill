@@ -83,7 +83,6 @@
 		customEnvVars.sort((a, b) => (a.key < b.key ? -1 : 1))
 	}
 
-	let selectedPriorityTags: string[] = $state([])
 	let customEnvVars: {
 		key: string
 		type: 'static' | 'dynamic'
@@ -155,17 +154,6 @@
 	let drawer: Drawer | undefined = $state()
 	let vcpus_memory = $derived(computeVCpuAndMemory(workers))
 	let selected = $derived(nconfig?.dedicated_worker != undefined ? 'dedicated' : 'normal')
-	$effect.pre(() => {
-		;[nconfig?.priority_tags]
-		untrack(() => {
-			selectedPriorityTags = []
-			if (nconfig?.priority_tags !== undefined) {
-				for (const [tag, _] of Object.entries(nconfig?.priority_tags)) {
-					selectedPriorityTags.push(tag)
-				}
-			}
-		})
-	})
 	$effect(() => {
 		$superadmin && listWorkspaces()
 	})
@@ -278,7 +266,6 @@
 							if (nconfig.priority_tags) {
 								delete nconfig.priority_tags[tag]
 							}
-							selectedPriorityTags = selectedPriorityTags.filter((t) => t != tag) ?? []
 						}}
 						bind:worker_tags={nconfig.worker_tags}
 						{customTags}
@@ -380,7 +367,7 @@
 								<Multiselect
 									outerDivClass="text-secondary !bg-surface-disabled !border-0"
 									disabled={!$enterpriseLicense}
-									bind:selected={selectedPriorityTags}
+									selected={Object.keys(nconfig?.priority_tags ?? {})}
 									onchange={(e) => {
 										if (e.type === 'add') {
 											if (nconfig.priority_tags) {
