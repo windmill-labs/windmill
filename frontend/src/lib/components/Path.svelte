@@ -383,7 +383,7 @@
 			{#if !hideUser}
 				<div class="block">
 					<ToggleButtonGroup
-						className="mt-0.5"
+						class="mt-0.5"
 						bind:selected={meta.ownerKind}
 						on:selected={(e) => {
 							setDirty()

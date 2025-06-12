@@ -527,7 +527,7 @@
 																	<Label label="Type">
 																		<ToggleButtonGroup
 																			tabListClass="flex-wrap"
-																			className="h-auto"
+																			class="h-auto"
 																			bind:selected={
 																				() => computeSelected(schema.properties[opened ?? '']),
 																				(v) => {

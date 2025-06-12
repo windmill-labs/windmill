@@ -1322,7 +1322,7 @@
 
 			{#if $app}
 				<ToggleButtonGroup
-					className="h-[30px]"
+					class="h-[30px]"
 					selected={$app.fullscreen ? 'true' : 'false'}
 					on:selected={({ detail }) => {
 						$app.fullscreen = detail === 'true'
@@ -1348,7 +1348,7 @@
 			{/if}
 			{#if $app}
 				<ToggleButtonGroup
-					className="h-[30px]"
+					class="h-[30px]"
 					on:selected={({ detail }) => {
 						const theme = detail === 'dark' ? true : detail === 'sun' ? false : undefined
 						setTheme(theme)
@@ -1381,7 +1381,7 @@
 				</ToggleButtonGroup>
 			{/if}
 			<div class="flex flex-row gap-2">
-				<ToggleButtonGroup className="h-[30px]" bind:selected={$breakpoint}>
+				<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint}>
 					{#snippet children({ item })}
 						<ToggleButton
 							tooltip="Computer View"

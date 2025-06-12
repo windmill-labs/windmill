@@ -467,7 +467,7 @@
 		{#if !noControls}
 			<div class="text-tertiary text-sm">
 				<ToggleButtonGroup
-					className="h-6"
+					class="h-6"
 					selected={globalForceJson ? 'json' : 'pretty'}
 					on:selected={(ev) => {
 						globalForceJson = ev.detail === 'json'
@@ -513,7 +513,7 @@
 					bind:clientHeight={resultHeaderHeight}
 				>
 					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}<ToggleButtonGroup
-							className="h-6"
+							class="h-6"
 							selected={forceJson ? 'json' : resultKind?.startsWith('table-') ? 'table' : 'pretty'}
 							on:selected={(ev) => {
 								forceJson = ev.detail === 'json'

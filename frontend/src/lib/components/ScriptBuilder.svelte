@@ -1144,7 +1144,7 @@
 												</Tooltip>
 											{/snippet}
 											<ToggleButtonGroup
-												className="h-10"
+												class="h-10"
 												selected={script.kind}
 												on:selected={({ detail }) => {
 													template = 'script'

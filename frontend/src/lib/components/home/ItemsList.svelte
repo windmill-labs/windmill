@@ -362,7 +362,7 @@
 						}
 						setQuery($page.url, 'kind', itemKind)
 					}}
-					className="h-10"
+					class="h-10"
 				>
 					{#snippet children({ item })}
 						<ToggleButton value="all" label="All" class="text-sm px-4 py-2" {item} />

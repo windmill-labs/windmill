@@ -796,7 +796,7 @@
 													</div>
 													<div class="flex gap-2 justify-between mb-4 items-center">
 														<div class="flex gap-2">
-															<ToggleButtonGroup bind:selected={s3Kind} className="w-auto">
+															<ToggleButtonGroup bind:selected={s3Kind} class="w-auto">
 																{#snippet children({ item })}
 																	{#if flowModule.value['language'] === 'deno'}
 																		<ToggleButton

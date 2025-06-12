@@ -295,7 +295,7 @@
 				<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
 
 				<div class="flex flex-row items-center justify-end gap-4">
-					<ToggleButtonGroup className="h-6 w-auto" bind:selected={filterEnabledDisabled}>
+					<ToggleButtonGroup class="h-6 w-auto" bind:selected={filterEnabledDisabled}>
 						{#snippet children({ item })}
 							<ToggleButton small value="all" label="All" {item} />
 							<ToggleButton small value="enabled" label="Enabled" {item} />

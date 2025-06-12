@@ -131,7 +131,7 @@
 		<div class="flex flex-row gap-1 items-center justify-start">
 			<ToggleButtonGroup
 				bind:selected={oneOfSelected}
-				className="h-auto w-auto"
+				class="h-auto w-auto"
 				tabListClass="flex-wrap"
 			>
 				{#snippet children({ item })}

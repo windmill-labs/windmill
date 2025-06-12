@@ -92,7 +92,7 @@
 			{/if}
 
 			<span class="text-xs mb-1 pt-2 leading-6">Role</span>
-			<ToggleButtonGroup bind:selected className="mb-4">
+			<ToggleButtonGroup bind:selected class="mb-4">
 				{#snippet children({ item })}
 					<ToggleButton
 						value="operator"

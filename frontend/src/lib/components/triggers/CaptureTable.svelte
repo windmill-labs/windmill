@@ -260,7 +260,7 @@
 			<div>
 				<ToggleButtonGroup
 					bind:selected={testKind}
-					className="h-full"
+					class="h-full"
 					on:selected={(e) => {
 						initLoadCaptures(e.detail)
 					}}
