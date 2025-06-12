@@ -53,19 +53,26 @@
 		} else if (!isTitle && isVersion) {
 			throw new Error('Please fill title input')
 		} else if (isTitle && isVersion) {
+			let isContact =
+				!emptyString(contactName) || !emptyString(contactUrl) || !emptyString(contactEmail)
+			let isLicense = !emptyString(licenseName) || !emptyString(licenseUrl)
 			info = {
 				title,
 				version,
 				description,
-				contact: {
-					name: contactName,
-					url: contactUrl,
-					email: contactEmail
-				},
-				license: {
-					name: licenseName,
-					url: licenseUrl
-				}
+				contact: isContact
+					? {
+							name: contactName,
+							url: contactUrl,
+							email: contactEmail
+						}
+					: undefined,
+				license: isLicense
+					? {
+							name: licenseName,
+							url: licenseUrl
+						}
+					: undefined
 			}
 		}
 		return info
@@ -503,7 +510,7 @@
 											})
 										}}
 									>
-										Add webhook filter
+										Add webhook filters
 										<Tooltip>
 											<span class="text-sm leading-snug block">
 												Add a new webhook filter to include specific webhooks in the generated

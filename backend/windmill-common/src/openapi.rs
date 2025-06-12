@@ -1,6 +1,10 @@
 use std::{collections::HashMap, fmt::Display};
 
-use crate::{error::Result, utils::deserialize_url, utils::RunnableKind};
+use crate::{
+    error::Result,
+    utils::RunnableKind,
+    utils::{deserialize_url, is_empty},
+};
 use anyhow::anyhow;
 use axum::http;
 use http::Method as HttpMethod;
@@ -44,18 +48,22 @@ impl Default for Format {
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct Contact {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "is_empty")]
     name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_url",
+        skip_serializing_if = "Option::is_none"
+    )]
+    url: Option<Url>,
+    #[serde(skip_serializing_if = "is_empty")]
     email: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct License {
     name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "is_empty")]
     identifier: Option<String>,
     #[serde(
         default,
@@ -69,10 +77,8 @@ struct License {
 pub struct Info {
     title: String,
     version: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "is_empty")]
     description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    terms_of_service: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     contact: Option<Contact>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -82,7 +88,7 @@ pub struct Info {
 #[derive(Debug, Serialize, Deserialize)]
 struct Server {
     url: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "is_empty")]
     description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     variables: Option<HashMap<String, Value>>,
