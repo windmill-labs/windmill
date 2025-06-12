@@ -746,7 +746,7 @@
 															}}
 															startIcon={{ icon: Terminal }}
 														>
-															Command
+															ssh
 														</Button>
 													</Cell>
 												{/if}
