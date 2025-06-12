@@ -353,12 +353,6 @@
 	let testPanelSize = $state(30)
 	let storedTestPanelSize = untrack(() => testPanelSize)
 
-	$effect(() => {
-		if (SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') == !aiChatManager.open) {
-			untrack(() => aiChatManager.toggleOpen())
-		}
-	})
-
 	function toggleTestPanel() {
 		if (testPanelSize > 0) {
 			storedTestPanelSize = testPanelSize
