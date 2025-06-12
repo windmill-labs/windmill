@@ -648,7 +648,7 @@
 								}}
 							/>
 						</div>
-					{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && Array.isArray(value)}
+					{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && (Array.isArray(value) || value == undefined)}
 						<div class="items-start">
 							<Multiselect
 								ulOptionsClass={'p-2 !bg-surface-secondary'}
@@ -658,7 +658,7 @@
 									if (Array.isArray(value)) value = value.filter((v) => v !== e.option)
 								}}
 								bind:selected={
-									() => [...value],
+									() => [...(value ?? [])],
 									(v) => {
 										if (!deepEqual(v, value)) {
 											value = v
