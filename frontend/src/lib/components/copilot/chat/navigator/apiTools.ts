@@ -81,17 +81,12 @@ export function buildToolsFromOpenApi(
 ): { tools: ChatCompletionTool[]; endpointMap: Record<string, string> } {
 	const tools: ChatCompletionTool[] = []
 	const endpointMap: Record<string, string> = {}
-	const {
-		pathFilter,
-		operationFilter,
-		methodFilter = ['get', 'post', 'put', 'delete', 'patch']
-	} = options
+	const { pathFilter, methodFilter = ['get', 'post', 'put', 'delete', 'patch'] } = options
 
 	// Iterate through all paths in the OpenAPI spec
 	for (const [path, pathItem] of Object.entries(openApiSpec.paths)) {
 		if (pathFilter && !pathFilter(path)) continue
 
-		// Process each operation (GET, POST, PUT, DELETE, etc.)
 		for (const [method, operation] of Object.entries(pathItem)) {
 			// Skip non-operation properties
 			if (
@@ -107,10 +102,10 @@ export function buildToolsFromOpenApi(
 
 			// Type cast to OpenAPIOperation
 			const op = operation as OpenAPIOperation
-			if (operationFilter && !operationFilter(op)) continue
-
-			// Generate a function name from the operationId or path
-			const functionName = op.operationId
+			if (!op.operationId || !op.summary) {
+				console.error(`Operation ${method} ${path} has no operationId or summary`)
+				continue
+			}
 
 			// Build the parameters schema
 			const parameters: Record<string, any> = {
@@ -171,17 +166,14 @@ export function buildToolsFromOpenApi(
 				}
 			}
 
-			console.log('parameters', parameters)
-
-			// Create the tool definition using buildApiCallTools
 			const tool = buildApiCallTools(
-				functionName,
+				'api_' + op.operationId,
 				op.summary || op.description || `${method.toUpperCase()} ${path}`,
 				parameters
 			)
 
 			// Store the endpoint path in the map
-			endpointMap[functionName] = `${method.toUpperCase()} ${path}`
+			endpointMap['api_' + op.operationId] = `${method.toUpperCase()} ${path}`
 
 			tools.push(tool)
 		}
@@ -227,7 +219,6 @@ export function createApiTools(
 							queryParams[key] = String(value)
 						}
 					}
-
 					// Add query parameters to URL if needed
 					if (Object.keys(queryParams).length > 0) {
 						const searchParams = new URLSearchParams()
@@ -276,22 +267,13 @@ export async function loadApiTools(): Promise<Tool<{}>[]> {
 			'workers'
 		]
 
-		// Build OpenAPI tools
 		const { tools: apiTools, endpointMap } = buildToolsFromOpenApi(openApiSpec, {
-			toolNamePrefix: 'api_',
-			// Optional filters for specific paths or operations
 			pathFilter: (path) =>
 				path.startsWith('/w/') && pathsToInclude.some((p) => path.includes(`/${p}/`)),
-			// Only include GET operations that have a summary
-			operationFilter: (op) => !!op.summary,
-			// Only include GET endpoints
 			methodFilter: ['get']
 		})
 
-		// Create executable tools from definitions
 		const executableApiTools = createApiTools(apiTools, endpointMap)
-
-		// Return combined tools
 		return executableApiTools
 	} catch (error) {
 		console.error('Failed to load API tools:', error)

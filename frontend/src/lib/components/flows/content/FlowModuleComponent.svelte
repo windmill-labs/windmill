@@ -414,9 +414,9 @@
 								{#if !noEditor}
 									{#key flowModule.id}
 										<Editor
-											on:addSelectedLinesToAiChat={(e) => {
+											on:addSelectedLinesToAiChat={async (e) => {
 												const { lines, startLine, endLine } = e.detail
-												aiChatManager.addSelectedLinesToContext(lines, startLine, endLine)
+												await aiChatManager.addSelectedLinesToContext(lines, startLine, endLine)
 											}}
 											on:toggleAiPanel={() => {
 												aiChatManager.toggleOpen()
