@@ -10,6 +10,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { SaveIcon, EyeIcon, EyeOffIcon } from 'lucide-svelte'
+	import { untrack } from 'svelte'
 
 	let operatorWorkspaceSettings = $state({
 		runs: true,
@@ -23,7 +24,7 @@
 		workers: true
 	})
 
-	let originalSettings = $state({ ...operatorWorkspaceSettings })
+	let originalSettings = $state({ ...untrack(() => operatorWorkspaceSettings) })
 	let isChanged = $state(false)
 	let currentWorkspace: string | null = $state(null)
 

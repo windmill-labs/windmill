@@ -33,9 +33,9 @@
 	})
 	let valid = $state(true)
 
-	let drawer: Drawer = $state()
+	let drawer: Drawer | undefined = $state()
 	let edit = $state(false)
-	let initialPath: string = $state()
+	let initialPath: string = $state('')
 	let pathError = $state('')
 	let can_write = $state(true)
 
@@ -49,7 +49,7 @@
 		initialPath = ''
 		path = ''
 		can_write = true
-		drawer.openDrawer()
+		drawer?.openDrawer()
 	}
 
 	export async function editVariable(edit_path: string): Promise<void> {
@@ -70,7 +70,7 @@
 		}
 		initialPath = edit_path
 		path = edit_path
-		drawer.openDrawer()
+		drawer?.openDrawer()
 	}
 
 	export async function loadVariable(path: string): Promise<void> {
@@ -101,7 +101,7 @@
 		})
 		sendUserToast(`Created variable ${path}`)
 		dispatch('create')
-		drawer.closeDrawer()
+		drawer?.closeDrawer()
 	}
 
 	async function updateVariable(): Promise<void> {
@@ -124,7 +124,7 @@
 			})
 			sendUserToast(`Updated variable ${initialPath}`)
 			dispatch('create')
-			drawer.closeDrawer()
+			drawer?.closeDrawer()
 		} catch (err) {
 			sendUserToast(`Could not update variable: ${err.body}`, true)
 		}
@@ -136,7 +136,7 @@
 <Drawer bind:this={drawer} size="900px">
 	<DrawerContent
 		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
-		on:close={drawer.closeDrawer}
+		on:close={drawer?.closeDrawer}
 	>
 		<div class="flex flex-col gap-8">
 			{#if !can_write}

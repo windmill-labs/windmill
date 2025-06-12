@@ -91,7 +91,7 @@
 
 	let scopes: string[] = $state([])
 	let extra_params: [string, string][] = []
-	let path: string | undefined = $state(undefined)
+	let path: string = $state('')
 	let description = $state('')
 
 	let resourceTypeInfo: ResourceType | undefined = $state(undefined)

@@ -60,8 +60,8 @@
 		})
 	})
 
-	let initialDate = date
-	let initialTime = time
+	let initialDate = untrack(() => date)
+	let initialTime = untrack(() => time)
 
 	function parseDateAndTime(date: string | undefined, time: string | undefined) {
 		if (date && time && (initialDate != date || initialTime != time)) {

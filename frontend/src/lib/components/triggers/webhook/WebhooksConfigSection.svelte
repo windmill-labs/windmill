@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import Label from '../../Label.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -22,13 +24,25 @@
 	import UserSettings from '../../UserSettings.svelte'
 	import { generateRandomString } from '$lib/utils'
 
-	export let isFlow: boolean = false
-	export let path: string = ''
-	export let hash: string | undefined = undefined
-	export let token: string = ''
-	export let runnableArgs: any
-	export let triggerTokens: TriggerTokens | undefined = undefined
-	export let scopes: string[] = []
+	interface Props {
+		isFlow?: boolean
+		path?: string
+		hash?: string | undefined
+		token?: string
+		runnableArgs: any
+		triggerTokens?: TriggerTokens | undefined
+		scopes?: string[]
+	}
+
+	let {
+		isFlow = false,
+		path = '',
+		hash = undefined,
+		token = $bindable(''),
+		runnableArgs,
+		triggerTokens = $bindable(undefined),
+		scopes = []
+	}: Props = $props()
 
 	let webhooks: {
 		async: {
@@ -40,12 +54,10 @@
 			path: string
 			get_path?: string
 		}
-	}
-	let selectedTab: string = 'rest'
-	let userSettings: UserSettings
-	let url: string = ''
-
-	$: webhooks = isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path)
+	} = $derived(isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path))
+	let selectedTab: string = $state('rest')
+	let userSettings: UserSettings | undefined = $state()
+	let url: string = $state('')
 
 	function computeScriptWebhooks(hash: string | undefined, path: string) {
 		let webhookBase = `${location.origin}${base}/api/w/${$workspaceStore}/jobs`
@@ -78,13 +90,9 @@
 		}
 	}
 
-	let webhookType: 'async' | 'sync' = DEFAULT_WEBHOOK_TYPE
-	let requestType: 'hash' | 'path' | 'get_path' = isFlow ? 'path' : 'path'
-	let tokenType: 'query' | 'headers' = 'headers'
-
-	$: if (webhookType === 'async' && requestType === 'get_path') {
-		requestType = hash ? 'hash' : 'path'
-	}
+	let webhookType: 'async' | 'sync' = $state(DEFAULT_WEBHOOK_TYPE)
+	let requestType: 'hash' | 'path' | 'get_path' = $state(isFlow ? 'path' : 'path')
+	let tokenType: 'query' | 'headers' = $state('headers')
 
 	function headers() {
 		const headers = {}
@@ -97,11 +105,6 @@
 		}
 		return headers
 	}
-
-	$: cleanedRunnableArgs =
-		isObject(runnableArgs) && 'wm_trigger' in runnableArgs
-			? Object.fromEntries(Object.entries(runnableArgs).filter(([key]) => key !== 'wm_trigger'))
-			: runnableArgs
 
 	function fetchCode() {
 		if (webhookType === 'sync') {
@@ -220,19 +223,31 @@ done`
 }`
 	}
 
-	$: url =
-		webhooks[webhookType][requestType] +
-		(tokenType === 'query'
-			? `?token=${token}${
-					requestType === 'get_path'
-						? `&payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
-						: ''
-				}`
-			: `${
-					requestType === 'get_path'
-						? `?payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
-						: ''
-				}`)
+	run(() => {
+		if (webhookType === 'async' && requestType === 'get_path') {
+			requestType = hash ? 'hash' : 'path'
+		}
+	})
+	let cleanedRunnableArgs = $derived(
+		isObject(runnableArgs) && 'wm_trigger' in runnableArgs
+			? Object.fromEntries(Object.entries(runnableArgs).filter(([key]) => key !== 'wm_trigger'))
+			: runnableArgs
+	)
+	run(() => {
+		url =
+			webhooks[webhookType][requestType] +
+			(tokenType === 'query'
+				? `?token=${token}${
+						requestType === 'get_path'
+							? `&payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
+							: ''
+					}`
+				: `${
+						requestType === 'get_path'
+							? `?payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
+							: ''
+					}`)
+	})
 </script>
 
 <UserSettings
@@ -255,7 +270,12 @@ done`
 					placeholder="paste your token here once created to alter examples below"
 					class="!text-xs !font-normal"
 				/>
-				<Button size="xs" color="light" variant="border" on:click={() => userSettings.openDrawer()}>
+				<Button
+					size="xs"
+					color="light"
+					variant="border"
+					on:click={() => userSettings?.openDrawer()}
+				>
 					Create a Webhook-specific Token
 					<Tooltip light>
 						The token will have a scope such that it can only be used to trigger this script. It is
@@ -269,65 +289,71 @@ done`
 	<div class="flex flex-col gap-2">
 		<div class="flex flex-row justify-between">
 			<div class="text-sm font-normal text-secondary flex flex-row items-center">Request type</div>
-			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={webhookType} let:item>
-				<ToggleButton
-					label="Async"
-					value="async"
-					tooltip="The returning value is the uuid of the job assigned to execute the job."
-					{item}
-				/>
-				<ToggleButton
-					label="Sync"
-					value="sync"
-					tooltip="Triggers the execution, wait for the job to complete and return it as a response."
-					{item}
-				/>
+			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={webhookType}>
+				{#snippet children({ item })}
+					<ToggleButton
+						label="Async"
+						value="async"
+						tooltip="The returning value is the uuid of the job assigned to execute the job."
+						{item}
+					/>
+					<ToggleButton
+						label="Sync"
+						value="sync"
+						tooltip="Triggers the execution, wait for the job to complete and return it as a response."
+						{item}
+					/>
+				{/snippet}
 			</ToggleButtonGroup>
 		</div>
 		<div class="flex flex-row justify-between">
 			<div class="text-sm font-normal text-secondary flex flex-row items-center">Call method</div>
-			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType} let:item>
-				<ToggleButton
-					label="POST by path"
-					value="path"
-					icon={ArrowUpRight}
-					{item}
-					selectedColor="#fb923c"
-				/>
-				{#if !isFlow}
+			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType}>
+				{#snippet children({ item })}
 					<ToggleButton
-						label="POST by hash"
-						value="hash"
+						label="POST by path"
+						value="path"
 						icon={ArrowUpRight}
-						selectedColor="#fb923c"
-						disabled={!hash}
 						{item}
+						selectedColor="#fb923c"
 					/>
-				{/if}
+					{#if !isFlow}
+						<ToggleButton
+							label="POST by hash"
+							value="hash"
+							icon={ArrowUpRight}
+							selectedColor="#fb923c"
+							disabled={!hash}
+							{item}
+						/>
+					{/if}
 
-				<ToggleButton
-					label="GET by path"
-					value="get_path"
-					icon={ArrowDownRight}
-					disabled={webhookType !== 'sync'}
-					{item}
-					selectedColor="#14b8a6"
-				/>
+					<ToggleButton
+						label="GET by path"
+						value="get_path"
+						icon={ArrowDownRight}
+						disabled={webhookType !== 'sync'}
+						{item}
+						selectedColor="#14b8a6"
+					/>
+				{/snippet}
 			</ToggleButtonGroup>
 		</div>
 		<div class="flex flex-row justify-between">
 			<div class="text-sm font-normal text-secondary flex flex-row items-center"
 				>Token configuration</div
 			>
-			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType} let:item>
-				<ToggleButton label="Token in Headers" value="headers" {item} />
-				<ToggleButton label="Token in Query" value="query" {item} />
+			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType}>
+				{#snippet children({ item })}
+					<ToggleButton label="Token in Headers" value="headers" {item} />
+					<ToggleButton label="Token in Query" value="query" {item} />
+				{/snippet}
 			</ToggleButtonGroup>
 		</div>
 	</div>
 
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div>
 		<Tabs bind:selected={selectedTab}>
 			<Tab value="rest" size="xs">REST</Tab>
@@ -366,7 +392,7 @@ done`
 										{#key tokenType}
 											<div
 												class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
-												on:click={(e) => {
+												onclick={(e) => {
 													e.preventDefault()
 													copyToClipboard(curlCode())
 												}}
@@ -388,7 +414,7 @@ done`
 										{#key token}
 											<div
 												class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
-												on:click={(e) => {
+												onclick={(e) => {
 													e.preventDefault()
 													copyToClipboard(fetchCode())
 												}}

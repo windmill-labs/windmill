@@ -1,11 +1,10 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import type { TabsContext } from '$lib/components/apps/editor/settingsPanel/inputEditor/tabs.svelte'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
+
+	const dispatch = createEventDispatcher<{ onpointerdown: any }>()
 
 	interface Props {
 		aiId?: string | undefined
@@ -95,7 +94,10 @@
 				update(value)
 			}
 		}}
-		onpointerdown={stopPropagation(bubble('pointerdown'))}
+		onpointerdown={(event) => {
+			event.stopPropagation()
+			dispatch('onpointerdown', event)
+		}}
 		{disabled}
 		{id}
 	>

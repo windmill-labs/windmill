@@ -187,7 +187,7 @@
 			<div class={classNames('flex gap-x-2 gap-y-1 justify-end items-center')}>
 				{#if componentInput?.type && allowTypeChange !== false}
 					<ToggleButtonGroup
-						className="h-7"
+						class="h-7"
 						bind:selected={componentInput.type}
 						on:selected={(e) => {
 							if (
