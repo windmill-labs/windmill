@@ -892,13 +892,13 @@ export async function findGlobalDeps(): Promise<GlobalDeps> {
     if (entry.isDirectory || entry.ignored) continue;
     const content = await entry.getContentText();
     if (entry.path.endsWith("package.json")) {
-      pkgs[entry.path.substring(0, entry.path.length - 12)] = content;
+      pkgs[entry.path.substring(0, entry.path.length - "package.json".length)] = content;
     } else if (entry.path.endsWith("requirements.txt")) {
-      reqs[entry.path.substring(0, entry.path.length - 16)] = content;
+      reqs[entry.path.substring(0, entry.path.length - "requirements.txt".length)] = content;
     } else if (entry.path.endsWith("composer.json")) {
-      composers[entry.path.substring(0, entry.path.length - 13)] = content;
+      composers[entry.path.substring(0, entry.path.length - "composer.json".length)] = content;
     } else if (entry.path.endsWith("go.mod")) {
-      goMods[entry.path.substring(0, entry.path.length - 13)] = content;
+      goMods[entry.path.substring(0, entry.path.length - "go.mod".length)] = content;
     }
   }
   return { pkgs, reqs, composers, goMods };
