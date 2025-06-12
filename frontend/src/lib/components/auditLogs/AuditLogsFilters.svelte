@@ -1,3 +1,18 @@
+<script lang="ts" module>
+	async function loadResources(workspace: string): Promise<string[]> {
+		const r = await ResourceService.listResource({ workspace })
+		const sPaths = await ScriptService.listScriptPaths({ workspace })
+		const fPaths = await FlowService.listFlowPaths({ workspace })
+		const a = await AppService.listApps({ workspace })
+		return r
+			.map((r) => r.path)
+			.concat(sPaths)
+			.concat(fPaths)
+			.concat(a.map((a) => a.path))
+			.sort()
+	}
+</script>
+
 <script lang="ts">
 	import { goto } from '$lib/navigation'
 	import type { ActionKind } from '$lib/common'
@@ -16,13 +31,14 @@
 
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { Loader2, RefreshCcw } from 'lucide-svelte'
-	import { onDestroy, tick } from 'svelte'
-	import AutoComplete from 'simple-svelte-autocomplete'
+	import { onDestroy, tick, untrack } from 'svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import Select from '../Select.svelte'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
 
 	let usernames: string[] | undefined = $state()
-	let resources: string[] | undefined = $state()
+	let resources = usePromise(() => loadResources($workspaceStore!), { loadInit: false })
 	let loading: boolean = $state(false)
 	let page: number | undefined = undefined
 
@@ -122,31 +138,10 @@
 				: [$userStore?.username ?? '']
 	}
 
-	async function loadResources() {
-		const r = await ResourceService.listResource({
-			workspace: $workspaceStore!
-		})
-		const sPaths = await ScriptService.listScriptPaths({
-			workspace: $workspaceStore!
-		})
-		const fPaths = await FlowService.listFlowPaths({
-			workspace: $workspaceStore!
-		})
-		const a = await AppService.listApps({
-			workspace: $workspaceStore!
-		})
-		resources = r
-			.map((r) => r.path)
-			.concat(sPaths)
-			.concat(fPaths)
-			.concat(a.map((a) => a.path))
-			.sort()
-	}
-
 	let initialLoad = true
 	function refreshLogs() {
 		loadUsers()
-		loadResources()
+		resources.refresh()
 		loadLogs(username, page, perPage, before, after, operation, resource, actionKind, scope)
 		tick().then(() => {
 			initialLoad = false
@@ -307,7 +302,7 @@
 
 	let refresh = $state(1)
 	$effect(() => {
-		$workspaceStore && refresh && refreshLogs()
+		$workspaceStore && refresh && untrack(() => refreshLogs())
 	})
 	// observe all the variables that should trigger an update
 	$effect(() => {
@@ -398,20 +393,15 @@
 	<div class="flex gap-1 relative w-full">
 		<span class="text-xs absolute -top-4">Resource</span>
 
-		<AutoComplete
-			create
-			onCreate={(resource) => {
-				resources?.push(resource)
-				return resource
+		<Select
+			onCreateItem={(r) => {
+				resources.value?.push(r)
+				resource = r
 			}}
-			createText="Press enter to use this value"
-			noInputStyles
-			items={resources}
-			value={resource}
-			bind:selectedItem={resource}
-			inputClassName="!h-[34px] py-1 !text-xs !w-48"
-			hideArrow
-			dropdownClassName="!text-sm"
+			bind:value={resource}
+			items={resources.value?.map((r) => ({ value: r, label: r }))}
+			clearable
+			inputClass="dark:!bg-gray-700"
 		/>
 	</div>
 
