@@ -100,6 +100,8 @@ pub struct FuturePath {
     http_method: HttpMethod,
     is_async: bool,
     runnable_kind: Option<RunnableKind>,
+    summary: Option<String>,
+    description: Option<String>,
 }
 
 impl FuturePath {
@@ -108,8 +110,10 @@ impl FuturePath {
         http_method: HttpMethod,
         is_async: bool,
         runnable_kind: Option<RunnableKind>,
+        summary: Option<String>,
+        description: Option<String>,
     ) -> FuturePath {
-        FuturePath { route_path, http_method, is_async, runnable_kind }
+        FuturePath { route_path, http_method, is_async, runnable_kind, summary, description }
     }
 }
 
@@ -249,15 +253,23 @@ fn generate_paths(
                     path_object.insert("parameters".to_string(), to_value(parameters)?);
                 }
 
-                let mut request_response_map = IndexMap::with_capacity(2);
+                let mut method_map = IndexMap::new();
 
-                if path.http_method != HttpMethod::GET {
-                    request_response_map.insert("requestBody", generate_default_request());
+                if let Some(summary) = path.summary {
+                    method_map.insert("summary", Value::String(summary));
                 }
 
-                request_response_map.insert("responses", generate_response(path.is_async));
+                if let Some(description) = path.description {
+                    method_map.insert("description", Value::String(description));
+                }
 
-                path_object.insert(http_method, to_value(&request_response_map)?);
+                if path.http_method != HttpMethod::GET {
+                    method_map.insert("requestBody", generate_default_request());
+                }
+
+                method_map.insert("responses", generate_response(path.is_async));
+
+                path_object.insert(http_method, to_value(&method_map)?);
 
                 map.insert(route_path, path_object);
             }

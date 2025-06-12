@@ -1525,6 +1525,10 @@ async fn generate_openapi_future_path(
             http_method: HttpMethod,
             is_async: bool,
             workspaced_route: bool,
+            #[serde(default, deserialize_with = "empty_as_none")]
+            summary: Option<String>,
+            #[serde(default, deserialize_with = "empty_as_none")]
+            description: Option<String>,
         }
 
         http_routes = sqlx::query_as!(
@@ -1534,7 +1538,9 @@ async fn generate_openapi_future_path(
             route_path,
             http_method AS "http_method: _",
             is_async,
-            workspaced_route
+            workspaced_route,
+            summary,
+            description
         FROM
             http_trigger
         WHERE
@@ -1572,9 +1578,29 @@ async fn generate_openapi_future_path(
             }
         }
 
-        let script_paths = sqlx::query_scalar!(
+        #[derive(Debug, Deserialize, Clone, Hash)]
+        struct MinifiedWebhook {
+            path: String,
+            #[serde(default, deserialize_with = "empty_as_none")]
+            description: Option<String>,
+            #[serde(default, deserialize_with = "empty_as_none")]
+            summary: Option<String>,
+        }
+
+        impl PartialEq for MinifiedWebhook {
+            fn eq(&self, other: &Self) -> bool {
+                self.path == other.path
+            }
+        }
+
+        impl Eq for MinifiedWebhook {}
+
+        let script_paths = sqlx::query_as!(
+            MinifiedWebhook,
             r#"SELECT 
-                    path
+                    path,
+                    summary,
+                    description
                 FROM
                     script
                 WHERE
@@ -1590,9 +1616,12 @@ async fn generate_openapi_future_path(
         .unique()
         .collect_vec();
 
-        let flow_paths = sqlx::query_scalar!(
+        let flow_paths = sqlx::query_as!(
+            MinifiedWebhook,
             r#"SELECT 
-                    path
+                    path,
+                    summary,
+                    description
                 FROM
                     flow
                 WHERE
@@ -1610,21 +1639,25 @@ async fn generate_openapi_future_path(
 
         futures_path_webhook = Vec::with_capacity(script_paths.len() + flow_paths.len());
 
-        for script_path in script_paths {
+        for webhook in script_paths {
             futures_path_webhook.push(FuturePath::new(
-                script_path,
+                webhook.path,
                 Method::POST,
                 true,
                 Some(RunnableKind::Script),
+                webhook.summary,
+                webhook.description,
             ));
         }
 
-        for flow_path in flow_paths {
+        for webhook in flow_paths {
             futures_path_webhook.push(FuturePath::new(
-                flow_path,
+                webhook.path,
                 Method::POST,
                 true,
                 Some(RunnableKind::Flow),
+                webhook.summary,
+                webhook.description,
             ));
         }
     }
@@ -1656,7 +1689,14 @@ async fn generate_openapi_future_path(
                 http_route.route_path
             };
 
-            let future_path = FuturePath::new(route_path, method, http_route.is_async, None);
+            let future_path = FuturePath::new(
+                route_path,
+                method,
+                http_route.is_async,
+                None,
+                http_route.summary,
+                http_route.description,
+            );
 
             future_path
         })

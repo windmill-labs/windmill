@@ -160,7 +160,7 @@
 		title={'Generate OpenAPI document'}
 		on:close={() => openAPIGenerator.closeDrawer()}
 	>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<div class="flex flex-row gap-2">
 				<Button
 					disabled={isValid}
@@ -193,7 +193,7 @@
 					Generate OpenAPI document
 				</Button>
 			</div>
-		</svelte:fragment>
+		{/snippet}
 
 		<div class="flex flex-row h-full gap-2">
 			<div class="h-full w-1/2">
