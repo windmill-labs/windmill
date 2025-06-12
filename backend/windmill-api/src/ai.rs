@@ -154,15 +154,21 @@ impl AIRequestConfig {
         let is_azure = matches!(provider, AIProvider::OpenAI) && base_url != OPENAI_BASE_URL
             || matches!(provider, AIProvider::AzureOpenAI);
 
-        let url = if is_azure && !base_url.contains("/deployments/") {
-            let model = Self::get_azure_model(&body)?;
-            format!("{}/deployments/{}/{}", base_url, model, path)
-        } else if is_azure && base_url.ends_with("/deployments") {
-            let model = Self::get_azure_model(&body)?;
-            format!("{}/{}/{}", base_url, model, path)
+        let url = if is_azure {
+            if base_url.ends_with("/deployments") {
+                let model = Self::get_azure_model(&body)?;
+                format!("{}/{}/{}", base_url, model, path)
+            } else if base_url.ends_with("/openai") {
+                let model = Self::get_azure_model(&body)?;
+                format!("{}/deployments/{}/{}", base_url, model, path)
+            } else {
+                format!("{}/{}", base_url, path)
+            }
         } else {
             format!("{}/{}", base_url, path)
         };
+
+        tracing::debug!("AI request URL: {}", url);
 
         let mut request = HTTP_CLIENT
             .post(url)
