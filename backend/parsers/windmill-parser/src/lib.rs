@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::mem::discriminant;
+
 use convert_case::{Boundary, Case, Casing};
 use serde::Serialize;
 use serde_json::Value;
@@ -33,7 +35,7 @@ pub struct OneOfVariant {
     pub properties: Vec<ObjectProperty>,
 }
 
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all(serialize = "lowercase"))]
 pub enum Typ {
     Str(Option<Vec<String>>),
@@ -49,10 +51,11 @@ pub enum Typ {
     DynSelect(String),
     Object(Vec<ObjectProperty>),
     OneOf(Vec<OneOfVariant>),
+    #[default]
     Unknown,
 }
 
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Clone, Debug, PartialEq, Default)]
 pub struct Arg {
     pub name: String,
     pub otyp: Option<String>,
@@ -62,7 +65,7 @@ pub struct Arg {
     pub oidx: Option<i32>,
 }
 
-pub fn json_to_typ(js: &Value) -> Typ {
+pub fn json_to_typ(js: &Value, precise_arrays: bool) -> Typ {
     match js {
         Value::String(_) => Typ::Str(None),
         Value::Number(n) if n.is_i64() => Typ::Int,
@@ -70,10 +73,28 @@ pub fn json_to_typ(js: &Value) -> Typ {
         Value::Bool(_) => Typ::Bool,
         Value::Object(o) => Typ::Object(
             o.iter()
-                .map(|(k, v)| ObjectProperty { key: k.to_string(), typ: Box::new(json_to_typ(v)) })
+                .map(|(k, v)| ObjectProperty {
+                    key: k.to_string(),
+                    typ: Box::new(json_to_typ(v, precise_arrays)),
+                })
                 .collect(),
         ),
-        Value::Array(a) => Typ::List(Box::new(a.first().map(json_to_typ).unwrap_or(Typ::Unknown))),
+        Value::Array(a) => Typ::List(Box::new({
+            // Check if all variant types are the same
+            if !precise_arrays
+                || a.windows(2).all(|pair| {
+                    let (l, r) = (&pair[0], &pair[1]);
+                    discriminant(l) == discriminant(r)
+                })
+            {
+                a.first()
+                    .map(|js| json_to_typ(js, precise_arrays))
+                    .unwrap_or(Typ::Unknown)
+            } else {
+                Typ::Unknown
+            }
+        })),
+
         _ => Typ::Unknown,
     }
 }

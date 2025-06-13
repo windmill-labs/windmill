@@ -125,7 +125,7 @@ pub fn parse_python_signature(
                         && default.is_some()
                         && default != Some(json!(FUNCTION_CALL))
                     {
-                        typ = json_to_typ(default.as_ref().unwrap());
+                        typ = json_to_typ(default.as_ref().unwrap(), false);
                     }
 
                     // if the type is still a list of unknowns after checking the default, we set it to a list of strings to not break past behavior

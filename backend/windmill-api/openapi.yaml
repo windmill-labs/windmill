@@ -14325,6 +14325,7 @@ components:
           csharp,
           nu,
           java,
+          ruby,
           duckdb
           # for related places search: ADD_NEW_LANG
         ]

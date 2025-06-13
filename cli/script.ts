@@ -575,7 +575,9 @@ export function filePathExtensionFromContentType(
     return ".nu";
   } else if (language === "java") {
     return ".java";
-    // for related places search: ADD_NEW_LANG
+  } else if (language === "ruby") {
+    return ".rb";
+    // for related places search: ADD_NEW_LANG 
   } else {
     throw new Error("Invalid language: " + language);
   }
@@ -605,7 +607,8 @@ export const exts = [
   ".nu",
   ".playbook.yml",
   ".java",
-  // for related places search: ADD_NEW_LANG
+  ".rb"
+  // for related places search: ADD_NEW_LANG 
 ];
 
 export function removeExtensionToPath(path: string): string {
