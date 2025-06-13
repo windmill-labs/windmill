@@ -446,6 +446,8 @@
 						<Menu {createMenu} usePointerDownOutside>
 							{#snippet triggr({ trigger })}
 								<MeltButton
+									aiId="sidebar-menu-link-add-trigger"
+									aiDescription="Button to add a new trigger. Can be HTTP, WebSocket, Postgres, Kafka, NATS, SQS, GCP Pub/Sub, or MQTT"
 									class={twMerge(
 										'w-full text-gray-400 text-2xs flex flex-row gap-1 py-1 items-center px-2 hover:bg-[#2A3648] dark:hover:bg-[#30404e] rounded',
 										'data-[highlighted]:bg-[#2A3648] dark:data-[highlighted]:bg-[#30404e]'

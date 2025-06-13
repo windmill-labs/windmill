@@ -95,6 +95,10 @@
 	$effect(() => {
 		aiChatManager.updateMode(untrack(() => aiChatManager.mode))
 	})
+
+	$effect(() => {
+		aiChatManager.loadApiTools()
+	})
 </script>
 
 <svelte:window
