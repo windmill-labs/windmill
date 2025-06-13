@@ -5,17 +5,21 @@
 	import { workspaceStore } from '$lib/stores'
 	import { onMount } from 'svelte'
 
-	export let resourceType: string | undefined = undefined
-	export let workspace: string
-	export let express = false
+	interface Props {
+		resourceType?: string | undefined
+		workspace: string
+		express?: boolean
+	}
 
-	let step = 1
-	let disabled = false
-	let manual = true
+	let { resourceType = $bindable(undefined), workspace, express = false }: Props = $props()
 
-	let appConnect: AppConnectInner | undefined = undefined
+	let step = $state(1)
+	let disabled = $state(false)
+	let manual = $state(true)
 
-	let darkMode: boolean = false
+	let appConnect: AppConnectInner | undefined = $state(undefined)
+
+	let darkMode: boolean = $state(false)
 
 	if (workspace) {
 		$workspaceStore = workspace

@@ -9,17 +9,25 @@
 	import EditableSchemaDrawer from './schema/EditableSchemaDrawer.svelte'
 	import type { SchemaProperty } from '$lib/common'
 
-	export let canEditResourceType: boolean = false
-	export let originalType: string | undefined = undefined
-	export let itemsType:
-		| {
-				type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
-				contentEncoding?: 'base64'
-				enum?: string[]
-				resourceType?: string
-				properties?: { [name: string]: SchemaProperty }
-		  }
-		| undefined
+	interface Props {
+		canEditResourceType?: boolean
+		originalType?: string | undefined
+		itemsType:
+			| {
+					type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
+					contentEncoding?: 'base64'
+					enum?: string[]
+					resourceType?: string
+					properties?: { [name: string]: SchemaProperty }
+			  }
+			| undefined
+	}
+
+	let {
+		canEditResourceType = false,
+		originalType = undefined,
+		itemsType = $bindable()
+	}: Props = $props()
 
 	let selected:
 		| 'string'
@@ -29,7 +37,7 @@
 		| 'enum'
 		| 'resource'
 		| 's3object'
-		| undefined =
+		| undefined = $state(
 		itemsType?.type != 'string'
 			? itemsType?.type == 'object' && itemsType?.resourceType == 's3object'
 				? 's3object'
@@ -39,12 +47,13 @@
 				: itemsType?.contentEncoding == 'base64'
 					? 'bytes'
 					: 'string'
+	)
 
-	let schema = {
+	let schema = $state({
 		properties: itemsType?.properties || {},
 		order: Object.keys(itemsType?.properties || {}),
 		required: Object.values(itemsType?.properties || {}).map((p) => p.required)
-	}
+	})
 
 	function updateItemsType() {
 		itemsType = {
@@ -59,7 +68,7 @@
 	<Label label="Items type">
 		<select
 			bind:value={selected}
-			on:change={() => {
+			onchange={() => {
 				if (selected == 'enum') {
 					itemsType = { type: 'string', enum: [] }
 				} else if (selected == 'string') {
@@ -127,7 +136,7 @@
 						<button
 							transition:fade|local={{ duration: 100 }}
 							class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
-							on:click={() => {
+							onclick={() => {
 								if (itemsType && itemsType.enum) {
 									const enumValue = itemsType.enum[index]
 									itemsType.enum = itemsType.enum.filter((el) => el !== enumValue)
