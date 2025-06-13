@@ -48,6 +48,7 @@
 	import { collectStaticFields, hash, type TriggerableV2 } from '../apps/editor/commonAppUtils'
 	import type { SavedAndModifiedValue } from '../common/confirmationModal/unsavedTypes'
 	import DropdownV2 from '../DropdownV2.svelte'
+	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 
 	// async function hash(message) {
 	// 	try {
@@ -204,7 +205,7 @@
 			})
 			savedApp = {
 				summary: summary,
-				value: structuredClone(app),
+				value: structuredClone(stateSnapshot(app)),
 				path: path,
 				policy: policy,
 				custom_path: customPath
@@ -309,7 +310,7 @@
 		})
 		savedApp = {
 			summary: summary,
-			value: structuredClone(app),
+			value: structuredClone(stateSnapshot(app)),
 			path: npath,
 			policy,
 			custom_path: customPath
@@ -401,13 +402,13 @@
 			})
 			savedApp = {
 				summary: summary,
-				value: structuredClone(app),
+				value: structuredClone(stateSnapshot(app)),
 				path: newEditedPath,
 				policy,
 				draft_only: true,
 				draft: {
 					summary: summary,
-					value: structuredClone(app),
+					value: structuredClone(stateSnapshot(app)),
 					path: newEditedPath,
 					policy,
 					custom_path: customPath
@@ -499,7 +500,7 @@
 				...(savedApp?.draft_only
 					? {
 							summary: summary,
-							value: structuredClone(app),
+							value: structuredClone(stateSnapshot(app)),
 							path: savedApp.draft_only ? newEditedPath || path : path,
 							policy,
 							draft_only: true,
@@ -508,7 +509,7 @@
 					: savedApp),
 				draft: {
 					summary: summary,
-					value: structuredClone(app),
+					value: structuredClone(stateSnapshot(app)),
 					path: newEditedPath || path,
 					policy,
 					custom_path: customPath

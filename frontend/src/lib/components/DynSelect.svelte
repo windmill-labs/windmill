@@ -7,6 +7,7 @@
 	import ResultJobLoader from './ResultJobLoader.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { Loader2 } from 'lucide-svelte'
+	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 
 	export let value: any = undefined
 	export let helperScript:
@@ -87,7 +88,7 @@
 		})
 	}
 
-	let lastArgs = structuredClone({ ...args, [name]: undefined })
+	let lastArgs = structuredClone({ ...stateSnapshot(args), [name]: undefined })
 	$: (entrypoint || helperScript) && refreshOptions()
 
 	$: args && changeArgs()
@@ -96,7 +97,7 @@
 	function changeArgs() {
 		timeout && clearTimeout(timeout)
 		timeout = setTimeout(() => {
-			let argsWithoutSelf = { ...args, [name]: undefined }
+			let argsWithoutSelf = { ...stateSnapshot(args), [name]: undefined }
 			if (deepEqual(argsWithoutSelf, lastArgs)) {
 				return
 			}

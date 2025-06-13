@@ -87,14 +87,14 @@
 					workspace: $workspaceStore!,
 					hash
 				})
-				savedScript = structuredClone(scriptByHash) as NewScriptWithDraft
+				savedScript = structuredClone($state.snapshot(scriptByHash)) as NewScriptWithDraft
 				script = { ...scriptByHash, parent_hash: hash, lock: undefined }
 			} else {
 				const scriptWithDraft = await ScriptService.getScriptByPathWithDraft({
 					workspace: $workspaceStore!,
 					path: $page.params.path
 				})
-				savedScript = structuredClone(scriptWithDraft)
+				savedScript = structuredClone($state.snapshot(scriptWithDraft))
 				if (scriptWithDraft.draft != undefined) {
 					script = scriptWithDraft.draft
 					scriptBuilder?.setDraftTriggers(script.draft_triggers)

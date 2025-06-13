@@ -20,7 +20,7 @@
 	import { ColumnIdentity, type ColumnDef } from '../dbtable/utils'
 	import AppAggridTableActions from './AppAggridTableActions.svelte'
 	import Popover from '$lib/components/Popover.svelte'
-	import { withProps } from '$lib/svelte5Utils.svelte'
+	import { stateSnapshot, withProps } from '$lib/svelte5Utils.svelte'
 
 	export let id: string
 	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
@@ -111,7 +111,7 @@
 
 	function refreshActions(actions: TableAction[]) {
 		if (!deepEqual(actions, lastActions)) {
-			lastActions = structuredClone(actions)
+			lastActions = structuredClone(stateSnapshot(actions))
 			updateOptions()
 		}
 	}

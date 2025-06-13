@@ -161,7 +161,7 @@
 		} else {
 			const payloadData = await getPayload(capture)
 			selected = capture.id
-			dispatch('select', structuredClone(payloadData))
+			dispatch('select', structuredClone($state.snapshot(payloadData)))
 			dispatch('selectCapture', capture)
 		}
 	}
@@ -188,7 +188,7 @@
 					testKind === 'preprocessor' ? fullCapture.preprocessor_args : fullCapture.main_args
 			}
 		} else {
-			payloadData = structuredClone(capture.payloadData)
+			payloadData = structuredClone($state.snapshot(capture.payloadData))
 		}
 		return payloadData
 	}

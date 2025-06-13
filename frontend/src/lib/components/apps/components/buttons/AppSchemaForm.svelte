@@ -113,7 +113,7 @@
 	let previousDefault = $state(resolvedConfig.defaultValues)
 
 	function onDefaultChange() {
-		previousDefault = structuredClone(resolvedConfig.defaultValues)
+		previousDefault = structuredClone($state.snapshot(resolvedConfig.defaultValues))
 		args = previousDefault ?? {}
 	}
 

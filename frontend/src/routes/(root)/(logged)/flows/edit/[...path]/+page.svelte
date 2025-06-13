@@ -152,10 +152,10 @@
 				path: $page.params.path
 			})
 			savedFlow = {
-				...structuredClone(flowWithDraft),
+				...structuredClone($state.snapshot(flowWithDraft)),
 				draft: flowWithDraft.draft
 					? {
-							...structuredClone(flowWithDraft.draft),
+							...structuredClone($state.snapshot(flowWithDraft.draft)),
 							path: flowWithDraft.draft.path ?? flowWithDraft.path // backward compatibility for old drafts missing path
 						}
 					: undefined

@@ -65,7 +65,7 @@
 
 	function plugIt(argName: string) {
 		args[argName] = structuredClone(
-			evalValue(argName, mod, testStepStore, pickableProperties, true)
+			$state.snapshot(evalValue(argName, mod, testStepStore, pickableProperties, true))
 		)
 		try {
 			editor?.[argName]?.setCode(JSON.stringify(args[argName], null, 4))

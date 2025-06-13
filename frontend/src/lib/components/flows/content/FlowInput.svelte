@@ -227,7 +227,7 @@
 			updatePreviewSchema(undefined)
 			return
 		}
-		payloadData = structuredClone(payload)
+		payloadData = structuredClone($state.snapshot(payload))
 		selectedSchema = schemaFromPayload(payloadData)
 		updatePreviewSchema(selectedSchema)
 		updatePreviewArguments(payloadData)

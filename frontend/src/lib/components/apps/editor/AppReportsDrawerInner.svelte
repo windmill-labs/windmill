@@ -127,7 +127,7 @@
 					)
 				: {}
 			setTimeout(() => {
-				args = structuredClone(nargs)
+				args = structuredClone($state.snapshot(nargs))
 			})
 
 			customPath =

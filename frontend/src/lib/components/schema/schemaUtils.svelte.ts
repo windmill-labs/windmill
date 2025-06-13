@@ -179,7 +179,7 @@ export function setNestedProperty(
 		return curr[field][key]
 	}, obj)
 	if (lastKey && value) {
-		const newValue = structuredClone(value)
+		const newValue = structuredClone($state.snapshot(value))
 		target[field][lastKey] = newValue
 		return
 	} else if (lastKey && !value) {
