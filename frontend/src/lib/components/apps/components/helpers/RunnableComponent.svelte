@@ -727,6 +727,21 @@
 		currentStaticValues && untrack(() => refreshOnStaticChange())
 	})
 	$effect(() => {
+		if (runnableInputValues && typeof runnableInputValues === 'object') {
+			for (const key in runnableInputValues) {
+				runnableInputValues[key]
+			}
+		}
+		if (extraQueryParams && typeof extraQueryParams === 'object') {
+			for (const key in extraQueryParams) {
+				extraQueryParams[key]
+			}
+		}
+		if (args && typeof args === 'object') {
+			for (const key in args) {
+				args[key]
+			}
+		}
 		;(runnableInputValues || extraQueryParams || args) &&
 			resultJobLoader &&
 			untrack(() => refreshIfAutoRefresh('arg changed'))
