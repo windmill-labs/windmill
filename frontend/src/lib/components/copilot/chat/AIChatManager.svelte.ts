@@ -93,6 +93,9 @@ class AIChatManager {
 	async loadApiTools() {
 		if (this.apiTools.length === 0) {
 			this.apiTools = await loadApiTools()
+			if (this.mode === AIMode.NAVIGATOR) {
+				this.tools = [this.changeModeTool, ...navigatorTools, ...this.apiTools]
+			}
 		}
 	}
 

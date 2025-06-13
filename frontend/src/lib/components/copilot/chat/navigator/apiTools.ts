@@ -246,7 +246,7 @@ export function createApiTools(
 				} catch (error) {
 					toolCallbacks.onFinishToolCall(toolId, `API call to ${endpoint} failed`)
 					console.error(`Error calling API to ${endpoint}:`, error)
-					return `Error calling API: ${error.message}`
+					return `Error calling API: ${error instanceof Error ? error.message : String(error)}`
 				}
 			}
 		}
