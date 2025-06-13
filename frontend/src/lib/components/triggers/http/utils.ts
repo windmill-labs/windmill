@@ -1,11 +1,11 @@
 import { base } from '$lib/base'
 import { isCloudHosted } from '$lib/cloud'
 import { random_adj } from '$lib/components/random_positive_adjetive'
-import type { HttpMethod, HttpTrigger, NewHttpTrigger } from '$lib/gen'
+import type { HttpMethod, NewHttpTrigger } from '$lib/gen'
 import { HttpTriggerService } from '$lib/gen/services.gen'
 import { sendUserToast } from '$lib/toast'
 import { generateRandomString, OpenApi as WindmillOpenApi } from '$lib/utils'
-import { type OpenAPI, type OpenAPIV3_1 } from 'openapi-types'
+import { type OpenAPI } from 'openapi-types'
 import type { Writable } from 'svelte/store'
 import { get } from 'svelte/store'
 
@@ -153,125 +153,4 @@ export async function generateHttpTriggerFromOpenApi(
 	const [document] = await WindmillOpenApi.parse(api)
 
 	return processOpenApiDocument(document, folderName)
-}
-
-export const INFO_TEMPLATE = `{
-  "title": "My API",
-  "version": "1.0.0",
-  "description": "A short description of your API",
-  "contact": {
-    "name": "Jane Doe",
-    "email": "jane@example.com",
-    "url": "https://example.com"
-  },
-  "license": {
-    "name": "MIT",
-    "url": "https://opensource.org/licenses/MIT"
-  }
-}`
-
-export const SERVER_TEMPLATES = `[
-  {
-    "url": "https://api.example.com",
-    "description": "Production server"
-  },
-  {
-    "url": "https://staging-api.example.com",
-    "description": "Staging server"
-  }
-]`
-
-type OpenAPIParameter = {
-	name: string
-	in: 'path'
-	required: true
-	schema: {
-		type: 'string' // You can make this dynamic if needed
-	}
-	description?: string
-}
-
-function fromHttpRoutePathToOpenAPIPath(httpRoutePath: string): [string, OpenAPIParameter[]] {
-	const parameters: OpenAPIParameter[] = []
-	const openapiPath = httpRoutePath.replace(/:([\w]+)/g, (_, paramName) => {
-		parameters.push({
-			name: paramName,
-			in: 'path',
-			required: true,
-			schema: { type: 'string' },
-			description: `Path parameter '${paramName}'`
-		})
-		return `{${paramName}}`
-	})
-
-	return [`/${openapiPath}`, parameters]
-}
-
-const okAsyncResponse = {
-	200: {
-		description: 'Job queued successfully',
-		content: {
-			'application/json': {
-				schema: {
-					type: 'string',
-					format: 'uuid',
-					example: 'f7641d4a-7890-4c83-9e8d-9d2d3bc5aeca'
-				}
-			}
-		}
-	}
-}
-
-const okSyncResponseDefault = {
-	200: {
-		description: 'Result of the script executed synchronously',
-		content: {
-			'application/json': {
-				schema: {
-					oneOf: [
-						{ type: 'object', additionalProperties: true },
-						{ type: 'array', items: {} },
-						{ type: 'string' },
-						{ type: 'number' },
-						{ type: 'boolean' },
-						{ type: 'null' }
-					]
-				},
-				example: 'This could be any return value from the script'
-			}
-		}
-	}
-}
-function generatePathObjectFromHttpRoutes(httpRoutes: HttpTrigger[]): OpenAPIV3_1.PathsObject {
-	const paths = {}
-
-	httpRoutes.forEach((httpRoute) => {
-		const [openapiPath, parameters] = fromHttpRoutePathToOpenAPIPath(httpRoute.route_path)
-		paths[openapiPath] = {
-			...paths[openapiPath],
-			[httpRoute.http_method]: {
-				parameters,
-				requestBody: {},
-				respones: httpRoute.is_async ? okAsyncResponse : okSyncResponseDefault
-			}
-		}
-	})
-
-	return paths
-}
-
-export function generateOpenAPIspec(
-	info: OpenAPIV3_1.InfoObject,
-	servers: OpenAPIV3_1.ServerObject[],
-	httpRoutes: HttpTrigger[]
-): string {
-	const paths = generatePathObjectFromHttpRoutes(httpRoutes)
-
-	const spec = {
-		info,
-		servers,
-		paths
-	}
-
-	return JSON.stringify(spec)
 }
