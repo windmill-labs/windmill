@@ -228,6 +228,7 @@ export function getTypeStrFromPath(
     parsed.ext == ".cs" ||
     parsed.ext == ".nu" ||
     parsed.ext == ".java" ||
+    parsed.ext == ".rb" ||
 		// for related places search: ADD_NEW_LANG 
     (parsed.ext == ".yml" && parsed.name.split(".").pop() == "playbook")
   ) {

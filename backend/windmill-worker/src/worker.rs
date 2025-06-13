@@ -128,6 +128,9 @@ use crate::nu_executor::{handle_nu_job, JobHandlerInput as JobHandlerInputNu};
 #[cfg(feature = "java")]
 use crate::java_executor::{handle_java_job, JobHandlerInput as JobHandlerInputJava};
 
+#[cfg(feature = "ruby")]
+use crate::ruby_executor::{handle_ruby_job, JobHandlerInput as JobHandlerInputRuby};
+
 #[cfg(feature = "php")]
 use crate::php_executor::handle_php_job;
 
@@ -281,10 +284,14 @@ pub const RUST_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "rust");
 pub const NU_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "nu");
 pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
 
-// JAVA
+// Java
 pub const JAVA_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "java");
 pub const COURSIER_CACHE_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/coursier-cache");
 pub const JAVA_REPOSITORY_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/repository");
+
+// Ruby
+pub const RUBY_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "ruby");
+
 // for related places search: ADD_NEW_LANG
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
 pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
@@ -3114,15 +3121,15 @@ mount {{
             })
             .await
         }
-        Some(ScriptLang::Java) => {
-            #[cfg(not(feature = "java"))]
+        Some(ScriptLang::Ruby) => {
+            #[cfg(not(feature = "ruby"))]
             return Err(anyhow::anyhow!(
-                "Java is not available because the feature is not enabled"
+                "Ruby is not available because the feature is not enabled"
             )
             .into());
 
-            #[cfg(feature = "java")]
-            handle_java_job(JobHandlerInputJava {
+            #[cfg(feature = "ruby")]
+            handle_ruby_job(JobHandlerInputRuby {
                 mem_peak,
                 canceled_by,
                 job,
@@ -3140,6 +3147,7 @@ mount {{
             })
             .await
         }
+        // for related places search: ADD_NEW_LANG
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
     tracing::info!(
@@ -3211,6 +3219,10 @@ fn parse_sig_of_lang(
             ScriptLang::Java => Some(windmill_parser_java::parse_java_signature(code)?),
             #[cfg(not(feature = "java"))]
             ScriptLang::Java => None,
+            #[cfg(feature = "ruby")]
+            ScriptLang::Ruby => Some(windmill_parser_ruby::parse_ruby_signature(code)?),
+            #[cfg(not(feature = "ruby"))]
+            ScriptLang::Ruby => None,
             // for related places search: ADD_NEW_LANG
         }
     } else {

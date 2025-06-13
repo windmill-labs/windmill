@@ -348,7 +348,7 @@ pub fn should_validate_schema(code: &str, lang: &ScriptLang) -> bool {
     use ScriptLang::*;
     let comment = match lang {
         Nativets | Bun | Bunnative | Deno | Php | CSharp | Java => "//",
-        Python3 | Go | Bash | Powershell | Graphql | Ansible | Nu => "#",
+        Python3 | Go | Bash | Powershell | Graphql | Ansible | Nu | Ruby => "#",
         Postgresql | Mysql | Bigquery | Snowflake | Mssql | OracleDB => "--",
         Rust => "//!",
         // for related places search: ADD_NEW_LANG

@@ -58,7 +58,8 @@
 		ansible: 'Ansible Playbook',
 		csharp: 'C#',
 		nu: 'Nu',
-		java: 'Java'
+		java: 'Java',
+		ruby: 'Ruby'
 		// for related places search: ADD_NEW_LANG 
 	}
 
@@ -91,7 +92,8 @@
 		ansible: AnsibleIcon,
 		csharp: CSharpIcon,
 		nu: NuIcon,
-		java: JavaIcon
+		java: JavaIcon,
+		ruby: JavaIcon
 		// for related places search: ADD_NEW_LANG 
 	}
 

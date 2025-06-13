@@ -67,16 +67,19 @@
                 "rust-src" # for rust-analyzer
                 "rust-analyzer"
               ];
-              targets = [ "wasm32-unknown-unknown" ];
+              targets =
+                [ "wasm32-unknown-unknown" "wasm32-unknown-emscripten" ];
             })
             wasm-pack
             deno
+            emscripten
           ]);
         };
 
         devShells.default = pkgs.mkShell {
           buildInputs = buildInputs ++ (with pkgs; [
             rust
+            cargo-watch
             git
             xcaddy
             sqlx-cli
@@ -172,6 +175,8 @@
           JAVA_PATH = "${pkgs.jdk21}/bin/java";
           JAVAC_PATH = "${pkgs.jdk21}/bin/javac";
           COURSIER_PATH = "${coursier}/coursier";
+          RUBY_PATH = "${pkgs.ruby}/bin/ruby";
+          RUBY_BUNDLE_PATH = "${pkgs.ruby}/bin/bundle";
           # for related places search: ADD_NEW_LANG 
           FLOCK_PATH = "${pkgs.flock}/bin/flock";
           CARGO_PATH = "${rust}/bin/cargo";

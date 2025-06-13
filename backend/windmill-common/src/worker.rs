@@ -52,6 +52,7 @@ lazy_static::lazy_static! {
         "csharp".to_string(),
         "nu".to_string(),
         "java".to_string(),
+        "ruby".to_string(),
         // for related places search: ADD_NEW_LANG
         "dependency".to_string(),
         "flow".to_string(),
@@ -1081,3 +1082,64 @@ pub fn to_raw_value_owned(result: serde_json::Value) -> Box<RawValue> {
     serde_json::value::to_raw_value(&result)
         .unwrap_or_else(|_| RawValue::from_string("{}".to_string()).unwrap())
 }
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum AbstractImport {
+    // Order matters! First we want to resolve all repins
+
+    // manually repinned requirement
+    // e.g.:
+    // import pandas # repin: pandas==x.y.z
+    Repin {
+        pin: AbstractImportPin,
+        key: String,
+    },
+    // manually pinned requirements
+    // e.g.:
+    // import pandas # pin: pandas>=x.y.z
+    // import pandas # pin: pandas<=x.y.z
+    //
+    // NOTE: It is possible for multiple pins exist on same import
+    // That's why we store vector of pins
+    Pin {
+        pins: Vec<AbstractImportPin>,
+        key: String,
+    },
+    // Automatically inferred requirement
+    // e.g.:
+    // import pandas
+    Auto {
+        // Take `x.y.z` for example
+        // in python x is going to be the `pkg`
+        pkg: String,
+
+        // Full import.
+        // For example in:
+        //
+        // from x.y.z import foo
+        //
+        // x.y.z will be the key
+        key: String,
+    },
+    // Relative imports
+    Relative(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct AbstractImportPin {
+    pub pkg: String,
+    pub src: String,
+}
+
+pub struct AbstractImportsResult {
+    // pub relative_imports: Vec<String>,
+    pub pkgs: Vec<String>,
+    pub helper_error: Option<error::Error>,
+}
+
+// NOTE: Python has it's own impementation
+pub fn handle_imports_abstract() -> AbstractImportsResult {
+    todo!()
+}
+
+pub fn get_ralative_imports() {}

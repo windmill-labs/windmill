@@ -999,6 +999,11 @@ public class Main {
   }
 }
 `
+const RUBY_INIT_CODE = `
+def main a, b, c
+  puts a, b, c
+end
+`
 // for related places search: ADD_NEW_LANG 
 export const INITIAL_CODE = {
 	bun: {
@@ -1086,6 +1091,9 @@ export const INITIAL_CODE = {
 	},
 	java: {
 		script: JAVA_INIT_CODE
+	},
+	ruby: {
+		script: RUBY_INIT_CODE
 	},
 	// for related places search: ADD_NEW_LANG 
 }
@@ -1193,6 +1201,8 @@ export function initialCode(
 		return INITIAL_CODE.nu.script
 	} else if (language == 'java') {
 		return INITIAL_CODE.java.script
+	} else if (language == 'ruby') {
+		return INITIAL_CODE.ruby.script
 		// for related places search: ADD_NEW_LANG 
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (kind == 'trigger') {

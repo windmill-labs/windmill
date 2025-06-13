@@ -130,7 +130,8 @@
 		'rust',
 		'csharp',
 		'nu',
-		'java'
+		'java',
+		'ruby'
 		// for related places search: ADD_NEW_LANG
 	].includes(lang ?? '')
 	$: showResourceTypePicker =

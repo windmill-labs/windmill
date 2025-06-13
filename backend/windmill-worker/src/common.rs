@@ -1437,8 +1437,11 @@ pub async fn par_install_language_dependencies<'a>(
             let mut buf = "".to_owned();
             let pipe_stdout = if stdout_on_err { Some(&mut buf) } else { None };
             if let Err(e) = crate::handle_child::handle_child(
-                // &job_id,
-                &Uuid::nil(),
+                &(if pipe_stdout.is_some() {
+                    Uuid::nil()
+                } else {
+                    *job_id
+                }),
                 &db,
                 // TODO: Return mem_peak
                 &mut 0,

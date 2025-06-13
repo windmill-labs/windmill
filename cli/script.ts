@@ -573,6 +573,8 @@ export function filePathExtensionFromContentType(
     return ".nu";
   } else if (language === "java") {
     return ".java";
+  } else if (language === "ruby") {
+    return ".rb";
     // for related places search: ADD_NEW_LANG 
   } else {
     throw new Error("Invalid language: " + language);
@@ -601,7 +603,8 @@ export const exts = [
   ".cs",
   ".nu",
   ".playbook.yml",
-  ".java"
+  ".java",
+  ".rb"
   // for related places search: ADD_NEW_LANG 
 
 ];

@@ -44,12 +44,21 @@ use windmill_audit::ActionKind;
 use windmill_common::error::to_anyhow;
 
 use windmill_common::{
-    db::UserDB, error::{Error, JsonResult, Result}, jobs::JobPayload, schedule::Schedule, schema::should_validate_schema, scripts::{
+    db::UserDB,
+    error::{Error, JsonResult, Result},
+    jobs::JobPayload,
+    schedule::Schedule,
+    schema::should_validate_schema,
+    scripts::{
         to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Schema, Script, ScriptHash,
         ScriptHistory, ScriptHistoryUpdate, ScriptKind, ScriptLang, ScriptWithStarred,
-    }, users::username_to_permissioned_as, utils::{
+    },
+    users::username_to_permissioned_as,
+    utils::{
         not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
-    }, worker::to_raw_value, HUB_BASE_URL
+    },
+    worker::to_raw_value,
+    HUB_BASE_URL,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_parser_ts::remove_pinned_imports;
@@ -636,6 +645,7 @@ async fn create_script_internal<'c>(
             || ns.language == ScriptLang::Nu
             || ns.language == ScriptLang::Php
             || ns.language == ScriptLang::Java
+            || ns.language == ScriptLang::Ruby
         // for related places search: ADD_NEW_LANG
     ) {
         Some(String::new())

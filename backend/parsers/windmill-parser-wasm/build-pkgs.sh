@@ -64,3 +64,9 @@ sed -i 's/"windmill-parser-wasm"/"windmill-parser-wasm-nu"/' $OUT_DIR/package.js
 OUT_DIR="pkg-java"
 CFLAGS_wasm32_unknown_unknown="-I$(pwd)/wasm-sysroot -Wbad-function-cast -Wcast-function-type -fno-builtin" RUSTFLAGS="-Zwasm-c-abi=spec" wasm-pack build --release --target web --out-dir $OUT_DIR --features "java-parser"
 sed -i 's/"windmill-parser-wasm"/"windmill-parser-wasm-java"/' $OUT_DIR/package.json
+
+#-# Ruby (needs some more stuff to compile C tree sitter into wasm)
+OUT_DIR="pkg-ruby"
+# RUSTFLAGS="-Zwasm-c-abi=spec" wasm-pack build --release --target web --out-dir $OUT_DIR --features "ruby-parser"
+CFLAGS_wasm32_unknown_unknown="-I$(pwd)/wasm-sysroot -Wbad-function-cast -Wcast-function-type -fno-builtin" RUSTFLAGS="-Zwasm-c-abi=spec" wasm-pack build --release --target web --out-dir $OUT_DIR --features "ruby-parser"
+sed -i 's/"windmill-parser-wasm"/"windmill-parser-wasm-ruby"/' $OUT_DIR/package.json

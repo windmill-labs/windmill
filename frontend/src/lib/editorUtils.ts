@@ -89,6 +89,8 @@ export function langToExt(lang: string): string {
 			return 'nu'
 		case 'java':
 			return 'java'
+		case 'ruby':
+			return 'rb'
 		// for related places search: ADD_NEW_LANG 
 		default:
 			return 'unknown'

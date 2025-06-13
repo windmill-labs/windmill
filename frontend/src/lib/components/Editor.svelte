@@ -196,6 +196,7 @@
 		| 'csharp'
 		| 'nu'
 		| 'java'
+		| 'ruby'
 	// for related places search: ADD_NEW_LANG
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined

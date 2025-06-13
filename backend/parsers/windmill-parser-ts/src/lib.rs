@@ -264,7 +264,7 @@ fn parse_param(
             };
 
             if typ == Typ::Unknown && dflt.is_some() {
-                typ = json_to_typ(dflt.as_ref().unwrap());
+                typ = json_to_typ(dflt.as_ref().unwrap(), false);
             }
             Ok(Arg { otyp: None, name, typ, default: dflt, has_default: true, oidx: None })
         }

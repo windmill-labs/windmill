@@ -1,0 +1,30 @@
+[package]
+name = "windmill-parser-ruby"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[lib]
+name = "windmill_parser_ruby"
+path = "./src/lib.rs"
+
+[dependencies]
+windmill-parser.workspace = true
+tree-sitter.workspace = true
+tree-sitter-ruby.workspace = true
+anyhow.workspace = true
+wasm-bindgen.workspace = true
+serde_json.workspace = true
+libc.workspace = true
+# memchr = "2.7.4"
+# convert_case.workspace = true
+# lazy_static.workspace = true
+# regex.workspace = true
+# # relibc.workspace = true
+# relibc = { git = "https://gitlab.redox-os.org/redox-os/relibc" }
+#
+#
+# [target.'cfg(target_arch = "wasm32")'.dependencies]
+# c-gull = "0.22.0"
+# tinyrlibc = "0.5.0"
+

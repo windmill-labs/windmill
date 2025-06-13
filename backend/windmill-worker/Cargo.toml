@@ -31,6 +31,7 @@ csharp = ["dep:windmill-parser-csharp"]
 rust = ["dep:windmill-parser-rust"]
 nu = ["dep:windmill-parser-nu"]
 java = ["dep:windmill-parser-java"]
+ruby = ["dep:windmill-parser-ruby"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -44,6 +45,7 @@ windmill-parser-rust = { workspace = true, optional = true }
 windmill-parser-csharp = { workspace = true, optional = true }
 windmill-parser-nu = { workspace = true, optional = true }
 windmill-parser-java = { workspace = true, optional = true }
+windmill-parser-ruby = { workspace = true, optional = true }
 windmill-parser-py = { workspace = true, optional = true }
 windmill-parser-yaml.workspace = true
 windmill-parser-py-imports = { workspace = true, optional = true }

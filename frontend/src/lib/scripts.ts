@@ -129,7 +129,8 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['csharp', 'C#'],
 	['docker', 'Docker'],
 	['nu', 'Nu'],
-	['java', 'Java']
+	['java', 'Java'],
+	['ruby', 'Ruby']
 	// for related places search: ADD_NEW_LANG 
 ]
 export function processLangs(selected: string | undefined, langs: string[]): string[] {
@@ -139,7 +140,7 @@ export function processLangs(selected: string | undefined, langs: string[]): str
 		let ls = langs.filter((lang) => lang !== 'nativets')
 
 		//those languages are newer and may not be in the saved list
-		let nl = ['bunnative', 'rust', 'ansible', 'csharp', 'nu', 'java']
+		let nl = ['bunnative', 'rust', 'ansible', 'csharp', 'nu', 'java', 'ruby']
 		// for related places search: ADD_NEW_LANG 
 		nl.forEach((lang) => {
 			if (!ls.includes(lang)) {

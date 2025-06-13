@@ -69,6 +69,8 @@
 				return yaml;
 			case 'java':
 				return java;
+			case 'ruby':
+				return ruby;
 			// for related places search: ADD_NEW_LANG 
 			default:
 				return typescript

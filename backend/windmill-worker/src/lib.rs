@@ -15,6 +15,9 @@ mod nu_executor;
 #[cfg(feature = "java")]
 mod java_executor;
 
+#[cfg(feature = "ruby")]
+mod ruby_executor;
+
 #[cfg(feature = "benchmark")]
 pub mod bench;
 mod bun_executor;

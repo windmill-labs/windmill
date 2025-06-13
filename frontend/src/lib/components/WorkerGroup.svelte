@@ -124,7 +124,8 @@
 		'ansible',
 		'csharp',
 		'nu',
-		'java'
+		'java',
+		'ruby'
 		// for related places search: ADD_NEW_LANG 
 	]
 	const nativeTags = [

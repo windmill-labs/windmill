@@ -6705,7 +6705,7 @@ checksum = "c0ff37bd590ca25063e35af745c343cb7a0271906fb7b37e4813e8f79f00268d"
 dependencies = [
  "bitflags 2.9.0",
  "libc",
- "redox_syscall 0.5.10",
+ "redox_syscall 0.5.11",
 ]
 
 [[package]]
@@ -8367,7 +8367,7 @@ checksum = "1e401f977ab385c9e4e3ab30627d6f26d00e2c73eef317493c4ec6d468726cf8"
 dependencies = [
  "cfg-if",
  "libc",
- "redox_syscall 0.5.10",
+ "redox_syscall 0.5.11",
  "smallvec",
  "windows-targets 0.52.6",
 ]
@@ -9370,9 +9370,9 @@ dependencies = [
 
 [[package]]
 name = "redox_syscall"
-version = "0.5.10"
+version = "0.5.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b8c0c260b63a8219631167be35e6a988e9554dbd323f8bd08439c8ed1302bd1"
+checksum = "d2f103c6d277498fbceb16e84d317e2a400f160f46904d5f5410848c829511a3"
 dependencies = [
  "bitflags 2.9.0",
 ]
@@ -12827,6 +12827,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4013970217383f67b18aef68f6fb2e8d409bc5755227092d32efb0422ba24b8"
 
 [[package]]
+name = "tree-sitter-ruby"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be0484ea4ef6bb9c575b4fdabde7e31340a8d2dbc7d52b321ac83da703249f95"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "triomphe"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13630,7 +13640,7 @@ version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6994d13118ab492c3c80c1f81928718159254c53c472bf9ce36f8dae4add02a7"
 dependencies = [
- "redox_syscall 0.5.10",
+ "redox_syscall 0.5.11",
  "wasite",
  "web-sys",
 ]
@@ -13687,6 +13697,7 @@ dependencies = [
  "gethostname",
  "git-version",
  "lazy_static",
+ "libc",
  "memchr",
  "object_store",
  "once_cell",
@@ -14032,6 +14043,7 @@ name = "windmill-parser-java"
 version = "1.481.0"
 dependencies = [
  "anyhow",
+ "libc",
  "serde_json",
  "tree-sitter",
  "tree-sitter-java",
@@ -14089,6 +14101,19 @@ dependencies = [
  "serde_json",
  "sqlx",
  "windmill-common",
+ "windmill-parser",
+]
+
+[[package]]
+name = "windmill-parser-ruby"
+version = "1.481.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "serde_json",
+ "tree-sitter",
+ "tree-sitter-ruby",
+ "wasm-bindgen",
  "windmill-parser",
 ]
 
@@ -14157,6 +14182,7 @@ dependencies = [
  "windmill-parser-nu",
  "windmill-parser-php",
  "windmill-parser-py",
+ "windmill-parser-ruby",
  "windmill-parser-rust",
  "windmill-parser-sql",
  "windmill-parser-ts",
@@ -14296,6 +14322,7 @@ dependencies = [
  "windmill-parser-php",
  "windmill-parser-py",
  "windmill-parser-py-imports",
+ "windmill-parser-ruby",
  "windmill-parser-rust",
  "windmill-parser-sql",
  "windmill-parser-ts",

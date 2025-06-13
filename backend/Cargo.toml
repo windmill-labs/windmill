@@ -24,6 +24,7 @@ members = [
     "./parsers/windmill-parser-csharp",
     "./parsers/windmill-parser-nu",
     "./parsers/windmill-parser-java",
+    "./parsers/windmill-parser-ruby",
     "./parsers/windmill-parser-bash",
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
@@ -90,7 +91,8 @@ php = ["windmill-worker/php"]
 csharp = ["windmill-worker/csharp"]
 nu = ["windmill-worker/nu"]
 java = ["windmill-worker/java"]
-all_languages = [ "python", "deno_core", "rust", "mysql", "oracledb", "mssql", "bigquery", "csharp", "nu", "php", "java"]
+ruby = ["windmill-worker/ruby"]
+all_languages = [ "python", "deno_core", "rust", "mysql", "oracledb", "mssql", "bigquery", "csharp", "nu", "php", "java", "ruby"]
 
 
 [dependencies]
@@ -128,6 +130,7 @@ quote.workspace = true
 memchr.workspace = true
 v8 = { workspace = true, optional = true }
 rustls.workspace = true
+libc.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -163,6 +166,7 @@ windmill-parser-rust = { path = "./parsers/windmill-parser-rust" }
 windmill-parser-yaml = { path = "./parsers/windmill-parser-yaml" }
 windmill-parser-csharp = { path = "./parsers/windmill-parser-csharp" }
 windmill-parser-java = { path = "./parsers/windmill-parser-java" }
+windmill-parser-ruby = { path = "./parsers/windmill-parser-ruby" }
 windmill-parser-nu = { path = "./parsers/windmill-parser-nu" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
@@ -370,5 +374,11 @@ tokio-tungstenite = { version = "0.24.0", features = ["native-tls"] }
 tree-sitter = { version = "0.23.0", features = [] }
 tree-sitter-c-sharp = "0.23.0"
 tree-sitter-java = "0.23.0"
+tree-sitter-ruby = "0.23.0"
+libc = "0.2.171"
 oracle = { version = "0.6.3", features = ["chrono"] }
 rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
+
+# [patch.crates-io]
+# "redox_syscall_0.5.11" = { git = "https://gitlab.redox-os.org/redox-os/syscall", version =  "0.5.10"}
+# redox_syscall2 = { git = "https://gitlab.redox-os.org/redox-os/syscall", version =  "0.5"}
