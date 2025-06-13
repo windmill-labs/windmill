@@ -40,7 +40,7 @@
 	let webhookFilters: WebhookFilters[] = $state([])
 	let lang: OpenapiSpecFormat = $state('yaml')
 	let editor: SimpleEditor | undefined = $state()
-	let isValid = $derived(httpRouteFilters.length === 0 && webhookFilters.length === 0)
+	let disabled = $derived(httpRouteFilters.length === 0 && webhookFilters.length === 0)
 
 	function buildInfo() {
 		const isTitle = !emptyString(title)
@@ -163,7 +163,7 @@
 		{#snippet actions()}
 			<div class="flex flex-row gap-2">
 				<Button
-					disabled={isValid}
+					{disabled}
 					spacingSize="sm"
 					btnClasses="mb-2"
 					loading={isDownloading}
@@ -173,7 +173,7 @@
 					Download OpenAPI document
 				</Button>
 				<Button
-					disabled={isValid}
+					{disabled}
 					spacingSize="sm"
 					btnClasses="mb-2"
 					on:click={CopyCommand}
@@ -182,7 +182,7 @@
 					Copy cURL command
 				</Button>
 				<Button
-					disabled={isValid}
+					{disabled}
 					spacingSize="sm"
 					btnClasses="mb-2"
 					loading={isGeneratingOpenapiSpec}
