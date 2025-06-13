@@ -10,6 +10,8 @@ export const autosize = (node: TextArea) => {
 	const MIN_HEIGHT = 30 // px
 	const EXTRA = 2 // px added to scrollHeight
 
+	let width = 0
+
 	/* ------------------------------------------------------------------
 	 * Core resize routine
 	 * ---------------------------------------------------------------- */
@@ -64,7 +66,13 @@ export const autosize = (node: TextArea) => {
 	 *   • first time the element gets a real width
 	 *   • container/window resizes afterwards
 	 * ---------------------------------------------------------------- */
-	const ro = new ResizeObserver(resize)
+	const ro = new ResizeObserver(([entry]) => {
+		const newWidth = entry.contentRect.width
+		if (newWidth !== width) {
+			width = newWidth
+			resize()
+		}
+	})
 	ro.observe(node)
 
 	/* ------------------------------------------------------------------
