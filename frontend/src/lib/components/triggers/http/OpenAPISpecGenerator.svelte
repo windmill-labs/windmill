@@ -167,8 +167,8 @@
 		on:close={() => openAPIGenerator.closeDrawer()}
 	>
 		<div class="flex flex-row h-full gap-2">
-			<div class="h-full w-1/2 flex flex-col justify-between border rounded-md pt-2">
-				<div class="flex flex-col gap-2 overflow-auto pl-2">
+			<div class="h-full w-1/2 flex flex-col justify-between border rounded-md">
+				<div class="flex flex-col gap-2 overflow-auto pl-2 pt-2">
 					<Subsection label="Info" collapsable>
 						<label class="block pb-2">
 							<span class="text-xs"
