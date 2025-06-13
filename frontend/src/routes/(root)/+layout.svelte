@@ -13,6 +13,11 @@
 	import { computeDrift } from '$lib/forLater'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import { deepEqual } from 'fast-equals'
+	interface Props {
+		children?: import('svelte').Snippet
+	}
+
+	let { children }: Props = $props()
 
 	const monacoEditorUnhandledErrors = [
 		'Model not found',
@@ -175,4 +180,4 @@
 	}
 </script>
 
-<slot />
+{@render children?.()}

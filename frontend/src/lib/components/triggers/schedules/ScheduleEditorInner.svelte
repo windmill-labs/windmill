@@ -1259,11 +1259,11 @@
 				: 'New schedule'}
 			on:close={drawer.closeDrawer}
 		>
-			<svelte:fragment slot="actions">
+			{#snippet actions()}
 				<div class="flex flex-row gap-4 items-center">
 					{@render saveButton()}
 				</div>
-			</svelte:fragment>
+			{/snippet}
 			{@render content()}
 		</DrawerContent>
 	</Drawer>

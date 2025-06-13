@@ -2193,11 +2193,6 @@ async fn capture_dependency_job(
             }
         }
         ScriptLang::Go => {
-            if raw_deps {
-                return Err(Error::ExecutionErr(
-                    "Raw dependencies not supported for go".to_string(),
-                ));
-            }
             install_go_dependencies(
                 job_id,
                 job_raw_code,
@@ -2208,6 +2203,7 @@ async fn capture_dependency_job(
                 false,
                 false,
                 false,
+                raw_deps,
                 worker_name,
                 w_id,
                 occupancy_metrics,

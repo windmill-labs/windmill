@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { preventDefault, stopPropagation } from 'svelte/legacy'
+
 	import { createEventDispatcher } from 'svelte'
 	import { Cross } from 'lucide-svelte'
 	import InsertModuleInner from './InsertModuleInner.svelte'
@@ -12,16 +14,28 @@
 	// import type { Writable } from 'svelte/store'
 
 	const dispatch = createEventDispatcher()
-	export let index: number = 0
-	export let funcDesc = ''
-	export let kind: 'script' | 'trigger' | 'preprocessor' | 'failure' = 'script'
-	export let iconSize = 12
 
 	type Alignment = 'start' | 'end' | 'center'
 	type Side = 'top' | 'bottom'
 	type Placement = `${Side}-${Alignment}`
 
-	export let placement: Placement = 'bottom-center'
+	interface Props {
+		index?: number
+		funcDesc?: string
+		kind?: 'script' | 'trigger' | 'preprocessor' | 'failure'
+		iconSize?: number
+		clazz?: string
+		placement?: Placement
+	}
+
+	let {
+		index = 0,
+		funcDesc = $bindable(''),
+		kind = 'script',
+		iconSize = 12,
+		clazz = '',
+		placement = 'bottom-center'
+	}: Props = $props()
 
 	let floatingConfig: ComputeConfig = {
 		strategy: 'fixed',
@@ -30,9 +44,11 @@
 		middleware: [offset(8), flip()],
 		autoUpdate: true
 	}
-	$: !open && (funcDesc = '')
 
-	let open = false
+	let open = $state(false)
+	$effect(() => {
+		!open && (funcDesc = '')
+	})
 </script>
 
 <!-- <Menu transitionDuration={0} pointerDown bind:show={open} noMinW {placement} let:close> -->
@@ -43,8 +59,8 @@ containerClasses="border rounded-lg shadow-lg  bg-surface"
 noTransition
 shouldUsePortal={true} -->
 
-<PopupV2 {floatingConfig} bind:open let:close target="#flow-editor">
-	<svelte:fragment let:pointerdown let:pointerup slot="button">
+<PopupV2 {floatingConfig} bind:open target="#flow-editor">
+	{#snippet button({ pointerdown, pointerup })}
 		<button
 			title={`Add ${
 				kind === 'failure'
@@ -59,13 +75,15 @@ shouldUsePortal={true} -->
 			type="button"
 			class={twMerge(
 				'w-[17.5px] h-[17.5px] flex items-center justify-center !outline-[1px] outline dark:outline-gray-500 outline-gray-300 text-secondary bg-surface focus:outline-none hover:bg-surface-hover rounded',
-				$$props.class
+				clazz
 			)}
-			on:pointerdown|preventDefault|stopPropagation={() => {
-				dispatch('open')
-				pointerdown()
-			}}
-			on:pointerup={pointerup}
+			onpointerdown={stopPropagation(
+				preventDefault(() => {
+					dispatch('open')
+					pointerdown()
+				})
+			)}
+			onpointerup={pointerup}
 		>
 			{#if kind === 'trigger'}
 				<SchedulePollIcon size={14} />
@@ -73,6 +91,15 @@ shouldUsePortal={true} -->
 				<Cross size={iconSize} />
 			{/if}
 		</button>
-	</svelte:fragment>
-	<InsertModuleInner on:close={() => close(null)} on:insert on:new on:pickFlow on:pickScript />
+	{/snippet}
+	{#snippet children({ close })}
+		<InsertModuleInner
+			on:close={() => close(null)}
+			on:insert
+			on:new
+			on:pickFlow
+			on:pickScript
+			{kind}
+		/>
+	{/snippet}
 </PopupV2>

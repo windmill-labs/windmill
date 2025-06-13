@@ -133,7 +133,7 @@ export function schemaFromDiff(
 	if (!schema) {
 		return undefined
 	}
-	const newSchema = structuredClone(schema)
+	const newSchema = structuredClone($state.snapshot(schema))
 	Object.keys(diff).forEach((key) => {
 		const diffValue = diff[key].diff
 		if (diffValue === 'added' || diffValue === 'modified') {
@@ -179,7 +179,7 @@ export function setNestedProperty(
 		return curr[field][key]
 	}, obj)
 	if (lastKey && value) {
-		const newValue = structuredClone(value)
+		const newValue = structuredClone($state.snapshot(value))
 		target[field][lastKey] = newValue
 		return
 	} else if (lastKey && !value) {
@@ -199,7 +199,7 @@ export function applyDiff(
 		return
 	}
 
-	let newSchema = structuredClone(schema)
+	let newSchema = structuredClone($state.snapshot(schema))
 
 	Object.keys(diff).forEach((key) => {
 		const diffValue = diff[key].diff

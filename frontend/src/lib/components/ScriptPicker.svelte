@@ -3,7 +3,7 @@
 
 	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 
 	import Select from './Select.svelte'
 
@@ -19,21 +19,35 @@
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { truncate } from '$lib/utils'
 
-	export let initialPath: string | undefined = undefined
-	export let scriptPath: string | undefined = undefined
-	export let allowFlow = false
-	export let itemKind: 'script' | 'flow' | 'app' = 'script'
-	export let kinds: Script['kind'][] = ['script']
-	export let disabled = false
-	export let allowRefresh = false
-	export let allowEdit = true
-	export let allowView = true
+	interface Props {
+		initialPath?: string | undefined
+		scriptPath?: string | undefined
+		allowFlow?: boolean
+		itemKind?: 'script' | 'flow' | 'app'
+		kinds?: Script['kind'][]
+		disabled?: boolean
+		allowRefresh?: boolean
+		allowEdit?: boolean
+		allowView?: boolean
+	}
 
-	let items: { value: string; label: string }[] = []
-	let drawerViewer: Drawer
-	let drawerFlowViewer: Drawer
-	let code: string = ''
-	let lang: SupportedLanguage | undefined
+	let {
+		initialPath = undefined,
+		scriptPath = $bindable(undefined),
+		allowFlow = false,
+		itemKind = $bindable('script'),
+		kinds = ['script'],
+		disabled = false,
+		allowRefresh = false,
+		allowEdit = true,
+		allowView = true
+	}: Props = $props()
+
+	let items: { value: string; label: string }[] = $state([])
+	let drawerViewer: Drawer | undefined = $state()
+	let drawerFlowViewer: Drawer | undefined = $state()
+	let code: string = $state('')
+	let lang: SupportedLanguage | undefined = $state()
 
 	let options: [[string, any, any, string | undefined]] = [['Script', 'script', Code2, undefined]]
 	allowFlow && options.push(['Flow', 'flow', FlowIcon, '#14b8a6'])
@@ -63,8 +77,10 @@
 		}
 	}
 
-	$: itemKind && $workspaceStore && loadItems()
-	let darkMode: boolean = false
+	$effect(() => {
+		itemKind && $workspaceStore && untrack(() => loadItems())
+	})
+	let darkMode: boolean = $state(false)
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -86,14 +102,15 @@
 		<div>
 			<ToggleButtonGroup
 				bind:selected={itemKind}
-				let:item
 				on:selected={() => {
 					scriptPath = ''
 				}}
 			>
-				{#each options as [label, value, icon, selectedColor]}
-					<ToggleButton {icon} {disabled} {value} {label} {selectedColor} {item} />
-				{/each}
+				{#snippet children({ item })}
+					{#each options as [label, value, icon, selectedColor]}
+						<ToggleButton {icon} {disabled} {value} {label} {selectedColor} {item} />
+					{/each}
+				{/snippet}
 			</ToggleButtonGroup>
 		</div>
 	{/if}
@@ -145,7 +162,7 @@
 						size="xs"
 						variant="border"
 						on:click={async () => {
-							drawerFlowViewer.openDrawer()
+							drawerFlowViewer?.openDrawer()
 						}}
 					>
 						View
@@ -203,7 +220,7 @@
 							const { language, content } = await getScriptByPath(scriptPath ?? '')
 							code = content
 							lang = language
-							drawerViewer.openDrawer()
+							drawerViewer?.openDrawer()
 						}}
 					>
 						View

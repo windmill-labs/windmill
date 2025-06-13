@@ -41,10 +41,14 @@
 	import TeamSelector from './TeamSelector.svelte'
 	import ChannelSelector from './ChannelSelector.svelte'
 
-	export let setting: Setting
-	export let version: string
-	export let values: Writable<Record<string, any>>
-	export let loading = true
+	interface Props {
+		setting: Setting
+		version: string
+		values: Writable<Record<string, any>>
+		loading?: boolean
+	}
+
+	let { setting, version, values, loading = true }: Props = $props()
 	const dispatch = createEventDispatcher()
 
 	if (
@@ -57,9 +61,9 @@
 	let latestKeyRenewalAttempt: {
 		result: string
 		attempted_at: string
-	} | null
+	} | null = $state(null)
 
-	let isFetching = false
+	let isFetching = $state(false)
 
 	function showSetting(setting: string, values: Record<string, any>) {
 		if (setting == 'dev_instance') {
@@ -70,11 +74,11 @@
 		return true
 	}
 
-	let licenseKeyChanged = false
-	let renewing = false
-	let opening = false
+	let licenseKeyChanged = $state(false)
+	let renewing = $state(false)
+	let opening = $state(false)
 
-	let to: string = ''
+	let to: string = $state('')
 
 	async function reloadKeyrenewalAttemptInfo() {
 		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
@@ -135,9 +139,9 @@
 		}
 	}
 
-	let pythonAvailableVersions: ListAvailablePythonVersionsResponse = []
+	let pythonAvailableVersions: ListAvailablePythonVersionsResponse = $state([])
 
-	let isPyFetching = false
+	let isPyFetching = $state(false)
 	async function fetch_available_python_versions() {
 		if (isPyFetching) return
 		isPyFetching = true
@@ -200,7 +204,7 @@
 </script>
 
 <!-- {JSON.stringify($values, null, 2)} -->
-{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, $values) && !(setting.hiddenIfNull && $values[setting.key] == null)}
+{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, $values) && !(setting.hiddenIfNull && $values[setting.key] == null) && !(setting.hiddenIfEmpty && !$values[setting.key])}
 	{#if setting.ee_only != undefined && !$enterpriseLicense}
 		<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap">
 			<AlertTriangle size={16} />
@@ -209,7 +213,7 @@
 	{/if}
 	{#if setting.fieldType == 'select'}
 		<div>
-			<!-- svelte-ignore a11y-label-has-associated-control -->
+			<!-- svelte-ignore a11y_label_has_associated_control -->
 			<label class="block pb-2">
 				<span class="text-primary font-semibold text-sm">{setting.label}</span>
 				{#if setting.description}
@@ -218,20 +222,22 @@
 					</span>
 				{/if}
 			</label>
-			<ToggleButtonGroup bind:selected={$values[setting.key]} let:item={toggleButton}>
-				{#each setting.select_items ?? [] as item}
-					<ToggleButton
-						value={item.value ?? item.label}
-						label={item.label}
-						tooltip={item.tooltip}
-						item={toggleButton}
-					/>
-				{/each}
+			<ToggleButtonGroup bind:selected={$values[setting.key]}>
+				{#snippet children({ item: toggleButton })}
+					{#each setting.select_items ?? [] as item}
+						<ToggleButton
+							value={item.value ?? item.label}
+							label={item.label}
+							tooltip={item.tooltip}
+							item={toggleButton}
+						/>
+					{/each}
+				{/snippet}
 			</ToggleButtonGroup>
 		</div>
 	{:else if setting.fieldType == 'select_python'}
 		<div>
-			<!-- svelte-ignore a11y-label-has-associated-control -->
+			<!-- svelte-ignore a11y_label_has_associated_control -->
 			<label class="block pb-2">
 				<span class="text-primary font-semibold text-sm">{setting.label}</span>
 				{#if setting.description}
@@ -241,56 +247,59 @@
 				{/if}
 			</label>
 
-			<ToggleButtonGroup bind:selected={$values[setting.key]} let:item={toggleButtonn}>
-				{#each setting.select_items ?? [] as item}
-					<ToggleButton
-						value={item.value ?? item.label}
-						label={item.label}
-						tooltip={item.tooltip}
-						item={toggleButtonn}
-					/>
-				{/each}
-				<PopoverMelt closeButton={!isPyFetching}>
-					<svelte:fragment slot="trigger">
-						{#if setting.select_items?.some((e) => e.label == $values[setting.key] || e.value == $values[setting.key])}
-							<Button
-								variant="border"
-								color="dark"
-								btnClasses="px-1.5 py-1.5 text-2xs bg-surface-secondary border-0"
-								nonCaptureEvent={true}>Select Custom</Button
-							>
-						{:else}
-							<Button
-								variant="border"
-								color="dark"
-								btnClasses="px-1.5 py-1.5 text-2xs border-0 shadow-md"
-								nonCaptureEvent={true}>Custom | {$values[setting.key]}</Button
-							>
-						{/if}
-					</svelte:fragment>
-					<svelte:fragment slot="content">
-						{#if isPyFetching}
-							<div class="p-4">
-								<LoadingIcon />
-							</div>
-						{:else}
-							<ToggleButtonGroup
-								bind:selected={$values[setting.key]}
-								let:item={toggleButtonn}
-								class="mr-10 h-full"
-								tabListClass="flex-wrap p-2"
-							>
-								{#each pythonAvailableVersions as item}
-									<ToggleButton value={item} label={item} tooltip={item} item={toggleButtonn} />
-								{/each}
-							</ToggleButtonGroup>
-						{/if}
-					</svelte:fragment>
-				</PopoverMelt>
+			<ToggleButtonGroup bind:selected={$values[setting.key]}>
+				{#snippet children({ item: toggleButtonn })}
+					{#each setting.select_items ?? [] as item}
+						<ToggleButton
+							value={item.value ?? item.label}
+							label={item.label}
+							tooltip={item.tooltip}
+							item={toggleButtonn}
+						/>
+					{/each}
+					<PopoverMelt closeButton={!isPyFetching}>
+						{#snippet trigger()}
+							{#if setting.select_items?.some((e) => e.label == $values[setting.key] || e.value == $values[setting.key])}
+								<Button
+									variant="border"
+									color="dark"
+									btnClasses="px-1.5 py-1.5 text-2xs bg-surface-secondary border-0"
+									nonCaptureEvent={true}>Select Custom</Button
+								>
+							{:else}
+								<Button
+									variant="border"
+									color="dark"
+									btnClasses="px-1.5 py-1.5 text-2xs border-0 shadow-md"
+									nonCaptureEvent={true}>Custom | {$values[setting.key]}</Button
+								>
+							{/if}
+						{/snippet}
+						{#snippet content()}
+							{#if isPyFetching}
+								<div class="p-4">
+									<LoadingIcon />
+								</div>
+							{:else}
+								<ToggleButtonGroup
+									bind:selected={$values[setting.key]}
+									class="mr-10 h-full"
+									tabListClass="flex-wrap p-2"
+								>
+									{#snippet children({ item: toggleButtonn })}
+										{#each pythonAvailableVersions as item}
+											<ToggleButton value={item} label={item} tooltip={item} item={toggleButtonn} />
+										{/each}
+									{/snippet}
+								</ToggleButtonGroup>
+							{/if}
+						{/snippet}
+					</PopoverMelt>
+				{/snippet}
 			</ToggleButtonGroup>
 		</div>
 	{:else}
-		<!-- svelte-ignore a11y-label-has-associated-control -->
+		<!-- svelte-ignore a11y_label_has_associated_control -->
 		<label class="block pb-2">
 			<span class="text-primary font-semibold text-sm">{setting.label}</span>
 			{#if setting.description}
@@ -439,27 +448,29 @@
 											on {attemptedAt}
 										</span>
 									</div>
-									<div slot="text">
-										{#if latestKeyRenewalAttempt.result === 'success'}
-											<span class="text-green-300">
-												Latest key renewal succeeded on {attemptedAt}
-											</span>
-										{:else if isTrial}
-											<span class="text-yellow-300">
-												License key cannot be renewed during trial ({attemptedAt})
-											</span>
-										{:else}
-											<span class="text-red-300">
-												Latest key renewal failed on {attemptedAt}: {latestKeyRenewalAttempt.result.replace(
-													'error: ',
-													''
-												)}
-											</span>
-										{/if}
-										<br />
-										As long as invoices are paid and usage corresponds to the subscription, the key is
-										renewed daily with a validity of 35 days (grace period).
-									</div>
+									{#snippet text()}
+										<div>
+											{#if latestKeyRenewalAttempt?.result === 'success'}
+												<span class="text-green-300">
+													Latest key renewal succeeded on {attemptedAt}
+												</span>
+											{:else if isTrial}
+												<span class="text-yellow-300">
+													License key cannot be renewed during trial ({attemptedAt})
+												</span>
+											{:else}
+												<span class="text-red-300">
+													Latest key renewal failed on {attemptedAt}: {latestKeyRenewalAttempt?.result.replace(
+														'error: ',
+														''
+													)}
+												</span>
+											{/if}
+											<br />
+											As long as invoices are paid and usage corresponds to the subscription, the key
+											is renewed daily with a validity of 35 days (grace period).
+										</div>
+									{/snippet}
 								</Popover>
 							</div>
 						{/if}
@@ -515,7 +526,7 @@
 									<div class="flex w-full max-w-lg mt-1 gap-2 items-center">
 										<select
 											class="max-w-24"
-											on:change={(e) => {
+											onchange={(e) => {
 												if (e.target?.['value']) {
 													$values[setting.key][i] = {
 														[e.target['value']]: ''
@@ -540,7 +551,7 @@
 											<input
 												type="text"
 												placeholder="Slack channel"
-												on:input={(e) => {
+												oninput={(e) => {
 													if (e.target?.['value']) {
 														$values[setting.key][i] = {
 															slack_channel: e.target['value']
@@ -598,7 +609,7 @@
 													/>
 												{/if}
 												<div>
-													<button on:click={fetchTeams} class="flex items-center gap-1 mt-2">
+													<button onclick={fetchTeams} class="flex items-center gap-1 mt-2">
 														<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
 													</button>
 												</div>
@@ -607,7 +618,7 @@
 											<input
 												type="email"
 												placeholder="Email address"
-												on:input={(e) => {
+												oninput={(e) => {
 													if (e.target?.['value']) {
 														$values[setting.key][i] = {
 															email: e.target['value']
@@ -621,7 +632,7 @@
 											transition:fade|local={{ duration: 100 }}
 											class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
 											aria-label="Clear"
-											on:click={() => {
+											onclick={() => {
 												$values[setting.key] = $values[setting.key].filter(
 													(_, index) => index !== i
 												)
@@ -718,7 +729,7 @@
 									type="number"
 									id="writer_memory_budget"
 									placeholder="300"
-									on:input={(e) => {
+									oninput={(e) => {
 										if (e.target instanceof HTMLInputElement) {
 											if (e.target.valueAsNumber) {
 												$values[setting.key].writer_memory_budget =
@@ -776,7 +787,7 @@
 									type="number"
 									id="max_indexed_job_log_size"
 									placeholder="1024"
-									on:input={(e) => {
+									oninput={(e) => {
 										if (e.target instanceof HTMLInputElement) {
 											if (e.target.valueAsNumber) {
 												$values[setting.key].max_indexed_job_log_size =

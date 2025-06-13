@@ -1,4 +1,4 @@
-<script lang="ts" context="module">
+<script lang="ts" module>
 	let current: (() => void) | undefined = undefined
 </script>
 
@@ -7,22 +7,38 @@
 	import { createEventDispatcher, onMount } from 'svelte'
 	import { fade } from 'svelte/transition'
 
-	export let noMinW = false
-	export let show = false
-	export let wrapperClasses = ''
-	export let popupClasses = ''
-	export let transitionDuration = 25
-	export let pointerDown = false
-	let menu: HTMLDivElement
+	let menu: HTMLDivElement | undefined = $state()
 
 	type Alignment = 'start' | 'end' | 'center'
 	type Side = 'top' | 'bottom'
 	type Placement = `${Side}-${Alignment}`
 
-	export let placement: Placement = 'bottom-start'
+	interface Props {
+		noMinW?: boolean
+		show?: boolean
+		wrapperClasses?: string
+		popupClasses?: string
+		transitionDuration?: number
+		pointerDown?: boolean
+		placement?: Placement
+		trigger?: import('svelte').Snippet<[any]>
+		children?: import('svelte').Snippet<[any]>
+	}
+
+	let {
+		noMinW = false,
+		show = $bindable(false),
+		wrapperClasses = '',
+		popupClasses = '',
+		transitionDuration = 25,
+		pointerDown = false,
+		placement = 'bottom-start',
+		trigger,
+		children
+	}: Props = $props()
 
 	function handleOutsideClick(event) {
-		if (show && !menu.contains(event.target)) {
+		if (show && !menu?.contains(event.target)) {
 			show = false
 			event.preventDefault()
 			event.stopPropagation()
@@ -61,10 +77,10 @@
 </script>
 
 <div class="relative {wrapperClasses}" bind:this={menu}>
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
-		on:click={() => {
+		onclick={() => {
 			if (!pointerDown) {
 				if (!show) {
 					current && current()
@@ -78,7 +94,7 @@
 				}
 			}
 		}}
-		on:pointerdown={() => {
+		onpointerdown={() => {
 			if (pointerDown) {
 				if (!show) {
 					current && current()
@@ -89,7 +105,7 @@
 		}}
 		class="relative"
 	>
-		<slot class="triggerable" name="trigger" />
+		{@render trigger?.({ class: 'triggerable' })}
 	</div>
 	{#if show}
 		<div
@@ -103,7 +119,7 @@
 			role="menu"
 			tabindex="-1"
 		>
-			<slot {close} />
+			{@render children?.({ close })}
 		</div>
 	{/if}
 </div>

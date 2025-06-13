@@ -14,17 +14,29 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { User } from 'lucide-svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let recomputeIds: string[] | undefined = undefined
-	export let extraQueryParams: Record<string, any> = {}
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'formcomponent'> | undefined = undefined
-	export let render: boolean
-	export let errorHandledByComponent: boolean | undefined = false
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		recomputeIds?: string[] | undefined
+		extraQueryParams?: Record<string, any>
+		horizontalAlignment?: 'left' | 'center' | 'right' | undefined
+		customCss?: ComponentCustomCSS<'formcomponent'> | undefined
+		render: boolean
+		errorHandledByComponent?: boolean | undefined
+	}
 
-	$: errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
+	let {
+		id,
+		componentInput,
+		configuration,
+		recomputeIds = undefined,
+		extraQueryParams = {},
+		horizontalAlignment = undefined,
+		customCss = undefined,
+		render,
+		errorHandledByComponent = $bindable(false)
+	}: Props = $props()
 
 	export const staticOutputs: string[] = ['loading', 'result', 'jobId']
 
@@ -37,9 +49,8 @@
 		jobId: undefined
 	})
 
-	const resolvedConfig = initConfig(
-		components['formcomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['formcomponent'].initialData.configuration, configuration)
 	)
 
 	$componentControl[id] = {
@@ -57,16 +68,19 @@
 		}
 	}
 
-	let runnableComponent: RunnableComponent
-	let loading = false
+	let runnableComponent: RunnableComponent | undefined = $state()
+	let loading = $state(false)
 
-	$: noInputs =
+	let css = $state(initCss($app.css?.formcomponent, customCss))
+
+	let wrapper: RunnableWrapper | undefined = $state()
+	$effect(() => {
+		errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
+	})
+	let noInputs = $derived(
 		$stateId != undefined &&
-		(componentInput?.type != 'runnable' || Object.keys(componentInput?.fields ?? {}).length == 0)
-
-	let css = initCss($app.css?.formcomponent, customCss)
-
-	let wrapper: RunnableWrapper
+			(componentInput?.type != 'runnable' || Object.keys(componentInput?.fields ?? {}).length == 0)
+	)
 </script>
 
 {#each Object.keys(components['formcomponent'].initialData.configuration) as key (key)}

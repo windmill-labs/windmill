@@ -57,6 +57,6 @@
 	export let name = undefined
 </script>
 
-<div use:portal={{ target, name }} hidden>
+<div use:portal={{ target, name }} hidden class={$$props.class}>
 	<slot />
 </div>

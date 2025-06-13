@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { ButtonType } from '$lib/components/common/button/model'
-	import { getContext, tick } from 'svelte'
+	import { getContext, tick, untrack } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import type { FlowEditorContext } from '../types'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -39,13 +39,18 @@
 		schemaFromDiff,
 		computeDiff,
 		applyDiff
-	} from '$lib/components/schema/schemaUtils'
+	} from '$lib/components/schema/schemaUtils.svelte'
 	import SideBarTab from '$lib/components/meltComponents/SideBarTab.svelte'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import { isObjectTooBig } from '$lib/utils'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 
-	export let noEditor: boolean
-	export let disabled: boolean
+	interface Props {
+		noEditor: boolean
+		disabled: boolean
+	}
+
+	let { noEditor, disabled }: Props = $props()
 
 	const {
 		flowStore,
@@ -56,33 +61,42 @@
 		flowInputEditorState
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
-	let addProperty: AddPropertyV2 | undefined = undefined
-	let previewSchema: Record<string, any> | undefined = undefined
+	let addPropertyV2: AddPropertyV2 | undefined = $state(undefined)
+	let previewSchema: Record<string, any> | undefined = $state(undefined)
 	let payloadData: Record<string, any> | undefined = undefined
-	let previewArguments: Record<string, any> | undefined = $previewArgs
+	let previewArguments: Record<string, any> | undefined = $state(previewArgs.val)
 	let dropdownItems: Array<{
 		label: string
 		onClick: () => void
 		disabled?: boolean
-	}> = []
-	let diff: Record<string, SchemaDiff> = {}
-	let editPanelSize = $flowInputEditorState?.editPanelSize ?? 0
-	let selectedSchema: Record<string, any> | undefined = undefined
-	let runDisabled: boolean = false
-	let editableSchemaForm: EditableSchemaForm | undefined = undefined
-	let savedPreviewArgs: Record<string, any> | undefined = undefined
-	let preventEscape = false
-	let isValid = true
+	}> = $state([])
+	let diff: Record<string, SchemaDiff> = $state({})
+	let editPanelSize = $state($flowInputEditorState?.editPanelSize ?? 0)
+	let selectedSchema: Record<string, any> | undefined = $state(undefined)
+	let runDisabled: boolean = $state(false)
+	let editableSchemaForm: EditableSchemaForm | undefined = $state(undefined)
+	let savedPreviewArgs: Record<string, any> | undefined = $state(undefined)
+	let preventEscape = $state(false)
+	let isValid = $state(true)
 
 	function updateEditPanelSize(size: number | undefined) {
 		if (!$flowInputEditorState) return
 		if (!size || size === 0) {
 			$flowInputEditorState.editPanelSize = undefined
-			return
+		} else {
+			$flowInputEditorState.editPanelSize = size
 		}
-		$flowInputEditorState.editPanelSize = size
 	}
-	$: updateEditPanelSize(editPanelSize)
+
+	let timeout: NodeJS.Timeout | undefined = undefined
+	$effect(() => {
+		if (timeout) {
+			clearTimeout(timeout)
+		}
+		timeout = setTimeout(() => {
+			updateEditPanelSize(editPanelSize)
+		}, 100)
+	})
 
 	const getDropdownItems = () => {
 		return [
@@ -158,7 +172,7 @@
 	}
 
 	function schemaFromPayload(payloadData: any) {
-		const payload = structuredClone(payloadData)
+		const payload = structuredClone($state.snapshot(payloadData))
 		const parsed = JSON.parse(JSON.stringify(payload))
 
 		if (!parsed) {
@@ -179,8 +193,8 @@
 		return { required: [], properties: {}, ...convert(parsed) }
 	}
 
-	let flowPreviewContent: FlowPreviewContent
-	let previewOpen = false
+	let flowPreviewContent: FlowPreviewContent | undefined = $state()
+	let previewOpen = $state(false)
 
 	function handleKeydown(event: KeyboardEvent) {
 		if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -195,7 +209,7 @@
 
 	function runPreview() {
 		if (previewArguments) {
-			$previewArgs = structuredClone(previewArguments)
+			previewArgs.val = structuredClone($state.snapshot(previewArguments))
 		}
 		previewOpen = true
 		flowPreviewContent?.test()
@@ -213,7 +227,7 @@
 			updatePreviewSchema(undefined)
 			return
 		}
-		payloadData = structuredClone(payload)
+		payloadData = structuredClone($state.snapshot(payload))
 		selectedSchema = schemaFromPayload(payloadData)
 		updatePreviewSchema(selectedSchema)
 		updatePreviewArguments(payloadData)
@@ -230,16 +244,16 @@
 			return
 		}
 		diff = {}
-		const diffSchema = computeDiff(newSchema, $flowStore.schema)
+		const diffSchema = computeDiff(newSchema, flowStore.val.schema)
 		diff = diffSchema
-		previewSchema = schemaFromDiff(diffSchema, $flowStore.schema)
+		previewSchema = schemaFromDiff(diffSchema, flowStore.val.schema)
 		runDisabled = true
 	}
 
 	async function applySchemaAndArgs() {
-		$flowStore.schema = applyDiff($flowStore.schema, diff)
+		flowStore.val.schema = applyDiff(flowStore.val.schema, diff)
 		if (previewArguments) {
-			savedPreviewArgs = structuredClone(previewArguments)
+			savedPreviewArgs = structuredClone($state.snapshot(previewArguments))
 		}
 		updatePreviewSchemaAndArgs(undefined)
 		if ($flowInputEditorState) {
@@ -252,13 +266,13 @@
 			previewArguments = savedPreviewArgs
 			return
 		}
-		savedPreviewArgs = structuredClone(previewArguments)
-		previewArguments = structuredClone(payloadData)
+		savedPreviewArgs = structuredClone($state.snapshot(previewArguments))
+		previewArguments = structuredClone($state.snapshot(payloadData))
 	}
 
 	let tabButtonWidth = 0
 
-	let connectFirstNode: () => void = () => {}
+	let connectFirstNode: () => void = $state(() => {})
 
 	let init = false
 	function initPayloadData() {
@@ -268,18 +282,25 @@
 			$flowInputEditorState.payloadData = undefined
 		}
 	}
-	$: $flowInputEditorState && ((dropdownItems = getDropdownItems()), initPayloadData())
+	$effect(() => {
+		if ($flowInputEditorState) {
+			untrack(() => {
+				dropdownItems = getDropdownItems()
+				initPayloadData()
+			})
+		}
+	})
 
-	let preventEnter = false
+	let preventEnter = $state(false)
 
 	async function acceptChange(arg: { label: string; nestedParent: any | undefined }) {
-		handleChange(arg, $flowStore.schema, diff, (newSchema) => {
-			$flowStore.schema = newSchema
+		handleChange(arg, flowStore.val.schema, diff, (newSchema) => {
+			flowStore.val.schema = newSchema
 		})
 	}
 
 	async function rejectChange(arg: { label: string; nestedParent: any | undefined }) {
-		const revertDiff = computeDiff($flowStore.schema, selectedSchema)
+		const revertDiff = computeDiff(flowStore.val.schema, selectedSchema)
 		handleChange(arg, selectedSchema, revertDiff, (newSchema) => {
 			selectedSchema = newSchema
 		})
@@ -309,8 +330,8 @@
 			updateCurrentSchema(schemaUpdated)
 		}
 
-		diff = computeDiff(selectedSchema, $flowStore.schema)
-		previewSchema = schemaFromDiff(diff, $flowStore.schema)
+		diff = computeDiff(selectedSchema, flowStore.val.schema)
+		previewSchema = schemaFromDiff(diff, flowStore.val.schema)
 	}
 
 	function resetArgs() {
@@ -320,11 +341,11 @@
 		}
 	}
 
-	let historicInputs: HistoricInputs | undefined = undefined
-	let captureTable: CaptureTable | undefined = undefined
-	let savedInputsPicker: SavedInputsPicker | undefined = undefined
-	let jsonInputs: JsonInputs | undefined = undefined
-	let firstStepInputs: FirstStepInputs | undefined = undefined
+	let historicInputs: HistoricInputs | undefined = $state(undefined)
+	let captureTable: CaptureTable | undefined = $state(undefined)
+	let savedInputsPicker: SavedInputsPicker | undefined = $state(undefined)
+	let jsonInputs: JsonInputs | undefined = $state(undefined)
+	let firstStepInputs: FirstStepInputs | undefined = $state(undefined)
 
 	function resetSelected() {
 		historicInputs?.resetSelected(true)
@@ -336,7 +357,7 @@
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} />
 
 <Drawer bind:open={previewOpen} alwaysOpen size="75%" {preventEscape}>
 	<FlowPreviewContent
@@ -355,25 +376,33 @@
 		<div class="py-2 px-4 h-full">
 			<EditableSchemaForm
 				bind:this={editableSchemaForm}
-				bind:schema={$flowStore.schema}
+				bind:schema={flowStore.val.schema}
 				isFlowInput
 				on:edit={(e) => {
-					addProperty?.openDrawer(e.detail)
+					addPropertyV2?.openDrawer(e.detail)
 				}}
 				on:delete={(e) => {
-					addProperty?.handleDeleteArgument([e.detail])
+					addPropertyV2?.handleDeleteArgument([e.detail])
 				}}
 				displayWebhookWarning
 				editTab={$flowInputEditorState?.selectedTab}
 				{previewSchema}
 				bind:args={previewArguments}
-				bind:editPanelSize
+				bind:editPanelSize={
+					() => {
+						return editPanelSize
+					},
+					(v) => {
+						if (editPanelSize != v) {
+							editPanelSize = v
+						}
+					}
+				}
 				editPanelInitialSize={$flowInputEditorState?.editPanelSize}
 				pannelExtraButtonWidth={$flowInputEditorState?.editPanelSize ? tabButtonWidth : 0}
 				{diff}
 				disableDnd={!!previewSchema}
 				on:rejectChange={(e) => {
-					console.log('rejectChange')
 					rejectChange(e.detail).then(() => {
 						updatePreviewSchema(selectedSchema)
 					})
@@ -387,20 +416,21 @@
 				on:change={() => {
 					previewArguments = previewArguments
 					if (!previewSchema) {
-						savedPreviewArgs = structuredClone(previewArguments)
+						savedPreviewArgs = structuredClone($state.snapshot(previewArguments))
 					}
+					refreshStateStore(flowStore)
 				}}
 				on:schemaChange={() => {
 					resetArgs()
 				}}
 				bind:isValid
 			>
-				<svelte:fragment slot="openEditTab">
+				{#snippet openEditTab()}
 					<div class={twMerge('flex flex-row divide-x', ButtonType.ColorVariants.blue.divider)}>
 						<SideBarTab {dropdownItems} fullMenu={!!$flowInputEditorState?.selectedTab}>
-							<svelte:fragment slot="close button">
+							{#snippet close_button()}
 								<button
-									on:click={() => {
+									onclick={() => {
 										handleEditSchema()
 									}}
 									title={!!$flowInputEditorState?.selectedTab
@@ -414,17 +444,18 @@
 									)}
 								>
 									<div class="p-2 center-center">
-										<svelte:component
-											this={!!$flowInputEditorState?.selectedTab ? ChevronRight : Pen}
-											size={14}
-										/>
+										{#if !!$flowInputEditorState?.selectedTab}
+											<ChevronRight size={14} />
+										{:else}
+											<Pen size={14} />
+										{/if}
 									</div>
 								</button>
-							</svelte:fragment>
+							{/snippet}
 						</SideBarTab>
 					</div>
-				</svelte:fragment>
-				<svelte:fragment slot="addProperty">
+				{/snippet}
+				{#snippet addProperty()}
 					{#if !!previewSchema}
 						<div class="flex flex-row items-center gap-2 right-2 justify-end">
 							<Button
@@ -455,10 +486,10 @@
 						</div>
 					{:else}
 						<AddPropertyV2
-							bind:schema={$flowStore.schema}
-							bind:this={addProperty}
+							bind:schema={flowStore.val.schema}
+							bind:this={addPropertyV2}
 							on:change={() => {
-								$flowStore = $flowStore
+								refreshStateStore(flowStore)
 								if (editableSchemaForm) {
 									editableSchemaForm.updateJson()
 								}
@@ -466,21 +497,21 @@
 							on:addNew={(e) => {
 								handleEditSchema('inputEditor')
 								editableSchemaForm?.openField(e.detail)
-								$flowStore = $flowStore
+								refreshStateStore(flowStore)
 							}}
 						>
-							<svelte:fragment slot="trigger">
+							{#snippet trigger()}
 								<div
 									class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
 									id="add-flow-input-btn"
 								>
 									<Plus size={14} />
 								</div>
-							</svelte:fragment>
+							{/snippet}
 						</AddPropertyV2>
 					{/if}
-				</svelte:fragment>
-				<svelte:fragment slot="extraTab">
+				{/snippet}
+				{#snippet extraTab()}
 					{#if $flowInputEditorState?.selectedTab === 'history'}
 						<FlowInputEditor
 							title="History"
@@ -505,11 +536,13 @@
 							}}
 							title="Trigger captures"
 						>
-							<svelete:fragment slot="action">
-								<div class="center-center">
-									<CaptureButton on:openTriggers small={true} />
-								</div>
-							</svelete:fragment>
+							{#snippet action()}
+								<svelete:fragment>
+									<div class="center-center">
+										<CaptureButton on:openTriggers small={true} />
+									</div>
+								</svelete:fragment>
+							{/snippet}
 							<div class="h-full">
 								<CaptureTable
 									path={$initialPathStore || fakeInitialPath}
@@ -582,9 +615,9 @@
 								}}
 								on:select={(e) => {
 									if (e.detail) {
-										const diffSchema = computeDiff(e.detail, $flowStore.schema)
+										const diffSchema = computeDiff(e.detail, flowStore.val.schema)
 										diff = diffSchema
-										previewSchema = schemaFromDiff(diffSchema, $flowStore.schema)
+										previewSchema = schemaFromDiff(diffSchema, flowStore.val.schema)
 										runDisabled = true
 									} else {
 										updatePreviewSchemaAndArgs(undefined)
@@ -593,8 +626,8 @@
 							/>
 						</FlowInputEditor>
 					{/if}
-				</svelte:fragment>
-				<svelte:fragment slot="runButton">
+				{/snippet}
+				{#snippet runButton()}
 					<div class="w-full flex justify-end pr-5">
 						<Button
 							color="dark"
@@ -609,12 +642,12 @@
 							Run
 						</Button>
 					</div>
-				</svelte:fragment>
+				{/snippet}
 			</EditableSchemaForm>
 		</div>
 	{:else}
 		<div class="p-4 border-b">
-			<FlowInputViewer schema={$flowStore.schema} />
+			<FlowInputViewer schema={flowStore.val.schema} />
 		</div>
 	{/if}
 </FlowCard>

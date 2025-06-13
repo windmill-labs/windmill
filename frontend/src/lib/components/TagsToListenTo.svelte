@@ -3,8 +3,8 @@
 	import { Button } from './common'
 	import { superadmin } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
-	import AutoComplete from 'simple-svelte-autocomplete'
 	import { defaultTags, nativeTags } from './worker_group'
+	import Select from './Select.svelte'
 
 	const dispatch = createEventDispatcher()
 	type Props = {
@@ -50,24 +50,14 @@
 
 {#if $superadmin}
 	<div class="max-w-md space-y-2">
-		<AutoComplete
-			noInputStyles
-			items={[...(customTags ?? []), ...createdTags, ...defaultTags, ...nativeTags].filter(
-				(x) => !worker_tags?.includes(x)
-			)}
+		<Select
+			items={[...(customTags ?? []), ...createdTags, ...defaultTags, ...nativeTags]
+				.filter((x) => !worker_tags?.includes(x))
+				.map((x) => ({ value: x, label: x }))}
 			{disabled}
-			bind:selectedItem={newTag}
-			hideArrow={true}
-			inputClassName="w-full text-sm bg-surface-primary border border-gray-300 rounded-md px-3 py-2 text-primary placeholder-secondary focus:outline-none"
-			dropdownClassName="!text-sm !py-2 !rounded-md !border-gray-200 !border !shadow-md bg-white"
-			className="w-full font-primary text-primary"
+			bind:value={newTag}
 			onFocus={() => dispatch('focus')}
-			create
-			onCreate={(c: string) => {
-				createdTags.push(c)
-				createdTags = [...createdTags]
-				return c
-			}}
+			onCreateItem={(c) => (createdTags.push(c), (createdTags = [...createdTags]), (newTag = c))}
 			createText="Press Enter to use this tag"
 		/>
 
