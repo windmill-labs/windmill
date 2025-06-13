@@ -3,7 +3,11 @@ use std::{collections::HashMap, fs::DirBuilder, process::Stdio};
 
 use itertools::Itertools;
 use serde_json::value::RawValue;
-use tokio::{fs::File, io::AsyncReadExt, process::Command};
+use tokio::{
+    fs::{self, File},
+    io::AsyncReadExt,
+    process::Command,
+};
 use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
@@ -91,6 +95,7 @@ pub async fn handle_go_job(
             true,
             skip_go_mod,
             skip_tidy,
+            false,
             worker_name,
             &job.workspace_id,
             occupation_metrics,
@@ -356,11 +361,21 @@ pub async fn install_go_dependencies(
     non_dep_job: bool,
     skip_go_mod: bool,
     has_sum: bool,
+    raw_deps: bool,
     worker_name: &str,
     w_id: &str,
     occupation_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
-    if !skip_go_mod {
+    if raw_deps {
+        let go_mod =
+            if let Some(module) = code.lines().find(|l| l.trim_start().starts_with("module ")) {
+                code.replace(module, "module mymod")
+            } else {
+                format!("module mymod\n{code}")
+            };
+        fs::write(format!("{job_dir}/go.mod"), go_mod).await?;
+    }
+    if !raw_deps && !skip_go_mod {
         gen_go_mymod(code, job_dir).await?;
         let mut child_cmd = Command::new(GO_PATH.as_str());
         child_cmd
@@ -400,7 +415,9 @@ pub async fn install_go_dependencies(
 
     let mut new_lockfile = false;
 
-    let hash = if !has_sum {
+    let hash = if raw_deps {
+        calculate_hash(code)
+    } else if !has_sum {
         calculate_hash(parse_go_imports(&code)?.iter().join("\n").as_str())
     } else {
         "".to_string()
@@ -429,7 +446,15 @@ pub async fn install_go_dependencies(
         }
     }
 
-    let mod_command = if skip_tidy { "download" } else { "tidy" };
+    let mod_command = if skip_tidy ||
+        // If there is go.mod provided we want to use `download` only.
+        // Unlike `tidy` it does not modify local go.mod
+        raw_deps
+    {
+        "download"
+    } else {
+        "tidy"
+    };
     let mut child_cmd = Command::new(GO_PATH.as_str());
     child_cmd
         .current_dir(job_dir)
