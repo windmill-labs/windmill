@@ -1,4 +1,7 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Display,
+};
 
 use crate::{
     error::Result,
@@ -10,7 +13,7 @@ use axum::http;
 use http::Method as HttpMethod;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use serde_json::{to_value, Value};
+use serde_json::{to_value, Map, Value};
 use url::Url;
 
 lazy_static::lazy_static! {
@@ -22,6 +25,12 @@ lazy_static::lazy_static! {
 }
 
 const DEFAULT_OPENAPI_GENERATED_VERSION: &'static str = "3.1.0";
+const JWT_SECURITY_SCHEME: &'static str = "JwtAuth";
+const BASIC_HTTP_AUTH_SCHEME: &'static str = "BasicHttpAuth";
+
+const DEFAULT_REQUEST_KEY: &'static str = "defaultRequest";
+const DEFAULT_ASYNC_RESPONSE_KEY: &'static str = "AsyncResponse";
+const DEFAULT_SYNC_RESPONSE_KEY: &'static str = "SyncResponse";
 
 #[derive(Debug, Deserialize, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
@@ -95,6 +104,13 @@ struct Server {
 }
 
 #[derive(Debug)]
+pub enum SecurityScheme {
+    BearerJwt,
+    HttpBasicAuth,
+    ApiKey(String),
+}
+
+#[derive(Debug)]
 pub struct FuturePath {
     route_path: String,
     http_method: HttpMethod,
@@ -102,6 +118,7 @@ pub struct FuturePath {
     runnable_kind: Option<RunnableKind>,
     summary: Option<String>,
     description: Option<String>,
+    security_scheme: Option<SecurityScheme>,
 }
 
 impl FuturePath {
@@ -112,8 +129,17 @@ impl FuturePath {
         runnable_kind: Option<RunnableKind>,
         summary: Option<String>,
         description: Option<String>,
+        security_scheme: Option<SecurityScheme>,
     ) -> FuturePath {
-        FuturePath { route_path, http_method, is_async, runnable_kind, summary, description }
+        FuturePath {
+            route_path,
+            http_method,
+            is_async,
+            runnable_kind,
+            summary,
+            description,
+            security_scheme,
+        }
     }
 }
 
@@ -167,7 +193,7 @@ fn generate_paths(
 
     let generate_default_request = || {
         serde_json::json!({
-            "$ref": "#/components/requestBodies/DefaultRequest"
+            "$ref": format!("#/components/requestBodies/{DEFAULT_REQUEST_KEY}")
         })
     };
 
@@ -175,18 +201,34 @@ fn generate_paths(
         let responses = if is_async {
             serde_json::json!({
                 "200": {
-                    "$ref": "#/components/responses/AsyncResponse"
+                    "$ref": format!("#/components/responses/{DEFAULT_ASYNC_RESPONSE_KEY}")
                 }
             })
         } else {
             serde_json::json!(serde_json::json!({
                 "200": {
-                   "$ref": "#/components/responses/SyncResponse"
+                    "$ref": format!("#/components/responses/{DEFAULT_SYNC_RESPONSE_KEY}")
                 }
             }))
         };
 
         responses
+    };
+
+    let get_security_scheme = |security_scheme: Option<&SecurityScheme>| -> Vec<Value> {
+        if let Some(security_scheme) = security_scheme {
+            let scheme = match security_scheme {
+                SecurityScheme::ApiKey(api_key) => header_to_pascal_case(&api_key),
+                SecurityScheme::BearerJwt => JWT_SECURITY_SCHEME.to_owned(),
+                SecurityScheme::HttpBasicAuth => BASIC_HTTP_AUTH_SCHEME.to_owned(),
+            };
+
+            vec![serde_json::json!({
+                scheme: []
+            })]
+        } else {
+            vec![]
+        }
     };
 
     for path in paths {
@@ -201,15 +243,20 @@ fn generate_paths(
                     return Err(anyhow!("Found duplicate route: {}", path.route_path).into());
                 }
 
-                let mut request_response_map = IndexMap::with_capacity(2);
+                let mut method_map = IndexMap::with_capacity(2);
+
+                method_map.insert(
+                    "security",
+                    to_value(get_security_scheme(path.security_scheme.as_ref()))?,
+                );
 
                 if path.http_method != HttpMethod::GET {
-                    request_response_map.insert("requestBody", generate_default_request());
+                    method_map.insert("requestBody", generate_default_request());
                 }
 
-                request_response_map.insert("responses", generate_response(path.is_async));
+                method_map.insert("responses", generate_response(path.is_async));
 
-                paths.insert(http_method, to_value(&request_response_map)?);
+                paths.insert(http_method, to_value(&method_map)?);
             }
             None => {
                 let mut path_object = IndexMap::new();
@@ -263,6 +310,11 @@ fn generate_paths(
                     method_map.insert("description", Value::String(description));
                 }
 
+                method_map.insert(
+                    "security",
+                    to_value(get_security_scheme(path.security_scheme.as_ref()))?,
+                );
+
                 if path.http_method != HttpMethod::GET {
                     method_map.insert("requestBody", generate_default_request());
                 }
@@ -309,6 +361,110 @@ impl ServerToSet {
     }
 }
 
+fn header_to_pascal_case(header: &str) -> String {
+    header
+        .split(|c: char| c == '-' || c == '_' || c == ' ')
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            let mut chars = s.chars();
+            match chars.next() {
+                Some(first) => {
+                    first.to_ascii_uppercase().to_string()
+                        + chars.as_str().to_ascii_lowercase().as_str()
+                }
+                None => String::new(),
+            }
+        })
+        .collect::<String>()
+}
+
+fn generate_all_api_key_security_schemes(future_paths: &[FuturePath]) -> Vec<(String, Value)> {
+    let mut vec = Vec::with_capacity(future_paths.len());
+    let mut set = HashSet::new();
+    for future_path in future_paths {
+        if let Some(SecurityScheme::ApiKey(api_key)) = future_path.security_scheme.as_ref() {
+            let pascal_case_header = header_to_pascal_case(&api_key);
+
+            if !set.insert(pascal_case_header.clone()) {
+                continue;
+            }
+
+            let scheme = serde_json::json!({
+                    "type": "apiKey",
+                    "in": "header",
+                    "name": api_key
+            });
+            vec.push((pascal_case_header, scheme));
+        }
+    }
+
+    vec
+}
+
+fn generate_components(future_paths: &[FuturePath]) -> Map<String, Value> {
+    let mut components = Map::new();
+
+    let mut security_scheme = Map::new();
+
+    security_scheme.insert(
+        JWT_SECURITY_SCHEME.to_owned(),
+        serde_json::json!({
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT"
+        }),
+    );
+
+    security_scheme.insert(
+        BASIC_HTTP_AUTH_SCHEME.to_owned(),
+        serde_json::json!({
+            "type": "http",
+            "scheme": "basic"
+        }),
+    );
+
+    let api_security_schemes = generate_all_api_key_security_schemes(future_paths);
+
+    for (key, value) in api_security_schemes {
+        security_scheme.insert(key, value);
+    }
+
+    components.insert("securitySchemes".to_owned(), Value::Object(security_scheme));
+
+    components.insert("requestBodies".to_owned(), serde_json::json!({
+       DEFAULT_REQUEST_KEY: {
+            "description": "This route may or may not require a request body, but its structure and content type are unknown.",
+            "required": false,
+            "content": {
+                "application/json": {}
+            }
+        }
+    }));
+
+    components.insert("responses".to_owned(), serde_json::json!({
+        DEFAULT_ASYNC_RESPONSE_KEY: {
+            "description": "Returns a job ID as a UUID string.",
+            "content": {
+                "text/plain": {
+                    "schema": {
+                        "type": "string",
+                        "format": "uuid",
+                        "examples": [ "550e8400-e29b-41d4-a716-446655440000" ]
+                    }
+                }
+            }
+        },
+        DEFAULT_SYNC_RESPONSE_KEY: {
+            "description": "This route may return a response, but its structure and content type are unknown.",
+            "content": {
+                "application/octet-stream": {}
+            }
+        }
+    }));
+
+    components
+}
+
 pub fn generate_openapi_document(
     info: Option<&Info>,
     url: Option<&Url>,
@@ -323,39 +479,7 @@ pub fn generate_openapi_document(
         to_value(info.unwrap_or(&DEFAULT_OPENAPI_INFO_OBJECT))?,
     );
 
-    openapi_doc.insert("components", serde_json::json!(
-        {
-            "requestBodies": {
-                "DefaultRequest": {
-                    "description": "This route may or may not require a request body, but its structure and content type are unknown.",
-                    "required": false,
-                    "content": {
-                        "application/octet-stream": {}
-                    }
-                }
-            },
-            "responses": {
-                "AsyncResponse": {
-                    "description": "Returns a job ID as a UUID string.",
-                    "content": {
-                        "text/plain": {
-                            "schema": {
-                            "type": "string",
-                            "format": "uuid",
-                            "example": "550e8400-e29b-41d4-a716-446655440000"
-                            }
-                        }
-                    }
-                },
-                "SyncResponse": {
-                    "description": "This route may return a response, but its structure and content type are unknown.",
-                    "content": {
-                        "application/octet-stream": {}
-                    }
-                }
-            }
-        }
-    ));
+    openapi_doc.insert("components", Value::Object(generate_components(&paths)));
 
     openapi_doc.insert("paths", to_value(generate_paths(paths, url)?)?);
 

@@ -1,5 +1,6 @@
 #[cfg(feature = "http_trigger")]
 use crate::http_trigger_args::{HttpMethod, RawHttpTriggerArgs};
+use crate::http_trigger_auth::ApiKeyAuthentication;
 #[cfg(feature = "parquet")]
 use crate::job_helpers_oss::get_workspace_s3_resource;
 use crate::resources::try_get_resource_from_db_as;
@@ -42,6 +43,7 @@ use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::error::{Error, Result as WindmillResult};
 use windmill_common::openapi::{
     generate_openapi_document, transform_to_minified_postgres_regex, Format, FuturePath, Info,
+    SecurityScheme,
 };
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::build_object_store_client;
@@ -1235,7 +1237,7 @@ async fn route_job(
                     let auth_method = try_get_resource_from_db_as::<
                         crate::http_trigger_auth::AuthenticationMethod,
                     >(
-                        authed.clone(),
+                        &authed,
                         Some(user_db.clone()),
                         &db,
                         &resource_path,
@@ -1486,22 +1488,15 @@ struct GenerateOpenAPI {
     openapi_spec_format: Format,
 }
 
-async fn generate_openapi_future_path(
+async fn http_routes_to_future_paths(
+    db: &DB,
     user_db: UserDB,
     authed: &ApiAuthed,
+    pg_pool: &mut PgConnection,
     http_route_filters: Option<&[HttpRouteFilter]>,
-    webhook_filters: Option<&[WebhookFilter]>,
     w_id: &str,
 ) -> WindmillResult<Vec<FuturePath>> {
-    if http_route_filters.is_none() && webhook_filters.is_none() {
-        return Err(Error::BadRequest(
-            "Expected http route filter and/or webhook filters".to_string(),
-        ));
-    }
-
     let mut http_routes = Vec::new();
-
-    let mut tx = user_db.begin(authed).await?;
 
     if let Some(http_route_filters) = http_route_filters {
         let path_regex = http_route_filters
@@ -1529,6 +1524,8 @@ async fn generate_openapi_future_path(
             summary: Option<String>,
             #[serde(default, deserialize_with = "empty_as_none")]
             description: Option<String>,
+            authentication_method: AuthenticationMethod,
+            authentication_resource_path: Option<String>,
         }
 
         http_routes = sqlx::query_as!(
@@ -1540,7 +1537,9 @@ async fn generate_openapi_future_path(
             is_async,
             workspaced_route,
             summary,
-            description
+            description,
+            authentication_method AS "authentication_method: _",
+            authentication_resource_path
         FROM
             http_trigger
         WHERE
@@ -1552,12 +1551,76 @@ async fn generate_openapi_future_path(
             &route_path_regex,
             &w_id
         )
-        .fetch_all(&mut *tx)
+        .fetch_all(pg_pool)
         .await?;
     }
 
-    let mut futures_path_webhook = Vec::new();
+    let mut openapi_future_paths = Vec::with_capacity(http_routes.len());
 
+    for http_route in http_routes {
+        let method = match http_route.http_method {
+            HttpMethod::Get => http::Method::GET,
+            HttpMethod::Post => http::Method::POST,
+            HttpMethod::Patch => http::Method::PATCH,
+            HttpMethod::Delete => http::Method::DELETE,
+            HttpMethod::Put => http::Method::PUT,
+        };
+
+        let auth_method = match http_route.authentication_method {
+            AuthenticationMethod::BasicHttp => Some(SecurityScheme::HttpBasicAuth),
+            AuthenticationMethod::Windmill => Some(SecurityScheme::BearerJwt),
+            AuthenticationMethod::ApiKey => {
+                let resource_path = match http_route.authentication_resource_path {
+                    Some(resource_path) => resource_path,
+                    None => {
+                        return Err(Error::BadRequest(
+                            "Missing authentication resource path".to_string(),
+                        ));
+                    }
+                };
+
+                let api = try_get_resource_from_db_as::<ApiKeyAuthentication>(
+                    authed,
+                    Some(user_db.clone()),
+                    db,
+                    &resource_path,
+                    w_id,
+                )
+                .await?;
+
+                Some(SecurityScheme::ApiKey(api.api_key_header))
+            }
+            _ => None,
+        };
+
+        let route_path = if http_route.workspaced_route {
+            format!("{}/{}", w_id, http_route.route_path.trim_start_matches('/'))
+        } else {
+            http_route.route_path.clone()
+        };
+
+        let future_path = FuturePath::new(
+            route_path,
+            method,
+            http_route.is_async,
+            None,
+            http_route.summary,
+            http_route.description,
+            auth_method,
+        );
+
+        openapi_future_paths.push(future_path);
+    }
+
+    Ok(openapi_future_paths)
+}
+
+async fn webhook_to_future_paths(
+    pg_pool: &mut PgConnection,
+    webhook_filters: Option<&[WebhookFilter]>,
+    w_id: &str,
+) -> WindmillResult<Vec<FuturePath>> {
+    let mut openapi_future_paths = Vec::new();
     if let Some(webhook_filters) = webhook_filters {
         let mut script_webhook_filter = Vec::new();
         let mut flow_webhook_filter = Vec::new();
@@ -1595,7 +1658,7 @@ async fn generate_openapi_future_path(
 
         impl Eq for MinifiedWebhook {}
 
-        let script_paths = sqlx::query_as!(
+        let webhook_scripts = sqlx::query_as!(
             MinifiedWebhook,
             r#"SELECT 
                     path,
@@ -1610,13 +1673,13 @@ async fn generate_openapi_future_path(
             &script_webhook_filter,
             &w_id
         )
-        .fetch_all(&mut *tx)
+        .fetch_all(&mut *pg_pool)
         .await?
         .into_iter()
         .unique()
         .collect_vec();
 
-        let flow_paths = sqlx::query_as!(
+        let webhook_flows = sqlx::query_as!(
             MinifiedWebhook,
             r#"SELECT 
                     path,
@@ -1631,89 +1694,84 @@ async fn generate_openapi_future_path(
             &flow_webhook_filter,
             &w_id
         )
-        .fetch_all(&mut *tx)
+        .fetch_all(&mut *pg_pool)
         .await?
         .into_iter()
         .unique()
         .collect_vec();
 
-        futures_path_webhook = Vec::with_capacity(script_paths.len() + flow_paths.len());
+        openapi_future_paths.reserve_exact(webhook_scripts.len() + webhook_flows.len());
 
-        for webhook in script_paths {
-            futures_path_webhook.push(FuturePath::new(
+        for webhook in webhook_scripts {
+            openapi_future_paths.push(FuturePath::new(
                 webhook.path,
                 Method::POST,
                 true,
                 Some(RunnableKind::Script),
                 webhook.summary,
                 webhook.description,
+                Some(SecurityScheme::BearerJwt),
             ));
         }
 
-        for webhook in flow_paths {
-            futures_path_webhook.push(FuturePath::new(
+        for webhook in webhook_flows {
+            openapi_future_paths.push(FuturePath::new(
                 webhook.path,
                 Method::POST,
                 true,
                 Some(RunnableKind::Flow),
                 webhook.summary,
                 webhook.description,
+                Some(SecurityScheme::BearerJwt),
             ));
         }
     }
 
-    tx.commit().await?;
+    Ok(openapi_future_paths)
+}
 
-    if http_routes.is_empty() && futures_path_webhook.is_empty() {
-        return Err(Error::NotFound("Found no matching http routes".to_string()));
+async fn generate_openapi_future_path(
+    db: &DB,
+    user_db: UserDB,
+    authed: &ApiAuthed,
+    http_route_filters: Option<&[HttpRouteFilter]>,
+    webhook_filters: Option<&[WebhookFilter]>,
+    w_id: &str,
+) -> WindmillResult<Vec<FuturePath>> {
+    if http_route_filters.is_none() && webhook_filters.is_none() {
+        return Err(Error::BadRequest(
+            "Expected http route filter and/or webhook filters".to_string(),
+        ));
     }
 
-    let mut openapi_future_paths = http_routes
-        .into_iter()
-        .map(|http_route| {
-            let method = match http_route.http_method {
-                HttpMethod::Get => http::Method::GET,
-                HttpMethod::Post => http::Method::POST,
-                HttpMethod::Patch => http::Method::PATCH,
-                HttpMethod::Delete => http::Method::DELETE,
-                HttpMethod::Put => http::Method::PUT,
-            };
+    let mut tx = user_db.clone().begin(authed).await?;
 
-            let route_path = if http_route.workspaced_route {
-                format!(
-                    "{}/{}",
-                    &w_id,
-                    http_route.route_path.trim_start_matches('/')
-                )
-            } else {
-                http_route.route_path
-            };
+    let mut openapi_future_paths =
+        http_routes_to_future_paths(db, user_db, authed, &mut tx, http_route_filters, w_id).await?;
 
-            let future_path = FuturePath::new(
-                route_path,
-                method,
-                http_route.is_async,
-                None,
-                http_route.summary,
-                http_route.description,
-            );
+    openapi_future_paths
+        .append(&mut webhook_to_future_paths(&mut tx, webhook_filters, w_id).await?);
 
-            future_path
-        })
-        .collect_vec();
+    tx.commit().await?;
 
-    openapi_future_paths.append(&mut futures_path_webhook);
+    if openapi_future_paths.is_empty() {
+        return Err(Error::NotFound(
+            "No match for the current filter".to_string(),
+        ));
+    }
 
     Ok(openapi_future_paths)
 }
 
 async fn generate_openapi_spec(
     Extension(authed): Extension<ApiAuthed>,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(generate_openapi): Json<GenerateOpenAPI>,
 ) -> WindmillResult<String> {
     let openapi_future_paths = generate_openapi_future_path(
+        &db,
         user_db,
         &authed,
         generate_openapi.http_route_filters.as_deref(),
@@ -1734,11 +1792,13 @@ async fn generate_openapi_spec(
 
 async fn download_spec(
     Extension(authed): Extension<ApiAuthed>,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(generate_openapi): Json<GenerateOpenAPI>,
 ) -> WindmillResult<Response> {
     let openapi_future_paths = generate_openapi_future_path(
+        &db,
         user_db,
         &authed,
         generate_openapi.http_route_filters.as_deref(),
