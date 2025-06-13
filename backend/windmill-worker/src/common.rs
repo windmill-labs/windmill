@@ -1036,9 +1036,9 @@ pub enum InstallStrategy {
 /// # General
 ///
 /// Languages that compile usually include dependencies in final executable.
-/// When dynamic languages do not and runtime dependencies provided separately.
+/// When dynamic languages do not and runtime dependencies are provided separately.
 ///
-/// This helper implies that the language is dynamic.
+/// This helper assumes that the language is dynamic.
 /// Python, Ruby, Java are dynamic and they can use this helper.
 ///
 /// # Features
@@ -1237,8 +1237,7 @@ pub async fn par_install_language_dependencies<'a>(
 
     let mut handles = vec![];
     let semaphore = Arc::new(Semaphore::new(parallel_limit));
-    let not_pulled = Arc::new(RwLock::new(vec![]));
-    // let mut handles = Vec::with_capacity(total_to_install);
+    let for_all_at_once = Arc::new(RwLock::new(vec![]));
     for NotInstalledDependency {
         //
         path,
@@ -1300,7 +1299,7 @@ pub async fn par_install_language_dependencies<'a>(
             counter_arc,
             language_name,
             installer_executable_name,
-            not_pulled,
+            for_all_at_once,
         ) = (
             worker_name.to_owned(),
             path.clone(),
@@ -1312,7 +1311,7 @@ pub async fn par_install_language_dependencies<'a>(
             counter_arc.clone(),
             language_name.to_owned(),
             installer_executable_name.to_owned(),
-            not_pulled.clone(),
+            for_all_at_once.clone(),
         );
         #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
         let _ = language_name;
@@ -1361,8 +1360,10 @@ pub async fn par_install_language_dependencies<'a>(
                 }
             }
 
-            let Some(child) = child else {
-                let mut lock = not_pulled.write().await;
+            let Some(child) = child else
+            // Happense only if All At Once mode is selected
+            {
+                let mut lock = for_all_at_once.write().await;
                 lock.push(RequiredDependency {
                     path: path_2.clone(),
                     custom_name: custom_name.clone(),
@@ -1468,17 +1469,17 @@ pub async fn par_install_language_dependencies<'a>(
             tracing::error!("Error joining handles: {e:?}");
         }
     }
-    if !not_pulled.read().await.is_empty() {
+    if !for_all_at_once.read().await.is_empty() {
         if let InstallStrategy::AllAtOnce(ref callback, ..) = install_fn {
-            let not_pulled_copy = not_pulled.read().await.clone();
+            let for_all_at_once_copy = for_all_at_once.read().await.clone();
             windmill_queue::append_logs(
                 job_id,
                 w_id,
-                format!("\n\nFetching {} packages...\n", not_pulled_copy.len()),
+                format!("\n\nFetching {} packages...\n", for_all_at_once_copy.len()),
                 &conn,
             )
             .await;
-            let cmd = callback(not_pulled_copy.clone())?;
+            let cmd = callback(for_all_at_once_copy.clone())?;
             tracing::debug!("{:?}", &cmd);
             let child = start_child_process(cmd, &installer_executable_name).await?;
             let mut buf = "".to_owned();
@@ -1489,7 +1490,7 @@ pub async fn par_install_language_dependencies<'a>(
                 } else {
                     *job_id
                 }),
-                &db,
+                conn,
                 // TODO: Return mem_peak
                 &mut 0,
                 // TODO: Return canceld_by_ref
@@ -1512,10 +1513,10 @@ pub async fn par_install_language_dependencies<'a>(
                 ));
             }
             {
-                postinstall_cb(not_pulled_copy.clone()).await?;
+                postinstall_cb(for_all_at_once_copy.clone()).await?;
             }
             for RequiredDependency { path, custom_name: _custom_name, .. } in
-                not_pulled_copy.into_iter()
+                for_all_at_once_copy.into_iter()
             {
                 // TODO: Refactor
                 // Create a file to indicate that installation was successfull

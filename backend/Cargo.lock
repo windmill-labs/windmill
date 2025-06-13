@@ -14930,7 +14930,6 @@ name = "windmill-parser-java"
 version = "1.496.3"
 dependencies = [
  "anyhow",
- "libc",
  "serde_json",
  "tree-sitter",
  "tree-sitter-java",
@@ -14996,7 +14995,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ruby"
-version = "1.481.0"
+version = "1.496.3"
 dependencies = [
  "anyhow",
  "libc",

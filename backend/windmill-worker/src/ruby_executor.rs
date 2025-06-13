@@ -10,8 +10,10 @@ use tokio::{
 use uuid::Uuid;
 use windmill_common::{
     cache::Storage,
+    client::AuthedClient,
     error::{self, Error},
     utils::calculate_hash,
+    worker::Connection,
 };
 use windmill_parser::Arg;
 use windmill_parser_ruby::parse_ruby_signature;
@@ -22,7 +24,7 @@ use crate::{
         create_args_and_out_file, par_install_language_dependencies, read_result,
         start_child_process, OccupancyMetrics, RequiredDependency,
     },
-    handle_child, AuthedClient, DISABLE_NSJAIL, PATH_ENV, RUBY_CACHE_DIR,
+    handle_child, DISABLE_NSJAIL, PATH_ENV, RUBY_CACHE_DIR,
 };
 lazy_static::lazy_static! {
     static ref RUBY_CONCURRENT_DOWNLOADS: usize = std::env::var("RUBY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
@@ -39,7 +41,7 @@ pub(crate) struct JobHandlerInput<'a> {
     pub canceled_by: &'a mut Option<CanceledBy>,
     pub client: &'a AuthedClient,
     pub parent_runnable_path: Option<String>,
-    pub db: &'a sqlx::Pool<sqlx::Postgres>,
+    pub conn: &'a Connection,
     pub envs: HashMap<String, String>,
     pub inner_content: &'a str,
     pub job: &'a MiniPulledJob,
@@ -55,7 +57,7 @@ pub async fn handle_ruby_job<'a>(
     mut args: JobHandlerInput<'a>,
 ) -> Result<Box<sqlx::types::JsonRawValue>, Error> {
     {
-        create_args_and_out_file(&args.client, args.job, args.job_dir, args.db).await?;
+        create_args_and_out_file(&args.client, args.job, args.job_dir, args.conn).await?;
         File::create(format!("{}/main.rb", args.job_dir))
             .await?
             .write_all(&wrap(args.inner_content)?.into_bytes())
@@ -65,7 +67,7 @@ pub async fn handle_ruby_job<'a>(
         &args.job.id,
         &args.inner_content,
         &args.job_dir,
-        &args.db,
+        &args.conn,
         &args.job.workspace_id,
     )
     .await?;
@@ -84,7 +86,7 @@ pub async fn resolve<'a>(
     job_id: &Uuid,
     code: &str,
     job_dir: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     w_id: &str,
 ) -> Result<String, Error> {
     let deps = "# frozen_string_literal: true
@@ -100,21 +102,23 @@ source \"https://rubygems.org\"\n"
     file.write_all(&deps.as_bytes()).await?;
 
     let req_hash = format!("ruby-{}", calculate_hash(&deps));
-    if let Some(cached) = sqlx::query_scalar!(
-        "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
-        req_hash
-    )
-    .fetch_optional(db)
-    .await?
-    {
-        return Ok(cached);
+    if let Some(db) = conn.as_sql() {
+        if let Some(cached) = sqlx::query_scalar!(
+            "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
+            req_hash
+        )
+        .fetch_optional(db)
+        .await?
+        {
+            return Ok(cached);
+        }
     }
     let lock = {
         append_logs(
             job_id,
             w_id,
             format!("\n--- RESOLVING LOCKFILE ---\n"),
-            db.clone(),
+            conn,
         )
         .await;
 
@@ -179,18 +183,20 @@ source \"https://rubygems.org\"\n"
         }
     };
 
-    sqlx::query!(
-        "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
-        req_hash,
-        lock.clone(),
-    ).fetch_optional(db).await?;
+    if let Some(db) = conn.as_sql() {
+        sqlx::query!(
+            "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
+            req_hash,
+            lock.clone(),
+        ).fetch_optional(db).await?;
+    }
 
-    append_logs(job_id, w_id, format!("\n{}", &lock), db.clone()).await;
+    append_logs(job_id, w_id, format!("\n{}", &lock), conn).await;
     Ok(lock)
 }
 
 async fn install<'a>(
-    JobHandlerInput { worker_name, job, db, job_dir, .. }: &mut JobHandlerInput<'a>,
+    JobHandlerInput { worker_name, job, conn, job_dir, .. }: &mut JobHandlerInput<'a>,
     lockfile: String,
 ) -> Result<String, Error> {
     // lazy_static::lazy_static! {
@@ -298,40 +304,41 @@ async fn install<'a>(
 
             Ok(cmd)
         })),
-        async move |_| {
-            move_to_repository(&fetch_dir2, 0).await?;
-            // remove_dir_all(&fetch_dir2).await?;
-            #[async_recursion]
-            async fn move_to_repository(path: &str, depth: u8) -> anyhow::Result<()> {
-                if depth == 3 {
-                    copy_dir_recursively(
-                        &PathBuf::from(path),
-                        &PathBuf::from(JAVA_REPOSITORY_DIR),
-                    )?;
+        async move |_| Ok(()),
+        // async move |_| {
+        //     move_to_repository(&fetch_dir2, 0).await?;
+        //     // remove_dir_all(&fetch_dir2).await?;
+        //     #[async_recursion]
+        //     async fn move_to_repository(path: &str, depth: u8) -> anyhow::Result<()> {
+        //         if depth == 3 {
+        //             copy_dir_recursively(
+        //                 &PathBuf::from(path),
+        //                 &PathBuf::from(JAVA_REPOSITORY_DIR),
+        //             )?;
 
-                    return Ok(());
-                }
-                let mut entries = tokio::fs::read_dir(path).await?;
-                loop {
-                    let Some(entry) = entries.next_entry().await? else {
-                        break Ok(());
-                    };
+        //             return Ok(());
+        //         }
+        //         let mut entries = tokio::fs::read_dir(path).await?;
+        //         loop {
+        //             let Some(entry) = entries.next_entry().await? else {
+        //                 break Ok(());
+        //             };
 
-                    let path = entry
-                        .path()
-                        .to_str()
-                        .ok_or(anyhow!("Internal Error: Cannot convert Path to Str"))?
-                        .to_owned();
+        //             let path = entry
+        //                 .path()
+        //                 .to_str()
+        //                 .ok_or(anyhow!("Internal Error: Cannot convert Path to Str"))?
+        //                 .to_owned();
 
-                    move_to_repository(&path, depth + 1).await?;
-                }
-            }
-            Ok(())
-        },
+        //             move_to_repository(&path, depth + 1).await?;
+        //         }
+        //     }
+        // Ok(())
+        // },
         &job.id,
         &job.workspace_id,
         worker_name,
-        db,
+        conn,
     )
     .await?;
     // todo!()
@@ -346,7 +353,7 @@ async fn run<'a>(
         canceled_by,
         worker_name,
         job,
-        db,
+        conn,
         job_dir,
         shared_mount,
         client,
@@ -426,7 +433,7 @@ async fn run<'a>(
         &job.id,
         &job.workspace_id,
         format!("\n--- JAVA CODE EXECUTION ---\n"),
-        db.clone(),
+        conn,
     )
     .await;
 
@@ -483,7 +490,7 @@ async fn run<'a>(
     // };
     handle_child::handle_child(
         &job.id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         child,
