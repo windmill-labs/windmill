@@ -273,7 +273,6 @@ export async function loadApiTools(): Promise<Tool<{}>[]> {
 		})
 
 		const executableApiTools = createApiTools(apiTools, endpointMap)
-		console.log('executableApiTools', executableApiTools.length)
 		return executableApiTools
 	} catch (error) {
 		console.error('Failed to load API tools:', error)
