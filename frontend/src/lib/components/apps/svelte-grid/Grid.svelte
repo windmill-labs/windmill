@@ -34,6 +34,7 @@
 		subGridIndexKey,
 		type GridShadow
 	} from '../editor/appUtils'
+	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -142,9 +143,11 @@
 			? items.map((item) => {
 					return {
 						...item,
-						[getComputedCols as number]: structuredClone(item[getComputedCols as number])
+						[getComputedCols as number]: structuredClone(
+							stateSnapshot(item[getComputedCols as number])
+						)
 					}
-			  })
+				})
 			: []
 	}
 	const updateMatrix = ({ detail }) => {
@@ -275,7 +278,7 @@
 	export function handleMove({ detail }) {
 		Object.entries(moveResizes).forEach(([id, moveResize]) => {
 			if (selectedIds?.includes(id)) {
-				moveResize?.updateMove(structuredClone(detail.cordDiff), detail.eventY)
+				moveResize?.updateMove(structuredClone(stateSnapshot(detail.cordDiff)), detail.eventY)
 			}
 		})
 
@@ -482,7 +485,7 @@
 					width={xPerPx == 0
 						? 0
 						: Math.min(getComputedCols, item[getComputedCols] && item[getComputedCols].w) * xPerPx -
-						  gapX * 2}
+							gapX * 2}
 					height={(item[getComputedCols] && item[getComputedCols].h) * yPerPx - gapY * 2}
 					top={(item[getComputedCols] && item[getComputedCols].y) * yPerPx + gapY}
 					left={(item[getComputedCols] && item[getComputedCols].x) * xPerPx + gapX}
