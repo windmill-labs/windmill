@@ -6,7 +6,7 @@
 		kbdClass?: string
 		small?: boolean
 		isModifier?: boolean
-		classNames?: string
+		class?: string
 		children?: import('svelte').Snippet
 	}
 
@@ -14,7 +14,7 @@
 		kbdClass = $bindable(''),
 		small = false,
 		isModifier = false,
-		classNames = '',
+		class: classNames = '',
 		children
 	}: Props = $props()
 
