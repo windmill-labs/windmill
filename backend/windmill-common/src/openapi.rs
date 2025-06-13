@@ -26,7 +26,7 @@ lazy_static::lazy_static! {
 
 const DEFAULT_OPENAPI_GENERATED_VERSION: &'static str = "3.1.0";
 const JWT_SECURITY_SCHEME: &'static str = "JwtAuth";
-const BASIC_HTTP_AUTH_SCHEME: &'static str = "BasicHttpAuth";
+const BASIC_HTTP_AUTH_SCHEME: &'static str = "BasicHttp";
 
 const DEFAULT_REQUEST_KEY: &'static str = "defaultRequest";
 const DEFAULT_ASYNC_RESPONSE_KEY: &'static str = "AsyncResponse";
@@ -106,7 +106,7 @@ struct Server {
 #[derive(Debug)]
 pub enum SecurityScheme {
     BearerJwt,
-    HttpBasicAuth,
+    BasicHttp,
     ApiKey(String),
 }
 
@@ -220,7 +220,7 @@ fn generate_paths(
             let scheme = match security_scheme {
                 SecurityScheme::ApiKey(api_key) => header_to_pascal_case(&api_key),
                 SecurityScheme::BearerJwt => JWT_SECURITY_SCHEME.to_owned(),
-                SecurityScheme::HttpBasicAuth => BASIC_HTTP_AUTH_SCHEME.to_owned(),
+                SecurityScheme::BasicHttp => BASIC_HTTP_AUTH_SCHEME.to_owned(),
             };
 
             vec![serde_json::json!({
@@ -378,11 +378,28 @@ fn header_to_pascal_case(header: &str) -> String {
         .collect::<String>()
 }
 
-fn generate_all_api_key_security_schemes(future_paths: &[FuturePath]) -> Vec<(String, Value)> {
-    let mut vec = Vec::with_capacity(future_paths.len());
+#[derive(Debug, Default)]
+struct SecuritySchemeToAdd {
+    basic_http: bool,
+    bearer_jwt: bool,
+    api_key: Option<Vec<(String, Value)>>,
+}
+
+fn generate_all_security_schemes(future_paths: &[FuturePath]) -> SecuritySchemeToAdd {
+    let mut to_add = SecuritySchemeToAdd::default();
+
+    let mut vec = Vec::new();
     let mut set = HashSet::new();
     for future_path in future_paths {
-        if let Some(SecurityScheme::ApiKey(api_key)) = future_path.security_scheme.as_ref() {
+        if !to_add.basic_http
+            && matches!(future_path.security_scheme, Some(SecurityScheme::BasicHttp))
+        {
+            to_add.basic_http = true
+        } else if !to_add.bearer_jwt
+            && matches!(future_path.security_scheme, Some(SecurityScheme::BearerJwt))
+        {
+            to_add.bearer_jwt = true
+        } else if let Some(SecurityScheme::ApiKey(api_key)) = future_path.security_scheme.as_ref() {
             let pascal_case_header = header_to_pascal_case(&api_key);
 
             if !set.insert(pascal_case_header.clone()) {
@@ -398,38 +415,50 @@ fn generate_all_api_key_security_schemes(future_paths: &[FuturePath]) -> Vec<(St
         }
     }
 
-    vec
+    if vec.len() > 0 {
+        to_add.api_key = Some(vec);
+    }
+
+    to_add
 }
 
 fn generate_components(future_paths: &[FuturePath]) -> Map<String, Value> {
     let mut components = Map::new();
 
-    let mut security_scheme = Map::new();
+    {
+        let mut security_scheme = Map::new();
 
-    security_scheme.insert(
-        JWT_SECURITY_SCHEME.to_owned(),
-        serde_json::json!({
-            "type": "http",
-            "scheme": "bearer",
-            "bearerFormat": "JWT"
-        }),
-    );
+        let SecuritySchemeToAdd { basic_http, bearer_jwt, api_key } =
+            generate_all_security_schemes(future_paths);
 
-    security_scheme.insert(
-        BASIC_HTTP_AUTH_SCHEME.to_owned(),
-        serde_json::json!({
-            "type": "http",
-            "scheme": "basic"
-        }),
-    );
+        if basic_http {
+            security_scheme.insert(
+                BASIC_HTTP_AUTH_SCHEME.to_owned(),
+                serde_json::json!({
+                    "type": "http",
+                    "scheme": "basic"
+                }),
+            );
+        }
+    
+        if bearer_jwt {
+            security_scheme.insert(
+                JWT_SECURITY_SCHEME.to_owned(),
+                serde_json::json!({
+                    "type": "http",
+                    "scheme": "bearer",
+                    "bearerFormat": "JWT"
+                }),
+            );
+        }
 
-    let api_security_schemes = generate_all_api_key_security_schemes(future_paths);
-
-    for (key, value) in api_security_schemes {
-        security_scheme.insert(key, value);
+        if let Some(api_key) = api_key {
+            for (key, value) in api_key {
+                security_scheme.insert(key, value);
+            }
+        }
+        components.insert("securitySchemes".to_owned(), Value::Object(security_scheme));
     }
-
-    components.insert("securitySchemes".to_owned(), Value::Object(security_scheme));
 
     components.insert("requestBodies".to_owned(), serde_json::json!({
        DEFAULT_REQUEST_KEY: {

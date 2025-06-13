@@ -1567,7 +1567,7 @@ async fn http_routes_to_future_paths(
         };
 
         let auth_method = match http_route.authentication_method {
-            AuthenticationMethod::BasicHttp => Some(SecurityScheme::HttpBasicAuth),
+            AuthenticationMethod::BasicHttp => Some(SecurityScheme::BasicHttp),
             AuthenticationMethod::Windmill => Some(SecurityScheme::BearerJwt),
             AuthenticationMethod::ApiKey => {
                 let resource_path = match http_route.authentication_resource_path {
