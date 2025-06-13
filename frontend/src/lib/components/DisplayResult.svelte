@@ -1,4 +1,6 @@
 <script lang="ts">
+	import DisplayResult from './DisplayResult.svelte'
+
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import { copyToClipboard, roughSizeOfObject } from '$lib/utils'
@@ -36,30 +38,12 @@
 	import type { DisplayResultUi } from './custom_ui'
 	import { getContext, hasContext, createEventDispatcher, onDestroy } from 'svelte'
 	import { toJsonStr } from '$lib/utils'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
-
-	export let result: any
-	export let requireHtmlApproval = false
-	export let filename: string | undefined = undefined
-	export let disableExpand = false
-	export let jobId: string | undefined = undefined
-	export let workspaceId: string | undefined = undefined
-	export let hideAsJson: boolean = false
-	export let noControls: boolean = false
-	export let drawerOpen = false
-	export let nodeId: string | undefined = undefined
-	export let language: string | undefined = undefined
-	export let appPath: string | undefined = undefined
-	export let customUi: DisplayResultUi | undefined = undefined
-	export let isTest: boolean = true
-	export let externalToolbarAvailable: boolean = false
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
 	const DISPLAY_MAX_SIZE = 100000
 
 	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	let resultKind:
 		| 'json'
@@ -82,14 +66,53 @@
 		| 'map'
 		| 'nondisplayable'
 		| 'pdf'
-		| undefined
+		| undefined = $state()
 
-	let hasBigInt = false
-	$: resultKind = inferResultKind(result)
+	let hasBigInt = $state(false)
 
-	export let forceJson = false
-	let enableHtml = false
-	let s3FileDisplayRawMode = false
+	interface Props {
+		result: any
+		requireHtmlApproval?: boolean
+		filename?: string | undefined
+		disableExpand?: boolean
+		jobId?: string | undefined
+		workspaceId?: string | undefined
+		hideAsJson?: boolean
+		noControls?: boolean
+		drawerOpen?: boolean
+		nodeId?: string | undefined
+		language?: string | undefined
+		appPath?: string | undefined
+		customUi?: DisplayResultUi | undefined
+		isTest?: boolean
+		externalToolbarAvailable?: boolean
+		forceJson?: boolean
+		copilot_fix?: import('svelte').Snippet
+		children?: import('svelte').Snippet
+	}
+
+	let {
+		result,
+		requireHtmlApproval = false,
+		filename = undefined,
+		disableExpand = false,
+		jobId = undefined,
+		workspaceId = undefined,
+		hideAsJson = false,
+		noControls = false,
+		drawerOpen = $bindable(false),
+		nodeId = undefined,
+		language = undefined,
+		appPath = undefined,
+		customUi = undefined,
+		isTest = true,
+		externalToolbarAvailable = false,
+		forceJson = $bindable(false),
+		copilot_fix,
+		children
+	}: Props = $props()
+	let enableHtml = $state(false)
+	let s3FileDisplayRawMode = $state(false)
 
 	function isTableRow(result: any): boolean {
 		return Array.isArray(result) && result.every((x) => Array.isArray(x))
@@ -125,14 +148,14 @@
 		)
 	}
 
-	let largeObject: boolean | undefined = undefined
+	let largeObject: boolean | undefined = $state(undefined)
 
 	function checkIfS3(result: any, keys: string[]) {
 		return keys.includes('s3') && typeof result.s3 === 'string'
 	}
 
-	let is_render_all = false
-	let download_as_csv = false
+	let is_render_all = $state(false)
+	let download_as_csv = $state(false)
 	function inferResultKind(result: any) {
 		try {
 			if (result === 'WINDMILL_TOO_BIG') {
@@ -267,8 +290,8 @@
 		return 'json'
 	}
 
-	let jsonViewer: Drawer
-	let s3FileViewer: S3FilePicker
+	let jsonViewer: Drawer | undefined = $state()
+	let s3FileViewer: S3FilePicker | undefined = $state()
 
 	function checkIfHasBigInt(result: any) {
 		if (typeof result === 'number' && Number.isInteger(result) && !Number.isSafeInteger(result)) {
@@ -386,20 +409,20 @@
 	}
 
 	export function openDrawer() {
-		jsonViewer.openDrawer()
+		jsonViewer?.openDrawer()
 	}
 
-	let globalForceJson: boolean = false
+	let globalForceJson: boolean = $state(false)
 
-	let seeS3PreviewFileFromList = ''
+	let seeS3PreviewFileFromList = $state('')
 
 	const disableTooltips = hasContext('disableTooltips')
 		? getContext('disableTooltips') === true
 		: false
 
-	let resultHeaderHeight = 0
+	let resultHeaderHeight = $state(0)
 
-	let toolbarLocation: 'self' | 'external' | undefined = undefined
+	let toolbarLocation: 'self' | 'external' | undefined = $state(undefined)
 	function chooseToolbarLocation(shouldShowToolbar: boolean, resultHeaderHeight: number) {
 		if (!shouldShowToolbar) {
 			toolbarLocation = undefined
@@ -408,26 +431,31 @@
 		} else {
 			toolbarLocation = 'self'
 		}
-		dispatchIfMounted('toolbar-location-changed', toolbarLocation)
+		dispatch('toolbar-location-changed', toolbarLocation)
 	}
 
 	export function getToolbarLocation() {
 		return toolbarLocation
 	}
 
-	$: chooseToolbarLocation(
-		!is_render_all &&
-			resultKind != 'nondisplayable' &&
-			result != undefined &&
-			length != undefined &&
-			largeObject != undefined &&
-			!disableExpand &&
-			!noControls,
-		resultHeaderHeight
-	)
-
 	onDestroy(() => {
 		dispatch('toolbar-location-changed', undefined)
+	})
+	$effect(() => {
+		;[result]
+		resultKind = inferResultKind(result)
+	})
+	$effect(() => {
+		chooseToolbarLocation(
+			!is_render_all &&
+				resultKind != 'nondisplayable' &&
+				result != undefined &&
+				length != undefined &&
+				largeObject != undefined &&
+				!disableExpand &&
+				!noControls,
+			resultHeaderHeight
+		)
 	})
 </script>
 
@@ -442,17 +470,18 @@
 					on:selected={(ev) => {
 						globalForceJson = ev.detail === 'json'
 					}}
-					let:item
 				>
-					<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} {item} />
+					{#snippet children({ item })}
+						<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} {item} />
 
-					<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} {item} />
+						<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} {item} />
+					{/snippet}
 				</ToggleButtonGroup>
 			</div>
 		{/if}
 		<div class="flex flex-col w-full gap-10">
 			{#each result['render_all'] as res}
-				<svelte:self
+				<DisplayResult
 					{noControls}
 					result={res}
 					{requireHtmlApproval}
@@ -484,30 +513,31 @@
 					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}<ToggleButtonGroup
 							class="h-6"
 							selected={forceJson ? 'json' : resultKind?.startsWith('table-') ? 'table' : 'pretty'}
-							let:item
 							on:selected={(ev) => {
 								forceJson = ev.detail === 'json'
 							}}
 						>
-							{#if ['table-col', 'table-row', 'table-row-object'].includes(resultKind ?? '')}
-								<ToggleButton class="px-1.5" value="table" label="Table" icon={Table2} {item} />
-							{:else}
-								<ToggleButton
-									class="px-1.5"
-									value="pretty"
-									label="Pretty"
-									icon={Highlighter}
-									{item}
-								/>
-							{/if}
-							<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} {item} />
+							{#snippet children({ item })}
+								{#if ['table-col', 'table-row', 'table-row-object'].includes(resultKind ?? '')}
+									<ToggleButton class="px-1.5" value="table" label="Table" icon={Table2} {item} />
+								{:else}
+									<ToggleButton
+										class="px-1.5"
+										value="pretty"
+										label="Pretty"
+										icon={Highlighter}
+										{item}
+									/>
+								{/if}
+								<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} {item} />
+							{/snippet}
 						</ToggleButtonGroup>
 					{/if}
 				</div>
 
 				<div class="text-secondary text-xs flex gap-2.5 z-10 items-center">
 					{#if customUi?.disableAiFix !== true}
-						<slot name="copilot-fix" />
+						{@render copilot_fix?.()}
 					{/if}
 					{#if toolbarLocation === 'self'}
 						<!-- TODO : When svelte 5 is released, use a snippet to pass the toolbar to a parent -->
@@ -647,7 +677,7 @@
 								>{JSON.stringify(result.error.extra, null, 4)}</pre
 							>
 						{/if}
-						<slot />
+						{@render children?.()}
 					</div>
 					{#if !isTest && language === 'bun'}
 						<div class="pt-20"></div>
@@ -723,7 +753,7 @@
 								/>
 								<button
 									class="text-secondary underline text-2xs whitespace-nowrap"
-									on:click={() => {
+									onclick={() => {
 										s3FileViewer?.open?.(result)
 									}}
 									><span class="flex items-center gap-1"
@@ -738,7 +768,7 @@
 								<FileDownload {workspaceId} s3object={result} {appPath} />
 								<button
 									class="text-secondary underline text-2xs whitespace-nowrap"
-									on:click={() => {
+									onclick={() => {
 										s3FileViewer?.open?.(result)
 									}}
 									><span class="flex items-center gap-1"
@@ -813,7 +843,7 @@
 									/>
 									<button
 										class="text-secondary text-2xs whitespace-nowrap"
-										on:click={() => {
+										onclick={() => {
 											s3FileViewer?.open?.(s3object)
 										}}
 										><span class="flex items-center gap-1"
@@ -835,7 +865,7 @@
 										/>{:else}
 										<button
 											class="text-secondary whitespace-nowrap flex gap-2 items-center"
-											on:click={() => {
+											onclick={() => {
 												seeS3PreviewFileFromList = s3object?.s3
 											}}
 											>open table preview <ArrowDownFromLine />
@@ -855,7 +885,7 @@
 									{:else}
 										<button
 											class="text-secondary whitespace-nowrap flex gap-2 items-center"
-											on:click={() => {
+											onclick={() => {
 												seeS3PreviewFileFromList = s3object?.s3
 											}}
 											>open image preview <ArrowDownFromLine />
@@ -956,7 +986,7 @@
 	{#if !disableExpand && !noControls}
 		<Drawer bind:this={jsonViewer} bind:open={drawerOpen} size="900px">
 			<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
-				<svelte:fragment slot="actions">
+				{#snippet actions()}
 					{#if customUi?.disableDownload !== true}
 						<Button
 							download="{filename ?? 'result'}.json"
@@ -982,8 +1012,8 @@
 					>
 						Copy to clipboard
 					</Button>
-				</svelte:fragment>
-				<svelte:self
+				{/snippet}
+				<DisplayResult
 					{noControls}
 					{result}
 					{requireHtmlApproval}

@@ -7,7 +7,6 @@
 		GranularAclService,
 		GroupService
 	} from '$lib/gen'
-	import AutoComplete from 'simple-svelte-autocomplete'
 	import TableCustom from './TableCustom.svelte'
 	import { Alert, Button, Drawer, DrawerContent } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
@@ -19,6 +18,7 @@
 	import Label from './Label.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { createEventDispatcher } from 'svelte'
+	import Select from './Select.svelte'
 
 	export let name: string
 	let can_write = false
@@ -184,25 +184,20 @@
 			</Alert>
 			<div class="flex items-center gap-1">
 				<div>
-					<ToggleButtonGroup
-						bind:selected={ownerKind}
-						on:selected={() => (ownerItem = '')}
-						let:item
-					>
-						<ToggleButton value="user" label="User" {item} />
-						<ToggleButton value="group" label="Group" {item} />
+					<ToggleButtonGroup bind:selected={ownerKind} on:selected={() => (ownerItem = '')}>
+						{#snippet children({ item })}
+							<ToggleButton value="user" label="User" {item} />
+							<ToggleButton value="group" label="Group" {item} />
+						{/snippet}
 					</ToggleButtonGroup>
 				</div>
 
 				{#key ownerKind}
-					<AutoComplete
-						required
-						noInputStyles
-						items={ownerKind === 'user'
+					{@const items =
+						ownerKind === 'user'
 							? usernames.filter((x) => !perms?.map((y) => y.owner_name).includes('u/' + x))
 							: groups.filter((x) => !perms?.map((y) => y.owner_name).includes('g/' + x))}
-						bind:selectedItem={ownerItem}
-					/>
+					<Select items={items.map((x) => ({ label: x, value: x }))} bind:value={ownerItem} />
 					{#if ownerKind == 'group'}
 						<Button
 							title="View Group"
@@ -278,7 +273,6 @@
 										<ToggleButtonGroup
 											disabled={owner_name == 'u/' + $userStore?.username && !$userStore?.is_admin}
 											selected={role}
-											let:item
 											on:selected={async (e) => {
 												const role = e.detail
 												// const wasInFolder = (folder?.owners ?? []).includes(folder)
@@ -315,28 +309,30 @@
 												loadFolder()
 											}}
 										>
-											<ToggleButton
-												value="viewer"
-												label="Viewer"
-												tooltip="A viewer of a folder has read-only access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder"
-												{item}
-											/>
+											{#snippet children({ item })}
+												<ToggleButton
+													value="viewer"
+													label="Viewer"
+													tooltip="A viewer of a folder has read-only access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder"
+													{item}
+												/>
 
-											<ToggleButton
-												position="center"
-												value="writer"
-												label="Writer"
-												tooltip="A writer of a folder has read AND write access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder"
-												{item}
-											/>
+												<ToggleButton
+													position="center"
+													value="writer"
+													label="Writer"
+													tooltip="A writer of a folder has read AND write access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder"
+													{item}
+												/>
 
-											<ToggleButton
-												position="right"
-												value="admin"
-												label="Admin"
-												tooltip="An admin of a folder has read AND write access to all the elements inside the folders and can manage the permissions as well as add new admins"
-												{item}
-											/>
+												<ToggleButton
+													position="right"
+													value="admin"
+													label="Admin"
+													tooltip="An admin of a folder has read AND write access to all the elements inside the folders and can manage the permissions as well as add new admins"
+													{item}
+												/>
+											{/snippet}
 										</ToggleButtonGroup>
 									</div>
 								{:else}

@@ -175,7 +175,7 @@
 			language &&
 			codeContext &&
 			getSmartLang(codeContext.lang) === getSmartLang(language) &&
-			setDiffEditor(diffEl)
+			untrack(() => diffEl && setDiffEditor(diffEl))
 	})
 </script>
 

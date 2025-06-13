@@ -21,10 +21,12 @@ import { formatResourceTypes } from './utils'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
+const OPENAI_MODELS = ['gpt-4o', 'gpt-4o-mini', 'o4-mini', 'o3', 'o3-mini']
+
 // need at least one model for each provider except customai
 export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
-	openai: ['gpt-4o', 'gpt-4.1', 'gpt-4o-mini', 'o4-mini', 'o3', 'o3-mini'],
-	azure_openai: ['gpt-4o', 'gpt-4o-mini'],
+	openai: OPENAI_MODELS,
+	azure_openai: OPENAI_MODELS,
 	anthropic: ['claude-sonnet-4-0', 'claude-sonnet-4-0/thinking', 'claude-3-5-haiku-latest'],
 	mistral: ['codestral-latest'],
 	deepseek: ['deepseek-chat', 'deepseek-reasoner'],
@@ -50,7 +52,10 @@ function getModelSpecificConfig(
 	modelProvider: AIProviderModel,
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
 ) {
-	if (modelProvider.provider === 'openai' && modelProvider.model.startsWith('o')) {
+	if (
+		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
+		modelProvider.model.startsWith('o')
+	) {
 		return {
 			model: modelProvider.model,
 			...(tools && tools.length > 0 ? { tools } : {}),
@@ -68,9 +73,9 @@ function getModelSpecificConfig(
 					}
 				: {
 						model: modelProvider.model,
-						temperature: 0,
-						...(tools && tools.length > 0 ? { tools } : {})
+						temperature: 0
 					}),
+			...(tools && tools.length > 0 ? { tools } : {}),
 			max_completion_tokens: getModelMaxTokens(modelProvider.model)
 		}
 	}

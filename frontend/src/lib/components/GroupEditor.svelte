@@ -7,7 +7,6 @@
 		type InstanceGroup
 	} from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import AutoComplete from 'simple-svelte-autocomplete'
 	import { createEventDispatcher } from 'svelte'
 	import { Button } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
@@ -18,6 +17,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
+	import Select from './Select.svelte'
 
 	export let name: string
 	let can_write = false
@@ -129,7 +129,7 @@
 <Section label={`Members (${members?.length ?? 0})`}>
 	{#if can_write}
 		<div class="flex items-start">
-			<AutoComplete required noInputStyles items={usernames} bind:selectedItem={username} />
+			<Select items={usernames?.map((u) => ({ value: u, label: u }))} bind:value={username} />
 			<Button variant="contained" color="blue" size="sm" btnClasses="!ml-4" on:click={addToGroup}>
 				Add member
 			</Button>
@@ -150,7 +150,6 @@
 								<div>
 									<ToggleButtonGroup
 										selected={role}
-										let:item
 										on:selected={async (e) => {
 											const role = e.detail
 											// const wasInGroup = (group?.members ?? []).includes(group)
@@ -211,31 +210,33 @@
 											loadGroup()
 										}}
 									>
-										<ToggleButton
-											value="member"
-											size="xs"
-											label="Member"
-											tooltip="A Member of a group can see everything the group can see, write to everything the group can write, and generally act on behalf of the group"
-											{item}
-										/>
-										<ToggleButton
-											position="right"
-											value="admin"
-											size="xs"
-											label="Admin"
-											tooltip="An admin of a group is a member of a group that can also add and remove members to the group, or make them admin."
-											{item}
-										/>
-										{#if role === 'manager'}
+										{#snippet children({ item })}
 											<ToggleButton
-												value="manager"
+												value="member"
 												size="xs"
-												label="Manager"
-												tooltip="A manager of a group can manage the group, adding and removing users and
-												change their roles. Being a manager does not make you a member"
+												label="Member"
+												tooltip="A Member of a group can see everything the group can see, write to everything the group can write, and generally act on behalf of the group"
 												{item}
 											/>
-										{/if}
+											<ToggleButton
+												position="right"
+												value="admin"
+												size="xs"
+												label="Admin"
+												tooltip="An admin of a group is a member of a group that can also add and remove members to the group, or make them admin."
+												{item}
+											/>
+											{#if role === 'manager'}
+												<ToggleButton
+													value="manager"
+													size="xs"
+													label="Manager"
+													tooltip="A manager of a group can manage the group, adding and removing users and
+												change their roles. Being a manager does not make you a member"
+													{item}
+												/>
+											{/if}
+										{/snippet}
 									</ToggleButtonGroup>
 								</div>
 							{:else}

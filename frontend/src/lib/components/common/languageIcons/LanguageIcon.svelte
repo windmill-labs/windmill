@@ -24,7 +24,8 @@
 	import JavaIcon from '$lib/components/icons/JavaIcon.svelte'
 	import DuckDbIcon from '$lib/components/icons/DuckDbIcon.svelte'
 
-	export let lang:
+	interface Props {
+		lang: 
 		| SupportedLanguage
 		| 'mysql'
 		| 'bun'
@@ -33,10 +34,20 @@
 		| 'fetch'
 		| 'docker'
 		| 'powershell'
-		| 'bunnative'
-	export let width = 30
-	export let height = 30
-	export let scale = 1
+		| 'bunnative';
+		width?: number;
+		height?: number;
+		scale?: number;
+		[key: string]: any
+	}
+
+	let {
+		lang,
+		width = 30,
+		height = 30,
+		scale = 1,
+		...rest
+	}: Props = $props();
 
 	const languageLabel: Record<Script['language'] | 'bunnative', String> = {
 		python3: 'Python',
@@ -101,15 +112,16 @@
 	}
 
 	let subIconScale = width === 30 ? 0.6 : 0.8
+
+	const SvelteComponent = $derived(langToComponent[lang]);
 </script>
 
 <div class="relative">
-	<svelte:component
-		this={langToComponent[lang]}
+	<SvelteComponent
 		title={languageLabel[lang]}
 		width={width * scale}
 		height={height * scale}
-		{...$$restProps}
+		{...rest}
 	/>
 	{#if lang === 'deno'}
 		<div

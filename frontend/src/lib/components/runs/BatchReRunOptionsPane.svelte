@@ -17,7 +17,7 @@
 	import type { Schema } from '$lib/common'
 	import InputTransformForm from '../InputTransformForm.svelte'
 	import type { FlowPropPickerConfig, PropPickerContext } from '../prop_picker'
-	import { setContext } from 'svelte'
+	import { setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import type { PickableProperties } from '../flows/previousResults'
 	import Alert from '../common/alert/Alert.svelte'
@@ -149,7 +149,7 @@
 				(options[selected.kind][selected.script_path]?.use_latest_version ?? false))
 	)
 
-	const jobGroupsPromise = $derived(selectedIds && fetchJobGroups())
+	const jobGroupsPromise = $derived(selectedIds && untrack(() => fetchJobGroups()))
 </script>
 
 <div class="flex-1 flex flex-col">
@@ -240,7 +240,7 @@
 										schema={displayedSchema}
 										{extraLib}
 										previousModuleId={undefined}
-										pickablepropertyMap={{
+										pickableProperties={{
 											hasResume: false,
 											previousId: undefined,
 											priorIds: {},

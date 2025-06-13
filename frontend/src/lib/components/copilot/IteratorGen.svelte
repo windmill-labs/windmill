@@ -9,7 +9,7 @@
 	import type { FlowEditorContext } from '../flows/types'
 	import type { PickableProperties } from '../flows/previousResults'
 	import YAML from 'yaml'
-	import { sliceModules } from '../flows/flowStateUtils'
+	import { sliceModules } from '../flows/flowStateUtils.svelte'
 	import { dfs } from '../flows/dfs'
 	import { yamlStringifyExceptKeys } from './utils'
 	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
@@ -38,7 +38,7 @@
 		}
 		abortController = new AbortController()
 		loading = true
-		const flow: Flow = JSON.parse(JSON.stringify($flowStore))
+		const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
 		const idOrders = dfs(flow.value.modules, (x) => x.id)
 		const upToIndex = idOrders.indexOf($selectedId)
 		if (upToIndex === -1) {

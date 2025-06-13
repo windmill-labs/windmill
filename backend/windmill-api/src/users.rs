@@ -542,7 +542,7 @@ async fn list_users_as_super_admin(
     let rows = if active_only.is_some_and(|x| x) {
         sqlx::query_as!(
             GlobalUserInfo,
-            "WITH active_users AS (SELECT distinct username as email FROM audit WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login')),
+            "WITH active_users AS (SELECT distinct username as email FROM audit WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),
             authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)
             SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, devops, name, company, username
             FROM password
@@ -1750,7 +1750,22 @@ async fn refresh_token(
     .await?
     .unwrap_or(false);
 
-    let _ = create_session_token(&authed.email, super_admin, &mut tx, cookies).await?;
+    let new_token = create_session_token(&authed.email, super_admin, &mut tx, cookies).await?;
+
+    audit_log(
+        &mut *tx,
+        &AuditAuthor {
+            email: authed.email.to_string(),
+            username: authed.email.to_string(),
+            username_override: None,
+        },
+        "users.token.refresh",
+        ActionKind::Create,
+        &"global",
+        Some(&truncate_token(&new_token)),
+        None,
+    )
+    .await?;
 
     tx.commit().await?;
     Ok("token refreshed".to_string())

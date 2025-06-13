@@ -1,4 +1,4 @@
-<script lang="ts" context="module">
+<script lang="ts" module>
 	const lastMetaUsed = writable<Meta | undefined>(undefined)
 </script>
 
@@ -24,7 +24,7 @@
 		GcpTriggerService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { Alert, Button } from './common'
 	import Badge from './common/badge/Badge.svelte'
@@ -52,27 +52,51 @@
 		| 'mqtt_trigger'
 		| 'sqs_trigger'
 		| 'gcp_trigger'
-	let meta: Meta | undefined = undefined
-	export let fullNamePlaceholder: string | undefined = undefined
-	export let namePlaceholder = ''
-	export let initialPath: string
-	export let path = ''
-	export let error = ''
-	export let disabled = false
-	export let checkInitialPathExistence = false
-	export let autofocus = true
-	export let dirty = false
-	export let kind: PathKind
-	export let hideUser: boolean = false
-	export let disableEditing = false
+	let meta: Meta | undefined = $state(undefined)
+	interface Props {
+		fullNamePlaceholder?: string | undefined
+		namePlaceholder?: string
+		initialPath: string
+		path?: string
+		error?: string
+		disabled?: boolean
+		checkInitialPathExistence?: boolean
+		autofocus?: boolean
+		dirty?: boolean
+		kind: PathKind
+		hideUser?: boolean
+		disableEditing?: boolean
+	}
 
-	let inputP: HTMLInputElement | undefined = undefined
+	let {
+		fullNamePlaceholder = undefined,
+		namePlaceholder = '',
+		initialPath,
+		path = $bindable(undefined),
+		error = $bindable(undefined),
+		disabled = $bindable(false),
+		checkInitialPathExistence = false,
+		autofocus = true,
+		dirty = $bindable(false),
+		kind,
+		hideUser = false,
+		disableEditing = false
+	}: Props = $props()
+
+	$effect.pre(() => {
+		if (path == undefined) {
+			path = ''
+		}
+		if (error == undefined) {
+			error = ''
+		}
+	})
+
+	let inputP: HTMLInputElement | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 
-	let folders: { name: string; write: boolean }[] = []
-
-	$: meta && onMetaChange()
+	let folders: { name: string; write: boolean }[] = $state([])
 
 	function onMetaChange() {
 		if (meta) {
@@ -150,7 +174,7 @@
 			meta = newMeta
 			path = metaToPath(meta)
 		} else {
-			meta = pathToMeta(path, hideUser)
+			meta = pathToMeta(path ?? '', hideUser)
 		}
 	}
 
@@ -204,6 +228,7 @@
 	}
 
 	async function pathExists(path: string, kind: PathKind): Promise<boolean> {
+		if (!path.length) return false
 		if (kind == 'flow') {
 			return await FlowService.existsFlowByPath({ workspace: $workspaceStore!, path: path })
 		} else if (kind == 'script') {
@@ -288,13 +313,6 @@
 		}
 	}
 
-	$: {
-		if ($workspaceStore && $userStore) {
-			loadFolders()
-			initPath()
-		}
-	}
-
 	async function initPath() {
 		await tick()
 		if (path != undefined && path != '') {
@@ -319,45 +337,58 @@
 		'openSearchWithPrefilledText'
 	)
 
-	$: displayPathChangedWarning =
+	$effect(() => {
+		;[meta?.name, meta?.owner, meta?.ownerKind]
+		meta && untrack(() => onMetaChange())
+	})
+	$effect(() => {
+		if ($workspaceStore && $userStore) {
+			untrack(() => {
+				loadFolders()
+				initPath()
+			})
+		}
+	})
+	let displayPathChangedWarning = $derived(
 		(['flow', 'script', 'resource', 'variable'] as PathKind[]).includes(kind) &&
-		initialPath &&
-		initialPath !== path
-
-	$: pathUsageInFlowsPromise =
+			initialPath &&
+			initialPath !== path
+	)
+	let pathUsageInFlowsPromise = $derived(
 		(kind == 'script' || kind == 'flow') &&
-		$workspaceStore &&
-		initialPath &&
-		FlowService.listFlowPathsFromWorkspaceRunnable({
-			workspace: $workspaceStore,
-			path: initialPath,
-			runnableKind: kind
-		})
-
-	$: pathUsageInAppsPromise =
+			$workspaceStore &&
+			initialPath &&
+			FlowService.listFlowPathsFromWorkspaceRunnable({
+				workspace: $workspaceStore,
+				path: initialPath,
+				runnableKind: kind
+			})
+	)
+	let pathUsageInAppsPromise = $derived(
 		(kind == 'script' || kind == 'flow') &&
-		$workspaceStore &&
-		initialPath &&
-		AppService.listAppPathsFromWorkspaceRunnable({
-			workspace: $workspaceStore,
-			path: initialPath,
-			runnableKind: kind
-		})
-
-	$: pathUsageInScriptsPromise =
+			$workspaceStore &&
+			initialPath &&
+			AppService.listAppPathsFromWorkspaceRunnable({
+				workspace: $workspaceStore,
+				path: initialPath,
+				runnableKind: kind
+			})
+	)
+	let pathUsageInScriptsPromise = $derived(
 		kind == 'script' &&
-		$workspaceStore &&
-		initialPath &&
-		ScriptService.listScriptPathsFromWorkspaceRunnable({
-			workspace: $workspaceStore,
-			path: initialPath
-		})
+			$workspaceStore &&
+			initialPath &&
+			ScriptService.listScriptPathsFromWorkspaceRunnable({
+				workspace: $workspaceStore,
+				path: initialPath
+			})
+	)
 </script>
 
 <div>
 	<div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 pb-0 mb-1">
 		{#if meta != undefined}
-			<!-- svelte-ignore a11y-label-has-associated-control -->
+			<!-- svelte-ignore a11y_label_has_associated_control -->
 			{#if !hideUser}
 				<div class="block">
 					<ToggleButtonGroup
@@ -377,29 +408,30 @@
 							}
 						}}
 						disabled={disabled || disableEditing}
-						let:item
 					>
-						<ToggleButton
-							icon={User}
-							disabled={disabled || disableEditing}
-							light
-							size="xs"
-							value="user"
-							position="left"
-							label="User"
-							{item}
-						/>
-						<!-- <ToggleButton light size="xs" value="group" position="center">Group</ToggleButton> -->
-						<ToggleButton
-							icon={Folder}
-							disabled={disabled || disableEditing}
-							light
-							size="xs"
-							value="folder"
-							position="right"
-							label="Folder"
-							{item}
-						/>
+						{#snippet children({ item })}
+							<ToggleButton
+								icon={User}
+								disabled={disabled || disableEditing}
+								light
+								size="xs"
+								value="user"
+								position="left"
+								label="User"
+								{item}
+							/>
+							<!-- <ToggleButton light size="xs" value="group" position="center">Group</ToggleButton> -->
+							<ToggleButton
+								icon={Folder}
+								disabled={disabled || disableEditing}
+								light
+								size="xs"
+								value="folder"
+								position="right"
+								label="Folder"
+								{item}
+							/>
+						{/snippet}
 					</ToggleButtonGroup>
 				</div>
 			{/if}
@@ -417,7 +449,7 @@
 							disabled={disabled ||
 								!($superadmin || ($userStore?.is_admin ?? false)) ||
 								disableEditing}
-							on:keydown={setDirty}
+							onkeydown={setDirty}
 						/>
 					</label>
 				{:else if meta.ownerKind === 'folder'}
@@ -428,7 +460,7 @@
 			</div>
 			<span class="text-xl">/</span>
 			<label class="block grow w-full max-w-md">
-				<!-- svelte-ignore a11y-autofocus -->
+				<!-- svelte-ignore a11y_autofocus -->
 				<input
 					disabled={disabled || disableEditing}
 					type="text"
@@ -436,7 +468,7 @@
 					{autofocus}
 					bind:this={inputP}
 					autocomplete="off"
-					on:keyup={handleKeyUp}
+					onkeyup={handleKeyUp}
 					bind:value={meta.name}
 					placeholder={namePlaceholder}
 					class={error === ''
@@ -461,7 +493,7 @@
 				value={path}
 				size={path?.length || 50}
 				class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
-				on:focus={({ currentTarget }) => {
+				onfocus={({ currentTarget }) => {
 					currentTarget.select()
 				}}
 			/>

@@ -1324,7 +1324,6 @@ pub async fn monitor_db(
     initial_load: bool,
     _killpill_tx: KillpillSender,
 ) {
-    tracing::info!("Starting periodic monitor task");
     let zombie_jobs_f = async {
         if server_mode && !initial_load && !*DISABLE_ZOMBIE_JOBS_MONITORING {
             if let Some(db) = conn.as_sql() {
@@ -1422,7 +1421,6 @@ pub async fn monitor_db(
         apply_autoscaling_f,
         update_min_worker_version_f,
     );
-    tracing::info!("Periodic monitor task completed");
 }
 
 pub async fn expose_queue_metrics(db: &Pool<Postgres>) {

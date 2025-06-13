@@ -34,13 +34,13 @@
 	} from '$lib/utils'
 	import { AlertTriangle, LineChart, List, Plus, Search, Terminal } from 'lucide-svelte'
 	import { getContext, onDestroy, onMount } from 'svelte'
-	import AutoComplete from 'simple-svelte-autocomplete'
 
 	import YAML from 'yaml'
 	import { DEFAULT_TAGS_WORKSPACES_SETTING } from '$lib/consts'
 	import AutoscalingEvents from '$lib/components/AutoscalingEvents.svelte'
 	import HttpAgentWorkerDrawer from '$lib/components/HttpAgentWorkerDrawer.svelte'
 	import WorkerRepl from '$lib/components/WorkerRepl.svelte'
+	import Select from '$lib/components/Select.svelte'
 
 	let workers: WorkerPing[] | undefined = undefined
 	let workerGroups: Record<string, any> | undefined = undefined
@@ -286,9 +286,9 @@
 			class="h-full"
 			fixedOverflowWidgets={false}
 		/>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button size="sm" on:click={importConfigFromYaml} disabled={!importConfigCode}>Import</Button>
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>
 
@@ -484,14 +484,9 @@
 			{#if (groupedWorkers ?? []).length > 5}
 				<div class="flex gap-2 items-center">
 					<div class="text-secondary text-sm">Worker group:</div>
-					<AutoComplete
-						noInputStyles
-						items={groupedWorkers.map((x) => x[0])}
-						bind:selectedItem={selectedTab}
-						hideArrow={true}
-						inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary"'}
-						dropdownClassName="!text-sm !py-2 !rounded-sm  !border-gray-200 !border !shadow-md"
-						className="!font-gray-600 !font-primary !bg-surface-primary"
+					<Select
+						items={groupedWorkers.map((x) => ({ value: x[0], label: x[0] }))}
+						bind:value={selectedTab}
 					/>
 
 					<!-- <select
@@ -590,14 +585,17 @@
 									<Cell head>Limits</Cell>
 									<Cell head>Version</Cell>
 									<Cell head>Liveness</Cell>
-									<Cell head last
-										>Live Shell <Tooltip>
-											<p class="text-sm">
-												Open a live shell to execute bash commands on the machine where the worker
-												runs — useful for quick access, inspection, and real-time debugging
-											</p>
-										</Tooltip></Cell
-									>
+									{#if $superadmin}
+										<Cell head>
+											Live Shell
+											<Tooltip>
+												<p class="text-sm">
+													Open a live shell to execute bash commands on the machine where the worker
+													runs — useful for quick access, inspection, and real-time debugging
+												</p>
+											</Tooltip>
+										</Cell>
+									{/if}
 								</tr>
 							</Head>
 							<tbody class="divide-y">
@@ -607,7 +605,7 @@
 										<Cell
 											first
 											colspan={(!config || config?.dedicated_worker == undefined) && $superadmin
-												? 11
+												? 12
 												: 9}
 											scope="colgroup"
 											class="bg-surface-secondary/30 !py-1 border-b !text-xs"
@@ -628,7 +626,9 @@
 									</tr>
 									{#if workers}
 										{@const sshWorker = workers.find((worker) => {
-											return isAgentWorkerShell(worker.worker) && isWorkerMaybeAlive(worker.last_ping)
+											return (
+												isAgentWorkerShell(worker.worker) && isWorkerMaybeAlive(worker.last_ping)
+											)
 										})?.worker}
 										{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
 											{@const isWorkerAlive = isWorkerMaybeAlive(last_ping)}
@@ -715,34 +715,36 @@
 															: 'Unknown'}
 													</Badge>
 												</Cell>
-												<Cell last>
-													<Button
-														size="xs"
-														color="light"
-														on:click={() => {
-															if (isWorkerAlive === false) {
-																sendUserToast('Worker must be alive', true)
-																return
-															}
-															if (worker.startsWith(AGENT_WORKER_NAME_PREFIX)) {
-																if (!sshWorker) {
-																	sendUserToast(
-																		'Unexpected error could not find agent worker handling repl feature',
-																		true
-																	)
+												{#if $superadmin}
+													<Cell>
+														<Button
+															size="xs"
+															color="light"
+															on:click={() => {
+																if (isWorkerAlive === false) {
+																	sendUserToast('Worker must be alive', true)
 																	return
 																}
-																tag = sshWorker
-															} else {
-																tag = hostname
-															}
-															replForWorkerDrawer?.openDrawer()
-														}}
-														startIcon={{ icon: Terminal }}
-													>
-														Command
-													</Button>
-												</Cell>
+																if (worker.startsWith(AGENT_WORKER_NAME_PREFIX)) {
+																	if (!sshWorker) {
+																		sendUserToast(
+																			'Unexpected error could not find agent worker handling repl feature',
+																			true
+																		)
+																		return
+																	}
+																	tag = sshWorker
+																} else {
+																	tag = hostname
+																}
+																replForWorkerDrawer?.openDrawer()
+															}}
+															startIcon={{ icon: Terminal }}
+														>
+															ssh
+														</Button>
+													</Cell>
+												{/if}
 											</tr>
 										{/each}
 									{/if}
