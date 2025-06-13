@@ -166,11 +166,11 @@ class AIChatManager {
 			}
 		},
 		fn: async ({ args, toolId, toolCallbacks }) => {
-			toolCallbacks.onToolCall(toolId, 'Switching to ' + args.mode + ' mode...')
+			toolCallbacks.setToolStatus(toolId, 'Switching to ' + args.mode + ' mode...')
 			this.changeMode(args.mode as AIMode, args.pendingPrompt, {
 				closeScriptSettings: true
 			})
-			toolCallbacks.onFinishToolCall(toolId, 'Switched to ' + args.mode + ' mode')
+			toolCallbacks.setToolStatus(toolId, 'Switched to ' + args.mode + ' mode')
 			return 'Mode changed to ' + args.mode
 		}
 	}
@@ -276,7 +276,7 @@ class AIChatManager {
 						const toolCalls = c.choices[0].delta.tool_calls || []
 						for (const toolCall of toolCalls) {
 							const { index } = toolCall
-							const finalToolCall = finalToolCalls[index]
+							let finalToolCall = finalToolCalls[index]
 							if (!finalToolCall) {
 								finalToolCalls[index] = toolCall
 							} else {
@@ -286,6 +286,19 @@ class AIChatManager {
 									} else {
 										finalToolCall.function.arguments =
 											(finalToolCall.function.arguments ?? '') + toolCall.function.arguments
+									}
+								}
+							}
+							finalToolCall = finalToolCalls[index]
+							if (finalToolCall?.function) {
+								const {
+									function: { name: funcName },
+									id: toolCallId
+								} = finalToolCall
+								if (funcName && toolCallId) {
+									const tool = tools.find((t) => t.def.function.name === funcName)
+									if (tool && tool.preAction) {
+										tool.preAction({ toolCallbacks: callbacks, toolId: toolCallId })
 									}
 								}
 							}
@@ -428,14 +441,7 @@ class AIChatManager {
 						}
 						this.currentReply = ''
 					},
-					onToolCall: (id, content) => {
-						this.displayMessages = [
-							...this.displayMessages,
-							{ role: 'tool', tool_call_id: id, content }
-						]
-					},
-					onFinishToolCall: (id, content) => {
-						console.log('onFinishToolCall', id, content)
+					setToolStatus: (id, content) => {
 						const existingIdx = this.displayMessages.findIndex(
 							(m) => m.role === 'tool' && m.tool_call_id === id
 						)

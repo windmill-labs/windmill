@@ -276,9 +276,9 @@ async function getAvailableResources(args: { resource_type: string }): Promise<s
 const triggerComponentTool: Tool<{}> = {
 	def: EXECUTE_COMMAND_TOOL,
 	fn: async ({ args, toolId, toolCallbacks }) => {
-		toolCallbacks.onToolCall(toolId, 'Triggering component...')
+		toolCallbacks.setToolStatus(toolId, 'Triggering component...')
 		const result = triggerComponent(args)
-		toolCallbacks.onFinishToolCall(
+		toolCallbacks.setToolStatus(
 			toolId,
 			args.actionTaken.charAt(0).toUpperCase() + args.actionTaken.slice(1)
 		)
@@ -289,9 +289,9 @@ const triggerComponentTool: Tool<{}> = {
 const getTriggerableComponentsTool: Tool<{}> = {
 	def: GET_TRIGGERABLE_COMPONENTS_TOOL,
 	fn: async ({ toolId, toolCallbacks }) => {
-		toolCallbacks.onToolCall(toolId, 'Scanning the page...')
+		toolCallbacks.setToolStatus(toolId, 'Scanning the page...')
 		const components = getTriggerableComponents()
-		toolCallbacks.onFinishToolCall(toolId, 'Scanned the page')
+		toolCallbacks.setToolStatus(toolId, 'Scanned the page')
 		return components
 	}
 }
@@ -300,7 +300,7 @@ const getCurrentPageNameTool: Tool<{}> = {
 	def: GET_CURRENT_PAGE_NAME_TOOL,
 	fn: async ({ toolId, toolCallbacks }) => {
 		const pageName = getCurrentPageName()
-		toolCallbacks.onFinishToolCall(toolId, 'Retrieved current page name')
+		toolCallbacks.setToolStatus(toolId, 'Retrieved current page name')
 		return pageName
 	}
 }
@@ -308,13 +308,13 @@ const getCurrentPageNameTool: Tool<{}> = {
 export const getDocumentationTool: Tool<{}> = {
 	def: GET_DOCUMENTATION_TOOL,
 	fn: async ({ args, toolId, toolCallbacks }) => {
-		toolCallbacks.onToolCall(toolId, 'Getting documentation...')
+		toolCallbacks.setToolStatus(toolId, 'Getting documentation...')
 		try {
 			const docResult = await getDocumentation(args)
-			toolCallbacks.onFinishToolCall(toolId, 'Retrieved documentation')
+			toolCallbacks.setToolStatus(toolId, 'Retrieved documentation')
 			return docResult
 		} catch (error) {
-			toolCallbacks.onFinishToolCall(toolId, 'Error getting documentation')
+			toolCallbacks.setToolStatus(toolId, 'Error getting documentation')
 			console.error('Error getting documentation:', error)
 			return 'Failed to get documentation, pursuing with the user request...'
 		}
@@ -324,13 +324,13 @@ export const getDocumentationTool: Tool<{}> = {
 const getAvailableResourcesTool: Tool<{}> = {
 	def: GET_AVAILABLE_RESOURCES_TOOL,
 	fn: async ({ args, toolId, toolCallbacks }) => {
-		toolCallbacks.onToolCall(toolId, 'Getting available resources...')
+		toolCallbacks.setToolStatus(toolId, 'Getting available resources...')
 		try {
 			const resources = await getAvailableResources(args)
-			toolCallbacks.onFinishToolCall(toolId, 'Retrieved available resources')
+			toolCallbacks.setToolStatus(toolId, 'Retrieved available resources')
 			return resources
 		} catch (error) {
-			toolCallbacks.onFinishToolCall(toolId, 'Error getting available resources')
+			toolCallbacks.setToolStatus(toolId, 'Error getting available resources')
 			console.error('Error getting available resources:', error)
 			return 'Failed to get available resources, pursuing with the user request...'
 		}

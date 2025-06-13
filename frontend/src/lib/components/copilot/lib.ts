@@ -30,7 +30,7 @@ export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
 	anthropic: ['claude-sonnet-4-0', 'claude-sonnet-4-0/thinking', 'claude-3-5-haiku-latest'],
 	mistral: ['codestral-latest'],
 	deepseek: ['deepseek-chat', 'deepseek-reasoner'],
-	googleai: ['gemini-1.5-pro', 'gemini-2.0-flash', 'gemini-1.5-flash'],
+	googleai: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
 	groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
 	openrouter: ['meta-llama/llama-3.2-3b-instruct:free'],
 	togetherai: ['meta-llama/Llama-3.3-70B-Instruct-Turbo'],
@@ -76,7 +76,7 @@ function getModelSpecificConfig(
 						temperature: 0
 					}),
 			...(tools && tools.length > 0 ? { tools } : {}),
-			max_completion_tokens: getModelMaxTokens(modelProvider.model)
+			max_tokens: getModelMaxTokens(modelProvider.model)
 		}
 	}
 }
