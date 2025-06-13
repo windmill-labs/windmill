@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { preventDefault, stopPropagation } from 'svelte/legacy'
+
 	import { Button } from './common'
 	import { ExternalLink, Loader2, X } from 'lucide-svelte'
 	import { SettingService, WorkerService } from '$lib/gen'
@@ -9,9 +11,13 @@
 	import { base } from '$lib/base'
 	import { createEventDispatcher } from 'svelte'
 
-	export let showWorkspaceRestriction = false
-	let newTag: string = ''
-	let customTags: string[] | undefined = undefined
+	interface Props {
+		showWorkspaceRestriction?: boolean
+	}
+
+	let { showWorkspaceRestriction = false }: Props = $props()
+	let newTag: string = $state('')
+	let customTags: string[] | undefined = $state(undefined)
 
 	async function loadCustomTags() {
 		try {
@@ -40,15 +46,17 @@
 					<button
 						class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
 						aria-label="Remove item"
-						on:click|preventDefault|stopPropagation={async () => {
-							await SettingService.setGlobal({
-								key: CUSTOM_TAGS_SETTING,
-								requestBody: { value: customTags?.filter((x) => x != customTag) }
+						onclick={stopPropagation(
+							preventDefault(async () => {
+								await SettingService.setGlobal({
+									key: CUSTOM_TAGS_SETTING,
+									requestBody: { value: customTags?.filter((x) => x != customTag) }
+								})
+								dispatch('refresh')
+								loadCustomTags()
+								sendUserToast('Tag removed')
 							})
-							dispatch('refresh')
-							loadCustomTags()
-							sendUserToast('Tag removed')
-						}}
+						)}
 					>
 						<X size={12} />
 					</button><NoWorkerWithTagWarning tag={customTag} />
@@ -74,7 +82,9 @@
 			}}
 			disabled={newTag.trim() == '' || !$superadmin}
 		>
-			Add {#if !$superadmin} <span class="text-2xs text-tertiary">superadmin only</span> {/if}
+			Add {#if !$superadmin}
+				<span class="text-2xs text-tertiary">superadmin only</span>
+			{/if}
 		</Button>
 		<span class="text-sm text-primary"
 			>Configure <a href="{base}/workers" target="_blank" class="inline-flex gap-1 items-baseline"
