@@ -114,12 +114,6 @@
 		actions
 	}: Props = $props()
 
-	$effect.pre(() => {
-		if (args == undefined) {
-			args = {}
-		}
-	})
-
 	const dispatch = createEventDispatcher()
 
 	let inputCheck: { [id: string]: boolean } = $state({})
@@ -222,27 +216,32 @@
 		}
 	}
 
-	$effect(() => {
+	$effect.pre(() => {
 		if (args == undefined || typeof args !== 'object') {
 			args = {}
 		}
 	})
-	$effect(() => {
-		const newKeys = Array.isArray(schema?.order)
-			? schema?.order
-			: Object.keys(schema?.properties ?? {})
+	$effect.pre(() => {
+		const newKeys = [
+			...new Set(
+				(Array.isArray(schema?.order)
+					? schema?.order
+					: Object.keys(schema?.properties ?? {})) as string[]
+			)
+		]
+
 		if (!deepEqual(keys, newKeys)) {
 			keys = newKeys
 		}
 	})
-	$effect(() => {
+	$effect.pre(() => {
 		schema && (untrack(() => reorder()), (hidden = {}))
 	})
-	$effect(() => {
+	$effect.pre(() => {
 		;[schema, args]
 		untrack(() => handleHiddenFields(schema, args ?? {}))
 	})
-	$effect(() => {
+	$effect.pre(() => {
 		isValid = allTrue(inputCheck ?? {})
 	})
 	const actions_render = $derived(actions)

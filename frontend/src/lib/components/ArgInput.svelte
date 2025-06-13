@@ -235,6 +235,8 @@
 
 	let rawValue: string | undefined = $state(undefined)
 
+	let lastValue: any = null
+
 	function computeDefaultValue(inputCat?: string, defaultValue?: any, nnullable?: boolean) {
 		let nvalue: any = null
 		if (label == 'toString' && typeof value == 'function') {
@@ -257,15 +259,13 @@
 			}
 		}
 
-		if (nnullable && type === 'string' && value === '' && nvalue != null) {
+		if (nnullable && type === 'string' && value === '' && nvalue == null) {
 			value = null
 		} else if (nvalue != null && !deepEqual(nvalue, value)) {
-			console.log('set value 2', label, nvalue, value)
 			value = nvalue
+			lastValue = value
 		}
 	}
-
-	let lastValue: any = $state(undefined)
 
 	// By setting isListJson to true, we can render inputs even if the value is not an array of the correct type
 	// This avoids the issue of the input being rendered as a string with value: [object Object], or as a number with value: NaN
@@ -353,7 +353,6 @@
 	}
 
 	onMount(() => {
-		computeDefaultValue()
 		evalValueToRaw()
 	})
 
@@ -457,7 +456,8 @@
 	$effect(() => {
 		oneOf && value && untrack(() => onOneOfChange())
 	})
-	$effect(() => {
+
+	$effect.pre(() => {
 		value
 		let args = [inputCat, defaultValue, nullable]
 
@@ -466,7 +466,7 @@
 			computeDefaultValue(...args)
 		})
 	})
-	$effect(() => {
+	$effect.pre(() => {
 		!isListJson &&
 			inputCat === 'list' &&
 			value != lastValue &&
@@ -474,10 +474,10 @@
 			!hasIsListJsonChanged &&
 			untrack(() => checkArrayValueType())
 	})
-	$effect(() => {
+	$effect.pre(() => {
 		defaultValue != undefined && untrack(() => handleDefaultValueChange())
 	})
-	$effect(() => {
+	$effect.pre(() => {
 		;(inputCat &&
 			(isObjectCat(inputCat) || isRawStringEditor(inputCat)) &&
 			!oneOf &&

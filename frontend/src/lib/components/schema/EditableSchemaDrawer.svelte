@@ -61,14 +61,16 @@
 	let schemaString: string = $state(JSON.stringify(schema, null, '\t'))
 	let editor: SimpleEditor | undefined = $state(undefined)
 	let error: string | undefined = $state(undefined)
-	let items = $derived(
-		((schema?.order ?? Object.keys(schema?.properties ?? {}))?.map((item, index) => {
-			return { value: item, id: item }
-		}) ?? []) as Array<{
-			value: string
-			id: string
-		}>
-	)
+	let items = $derived([
+		...new Set(
+			(schema?.order ?? Object.keys(schema?.properties ?? {}))?.map((item, index) => {
+				return { value: item, id: item }
+			}) ?? []
+		)
+	]) as Array<{
+		value: string
+		id: string
+	}>
 </script>
 
 <div class="flex flex-col items-end mb-2 w-full">
@@ -163,7 +165,7 @@
 								<Label label="Nested properties">
 									<EditableSchemaDrawer
 										on:change={() => {
-											schema = schema
+											schema = $state.snapshot(schema)
 											dispatch('change', schema)
 										}}
 										bind:schema={schema.properties[item.value]}

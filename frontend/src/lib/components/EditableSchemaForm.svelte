@@ -337,7 +337,6 @@
 							bind:schema={
 								() => (previewSchema ? previewSchema : schema),
 								(newSchema) => {
-									console.log('schemaChange set', $state.snapshot(newSchema))
 									schema = newSchema
 									tick().then(() => dispatch('change', schema))
 								}
