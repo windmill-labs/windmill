@@ -72,8 +72,8 @@
 		fullNamePlaceholder = undefined,
 		namePlaceholder = '',
 		initialPath,
-		path = $bindable(''),
-		error = $bindable(''),
+		path = $bindable(undefined),
+		error = $bindable(undefined),
 		disabled = $bindable(false),
 		checkInitialPathExistence = false,
 		autofocus = true,
@@ -82,6 +82,15 @@
 		hideUser = false,
 		disableEditing = false
 	}: Props = $props()
+
+	$effect.pre(() => {
+		if (path == undefined) {
+			path = ''
+		}
+		if (error == undefined) {
+			error = ''
+		}
+	})
 
 	let inputP: HTMLInputElement | undefined = $state(undefined)
 
@@ -165,7 +174,7 @@
 			meta = newMeta
 			path = metaToPath(meta)
 		} else {
-			meta = pathToMeta(path, hideUser)
+			meta = pathToMeta(path ?? '', hideUser)
 		}
 	}
 
