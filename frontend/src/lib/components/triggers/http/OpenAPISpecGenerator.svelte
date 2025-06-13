@@ -223,7 +223,7 @@
 								<div class="border w-full rounded-md p-4 gap-2">
 									<Label
 										label={`${isHttpRouteFIlter ? 'HTTP route filter' : 'Webhook filter'}`}
-										headerClass="border-b"
+										headerClass="font-bold"
 									>
 										<div class="mt-2">
 											{#if isHttpRouteFIlter}
