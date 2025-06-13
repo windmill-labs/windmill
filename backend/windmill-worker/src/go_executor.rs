@@ -368,7 +368,7 @@ pub async fn install_go_dependencies(
 ) -> error::Result<String> {
     if raw_deps {
         let go_mod =
-            if let Some(module) = code.lines().find(|l| l.trim_start().starts_with("module")) {
+            if let Some(module) = code.lines().find(|l| l.trim_start().starts_with("module ")) {
                 code.replace(module, "module mymod")
             } else {
                 format!("module mymod\n{code}")
