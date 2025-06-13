@@ -561,9 +561,9 @@
 						}}
 						on:saveDraft
 						on:toggleAiPanel={() => aiChatManager.toggleOpen()}
-						on:addSelectedLinesToAiChat={async (e) => {
+						on:addSelectedLinesToAiChat={(e) => {
 							const { lines, startLine, endLine } = e.detail
-							await aiChatManager.addSelectedLinesToContext(lines, startLine, endLine)
+							aiChatManager.addSelectedLinesToContext(lines, startLine, endLine)
 						}}
 						on:toggleTestPanel={toggleTestPanel}
 						cmdEnterAction={async () => {

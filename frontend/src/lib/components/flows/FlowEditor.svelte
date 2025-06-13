@@ -39,12 +39,12 @@
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
 	})
 
-	onMount(async () => {
-		await aiChatManager.changeMode(AIMode.FLOW)
+	onMount(() => {
+		aiChatManager.changeMode(AIMode.FLOW)
 	})
 
-	onDestroy(async () => {
-		await aiChatManager.changeMode(AIMode.NAVIGATOR)
+	onDestroy(() => {
+		aiChatManager.changeMode(AIMode.NAVIGATOR)
 	})
 </script>
 

@@ -35,8 +35,8 @@
 								'text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal',
 								aiChatManager.mode === possibleMode && 'bg-surface-hover'
 							)}
-							onclick={async () => {
-								await aiChatManager.changeMode(possibleMode)
+							onclick={() => {
+								aiChatManager.changeMode(possibleMode)
 								close()
 							}}
 						>

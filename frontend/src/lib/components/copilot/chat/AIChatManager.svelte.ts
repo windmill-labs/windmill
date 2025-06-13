@@ -79,6 +79,7 @@ class AIChatManager {
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	pendingNewCode = $state<string | undefined>(undefined)
+	apiTools = $state<Tool<any>[]>([])
 
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script: this.scriptEditorOptions !== undefined,
@@ -89,17 +90,23 @@ class AIChatManager {
 
 	open = $derived(this.size > 0)
 
-	async updateMode(currentMode: AIMode) {
+	async loadApiTools() {
+		if (this.apiTools.length === 0) {
+			this.apiTools = await loadApiTools()
+		}
+	}
+
+	updateMode(currentMode: AIMode) {
 		if (
 			!this.allowedModes[currentMode] &&
 			Object.keys(this.allowedModes).filter((k) => this.allowedModes[k]).length === 1
 		) {
 			const firstKey = Object.keys(this.allowedModes).filter((k) => this.allowedModes[k])[0]
-			await this.changeMode(firstKey as AIMode)
+			this.changeMode(firstKey as AIMode)
 		}
 	}
 
-	async changeMode(
+	changeMode(
 		mode: AIMode,
 		pendingPrompt?: string,
 		options?: {
@@ -130,8 +137,7 @@ class AIChatManager {
 			this.helpers = this.flowAiChatHelpers
 		} else if (mode === AIMode.NAVIGATOR) {
 			this.systemMessage = prepareNavigatorSystemMessage()
-			const apiTools = await loadApiTools()
-			this.tools = [this.changeModeTool, ...navigatorTools, ...apiTools]
+			this.tools = [this.changeModeTool, ...navigatorTools, ...this.apiTools]
 			this.helpers = {}
 		} else if (mode === AIMode.ASK) {
 			this.systemMessage = prepareAskSystemMessage()
@@ -169,7 +175,7 @@ class AIChatManager {
 		},
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			toolCallbacks.onToolCall(toolId, 'Switching to ' + args.mode + ' mode...')
-			await this.changeMode(args.mode as AIMode, args.pendingPrompt, {
+			this.changeMode(args.mode as AIMode, args.pendingPrompt, {
 				closeScriptSettings: true
 			})
 			toolCallbacks.onFinishToolCall(toolId, 'Switched to ' + args.mode + ' mode')
@@ -350,9 +356,9 @@ class AIChatManager {
 		} = {}
 	) => {
 		if (options.mode) {
-			await this.changeMode(options.mode)
+			this.changeMode(options.mode)
 		} else {
-			await this.changeMode(this.mode)
+			this.changeMode(this.mode)
 		}
 		if (options.instructions) {
 			this.instructions = options.instructions
@@ -490,21 +496,21 @@ class AIChatManager {
 		this.abortController?.abort()
 	}
 
-	fix = async () => {
+	fix = () => {
 		if (!this.open) {
 			this.toggleOpen()
 		}
-		await this.changeMode(AIMode.SCRIPT)
+		this.changeMode(AIMode.SCRIPT)
 		this.instructions = 'Fix the error'
 		this.contextManager?.setFixContext()
 		this.sendRequest()
 	}
 
-	addSelectedLinesToContext = async (lines: string, startLine: number, endLine: number) => {
+	addSelectedLinesToContext = (lines: string, startLine: number, endLine: number) => {
 		if (!this.open) {
 			this.toggleOpen()
 		}
-		await this.changeMode(AIMode.SCRIPT)
+		this.changeMode(AIMode.SCRIPT)
 		this.contextManager?.addSelectedLinesToContext(lines, startLine, endLine)
 	}
 
