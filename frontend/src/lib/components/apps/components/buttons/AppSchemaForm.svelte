@@ -125,7 +125,11 @@
 		return policy
 	}
 	$effect(() => {
-		args && untrack(() => handleArgsChange())
+		if (!args) return
+		for (const key in args) {
+			args[key]
+		}
+		untrack(() => handleArgsChange())
 	})
 	$effect(() => {
 		outputs.valid.set(valid)
