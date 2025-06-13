@@ -40,7 +40,7 @@ export class LockfileGenerationError extends Error {
 export async function generateAllMetadata() {}
 
 function findClosestRawReqs(
-  lang: "bun" | "python3" | "php" | undefined,
+  lang: "bun" | "python3" | "php" | "go" | undefined,
   remotePath: string,
   globalDeps: GlobalDeps
 ): string | undefined {
@@ -65,6 +65,15 @@ function findClosestRawReqs(
     });
   } else if (lang == "php") {
     Object.entries(globalDeps.composers).forEach(([k, v]) => {
+      if (
+        remotePath.startsWith(k) &&
+        k.length >= (bestCandidate?.k ?? "").length
+      ) {
+        bestCandidate = { k, v };
+      }
+    });
+  } else if (lang == "go") {
+    Object.entries(globalDeps.goMods).forEach(([k, v]) => {
       if (
         remotePath.startsWith(k) &&
         k.length >= (bestCandidate?.k ?? "").length
@@ -193,14 +202,14 @@ export async function generateScriptMetadataInternal(
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
 
   const rawReqs = findClosestRawReqs(
-    language as "bun" | "python3" | "php" | undefined,
+    language as "bun" | "python3" | "php" | "go" | undefined,
     scriptPath,
     globalDeps
   );
   if (rawReqs) {
     log.info(
       (await blueColor())(
-        `Found raw requirements (package.json/requirements.txt/composer.json) for ${scriptPath}, using it`
+        `Found raw requirements (package.json/requirements.txt/composer.json/go.mod) for ${scriptPath}, using it`
       )
     );
   }
