@@ -392,7 +392,7 @@
 			})
 			savedApp = {
 				summary: $summary,
-				value: structuredClone($app),
+				value: structuredClone($state.snapshot($app)),
 				path: path,
 				policy: policy,
 				custom_path: customPath
@@ -488,7 +488,7 @@
 		})
 		savedApp = {
 			summary: $summary,
-			value: structuredClone($app),
+			value: structuredClone($state.snapshot($app)),
 			path: npath,
 			policy,
 			custom_path: customPath
@@ -572,13 +572,13 @@
 			})
 			savedApp = {
 				summary: $summary,
-				value: structuredClone($app),
+				value: structuredClone($state.snapshot($app)),
 				path: newEditedPath,
 				policy,
 				draft_only: true,
 				draft: {
 					summary: $summary,
-					value: structuredClone($app),
+					value: structuredClone($state.snapshot($app)),
 					path: newEditedPath,
 					policy,
 					custom_path: customPath
@@ -660,7 +660,7 @@
 				...(savedApp?.draft_only
 					? {
 							summary: $summary,
-							value: structuredClone($app),
+							value: structuredClone($state.snapshot($app)),
 							path: savedApp.draft_only ? newEditedPath || path : path,
 							policy,
 							draft_only: true,
@@ -669,7 +669,7 @@
 					: savedApp),
 				draft: {
 					summary: $summary,
-					value: structuredClone($app),
+					value: structuredClone($state.snapshot($app)),
 					path: newEditedPath || path,
 					policy,
 					custom_path: customPath

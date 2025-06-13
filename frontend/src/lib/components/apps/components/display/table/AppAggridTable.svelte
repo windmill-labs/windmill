@@ -41,7 +41,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { Button } from '$lib/components/common'
 	import InputValue from '../../helpers/InputValue.svelte'
-	import { withProps } from '$lib/svelte5Utils.svelte'
+	import { stateSnapshot, withProps } from '$lib/svelte5Utils.svelte'
 
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
@@ -206,7 +206,7 @@
 
 	function refreshActions(actions: TableAction[]) {
 		if (!deepEqual(actions, lastActions)) {
-			lastActions = structuredClone(actions)
+			lastActions = structuredClone(stateSnapshot(actions))
 			updateOptions()
 		}
 	}

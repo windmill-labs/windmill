@@ -1,6 +1,11 @@
 <script lang="ts">
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
-	import { AppService, type AppWithLastVersion, DraftService } from '$lib/gen'
+	import {
+		AppService,
+		type AppWithLastVersion,
+		type AppWithLastVersionWDraft,
+		DraftService
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { page } from '$app/stores'
 	import { cleanValueProperties, decodeState, type Value } from '$lib/utils'
@@ -10,6 +15,7 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 
 	let app = undefined as (AppWithLastVersion & { draft_only?: boolean; value: any }) | undefined
 	let savedApp:
@@ -44,7 +50,7 @@
 			path,
 			workspace: $workspaceStore!
 		})
-		const app_w_draft_ = structuredClone(app_w_draft)
+		const app_w_draft_: AppWithLastVersionWDraft = structuredClone(stateSnapshot(app_w_draft))
 		savedApp = {
 			summary: app_w_draft_.summary,
 			value: app_w_draft_.value as App,
@@ -55,14 +61,14 @@
 				app_w_draft_.draft?.['summary'] !== undefined // backward compatibility for old drafts missing metadata
 					? app_w_draft_.draft
 					: app_w_draft_.draft
-					? {
-							summary: app_w_draft_.summary,
-							value: app_w_draft_.draft,
-							path: app_w_draft_.path,
-							policy: app_w_draft_.policy,
-							custom_path: app_w_draft_.custom_path
-					  }
-					: undefined,
+						? {
+								summary: app_w_draft_.summary,
+								value: app_w_draft_.draft,
+								path: app_w_draft_.path,
+								policy: app_w_draft_.policy,
+								custom_path: app_w_draft_.custom_path
+							}
+						: undefined,
 			custom_path: app_w_draft_.custom_path
 		}
 
@@ -190,7 +196,7 @@
 	function onRestore(ev: any) {
 		sendUserToast('App restored from previous deployment')
 		app = ev.detail
-		const app_ = structuredClone(app!)
+		const app_ = structuredClone(stateSnapshot(app!))
 		savedApp = {
 			summary: app_.summary,
 			value: app_.value as App,
