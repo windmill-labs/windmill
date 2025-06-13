@@ -1,8 +1,10 @@
-<script lang="ts" context="module">
+<script lang="ts" module>
 	let outTimeout: NodeJS.Timeout | undefined = undefined
 </script>
 
 <script lang="ts">
+	import { run, stopPropagation } from 'svelte/legacy'
+
 	import { getContext, onMount } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { AppEditorContext, AppViewerContext } from '../../types'
@@ -13,16 +15,29 @@
 	import { findGridItemParentGrid, isContainer } from '../appUtils'
 	import ComponentInner from './ComponentInner.svelte'
 
-	export let component: AppComponent
-	export let selected: boolean
-	export let locked: boolean = false
-	export let fullHeight: boolean
-	export let overlapped: string | undefined = undefined
-	export let moveMode: string | undefined = undefined
-	export let componentDraggedId: string | undefined = undefined
-	export let render: boolean = false
+	interface Props {
+		component: AppComponent
+		selected: boolean
+		locked?: boolean
+		fullHeight: boolean
+		overlapped?: string | undefined
+		moveMode?: string | undefined
+		componentDraggedId?: string | undefined
+		render?: boolean
+	}
 
-	let initializing: boolean | undefined
+	let {
+		component,
+		selected,
+		locked = false,
+		fullHeight,
+		overlapped = undefined,
+		moveMode = undefined,
+		componentDraggedId = undefined,
+		render = false
+	}: Props = $props()
+
+	let initializing: boolean | undefined = $state()
 
 	const { mode, app, hoverStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -31,15 +46,16 @@
 	const componentActive = editorContext?.componentActive
 
 	const movingcomponents = editorContext?.movingcomponents
-	$: ismoving =
+	let ismoving = $derived(
 		movingcomponents != undefined && $mode == 'dnd' && $movingcomponents?.includes(component.id)
+	)
 
-	let errorHandledByComponent: boolean = false
-	let componentContainerHeight: number = 0
-	let componentContainerWidth: number = 0
+	let errorHandledByComponent: boolean = $state(false)
+	let componentContainerHeight: number = $state(0)
+	let componentContainerWidth: number = $state(0)
 
-	let inlineEditorOpened: boolean = false
-	let showSkeleton = false
+	let inlineEditorOpened: boolean = $state(false)
+	let showSkeleton = $state(false)
 
 	onMount(() => {
 		setTimeout(() => {
@@ -63,19 +79,19 @@
 	}
 
 	function componentDraggedIsNotChild(componentDraggedId: string, componentId: string) {
-		let parentGrid = findGridItemParentGrid($app, componentDraggedId)
+		let parentGrid = findGridItemParentGrid(app, componentDraggedId)
 
 		return !parentGrid?.startsWith(`${componentId}-`)
 	}
 
 	function areOnTheSameSubgrid(componentDraggedId: string, componentId: string) {
 		return (
-			findGridItemParentGrid($app, componentDraggedId) === findGridItemParentGrid($app, componentId)
+			findGridItemParentGrid(app, componentDraggedId) === findGridItemParentGrid(app, componentId)
 		)
 	}
 
-	let cachedComponentDraggedIsNotChild: boolean | undefined
-	let cachedAreOnTheSameSubgrid: boolean | undefined
+	let cachedComponentDraggedIsNotChild: boolean | undefined = $state()
+	let cachedAreOnTheSameSubgrid: boolean | undefined = $state()
 
 	function updateCache(componentDraggedId: string | undefined) {
 		if (componentDraggedId) {
@@ -90,19 +106,21 @@
 		}
 	}
 
-	$: updateCache(componentDraggedId)
+	run(() => {
+		updateCache(componentDraggedId)
+	})
 </script>
 
-<!-- svelte-ignore a11y-mouse-events-have-key-events -->
-<!-- svelte-ignore a11y-no-static-element-interactions -->
+<!-- svelte-ignore a11y_mouse_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	on:mouseover|stopPropagation={() => {
+	onmouseover={stopPropagation(() => {
 		outTimeout && clearTimeout(outTimeout)
 		if (component.id !== $hoverStore) {
 			$hoverStore = component.id
 		}
-	}}
-	on:mouseout|stopPropagation={mouseOut}
+	})}
+	onmouseout={stopPropagation(mouseOut)}
 	class={twMerge(
 		'h-full flex flex-col w-full component relative',
 		initializing ? 'overflow-hidden h-0' : ''
@@ -162,7 +180,7 @@
 			<div class="absolute -top-8 w-40">
 				<button
 					class="border p-0.5 text-xs"
-					on:click={() => {
+					onclick={() => {
 						$movingcomponents = undefined
 					}}
 				>
@@ -183,11 +201,11 @@
 			selected && $mode !== 'preview' ? 'outline outline-blue-600' : '',
 			$mode != 'preview' ? 'cursor-pointer' : '',
 			'relative z-auto',
-			$app.css?.['app']?.['component']?.class,
+			app.css?.['app']?.['component']?.class,
 			'wm-app-component',
 			ismoving ? 'animate-pulse' : ''
 		)}
-		style={$app.css?.['app']?.['component']?.style}
+		style={app.css?.['app']?.['component']?.style}
 		bind:clientHeight={componentContainerHeight}
 		bind:clientWidth={componentContainerWidth}
 	>
@@ -202,19 +220,19 @@
 	</div>
 </div>
 {#if initializing && render && showSkeleton}
-	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<!-- svelte-ignore a11y_mouse_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
-		on:mouseover|stopPropagation={() => {
+		onmouseover={stopPropagation(() => {
 			if (component.id !== $hoverStore) {
 				$hoverStore = component.id
 			}
-		}}
-		on:mouseout|stopPropagation={() => {
+		})}
+		onmouseout={stopPropagation(() => {
 			if ($hoverStore !== undefined) {
 				$hoverStore = undefined
 			}
-		}}
+		})}
 		class="absolute inset-0 center-center flex-col border animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms]"
 	></div>
 {/if}

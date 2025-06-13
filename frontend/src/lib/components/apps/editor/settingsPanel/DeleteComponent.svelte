@@ -53,7 +53,7 @@
 		if (componentSetting?.item?.data?.id) {
 			delete $runnableComponents[componentSetting?.item?.data?.id]
 		}
-		$app = $app
+		// $app = $app
 		$runnableComponents = $runnableComponents
 
 		onDelete?.()

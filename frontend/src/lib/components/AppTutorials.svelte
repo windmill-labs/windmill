@@ -4,9 +4,9 @@
 	import BackgroundRunnablesTutorial from './tutorials/app/BackgroundRunnablesTutorial.svelte'
 	import ConnectionTutorial from './tutorials/app/ConnectionTutorial.svelte'
 
-	let backgroundRunnablesTutorial: BackgroundRunnablesTutorial | undefined = undefined
-	let connectionTutorial: ConnectionTutorial | undefined = undefined
-	let appTutorial: AppTutorial | undefined = undefined
+	let backgroundRunnablesTutorial: BackgroundRunnablesTutorial | undefined = $state(undefined)
+	let connectionTutorial: ConnectionTutorial | undefined = $state(undefined)
+	let appTutorial: AppTutorial | undefined = $state(undefined)
 
 	export function runTutorialById(id: string, options?: { skipStepsCount?: number }) {
 		if (id === 'backgroundrunnables') {
@@ -23,6 +23,7 @@
 	}
 </script>
 
+P
 <AppTutorial
 	bind:this={appTutorial}
 	on:error

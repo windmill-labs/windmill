@@ -31,8 +31,7 @@
 		}
 
 		const code = cssEditor?.getCode()
-		cssEditor?.setCode(code + '\n' + selector)
-		$app = $app
+		cssEditor?.setCode(code + '\n' + selector) // $app = $app
 	}
 </script>
 

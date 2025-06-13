@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Label from '../Label.svelte'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
@@ -16,21 +16,32 @@
 		type: 'bar' | 'scatter' | 'line' | 'area' | 'range-bar' | 'range-area'
 	}
 
-	let component: GridItem | undefined = undefined
+	let component = $state(undefined) as GridItem | undefined
 
-	$: if (component === undefined && $selectedComponent && $app) {
-		component = findGridItem($app, $selectedComponent[0])
+	$effect.pre(() => {
+		if (component === undefined && $selectedComponent && untrack(() => app)) {
+			untrack(() => {
+				component = findGridItem(app, $selectedComponent[0])
+			})
+		}
+	})
+
+	let isEE = $derived(component?.data.type === 'agchartscomponentee')
+
+	interface Props {
+		value?: Dataset | undefined
+		trigger?: import('svelte').Snippet
 	}
 
-	$: isEE = component?.data.type === 'agchartscomponentee'
-
-	export let value: Dataset | undefined = undefined
+	let { value = $bindable(undefined), trigger }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
 	function removeDataset() {
 		dispatch('remove')
 	}
+
+	const trigger_render = $derived(trigger)
 </script>
 
 <Popover
@@ -41,10 +52,10 @@
 	}}
 	closeOnOtherPopoverOpen
 >
-	<svelte:fragment slot="trigger">
-		<slot name="trigger" />
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{#snippet trigger()}
+		{@render trigger_render?.()}
+	{/snippet}
+	{#snippet content()}
 		{#if value}
 			<div class="flex flex-col w-96 gap-4 p-4 max-h-[70vh] overflow-y-auto">
 				<Label label="Name">
@@ -66,5 +77,5 @@
 				<Button color="red" size="xs" on:click={removeDataset}>Remove dataset</Button>
 			</div>
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 </Popover>

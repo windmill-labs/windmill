@@ -97,7 +97,7 @@
 		}
 	})
 
-	const { connectingInput, app, workspace } = getContext<AppViewerContext>('AppViewerContext')
+	const { connectingInput, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
 	const dispatch = createEventDispatcher()
 
@@ -129,8 +129,7 @@
 				{ componentId: connection.componentId, id: connection.path.split('.')[0].split('[')[0] }
 			]
 		}
-		evalV2editor?.setCode(expr)
-		$app = $app
+		evalV2editor?.setCode(expr) // $app = $app
 	}
 
 	function closeConnection() {

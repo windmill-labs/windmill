@@ -77,7 +77,7 @@
 		if (fComponent) {
 			fComponent = toggleFixed(fComponent)
 		}
-		$app = $app
+		// $app = $app
 	}
 
 	let container: HTMLElement | undefined = undefined
@@ -201,7 +201,7 @@
 								isActive && !$selectedComponent?.includes(id)
 									? 'outline-orange-600'
 									: 'outline-gray-400 dark:outline-gray-600'
-						  }`
+							}`
 						: ''}
 				>
 					<Grid
@@ -284,7 +284,7 @@
 											$breakpoint,
 											parentGridItem
 										)
-										$app = $app
+										// $app = $app
 									}}
 									on:fillHeight={() => {
 										const gridItem = findGridItem($app, dataItem.id)
@@ -293,7 +293,7 @@
 										if (gridItem?.[b]) {
 											gridItem[b].fullHeight = !gridItem[b].fullHeight
 										}
-										$app = $app
+										// $app = $app
 									}}
 									{moveMode}
 									{componentDraggedId}

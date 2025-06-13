@@ -29,8 +29,7 @@
 			$focusedGrid
 		)
 
-		$selectedComponent = [id]
-		$app = $app
+		$selectedComponent = [id] // $app = $app
 	}
 </script>
 

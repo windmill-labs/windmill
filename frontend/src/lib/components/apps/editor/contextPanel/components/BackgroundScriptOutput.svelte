@@ -7,17 +7,23 @@
 
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 
-	export let id: string
-	export let name: string
-	export let first: boolean = false
+	interface Props {
+		id: string
+		name: string
+		first?: boolean
+	}
+
+	let { id, name, first = false }: Props = $props()
 </script>
 
-<OutputHeader let:render renamable={false} selectable={true} {id} {name} color="blue" {first}>
-	<ComponentOutputViewer
-		{render}
-		componentId={id}
-		on:select={({ detail }) => {
-			$connectingInput = connectInput($connectingInput, id, detail)
-		}}
-	/>
+<OutputHeader renamable={false} selectable={true} {id} {name} color="blue" {first}>
+	{#snippet children({ render })}
+		<ComponentOutputViewer
+			{render}
+			componentId={id}
+			on:select={({ detail }) => {
+				$connectingInput = connectInput($connectingInput, id, detail)
+			}}
+		/>
+	{/snippet}
 </OutputHeader>

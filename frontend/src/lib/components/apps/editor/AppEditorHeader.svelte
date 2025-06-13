@@ -187,7 +187,7 @@
 	}
 
 	async function computeTriggerables() {
-		const items = allItems($app.grid, $app.subgrids)
+		const items = allItems(app.grid, app.subgrids)
 
 		console.debug('items', items)
 
@@ -277,7 +277,7 @@
 					return processed as Promise<[string, TriggerableV2] | undefined>[]
 				})
 				.concat(
-					Object.values($app.hiddenInlineScripts ?? {}).map(async (v, i) => {
+					Object.values(app.hiddenInlineScripts ?? {}).map(async (v, i) => {
 						return await processRunnable(BG_PREFIX + i, v, v.fields)
 					}) as Promise<[string, TriggerableV2] | undefined>[]
 				)
@@ -294,7 +294,7 @@
 			.map((x) => {
 				const c = x.data as AppComponent
 				const config = c.configuration as any
-				return computeS3FileInputPolicy(config?.type?.configuration?.s3, $app)
+				return computeS3FileInputPolicy(config?.type?.configuration?.s3, app)
 			})
 			.filter(Boolean) as {
 			allowed_resources: string[]
@@ -345,7 +345,7 @@
 		fields: Record<string, any>
 	): Promise<[string, TriggerableV2] | undefined> {
 		const staticInputs = collectStaticFields(fields)
-		const oneOfInputs = collectOneOfFields(fields, $app)
+		const oneOfInputs = collectOneOfFields(fields, app)
 		const allowUserResources: string[] = Object.entries(fields)
 			.map(([k, v]) => {
 				return v['allowUserResources'] ? k : undefined
@@ -382,7 +382,7 @@
 			await AppService.createApp({
 				workspace: $workspaceStore!,
 				requestBody: {
-					value: $app,
+					value: app,
 					path,
 					summary: $summary,
 					policy,
@@ -392,7 +392,7 @@
 			})
 			savedApp = {
 				summary: $summary,
-				value: structuredClone($app),
+				value: structuredClone($state.snapshot(app)),
 				path: path,
 				policy: policy,
 				custom_path: customPath
@@ -425,12 +425,12 @@
 			if (
 				deployedValue &&
 				savedApp &&
-				$app &&
+				app &&
 				orderedJsonStringify(deployedValue) ===
 					orderedJsonStringify(
 						replaceFalseWithUndefined({
 							summary: $summary,
-							value: $app,
+							value: app,
 							path: newEditedPath || savedApp.draft?.path || savedApp.path,
 							policy,
 							custom_path: customPath
@@ -475,7 +475,7 @@
 			workspace: $workspaceStore!,
 			path: $appPath!,
 			requestBody: {
-				value: $app!,
+				value: app!,
 				summary: $summary,
 				policy,
 				path: npath,
@@ -488,7 +488,7 @@
 		})
 		savedApp = {
 			summary: $summary,
-			value: structuredClone($app),
+			value: structuredClone($state.snapshot(app)),
 			path: npath,
 			policy,
 			custom_path: customPath
@@ -548,7 +548,7 @@
 			await AppService.createApp({
 				workspace: $workspaceStore!,
 				requestBody: {
-					value: $app,
+					value: app,
 					path: newEditedPath,
 					summary: $summary,
 					policy,
@@ -562,7 +562,7 @@
 					path: newEditedPath,
 					typ: 'app',
 					value: {
-						value: $app,
+						value: app,
 						path: newEditedPath,
 						summary: $summary,
 						policy,
@@ -572,13 +572,13 @@
 			})
 			savedApp = {
 				summary: $summary,
-				value: structuredClone($app),
+				value: structuredClone($state.snapshot(app)),
 				path: newEditedPath,
 				policy,
 				draft_only: true,
 				draft: {
 					summary: $summary,
-					value: structuredClone($app),
+					value: structuredClone($state.snapshot(app)),
 					path: newEditedPath,
 					policy,
 					custom_path: customPath
@@ -606,7 +606,7 @@
 		const draftOrDeployed = cleanValueProperties(savedApp.draft || savedApp)
 		const current = cleanValueProperties({
 			summary: $summary,
-			value: $app,
+			value: app,
 			path: newEditedPath || savedApp.draft?.path || savedApp.path,
 			policy
 		})
@@ -633,7 +633,7 @@
 				await AppService.createApp({
 					workspace: $workspaceStore!,
 					requestBody: {
-						value: $app!,
+						value: app!,
 						summary: $summary,
 						policy,
 						path: newEditedPath || path,
@@ -648,7 +648,7 @@
 					path: savedApp.draft_only ? newEditedPath || path : path,
 					typ: 'app',
 					value: {
-						value: $app!,
+						value: app!,
 						summary: $summary,
 						policy,
 						path: newEditedPath || path
@@ -660,7 +660,7 @@
 				...(savedApp?.draft_only
 					? {
 							summary: $summary,
-							value: structuredClone($app),
+							value: structuredClone($state.snapshot(app)),
 							path: savedApp.draft_only ? newEditedPath || path : path,
 							policy,
 							draft_only: true,
@@ -669,7 +669,7 @@
 					: savedApp),
 				draft: {
 					summary: $summary,
-					value: structuredClone($app),
+					value: structuredClone($state.snapshot(app)),
 					path: newEditedPath || path,
 					policy,
 					custom_path: customPath
@@ -726,13 +726,13 @@
 		switch (event.key) {
 			case 'Z':
 				if (event.ctrlKey || event.metaKey) {
-					$app = redo(history)
+					// app = redo(history)
 					event.preventDefault()
 				}
 				break
 			case 'z':
 				if (event.ctrlKey || event.metaKey) {
-					$app = undo(history, $app)
+					// app = undo(history, app)
 
 					event.preventDefault()
 				}
@@ -781,7 +781,7 @@
 			displayName: 'Export',
 			icon: FileJson,
 			action: () => {
-				appExport?.open($app)
+				appExport?.open(app)
 			}
 		},
 		// {
@@ -796,7 +796,7 @@
 			displayName: 'Hub compatible JSON',
 			icon: FileUp,
 			action: () => {
-				appExport?.open(toStatic($app, $staticExporter, $summary).app)
+				appExport?.open(toStatic(app, $staticExporter, $summary).app)
 			}
 		},
 		{
@@ -832,7 +832,7 @@
 					draft: savedApp.draft,
 					current: {
 						summary: $summary,
-						value: $app,
+						value: app,
 						path: newEditedPath || savedApp.draft?.path || savedApp.path,
 						policy,
 						custom_path: customPath
@@ -885,7 +885,7 @@
 	}
 
 	let priorDarkMode = document.documentElement.classList.contains('dark')
-	setTheme($app?.darkMode)
+	setTheme(app?.darkMode)
 
 	let customPath = $state(savedApp?.custom_path)
 	let dirtyCustomPath = $state(false)
@@ -951,7 +951,7 @@
 			savedValue: savedApp,
 			modifiedValue: {
 				summary: $summary,
-				value: $app,
+				value: app,
 				path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
 				policy,
 				custom_path: customPath
@@ -967,7 +967,7 @@
 	bind:deployedValue
 	currentValue={{
 		summary: $summary,
-		value: $app,
+		value: app,
 		path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
 		policy,
 		custom_path: customPath
@@ -1123,7 +1123,7 @@
 							draft: savedApp.draft,
 							current: {
 								summary: $summary,
-								value: $app,
+								value: app,
 								path: newEditedPath || savedApp.draft?.path || savedApp.path,
 								policy,
 								custom_path: customPath
@@ -1313,19 +1313,19 @@
 				undoProps={{ disabled: $history?.index === 0 }}
 				redoProps={{ disabled: $history && $history?.index === $history.history.length - 1 }}
 				on:undo={() => {
-					$app = undo(history, $app)
+					// app = undo(history, app)
 				}}
 				on:redo={() => {
-					$app = redo(history)
+					// app = redo(history)
 				}}
 			/>
 
-			{#if $app}
+			{#if app}
 				<ToggleButtonGroup
 					class="h-[30px]"
-					selected={$app.fullscreen ? 'true' : 'false'}
+					selected={app.fullscreen ? 'true' : 'false'}
 					on:selected={({ detail }) => {
-						$app.fullscreen = detail === 'true'
+						app.fullscreen = detail === 'true'
 					}}
 				>
 					{#snippet children({ item })}
@@ -1346,14 +1346,14 @@
 					{/snippet}
 				</ToggleButtonGroup>
 			{/if}
-			{#if $app}
+			{#if app}
 				<ToggleButtonGroup
 					class="h-[30px]"
 					on:selected={({ detail }) => {
 						const theme = detail === 'dark' ? true : detail === 'sun' ? false : undefined
 						setTheme(theme)
 					}}
-					selected={$app.darkMode === undefined ? 'auto' : $app.darkMode ? 'dark' : 'sun'}
+					selected={app.darkMode === undefined ? 'auto' : app.darkMode ? 'dark' : 'sun'}
 				>
 					{#snippet children({ item })}
 						<ToggleButton
@@ -1406,7 +1406,7 @@
 										'Desktop view is enabled by default. Enable this to customize the layout of the components for the mobile view'
 								}}
 								textClass="text-2xs whitespace-nowrap white !w-full"
-								bind:checked={$app.mobileViewOnSmallerScreens}
+								bind:checked={app.mobileViewOnSmallerScreens}
 								class="flex flex-row px-2 items-center"
 							/>
 						{/if}

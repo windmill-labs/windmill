@@ -224,9 +224,7 @@
 			//@ts-ignore
 			gridItem.data.configuration.longitude.value = center[0]
 			//@ts-ignore
-			gridItem.data.configuration.latitude.value = center[1]
-
-			$app = $app
+			gridItem.data.configuration.latitude.value = center[1] // $app = $app
 		}
 	}
 </script>

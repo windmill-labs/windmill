@@ -1,12 +1,26 @@
 <script lang="ts">
 	import AnimatedButtonInner from './AnimatedButtonInner.svelte'
-	export let marginWidth = '2px'
-	export let animationDuration = '2s'
-	export let baseRadius = '4px'
-	export let animate = true
-	export let wrapperClasses = ''
-	export let ringColor = 'transparent'
-	export let darkMode = false
+	interface Props {
+		marginWidth?: string
+		animationDuration?: string
+		baseRadius?: string
+		animate?: boolean
+		wrapperClasses?: string
+		ringColor?: string
+		darkMode?: boolean
+		children?: import('svelte').Snippet
+	}
+
+	let {
+		marginWidth = '2px',
+		animationDuration = '2s',
+		baseRadius = '4px',
+		animate = true,
+		wrapperClasses = '',
+		ringColor = 'transparent',
+		darkMode = false,
+		children
+	}: Props = $props()
 </script>
 
 {#if animate}
@@ -19,10 +33,10 @@
 		{ringColor}
 		{darkMode}
 	>
-		<slot />
+		{@render children?.()}
 	</AnimatedButtonInner>
 {:else}
 	<div class={wrapperClasses}>
-		<slot />
+		{@render children?.()}
 	</div>
 {/if}

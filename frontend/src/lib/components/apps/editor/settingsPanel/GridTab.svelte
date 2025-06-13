@@ -84,8 +84,7 @@
 		})
 		items = items
 
-		delete $app!.subgrids![`${component.id}-${items.length}`]
-		$app = $app
+		delete $app!.subgrids![`${component.id}-${items.length}`] // $app = $app
 	}
 
 	function handleConsider(e: CustomEvent): void {
@@ -127,8 +126,7 @@
 			$app!.subgrids = {
 				...$app!.subgrids,
 				...newSubgrids
-			}
-			$app = $app
+			} // $app = $app
 
 			tick().then(() => {
 				const targetIndex = items.findIndex((i) => i.id === e.detail.info.id)

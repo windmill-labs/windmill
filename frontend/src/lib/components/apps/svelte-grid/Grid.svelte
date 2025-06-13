@@ -1,4 +1,4 @@
-<script lang="ts" context="module">
+<script lang="ts" module>
 	import { writable } from 'svelte/store'
 
 	const componentDraggedIdStore = writable<string | undefined>(undefined)
@@ -17,7 +17,7 @@
 
 	import { getContainerHeight } from './utils/container'
 	import { moveItem, getItemById, specifyUndefinedColumns } from './utils/item'
-	import { onMount, createEventDispatcher, getContext } from 'svelte'
+	import { onMount, createEventDispatcher, getContext, untrack } from 'svelte'
 	import { getColumn, throttle } from './utils/other'
 	import MoveResize from './MoveResize.svelte'
 	import type { FilledItem } from './types'
@@ -41,32 +41,48 @@
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	export let items: FilledItem<T>[]
-	export let rowHeight: number = ROW_HEIGHT
+	interface Props {
+		items: FilledItem<T>[]
+		rowHeight?: number
+		gap?: any
+		throttleUpdate?: number
+		throttleResize?: number
+		selectedIds: string[] | undefined
+		allIdsInPath: string[] | undefined
+		containerWidth?: number | undefined
+		scroller?: HTMLElement | undefined
+		sensor?: number
+		root?: boolean
+		parentWidth?: number | undefined
+		disableMove?: boolean
+		children?: import('svelte').Snippet<[any]>
+	}
 
-	export let gap = [ROW_GAP_X, ROW_GAP_Y]
-	export let throttleUpdate = 100
-	export let throttleResize = 100
-	export let selectedIds: string[] | undefined
-	export let allIdsInPath: string[] | undefined
-	export let containerWidth: number | undefined = undefined
-	export let scroller: HTMLElement | undefined = undefined
-	export let sensor = 20
-	export let root: boolean = false
-	export let parentWidth: number | undefined = undefined
-	export let disableMove: boolean = false
+	let {
+		items = $bindable(),
+		rowHeight = ROW_HEIGHT,
+		gap = [ROW_GAP_X, ROW_GAP_Y],
+		throttleUpdate = 100,
+		throttleResize = 100,
+		selectedIds,
+		allIdsInPath,
+		containerWidth = $bindable(undefined),
+		scroller = undefined,
+		sensor = 20,
+		root = false,
+		parentWidth = undefined,
+		disableMove = false,
+		children
+	}: Props = $props()
 	const cols = columnConfiguration
 
-	let getComputedCols: 3 | 12 | undefined =
-		$app.mobileViewOnSmallerScreens == false ? WIDE_GRID_COLUMNS : undefined
-	let container
+	let getComputedCols: 3 | 12 | undefined = $state(
+		app.mobileViewOnSmallerScreens == false ? WIDE_GRID_COLUMNS : undefined
+	)
+	let container = $state() as Element | undefined
 
-	$: [gapX, gapY] = gap
-
-	let xPerPx = 0
+	let xPerPx = $state(0)
 	let yPerPx = rowHeight
-
-	$: containerHeight = getContainerHeight(items, yPerPx, getComputedCols)
 
 	const onResize = throttle(() => {
 		items = specifyUndefinedColumns(items, getComputedCols, cols)
@@ -78,7 +94,7 @@
 		})
 	}, throttleUpdate)
 
-	let mounted = false
+	let mounted = $state(false)
 
 	onMount(() => {
 		const sizeObserver = new ResizeObserver((entries) => {
@@ -92,7 +108,7 @@
 					return
 				}
 
-				if ($app.mobileViewOnSmallerScreens != false || !getComputedCols) {
+				if (app.mobileViewOnSmallerScreens != false || !getComputedCols) {
 					getComputedCols = getColumn(parentWidth ?? width, cols)
 				}
 				xPerPx = width / getComputedCols!
@@ -119,10 +135,9 @@
 		return () => sizeObserver.disconnect()
 	})
 
-	let sortedItems: FilledItem<T>[] = []
-	$: sortedItems = smartCopy(items).sort((a, b) => a.id.localeCompare(b.id))
+	let sortedItems: FilledItem<T>[] = $state([])
 
-	let resizing: boolean = false
+	let resizing: boolean = $state(false)
 
 	function handleKeyUp(event) {
 		if ((event.key === 'Control' || event.key === 'Meta') && $isCtrlOrMetaPressedStore) {
@@ -142,9 +157,11 @@
 			? items.map((item) => {
 					return {
 						...item,
-						[getComputedCols as number]: structuredClone(item[getComputedCols as number])
+						[getComputedCols as number]: structuredClone(
+							$state.snapshot(item[getComputedCols as number])
+						)
 					}
-			  })
+				})
 			: []
 	}
 	const updateMatrix = ({ detail }) => {
@@ -236,7 +253,7 @@
 	//let hiddenComponents = writable({})
 
 	let lastDetail: { isPointerUp: false; activate: false; id: string | undefined } | undefined =
-		undefined
+		$state(undefined)
 	const handleRepaint = ({ detail }) => {
 		if (!detail.isPointerUp) {
 			throttleMatrix({ detail })
@@ -269,13 +286,15 @@
 		}
 	}
 
-	let moveResizes: Record<string, MoveResize> = {}
-	let shadows: Record<string, { x: number; y: number; w: number; h: number } | undefined> = {}
+	let moveResizes: Record<string, MoveResize> = $state({})
+	let shadows: Record<string, { x: number; y: number; w: number; h: number } | undefined> = $state(
+		{}
+	)
 
 	export function handleMove({ detail }) {
 		Object.entries(moveResizes).forEach(([id, moveResize]) => {
 			if (selectedIds?.includes(id)) {
-				moveResize?.updateMove(structuredClone(detail.cordDiff), detail.eventY)
+				moveResize?.updateMove(structuredClone($state.snapshot(detail.cordDiff)), detail.eventY)
 			}
 		})
 
@@ -307,15 +326,15 @@
 				const div = document.getElementById(`component-${$overlappedStore}`)
 				const type = div?.getAttribute('data-componenttype')
 
-				if (!$app.subgrids) {
+				if (!app.subgrids) {
 					return
 				}
 
 				const index = type ? subGridIndexKey(type, $overlappedStore, $worldStore) : 0
 
-				items = $app.subgrids[`${$overlappedStore}-${index}`] ?? []
+				items = app.subgrids[`${$overlappedStore}-${index}`] ?? []
 			} else {
-				items = $app.grid ?? []
+				items = app.grid ?? []
 			}
 
 			if (!draggedItem) {
@@ -346,7 +365,7 @@
 
 	export function handleInitMove(id: string) {
 		$componentDraggedIdStore = id
-		$componentDraggedParentIdStore = findGridItemParentGrid($app, id)?.split('-')[0] ?? undefined
+		$componentDraggedParentIdStore = findGridItemParentGrid(app, id)?.split('-')[0] ?? undefined
 
 		Object.entries(moveResizes).forEach(([id, moveResize]) => {
 			if (selectedIds?.includes(id)) {
@@ -354,16 +373,24 @@
 			}
 		})
 	}
+	let [gapX, gapY] = $derived(gap)
+	let containerHeight = $derived(getContainerHeight(items, yPerPx, getComputedCols))
+	$effect(() => {
+		items
+		untrack(() => {
+			sortedItems = smartCopy(items).sort((a, b) => a.id.localeCompare(b.id))
+		})
+	})
 </script>
 
 <svelte:window
-	on:focus={() => {
+	onfocus={() => {
 		if ($isCtrlOrMetaPressedStore) {
 			$isCtrlOrMetaPressedStore = false
 		}
 	}}
-	on:keydown={handleKeyDown}
-	on:keyup={handleKeyUp}
+	onkeydown={handleKeyDown}
+	onkeyup={handleKeyUp}
 />
 
 <div
@@ -482,7 +509,7 @@
 					width={xPerPx == 0
 						? 0
 						: Math.min(getComputedCols, item[getComputedCols] && item[getComputedCols].w) * xPerPx -
-						  gapX * 2}
+							gapX * 2}
 					height={(item[getComputedCols] && item[getComputedCols].h) * yPerPx - gapY * 2}
 					top={(item[getComputedCols] && item[getComputedCols].y) * yPerPx + gapY}
 					left={(item[getComputedCols] && item[getComputedCols].x) * xPerPx + gapX}
@@ -499,13 +526,13 @@
 					{disableMove}
 				>
 					{#if item[getComputedCols]}
-						<slot
-							dataItem={item}
-							hidden={false}
-							overlapped={$overlappedStore}
-							moveMode={$isCtrlOrMetaPressedStore ? 'insert' : 'move'}
-							componentDraggedId={$componentDraggedIdStore}
-						/>
+						{@render children?.({
+							dataItem: item,
+							hidden: false,
+							overlapped: $overlappedStore,
+							moveMode: $isCtrlOrMetaPressedStore ? 'insert' : 'move',
+							componentDraggedId: $componentDraggedIdStore
+						})}
 					{/if}
 				</MoveResize>
 			{/if}

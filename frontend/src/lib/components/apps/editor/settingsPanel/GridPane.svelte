@@ -41,8 +41,7 @@
 		delete $app!.subgrids![`${component.id}-${panes.length}`]
 
 		panes = panes
-		component.numberOfSubgrids = panes.length
-		$app = $app
+		component.numberOfSubgrids = panes.length // $app = $app
 	}
 </script>
 

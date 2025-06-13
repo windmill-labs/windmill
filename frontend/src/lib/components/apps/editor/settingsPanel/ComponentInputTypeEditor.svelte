@@ -45,8 +45,7 @@
 				}
 			]
 		}
-		evalV2editor?.setCode(expr)
-		$app = $app
+		evalV2editor?.setCode(expr) // $app = $app
 	}
 
 	let clientWidth: number = $state(0)

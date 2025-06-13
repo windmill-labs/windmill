@@ -380,8 +380,7 @@
 
 		//@ts-ignore
 		gridItem.data.configuration.columnDefs.loading = true
-		gridItem.data = gridItem.data
-		$app = $app
+		gridItem.data = gridItem.data // $app = $app
 
 		let tableMetadata = await loadTableMetaData(
 			resolvedConfig.type.configuration[selected].resource,
@@ -404,9 +403,7 @@
 		if (shouldReturnEarly(newMap, oldMap)) {
 			//@ts-ignore
 			gridItem.data.configuration.columnDefs.loading = false
-			gridItem.data = gridItem.data
-
-			$app = $app
+			gridItem.data = gridItem.data // $app = $app
 			return
 		}
 
@@ -457,9 +454,7 @@
 
 		//@ts-ignore
 		gridItem.data.configuration.columnDefs = { value: ncols, type: 'static', loading: false }
-		gridItem.data = gridItem.data
-
-		$app = $app
+		gridItem.data = gridItem.data // $app = $app
 		let oldS = $selectedComponent
 		$selectedComponent = []
 		await tick()

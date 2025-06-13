@@ -196,7 +196,7 @@
 					$stateId++
 				}
 			}
-			$app = $app
+			// $app = $app
 		}
 	}
 
@@ -271,7 +271,7 @@
 							placeholder="Inline script name"
 							class="!text-xs !rounded-sm !shadow-none"
 							onkeyup={() => {
-								$app = $app
+								// $app = $app
 								if (stateId) {
 									$stateId++
 								}
@@ -385,7 +385,7 @@
 									loadSchemaAndInputsByName()
 								}
 							}
-							$app = $app
+							// $app = $app
 						}}
 						args={Object.entries(fields).reduce((acc, [key, obj]) => {
 							acc[key] = obj.type === 'static' ? obj.value : undefined
@@ -413,7 +413,7 @@
 						}}
 						on:change={async (e) => {
 							inferSuggestions(e.detail.code)
-							$app = $app
+							// $app = $app
 						}}
 					/>
 				{/if}

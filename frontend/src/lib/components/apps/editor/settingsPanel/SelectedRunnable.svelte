@@ -21,8 +21,7 @@
 			$app.unusedInlineScripts.push({
 				name: appInput.runnable.name,
 				inlineScript: appInput.runnable.inlineScript
-			})
-			$app = $app
+			}) // $app = $app
 			appInput = clearResultAppInput(appInput)
 		}
 	}
@@ -56,7 +55,7 @@
 							color: 'light',
 							callback: detach
 						}
-				  ] as const)
+					] as const)
 				: []),
 			{
 				label: 'Clear',

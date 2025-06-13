@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Badge, Button } from '$lib/components/common'
 	import { Plus } from 'lucide-svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import Tooltip from '../../../Tooltip.svelte'
 	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import { BG_PREFIX, getAllScriptNames } from '../../utils'
@@ -16,7 +16,7 @@
 
 	const PREFIX = 'script-selector-' as const
 
-	const { app, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, selectedComponent } = $state(getContext<AppViewerContext>('AppViewerContext'))
 	const { selectedComponentInEditor } = getContext<AppEditorContext>('AppEditorContext')
 
 	function selectScript(id: string) {
@@ -25,11 +25,6 @@
 			$selectedComponent = [$selectedComponentInEditor.split('_transformer')[0]]
 		}
 	}
-
-	$: runnables = getAppScripts($app.grid, $app.subgrids)
-
-	// When selected component changes, update selectedScriptComponentId
-	$: selectedComponent && handleSelectedComponent($selectedComponent)
 
 	function handleSelectedComponent(selectedComponent: string[] | undefined) {
 		if (
@@ -45,10 +40,10 @@
 			appTutorials?.runTutorialById('backgroundrunnables', { skipStepsCount: 2 })
 		}
 
-		for (const [index, script] of $app.hiddenInlineScripts.entries()) {
+		for (const [index, script] of app.hiddenInlineScripts.entries()) {
 			if (script.hidden) {
 				delete script.hidden
-				$app.hiddenInlineScripts = $app.hiddenInlineScripts
+				app.hiddenInlineScripts = app.hiddenInlineScripts
 				selectScript(BG_PREFIX + index)
 				return
 			}
@@ -56,18 +51,18 @@
 		let index = 0
 		let newScriptPath = `Background Runnable ${index}`
 
-		const names = getAllScriptNames($app)
+		const names = getAllScriptNames(app)
 
 		// Find a name that is not used by any other inline script
 		while (names.includes(newScriptPath)) {
 			newScriptPath = `Background Runnable ${++index}`
 		}
 
-		if (!$app.hiddenInlineScripts) {
-			$app.hiddenInlineScripts = []
+		if (!app.hiddenInlineScripts) {
+			app.hiddenInlineScripts = []
 		}
 
-		$app.hiddenInlineScripts.push({
+		app.hiddenInlineScripts.push({
 			name: newScriptPath,
 			inlineScript: undefined,
 			autoRefresh: true,
@@ -75,16 +70,21 @@
 			fields: {},
 			recomputeIds: undefined
 		})
-		$app.hiddenInlineScripts = $app.hiddenInlineScripts
-		selectScript(`${BG_PREFIX}${$app.hiddenInlineScripts.length - 1}`)
+		app.hiddenInlineScripts = app.hiddenInlineScripts
+		selectScript(`${BG_PREFIX}${app.hiddenInlineScripts.length - 1}`)
 	}
 
-	let appTutorials: AppTutorials | undefined = undefined
+	let appTutorials: AppTutorials | undefined = $state(undefined)
 	const dispatch = createEventDispatcher()
+	let runnables = $derived(getAppScripts(app.grid, app.subgrids))
+	// When selected component changes, update selectedScriptComponentId
+	$effect(() => {
+		selectedComponent && untrack(() => handleSelectedComponent($selectedComponent))
+	})
 </script>
 
 <PanelSection title="Runnables" id="app-editor-runnable-panel">
-	<svelte:fragment slot="action">
+	{#snippet action()}
 		<div class="flex flex-row gap-1">
 			<HideButton
 				direction="bottom"
@@ -96,7 +96,7 @@
 				docLink="https://www.windmill.dev/docs/apps/app-runnable-panel#creating-a-runnable"
 			/>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 	<div class="w-full flex flex-col gap-6 py-1">
 		<div>
 			<div class="flex flex-col gap-2 w-full">
@@ -109,7 +109,7 @@
 				{$selectedComponentInEditor === id
 									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
-								on:click={() => selectScript(id)}
+								onclick={() => selectScript(id)}
 							>
 								<span class="text-2xs truncate">{name}</span>
 								<div>
@@ -124,7 +124,7 @@
 			{$selectedComponentInEditor === id + '_transformer'
 											? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 											: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
-										on:click={() => selectScript(id + '_transformer')}
+										onclick={() => selectScript(id + '_transformer')}
 									>
 										<span class="text-2xs truncate">Transformer</span>
 									</button>
@@ -140,7 +140,7 @@
 						{$selectedComponentInEditor === id
 							? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 							: 'hover:bg-blue-50'}"
-						on:click={() => selectScript(id)}
+						onclick={() => selectScript(id)}
 					>
 						<span class="text-2xs truncate">{name}</span>
 						<Badge color="indigo">{id}</Badge>
@@ -153,7 +153,7 @@
 {$selectedComponentInEditor === id + '_transformer'
 									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
-								on:click={() => selectScript(id + '_transformer')}
+								onclick={() => selectScript(id + '_transformer')}
 							>
 								<span class="text-2xs truncate">Transformer</span>
 							</button>
@@ -161,9 +161,9 @@
 					{/if}
 				{/each}
 
-				{#if $app.unusedInlineScripts?.length > 0}
+				{#if app.unusedInlineScripts?.length > 0}
 					<div class="flex gap-1 flex-col">
-						{#each $app.unusedInlineScripts as unusedInlineScript, index (index)}
+						{#each app.unusedInlineScripts as unusedInlineScript, index (index)}
 							{@const id = `unused-${index}`}
 							<button
 								id={PREFIX + id}
@@ -171,7 +171,7 @@
 								{$selectedComponentInEditor === id
 									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
-								on:click={() => selectScript(id)}
+								onclick={() => selectScript(id)}
 							>
 								<span class="text-2xs truncate">{unusedInlineScript.name}</span>
 								<Badge color="red">Detached</Badge>
@@ -179,7 +179,7 @@
 						{/each}
 					</div>
 				{/if}
-				{#if runnables.inline.length == 0 && $app.unusedInlineScripts?.length == 0 && runnables.imported.length == 0}
+				{#if runnables.inline.length == 0 && app.unusedInlineScripts?.length == 0 && runnables.imported.length == 0}
 					<div class="text-xs text-tertiary">No scripts/flows</div>
 				{/if}
 			</div>
@@ -210,8 +210,8 @@
 				</Button>
 			</div>
 			<div class="flex flex-col gap-1 w-full">
-				{#if $app.hiddenInlineScripts?.length > 0}
-					{#each $app.hiddenInlineScripts as { name, hidden, transformer }, index (index)}
+				{#if app.hiddenInlineScripts?.length > 0}
+					{#each app.hiddenInlineScripts as { name, hidden, transformer }, index (index)}
 						{#if !hidden}
 							{@const id = BG_PREFIX + index}
 							<button
@@ -220,7 +220,7 @@
 								{$selectedComponentInEditor === id
 									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
-								on:click={() => selectScript(id)}
+								onclick={() => selectScript(id)}
 							>
 								<span class="text-2xs truncate">{name}</span>
 								<Badge color="indigo">{id}</Badge>
@@ -233,7 +233,7 @@
 		{$selectedComponentInEditor === id + '_transformer'
 											? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 											: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
-										on:click={() => selectScript(id + '_transformer')}
+										onclick={() => selectScript(id + '_transformer')}
 									>
 										<span class="text-2xs truncate">Transformer</span>
 									</button>

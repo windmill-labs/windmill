@@ -84,8 +84,7 @@
 		} else if (!itemsExists(inlineScript.refreshOn, refresh)) {
 			inlineScript.refreshOn = [...inlineScript.refreshOn, refresh]
 		}
-		inlineScript = inlineScript
-		$app = $app
+		inlineScript = inlineScript // $app = $app
 	}
 </script>
 

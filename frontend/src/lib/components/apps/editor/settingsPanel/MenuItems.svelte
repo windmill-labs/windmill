@@ -23,8 +23,7 @@
 			...appComponentFromType('buttoncomponent')(`${id}_${actionId}`),
 			recomputeIds: []
 		}
-		components = [...components, newComponent]
-		$app = $app
+		components = [...components, newComponent] // $app = $app
 	}
 
 	function deleteComponent(cid: string) {
@@ -32,8 +31,7 @@
 
 		delete $errorByComponent[cid]
 
-		$selectedComponent = [id]
-		$app = $app
+		$selectedComponent = [id] // $app = $app
 	}
 </script>
 

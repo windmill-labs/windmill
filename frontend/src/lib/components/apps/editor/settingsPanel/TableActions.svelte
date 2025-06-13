@@ -68,8 +68,7 @@
 			}
 		]
 
-		components = [...components, newComponent]
-		$app = $app
+		components = [...components, newComponent] // $app = $app
 	}
 
 	function deleteComponent(cid: string, index: number) {
@@ -79,8 +78,7 @@
 		components = components.filter((x) => x.id !== cid)
 		delete $errorByComponent[cid]
 
-		$selectedComponent = [id]
-		$app = $app
+		$selectedComponent = [id] // $app = $app
 		// Remove the corresponding item from the items array
 		items = items.filter((item) => item.originalIndex !== index)
 	}

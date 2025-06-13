@@ -1,33 +1,31 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext } from '../../types'
 	import { connectInput } from '../appUtils'
 	import ComponentOutput from './ComponentOutput.svelte'
 
-	export let name: string | undefined = undefined
-	export let parentId: string
-	export let expanded: boolean = false
-	export let subGrids: string[]
-	export let nameOverrides: string[] | undefined = undefined
-	export let render: boolean
+	interface Props {
+		name?: string | undefined
+		parentId: string
+		expanded?: boolean
+		subGrids: string[]
+		nameOverrides?: string[] | undefined
+		render: boolean
+	}
+
+	let {
+		name = undefined,
+		parentId,
+		expanded = false,
+		subGrids,
+		nameOverrides = undefined,
+		render
+	}: Props = $props()
 	const { app, connectingInput, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	let selected = 0
-
-	$: outputs = $worldStore?.outputsById[parentId] as {
-		selectedTabIndex: Output<number>
-	}
-
-	$: subgridItems = subGrids.map((k) => ({
-		k,
-		items: $app.subgrids?.[k] ?? []
-	}))
-
-	$: if (outputs?.selectedTabIndex) {
-		subscribeToOutput()
-	}
+	let selected = $state(0)
 
 	function subscribeToOutput() {
 		outputs.selectedTabIndex.subscribe(
@@ -40,19 +38,37 @@
 			selected
 		)
 	}
+	let outputs = $derived(
+		$worldStore?.outputsById[parentId] as {
+			selectedTabIndex: Output<number>
+		}
+	)
+	let subgridItems = $derived(
+		subGrids.map((k) => ({
+			k,
+			items: app.subgrids?.[k] ?? []
+		}))
+	)
+	$effect(() => {
+		if (outputs?.selectedTabIndex) {
+			untrack(() => {
+				subscribeToOutput()
+			})
+		}
+	})
 </script>
 
 {#each subgridItems as { k, items }, index (k)}
 	<div class="ml-2 my-2">
 		{#if subGrids.length > 1 && render}
-			<!-- svelte-ignore a11y-click-events-have-key-events -->
-			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class={classNames(
 					'px-1 py-0.5 flex justify-between items-center font-semibold text-xs border-l border-y w-full cursor-pointer',
 					selected === index ? 'bg-surface-selected' : 'bg-surface'
 				)}
-				on:click={() => {
+				onclick={() => {
 					selected = index
 				}}
 			>
@@ -78,9 +94,6 @@
 							gridItem={subGridItem}
 							first={index === 0}
 							{expanded}
-							on:select={({ detail }) => {
-								$connectingInput = connectInput($connectingInput, subGridItem.id, detail)
-							}}
 						/>
 					{/each}
 				{:else}

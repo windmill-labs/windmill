@@ -29,7 +29,12 @@
 		cellRendererType: 'text' | 'badge' | 'link'
 	}
 
-	export let value: Column | undefined
+	interface Props {
+		value: Column | undefined
+		trigger?: import('svelte').Snippet
+	}
+
+	let { value = $bindable(), trigger }: Props = $props()
 
 	const presets = [
 		{
@@ -82,11 +87,15 @@
 		}
 	]
 
-	let renderCount = 0
+	let renderCount = $state(0)
 
-	$: if (value && value.cellRendererType === null) {
-		value.cellRendererType = 'text'
-	}
+	$effect.pre(() => {
+		if (value && value.cellRendererType === null) {
+			value.cellRendererType = 'text'
+		}
+	})
+
+	const trigger_render = $derived(trigger)
 </script>
 
 <Popover
@@ -97,10 +106,10 @@
 	}}
 	closeOnOtherPopoverOpen
 >
-	<svelte:fragment slot="trigger">
-		<slot name="trigger" />
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{#snippet trigger()}
+		{@render trigger_render?.()}
+	{/snippet}
+	{#snippet content()}
 		{#if value}
 			<div class="flex flex-col w-96 p-4 gap-4 max-h-[70vh] overflow-y-auto">
 				<span class="text-sm mb-2 leading-6 font-semibold">
@@ -132,7 +141,7 @@
 				</Label>
 
 				<Label label="Flex">
-					<svelte:fragment slot="header">
+					{#snippet header()}
 						<Tooltip
 							documentationLink="https://www.ag-grid.com/javascript-data-grid/column-sizing/#column-flex"
 						>
@@ -146,7 +155,7 @@
 							The column with flex: 2 has twice the size with flex: 1. So final sizes will be:
 							150px, 100px, 200px.
 						</Tooltip>
-					</svelte:fragment>
+					{/snippet}
 
 					<input type="range" step="1" bind:value={value.flex} min={1} max={12} />
 					<div class="text-xs">{value.flex}</div>
@@ -164,7 +173,7 @@
 				</Label>
 
 				<Label label="Value formatter">
-					<svelte:fragment slot="header">
+					{#snippet header()}
 						<Tooltip
 							documentationLink="https://www.ag-grid.com/javascript-data-grid/value-formatters/"
 						>
@@ -172,8 +181,8 @@
 							one type (e.g. numeric) but needs to be converted for human reading (e.g. putting in
 							currency symbols and number formatting).
 						</Tooltip>
-					</svelte:fragment>
-					<svelte:fragment slot="action">
+					{/snippet}
+					{#snippet action()}
 						<Button
 							size="xs"
 							color="light"
@@ -186,21 +195,20 @@
 						>
 							Clear
 						</Button>
-					</svelte:fragment>
+					{/snippet}
 				</Label>
 				<div>
 					{#key renderCount}
 						<div class="flex flex-col gap-4">
 							<div class="relative">
 								{#if !presets.find((preset) => preset.value === value?.valueFormatter)}
-									<div
-										class="z-50 absolute bg-opacity-50 bg-surface top-0 left-0 bottom-0 right-0"
+									<div class="z-50 absolute bg-opacity-50 bg-surface top-0 left-0 bottom-0 right-0"
 									></div>
 								{/if}
 								<div class="text-xs font-semibold">Presets</div>
 								<select
 									bind:value={value.valueFormatter}
-									on:change={() => {
+									onchange={() => {
 										renderCount++
 									}}
 									placeholder="Code"
@@ -231,12 +239,12 @@
 				</Label>
 
 				<Label label="Filter">
-					<svelte:fragment slot="header">
+					{#snippet header()}
 						<Tooltip documentationLink="https://www.ag-grid.com/javascript-data-grid/filtering/">
 							Filtering allows you to limit the rows displayed in your grid to those that match
 							criteria you specify.
 						</Tooltip>
-					</svelte:fragment>
+					{/snippet}
 					<Toggle
 						on:pointerdown={(e) => {
 							e?.stopPropagation()
@@ -248,36 +256,36 @@
 				</Label>
 
 				<!--
-		EE only
+			EE only
 
-		<Label label="Aggregation function">
-			<SimpleEditor autoHeight lang="javascript" bind:code={value.aggFunc} />
-		</Label>
+			<Label label="Aggregation function">
+				<SimpleEditor autoHeight lang="javascript" bind:code={value.aggFunc} />
+			</Label>
 
-		<Label label="Pivot">
-			<Toggle bind:checked={value.pivot} size="xs" />
-		</Label>
+			<Label label="Pivot">
+				<Toggle bind:checked={value.pivot} size="xs" />
+			</Label>
 
-		<Label label="Pivot index">
-			<input type="number" placeholder="pivot index" bind:value={value.pivotIndex} />
-		</Label>
+			<Label label="Pivot index">
+				<input type="number" placeholder="pivot index" bind:value={value.pivotIndex} />
+			</Label>
 
-		<Label label="Pinned">
-			<select bind:value={value.pinned}>
-				<option value={null}>None</option>
-				<option value="left">Left</option>
-				<option value="right">Right</option>
-			</select>
-		</Label>
+			<Label label="Pinned">
+				<select bind:value={value.pinned}>
+					<option value={null}>None</option>
+					<option value="left">Left</option>
+					<option value="right">Right</option>
+				</select>
+			</Label>
 
-		<Label label="Row group">
-			<Toggle bind:checked={value.rowGroup} size="xs" />
-		</Label>
+			<Label label="Row group">
+				<Toggle bind:checked={value.rowGroup} size="xs" />
+			</Label>
 
-		<Label label="Row group index">
-			<input type="number" placeholder="row group index" bind:value={value.rowGroupIndex} />
-		</Label>
-		 -->
+			<Label label="Row group index">
+				<input type="number" placeholder="row group index" bind:value={value.rowGroupIndex} />
+			</Label>
+			 -->
 
 				<Label label="Type">
 					<select bind:value={value.cellRendererType}>
@@ -302,5 +310,5 @@
 				{/if}
 			</div>
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 </Popover>

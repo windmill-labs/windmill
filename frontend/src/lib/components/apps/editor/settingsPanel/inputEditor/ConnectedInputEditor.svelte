@@ -11,7 +11,7 @@
 
 	function applyConnection(connection: InputConnection) {
 		componentInput.connection = connection
-		$app = $app
+		// $app = $app
 	}
 </script>
 
@@ -33,7 +33,7 @@
 			if (componentInput.type === 'connected') {
 				componentInput.connection = undefined
 			}
-			$app = $app
+			// $app = $app
 		}}
 	>
 		Disconnect

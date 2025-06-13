@@ -18,11 +18,11 @@
 
 	function deleteBackgroundScript(index: number) {
 		// remove the script from the array at the index
-		if ($app.hiddenInlineScripts.length - 1 == index) {
-			$app.hiddenInlineScripts.splice(index, 1)
-			$app.hiddenInlineScripts = [...$app.hiddenInlineScripts]
+		if (app.hiddenInlineScripts.length - 1 == index) {
+			app.hiddenInlineScripts.splice(index, 1)
+			app.hiddenInlineScripts = [...app.hiddenInlineScripts]
 		} else {
-			$app.hiddenInlineScripts[index] = {
+			app.hiddenInlineScripts[index] = {
 				hidden: true,
 				inlineScript: undefined,
 				name: `Background Runnable ${index}`,
@@ -30,7 +30,7 @@
 				type: 'runnableByName',
 				recomputeIds: undefined
 			}
-			$app.hiddenInlineScripts = $app.hiddenInlineScripts
+			app.hiddenInlineScripts = app.hiddenInlineScripts
 		}
 
 		$selectedComponentInEditor = undefined
@@ -40,24 +40,33 @@
 		}
 	}
 
-	$: gridItem =
+	let gridItem = $derived(
 		$selectedComponentInEditor && !$selectedComponentInEditor.startsWith(BG_PREFIX)
-			? findGridItem($app, $selectedComponentInEditor?.split('_')?.[0])
+			? findGridItem(app, $selectedComponentInEditor?.split('_')?.[0])
 			: undefined
-
-	$: hiddenInlineScript = $app?.hiddenInlineScripts?.findIndex((k_, index) => {
-		const [prefix, id] = $selectedComponentInEditor?.split('_') || []
-
-		if (prefix !== 'bg') return false
-
-		return Number(id) === index
-	})
-
-	$: unusedInlineScript = $app?.unusedInlineScripts?.findIndex(
-		(k_, index) => `unused-${index}` === $selectedComponentInEditor
 	)
 
-	export let width: number | undefined = undefined
+	let hiddenInlineScript = $derived(
+		app?.hiddenInlineScripts?.findIndex((k_, index) => {
+			const [prefix, id] = $selectedComponentInEditor?.split('_') || []
+
+			if (prefix !== 'bg') return false
+
+			return Number(id) === index
+		})
+	)
+
+	let unusedInlineScript = $derived(
+		app?.unusedInlineScripts?.findIndex(
+			(k_, index) => `unused-${index}` === $selectedComponentInEditor
+		)
+	)
+
+	interface Props {
+		width?: number | undefined
+	}
+
+	let { width = undefined }: Props = $props()
 </script>
 
 <Splitpanes
@@ -86,24 +95,24 @@
 					bind:gridItem
 				/>
 			{/key}
-		{:else if unusedInlineScript > -1 && $app.unusedInlineScripts?.[unusedInlineScript]}
+		{:else if unusedInlineScript > -1 && app.unusedInlineScripts?.[unusedInlineScript]}
 			{#key unusedInlineScript}
 				<InlineScriptEditor
 					on:createScriptFromInlineScript={() =>
 						sendUserToast('Cannot save to workspace unused scripts', true)}
 					id={`unused-${unusedInlineScript}`}
-					bind:name={$app.unusedInlineScripts[unusedInlineScript].name}
-					bind:inlineScript={$app.unusedInlineScripts[unusedInlineScript].inlineScript}
+					bind:name={app.unusedInlineScripts[unusedInlineScript].name}
+					bind:inlineScript={app.unusedInlineScripts[unusedInlineScript].inlineScript}
 					on:delete={() => {
 						// remove the script from the array at the index
-						$app.unusedInlineScripts.splice(unusedInlineScript, 1)
-						$app.unusedInlineScripts = [...$app.unusedInlineScripts]
+						app.unusedInlineScripts.splice(unusedInlineScript, 1)
+						app.unusedInlineScripts = [...app.unusedInlineScripts]
 					}}
 				/>
 			{/key}
 		{:else if hiddenInlineScript > -1}
 			{#key hiddenInlineScript}
-				{#if $app.hiddenInlineScripts?.[hiddenInlineScript]}
+				{#if app.hiddenInlineScripts?.[hiddenInlineScript]}
 					<InlineScriptHiddenRunnable
 						on:createScriptFromInlineScript={(e) => {
 							createScriptFromInlineScript(
@@ -111,13 +120,12 @@
 								e.detail,
 								$workspaceStore ?? '',
 								$appPath
-							)
-							$app = $app
+							) // app = app
 						}}
 						transformer={$selectedComponentInEditor?.endsWith('_transformer')}
 						on:delete={() => deleteBackgroundScript(hiddenInlineScript)}
 						id={BG_PREFIX + hiddenInlineScript}
-						bind:runnable={$app.hiddenInlineScripts[hiddenInlineScript]}
+						bind:runnable={app.hiddenInlineScripts[hiddenInlineScript]}
 					/>{/if}{/key}
 		{:else}
 			<div class="text-sm text-tertiary text-center py-8 px-2">

@@ -14,10 +14,14 @@
 	} from '../utils'
 	import { updateProgress } from '$lib/tutorialUtils'
 
-	export let name: string
-	export let index: number
+	interface Props {
+		name: string
+		index: number
+	}
 
-	let tutorial: Tutorial | undefined = undefined
+	let { name, index }: Props = $props()
+
+	let tutorial: Tutorial | undefined = $state(undefined)
 
 	const { app, selectedComponent, focusedGrid, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -28,16 +32,15 @@
 	}
 
 	function addComponent(appComponentType: TypedComponent['type']): void {
-		push(history, $app)
+		push(history, app)
 
 		const id = insertNewGridItem(
-			$app,
+			app,
 			appComponentFromType(appComponentType) as (id: string) => AppComponent,
 			$focusedGrid
 		)
 
-		$selectedComponent = [id]
-		$app = $app
+		$selectedComponent = [id] // $app = $app
 	}
 </script>
 
@@ -47,7 +50,7 @@
 	{name}
 	on:error
 	on:skipAll
-	tainted={isAppTainted($app)}
+	tainted={isAppTainted(app)}
 	getSteps={(driver) => {
 		const steps = [
 			{
@@ -186,7 +189,7 @@
 						setTimeout(() => {
 							if ($selectedComponent?.[0]) {
 								updateInlineRunnableCode(
-									$app,
+									app,
 									$selectedComponent[0],
 									`export async function main(x: string) {
   return x?.toLocaleUpperCase();
@@ -265,9 +268,7 @@
 					description:
 						'We can now type in the text input and see the result in the display component',
 					onNextClick: () => {
-						connectInlineRunnableInputToComponentOutput($app, 'e', 'x', 'd', 'result', 'integer')
-
-						$app = $app
+						connectInlineRunnableInputToComponentOutput(app, 'e', 'x', 'd', 'result', 'integer') // $app = $app
 
 						updateProgress(7)
 

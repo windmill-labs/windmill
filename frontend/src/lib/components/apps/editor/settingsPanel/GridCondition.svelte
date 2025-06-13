@@ -60,8 +60,7 @@
 			$app!.subgrids = {
 				...$app!.subgrids,
 				...newSubgrids
-			}
-			$app = $app
+			} // $app = $app
 
 			tick().then(() => {
 				const targetIndex = items.findIndex((i) => i.id === e.detail.info.id)
@@ -94,8 +93,7 @@
 		})
 		items = nitems
 
-		delete $app!.subgrids![`${component.id}-${items.length + 1}`]
-		$app = $app
+		delete $app!.subgrids![`${component.id}-${items.length + 1}`] // $app = $app
 	}
 
 	function addCondition(): void {

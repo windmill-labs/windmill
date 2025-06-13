@@ -86,8 +86,7 @@
 		delete $app!.subgrids![`${component.id}-${nodes.length}`]
 
 		nodes = nodes
-		component.numberOfSubgrids = nodes.length
-		$app = $app
+		component.numberOfSubgrids = nodes.length // $app = $app
 	}
 
 	function nodeCallbackHandler(
