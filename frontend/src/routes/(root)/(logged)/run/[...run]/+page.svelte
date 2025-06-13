@@ -81,13 +81,13 @@
 	import { json } from 'svelte-highlight/languages'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import WorkflowTimeline from '$lib/components/WorkflowTimeline.svelte'
-	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 	import PreprocessedArgsDisplay from '$lib/components/runs/PreprocessedArgsDisplay.svelte'
 	import ExecutionDuration from '$lib/components/ExecutionDuration.svelte'
 	import CustomPopover from '$lib/components/CustomPopover.svelte'
 	import { isWindmillTooBigObject } from '$lib/components/job_args'
+	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 
 	let job: Job | undefined
 	let jobUpdateLastFetch: Date | undefined
@@ -755,7 +755,7 @@
 								<Badge color="blue">priority: {job.priority}</Badge>
 							</div>
 						{/if}
-						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'oracledb', 'nativets', 'bash', 'powershell', 'php', 'rust', 'other', 'ansible', 'csharp', 'nu', 'java', 'dependency', 'ruby'].includes(job.tag)}
+						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'oracledb', 'nativets', 'bash', 'powershell', 'php', 'rust', 'other', 'ansible', 'csharp', 'nu', 'java', 'duckdb', 'dependency', 'ruby'].includes(job.tag)}
 							<!-- for related places search: ADD_NEW_LANG -->
 							<div>
 								<Badge color="indigo">Tag: {job.tag}</Badge>
@@ -955,18 +955,22 @@
 				class="py-4 max-w-7xl mx-auto px-4"
 			/>
 			<div class="w-full mt-10">
-				<FlowStatusViewer
-					jobId={job?.id ?? ''}
-					on:jobsLoaded={({ detail }) => {
-						job = detail
-					}}
-					on:done={(e) => {
-						job = e.detail
-					}}
-					initialJob={job}
-					workspaceId={$workspaceStore}
-					bind:selectedJobStep
-				/>
+				{#if job?.id}
+					<FlowStatusViewer
+						jobId={job?.id ?? ''}
+						on:jobsLoaded={({ detail }) => {
+							job = detail
+						}}
+						on:done={(e) => {
+							job = e.detail
+						}}
+						initialJob={job}
+						workspaceId={$workspaceStore}
+						bind:selectedJobStep
+					/>
+				{:else}
+					<Skeleton layout={[[5]]} />
+				{/if}
 			</div>
 		{/if}
 	</div>

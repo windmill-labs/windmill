@@ -4,6 +4,8 @@ import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
 import type { FlowState } from './flowState'
 import type { FlowBuilderWhitelabelCustomUi } from '../custom_ui'
+import type Editor from '../Editor.svelte'
+import type SimpleEditor from '../SimpleEditor.svelte'
 
 export type FlowInput = Record<
 	string,
@@ -39,8 +41,25 @@ export type FlowInputEditorState = {
 	payloadData: Record<string, any> | undefined
 }
 
+export type CurrentEditor =
+	| ((
+			| {
+					type: 'script'
+					editor: Editor
+					showDiffMode: () => void
+					hideDiffMode: () => void
+					diffMode: boolean
+					lastDeployedCode: string | undefined
+			  }
+			| { type: 'iterator'; editor: SimpleEditor }
+	  ) & {
+			stepId: string
+	  })
+	| undefined
+
 export type FlowEditorContext = {
 	selectedId: Writable<string>
+	currentEditor: Writable<CurrentEditor>
 	moving: Writable<{ module: FlowModule; modules: FlowModule[] } | undefined>
 	previewArgs: Writable<Record<string, any>>
 	scriptEditorDrawer: Writable<ScriptEditorDrawer | undefined>

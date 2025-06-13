@@ -22,7 +22,8 @@ use crate::{
     error::Error,
     more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
     scripts::{Schema, ScriptHash, ScriptLang},
-    worker::to_raw_value,
+    worker::{to_raw_value, Connection},
+    DB,
 };
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]
@@ -135,10 +136,11 @@ pub struct FlowValue {
     pub concurrency_key: Option<String>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Default, Deserialize, Serialize, Debug, Clone)]
 pub struct StopAfterIf {
     pub expr: String,
     pub skip_if_stopped: bool,
+    pub error_message: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
@@ -731,7 +733,7 @@ pub async fn resolve_maybe_value<T>(
 }
 
 /// Resolve modules recursively.
-pub async fn resolve_value(
+async fn resolve_value(
     e: &sqlx::PgPool,
     workspace_id: &str,
     value: &mut Box<JsonRawValue>,
@@ -749,7 +751,7 @@ pub async fn resolve_value(
 
 /// Resolve module value recursively.
 pub async fn resolve_module(
-    e: &sqlx::PgPool,
+    db: &DB,
     workspace_id: &str,
     value: &mut Box<JsonRawValue>,
     with_code: bool,
@@ -783,7 +785,7 @@ pub async fn resolve_module(
             let (lock, content) = if !with_code {
                 (Some("...".to_string()), "...".to_string())
             } else {
-                cache::flow::fetch_script(e, id)
+                cache::flow::fetch_script(&Connection::Sql(db.clone()), id)
                     .await
                     .map(|data| (data.lock.clone(), data.code.clone()))?
             };
@@ -801,13 +803,13 @@ pub async fn resolve_module(
             };
         }
         ForloopFlow { modules, modules_node, .. } | WhileloopFlow { modules, modules_node, .. } => {
-            resolve_modules(e, workspace_id, modules, modules_node.take(), with_code).await?;
+            resolve_modules(db, workspace_id, modules, modules_node.take(), with_code).await?;
         }
         BranchOne { branches, default, default_node } => {
-            resolve_modules(e, workspace_id, default, default_node.take(), with_code).await?;
+            resolve_modules(db, workspace_id, default, default_node.take(), with_code).await?;
             for branch in branches {
                 resolve_modules(
-                    e,
+                    db,
                     workspace_id,
                     &mut branch.modules,
                     branch.modules_node.take(),
@@ -819,7 +821,7 @@ pub async fn resolve_module(
         BranchAll { branches, .. } => {
             for branch in branches {
                 resolve_modules(
-                    e,
+                    db,
                     workspace_id,
                     &mut branch.modules,
                     branch.modules_node.take(),

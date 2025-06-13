@@ -1,5 +1,7 @@
 import type { CaptureTriggerKind, TriggersCount } from '$lib/gen'
-import type { Writable } from 'svelte/store'
+import { type Writable } from 'svelte/store'
+import { formatCron } from '$lib/utils'
+import { Triggers } from './triggers/triggers.svelte'
 
 export type ScheduleTrigger = {
 	summary: string | undefined
@@ -11,34 +13,32 @@ export type ScheduleTrigger = {
 }
 
 export type TriggerContext = {
-	selectedTrigger: Writable<TriggerKind>
-	primarySchedule: Writable<ScheduleTrigger | undefined | false>
 	triggersCount: Writable<TriggersCount | undefined>
 	simplifiedPoll: Writable<boolean | undefined>
-	defaultValues: Writable<Record<string, any> | undefined>
-	captureOn: Writable<boolean | undefined>
 	showCaptureHint: Writable<boolean | undefined>
+	triggersState: Triggers
 }
 
 export function setScheduledPollSchedule(
-	primarySchedule: Writable<ScheduleTrigger | undefined | false>,
+	triggersState: Triggers,
 	triggersCount: Writable<TriggersCount | undefined>
 ) {
-	const cron = '0 */5 * * * *'
-	primarySchedule.set({
-		enabled: true,
-		summary: 'Check for new events every 5 minutes',
-		cron: cron,
-		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-		args: {}
-	})
-	triggersCount.update((triggersCount) => {
-		return {
-			...(triggersCount ?? {}),
-			schedule_count: (triggersCount?.schedule_count ?? 0) + 1,
-			primary_schedule: { schedule: cron }
+	const primarySchedule = triggersState.triggers.findIndex((t) => t.isPrimary)
+	if (primarySchedule !== -1) {
+		triggersState.selectedTriggerIndex = primarySchedule
+	} else {
+		const draftCfg = {
+			enabled: true,
+			summary: 'Check for new events every 5 minutes',
+			schedule: formatCron('0 */5 * * * *'),
+			timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+			args: {},
+			is_flow: true
 		}
-	})
+
+		triggersState.addDraftTrigger(triggersCount, 'schedule', undefined, draftCfg)
+		triggersState.selectedTriggerIndex = triggersState.triggers.length - 1
+	}
 }
 
 export type TriggerKind =
@@ -54,6 +54,7 @@ export type TriggerKind =
 	| 'postgres'
 	| 'mqtt'
 	| 'sqs'
+	| 'gcp'
 export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): TriggerKind {
 	switch (kind) {
 		case 'webhook':
@@ -73,7 +74,9 @@ export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): Trigg
 		case 'sqs':
 			return 'sqs'
 		case 'postgres':
-			return  'postgres'
+			return 'postgres'
+		case 'gcp':
+			return 'gcp'
 		default:
 			throw new Error(`Unknown CaptureTriggerKind: ${kind}`)
 	}

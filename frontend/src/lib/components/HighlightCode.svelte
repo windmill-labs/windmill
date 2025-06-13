@@ -55,6 +55,8 @@
 				return sql
 			case 'oracledb':
 				return sql
+			case 'duckdb':
+				return sql
 			case 'powershell':
 				return powershell
 			case 'php':
@@ -66,7 +68,7 @@
 			case 'nu':
 				return python
 			case 'ansible':
-				return yaml;
+				return yaml
 			case 'java':
 				return java;
 			case 'ruby':

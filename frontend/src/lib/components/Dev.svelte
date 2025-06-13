@@ -1,7 +1,7 @@
 <script lang="ts">
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
-	import { Button, Drawer } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
 	import LogPanel from '$lib/components/scriptEditor/LogPanel.svelte'
 	import {
@@ -14,8 +14,6 @@
 		type FlowModule,
 		WorkspaceService,
 		type InputTransform,
-		type RawScript,
-		type PathScript,
 		type TriggersCount
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
@@ -39,18 +37,18 @@
 	import { CornerDownLeft, Play } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
-	import type { FlowCopilotContext, FlowCopilotModule } from './copilot/flow'
-	import { pickScript } from './flows/flowStateUtils'
+	import type { FlowCopilotContext } from './copilot/flow'
 	import {
 		approximateFindPythonRelativePath,
 		isTypescriptRelativePath,
 		parseTypescriptDeps
 	} from '$lib/relative_imports'
 	import Tooltip from './Tooltip.svelte'
-	import type { ScheduleTrigger, TriggerContext } from './triggers'
+	import type { TriggerContext } from './triggers'
 	import { workspaceAIClients } from './copilot/lib'
 	import type { FlowPropPickerConfig, PropPickerContext } from './prop_picker'
 	import type { PickableProperties } from './flows/previousResults'
+	import { Triggers } from './triggers/triggers.svelte'
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
 	$: workspace = $page.url.searchParams.get('workspace') ?? undefined
 	$: themeDarkRaw = $page.url.searchParams.get('activeColorTheme')
@@ -63,10 +61,6 @@
 	}
 
 	let flowCopilotContext: FlowCopilotContext = {
-		drawerStore: writable<Drawer | undefined>(undefined),
-		modulesStore: writable<FlowCopilotModule[]>([]),
-		currentStepStore: writable<string | undefined>(undefined),
-		genFlow,
 		shouldUpdatePropertyType: writable<{
 			[key: string]: 'static' | 'javascript' | undefined
 		}>({}),
@@ -77,33 +71,6 @@
 			[key: string]: string | undefined
 		}>({}),
 		stepInputsLoading: writable<boolean>(false)
-	}
-	const { modulesStore } = flowCopilotContext
-
-	async function genFlow(idx: number, flowModules: FlowModule[], stepOnly = false) {
-		let module = stepOnly ? $modulesStore[0] : $modulesStore[idx]
-
-		if (module && module.selectedCompletion) {
-			const [hubScriptModule, hubScriptState] = await pickScript(
-				module.selectedCompletion.path,
-				`${module.selectedCompletion.summary} (${module.selectedCompletion.app})`,
-				module.id,
-				undefined
-			)
-			const flowModule: FlowModule & {
-				value: RawScript | PathScript
-			} = {
-				id: module.id,
-				value: hubScriptModule.value,
-				summary: hubScriptModule.summary
-			}
-
-			$flowStateStore[module.id] = hubScriptState
-
-			flowModules.splice(idx, 0, flowModule)
-			$flowStore = $flowStore
-			sendUserToast('Added module', false)
-		}
 	}
 
 	setContext('FlowCopilotContext', flowCopilotContext)
@@ -493,20 +460,13 @@
 
 	const testStepStore = writable<Record<string, any>>({})
 	const selectedIdStore = writable('settings-metadata')
-	const selectedTriggerStore = writable<
-		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll'
-	>('webhooks')
 
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
-		primarySchedule: primaryScheduleStore,
-		selectedTrigger: selectedTriggerStore,
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),
-		defaultValues: writable(undefined),
-		captureOn: writable(undefined),
-		showCaptureHint: writable(undefined)
+		showCaptureHint: writable(undefined),
+		triggersState: new Triggers()
 	})
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
@@ -529,7 +489,8 @@
 			selectedTab: undefined,
 			editPanelSize: undefined,
 			payloadData: undefined
-		})
+		}),
+		currentEditor: writable(undefined)
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),

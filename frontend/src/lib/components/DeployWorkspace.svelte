@@ -230,7 +230,8 @@
 				'routes',
 				'schedules',
 				'sqs',
-				'websockets'
+				'websockets',
+				'gcp'
 			]
 			if (
 				additionalInformation?.triggers &&

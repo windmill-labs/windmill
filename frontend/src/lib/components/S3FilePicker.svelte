@@ -41,16 +41,18 @@
 	export let fromWorkspaceSettings: boolean = false
 	export let readOnlyMode: boolean
 
-	export let initialFileKey: { s3: string } | undefined = undefined
-	let initialFileKeyInternalCopy: { s3: string }
-	export let selectedFileKey: { s3: string } | undefined = undefined
+	export let initialFileKey: { s3: string; storage?: string } | undefined = undefined
+	let initialFileKeyInternalCopy: { s3: string; storage?: string }
+	export let selectedFileKey: { s3: string; storage?: string } | undefined = undefined
 	export let folderOnly = false
 	export let regexFilter: RegExp | undefined = undefined
 
 	let csvSeparatorChar: string = ','
 	let csvHasHeader: boolean = true
 
-	let dispatch = createEventDispatcher()
+	let dispatch = createEventDispatcher<{
+		close: { s3: string; storage: string | undefined } | undefined
+	}>()
 
 	let drawer: Drawer
 
@@ -296,7 +298,7 @@
 			deletionModalOpen = false
 		}
 		sendUserToast(`${fileKey} deleted from S3 bucket`)
-		selectedFileKey = { s3: '' }
+		selectedFileKey = { s3: '', storage }
 		const currentPage = page
 		await clearAndLoadFiles()
 		for (let i = 0; i < currentPage; i++) {
@@ -357,7 +359,7 @@
 			moveModalOpen = false
 		}
 		sendUserToast(`${srcFileKey} moved to ${destFileKey}`)
-		selectedFileKey = { s3: destFileKey! }
+		selectedFileKey = { s3: destFileKey!, storage }
 		await clearAndLoadFiles()
 		await loadFileMetadataPlusPreviewAsync(selectedFileKey.s3)
 	}
@@ -395,7 +397,7 @@
 		await clearAndLoadFiles()
 		if (selectedFileKey !== undefined) {
 			if (allFilesByKey[selectedFileKey.s3] === undefined) {
-				selectedFileKey = { s3: '' }
+				selectedFileKey = { s3: '', storage }
 			} else {
 				loadFileMetadataPlusPreviewAsync(selectedFileKey.s3)
 			}
@@ -419,7 +421,8 @@
 		if (item.type === 'folder') {
 			if (folderOnly) {
 				selectedFileKey = {
-					s3: item_key
+					s3: item_key,
+					storage
 				}
 			}
 			if (toggleCollapsed) {
@@ -454,7 +457,8 @@
 			displayedFileKeys = displayedFileKeys.sort()
 		} else {
 			selectedFileKey = {
-				s3: item_key
+				s3: item_key,
+				storage
 			}
 			loadFileMetadataPlusPreviewAsync(selectedFileKey.s3)
 		}
@@ -466,7 +470,15 @@
 <Drawer
 	bind:this={drawer}
 	on:close={() => {
-		dispatch('close')
+		dispatch(
+			'close',
+			selectedFileKey?.s3
+				? {
+						s3: selectedFileKey.s3,
+						storage: storage
+					}
+				: undefined
+		)
 	}}
 	size="1200px"
 >
@@ -789,7 +801,7 @@
 		deleteFileFromS3(fileMetadata?.fileKey)
 	}}
 	keyListen={false}
-	bind:loading={fileDeletionInProgress}
+	loading={fileDeletionInProgress}
 >
 	<div class="flex flex-col w-full space-y-4">
 		<span
@@ -809,7 +821,7 @@
 		moveS3File(fileMetadata?.fileKey, moveDestKey)
 	}}
 	keyListen={false}
-	bind:loading={fileMoveInProgress}
+	loading={fileMoveInProgress}
 >
 	<div class="flex flex-col space-y-4">
 		<div class="flex items-center justify-between">
@@ -831,7 +843,7 @@
 	on:close={async (evt) => {
 		uploadModalOpen = false
 		if (evt.detail !== undefined && evt.detail !== null) {
-			selectedFileKey = { s3: evt.detail }
+			selectedFileKey = { s3: evt.detail, storage }
 			await clearAndLoadFiles()
 			loadFileMetadataPlusPreviewAsync(evt.detail)
 		}

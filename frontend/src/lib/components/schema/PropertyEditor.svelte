@@ -15,6 +15,7 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import { createEventDispatcher, onMount } from 'svelte'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let description: string = ''
 	export let format: string | undefined = undefined
@@ -43,6 +44,7 @@
 		| undefined = undefined
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 	let el: HTMLTextAreaElement | undefined = undefined
 
 	let oneOfSelected: string | undefined =
@@ -53,7 +55,9 @@
 			oneOfSchemas = oneOf.map((obj) => {
 				return {
 					properties: obj.properties
-						? Object.fromEntries(Object.entries(obj.properties).filter(([k, v]) => k !== 'label'))
+						? Object.fromEntries(
+								Object.entries(obj.properties).filter(([k, v]) => k !== 'label' && k !== 'kind')
+							)
 						: {},
 					order: obj.order
 				}
@@ -102,7 +106,7 @@
 		if (!deepEqual(extra, initialExtra)) {
 			initialExtra = structuredClone(extra)
 			console.debug('property content updated')
-			dispatch('change')
+			dispatchIfMounted('change')
 		}
 	}
 
@@ -115,7 +119,7 @@
 				order
 			}
 			console.debug('property schema updated')
-			dispatch('change')
+			dispatchIfMounted('change')
 		}
 	}
 </script>

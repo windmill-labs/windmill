@@ -12,65 +12,110 @@
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import { emptyString } from '$lib/utils'
 
-	export let acceptedFileTypes: string[] | undefined = ['*']
-	export let allowMultiple: boolean = true
-	export let allowDelete = true
-	export let folderOnly = false
-	export let containerText: string = folderOnly
-		? 'Drag and drop a folder here or click to browse'
-		: allowMultiple
-		? 'Drag and drop files here or click to browse'
-		: 'Drag and drop a file here or click to browse'
-	export let customResourcePath: string | undefined = undefined
-	export let customResourceType: 's3' | 'azure_blob' | undefined = undefined // when customResourcePath is provided, this should be provided as well. Will default to S3 if not
-	export let customClass: string = ''
-	export let customStyle: string = ''
-	export let randomFileKey: boolean = false
-	export let pathTransformer: any = undefined // function taking as input {file: File} and returning a string
-	export let forceDisplayUploads: boolean = false
-	export let defaultValue: string | undefined = undefined
-	export let workspace: string | undefined = undefined
-	export let fileUploads: Writable<FileUploadData[]> = writable([])
-	export let appPath: string | undefined = undefined
-	export let disabled = false
-	export let iconSize: number | undefined = undefined
-	export let initialValue:
-		| {
-				s3: string
-				filename: string
-		  }
-		| undefined = undefined
+	interface Props {
+		acceptedFileTypes?: string[] | undefined
+		allowMultiple?: boolean
+		allowDelete?: boolean
+		folderOnly?: boolean
+		containerText?: string
+		customResourcePath?: string | undefined
+		customResourceType?: 's3' | 'azure_blob' | undefined // when customResourcePath is provided, this should be provided as well. Will default to S3 if not
+		customClass?: string
+		customStyle?: string
+		randomFileKey?: boolean
+		pathTransformer?: any // function taking as input {file: File} and returning a string
+		forceDisplayUploads?: boolean
+		defaultValue?: string | string[] | undefined
+		workspace?: string | undefined
+		fileUploads?: Writable<FileUploadData[]>
+		appPath?: string | undefined
+		disabled?: boolean
+		iconSize?: number | undefined
+		initialValue?:
+			| {
+					s3: string
+					filename: string
+			  }
+			| {
+					s3: string
+					filename: string
+			  }[]
+			| undefined
+		computeForceViewerPolicies?:
+			| (() =>
+					| {
+							allowed_resources: string[]
+							allow_user_resources: boolean
+							allow_workspace_resource: boolean
+							file_key_regex: string
+					  }
+					| undefined)
+			| undefined
+	}
 
+	let {
+		acceptedFileTypes = ['*'],
+		allowMultiple = true,
+		allowDelete = true,
+		folderOnly = false,
+		containerText = folderOnly
+			? 'Drag and drop a folder here or click to browse'
+			: allowMultiple
+				? 'Drag and drop files here or click to browse'
+				: 'Drag and drop a file here or click to browse',
+		customResourcePath = undefined,
+		customResourceType = undefined,
+		customClass = '',
+		customStyle = '',
+		randomFileKey = false,
+		pathTransformer = undefined,
+		forceDisplayUploads = $bindable(false),
+		defaultValue = undefined,
+		workspace = undefined,
+		fileUploads = writable([]),
+		appPath = undefined,
+		disabled = false,
+		iconSize = undefined,
+		initialValue = undefined,
+		computeForceViewerPolicies = undefined
+	}: Props = $props()
+
+	const dispatch = createEventDispatcher<{
+		addition: { path?: string; filename?: string }
+		deletion: { path: string }
+	}>()
+
+	let initialS3 = $derived(
+		Array.isArray(initialValue)
+			? initialValue?.map((v) => v.s3)
+			: initialValue?.s3
+				? [initialValue?.s3]
+				: undefined
+	)
 	init()
 
 	function init() {
-		if (initialValue?.s3) {
-			if (!$fileUploads.find((fileUpload) => fileUpload.path === initialValue?.s3)) {
-				$fileUploads = [
-					...$fileUploads,
-					{
-						name: initialValue.filename,
-						size: 0,
-						progress: 100,
-						path: initialValue?.s3
-					}
-				]
+		if (initialS3) {
+			function transform(initialValue: { s3: string; filename: string }) {
+				return {
+					name: initialValue.filename,
+					size: 0,
+					progress: 100,
+					path: initialValue?.s3
+				}
+			}
+			for (const s3 of initialS3) {
+				if (!$fileUploads.find((fileUpload) => fileUpload.path === s3)) {
+					let initialFileUploads = initialValue
+						? Array.isArray(initialValue)
+							? initialValue.map(transform)
+							: [transform(initialValue)]
+						: []
+					$fileUploads = [...$fileUploads, ...initialFileUploads]
+				}
 			}
 		}
 	}
-
-	export let computeForceViewerPolicies:
-		| (() =>
-				| {
-						allowed_resources: string[]
-						allow_user_resources: boolean
-						allow_workspace_resource: boolean
-						file_key_regex: string
-				  }
-				| undefined)
-		| undefined = undefined
-
-	const dispatch = createEventDispatcher()
 
 	type FileUploadData = {
 		name: string
@@ -146,9 +191,9 @@
 		} else {
 			path =
 				typeof pathTransformer == 'function'
-					? (await pathTransformer?.({
+					? ((await pathTransformer?.({
 							file: fileToUpload
-					  })) ?? fileToUploadKey
+						})) ?? fileToUploadKey)
 					: fileToUploadKey
 		}
 		const uploadData: FileUploadData = {
@@ -269,10 +314,10 @@
 					appPath
 						? `/api/w/${
 								workspace ?? $workspaceStore
-						  }/apps_u/upload_s3_file/${appPath}?${params.toString()}`
+							}/apps_u/upload_s3_file/${appPath}?${params.toString()}`
 						: `/api/w/${
 								workspace ?? $workspaceStore
-						  }/job_helpers/upload_s3_file?${params.toString()}`,
+							}/job_helpers/upload_s3_file?${params.toString()}`,
 					true
 				)
 				xhr?.setRequestHeader('Content-Type', 'application/octet-stream')
@@ -469,10 +514,10 @@
 							color={fileUpload.errorMessage
 								? '#ef4444'
 								: fileUpload.cancelled
-								? '#eab308'
-								: fileUpload.progress === 100
-								? '#22c55e'
-								: '#3b82f6'}
+									? '#eab308'
+									: fileUpload.progress === 100
+										? '#22c55e'
+										: '#3b82f6'}
 							ended={fileUpload.cancelled || fileUpload.errorMessage !== undefined}
 						>
 							{#if fileUpload.errorMessage}
@@ -551,10 +596,10 @@
 			{containerText}{#if disabled}<br />(Disabled){/if}
 		</FileInput>
 	{/if}
-	{#if initialValue?.s3 && $fileUploads.length == 0}
+	{#if initialS3 && initialS3.length > 0 && $fileUploads.length == 0}
 		<div class="flex flex-row gap-1 items-center p-1">
 			<span class="text-sm">
-				File currently selected: {initialValue?.s3}
+				File currently selected: {initialS3?.join(', ')}
 			</span>
 		</div>
 	{/if}

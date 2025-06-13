@@ -547,6 +547,8 @@ export function filePathExtensionFromContentType(
     return ".my.sql";
   } else if (language === "bigquery") {
     return ".bq.sql";
+  } else if (language === "duckdb") {
+    return ".duckdb.sql";
   } else if (language === "oracledb") {
     return ".odb.sql";
   } else if (language === "snowflake") {
@@ -595,6 +597,7 @@ export const exts = [
   ".odb.sql",
   ".sf.sql",
   ".ms.sql",
+  ".duckdb.sql",
   ".sql",
   ".gql",
   ".ps1",
@@ -606,7 +609,6 @@ export const exts = [
   ".java",
   ".rb"
   // for related places search: ADD_NEW_LANG 
-
 ];
 
 export function removeExtensionToPath(path: string): string {

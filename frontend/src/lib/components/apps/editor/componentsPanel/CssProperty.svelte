@@ -18,6 +18,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { tailwindClasses } from './tailwindUtils'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let name: string
 	export let value: ComponentCssProperty = {}
@@ -33,9 +34,10 @@
 	export let wmClass: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 	let isQuickMenuOpen = false
 
-	$: dispatch('change', value)
+	$: dispatchIfMounted('change', value)
 
 	function toggleQuickMenu() {
 		try {

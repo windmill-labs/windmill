@@ -16,7 +16,7 @@ use sqlx::{
 };
 
 use tokio::task::JoinHandle;
-use windmill_audit::audit_ee::{AuditAuthor, AuditAuthorable};
+use windmill_audit::audit_oss::{AuditAuthor, AuditAuthorable};
 use windmill_common::{
     db::{Authable, Authed},
     error::Error,
@@ -47,6 +47,9 @@ lazy_static::lazy_static! {
                     ).replace("public.", "")),
                     (20250102145420, include_str!(
                         "../../migrations/20250102145420_more_captures.up.sql"
+                    ).replace("public.", "")),
+                    (20250429211554, include_str!(
+                        "../../migrations/20250429211554_create_indices_on_queue.up.sql"
                     ).replace("public.", "")),
                     (20241006144414, include_str!(
                         "../../custom_migrations/grant_all_current_schema.sql"
@@ -231,7 +234,7 @@ pub async fn migrate(db: &DB) -> Result<Option<JoinHandle<()>>, Error> {
     {
         Ok(_) => Ok(()),
         Err(sqlx::migrate::MigrateError::VersionMissing(e)) => {
-            tracing::error!("Database had been applied more migrations than this container. 
+            tracing::error!("Database had been applied more migrations than this container.
             This usually mean than another container on a more recent version migrated the database and this one is on an earlier version.
             Please update the container to latest. Not critical, but may cause issues if migration introduced a breaking change. Version missing: {e:#}");
             custom_migrator.unlock().await?;
@@ -433,7 +436,7 @@ async fn v2_finalize(db: &DB) -> Result<(), Error> {
             r#"
             LOCK TABLE v2_job_completed IN ACCESS EXCLUSIVE MODE;
             DROP FUNCTION IF EXISTS v2_job_completed_before_insert CASCADE;
-            DROP FUNCTION IF EXISTS v2_job_completed_before_update CASCADE;          
+            DROP FUNCTION IF EXISTS v2_job_completed_before_update CASCADE;
             "#,
         )
         .await?;
@@ -445,7 +448,7 @@ async fn v2_finalize(db: &DB) -> Result<(), Error> {
             LOCK TABLE v2_job_queue IN ACCESS EXCLUSIVE MODE;
             DROP FUNCTION IF EXISTS v2_job_queue_after_insert CASCADE;
             DROP FUNCTION IF EXISTS v2_job_queue_before_insert CASCADE;
-            DROP FUNCTION IF EXISTS v2_job_queue_before_update CASCADE;       
+            DROP FUNCTION IF EXISTS v2_job_queue_before_update CASCADE;
             "#,
         )
         .await?;
@@ -456,7 +459,7 @@ async fn v2_finalize(db: &DB) -> Result<(), Error> {
             r#"
             LOCK TABLE v2_job_runtime IN ACCESS EXCLUSIVE MODE;
             DROP FUNCTION IF EXISTS v2_job_runtime_before_insert CASCADE;
-            DROP FUNCTION IF EXISTS v2_job_runtime_before_update CASCADE;     
+            DROP FUNCTION IF EXISTS v2_job_runtime_before_update CASCADE;
             "#,
         )
         .await?;
@@ -467,7 +470,7 @@ async fn v2_finalize(db: &DB) -> Result<(), Error> {
             r#"
             LOCK TABLE v2_job_status IN ACCESS EXCLUSIVE MODE;
             DROP FUNCTION IF EXISTS v2_job_status_before_insert CASCADE;
-            DROP FUNCTION IF EXISTS v2_job_status_before_update CASCADE;     
+            DROP FUNCTION IF EXISTS v2_job_status_before_update CASCADE;
             "#,
         )
         .await?;
@@ -779,10 +782,40 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
         .execute(db)
         .await?;
     });
+
+    run_windmill_migration!("job_completed_completed_at", db, |tx| {
+        sqlx::query!(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_job_completed_completed_at ON v2_job_completed (completed_at DESC)"
+        )
+        .execute(db)
+        .await?;
+    });
+
+    run_windmill_migration!("alerts_by_workspace", db, |tx| {
+        sqlx::query!(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS alerts_by_workspace ON alerts (workspace_id);"
+        )
+        .execute(db)
+        .await?;
+    });
+
+    run_windmill_migration!("remove_redundant_log_file_index", db, |tx| {
+        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS log_file_hostname_log_ts_idx")
+            .execute(db)
+            .await?;
+    });
+
+    run_windmill_migration!("v2_job_queue_suspend", db, |tx| {
+        sqlx::query!(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS v2_job_queue_suspend ON v2_job_queue (workspace_id, suspend) WHERE suspend > 0;"
+        )
+        .execute(db)
+        .await?;
+    });
     Ok(())
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct ApiAuthed {
     pub email: String,
     pub username: String,

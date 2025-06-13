@@ -3,23 +3,8 @@
 
 	import HighlightTheme from '../HighlightTheme.svelte'
 	import FlowViewerInner from '../FlowViewerInner.svelte'
-	import DetailPageTriggerPanel from './DetailPageTriggerPanel.svelte'
 
-	export let triggerSelected:
-		| 'webhooks'
-		| 'emails'
-		| 'schedules'
-		| 'cli'
-		| 'routes'
-		| 'websockets'
-		| 'postgres'
-		| 'scheduledPoll'
-		| 'kafka'
-		| 'mqtt'
-		| 'sqs'
-		| 'nats' = 'webhooks'
 	export let flow_json: any | undefined = undefined
-	export let simplfiedPoll: boolean = false
 
 	export let isOperator: boolean = false
 
@@ -51,20 +36,8 @@
 				<TabContent value="script" class="h-full">
 					<slot name="script" />
 				</TabContent>
-				<TabContent value="triggers" class="h-full pt-2">
-					<DetailPageTriggerPanel {simplfiedPoll} bind:triggerSelected>
-						<slot slot="webhooks" name="webhooks" />
-						<slot slot="routes" name="routes" />
-						<slot slot="websockets" name="websockets" />
-						<slot slot="postgres" name="postgres" />
-						<slot slot="kafka" name="kafka" />
-						<slot slot="nats" name="nats" />
-						<slot slot="mqtt" name="mqtt" />
-						<slot slot="sqs" name="sqs" />
-						<slot slot="emails" name="emails" />
-						<slot slot="schedules" name="schedules" />
-						<slot slot="cli" name="cli" />
-					</DetailPageTriggerPanel>
+				<TabContent value="triggers" class="h-full">
+					<slot name="triggers" />
 				</TabContent>
 				{#if flow_json}
 					<TabContent value="raw" class="flex flex-col flex-1 h-full overflow-auto p-2">

@@ -64,11 +64,16 @@
 	let s3FilePicker: S3FilePicker | undefined
 	let s3PickerSelection: { s3: string; storage?: string } | undefined = undefined
 	let s3FolderPrefix: string = ''
-	$: s3PickerSelection && updateSelectedS3File()
+	let s3FileUploadRawMode = componentInput?.type == 'uploadS3' && !!componentInput.value?.s3
 
 	function updateSelectedS3File() {
 		if (s3PickerSelection) {
-			componentInput['value'] = `s3://${s3PickerSelection.s3}`
+			if (componentInput.type === 'uploadS3') {
+				componentInput.value = {
+					...s3PickerSelection
+				}
+			}
+			s3FileUploadRawMode = true
 		}
 	}
 
@@ -125,8 +130,8 @@
 						{customTitle
 							? customTitle
 							: shouldCapitalize
-							? capitalize(addWhitespaceBeforeCapitals(key))
-							: key}
+								? capitalize(addWhitespaceBeforeCapitals(key))
+								: key}
 					</span>
 					{#if loading}
 						<Loader2 size={14} class="animate-spin ml-2" />
@@ -158,6 +163,11 @@
 								(componentInput['expr'] == '' || componentInput['expr'] == undefined)
 							) {
 								componentInput['expr'] = JSON.stringify(componentInput['value'])
+							} else if (fileUploadS3 && fieldType === 'text' && e.detail != 'uploadS3') {
+								componentInput['value'] = ''
+							} else if (e.detail == 'uploadS3') {
+								s3FileUploadRawMode = false
+								componentInput['value'] = { s3: '' }
 							}
 
 							if (shouldFormatExpression) {
@@ -234,34 +244,59 @@
 		{:else if componentInput?.type === 'upload'}
 			<UploadInputEditor bind:componentInput {fileUpload} />
 		{:else if componentInput?.type === 'uploadS3'}
-			<div class="w-12/12 pb-2 flex flex-row mb-1 gap-1">
-				<input type="text" placeholder="S3 Folder prefix" bind:value={s3FolderPrefix} aria-label="S3 Folder prefix" />
+			<div class="flex flex-col w-full gap-1">
+				<Toggle
+					class="flex justify-end"
+					bind:checked={s3FileUploadRawMode}
+					size="xs"
+					options={{ left: 'Raw S3 object input' }}
+				/>
+				{#if s3FileUploadRawMode}
+					{#await import('$lib/components/JsonEditor.svelte')}
+						<Loader2 class="animate-spin" />
+					{:then Module}
+						<Module.default
+							code={JSON.stringify(componentInput.value ?? { s3: '' }, null, 2)}
+							bind:value={componentInput.value}
+						/>
+					{/await}
+				{:else}
+					<input
+						type="text"
+						placeholder="S3 Folder prefix"
+						bind:value={s3FolderPrefix}
+						aria-label="S3 Folder prefix"
+					/>
+					<UploadInputEditor
+						bind:componentInput
+						fileUpload={fileUploadS3}
+						s3={true}
+						{workspace}
+						prefix={s3FolderPrefix}
+						bind:s3FileUploadRawMode
+					/>
+				{/if}
+				<Button
+					variant="border"
+					color="light"
+					size="xs"
+					btnClasses="mt-1"
+					on:click={() => {
+						s3PickerSelection = undefined
+						s3FilePicker?.open?.()
+					}}
+					startIcon={{ icon: Pipette }}
+				>
+					Choose an existing file
+				</Button>
 			</div>
-			<UploadInputEditor
-				bind:componentInput
-				fileUpload={fileUploadS3}
-				s3={true}
-				{workspace}
-				prefix={s3FolderPrefix}
-			/>
-			<Button
-				variant="border"
-				color="light"
-				size="xs"
-				btnClasses="mt-1"
-				on:click={() => {
-					s3PickerSelection = undefined
-					s3FilePicker?.open?.()
-				}}
-				startIcon={{ icon: Pipette }}
-			>
-				Choose an existing file
-			</Button>
 			<S3FilePicker
 				bind:this={s3FilePicker}
 				folderOnly={false}
-				fromWorkspaceSettings={true}
-				bind:selectedFileKey={s3PickerSelection}
+				on:close={(e) => {
+					s3PickerSelection = e.detail
+					updateSelectedS3File()
+				}}
 				readOnlyMode={false}
 				regexFilter={/\.(png|jpg|jpeg|svg|webp)$/i}
 			/>

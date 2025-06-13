@@ -18,6 +18,7 @@
 	import { Pen, Plus, Trash2 } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let format: string | undefined = undefined
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
@@ -52,7 +53,7 @@
 		return oneOf.map((v) => ({
 			...v,
 			properties: Object.fromEntries(
-				Object.entries(v.properties ?? {}).filter(([k, v]) => k !== 'label')
+				Object.entries(v.properties ?? {}).filter(([k, v]) => k !== 'label' && k !== 'kind')
 			)
 		}))
 	}
@@ -92,6 +93,7 @@
 	$: orderUpdate(order)
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function getResourceTypesFromFormat(format: string | undefined): string[] {
 		if (format?.startsWith('resource-')) {
@@ -120,19 +122,24 @@
 			properties = structuredClone(changedSchema.properties)
 			order = structuredClone(changedSchema.order)
 			requiredProperty = structuredClone(changedSchema.required)
+
+			const tagKey = oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
+				? 'kind'
+				: 'label'
+
 			oneOf = changedSchema.oneOf?.map((v) => {
 				return {
 					...v,
 					properties: {
 						...(v.properties ?? {}),
-						label: {
+						[tagKey]: {
 							type: 'string',
 							enum: [v.title ?? '']
 						}
 					}
 				}
 			})
-			dispatch('schemaChange', { properties, order, requiredProperty, oneOf })
+			dispatchIfMounted('schemaChange', { properties, order, requiredProperty, oneOf })
 		}
 	}
 

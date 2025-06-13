@@ -8,6 +8,7 @@ import {
 	type VisualChange
 } from '../shared'
 import { writable, type Writable } from 'svelte/store'
+import { aiChatManager } from './AIChatManager.svelte'
 
 type ExcludeVariant<T, K extends keyof T, V> = T extends Record<K, V> ? never : T
 type VisualChangeWithDiffIndex = ExcludeVariant<VisualChange, 'type', 'added_inline'> & {
@@ -29,6 +30,7 @@ export class AIChatEditorHandler {
 
 	clear() {
 		this.groupChanges = []
+		aiChatManager.pendingNewCode = undefined
 		for (const collection of this.decorationsCollections) {
 			collection.clear()
 		}
@@ -166,6 +168,13 @@ export class AIChatEditorHandler {
 	}
 
 	async reviewAndApply(newCode: string) {
+		if (aiChatManager.pendingNewCode === newCode) {
+			this.acceptAll()
+			return
+		} else if (aiChatManager.pendingNewCode) {
+			this.clear()
+		}
+		aiChatManager.pendingNewCode = newCode
 		const changedLines = await this.calculateVisualChanges(newCode)
 		if (changedLines.length === 0) return
 

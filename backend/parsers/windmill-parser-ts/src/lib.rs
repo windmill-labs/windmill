@@ -49,8 +49,12 @@ impl Visit for ImportsFinder {
 pub fn parse_expr_for_imports(code: &str) -> anyhow::Result<Vec<String>> {
     let cm: Lrc<SourceMap> = Default::default();
     let fm = cm.new_source_file(FileName::Custom("main.d.ts".into()).into(), code.into());
+    let mut tss = TsSyntax::default();
+    tss.disallow_ambiguous_jsx_like;
+    tss.tsx = true;
+    tss.no_early_errors = true;
     let lexer = Lexer::new(
-        Syntax::Typescript(TsSyntax::default()),
+        Syntax::Typescript(tss),
         // EsVersion defaults to es5
         Default::default(),
         StringInput::from(&*fm),
@@ -502,7 +506,7 @@ fn one_of_label(members: &Vec<TsTypeElement>) -> Option<String> {
         let Expr::Ident(Ident { sym, .. }) = &**key else {
             return None;
         };
-        if sym != "label" {
+        if sym != "label" && sym != "kind" {
             return None;
         }
 

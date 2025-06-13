@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Popover } from '$lib/components/meltComponents'
 	import { Loader2, X } from 'lucide-svelte'
-	import { ContextIconMap, type ContextElement } from './core'
+	import { ContextIconMap, type ContextElement } from './context'
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import { twMerge } from 'tailwind-merge'
@@ -23,12 +23,11 @@
 	}>()
 </script>
 
-<Popover disablePopup={contextElement.type === 'code' && deletable}>
+<Popover>
 	<svelte:fragment slot="trigger">
 		<div
 			class={twMerge(
-				'border rounded-md px-1 py-0.5 flex flex-row items-center gap-1 text-tertiary text-xs cursor-default hover:bg-surface-hover',
-				contextElement.type === 'code' && deletable ? '' : 'hover:cursor-pointer'
+				'border rounded-md px-1 py-0.5 flex flex-row items-center gap-1 text-tertiary text-xs cursor-default hover:bg-surface-hover hover:cursor-pointer'
 			)}
 			on:mouseenter={() => (showDelete = true)}
 			on:mouseleave={() => (showDelete = false)}
@@ -43,7 +42,9 @@
 					<svelte:component this={icon} size={16} />
 				{/if}
 			</button>
-			{contextElement.title}
+			{contextElement.type === 'diff'
+				? contextElement.title.replace(/_/g, ' ')
+				: contextElement.title}
 		</div>
 	</svelte:fragment>
 	<svelte:fragment slot="content">

@@ -5,14 +5,16 @@
 	import { createPopperActions } from 'svelte-popperjs'
 	import { fade } from 'svelte/transition'
 	import { zIndexes } from '$lib/zIndexes'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let value: string = '#fff'
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 	const [popperRef, popperContent] = createPopperActions()
 	let isOpen = false
 	let width: number
 
-	$: dispatch('change', value)
+	$: dispatchIfMounted('change', value)
 
 	function open() {
 		isOpen = true

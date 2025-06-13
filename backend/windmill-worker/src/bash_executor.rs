@@ -15,11 +15,8 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error::Error,
-    worker::{to_raw_value, write_file},
+    worker::{to_raw_value, write_file, Connection},
 };
-
-#[cfg(feature = "dind")]
-use windmill_common::DB;
 
 #[cfg(feature = "dind")]
 use windmill_common::error::to_anyhow;
@@ -46,9 +43,11 @@ use crate::{
         OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     POWERSHELL_CACHE_DIR, POWERSHELL_PATH, PROXY_ENVS, TZ_ENV,
 };
+use windmill_common::client::AuthedClient;
+
 
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
@@ -63,7 +62,7 @@ pub async fn handle_bash_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &MiniPulledJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     client: &AuthedClient,
     parent_runnable_path: Option<String>,
     content: &str,
@@ -81,7 +80,7 @@ pub async fn handle_bash_job(
     if annotation.docker {
         logs1.push_str("docker mode\n");
     }
-    append_logs(&job.id, &job.workspace_id, logs1, db).await;
+    append_logs(&job.id, &job.workspace_id, logs1, &conn).await;
 
     write_file(job_dir, "main.sh", &format!("set -e\n{content}"))?;
     let script = format!(
@@ -137,10 +136,10 @@ exit $exit_status
     write_file(job_dir, "wrapper.sh", &script)?;
 
     let mut reserved_variables =
-        get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
-    let args = build_args_map(job, client, db).await?.map(Json);
+    let args = build_args_map(job, client, conn).await?.map(Json);
     let job_args = if args.is_some() {
         args.as_ref()
     } else {
@@ -215,7 +214,7 @@ exit $exit_status
     };
     handle_child(
         &job.id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         child,
@@ -235,7 +234,7 @@ exit $exit_status
         return handle_docker_job(
             job.id,
             &job.workspace_id,
-            db,
+            conn,
             job.timeout,
             mem_peak,
             canceled_by,
@@ -280,7 +279,7 @@ exit $exit_status
 async fn handle_docker_job(
     job_id: Uuid,
     workspace_id: &str,
-    db: &DB,
+    conn: &Connection,
     job_timeout: Option<i32>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -288,6 +287,8 @@ async fn handle_docker_job(
     occupancy_metrics: &mut OccupancyMetrics,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
 ) -> Result<Box<RawValue>, Error> {
+    use crate::job_logger::append_logs_with_compaction;
+
     let client = bollard::Docker::connect_with_unix_defaults().map_err(to_anyhow)?;
 
     let container_id = job_id.to_string();
@@ -300,24 +301,37 @@ async fn handle_docker_job(
     }
 
     let wait_f = async {
-        let wait = client
+        let waited = client
             .wait_container::<String>(&container_id, None)
             .try_collect::<Vec<_>>()
-            .await
-            .map_err(|e| {
+            .await;
+        match waited {
+            Ok(wait) => Ok(wait.first().map(|x| x.status_code)),
+            Err(bollard::errors::Error::DockerResponseServerError { status_code, message }) => {
+                append_logs(&job_id, &workspace_id, &format!(": {message}"), conn).await;
+                Ok(Some(status_code as i64))
+            }
+            Err(bollard::errors::Error::DockerContainerWaitError { error, code }) => {
+                append_logs(&job_id, &workspace_id, &format!("{error}"), conn).await;
+                Ok(Some(code as i64))
+            }
+            Err(e) => {
                 tracing::error!("Error waiting for container: {:?}", e);
-                anyhow::anyhow!("Error waiting for container")
-            })?;
-        let waited = wait.first().map(|x| x.status_code);
-        Ok(waited)
+                Err(Error::ExecutionErr(format!(
+                    "Error waiting for container: {:?}",
+                    e
+                )))
+            }
+        }
     };
 
     let ncontainer_id = container_id.to_string();
     let w_id = workspace_id.to_string();
     let j_id = job_id.clone();
-    let db2 = db.clone();
+    let conn2 = conn.clone();
+    let worker_name2 = worker_name.to_string();
     let (tx, mut rx) = tokio::sync::broadcast::channel::<()>(1);
-
+    let workspace_id2 = workspace_id.to_string();
     let mut killpill_rx = killpill_rx.resubscribe();
     let logs = tokio::spawn(async move {
         let client = bollard::Docker::connect_with_unix_defaults().map_err(to_anyhow);
@@ -332,12 +346,33 @@ async fn handle_docker_job(
                     ..Default::default()
                 }),
             );
+            append_logs(
+                &job_id,
+                &workspace_id2,
+                "\ndocker logs stream started\n",
+                &conn2,
+            )
+            .await;
             loop {
                 tokio::select! {
                     log = log_stream.next() => {
                         match log {
                             Some(Ok(log)) => {
-                                append_logs(&j_id, w_id.clone(), log.to_string(), db2.clone()).await;
+                                match &conn2 {
+                                    Connection::Sql(db) => {
+                                        append_logs_with_compaction(
+                                            &j_id,
+                                            &w_id,
+                                            &log.to_string(),
+                                            &db,
+                                            &worker_name2,
+                                        )
+                                        .await;
+                                    }
+                                    c @ Connection::Http(_) => {
+                                        append_logs(&j_id, &w_id, &log.to_string(), &c).await;
+                                    }
+                                }
                             }
                             Some(Err(e)) => {
                                 tracing::error!("Error getting logs: {:?}", e);
@@ -371,7 +406,7 @@ async fn handle_docker_job(
     let result = run_future_with_polling_update_job_poller(
         job_id,
         job_timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         wait_f,
@@ -427,11 +462,14 @@ async fn handle_docker_job(
 
     let result = result.unwrap();
 
+    if result.is_some_and(|x| x > 0) {
+        return Err(Error::ExecutionErr(format!(
+            "Docker job completed with unsuccessful exit status: {}",
+            result.unwrap()
+        )));
+    }
     return Ok(to_raw_value(&json!(format!(
-        "Docker exit status: {}",
-        result
-            .map(|x| x.to_string())
-            .unwrap_or_else(|| "none".to_string())
+        "Docker job completed with success exit status"
     ))));
 }
 
@@ -472,7 +510,7 @@ pub async fn handle_powershell_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &MiniPulledJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    db: &Connection,
     client: &AuthedClient,
     parent_runnable_path: Option<String>,
     content: &str,
@@ -484,7 +522,7 @@ pub async fn handle_powershell_job(
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
     let pwsh_args = {
-        let args = build_args_map(job, client, db).await?.map(Json);
+        let args = build_args_map(job, client, &db).await?.map(Json);
         let job_args = if args.is_some() {
             args.as_ref()
         } else {

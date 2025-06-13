@@ -3,7 +3,7 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import { Minimize2 } from 'lucide-svelte'
 	import type { GraphModuleState } from '../../model'
-	import { getStateColor } from '../../util'
+	import { getStateColor, getStateHoverColor } from '../../util'
 	import type { FlowModule } from '$lib/gen'
 	import type { GraphEventHandlers } from '../../graphBuilder'
 
@@ -28,14 +28,15 @@
 		selectable
 		selected={data.selected}
 		bgColor={getStateColor(undefined, darkMode)}
+		bgHoverColor={getStateHoverColor(undefined, darkMode)}
 		borderColor={undefined}
 		on:select={() => {
-			data.eventHandlers.select(data.id)
+			setTimeout(() => data.eventHandlers?.select(data.id))
 		}}
 	/>
 	<button
 		title="Unexpand subflow"
-		class="z-50 absolute -top-[10px] right-[25px] rounded-full h-[20px] w-[20px] center-center text-primary bg-surface duration-150 hover:bg-surface-hover"
+		class="z-50 absolute -top-[10px] right-[25px] rounded-full h-[20px] w-[20px] center-center text-primary bg-surface duration-0 hover:bg-surface-hover"
 		on:click|preventDefault|stopPropagation={() => {
 			data.eventHandlers.minimizeSubflow(data.subflowId)
 		}}

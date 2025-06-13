@@ -22,6 +22,8 @@ pub type JsonResult<T> = std::result::Result<Json<T>, Error>;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("Bad gateway: {0}")]
+    BadGateway(String),
     #[error("Bad config: {0}")]
     BadConfig(String),
     #[error("Connecting to database: {0}")]
@@ -64,6 +66,8 @@ pub enum Error {
     DatabaseMigration(#[from] MigrateError),
     #[error("Non-zero exit status for {0}: {1}")]
     ExitStatus(String, i32),
+    #[error("ExecutionRawError: {0}")]
+    ExecutionRawError(Box<serde_json::value::RawValue>),
     #[error("Error: {error:#} @{location:#}")]
     Anyhow { error: anyhow::Error, location: String },
     #[error("Error: {0:#?}")]
@@ -76,6 +80,8 @@ pub enum Error {
     FindPythonError(String),
     #[error("Problem with arguments: {0}")]
     ArgumentErr(String),
+    #[error("{1}")]
+    Generic(StatusCode, String),
 }
 
 fn prettify_location(location: &'static Location<'static>) -> String {
@@ -181,6 +187,8 @@ impl IntoResponse for Error {
             | Self::BadRequest(_)
             | Self::AIError(_)
             | Self::QuotaExceeded(_) => axum::http::StatusCode::BAD_REQUEST,
+            Self::BadGateway(_) => axum::http::StatusCode::BAD_GATEWAY,
+            Self::Generic(status_code, _) => status_code,
             _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         };
 

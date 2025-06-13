@@ -13,7 +13,7 @@
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
-	import { getContext, tick } from 'svelte'
+	import { getContext, onDestroy, tick } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleScript from './FlowModuleScript.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
@@ -39,7 +39,6 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import s3Scripts from './s3Scripts/lib'
-	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import Label from '$lib/components/Label.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
@@ -52,9 +51,11 @@
 	import { workspaceStore } from '$lib/stores'
 	import { checkIfParentLoop } from '../utils'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
+	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
 	const {
 		selectedId,
+		currentEditor,
 		previewArgs,
 		flowStateStore,
 		flowStore,
@@ -102,27 +103,13 @@
 
 	$: lastDeployedCode = onModulesChange(savedModule, flowModule)
 	function onModulesChange(savedModule: FlowModule | undefined, flowModule: FlowModule) {
+		// console.log('onModulesChange', savedModule, flowModule)
 		return savedModule?.value?.type === 'rawscript' &&
 			flowModule.value.type === 'rawscript' &&
 			savedModule.value.content !== flowModule.value.content
 			? savedModule.value.content
 			: undefined
 	}
-
-	const { modulesStore: copilotModulesStore } =
-		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
-
-	function setCopilotModuleEditor() {
-		copilotModulesStore?.update((modules) => {
-			const module = modules.find((m) => m.id === flowModule.id)
-			if (module) {
-				module.editor = editor
-			}
-			return modules
-		})
-	}
-
-	$: editor !== undefined && setCopilotModuleEditor()
 
 	$: stepPropPicker =
 		$executionCount != undefined && failureModule
@@ -145,7 +132,10 @@
 		}
 	}
 	let inputTransformSchemaForm: InputTransformSchemaForm | undefined = undefined
+
+	let reloadError: string | undefined = undefined
 	async function reload(flowModule: FlowModule) {
+		reloadError = undefined
 		try {
 			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 			validCode = true
@@ -167,12 +157,16 @@
 					flowModule.value.type == 'script' ||
 					flowModule.value.type == 'flow'
 				) {
-					flowModule.value.input_transforms = input_transforms
+					if (!deepEqual(flowModule.value.input_transforms, input_transforms)) {
+						flowModule.value.input_transforms = input_transforms
+					}
 				}
 			}
 
 			if (flowModule.value.type == 'rawscript' && flowModule.value.lock != undefined) {
-				flowModule.value.lock = undefined
+				if (flowModule.value.lock != undefined) {
+					flowModule.value.lock = undefined
+				}
 			}
 			await tick()
 			if (!deepEqual(schema, $flowStateStore[flowModule.id]?.schema)) {
@@ -184,6 +178,7 @@
 			}
 		} catch (e) {
 			validCode = false
+			reloadError = e?.message
 		}
 	}
 
@@ -271,6 +266,21 @@
 		diffEditor?.hide()
 		editor?.show()
 	}
+
+	$: editor &&
+		($currentEditor = {
+			type: 'script',
+			editor,
+			stepId: flowModule.id,
+			showDiffMode,
+			hideDiffMode,
+			diffMode,
+			lastDeployedCode
+		})
+
+	onDestroy(() => {
+		$currentEditor = undefined
+	})
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -278,17 +288,31 @@
 {#if flowModule.value}
 	<div class="h-full" bind:clientWidth={width}>
 		<FlowCard
+			flowModuleValue={flowModule?.value}
 			on:reload={() => {
 				forceReload++
 				reload(flowModule)
 			}}
 			{noEditor}
-			bind:flowModule
+			on:setHash={(e) => {
+				if (flowModule.value.type == 'script') {
+					flowModule.value.hash = e.detail
+				}
+			}}
+			bind:summary={flowModule.summary}
 		>
 			<svelte:fragment slot="header">
 				<FlowModuleHeader
 					{tag}
-					bind:module={flowModule}
+					module={flowModule}
+					on:tagChange={(e) => {
+						console.log('tagChange', e.detail)
+						if (flowModule.value.type == 'script') {
+							flowModule.value.tag_override = e.detail
+						} else if (flowModule.value.type == 'rawscript') {
+							flowModule.value.tag = e.detail
+						}
+					}}
 					on:toggleSuspend={() => selectAdvanced('suspend')}
 					on:toggleSleep={() => selectAdvanced('sleep')}
 					on:toggleMock={() => selectAdvanced('mock')}
@@ -333,7 +357,7 @@
 
 			<div class="h-full flex flex-col">
 				{#if flowModule.value.type === 'rawscript' && !noEditor}
-					<div class="border-b-2 shadow-sm px-1">
+					<div class="shadow-sm px-1 border-b-1 border-gray-200 dark:border-gray-700">
 						<EditorBar
 							customUi={customUi?.editorBar}
 							{validCode}
@@ -358,17 +382,25 @@
 
 				<div class="min-h-0 flex-grow" id="flow-editor-editor">
 					<Splitpanes horizontal>
-						<Pane bind:size={editorPanelSize} minSize={10}>
+						<Pane bind:size={editorPanelSize} minSize={10} class="relative">
 							{#if flowModule.value.type === 'rawscript'}
 								{#if !noEditor}
 									{#key flowModule.id}
 										<Editor
+											on:addSelectedLinesToAiChat={(e) => {
+												const { lines, startLine, endLine } = e.detail
+												aiChatManager.addSelectedLinesToContext(lines, startLine, endLine)
+											}}
+											on:toggleAiPanel={() => {
+												aiChatManager.toggleOpen()
+											}}
+											loadAsync
 											folding
 											path={$pathStore + '/' + flowModule.id}
 											bind:websocketAlive
 											bind:this={editor}
 											class="h-full relative"
-											bind:code={flowModule.value.content}
+											code={flowModule.value.content}
 											lang={scriptLangToEditorLang(flowModule.value.language)}
 											scriptLang={flowModule.value.language}
 											automaticLayout={true}
@@ -383,10 +415,13 @@
 												}
 											}}
 											on:change={async (event) => {
+												const content = event.detail
 												if (flowModule.value.type === 'rawscript') {
-													flowModule.value.content = event.detail
+													if (flowModule.value.content !== content) {
+														flowModule.value.content = content
+													}
+													await reload(flowModule)
 												}
-												await reload(flowModule)
 											}}
 											formatAction={() => {
 												reload(flowModule)
@@ -454,6 +489,12 @@
 													error={failureModule}
 													noPadding
 												>
+													{#if reloadError}
+														<div
+															title={reloadError}
+															class="absolute left-2 top-2 rounded-full w-2 h-2 bg-red-300"
+														></div>
+													{/if}
 													<InputTransformSchemaForm
 														class="px-1 xl:px-2"
 														bind:this={inputTransformSchemaForm}

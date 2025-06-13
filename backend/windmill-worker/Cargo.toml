@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
+private = []
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
 enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:pem", "dep:tokio-util"]
 mssql = ["dep:tiberius"]
@@ -32,6 +33,7 @@ rust = ["dep:windmill-parser-rust"]
 nu = ["dep:windmill-parser-nu"]
 java = ["dep:windmill-parser-java"]
 ruby = ["dep:windmill-parser-ruby"]
+duckdb = ["dep:duckdb"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -54,10 +56,12 @@ windmill-parser-sql.workspace = true
 windmill-parser-graphql.workspace = true
 windmill-parser-php = { workspace = true, optional = true }
 windmill-git-sync.workspace = true
+flume.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
 tracing.workspace = true
 tokio.workspace = true
+tokio-stream.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 futures.workspace = true
@@ -91,6 +95,8 @@ deno_tls = { workspace = true, optional = true }
 deno_permissions = { workspace = true, optional = true }
 deno_io = { workspace = true, optional = true }
 deno_error = { workspace = true, optional = true }
+async-stream.workspace = true
+duckdb = { workspace = true, optional = true }
 
 postgres-native-tls.workspace = true
 native-tls.workspace = true
@@ -105,6 +111,7 @@ urlencoding.workspace = true
 nix.workspace = true
 bytes.workspace = true
 reqwest.workspace = true
+reqwest-middleware.workspace = true
 hex.workspace = true
 tiberius = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
@@ -114,6 +121,7 @@ convert_case.workspace = true
 yaml-rust.workspace = true
 backon.workspace = true
 winapi = { workspace = true, optional = true }
+pep440_rs.workspace = true
 
 opentelemetry = { workspace = true, optional = true }
 bollard = { workspace = true, optional = true }

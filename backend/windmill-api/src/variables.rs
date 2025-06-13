@@ -20,7 +20,7 @@ use axum::{
 use hyper::StatusCode;
 use serde_json::Value;
 
-use windmill_audit::audit_ee::{audit_log, AuditAuthorable};
+use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
@@ -61,7 +61,7 @@ async fn list_contextual_variables(
 ) -> JsonResult<Vec<ContextualVariable>> {
     Ok(Json(
         get_reserved_variables(
-            &db,
+            &db.into(),
             &w_id,
             "q1A0qcPuO00yxioll7iph76N9CJDqn",
             &email,
@@ -186,7 +186,7 @@ async fn get_variable(
                 #[cfg(feature = "oauth2")]
                 {
                     Some(
-                        crate::oauth2_ee::_refresh_token(
+                        crate::oauth2_oss::_refresh_token(
                             tx,
                             &variable.path,
                             &w_id,
@@ -653,7 +653,7 @@ pub async fn get_value_internal<'c>(
         if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
             #[cfg(feature = "oauth2")]
             {
-                crate::oauth2_ee::_refresh_token(
+                crate::oauth2_oss::_refresh_token(
                     tx,
                     &variable.path,
                     &w_id,

@@ -19,6 +19,7 @@ export interface Setting {
 		| 'boolean'
 		| 'password'
 		| 'select'
+		| 'select_python'
 		| 'textarea'
 		| 'codearea'
 		| 'seconds'
@@ -26,6 +27,7 @@ export interface Setting {
 		| 'license_key'
 		| 'object_store_config'
 		| 'critical_error_channels'
+		| 'critical_alerts_on_db_oversize'
 		| 'slack_connect'
 		| 'smtp_connect'
 		| 'indexer_rates'
@@ -230,7 +232,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Instance Python Version',
 			description: 'Default python version for newly deployed scripts',
 			key: 'instance_python_version',
-			fieldType: 'select',
+			fieldType: 'select_python',
 			// To change latest stable version:
 			// 1. Change placeholder in instanceSettings.ts
 			// 2. Change LATEST_STABLE_PY in dockerfile
@@ -351,6 +353,15 @@ export const settings: Record<string, Setting[]> = {
 			label: 'SMTP',
 			key: 'smtp_settings',
 			fieldType: 'smtp_connect',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Alert on DB oversize',
+			key: 'critical_alerts_on_db_oversize',
+			description: 'Alert if DB grows more than specified size',
+			fieldType: 'critical_alerts_on_db_oversize',
+			placeholder: '100',
 			storage: 'setting',
 			ee_only: ''
 		}

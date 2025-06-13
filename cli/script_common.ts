@@ -9,6 +9,7 @@ export type ScriptLanguage =
   | "postgresql"
   | "mysql"
   | "bigquery"
+  | "duckdb"
   | "oracledb"
   | "snowflake"
   | "mssql"
@@ -18,9 +19,9 @@ export type ScriptLanguage =
   | "csharp"
   | "nu"
   | "ansible"
-  | "java"
-  | "ruby";
-	// for related places search: ADD_NEW_LANG 
+  | "ruby"
+  | "java";
+// for related places search: ADD_NEW_LANG
 
 export function inferContentTypeFromFilePath(
   contentPath: string,
@@ -44,6 +45,8 @@ export function inferContentTypeFromFilePath(
     return "bigquery";
   } else if (contentPath.endsWith(".odb.sql")) {
     return "oracledb";
+  } else if (contentPath.endsWith(".duckdb.sql")) {
+    return "duckdb";
   } else if (contentPath.endsWith(".sf.sql")) {
     return "snowflake";
   } else if (contentPath.endsWith(".ms.sql")) {

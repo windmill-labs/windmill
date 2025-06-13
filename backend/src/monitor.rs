@@ -13,7 +13,7 @@ use std::{
 
 use chrono::{NaiveDateTime, Utc};
 use futures::{stream::FuturesUnordered, StreamExt};
-use serde::{de::DeserializeOwned, Deserializer};
+use serde::{de::DeserializeOwned, Deserialize};
 use sqlx::{Pool, Postgres};
 use tokio::{
     join,
@@ -29,45 +29,67 @@ use windmill_api::{
 };
 
 #[cfg(feature = "enterprise")]
-use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
+use windmill_common::ee_oss::low_disk_alerts;
+#[cfg(feature = "enterprise")]
+use windmill_common::ee_oss::{jobs_waiting_alerts, worker_groups_alerts};
 
+use windmill_common::client::AuthedClient;
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
+#[cfg(feature = "parquet")]
+use windmill_common::s3_helpers::reload_object_store_setting;
 use windmill_common::{
-    ee::CriticalErrorChannel, error, flow_status::{FlowStatus, FlowStatusModule}, global_settings::{
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
-        CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
-        EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
-        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
-        LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        NUGET_CONFIG_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+    agent_workers::DECODED_AGENT_TOKEN,
+    auth::create_token_for_owner,
+    ee_oss::CriticalErrorChannel,
+    error,
+    flow_status::{FlowStatus, FlowStatusModule},
+    global_settings::{
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
+        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
+        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
+        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING,
+        OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
-    }, indexer::load_indexer_config, jobs::QueuedJob, jwt::JWT_SECRET, oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH, server::load_smtp_config, tracing_init::JSON_FMT, users::truncate_token, utils::{now_from_db, rd_string, report_critical_error, Mode}, worker::{
-        load_worker_config, make_pull_query, make_suspended_pull_query, reload_custom_tags_setting,
-        update_min_version, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG,
+    },
+    indexer::load_indexer_config,
+    jobs::QueuedJob,
+    jwt::JWT_SECRET,
+    oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
+    server::load_smtp_config,
+    tracing_init::JSON_FMT,
+    users::truncate_token,
+    utils::{empty_as_none, now_from_db, rd_string, report_critical_error, Mode},
+    worker::{
+        load_env_vars, load_init_bash_from_env, load_whitelist_env_vars_from_env,
+        load_worker_config, reload_custom_tags_setting, store_pull_query,
+        store_suspended_pull_query, update_min_version, Connection, WorkerConfig,
+        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY,
         SMTP_CONFIG, TMP_DIR, WORKER_CONFIG, WORKER_GROUP,
-    }, KillpillSender, BASE_URL, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS
+    },
+    KillpillSender, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE, CRITICAL_ALERT_MUTE_UI_ENABLED,
+    CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
+    METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED,
+    OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
 };
-use windmill_queue::{cancel_job, MiniPulledJob};
+use windmill_queue::{cancel_job, MiniPulledJob, SameWorkerPayload};
 use windmill_worker::{
-    create_token_for_owner, handle_job_error, AuthedClient, SameWorkerPayload, SameWorkerSender, SendResult, BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, SCRIPT_TOKEN_EXPIRY
+    handle_job_error, JobCompletedSender, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
+    INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN,
+    NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
 };
 
 #[cfg(feature = "parquet")]
-use windmill_common::s3_helpers::{
-    build_object_store_from_settings, build_s3_client_from_settings, S3Settings,
-    OBJECT_STORE_CACHE_SETTINGS,
-};
-
-#[cfg(feature = "parquet")]
-use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
+use windmill_common::s3_helpers::ObjectStoreReload;
 
 #[cfg(feature = "enterprise")]
-use crate::ee::verify_license_key;
+use crate::ee_oss::verify_license_key;
 
-use crate::ee::set_license_key;
+use crate::ee_oss::set_license_key;
 
 #[cfg(feature = "prometheus")]
 lazy_static::lazy_static! {
@@ -112,6 +134,7 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
 
+    pub static ref WORKERS_NAMES: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
 
     static ref QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
     static ref DISABLE_CONCURRENCY_LIMIT: bool = std::env::var("DISABLE_CONCURRENCY_LIMIT").is_ok_and(|s| s == "true");
@@ -119,82 +142,149 @@ lazy_static::lazy_static! {
 }
 
 pub async fn initial_load(
-    db: &Pool<Postgres>,
+    conn: &Connection,
     tx: KillpillSender,
     worker_mode: bool,
     server_mode: bool,
     #[cfg(feature = "parquet")] disable_s3_store: bool,
 ) {
-    if let Err(e) = load_metrics_enabled(db).await {
+    if let Err(e) = reload_base_url_setting(&conn).await {
+        tracing::error!("Error loading base url: {:?}", e)
+    }
+
+    if let Some(db) = conn.as_sql() {
+        if let Err(e) = reload_critical_error_channels_setting(&db).await {
+            tracing::error!("Could loading critical error emails setting: {:?}", e);
+        }
+    }
+
+    if let Err(e) = load_metrics_enabled(conn).await {
         tracing::error!("Error loading expose metrics: {e:#}");
     }
 
-    if let Err(e) = load_metrics_debug_enabled(db).await {
+    if let Err(e) = load_metrics_debug_enabled(conn).await {
         tracing::error!("Error loading expose debug metrics: {e:#}");
     }
 
-    if let Err(e) = reload_critical_alert_mute_ui_setting(db).await {
+    if let Err(e) = reload_critical_alert_mute_ui_setting(conn).await {
         tracing::error!("Error loading critical alert mute ui setting: {e:#}");
     }
 
-    if let Err(e) = load_tag_per_workspace_enabled(db).await {
-        tracing::error!("Error loading default tag per workpsace: {e:#}");
-    }
+    if let Some(db) = conn.as_sql() {
+        if let Err(e) = load_tag_per_workspace_enabled(db).await {
+            tracing::error!("Error loading default tag per workpsace: {e:#}");
+        }
 
-    if let Err(e) = load_tag_per_workspace_workspaces(db).await {
-        tracing::error!("Error loading default tag per workpsace workspaces: {e:#}");
+        if let Err(e) = load_tag_per_workspace_workspaces(db).await {
+            tracing::error!("Error loading default tag per workpsace workspaces: {e:#}");
+        }
     }
 
     if server_mode {
-        load_require_preexisting_user(db).await;
+        if let Some(db) = conn.as_sql() {
+            load_require_preexisting_user(db).await;
+            if let Err(e) = reload_critical_alerts_on_db_oversize(db).await {
+                tracing::error!(
+                    "Error reloading critical alerts on db oversize setting: {:?}",
+                    e
+                )
+            }
+        }
     }
 
     if worker_mode {
-        load_keep_job_dir(db).await;
-        reload_worker_config(&db, tx, false).await;
+        load_keep_job_dir(conn).await;
+        match conn {
+            Connection::Sql(db) => {
+                reload_worker_config(&db, tx, false).await;
+            }
+            Connection::Http(_) => {
+                // TODO: reload worker config from http
+                let mut config = WORKER_CONFIG.write().await;
+                *config = WorkerConfig {
+                    worker_tags: DECODED_AGENT_TOKEN
+                        .as_ref()
+                        .map(|x| x.tags.clone())
+                        .unwrap_or_default(),
+                    env_vars: load_env_vars(
+                        load_whitelist_env_vars_from_env(),
+                        &std::collections::HashMap::new(),
+                    ),
+                    priority_tags_sorted: vec![],
+                    dedicated_worker: None,
+                    init_bash: load_init_bash_from_env(),
+                    cache_clear: None,
+                    additional_python_paths: None,
+                    pip_local_dependencies: None,
+                };
+            }
+        }
     }
 
-    if let Err(e) = reload_custom_tags_setting(db).await {
-        tracing::error!("Error reloading custom tags: {:?}", e)
-    }
-
-    if let Err(e) = reload_hub_base_url_setting(db, server_mode).await {
+    if let Err(e) = reload_hub_base_url_setting(conn, server_mode).await {
         tracing::error!("Error reloading hub base url: {:?}", e)
     }
 
-    if let Err(e) = reload_jwt_secret_setting(&db).await {
-        tracing::error!("Could not reload jwt secret setting: {:?}", e);
+    if let Some(db) = conn.as_sql() {
+        if let Err(e) = reload_jwt_secret_setting(db).await {
+            tracing::error!("Could not reload jwt secret setting: {:?}", e);
+        }
+
+        if let Err(e) = reload_custom_tags_setting(db).await {
+            tracing::error!("Error reloading custom tags: {:?}", e)
+        }
     }
 
     #[cfg(feature = "parquet")]
     if !disable_s3_store {
-        reload_s3_cache_setting(&db).await;
+        if let Some(db) = conn.as_sql() {
+            let db2 = db.clone();
+            match reload_object_store_setting(db).await {
+                ObjectStoreReload::Later => {
+                    tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_secs(10)).await;
+                        match reload_object_store_setting(&db2).await {
+                            ObjectStoreReload::Later => {
+                                tracing::error!("Giving up on loading object store setting");
+                            }
+                            ObjectStoreReload::Never => {
+                                tracing::info!("Object store setting successfully loaded");
+                            }
+                        }
+                    });
+                }
+                ObjectStoreReload::Never => (),
+            }
+        }
     }
 
-    reload_smtp_config(&db).await;
+    if let Some(db) = conn.as_sql() {
+        reload_smtp_config(db).await;
+    }
 
     if server_mode {
-        reload_retention_period_setting(&db).await;
-        reload_request_size(&db).await;
-        reload_saml_metadata_setting(&db).await;
-        reload_scim_token_setting(&db).await;
+        reload_retention_period_setting(&conn).await;
+        reload_request_size(&conn).await;
+        reload_saml_metadata_setting(&conn).await;
+        reload_scim_token_setting(&conn).await;
     }
 
     if worker_mode {
-        reload_job_default_timeout_setting(&db).await;
-        reload_extra_pip_index_url_setting(&db).await;
-        reload_pip_index_url_setting(&db).await;
-        reload_npm_config_registry_setting(&db).await;
-        reload_bunfig_install_scopes_setting(&db).await;
-        reload_instance_python_version_setting(&db).await;
-        reload_nuget_config_setting(&db).await;
-        reload_maven_repos_setting(&db).await;
-        reload_no_default_maven_setting(&db).await;
+        reload_job_default_timeout_setting(&conn).await;
+        reload_extra_pip_index_url_setting(&conn).await;
+        reload_pip_index_url_setting(&conn).await;
+        reload_npm_config_registry_setting(&conn).await;
+        reload_bunfig_install_scopes_setting(&conn).await;
+        reload_instance_python_version_setting(&conn).await;
+        reload_nuget_config_setting(&conn).await;
+        reload_maven_repos_setting(&conn).await;
+        reload_no_default_maven_setting(&conn).await;
     }
 }
 
-pub async fn load_metrics_enabled(db: &DB) -> error::Result<()> {
-    let metrics_enabled = load_value_from_global_settings(db, EXPOSE_METRICS_SETTING).await;
+pub async fn load_metrics_enabled(conn: &Connection) -> error::Result<()> {
+    let metrics_enabled =
+        load_value_from_global_settings_with_conn(conn, EXPOSE_METRICS_SETTING, true).await;
     match metrics_enabled {
         Ok(Some(serde_json::Value::Bool(t))) => METRICS_ENABLED.store(t, Ordering::Relaxed),
         _ => (),
@@ -202,26 +292,18 @@ pub async fn load_metrics_enabled(db: &DB) -> error::Result<()> {
     Ok(())
 }
 
-fn empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let option = <Option<String> as serde::Deserialize>::deserialize(deserializer)?;
-    Ok(option.filter(|s| !s.is_empty()))
-}
-
 #[derive(serde::Deserialize)]
 struct OtelSetting {
     metrics_enabled: Option<bool>,
     logs_enabled: Option<bool>,
     tracing_enabled: Option<bool>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_endpoint: Option<String>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_headers: Option<String>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_protocol: Option<String>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_compression: Option<String>,
 }
 
@@ -317,18 +399,18 @@ pub async fn load_tag_per_workspace_workspaces(db: &DB) -> error::Result<()> {
     Ok(())
 }
 
-pub async fn reload_critical_alert_mute_ui_setting(db: &DB) -> error::Result<()> {
+pub async fn reload_critical_alert_mute_ui_setting(conn: &Connection) -> error::Result<()> {
     if let Ok(Some(serde_json::Value::Bool(t))) =
-        load_value_from_global_settings(db, CRITICAL_ALERT_MUTE_UI_SETTING).await
+        load_value_from_global_settings_with_conn(conn, CRITICAL_ALERT_MUTE_UI_SETTING, true).await
     {
         CRITICAL_ALERT_MUTE_UI_ENABLED.store(t, Ordering::Relaxed);
-
     }
     Ok(())
 }
 
-pub async fn load_metrics_debug_enabled(db: &DB) -> error::Result<()> {
-    let metrics_enabled = load_value_from_global_settings(db, EXPOSE_DEBUG_METRICS_SETTING).await;
+pub async fn load_metrics_debug_enabled(conn: &Connection) -> error::Result<()> {
+    let metrics_enabled =
+        load_value_from_global_settings_with_conn(conn, EXPOSE_DEBUG_METRICS_SETTING, true).await;
     match metrics_enabled {
         Ok(Some(serde_json::Value::Bool(t))) => {
             METRICS_DEBUG_ENABLED.store(t, Ordering::Relaxed);
@@ -479,8 +561,8 @@ fn get_worker_group(mode: &Mode) -> Option<String> {
     }
 }
 
-pub fn send_logs_to_object_store(db: &DB, hostname: &str, mode: &Mode) {
-    let db = db.clone();
+pub fn send_logs_to_object_store(conn: &Connection, hostname: &str, mode: &Mode) {
+    let conn = conn.clone();
     let hostname = hostname.to_string();
     let mode = mode.clone();
     let worker_group = get_worker_group(&mode);
@@ -495,7 +577,7 @@ pub fn send_logs_to_object_store(db: &DB, hostname: &str, mode: &Mode) {
                 &hostname,
                 &mode,
                 &worker_group,
-                &db,
+                &conn,
                 snd_highest_file,
                 false,
             )
@@ -504,11 +586,11 @@ pub fn send_logs_to_object_store(db: &DB, hostname: &str, mode: &Mode) {
     });
 }
 
-pub async fn send_current_log_file_to_object_store(db: &DB, hostname: &str, mode: &Mode) {
+pub async fn send_current_log_file_to_object_store(conn: &Connection, hostname: &str, mode: &Mode) {
     tracing::info!("Sending current log file to object store");
     let (highest_file, _) = find_two_highest_files(hostname).await;
     let worker_group = get_worker_group(&mode);
-    send_log_file_to_object_store(hostname, mode, &worker_group, db, highest_file, true).await;
+    send_log_file_to_object_store(hostname, mode, &worker_group, conn, highest_file, true).await;
 }
 
 fn get_now_and_str() -> (NaiveDateTime, String) {
@@ -528,7 +610,7 @@ async fn send_log_file_to_object_store(
     hostname: &str,
     mode: &Mode,
     worker_group: &Option<String>,
-    db: &Pool<Postgres>,
+    conn: &Connection,
     snd_highest_file: Option<String>,
     use_now: bool,
 ) {
@@ -552,7 +634,9 @@ async fn send_log_file_to_object_store(
         };
 
         let exists = LAST_LOG_FILE_SENT.lock().map(|last_log_file_sent| {
-            last_log_file_sent.map(|last_log_file_sent| last_log_file_sent >= ts).unwrap_or(false)
+            last_log_file_sent
+                .map(|last_log_file_sent| last_log_file_sent >= ts)
+                .unwrap_or(false)
         });
 
         if exists.unwrap_or(false) {
@@ -560,7 +644,7 @@ async fn send_log_file_to_object_store(
         }
 
         #[cfg(feature = "parquet")]
-        let s3_client = OBJECT_STORE_CACHE_SETTINGS.read().await.clone();
+        let s3_client = windmill_common::s3_helpers::get_object_store().await;
         #[cfg(feature = "parquet")]
         if let Some(s3_client) = s3_client {
             let path = std::path::Path::new(TMP_WINDMILL_LOGS_SERVICE)
@@ -588,18 +672,25 @@ async fn send_log_file_to_object_store(
 
         let (ok_lines, err_lines) = read_log_counters(ts_str);
 
-        if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt) VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7, $8)", 
-            hostname, mode.to_string(), worker_group.clone(), ts, highest_file, ok_lines as i64, err_lines as i64, *JSON_FMT)
-            .execute(db)
-            .await {
-            tracing::error!("Error inserting log file: {:?}", e);
-        } else {
-            if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
-                last_log_file_sent.replace(ts);
-            }) {
-                tracing::error!("Error updating last log file sent: {:?}", e);
+        if let Some(db) = conn.as_sql() {
+            if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt)
+             VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7, $8)
+             ON CONFLICT (hostname, log_ts) DO UPDATE SET ok_lines = log_file.ok_lines + $6, err_lines = log_file.err_lines + $7",
+                hostname, mode.to_string(), worker_group.clone(), ts, highest_file, ok_lines as i64, err_lines as i64, *JSON_FMT)
+                .execute(db)
+                .await {
+                tracing::error!("Error inserting log file: {:?}", e);
+            } else {
+                if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
+                    last_log_file_sent.replace(ts);
+                }) {
+                    tracing::error!("Error updating last log file sent: {:?}", e);
+                }
+                tracing::info!("Log file sent: {}", highest_file);
             }
-            tracing::info!("Log file sent: {}", highest_file);
+        } else {
+            // tracing::warn!("Not sending log file to object store in agent mode");
+            ()
         }
     }
 }
@@ -622,8 +713,8 @@ fn read_log_counters(ts_str: String) -> (usize, usize) {
     (ok_lines, err_lines)
 }
 
-pub async fn load_keep_job_dir(db: &DB) {
-    let value = load_value_from_global_settings(db, KEEP_JOB_DIR_SETTING).await;
+pub async fn load_keep_job_dir(conn: &Connection) {
+    let value = load_value_from_global_settings_with_conn(conn, KEEP_JOB_DIR_SETTING, true).await;
     match value {
         Ok(Some(serde_json::Value::Bool(t))) => KEEP_JOB_DIR.store(t, Ordering::Relaxed),
         Err(e) => {
@@ -755,11 +846,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
             Ok(mut tx) => {
                 let deleted_jobs = sqlx::query_scalar!(
                     "DELETE FROM v2_job_completed c
-                    USING v2_job j
-                    WHERE
-                        created_at <= now() - ($1::bigint::text || ' s')::interval
-                        AND completed_at + ($1::bigint::text || ' s')::interval <= now()
-                        AND c.id = j.id
+                    WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval 
                     RETURNING c.id",
                     job_retention_secs
                 )
@@ -843,10 +930,7 @@ async fn delete_log_files_from_disk_and_store(
     _s3_prefix: &str,
 ) {
     #[cfg(feature = "parquet")]
-    let os = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-        .read()
-        .await
-        .clone();
+    let os = windmill_common::s3_helpers::get_object_store().await;
     #[cfg(not(feature = "parquet"))]
     let os: Option<()> = None;
 
@@ -890,23 +974,23 @@ async fn delete_log_files_from_disk_and_store(
     let _: Vec<_> = delete_futures.collect().await;
 }
 
-pub async fn reload_scim_token_setting(db: &DB) {
-    reload_option_setting_with_tracing(db, SCIM_TOKEN_SETTING, "SCIM_TOKEN", SCIM_TOKEN.clone())
+pub async fn reload_scim_token_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(conn, SCIM_TOKEN_SETTING, "SCIM_TOKEN", SCIM_TOKEN.clone())
         .await;
 }
 
-pub async fn reload_timeout_wait_result_setting(db: &DB) {
+pub async fn reload_timeout_wait_result_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
-        db,
+        conn,
         TIMEOUT_WAIT_RESULT_SETTING,
         "TIMEOUT_WAIT_RESULT",
         TIMEOUT_WAIT_RESULT.clone(),
     )
     .await;
 }
-pub async fn reload_saml_metadata_setting(db: &DB) {
+pub async fn reload_saml_metadata_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
-        db,
+        conn,
         SAML_METADATA_SETTING,
         "SAML_METADATA",
         SAML_METADATA.clone(),
@@ -914,9 +998,9 @@ pub async fn reload_saml_metadata_setting(db: &DB) {
     .await;
 }
 
-pub async fn reload_extra_pip_index_url_setting(db: &DB) {
+pub async fn reload_extra_pip_index_url_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
-        db,
+        conn,
         EXTRA_PIP_INDEX_URL_SETTING,
         "PIP_EXTRA_INDEX_URL",
         PIP_EXTRA_INDEX_URL.clone(),
@@ -924,9 +1008,9 @@ pub async fn reload_extra_pip_index_url_setting(db: &DB) {
     .await;
 }
 
-pub async fn reload_pip_index_url_setting(db: &DB) {
+pub async fn reload_pip_index_url_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
-        db,
+        conn,
         PIP_INDEX_URL_SETTING,
         "PIP_INDEX_URL",
         PIP_INDEX_URL.clone(),
@@ -934,9 +1018,9 @@ pub async fn reload_pip_index_url_setting(db: &DB) {
     .await;
 }
 
-pub async fn reload_instance_python_version_setting(db: &DB) {
+pub async fn reload_instance_python_version_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
-        db,
+        conn,
         INSTANCE_PYTHON_VERSION_SETTING,
         "INSTANCE_PYTHON_VERSION",
         INSTANCE_PYTHON_VERSION.clone(),
@@ -944,9 +1028,9 @@ pub async fn reload_instance_python_version_setting(db: &DB) {
     .await;
 }
 
-pub async fn reload_npm_config_registry_setting(db: &DB) {
+pub async fn reload_npm_config_registry_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
-        db,
+        conn,
         NPM_CONFIG_REGISTRY_SETTING,
         "NPM_CONFIG_REGISTRY",
         NPM_CONFIG_REGISTRY.clone(),
@@ -954,9 +1038,9 @@ pub async fn reload_npm_config_registry_setting(db: &DB) {
     .await;
 }
 
-pub async fn reload_bunfig_install_scopes_setting(db: &DB) {
+pub async fn reload_bunfig_install_scopes_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
-        db,
+        conn,
         BUNFIG_INSTALL_SCOPES_SETTING,
         "BUNFIG_INSTALL_SCOPES",
         BUNFIG_INSTALL_SCOPES.clone(),
@@ -964,21 +1048,31 @@ pub async fn reload_bunfig_install_scopes_setting(db: &DB) {
     .await;
 }
 
-pub async fn reload_nuget_config_setting(db: &DB) {
+pub async fn reload_nuget_config_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
-        db,
+        conn,
         NUGET_CONFIG_SETTING,
         "NUGET_CONFIG",
         NUGET_CONFIG.clone(),
     )
     .await;
 }
-pub async fn reload_maven_repos_setting(db: &DB) {
-    reload_option_setting_with_tracing(db, windmill_common::global_settings::MAVEN_REPOS_SETTING, "MAVEN_REPOS", MAVEN_REPOS.clone())
-        .await;
+pub async fn reload_maven_repos_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        windmill_common::global_settings::MAVEN_REPOS_SETTING,
+        "MAVEN_REPOS",
+        MAVEN_REPOS.clone(),
+    )
+    .await;
 }
-pub async fn reload_no_default_maven_setting(db: &DB) {
-    let value = load_value_from_global_settings(db, windmill_common::global_settings::NO_DEFAULT_MAVEN_SETTING).await;
+pub async fn reload_no_default_maven_setting(conn: &Connection) {
+    let value = load_value_from_global_settings_with_conn(
+        conn,
+        windmill_common::global_settings::NO_DEFAULT_MAVEN_SETTING,
+        true,
+    )
+    .await;
     match value {
         Ok(Some(serde_json::Value::Bool(t))) => NO_DEFAULT_MAVEN.store(t, Ordering::Relaxed),
         Err(e) => {
@@ -988,9 +1082,9 @@ pub async fn reload_no_default_maven_setting(db: &DB) {
     };
 }
 
-pub async fn reload_retention_period_setting(db: &DB) {
+pub async fn reload_retention_period_setting(conn: &Connection) {
     if let Err(e) = reload_setting(
-        db,
+        conn,
         RETENTION_PERIOD_SECS_SETTING,
         "JOB_RETENTION_SECS",
         60 * 60 * 24 * 30,
@@ -1002,9 +1096,9 @@ pub async fn reload_retention_period_setting(db: &DB) {
         tracing::error!("Error reloading retention period: {:?}", e)
     }
 }
-pub async fn reload_delete_logs_periodically_setting(db: &DB) {
+pub async fn reload_delete_logs_periodically_setting(conn: &Connection) {
     if let Err(e) = reload_setting(
-        db,
+        conn,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
         "MONITOR_LOGS_ON_OBJECT_STORE",
         false,
@@ -1017,64 +1111,9 @@ pub async fn reload_delete_logs_periodically_setting(db: &DB) {
     }
 }
 
-#[cfg(feature = "parquet")]
-pub async fn reload_s3_cache_setting(db: &DB) {
-    use windmill_common::{
-        ee::{get_license_plan, LicensePlan},
-        s3_helpers::ObjectSettings,
-    };
-
-    let s3_config = load_value_from_global_settings(db, OBJECT_STORE_CACHE_CONFIG_SETTING).await;
-    if let Err(e) = s3_config {
-        tracing::error!("Error reloading s3 cache config: {:?}", e)
-    } else {
-        if let Some(v) = s3_config.unwrap() {
-            if matches!(get_license_plan().await, LicensePlan::Pro) {
-                tracing::error!("S3 cache is not available for pro plan");
-                return;
-            }
-            let mut s3_cache_settings = OBJECT_STORE_CACHE_SETTINGS.write().await;
-            let setting = serde_json::from_value::<ObjectSettings>(v);
-            if let Err(e) = setting {
-                tracing::error!("Error parsing s3 cache config: {:?}", e)
-            } else {
-                let s3_client = build_object_store_from_settings(setting.unwrap()).await;
-                if let Err(e) = s3_client {
-                    tracing::error!("Error building s3 client from settings: {:?}", e)
-                } else {
-                    *s3_cache_settings = Some(s3_client.unwrap());
-                }
-            }
-        } else {
-            let mut s3_cache_settings = OBJECT_STORE_CACHE_SETTINGS.write().await;
-            if std::env::var("S3_CACHE_BUCKET").is_ok() {
-                if matches!(get_license_plan().await, LicensePlan::Pro) {
-                    tracing::error!("S3 cache is not available for pro plan");
-                    return;
-                }
-                *s3_cache_settings = build_s3_client_from_settings(S3Settings {
-                    bucket: None,
-                    region: None,
-                    access_key: None,
-                    secret_key: None,
-                    endpoint: None,
-                    store_logs: None,
-                    path_style: None,
-                    allow_http: None,
-                    port: None,
-                })
-                .await
-                .ok();
-            } else {
-                *s3_cache_settings = None;
-            }
-        }
-    }
-}
-
-pub async fn reload_job_default_timeout_setting(db: &DB) {
+pub async fn reload_job_default_timeout_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
-        db,
+        conn,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         "JOB_DEFAULT_TIMEOUT_SECS",
         JOB_DEFAULT_TIMEOUT.clone(),
@@ -1082,9 +1121,9 @@ pub async fn reload_job_default_timeout_setting(db: &DB) {
     .await;
 }
 
-pub async fn reload_request_size(db: &DB) {
+pub async fn reload_request_size(conn: &Connection) {
     if let Err(e) = reload_setting(
-        db,
+        conn,
         REQUEST_SIZE_LIMIT_SETTING,
         "REQUEST_SIZE_LIMIT",
         DEFAULT_BODY_LIMIT,
@@ -1097,8 +1136,8 @@ pub async fn reload_request_size(db: &DB) {
     }
 }
 
-pub async fn reload_license_key(db: &DB) -> anyhow::Result<()> {
-    let q = load_value_from_global_settings(db, LICENSE_KEY_SETTING)
+pub async fn reload_license_key(conn: &Connection) -> anyhow::Result<()> {
+    let q = load_value_from_global_settings_with_conn(conn, LICENSE_KEY_SETTING, true)
         .await
         .map_err(|err| anyhow::anyhow!("Error reloading license key: {}", err.to_string()))?;
 
@@ -1123,12 +1162,12 @@ pub async fn reload_license_key(db: &DB) -> anyhow::Result<()> {
 }
 
 pub async fn reload_option_setting_with_tracing<T: FromStr + DeserializeOwned>(
-    db: &DB,
+    conn: &Connection,
     setting_name: &str,
     std_env_var: &str,
     lock: Arc<RwLock<Option<T>>>,
 ) {
-    if let Err(e) = reload_option_setting(db, setting_name, std_env_var, lock.clone()).await {
+    if let Err(e) = reload_option_setting(conn, setting_name, std_env_var, lock.clone()).await {
         tracing::error!("Error reloading setting {}: {:?}", setting_name, e)
     }
 }
@@ -1147,8 +1186,31 @@ pub async fn load_value_from_global_settings(
     Ok(r)
 }
 
+pub async fn load_value_from_global_settings_with_conn(
+    conn: &Connection,
+    setting_name: &str,
+    load_from_http: bool,
+) -> anyhow::Result<Option<serde_json::Value>> {
+    match conn {
+        Connection::Sql(db) => Ok(load_value_from_global_settings(db, setting_name).await?),
+        Connection::Http(client) => {
+            if load_from_http {
+                client
+                    .get::<Option<serde_json::Value>>(&format!(
+                        "/api/agent_workers/get_global_setting/{}",
+                        setting_name
+                    ))
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Error loading setting {}: {}", setting_name, e))
+            } else {
+                Ok(None)
+            }
+        }
+    }
+}
+
 pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
-    db: &DB,
+    conn: &Connection,
     setting_name: &str,
     std_env_var: &str,
     lock: Arc<RwLock<Option<T>>>,
@@ -1163,7 +1225,7 @@ pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
         return Ok(());
     }
 
-    let q = load_value_from_global_settings(db, setting_name).await?;
+    let q = load_value_from_global_settings_with_conn(conn, setting_name, true).await?;
 
     let mut value = std::env::var(std_env_var)
         .ok()
@@ -1190,14 +1252,14 @@ pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
 }
 
 pub async fn reload_setting<T: FromStr + DeserializeOwned + Display>(
-    db: &DB,
+    conn: &Connection,
     setting_name: &str,
     std_env_var: &str,
     default: T,
     lock: Arc<RwLock<T>>,
     transformer: fn(T) -> T,
 ) -> error::Result<()> {
-    let q = load_value_from_global_settings(db, setting_name).await?;
+    let q = load_value_from_global_settings_with_conn(conn, setting_name, true).await?;
 
     let mut value = std::env::var(std_env_var)
         .ok()
@@ -1255,27 +1317,32 @@ pub async fn monitor_pool(db: &DB) {
 }
 
 pub async fn monitor_db(
-    db: &Pool<Postgres>,
+    conn: &Connection,
     base_internal_url: &str,
     server_mode: bool,
     _worker_mode: bool,
     initial_load: bool,
     _killpill_tx: KillpillSender,
 ) {
+    tracing::info!("Starting periodic monitor task");
     let zombie_jobs_f = async {
         if server_mode && !initial_load && !*DISABLE_ZOMBIE_JOBS_MONITORING {
-            handle_zombie_jobs(db, base_internal_url, "server").await;
-            match handle_zombie_flows(db).await {
-                Err(err) => {
-                    tracing::error!("Error handling zombie flows: {:?}", err);
+            if let Some(db) = conn.as_sql() {
+                handle_zombie_jobs(db, base_internal_url, "server").await;
+                match handle_zombie_flows(db).await {
+                    Err(err) => {
+                        tracing::error!("Error handling zombie flows: {:?}", err);
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
     };
     let expired_items_f = async {
         if server_mode && !initial_load {
-            delete_expired_items(&db).await;
+            if let Some(db) = conn.as_sql() {
+                delete_expired_items(&db).await;
+            }
         }
     };
 
@@ -1288,35 +1355,60 @@ pub async fn monitor_db(
 
     let expose_queue_metrics_f = async {
         if !initial_load && server_mode {
-            expose_queue_metrics(&db).await;
+            if let Some(db) = conn.as_sql() {
+                expose_queue_metrics(&db).await;
+            }
         }
     };
 
     let worker_groups_alerts_f = async {
         #[cfg(feature = "enterprise")]
         if server_mode && !initial_load {
-            worker_groups_alerts(&db).await;
+            if let Some(db) = conn.as_sql() {
+                worker_groups_alerts(&db).await;
+            }
         }
     };
 
     let jobs_waiting_alerts_f = async {
         #[cfg(feature = "enterprise")]
         if server_mode {
-            jobs_waiting_alerts(&db).await;
+            if let Some(db) = conn.as_sql() {
+                jobs_waiting_alerts(&db).await;
+            }
+        }
+    };
+
+    let low_disk_alerts_f = async {
+        #[cfg(feature = "enterprise")]
+        if let Some(db) = conn.as_sql() {
+            low_disk_alerts(
+                &db,
+                server_mode,
+                _worker_mode,
+                WORKERS_NAMES.read().await.clone(),
+            )
+            .await;
+        }
+        #[cfg(not(feature = "enterprise"))]
+        {
+            ()
         }
     };
 
     let apply_autoscaling_f = async {
         #[cfg(feature = "enterprise")]
         if server_mode && !initial_load {
-            if let Err(e) = windmill_autoscaling::apply_all_autoscaling(db).await {
-                tracing::error!("Error applying autoscaling: {:?}", e);
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = windmill_autoscaling::apply_all_autoscaling(db).await {
+                    tracing::error!("Error applying autoscaling: {:?}", e);
+                }
             }
         }
     };
 
     let update_min_worker_version_f = async {
-        update_min_version(db).await;
+        update_min_version(conn).await;
     };
 
     join!(
@@ -1326,9 +1418,11 @@ pub async fn monitor_db(
         verify_license_key_f,
         worker_groups_alerts_f,
         jobs_waiting_alerts_f,
+        low_disk_alerts_f,
         apply_autoscaling_f,
         update_min_worker_version_f,
     );
+    tracing::info!("Periodic monitor task completed");
 }
 
 pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
@@ -1434,12 +1528,8 @@ pub async fn reload_indexer_config(db: &Pool<Postgres>) {
     }
 }
 
-pub async fn reload_worker_config(
-    db: &DB,
-    tx: KillpillSender,
-    kill_if_change: bool,
-) {
-    let config = load_worker_config(&db, tx.clone()).await;
+pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: bool) {
+    let config = load_worker_config(db, tx.clone()).await;
     if let Err(e) = config {
         tracing::error!("Error reloading worker config: {:?}", e)
     } else {
@@ -1473,15 +1563,16 @@ pub async fn reload_worker_config(
 
             let mut wc = WORKER_CONFIG.write().await;
             tracing::info!("Reloading worker config...");
-            make_suspended_pull_query(&config).await;
-            make_pull_query(&config).await;
+            store_suspended_pull_query(&config).await;
+            store_pull_query(&config).await;
             *wc = config
         }
     }
 }
 
-pub async fn load_base_url(db: &DB) -> error::Result<String> {
-    let q_base_url = load_value_from_global_settings(db, BASE_URL_SETTING).await?;
+pub async fn load_base_url(conn: &Connection) -> error::Result<String> {
+    let q_base_url =
+        load_value_from_global_settings_with_conn(conn, BASE_URL_SETTING, false).await?;
 
     let std_base_url = std::env::var("BASE_URL")
         .ok()
@@ -1511,34 +1602,38 @@ pub async fn load_base_url(db: &DB) -> error::Result<String> {
     Ok(base_url)
 }
 
-pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
+pub async fn reload_base_url_setting(conn: &Connection) -> error::Result<()> {
     #[cfg(feature = "oauth2")]
-    let q_oauth = load_value_from_global_settings(db, OAUTH_SETTING).await?;
+    let oauths = if let Some(db) = conn.as_sql() {
+        let q_oauth = load_value_from_global_settings(db, OAUTH_SETTING).await?;
 
-    #[cfg(feature = "oauth2")]
-    let oauths = if let Some(q) = q_oauth {
-        if let Ok(v) = serde_json::from_value::<
-            Option<HashMap<String, windmill_api::oauth2_ee::OAuthClient>>,
-        >(q.clone())
-        {
-            v
+        if let Some(q) = q_oauth {
+            if let Ok(v) = serde_json::from_value::<
+                Option<HashMap<String, windmill_api::oauth2_oss::OAuthClient>>,
+            >(q.clone())
+            {
+                v
+            } else {
+                tracing::error!("Could not parse oauth setting as a json, found: {:#?}", &q);
+                None
+            }
         } else {
-            tracing::error!("Could not parse oauth setting as a json, found: {:#?}", &q);
             None
         }
     } else {
         None
     };
-
-    let base_url = load_base_url(db).await?;
+    let base_url = load_base_url(conn).await?;
     let is_secure = base_url.starts_with("https://");
 
     #[cfg(feature = "oauth2")]
     {
-        let mut l = windmill_api::OAUTH_CLIENTS.write().await;
-        *l = windmill_api::oauth2_ee::build_oauth_clients(&base_url, oauths, db).await
-        .map_err(|e| tracing::error!("Error building oauth clients (is the oauth.json mounted and in correct format? Use '{}' as minimal oauth.json): {}", "{}", e))
-        .unwrap();
+        if let Some(db) = conn.as_sql() {
+            let mut l = windmill_api::OAUTH_CLIENTS.write().await;
+            *l = windmill_api::oauth2_oss::build_oauth_clients(&base_url, oauths, db).await
+            .map_err(|e| tracing::error!("Error building oauth clients (is the oauth.json mounted and in correct format? Use '{}' as minimal oauth.json): {}", "{}", e))
+            .unwrap();
+        }
     }
 
     {
@@ -1585,7 +1680,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             increment_counter AS (
                 INSERT INTO zombie_job_counter (job_id, counter)
                 SELECT id, 1 FROM to_update WHERE counter < $2
-                ON CONFLICT (job_id) DO UPDATE 
+                ON CONFLICT (job_id) DO UPDATE
                 SET counter = zombie_job_counter.counter + 1
             ),
             update_concurrency AS (
@@ -1677,7 +1772,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
 
     let same_worker_timeout_jobs = {
         let long_same_worker_jobs = sqlx::query!(
-            "SELECT worker, array_agg(v2_job_queue.id) as ids FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id LEFT JOIN v2_job_runtime ON v2_job_queue.id = v2_job_runtime.id WHERE v2_job_queue.created_at < now() - ('60 seconds')::interval 
+            "SELECT worker, array_agg(v2_job_queue.id) as ids FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id LEFT JOIN v2_job_runtime ON v2_job_queue.id = v2_job_runtime.id WHERE v2_job_queue.created_at < now() - ('60 seconds')::interval
     AND running = true AND ping IS NULL AND same_worker = true AND worker IS NOT NULL GROUP BY worker",
         )
         .fetch_all(db)
@@ -1691,9 +1786,9 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             .collect::<Vec<_>>();
 
         let long_dead_workers: std::collections::HashSet<String> = sqlx::query_scalar!(
-            "WITH worker_ids AS (SELECT unnest($1::text[]) as worker) 
-            SELECT worker_ids.worker FROM worker_ids 
-            LEFT JOIN worker_ping ON worker_ids.worker = worker_ping.worker 
+            "WITH worker_ids AS (SELECT unnest($1::text[]) as worker)
+            SELECT worker_ids.worker FROM worker_ids
+            LEFT JOIN worker_ping ON worker_ids.worker = worker_ping.worker
                 WHERE worker_ping.worker IS NULL OR worker_ping.ping_at < now() - ('60 seconds')::interval",
             &worker_ids[..]
         )
@@ -1737,7 +1832,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
     let non_restartable_jobs = if *RESTART_ZOMBIE_JOBS {
         vec![]
     } else {
-        sqlx::query_as::<_, QueuedJob>("SELECT * FROM v2_as_queue WHERE last_ping < now() - ($1 || ' seconds')::interval 
+        sqlx::query_as::<_, QueuedJob>("SELECT * FROM v2_as_queue WHERE last_ping < now() - ($1 || ' seconds')::interval
     AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow') AND same_worker = false")
         .bind(ZOMBIE_JOB_TIMEOUT.as_str())
         .fetch_all(db)
@@ -1796,7 +1891,8 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             mpsc::channel::<SameWorkerPayload>(1);
         let same_worker_tx_never_used =
             SameWorkerSender(same_worker_tx_never_used, Arc::new(AtomicU16::new(0)));
-        let (send_result_never_used, _send_result_rx_never_used) = mpsc::channel::<SendResult>(1);
+        let (send_result_never_used, _send_result_rx_never_used) =
+            JobCompletedSender::new_never_used();
 
         let label = if job.permissioned_as != format!("u/{}", job.created_by)
             && job.permissioned_as != job.created_by
@@ -1818,12 +1914,12 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         .await
         .expect("could not create job token");
 
-        let client = AuthedClient {
-            base_internal_url: base_internal_url.to_string(),
+        let client = AuthedClient::new(
+            base_internal_url.to_string(),
+            job.workspace_id.to_string(),
             token,
-            workspace: job.workspace_id.to_string(),
-            force_client: None,
-        };
+            None,
+        );
 
         let last_ping = job.last_ping.clone();
         let error_message = format!(
@@ -1842,12 +1938,12 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             None,
             error::Error::ExecutionErr(error_message),
             true,
-            same_worker_tx_never_used,
+            Some(&same_worker_tx_never_used),
             "",
             worker_name,
             send_result_never_used,
             #[cfg(feature = "benchmark")]
-            &mut windmill_worker::bench::BenchmarkIter::new(),
+            &mut windmill_common::bench::BenchmarkIter::new(),
         )
         .await;
     }
@@ -1934,7 +2030,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
                 }
             );
             report_critical_error(reason.clone(), db.clone(), Some(&flow.workspace_id), None).await;
-            cancel_zombie_flow_job(db, flow.id, &flow.workspace_id, 
+            cancel_zombie_flow_job(db, flow.id, &flow.workspace_id,
                 format!(r#"{reason}
 This would happen if a worker was interrupted, killed or crashed while doing a state transition at the end of a job which is always an unexpected behavior that should never happen.
 Please check your worker logs for more details and feel free to report it to the Windmill team on our Discord or support@windmill.dev (response for non EE customers will be best effort) with as much context as possible, ideally:
@@ -1951,7 +2047,7 @@ Please check your worker logs for more details and feel free to report it to the
         r#"
         DELETE
         FROM parallel_monitor_lock
-        WHERE last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval 
+        WHERE last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval
         RETURNING parent_flow_id, job_id, last_ping, (SELECT workspace_id FROM v2_job_queue q
             WHERE q.id = parent_flow_id AND q.running = true AND q.canceled_by IS NULL
         ) AS workspace_id
@@ -2006,8 +2102,12 @@ async fn cancel_zombie_flow_job(
     Ok(())
 }
 
-pub async fn reload_hub_base_url_setting(db: &DB, server_mode: bool) -> error::Result<()> {
-    let hub_base_url = load_value_from_global_settings(db, HUB_BASE_URL_SETTING).await?;
+pub async fn reload_hub_base_url_setting(
+    conn: &Connection,
+    server_mode: bool,
+) -> error::Result<()> {
+    let hub_base_url =
+        load_value_from_global_settings_with_conn(conn, HUB_BASE_URL_SETTING, true).await?;
 
     let base_url = if let Some(q) = hub_base_url {
         if let Ok(v) = serde_json::from_value::<String>(q.clone()) {
@@ -2030,16 +2130,18 @@ pub async fn reload_hub_base_url_setting(db: &DB, server_mode: bool) -> error::R
     let mut l = HUB_BASE_URL.write().await;
     if server_mode {
         #[cfg(feature = "embedding")]
-        if *l != base_url {
-            let disable_embedding = std::env::var("DISABLE_EMBEDDING")
-                .ok()
-                .map(|x| x.parse::<bool>().unwrap_or(false))
-                .unwrap_or(false);
-            if !disable_embedding {
-                let db_clone = db.clone();
-                tokio::spawn(async move {
-                    update_embeddings_db(&db_clone).await;
-                });
+        if let Some(db) = conn.as_sql() {
+            if *l != base_url {
+                let disable_embedding = std::env::var("DISABLE_EMBEDDING")
+                    .ok()
+                    .map(|x| x.parse::<bool>().unwrap_or(false))
+                    .unwrap_or(false);
+                if !disable_embedding {
+                    let db_clone = db.clone();
+                    tokio::spawn(async move {
+                        update_embeddings_db(&db_clone).await;
+                    });
+                }
             }
         }
     }
@@ -2048,16 +2150,16 @@ pub async fn reload_hub_base_url_setting(db: &DB, server_mode: bool) -> error::R
     Ok(())
 }
 
-pub async fn reload_critical_error_channels_setting(db: &DB) -> error::Result<()> {
+pub async fn reload_critical_error_channels_setting(conn: &DB) -> error::Result<()> {
     let critical_error_channels =
-        load_value_from_global_settings(db, CRITICAL_ERROR_CHANNELS_SETTING).await?;
+        load_value_from_global_settings(conn, CRITICAL_ERROR_CHANNELS_SETTING).await?;
 
     let critical_error_channels = if let Some(q) = critical_error_channels {
         if let Ok(v) = serde_json::from_value::<Vec<CriticalErrorChannel>>(q.clone()) {
             v
         } else {
             tracing::error!(
-                "Could not parse critical_error_emails setting as an array of channels, found: {:#?}",
+                "Could not parse critical_error_channels setting as an array of channels, found: {:#?}",
                 &q
             );
             vec![]
@@ -2068,6 +2170,39 @@ pub async fn reload_critical_error_channels_setting(db: &DB) -> error::Result<()
 
     let mut l = CRITICAL_ERROR_CHANNELS.write().await;
     *l = critical_error_channels;
+
+    Ok(())
+}
+
+pub async fn reload_critical_alerts_on_db_oversize(conn: &DB) -> error::Result<()> {
+    #[derive(Deserialize)]
+    struct DBOversize {
+        #[serde(default)]
+        enabled: bool,
+        #[serde(default)]
+        value: f32,
+    }
+    let db_oversize_value =
+        load_value_from_global_settings(conn, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING).await?;
+
+    let db_oversize = if let Some(q) = db_oversize_value {
+        match serde_json::from_value::<DBOversize>(q.clone()) {
+            Ok(DBOversize { enabled: true, value }) => Some(value),
+            Ok(_) => None,
+            Err(q) => {
+                tracing::error!(
+                    "Could not parse critical_alerts_on_db_oversize setting, found: {:#?}",
+                    &q
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let mut l = CRITICAL_ALERTS_ON_DB_OVERSIZE.write().await;
+    *l = db_oversize;
 
     Ok(())
 }

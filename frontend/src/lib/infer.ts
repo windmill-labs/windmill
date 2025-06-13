@@ -9,6 +9,7 @@ import initRegexParsers, {
 	parse_sql,
 	parse_mysql,
 	parse_oracledb,
+	parse_duckdb,
 	parse_bigquery,
 	parse_snowflake,
 	parse_graphql,
@@ -102,7 +103,9 @@ export async function inferArgs(
 		}
 
 		let inlineDBResource: string | undefined = undefined
-		if (['postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'oracledb'].includes(language ?? '')) {
+		if (
+			['postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'oracledb'].includes(language ?? '')
+		) {
 			await initWasmRegex()
 			inlineDBResource = parse_db_resource(code)
 		}
@@ -153,6 +156,9 @@ export async function inferArgs(
 					...inferedSchema.args
 				]
 			}
+		} else if (language == 'duckdb') {
+			await initWasmRegex()
+			inferedSchema = JSON.parse(parse_duckdb(code))
 		} else if (language == 'snowflake') {
 			inferedSchema = JSON.parse(parse_snowflake(code))
 			if (inlineDBResource === undefined) {
@@ -201,12 +207,10 @@ export async function inferArgs(
 			await initWasmJava()
 			inferedSchema = JSON.parse(parse_java(code))
 		} else if (language == 'ruby') {
-			console.log("HEHEHEHEHEHEHEHEHEH");
 			await initWasmRuby()
 			// console.log("AFTER INIT");
 			// console.log(parse_ruby("def main end"))
 			inferedSchema = JSON.parse(parse_ruby(code))
-			console.log("AFTER PARSE");
 			console.log(inferedSchema);
 			// for related places search: ADD_NEW_LANG 
 		} else {

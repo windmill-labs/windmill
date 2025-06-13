@@ -63,7 +63,7 @@
 					(x) =>
 						passwords.includes(x) ||
 						['token', 'secret', 'key', 'pass', 'private'].some((y) => x.toLowerCase().includes(y))
-			  )
+				)
 	}
 
 	let linkedSecret: string | undefined = undefined
@@ -487,6 +487,8 @@
 					{#if !nativeLanguagesCategory.includes(key)}
 						<!-- Exclude specific items -->
 						<Button
+							aiId={`app-connect-inner-${key}`}
+							aiDescription={`Connect to ${key}`}
 							size="sm"
 							variant="border"
 							color={key === resourceType ? 'blue' : 'light'}
@@ -552,7 +554,8 @@
 		{#if renderDescription}
 			<div>
 				<div class="flex flex-row-reverse text-2xs text-tertiary -mt-1">GH Markdown</div>
-				<textarea use:autosize bind:value={description} placeholder={'Resource description'}></textarea>
+				<textarea use:autosize bind:value={description} placeholder={'Resource description'}
+				></textarea>
 			</div>
 		{:else if description == undefined || description == ''}
 			<div class="text-sm text-tertiary">No description provided</div>

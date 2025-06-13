@@ -5,12 +5,10 @@ mod mssql_executor;
 #[cfg(feature = "enterprise")]
 mod snowflake_executor;
 
+mod agent_workers;
 #[cfg(feature = "python")]
 mod ansible_executor;
 mod bash_executor;
-
-#[cfg(feature = "nu")]
-mod nu_executor;
 
 #[cfg(feature = "java")]
 mod java_executor;
@@ -18,8 +16,6 @@ mod java_executor;
 #[cfg(feature = "ruby")]
 mod ruby_executor;
 
-#[cfg(feature = "benchmark")]
-pub mod bench;
 mod bun_executor;
 pub mod common;
 mod config;
@@ -27,24 +23,34 @@ mod csharp_executor;
 #[cfg(feature = "enterprise")]
 mod dedicated_worker;
 mod deno_executor;
+#[cfg(feature = "duckdb")]
+mod duckdb_executor;
 mod global_cache;
 mod go_executor;
 mod graphql_executor;
 mod handle_child;
-mod job_logger;
-mod job_logger_ee;
+pub mod job_logger;
+#[cfg(feature = "private")]
+pub mod job_logger_ee;
+mod job_logger_oss;
 mod js_eval;
 #[cfg(feature = "mysql")]
 mod mysql_executor;
+#[cfg(feature = "nu")]
+mod nu_executor;
 #[cfg(feature = "oracledb")]
 mod oracledb_executor;
-mod otel_ee;
+#[cfg(feature = "private")]
+pub mod otel_ee;
+mod otel_oss;
 mod pg_executor;
 #[cfg(feature = "php")]
 mod php_executor;
 #[cfg(feature = "python")]
 mod python_executor;
-mod result_processor;
+#[cfg(feature = "python")]
+mod python_versions;
+pub mod result_processor;
 #[cfg(feature = "rust")]
 mod rust_executor;
 mod sanitized_sql_params;
@@ -52,12 +58,18 @@ mod schema;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;
+mod worker_utils;
 
 pub use worker::*;
+pub use worker_lockfiles::process_relative_imports;
 
 pub use result_processor::handle_job_error;
 
 pub use bun_executor::{
-    get_common_bun_proc_envs, install_bun_lockfile, prebundle_bun_script, prepare_job_dir,
+    compute_bundle_local_and_remote_path, get_common_bun_proc_envs, install_bun_lockfile,
+    prebundle_bun_script, prepare_job_dir,
 };
 pub use deno_executor::generate_deno_lock;
+
+#[cfg(feature = "python")]
+pub use python_versions::{PyV, PyVAlias};

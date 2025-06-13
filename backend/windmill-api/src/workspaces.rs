@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use crate::ai::{AIConfig, AI_REQUEST_CACHE};
 use crate::db::ApiAuthed;
-use crate::users_ee::send_email_if_possible;
+use crate::users_oss::send_email_if_possible;
 use crate::utils::get_instance_username_or_create_pending;
 use crate::BASE_URL;
 use crate::{
@@ -30,7 +30,7 @@ use chrono::Utc;
 use regex::Regex;
 
 use uuid::Uuid;
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
@@ -58,7 +58,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::utils::not_found_if_none;
 
-use crate::teams_ee::{
+use crate::teams_oss::{
     connect_teams, edit_teams_command, run_teams_message_test_job,
     workspaces_list_available_teams_channels, workspaces_list_available_teams_ids,
 };
@@ -145,7 +145,7 @@ pub fn workspaced_service() -> Router {
 
     #[cfg(all(feature = "stripe", feature = "enterprise"))]
     {
-        crate::stripe_ee::add_stripe_routes(router)
+        crate::stripe_oss::add_stripe_routes(router)
     }
 
     #[cfg(not(feature = "stripe"))]
@@ -443,10 +443,12 @@ async fn get_settings(
         "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, default_scripts, mute_critical_alerts, color, operator_settings, git_app_installations FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
-    .fetch_one(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
     tx.commit().await?;
+    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+
     Ok(Json(settings))
 }
 
@@ -638,7 +640,7 @@ async fn edit_auto_invite(
     Path(w_id): Path<String>,
     Json(ea): Json<EditAutoInvite>,
 ) -> Result<String> {
-    crate::workspaces_ee::edit_auto_invite(authed, db, w_id, ea).await
+    crate::workspaces_oss::edit_auto_invite(authed, db, w_id, ea).await
 }
 
 async fn edit_webhook(
@@ -1307,6 +1309,7 @@ struct UsedTriggers {
     pub postgres_used: bool,
     pub mqtt_used: bool,
     pub sqs_used: bool,
+    pub gcp_used: bool,
 }
 
 async fn get_used_triggers(
@@ -1325,7 +1328,8 @@ async fn get_used_triggers(
             EXISTS(SELECT 1 FROM nats_trigger WHERE workspace_id = $1) as "nats_used!",
             EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS "postgres_used!",
             EXISTS(SELECT 1 FROM mqtt_trigger WHERE workspace_id = $1) AS "mqtt_used!",
-            EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS "sqs_used!"
+            EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS "sqs_used!",
+            EXISTS(SELECT 1 FROM gcp_trigger WHERE workspace_id = $1) AS "gcp_used!"
         "#,
         w_id
     )

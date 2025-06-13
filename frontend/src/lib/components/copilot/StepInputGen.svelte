@@ -17,6 +17,7 @@
 	import type { SchemaProperty } from '$lib/common'
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	let generatedContent = ''
 	let loading = false
@@ -129,7 +130,7 @@ Only return the expression without any wrapper.`
 			}
 		} catch (err) {
 			if (!abortController.signal.aborted) {
-				sendUserToast('Could not generate summary: ' + err, true)
+				sendUserToast('Could not generate step input: ' + err, true)
 			}
 		} finally {
 			loading = false
@@ -155,6 +156,7 @@ Only return the expression without any wrapper.`
 	}
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function cancel() {
 		abortController.abort()
@@ -184,9 +186,9 @@ Only return the expression without any wrapper.`
 		automaticGeneration()
 	}
 
-	$: dispatch('showExpr', generatedContent)
+	$: dispatchIfMounted('showExpr', generatedContent)
 
-	$: dispatch('showExpr', $generatedExprs?.[argName] || '')
+	$: dispatchIfMounted('showExpr', $generatedExprs?.[argName] || '')
 
 	let out = true // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
 	let openInputsModal = false
@@ -238,8 +240,8 @@ Only return the expression without any wrapper.`
 					loading || ($stepInputsLoading && empty)
 						? Loader2
 						: generatedContent.length > 0
-						? Check
-						: Wand2,
+							? Check
+							: Wand2,
 				classes: loading || ($stepInputsLoading && empty) ? 'animate-spin' : ''
 			}}
 			on:focus={() => {

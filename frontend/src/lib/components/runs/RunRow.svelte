@@ -7,12 +7,12 @@
 		msToReadableTime,
 		truncateHash,
 		truncateRev,
-		isJobCancelable,
 		isFlowPreview,
-		isScriptPreview
+		isScriptPreview,
+		isJobSelectable
 	} from '$lib/utils'
 	import { Badge, Button } from '../common'
-	import ScheduleEditor from '../ScheduleEditor.svelte'
+	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import {
@@ -33,6 +33,7 @@
 	import Portal from '$lib/components/Portal.svelte'
 
 	import WaitTimeWarning from '../common/waitTimeWarning/WaitTimeWarning.svelte'
+	import type { RunsSelectionMode } from './RunsBatchActionsDropdown.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -41,7 +42,7 @@
 	export let containerWidth: number = 0
 	export let containsLabel: boolean = false
 	export let activeLabel: string | null
-	export let isSelectingJobsToCancel: boolean = false
+	export let selectionMode: RunsSelectionMode | false = false
 
 	let scheduleEditor: ScheduleEditor
 
@@ -49,7 +50,7 @@
 </script>
 
 <Portal name="run-row">
-	<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
+	<ScheduleEditor onUpdate={() => goto('/schedules')} bind:this={scheduleEditor} />
 </Portal>
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -61,13 +62,13 @@
 	)}
 	style="width: {containerWidth}px"
 	on:click={() => {
-		if (!isSelectingJobsToCancel || isJobCancelable(job)) {
+		if (!selectionMode || isJobSelectable(selectionMode)(job)) {
 			dispatch('select')
 		}
 	}}
 >
 	<div class="w-1/12 flex justify-center">
-		{#if isSelectingJobsToCancel && isJobCancelable(job)}
+		{#if selectionMode && isJobSelectable(selectionMode)(job)}
 			<div class="px-2">
 				<input type="checkbox" checked={selected} />
 			</div>

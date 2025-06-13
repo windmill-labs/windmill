@@ -148,7 +148,7 @@
 						size="md"
 						btnClasses="whitespace-normal break-words flex flex-wrap"
 						disabled={itemPath == undefined}
-						on:click={userSettings.openDrawer}
+						on:click={() => userSettings.openDrawer()}
 					>
 						Generate webhook-specific Token
 					</Button>

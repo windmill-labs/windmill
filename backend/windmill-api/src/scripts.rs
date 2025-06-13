@@ -38,8 +38,9 @@ use std::{
     hash::{Hash, Hasher},
     sync::Arc,
 };
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
+use windmill_worker::process_relative_imports;
 
 use windmill_common::error::to_anyhow;
 
@@ -205,7 +206,6 @@ async fn list_scripts(
     Query(lq): Query<ListScriptQuery>,
 ) -> JsonResult<Vec<ListableScript>> {
     let (per_page, offset) = paginate(pagination);
-
     let mut sqlb = SqlBuilder::select_from("script as o")
         .fields(&[
             "hash",
@@ -222,7 +222,8 @@ async fn list_scripts(
             "draft_only",
             "ws_error_handler_muted",
             "no_main_func",
-            "codebase IS NOT NULL as use_codebase"
+            "codebase IS NOT NULL as use_codebase",
+            "kind"
         ])
         .left()
         .join("favorite")
@@ -264,9 +265,12 @@ async fn list_scripts(
 
     if lq.show_archived.unwrap_or(false) {
         sqlb.and_where_eq(
-            "o.created_at",
-            "(select max(created_at) from script where o.path = path 
-            AND workspace_id = ?)"
+            "o.ctid",
+            "(SELECT ctid FROM script 
+              WHERE path = o.path 
+                AND workspace_id = ? 
+              ORDER BY created_at DESC 
+              LIMIT 1)"
                 .bind(&w_id),
         );
         sqlb.and_where_eq("archived", true);
@@ -294,7 +298,9 @@ async fn list_scripts(
     if let Some(it) = &lq.is_template {
         sqlb.and_where_eq("is_template", it);
     }
-    if let Some(lowercased_kinds) = lowercased_kinds {
+    if authed.is_operator {
+        sqlb.and_where_eq("kind", quote("script"));
+    } else if let Some(lowercased_kinds) = lowercased_kinds {
         let safe_kinds = lowercased_kinds
             .into_iter()
             .map(sql_builder::quote)
@@ -312,6 +318,16 @@ async fn list_scripts(
             .left()
             .on("dm.script_hash = o.hash")
             .fields(&["dm.deployment_msg"]);
+    }
+
+    if let Some(languages) = lq.languages {
+        sqlb.and_where_in(
+            "language",
+            &languages
+                .iter()
+                .map(|language| quote(language.as_str()))
+                .collect_vec(),
+        );
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
@@ -403,10 +419,7 @@ async fn create_snapshot_script(
             uploaded = true;
 
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
-            let object_store = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-                .read()
-                .await
-                .clone();
+            let object_store = windmill_common::s3_helpers::get_object_store().await;
 
             #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
             let object_store: Option<()> = None;
@@ -418,10 +431,10 @@ async fn create_snapshot_script(
                 std::fs::create_dir_all(
                     windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR.clone(),
                 )?;
-                windmill_common::worker::write_file(
+                windmill_common::worker::write_file_bytes(
                     &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
                     &hash,
-                    &String::from_utf8_lossy(&data),
+                    &data,
                 )?;
             } else {
                 #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
@@ -650,8 +663,13 @@ async fn create_script_internal<'c>(
     ) {
         Some(String::new())
     } else {
-        ns.lock
-            .and_then(|e| if e.is_empty() { None } else { Some(e) })
+        ns.lock.as_ref().and_then(|e| {
+            if e.is_empty() {
+                None
+            } else {
+                Some(e.to_string())
+            }
+        })
     };
 
     let needs_lock_gen = lock.is_none() && codebase.is_none();
@@ -675,16 +693,40 @@ async fn create_script_internal<'c>(
 
     let validate_schema = should_validate_schema(&ns.content, &ns.language);
 
-    let (no_main_func, has_preprocessor) = match lang {
-        ScriptLang::Bun | ScriptLang::Bunnative | ScriptLang::Deno | ScriptLang::Nativets => {
-            let args = windmill_parser_ts::parse_deno_signature(&ns.content, true, true, None)?;
-            (args.no_main_func, args.has_preprocessor)
+    let (no_main_func, has_preprocessor) = if matches!(ns.kind, Some(ScriptKind::Preprocessor)) {
+        (ns.no_main_func, ns.has_preprocessor)
+    } else {
+        match lang {
+            ScriptLang::Bun | ScriptLang::Bunnative | ScriptLang::Deno | ScriptLang::Nativets => {
+                let args = windmill_parser_ts::parse_deno_signature(&ns.content, true, true, None);
+                match args {
+                    Ok(args) => (args.no_main_func, args.has_preprocessor),
+                    Err(e) => {
+                        tracing::warn!(
+                            "Error parsing deno signature when deploying script {}: {:?}",
+                            ns.path,
+                            e
+                        );
+                        (None, None)
+                    }
+                }
+            }
+            ScriptLang::Python3 => {
+                let args = windmill_parser_py::parse_python_signature(&ns.content, None, true);
+                match args {
+                    Ok(args) => (args.no_main_func, args.has_preprocessor),
+                    Err(e) => {
+                        tracing::warn!(
+                            "Error parsing python signature when deploying script {}: {:?}",
+                            ns.path,
+                            e
+                        );
+                        (None, None)
+                    }
+                }
+            }
+            _ => (ns.no_main_func, ns.has_preprocessor),
         }
-        ScriptLang::Python3 => {
-            let args = windmill_parser_py::parse_python_signature(&ns.content, None, true)?;
-            (args.no_main_func, args.has_preprocessor)
-        }
-        _ => (ns.no_main_func, ns.has_preprocessor),
     };
 
     sqlx::query!(
@@ -895,6 +937,40 @@ async fn create_script_internal<'c>(
         .await?;
         Ok((hash, new_tx))
     } else {
+        let db2 = db.clone();
+        let w_id2 = w_id.clone();
+        let authed2 = authed.clone();
+        let permissioned_as2 = permissioned_as.clone();
+        let script_path2 = script_path.clone();
+        let parent_path = p_path_opt.clone();
+        let lock = ns.lock.clone();
+        let deployment_message = ns.deployment_message.clone();
+        let content = ns.content.clone();
+        let language = ns.language.clone();
+        tokio::spawn(async move {
+            // wait for 10 seconds to make sure the script is deployed and that the CLI sync that pushed it (f one) is complete
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            if let Err(e) = process_relative_imports(
+                &db2,
+                None,
+                None,
+                &w_id2,
+                &script_path2,
+                parent_path,
+                deployment_message,
+                &content,
+                &Some(language),
+                &authed2.email,
+                &authed2.username,
+                &permissioned_as2,
+                lock,
+            )
+            .await
+            {
+                tracing::error!(%e, "error processing relative imports");
+            }
+        });
+
         handle_deployment_metadata(
             &authed.email,
             &authed.username,
@@ -950,7 +1026,7 @@ async fn get_script_by_path(
                 AND favorite.usr = $3
             WHERE s.path = $1
                 AND s.workspace_id = $2
-                AND s.created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2)",
+            ORDER BY s.created_at DESC LIMIT 1",
         )
         .bind(path)
         .bind(w_id)
@@ -959,9 +1035,7 @@ async fn get_script_by_path(
         .await?
     } else {
         sqlx::query_as::<_, ScriptWithStarred>(
-            "SELECT *, NULL as starred FROM script WHERE path = $1 AND workspace_id = $2 \
-             AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
-             workspace_id = $2)",
+            "SELECT *, NULL as starred FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
         )
         .bind(path)
         .bind(w_id)
@@ -1001,9 +1075,8 @@ async fn get_script_by_path_w_draft(
     let script_o = sqlx::query_as::<_, ScriptWDraft>(
         "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, has_preprocessor, on_behalf_of_email FROM script LEFT JOIN draft ON 
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
-         WHERE script.path = $1 AND script.workspace_id = $2 \
-         AND script.created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
-         workspace_id = $2)",
+         WHERE script.path = $1 AND script.workspace_id = $2
+         ORDER BY script.created_at DESC LIMIT 1",
     )
     .bind(path)
     .bind(w_id)
@@ -1025,7 +1098,7 @@ async fn get_script_history(
         "SELECT s.hash as hash, dm.deployment_msg as deployment_msg 
         FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash
         WHERE s.workspace_id = $1 AND s.path = $2
-        ORDER by created_at DESC",
+        ORDER by s.created_at DESC",
         w_id,
         path.to_path(),
     )
@@ -1053,7 +1126,7 @@ async fn get_latest_version(
         "SELECT s.hash as hash, dm.deployment_msg as deployment_msg 
         FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash
         WHERE s.workspace_id = $1 AND s.path = $2
-        ORDER by created_at DESC",
+        ORDER by s.created_at DESC LIMIT 1",
         w_id,
         path.to_path(),
     )
@@ -1149,7 +1222,15 @@ async fn toggle_workspace_error_handler(
     match error_handler_maybe {
         Some(_) => {
             sqlx::query_scalar!(
-                "UPDATE script SET ws_error_handler_muted = $3 WHERE workspace_id = $2 AND path = $1 AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2)",
+                "UPDATE script 
+                SET ws_error_handler_muted = $3 
+                WHERE ctid = (
+                    SELECT ctid FROM script
+                    WHERE path = $1 AND workspace_id = $2
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                )
+",
                 path.to_path(),
                 w_id,
                 req.muted,
@@ -1170,6 +1251,7 @@ async fn toggle_workspace_error_handler(
 
 async fn get_tokened_raw_script_by_path(
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, token, path)): Path<(String, String, StripPath)>,
     Extension(cache): Extension<Arc<AuthCache>>,
 ) -> Result<String> {
@@ -1177,7 +1259,13 @@ async fn get_tokened_raw_script_by_path(
         .get_authed(Some(w_id.clone()), &token)
         .await
         .ok_or_else(|| Error::NotAuthorized("Invalid token".to_string()))?;
-    return raw_script_by_path(authed, Extension(user_db), Path((w_id, path))).await;
+    return raw_script_by_path(
+        authed,
+        Extension(user_db),
+        Extension(db),
+        Path((w_id, path)),
+    )
+    .await;
 }
 
 async fn get_empty_ts_script_by_path() -> String {
@@ -1187,22 +1275,30 @@ async fn get_empty_ts_script_by_path() -> String {
 async fn raw_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
-    raw_script_by_path_internal(path, user_db, authed, w_id, false).await
+    raw_script_by_path_internal(path, user_db, db, authed, w_id, false).await
 }
 
 async fn raw_script_by_path_unpinned(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
-    raw_script_by_path_internal(path, user_db, authed, w_id, true).await
+    raw_script_by_path_internal(path, user_db, db, authed, w_id, true).await
+}
+
+lazy_static::lazy_static! {
+    static ref DEBUG_RAW_SCRIPT_ENDPOINTS: bool =
+        std::env::var("DEBUG_RAW_SCRIPT_ENDPOINTS").is_ok();
 }
 
 async fn raw_script_by_path_internal(
     path: StripPath,
     user_db: UserDB,
+    db: DB,
     authed: ApiAuthed,
     w_id: String,
     unpin: bool,
@@ -1228,16 +1324,44 @@ async fn raw_script_by_path_internal(
     let mut tx = user_db.begin(&authed).await?;
 
     let content_o = sqlx::query_scalar!(
-        "SELECT content FROM script WHERE path = $1 AND workspace_id = $2 \
-         AND
-         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND archived = false AND \
-         workspace_id = $2)",
+        "SELECT content FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1",
         path,
         w_id
     )
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
+
+    if content_o.is_none() {
+        let exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1)",
+            path,
+            w_id
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(false);
+
+        if exists {
+            return Err(Error::NotFound(format!(
+                "Script {path} exists but {} does not have permissions to access it",
+                authed.username
+            )));
+        } else {
+            if *DEBUG_RAW_SCRIPT_ENDPOINTS {
+                let other_script_o = sqlx::query_scalar!(
+                    "SELECT path FROM script WHERE workspace_id = $1 AND archived = false",
+                    w_id
+                )
+                .fetch_all(&db)
+                .await?;
+                tracing::info!(
+                    "Script {path} does not exist in workspace {w_id} but these paths do: {:?}",
+                    other_script_o.join(", ")
+                )
+            }
+        }
+    }
 
     let content = not_found_if_none(content_o, "Script", path)?;
 
@@ -1255,8 +1379,7 @@ async fn exists_script_by_path(
     let path = path.to_path();
 
     let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 AND
-         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2))",
+        "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1)",
         path,
         w_id
     )
@@ -1373,9 +1496,7 @@ pub async fn require_is_writer(authed: &ApiAuthed, path: &str, w_id: &str, db: D
         path,
         w_id,
         db,
-        "SELECT extra_perms FROM script WHERE path = $1 AND workspace_id = $2 \
-             AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
-             workspace_id = $2)",
+        "SELECT extra_perms FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
         "script",
     )
     .await;

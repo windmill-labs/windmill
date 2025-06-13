@@ -221,7 +221,7 @@ export function isAppTainted(app: App) {
 		return !deepEqual(app, emptyApp)
 	} else {
 		// For older apps,
-		return !(app.grid.length === 0 && app.hiddenInlineScripts?.length === 0)
+		return !(app.grid?.length === 0 && app.hiddenInlineScripts?.length === 0)
 	}
 }
 

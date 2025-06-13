@@ -4,21 +4,27 @@
 		type NewScript,
 		ScriptService,
 		type NewScriptWithDraft,
-		ScheduleService,
 		type Script,
 		type TriggersCount,
 		PostgresTriggerService,
-		CaptureService
+		CaptureService,
+		type ScriptLang
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
-	import { defaultScripts, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import AIFormSettings from './copilot/AIFormSettings.svelte'
+	import {
+		defaultScripts,
+		enterpriseLicense,
+		usedTriggerKinds,
+		userStore,
+		workspaceStore
+	} from '$lib/stores'
 	import {
 		cleanValueProperties,
 		emptySchema,
 		emptyString,
 		encodeState,
-		formatCron,
 		generateRandomString,
 		orderedJsonStringify,
 		replaceFalseWithUndefined,
@@ -68,7 +74,7 @@
 	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
-	import type { ScheduleTrigger, TriggerContext, TriggerKind } from './triggers'
+	import type { ScheduleTrigger, TriggerContext } from './triggers'
 	import {
 		TS_PREPROCESSOR_MODULE_CODE,
 		TS_PREPROCESSOR_SCRIPT_INTRO,
@@ -79,8 +85,17 @@
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import type { ScriptBuilderFunctionExports } from './scriptBuilder'
 	import DeployButton from './DeployButton.svelte'
+	import {
+		type NewScriptWithDraftAndDraftTriggers,
+		type Trigger,
+		deployTriggers,
+		filterDraftTriggers,
+		handleSelectTriggerFromKind
+	} from './triggers/utils'
+	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
+	import { Triggers } from './triggers/triggers.svelte'
 
-	export let script: NewScript
+	export let script: NewScript & { draft_triggers?: Trigger[] }
 	export let fullyLoaded: boolean = true
 	export let initialPath: string = ''
 	export let template: 'docker' | 'bunnative' | 'script' = 'script'
@@ -89,7 +104,7 @@
 	export let showMeta: boolean = false
 	export let neverShowMeta: boolean = false
 	export let diffDrawer: DiffDrawer | undefined = undefined
-	export let savedScript: NewScriptWithDraft | undefined = undefined
+	export let savedScript: NewScriptWithDraftAndDraftTriggers | undefined = undefined
 	export let searchParams: URLSearchParams = new URLSearchParams()
 	export let disableHistoryChange = false
 	export let replaceStateFn: (url: string) => void = (url) =>
@@ -102,7 +117,10 @@
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
 		return {
 			savedValue: savedScript,
-			modifiedValue: script
+			modifiedValue: {
+				...script,
+				draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
+			}
 		}
 	}
 
@@ -126,6 +144,7 @@
 	let metadataOpen =
 		!neverShowMeta &&
 		(showMeta ||
+			searchParams.get('metadata_open') == 'true' ||
 			(initialPath == '' &&
 				searchParams.get('state') == undefined &&
 				searchParams.get('collab') == undefined))
@@ -134,17 +153,35 @@
 	let scriptEditor: ScriptEditor | undefined = undefined
 	let captureTable: CaptureTable | undefined = undefined
 
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule)
+	// Draft triggers confirmation modal
+	let draftTriggersModalOpen = false
+	let confirmDeploymentCallback: (triggersToDeploy: Trigger[]) => void = () => {}
+
+	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
+		const { selectedTriggers } = event.detail
+		// Continue with saving the flow
+		draftTriggersModalOpen = false
+		confirmDeploymentCallback(selectedTriggers)
+	}
+
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule) // keep for legacy
 	const triggersCount = writable<TriggersCount | undefined>(
 		savedPrimarySchedule
 			? { schedule_count: 1, primary_schedule: { schedule: savedPrimarySchedule.cron } }
 			: undefined
 	)
 	const simplifiedPoll = writable(false)
-	const selectedTriggerStore = writable<TriggerKind>('webhooks')
 
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
 		primaryScheduleStore.set(schedule)
+		loadTriggers()
+	}
+
+	export function setDraftTriggers(triggers: Trigger[] | undefined) {
+		triggersState.setTriggers([
+			...(triggers ?? []),
+			...triggersState.triggers.filter((t) => !t.draftConfig)
+		])
 		loadTriggers()
 	}
 
@@ -176,29 +213,42 @@
 			workspace: $workspaceStore!,
 			path: initialPath
 		})
-		if ($primaryScheduleStore && $triggersCount.primary_schedule == undefined) {
-			$triggersCount = {
-				...($triggersCount ?? {}),
-				schedule_count: ($triggersCount.schedule_count ?? 0) + 1,
-				primary_schedule: {
-					schedule: $primaryScheduleStore.cron
-				}
-			}
+
+		await triggersState.fetchTriggers(
+			triggersCount,
+			$workspaceStore,
+			initialPath,
+			false,
+			$primaryScheduleStore,
+			$userStore
+		)
+
+		if (savedScript && savedScript.draft && savedScript.draft.draft_triggers) {
+			savedScript = filterDraftTriggers(
+				savedScript,
+				triggersState
+			) as NewScriptWithDraftAndDraftTriggers
 		}
 	}
 
-	const triggerDefaultValuesStore = writable<Record<string, any> | undefined>(undefined)
+	// Add triggers context store
+	const triggersState = new Triggers(
+		[
+			{ type: 'webhook', path: '', isDraft: false },
+			{ type: 'email', path: '', isDraft: false },
+			...(script.draft_triggers ?? [])
+		],
+		undefined,
+		saveSessionDraft
+	)
 
 	const captureOn = writable<boolean | undefined>(undefined)
 	const showCaptureHint = writable<boolean | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
-		selectedTrigger: selectedTriggerStore,
-		primarySchedule: primaryScheduleStore,
 		triggersCount,
 		simplifiedPoll,
-		defaultValues: triggerDefaultValuesStore,
-		captureOn: captureOn,
-		showCaptureHint: showCaptureHint
+		showCaptureHint: showCaptureHint,
+		triggersState
 	})
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql', 'oracledb']
@@ -274,8 +324,26 @@
 		})
 	}
 
-	$: !disableHistoryChange &&
-		replaceStateFn('#' + encodeState({ ...script, primarySchedule: $primaryScheduleStore }))
+	$: !disableHistoryChange && encodeScriptState(script)
+
+	function encodeScriptState(script: NewScript) {
+		replaceStateFn(
+			'#' +
+				encodeState({
+					...script,
+					draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
+				})
+		)
+	}
+
+	let timeout: NodeJS.Timeout | undefined = undefined
+	function saveSessionDraft() {
+		timeout && clearTimeout(timeout)
+		timeout = setTimeout(() => {
+			encodeScriptState(script)
+		}, 500)
+	}
+
 	if (script.content == '') {
 		initContent(script.language, script.kind, template)
 	}
@@ -314,31 +382,6 @@
 		scriptEditor?.inferSchema(script.content, language, true)
 		if (script.content != editor?.getCode()) {
 			setCode(script.content)
-		}
-	}
-
-	async function createSchedule(path: string) {
-		if (!$primaryScheduleStore) {
-			return
-		}
-		const { cron, timezone, args, enabled, summary } = $primaryScheduleStore
-
-		try {
-			await ScheduleService.createSchedule({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path: path,
-					schedule: formatCron(cron),
-					timezone,
-					script_path: path,
-					is_flow: false,
-					args,
-					enabled,
-					summary
-				}
-			})
-		} catch (err) {
-			sendUserToast(`The primary schedule could not be created: ${err}`, true)
 		}
 	}
 
@@ -419,8 +462,21 @@
 	async function editScript(
 		stay: boolean,
 		parentHash: string,
-		deploymentMsg?: string
+		deploymentMsg?: string,
+		triggersToDeploy?: Trigger[]
 	): Promise<void> {
+		if (!triggersToDeploy) {
+			// Check if there are draft triggers that need confirmation
+			const draftTriggers = triggersState.triggers.filter((trigger) => trigger.draftConfig)
+			if (draftTriggers.length > 0) {
+				draftTriggersModalOpen = true
+				confirmDeploymentCallback = async (triggersToDeploy: Trigger[]) => {
+					await editScript(stay, parentHash, deploymentMsg, triggersToDeploy)
+				}
+				return
+			}
+		}
+
 		loadingSave = true
 		try {
 			try {
@@ -430,9 +486,19 @@
 			}
 			script.schema = script.schema ?? emptySchema()
 			try {
-				const result = await inferArgs(script.language, script.content, script.schema as any)
-				script.no_main_func = result?.no_main_func || undefined
-				script.has_preprocessor = result?.has_preprocessor || undefined
+				const result = await inferArgs(
+					script.language,
+					script.content,
+					script.schema as any,
+					script.kind === 'preprocessor' ? 'preprocessor' : undefined
+				)
+				if (script.kind === 'preprocessor') {
+					script.no_main_func = undefined
+					script.has_preprocessor = undefined
+				} else {
+					script.no_main_func = result?.no_main_func || undefined
+					script.has_preprocessor = result?.has_preprocessor || undefined
+				}
 			} catch (error) {
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
@@ -480,60 +546,27 @@
 				})
 			}
 
-			const scheduleExists =
-				initialPath != '' &&
-				(await ScheduleService.existsSchedule({
-					workspace: $workspaceStore ?? '',
-					path: script.path
-				}))
-			if ($primaryScheduleStore) {
-				const { enabled, timezone, args, cron, summary } = $primaryScheduleStore
-
-				if (scheduleExists) {
-					const schedule = await ScheduleService.getSchedule({
-						workspace: $workspaceStore ?? '',
-						path: script.path
-					})
-					if (
-						JSON.stringify(schedule.args) != JSON.stringify(args) ||
-						schedule.schedule != cron ||
-						schedule.timezone != timezone ||
-						schedule.summary != summary
-					) {
-						await ScheduleService.updateSchedule({
-							workspace: $workspaceStore ?? '',
-							path: script.path,
-							requestBody: {
-								schedule: formatCron(cron),
-								timezone,
-								args,
-								summary
-							}
-						})
-					}
-					if (enabled != schedule.enabled) {
-						await ScheduleService.setScheduleEnabled({
-							workspace: $workspaceStore ?? '',
-							path: script.path,
-							requestBody: { enabled }
-						})
-					}
-				} else if (enabled) {
-					await createSchedule(script.path)
-				}
-			} else if (scheduleExists && !$triggersCount?.primary_schedule) {
-				await ScheduleService.deleteSchedule({
-					workspace: $workspaceStore ?? '',
-					path: script.path
-				})
+			if (triggersToDeploy) {
+				await deployTriggers(
+					triggersToDeploy,
+					$workspaceStore,
+					!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+					usedTriggerKinds,
+					script.path,
+					true
+				)
 			}
 
-			savedScript = structuredClone(script) as NewScriptWithDraft
+			const { draft_triggers: _, ...newScript } = structuredClone(script)
+			savedScript = structuredClone(newScript) as NewScriptWithDraft
+			setDraftTriggers([])
+
 			if (!disableHistoryChange) {
 				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
 			}
-			if (stay) {
+			if (stay || script.kind !== 'script' || script.no_main_func) {
 				script.parent_hash = newHash
+				sendUserToast('Deployed')
 			} else {
 				dispatch('deploy', newHash)
 			}
@@ -551,7 +584,8 @@
 
 		if (savedScript) {
 			const draftOrDeployed = cleanValueProperties(savedScript.draft || savedScript)
-			const current = cleanValueProperties(script)
+			const currentTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
+			const current = cleanValueProperties({ ...script, draft_triggers: currentTriggers })
 			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 				sendUserToast('No changes detected, ignoring', false, [
 					{
@@ -574,9 +608,19 @@
 			}
 			script.schema = script.schema ?? emptySchema()
 			try {
-				const result = await inferArgs(script.language, script.content, script.schema as any)
-				script.no_main_func = result?.no_main_func || undefined
-				script.has_preprocessor = result?.has_preprocessor || undefined
+				const result = await inferArgs(
+					script.language,
+					script.content,
+					script.schema as any,
+					script.kind === 'preprocessor' ? 'preprocessor' : undefined
+				)
+				if (script.kind === 'preprocessor') {
+					script.no_main_func = undefined
+					script.has_preprocessor = undefined
+				} else {
+					script.no_main_func = result?.no_main_func || undefined
+					script.has_preprocessor = result?.has_preprocessor || undefined
+				}
 			} catch (error) {
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
@@ -632,12 +676,16 @@
 					}
 				})
 			}
+			const draftTriggers = triggersState.getDraftTriggersSnapshot()
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
 				requestBody: {
 					path: initialPath == '' || savedScript?.draft_only ? script.path : initialPath,
 					typ: 'script',
-					value: { ...script, primary_schedule: $primaryScheduleStore }
+					value: {
+						...script,
+						draft_triggers: draftTriggers
+					}
 				}
 			})
 
@@ -645,8 +693,11 @@
 				...(initialPath == '' || savedScript?.draft_only
 					? { ...structuredClone(script), draft_only: true }
 					: savedScript),
-				draft: structuredClone(script)
-			} as NewScriptWithDraft
+				draft: {
+					...structuredClone(script),
+					draft_triggers: draftTriggers
+				}
+			} as NewScriptWithDraftAndDraftTriggers
 
 			let savedAtNewPath = false
 			if (initialPath == '' || (savedScript?.draft_only && script.path !== initialPath)) {
@@ -669,7 +720,7 @@
 
 	function computeDropdownItems(
 		initialPath: string,
-		savedScript: NewScriptWithDraft | undefined,
+		savedScript: NewScriptWithDraftAndDraftTriggers | undefined,
 		diffDrawer: DiffDrawer | undefined
 	) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
@@ -697,18 +748,25 @@
 											}
 											await syncWithDeployed()
 
+											const currentDraftTriggers = structuredClone(
+												triggersState.getDraftTriggersSnapshot()
+											)
+
 											diffDrawer?.openDrawer()
 											diffDrawer?.setDiff({
 												mode: 'normal',
 												deployed: deployedValue ?? savedScript,
 												draft: savedScript['draft'],
-												current: script
+												current: {
+													...script,
+													draft_triggers: currentDraftTriggers
+												}
 											})
 										}
 									}
 								]
 							: []),
-						...(!script.draft_only
+						...(!script.draft_only && script.kind === 'script' && !script.no_main_func
 							? [
 									{
 										label: 'Exit & See details',
@@ -778,8 +836,7 @@
 	function openTriggers(ev) {
 		metadataOpen = true
 		selectedTab = 'triggers'
-		selectedTriggerStore.set(ev.detail.kind)
-		triggerDefaultValuesStore.set(ev.detail.config)
+		handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, ev.detail.kind)
 		captureOn.set(true)
 	}
 
@@ -803,6 +860,59 @@
 		}
 		selectedInputTab = 'preprocessor'
 	}
+
+	function handleDeployTrigger(trigger: Trigger) {
+		const { id, path, type } = trigger
+		//Update the saved script to remove the draft trigger that is deployed
+		if (savedScript && savedScript.draft && savedScript.draft.draft_triggers) {
+			const newSavedDraftTrigers = savedScript.draft.draft_triggers.filter(
+				(t) => t.id !== id || t.path !== path || t.type !== type
+			)
+			savedScript.draft.draft_triggers =
+				newSavedDraftTrigers.length > 0 ? newSavedDraftTrigers : undefined
+		}
+	}
+
+	function onScriptLanguageTrigger(lang: 'docker' | 'bunnative' | ScriptLang) {
+		if (lang == 'docker') {
+			if (isCloudHosted()) {
+				sendUserToast(
+					'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
+					true,
+					[
+						{
+							label: 'Learn more',
+							callback: () => {
+								window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
+							}
+						}
+					]
+				)
+				return
+			}
+			template = 'docker'
+		} else if (lang == 'bunnative') {
+			template = 'bunnative'
+		} else {
+			template = 'script'
+		}
+		let language = langToLanguage(lang)
+		//
+		initContent(language, script.kind, template)
+		script.language = language
+	}
+
+	function onSummaryChange(value: string) {
+		if (initialPath == '' && value?.length > 0 && !dirtyPath) {
+			path?.setName(
+				value
+					.toLowerCase()
+					.replace(/[^a-z0-9_]/g, '_')
+					.replace(/-+/g, '_')
+					.replace(/^-|-$/g, '')
+			)
+		}
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -816,24 +926,44 @@
 	bind:deployedValue
 	currentValue={script}
 />
+
+<DraftTriggersConfirmationModal
+	bind:open={draftTriggersModalOpen}
+	draftTriggers={triggersState.triggers.filter((t) => t.draftConfig)}
+	on:canceled={() => {
+		draftTriggersModalOpen = false
+	}}
+	on:confirmed={handleDraftTriggersConfirmed}
+/>
+
 {#if !$userStore?.operator}
 	<Drawer
 		placement="right"
 		bind:open={metadataOpen}
-		size={selectedTab === 'ui' ? '1200px' : '800px'}
+		size={selectedTab === 'ui' || selectedTab === 'triggers' ? '1200px' : '800px'}
 	>
-		<DrawerContent noPadding title="Settings" on:close={() => (metadataOpen = false)}>
+		<DrawerContent
+			noPadding
+			title="Settings"
+			on:close={() => (metadataOpen = false)}
+			aiId="script-builder-settings"
+			aiDescription="Script builder settings"
+		>
 			<!-- svelte-ignore a11y-autofocus -->
 			<div class="flex flex-col h-full">
 				<Tabs bind:selected={selectedTab} wrapperClass="flex-none w-full">
 					{#if customUi?.settingsPanel?.disableMetadata !== true}
-						<Tab value="metadata">Metadata</Tab>
+						<Tab value="metadata" aiId="script-builder-metadata" aiDescription="Metadata settings">
+							Metadata
+						</Tab>
 					{/if}
 					{#if customUi?.settingsPanel?.disableRuntime !== true}
-						<Tab value="runtime">Runtime</Tab>
+						<Tab value="runtime" aiId="script-builder-runtime" aiDescription="Runtime settings">
+							Runtime
+						</Tab>
 					{/if}
 					{#if customUi?.settingsPanel?.disableGeneratedUi !== true}
-						<Tab value="ui">
+						<Tab value="ui" aiId="script-builder-ui" aiDescription="Generated UI settings">
 							Generated UI
 							<Tooltip
 								documentationLink="https://www.windmill.dev/docs/core_concepts/json_schema_and_parsing"
@@ -844,7 +974,7 @@
 						</Tab>
 					{/if}
 					{#if customUi?.settingsPanel?.disableTriggers !== true}
-						<Tab value="triggers">
+						<Tab value="triggers" aiId="script-builder-triggers" aiDescription="Triggers settings">
 							Triggers
 							<Tooltip documentationLink="https://www.windmill.dev/docs/getting_started/triggers">
 								Configure how this script will be triggered.
@@ -872,23 +1002,15 @@
 										<div class="flex flex-col gap-4">
 											<Label label="Summary">
 												<MetadataGen
+													aiId="create-script-summary-input"
+													aiDescription="Summary / Title of the new script"
 													label="Summary"
 													bind:content={script.summary}
 													lang={script.language}
 													code={script.content}
 													promptConfigName="summary"
 													generateOnAppear
-													on:change={() => {
-														if (initialPath == '' && script.summary?.length > 0 && !dirtyPath) {
-															path?.setName(
-																script.summary
-																	.toLowerCase()
-																	.replace(/[^a-z0-9_]/g, '_')
-																	.replace(/-+/g, '_')
-																	.replace(/^-|-$/g, '')
-															)
-														}
-													}}
+													on:change={() => onSummaryChange(script.summary)}
 													elementProps={{
 														type: 'text',
 														placeholder: 'Short summary to be displayed when listed'
@@ -927,6 +1049,13 @@
 													}}
 												/>
 											</Label>
+											{#if script.schema}
+												<div class="mt-3">
+													<AIFormSettings
+														bind:prompt={script.schema.prompt_for_ai as string | undefined}
+													/>
+												</div>
+											{/if}
 										</div>
 									</Section>
 
@@ -947,43 +1076,15 @@
 													disablePopup={!enterpriseLangs.includes(lang) || !!$enterpriseLicense}
 												>
 													<Button
+														aiId={`create-script-language-button-${lang}`}
+														aiDescription={`Choose ${lang} as the language of the script`}
 														size="sm"
 														variant="border"
 														color={isPicked ? 'blue' : 'light'}
 														btnClasses={isPicked
 															? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
 															: 'm-[1px]'}
-														on:click={() => {
-															if (lang == 'docker') {
-																if (isCloudHosted()) {
-																	sendUserToast(
-																		'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
-																		true,
-																		[
-																			{
-																				label: 'Learn more',
-																				callback: () => {
-																					window.open(
-																						'https://www.windmill.dev/docs/advanced/docker',
-																						'_blank'
-																					)
-																				}
-																			}
-																		]
-																	)
-																	return
-																}
-																template = 'docker'
-															} else if (lang == 'bunnative') {
-																template = 'bunnative'
-															} else {
-																template = 'script'
-															}
-															let language = langToLanguage(lang)
-															//
-															initContent(language, script.kind, template)
-															script.language = language
-														}}
+														on:click={() => onScriptLanguageTrigger(lang)}
 														disabled={lockedLanguage ||
 															(enterpriseLangs.includes(lang) && !$enterpriseLicense)}
 													>
@@ -1438,27 +1539,30 @@
 									customUi={customUi?.settingsPanel?.metadata?.editableSchemaForm}
 								/>
 							</TabContent>
-							<TabContent value="triggers">
+							<TabContent value="triggers" class="h-full">
 								<TriggersEditor
 									on:applyArgs={applyArgs}
 									on:addPreprocessor={addPreprocessor}
 									on:exitTriggers={() => {
 										captureTable?.loadCaptures(true)
 									}}
-									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
+									currentPath={script.path}
 									{initialPath}
 									{fakeInitialPath}
-									schema={script.schema}
 									noEditor={true}
-									isFlow={false}
-									currentPath={script.path}
-									hash={script.parent_hash}
 									newItem={initialPath == ''}
+									isFlow={false}
+									{hasPreprocessor}
 									canHavePreprocessor={script.language === 'bun' ||
 										script.language === 'deno' ||
 										script.language === 'python3'}
-									{hasPreprocessor}
+									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
+									isDeployed={savedScript && !savedScript?.draft_only}
+									schema={script.schema}
+									hash={script.parent_hash}
+									onDeployTrigger={handleDeployTrigger}
 								/>
+
 								<!-- <ScriptSchedules {initialPath} schema={script.schema} schedule={scheduleStore} /> -->
 							</TabContent>
 						</div>
@@ -1489,7 +1593,10 @@
 				</div>
 
 				<div class="gap-4 flex">
-					{#if $primaryScheduleStore != undefined ? $primaryScheduleStore && $primaryScheduleStore?.enabled : $triggersCount?.primary_schedule}
+					{#if triggersState.triggers?.some((t) => t.type === 'schedule')}
+						{@const primarySchedule = triggersState.triggers.findIndex((t) => t.isPrimary)}
+						{@const schedule = triggersState.triggers.findIndex((t) => t.type === 'schedule')}
+
 						<Button
 							btnClasses="hidden lg:inline-flex"
 							startIcon={{ icon: Calendar }}
@@ -1499,14 +1606,12 @@
 							on:click={async () => {
 								metadataOpen = true
 								selectedTab = 'triggers'
-								$selectedTriggerStore = 'schedules'
+								triggersState.selectedTriggerIndex = primarySchedule ?? schedule
 							}}
 						>
-							{$primaryScheduleStore != undefined
-								? $primaryScheduleStore
-									? $primaryScheduleStore?.cron
-									: ''
-								: $triggersCount?.primary_schedule?.schedule}
+							{triggersState.triggers[primarySchedule]?.draftConfig?.schedule ??
+								triggersState.triggers[primarySchedule]?.lightConfig?.schedule ??
+								''}
 						</Button>
 					{/if}
 					{#if customUi?.topBar?.path != false}
@@ -1548,6 +1653,8 @@
 				<div class="flex flex-row gap-x-1 lg:gap-x-2">
 					{#if customUi?.topBar?.settings != false}
 						<Button
+							aiId="script-builder-settings"
+							aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
 							color="light"
 							variant="border"
 							size="xs"

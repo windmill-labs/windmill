@@ -1,5 +1,6 @@
 import { minimatch } from 'minimatch'
 import {
+	GcpTriggerService,
 	HttpTriggerService,
 	KafkaTriggerService,
 	MqttTriggerService,
@@ -8,9 +9,11 @@ import {
 	ScheduleService,
 	SqsTriggerService,
 	WebsocketTriggerService,
+	type GcpTriggerData,
 	type WorkspaceDeployUISettings
 } from './gen'
 import type { TriggerKind } from './components/triggers'
+import { base } from './base'
 
 type DeployUIType = 'script' | 'flow' | 'app' | 'resource' | 'variable' | 'secret' | 'trigger'
 
@@ -75,6 +78,8 @@ export async function existsTrigger(
 		return await PostgresTriggerService.existsPostgresTrigger(data)
 	} else if (triggerKind === 'sqs') {
 		return await SqsTriggerService.existsSqsTrigger(data)
+	} else if (triggerKind === 'gcp') {
+		return await GcpTriggerService.existsGcpTrigger(data)
 	} else if (triggerKind === 'websockets') {
 		return await WebsocketTriggerService.existsWebsocketTrigger(data)
 	} else if (triggerKind === 'nats') {
@@ -84,7 +89,7 @@ export async function existsTrigger(
 	}
 
 	throw new Error(
-		`Unexpected trigger kind ${triggerKind}. Allowed kinds are: routes, kafka, mqtt, postgres, sqs, websockets, nats, schedules.`
+		`Unexpected trigger kind ${triggerKind}. Allowed kinds are: routes, kafka, mqtt, postgres, sqs, gcp, websockets, nats, schedules.`
 	)
 }
 
@@ -132,6 +137,30 @@ export async function getTriggersDeployData(kind: TriggerKind, path: string, wor
 			data: natsTrigger,
 			createFn: NatsTriggerService.createNatsTrigger,
 			updateFn: NatsTriggerService.updateNatsTrigger
+		}
+	} else if (kind === 'gcp') {
+		const gcpTrigger = await GcpTriggerService.getGcpTrigger({
+			workspace: workspace!,
+			path: path
+		})
+
+		gcpTrigger.subscription_id = ''
+		gcpTrigger.subscription_mode = 'create_update'
+
+		if (gcpTrigger.delivery_config) {
+			gcpTrigger.delivery_config.audience = ''
+		}
+
+		const data: GcpTriggerData = {
+			...gcpTrigger,
+			base_endpoint:
+				gcpTrigger.delivery_type === 'push' ? `${window.location.origin}${base}` : undefined
+		}
+
+		return {
+			data,
+			createFn: GcpTriggerService.createGcpTrigger,
+			updateFn: GcpTriggerService.updateGcpTrigger
 		}
 	} else if (kind === 'postgres') {
 		const postgresTrigger = await PostgresTriggerService.getPostgresTrigger({
@@ -284,6 +313,19 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 			postgres_resource_path,
 			replication_slot_name,
 			publication_name
+		}
+	} else if (kind === 'gcp') {
+		const { enabled, script_path, is_flow, gcp_resource_path } =
+			await GcpTriggerService.getGcpTrigger({
+				workspace: workspace!,
+				path: path
+			})
+
+		return {
+			enabled,
+			script_path,
+			is_flow,
+			gcp_resource_path
 		}
 	} else if (kind === 'websockets') {
 		const {
@@ -456,6 +498,13 @@ export async function getTriggerDependency(kind: TriggerKind, path: string, work
 			})
 
 		result = retrieveKindsValues({ resource_path: postgres_resource_path, script_path, is_flow })
+	} else if (kind === 'gcp') {
+		const { gcp_resource_path, script_path, is_flow } = await GcpTriggerService.getGcpTrigger({
+			workspace: workspace!,
+			path: path
+		})
+
+		result = retrieveKindsValues({ resource_path: gcp_resource_path, script_path, is_flow })
 	} else if (kind === 'websockets') {
 		const { script_path, is_flow, url, initial_messages } =
 			await WebsocketTriggerService.getWebsocketTrigger({
@@ -481,12 +530,17 @@ export async function getTriggerDependency(kind: TriggerKind, path: string, work
 			}
 		})
 	} else if (kind === 'routes') {
-		const { script_path, is_flow, authentication_resource_path} = await HttpTriggerService.getHttpTrigger({
-			workspace: workspace!,
-			path: path
-		})
+		const { script_path, is_flow, authentication_resource_path } =
+			await HttpTriggerService.getHttpTrigger({
+				workspace: workspace!,
+				path: path
+			})
 
-		result = retrieveKindsValues({ script_path, is_flow, resource_path: authentication_resource_path})
+		result = retrieveKindsValues({
+			script_path,
+			is_flow,
+			resource_path: authentication_resource_path
+		})
 	} else if (kind === 'schedules') {
 		const { script_path, is_flow } = await ScheduleService.getSchedule({
 			workspace: workspace!,

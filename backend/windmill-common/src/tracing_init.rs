@@ -48,7 +48,7 @@ pub fn initialize_tracing(
     hostname: &str,
     mode: &Mode,
     environment: &str,
-) -> (WorkerGuard, crate::otel_ee::OtelProvider) {
+) -> (WorkerGuard, crate::otel_oss::OtelProvider) {
     let style = std::env::var("RUST_LOG_STYLE").unwrap_or_else(|_| "auto".into());
 
     let rust_log_env = std::env::var("RUST_LOG");
@@ -60,23 +60,26 @@ pub fn initialize_tracing(
             "RUST_LOG",
             &format!("windmill={}", rust_log_env.as_ref().unwrap()),
         )
-    }
-    let default_env_filter = if rust_log_env.is_ok_and(|x| x == "debug") {
+    } else if rust_log_env.as_ref().is_ok_and(|x| x == "sqlxdebug") {
+        std::env::set_var("RUST_LOG", "windmill=debug,sqlx=debug");
+    };
+
+    let default_env_filter = if rust_log_env.is_ok_and(|x| x == "debug" || x == "sqlxdebug") {
         LevelFilter::DEBUG
     } else {
         LevelFilter::INFO
     };
 
-    let meter_provider = crate::otel_ee::init_meter_provider(mode, hostname, environment);
+    let meter_provider = crate::otel_oss::init_meter_provider(mode, hostname, environment);
 
     #[cfg(all(feature = "otel", feature = "enterprise"))]
-    let opentelemetry = crate::otel_ee::init_otlp_tracer(mode, hostname, environment)
+    let opentelemetry = crate::otel_oss::init_otlp_tracer(mode, hostname, environment)
         .map(|x| tracing_opentelemetry::layer().with_tracer(x));
 
     #[cfg(not(all(feature = "otel", feature = "enterprise")))]
     let opentelemetry: Option<EnvFilter> = None;
 
-    let logs_bridge = crate::otel_ee::init_logs_bridge(&mode, hostname, environment);
+    let logs_bridge = crate::otel_oss::init_logs_bridge(&mode, hostname, environment);
 
     use tracing_appender::rolling::{RollingFileAppender, Rotation};
 

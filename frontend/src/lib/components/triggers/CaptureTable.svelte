@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Label from '../Label.svelte'
-	import { DatabaseIcon, Info, Trash2 } from 'lucide-svelte'
+	import { DatabaseIcon, Info, Loader2, Trash2 } from 'lucide-svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Button from '../common/button/Button.svelte'
@@ -18,6 +18,7 @@
 	import SchemaPickerRow from '$lib/components/schema/SchemaPickerRow.svelte'
 	import type { Capture } from '$lib/gen'
 	import { AwsIcon, MqttIcon } from '../icons'
+	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 
 	export let path: string
 	export let hasPreprocessor = false
@@ -29,6 +30,8 @@
 	export let canEdit = false
 	export let fullHeight = true
 	export let limitPayloadSize = false
+	export let noBorder = false
+	export let captureActiveIndicator: boolean | undefined = undefined
 
 	let selected: number | undefined = undefined
 	let testKind: 'preprocessor' | 'main' = 'main'
@@ -57,6 +60,7 @@
 		}
 		select: any
 		testWithArgs: any
+		selectCapture: Capture | undefined
 	}>()
 
 	interface CaptureWithPayload extends Capture {
@@ -81,31 +85,41 @@
 
 			let capturesWithPayload: CaptureWithPayload[] = captures.map((capture) => {
 				let newCapture: CaptureWithPayload = { ...capture }
-				if (capture.payload === 'WINDMILL_TOO_BIG') {
+
+				const isLarge =
+					capture.main_args === 'WINDMILL_TOO_BIG' ||
+					capture.preprocessor_args === 'WINDMILL_TOO_BIG'
+				if (isLarge) {
 					newCapture = {
 						...capture,
+						payloadData: 'Too big to display here, select to view',
 						getFullCapture: () =>
 							CaptureService.getCapture({
 								workspace: $workspaceStore!,
 								id: capture.id
 							})
 					}
+					return newCapture
 				}
-				const trigger_extra = isObject(capture.trigger_extra) ? capture.trigger_extra : {}
-				newCapture.payloadData =
-					kind === 'preprocessor'
-						? capture.payload === 'WINDMILL_TOO_BIG'
-							? {
-									payload: capture.payload,
-									...trigger_extra
-							  }
-							: typeof capture.payload === 'object'
-							? {
-									...capture.payload,
-									...trigger_extra
-							  }
-							: trigger_extra
-						: capture.payload
+				const preprocessor_args = isObject(capture.preprocessor_args)
+					? capture.preprocessor_args
+					: {}
+
+				if ('wm_trigger' in preprocessor_args) {
+					// v1
+					newCapture.payloadData =
+						kind === 'preprocessor'
+							? typeof capture.main_args === 'object'
+								? {
+										...capture.main_args,
+										...preprocessor_args
+									}
+								: preprocessor_args
+							: capture.main_args
+				} else {
+					// v2
+					newCapture.payloadData = kind === 'preprocessor' ? preprocessor_args : capture.main_args
+				}
 
 				return newCapture
 			})
@@ -129,6 +143,7 @@
 			const payloadData = await getPayload(capture)
 			selected = capture.id
 			dispatch('select', structuredClone(payloadData))
+			dispatch('selectCapture', capture)
 		}
 	}
 
@@ -136,13 +151,23 @@
 		let payloadData: any = {}
 		if (capture.getFullCapture) {
 			const fullCapture = await capture.getFullCapture()
-			payloadData =
-				testKind === 'preprocessor'
-					? {
-							...(typeof fullCapture.payload === 'object' ? fullCapture.payload : {}),
-							...(typeof fullCapture.trigger_extra === 'object' ? fullCapture.trigger_extra : {})
-					  }
-					: fullCapture.payload
+			const preprocessor_args = isObject(fullCapture.preprocessor_args)
+				? fullCapture.preprocessor_args
+				: {}
+			if ('wm_trigger' in preprocessor_args) {
+				// v1
+				payloadData =
+					testKind === 'preprocessor'
+						? {
+								...(typeof fullCapture.main_args === 'object' ? fullCapture.main_args : {}),
+								...preprocessor_args
+							}
+						: fullCapture.main_args
+			} else {
+				// v2
+				payloadData =
+					testKind === 'preprocessor' ? fullCapture.preprocessor_args : fullCapture.main_args
+			}
 		} else {
 			payloadData = structuredClone(capture.payloadData)
 		}
@@ -168,7 +193,8 @@
 		kafka: KafkaIcon,
 		mqtt: MqttIcon,
 		sqs: AwsIcon,
-		postgres: DatabaseIcon
+		postgres: DatabaseIcon,
+		gcp: GoogleCloudIcon
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
@@ -204,6 +230,9 @@
 				<CaptureButton small={true} on:openTriggers />
 			</div>
 		{/if}
+		{#if captureActiveIndicator}
+			<Loader2 class="animate-spin" size={16} />
+		{/if}
 	</svelte:fragment>
 	<svelte:fragment slot="action">
 		{#if canHavePreprocessor && !isEmpty}
@@ -235,8 +264,8 @@
 				? 'h-full'
 				: 'min-h-0 grow'
 			: capturesLength > 7
-			? 'h-[300px]'
-			: 'h-fit'}
+				? 'h-[300px]'
+				: 'h-fit'}
 	>
 		<InfiniteList
 			bind:this={infiniteList}
@@ -245,6 +274,8 @@
 			on:error={(e) => handleError(e.detail)}
 			on:select={(e) => handleSelect(e.detail)}
 			bind:length={capturesLength}
+			{noBorder}
+			neverShowLoader={captureActiveIndicator !== undefined}
 		>
 			<svelte:fragment slot="columns">
 				<colgroup>
@@ -336,8 +367,8 @@
 										title={isFlow && testKind === 'main'
 											? 'Test flow with args'
 											: testKind === 'preprocessor'
-											? 'Apply args to preprocessor'
-											: 'Apply args to inputs'}
+												? 'Apply args to preprocessor'
+												: 'Apply args to inputs'}
 										startIcon={isFlow && testKind === 'main' ? { icon: Play } : {}}
 									>
 										{isFlow && testKind === 'main' ? 'Test' : 'Apply args'}
@@ -361,7 +392,7 @@
 				</SchemaPickerRow>
 			</svelte:fragment>
 			<svelte:fragment slot="empty">
-				<div class="text-center text-xs text-tertiary">No captures yet</div>
+				<div class="text-center text-xs text-tertiary py-2">No captures yet</div>
 			</svelte:fragment>
 		</InfiniteList>
 	</div>

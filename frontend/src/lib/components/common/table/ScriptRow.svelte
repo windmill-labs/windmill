@@ -3,7 +3,7 @@
 	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
-	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
+	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
@@ -16,7 +16,7 @@
 	import Row from './Row.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { copyToClipboard, DELETE, isOwner } from '$lib/utils'
+	import { capitalize, copyToClipboard, DELETE, isOwner } from '$lib/utils'
 	import { isDeployable } from '$lib/utils_deployable'
 
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
@@ -88,11 +88,13 @@
 </script>
 
 {#if menuOpen}
-	<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
+	<ScheduleEditor onUpdate={() => goto('/schedules')} bind:this={scheduleEditor} />
 {/if}
 
 <Row
-	href={script.draft_only
+	aiId={`script-run-button-${script.path}`}
+	aiDescription={`Button to access the form to run the script ${script.summary ?? script.path}`}
+	href={script.draft_only || script.kind !== 'script' || script.no_main_func
 		? `${base}/scripts/edit/${script.path}`
 		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"
@@ -112,11 +114,14 @@
 		{/if}
 
 		{#if script.archived}
-			<Badge color="red" baseClass="border">archived</Badge>
+			<Badge color="red" baseClass="border">Archived</Badge>
 		{/if}
 
-		{#if script.no_main_func}
+		{#if script.no_main_func && script.kind !== 'preprocessor'}
 			<NoMainFuncBadge />
+		{/if}
+		{#if script.kind !== 'script'}
+			<Badge color="blue" baseClass="border">{capitalize(script.kind)}</Badge>
 		{/if}
 		<SharedBadge canWrite={script.canWrite} extraPerms={script.extra_perms} />
 		<DraftBadge has_draft={script.has_draft} draft_only={script.draft_only} />
@@ -137,6 +142,8 @@
 				{:else if script.canWrite && !script.archived}
 					<div>
 						<Button
+							aiId={`edit-script-button-${script.summary?.length > 0 ? script.summary : script.path}`}
+							aiDescription={`Edits the script ${script.summary?.length > 0 ? script.summary : script.path}`}
 							color="light"
 							size="xs"
 							variant="border"
@@ -149,6 +156,8 @@
 				{:else if !script.draft_only}
 					<div>
 						<Button
+							aiId={`fork-script-button-${script.summary ?? script.path}`}
+							aiDescription={`Fork the script ${script.summary ?? script.path}`}
 							color="light"
 							size="xs"
 							variant="border"
@@ -162,6 +171,8 @@
 			{/if}
 		</span>
 		<Dropdown
+			aiId={`script-row-dropdown-${script.summary?.length > 0 ? script.summary : script.path}`}
+			aiDescription={`Open dropdown for script ${script.summary?.length > 0 ? script.summary : script.path} options`}
 			items={async () => {
 				let owner = isOwner(script.path, $userStore, $workspaceStore)
 				if (script.draft_only) {
@@ -226,7 +237,7 @@
 									disabled: script.archived,
 									hide: $userStore?.operator
 								}
-						  ]
+							]
 						: []),
 					{
 						displayName: 'View runs',
@@ -301,7 +312,7 @@
 									disabled: !owner,
 									hide: $userStore?.operator
 								}
-						  ]
+							]
 						: []),
 					...($userStore?.is_admin || $userStore?.is_super_admin
 						? [
@@ -321,7 +332,7 @@
 									disabled: !script.canWrite,
 									hide: $userStore?.operator
 								}
-						  ]
+							]
 						: [])
 				]
 			}}

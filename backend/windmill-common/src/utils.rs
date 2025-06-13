@@ -7,9 +7,9 @@
  */
 
 use crate::auth::is_devops_email;
-use crate::ee::LICENSE_KEY_ID;
+use crate::ee_oss::LICENSE_KEY_ID;
 #[cfg(feature = "enterprise")]
-use crate::ee::{send_critical_alert, CriticalAlertKind};
+use crate::ee_oss::{send_critical_alert, CriticalAlertKind};
 use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
 use crate::DB;
@@ -19,20 +19,24 @@ use git_version::git_version;
 
 use chrono::Utc;
 use croner::Cron;
-use rand::distr::Alphanumeric;
-use rand::{rng, Rng};
+use rand::{distr::Alphanumeric, rng, Rng};
 use reqwest::Client;
 use semver::Version;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
-use std::str::FromStr;
+use std::{fs::DirBuilder as SyncDirBuilder, str::FromStr};
+use tokio::fs::DirBuilder as AsyncDirBuilder;
 
 pub const MAX_PER_PAGE: usize = 10000;
 pub const DEFAULT_PER_PAGE: usize = 1000;
 
 pub const GIT_VERSION: &str =
     git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
+
+pub const AGENT_JWT_PREFIX: &str = "jwt_agent_";
+pub const WORKER_NAME_PREFIX: &str = "wk";
+pub const AGENT_WORKER_NAME_PREFIX: &str = "ag";
 
 use crate::CRITICAL_ALERT_MUTE_UI_ENABLED;
 use std::panic::{self, AssertUnwindSafe, Location};
@@ -54,6 +58,12 @@ lazy_static::lazy_static! {
         }
     ).unwrap_or(Version::new(0, 1, 0));
 
+    pub static ref HOSTNAME :String = std::env::var("FORCE_HOSTNAME").unwrap_or_else(|_| {
+        gethostname()
+            .to_str()
+            .map(|x| x.to_string())
+            .unwrap_or_else(|| rd_string(5))
+    });
 
     pub static ref MODE_AND_ADDONS: ModeAndAddons = {
         let mut search_addon = false;
@@ -75,8 +85,8 @@ lazy_static::lazy_static! {
                 if std::env::var("BASE_INTERNAL_URL").is_err() {
                     panic!("BASE_INTERNAL_URL is required in agent mode")
                 }
-                if std::env::var("JOB_TOKEN").is_err() {
-                    println!("JOB_TOKEN is not passed, hence workers will still need to create permissions for each job and the DATABASE_URL needs to be of a role that can INSERT into the job_perms table")
+                if std::env::var("AGENT_TOKEN").is_err() {
+                    println!("AGENT_TOKEN is not passed. This is required for the agent to work and contains the JWT to authenticate with the server.")
                 }
 
                 #[cfg(not(feature = "enterprise"))]
@@ -98,8 +108,10 @@ lazy_static::lazy_static! {
                 search_addon = true;
                     println!("Binary is in 'standalone' mode with search enabled");
                     Mode::Standalone
-            }
-            else {
+            } else if &x == "mcp" {
+                println!("Binary is in 'mcp' mode");
+                Mode::MCP
+            } else {
                 if &x != "standalone" {
                     eprintln!("mode not recognized, defaulting to standalone: {x}");
                 } else {
@@ -117,6 +129,10 @@ lazy_static::lazy_static! {
             mode,
         }
     };
+}
+
+lazy_static::lazy_static! {
+    pub static ref AGENT_TOKEN: String = std::env::var("AGENT_TOKEN").unwrap_or_default();
 }
 
 #[derive(Clone)]
@@ -166,13 +182,41 @@ pub async fn require_admin_or_devops(
     Ok(())
 }
 
-pub fn hostname() -> String {
-    std::env::var("FORCE_HOSTNAME").unwrap_or_else(|_| {
-        gethostname()
-            .to_str()
-            .map(|x| x.to_string())
-            .unwrap_or_else(|| rd_string(5))
-    })
+fn instance_name(hostname: &str) -> String {
+    hostname
+        .replace(" ", "")
+        .split("-")
+        .last()
+        .unwrap()
+        .to_ascii_lowercase()
+        .to_string()
+}
+
+const DEFAULT_WORKER_SUFFIX_LEN: usize = 5;
+pub const SSH_AGENT_WORKER_SUFFIX: &'static str = "/ssh";
+
+pub fn create_worker_suffix(hostname: &str, rd_string_len: usize, ssh_ag_worker: bool) -> String {
+    let mut wk_suffix = format!("{}-{}", instance_name(hostname), rd_string(rd_string_len));
+    if ssh_ag_worker {
+        wk_suffix.push_str(SSH_AGENT_WORKER_SUFFIX);
+    }
+    wk_suffix
+}
+
+pub fn create_ssh_agent_worker_suffix(hostname: &str) -> String {
+    create_worker_suffix(hostname, DEFAULT_WORKER_SUFFIX_LEN, true)
+}
+
+pub fn create_default_worker_suffix(hostname: &str) -> String {
+    create_worker_suffix(hostname, DEFAULT_WORKER_SUFFIX_LEN, false)
+}
+
+pub fn worker_name_with_suffix(is_agent: bool, worker_group: &str, suffix: &str) -> String {
+    if is_agent {
+        format!("{}-{}-{}", AGENT_WORKER_NAME_PREFIX, worker_group, suffix)
+    } else {
+        format!("{}-{}-{}", WORKER_NAME_PREFIX, worker_group, suffix)
+    }
 }
 
 pub fn paginate(pagination: Pagination) -> (usize, usize) {
@@ -198,6 +242,21 @@ pub async fn now_from_db<'c, E: sqlx::PgExecutor<'c>>(
         .fetch_one(db)
         .await?
         .unwrap())
+}
+
+pub async fn create_directory_async(directory_path: &str) {
+    AsyncDirBuilder::new()
+        .recursive(true)
+        .create(directory_path)
+        .await
+        .expect("could not create dir");
+}
+
+pub fn create_directory_sync(directory_path: &str) {
+    SyncDirBuilder::new()
+        .recursive(true)
+        .create(directory_path)
+        .expect("could not create dir");
 }
 
 pub fn not_found_if_none<T, U: AsRef<str>>(opt: Option<T>, kind: &str, name: U) -> Result<T> {
@@ -325,6 +384,7 @@ pub enum Mode {
     Server,
     Standalone,
     Indexer,
+    MCP,
 }
 
 impl std::fmt::Display for Mode {
@@ -335,6 +395,7 @@ impl std::fmt::Display for Mode {
             Mode::Server => write!(f, "server"),
             Mode::Standalone => write!(f, "standalone"),
             Mode::Indexer => write!(f, "indexer"),
+            Mode::MCP => write!(f, "mcp"),
         }
     }
 }
@@ -444,6 +505,31 @@ pub async fn report_recovered_critical_error(
         )
         .await;
     }
+}
+
+pub trait IsEmpty {
+    fn is_empty(&self) -> bool;
+}
+
+impl IsEmpty for String {
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+}
+
+impl<T> IsEmpty for Vec<T> {
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+}
+
+pub fn empty_as_none<'de, D, T>(deserializer: D) -> std::result::Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + IsEmpty,
+{
+    let option = <Option<T> as serde::Deserialize>::deserialize(deserializer)?;
+    Ok(option.filter(|s| !s.is_empty()))
 }
 
 pub async fn fetch_mute_workspace(_db: &DB, workspace_id: &str) -> Result<bool> {
@@ -669,7 +755,10 @@ impl<F: Future> Future for WarnAfterFuture<F> {
         // Poll the timeout future to check if it has elapsed.
         if !*this.warned {
             if this.timeout.poll(cx).is_ready() {
-                tracing::warn!(location = this.location, "SLOW_QUERY: query to db taking longer than expected (> {} seconds). This is a sign the database is under heavy load, query is too heavy or database is undersized",
+                tracing::warn!(
+                    location = this.location,
+                    "SLOW_QUERY: query {} to db taking longer than expected (> {} seconds)",
+                    this.location,
                     this.seconds,
                 );
                 *this.warned = true;
@@ -683,7 +772,8 @@ impl<F: Future> Future for WarnAfterFuture<F> {
                     let elapsed = this.start_time.elapsed();
                     tracing::warn!(
                         location = this.location,
-                        "SLOW_QUERY: completed with total duration: {:.2?}",
+                        "SLOW_QUERY: completed query {} with total duration: {:.2?}",
+                        this.location,
                         elapsed
                     );
                 }

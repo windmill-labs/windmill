@@ -18,18 +18,18 @@ def main():
     pass
 
 ";
-        let mut already_visited = vec![];
-        let (r, ..) = parse_python_imports(
-            code,
-            "test-workspace",
-            "f/foo/bar",
-            &db,
-            &mut already_visited,
-            &mut None,
-        )
-        .await?;
+        let (r, ..) =
+            parse_python_imports(code, "test-workspace", "f/foo/bar", &db, &mut vec![]).await?;
         // println!("{}", serde_json::to_string(&r)?);
-        assert_eq!(r, vec!["matplotlib", "wmill", "zanzibar"]);
+        assert_eq!(
+            r,
+            vec![
+                "matplotlib # (mapped from matplotlib.pyplot)",
+                "wmill",
+                "zanzibar # (mapped from zanzibar.estonie)"
+            ]
+        );
+
         Ok(())
     }
 
@@ -51,16 +51,8 @@ def main():
     pass
 
 ";
-        let mut already_visited = vec![];
-        let (r, ..) = parse_python_imports(
-            code,
-            "test-workspace",
-            "f/foo/bar",
-            &db,
-            &mut already_visited,
-            &mut None,
-        )
-        .await?;
+        let (r, ..) =
+            parse_python_imports(code, "test-workspace", "f/foo/bar", &db, &mut vec![]).await?;
         println!("{}", serde_json::to_string(&r)?);
         assert_eq!(r, vec!["burkina=0.4", "nigeria"]);
 
@@ -81,17 +73,9 @@ def main():
     pass
 
 ";
-        let mut already_visited = vec![];
 
-        let (r, ..) = parse_python_imports(
-            code,
-            "test-workspace",
-            "f/foo/bar",
-            &db,
-            &mut already_visited,
-            &mut None,
-        )
-        .await?;
+        let (r, ..) =
+            parse_python_imports(code, "test-workspace", "f/foo/bar", &db, &mut vec![]).await?;
         println!("{}", serde_json::to_string(&r)?);
         assert_eq!(
             r,

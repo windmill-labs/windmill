@@ -6,3 +6,5 @@ tracing.folded
 heaptrack*
 index/
 windmill-api/openapi-*.*
+.duckdb/*
+*ee.rs

@@ -1,41 +1,36 @@
 <script lang="ts">
 	import {
 		FlowService,
-		ScheduleService,
 		type Flow,
 		type FlowModule,
 		DraftService,
 		type PathScript,
-		ScriptService,
 		type OpenFlow,
-		type RawScript,
 		type InputTransform,
 		type TriggersCount,
 		CaptureService
 	} from '$lib/gen'
-	import { initHistory, push, redo, undo } from '$lib/history'
+	import { initHistory, redo, undo } from '$lib/history'
 	import {
-		copilotInfo,
 		enterpriseLicense,
 		tutorialsToDo,
 		userStore,
-		workspaceStore
+		workspaceStore,
+		usedTriggerKinds
 	} from '$lib/stores'
 	import {
 		cleanValueProperties,
 		encodeState,
-		formatCron,
 		generateRandomString,
 		orderedJsonStringify,
 		replaceFalseWithUndefined,
-		sleep,
 		type Value
 	} from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { Drawer } from '$lib/components/common'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
-	import { onMount, setContext, tick, type ComponentType } from 'svelte'
+	import { onMount, setContext, type ComponentType } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Badge, Button, UndoRedo } from './common'
@@ -43,27 +38,17 @@
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
 	import type { FlowState } from './flows/flowState'
 	import { dfs as dfsApply } from './flows/dfs'
-	import { dfs, getPreviousIds } from './flows/previousResults'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
-	import { cleanInputs, emptyFlowModuleState } from './flows/utils'
+	import { cleanInputs } from './flows/utils'
 	import { Calendar, Pen, Save, DiffIcon, HistoryIcon, FileJson, type Icon } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
-	import {
-		stepCopilot,
-		type FlowCopilotModule,
-		glueCopilot,
-		type FlowCopilotContext
-	} from './copilot/flow'
-	import type { Schema, SchemaProperty } from '$lib/common'
-	import FlowCopilotDrawer from './copilot/FlowCopilotDrawer.svelte'
-	import FlowCopilotStatus from './copilot/FlowCopilotStatus.svelte'
-	import { fade } from 'svelte/transition'
-	import { loadFlowModuleState, pickScript } from './flows/flowStateUtils'
-	import FlowCopilotInputsModal from './copilot/FlowCopilotInputsModal.svelte'
+	import { type FlowCopilotContext } from './copilot/flow'
+	import FlowAIButton from './copilot/chat/flow/FlowAIButton.svelte'
+	import { loadFlowModuleState } from './flows/flowStateUtils'
 	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import FlowTutorials from './FlowTutorials.svelte'
@@ -76,6 +61,15 @@
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
+	import type { FlowWithDraftAndDraftTriggers, Trigger } from './triggers/utils'
+	import {
+		deployTriggers,
+		filterDraftTriggers,
+		handleSelectTriggerFromKind
+	} from './triggers/utils'
+	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
+	import { Triggers } from './triggers/triggers.svelte'
+	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -85,18 +79,16 @@
 	export let loading = false
 	export let flowStore: Writable<OpenFlow>
 	export let flowStateStore: Writable<FlowState>
-	export let savedFlow:
-		| (Flow & {
-				draft?: Flow | undefined
-		  })
-		| undefined = undefined
+	export let savedFlow: FlowWithDraftAndDraftTriggers | undefined = undefined
 	export let diffDrawer: DiffDrawer | undefined = undefined
 	export let customUi: FlowBuilderWhitelabelCustomUi = {}
 	export let disableAi: boolean = false
 	export let disabledFlowInputs = false
-	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
+	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined // used to set the primary schedule in the legacy primaryScheduleStore
 	export let version: number | undefined = undefined
 	export let setSavedraftCb: ((cb: () => void) => void) | undefined = undefined
+	export let draftTriggersFromUrl: Trigger[] | undefined = undefined
+	export let selectedTriggerIndexFromUrl: number | undefined = undefined
 
 	let initialPathStore = writable(initialPath)
 	$: initialPathStore.set(initialPath)
@@ -116,12 +108,26 @@
 	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
 	let open: boolean = false // Is confirmation modal open
 
+	// Draft triggers confirmation modal
+	let draftTriggersModalOpen = false
+	let confirmDeploymentCallback: (triggersToDeploy: Trigger[]) => void = () => {}
+
+	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
+		const { selectedTriggers } = event.detail
+		// Continue with saving the flow
+		draftTriggersModalOpen = false
+		confirmDeploymentCallback(selectedTriggers)
+	}
+
 	$: setContext('customUi', customUi)
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
 		return {
 			savedValue: savedFlow,
-			modifiedValue: $flowStore
+			modifiedValue: {
+				...$flowStore,
+				draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
+			}
 		}
 	}
 	let onLatest = true
@@ -148,42 +154,25 @@
 
 	const dispatch = createEventDispatcher()
 
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule)
-	const triggersCount = writable<TriggersCount | undefined>(
-		savedPrimarySchedule
-			? { schedule_count: 1, primary_schedule: { schedule: savedPrimarySchedule.cron } }
-			: undefined
-	)
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule) // kept for legacy reasons
+	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	const simplifiedPoll = writable(false)
+
+	// used to set the primary schedule in the legacy primaryScheduleStore
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
 		primaryScheduleStore.set(schedule)
+	}
+
+	export function setDraftTriggers(triggers: Trigger[] | undefined) {
+		triggersState.setTriggers([
+			...(triggers ?? []),
+			...triggersState.triggers.filter((t) => !t.draftConfig)
+		])
 		loadTriggers()
 	}
 
-	async function createSchedule(path: string) {
-		if ($primaryScheduleStore) {
-			const { cron, timezone, args, enabled, summary } = $primaryScheduleStore
-
-			try {
-				await ScheduleService.createSchedule({
-					workspace: $workspaceStore!,
-					requestBody: {
-						path: path,
-						schedule: formatCron(cron),
-						timezone,
-						script_path: path,
-						is_flow: true,
-						args,
-						enabled,
-						summary
-					}
-				})
-			} catch (err) {
-				sendUserToast(`The primary schedule could not be created: ${err}`, true)
-			}
-		} else {
-			sendUserToast('The primary schedule could not be created: no schedule data', true)
-		}
+	export function setSelectedTriggerIndex(index: number | undefined) {
+		triggersState.selectedTriggerIndex = index
 	}
 
 	let loadingSave = false
@@ -195,7 +184,12 @@
 		}
 		if (savedFlow) {
 			const draftOrDeployed = cleanValueProperties(savedFlow.draft || savedFlow)
-			const current = cleanValueProperties({ ...$flowStore, path: $pathStore })
+			const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
+			const current = cleanValueProperties({
+				...$flowStore,
+				path: $pathStore,
+				draft_triggers: currentDraftTriggers
+			})
 			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 				sendUserToast('No changes detected, ignoring', false, [
 					{
@@ -259,7 +253,7 @@
 					value: {
 						...flow,
 						path: $pathStore,
-						primary_schedule: $primaryScheduleStore
+						draft_triggers: triggersState.getDraftTriggersSnapshot()
 					}
 				}
 			})
@@ -270,15 +264,14 @@
 							...structuredClone($flowStore),
 							path: $pathStore,
 							draft_only: true
-					  }
+						}
 					: savedFlow),
 				draft: {
 					...structuredClone($flowStore),
-					path: $pathStore
+					path: $pathStore,
+					draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
 				}
-			} as Flow & {
-				draft?: Flow
-			}
+			} as FlowWithDraftAndDraftTriggers
 
 			let savedAtNewPath = false
 			if (newFlow) {
@@ -351,7 +344,19 @@
 		deployedBy = flow.edited_by
 	}
 
-	async function saveFlow(deploymentMsg?: string): Promise<void> {
+	async function saveFlow(deploymentMsg?: string, triggersToDeploy?: Trigger[]): Promise<void> {
+		if (!triggersToDeploy) {
+			// Check if there are draft triggers that need confirmation
+			const draftTriggers = triggersState.triggers.filter((trigger) => trigger.draftConfig)
+			if (draftTriggers.length > 0) {
+				draftTriggersModalOpen = true
+				confirmDeploymentCallback = async (triggersToDeploy: Trigger[]) => {
+					await saveFlow(deploymentMsg, triggersToDeploy)
+				}
+				return
+			}
+		}
+
 		loadingSave = true
 		try {
 			const flow = cleanInputs($flowStore)
@@ -390,8 +395,15 @@
 					},
 					runnableKind: 'flow'
 				})
-				if ($primaryScheduleStore && $primaryScheduleStore.enabled) {
-					await createSchedule($pathStore)
+				if (triggersToDeploy) {
+					await deployTriggers(
+						triggersToDeploy,
+						$workspaceStore,
+						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+						usedTriggerKinds,
+						$pathStore,
+						true
+					)
 				}
 			} else {
 				try {
@@ -400,51 +412,14 @@
 					console.error('error interacting with local storage', e)
 				}
 
-				const scheduleExists = await ScheduleService.existsSchedule({
-					workspace: $workspaceStore ?? '',
-					path: initialPath
-				})
-
-				if (scheduleExists) {
-					const schedule = await ScheduleService.getSchedule({
-						workspace: $workspaceStore ?? '',
-						path: initialPath
-					})
-					if ($primaryScheduleStore) {
-						const { cron, timezone, args, enabled, summary } = $primaryScheduleStore
-
-						if (
-							JSON.stringify(schedule.args) != JSON.stringify(args) ||
-							schedule.schedule != cron ||
-							schedule.timezone != timezone ||
-							schedule.summary != summary
-						) {
-							await ScheduleService.updateSchedule({
-								workspace: $workspaceStore ?? '',
-								path: initialPath,
-								requestBody: {
-									schedule: formatCron(cron),
-									timezone,
-									args,
-									summary
-								}
-							})
-						}
-						if (enabled != schedule.enabled) {
-							await ScheduleService.setScheduleEnabled({
-								workspace: $workspaceStore ?? '',
-								path: initialPath,
-								requestBody: { enabled }
-							})
-						}
-					} else if (scheduleExists && !$triggersCount?.primary_schedule) {
-						await ScheduleService.deleteSchedule({
-							workspace: $workspaceStore ?? '',
-							path: $pathStore
-						})
-					}
-				} else if ($primaryScheduleStore && $primaryScheduleStore.enabled) {
-					await createSchedule(initialPath)
+				if (triggersToDeploy) {
+					await deployTriggers(
+						triggersToDeploy,
+						$workspaceStore,
+						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+						usedTriggerKinds,
+						initialPath
+					)
 				}
 
 				await FlowService.updateFlow({
@@ -465,10 +440,15 @@
 					}
 				})
 			}
+
+			const { draft_triggers: _, ...newSavedFlow } = $flowStore as OpenFlow & {
+				draft_triggers: Trigger[]
+			}
 			savedFlow = {
-				...structuredClone($flowStore),
+				...structuredClone(newSavedFlow),
 				path: $pathStore
 			} as Flow
+			setDraftTriggers([])
 			loadingSave = false
 			dispatch('deploy', $pathStore)
 		} catch (err) {
@@ -496,7 +476,8 @@
 						flow: $flowStore,
 						path: $pathStore,
 						selectedId: $selectedIdStore,
-						primarySchedule: $primaryScheduleStore
+						draft_triggers: triggersState.getDraftTriggersSnapshot(),
+						selected_trigger: triggersState.getSelectedTriggerSnapshot()
 					})
 				)
 			} catch (err) {
@@ -506,16 +487,6 @@
 	}
 
 	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
-	const selectedTriggerStore = writable<
-		| 'webhooks'
-		| 'emails'
-		| 'schedules'
-		| 'cli'
-		| 'routes'
-		| 'websockets'
-		| 'postgres'
-		| 'scheduledPoll'
-	>('webhooks')
 
 	export function getSelectedId() {
 		return $selectedIdStore
@@ -541,24 +512,11 @@
 		selectedIdStore.set(selectedId)
 	}
 
-	function selectTrigger(
-		selectedTrigger:
-			| 'webhooks'
-			| 'emails'
-			| 'schedules'
-			| 'cli'
-			| 'routes'
-			| 'websockets'
-			| 'postgres'
-			| 'scheduledPoll'
-	) {
-		selectedTriggerStore.set(selectedTrigger)
-	}
-
 	let insertButtonOpen = writable<boolean>(false)
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
+		currentEditor: writable(undefined),
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		moving,
@@ -577,29 +535,43 @@
 		flowInputEditorState: flowInputEditorStateStore
 	})
 
+	// Add triggers context store
+	const triggersState = new Triggers(
+		[
+			{ type: 'webhook', path: '', isDraft: false },
+			{ type: 'email', path: '', isDraft: false },
+			...(draftTriggersFromUrl ?? savedFlow?.draft?.draft_triggers ?? [])
+		],
+		selectedTriggerIndexFromUrl,
+		saveSessionDraft
+	)
+
 	setContext<TriggerContext>('TriggerContext', {
-		selectedTrigger: selectedTriggerStore,
-		primarySchedule: primaryScheduleStore,
 		triggersCount,
 		simplifiedPoll,
-		defaultValues: writable(undefined),
-		captureOn,
-		showCaptureHint
+		showCaptureHint,
+		triggersState
 	})
 
-	async function loadTriggers() {
+	export async function loadTriggers() {
+		if (initialPath == '') return
 		$triggersCount = await FlowService.getTriggersCountOfFlow({
 			workspace: $workspaceStore!,
 			path: initialPath
 		})
-		if ($primaryScheduleStore && $triggersCount.primary_schedule == undefined) {
-			$triggersCount = {
-				...($triggersCount ?? {}),
-				schedule_count: ($triggersCount.schedule_count ?? 0) + 1,
-				primary_schedule: {
-					schedule: $primaryScheduleStore.cron
-				}
-			}
+
+		// Initialize triggers using utility function
+		await triggersState.fetchTriggers(
+			triggersCount,
+			$workspaceStore,
+			initialPath,
+			true,
+			$primaryScheduleStore,
+			$userStore
+		)
+
+		if (savedFlow && savedFlow.draft) {
+			savedFlow = filterDraftTriggers(savedFlow, triggersState) as FlowWithDraftAndDraftTriggers
 		}
 	}
 
@@ -692,10 +664,6 @@
 	}
 
 	let flowCopilotContext: FlowCopilotContext = {
-		drawerStore: writable<Drawer | undefined>(undefined),
-		modulesStore: writable<FlowCopilotModule[]>([]),
-		currentStepStore: writable<string | undefined>(undefined),
-		genFlow: undefined,
 		shouldUpdatePropertyType: writable<{
 			[key: string]: 'static' | 'javascript' | undefined
 		}>({}),
@@ -709,485 +677,6 @@
 	}
 
 	setContext('FlowCopilotContext', flowCopilotContext)
-
-	const {
-		drawerStore: copilotDrawerStore,
-		modulesStore: copilotModulesStore,
-		currentStepStore: copilotCurrentStepStore,
-		shouldUpdatePropertyType
-	} = flowCopilotContext
-
-	let doneTs = 0
-	async function getHubCompletions(text: string, idx: number, type: 'trigger' | 'script') {
-		try {
-			// make sure we display the results of the last request last
-			const ts = Date.now()
-			const scripts = (
-				await ScriptService.queryHubScripts({
-					text: `${text}`,
-					limit: 3,
-					kind: type
-				})
-			).map((s) => ({
-				...s,
-				path: `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`
-			}))
-			if (ts < doneTs) return
-			doneTs = ts
-
-			$copilotModulesStore[idx].hubCompletions = scripts as {
-				path: string
-				summary: string
-				kind: string
-				app: string
-				ask_id: number
-				id: number
-				version_id: number
-			}[]
-		} catch (err) {
-			if (err.name !== 'CancelError') throw err
-		}
-	}
-
-	let abortController: AbortController | undefined = undefined
-	let copilotLoading = false
-	let flowCopilotMode: 'trigger' | 'sequence' = 'sequence'
-	let copilotStatus: string = ''
-	let copilotFlowInputs: Record<string, SchemaProperty> = {}
-	let copilotFlowRequiredInputs: string[] = []
-	let openCopilotInputsModal = false
-
-	function setInitCopilotModules(mode: typeof flowCopilotMode) {
-		$copilotModulesStore = [
-			{
-				id: 'a',
-				type: mode === 'trigger' ? 'trigger' : 'script',
-				description: '',
-				code: '',
-				hubCompletions: [],
-				selectedCompletion: undefined,
-				source: undefined,
-				lang: undefined
-			},
-			{
-				id: 'b',
-				type: 'script',
-				description: '',
-				code: '',
-				hubCompletions: [],
-				selectedCompletion: undefined,
-				source: undefined,
-				lang: undefined
-			}
-		]
-	}
-
-	$: setInitCopilotModules(flowCopilotMode)
-
-	function applyCopilotFlowInputs() {
-		const properties = {
-			...($flowStore.schema?.properties as Record<string, SchemaProperty> | undefined),
-			...copilotFlowInputs
-		}
-		const required = [
-			...(($flowStore.schema?.required as string[] | undefined) ?? []),
-			...copilotFlowRequiredInputs
-		]
-		$flowStore.schema = {
-			$schema: 'https://json-schema.org/draft/2020-12/schema',
-			properties,
-			required,
-			type: 'object'
-		}
-	}
-
-	function clearFlowInputsFromStep(id: string | undefined) {
-		const module: FlowModule | undefined = dfs(id, $flowStore)[0]
-		if (module?.value.type === 'rawscript' || module?.value.type === 'script') {
-			// clear step inputs that start with flow_input. but not flow_input.iter
-			for (const key in module.value.input_transforms) {
-				const input = module.value.input_transforms[key]
-				if (
-					input.type === 'javascript' &&
-					input.expr.includes('flow_input.') &&
-					!input.expr.includes('flow_input.iter')
-				) {
-					module.value.input_transforms[key] = {
-						type: 'static',
-						value: undefined
-					}
-					$shouldUpdatePropertyType[key] = 'static'
-				}
-			}
-		}
-		$flowStore = $flowStore
-	}
-
-	async function finishStepGen() {
-		copilotFlowInputs = {}
-		copilotFlowRequiredInputs = []
-		setInitCopilotModules(flowCopilotMode)
-		copilotStatus = "Done! Just check the step's inputs and you're good to go!"
-		await sleep(3000)
-		copilotStatus = ''
-	}
-
-	function snakeCase(e: string): string {
-		if (e.toLowerCase() === e) {
-			return e
-		}
-
-		return (
-			e
-				.match(/([A-Z])/g)
-				?.reduce((str, c) => str.replace(new RegExp(c), '_' + c.toLowerCase()), e)
-				?.substring(e.slice(0, 1).match(/([A-Z])/g) ? 1 : 0) ?? e
-		)
-	}
-	async function genFlow(idx: number, flowModules: FlowModule[], stepOnly = false) {
-		try {
-			push(history, $flowStore)
-			let module = stepOnly ? $copilotModulesStore[0] : $copilotModulesStore[idx]
-
-			copilotLoading = true
-			copilotStatus = "Generating code for step '" + module.id + "'..."
-			$copilotCurrentStepStore = module.id
-			focusCopilot()
-
-			if (!stepOnly && flowModules.length > idx) {
-				select('')
-				await tick()
-				flowModules.splice(idx, flowModules.length - idx)
-				$flowStore = $flowStore
-				focusCopilot()
-			}
-
-			if (idx === 0 && !stepOnly) {
-				$flowStore.schema = {
-					$schema: 'https://json-schema.org/draft/2020-12/schema',
-					properties: {},
-					required: [],
-					type: 'object'
-				}
-			}
-
-			if (module.type === 'trigger') {
-				$primaryScheduleStore = {
-					summary: 'Scheduled poll of flow',
-					args: {},
-					cron: '0 */15 * * *',
-					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-					enabled: true
-				}
-			}
-
-			const flowModule: FlowModule & {
-				value: RawScript | PathScript
-			} = {
-				id: module.id,
-				stop_after_if:
-					module.type === 'trigger'
-						? {
-								expr: 'result == undefined || Array.isArray(result) && result.length == 0',
-								skip_if_stopped: true
-						  }
-						: undefined,
-				value: {
-					input_transforms: {},
-					content: '',
-					language: module.lang ?? 'bun',
-					type: 'rawscript'
-				},
-				summary: module.description
-			}
-
-			let isHubStep = false
-			if (module.source === 'hub' && module.selectedCompletion) {
-				isHubStep = true
-				const [hubScriptModule, hubScriptState] = await pickScript(
-					module.selectedCompletion.path,
-					`${module.selectedCompletion.summary} (${module.selectedCompletion.app})`,
-					module.id,
-					undefined
-				)
-				flowModule.value = hubScriptModule.value
-				flowModule.summary = hubScriptModule.summary
-				$flowStateStore[module.id] = hubScriptState
-			} else {
-				$flowStateStore[module.id] = emptyFlowModuleState()
-			}
-
-			if (stepOnly) {
-				flowModules.splice(idx, 0, flowModule)
-			} else if (idx === 1 && $copilotModulesStore[idx - 1].type === 'trigger') {
-				const loopModule: FlowModule = {
-					id: module.id + '_loop',
-					value: {
-						type: 'forloopflow',
-						iterator: {
-							type: 'javascript',
-							expr: 'results.a'
-						},
-						skip_failures: true,
-						modules: [flowModule]
-					}
-				}
-				const loopState = await loadFlowModuleState(loopModule)
-				$flowStateStore[loopModule.id] = loopState
-				flowModules.push(loopModule)
-			} else {
-				flowModules.push(flowModule)
-			}
-
-			$copilotDrawerStore?.closeDrawer()
-			await tick()
-			select(module.id)
-			await tick()
-			focusCopilot()
-
-			let isFirstInLoop = false
-			const parents = dfs(module.id, $flowStore).slice(1)
-			if (
-				parents[0]?.value.type === 'forloopflow' &&
-				parents[0].value.modules[0].id === module.id
-			) {
-				isFirstInLoop = true
-			}
-			const prevNodeId = getPreviousIds(module.id, $flowStore, false)[0] as string | undefined
-			const pastModule = dfs(prevNodeId, $flowStore, false)[0] as FlowModule | undefined
-
-			if (!module.source) {
-				throw new Error('Invalid copilot module source')
-			}
-
-			if (module.source === 'custom') {
-				const deltaStore = writable<string>('')
-				const unsubscribe = deltaStore.subscribe(async (delta) => {
-					module.editor?.append(delta)
-				})
-
-				abortController = new AbortController()
-				await stepCopilot(
-					module,
-					deltaStore,
-					$workspaceStore!,
-					pastModule?.value.type === 'rawscript' || pastModule?.value.type === 'script'
-						? (pastModule as FlowModule & {
-								value: RawScript | PathScript
-						  })
-						: undefined,
-					isFirstInLoop,
-					abortController
-				)
-				unsubscribe()
-			}
-
-			copilotStatus = "Generating inputs for step '" + module.id + "'..."
-			await sleep(500) // make sure code was parsed
-
-			try {
-				if (
-					(flowModule.value.type === 'rawscript' || flowModule.value.type === 'script') &&
-					(pastModule === undefined ||
-						pastModule.value.type === 'rawscript' ||
-						pastModule.value.type === 'script')
-				) {
-					const stepSchema: Schema = JSON.parse(JSON.stringify($flowStateStore[module.id].schema)) // deep copy
-					if (isHubStep && pastModule !== undefined && $copilotInfo.enabled) {
-						// ask AI to set step inputs
-						abortController = new AbortController()
-						const { inputs, allExprs } = await glueCopilot(
-							flowModule.value.input_transforms,
-							$workspaceStore!,
-							pastModule as FlowModule & {
-								value: RawScript | PathScript
-							},
-							isFirstInLoop,
-							abortController
-						)
-
-						// create flow inputs used by AI for autocompletion
-						copilotFlowInputs = {}
-						copilotFlowRequiredInputs = []
-						Object.entries(allExprs).forEach(([key, expr]) => {
-							if (expr.includes('flow_input.') && !expr.includes('flow_input.iter.')) {
-								const flowInputKey = expr.match(/flow_input\.([A-Za-z0-9_]+)/)?.[1]
-								if (
-									flowInputKey !== undefined &&
-									(!$flowStore.schema ||
-										!(flowInputKey in (($flowStore.schema.properties as any) ?? {}))) // prevent overriding flow inputs
-								) {
-									if (key in stepSchema.properties) {
-										copilotFlowInputs[flowInputKey] = stepSchema.properties[key]
-										if (stepSchema.required.includes(key)) {
-											copilotFlowRequiredInputs.push(flowInputKey)
-										}
-									} else {
-										// when the key is nested (e.g. body.content)
-										const [firstKey, ...rest] = key.split('.')
-										const restKey = rest.join('.')
-										const firstKeyProperties = stepSchema.properties[firstKey]?.properties
-										if (firstKeyProperties !== undefined && restKey in firstKeyProperties) {
-											copilotFlowInputs[flowInputKey] = firstKeyProperties[restKey]
-											if (firstKeyProperties[restKey].required?.includes(flowInputKey)) {
-												copilotFlowRequiredInputs.push(flowInputKey)
-											}
-										}
-									}
-								}
-							}
-						})
-
-						if (!stepOnly) {
-							applyCopilotFlowInputs()
-						}
-
-						// set step inputs
-						Object.entries(inputs).forEach(([key, expr]) => {
-							flowModule.value.input_transforms[key] = {
-								type: 'javascript',
-								expr
-							}
-							$shouldUpdatePropertyType[key] = 'javascript'
-						})
-					} else {
-						if (isHubStep && pastModule !== undefined && !$copilotInfo.enabled) {
-							sendUserToast(
-								'For better input generation, enable Windmill AI in the workspace settings',
-								true
-							)
-						}
-
-						// create possible flow inputs for autocompletion
-						copilotFlowInputs = {}
-						copilotFlowRequiredInputs = []
-						Object.keys(flowModule.value.input_transforms).forEach((key) => {
-							if (key !== 'prev_output') {
-								const schema = $flowStateStore[module.id].schema
-								const schemaProperty = Object.entries(schema?.properties ?? {}).find(
-									(x) => x[0] === key
-								)?.[1]
-								const snakeKey = snakeCase(key)
-								if (
-									schemaProperty &&
-									(!$flowStore.schema ||
-										!(snakeKey in ($flowStore?.schema?.properties ?? ({} as any)))) // prevent overriding flow inputs
-								) {
-									copilotFlowInputs[snakeKey] = schemaProperty
-									if (schema?.required.includes(snakeKey)) {
-										copilotFlowRequiredInputs.push(snakeKey)
-									}
-								}
-							}
-						})
-						if (!stepOnly) {
-							applyCopilotFlowInputs()
-						}
-
-						// programatically set step inputs
-						for (const key of Object.keys(flowModule.value.input_transforms)) {
-							const snakeKey = snakeCase(key)
-							flowModule.value.input_transforms[key] = {
-								type: 'javascript',
-								expr:
-									key === 'prev_output'
-										? isFirstInLoop
-											? 'flow_input.iter.value'
-											: pastModule
-											? 'results.' + pastModule.id
-											: 'flow_input.' + snakeKey
-										: 'flow_input.' + snakeKey
-							}
-							$shouldUpdatePropertyType[key] = 'javascript'
-						}
-					}
-
-					$flowStore = $flowStore // force rerendering
-				} else {
-					if (
-						pastModule !== undefined &&
-						pastModule.value.type !== 'rawscript' &&
-						pastModule.value.type !== 'script'
-					) {
-						sendUserToast(
-							`Linking to previous step ${pastModule.id} of type ${pastModule.value.type} is not yet supported`,
-							true
-						)
-					} else {
-						sendUserToast('Something went wrong, could not generate step inputs', true)
-					}
-				}
-			} catch (err) {
-				console.error(err)
-			}
-
-			if (stepOnly) {
-				$copilotCurrentStepStore = undefined
-				copilotLoading = false
-				copilotStatus = ''
-				if (Object.keys(copilotFlowInputs).length > 0) {
-					openCopilotInputsModal = true
-				} else {
-					finishStepGen()
-				}
-			} else {
-				copilotStatus =
-					"Waiting for the user to validate code and inputs of step '" + module.id + "'"
-			}
-		} catch (err) {
-			if (stepOnly) {
-				copilotStatus = ''
-				$copilotCurrentStepStore = undefined
-				setInitCopilotModules(flowCopilotMode)
-			}
-			if (err?.message) {
-				sendUserToast('Failed to generate code: ' + err.message, true)
-			} else {
-				sendUserToast('Failed to generate code', true)
-				console.error(err)
-			}
-		} finally {
-			copilotLoading = false
-		}
-	}
-
-	flowCopilotContext.genFlow = genFlow
-
-	async function finishCopilotFlowBuilder() {
-		copilotLoading = true
-		select('Input')
-		$copilotCurrentStepStore = 'Input'
-
-		copilotStatus = "Done! Just check the flow's inputs and you're good to go!"
-		$copilotCurrentStepStore = undefined
-		copilotLoading = false
-		await sleep(3000)
-		copilotStatus = ''
-	}
-
-	function focusCopilot() {
-		document.querySelectorAll('.splitpanes__splitter').forEach((el) => {
-			el.classList.add('hidden')
-		})
-		document.querySelectorAll('#flow-graph *').forEach((el) => {
-			if (el instanceof HTMLElement) {
-				el.style.pointerEvents = 'none'
-			}
-		})
-	}
-
-	function blurCopilot() {
-		document.querySelectorAll('.splitpanes__splitter').forEach((el) => {
-			el.classList.remove('hidden')
-		})
-		document.querySelectorAll('#flow-graph *').forEach((el) => {
-			if (el instanceof HTMLElement) {
-				el.style.pointerEvents = ''
-			}
-		})
-	}
-
-	$: $copilotCurrentStepStore === undefined && blurCopilot()
 
 	let renderCount = 0
 	let flowTutorials: FlowTutorials | undefined = undefined
@@ -1228,7 +717,7 @@
 							},
 							disabled: newFlow
 						}
-				  ]
+					]
 				: []),
 			...(customUi?.topBar?.history != false
 				? [
@@ -1242,9 +731,21 @@
 							icon: FileJson,
 							action: () => yamlEditorDrawer?.openDrawer()
 						}
-				  ]
+					]
 				: [])
 		]
+	}
+
+	function handleDeployTrigger(trigger: Trigger) {
+		const { id, path, type } = trigger
+		//Update the saved flow to remove the draft trigger that is deployed
+		if (savedFlow && savedFlow.draft && savedFlow.draft.draft_triggers) {
+			const newSavedDraftTrigers = savedFlow.draft.draft_triggers.filter(
+				(t) => t.id !== id || t.path !== path || t.type !== type
+			)
+			savedFlow.draft.draft_triggers =
+				newSavedDraftTrigers.length > 0 ? newSavedDraftTrigers : undefined
+		}
 	}
 
 	let flowPreviewButtons: FlowPreviewButtons
@@ -1263,26 +764,23 @@
 	currentValue={$flowStore}
 />
 
+<DraftTriggersConfirmationModal
+	bind:open={draftTriggersModalOpen}
+	draftTriggers={triggersState.triggers.filter((t) => t.draftConfig)}
+	isFlow={true}
+	on:canceled={() => {
+		draftTriggersModalOpen = false
+	}}
+	on:confirmed={handleDraftTriggersConfirmed}
+/>
+
 {#key renderCount}
 	{#if !$userStore?.operator}
-		<FlowCopilotDrawer {getHubCompletions} {genFlow} bind:flowCopilotMode />
 		{#if $pathStore}
 			<FlowHistory bind:this={flowHistory} path={$pathStore} on:historyRestore />
 		{/if}
 		<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 		<FlowImportExportMenu bind:drawer={jsonViewerDrawer} />
-		<FlowCopilotInputsModal
-			on:confirmed={async () => {
-				applyCopilotFlowInputs()
-				finishStepGen()
-			}}
-			on:canceled={async () => {
-				clearFlowInputsFromStep($copilotModulesStore[0]?.id)
-				finishStepGen()
-			}}
-			bind:open={openCopilotInputsModal}
-			inputs={Object.keys(copilotFlowInputs)}
-		/>
 		<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
 
 		<div class="flex flex-col flex-1 h-screen">
@@ -1290,10 +788,6 @@
 			<div
 				class="justify-between flex flex-row items-center pl-2.5 pr-6 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
 			>
-				{#if $copilotCurrentStepStore !== undefined}
-					<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0"
-					></div>
-				{/if}
 				<div class="flex w-full max-w-md gap-4 items-center">
 					<Summary
 						disabled={customUi?.topBar?.editableSummary == false}
@@ -1332,7 +826,9 @@
 				</div>
 
 				<div class="gap-4 flex-row hidden md:flex w-full max-w-md">
-					{#if $primaryScheduleStore != undefined ? $primaryScheduleStore && $primaryScheduleStore?.enabled : $triggersCount?.primary_schedule}
+					{#if triggersState.triggers?.some((t) => t.type === 'schedule')}
+						{@const primaryScheduleIndex = triggersState.triggers.findIndex((t) => t.isPrimary)}
+						{@const scheduleIndex = triggersState.triggers.findIndex((t) => t.type === 'schedule')}
 						<Button
 							btnClasses="hidden lg:inline-flex"
 							startIcon={{ icon: Calendar }}
@@ -1341,14 +837,15 @@
 							size="xs"
 							on:click={async () => {
 								select('triggers')
-								selectTrigger('schedules')
+								const selected = primaryScheduleIndex ?? scheduleIndex
+								if (selected) {
+									triggersState.selectedTriggerIndex = selected
+								}
 							}}
 						>
-							{$primaryScheduleStore != undefined
-								? $primaryScheduleStore
-									? $primaryScheduleStore?.cron
-									: ''
-								: $triggersCount?.primary_schedule?.schedule}
+							{triggersState.triggers[primaryScheduleIndex]?.draftConfig?.schedule ??
+								triggersState.triggers[primaryScheduleIndex]?.lightConfig?.schedule ??
+								''}
 						</Button>
 					{/if}
 
@@ -1409,12 +906,16 @@
 
 								await syncWithDeployed()
 
+								const currentDraftTriggers = structuredClone(
+									triggersState.getDraftTriggersSnapshot()
+								)
+
 								diffDrawer?.openDrawer()
 								diffDrawer?.setDiff({
 									mode: 'normal',
 									deployed: deployedValue ?? savedFlow,
-									draft: savedFlow['draft'],
-									current: { ...$flowStore, path: $pathStore }
+									draft: savedFlow?.draft,
+									current: { ...$flowStore, path: $pathStore, draft_triggers: currentDraftTriggers }
 								})
 							}}
 							disabled={!savedFlow}
@@ -1425,19 +926,13 @@
 							</div>
 						</Button>
 					{/if}
-					{#if !disableAi && customUi?.topBar?.aiBuilder != false}
-						<FlowCopilotStatus
-							{copilotLoading}
-							bind:copilotStatus
-							{genFlow}
-							{finishCopilotFlowBuilder}
-							{abortController}
-						/>
+					{#if !disableAi && customUi?.topBar?.aiBuilder != false && !aiChatManager.open}
+						<FlowAIButton openPanel={() => aiChatManager.openChat()} />
 					{/if}
 					<FlowPreviewButtons
 						on:openTriggers={(e) => {
 							select('triggers')
-							selectTrigger(e.detail.kind)
+							handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)
 							captureOn.set(true)
 							showCaptureHint.set(true)
 						}}
@@ -1489,6 +984,7 @@
 						flowPreviewButtons?.openPreview(true)
 					}}
 					{savedFlow}
+					onDeployTrigger={handleDeployTrigger}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

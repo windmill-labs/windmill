@@ -2,45 +2,46 @@
 	import { workerTags, workspaceStore } from '$lib/stores'
 	import { WorkerService } from '$lib/gen'
 
-	export let tag: string | undefined
-	export let noLabel: boolean = false
-	export let nullTag: string | undefined = undefined
-	export let disabled = false
+	import { createEventDispatcher } from 'svelte'
+	import Select from './Select.svelte'
+
+	let {
+		tag = $bindable(),
+		noLabel = false,
+		nullTag = undefined,
+		disabled = false
+	} = $props<{
+		tag: string | undefined
+		noLabel?: boolean
+		nullTag?: string | undefined
+		disabled?: boolean
+	}>()
 
 	loadWorkerGroups()
 
+	const dispatch = createEventDispatcher()
 	async function loadWorkerGroups() {
 		if (!$workerTags) {
 			$workerTags = await WorkerService.getCustomTags({ workspace: $workspaceStore })
 		}
 	}
+	let items = $derived([
+		// ...(tag ? ['reset to default'] : [nullTag ? `default: ${nullTag}` : '']),
+		...(tag && tag != '' && !($workerTags ?? []).includes(tag) ? [tag] : []),
+		...($workerTags ?? [])
+	])
 </script>
 
 <div class="flex gap-1 items-center">
 	{#if !noLabel}
 		<div class="text-tertiary text-2xs">tag</div>
 	{/if}
-	<select
-		class="min-w-32"
-		placeholder="Tag"
-		bind:value={tag}
-		on:change={(e) => {
-			if (tag == '') {
-				tag = undefined
-			}
-		}}
+	<Select
+		clearable
+		class="w-full"
 		{disabled}
-	>
-		{#if tag}
-			<option value="">reset to default</option>
-		{:else}
-			<option value={undefined} disabled selected>{nullTag ? `default: ${nullTag}` : ''}</option>
-		{/if}
-		{#if tag && tag != '' && !($workerTags ?? []).includes(tag)}
-			<option value={tag} selected>{tag}</option>
-		{/if}
-		{#each $workerTags ?? [] as tag (tag)}
-			<option value={tag}>{tag}</option>
-		{/each}
-	</select>
+		placeholder={nullTag ? `default: ${nullTag}` : 'lang default'}
+		items={items.map((value) => ({ value }))}
+		bind:value={() => tag, (value) => ((tag = value), dispatch('change', value))}
+	/>
 </div>

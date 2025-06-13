@@ -53,7 +53,8 @@ import {
 	PanelTop,
 	RefreshCw,
 	ListCollapse,
-	GalleryThumbnails
+	GalleryThumbnails,
+	Code
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -90,20 +91,51 @@ export type CustomComponentConfig = {
 		reactVersion?: string
 	}
 }
-export type TextComponent = BaseComponent<'textcomponent'>
-export type TextInputComponent = BaseComponent<'textinputcomponent'>
-export type QuillComponent = BaseComponent<'quillcomponent'>
-export type TextareaInputComponent = BaseComponent<'textareainputcomponent'>
-export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
-export type EmailInputComponent = BaseComponent<'emailinputcomponent'>
-export type DateInputComponent = BaseComponent<'dateinputcomponent'>
-export type TimeInputComponent = BaseComponent<'timeinputcomponent'>
-export type DateTimeInputComponent = BaseComponent<'datetimeinputcomponent'>
-export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
-export type CurrencyComponent = BaseComponent<'currencycomponent'>
-export type SliderComponent = BaseComponent<'slidercomponent'>
-export type DateSliderComponent = BaseComponent<'dateslidercomponent'>
-export type RangeComponent = BaseComponent<'rangecomponent'>
+export type TextComponent = BaseComponent<'textcomponent'> & {
+	onChange?: string[]
+}
+export type TextInputComponent = BaseComponent<'textinputcomponent'> & {
+	onChange?: string[]
+}
+export type QuillComponent = BaseComponent<'quillcomponent'> & {
+	onChange?: string[]
+}
+export type CodeInputComponent = BaseComponent<'codeinputcomponent'> & {
+	onChange?: string[]
+}
+export type TextareaInputComponent = BaseComponent<'textareainputcomponent'> & {
+	onChange?: string[]
+}
+export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'> & {
+	onChange?: string[]
+}
+export type EmailInputComponent = BaseComponent<'emailinputcomponent'> & {
+	onChange?: string[]
+}
+export type DateInputComponent = BaseComponent<'dateinputcomponent'> & {
+	onChange?: string[]
+}
+export type TimeInputComponent = BaseComponent<'timeinputcomponent'> & {
+	onChange?: string[]
+}
+export type DateTimeInputComponent = BaseComponent<'datetimeinputcomponent'> & {
+	onChange?: string[]
+}
+export type NumberInputComponent = BaseComponent<'numberinputcomponent'> & {
+	onChange?: string[]
+}
+export type CurrencyComponent = BaseComponent<'currencycomponent'> & {
+	onChange?: string[]
+}
+export type SliderComponent = BaseComponent<'slidercomponent'> & {
+	onChange?: string[]
+}
+export type DateSliderComponent = BaseComponent<'dateslidercomponent'> & {
+	onChange?: string[]
+}
+export type RangeComponent = BaseComponent<'rangecomponent'> & {
+	onChange?: string[]
+}
 export type HtmlComponent = BaseComponent<'htmlcomponent'>
 export type CustomComponent = BaseComponent<'customcomponent'> & {
 	customComponent: CustomComponentConfig
@@ -291,7 +323,9 @@ export type NavBarComponent = BaseComponent<'navbarcomponent'> & {
 	navbarItems: NavbarItem[]
 }
 
-export type DateSelectComponent = BaseComponent<'dateselectcomponent'>
+export type DateSelectComponent = BaseComponent<'dateselectcomponent'> & {
+	onChange?: string[]
+}
 
 export type RecomputeAllComponent = BaseComponent<'recomputeallcomponent'>
 
@@ -304,6 +338,7 @@ export type TypedComponent =
 	| JobIdFlowStatusComponent
 	| TextInputComponent
 	| QuillComponent
+	| CodeInputComponent
 	| TextareaInputComponent
 	| PasswordInputComponent
 	| EmailInputComponent
@@ -484,6 +519,12 @@ export const selectOptions = {
 	animationTimingFunctionOptions: ['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out'],
 	prose: ['sm', 'Default', 'lg', 'xl', '2xl'],
 	imageSourceKind: [
+		'url',
+		'png encoded as base64',
+		'jpeg encoded as base64',
+		'svg encoded as base64'
+	],
+	imageSourceKindWithS3: [
 		'url',
 		's3 (workspace storage)',
 		'png encoded as base64',
@@ -1194,6 +1235,65 @@ export const components = {
 					value: false,
 					fieldType: 'boolean',
 					tooltip: 'Remove the "No text" placeholder'
+				}
+			}
+		}
+	},
+	codeinputcomponent: {
+		name: 'Code Input',
+		icon: Code,
+		dims: '2:1-4:4' as AppComponentDimensions,
+		documentationLink: `${documentationBaseUrl}/code`,
+		customCss: {
+			text: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			componentInput: undefined,
+			configuration: {
+				placeholder: {
+					type: 'static',
+					value: 'Type...',
+					fieldType: 'text'
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'text'
+				},
+				lang: {
+					type: 'static',
+					fieldType: 'select',
+					value: 'javascript',
+					selectOptions: [
+						'javascript',
+						'typescript',
+						'python',
+						'sql',
+						'json',
+						'html',
+						'css',
+						'markdown',
+						'yaml'
+					]
+				},
+				disableSuggestions: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Disable code completion suggestions'
+				},
+				disableLinting: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Disable code validation/linting (keeps only syntax highlighting)'
+				},
+				hideLineNumbers: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Hide line numbers in the editor'
 				}
 			}
 		}
@@ -2701,6 +2801,11 @@ See date-fns format for more information. By default, it is 'yyyy-MM-dd'
 
 					documentationLink: 'https://date-fns.org/v2.30.0/docs/format',
 					placeholder: 'yyyy-MM-dd'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}
@@ -2903,7 +3008,11 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 				type: 'static',
 				fieldType: 'array',
 				subFieldType: 'object',
-				value: [{ header: 'First', foo: 1 }, { header: 'Second', foo: 2 }, { header: 'Third', foo: 3 }] as object[]
+				value: [
+					{ header: 'First', foo: 1 },
+					{ header: 'Second', foo: 2 },
+					{ header: 'Third', foo: 3 }
+				] as object[]
 			},
 			numberOfSubgrids: 1
 		}
@@ -3089,8 +3198,8 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 				sourceKind: {
 					fieldType: 'select',
 					type: 'static',
-					selectOptions: selectOptions.imageSourceKind,
-					value: 'url' as (typeof selectOptions.imageSourceKind)[number]
+					selectOptions: selectOptions.imageSourceKindWithS3,
+					value: 'url' as (typeof selectOptions.imageSourceKindWithS3)[number]
 				},
 				imageFit: {
 					fieldType: 'select',
@@ -3301,7 +3410,8 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		customCss: {
 			button: { class: '', style: '' },
 			buttonContainer: { class: '', style: '' },
-			popup: { class: '', style: '' }
+			popup: { class: '', style: '' },
+			container: { class: '', style: '' }
 		},
 		initialData: {
 			horizontalAlignment: 'center',

@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::fmt::Display;
+
 use axum::{body::Body, response::Response};
 use regex::Regex;
 use serde::{Deserialize, Deserializer};
@@ -34,6 +36,16 @@ pub struct WithStarredInfoQuery {
 pub enum RunnableKind {
     Script,
     Flow,
+}
+
+impl Display for RunnableKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let runnable_kind = match self {
+            RunnableKind::Script => "script",
+            RunnableKind::Flow => "flow"
+        };
+        write!(f, "{}", runnable_kind)
+    }
 }
 
 pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
@@ -414,4 +426,11 @@ pub async fn acknowledge_all_critical_alerts(
         workspace_id.map_or_else(|| "".to_string(), |w| format!(" for workspace_id: {}", w))
     );
     Ok("All unacknowledged critical alerts acknowledged".to_string())
+}
+
+#[cfg(feature = "http_trigger")]
+#[derive(Clone)]
+pub struct ExpiringCacheEntry<T> {
+    pub value: T,
+    pub expiry: std::time::Instant,
 }

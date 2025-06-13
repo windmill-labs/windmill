@@ -154,6 +154,8 @@ export async function pushObj(
     await pushTrigger("mqtt", workspace, p, befObj, newObj);
   } else if (typeEnding === "sqs_trigger") {
     await pushTrigger("sqs", workspace, p, befObj, newObj);
+  } else if (typeEnding === "gcp_trigger") {
+    await pushTrigger("gcp", workspace, p, befObj, newObj);
   } else if (typeEnding === "user") {
     await pushWorkspaceUser(workspace, p, befObj, newObj);
   } else if (typeEnding === "group") {
@@ -203,6 +205,7 @@ export function getTypeStrFromPath(
   | "postgres_trigger"
   | "mqtt_trigger"
   | "sqs_trigger"
+  | "gcp_trigger"
   | "user"
   | "group"
   | "settings"
@@ -254,6 +257,7 @@ export function getTypeStrFromPath(
     typeEnding === "postgres_trigger" ||
     typeEnding === "mqtt_trigger" ||
     typeEnding === "sqs_trigger" ||
+    typeEnding === "gcp_trigger" ||
     typeEnding === "user" ||
     typeEnding === "group" ||
     typeEnding === "settings" ||

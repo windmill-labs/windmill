@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 
-use anyhow::anyhow;
 use futures::{stream, TryStreamExt};
 use serde_json::{json, value::RawValue};
 use sqlx::types::Json;
-use windmill_common::worker::to_raw_value;
+use windmill_common::worker::{to_raw_value, Connection};
 use windmill_common::{error::Error, worker::CLOUD_HOSTED};
 use windmill_parser_graphql::parse_graphql_sig;
 use windmill_queue::{CanceledBy, MiniPulledJob};
@@ -13,7 +12,8 @@ use serde::Deserialize;
 
 use crate::common::{build_http_client, resolve_job_timeout, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
-use crate::{common::build_args_map, AuthedClient};
+use crate::common::build_args_map;
+use windmill_common::client::AuthedClient;
 
 #[derive(Deserialize)]
 struct GraphqlApi {
@@ -37,13 +37,13 @@ pub async fn do_graphql(
     job: &MiniPulledJob,
     client: &AuthedClient,
     query: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     occupation_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    let args = build_args_map(job, client, db).await?.map(Json);
+    let args = build_args_map(job, client, conn).await?.map(Json);
     let job_args = if args.is_some() {
         args.as_ref()
     } else {
@@ -81,7 +81,7 @@ pub async fn do_graphql(
         }
     }
     let (timeout_duration, _, _) =
-        resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout).await;
+        resolve_job_timeout(&conn, &job.workspace_id, job.id, job.timeout).await;
 
     let http_client = build_http_client(timeout_duration)?;
 
@@ -134,11 +134,13 @@ pub async fn do_graphql(
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
         if let Some(errors) = result.errors {
-            return Err(anyhow!(errors
-                .into_iter()
-                .map(|x| x.message)
-                .collect::<Vec<_>>()
-                .join("\n"),));
+            return Err(Error::ExecutionErr(
+                errors
+                    .into_iter()
+                    .map(|x| x.message)
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ));
         }
 
         // And then check that we got back the same string we sent over.
@@ -150,7 +152,7 @@ pub async fn do_graphql(
     let r = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         result_f,

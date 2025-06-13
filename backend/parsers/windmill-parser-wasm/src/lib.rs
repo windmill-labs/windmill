@@ -17,7 +17,7 @@ fn wrap_sig(r: anyhow::Result<MainArgSignature>) -> String {
 
 #[cfg(feature = "ts-parser")]
 #[wasm_bindgen]
-pub fn parse_deno(code: &str, main_override: Option<String>, skip_params: Option<bool>) -> String {
+pub fn parse_deno(code: &str, main_override: Option<String>) -> String {
     wrap_sig(windmill_parser_ts::parse_deno_signature(
         code,
         false,
@@ -94,6 +94,12 @@ pub fn parse_mysql(code: &str) -> String {
 #[wasm_bindgen]
 pub fn parse_oracledb(code: &str) -> String {
     wrap_sig(windmill_parser_sql::parse_oracledb_sig(code))
+}
+
+#[cfg(feature = "sql-parser")]
+#[wasm_bindgen]
+pub fn parse_duckdb(code: &str) -> String {
+    wrap_sig(windmill_parser_sql::parse_duckdb_sig(code))
 }
 
 #[cfg(feature = "sql-parser")]

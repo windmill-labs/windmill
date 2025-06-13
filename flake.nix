@@ -13,10 +13,13 @@
           config.allowUnfree = true;
           overlays = [ (import rust-overlay) ];
         };
+        lib = pkgs.lib;
+        stdenv = pkgs.stdenv;
         rust = pkgs.rust-bin.stable.latest.default.override {
           extensions = [
             "rust-src" # for rust-analyzer
             "rust-analyzer"
+            "rustfmt"
           ];
         };
         buildInputs = with pkgs; [
@@ -25,6 +28,7 @@
           libxml2.dev
           xmlsec.dev
           libxslt.dev
+          libclang.dev
           libtool
           nodejs
           postgresql
@@ -41,16 +45,15 @@
         PKG_CONFIG_PATH = pkgs.lib.makeSearchPath "lib/pkgconfig"
           (with pkgs; [ openssl.dev libxml2.dev xmlsec.dev libxslt.dev ]);
         RUSTY_V8_ARCHIVE = let
-          version = "130.0.1";
+          # NOTE: needs to be same as in Cargo.toml
+          version = "130.0.7";
           target = pkgs.hostPlatform.rust.rustcTarget;
           sha256 = {
             x86_64-linux =
-              "sha256-qc25H3Aj2KRhsAZ+2SD1c4RmweVK07oW71opZXRuUoc=";
-            aarch64-linux =
-              "sha256-qc25H3Aj2KRhsAZ+2SD1c4RmweVK07oW71opZXRuUoc=";
+              "sha256-pkdsuU6bAkcIHEZUJOt5PXdzK424CEgTLXjLtQ80t10=";
+            aarch64-linux = pkgs.lib.fakeHash;
             x86_64-darwin = pkgs.lib.fakeHash;
-            aarch64-darwin =
-              "sha256-d1QTLt8gOUFxACes4oyIYgDF/srLOEk+5p5Oj1ECajQ=";
+            aarch64-darwin = pkgs.lib.fakeHash;
           }.${system};
         in pkgs.fetchurl {
           name = "librusty_v8-${version}";
@@ -78,23 +81,35 @@
 
         devShells.default = pkgs.mkShell {
           buildInputs = buildInputs ++ (with pkgs; [
+            # Essentials
             rust
             cargo-watch
+            cargo-sweep
             git
             xcaddy
             sqlx-cli
-            flock
             sccache
             nsjail
-            deno
+            openapi-generator-cli
+
+            # Python
+            flock
             python3
             python3Packages.pip
+            uv
+            poetry
+            pyright
+            openapi-python-client
+
+            # Other languages
+            deno
+            nushell
             go
             bun
-            uv
-            nushell
             dotnet-sdk_9
             oracle-instantclient
+            ansible
+
             # LSP/Local dev
             svelte-language-server
             taplo
@@ -161,6 +176,7 @@
           ];
 
           inherit PKG_CONFIG_PATH RUSTY_V8_ARCHIVE;
+          GIT_PATH = "${pkgs.git}/bin/git";
           NODE_ENV = "development";
           NODE_OPTIONS = "--max-old-space-size=16384";
           DATABASE_URL = "postgres://postgres:changeme@127.0.0.1:5432/";
@@ -180,10 +196,48 @@
           # for related places search: ADD_NEW_LANG 
           FLOCK_PATH = "${pkgs.flock}/bin/flock";
           CARGO_PATH = "${rust}/bin/cargo";
+          CARGO_SWEEP_PATH = "${pkgs.cargo-sweep}/bin/cargo-sweep";
           DOTNET_PATH = "${pkgs.dotnet-sdk_9}/bin/dotnet";
           DOTNET_ROOT = "${pkgs.dotnet-sdk_9}/share/dotnet";
           ORACLE_LIB_DIR = "${pkgs.oracle-instantclient.lib}/lib";
+          ANSIBLE_PLAYBOOK_PATH = "${pkgs.ansible}/bin/ansible-playbook";
+          ANSIBLE_GALAXY_PATH = "${pkgs.ansible}/bin/ansible-galaxy";
           RUST_LOG = "debug";
+          SQLX_OFFLINE = "true";
+
+          # See this issue: https://github.com/NixOS/nixpkgs/issues/370494
+          # Allows to build jemalloc on nixos
+          CFLAGS = "-Wno-error=int-conversion";
+
+          # Need to tell bindgen where to find libclang
+          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+
+          # LD_LIBRARY_PATH = "${pkgs.gcc.lib}/lib";
+
+          # Set C flags for Rust's bindgen program. Unlike ordinary C
+          # compilation, bindgen does not invoke $CC directly. Instead it
+          # uses LLVM's libclang. To make sure all necessary flags are
+          # included we need to look in a few places.
+          # See https://web.archive.org/web/20220523141208/https://hoverbear.org/blog/rust-bindgen-in-nix/
+          BINDGEN_EXTRA_CLANG_ARGS =
+            "${builtins.readFile "${stdenv.cc}/nix-support/libc-crt1-cflags"} ${
+              builtins.readFile "${stdenv.cc}/nix-support/libc-cflags"
+            }${builtins.readFile "${stdenv.cc}/nix-support/cc-cflags"}${
+              builtins.readFile "${stdenv.cc}/nix-support/libcxx-cxxflags"
+            } -idirafter ${pkgs.libiconv}/include ${
+              lib.optionalString stdenv.cc.isClang
+              "-idirafter ${stdenv.cc.cc}/lib/clang/${
+                lib.getVersion stdenv.cc.cc
+              }/include"
+            }${
+              lib.optionalString stdenv.cc.isGNU
+              "-isystem ${stdenv.cc.cc}/include/c++/${
+                lib.getVersion stdenv.cc.cc
+              } -isystem ${stdenv.cc.cc}/include/c++/${
+                lib.getVersion stdenv.cc.cc
+              }/${stdenv.hostPlatform.config} -idirafter ${stdenv.cc.cc}/lib/gcc/${stdenv.hostPlatform.config}/14.2.1/include"
+            }"; # NOTE: It is hardcoded to 14.2.1 -------------------------------------------------------------^^^^^^
+          # Please update the version here as well if you want to update flake.
         };
         packages.default = self.packages.${system}.windmill;
         packages.windmill-client = pkgs.buildNpmPackage {

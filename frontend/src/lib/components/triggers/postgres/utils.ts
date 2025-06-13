@@ -1,6 +1,8 @@
-import type { Relations } from '$lib/gen'
+import { PostgresTriggerService, type Relations } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { emptyString } from '$lib/utils'
+import type { Writable } from 'svelte/store'
+import { get } from 'svelte/store'
 
 type RelationError = {
 	schemaIndex: number
@@ -18,7 +20,9 @@ export function invalidRelations(
 		trackSchemaTableError?: boolean
 		showError?: boolean
 	}
-): boolean {
+): string {
+	let errorMessage: string = ''
+
 	let error: RelationError = {
 		schemaIndex: -1,
 		tableIndex: -1,
@@ -82,8 +86,6 @@ export function invalidRelations(
 			error.trackAllTablesInSchema &&
 			error.trackSpecificColumnsInTable)
 	if ((options?.showError ?? false) && errorFound) {
-		let errorMessage: string = ''
-
 		if (error.schemaError) {
 			errorMessage = `Schema Error: Please enter a name for schema number ${error.schemaIndex}`
 		} else if (error.tableError) {
@@ -95,8 +97,62 @@ export function invalidRelations(
 			errorMessage =
 				'Configuration Error: Schema-level tracking and specific table tracking with column selection cannot be used together. Refer to the documentation for valid configurations.'
 		}
-		sendUserToast(errorMessage, true)
 	}
 
-	return errorFound
+	return errorMessage
+}
+
+export async function savePostgresTriggerFromCfg(
+	initialPath: string,
+	config: Record<string, any>,
+	edit: boolean,
+	workspace: string,
+	usedTriggerKinds: Writable<string[]>
+): Promise<boolean> {
+	try {
+		const requestBody = {
+			path: config.path,
+			script_path: config.script_path,
+			is_flow: config.is_flow,
+			postgres_resource_path: config.postgres_resource_path,
+			replication_slot_name: config.replication_slot_name,
+			publication_name: config.publication_name,
+			publication: config.publication,
+			enabled: config.enabled
+		}
+		if (edit) {
+			await PostgresTriggerService.updatePostgresTrigger({
+				workspace: workspace,
+				path: initialPath,
+				requestBody
+			})
+			sendUserToast(`PostgresTrigger ${config.path} updated`)
+		} else {
+			await PostgresTriggerService.createPostgresTrigger({
+				workspace: workspace,
+				requestBody: {
+					...requestBody,
+					enabled: true
+				}
+			})
+			sendUserToast(`PostgresTrigger ${config.path} created`)
+		}
+
+		if (!get(usedTriggerKinds).includes('postgres')) {
+			usedTriggerKinds.update((t) => [...t, 'postgres'])
+		}
+		return true
+	} catch (error) {
+		sendUserToast(error.body || error.message, true)
+		return false
+	}
+}
+
+export function getDefaultTableToTrack(pg14: boolean): Relations[] {
+	return [
+		{
+			schema_name: 'public',
+			table_to_track: pg14 ? [{ table_name: '' }] : []
+		}
+	]
 }

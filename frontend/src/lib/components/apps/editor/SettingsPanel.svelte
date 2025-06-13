@@ -121,9 +121,15 @@
 						gridItemWithLocation?.location.type === 'subgrid' &&
 						Array.isArray($app.subgrids?.[gridItemWithLocation.location.subgridKey])
 					) {
-						$app.subgrids[gridItemWithLocation.location.subgridKey][
-							gridItemWithLocation.location.subgridItemIndex
-						] = cs.item
+						if (
+							$app.subgrids[gridItemWithLocation.location.subgridKey][
+								gridItemWithLocation.location.subgridItemIndex
+							]
+						) {
+							$app.subgrids[gridItemWithLocation.location.subgridKey][
+								gridItemWithLocation.location.subgridItemIndex
+							] = cs.item
+						}
 					}
 				}
 			}
@@ -293,7 +299,7 @@
 				tooltip="This event is triggered when the script runs successfully."
 				items={Object.keys($runnableComponents).filter((_id) => _id !== id)}
 				bind:value={
-					() => hiddenInlineScript.script.recomputeIds,
+					() => hiddenInlineScript.script.recomputeIds ?? [],
 					(v) => {
 						if ($app.hiddenInlineScripts[hiddenInlineScript.index]) {
 							$app.hiddenInlineScripts[hiddenInlineScript.index].recomputeIds = v

@@ -4,8 +4,9 @@ use futures::Future;
 use nix::sys::signal::{self, Signal};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use nix::unistd::Pid;
+use windmill_common::agent_workers::PingJobStatusResponse;
+use windmill_common::jobs::LARGE_LOG_THRESHOLD_SIZE;
 
-use sqlx::{Pool, Postgres};
 #[cfg(windows)]
 use std::process::Stdio;
 use tokio::fs::File;
@@ -15,7 +16,10 @@ use windmill_common::error::to_anyhow;
 
 use windmill_common::error::{self, Error};
 
-use windmill_common::worker::{get_windmill_memory_usage, get_worker_memory_usage, CLOUD_HOSTED};
+use windmill_common::worker::{
+    get_windmill_memory_usage, get_worker_memory_usage, set_job_cancelled_query, Connection,
+    JobCancelled, CLOUD_HOSTED,
+};
 
 use windmill_queue::{append_logs, CanceledBy};
 
@@ -29,7 +33,6 @@ use std::{io, panic, time::Duration};
 
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
-use windmill_common::DB;
 
 #[cfg(feature = "enterprise")]
 use windmill_common::job_metrics;
@@ -49,8 +52,9 @@ use futures::{
 };
 
 use crate::common::{resolve_job_timeout, OccupancyMetrics};
-use crate::job_logger::{append_job_logs, append_with_limit, LARGE_LOG_THRESHOLD_SIZE};
-use crate::job_logger_ee::process_streaming_log_lines;
+use crate::job_logger::{append_job_logs, append_with_limit};
+use crate::job_logger_oss::process_streaming_log_lines;
+use crate::worker_utils::{ping_job_status, update_worker_ping_from_job};
 use crate::{MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM};
 
 lazy_static::lazy_static! {
@@ -92,7 +96,7 @@ async fn kill_process_tree(pid: Option<u32>) -> Result<(), String> {
 #[tracing::instrument(name="run_subprocess", level = "info", skip_all, fields(otel.name = %child_name))]
 pub async fn handle_child(
     job_id: &Uuid,
-    db: &Pool<Postgres>,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by_ref: &mut Option<CanceledBy>,
     mut child: Child,
@@ -126,19 +130,19 @@ pub async fn handle_child(
     } else {
         tracing::info!("could not get child pid");
     }
-    let (set_too_many_logs, mut too_many_logs) = watch::channel::<bool>(false);
+    let (mut set_too_many_logs, mut too_many_logs) = watch::channel::<bool>(false);
     let (tx, rx) = broadcast::channel::<()>(3);
-    let mut rx2 = tx.subscribe();
+    let mut rx2: broadcast::Receiver<()> = tx.subscribe();
 
-    let output = child_joined_output_stream(&mut child, job_id.clone());
+    let output = child_joined_output_stream(&mut child, job_id.clone(), w_id.to_string());
 
-    let job_id = job_id.clone();
+    let job_id: Uuid = job_id.clone();
 
     /* the cancellation future is polled on by `wait_on_child` while
      * waiting for the child to exit normally */
     let update_job = update_job_poller(
         job_id,
-        db,
+        conn,
         mem_peak,
         canceled_by_ref,
         Box::pin(stream::unfold((), move |_| async move {
@@ -184,15 +188,13 @@ pub async fn handle_child(
     }
 
     let (timeout_duration, timeout_warn_msg, is_job_specific) =
-        resolve_job_timeout(&db, w_id, job_id, custom_timeout).await;
+        resolve_job_timeout(&conn, w_id, job_id, custom_timeout).await;
     if let Some(msg) = timeout_warn_msg {
-        append_logs(&job_id, w_id, msg.as_str(), db).await;
+        append_logs(&job_id, w_id, msg.as_str(), conn).await;
     }
 
     /* a future that completes when the child process exits */
     let wait_on_child = async {
-        let db = db.clone();
-
         let kill_reason = tokio::select! {
             biased;
             result = child.wait() => return result.map(Ok),
@@ -208,18 +210,34 @@ pub async fn handle_child(
 
         let set_reason = async {
             if matches!(kill_reason, KillReason::Timeout { .. }) {
-                if let Err(err) = sqlx::query!(
-                    "UPDATE v2_job_queue
-                        SET canceled_by = 'timeout'
-                          , canceled_reason = $1
-                    WHERE id = $2",
-                    format!("duration > {}", timeout_duration.as_secs()),
-                    job_id
-                )
-                .execute(&db)
-                .await
-                {
-                    tracing::error!(%job_id, %err, "error setting cancelation reason for job {job_id}: {err}");
+                match conn {
+                    Connection::Sql(db) => {
+                        if let Err(err) = set_job_cancelled_query(
+                            job_id,
+                            db,
+                            "timeout",
+                            &format!("duration > {}", timeout_duration.as_secs()),
+                        )
+                        .await
+                        {
+                            tracing::error!(%job_id, %err, "error setting cancelation reason for job {job_id}: {err}");
+                        }
+                    }
+                    Connection::Http(client) => {
+                        if let Err(err) = client
+                            .post::<_, ()>(
+                                &format!("/api/agent_workers/set_job_cancelled/{}", job_id),
+                                None,
+                                &JobCancelled {
+                                    canceled_by: "timeout".to_string(),
+                                    reason: format!("duration > {}", timeout_duration.as_secs()),
+                                },
+                            )
+                            .await
+                        {
+                            tracing::error!(%job_id, %err, "error setting cancelation reason for job using http {job_id}: {err}");
+                        }
+                    }
                 }
             }
         };
@@ -279,145 +297,19 @@ pub async fn handle_child(
     };
 
     /* a future that reads output from the child and appends to the database */
-    let lines = async move {
-
-        let max_log_size = if *CLOUD_HOSTED {
-            MAX_RESULT_SIZE
-        } else {
-            usize::MAX
-        };
-
-        /* log_remaining is zero when output limit was reached */
-        let mut log_remaining =  if *CLOUD_HOSTED {
-            max_log_size
-        } else {
-            usize::MAX
-        };
-        let mut result = io::Result::Ok(());
-        let mut output = output.take_until(async {
-            let _ = rx2.recv().await;
-            //wait at most 50ms after end of a script for output stream to end
-            tokio::time::sleep(Duration::from_millis(50)).await;
-         }).boxed();
-        /* `do_write` resolves the task, but does not contain the Result.
-         * It's useful to know if the task completed. */
-        let (mut do_write, mut write_result) = tokio::spawn(ready(())).remote_handle();
-
-        let mut log_total_size: u64 = 0;
-        let pg_log_total_size = Arc::new(AtomicU32::new(0));
-
-        let mut pipe_stdout = pipe_stdout;
-
-        while let Some(line) =  output.by_ref().next().await {
-
-            let do_write_ = do_write.shared();
-
-            let delay = if start.elapsed() < Duration::from_secs(10) {
-                Duration::from_millis(500)
-            } else if start.elapsed() < Duration::from_secs(60){
-                Duration::from_millis(2500)
-            } else {
-                Duration::from_millis(5000)
-            };
-
-            let delay = if *SLOW_LOGS {
-                delay * 10
-            } else {
-                delay
-            };
-
-            let mut read_lines = stream::once(async { line })
-                .chain(output.by_ref())
-                /* after receiving a line, continue until some delay has passed
-                 * _and_ the previous database write is complete */
-                .take_until(future::join(sleep(delay), do_write_.clone()))
-                .boxed();
-
-            /* Read up until an error is encountered,
-             * handle log lines first and then the error... */
-            let mut joined = String::new();
-
-            while let Some(line) = read_lines.next().await {
-
-                match line {
-                    Ok(line) => {
-                        if line.is_empty() {
-                            continue;
-                        }
-                        append_with_limit(&mut joined, &line, &mut log_remaining);
-                        if log_remaining == 0 {
-                            tracing::info!(%job_id, "Too many logs lines for job {job_id}");
-                            let _ = set_too_many_logs.send(true);
-                            joined.push_str(&format!(
-                                "Job logs or result reached character limit of {MAX_RESULT_SIZE}; killing job."
-                            ));
-                            /* stop reading and drop our streams fairly quickly */
-                            break;
-                        }
-                    }
-                    Err(err) => {
-                        result = Err(err);
-                        break;
-                    }
-                }
-            }
-
-
-            /* Ensure the last flush completed before starting a new one.
-             *
-             * This shouldn't pause since `take_until()` reads lines until `do_write`
-             * resolves. We only stop reading lines before `take_until()` resolves if we reach
-             * EOF or a read error.  In those cases, waiting on a database query to complete is
-             * fine because we're done. */
-
-            if let Some(Ok(p)) = do_write_
-                .then(|()| write_result)
-                .await
-                .err()
-                .map(|err| err.try_into_panic())
-            {
-                panic::resume_unwind(p);
-            }
-
-
-            let joined_len = joined.len() as u64;
-            log_total_size += joined_len;
-            let compact_logs = log_total_size > LARGE_LOG_THRESHOLD_SIZE as u64;
-            if compact_logs {
-                log_total_size = 0;
-            }
-
-            let worker_name = worker.to_string();
-            let w_id2 = w_id.to_string();
-            if let Some(buf) = &mut pipe_stdout {
-                buf.push_str(&joined);
-                (do_write, write_result) = tokio::spawn(async { }).remote_handle();
-            } else {
-                (do_write, write_result) = tokio::spawn(append_job_logs(job_id, w_id2, joined, db.clone(), compact_logs, pg_log_total_size.clone(), worker_name)).remote_handle();
-            }
-
-            if let Err(err) = result {
-                tracing::error!(%job_id, %err, "error reading output for job {job_id} '{child_name}': {err}");
-                break;
-            }
-
-            if *set_too_many_logs.borrow() {
-                break;
-            }
-        }
-
-        /* drop our end of the pipe */
-        drop(output);
-
-        if let Some(Ok(p)) = do_write
-            .then(|()| write_result)
-            .await
-            .err()
-            .map(|err| err.try_into_panic())
-        {
-            panic::resume_unwind(p);
-        }
-    }.instrument(trace_span!("child_lines"));
+    let lines = write_lines(
+        output,
+        &job_id,
+        w_id,
+        worker,
+        conn,
+        &mut set_too_many_logs,
+        start,
+        pipe_stdout,
+        &mut rx2,
+        child_name,
+    )
+    .instrument(trace_span!("child_lines"));
 
     let (wait_result, _) = tokio::join!(wait_on_child, lines);
 
@@ -440,6 +332,169 @@ pub async fn handle_child(
             ))),
         },
         Err(err) => Err(Error::ExecutionErr(format!("job process io error: {err}"))),
+    }
+}
+
+pub async fn write_lines(
+    output: impl stream::Stream<Item = io::Result<String>> + Send,
+    job_id: &Uuid,
+    w_id: &str,
+    worker: &str,
+    conn: &Connection,
+    set_too_many_logs: &mut watch::Sender<bool>,
+    start: Instant,
+    pipe_stdout: Option<&mut String>,
+    rx2: &mut broadcast::Receiver<()>,
+    child_name: &str,
+) {
+    let max_log_size = if *CLOUD_HOSTED {
+        MAX_RESULT_SIZE
+    } else {
+        usize::MAX
+    };
+
+    /* log_remaining is zero when output limit was reached */
+    let mut log_remaining = if *CLOUD_HOSTED {
+        max_log_size
+    } else {
+        usize::MAX
+    };
+    let mut result = io::Result::Ok(());
+    let mut output = output
+        .take_until(async {
+            let _ = rx2.recv().await;
+            //wait at most 50ms after end of a script for output stream to end
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        })
+        .boxed();
+    /* `do_write` resolves the task, but does not contain the Result.
+     * It's useful to know if the task completed. */
+    let (mut do_write, mut write_result) = tokio::spawn(ready(())).remote_handle();
+
+    let mut log_total_size: u64 = 0;
+    let pg_log_total_size = Arc::new(AtomicU32::new(0));
+
+    let mut pipe_stdout = pipe_stdout;
+
+    while let Some(line) = output.by_ref().next().await {
+        let do_write_ = do_write.shared();
+
+        let delay = if start.elapsed() < Duration::from_secs(10) {
+            Duration::from_millis(500)
+        } else if start.elapsed() < Duration::from_secs(60) {
+            Duration::from_millis(2500)
+        } else {
+            Duration::from_millis(5000)
+        };
+
+        let delay = if *SLOW_LOGS { delay * 10 } else { delay };
+
+        let mut read_lines = stream::once(async { line })
+            .chain(output.by_ref())
+            /* after receiving a line, continue until some delay has passed
+             * _and_ the previous database write is complete */
+            .take_until(future::join(sleep(delay), do_write_.clone()))
+            .boxed();
+
+        /* Read up until an error is encountered,
+         * handle log lines first and then the error... */
+        let mut joined = String::new();
+
+        let job_id = job_id.clone();
+        while let Some(line) = read_lines.next().await {
+            match line {
+                Ok(line) => {
+                    if line.is_empty() {
+                        continue;
+                    }
+                    append_with_limit(&mut joined, &line, &mut log_remaining);
+                    if log_remaining == 0 {
+                        tracing::info!(%job_id, "Too many logs lines for job {job_id}");
+                        let _ = set_too_many_logs.send(true);
+                        joined.push_str(&format!(
+                                "Job logs or result reached character limit of {MAX_RESULT_SIZE}; killing job."
+                            ));
+                        /* stop reading and drop our streams fairly quickly */
+                        break;
+                    }
+                }
+                Err(err) => {
+                    result = Err(err);
+                    break;
+                }
+            }
+        }
+
+        /* Ensure the last flush completed before starting a new one.
+         *
+         * This shouldn't pause since `take_until()` reads lines until `do_write`
+         * resolves. We only stop reading lines before `take_until()` resolves if we reach
+         * EOF or a read error.  In those cases, waiting on a database query to complete is
+         * fine because we're done. */
+
+        if let Some(Ok(p)) = do_write_
+            .then(|()| write_result)
+            .await
+            .err()
+            .map(|err| err.try_into_panic())
+        {
+            panic::resume_unwind(p);
+        }
+
+        let joined_len = joined.len() as u64;
+        log_total_size += joined_len;
+        let compact_logs = log_total_size > LARGE_LOG_THRESHOLD_SIZE as u64;
+        if compact_logs {
+            log_total_size = 0;
+        }
+
+        let worker_name = worker.to_string();
+
+        if let Some(buf) = &mut pipe_stdout {
+            buf.push_str(&joined);
+            (do_write, write_result) = tokio::spawn(async {}).remote_handle();
+        } else {
+            let conn = conn.clone();
+            let worker_name = worker_name.to_string();
+            let w_id = w_id.to_string();
+            let job_id = job_id.clone();
+            let pg_log_total_size = pg_log_total_size.clone();
+
+            (do_write, write_result) = tokio::spawn(async move {
+                append_job_logs(
+                    &job_id,
+                    &w_id,
+                    &joined,
+                    &conn,
+                    compact_logs,
+                    pg_log_total_size,
+                    &worker_name,
+                )
+                .await;
+            })
+            .remote_handle();
+        }
+
+        if let Err(err) = result {
+            tracing::error!(%job_id, %err, "error reading output for job {job_id} '{child_name}': {err}");
+            break;
+        }
+
+        if *set_too_many_logs.borrow() {
+            break;
+        }
+    }
+
+    /* drop our end of the pipe */
+    drop(output);
+
+    if let Some(Ok(p)) = do_write
+        .then(|()| write_result)
+        .await
+        .err()
+        .map(|err| err.try_into_panic())
+    {
+        panic::resume_unwind(p);
     }
 }
 
@@ -497,7 +552,7 @@ pub(crate) async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
 pub async fn run_future_with_polling_update_job_poller<Fut, T, S>(
     job_id: Uuid,
     timeout: Option<i32>,
-    db: &DB,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by_ref: &mut Option<CanceledBy>,
     result_f: Fut,
@@ -507,14 +562,14 @@ pub async fn run_future_with_polling_update_job_poller<Fut, T, S>(
     get_mem: S,
 ) -> error::Result<T>
 where
-    Fut: Future<Output = anyhow::Result<T>>,
+    Fut: Future<Output = windmill_common::error::Result<T>>,
     S: stream::Stream<Item = i32> + Unpin,
 {
     let (tx, rx) = broadcast::channel::<()>(3);
 
     let update_job = update_job_poller(
         job_id,
-        db,
+        conn,
         mem_peak,
         canceled_by_ref,
         get_mem,
@@ -525,7 +580,7 @@ where
     );
 
     let timeout_ms = u64::try_from(
-        resolve_job_timeout(&db, &w_id, job_id, timeout)
+        resolve_job_timeout(&conn, &w_id, job_id, timeout)
             .await
             .0
             .as_millis(),
@@ -560,7 +615,7 @@ pub enum UpdateJobPollingExit {
 
 pub async fn update_job_poller<S>(
     job_id: Uuid,
-    db: &DB,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by_ref: &mut Option<CanceledBy>,
     mut get_mem: S,
@@ -574,8 +629,7 @@ where
 {
     let update_job_interval = Duration::from_millis(500);
 
-    let db = db.clone();
-
+    let conn = conn.clone();
     let mut interval = interval(update_job_interval);
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
@@ -597,22 +651,9 @@ where
                     tracing::info!("job {job_id} on {worker_name} in {w_id} worker memory snapshot {}kB/{}kB", memory_usage.unwrap_or_default()/1024, wm_memory_usage.unwrap_or_default()/1024);
                     let occupancy = occupancy_metrics.as_mut().map(|x| x.update_occupancy_metrics());
                     if job_id != Uuid::nil() {
-                        sqlx::query!(
-                            "UPDATE worker_ping SET ping_at = now(), current_job_id = $1, current_job_workspace_id = $2, memory_usage = $3, wm_memory_usage = $4,
-                            occupancy_rate = $6, occupancy_rate_15s = $7, occupancy_rate_5m = $8, occupancy_rate_30m = $9 WHERE worker = $5",
-                            &job_id,
-                            &w_id,
-                            memory_usage,
-                            wm_memory_usage,
-                            &worker_name,
-                            occupancy.map(|x| x.0),
-                            occupancy.and_then(|x| x.1),
-                            occupancy.and_then(|x| x.2),
-                            occupancy.and_then(|x| x.3),
-                        )
-                        .execute(&db)
-                        .await
-                        .expect("update worker ping");
+                        if let Err(err) = update_worker_ping_from_job(&conn, &job_id, w_id, worker_name, memory_usage, wm_memory_usage, occupancy).await {
+                            tracing::error!("Unable to update worker ping for job {} in workspace {}. Error was: {:?}", job_id, w_id, err);
+                        }
                     }
                 }
                 let current_mem = get_mem.next().await.unwrap_or(0);
@@ -627,55 +668,49 @@ where
                 #[cfg(feature = "enterprise")]
                 {
                     if job_id != Uuid::nil() {
-
-                        // tracking metric starting at i >= 2 b/c first point it useless and we don't want to track metric for super fast jobs
-                        if i == 2 {
-                            memory_metric_id = job_metrics::register_metric_for_job(
-                                &db,
-                                w_id.to_string(),
-                                job_id,
-                                "memory_kb".to_string(),
-                                job_metrics::MetricKind::TimeseriesInt,
-                                Some("Job Memory Footprint (kB)".to_string()),
-                            )
-                            .await;
-                        }
-                        if let Ok(ref metric_id) = memory_metric_id {
-                            if let Err(err) = job_metrics::record_metric(&db, w_id.to_string(), job_id, metric_id.to_owned(), job_metrics::MetricNumericValue::Integer(current_mem)).await {
-                                tracing::error!("Unable to save memory stat for job {} in workspace {}. Error was: {:?}", job_id, w_id, err);
+                        if let Connection::Sql(ref db) = conn {
+                            // tracking metric starting at i >= 2 b/c first point it useless and we don't want to track metric for super fast jobs
+                            if i == 2 {
+                                        memory_metric_id = job_metrics::register_metric_for_job(
+                                    &db,
+                                    w_id.to_string(),
+                                    job_id,
+                                    "memory_kb".to_string(),
+                                    job_metrics::MetricKind::TimeseriesInt,
+                                    Some("Job Memory Footprint (kB)".to_string()),
+                                )
+                                .await;
+                            }
+                            if let Ok(ref metric_id) = memory_metric_id {
+                                if let Err(err) = job_metrics::record_metric(&db, w_id.to_string(), job_id, metric_id.to_owned(), job_metrics::MetricNumericValue::Integer(current_mem)).await {
+                                    tracing::error!("Unable to save memory stat for job {} in workspace {}. Error was: {:?}", job_id, w_id, err);
+                                }
                             }
                         }
                     }
                 }
                 if job_id != Uuid::nil() {
-                    let (canceled_by, canceled_reason, already_completed) = sqlx::query!(
-                            "UPDATE v2_job_runtime r SET
-                                memory_peak = $1,
-                                ping = now()
-                            FROM v2_job_queue q
-                            WHERE r.id = $2 AND q.id = r.id
-                            RETURNING canceled_by, canceled_reason",
-                            *mem_peak,
-                            job_id
-                        )
-                        .map(|x| (x.canceled_by, x.canceled_reason, false))
-                        .fetch_optional(&db)
-                        .await
-                        .unwrap_or_else(|e| {
-                            tracing::error!(%e, "error updating job {job_id}: {e:#}");
-                            Some((None, None, false))
-                        })
-                        .unwrap_or_else(|| {
-                            // if the job is not in queue, it can only be in the completed_job so it is already complete
-                            (None, None, true)
-                        });
-                    if already_completed {
+                    if matches!(conn, Connection::Http(_)) {
+                        if i % 4 != 0 {
+                            // only ping every 4th time (2s) on http agent mode
+                            continue;
+                        }
+                    }
+                    let ping_job_status = ping_job_status(&conn, &job_id, Some(*mem_peak), if current_mem > 0 { Some(current_mem) } else { None }).await.unwrap_or_else(|e| {
+                            tracing::error!("Unable to ping job status for job {job_id}. Error was: {:?}", e);
+                            PingJobStatusResponse {
+                            canceled_by: None,
+                            canceled_reason: None,
+                            already_completed: false,
+                        }
+                    });
+                    if ping_job_status.already_completed {
                         return UpdateJobPollingExit::AlreadyCompleted
                     }
-                    if canceled_by.is_some() {
+                    if ping_job_status.canceled_by.is_some() {
                         canceled_by_ref.replace(CanceledBy {
-                            username: canceled_by.clone(),
-                            reason: canceled_reason.clone(),
+                            username: ping_job_status.canceled_by.clone(),
+                            reason: ping_job_status.canceled_reason.clone(),
                         });
                         break
                     }
@@ -695,6 +730,7 @@ where
 fn child_joined_output_stream(
     child: &mut Child,
     job_id: Uuid,
+    w_id: String,
 ) -> impl stream::FusedStream<Item = io::Result<String>> {
     let stderr = child
         .stderr
@@ -709,8 +745,8 @@ fn child_joined_output_stream(
     let stdout = BufReader::new(stdout).lines();
     let stderr = BufReader::new(stderr).lines();
     stream::select(
-        lines_to_stream(stderr, true, job_id.clone()),
-        lines_to_stream(stdout, false, job_id),
+        lines_to_stream(stderr, true, job_id.clone(), w_id.clone()),
+        lines_to_stream(stdout, false, job_id, w_id),
     )
 }
 
@@ -718,11 +754,12 @@ pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
     mut lines: tokio::io::Lines<R>,
     stderr: bool,
     job_id: Uuid,
+    w_id: String,
 ) -> impl futures::Stream<Item = io::Result<String>> {
     stream::poll_fn(move |cx| {
         std::pin::Pin::new(&mut lines)
             .poll_next_line(cx)
-            .map(|result| process_streaming_log_lines(result, stderr, &job_id))
+            .map(|result| process_streaming_log_lines(result, stderr, &job_id, &w_id))
     })
 }
 

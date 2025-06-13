@@ -1,3 +1,5 @@
+import type { DbType } from './components/apps/components/display/dbtable/utils'
+
 export const DEFAULT_WEBHOOK_TYPE: 'async' | 'sync' = 'async'
 
 export const HOME_SHOW_HUB = true
@@ -201,3 +203,61 @@ export const MSSQL_TYPES = [
 	'decimal',
 	'bit'
 ]
+export const DUCKDB_TYPES = [
+	'BIGINT',
+	'INT8',
+	'LONG',
+	'BIT',
+	'BITSTRING',
+	'BLOB',
+	'BYTEA',
+	'BINARY',
+	'VARBINARY',
+	'BOOLEAN',
+	'BOOL',
+	'LOGICAL',
+	'DATE',
+	'DECIMAL',
+	'NUMERIC',
+	'DOUBLE',
+	'FLOAT8',
+	'FLOAT',
+	'FLOAT4',
+	'REAL',
+	'HUGEINT',
+	'INTEGER',
+	'INT4',
+	'INT',
+	'SIGNED',
+	'INTERVAL',
+	'JSON',
+	'SMALLINT',
+	'INT2',
+	'SHORT',
+	'TIME',
+	'TIMESTAMP WITH TIME ZONE',
+	'TIMESTAMPTZ',
+	'TIMESTAMP',
+	'DATETIME',
+	'TINYINT',
+	'INT1',
+	'UBIGINT',
+	'UHUGEINT',
+	'UINTEGER',
+	'USMALLINT',
+	'UTINYINT',
+	'UUID',
+	'VARCHAR',
+	'CHAR',
+	'BPCHAR',
+	'TEXT',
+	'STRING'
+]
+
+export const DB_TYPES: Record<DbType, string[]> = {
+	bigquery: BIGQUERY_TYPES,
+	ms_sql_server: MSSQL_TYPES,
+	mysql: MYSQL_TYPES,
+	postgresql: POSTGRES_TYPES,
+	snowflake: SNOWFLAKE_TYPES
+}

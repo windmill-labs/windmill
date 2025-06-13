@@ -23,14 +23,9 @@ export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
 // need at least one model for each provider except customai
 export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
-	openai: ['gpt-4o', 'gpt-4o-mini'],
+	openai: ['gpt-4o', 'gpt-4.1', 'gpt-4o-mini', 'o4-mini', 'o3', 'o3-mini'],
 	azure_openai: ['gpt-4o', 'gpt-4o-mini'],
-	anthropic: [
-		'claude-3-7-sonnet-latest',
-		'claude-3-7-sonnet-latest/thinking',
-		'claude-3-5-haiku-latest',
-		'claude-3-5-sonnet-latest'
-	],
+	anthropic: ['claude-sonnet-4-0', 'claude-sonnet-4-0/thinking', 'claude-3-5-haiku-latest'],
 	mistral: ['codestral-latest'],
 	deepseek: ['deepseek-chat', 'deepseek-reasoner'],
 	googleai: ['gemini-1.5-pro', 'gemini-2.0-flash', 'gemini-1.5-flash'],
@@ -41,12 +36,44 @@ export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
 }
 
 function getModelMaxTokens(model: string) {
-	if (model.startsWith('gpt-4o') || model.startsWith('codestral')) {
+	if (model.startsWith('gpt-4.1')) {
+		return 32768
+	} else if (model.startsWith('gpt-4o') || model.startsWith('codestral')) {
 		return 16384
 	} else if (model.startsWith('gpt-4-turbo') || model.startsWith('gpt-3.5')) {
 		return 4096
 	}
 	return 8192
+}
+
+function getModelSpecificConfig(
+	modelProvider: AIProviderModel,
+	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
+) {
+	if (modelProvider.provider === 'openai' && modelProvider.model.startsWith('o')) {
+		return {
+			model: modelProvider.model,
+			...(tools && tools.length > 0 ? { tools } : {}),
+			max_completion_tokens: 100000
+		}
+	} else {
+		return {
+			...(modelProvider.model.endsWith('/thinking')
+				? {
+						thinking: {
+							type: 'enabled',
+							budget_tokens: 1024
+						},
+						model: modelProvider.model.slice(0, -9)
+					}
+				: {
+						model: modelProvider.model,
+						temperature: 0,
+						...(tools && tools.length > 0 ? { tools } : {})
+					}),
+			max_completion_tokens: getModelMaxTokens(modelProvider.model)
+		}
+	}
 }
 
 function prepareMessages(aiProvider: AIProvider, messages: ChatCompletionMessageParam[]) {
@@ -374,20 +401,7 @@ function getProviderAndCompletionConfig<K extends boolean>({
 		provider: modelProvider.provider,
 		config: {
 			...providerConfig,
-			...(modelProvider.model.endsWith('/thinking')
-				? {
-						thinking: {
-							type: 'enabled',
-							budget_tokens: 1024
-						},
-						model: modelProvider.model.slice(0, -9)
-					}
-				: {
-						model: modelProvider.model,
-						temperature: 0,
-						tools
-					}),
-			max_tokens: getModelMaxTokens(modelProvider.model),
+			...getModelSpecificConfig(modelProvider, tools),
 			messages: processedMessages,
 			stream
 		} as any

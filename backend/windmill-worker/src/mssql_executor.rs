@@ -1,5 +1,6 @@
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use futures::StreamExt;
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -8,17 +9,20 @@ use tiberius::{AuthMethod, Client, ColumnData, Config, FromSqlOwned, Query, Row,
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 use uuid::Uuid;
-use windmill_common::error::to_anyhow;
-use windmill_common::error::{self, Error};
-use windmill_common::worker::to_raw_value;
-use windmill_parser_sql::{parse_db_resource, parse_mssql_sig};
+use windmill_common::s3_helpers::convert_json_line_stream;
+use windmill_common::{
+    error::{self, to_anyhow, Error},
+    utils::empty_as_none,
+    worker::{to_raw_value, Connection},
+};
+use windmill_parser_sql::{parse_db_resource, parse_mssql_sig, parse_s3_mode};
 use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
 
-use crate::common::{build_args_values, OccupancyMetrics};
+use crate::common::{build_args_values, s3_mode_args_to_worker_data, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
-use crate::AuthedClient;
+use windmill_common::client::AuthedClient;
 
 use serde::Deserializer;
 
@@ -33,13 +37,13 @@ struct MssqlDatabase {
     #[serde(default, deserialize_with = "deserialize_aad_token")]
     aad_token: Option<AadToken>,
     trust_cert: Option<bool>,
-    #[serde(deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     ca_cert: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct AadToken {
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     token: Option<String>,
 }
 
@@ -51,16 +55,17 @@ pub async fn do_mssql(
     job: &MiniPulledJob,
     client: &AuthedClient,
     query: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     occupancy_metrics: &mut OccupancyMetrics,
     job_dir: &str,
 ) -> error::Result<Box<RawValue>> {
-    let mssql_args = build_args_values(job, client, db).await?;
+    let mssql_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
+    let s3 = parse_s3_mode(&query)?.map(|s3| s3_mode_args_to_worker_data(s3, client.clone(), job));
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
         Some(
@@ -104,7 +109,7 @@ pub async fn do_mssql(
 
     if readonly_intent {
         let logs = format!("\nSetting ApplicationIntent to ReadOnly");
-        append_logs(&job.id, &job.workspace_id, logs, db).await;
+        append_logs(&job.id, &job.workspace_id, logs, conn).await;
     }
 
     // Handle authentication based on available credentials
@@ -195,34 +200,49 @@ pub async fn do_mssql(
         // A response to a query is a stream of data, that must be
         // polled to the end before querying again. Using streams allows
         // fetching data in an asynchronous manner, if needed.
-        let stream = prepared_query.query(&mut client).await.map_err(to_anyhow)?;
 
-        let results = stream.into_results().await.map_err(to_anyhow)?;
-        let len = results.len();
-        let mut json_results = vec![];
-        for (i, statement_result) in results.into_iter().enumerate() {
-            if annotations.return_last_result && i < len - 1 {
-                continue;
-            }
-            let mut json_rows = vec![];
-            for row in statement_result {
-                let row = row_to_json(row)?;
-                json_rows.push(row);
-            }
-            json_results.push(json_rows);
-        }
+        if let Some(s3) = s3 {
+            let rows_stream = async_stream::stream! {
+                let mut stream = prepared_query.query(&mut client).await.map_err(to_anyhow)?.into_row_stream().map(|row| {
+                    row_to_json(row.map_err(to_anyhow)?).map_err(to_anyhow)
+                });
+                while let Some(row) = stream.next().await {
+                    yield row;
+                }
+            };
 
-        if annotations.return_last_result && json_results.len() > 0 {
-            Ok(to_raw_value(&json_results.pop().unwrap()))
+            let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
+            s3.upload(stream.boxed()).await?;
+
+            Ok(to_raw_value(&s3.to_return_s3_obj()))
         } else {
-            Ok(to_raw_value(&json_results))
+            let stream = prepared_query.query(&mut client).await.map_err(to_anyhow)?;
+            let results = stream.into_results().await.map_err(to_anyhow)?;
+            let len = results.len();
+            let mut json_results = vec![];
+            for (i, statement_result) in results.into_iter().enumerate() {
+                if annotations.return_last_result && i < len - 1 {
+                    continue;
+                }
+                let mut json_rows = vec![];
+                for row in statement_result {
+                    let row = row_to_json(row)?;
+                    json_rows.push(row);
+                }
+                json_results.push(json_rows);
+            }
+            if annotations.return_last_result && json_results.len() > 0 {
+                Ok(to_raw_value(&json_results.pop().unwrap()))
+            } else {
+                Ok(to_raw_value(&json_results))
+            }
         }
     };
 
     let raw_result = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         result_f,
@@ -377,14 +397,6 @@ fn sql_to_json_value(val: ColumnData) -> Result<Value, Error> {
             |x| Ok(Value::String(x.to_string())),
         ),
     }
-}
-
-fn empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let option = <Option<String> as serde::Deserialize>::deserialize(deserializer)?;
-    Ok(option.filter(|s| !s.is_empty()))
 }
 
 fn deserialize_aad_token<'de, D>(deserializer: D) -> Result<Option<AadToken>, D::Error>

@@ -20,7 +20,8 @@ use windmill_common::s3_helpers::{
 };
 use windmill_common::variables::{build_crypt_with_key_suffix, decrypt};
 use windmill_common::worker::{
-    to_raw_value, write_file, CLOUD_HOSTED, ROOT_CACHE_DIR, WORKER_CONFIG,
+    to_raw_value, update_ping_for_failed_init_script_query, write_file, Connection, Ping, PingType,
+    CLOUD_HOSTED, ROOT_CACHE_DIR, WORKER_CONFIG,
 };
 use windmill_common::{
     cache::{Cache, RawData},
@@ -30,8 +31,10 @@ use windmill_common::{
 };
 
 use anyhow::{anyhow, bail, Result};
+use windmill_parser_sql::{s3_mode_extension, S3ModeArgs, S3ModeFormat};
 use windmill_queue::MiniPulledJob;
 
+use std::ops::AsyncFn;
 use std::path::Path;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
@@ -40,18 +43,17 @@ use windmill_common::{variables, DB};
 
 use tokio::{io::AsyncWriteExt, process::Child, time::Instant};
 
-use crate::{
-    AuthedClient, DISABLE_NSJAIL, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE, MAX_TIMEOUT_DURATION,
-    PATH_ENV,
-};
+use crate::agent_workers::UPDATE_PING_URL;
+use crate::{DISABLE_NSJAIL, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE, MAX_TIMEOUT_DURATION, PATH_ENV};
+use windmill_common::client::AuthedClient;
 
 pub async fn build_args_map<'a>(
     job: &'a MiniPulledJob,
     client: &AuthedClient,
-    db: &Pool<Postgres>,
+    conn: &Connection,
 ) -> error::Result<Option<HashMap<String, Box<RawValue>>>> {
     if let Some(args) = &job.args {
-        return transform_json(client, &job.workspace_id, &args.0, &job, db).await;
+        return transform_json(client, &job.workspace_id, &args.0, &job, conn).await;
     }
     return Ok(None);
 }
@@ -76,10 +78,10 @@ pub fn check_executor_binary_exists(
 pub async fn build_args_values(
     job: &MiniPulledJob,
     client: &AuthedClient,
-    db: &Pool<Postgres>,
+    conn: &Connection,
 ) -> error::Result<HashMap<String, serde_json::Value>> {
     if let Some(args) = &job.args {
-        transform_json_as_values(client, &job.workspace_id, &args.0, job, db).await
+        transform_json_as_values(client, &job.workspace_id, &args.0, job, conn).await
     } else {
         Ok(HashMap::new())
     }
@@ -90,10 +92,10 @@ pub async fn create_args_and_out_file(
     client: &AuthedClient,
     job: &MiniPulledJob,
     job_dir: &str,
-    db: &Pool<Postgres>,
+    conn: &Connection,
 ) -> Result<(), Error> {
     if let Some(args) = job.args.as_ref() {
-        if let Some(x) = transform_json(client, &job.workspace_id, &args.0, job, db).await? {
+        if let Some(x) = transform_json(client, &job.workspace_id, &args.0, job, conn).await? {
             write_file(
                 job_dir,
                 "args.json",
@@ -131,7 +133,7 @@ pub async fn transform_json<'a>(
     workspace: &str,
     vs: &'a HashMap<String, Box<RawValue>>,
     job: &MiniPulledJob,
-    db: &Pool<Postgres>,
+    db: &Connection,
 ) -> error::Result<Option<HashMap<String, Box<RawValue>>>> {
     let mut has_match = false;
     for (_, v) in vs {
@@ -168,7 +170,7 @@ pub async fn transform_json_as_values<'a>(
     workspace: &str,
     vs: &'a HashMap<String, Box<RawValue>>,
     job: &MiniPulledJob,
-    db: &Pool<Postgres>,
+    db: &Connection,
 ) -> error::Result<HashMap<String, serde_json::Value>> {
     let mut r: HashMap<String, serde_json::Value> = HashMap::new();
     for (k, v) in vs {
@@ -236,7 +238,7 @@ pub async fn transform_json_value(
     workspace: &str,
     v: Value,
     job: &MiniPulledJob,
-    db: &Pool<Postgres>,
+    conn: &Connection,
 ) -> error::Result<Value> {
     match v {
         Value::String(y) if y.starts_with("$var:") => {
@@ -267,20 +269,32 @@ pub async fn transform_json_value(
                 })
         }
         Value::String(y) if y.starts_with("$encrypted:") => {
-            let encrypted = y.strip_prefix("$encrypted:").unwrap();
+            match conn {
+                Connection::Sql(db) => {
+                    let encrypted = y.strip_prefix("$encrypted:").unwrap();
 
-            let root_job_id =
-                get_root_job_id(&job.flow_innermost_root_job.unwrap_or_else(|| job.id), db).await?;
-            let mc = build_crypt_with_key_suffix(&db, &job.workspace_id, &root_job_id.to_string())
-                .await?;
-            decrypt(&mc, encrypted.to_string()).and_then(|x| {
-                serde_json::from_str(&x).map_err(|e| Error::internal_err(e.to_string()))
-            })
+                    let root_job_id =
+                        get_root_job_id(&job.flow_innermost_root_job.unwrap_or_else(|| job.id), db)
+                            .await?;
+                    let mc = build_crypt_with_key_suffix(
+                        &db,
+                        &job.workspace_id,
+                        &root_job_id.to_string(),
+                    )
+                    .await?;
+                    decrypt(&mc, encrypted.to_string()).and_then(|x| {
+                        serde_json::from_str(&x).map_err(|e| Error::internal_err(e.to_string()))
+                    })
+                }
+                Connection::Http(_) => {
+                    Err(Error::NotFound("Http connection not supported".to_string()))
+                }
+            }
 
             // let path = y.strip_prefix("$res:").unwrap();
         }
         Value::String(y) if y.starts_with("$") => {
-            let variables = get_reserved_variables(job, &client.token, &db, None).await?;
+            let variables = get_reserved_variables(job, &client.token, conn, None).await?;
 
             let name = y.strip_prefix("$").unwrap();
 
@@ -295,7 +309,7 @@ pub async fn transform_json_value(
             for (a, b) in m.clone().into_iter() {
                 m.insert(
                     a.clone(),
-                    transform_json_value(&a, client, workspace, b, job, &db).await?,
+                    transform_json_value(&a, client, workspace, b, job, conn).await?,
                 );
             }
             Ok(Value::Object(m))
@@ -387,16 +401,21 @@ pub fn capitalize(s: &str) -> String {
 pub async fn get_reserved_variables(
     job: &MiniPulledJob,
     token: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    db: &Connection,
     parent_runnable_path: Option<String>,
 ) -> Result<HashMap<String, String>, Error> {
     let flow_path = if parent_runnable_path.is_some() {
         parent_runnable_path
     } else if let Some(uuid) = job.parent_job {
-        sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", uuid)
-            .fetch_optional(db)
-            .await?
-            .flatten()
+        match db {
+            Connection::Sql(db) => {
+                sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", uuid)
+                    .fetch_optional(db)
+                    .await?
+                    .flatten()
+            }
+            Connection::Http(_) => None,
+        }
     } else {
         None
     };
@@ -457,31 +476,70 @@ pub fn sizeof_val(v: &serde_json::Value) -> usize {
 }
 
 pub async fn update_worker_ping_for_failed_init_script(
-    db: &DB,
+    conn: &Connection,
     worker_name: &str,
     last_job_id: Uuid,
 ) {
-    if let Err(e) = sqlx::query!(
-        "UPDATE worker_ping SET 
-        ping_at = now(), 
-        jobs_executed = 1, 
-        current_job_id = $1, 
-        current_job_workspace_id = 'admins' 
-        WHERE worker = $2",
-        last_job_id,
-        worker_name
-    )
-    .execute(db)
-    .await
-    {
-        tracing::error!("Error updating worker ping for failed init script: {e:?}");
+    match conn {
+        Connection::Sql(db) => {
+            if let Err(e) =
+                update_ping_for_failed_init_script_query(worker_name, last_job_id, db).await
+            {
+                tracing::error!("Error updating worker ping for failed init script: {e:?}");
+            }
+        }
+        Connection::Http(client) => {
+            if let Err(e) = client
+                .post::<_, ()>(
+                    UPDATE_PING_URL,
+                    None,
+                    &Ping {
+                        last_job_executed: Some(last_job_id),
+                        last_job_workspace_id: None,
+                        worker_instance: None,
+                        ip: None,
+                        tags: None,
+                        dw: None,
+                        jobs_executed: None,
+                        occupancy_rate: None,
+                        occupancy_rate_15s: None,
+                        occupancy_rate_5m: None,
+                        occupancy_rate_30m: None,
+                        version: None,
+                        vcpus: None,
+                        memory: None,
+                        memory_usage: None,
+                        wm_memory_usage: None,
+                        ping_type: PingType::InitScript,
+                    },
+                )
+                .await
+            {
+                tracing::error!("Error updating worker ping for failed init script: {e:?}");
+            }
+        }
     }
 }
+
+pub fn error_to_value(err: Error) -> serde_json::Value {
+    match err {
+        Error::JsonErr(err) => err,
+        _ => json!({"message": err.to_string(), "name": "InternalErr"}),
+    }
+}
+
 pub struct OccupancyMetrics {
     pub running_job_started_at: Option<Instant>,
     pub total_duration_of_running_jobs: f32,
     pub worker_occupancy_rate_history: Vec<(f32, f32)>,
     pub start_time: Instant,
+}
+
+pub struct OccupancyResult {
+    pub occupancy_rate: f32,
+    pub occupancy_rate_15s: Option<f32>,
+    pub occupancy_rate_5m: Option<f32>,
+    pub occupancy_rate_30m: Option<f32>,
 }
 
 impl OccupancyMetrics {
@@ -494,7 +552,7 @@ impl OccupancyMetrics {
         }
     }
 
-    pub fn update_occupancy_metrics(&mut self) -> (f32, Option<f32>, Option<f32>, Option<f32>) {
+    pub fn update_occupancy_metrics(&mut self) -> OccupancyResult {
         let metrics = self;
         let current_occupied_duration = metrics
             .running_job_started_at
@@ -545,12 +603,12 @@ impl OccupancyMetrics {
             .worker_occupancy_rate_history
             .push((total_occupation, elapsed));
 
-        (
+        OccupancyResult {
             occupancy_rate,
             occupancy_rate_15s,
             occupancy_rate_5m,
             occupancy_rate_30m,
-        )
+        }
     }
 }
 
@@ -561,15 +619,19 @@ pub async fn start_child_process(mut cmd: Command, executable: &str) -> Result<C
 }
 
 pub async fn resolve_job_timeout(
-    _db: &Pool<Postgres>,
+    _conn: &Connection,
     _w_id: &str,
     _job_id: Uuid,
     custom_timeout_secs: Option<i32>,
 ) -> (Duration, Option<String>, bool) {
     let mut warn_msg: Option<String> = None;
     #[cfg(feature = "cloud")]
-    let cloud_premium_workspace =
-        *CLOUD_HOSTED && windmill_common::workspaces::is_premium_workspace(_db, _w_id).await;
+    let cloud_premium_workspace = *CLOUD_HOSTED
+        && windmill_common::workspaces::is_premium_workspace(
+            _conn.as_sql().expect("cloud cannot use http connection"),
+            _w_id,
+        )
+        .await;
     #[cfg(not(feature = "cloud"))]
     let cloud_premium_workspace = false;
 
@@ -667,7 +729,7 @@ async fn get_workspace_s3_resource_path(
     storage: Option<&String>,
 ) -> windmill_common::error::Result<Option<ObjectStoreResource>> {
     use windmill_common::{
-        job_s3_helpers_ee::get_s3_resource_internal, s3_helpers::StorageResourceType,
+        job_s3_helpers_oss::get_s3_resource_internal, s3_helpers::StorageResourceType,
     };
 
     let raw_lfs_opt = if let Some(storage) = storage {
@@ -719,19 +781,17 @@ async fn get_workspace_s3_resource_path(
         }
     };
 
-    let client2 = client.clone();
-    let token_fn = |audience: String| async move {
-        client2
-            .get_id_token(&audience)
-            .await
-            .map_err(|e| windmill_common::error::Error::from(e))
-    };
     let s3_resource_value_raw = client
         .get_resource_value::<serde_json::Value>(path.as_str())
         .await?;
-    get_s3_resource_internal(rt, s3_resource_value_raw, token_fn)
-        .await
-        .map(Some)
+    get_s3_resource_internal(
+        rt,
+        s3_resource_value_raw,
+        windmill_common::job_s3_helpers_oss::TokenGenerator::AsClient(client),
+        db,
+    )
+    .await
+    .map(Some)
 }
 
 #[cfg(feature = "parquet")]
@@ -841,7 +901,7 @@ pub async fn get_cached_resource_value_if_valid(
                     S3Object {
                         s3: s3_file_key.clone(),
                         storage: resource.storage.clone(),
-                        filename: None,
+                        ..Default::default()
                     },
                 )
                 .await;
@@ -1013,7 +1073,7 @@ pub async fn par_install_language_dependencies<'a>(
     job_id: &'a Uuid,
     w_id: &'a str,
     worker_name: &'a str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
 ) -> anyhow::Result<()> {
     #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
     let _ = (platform_agnostic, language_name);
@@ -1038,7 +1098,7 @@ pub async fn par_install_language_dependencies<'a>(
         counter_arc: Arc<tokio::sync::Mutex<usize>>,
         total_to_install: usize,
         instant: std::time::Instant,
-        db: Pool<Postgres>,
+        conn: &Connection,
     ) {
         #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
         {
@@ -1046,7 +1106,7 @@ pub async fn par_install_language_dependencies<'a>(
         }
 
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+        if windmill_common::s3_helpers::OBJECT_STORE_SETTINGS
             .read()
             .await
             .is_none()
@@ -1074,7 +1134,7 @@ pub async fn par_install_language_dependencies<'a>(
                 if s3_push { " > (S3) " } else { "" },
                 instant.elapsed().as_millis(),
             ),
-            db,
+            conn,
         )
         .await;
         // Drop lock, so next print success can fire
@@ -1128,18 +1188,13 @@ pub async fn par_install_language_dependencies<'a>(
                         job_id,
                         w_id,
                         format!("\n--- INSTALLATION ---\n\nTo be installed:\n\n"),
-                        db.clone(),
+                        conn,
                     )
                     .await;
                     to_be_installed_is_used = true;
                 }
-                windmill_queue::append_logs(
-                    job_id,
-                    w_id,
-                    format!("- {display_name}\n"),
-                    db.clone(),
-                )
-                .await;
+                windmill_queue::append_logs(job_id, w_id, format!("- {display_name}\n"), conn)
+                    .await;
                 not_installed.push(NotInstalledDependency {
                     path,
                     custom_name,
@@ -1155,8 +1210,8 @@ pub async fn par_install_language_dependencies<'a>(
     }
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     let is_not_pro = !matches!(
-        windmill_common::ee::get_license_plan().await,
-        windmill_common::ee::LicensePlan::Pro
+        windmill_common::ee_oss::get_license_plan().await,
+        windmill_common::ee_oss::LicensePlan::Pro
     );
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if is_not_pro && matches!(install_fn, InstallStrategy::AllAtOnce(_)) {
@@ -1164,7 +1219,7 @@ pub async fn par_install_language_dependencies<'a>(
             job_id,
             w_id,
             format!("\nLooking for packages on S3:\n"),
-            db.clone(),
+            conn,
         )
         .await;
     }
@@ -1206,11 +1261,7 @@ pub async fn par_install_language_dependencies<'a>(
 
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
         let s3_pull_future = if is_not_pro {
-            if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-                .read()
-                .await
-                .clone()
-            {
+            if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
                 Some(crate::global_cache::pull_from_tar(
                     os,
                     path.clone(),
@@ -1245,7 +1296,7 @@ pub async fn par_install_language_dependencies<'a>(
             custom_name,
             job_id_2,
             w_id_2,
-            db_2,
+            conn_2,
             counter_arc,
             language_name,
             installer_executable_name,
@@ -1257,7 +1308,7 @@ pub async fn par_install_language_dependencies<'a>(
             custom_name.clone(),
             job_id.clone(),
             w_id.to_owned(),
-            db.clone(),
+            conn.clone(),
             counter_arc.clone(),
             language_name.to_owned(),
             installer_executable_name.to_owned(),
@@ -1303,7 +1354,7 @@ pub async fn par_install_language_dependencies<'a>(
                         counter_arc,
                         total_to_install,
                         start,
-                        db_2,
+                        &conn_2,
                     )
                     .await;
                     return;
@@ -1321,7 +1372,7 @@ pub async fn par_install_language_dependencies<'a>(
             };
             if let Err(e) = crate::handle_child::handle_child(
                 &job_id_2,
-                &db_2,
+                &conn_2,
                 // TODO: Return mem_peak
                 &mut 0,
                 // TODO: Return canceld_by_ref
@@ -1342,7 +1393,7 @@ pub async fn par_install_language_dependencies<'a>(
                     &job_id_2,
                     &w_id_2,
                     format!("error while installing {}: {e:?}", &display_name_2),
-                    db_2.clone(),
+                    &conn_2,
                 )
                 .await;
             } else {
@@ -1372,7 +1423,7 @@ pub async fn par_install_language_dependencies<'a>(
                     counter_arc,
                     total_to_install,
                     start,
-                    db_2,
+                    &conn_2,
                 )
                 .await;
                 // TODO: Refactor
@@ -1391,11 +1442,7 @@ pub async fn par_install_language_dependencies<'a>(
                 };
                 #[cfg(all(feature = "enterprise", feature = "parquet"))]
                 {
-                    if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-                        .read()
-                        .await
-                        .clone()
-                    {
+                    if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
                         tokio::spawn(async move {
                             if let Err(e) = crate::global_cache::build_tar_and_push(
                                 os,
@@ -1428,7 +1475,7 @@ pub async fn par_install_language_dependencies<'a>(
                 job_id,
                 w_id,
                 format!("\n\nFetching {} packages...\n", not_pulled_copy.len()),
-                db.clone(),
+                &conn,
             )
             .await;
             let cmd = callback(not_pulled_copy.clone())?;
@@ -1486,11 +1533,7 @@ pub async fn par_install_language_dependencies<'a>(
                 };
                 #[cfg(all(feature = "enterprise", feature = "parquet"))]
                 {
-                    if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-                        .read()
-                        .await
-                        .clone()
-                    {
+                    if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
                         let language_name = language_name.to_owned();
                         tokio::spawn(async move {
                             if let Err(e) = crate::global_cache::build_tar_and_push(
@@ -1519,9 +1562,69 @@ pub async fn par_install_language_dependencies<'a>(
                 "\nDone. Time spent on installation phase: {}ms\n",
                 total_time
             ),
-            db,
+            conn,
         )
         .await;
     }
     Ok(())
+}
+
+#[derive(Clone)]
+pub struct S3ModeWorkerData {
+    pub client: AuthedClient,
+    pub object_key: String,
+    pub format: S3ModeFormat,
+    pub storage: Option<String>,
+    pub workspace_id: String,
+}
+
+impl S3ModeWorkerData {
+    pub async fn upload<S>(&self, stream: S) -> anyhow::Result<()>
+    where
+        S: futures::stream::TryStream + Send + 'static,
+        S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+        bytes::Bytes: From<S::Ok>,
+    {
+        self.client
+            .upload_s3_file(
+                self.workspace_id.as_str(),
+                self.object_key.clone(),
+                self.storage.clone(),
+                stream,
+            )
+            .await
+    }
+
+    pub fn to_return_s3_obj(&self) -> windmill_common::s3_helpers::S3Object {
+        windmill_common::s3_helpers::S3Object {
+            s3: self.object_key.clone(),
+            storage: self.storage.clone(),
+            ..Default::default()
+        }
+    }
+}
+
+pub fn s3_mode_args_to_worker_data(
+    s3: S3ModeArgs,
+    client: AuthedClient,
+    job: &MiniPulledJob,
+) -> S3ModeWorkerData {
+    S3ModeWorkerData {
+        client,
+        storage: s3.storage,
+        format: s3.format,
+        object_key: format!(
+            "{}/{}.{}",
+            s3.prefix.unwrap_or_else(|| format!(
+                "wmill_datalake/{}",
+                job.runnable_path
+                    .as_ref()
+                    .map(|s| s.as_str())
+                    .unwrap_or("unknown_script")
+            )),
+            job.id,
+            s3_mode_extension(s3.format)
+        ),
+        workspace_id: job.workspace_id.clone(),
+    }
 }

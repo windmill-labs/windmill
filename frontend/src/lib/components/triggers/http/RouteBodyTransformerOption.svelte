@@ -2,40 +2,65 @@
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import type { Snippet } from 'svelte'
 
-	export let raw_string: boolean
-	export let wrap_body: boolean 
+	interface Props {
+		raw_string: boolean
+		wrap_body: boolean
+		disabled?: boolean
+		testingBadge?: Snippet | undefined
+	}
+
+	let {
+		raw_string = $bindable(),
+		wrap_body = $bindable(),
+		disabled = false,
+		testingBadge = undefined
+	}: Props = $props()
 </script>
 
 <Label label="Raw body" class="w-full">
-	<svelte:fragment slot="header">
-		<Tooltip>
+	{#snippet header()}
+		<Tooltip
+			documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing#body-processing-options"
+		>
 			Provides the raw JSON payload as a string under the 'raw_string' key. Required for custom
 			script authentication method and useful for signature verification or other advanced use
 			cases.
 		</Tooltip>
-	</svelte:fragment>
-	<svelte:fragment slot="action">
+		{#if testingBadge}
+			{@render testingBadge()}
+		{/if}
+	{/snippet}
+	{#snippet action()}
 		<Toggle
 			checked={raw_string}
 			on:change={() => {
 				raw_string = !raw_string
 			}}
+			{disabled}
 		/>
-	</svelte:fragment>
+	{/snippet}
 </Label>
 <Label label="Wrap body" class="w-full">
-	<svelte:fragment slot="header">
+	{#snippet header()}
 		<Tooltip
-			>Wraps the payload in an object under the 'body' key, useful for handling unknown payloads.</Tooltip
+			documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing#body-processing-options"
 		>
-	</svelte:fragment>
-	<svelte:fragment slot="action">
+			Wraps the body in a JSON object with the key 'body'. Useful for compatibility with existing
+			code that expects a JSON object.
+		</Tooltip>
+		{#if testingBadge}
+			{@render testingBadge()}
+		{/if}
+	{/snippet}
+	{#snippet action()}
 		<Toggle
 			checked={wrap_body}
 			on:change={() => {
 				wrap_body = !wrap_body
 			}}
+			{disabled}
 		/>
-	</svelte:fragment>
+	{/snippet}
 </Label>

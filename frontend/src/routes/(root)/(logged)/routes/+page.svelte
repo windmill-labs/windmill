@@ -10,7 +10,9 @@
 		copyToClipboard,
 		displayDate,
 		getLocalSetting,
-		storeLocalSetting
+		storeLocalSetting,
+		removeTriggerKindIfUnused,
+		sendUserToast
 	} from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -20,7 +22,13 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore, userWorkspaces, enterpriseLicense } from '$lib/stores'
+	import {
+		userStore,
+		workspaceStore,
+		userWorkspaces,
+		enterpriseLicense,
+		usedTriggerKinds
+	} from '$lib/stores'
 	import { Route, Code, Eye, Pen, Plus, Share, Trash, FileUp, ClipboardCopy } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -36,12 +44,14 @@
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import { isCloudHosted } from '$lib/cloud'
 	import { getHttpRoute } from '$lib/components/triggers/http/utils'
+	import RoutesGenerator from '$lib/components/triggers/http/RoutesGenerator.svelte'
 
 	type TriggerW = HttpTrigger & { canWrite: boolean }
 
 	let triggers: TriggerW[] = []
 	let shareModal: ShareModal
 	let loading = true
+	let routesGenerator: RoutesGenerator | undefined
 	let deploymentDrawer: DeployWorkspaceDrawer
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
 
@@ -60,6 +70,7 @@
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			}
 		)
+		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'routes', $usedTriggerKinds)
 		loading = false
 	}
 
@@ -69,7 +80,6 @@
 		}
 	}
 	let routeEditor: RouteEditor
-
 	let filteredItems: (TriggerW & { marked?: any })[] | undefined = []
 	let items: typeof filteredItems | undefined = []
 	let preFilteredItems: typeof filteredItems | undefined = []
@@ -115,15 +125,15 @@
 						(x) =>
 							x.path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-				  )
+					)
 				: triggers?.filter(
 						(x) =>
 							x.script_path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-				  )
+					)
 			: triggers?.filter((x) =>
 					filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-			  )
+				)
 
 	$: if ($workspaceStore) {
 		ownerFilter = undefined
@@ -133,14 +143,14 @@
 		selectedFilterKind === 'trigger'
 			? Array.from(
 					new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
+				).sort()
 			: Array.from(
 					new Set(
 						filteredItems
 							?.filter((x) => x.script_path)
 							.map((x) => x.script_path.split('/').slice(0, 2).join('/')) ?? []
 					)
-			  ).sort()
+				).sort()
 
 	$: items = filter !== '' ? filteredItems : preFilteredItems
 
@@ -178,7 +188,9 @@
 </script>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<RouteEditor on:update={loadTriggers} bind:this={routeEditor} />
+<RouteEditor onUpdate={loadTriggers} bind:this={routeEditor} />
+
+<RoutesGenerator closeFn={loadTriggers} bind:this={routesGenerator} />
 
 <SearchItems
 	{filter}
@@ -200,9 +212,20 @@
 			documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing"
 		>
 			{#if $userStore?.is_admin || $userStore?.is_super_admin}
-				<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor.openNew(false)}>
-					New&nbsp;route
-				</Button>
+				<div class="flex flex-row gap-2">
+					<Button
+						size="md"
+						startIcon={{ icon: Plus }}
+						on:click={() => {
+							routesGenerator?.openDrawer()
+						}}
+					>
+						From OpenAPI spec
+					</Button>
+					<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor.openNew(false)}>
+						New&nbsp;route
+					</Button>
+				</div>
 			{/if}
 		</PageHeader>
 		<div class="w-full h-full flex flex-col">
@@ -283,7 +306,9 @@
 								<div class="flex gap-2 items-center justify-end">
 									<Button
 										on:click={() =>
-											copyToClipboard(getHttpRoute(route_path, workspaced_route ?? false, workspace_id))}
+											copyToClipboard(
+												getHttpRoute('r', route_path, workspaced_route ?? false, workspace_id)
+											)}
 										color="dark"
 										size="xs"
 										startIcon={{ icon: ClipboardCopy }}
@@ -297,7 +322,7 @@
 											? { icon: Pen }
 											: {
 													icon: Eye
-											  }}
+												}}
 										color="dark"
 									>
 										{canWrite ? 'Edit' : 'View'}
@@ -318,11 +343,16 @@
 												disabled:
 													!canWrite || !($userStore?.is_admin || $userStore?.is_super_admin),
 												action: async () => {
-													await HttpTriggerService.deleteHttpTrigger({
-														workspace: $workspaceStore ?? '',
-														path
-													})
-													loadTriggers()
+													try {
+														await HttpTriggerService.deleteHttpTrigger({
+															workspace: $workspaceStore ?? '',
+															path
+														})
+														sendUserToast(`Successfully deleted HTTP route: ${path}`)
+														loadTriggers()
+													} catch (error) {
+														sendUserToast(error.body || error.message, true)
+													}
 												}
 											},
 											{
@@ -345,7 +375,7 @@
 																})
 															}
 														}
-												  ]
+													]
 												: []),
 											{
 												displayName: 'Audit logs',

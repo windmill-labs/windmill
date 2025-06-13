@@ -2,18 +2,19 @@
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, onMount } from 'svelte'
-	import Select from './apps/svelte-select/lib/index'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 	import AppConnect from './AppConnectDrawer.svelte'
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 
 	import { Button } from './common'
-	import DBSchemaExplorer from './DBSchemaExplorer.svelte'
-	import DarkModeObserver from './DarkModeObserver.svelte'
+	import DBManagerDrawerButton from './DBManagerDrawerButton.svelte'
 	import { Pen, Plus, RotateCw } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { isDbType } from './apps/components/display/dbtable/utils'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import Select from './Select.svelte'
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	export let initialValue: string | undefined = undefined
 	export let value: string | undefined = initialValue
@@ -41,7 +42,7 @@
 					value: value ?? initialValue,
 					label: value ?? initialValue,
 					type: valueType
-			  }
+				}
 			: undefined
 
 	$: if (value === undefined && initialValue) {
@@ -97,15 +98,11 @@
 
 	$: $workspaceStore && loadResources(resourceType)
 
-	$: dispatch('change', value)
+	$: dispatchIfMounted('change', value)
 
 	let appConnect: AppConnect
 	let resourceEditor: ResourceEditorDrawer
-
-	let darkMode: boolean = false
 </script>
-
-<DarkModeObserver bind:darkMode />
 
 <AppConnect
 	on:refresh={async (e) => {
@@ -133,19 +130,21 @@
 	}}
 />
 
-<div class="flex flex-col w-full items-start">
+<div class="flex flex-col w-full items-start min-h-9">
 	<div class="flex flex-row w-full items-center">
 		{#if collection?.length > 0}
 			<Select
 				{disabled}
-				portal={!disablePortal}
-				value={valueSelect}
-				on:change={(e) => {
-					value = e.detail.value
-					valueType = e.detail.type
-					valueSelect = e.detail
-				}}
-				on:clear={() => {
+				{disablePortal}
+				bind:value={
+					() => valueSelect?.value,
+					(v) => {
+						valueSelect = collection.find((x) => x.value === v)
+						value = v
+						valueType = valueSelect?.type
+					}
+				}
+				onClear={() => {
 					initialValue = undefined
 					value = undefined
 					valueType = undefined
@@ -153,12 +152,9 @@
 					dispatch('clear')
 				}}
 				items={collection}
+				clearable
 				class="text-clip grow min-w-0"
 				placeholder={placeholder ?? `${resourceType ?? 'any'} resource`}
-				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-				containerStyles={darkMode
-					? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-					: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 			/>
 		{:else if !loading}
 			<div class="text-2xs text-tertiary mr-2">0 found</div>
@@ -219,7 +215,7 @@
 			iconOnly
 		/>
 	</div>
-	{#if showSchemaExplorer}
-		<DBSchemaExplorer {resourceType} resourcePath={value} />
+	{#if showSchemaExplorer && isDbType(resourceType) && value}
+		<DBManagerDrawerButton {resourceType} resourcePath={value} />
 	{/if}
 </div>

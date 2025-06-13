@@ -41,6 +41,7 @@ import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
 import {
   generateFlowLockInternal,
   generateScriptMetadataInternal,
+  readLockfile,
 } from "./metadata.ts";
 import { FlowModule, OpenFlow, RawScript } from "./gen/types.gen.ts";
 import { pushResource } from "./resource.ts";
@@ -344,7 +345,8 @@ export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
     else if (language == "ansible") ext = "playbook.yml";
     else if (language == "java") ext = "java";
     else if (language == "ruby") ext = "rb";
-  	// for related places search: ADD_NEW_LANG 
+    else if (language == "duckdb") ext = "duckdb.sql";
+    // for related places search: ADD_NEW_LANG
     else ext = "no_ext";
 
     return [`${name}.inline_script.`, ext];
@@ -609,11 +611,16 @@ export async function* readDirRecursiveWithIgnore(
 
   while (stack.length > 0) {
     const e = stack.pop()!;
+    // console.log(e.path);
     yield e;
     for await (const e2 of e.c()) {
-      if (e2.path.startsWith(".git" + SEP)) {
-        continue;
+      if (e2.isDirectory) {
+        const dirName = e2.path.split(SEP).pop();
+        if (dirName == "node_modules" || dirName?.startsWith(".")) {
+          continue;
+        }
       }
+      // console.log(e2.path);
       stack.push({
         path: e2.path,
         ignored: e.ignored || ignore(e2.path, e2.isDirectory),
@@ -660,7 +667,8 @@ export async function elementsToMap(
         path.endsWith(".nats_trigger" + ext) ||
         path.endsWith(".postgres_trigger" + ext) ||
         path.endsWith(".mqtt_trigger" + ext) ||
-        path.endsWith(".sqs_trigger" + ext))
+        path.endsWith(".sqs_trigger" + ext) ||
+        path.endsWith(".gcp_trigger" + ext))
     )
       continue;
     if (!skips.includeUsers && path.endsWith(".user" + ext)) continue;
@@ -923,7 +931,8 @@ function getOrderFromPath(p: string) {
     typ == "nats_trigger" ||
     typ == "postgres_trigger" ||
     typ == "mqtt_trigger" ||
-    typ == "sqs_trigger"
+    typ == "sqs_trigger" ||
+    typ == "gcp_trigger"
   ) {
     return 8;
   } else if (typ == "variable") {
@@ -1272,7 +1281,7 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
       }
     }
     log.info("All local changes pulled, now updating wmill-lock.yaml");
-
+    await readLockfile(); // ensure wmill-lock.yaml exists
     const globalDeps = await findGlobalDeps();
 
     const tracker: ChangeTracker = await buildTracker(changes);
@@ -1787,6 +1796,12 @@ export async function push(opts: GlobalOptions & SyncOptions) {
                   await wmill.deleteSqsTrigger({
                     workspace: workspaceId,
                     path: removeSuffix(target, ".sqs_trigger.json"),
+                  });
+                  break;
+                case "gcp_trigger":
+                  await wmill.deleteGcpTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".gcp_trigger.json"),
                   });
                   break;
                 case "variable":

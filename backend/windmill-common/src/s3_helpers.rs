@@ -4,6 +4,7 @@ use crate::error;
 use aws_sdk_sts::config::ProvideCredentials;
 #[cfg(feature = "parquet")]
 use axum::async_trait;
+use chrono::{DateTime, Utc};
 #[cfg(feature = "parquet")]
 use object_store::aws::AwsCredential;
 #[cfg(feature = "parquet")]
@@ -16,14 +17,201 @@ use object_store::{aws::AmazonS3Builder, ClientOptions};
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "parquet")]
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
 #[cfg(feature = "parquet")]
 use tokio::sync::RwLock;
 
 #[cfg(feature = "parquet")]
-lazy_static::lazy_static! {
+use crate::error::to_anyhow;
+#[cfg(feature = "parquet")]
+use crate::utils::rd_string;
+#[cfg(feature = "parquet")]
+use bytes::Bytes;
+#[cfg(feature = "parquet")]
+use datafusion::arrow::array::{RecordBatch, RecordBatchWriter};
+#[cfg(feature = "parquet")]
+use datafusion::arrow::error::ArrowError;
+#[cfg(feature = "parquet")]
+use datafusion::arrow::json::writer::JsonArray;
+#[cfg(feature = "parquet")]
+use datafusion::arrow::{csv, json};
+#[cfg(feature = "parquet")]
+use datafusion::parquet::arrow::ArrowWriter;
+#[cfg(feature = "parquet")]
+use futures::TryStreamExt;
+#[cfg(feature = "parquet")]
+use std::io::Write;
+#[cfg(feature = "parquet")]
+use tokio::task;
+#[cfg(feature = "parquet")]
+use windmill_parser_sql::S3ModeFormat;
 
-    pub static ref OBJECT_STORE_CACHE_SETTINGS: Arc<RwLock<Option<Arc<dyn ObjectStore>>>> = Arc::new(RwLock::new(None));
+#[cfg(feature = "parquet")]
+#[derive(Clone)]
+pub struct ExpirableObjectStore {
+    pub store: Arc<dyn ObjectStore>,
+    pub refresh: Option<ObjectStoreRefresh>,
+}
+
+#[cfg(feature = "parquet")]
+#[derive(Clone)]
+pub struct ObjectStoreRefresh {
+    refresh: Option<DateTime<Utc>>,
+    settings: ObjectSettings,
+}
+
+#[cfg(feature = "parquet")]
+impl ObjectStoreRefresh {
+    pub fn new(settings: ObjectSettings, refresh: Option<DateTime<Utc>>) -> Self {
+        Self { settings, refresh }
+    }
+    fn refresh_needed(&self) -> bool {
+        if let Some(refresh) = self.refresh {
+            if refresh < Utc::now() - chrono::Duration::minutes(1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    async fn refresh(&self) -> Option<ExpirableObjectStore> {
+        return build_object_store_from_settings(self.settings.clone(), None)
+            .await
+            .map_err(|e| {
+                tracing::error!("Error building s3 client from settings: {:?}", e);
+                e
+            })
+            .ok();
+    }
+}
+
+#[cfg(feature = "parquet")]
+impl From<Arc<dyn ObjectStore>> for ExpirableObjectStore {
+    fn from(store: Arc<dyn ObjectStore>) -> Self {
+        Self { store, refresh: None }
+    }
+}
+
+// #[cfg(feature = "parquet")]
+
+// impl ExpirableObjectStore {
+//     pub fn new(store: Arc<dyn ObjectStore>, expiration: Option<DateTime<Utc>>) -> Self {
+//         Self { store, expiration }
+//     }
+// }
+
+#[cfg(feature = "parquet")]
+lazy_static::lazy_static! {
+    pub static ref OBJECT_STORE_SETTINGS: Arc<RwLock<Option<ExpirableObjectStore>>> = Arc::new(RwLock::new(None));
+}
+
+#[cfg(feature = "parquet")]
+pub async fn get_object_store() -> Option<Arc<dyn ObjectStore>> {
+    let settings = OBJECT_STORE_SETTINGS.read().await;
+    if let Some(s) = settings.as_ref() {
+        match &s.refresh {
+            Some(refresh) => {
+                if refresh.refresh_needed() {
+                    let refresh = refresh.clone();
+                    drop(settings);
+                    let new_store = refresh.refresh().await;
+                    if let Some(new_store) = new_store {
+                        let mut s3_cache_settings = OBJECT_STORE_SETTINGS.write().await;
+                        let arc = new_store.store.clone();
+                        *s3_cache_settings = Some(new_store);
+                        return Some(arc);
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return Some(s.store.clone());
+                }
+            }
+            None => {
+                return Some(s.store.clone());
+            }
+        }
+    } else {
+        return None;
+    }
+}
+
+#[cfg(feature = "parquet")]
+pub enum ObjectStoreReload {
+    //if the jwks endpoints are not up yet, we should retry later soon
+    Later,
+    Never,
+}
+
+#[cfg(feature = "parquet")]
+pub async fn reload_object_store_setting(db: &crate::DB) -> ObjectStoreReload {
+    use crate::{
+        ee_oss::{get_license_plan, LicensePlan},
+        global_settings::{load_value_from_global_settings, OBJECT_STORE_CONFIG_SETTING},
+        s3_helpers::ObjectSettings,
+    };
+
+    let s3_config = load_value_from_global_settings(db, OBJECT_STORE_CONFIG_SETTING).await;
+    if let Err(e) = s3_config {
+        tracing::error!("Error reloading s3 cache config: {:?}", e)
+    } else {
+        if let Some(v) = s3_config.unwrap() {
+            if matches!(get_license_plan().await, LicensePlan::Pro) {
+                tracing::error!("S3 cache is not available for pro plan");
+                return ObjectStoreReload::Never;
+            }
+            let setting = serde_json::from_value::<ObjectSettings>(v);
+            match setting {
+                Ok(setting) => {
+                    let is_oidc = matches!(setting, ObjectSettings::AwsOidc(_));
+                    let s3_client = build_object_store_from_settings(setting, Some(db)).await;
+                    match s3_client {
+                        Ok(s3_client) => {
+                            let mut s3_cache_settings = OBJECT_STORE_SETTINGS.write().await;
+                            *s3_cache_settings = Some(s3_client);
+                        }
+                        Err(e) => {
+                            if is_oidc {
+                                tracing::error!("Error building s3 client from oidc settings. It may be due to the jwks endpoints not being up yet, it will be attempted again in 10s to leave time for the server to be ready: {:?}", e);
+                                return ObjectStoreReload::Later;
+                            } else {
+                                tracing::error!("Error building s3 client from settings: {:?}", e);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Error parsing s3 cache config: {:?}", e)
+                }
+            }
+        } else {
+            let mut s3_cache_settings = OBJECT_STORE_SETTINGS.write().await;
+            if std::env::var("S3_CACHE_BUCKET").is_ok() {
+                if matches!(get_license_plan().await, LicensePlan::Pro) {
+                    tracing::error!("S3 cache is not available for pro plan");
+                    return ObjectStoreReload::Never;
+                }
+                *s3_cache_settings = build_s3_client_from_settings(S3Settings {
+                    bucket: None,
+                    region: None,
+                    access_key: None,
+                    secret_key: None,
+                    endpoint: None,
+                    store_logs: None,
+                    path_style: None,
+                    allow_http: None,
+                    port: None,
+                })
+                .await
+                .ok()
+                .map(|x| ExpirableObjectStore::from(x))
+            } else {
+                *s3_cache_settings = None;
+            }
+        }
+    }
+    return ObjectStoreReload::Never;
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -56,6 +244,15 @@ pub enum ObjectStoreResource {
     Azure(AzureBlobResource),
 }
 
+impl ObjectStoreResource {
+    pub fn expiration(&self) -> Option<DateTime<Utc>> {
+        match self {
+            ObjectStoreResource::S3(s3_resource) => s3_resource.expiration,
+            _ => None,
+        }
+    }
+}
+
 #[derive(Deserialize, Debug)]
 pub enum StorageResourceType {
     S3,
@@ -79,6 +276,8 @@ pub struct S3Resource {
     #[serde(rename = "pathStyle")]
     pub path_style: Option<bool>,
     pub token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expiration: Option<DateTime<Utc>>,
     pub port: Option<u16>,
 }
 
@@ -101,7 +300,7 @@ pub struct AzureBlobResource {
     pub federated_token_file: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Hash)]
 pub struct S3AwsOidcResource {
     #[serde(rename = "bucket")]
     pub bucket: String,
@@ -111,13 +310,15 @@ pub struct S3AwsOidcResource {
     pub audience: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct S3Object {
     pub s3: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presigned: Option<String>,
 }
 
 #[cfg(feature = "parquet")]
@@ -385,17 +586,47 @@ pub enum ObjectStoreSettings {
 pub enum ObjectSettings {
     S3(S3Settings),
     Azure(AzureBlobResource),
+    AwsOidc(S3AwsOidcResource),
+}
+
+impl ObjectSettings {
+    pub fn get_bucket(&self) -> Option<&String> {
+        match self {
+            ObjectSettings::S3(s3_settings) => s3_settings.bucket.as_ref(),
+            ObjectSettings::Azure(azure_settings) => Some(&azure_settings.container_name),
+            ObjectSettings::AwsOidc(s3_aws_oidc_settings) => Some(&s3_aws_oidc_settings.bucket),
+        }
+    }
 }
 
 #[cfg(feature = "parquet")]
 pub async fn build_object_store_from_settings(
     settings: ObjectSettings,
-) -> error::Result<Arc<dyn ObjectStore>> {
+    init_private_key: Option<&crate::DB>,
+) -> error::Result<ExpirableObjectStore> {
     match settings {
-        ObjectSettings::S3(s3_settings) => build_s3_client_from_settings(s3_settings).await,
+        ObjectSettings::S3(s3_settings) => build_s3_client_from_settings(s3_settings)
+            .await
+            .map(|x| ExpirableObjectStore::from(x)),
         ObjectSettings::Azure(azure_settings) => {
             let azure_blob_resource = azure_settings;
-            build_azure_blob_client(&azure_blob_resource)
+            build_azure_blob_client(&azure_blob_resource).map(|x| ExpirableObjectStore::from(x))
+        }
+        ObjectSettings::AwsOidc(ref s3_aws_oidc_settings) => {
+            let token_generator = crate::job_s3_helpers_oss::TokenGenerator::AsServerInstance();
+            let res = crate::job_s3_helpers_oss::generate_s3_aws_oidc_resource(
+                s3_aws_oidc_settings.clone(),
+                token_generator,
+                init_private_key,
+            )
+            .await?;
+
+            build_object_store_client(&res)
+                .await
+                .map(|x| ExpirableObjectStore {
+                    store: x,
+                    refresh: Some(ObjectStoreRefresh::new(settings.clone(), res.expiration())),
+                })
         }
     }
 }
@@ -443,6 +674,7 @@ pub async fn build_s3_client_from_settings(
         path_style: settings.path_style,
         port: settings.port,
         token: None,
+        expiration: None,
     };
 
     build_s3_client(&s3_resource).await
@@ -473,4 +705,206 @@ impl CredentialProvider for AwsCredentialAdapter {
 
 pub fn bundle(w_id: &str, hash: &str) -> String {
     format!("script_bundle/{}/{}", w_id, hash)
+}
+
+pub fn raw_app(w_id: &str, version: &i64) -> String {
+    format!("/home/rfiszel/raw_app/{}/{}", w_id, version)
+}
+
+// Originally used a Arc<Mutex<dyn RecordBatchWriter + Send>>
+// But cannot call .close() on it because it moves the value and the object is not Sized
+#[cfg(feature = "parquet")]
+enum RecordBatchWriterEnum {
+    Parquet(ArrowWriter<ChannelWriter>),
+    Csv(csv::Writer<ChannelWriter>),
+    Json(json::Writer<ChannelWriter, JsonArray>),
+}
+
+#[cfg(feature = "parquet")]
+impl RecordBatchWriter for RecordBatchWriterEnum {
+    fn write(&mut self, batch: &RecordBatch) -> Result<(), ArrowError> {
+        match self {
+            RecordBatchWriterEnum::Parquet(w) => w.write(batch).map_err(|e| e.into()),
+            RecordBatchWriterEnum::Csv(w) => w.write(batch),
+            RecordBatchWriterEnum::Json(w) => w.write(batch),
+        }
+    }
+
+    fn close(self) -> Result<(), ArrowError> {
+        match self {
+            RecordBatchWriterEnum::Parquet(w) => w.close().map_err(|e| e.into()).map(drop),
+            RecordBatchWriterEnum::Csv(w) => w.close(),
+            RecordBatchWriterEnum::Json(w) => w.close(),
+        }
+    }
+}
+
+#[cfg(feature = "parquet")]
+struct ChannelWriter {
+    sender: tokio::sync::mpsc::Sender<anyhow::Result<Bytes>>,
+}
+
+#[cfg(feature = "parquet")]
+impl Write for ChannelWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let data: Bytes = buf.to_vec().into();
+        self.sender.blocking_send(Ok(data)).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                format!("Channel send error: {}", e),
+            )
+        })?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(not(feature = "parquet"))]
+pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
+    mut _stream: impl futures::TryStreamExt<Item = Result<serde_json::Value, E>> + Unpin,
+    _output_format: windmill_parser_sql::S3ModeFormat,
+) -> anyhow::Result<impl futures::TryStreamExt<Item = anyhow::Result<bytes::Bytes>>> {
+    Ok(async_stream::stream! {
+        yield Err(anyhow::anyhow!("Parquet feature is not enabled. Cannot convert JSON line stream."));
+    })
+}
+
+#[cfg(feature = "parquet")]
+pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
+    mut stream: impl TryStreamExt<Item = Result<serde_json::Value, E>> + Unpin,
+    output_format: S3ModeFormat,
+) -> anyhow::Result<impl TryStreamExt<Item = anyhow::Result<bytes::Bytes>>> {
+    const MAX_MPSC_SIZE: usize = 1000;
+
+    use datafusion::{execution::context::SessionContext, prelude::NdJsonReadOptions};
+    use futures::StreamExt;
+    use std::path::PathBuf;
+    use tokio::io::AsyncWriteExt;
+
+    let mut path = PathBuf::from(std::env::temp_dir());
+    path.push(format!("{}.json", rd_string(8)));
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Invalid path"))?;
+
+    // Write the stream to a temporary file
+    let mut file: tokio::fs::File = tokio::fs::File::create(&path).await.map_err(to_anyhow)?;
+
+    while let Some(chunk) = stream.next().await {
+        match chunk {
+            Ok(chunk) => {
+                // Convert the chunk to bytes and write it to the file
+                let b: bytes::Bytes = serde_json::to_string(&chunk)?.into();
+                file.write_all(&b).await?;
+                file.write_all(b"\n").await?;
+            }
+            Err(e) => {
+                tokio::fs::remove_file(&path).await?;
+                return Err(e.into());
+            }
+        }
+    }
+
+    file.flush().await?;
+    file.sync_all().await?;
+    drop(file);
+
+    let ctx = SessionContext::new();
+    ctx.register_json(
+        "my_table",
+        path_str,
+        NdJsonReadOptions { ..Default::default() },
+    )
+    .await
+    .map_err(to_anyhow)?;
+
+    let df = ctx.sql("SELECT * FROM my_table").await.map_err(to_anyhow)?;
+    let schema = df.schema().clone().into();
+    let mut datafusion_stream = df.execute_stream().await.map_err(to_anyhow)?;
+
+    let (tx, rx) = tokio::sync::mpsc::channel(MAX_MPSC_SIZE);
+    let writer: Arc<Mutex<Option<RecordBatchWriterEnum>>> =
+        Arc::new(Mutex::new(Some(match output_format {
+            S3ModeFormat::Parquet => RecordBatchWriterEnum::Parquet(
+                ArrowWriter::try_new(ChannelWriter { sender: tx.clone() }, Arc::new(schema), None)
+                    .map_err(to_anyhow)?,
+            ),
+
+            S3ModeFormat::Csv => {
+                RecordBatchWriterEnum::Csv(csv::Writer::new(ChannelWriter { sender: tx.clone() }))
+            }
+            S3ModeFormat::Json => {
+                RecordBatchWriterEnum::Json(json::Writer::<_, JsonArray>::new(ChannelWriter {
+                    sender: tx.clone(),
+                }))
+            }
+        })));
+
+    // This spawn is so that the data is sent in the background. Else the function would deadlock
+    // when hitting the mpsc channel limit
+    task::spawn(async move {
+        while let Some(batch_result) = datafusion_stream.next().await {
+            let batch: RecordBatch = match batch_result {
+                Ok(batch) => batch,
+                Err(e) => {
+                    tracing::error!("Error in datafusion stream: {:?}", &e);
+                    match tx.send(Err(e.into())).await {
+                        Ok(_) => {}
+                        Err(e) => tracing::error!("Failed to write error to channel: {:?}", &e),
+                    }
+                    break;
+                }
+            };
+            let writer = writer.clone();
+            // Writer calls blocking_send which would crash if called from the async context
+            let write_result = task::spawn_blocking(move || {
+                // SAFETY: We await so the code is actually sequential, lock unwrap cannot panic
+                // Second unwrap is ok because we initialized the option with Some
+                writer.lock().unwrap().as_mut().unwrap().write(&batch)
+            })
+            .await;
+            match write_result {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => {
+                    tracing::error!("Error writing batch: {:?}", &e);
+                    match tx.send(Err(e.into())).await {
+                        Ok(_) => {}
+                        Err(e) => tracing::error!("Failed to write error to channel: {:?}", &e),
+                    }
+                }
+                Err(e) => tracing::error!("Error in blocking task: {:?}", &e),
+            };
+        }
+        task::spawn_blocking(move || {
+            writer.lock().unwrap().take().unwrap().close()?;
+            drop(writer);
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+        drop(ctx);
+        tokio::fs::remove_file(&path).await?;
+        Ok::<_, anyhow::Error>(())
+    });
+
+    Ok(tokio_stream::wrappers::ReceiverStream::new(rx))
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct DuckdbConnectionSettingsResponse {
+    pub connection_settings_str: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub azure_container_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub s3_bucket: Option<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct DuckdbConnectionSettingsQueryV2 {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub s3_resource_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storage: Option<String>,
 }

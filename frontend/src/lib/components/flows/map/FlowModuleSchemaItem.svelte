@@ -1,5 +1,4 @@
 <script lang="ts">
-	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import Popover from '$lib/components/Popover.svelte'
 	import { classNames } from '$lib/utils'
 	import {
@@ -53,6 +52,7 @@
 	export let path: string = ''
 	export let modType: string | undefined = undefined
 	export let bgColor: string = ''
+	export let bgHoverColor: string = ''
 	export let concurrency: boolean = false
 	export let retries: number | undefined = undefined
 	export let warningMessage: string | undefined = undefined
@@ -72,9 +72,6 @@
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
-
-	const { currentStepStore: copilotCurrentStepStore } =
-		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 
 	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
 	const flowPropPickerConfig = propPickerContext?.flowPropPickerConfig
@@ -195,15 +192,16 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	class={classNames(
-		'w-full module flex rounded-sm cursor-pointer max-w-full',
-		selected ? 'outline outline-offset-0  outline-2  outline-slate-500 dark:outline-gray-400' : '',
-		'flex relative',
-		$copilotCurrentStepStore === id ? 'z-[901]' : ''
+		'w-full module flex rounded-sm cursor-pointer max-w-full outline-offset-0 outline-slate-500 dark:outline-gray-400',
+		selected ? 'outline outline-2' : 'active:outline active:outline-2',
+		'flex relative'
 	)}
-	style="width: 275px; height: 38px; background-color: {bgColor};"
+	style="width: 275px; height: 38px; background-color: {hover && bgHoverColor
+		? bgHoverColor
+		: bgColor};"
 	on:mouseenter={() => (hover = true)}
 	on:mouseleave={() => (hover = false)}
-	on:click|preventDefault|stopPropagation
+	on:pointerdown|preventDefault|stopPropagation={() => dispatch('pointerdown')}
 >
 	<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
 		{#if retry}
@@ -338,6 +336,8 @@
 					{loopStatus}
 					rightMargin
 					bind:derivedHistoryOpen={historyOpen}
+					historyOffset={{ mainAxis: 12, crossAxis: -9 }}
+					class="p-1"
 				/>
 			</OutputPicker>
 		{/if}
@@ -346,7 +346,7 @@
 	{#if deletable}
 		<button
 			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
-	outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-red-400 hover:text-white
+	outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-red-400 hover:text-white
 	 {hover || selected ? '' : '!hidden'}"
 			title="Delete"
 			on:click|preventDefault|stopPropagation={(event) =>
@@ -358,7 +358,7 @@
 		{#if id !== 'preprocessor'}
 			<button
 				class="absolute -top-[10px] right-[60px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
-outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-blue-400 hover:text-white
+outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-blue-400 hover:text-white
  {hover ? '' : '!hidden'}"
 				on:click|preventDefault|stopPropagation={(event) => dispatch('move')}
 				title="Move"
@@ -383,7 +383,7 @@ outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration
 					</svelte:fragment>
 					<div
 						class={twMerge(
-							'flex items-center justify-center h-full w-full rounded-md p-0.5 border  duration-150 ',
+							'flex items-center justify-center h-full w-full rounded-md p-0.5 border  duration-0 ',
 							id &&
 								Object.values($flowInputsStore?.[id]?.flowStepWarnings || {})?.some(
 									(x) => x.type === 'error'

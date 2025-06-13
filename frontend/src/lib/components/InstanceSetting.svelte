@@ -17,11 +17,18 @@
 	import ObjectStoreConfigSettings from './ObjectStoreConfigSettings.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import ConfirmButton from './ConfirmButton.svelte'
-	import { IndexSearchService, SettingService, TeamsService } from '$lib/gen'
+	import {
+		ConfigService,
+		IndexSearchService,
+		SettingService,
+		TeamsService,
+		type ListAvailablePythonVersionsResponse
+	} from '$lib/gen'
 	import { Button, SecondsInput, Skeleton } from './common'
 	import Password from './Password.svelte'
 	import { classNames } from '$lib/utils'
 	import Popover from './Popover.svelte'
+	import PopoverMelt from './meltComponents/Popover.svelte'
 	import Toggle from './Toggle.svelte'
 	import type { Writable } from 'svelte/store'
 	import { createEventDispatcher } from 'svelte'
@@ -30,6 +37,9 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
+	import LoadingIcon from './apps/svelte-select/lib/LoadingIcon.svelte'
+	import TeamSelector from './TeamSelector.svelte'
+	import ChannelSelector from './ChannelSelector.svelte'
 
 	export let setting: Setting
 	export let version: string
@@ -37,7 +47,10 @@
 	export let loading = true
 	const dispatch = createEventDispatcher()
 
-	if (setting.fieldType == 'select' && $values[setting.key] == undefined) {
+	if (
+		(setting.fieldType == 'select' || setting.fieldType == 'select_python') &&
+		$values[setting.key] == undefined
+	) {
 		$values[setting.key] = 'default'
 	}
 
@@ -122,6 +135,24 @@
 		}
 	}
 
+	let pythonAvailableVersions: ListAvailablePythonVersionsResponse = []
+
+	let isPyFetching = false
+	async function fetch_available_python_versions() {
+		if (isPyFetching) return
+		isPyFetching = true
+		try {
+			pythonAvailableVersions = await ConfigService.listAvailablePythonVersions()
+		} catch (error) {
+			console.error('Error fetching python versions:', error)
+		} finally {
+			isPyFetching = false
+		}
+	}
+	if (setting.fieldType == 'select_python') {
+		fetch_available_python_versions()
+	}
+
 	async function fetchTeams() {
 		if (isFetching) return
 		isFetching = true
@@ -134,9 +165,12 @@
 		}
 	}
 
-	function handleTeamChange(event: Event, i: number) {
-		const teamId = (event.target as HTMLSelectElement).value
-		const team = $values['teams'].find((team) => team.team_id === teamId) || null
+	function handleTeamChange(
+		teamItem: { team_id: string; team_name: string } | undefined,
+		i: number
+	) {
+		const team =
+			(teamItem && $values['teams'].find((team) => team.team_id === teamItem.team_id)) || null
 		$values['critical_error_channels'][i] = {
 			teams_channel: {
 				team_id: team?.team_id,
@@ -147,13 +181,12 @@
 		}
 	}
 
-	function handleChannelChange(event: Event, setting: Setting, i: number) {
-		const channelId = (event.target as HTMLSelectElement).value
-		const team = $values['teams'].find(
-			(team) => team.team_id === $values['critical_error_channels'][i]?.teams_channel?.team_id
-		)
-		const channel = team?.channels.find((channel) => channel.channel_id === channelId) || null
-		if (channelId) {
+	function handleChannelChange(
+		channel: { channel_id: string; channel_name: string } | undefined,
+		i: number
+	) {
+		const team = $values['critical_error_channels'][i]?.teams_channel
+		if (team) {
 			$values['critical_error_channels'][i] = {
 				teams_channel: {
 					team_id: team?.team_id,
@@ -194,6 +227,66 @@
 						item={toggleButton}
 					/>
 				{/each}
+			</ToggleButtonGroup>
+		</div>
+	{:else if setting.fieldType == 'select_python'}
+		<div>
+			<!-- svelte-ignore a11y-label-has-associated-control -->
+			<label class="block pb-2">
+				<span class="text-primary font-semibold text-sm">{setting.label}</span>
+				{#if setting.description}
+					<span class="text-secondary text-xs">
+						{@html setting.description}
+					</span>
+				{/if}
+			</label>
+
+			<ToggleButtonGroup bind:selected={$values[setting.key]} let:item={toggleButtonn}>
+				{#each setting.select_items ?? [] as item}
+					<ToggleButton
+						value={item.value ?? item.label}
+						label={item.label}
+						tooltip={item.tooltip}
+						item={toggleButtonn}
+					/>
+				{/each}
+				<PopoverMelt closeButton={!isPyFetching}>
+					<svelte:fragment slot="trigger">
+						{#if setting.select_items?.some((e) => e.label == $values[setting.key] || e.value == $values[setting.key])}
+							<Button
+								variant="border"
+								color="dark"
+								btnClasses="px-1.5 py-1.5 text-2xs bg-surface-secondary border-0"
+								nonCaptureEvent={true}>Select Custom</Button
+							>
+						{:else}
+							<Button
+								variant="border"
+								color="dark"
+								btnClasses="px-1.5 py-1.5 text-2xs border-0 shadow-md"
+								nonCaptureEvent={true}>Custom | {$values[setting.key]}</Button
+							>
+						{/if}
+					</svelte:fragment>
+					<svelte:fragment slot="content">
+						{#if isPyFetching}
+							<div class="p-4">
+								<LoadingIcon />
+							</div>
+						{:else}
+							<ToggleButtonGroup
+								bind:selected={$values[setting.key]}
+								let:item={toggleButtonn}
+								class="mr-10 h-full"
+								tabListClass="flex-wrap p-2"
+							>
+								{#each pythonAvailableVersions as item}
+									<ToggleButton value={item} label={item} tooltip={item} item={toggleButtonn} />
+								{/each}
+							</ToggleButtonGroup>
+						{/if}
+					</svelte:fragment>
+				</PopoverMelt>
 			</ToggleButtonGroup>
 		</div>
 	{:else}
@@ -334,15 +427,15 @@
 												latestKeyRenewalAttempt.result === 'success'
 													? 'text-green-600'
 													: isTrial
-													? 'text-yellow-600'
-													: 'text-red-600'
+														? 'text-yellow-600'
+														: 'text-red-600'
 											)}
 										>
 											{latestKeyRenewalAttempt.result === 'success'
 												? 'Latest key renewal succeeded'
 												: isTrial
-												? 'Latest key renewal ignored because in trial'
-												: 'Latest key renewal failed'}
+													? 'Latest key renewal ignored because in trial'
+													: 'Latest key renewal failed'}
 											on {attemptedAt}
 										</span>
 									</div>
@@ -458,46 +551,51 @@
 											/>
 										{:else if v && 'teams_channel' in v}
 											<div class="flex flex-row gap-2 w-full">
-												<select on:change={(e) => handleTeamChange(e, i)}>
-													<option
-														value=""
-														disabled
-														selected={!$values['critical_error_channels'][i]?.teams_channel
-															?.team_id}>Select team</option
-													>
-													{#if $values['teams']}
-														{#each $values['teams'] as team}
-															<option
-																value={team.team_id}
-																selected={$values['critical_error_channels'][i]?.teams_channel
-																	?.team_id === team.team_id}
-															>
-																{team.team_name}
-															</option>
-														{/each}
-													{/if}
-												</select>
+												<TeamSelector
+													containerClass="w-44"
+													minWidth="140px"
+													showRefreshButton={false}
+													placeholder="Select team"
+													teams={$values['teams']}
+													bind:selectedTeam={
+														() =>
+															$values['critical_error_channels'][i]?.teams_channel
+																? {
+																		team_id:
+																			$values['critical_error_channels'][i]?.teams_channel?.team_id,
+																		team_name:
+																			$values['critical_error_channels'][i]?.teams_channel
+																				?.team_name
+																	}
+																: undefined,
+														(team) => handleTeamChange(team, i)
+													}
+												/>
+
 												{#if $values['critical_error_channels'][i]?.teams_channel?.team_id}
-													<select
-														id="channel-select"
-														on:change={(e) => handleChannelChange(e, setting, i)}
-													>
-														<option
-															value=""
-															disabled
-															selected={!$values['critical_error_channels'][i]?.teams_channel
-																?.channel_id}>Select channel</option
-														>
-														{#each $values['teams'].find((team) => team.team_id === $values['critical_error_channels'][i]?.teams_channel?.team_id)?.channels ?? [] as channel}
-															<option
-																value={channel.channel_id}
-																selected={$values['critical_error_channels'][i]?.teams_channel
-																	?.channel_id === channel.channel_id}
-															>
-																{channel.channel_name}
-															</option>
-														{/each}
-													</select>
+													<ChannelSelector
+														containerClass=""
+														placeholder="Select channel"
+														channels={$values['teams'].find(
+															(team) =>
+																team.team_id ===
+																$values['critical_error_channels'][i]?.teams_channel?.team_id
+														)?.channels ?? []}
+														bind:selectedChannel={
+															() =>
+																$values['critical_error_channels'][i]?.teams_channel?.channel_id
+																	? {
+																			channel_id:
+																				$values['critical_error_channels'][i]?.teams_channel
+																					?.channel_id,
+																			channel_name:
+																				$values['critical_error_channels'][i]?.teams_channel
+																					?.channel_name
+																		}
+																	: undefined,
+															(channel) => handleChannelChange(channel, i)
+														}
+													/>
 												{/if}
 												<div>
 													<button on:click={fetchTeams} class="flex items-center gap-1 mt-2">
@@ -928,6 +1026,30 @@
 				{:else if setting.fieldType == 'object_store_config'}
 					<ObjectStoreConfigSettings bind:bucket_config={$values[setting.key]} />
 					<div class="mb-6"></div>
+				{:else if setting.fieldType == 'critical_alerts_on_db_oversize'}
+					{#if $values[setting.key]}
+						<div class="flex flex-row flex-wrap gap-2 p-0 items-center">
+							<div class="p-1">
+								<Toggle
+									disabled={!$enterpriseLicense}
+									bind:checked={$values[setting.key].enabled}
+								/>
+							</div>
+							{#if $values[setting.key].enabled}
+								<label class="block shrink min-w-0">
+									<input
+										type="number"
+										placeholder={setting.placeholder}
+										bind:value={$values[setting.key].value}
+									/>
+								</label>
+								<label class="block">
+									<span class="text-primary font-semibold text-sm">GB</span>
+								</label>
+							{/if}
+						</div>
+						<div class="mb-6"></div>
+					{/if}
 				{:else if setting.fieldType == 'number'}
 					<input
 						type="number"

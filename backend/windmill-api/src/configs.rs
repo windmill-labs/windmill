@@ -14,7 +14,7 @@ use axum::{
 
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
     error::{self},
@@ -32,6 +32,10 @@ pub fn global_service() -> Router {
         .route(
             "/list_autoscaling_events/:worker_group",
             get(list_autoscaling_events),
+        )
+        .route(
+            "/list_available_python_versions",
+            get(list_available_python_versions),
         )
 }
 
@@ -203,6 +207,24 @@ async fn list_autoscaling_events(
     .fetch_all(&db)
     .await?;
     Ok(Json(events))
+}
+
+async fn list_available_python_versions() -> error::JsonResult<Vec<String>> {
+    #[cfg(not(feature = "python"))]
+    return Err(error::Error::BadRequest(
+        "Python listing available only with 'python' feature enabled".to_string(),
+    ));
+
+    #[cfg(feature = "python")]
+    use itertools::Itertools;
+    #[cfg(feature = "python")]
+    return Ok(Json(
+        windmill_worker::PyV::list_available_python_versions()
+            .await
+            .iter()
+            .map(|v| v.to_string())
+            .collect_vec(),
+    ));
 }
 
 #[cfg(feature = "enterprise")]

@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { Badge } from '$lib/components/common'
 
-	import { getContext } from 'svelte'
-	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import VirtualItemWrapper from './VirtualItemWrapper.svelte'
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
@@ -13,6 +11,7 @@
 
 	export let label: string | undefined = undefined
 	export let bgColor: string = ''
+	export let bgHoverColor: string = ''
 	export let selected: boolean
 	export let selectable: boolean
 	export let id: string | undefined = undefined
@@ -27,19 +26,16 @@
 	export let earlyStop: boolean = false
 	export let editMode: boolean = false
 
-	const { currentStepStore: copilotCurrentStepStore } =
-		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
-
 	const { viewport } = useSvelteFlow()
 </script>
 
 <VirtualItemWrapper
 	{label}
 	{bgColor}
+	{bgHoverColor}
 	{selected}
 	{selectable}
 	{id}
-	onTop={label === 'Input' && $copilotCurrentStepStore === 'Input'}
 	on:select
 	let:hover
 >
@@ -91,6 +87,8 @@
 					hideHeaderBar
 					simpleViewer={inputJson}
 					rightMargin
+					historyOffset={{ mainAxis: 12, crossAxis: -9 }}
+					class="p-1"
 				/>
 			</OutputPicker>
 		{/if}

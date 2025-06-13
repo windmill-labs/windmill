@@ -319,10 +319,13 @@
 				const buckets = res['buckets']
 				sumOtherDocCount = res['sum_other_doc_count']
 				countsPerHost = new Map(buckets.map(({ key, doc_count }) => [key, doc_count]))
-				countsPerHost = buckets.reduce((acc: any, { key, doc_count }) => {
-					acc[key] = { doc_count }
-					return acc
-				}, {} as Record<string, number>)
+				countsPerHost = buckets.reduce(
+					(acc: any, { key, doc_count }) => {
+						acc[key] = { doc_count }
+						return acc
+					},
+					{} as Record<string, number>
+				)
 				queryParseErrors = countLogsResponse.query_parse_errors ?? []
 				loadingLogCounts = false
 			}
@@ -376,7 +379,7 @@
 		let ret = {}
 
 		for (const hk of Object.keys(countsPerHost)) {
-			let u = hk.split(",")
+			let u = hk.split(',')
 			let [mode, wg, hn] = [u[0], u[1], u[2]]
 
 			if (!ret[mode]) {
@@ -436,7 +439,7 @@
 									month: '2-digit',
 									hour: '2-digit',
 									minute: '2-digit'
-							  })
+								})
 							: 'min datetime'}
 						disabled
 					/>
@@ -476,7 +479,7 @@
 									month: '2-digit',
 									hour: '2-digit',
 									minute: '2-digit'
-							  })
+								})
 							: 'max datetime'}
 						disabled
 					/>
@@ -587,7 +590,8 @@
 											<div
 												class="text-sm pt-2 pl-0.5 whitespace-nowrap"
 												title={hn}
-												style="width: 90px;">{truncateRev(hn, countsPerHost || loadingLogs ? 40 : 8)}</div
+												style="width: 90px;"
+												>{truncateRev(hn, countsPerHost || loadingLogs ? 40 : 8)}</div
 											>
 											{#if loadingLogCounts}
 												<Loader2 size={15} class="animate-spin" />
@@ -752,7 +756,7 @@
 													month: '2-digit',
 													hour: '2-digit',
 													minute: '2-digit'
-											  })
+												})
 											: ''}
 										disabled
 									/><CalendarPicker bind:date={upTo} label="Logs up to" /></div

@@ -22,6 +22,7 @@
 	import CSharpIcon from '$lib/components/icons/CSharpIcon.svelte'
 	import NuIcon from '$lib/components/icons/NuIcon.svelte'
 	import JavaIcon from '$lib/components/icons/JavaIcon.svelte'
+	import DuckDbIcon from '$lib/components/icons/DuckDbIcon.svelte'
 
 	export let lang:
 		| SupportedLanguage
@@ -49,13 +50,14 @@
 		postgresql: 'Postgresql',
 		bigquery: 'BigQuery',
 		oracledb: 'Oracle Database',
+		duckdb: 'DuckDB',
 		snowflake: 'Snowflake',
 		mysql: 'MySQL',
 		mssql: 'MS SQL Server',
 		bun: 'TypeScript',
 		php: 'PHP',
 		rust: 'Rust',
-		ansible: 'Ansible Playbook',
+		ansible: 'Ansible',
 		csharp: 'C#',
 		nu: 'Nu',
 		java: 'Java',
@@ -93,8 +95,9 @@
 		csharp: CSharpIcon,
 		nu: NuIcon,
 		java: JavaIcon,
-		ruby: JavaIcon
-		// for related places search: ADD_NEW_LANG 
+		ruby: JavaIcon,
+		duckdb: DuckDbIcon
+		// for related places search: ADD_NEW_LANG
 	}
 
 	let subIconScale = width === 30 ? 0.6 : 0.8

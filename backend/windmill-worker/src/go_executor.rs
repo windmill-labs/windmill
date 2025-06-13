@@ -8,7 +8,7 @@ use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
     utils::calculate_hash,
-    worker::{save_cache, write_file},
+    worker::{save_cache, write_file, Connection},
 };
 use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
@@ -19,9 +19,10 @@ use crate::{
         start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR,
-    GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, TZ_ENV,
+    DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV,
+    NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
+use windmill_common::client::AuthedClient;
 
 const GO_REQ_SPLITTER: &str = "//go.sum\n";
 const NSJAIL_CONFIG_RUN_GO_CONTENT: &str = include_str!("../nsjail/run.go.config.proto");
@@ -36,7 +37,7 @@ pub async fn handle_go_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &MiniPulledJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     client: &AuthedClient,
     parent_runnable_path: Option<String>,
     inner_content: &str,
@@ -78,7 +79,7 @@ pub async fn handle_go_job(
 
     let cache_logs = if !cache {
         let logs1 = format!("{cache_logs}\n\n--- GO DEPENDENCIES SETUP ---\n");
-        append_logs(&job.id, &job.workspace_id, logs1, db).await;
+        append_logs(&job.id, &job.workspace_id, logs1, conn).await;
 
         install_go_dependencies(
             &job.id,
@@ -86,7 +87,7 @@ pub async fn handle_go_job(
             mem_peak,
             canceled_by,
             job_dir,
-            db,
+            conn,
             true,
             skip_go_mod,
             skip_tidy,
@@ -96,7 +97,7 @@ pub async fn handle_go_job(
         )
         .await?;
 
-        create_args_and_out_file(client, job, job_dir, db).await?;
+        create_args_and_out_file(client, job, job_dir, conn).await?;
         {
             let sig = windmill_parser_go::parse_go_sig(&inner_content)?;
 
@@ -202,7 +203,7 @@ func Run(req Req) (interface{{}}, error){{
         let build_go_process = start_child_process(build_go_cmd, GO_PATH.as_str()).await?;
         handle_child(
             &job.id,
-            db,
+            conn,
             mem_peak,
             canceled_by,
             build_go_process,
@@ -245,15 +246,15 @@ func Run(req Req) (interface{{}}, error){{
             ))
         })?;
 
-        create_args_and_out_file(client, job, job_dir, db).await?;
+        create_args_and_out_file(client, job, job_dir, conn).await?;
         cache_logs
     };
 
     let logs2 = format!("{cache_logs}\n\n--- GO CODE EXECUTION ---\n");
-    append_logs(&job.id, &job.workspace_id, logs2, db).await;
+    append_logs(&job.id, &job.workspace_id, logs2, conn).await;
 
     let reserved_variables =
-        get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -306,7 +307,7 @@ func Run(req Req) (interface{{}}, error){{
     };
     handle_child(
         &job.id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         child,
@@ -351,7 +352,7 @@ pub async fn install_go_dependencies(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     non_dep_job: bool,
     skip_go_mod: bool,
     has_sum: bool,
@@ -371,7 +372,7 @@ pub async fn install_go_dependencies(
 
         handle_child(
             job_id,
-            db,
+            conn,
             mem_peak,
             canceled_by,
             child_process,
@@ -409,20 +410,22 @@ pub async fn install_go_dependencies(
     let mut skip_tidy = has_sum;
 
     if !has_sum {
-        if let Some(cached) = sqlx::query_scalar!(
-            "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
-            hash
-        )
-        .fetch_optional(db)
-        .await?
-        {
-            let logs1 = format!("\nfound cached resolution: {}", hash);
-            append_logs(&job_id, w_id, logs1, db).await;
-            gen_go_mod(code, job_dir, &cached).await?;
-            skip_tidy = true;
-            new_lockfile = false;
-        } else {
-            new_lockfile = true;
+        if let Some(db) = conn.as_sql() {
+            if let Some(cached) = sqlx::query_scalar!(
+                "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
+                hash
+            )
+            .fetch_optional(db)
+            .await?
+            {
+                let logs1 = format!("\nfound cached resolution: {}", hash);
+                append_logs(&job_id, w_id, logs1, conn).await;
+                gen_go_mod(code, job_dir, &cached).await?;
+                skip_tidy = true;
+                new_lockfile = false;
+            } else {
+                new_lockfile = true;
+            }
         }
     }
 
@@ -438,7 +441,7 @@ pub async fn install_go_dependencies(
 
     handle_child(
         job_id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         child_process,
@@ -469,11 +472,15 @@ pub async fn install_go_dependencies(
     }
 
     if non_dep_job {
-        sqlx::query!(
-            "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
-            hash,
-            req_content
-        ).fetch_optional(db).await?;
+        if let Some(db) = conn.as_sql() {
+            sqlx::query!(
+                "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('5 mins')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
+                hash,
+                req_content
+            )
+            .fetch_optional(db)
+            .await?;
+        }
 
         return Ok(String::new());
     } else {

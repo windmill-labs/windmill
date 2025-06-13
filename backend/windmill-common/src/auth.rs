@@ -1,11 +1,57 @@
+use anyhow::Context;
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::{
     db::Authed,
     error::{Error, Result},
+    jwt,
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
     DB,
 };
+
+#[derive(Debug)]
+pub struct IdToken {
+    token: String,
+    expiration: DateTime<Utc>,
+}
+
+pub fn has_expired(expiration_time: DateTime<Utc>, take: Option<Duration>) -> bool {
+    let now = Utc::now();
+
+    let expiration = match take {
+        Some(duration) => expiration_time - duration,
+        None => expiration_time,
+    };
+
+    now > expiration
+}
+
+impl From<IdToken> for String {
+    fn from(value: IdToken) -> Self {
+        value.token
+    }
+}
+
+impl ToString for IdToken {
+    fn to_string(&self) -> String {
+        self.token.clone()
+    }
+}
+
+impl IdToken {
+    pub fn new(token: String, expiration: DateTime<Utc>) -> Self {
+        Self { token, expiration }
+    }
+
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+    pub fn expiration(&self) -> &DateTime<Utc> {
+        &self.expiration
+    }
+}
 
 #[derive(Deserialize, Serialize)]
 pub struct JWTAuthClaims {
@@ -22,7 +68,7 @@ pub struct JWTAuthClaims {
     pub scopes: Option<Vec<String>>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct JobPerms {
     pub email: String,
     pub username: String,
@@ -204,4 +250,170 @@ pub async fn get_groups_for_user(
     .into_iter().filter_map(|x| x)
     .collect();
     Ok(groups)
+}
+
+#[tracing::instrument(level = "trace", skip_all)]
+pub async fn create_token_for_owner(
+    db: &DB,
+    w_id: &str,
+    owner: &str,
+    label: &str,
+    expires_in: u64,
+    email: &str,
+    job_id: &Uuid,
+    perms: Option<JobPerms>,
+) -> crate::error::Result<String> {
+    let job_perms = if perms.is_some() {
+        Ok(perms)
+    } else {
+        sqlx::query_as!(
+            JobPerms,
+            "SELECT email, username, is_admin, is_operator, groups, folders FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+            job_id,
+            w_id
+        )
+        .fetch_optional(db)
+        .await
+    };
+    let job_authed = match job_perms {
+        Ok(Some(jp)) => jp.into(),
+        _ => {
+            tracing::warn!("Could not get permissions for job {job_id} from job_perms table, getting permissions directly...");
+            fetch_authed_from_permissioned_as(owner.to_string(), email.to_string(), w_id, db)
+                .await
+                .map_err(|e| {
+                    Error::internal_err(format!(
+                        "Could not get permissions directly for job {job_id}: {e:#}"
+                    ))
+                })?
+        }
+    };
+
+    let payload = JWTAuthClaims {
+        email: job_authed.email,
+        username: job_authed.username,
+        is_admin: job_authed.is_admin,
+        is_operator: job_authed.is_operator,
+        groups: job_authed.groups,
+        folders: job_authed.folders,
+        label: Some(label.to_string()),
+        workspace_id: w_id.to_string(),
+        exp: (chrono::Utc::now() + chrono::Duration::seconds(expires_in as i64)).timestamp()
+            as usize,
+        job_id: Some(job_id.to_string()),
+        scopes: None,
+    };
+
+    let token = jwt::encode_with_internal_secret(&payload)
+        .await
+        .with_context(|| format!("Could not encode JWT token for job {job_id}"))?;
+
+    Ok(format!("jwt_{}", token))
+}
+
+#[cfg(feature = "aws_auth")]
+pub mod aws {
+
+    use crate::error::to_anyhow;
+
+    use super::*;
+    use crate::utils::empty_as_none;
+    use aws_config::{BehaviorVersion, Region};
+    use aws_sdk_sts::{
+        config::Credentials as AwsCredentials,
+        operation::{
+            assume_role_with_saml::AssumeRoleWithSamlOutput,
+            assume_role_with_web_identity::AssumeRoleWithWebIdentityOutput,
+        },
+        types::Credentials,
+        Client,
+    };
+
+    pub const AWS_OIDC_AUDIENCE: &'static str = "sts.amazonaws.com";
+
+    pub trait GetAuthenticationOutput {
+        fn get_credentials(&self) -> Result<&Credentials>;
+    }
+
+    impl GetAuthenticationOutput for AssumeRoleWithSamlOutput {
+        fn get_credentials(&self) -> Result<&Credentials> {
+            let credentials = self.credentials.as_ref().ok_or(Error::BadGateway(
+                "Error fetching credentials from AWS STS".to_string(),
+            ))?;
+            Ok(credentials)
+        }
+    }
+
+    impl GetAuthenticationOutput for AssumeRoleWithWebIdentityOutput {
+        fn get_credentials(&self) -> Result<&Credentials> {
+            let credentials = self.credentials.as_ref().ok_or(Error::BadGateway(
+                "Error fetching credentials from AWS STS".to_string(),
+            ))?;
+            Ok(credentials)
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
+    #[sqlx(type_name = "AWS_AUTH_RESOURCE_TYPE", rename_all = "lowercase")]
+    #[serde(rename_all = "lowercase")]
+    pub enum AwsAuthResourceType {
+        Credentials,
+        Oidc,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct CredentialsAuth {
+        #[serde(deserialize_with = "empty_as_none")]
+        pub region: Option<String>,
+        #[serde(rename = "awsAccessKeyId")]
+        pub aws_access_key_id: String,
+        #[serde(rename = "awsSecretAccessKey")]
+        pub aws_secret_access_key: String,
+    }
+
+    #[derive(Clone, Debug, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub struct OidcAuth {
+        #[serde(deserialize_with = "empty_as_none")]
+        pub region: Option<String>,
+        #[serde(rename = "roleArn")]
+        pub role_arn: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(untagged)]
+    pub enum AWSAuthConfig {
+        Credentials(CredentialsAuth),
+        Oidc(OidcAuth),
+    }
+
+    pub async fn get_oidc_authentication_data(
+        oidc_auth: OidcAuth,
+        role_session_name: Option<impl ToString>,
+        token: String,
+    ) -> Result<AssumeRoleWithWebIdentityOutput> {
+        let region = oidc_auth.region.unwrap_or_else(|| "us-east-1".to_string());
+
+        let credentials = AwsCredentials::new("", "", None, None, "UserInput");
+
+        let config = aws_config::defaults(BehaviorVersion::latest())
+            .credentials_provider(credentials)
+            .region(Region::new(region.clone()))
+            .load()
+            .await;
+
+        let assume_role_with_web_identity_fluent_builder = Client::new(&config)
+            .assume_role_with_web_identity()
+            .set_role_arn(Some(oidc_auth.role_arn))
+            .set_role_session_name(role_session_name.map(|str| str.to_string()))
+            .set_web_identity_token(Some(token));
+
+        let resp = assume_role_with_web_identity_fluent_builder
+            .clone()
+            .send()
+            .await
+            .map_err(to_anyhow)?;
+
+        Ok(resp)
+    }
 }

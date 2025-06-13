@@ -154,7 +154,7 @@ const MAX_PATCHES = 4
 export class Autocompletor {
 	editor: meditor.IStandaloneCodeEditor
 	language: string
-	scriptLang: ScriptLang | 'bunnative'
+	scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json'
 	viewZoneIds: string[] = []
 	decorationsCollection: meditor.IEditorDecorationsCollection | undefined = undefined
 	visualChanges: VisualChange[] = []
@@ -192,7 +192,7 @@ export class Autocompletor {
 	constructor(
 		editor: meditor.IStandaloneCodeEditor,
 		language: string,
-		scriptLang: ScriptLang | 'bunnative'
+		scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json'
 	) {
 		this.editor = editor
 		this.language = language

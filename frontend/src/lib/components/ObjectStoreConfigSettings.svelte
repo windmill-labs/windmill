@@ -28,7 +28,14 @@
 		endpoint?: string
 	}
 
-	export let bucket_config: S3Config | AzureConfig | undefined = undefined
+	type AwsOidcConfig = {
+		type: 'AwsOidc'
+		bucket: string
+		region: string
+		roleArn: string
+	}
+
+	export let bucket_config: S3Config | AzureConfig | AwsOidcConfig | undefined = undefined
 
 	$: bucket_config?.type == 'S3' &&
 		bucket_config.allow_http == undefined &&
@@ -125,6 +132,7 @@
 		>
 			<Tab size="sm" value="S3">S3</Tab>
 			<Tab size="sm" value="Azure">Azure Blob</Tab>
+			<Tab size="sm" value="AwsOidc">AWS OIDC</Tab>
 		</Tabs>
 		<div class="flex flex-col gap-2 mt-2 p-2 border rounded-md">
 			{#if bucket_config.type === 'S3'}
@@ -209,6 +217,23 @@
 						>Only needed for non Azure Blob providers like Azurite</span
 					>
 					<input type="text" bind:value={bucket_config.endpoint} />
+				</label>
+			{:else if bucket_config.type === 'AwsOidc'}
+				<label class="block pb-2">
+					<span class="text-primary font-semibold text-sm">Bucket</span>
+					<input type="text" placeholder="bucket-name" bind:value={bucket_config.bucket} />
+				</label>
+				<label class="block pb-2">
+					<span class="text-primary font-semibold text-sm">Region</span>
+					<input type="text" placeholder="region" bind:value={bucket_config.region} />
+				</label>
+				<label class="block pb-2">
+					<span class="text-primary font-semibold text-sm">Role ARN</span>
+					<input
+						type="text"
+						placeholder="arn:aws:iam::123456789012:role/test"
+						bind:value={bucket_config.roleArn}
+					/>
 				</label>
 			{:else}
 				<div>Unknown bucket type {bucket_config['type']}</div>

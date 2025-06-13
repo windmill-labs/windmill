@@ -31,7 +31,7 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::utils::query_elems_from_hub;
 use windmill_common::worker::to_raw_value;
@@ -1345,7 +1345,7 @@ mod tests {
                     }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "foo = 'bar'".to_string(),
-                        skip_if_stopped: false,
+                        ..Default::default()
                     }),
                     stop_after_all_iters_if: None,
                     summary: None,
@@ -1374,7 +1374,7 @@ mod tests {
                     }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "previous.isEmpty()".to_string(),
-                        skip_if_stopped: false,
+                        ..Default::default()
                     }),
                     stop_after_all_iters_if: None,
                     summary: None,
@@ -1402,7 +1402,7 @@ mod tests {
                 .into(),
                 stop_after_if: Some(StopAfterIf {
                     expr: "previous.isEmpty()".to_string(),
-                    skip_if_stopped: false,
+                    ..Default::default()
                 }),
                 stop_after_all_iters_if: None,
                 summary: None,
@@ -1452,7 +1452,8 @@ mod tests {
               },
               "stop_after_if": {
                   "expr": "foo = 'bar'",
-                  "skip_if_stopped": false
+                  "skip_if_stopped": false,
+                  "error_message": null
               }
             },
             {
@@ -1474,6 +1475,7 @@ mod tests {
               "stop_after_if": {
                   "expr": "previous.isEmpty()",
                   "skip_if_stopped": false,
+                  "error_message": null
               }
             }
           ],
@@ -1486,7 +1488,8 @@ mod tests {
             },
             "stop_after_if": {
                 "expr": "previous.isEmpty()",
-                "skip_if_stopped": false
+                "skip_if_stopped": false,
+                "error_message": null
             }
           },
         });

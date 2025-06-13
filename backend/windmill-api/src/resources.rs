@@ -26,7 +26,7 @@ use serde_json::{value::RawValue, Value};
 use sql_builder::{bind::Bind, quote, SqlBuilder};
 use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
-use windmill_audit::audit_ee::{audit_log, AuditAuthor};
+use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
@@ -570,7 +570,7 @@ pub async fn transform_json_value<'c>(
             };
 
             let variables = variables::get_reserved_variables(
-                db,
+                &db.into(),
                 workspace,
                 token,
                 &job.email,
@@ -599,11 +599,10 @@ pub async fn transform_json_value<'c>(
         }
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
-                m.insert(
-                    a.clone(),
+                let v =
                     transform_json_value(authed, user_db.clone(), db, workspace, b, job_id, token)
-                        .await?,
-                );
+                        .await?;
+                m.insert(a.clone(), v);
             }
             Ok(Value::Object(m))
         }
@@ -1212,7 +1211,10 @@ async fn update_resource_type(
     feature = "http_trigger",
     feature = "postgres_trigger",
     feature = "mqtt_trigger",
-    all(feature = "sqs_trigger", feature = "enterprise")
+    all(
+        feature = "enterprise",
+        any(feature = "sqs_trigger", feature = "gcp_trigger")
+    )
 ))]
 pub async fn try_get_resource_from_db_as<T>(
     authed: ApiAuthed,

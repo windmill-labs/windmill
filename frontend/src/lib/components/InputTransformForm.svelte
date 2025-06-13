@@ -29,16 +29,20 @@
 	import type { InputTransform } from '$lib/gen'
 	import TemplateEditor from './TemplateEditor.svelte'
 	import { setInputCat as computeInputCat, isCodeInjection } from '$lib/utils'
-	import { FunctionSquare } from 'lucide-svelte'
+	import { FunctionSquare, InfoIcon } from 'lucide-svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 	import type { FlowCopilotContext } from './copilot/flow'
 	import StepInputGen from './copilot/StepInputGen.svelte'
 	import type { PickableProperties } from './flows/previousResults'
 	import { twMerge } from 'tailwind-merge'
 	import FlowPlugConnect from './FlowPlugConnect.svelte'
+	import { deepEqual } from 'fast-equals'
 	export let schema: Schema | { properties?: Record<string, any>; required?: string[] }
 	export let arg: InputTransform | any
 	export let argName: string
+	export let headerTooltip: string | undefined = undefined
+	export let headerTooltipIconClass = ''
+	export let HeaderTooltipIcon = InfoIcon
 	export let extraLib: string = 'missing extraLib'
 	export let inputCheck: boolean = true
 	export let previousModuleId: string | undefined
@@ -49,6 +53,7 @@
 	export let argExtra: Record<string, any> = {}
 	export let pickableProperties: PickableProperties | undefined = undefined
 	export let enableAi = false
+	export let hideHelpButton = false
 
 	let monaco: SimpleEditor | undefined = undefined
 	let monacoTemplate: TemplateEditor | undefined = undefined
@@ -58,11 +63,11 @@
 	const dispatch = createEventDispatcher()
 
 	$: inputCat = computeInputCat(
-		schema?.properties?.[argName].type,
-		schema?.properties?.[argName].format,
-		schema?.properties?.[argName].items?.type,
-		schema?.properties?.[argName].enum,
-		schema?.properties?.[argName].contentEncoding
+		schema?.properties?.[argName]?.type,
+		schema?.properties?.[argName]?.format,
+		schema?.properties?.[argName]?.items?.type,
+		schema?.properties?.[argName]?.enum,
+		schema?.properties?.[argName]?.contentEncoding
 	)
 
 	let propertyType = getPropertyType(arg)
@@ -70,8 +75,9 @@
 	const { shouldUpdatePropertyType, exprsToSet } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 
-	const { inputMatches, focusProp, propPickerConfig, clearFocus } =
+	const propPickerWrapperContext: PropPickerWrapperContext | undefined =
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
+	const { inputMatches, focusProp, propPickerConfig, clearFocus } = propPickerWrapperContext ?? {}
 
 	function setExpr() {
 		const newArg = $exprsToSet?.[argName]
@@ -221,7 +227,7 @@
 	function onFocus() {
 		focused = true
 		if (isStaticTemplate(inputCat)) {
-			focusProp(argName, 'append', (path) => {
+			focusProp?.(argName, 'append', (path) => {
 				const toAppend = `\$\{${path}}`
 				arg.value = `${arg.value ?? ''}${toAppend}`
 				monacoTemplate?.setCode(arg.value)
@@ -230,7 +236,7 @@
 				return false
 			})
 		} else {
-			focusProp(argName, 'insert', (path) => {
+			focusProp?.(argName, 'insert', (path) => {
 				arg.expr = path
 				arg.type = 'javascript'
 				propertyType = 'javascript'
@@ -240,7 +246,15 @@
 		}
 	}
 
-	$: updateStaticInput(inputCat, propertyType, arg)
+	let prevArg: any = undefined
+	$: inputCat && propertyType && arg && onArgChange()
+	function onArgChange() {
+		const newArg = { arg, propertyType, inputCat }
+		if (!deepEqual(newArg, prevArg)) {
+			prevArg = structuredClone(newArg)
+			updateStaticInput(inputCat, propertyType, arg)
+		}
+	}
 
 	function updateStaticInput(
 		inputCat: InputCat,
@@ -253,7 +267,7 @@
 		if (propertyType == 'static') {
 			setPropertyType(arg?.value)
 			codeInjectionDetected = checkCodeInjection(arg?.value) != undefined
-		} else if (propertyType == 'javascript' && focused) {
+		} else if (propertyType == 'javascript' && focused && inputMatches) {
 			// setPropertyType(arg?.expr)
 			$inputMatches = checkCodeInjection(arg?.expr)
 		}
@@ -261,19 +275,19 @@
 
 	function setDefaultCode() {
 		if (!arg?.value) {
-			monacoTemplate?.setCode(schema.properties?.[argName].default)
+			monacoTemplate?.setCode(schema.properties?.[argName]?.default)
 		}
 	}
 
 	function updateFocused(newFocused: boolean) {
-		if (focusedPrev && !newFocused) {
+		if (focusedPrev && !newFocused && inputMatches) {
 			$inputMatches = undefined
 		}
 		focusedPrev = focused
 	}
 	$: updateFocused(focused)
 
-	$: schema?.properties?.[argName].default && setDefaultCode()
+	$: schema?.properties?.[argName]?.default && setDefaultCode()
 
 	let resourceTypes: string[] | undefined = undefined
 
@@ -304,10 +318,13 @@
 			<div class="flex flex-wrap grow">
 				<FieldHeader
 					label={argName}
-					format={schema?.properties?.[argName].format}
-					contentEncoding={schema?.properties?.[argName].contentEncoding}
+					simpleTooltip={headerTooltip}
+					simpleTooltipIconClass={headerTooltipIconClass}
+					SimpleTooltipIcon={HeaderTooltipIcon}
+					format={schema?.properties?.[argName]?.format}
+					contentEncoding={schema?.properties?.[argName]?.contentEncoding}
 					required={schema.required?.includes(argName)}
-					type={schema.properties?.[argName].type}
+					type={schema.properties?.[argName]?.type}
 				/>
 
 				{#if isStaticTemplate(inputCat)}
@@ -449,24 +466,26 @@
 						</ToggleButtonGroup>
 					</div>
 
-					<FlowPlugConnect
-						id="flow-editor-plug"
-						{connecting}
-						on:click={() => {
-							if (
-								$propPickerConfig?.propName == argName &&
-								$propPickerConfig?.insertionMode == 'connect'
-							) {
-								clearFocus()
-							} else {
-								focusProp?.(argName, 'connect', (path) => {
-									connectProperty(path)
-									dispatch('change', { argName })
-									return true
-								})
-							}
-						}}
-					/>
+					{#if propPickerWrapperContext}
+						<FlowPlugConnect
+							id="flow-editor-plug"
+							{connecting}
+							on:click={() => {
+								if (
+									$propPickerConfig?.propName == argName &&
+									$propPickerConfig?.insertionMode == 'connect'
+								) {
+									clearFocus()
+								} else {
+									focusProp?.(argName, 'connect', (path) => {
+										connectProperty(path)
+										dispatch('change', { argName })
+										return true
+									})
+								}
+							}}
+						/>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -503,8 +522,9 @@
 									bind:code={arg.value}
 									fontSize={14}
 									on:change={() => {
-										dispatch('change', { argName })
+										dispatch('change', { argName, arg })
 									}}
+									loadAsync
 								/>
 							{/if}
 						</div>
@@ -520,7 +540,7 @@
 							}}
 							shouldDispatchChanges
 							on:change={() => {
-								dispatch('change', { argName })
+								dispatch('change', { argName, arg })
 							}}
 							label={argName}
 							bind:editor={monaco}
@@ -553,29 +573,30 @@
 							<SimpleEditor
 								bind:this={monaco}
 								bind:code={arg.expr}
-								on:change={() => {
-									dispatch('change', { argName })
-								}}
 								{extraLib}
 								lang="javascript"
 								shouldBindKey={false}
 								on:focus={() => {
 									focused = true
-									focusProp(argName, 'insert', (path) => {
+									focusProp?.(argName, 'insert', (path) => {
 										monaco?.insertAtCursor(path)
 										return false
 									})
 								}}
 								on:change={() => {
-									dispatch('change', { argName })
+									dispatch('change', { argName, arg })
 								}}
 								on:blur={() => {
 									focused = false
 								}}
 								autoHeight
+								loadAsync
 							/>
+							<!-- <input type="text" bind:value={arg.expr} /> -->
 						</div>
-						<DynamicInputHelpBox />
+						{#if !hideHelpButton}
+							<DynamicInputHelpBox />
+						{/if}
 						<div class="mb-2"></div>
 					{:else}
 						Not recognized input type {argName} ({arg.expr}, {propertyType})

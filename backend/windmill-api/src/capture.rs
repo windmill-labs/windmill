@@ -7,57 +7,85 @@
  */
 
 #[cfg(feature = "http_trigger")]
-use crate::http_triggers::{build_http_trigger_extra, HttpMethod};
-#[cfg(all(feature = "enterprise", feature = "kafka"))]
-use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
-#[cfg(feature = "mqtt_trigger")]
-use crate::mqtt_triggers::{MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic};
-#[cfg(all(feature = "enterprise", feature = "nats"))]
-use crate::nats_triggers_ee::NatsTriggerConfigConnection;
-#[cfg(feature = "postgres_trigger")]
-use crate::postgres_triggers::{
-    create_logical_replication_slot_query, create_publication_query, drop_publication_query,
-    generate_random_string, get_database_connection, PublicationData,
+use {
+    crate::http_trigger_args::{HttpMethod, RawHttpTriggerArgs},
+    axum::response::{IntoResponse, Response},
+    std::collections::HashMap,
 };
-#[cfg(feature = "http_trigger")]
-use axum::extract::Request;
-#[cfg(feature = "http_trigger")]
-use axum::response::IntoResponse;
-#[cfg(feature = "http_trigger")]
-use http::HeaderMap;
-#[cfg(feature = "postgres_trigger")]
-use itertools::Itertools;
-#[cfg(feature = "postgres_trigger")]
-use pg_escape::quote_literal;
-#[cfg(feature = "http_trigger")]
+
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+use {
+    crate::gcp_triggers_oss::{
+        manage_google_subscription, process_google_push_request, validate_jwt_token,
+        CreateUpdateConfig, SubscriptionMode,
+    },
+    axum::extract::Request,
+    http::HeaderMap,
+};
+
+#[cfg(any(
+    all(feature = "enterprise", feature = "gcp_trigger"),
+    feature = "postgres_trigger"
+))]
+use windmill_common::utils::empty_as_none;
+
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+use windmill_common::auth::aws::AwsAuthResourceType;
+
+#[cfg(any(
+    feature = "http_trigger",
+    all(feature = "enterprise", feature = "gcp_trigger")
+))]
 use serde::de::DeserializeOwned;
-#[cfg(feature = "http_trigger")]
-use std::collections::HashMap;
-#[cfg(feature = "http_trigger")]
+
+#[cfg(any(
+    feature = "http_trigger",
+    feature = "postgres_trigger",
+    all(feature = "enterprise", feature = "gcp_trigger")
+))]
 use windmill_common::error::Error;
 
+#[cfg(all(feature = "enterprise", feature = "kafka"))]
+use crate::kafka_triggers_oss::KafkaTriggerConfigConnection;
+
+#[cfg(feature = "mqtt_trigger")]
+use crate::mqtt_triggers::{MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic};
+
+#[cfg(all(feature = "enterprise", feature = "nats"))]
+use crate::nats_triggers_oss::NatsTriggerConfigConnection;
+
+#[cfg(feature = "postgres_trigger")]
+use crate::postgres_triggers::{
+    create_logical_replication_slot, create_pg_publication, generate_random_string,
+    get_default_pg_connection, PublicationData,
+};
+
 use crate::{
-    args::WebhookArgs,
+    args::RawWebhookArgs,
     db::{ApiAuthed, DB},
     users::fetch_api_authed,
     utils::RunnableKind,
 };
+
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, head, post},
     Json, Router,
 };
+
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::Json as SqlxJson;
+
 use windmill_common::{
     db::UserDB,
     error::{JsonResult, Result},
+    triggers::{RunnableFormat, RunnableFormatVersion, TriggerKind},
     utils::{not_found_if_none, paginate, Pagination, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
-use windmill_queue::TriggerKind;
+
 use windmill_queue::{PushArgs, PushArgsOwned};
 
 const KEEP_LAST: i64 = 20;
@@ -85,14 +113,26 @@ pub fn workspaced_unauthed_service() -> Router {
         head(|| async {}).post(webhook_payload),
     );
 
-    #[cfg(feature = "http_trigger")]
+    #[cfg(any(
+        feature = "http_trigger",
+        all(feature = "enterprise", feature = "gcp_trigger")
+    ))]
     {
-        router.route("/http/:runnable_kind/:path/*route_path", {
+        #[cfg(feature = "http_trigger")]
+        let router = router.route("/http/:runnable_kind/:path/*route_path", {
             head(|| async {}).fallback(http_payload)
-        })
+        });
+
+        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+        let router = router.route("/gcp/:runnable_kind/*path", post(gcp_payload));
+
+        router
     }
 
-    #[cfg(not(feature = "http_trigger"))]
+    #[cfg(not(any(
+        feature = "http_trigger",
+        all(feature = "enterprise", feature = "gcp_trigger")
+    )))]
     {
         router
     }
@@ -122,6 +162,21 @@ pub struct SqsTriggerConfig {
     pub queue_url: String,
     pub aws_resource_path: String,
     pub message_attributes: Option<Vec<String>>,
+    pub aws_auth_resource_type: AwsAuthResourceType,
+}
+
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GcpTriggerConfig {
+    pub gcp_resource_path: String,
+    pub subscription_mode: SubscriptionMode,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub subscription_id: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub base_endpoint: Option<String>,
+    #[serde(flatten)]
+    pub create_update: Option<CreateUpdateConfig>,
+    pub topic_id: String,
 }
 
 #[cfg(all(feature = "enterprise", feature = "nats"))]
@@ -151,9 +206,12 @@ pub struct MqttTriggerConfig {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PostgresTriggerConfig {
     pub postgres_resource_path: String,
+    #[serde(default, deserialize_with = "empty_as_none")]
     pub publication_name: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
     pub replication_slot_name: Option<String>,
     pub publication: PublicationData,
+    pub basic_mode: Option<bool>,
 }
 
 #[cfg(feature = "websocket")]
@@ -181,6 +239,8 @@ enum TriggerConfig {
     Nats(NatsTriggerConfig),
     #[cfg(feature = "mqtt_trigger")]
     Mqtt(MqttTriggerConfig),
+    #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+    Gcp(GcpTriggerConfig),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -208,15 +268,26 @@ async fn get_configs(
 
     let configs = sqlx::query_as!(
         CaptureConfig,
-        r#"SELECT trigger_config as "trigger_config: _", trigger_kind as "trigger_kind: _", error, last_server_ping
-        FROM capture_config
-        WHERE workspace_id = $1 AND path = $2 AND is_flow = $3"#,
+        r#"
+        SELECT 
+            trigger_config AS "trigger_config: _", 
+            trigger_kind AS "trigger_kind: _", 
+            error, 
+            last_server_ping
+        FROM 
+            capture_config
+        WHERE 
+            workspace_id = $1 
+            AND path = $2 
+            AND is_flow = $3
+        "#,
         &w_id,
         &path.to_path(),
         matches!(runnable_kind, RunnableKind::Flow),
     )
     .fetch_all(&mut *tx)
     .await?;
+
     tx.commit().await?;
 
     Ok(Json(configs))
@@ -230,87 +301,155 @@ async fn set_postgres_trigger_config(
     user_db: UserDB,
     mut capture_config: NewCaptureConfig,
 ) -> Result<NewCaptureConfig> {
-    let Some(TriggerConfig::Postgres(mut postgres_config)) = capture_config.trigger_config else {
-        return Err(windmill_common::error::Error::BadRequest(
-            "Invalid postgres config".to_string(),
-        ));
+    use windmill_common::error::to_anyhow;
+
+    let Some(TriggerConfig::Postgres(postgres_config)) = capture_config.trigger_config.as_mut()
+    else {
+        return Err(Error::BadRequest("Invalid postgres config".to_string()));
     };
 
-    let mut connection = get_database_connection(
+    if postgres_config.basic_mode.unwrap_or(false) {
+        let mut pg_connection = get_default_pg_connection(
+            authed,
+            Some(user_db),
+            &db,
+            &postgres_config.postgres_resource_path,
+            &w_id,
+        )
+        .await?;
+
+        let tx = pg_connection.transaction().await.map_err(to_anyhow)?;
+
+        let publication_name = format!("windmill_capture_{}", generate_random_string());
+        let replication_slot_name = publication_name.clone();
+
+        create_logical_replication_slot(tx.client(), &replication_slot_name)
+            .await
+            .map_err(to_anyhow)?;
+
+        create_pg_publication(
+            tx.client(),
+            &publication_name,
+            postgres_config.publication.table_to_track.as_deref(),
+            &postgres_config.publication.transaction_to_track,
+        )
+        .await
+        .map_err(to_anyhow)?;
+
+        tx.commit().await.map_err(to_anyhow)?;
+
+        postgres_config.publication_name = Some(publication_name);
+        postgres_config.replication_slot_name = Some(replication_slot_name);
+    } else {
+        if postgres_config.publication_name.is_none()
+            || postgres_config.replication_slot_name.is_none()
+        {
+            return Err(Error::BadRequest(
+                "Publication name and slot name required in advanced mode".to_string(),
+            ));
+        }
+    }
+
+    Ok(capture_config)
+}
+
+#[inline]
+#[cfg(not(feature = "postgres_trigger"))]
+async fn set_postgres_trigger_config(
+    _w_id: &str,
+    _authed: ApiAuthed,
+    _db: &DB,
+    _user_db: UserDB,
+    capture_config: NewCaptureConfig,
+) -> Result<NewCaptureConfig> {
+    Ok(capture_config)
+}
+
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+async fn set_gcp_trigger_config(
+    w_id: &str,
+    authed: ApiAuthed,
+    db: &DB,
+    mut capture_config: NewCaptureConfig,
+) -> Result<NewCaptureConfig> {
+    let Some(TriggerConfig::Gcp(mut gcp_config)) = capture_config.trigger_config else {
+        return Err(Error::BadRequest("Invalid GCP Pub/Sub config".to_string()));
+    };
+
+    let config = manage_google_subscription(
         authed,
-        Some(user_db),
-        &db,
-        &postgres_config.postgres_resource_path,
-        &w_id,
+        db,
+        w_id,
+        &gcp_config.gcp_resource_path,
+        &capture_config.path,
+        &gcp_config.topic_id,
+        &mut gcp_config.subscription_id,
+        &mut gcp_config.base_endpoint,
+        gcp_config.subscription_mode,
+        gcp_config.create_update,
+        false,
+        capture_config.is_flow,
     )
     .await?;
+    gcp_config.create_update = Some(config);
+    gcp_config.subscription_mode = SubscriptionMode::CreateUpdate;
+    capture_config.trigger_config = Some(TriggerConfig::Gcp(gcp_config));
 
-    let publication_name = postgres_config
-        .publication_name
-        .get_or_insert(format!("windmill_capture_{}", generate_random_string()));
-    let replication_slot_name = postgres_config
-        .replication_slot_name
-        .get_or_insert(publication_name.clone());
+    Ok(capture_config)
+}
 
-    let query = drop_publication_query(&publication_name);
-
-    sqlx::query(&query).execute(&mut connection).await?;
-
-    let query = create_publication_query(
-        &publication_name,
-        postgres_config.publication.table_to_track.as_deref(),
-        &postgres_config
-            .publication
-            .transaction_to_track
-            .iter()
-            .map(AsRef::as_ref)
-            .collect_vec(),
-    );
-
-    sqlx::query(&query).execute(&mut connection).await?;
-
-    let query = format!(
-        "SELECT 1 from pg_replication_slots WHERE slot_name = {}",
-        quote_literal(replication_slot_name)
-    );
-
-    let row = sqlx::query(&query).fetch_optional(&mut connection).await?;
-
-    if row.is_none() {
-        let query = create_logical_replication_slot_query(&replication_slot_name);
-        sqlx::query(&query).execute(&mut connection).await?;
-    }
-    capture_config.trigger_config = Some(TriggerConfig::Postgres(postgres_config));
+#[inline]
+#[cfg(not(all(feature = "enterprise", feature = "gcp_trigger")))]
+async fn set_gcp_trigger_config(
+    _w_id: &str,
+    _authed: ApiAuthed,
+    _db: &DB,
+    capture_config: NewCaptureConfig,
+) -> Result<NewCaptureConfig> {
     Ok(capture_config)
 }
 
 async fn set_config(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    #[cfg(feature = "postgres_trigger")] Extension(db): Extension<DB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(nc): Json<NewCaptureConfig>,
-) -> Result<()> {
-    #[cfg(feature = "postgres_trigger")]
-    let nc = if let TriggerKind::Postgres = nc.trigger_kind {
-        set_postgres_trigger_config(&w_id, authed.clone(), &db, user_db.clone(), nc).await?
-    } else {
-        nc
+) -> JsonResult<Option<TriggerConfig>> {
+    let nc = match nc.trigger_kind {
+        TriggerKind::Postgres => {
+            set_postgres_trigger_config(&w_id, authed.clone(), &db, user_db.clone(), nc).await?
+        }
+        TriggerKind::Gcp => set_gcp_trigger_config(&w_id, authed.clone(), &db, nc).await?,
+        _ => nc,
     };
 
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
-        "INSERT INTO capture_config
-            (workspace_id, path, is_flow, trigger_kind, trigger_config, owner, email)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        r#"
+        INSERT INTO capture_config (
+            workspace_id, path, is_flow, trigger_kind, trigger_config, owner, email
+        )
+        VALUES (
+            $1, $2, $3, $4, $5, $6, $7
+        )
         ON CONFLICT (workspace_id, path, is_flow, trigger_kind)
-            DO UPDATE SET trigger_config = $5, owner = $6, email = $7, server_id = NULL, error = NULL",
+        DO UPDATE 
+        SET 
+            trigger_config = $5, 
+            owner = $6, 
+            email = $7, 
+            server_id = NULL, 
+            error = NULL
+        "#,
         &w_id,
         &nc.path,
         nc.is_flow,
         nc.trigger_kind as TriggerKind,
-        nc.trigger_config.map(|x| SqlxJson(to_raw_value(&x))) as Option<SqlxJson<Box<RawValue>>>,
+        nc.trigger_config
+            .as_ref()
+            .map(|x| SqlxJson(to_raw_value(&x))) as Option<SqlxJson<Box<RawValue>>>,
         &authed.username,
         &authed.email,
     )
@@ -319,7 +458,7 @@ async fn set_config(
 
     tx.commit().await?;
 
-    Ok(())
+    Ok(Json(nc.trigger_config))
 }
 
 async fn ping_config(
@@ -333,8 +472,19 @@ async fn ping_config(
     )>,
 ) -> Result<()> {
     let mut tx = user_db.begin(&authed).await?;
+
     sqlx::query!(
-        "UPDATE capture_config SET last_client_ping = now() WHERE workspace_id = $1 AND path = $2 AND is_flow = $3 AND trigger_kind = $4",
+        r#"
+        UPDATE 
+            capture_config
+        SET 
+            last_client_ping = NOW()
+        WHERE 
+            workspace_id = $1 
+            AND path = $2 
+            AND is_flow = $3 
+            AND trigger_kind = $4
+        "#,
         &w_id,
         &path.to_path(),
         matches!(runnable_kind, RunnableKind::Flow),
@@ -342,6 +492,7 @@ async fn ping_config(
     )
     .execute(&mut *tx)
     .await?;
+
     tx.commit().await?;
     Ok(())
 }
@@ -351,8 +502,8 @@ struct Capture {
     id: i64,
     created_at: chrono::DateTime<chrono::Utc>,
     trigger_kind: TriggerKind,
-    payload: SqlxJson<Box<serde_json::value::RawValue>>,
-    trigger_extra: Option<SqlxJson<Box<serde_json::value::RawValue>>>,
+    main_args: SqlxJson<Box<serde_json::value::RawValue>>,
+    preprocessor_args: Option<SqlxJson<Box<serde_json::value::RawValue>>>,
 }
 
 #[derive(Deserialize)]
@@ -374,14 +525,31 @@ async fn list_captures(
 
     let captures = sqlx::query_as!(
         Capture,
-        r#"SELECT id, created_at, trigger_kind as "trigger_kind: _", CASE WHEN pg_column_size(payload) < 40000 THEN payload ELSE '"WINDMILL_TOO_BIG"'::jsonb END as "payload!: _", trigger_extra as "trigger_extra: _"
-        FROM capture
-        WHERE workspace_id = $1
-            AND path = $2 AND is_flow = $3
+        r#"
+        SELECT 
+            id, 
+            created_at, 
+            trigger_kind AS "trigger_kind: _",
+            CASE 
+                WHEN pg_column_size(main_args) < 40000 THEN main_args 
+                ELSE '"WINDMILL_TOO_BIG"'::jsonb 
+            END AS "main_args!: _",
+            CASE
+                WHEN pg_column_size(preprocessor_args) < 40000 THEN preprocessor_args
+                ELSE '"WINDMILL_TOO_BIG"'::jsonb
+            END AS "preprocessor_args: _"
+        FROM 
+            capture
+        WHERE 
+            workspace_id = $1 
+            AND path = $2 
+            AND is_flow = $3 
             AND ($4::trigger_kind IS NULL OR trigger_kind = $4)
-        ORDER BY created_at DESC
+        ORDER BY 
+            created_at DESC
         OFFSET $5
-        LIMIT $6"#,
+        LIMIT $6
+        "#,
         &w_id,
         &path.to_path(),
         matches!(runnable_kind, RunnableKind::Flow),
@@ -403,14 +571,28 @@ async fn get_capture(
     Path((w_id, id)): Path<(String, i64)>,
 ) -> JsonResult<Capture> {
     let mut tx = user_db.begin(&authed).await?;
+
     let capture = sqlx::query_as!(
         Capture,
-        r#"SELECT id, created_at, trigger_kind as "trigger_kind: _", payload as "payload!: _", trigger_extra as "trigger_extra: _" FROM capture WHERE id = $1 AND workspace_id = $2"#,
+        r#"
+        SELECT 
+            id, 
+            created_at, 
+            trigger_kind AS "trigger_kind: _", 
+            main_args AS "main_args!: _", 
+            preprocessor_args AS "preprocessor_args: _"
+        FROM 
+            capture
+        WHERE 
+            id = $1 
+            AND workspace_id = $2
+        "#,
         id,
         &w_id,
     )
     .fetch_one(&mut *tx)
-        .await?;
+    .await?;
+
     tx.commit().await?;
     Ok(Json(capture))
 }
@@ -421,9 +603,17 @@ async fn delete_capture(
     Path((_, id)): Path<(String, i64)>,
 ) -> Result<()> {
     let mut tx = user_db.begin(&authed).await?;
-    sqlx::query!("DELETE FROM capture WHERE id = $1", id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query!(
+        r#"
+        DELETE FROM 
+            capture
+        WHERE 
+            id = $1
+        "#,
+        id
+    )
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(())
 }
@@ -441,8 +631,18 @@ async fn move_captures_and_configs(
 ) -> Result<()> {
     let mut tx = user_db.begin(&authed).await?;
     let old_path = old_path.to_path();
+
     sqlx::query!(
-        "UPDATE capture_config SET path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow = $4",
+        r#"
+        UPDATE 
+            capture_config
+        SET 
+            path = $1
+        WHERE 
+            path = $2 
+            AND workspace_id = $3 
+            AND is_flow = $4
+        "#,
         body.new_path,
         old_path,
         &w_id,
@@ -450,8 +650,18 @@ async fn move_captures_and_configs(
     )
     .execute(&mut *tx)
     .await?;
+
     sqlx::query!(
-        "UPDATE capture SET path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow = $4",
+        r#"
+        UPDATE 
+            capture
+        SET 
+            path = $1
+        WHERE 
+            path = $2 
+            AND workspace_id = $3 
+            AND is_flow = $4
+        "#,
         body.new_path,
         old_path,
         &w_id,
@@ -459,6 +669,7 @@ async fn move_captures_and_configs(
     )
     .execute(&mut *tx)
     .await?;
+
     tx.commit().await?;
     Ok(())
 }
@@ -478,9 +689,19 @@ pub async fn get_active_capture_owner_and_email(
 ) -> Result<(String, String)> {
     let capture_config = sqlx::query_as!(
         ActiveCaptureOwner,
-        "SELECT owner, email
-        FROM capture_config
-        WHERE workspace_id = $1 AND path = $2 AND is_flow = $3 AND trigger_kind = $4 AND last_client_ping > NOW() - INTERVAL '10 seconds'",
+        r#"
+        SELECT 
+            owner, 
+            email
+        FROM 
+            capture_config
+        WHERE 
+            workspace_id = $1 
+            AND path = $2 
+            AND is_flow = $3 
+            AND trigger_kind = $4 
+            AND last_client_ping > NOW() - INTERVAL '10 seconds'
+        "#,
         &w_id,
         &path,
         is_flow,
@@ -498,7 +719,10 @@ pub async fn get_active_capture_owner_and_email(
     Ok((capture_config.owner, capture_config.email))
 }
 
-#[cfg(feature = "http_trigger")]
+#[cfg(any(
+    feature = "http_trigger",
+    all(feature = "enterprise", feature = "gcp_trigger")
+))]
 async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
     db: &DB,
     w_id: &str,
@@ -512,16 +736,34 @@ async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
         owner: String,
         email: String,
     }
-
     let capture_config = sqlx::query_as!(
         CaptureTriggerConfigAndOwner,
-        r#"SELECT trigger_config as "trigger_config: _", owner, email
-        FROM capture_config
-        WHERE workspace_id = $1 AND path = $2 AND is_flow = $3 AND trigger_kind = $4 AND last_client_ping > NOW() - INTERVAL '10 seconds'"#,
+        r#"
+        SELECT 
+            trigger_config AS "trigger_config: _", 
+            owner, 
+            email
+        FROM 
+            capture_config
+        WHERE 
+            workspace_id = $1
+            AND path = $2
+            AND is_flow = $3
+            AND trigger_kind = $4
+            AND last_client_ping > NOW() - INTERVAL '10 seconds'
+            AND (
+                $5::bool IS FALSE
+                OR (
+                    trigger_config IS NOT NULL
+                    AND trigger_config ->> 'delivery_type' = 'push'
+                )
+            )
+        "#,
         &w_id,
         &path,
         is_flow,
         kind as &TriggerKind,
+        matches!(kind, TriggerKind::Gcp)
     )
     .fetch_optional(db)
     .await?;
@@ -554,17 +796,24 @@ async fn clear_captures_history(db: &DB, w_id: &str) -> Result<()> {
     if *CLOUD_HOSTED {
         /* Retain only KEEP_LAST most recent captures in this workspace. */
         sqlx::query!(
-            "DELETE FROM capture
-            WHERE workspace_id = $1
-                AND created_at <=
-                    (
-                        SELECT created_at
-                            FROM capture
-                            WHERE workspace_id = $1
-                        ORDER BY created_at DESC
-                            OFFSET $2
-                            LIMIT 1
-                    )",
+            r#"
+        DELETE FROM 
+            capture
+        WHERE 
+            workspace_id = $1
+            AND created_at <= (
+                SELECT 
+                    created_at
+                FROM 
+                    capture
+                WHERE 
+                    workspace_id = $1
+                ORDER BY 
+                    created_at DESC
+                OFFSET $2
+                LIMIT 1
+            )
+        "#,
             &w_id,
             KEEP_LAST,
         )
@@ -580,22 +829,27 @@ pub async fn insert_capture_payload(
     path: &str,
     is_flow: bool,
     trigger_kind: &TriggerKind,
-    payload: PushArgsOwned,
-    trigger_extra: Option<Box<RawValue>>,
+    main_args: PushArgsOwned,
+    preprocessor_args: PushArgsOwned,
     owner: &str,
 ) -> Result<()> {
     sqlx::query!(
-        "INSERT INTO capture (workspace_id, path, is_flow, trigger_kind, payload, trigger_extra, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        r#"
+    INSERT INTO 
+        capture (
+            workspace_id, path, is_flow, trigger_kind, main_args, preprocessor_args, created_by
+        )
+    VALUES (
+        $1, $2, $3, $4, $5, $6, $7
+    )
+    "#,
         &w_id,
         path,
         is_flow,
         trigger_kind as &TriggerKind,
-        SqlxJson(to_raw_value(&PushArgs {
-            args: &payload.args,
-            extra: payload.extra
-        })) as SqlxJson<Box<RawValue>>,
-        trigger_extra.map(SqlxJson) as Option<SqlxJson<Box<RawValue>>>,
+        SqlxJson(PushArgs { args: &main_args.args, extra: main_args.extra }) as SqlxJson<PushArgs>,
+        SqlxJson(PushArgs { args: &preprocessor_args.args, extra: preprocessor_args.extra })
+            as SqlxJson<PushArgs>,
         owner,
     )
     .execute(db)
@@ -609,7 +863,7 @@ pub async fn insert_capture_payload(
 async fn webhook_payload(
     Extension(db): Extension<DB>,
     Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
-    args: WebhookArgs,
+    args: RawWebhookArgs,
 ) -> Result<StatusCode> {
     let (owner, email) = get_active_capture_owner_and_email(
         &db,
@@ -621,7 +875,15 @@ async fn webhook_payload(
     .await?;
 
     let authed = fetch_api_authed(owner.clone(), email, &w_id, &db, None).await?;
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+
+    let args = args.process_args(&authed, &db, &w_id, None).await?;
+
+    let preprocessor_args = args.clone().to_args_from_format(RunnableFormat {
+        has_preprocessor: true,
+        version: RunnableFormatVersion::V2,
+    })?;
+
+    let main_args = args.to_main_args()?;
 
     insert_capture_payload(
         &db,
@@ -629,12 +891,58 @@ async fn webhook_payload(
         &path.to_path(),
         matches!(runnable_kind, RunnableKind::Flow),
         &TriggerKind::Webhook,
-        args,
-        Some(to_raw_value(&serde_json::json!({
-            "wm_trigger": {
-                "kind": "webhook",
-            }
-        }))),
+        main_args,
+        preprocessor_args,
+        &owner,
+    )
+    .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+async fn gcp_payload(
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, String)>,
+    headers: HeaderMap,
+    request: Request,
+) -> Result<StatusCode> {
+    use crate::{gcp_triggers_oss::GcpTrigger, trigger_helpers::TriggerJobArgs};
+
+    let is_flow = matches!(runnable_kind, RunnableKind::Flow);
+    let (gcp_trigger_config, owner, email): (GcpTriggerConfig, _, _) =
+        get_capture_trigger_config_and_owner(&db, &w_id, &path, is_flow, &TriggerKind::Gcp).await?;
+
+    let authed = fetch_api_authed(owner.clone(), email, &w_id, &db, None).await?;
+
+    let Some(config) = &gcp_trigger_config.create_update else {
+        return Err(Error::BadConfig("Bad config".to_string()));
+    };
+
+    validate_jwt_token(
+        &db,
+        user_db.clone(),
+        authed.clone(),
+        &headers,
+        &gcp_trigger_config.gcp_resource_path,
+        &w_id,
+        config.delivery_config.as_ref().unwrap(),
+    )
+    .await?;
+
+    let (payload, gcp) = process_google_push_request(headers, request).await?;
+
+    let (main_args, preprocessor_args) = GcpTrigger::build_capture_payloads(payload, gcp);
+
+    let _ = insert_capture_payload(
+        &db,
+        &w_id,
+        &path,
+        is_flow,
+        &TriggerKind::Gcp,
+        main_args,
+        preprocessor_args,
         &owner,
     )
     .await?;
@@ -645,44 +953,28 @@ async fn webhook_payload(
 #[cfg(feature = "http_trigger")]
 async fn http_payload(
     Extension(db): Extension<DB>,
-    Path((w_id, kind, path, route_path)): Path<(String, RunnableKind, String, StripPath)>,
-    Query(query): Query<HashMap<String, String>>,
-    method: http::Method,
-    headers: HeaderMap,
-    request: Request,
-) -> std::result::Result<StatusCode, impl IntoResponse> {
-    use axum::response::Response;
-
-    use crate::args::try_from_request_body;
-
-    let route_path = route_path.to_path();
+    Path((w_id, runnable_kind, path, route_path)): Path<(String, RunnableKind, String, StripPath)>,
+    args: RawHttpTriggerArgs,
+) -> std::result::Result<StatusCode, Response> {
     let path = path.replace(".", "/");
-
+    let is_flow = matches!(runnable_kind, RunnableKind::Flow);
+    let route_path = route_path.to_path();
     let (http_trigger_config, owner, email): (HttpTriggerConfig, _, _) =
-        get_capture_trigger_config_and_owner(
-            &db,
-            &w_id,
-            &path,
-            matches!(kind, RunnableKind::Flow),
-            &TriggerKind::Http,
-        )
-        .await
-        .map_err(|e| e.into_response())?;
-
-    let args = try_from_request_body(
-        request,
-        &db,
-        http_trigger_config.raw_string,
-        http_trigger_config.wrap_body,
-    )
-    .await
-    .map_err(|e| e.into_response())?;
+        get_capture_trigger_config_and_owner(&db, &w_id, &path, is_flow, &TriggerKind::Http)
+            .await
+            .map_err(|e| e.into_response())?;
 
     let authed = fetch_api_authed(owner.clone(), email, &w_id, &db, None)
         .await
         .map_err(|e| e.into_response())?;
-    let mut args = args
-        .to_push_args_owned(&authed, &db, &w_id)
+
+    let args = args
+        .process_args(
+            &authed,
+            &db,
+            &w_id,
+            http_trigger_config.raw_string.unwrap_or(false),
+        )
         .await
         .map_err(|e| e.into_response())?;
 
@@ -700,35 +992,27 @@ async fn http_payload(
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
 
-    let extra = args.extra.get_or_insert_with(HashMap::new);
+    let preprocessor_args = args
+        .clone()
+        .to_v2_preprocessor_args(&http_trigger_config.route_path, &route_path, &params)
+        .map_err(|e| e.into_response())?;
 
-    extra.insert(
-        "wm_trigger".to_string(),
-        build_http_trigger_extra(
-            &http_trigger_config.route_path,
-            route_path,
-            &method,
-            &params,
-            &query,
-            &headers,
-        )
-        .await,
-    );
+    let main_args = args
+        .to_main_args(http_trigger_config.wrap_body.unwrap_or(false))
+        .map_err(|e| e.into_response())?;
 
-    let extra = Some(to_raw_value(&extra));
-    args.extra = None;
     insert_capture_payload(
         &db,
         &w_id,
         &path,
-        matches!(kind, RunnableKind::Flow),
+        is_flow,
         &TriggerKind::Http,
-        args,
-        extra,
+        main_args,
+        preprocessor_args,
         &owner,
     )
     .await
     .map_err(|e| e.into_response())?;
 
-    Ok::<_, Response>(StatusCode::NO_CONTENT)
+    Ok(StatusCode::NO_CONTENT)
 }

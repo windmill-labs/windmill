@@ -9,10 +9,7 @@
 
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
-	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	import Button from '$lib/components/common/button/Button.svelte'
-
-	buildWorkerDefinition()
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
 
@@ -131,7 +128,7 @@
 		bind:this={diffDivEl}
 		class="{$$props.class} editor nonmain-editor"
 		bind:clientWidth={editorWidth}
-	/>
+	></div>
 	{#if showButtons}
 		<div
 			class="absolute flex flex-row gap-2 bottom-10 left-1/2 z-10 -translate-x-1/2 rounded-md p-1 w-full justify-center"

@@ -2,7 +2,7 @@ import { codeCompletionLoading, copilotInfo } from '$lib/stores'
 import { get } from 'svelte/store'
 
 import { getNonStreamingCompletion } from '../lib'
-import { getLangContext } from '../chat/core'
+import { getLangContext } from '../chat/script/core'
 import { type ScriptLang } from '$lib/gen/types.gen'
 
 const AUTOCOMPLETE_SYSTEM_PROMPT = `You're a code assistant. Your task is to help the user write code by suggesting the next edit for the user.
@@ -64,7 +64,7 @@ export async function autocompleteRequest(
 		modifiableSuffix: string
 		suffix: string
 		language: string
-		scriptLang: ScriptLang | 'bunnative'
+		scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json'
 		events: string[]
 	},
 	abortController: AbortController

@@ -20,19 +20,21 @@
 		PostgresTriggerService,
 		NatsTriggerService,
 		MqttTriggerService,
-		SqsTriggerService
+		SqsTriggerService,
+		GcpTriggerService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { writable } from 'svelte/store'
-	import { Alert, Button, Drawer, DrawerContent } from './common'
+	import { Alert, Button } from './common'
 	import Badge from './common/badge/Badge.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import FolderEditor from './FolderEditor.svelte'
 	import { random_adj } from './random_positive_adjetive'
-	import { Eye, Folder, Loader2, Plus, SearchCode, User } from 'lucide-svelte'
+	import { Folder, Loader2, SearchCode, User } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { tick } from 'svelte'
+	import FolderPicker from './FolderPicker.svelte'
 
 	type PathKind =
 		| 'resource'
@@ -49,6 +51,7 @@
 		| 'nats_trigger'
 		| 'mqtt_trigger'
 		| 'sqs_trigger'
+		| 'gcp_trigger'
 	let meta: Meta | undefined = undefined
 	export let fullNamePlaceholder: string | undefined = undefined
 	export let namePlaceholder = ''
@@ -61,6 +64,7 @@
 	export let dirty = false
 	export let kind: PathKind
 	export let hideUser: boolean = false
+	export let disableEditing = false
 
 	let inputP: HTMLInputElement | undefined = undefined
 
@@ -157,20 +161,14 @@
 			initialFolder = initialPath?.split('/')?.[1]
 			initialFolders.push({ name: initialFolder, write: true })
 		}
+		const excludedFolders = [initialFolder, 'app_groups', 'app_custom', 'app_themes']
 		folders = initialFolders.concat(
 			(
 				await FolderService.listFolderNames({
 					workspace: $workspaceStore!
 				})
 			)
-				.filter(
-					(x) =>
-						x != initialFolder &&
-						x != 'app_groups' &&
-						x != 'app_custom' &&
-						x != 'app_themes' &&
-						x != 'app_custom'
-				)
+				.filter((x) => !excludedFolders.includes(x))
 				.map((x) => ({
 					name: x,
 					write:
@@ -262,6 +260,11 @@
 				workspace: $workspaceStore!,
 				path: path
 			})
+		} else if (kind === 'gcp_trigger') {
+			return await GcpTriggerService.existsGcpTrigger({
+				workspace: $workspaceStore!,
+				path: path
+			})
 		} else {
 			return false
 		}
@@ -292,7 +295,8 @@
 		}
 	}
 
-	function initPath() {
+	async function initPath() {
+		await tick()
 		if (path != undefined && path != '') {
 			meta = pathToMeta(path, hideUser)
 			onMetaChange()
@@ -304,24 +308,6 @@
 			meta = pathToMeta(initialPath, hideUser)
 			onMetaChange()
 			path = initialPath
-		}
-	}
-
-	let newFolder: Drawer
-	let viewFolder: Drawer
-	let newFolderName: string
-	let folderCreated: string | undefined = undefined
-
-	async function addFolder() {
-		await FolderService.createFolder({
-			workspace: $workspaceStore ?? '',
-			requestBody: { name: newFolderName }
-		})
-		folderCreated = newFolderName
-		$userStore?.folders?.push(newFolderName)
-		loadFolders()
-		if (meta) {
-			meta.owner = newFolderName
 		}
 	}
 
@@ -368,33 +354,6 @@
 		})
 </script>
 
-<Drawer bind:this={newFolder}>
-	<DrawerContent
-		title="New Folder"
-		on:close={() => {
-			newFolder.closeDrawer()
-			folderCreated = undefined
-		}}
-	>
-		{#if !folderCreated}
-			<div class="flex flex-col gap-2">
-				<input placeholder="New folder name" bind:value={newFolderName} />
-				<Button size="md" startIcon={{ icon: Plus }} disabled={!newFolderName} on:click={addFolder}>
-					New&nbsp;folder
-				</Button>
-			</div>
-		{:else}
-			<FolderEditor name={folderCreated} />
-		{/if}
-	</DrawerContent>
-</Drawer>
-
-<Drawer bind:this={viewFolder}>
-	<DrawerContent title="Folder {meta?.owner}" on:close={viewFolder.closeDrawer}>
-		<FolderEditor name={meta?.owner ?? ''} />
-	</DrawerContent>
-</Drawer>
-
 <div>
 	<div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 pb-0 mb-1">
 		{#if meta != undefined}
@@ -417,11 +376,12 @@
 								}
 							}
 						}}
+						disabled={disabled || disableEditing}
 						let:item
 					>
 						<ToggleButton
 							icon={User}
-							{disabled}
+							disabled={disabled || disableEditing}
 							light
 							size="xs"
 							value="user"
@@ -432,7 +392,7 @@
 						<!-- <ToggleButton light size="xs" value="group" position="center">Group</ToggleButton> -->
 						<ToggleButton
 							icon={Folder}
-							{disabled}
+							disabled={disabled || disableEditing}
 							light
 							size="xs"
 							value="folder"
@@ -454,44 +414,15 @@
 							type="text"
 							bind:value={meta.owner}
 							placeholder={$userStore?.username ?? ''}
-							disabled={disabled || !($superadmin || ($userStore?.is_admin ?? false))}
+							disabled={disabled ||
+								!($superadmin || ($userStore?.is_admin ?? false)) ||
+								disableEditing}
 							on:keydown={setDirty}
 						/>
 					</label>
 				{:else if meta.ownerKind === 'folder'}
 					<label class="block grow w-48">
-						<div class="flex flex-row items-center gap-1 w-full">
-							<select class="grow w-full" {disabled} bind:value={meta.owner}>
-								{#if folders?.length == 0}
-									<option disabled>No folders</option>
-								{/if}
-								{#each folders as { name, write }}
-									<option disabled={!write}>{name}{write ? '' : ' (read-only)'}</option>
-								{/each}
-							</select>
-							<Button
-								title="View folder"
-								btnClasses="!p-1.5"
-								variant="border"
-								color="light"
-								size="xs"
-								disabled={!meta.owner || meta.owner == ''}
-								on:click={viewFolder.openDrawer}
-								iconOnly
-								startIcon={{ icon: Eye }}
-							/>
-							<Button
-								title="New folder"
-								btnClasses="!p-1.5"
-								variant="border"
-								color="light"
-								size="xs"
-								{disabled}
-								on:click={newFolder.openDrawer}
-								iconOnly
-								startIcon={{ icon: Plus }}
-							/>
-						</div>
+						<FolderPicker bind:folderName={meta.owner} {initialPath} {disabled} {disableEditing} />
 					</label>
 				{/if}
 			</div>
@@ -499,7 +430,7 @@
 			<label class="block grow w-full max-w-md">
 				<!-- svelte-ignore a11y-autofocus -->
 				<input
-					{disabled}
+					disabled={disabled || disableEditing}
 					type="text"
 					id="path"
 					{autofocus}

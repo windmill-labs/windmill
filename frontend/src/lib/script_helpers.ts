@@ -249,6 +249,7 @@ export async function main(message: string, name: string, step_id: string) {
 `
 
 const POSTGRES_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
 -- to only return the result of the last query use '--return_last_result'
 -- $1 name1 = default arg
 -- $2 name2
@@ -259,6 +260,7 @@ UPDATE demo SET col2 = \$4::INT WHERE col2 = \$2::INT;
 `
 
 const MYSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
 -- :name1 (text) = default arg
 -- :name2 (int)
 -- :name3 (int)
@@ -267,6 +269,7 @@ UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
 `
 
 const BIGQUERY_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
 -- @name1 (string) = default arg
 -- @name2 (integer)
 -- @name3 (string[])
@@ -276,6 +279,7 @@ UPDATE \`demodb.demo\` SET col2 = @name4 WHERE col2 = @name2;
 `
 
 const ORACLEDB_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
 -- :name1 (text) = default arg
 -- :name2 (int)
 -- :name3 (int)
@@ -284,6 +288,7 @@ UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
 `
 
 const SNOWFLAKE_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
 -- ? name1 (varchar) = default arg
 -- ? name2 (int)
 INSERT INTO demo VALUES (?, ?);
@@ -294,11 +299,25 @@ UPDATE demo SET col2 = ? WHERE col2 = ?;
 
 const MSSQL_INIT_CODE = `-- return_last_result
 -- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
 -- @P1 name1 (varchar) = default arg
 -- @P2 name2 (int)
 -- @P3 name3 (int)
 INSERT INTO demo VALUES (@P1, @P2);
 UPDATE demo SET col2 = @P3 WHERE col2 = @P2;
+`
+
+const DUCKDB_INIT_CODE = `-- $friends_csv (s3object)
+-- $name (text) = Ben
+
+ATTACH '$res:u/demo/amazed_postgresql' AS db (TYPE postgres);
+CREATE TABLE IF NOT EXISTS db.public.friends (name text);
+
+INSERT INTO db.public.friends
+  SELECT name FROM read_csv($friends_csv);
+
+SELECT 'Hello ' || $name || ', you have ' || 
+  (SELECT COUNT(*) FROM read_csv($friends_csv)) || ' new friends !';
 `
 
 const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {
@@ -631,13 +650,6 @@ export const TS_PREPROCESSOR_SCRIPT_INTRO = `/**
  * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email)
  * before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated runnable UI clean.
  *
- * The preprocessor receives trigger metadata (\`wm_trigger\`) along with the main trigger arguments. 
- * The structure of \`wm_trigger\` and the main trigger arguments are specific to each trigger type:
- * - Webhook/HTTP: \`(wm_trigger: { kind: 'http' | 'webhook', http?: { ... } }, body_key_1: any, body_key_2: any, ...)\`
- * - Postgres: \`(wm_trigger: { kind: 'postgres' }, transaction_type: string, schema_name: string, table_name: string, row: any)\`
- * - WebSocket/Kafka/NATS/SQS/MQTT: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs' | 'mqtt', [kind]: { ... } }, msg: string)\`
- * - Email: \`(wm_trigger: { kind: 'email' }, raw_email: string, parsed_email: { ... })\`
- *
  * The returned object defines the parameter values passed to \`main()\`.
  * e.g., { b: 1, a: 2 } → Calls \`main(2, 1)\`, assuming \`main\` is defined as \`main(a: number, b: number)\`.
  * Ensure that the parameter names in \`main\` match the keys in the returned object.
@@ -650,13 +662,6 @@ export const TS_PREPROCESSOR_FLOW_INTRO = `/**
  *
  * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
  * before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
- *
- * The preprocessor receives trigger metadata (\`wm_trigger\`) along with the main trigger arguments. 
- * The structure of \`wm_trigger\` and the main trigger arguments are specific to each trigger type:
- * - Webhook/HTTP: \`(wm_trigger: { kind: 'http' | 'webhook', http?: { ... } }, body_key_1: any, body_key_2: any, ...)\`
- * - Postgres: \`(wm_trigger: { kind: 'postgres' }, transaction_type: string, schema_name: string, table_name: string, row: any)\`
- * - WebSocket/Kafka/NATS/SQS/MQTT: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs' | 'mqtt', [kind]: { ... } }, msg: string)\`
- * - Email: \`(wm_trigger: { kind: 'email' }, raw_email: string, parsed_email: { ... })\`
  * 
  * The returned object determines the parameter values passed to the flow.
  * e.g., \`{ b: 1, a: 2 }\` → Calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -666,68 +671,100 @@ export const TS_PREPROCESSOR_FLOW_INTRO = `/**
  */\n`
 
 export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
-  /*
-  * Replace this comment with the parameters received from the trigger.
-  * Examples: \`bodyKey1\`, \`bodyKey2\` for Webhook/HTTP, \`msg\` for WebSocket, etc.
-  */
-
-  // The trigger metadata
-  wm_trigger: {
-    kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres' | 'sqs' | 'mqtt',
-    http?: {
-      route: string // The route path, e.g. "/users/:id"
-      path: string  // The actual path called, e.g. "/users/123"
-      method: string
-      params: Record<string, string> // path parameters
-      query: Record<string, string>  // query parameters
-      headers: Record<string, string>
-    },
-    websocket?: {
-      url: string // The websocket url
-    },
-    kafka?: {
-      brokers: string[]
-      topic: string
-      group_id: string
-    },
-    nats?: {
-      servers: string[]
-      subject: string
-      headers?: Record<string, string[]>
-      status?: number
-      description?: string
-      length: number
-    },
-    sqs?: {
-      queue_url: string,
-      message_id?: string,
-      receipt_handle?: string,
-      attributes: Record<string, string>,
-      message_attributes?: Record<string, {
-        string_value?: string,
-        data_type: string
-      }>
-    },
-    mqtt?: {
-      topic: string,
-      retain: boolean,
-      pkid: number,
-      qos: number,
-      v5?: {
-        payload_format_indicator?: number,
-        topic_alias?: number,
-        response_topic?: string,
-        correlation_data?: Array<number>,
-        user_properties?:  Array<[string, string]>,
-        subscription_identifiers?: Array<number>,
-        content_type?: string
-      }
+  event:
+    | {
+      kind: "webhook";
+      body: any;
+      raw_string: string | null;
+      query: Record<string, string>;
+      headers: Record<string, string>;
     }
-  }
+    | {
+      kind: "http";
+      body: any;
+      raw_string: string | null;
+      route: string;
+      path: string;
+      method: string;
+      params: Record<string, string>;
+      query: Record<string, string>;
+      headers: Record<string, string>;
+    }
+    | {
+      kind: "email";
+      parsed_email: any;
+      raw_email: string;
+    }
+    | { kind: "websocket"; msg: string; url: string }
+    | {
+      kind: "kafka";
+      payload: string;
+      brokers: string[];
+      topic: string;
+      group_id: string;
+    }
+    | {
+      kind: "nats";
+      payload: string;
+      servers: string[];
+      subject: string;
+      headers?: Record<string, string[]>;
+      status?: number;
+      description?: string;
+      length: number;
+    }
+    | {
+      kind: "sqs";
+      msg: string;
+      queue_url: string;
+      message_id?: string;
+      receipt_handle?: string;
+      attributes: Record<string, string>;
+      message_attributes?: Record<
+        string,
+        { string_value?: string; data_type: string }
+      >;
+    }
+    | {
+      kind: "mqtt";
+      payload: string;
+      topic: string;
+      retain: boolean;
+      pkid: number;
+      qos: number;
+      v5?: {
+        payload_format_indicator?: number;
+        topic_alias?: number;
+        response_topic?: string;
+        correlation_data?: Array<number>;
+        user_properties?: Array<[string, string]>;
+        subscription_identifiers?: Array<number>;
+        content_type?: string;
+      };
+    }
+    | {
+      kind: "gcp";
+      payload: string;
+      message_id: string;
+      subscription: string;
+      ordering_key?: string;
+      attributes?: Record<string, string>;
+      delivery_type: "push" | "pull";
+      headers?: Record<string, string>;
+      publish_time?: string;
+    }
+    | {
+      kind: "postgres";
+      transaction_type: "insert" | "update" | "delete",
+      schema_name: string,
+      table_name: string,
+      old_row?: Record<string, any>,
+      row: Record<string, any>
+    }
 ) {
   return {
     // return the args to be passed to the runnable
-  }
+  };
 }
 `
 
@@ -765,13 +802,6 @@ export const PYTHON_PREPROCESSOR_SCRIPT_INTRO = `# Trigger preprocessor
 # It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
 # before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated UI clean.
 #
-# The preprocessor receives trigger metadata (\`wm_trigger\`) along with the main trigger arguments. 
-# The structure of \`wm_trigger\` and the main trigger arguments are specific to each trigger type:
-# - Webhook/HTTP: \`(wm_trigger: { kind: 'http' | 'webhook', http?: { ... } }, body_key_1: any, body_key_2: any, ...)\`
-# - Postgres: \`(wm_trigger: { kind: 'postgres' }, transaction_type: string, schema_name: string, table_name: string, row: any)\`
-# - WebSocket/Kafka/NATS/SQS/MQTT: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs' | 'mqtt', [kind]: { ... } }, msg: string)\`
-# - Email: \`(wm_trigger: { kind: 'email' }, raw_email: string, parsed_email: { ... })\`
-#
 # The returned object defines the parameter values passed to \`main()\`.
 # e.g., { b: 1, a: 2 } → Calls \`main(2, 1)\`, assuming \`main\` is defined as \`main(a: int, b: int)\`.
 # Ensure that the parameter names in \`main\` match the keys in the returned object.
@@ -782,13 +812,6 @@ export const PYTHON_PREPROCESSOR_FLOW_INTRO = `# Trigger preprocessor
 #
 # It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
 # before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-#
-# The preprocessor receives the same data the flow would if no preprocessor was used,
-# plus trigger metadata in the \`wm_trigger\` object:
-# - Webhook/HTTP: \`(wm_trigger: { kind: 'http' | 'webhook', http?: { ... } }, body_key_1: any, body_key_2: any, ...)\`
-# - Postgres: \`(wm_trigger: { kind: 'postgres' }, transaction_type: string, schema_name: string, table_name: string, row: any)\`
-# - WebSocket/Kafka/NATS/SQS/MQTT: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs' | 'mqtt', [kind]: { ... } }, msg: string)\`
-# - Email: \`(wm_trigger: { kind: 'email' }, raw_email: string, parsed_email: { ... })\`
 # 
 # The returned object determines the parameter values passed to the flow.
 # e.g., \`{ b: 1, a: 2 }\` → Calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -796,74 +819,131 @@ export const PYTHON_PREPROCESSOR_FLOW_INTRO = `# Trigger preprocessor
 #
 # Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors\n\n`
 
-export const PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import TypedDict, Literal
-class Http(TypedDict):
-    route: str # The route path, e.g. "/users/:id"
-    path: str  # The actual path called, e.g. "/users/123"
+export const PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import TypedDict, Literal, Optional, Union
+
+
+class WebhookEvent(TypedDict):
+    kind: Literal["webhook"]
+    body: dict
+    raw_string: Optional[str]
+    query: dict[str, str]
+    headers: dict[str, str]
+
+
+class HttpEvent(TypedDict):
+    kind: Literal["http"]
+    body: dict
+    raw_string: Optional[str]
+    route: str
+    path: str
     method: str
     params: dict[str, str]
     query: dict[str, str]
     headers: dict[str, str]
 
-class Websocket(TypedDict):
-    url: str # The websocket url
 
-class Kafka(TypedDict):
-    topic: str
+class EmailEvent(TypedDict):
+    kind: Literal["email"]
+    parsed_email: dict
+    raw_email: str
+
+
+class WebsocketEvent(TypedDict):
+    kind: Literal["websocket"]
+    msg: str
+    url: str
+
+
+class KafkaEvent(TypedDict):
+    kind: Literal["kafka"]
+    payload: str
     brokers: list[str]
+    topic: str
     group_id: str
 
-class Nats(TypedDict):
+
+class NatsEvent(TypedDict):
+    kind: Literal["nats"]
+    payload: str
     servers: list[str]
     subject: str
-    headers: dict[str, list[str]] | None
-    status: int | None
-    description: str | None
+    headers: Optional[dict[str, list[str]]]
+    status: Optional[int]
+    description: Optional[str]
     length: int
 
+
 class MessageAttribute(TypedDict):
-    string_value: str | None
+    string_value: Optional[str]
     data_type: str
 
-class Sqs(TypedDict):
+
+class SqsEvent(TypedDict):
+    kind: Literal["sqs"]
+    msg: str
     queue_url: str
-    message_id: str | None
-    receipt_handle: str | None
+    message_id: Optional[str]
+    receipt_handle: Optional[str]
     attributes: dict[str, str]
-    message_attributes: dict[str, MessageAttribute] | None
+    message_attributes: Optional[dict[str, MessageAttribute]]
 
-class MqttV5Properties:
-    payload_format_indicator: int | None
-    topic_alias: int | None
-    response_topic: str | None
-    correlation_data: list[int] | None
-    user_properties: list[tuple[str, str]] | None
-    subscription_identifiers: list[int] | None
-    content_type: str | None
 
-class Mqtt(TypedDict):
+class MqttV5Properties(TypedDict, total=False):
+    payload_format_indicator: Optional[int]
+    topic_alias: Optional[int]
+    response_topic: Optional[str]
+    correlation_data: Optional[list[int]]
+    user_properties: Optional[list[tuple[str, str]]]
+    subscription_identifiers: Optional[list[int]]
+    content_type: Optional[str]
+
+
+class MqttEvent(TypedDict):
+    kind: Literal["mqtt"]
+    payload: str
     topic: str
     retain: bool
     pkid: int
     qos: int
-    v5: MqttV5Properties | None
+    v5: Optional[MqttV5Properties]
 
-class WmTrigger(TypedDict):
-    kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats", "postgres", "sqs", "mqtt"]
-    http: Http | None
-    websocket: Websocket | None
-    kafka: Kafka | None
-    nats: Nats | None
-    sqs: Sqs | None
-    mqtt: Mqtt | None
 
-def preprocessor(
-    # Replace this comment with the parameters received from the trigger.  
-    # Examples: \`bodyKey1\`, \`bodyKey2\` for Webhook/HTTP, \`msg\` for WebSocket, etc.  
+class GcpEvent(TypedDict):
+    kind: Literal["gcp"]
+    payload: str
+    message_id: str
+    subscription: str
+    ordering_key: Optional[str]
+    attributes: Optional[dict[str, str]]
+    delivery_type: Literal["push", "pull"]
+    headers: Optional[dict[str, str]]
+    publish_time: Optional[str]
 
-    # Trigger metadata
-    wm_trigger: WmTrigger,
-):
+
+class PostgresEvent(TypedDict):
+    kind: Literal["postgres"]
+    transaction_type: Literal["insert", "update", "delete"]
+    schema_name: str
+    table_name: str
+    old_row: Optional[dict[str, any]]
+    row: dict[str, any]
+
+
+Event = Union[
+    WebhookEvent,
+    HttpEvent,
+    EmailEvent,
+    WebsocketEvent,
+    KafkaEvent,
+    NatsEvent,
+    SqsEvent,
+    MqttEvent,
+    GcpEvent,
+    PostgresEvent,
+]
+
+
+def preprocessor(event: Event):
     return {
         # return the args to be passed to the runnable
     }
@@ -903,6 +983,12 @@ inventory:
   - resource_type: ansible_inventory
     # You can pin an inventory to this script by hardcoding the resource path:
     # resource: u/user/your_resource
+# - name: hcloud.yml
+#   resource_type: dynamic_inventory
+
+options:
+  - verbosity: vvv
+
 
 # File resources will be written in the relative \`target\` location before
 # running the playbook
@@ -918,11 +1004,15 @@ extra_vars:
   world_qualifier:
     type: string
 
+# If using Ansible Vault:
+# vault_password: u/user/ansible_vault_password
+
 dependencies:
   galaxy:
     collections:
       - name: community.general
       - name: community.vmware
+    roles:
   python:
     - jmespath
 ---
@@ -1004,7 +1094,7 @@ def main a, b, c
   puts a, b, c
 end
 `
-// for related places search: ADD_NEW_LANG 
+// for related places search: ADD_NEW_LANG
 export const INITIAL_CODE = {
 	bun: {
 		scriptInitCodeBlock: BUN_INIT_BLOCK,
@@ -1061,6 +1151,9 @@ export const INITIAL_CODE = {
 	},
 	mssql: {
 		script: MSSQL_INIT_CODE
+	},
+	duckdb: {
+		script: DUCKDB_INIT_CODE
 	},
 	graphql: {
 		script: GRAPHQL_INIT_CODE
@@ -1189,6 +1282,8 @@ export function initialCode(
 		return INITIAL_CODE.mssql.script
 	} else if (language == 'graphql') {
 		return INITIAL_CODE.graphql.script
+	} else if (language == 'duckdb') {
+		return INITIAL_CODE.duckdb.script
 	} else if (language == 'php') {
 		return INITIAL_CODE.php.script
 	} else if (language == 'rust') {
