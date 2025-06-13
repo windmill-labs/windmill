@@ -166,20 +166,8 @@
 		title={'Generate OpenAPI document'}
 		on:close={() => openAPIGenerator.closeDrawer()}
 	>
-		{#snippet actions()}
-			<Button
-				disabled={emptyStringTrimmed(openapiDocument)}
-				spacingSize="sm"
-				btnClasses="mb-2"
-				on:click={CopyCommand}
-				startIcon={{ icon: ClipboardCopy }}
-			>
-				Copy cURL command
-			</Button>
-		{/snippet}
-
 		<div class="flex flex-row h-full gap-2">
-			<div class="h-full w-1/2 flex flex-col justify-between border rounded-md py-2 px-4">
+			<div class="h-full w-1/2 flex flex-col justify-between border rounded-md pl-2">
 				<div class="flex flex-col gap-2 overflow-auto">
 					<Subsection label="Info" collapsable>
 						<label class="block pb-2">
@@ -231,8 +219,8 @@
 					{#if webhookAndHttpRouteFilter.length > 0}
 						{#each webhookAndHttpRouteFilter as filter, i}
 							{@const isHttpRouteFIlter = isHttpRouteFilter(filter)}
-							<div class="flex flex-row items-center gap-2">
-								<div class="border w-full rounded-md py-2 px-4 gap-2">
+							<div class="flex flex-row items-center py-2 px-4 gap-2">
+								<div class="border w-full rounded-md p-4 gap-2">
 									<Label
 										label={`${isHttpRouteFIlter ? 'HTTP route filter' : 'Webhook filter'}`}
 										headerClass="border-b"
@@ -411,7 +399,7 @@
 					{/if}
 				</div>
 
-				<div class="flex flex-col border w-full rounded-md p-4 gap-2">
+				<div class="flex flex-col border-b w-full rounded-md p-4 gap-2">
 					<div class="flex flex-row gap-2 w-full">
 						<div class="w-1/2">
 							<Button
@@ -530,11 +518,12 @@
 						{disabled}
 						spacingSize="sm"
 						color="light"
+						size="xs"
 						variant="border"
 						on:click={CopyCommand}
 						startIcon={{ icon: ClipboardCopy }}
 					>
-						Copy cURL command 
+						Copy cURL command
 					</Button>
 				</div>
 			</div>
