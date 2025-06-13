@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Calendar, Mail, Webhook, Unplug, Database, Terminal } from 'lucide-svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { type ComponentType } from 'svelte'
+	import { type Component, type ComponentType } from 'svelte'
 	import { Route } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { type TriggerContext } from '$lib/components/triggers'
@@ -44,7 +44,11 @@
 	let menuOpen = $state(false)
 
 	const triggerTypeConfig: {
-		[key in TriggerType]: { icon: ComponentType; countKey?: string; disabled?: boolean }
+		[key in TriggerType]: {
+			icon: ComponentType | Component<any, {}, ''>
+			countKey?: string
+			disabled?: boolean
+		}
 	} = {
 		webhook: { icon: Webhook, countKey: 'webhook_count' },
 		schedule: { icon: Calendar, countKey: 'schedule_count' },

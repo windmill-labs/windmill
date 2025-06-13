@@ -1,8 +1,12 @@
 <script lang="ts">
-	export let size: number = 16
-	export let color: string | undefined = undefined
-	let clazz = ''
-	export { clazz as class }
+	interface Props {
+		size?: number;
+		color?: string | undefined;
+		class?: string;
+	}
+
+	let { size = 16, color = undefined, class: clazz = '' }: Props = $props();
+	
 </script>
 
 <svg
