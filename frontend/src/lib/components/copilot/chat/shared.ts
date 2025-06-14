@@ -93,9 +93,9 @@ export interface Tool<T> {
 		toolCallbacks: ToolCallbacks
 		toolId: string
 	}) => Promise<string>
+	preAction?: (p: { toolCallbacks: ToolCallbacks; toolId: string }) => void
 }
 
 export interface ToolCallbacks {
-	onToolCall: (id: string, content: string) => void
-	onFinishToolCall: (id: string, content: string) => void
+	setToolStatus: (id: string, content: string) => void
 }
