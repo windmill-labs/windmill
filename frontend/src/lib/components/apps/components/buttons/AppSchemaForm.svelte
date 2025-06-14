@@ -136,8 +136,11 @@
 	})
 	$effect(() => {
 		resolvedConfig.defaultValues &&
-			!deepEqual(previousDefault, resolvedConfig.defaultValues) &&
-			onDefaultChange()
+			!deepEqual(
+				untrack(() => previousDefault),
+				resolvedConfig.defaultValues
+			) &&
+			untrack(() => onDefaultChange())
 	})
 </script>
 

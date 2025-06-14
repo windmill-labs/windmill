@@ -559,7 +559,7 @@
 	}
 
 	function updateResult(res) {
-		outputs.result?.set(res)
+		outputs.result?.set($state.snapshot(res))
 		result = res
 	}
 
