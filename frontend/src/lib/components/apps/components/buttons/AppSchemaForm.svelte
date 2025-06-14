@@ -69,7 +69,7 @@
 		const newArgs: Record<string, unknown> = {}
 
 		for (const key in args) {
-			if (result?.properties[key]) {
+			if (result?.properties?.[key]) {
 				newArgs[key] = args[key]
 			}
 		}
