@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { getContext, onDestroy } from 'svelte'
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type {
 		AppViewerContext,
@@ -179,11 +179,11 @@
 	$effect(() => {
 		errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
 	})
-	$effect(() => {
-		resolvedConfig.beforeIcon && beforeIconComponent && handleBeforeIcon()
+	$effect.pre(() => {
+		resolvedConfig.beforeIcon && beforeIconComponent && untrack(() => handleBeforeIcon())
 	})
-	$effect(() => {
-		resolvedConfig.afterIcon && afterIconComponent && handleAfterIcon()
+	$effect.pre(() => {
+		resolvedConfig.afterIcon && afterIconComponent && untrack(() => handleAfterIcon())
 	})
 	let errorsMessage = $derived(
 		Object.values(errors)
