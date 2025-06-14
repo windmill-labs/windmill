@@ -4,11 +4,15 @@
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 	import { slide } from 'svelte/transition'
 
-	export let id: string
-	export let field: RichConfiguration
-	export let index: number
+	interface Props {
+		id: string
+		field: RichConfiguration
+		index: number
+	}
 
-	let disablable = field && !(field?.type === 'static' && field?.value === false)
+	let { id, field = $bindable(), index }: Props = $props()
+
+	let disablable = $state(field && !(field?.type === 'static' && field?.value === false))
 </script>
 
 <Toggle
