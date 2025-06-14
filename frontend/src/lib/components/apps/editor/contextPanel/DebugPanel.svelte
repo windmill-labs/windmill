@@ -12,34 +12,38 @@
 
 	const { app, initialized } = getContext<AppViewerContext>('AppViewerContext')
 
-	$: unintitializedComponents = allItems($app.grid, $app.subgrids)
-		.map((x) => x.id)
-		.filter((x) => !$initialized.initializedComponents?.includes(x))
-		.sort()
+	let unintitializedComponents = $derived(
+		allItems(app.grid, app.subgrids)
+			.map((x) => x.id)
+			.filter((x) => !$initialized.initializedComponents?.includes(x))
+			.sort()
+	)
 
-	$: subgridsErrors = Object.keys($app.subgrids ?? {})
-		.map((x) => {
-			const parentId = x.split('-')[0]
-			const parent = findGridItem($app, parentId)
-			const subgrid = x.replace(`${parentId}-`, '')
-			if (subgrid == '-1') {
-				return {
-					subGridId: x,
-					error: 'Invalid subgrid index -1 '
+	let subgridsErrors = $derived(
+		Object.keys(app.subgrids ?? {})
+			.map((x) => {
+				const parentId = x.split('-')[0]
+				const parent = findGridItem(app, parentId)
+				const subgrid = x.replace(`${parentId}-`, '')
+				if (subgrid == '-1') {
+					return {
+						subGridId: x,
+						error: 'Invalid subgrid index -1 '
+					}
+				} else if (parent === undefined) {
+					return {
+						subGridId: x,
+						error: 'Parent not found'
+					}
+				} else if (parent?.data?.numberOfSubgrids === undefined) {
+					return {
+						subGridId: x,
+						error: 'Parent is not a container'
+					}
 				}
-			} else if (parent === undefined) {
-				return {
-					subGridId: x,
-					error: 'Parent not found'
-				}
-			} else if (parent?.data?.numberOfSubgrids === undefined) {
-				return {
-					subGridId: x,
-					error: 'Parent is not a container'
-				}
-			}
-		})
-		.filter(Boolean)
+			})
+			.filter(Boolean)
+	)
 </script>
 
 <div class="flex flex-col gap-8" style="all:none;">
@@ -79,7 +83,7 @@
 
 					<!-- Iterate over uninitializedComponents to display each component in the grid -->
 					{#each unintitializedComponents as c}
-						{@const item = findGridItem($app, c)}
+						{@const item = findGridItem(app, c)}
 						{#if !item}
 							<div>Item {c} not found</div>
 						{:else}
@@ -107,8 +111,8 @@
 									}}
 									size="xs2"
 									on:click={() => {
-										let parent = findGridItemParentGrid($app, c)
-										deleteGridItem($app, item.data, parent) // $app = $app
+										let parent = findGridItemParentGrid(app, c)
+										deleteGridItem(app, item.data, parent) // $app = $app
 									}}
 								>
 									Remove
@@ -162,9 +166,8 @@
 								}}
 								size="xs2"
 								on:click={() => {
-									if ($app.subgrids && s) {
-										delete $app.subgrids[s.subGridId]
-										$app = { ...$app }
+									if (app.subgrids && s) {
+										delete app.subgrids[s.subGridId]
 									}
 								}}
 							>

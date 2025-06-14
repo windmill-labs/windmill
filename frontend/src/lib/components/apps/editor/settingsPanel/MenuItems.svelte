@@ -13,8 +13,7 @@
 	export let components: (BaseAppComponent & ButtonComponent)[]
 	export let id: string
 
-	const { selectedComponent, app, errorByComponent } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const { selectedComponent, errorByComponent } = getContext<AppViewerContext>('AppViewerContext')
 
 	function addComponent() {
 		const actionId = getNextId(components.map((x) => x.id.split('_')[1]))

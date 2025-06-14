@@ -116,17 +116,17 @@
 	function collectStyles() {
 		const styles: string[] = []
 		// Getting global app styles
-		Object.values($app.css || {}).forEach((element) => {
+		Object.values(app.css || {}).forEach((element) => {
 			Object.values(element).filter(({ style }) => style && styles.push(style))
 		})
 		// Getting styles from individual components
-		$app.grid.map((component) => {
+		app.grid.map((component) => {
 			Object.values(component.data.customCss || {}).forEach(({ style }) => {
 				style && styles.push(style)
 			})
 		})
 		// Getting style from subgrids
-		Object.values($app.subgrids || {}).forEach((grid) => {
+		Object.values(app.subgrids || {}).forEach((grid) => {
 			grid.map((component) => {
 				Object.values(component.data.customCss || {}).forEach(({ style }) => {
 					style && styles.push(style)
@@ -193,7 +193,7 @@
 		mounted && (!value || value) && untrack(() => parseStyle())
 	})
 	$effect(() => {
-		$app && untrack(() => setTopColors())
+		app && untrack(() => setTopColors())
 	})
 </script>
 

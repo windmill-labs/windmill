@@ -94,7 +94,11 @@
 	}: Props = $props()
 </script>
 
-<svelte:boundary>
+<svelte:boundary
+	onerror={(e) => {
+		console.log(`error in rendering component ${component.id}`, e)
+	}}
+>
 	{#if component.type === 'displaycomponent'}
 		<AppDisplayComponent
 			id={component.id}

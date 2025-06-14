@@ -13,23 +13,31 @@
 	import { deleteGridItem } from '../appUtils'
 	import type { AppComponent } from '../component'
 
-	export let conditions: RichConfiguration[] = []
-	export let component: AppComponent
+	interface Props {
+		conditions?: RichConfiguration[]
+		component: AppComponent
+	}
 
-	let items = conditions.slice(0, -1).map((condition, index) => {
-		return { value: condition, id: generateRandomString(), originalIndex: index }
+	let { conditions = $bindable([]), component = $bindable() }: Props = $props()
+
+	let items = $state(
+		conditions.slice(0, -1).map((condition, index) => {
+			return { value: condition, id: generateRandomString(), originalIndex: index }
+		})
+	)
+
+	$effect.pre(() => {
+		conditions = items
+			.map((item) => item.value)
+			.concat([
+				{
+					type: 'evalv2',
+					expr: 'true',
+					fieldType: 'boolean',
+					connections: []
+				}
+			])
 	})
-
-	$: conditions = items
-		.map((item) => item.value)
-		.concat([
-			{
-				type: 'evalv2',
-				expr: 'true',
-				fieldType: 'boolean',
-				connections: []
-			}
-		])
 
 	const { app, runnableComponents, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -49,7 +57,7 @@
 			const newSubgrids = {}
 			for (let i = 0; i < items.length; i++) {
 				newSubgrids[`${component.id}-${i}`] =
-					$app!.subgrids![`${component.id}-${items[i].originalIndex}`] ?? []
+					app!.subgrids![`${component.id}-${items[i].originalIndex}`] ?? []
 			}
 
 			// update originalIndex
@@ -57,8 +65,8 @@
 				item.originalIndex = i
 			})
 
-			$app!.subgrids = {
-				...$app!.subgrids,
+			app!.subgrids = {
+				...app!.subgrids,
 				...newSubgrids
 			} // $app = $app
 
@@ -71,8 +79,8 @@
 
 	function deleteSubgrid(index: number) {
 		let subgrid = `${component.id}-${index}`
-		for (const item of $app!.subgrids![subgrid]) {
-			const components = deleteGridItem($app, item.data, subgrid)
+		for (const item of app!.subgrids![subgrid]) {
+			const components = deleteGridItem(app, item.data, subgrid)
 			for (const key in components) {
 				delete $runnableComponents[key]
 			}
@@ -80,7 +88,7 @@
 
 		$runnableComponents = $runnableComponents
 		for (let i = index; i < items.length; i++) {
-			$app!.subgrids![`${component.id}-${i}`] = $app!.subgrids![`${component.id}-${i + 1}`]
+			app!.subgrids![`${component.id}-${i}`] = app!.subgrids![`${component.id}-${i + 1}`]
 		}
 
 		// Remove the corresponding item from the items array
@@ -93,20 +101,20 @@
 		})
 		items = nitems
 
-		delete $app!.subgrids![`${component.id}-${items.length + 1}`] // $app = $app
+		delete app!.subgrids![`${component.id}-${items.length + 1}`] // $app = $app
 	}
 
 	function addCondition(): void {
 		const numberOfConditions = conditions.length
 
-		if (!$app.subgrids) {
-			$app.subgrids = {}
+		if (!app.subgrids) {
+			app.subgrids = {}
 		}
 
-		$app.subgrids[`${component.id}-${numberOfConditions}`] =
-			$app.subgrids[`${component.id}-${numberOfConditions - 1}`]
+		app.subgrids[`${component.id}-${numberOfConditions}`] =
+			app.subgrids[`${component.id}-${numberOfConditions - 1}`]
 
-		$app.subgrids[`${component.id}-${numberOfConditions - 1}`] = []
+		app.subgrids[`${component.id}-${numberOfConditions - 1}`] = []
 
 		const newCondition: AppInputSpec<'boolean', boolean> = {
 			type: 'evalv2',
@@ -139,8 +147,8 @@
 				flipDurationMs: 200,
 				dropTargetStyle: {}
 			}}
-			on:consider={handleConsider}
-			on:finalize={handleFinalize}
+			onconsider={handleConsider}
+			onfinalize={handleFinalize}
 		>
 			{#each items as item, index (item.id)}
 				{@const condition = item.value}
@@ -166,14 +174,14 @@
 					</div>
 
 					<div class="flex flex-col justify-center gap-2">
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						<!-- svelte-ignore a11y-no-static-element-interactions -->
-						<div on:click={() => deleteSubgrid(index)}>
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div onclick={() => deleteSubgrid(index)}>
 							<X size={16} />
 						</div>
 
-						<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
-						<!-- svelte-ignore a11y-no-static-element-interactions -->
+						<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div use:dragHandle class="w-4 h-4 handle" aria-label="drag-handle">
 							<GripVertical size={16} />
 						</div>

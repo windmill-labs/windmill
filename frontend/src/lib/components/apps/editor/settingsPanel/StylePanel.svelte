@@ -20,28 +20,29 @@
 
 	const { app, cssEditorOpen, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
-	let component: AppComponent | undefined
-	$: {
-		const newComponent = findComponentSettings($app, $selectedComponent?.[0])?.item?.data
+	let component: AppComponent | undefined = $state()
+	$effect.pre(() => {
+		const newComponent = findComponentSettings(app, $selectedComponent?.[0])?.item?.data
 		if (component != newComponent) {
 			component = newComponent
 		}
-	}
+	})
 
-	let tab: 'local' | 'global' = 'local'
-	let overrideGlobalCSS: (() => void) | undefined = undefined
-	let overrideLocalCSS: (() => void) | undefined = undefined
-	$: type = component?.type
-	let migrationModal: CssMigrationModal | undefined = undefined
+	let tab: 'local' | 'global' = $state('local')
+	let overrideGlobalCSS: (() => void) | undefined = $state(undefined)
+	let overrideLocalCSS: (() => void) | undefined = $state(undefined)
+	let type = $derived(component?.type)
+	let migrationModal: CssMigrationModal | undefined = $state(undefined)
 
-	$: customCssByComponentType =
-		component?.type && $app.css
-			? Object.entries($app.css[component.type] || {}).map(([id, v]) => ({
+	let customCssByComponentType = $derived(
+		component?.type && app.css
+			? Object.entries(app.css[component.type] || {}).map(([id, v]) => ({
 					id,
 					forceStyle: v?.style != undefined,
 					forceClass: v?.['class'] != undefined
 				}))
 			: undefined
+	)
 
 	function copyLocalToGlobal(name: string, value: ComponentCssProperty | undefined) {
 		if (!value) {
@@ -51,18 +52,16 @@
 
 			if (!type) return
 
-			if (hasStyleValue($app.css?.[type]?.[name])) {
+			if (hasStyleValue(app.css?.[type]?.[name])) {
 				overrideGlobalCSS = () => {
-					$app.css![type]![name] = JSON.parse(JSON.stringify(value))
-					app.set($app)
+					app.css![type]![name] = JSON.parse(JSON.stringify(value))
 				}
 			} else {
-				if (!$app.css![type]) {
+				if (!app.css![type]) {
 					initGlobalCss()
 				}
 
-				$app.css![type]![name] = JSON.parse(JSON.stringify(value))
-				app.set($app)
+				app.css![type]![name] = JSON.parse(JSON.stringify(value))
 				sendUserToast('Global CSS copied')
 			}
 		}
@@ -75,11 +74,9 @@
 			if (hasStyleValue(value)) {
 				overrideLocalCSS = () => {
 					component!.customCss![id] = JSON.parse(JSON.stringify(value))
-					app.set($app)
 				}
 			} else {
 				component!.customCss![id] = JSON.parse(JSON.stringify(value))
-				app.set($app)
 				sendUserToast('Local CSS copied')
 			}
 		}
@@ -88,21 +85,20 @@
 	function initGlobalCss() {
 		// If the global css is not initialised, we initialise it.
 		// Should only happen once per app
-		if (!$app.css) {
-			$app.css = {}
+		if (!app.css) {
+			app.css = {}
 		}
 
 		// If the global css for this component type is not initialised, we initialise it.
 		// Should only happen once per component type
 		if (
-			$app.css &&
+			app.css &&
 			component &&
-			!$app.css[component.type]?.style &&
+			!app.css[component.type]?.style &&
 			components[component.type] &&
-			$app.css[component.type] === undefined
+			app.css[component.type] === undefined
 		) {
-			$app.css[component.type] = JSON.parse(JSON.stringify(components[component.type].customCss))
-			app.set($app)
+			app.css[component.type] = JSON.parse(JSON.stringify(components[component.type].customCss))
 		}
 	}
 
@@ -196,13 +192,12 @@
 										wmClass={getSelector(name)}
 										componentType={component.type}
 										bind:value={component.customCss[name]}
-										on:change={() => app.set($app)}
 										shouldDisplayRight={hasStyleValue(component.customCss[name])}
 										on:right={() => {
 											copyLocalToGlobal(name, component?.customCss?.[name])
 											tab = 'global'
 										}}
-										overridding={hasStyleValue($app.css?.[component.type]?.[name]) &&
+										overridding={hasStyleValue(app.css?.[component.type]?.[name]) &&
 											hasStyleValue(component.customCss[name])}
 									/>
 								</div>
@@ -214,16 +209,16 @@
 					{#if type}
 						{#each customCssByComponentType ?? [] as { id, forceStyle, forceClass }}
 							<div class="w-full">
-								{#if $app.css && type && $app.css[type] && component?.customCss}
+								{#if app.css && type && app.css[type] && component?.customCss}
 									<CssPropertyWrapper
 										{forceStyle}
 										{forceClass}
 										{id}
-										bind:property={$app.css[type]}
+										bind:property={app.css[type]}
 										on:left={() => {
 											copyGlobalToLocal(
 												id,
-												component?.type ? $app?.css?.[component?.type]?.[id] : undefined
+												component?.type ? app?.css?.[component?.type]?.[id] : undefined
 											)
 											tab = 'local'
 										}}

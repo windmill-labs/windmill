@@ -7,9 +7,13 @@
 	import SelectedRunnable from '../SelectedRunnable.svelte'
 	import type { AppEditorContext, AppViewerContext } from '$lib/components/apps/types'
 
-	export let appInput: ResultAppInput
-	export let defaultUserInput = false
-	export let appComponent: AppComponent
+	interface Props {
+		appInput: ResultAppInput
+		defaultUserInput?: boolean
+		appComponent: AppComponent
+	}
+
+	let { appInput = $bindable(), defaultUserInput = false, appComponent }: Props = $props()
 
 	const { selectedComponentInEditor } = getContext<AppEditorContext>('AppEditorContext')
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
@@ -34,7 +38,7 @@
 	<SelectedRunnable {appComponent} bind:appInput />
 {:else if appInput !== undefined}
 	<RunnableSelector
-		unusedInlineScripts={$app.unusedInlineScripts}
+		unusedInlineScripts={app.unusedInlineScripts}
 		hideCreateScript={appComponent.type === 'flowstatuscomponent'}
 		onlyFlow={appComponent.type === 'flowstatuscomponent'}
 		{defaultUserInput}

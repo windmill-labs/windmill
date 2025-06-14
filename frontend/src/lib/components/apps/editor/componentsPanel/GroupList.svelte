@@ -32,9 +32,9 @@
 
 	function getSubgrids(item: GridItem) {
 		let allSubgrids = {}
-		let subgrids = getAllSubgridsAndComponentIds($app, item.data)[0]
+		let subgrids = getAllSubgridsAndComponentIds(app, item.data)[0]
 		for (let key of subgrids) {
-			allSubgrids[key] = $app.subgrids?.[key]
+			allSubgrids[key] = app.subgrids?.[key]
 		}
 		return allSubgrids
 	}

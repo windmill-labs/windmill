@@ -102,7 +102,7 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.schemaformcomponent, customCss))
+	let css = $state(initCss(app.css?.schemaformcomponent, customCss))
 
 	const resolvedConfig = $state(
 		initConfig(components['schemaformcomponent'].initialData.configuration, configuration)
@@ -125,7 +125,15 @@
 		return policy
 	}
 	$effect(() => {
-		args && untrack(() => handleArgsChange())
+		if (!args) return
+		{
+			if (args && typeof args === 'object') {
+				for (const key in args) {
+					args[key]
+				}
+			}
+		}
+		untrack(() => handleArgsChange())
 	})
 	$effect(() => {
 		outputs.valid.set(valid)
@@ -152,7 +160,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.schemaformcomponent}
+		componentStyle={app.css?.schemaformcomponent}
 	/>
 {/each}
 
@@ -164,8 +172,7 @@
 		>
 			<div
 				onpointerdown={stopPropagation(
-					(e) =>
-						!$connectingInput.opened && selectId(e as PointerEvent, id, selectedComponent, $app)
+					(e) => !$connectingInput.opened && selectId(e as PointerEvent, id, selectedComponent, app)
 				)}
 			>
 				<SchemaForm

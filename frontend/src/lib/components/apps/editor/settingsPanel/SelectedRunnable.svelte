@@ -9,16 +9,22 @@
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
-	export let appInput: ResultAppInput
-	export let appComponent: AppComponent
-
-	$: if (appInput.autoRefresh === undefined) {
-		appInput.autoRefresh = true
+	interface Props {
+		appInput: ResultAppInput
+		appComponent: AppComponent
 	}
+
+	let { appInput = $bindable(), appComponent = $bindable() }: Props = $props()
+
+	$effect.pre(() => {
+		if (appInput.autoRefresh === undefined) {
+			appInput.autoRefresh = true
+		}
+	})
 
 	function detach() {
 		if (appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript) {
-			$app.unusedInlineScripts.push({
+			app.unusedInlineScripts.push({
 				name: appInput.runnable.name,
 				inlineScript: appInput.runnable.inlineScript
 			}) // $app = $app
@@ -30,7 +36,7 @@
 		appInput = clearResultAppInput(appInput)
 	}
 
-	$: {
+	$effect.pre(() => {
 		if (appInput.recomputeOnInputChanged === undefined) {
 			appInput.recomputeOnInputChanged = true
 		}
@@ -39,11 +45,13 @@
 			appInput.recomputeOnInputChanged = !appInput.doNotRecomputeOnInputChanged
 			appInput.doNotRecomputeOnInputChanged = undefined
 		}
-	}
+	})
 
-	$: hasScript =
+	let hasScript = $derived(
 		appInput?.runnable?.type === 'runnableByPath' ||
-		(appInput?.runnable?.type === 'runnableByName' && appInput.runnable?.inlineScript !== undefined)
+			(appInput?.runnable?.type === 'runnableByName' &&
+				appInput.runnable?.inlineScript !== undefined)
+	)
 
 	function getActions(_hasScript: boolean): ActionType[] {
 		return [
@@ -66,7 +74,7 @@
 		]
 	}
 
-	$: actions = getActions(hasScript)
+	let actions = $derived(getActions(hasScript))
 </script>
 
 <ComponentScriptSettings bind:appInput bind:appComponent {hasScript} {actions} />

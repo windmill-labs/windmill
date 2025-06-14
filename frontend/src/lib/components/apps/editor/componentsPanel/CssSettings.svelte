@@ -16,13 +16,13 @@
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
-	let cssEditor: SimpleEditor | undefined = undefined
-	let alertHeight: number | undefined = undefined
-	let themeViewer: any = undefined
-	let selectedTab: 'css' | 'theme' = 'css'
+	let cssEditor: SimpleEditor | undefined = $state(undefined)
+	let alertHeight: number | undefined = $state(undefined)
+	let themeViewer: any = $state(undefined)
+	let selectedTab: 'css' | 'theme' = $state('css')
 
 	function insertSelector(selector: string) {
-		if ($app?.theme?.type === 'path') {
+		if (app?.theme?.type === 'path') {
 			sendUserToast(
 				'You cannot edit the theme because it is a path theme. Fork the theme to edit it.',
 				true
@@ -70,25 +70,25 @@
 							</div>
 						{/if}
 						<div style="height: calc(100% - {alertHeight || 0}px);">
-							{#if $app.theme?.type === 'inlined'}
+							{#if app.theme?.type === 'inlined'}
 								<SimpleEditor
 									class="h-full"
 									lang="css"
-									bind:code={$app.theme.css}
+									bind:code={app.theme.css}
 									fixedOverflowWidgets={true}
 									small
 									automaticLayout
 									bind:this={cssEditor}
 								/>
 							{:else}
-								<ThemeCodePreview theme={$app.theme}>
+								<ThemeCodePreview theme={app.theme}>
 									<div class="p-2 w-min">
 										<Button
 											size="xs"
 											color="dark"
 											on:click={async () => {
-												const theme = await resolveTheme($app.theme, $workspaceStore)
-												$app.theme = {
+												const theme = await resolveTheme(app.theme, $workspaceStore)
+												app.theme = {
 													type: 'inlined',
 													css: theme
 												}

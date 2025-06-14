@@ -30,8 +30,7 @@
 		stateId,
 		worldStore,
 		state: stateStore,
-		appPath,
-		app
+		appPath
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	interface Props {

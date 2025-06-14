@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { Badge } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { getNextId } from '$lib/components/flows/idUtils'
@@ -15,11 +18,15 @@
 	import TableActionsWizard from '$lib/components/wizards/TableActionsWizard.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 
-	export let components:
-		| (BaseAppComponent & (ButtonComponent | CheckboxComponent | SelectComponent))[]
-		| undefined
+	interface Props {
+		components:
+			| (BaseAppComponent & (ButtonComponent | CheckboxComponent | SelectComponent))[]
+			| undefined
+		actionsOrder?: RichConfiguration | undefined
+		id: string
+	}
 
-	export let actionsOrder: RichConfiguration | undefined = undefined
+	let { components = $bindable(), actionsOrder = $bindable(undefined), id }: Props = $props()
 
 	// Migration code:
 	onMount(() => {
@@ -28,16 +35,17 @@
 		}
 	})
 
-	let items =
+	let items = $state(
 		components?.map((tab, index) => {
 			return { value: tab, id: generateRandomString(), originalIndex: index }
 		}) ?? []
+	)
 
-	$: components = items.map((item) => item.value)
+	$effect.pre(() => {
+		components = items.map((item) => item.value)
+	})
 
-	export let id: string
-
-	const { selectedComponent, app, errorByComponent, hoverStore } =
+	const { selectedComponent, errorByComponent, hoverStore } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	function addComponent(typ: 'buttoncomponent' | 'checkboxcomponent' | 'selectcomponent') {
@@ -97,9 +105,9 @@
 
 {#if components}
 	<PanelSection title={`Table Actions`}>
-		<svelte:fragment slot="action">
+		{#snippet action()}
 			<TableActionsWizard bind:actionsOrder selectedId={$selectedComponent?.[0] ?? ''} {components}>
-				<svelte:fragment slot="trigger">
+				{#snippet trigger()}
 					<Button
 						color="light"
 						size="xs2"
@@ -111,9 +119,9 @@
 							<ListOrdered size={16} />
 						</div>
 					</Button>
-				</svelte:fragment>
+				{/snippet}
 			</TableActionsWizard>
-		</svelte:fragment>
+		{/snippet}
 		{#if components.length == 0}
 			<span class="text-xs text-tertiary">No action buttons</span>
 		{/if}
@@ -124,27 +132,27 @@
 					flipDurationMs: 200,
 					dropTargetStyle: {}
 				}}
-				on:consider={handleConsider}
-				on:finalize={handleFinalize}
+				onconsider={handleConsider}
+				onfinalize={handleFinalize}
 			>
 				{#each items as item, index (item.id)}
 					{@const component = items[index].value}
 
 					<div animate:flip={{ duration: 200 }} class="flex flex-row gap-2 items-center mb-2">
-						<!-- svelte-ignore a11y-no-static-element-interactions -->
-						<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<!-- svelte-ignore a11y_mouse_events_have_key_events -->
 						<div
 							class={classNames(
 								'w-full text-xs text-semibold truncate py-1.5 px-2 cursor-pointer justify-between flex items-center border rounded-md',
 								'bg-surface hover:bg-surface-hover focus:border-primary text-secondary'
 							)}
-							on:click={() => {
+							onclick={() => {
 								$selectedComponent = [component.id]
 							}}
-							on:mouseover={() => {
+							onmouseover={() => {
 								$hoverStore = component.id
 							}}
-							on:keypress
+							onkeypress={bubble('keypress')}
 						>
 							<div class="flex flex-row gap-2 items-center">
 								<Badge color="dark-indigo">

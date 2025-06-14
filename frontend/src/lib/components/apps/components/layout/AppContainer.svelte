@@ -12,23 +12,37 @@
 	import GroupWrapper from '../GroupWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 
-	export let id: string
-	export let componentContainerHeight: number
-	export let customCss: ComponentCustomCSS<'containercomponent'> | undefined = undefined
-	export let render: boolean
-	export let groupFields: RichConfigurations | undefined = undefined
+	interface Props {
+		id: string
+		componentContainerHeight: number
+		customCss?: ComponentCustomCSS<'containercomponent'> | undefined
+		render: boolean
+		groupFields?: RichConfigurations | undefined
+	}
+
+	let {
+		id,
+		componentContainerHeight,
+		customCss = undefined,
+		render,
+		groupFields = undefined
+	}: Props = $props()
 
 	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let everRender = render
-	$: render && !everRender && (everRender = true)
+	let everRender = $state(render)
+	$effect(() => {
+		render && !everRender && (everRender = true)
+	})
 
 	let groupContext = writable({})
 
 	let outputs = initOutput($worldStore, id, { group: $groupContext })
 
-	$: outputs.group.set($groupContext, true)
+	$effect(() => {
+		outputs.group.set($groupContext, true)
+	})
 
 	function onFocus() {
 		$focusedGrid = {
@@ -48,7 +62,7 @@
 		}
 	})
 
-	let css = initCss($app.css?.containercomponent, customCss)
+	let css = $state(initCss(app.css?.containercomponent, customCss))
 </script>
 
 <InitializeComponent {id} />
@@ -59,7 +73,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.containercomponent}
+		componentStyle={app.css?.containercomponent}
 	/>
 {/each}
 
@@ -71,7 +85,7 @@
 
 {#if everRender}
 	<div class="w-full h-full">
-		{#if $app.subgrids?.[`${id}-0`]}
+		{#if app.subgrids?.[`${id}-0`]}
 			<GroupWrapper {id} context={groupContext}>
 				<SubGridEditor
 					visible={render}
@@ -90,7 +104,7 @@
 			</GroupWrapper>
 		{/if}
 	</div>
-{:else if $app.subgrids?.[`${id}-0`]}
+{:else if app.subgrids?.[`${id}-0`]}
 	<GroupWrapper {id} context={groupContext}>
 		<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
 	</GroupWrapper>

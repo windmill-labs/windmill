@@ -16,17 +16,20 @@
 	import ThemeDrawer from './ThemeDrawer.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 
-	export let previewThemePath: string | undefined = undefined
-
-	export let row: {
-		name: string
-		path: string
+	interface Props {
+		previewThemePath?: string | undefined
+		row: {
+			name: string
+			path: string
+		}
 	}
 
-	const { previewTheme, app } = getContext<AppViewerContext>('AppViewerContext')
+	let { previewThemePath = $bindable(undefined), row }: Props = $props()
 
-	let cssString: string | undefined = $app?.theme?.type === 'inlined' ? $app.theme.css : undefined
-	$: type = $app?.theme?.type
+	const { previewTheme, app } = $state(getContext<AppViewerContext>('AppViewerContext'))
+
+	let cssString: string | undefined = app?.theme?.type === 'inlined' ? app.theme.css : undefined
+	let type = $derived(app?.theme?.type)
 
 	const dispatch = createEventDispatcher()
 
@@ -41,7 +44,7 @@
 				}
 			})
 
-			$app.theme = {
+			app.theme = {
 				type: 'path',
 				path: row.path
 			}
@@ -71,7 +74,7 @@
 		})
 
 		stopPreview()
-		$app.theme = {
+		app.theme = {
 			type: 'path',
 			path: DEFAULT_THEME
 		}
@@ -111,7 +114,7 @@
 
 		const resolvedTheme = await resolveTheme(theme, $workspaceStore)
 
-		$app.theme = {
+		app.theme = {
 			type: 'inlined',
 			css: resolvedTheme
 		}
@@ -126,7 +129,7 @@
 
 	function apply() {
 		stopPreview()
-		$app.theme = {
+		app.theme = {
 			type: 'path',
 			path: row.path ?? ''
 		}
@@ -162,7 +165,7 @@
 			}
 		]
 	}
-	let themeDrawer: ThemeDrawer
+	let themeDrawer: ThemeDrawer | undefined = $state(undefined)
 </script>
 
 <tr class={twMerge(previewThemePath === row.path ? 'bg-blue-200' : '', 'transition-all')}>
@@ -179,7 +182,7 @@
 				<Badge color="blue" small>Default</Badge>
 			{/if}
 
-			{#if $app?.theme?.type === 'path' && $app.theme.path === row.path}
+			{#if app?.theme?.type === 'path' && app.theme.path === row.path}
 				<Badge color="green" small>Active</Badge>
 			{/if}
 
@@ -193,7 +196,7 @@
 					Update
 				</Button>
 			{/if}
-			{#if $app?.theme?.type !== 'path' || $app.theme.path !== row.path}
+			{#if app?.theme?.type !== 'path' || app.theme.path !== row.path}
 				<Button color="light" size="xs" on:click={preview} startIcon={{ icon: Eye }}>
 					Preview
 				</Button>

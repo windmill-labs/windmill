@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { preventDefault, stopPropagation } from 'svelte/legacy'
+
 	import { createEventDispatcher, getContext, onMount } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { writable } from 'svelte/store'
@@ -13,33 +15,57 @@
 
 	const dispatch = createEventDispatcher()
 
-	export let sensor
-	export let width
-	export let height
-	export let left
-	export let top
+	interface Props {
+		sensor: any
+		width: any
+		height: any
+		left: any
+		top: any
+		id: any
+		container: any
+		xPerPx: any
+		yPerPx: any
+		gapX: any
+		gapY: any
+		item: any
+		cols: any
+		nativeContainer: any
+		onTop: any
+		shadow?: { x: number; y: number; w: number; h: number } | undefined
+		overlapped?: string | undefined
+		moveMode?: 'move' | 'insert'
+		type?: string | undefined
+		fakeShadow?: GridShadow | undefined
+		disableMove?: boolean
+		mounted?: boolean
+		children?: import('svelte').Snippet
+	}
 
-	export let id
-	export let container
-
-	export let xPerPx
-	export let yPerPx
-
-	export let gapX
-	export let gapY
-	export let item
-
-	export let cols
-
-	export let nativeContainer
-	export let onTop
-	export let shadow: { x: number; y: number; w: number; h: number } | undefined = undefined
-	export let overlapped: string | undefined = undefined
-	export let moveMode: 'move' | 'insert' = 'move'
-	export let type: string | undefined = undefined
-	export let fakeShadow: GridShadow | undefined = undefined
-	export let disableMove: boolean = true
-	export let mounted: boolean = false
+	let {
+		sensor,
+		width,
+		height,
+		left,
+		top,
+		id,
+		container,
+		xPerPx,
+		yPerPx,
+		gapX,
+		gapY,
+		item,
+		cols,
+		nativeContainer,
+		onTop,
+		shadow = $bindable(undefined),
+		overlapped = undefined,
+		moveMode = 'move',
+		type = undefined,
+		fakeShadow = undefined,
+		disableMove = true,
+		mounted = false,
+		children
+	}: Props = $props()
 
 	const ctx = getContext<AppEditorContext>('AppEditorContext')
 	const { mode, app } = getContext<AppViewerContext>('AppViewerContext')
@@ -47,9 +73,9 @@
 	const scale = ctx ? ctx.scale : writable(100)
 
 	const divId = `component-${id}`
-	let shadowElement
+	let shadowElement = $state(undefined) as HTMLElement | undefined
 
-	let active = false
+	let active = $state(false)
 
 	let initX, initY
 
@@ -58,10 +84,10 @@
 		y: 0
 	}
 
-	let cordDiff = { x: 0, y: 0 }
+	let cordDiff = $state({ x: 0, y: 0 })
 
-	let newSize = { width, height }
-	let trans = false
+	let newSize = $state({ width, height })
+	let trans = $state(false)
 
 	let anima
 
@@ -114,6 +140,7 @@
 				shadowBound = irect
 			}
 
+			if (!rect) return
 			const xdragBound = rect.left + cordDiff.x
 			const ydragBound = rect.top + cordDiff.y
 
@@ -142,7 +169,7 @@
 	// Autoscroll
 	let _scrollTop = 0
 	let containerFrame
-	let rect
+	let rect = $state() as { top: number; left: number } | undefined
 	let scrollElement
 
 	const getContainerFrame = (element) => {
@@ -317,7 +344,7 @@
 		}
 	}
 
-	let element: HTMLElement | undefined = undefined
+	let element: HTMLElement | undefined = $state(undefined)
 
 	function computeShadow(clientX: number, clientY: number) {
 		const elementsAtPoint = document.elementsFromPoint(clientX, clientY)
@@ -384,7 +411,7 @@
 			return
 		}
 
-		const parent = findGridItemParentGrid($app, id)
+		const parent = findGridItemParentGrid(app, id)
 
 		if (overlapped && (overlapped === parent || parent?.startsWith(overlapped))) {
 			return
@@ -469,7 +496,7 @@
 			return true
 		}
 
-		const parent = findGridItemParentGrid($app, id)
+		const parent = findGridItemParentGrid(app, id)
 
 		if (parent === undefined) {
 			return overlapped === undefined
@@ -481,12 +508,12 @@
 	}
 </script>
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<!-- svelte-ignore a11y-no-static-element-interactions -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	bind:this={element}
 	draggable="false"
-	on:pointerdown|stopPropagation|preventDefault={pointerdown}
+	onpointerdown={(e) => stopPropagation(preventDefault((_) => pointerdown(e)))}
 	id={divId}
 	class="svlt-grid-item"
 	data-iscontainer={type ? isContainer(type) : false}
@@ -495,30 +522,26 @@
 	style="width: {xPerPx == 0 ? 0 : active ? newSize.width : width}px; height:{xPerPx == 0
 		? 0
 		: active
-		? newSize.height
-		: height}px; 
+			? newSize.height
+			: height}px; 
 	{xPerPx == 0 ? 'overflow: hidden;' : ''}
 	{onTop ? 'z-index: 1000;' : ''}
 	
   {active && rect
 		? `transform: translate(${cordDiff.x}px, ${cordDiff.y}px);top:${rect.top}px;left:${rect.left}px;z-index:10000;`
 		: trans
-		? `transform: translate(${cordDiff.x}px, ${cordDiff.y}px); position:absolute; transition: width 0.2s, height 0.2s;`
-		: `${
-				xPerPx > 0 && mounted ? 'transition: transform 0.1s, opacity 0.1s;' : ''
-		  } transform: translate(${left}px, ${top}px); `} "
+			? `transform: translate(${cordDiff.x}px, ${cordDiff.y}px); position:absolute; transition: width 0.2s, height 0.2s;`
+			: `${
+					xPerPx > 0 && mounted ? 'transition: transform 0.1s, opacity 0.1s;' : ''
+				} transform: translate(${left}px, ${top}px); `} "
 >
-	<slot />
+	{@render children?.()}
 	{#if moveMode === 'move' && !disableMove}
-		<div
-			class="svlt-grid-resizer-bottom"
-			on:pointerdown={(e) => resizePointerDown(e, 'vertical')}
+		<div class="svlt-grid-resizer-bottom" onpointerdown={(e) => resizePointerDown(e, 'vertical')}
 		></div>
-		<div
-			class="svlt-grid-resizer-side"
-			on:pointerdown={(e) => resizePointerDown(e, 'horizontal')}
+		<div class="svlt-grid-resizer-side" onpointerdown={(e) => resizePointerDown(e, 'horizontal')}
 		></div>
-		<div class="svlt-grid-resizer" on:pointerdown={(e) => resizePointerDown(e, 'both')}></div>
+		<div class="svlt-grid-resizer" onpointerdown={(e) => resizePointerDown(e, 'both')}></div>
 	{/if}
 </div>
 

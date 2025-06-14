@@ -4,24 +4,33 @@
 	import { classNames, itemsExists } from '$lib/utils'
 	import { Plus, X } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { App, AppViewerContext, InlineScript } from '$lib/components/apps/types'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { getAllGridItems } from '../../../appUtils'
 
-	export let triggerEvents: string[] = []
-	export let inlineScript: InlineScript | undefined = undefined
-	export let isFrontend: boolean = false
-	export let dependencies: string[] = []
-	export let shoudlDisplayChangeEvents: boolean = false
-	export let id: string
+	interface Props {
+		triggerEvents?: string[]
+		inlineScript?: InlineScript | undefined
+		isFrontend?: boolean
+		dependencies?: string[]
+		shoudlDisplayChangeEvents?: boolean
+		id: string
+	}
+
+	let {
+		triggerEvents = [],
+		inlineScript = $bindable(undefined),
+		isFrontend = false,
+		dependencies = [],
+		shoudlDisplayChangeEvents = false,
+		id
+	}: Props = $props()
 
 	const { connectingInput, app, stateId } = getContext<AppViewerContext>('AppViewerContext')
 
-	let onSuccessEvents: string[] = []
-
-	$: computeOnSuccessEvents($app, id)
+	let onSuccessEvents: string[] = $state([])
 
 	function computeOnSuccessEvents(app: App, _id: string) {
 		const nr: string[] = []
@@ -47,16 +56,6 @@
 		})
 		onSuccessEvents = nr
 	}
-	$: changeEvents = isFrontend
-		? inlineScript?.refreshOn
-			? inlineScript.refreshOn.map((x) => `${x.id}.${x.key}`)
-			: []
-		: dependencies
-
-	$: hasNoTriggers =
-		triggerEvents.length === 0 &&
-		(changeEvents.length === 0 || !shoudlDisplayChangeEvents) &&
-		onSuccessEvents.length == 0
 
 	const badgeClass = 'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border'
 	const colors = {
@@ -86,6 +85,24 @@
 		}
 		inlineScript = inlineScript // $app = $app
 	}
+	$effect.pre(() => {
+		;[app, id]
+		untrack(() => {
+			computeOnSuccessEvents(app, id)
+		})
+	})
+	let changeEvents = $derived(
+		isFrontend
+			? inlineScript?.refreshOn
+				? inlineScript.refreshOn.map((x) => `${x.id}.${x.key}`)
+				: []
+			: dependencies
+	)
+	let hasNoTriggers = $derived(
+		triggerEvents.length === 0 &&
+			(changeEvents.length === 0 || !shoudlDisplayChangeEvents) &&
+			onSuccessEvents.length == 0
+	)
 </script>
 
 {#if hasNoTriggers}
@@ -117,7 +134,7 @@
 					{#if isFrontend}
 						<button
 							class="bg-blue-300 ml-2 p-0.5 rounded-md hover:bg-blue-400 cursor-pointer"
-							on:click={() => {
+							onclick={() => {
 								if (inlineScript?.refreshOn) {
 									inlineScript.refreshOn = inlineScript.refreshOn.filter(
 										(x) => `${x.id}.${x.key}` !== changeEvent
@@ -172,7 +189,7 @@
 							'p-0.5 rounded-md hover:bg-blue-400 cursor-pointer !text-2xs text-secondary',
 							badgeClass
 						)}
-						on:click={() => {
+						onclick={() => {
 							if (inlineScript) {
 								if (!itemsExists(inlineScript.refreshOn, suggestion)) {
 									inlineScript.refreshOn = [...(inlineScript.refreshOn ?? []), suggestion]

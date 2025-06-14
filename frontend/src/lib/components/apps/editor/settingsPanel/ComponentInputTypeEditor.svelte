@@ -17,7 +17,7 @@
 
 	let { componentInput = $bindable(), disableStatic = false, evalV2editor }: Props = $props()
 
-	const { onchange, connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
+	const { onchange, connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 
 	const dispatch = createEventDispatcher()
 

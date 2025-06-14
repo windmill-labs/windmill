@@ -4,11 +4,15 @@
 	import { allItems } from '$lib/components/apps/utils'
 	import { getContext } from 'svelte'
 
-	export let componentInput: StaticInput<{ id: string; index: number }>
+	interface Props {
+		componentInput: StaticInput<{ id: string; index: number }>
+	}
+
+	let { componentInput = $bindable() }: Props = $props()
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
-	const tabComponents = allItems($app.grid, $app.subgrids).filter(
+	const tabComponents = allItems(app.grid, app.subgrids).filter(
 		(component) =>
 			component.data.type === 'tabscomponent' ||
 			component.data.type === 'conditionalwrapper' ||

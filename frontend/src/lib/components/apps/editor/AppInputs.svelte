@@ -9,7 +9,7 @@
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
-	let resourceOnly: boolean = true
+	let resourceOnly: boolean = $state(true)
 </script>
 
 <Alert type="info" title="Configurations">
@@ -19,7 +19,7 @@
 	<Toggle bind:checked={resourceOnly} options={{ right: 'Resource only' }} />
 </div>
 <div class="gap-4 flex flex-col pt-4">
-	{#each allItems($app.grid, $app.subgrids) as gridItem (gridItem.data.id)}
+	{#each allItems(app.grid, app.subgrids) as gridItem (gridItem.data.id)}
 		{#if gridItem?.data?.type === 'tablecomponent'}
 			<div>
 				<AppComponentInput bind:component={gridItem.data} {resourceOnly} />
@@ -52,10 +52,10 @@
 	{/each}
 </div>
 
-{#if $app?.hiddenInlineScripts?.length > 0}
+{#if app?.hiddenInlineScripts?.length > 0}
 	<div class="font-bold text-lg">Background runnable inputs</div>
 	<div class="gap-4 flex flex-col pt-4">
-		{#each $app?.hiddenInlineScripts ?? [] as script, index (script.name)}
+		{#each app?.hiddenInlineScripts ?? [] as script, index (script.name)}
 			<div class="border p-2">
 				<div class="text-sm font-bold">{script.name}</div>
 

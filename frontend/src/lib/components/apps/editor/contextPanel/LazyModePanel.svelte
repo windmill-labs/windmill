@@ -9,10 +9,10 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
-	let code = $state(JSON.stringify($app.lazyInitRequire))
+	let code = $state(JSON.stringify(app.lazyInitRequire))
 
 	let selectedRendering = $state(
-		$app.eagerRendering ? 'eager' : $app.lazyInitRequire ? 'lazy' : 'semi-lazy'
+		app.eagerRendering ? 'eager' : app.lazyInitRequire ? 'lazy' : 'semi-lazy'
 	)
 </script>
 
@@ -32,15 +32,15 @@
 		bind:selected={selectedRendering}
 		on:selected={(e) => {
 			if (e.detail == 'eager') {
-				$app.eagerRendering = true
-				$app.lazyInitRequire = undefined
+				app.eagerRendering = true
+				app.lazyInitRequire = undefined
 			} else if (e.detail == 'semi-lazy') {
-				$app.eagerRendering = undefined
-				$app.lazyInitRequire = undefined
+				app.eagerRendering = undefined
+				app.lazyInitRequire = undefined
 			} else {
-				$app.eagerRendering = undefined
-				$app.lazyInitRequire = []
-				code = JSON.stringify($app.lazyInitRequire)
+				app.eagerRendering = undefined
+				app.lazyInitRequire = []
+				code = JSON.stringify(app.lazyInitRequire)
 			}
 		}}
 	>
@@ -65,7 +65,7 @@
 		</Section>
 	{:else if selectedRendering == 'lazy'}
 		<Section label="Component ids to wait the initialization of before the initial refresh">
-			<JsonEditor bind:value={$app.lazyInitRequire} {code} />
+			<JsonEditor bind:value={app.lazyInitRequire} {code} />
 			<span class="text-tertiary text-xs">
 				{'e.g: ["a", "b"]'}, no need to put background runnables ids
 			</span>

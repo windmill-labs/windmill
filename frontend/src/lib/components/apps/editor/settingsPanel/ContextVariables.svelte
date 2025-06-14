@@ -47,7 +47,7 @@
 
 	function addGridItemContext(parentId: string) {
 		if (!parentId) return
-		const gridItem = findGridItem($app, parentId)
+		const gridItem = findGridItem(app, parentId)
 		addParentContextVariable(gridItem)
 	}
 
@@ -62,7 +62,7 @@
 
 	function findParentsContextVariables(id: string): void {
 		if (!id) return
-		const allParents = dfs($app.grid, id, $app.subgrids ?? {})
+		const allParents = dfs(app.grid, id, app.subgrids ?? {})
 
 		if (!allParents) return
 

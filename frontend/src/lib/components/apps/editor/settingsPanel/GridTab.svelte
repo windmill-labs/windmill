@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import Button from '$lib/components/common/button/Button.svelte'
 	import CloseButton from '$lib/components/common/CloseButton.svelte'
 	import { getContext, tick } from 'svelte'
@@ -11,27 +14,40 @@
 	import { GripVertical, Plus } from 'lucide-svelte'
 	import GridTabDisabled from './GridTabDisabled.svelte'
 
-	export let tabs: string[] = []
-	export let disabledTabs: RichConfiguration[] = []
-
-	export let canDisableTabs: boolean = false
-
-	export let word: string = 'Tab'
-
-	export let component: AppComponent
-
-	$: if (disabledTabs == undefined) {
-		disabledTabs = [
-			{ type: 'static', value: false, fieldType: 'boolean' },
-			{ type: 'static', value: false, fieldType: 'boolean' }
-		]
+	interface Props {
+		tabs?: string[]
+		disabledTabs?: RichConfiguration[]
+		canDisableTabs?: boolean
+		word?: string
+		component: AppComponent
 	}
 
-	let items = tabs.map((tab, index) => {
-		return { value: tab, id: generateRandomString(), originalIndex: index }
+	let {
+		tabs = $bindable([]),
+		disabledTabs = $bindable([]),
+		canDisableTabs = false,
+		word = 'Tab',
+		component = $bindable()
+	}: Props = $props()
+
+	$effect.pre(() => {
+		if (disabledTabs == undefined) {
+			disabledTabs = [
+				{ type: 'static', value: false, fieldType: 'boolean' },
+				{ type: 'static', value: false, fieldType: 'boolean' }
+			]
+		}
 	})
 
-	$: tabs = items.map((item) => item.value)
+	let items = $state(
+		tabs.map((tab, index) => {
+			return { value: tab, id: generateRandomString(), originalIndex: index }
+		})
+	)
+
+	$effect.pre(() => {
+		tabs = items.map((item) => item.value)
+	})
 
 	const { app, runnableComponents, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -39,11 +55,11 @@
 	function addTab() {
 		const numberOfTabs = items.length
 
-		if (!$app.subgrids) {
-			$app.subgrids = {}
+		if (!app.subgrids) {
+			app.subgrids = {}
 		}
 
-		$app.subgrids[`${component.id}-${numberOfTabs}`] = []
+		app.subgrids[`${component.id}-${numberOfTabs}`] = []
 		items = [
 			...items,
 			{
@@ -59,8 +75,8 @@
 
 	function deleteSubgrid(index: number) {
 		let subgrid = `${component.id}-${index}`
-		for (const item of $app!.subgrids![subgrid]) {
-			const components = deleteGridItem($app, item.data, subgrid)
+		for (const item of app!.subgrids![subgrid]) {
+			const components = deleteGridItem(app, item.data, subgrid)
 			for (const key in components) {
 				delete $runnableComponents[key]
 			}
@@ -68,7 +84,7 @@
 		$runnableComponents = $runnableComponents
 
 		for (let i = index; i < items.length - 1; i++) {
-			$app!.subgrids![`${component.id}-${i}`] = $app!.subgrids![`${component.id}-${i + 1}`]
+			app!.subgrids![`${component.id}-${i}`] = app!.subgrids![`${component.id}-${i + 1}`]
 		}
 
 		// Remove the corresponding item from the items array
@@ -84,7 +100,7 @@
 		})
 		items = items
 
-		delete $app!.subgrids![`${component.id}-${items.length}`] // $app = $app
+		delete app!.subgrids![`${component.id}-${items.length}`] // $app = $app
 	}
 
 	function handleConsider(e: CustomEvent): void {
@@ -109,7 +125,7 @@
 			const newSubgrids = {}
 			for (let i = 0; i < items.length; i++) {
 				newSubgrids[`${component.id}-${i}`] =
-					$app!.subgrids![`${component.id}-${items[i].originalIndex}`] ?? []
+					app!.subgrids![`${component.id}-${items[i].originalIndex}`] ?? []
 			}
 
 			const newDisabledTabs: RichConfiguration[] = []
@@ -123,8 +139,8 @@
 				item.originalIndex = i
 			})
 
-			$app!.subgrids = {
-				...$app!.subgrids,
+			app!.subgrids = {
+				...app!.subgrids,
 				...newSubgrids
 			} // $app = $app
 
@@ -147,15 +163,15 @@
 				flipDurationMs: 200,
 				dropTargetStyle: {}
 			}}
-			on:consider={handleConsider}
-			on:finalize={handleFinalize}
+			onconsider={handleConsider}
+			onfinalize={handleFinalize}
 		>
 			{#each items as item, index (item.id)}
 				<div class="border rounded-md p-2 mb-2 bg-surface">
 					<div class="w-full flex flex-row gap-2 items-center relative my-1">
 						<input
-							on:keydown|stopPropagation
-							on:input={(e) => updateItemValue(index, e)}
+							onkeydown={stopPropagation(bubble('keydown'))}
+							oninput={(e) => updateItemValue(index, e)}
 							type="text"
 							bind:value={items[index].value}
 						/>
@@ -164,9 +180,9 @@
 						</div>
 
 						<div class="flex flex-col justify-center gap-2">
-							<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+							<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 
-							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
 							<div use:dragHandle class="handle w-4 h-4" aria-label="drag-handle">
 								<GripVertical size={16} />
 							</div>

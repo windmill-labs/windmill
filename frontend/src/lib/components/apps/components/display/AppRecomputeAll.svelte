@@ -35,7 +35,7 @@
 
 	initializing = false
 
-	let css = initCss($app.css?.recomputeallcomponent, customCss)
+	let css = initCss(app.css?.recomputeallcomponent, customCss)
 
 	$: resolvedConfig.defaultRefreshInterval && handleRefreshInterval()
 
@@ -68,7 +68,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.recomputeallcomponent}
+		componentStyle={app.css?.recomputeallcomponent}
 	/>
 {/each}
 

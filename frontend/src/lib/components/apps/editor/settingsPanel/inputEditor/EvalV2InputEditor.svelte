@@ -126,9 +126,9 @@
 				bind:this={editor}
 				lang="javascript"
 				bind:code={
-					() => componentInput.expr ?? '',
+					() => componentInput?.expr ?? '',
 					(e) => {
-						if (componentInput.expr != e) {
+						if (componentInput?.expr != e) {
 							componentInput.expr = e
 						}
 					}

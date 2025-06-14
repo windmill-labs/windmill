@@ -6,9 +6,13 @@
 	import type { Runnable, StaticAppInput } from '../../inputType'
 	import { createEventDispatcher, getContext } from 'svelte'
 
-	export let runnable: HiddenRunnable
-	export let id: string
-	export let transformer: boolean
+	interface Props {
+		runnable: HiddenRunnable
+		id: string
+		transformer: boolean
+	}
+
+	let { runnable = $bindable(), id, transformer }: Props = $props()
 
 	const { runnableComponents, app } = getContext<AppViewerContext>('AppViewerContext')
 	async function fork(nrunnable: Runnable) {
@@ -69,7 +73,7 @@
 	/>
 {:else}
 	<EmptyInlineScript
-		unusedInlineScripts={$app?.unusedInlineScripts}
+		unusedInlineScripts={app?.unusedInlineScripts}
 		on:pick={(e) => onPick(e.detail)}
 		on:delete
 		showScriptPicker
