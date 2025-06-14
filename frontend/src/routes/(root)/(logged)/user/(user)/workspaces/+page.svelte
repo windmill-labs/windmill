@@ -62,6 +62,7 @@
 			}
 		} else {
 			const url = $page.url
+			console.log('logout 1')
 			await logoutWithRedirect(url.href.replace(url.origin, ''))
 		}
 	}

@@ -65,8 +65,9 @@
 			}
 		} catch (e) {
 			console.error(e)
-			if ($page.url.pathname != '/user/login') {
+			if ($page.url.pathname != '/user/login' && $page.url.pathname != '/user/logout') {
 				const url = $page.url
+				console.log('logout 5', url.href.replace(url.origin, ''))
 				await logoutWithRedirect(url.href.replace(url.origin, ''))
 			}
 		}
@@ -106,9 +107,13 @@
 
 				if (status == '401') {
 					const url = $page.url
-					console.log('UNAUTHORIZED', url, url.href.replace(url.origin, ''))
+					console.log('UNAUTHORIZED', url, url.href.replace(url.origin, ''), url.pathname)
 					if (url.pathname != '/user/login' && url.pathname != '/user/logout') {
+						console.log('logout 6', url.pathname, url.href.replace(url.origin, ''))
 						logoutWithRedirect(url.href.replace(url.origin, ''))
+						return
+					} else {
+						console.log('logout ignored')
 						return
 					}
 				} else if (status == '403') {

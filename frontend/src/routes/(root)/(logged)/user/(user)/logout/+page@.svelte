@@ -14,6 +14,11 @@
 		} catch (err) {
 			console.error(err)
 		}
+		if ($page.url.pathname != '/user/logout' && $page.url.pathname != '/user/login') {
+			return
+		}
+
+		console.log('logout 4', rd)
 		goto(rd ?? '/user/login')
 	})
 </script>
