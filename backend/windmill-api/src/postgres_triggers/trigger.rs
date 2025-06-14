@@ -417,7 +417,7 @@ impl PostgresConfig {
         };
 
         let database = try_get_resource_from_db_as::<Postgres>(
-            authed,
+            &authed,
             Some(UserDB::new(db.clone())),
             &db,
             postgres_resource_path,

@@ -47,12 +47,14 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { getHttpRoute } from '$lib/components/triggers/http/utils'
 	import RoutesGenerator from '$lib/components/triggers/http/RoutesGenerator.svelte'
+	import OpenApiSpecGenerator from '$lib/components/triggers/http/OpenAPISpecGenerator.svelte'
 
 	type TriggerW = HttpTrigger & { canWrite: boolean }
 
 	let triggers: TriggerW[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
 	let loading = $state(true)
+	let openAPISpecGenerator: OpenApiSpecGenerator | undefined = $state()
 	let routesGenerator: RoutesGenerator | undefined = $state()
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
@@ -207,6 +209,7 @@
 <RouteEditor onUpdate={loadTriggers} bind:this={routeEditor} />
 
 <RoutesGenerator closeFn={loadTriggers} bind:this={routesGenerator} />
+<OpenApiSpecGenerator bind:this={openAPISpecGenerator} />
 
 <SearchItems
 	{filter}
@@ -237,6 +240,15 @@
 						}}
 					>
 						From OpenAPI spec
+					</Button>
+					<Button
+						size="md"
+						startIcon={{ icon: Plus }}
+						on:click={() => {
+							openAPISpecGenerator?.openDrawer()
+						}}
+					>
+						To OpenAPI spec
 					</Button>
 					<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor?.openNew(false)}>
 						New&nbsp;route

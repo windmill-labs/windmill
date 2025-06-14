@@ -441,8 +441,8 @@ pub struct BasicAuthAuthentication {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ApiKeyAuthentication {
-    api_key_header: String,
-    api_key_secret: String,
+    pub api_key_header: String,
+    pub api_key_secret: String,
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
