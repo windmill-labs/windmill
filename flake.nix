@@ -22,6 +22,15 @@
             "rustfmt"
           ];
         };
+        patchedClang = pkgs.llvmPackages_18.clang.overrideAttrs (oldAttrs: {
+          postFixup = ''
+            # Copy the original postFixup logic but skip add-hardening.sh
+            ${oldAttrs.postFixup or ""}
+
+            # Remove the line that substitutes add-hardening.sh
+            sed -i 's/.*source.*add-hardening\.sh.*//' $out/bin/clang
+          '';
+        });
         buildInputs = with pkgs; [
           openssl
           openssl.dev
@@ -64,16 +73,24 @@
       in {
         # Enter by `nix develop .#wasm`
         devShells."wasm" = pkgs.mkShell {
+          # Explicitly set paths for headers and linker
+          shellHook = ''
+            export CC=${patchedClang}/bin/clang
+          '';
           buildInputs = buildInputs ++ (with pkgs; [
             (rust-bin.nightly.latest.default.override {
               extensions = [
                 "rust-src" # for rust-analyzer
                 "rust-analyzer"
               ];
-              targets = [ "wasm32-unknown-unknown" ];
+              targets =
+                [ "wasm32-unknown-unknown" "wasm32-unknown-emscripten" ];
             })
             wasm-pack
             deno
+            emscripten
+            # Needed for extra dependencies
+            glibc_multi
           ]);
         };
 
@@ -81,6 +98,7 @@
           buildInputs = buildInputs ++ (with pkgs; [
             # Essentials
             rust
+            cargo-watch
             cargo-sweep
             git
             xcaddy
@@ -197,7 +215,7 @@
           ORACLE_LIB_DIR = "${pkgs.oracle-instantclient.lib}/lib";
           ANSIBLE_PLAYBOOK_PATH = "${pkgs.ansible}/bin/ansible-playbook";
           ANSIBLE_GALAXY_PATH = "${pkgs.ansible}/bin/ansible-galaxy";
-          RUST_LOG = "debug";
+          # RUST_LOG = "debug";
           SQLX_OFFLINE = "true";
 
           # See this issue: https://github.com/NixOS/nixpkgs/issues/370494
