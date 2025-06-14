@@ -22,7 +22,7 @@
 	on:confirmed={() => confirmCallback()}
 >
 	<div class="flex flex-col w-full space-y-4">
-		<span>There was deployed new version while you were editing this one.</span>
+		<span>A new version was deployed while you were editing this one.</span>
 		{#if diffDrawer}
 			<Button
 				wrapperClasses="self-start"
