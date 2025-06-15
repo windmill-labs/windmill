@@ -304,7 +304,7 @@
 				draggedItem[getComputedCols].y = detail.shadow.y
 			}
 
-			let items: GridItem[] = []
+			let nitems: GridItem[] = []
 
 			if ($overlappedStore) {
 				const div = document.getElementById(`component-${$overlappedStore}`)
@@ -316,16 +316,16 @@
 
 				const index = type ? subGridIndexKey(type, $overlappedStore, $worldStore) : 0
 
-				items = $app.subgrids[`${$overlappedStore}-${index}`] ?? []
+				nitems = $app.subgrids[`${$overlappedStore}-${index}`] ?? []
 			} else {
-				items = $app.grid ?? []
+				nitems = $app.grid ?? []
 			}
 
 			if (!draggedItem) {
 				return
 			}
 
-			const freeSpace = gridHelp.findSpace(draggedItem, items, getComputedCols)
+			const freeSpace = gridHelp.findSpace(draggedItem, nitems, getComputedCols)
 
 			$fakeShadowStore = {
 				x: freeSpace.x,
