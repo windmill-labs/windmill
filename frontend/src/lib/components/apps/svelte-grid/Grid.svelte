@@ -70,7 +70,7 @@
 	$: containerHeight = getContainerHeight(items, yPerPx, getComputedCols)
 
 	const onResize = throttle(() => {
-		items = specifyUndefinedColumns(items, getComputedCols, cols)
+		sortedItems = specifyUndefinedColumns(sortedItems, getComputedCols, cols)
 		dispatch('resize', {
 			cols: getComputedCols,
 			xPerPx,
@@ -99,7 +99,7 @@
 				xPerPx = width / getComputedCols!
 
 				if (!containerWidth) {
-					items = specifyUndefinedColumns(items, getComputedCols, cols)
+					sortedItems = specifyUndefinedColumns(sortedItems, getComputedCols, cols)
 
 					dispatch('mount', {
 						cols: getComputedCols,
@@ -199,9 +199,9 @@
 							return item
 						})
 
-						let { items } = moveItem(activeItem, fixedContainer, getComputedCols)
+						let { items: nitems } = moveItem(activeItem, fixedContainer, getComputedCols)
 
-						items = items.map((item) => {
+						nitems = nitems.map((item) => {
 							if (initialFixedStates.has(item.id)) {
 								const initialState = initialFixedStates.get(item.id)
 
@@ -213,12 +213,12 @@
 							return item
 						})
 
-						sortedItems = items
+						sortedItems = nitems
 					}
 				} else {
-					let { items } = moveItem(activeItem, sortedItems, getComputedCols)
+					let { items: nitems } = moveItem(activeItem, sortedItems, getComputedCols)
 
-					sortedItems = items
+					sortedItems = nitems
 				}
 			}
 		}
