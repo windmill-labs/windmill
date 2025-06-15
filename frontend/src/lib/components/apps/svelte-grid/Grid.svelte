@@ -1,4 +1,4 @@
-<script lang="ts" context="module">
+<script lang="ts" module>
 	import { writable } from 'svelte/store'
 
 	const componentDraggedIdStore = writable<string | undefined>(undefined)
@@ -42,35 +42,51 @@
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	export let items: FilledItem<T>[]
-	export let rowHeight: number = ROW_HEIGHT
+	interface Props {
+		items: FilledItem<T>[]
+		rowHeight?: number
+		gap?: any
+		throttleUpdate?: number
+		throttleResize?: number
+		selectedIds: string[] | undefined
+		allIdsInPath: string[] | undefined
+		containerWidth?: number | undefined
+		scroller?: HTMLElement | undefined
+		sensor?: number
+		root?: boolean
+		parentWidth?: number | undefined
+		disableMove?: boolean
+		children?: import('svelte').Snippet<[any]>
+	}
 
-	export let gap = [ROW_GAP_X, ROW_GAP_Y]
-	export let throttleUpdate = 100
-	export let throttleResize = 100
-	export let selectedIds: string[] | undefined
-	export let allIdsInPath: string[] | undefined
-	export let containerWidth: number | undefined = undefined
-	export let scroller: HTMLElement | undefined = undefined
-	export let sensor = 20
-	export let root: boolean = false
-	export let parentWidth: number | undefined = undefined
-	export let disableMove: boolean = false
+	let {
+		items,
+		rowHeight = ROW_HEIGHT,
+		gap = [ROW_GAP_X, ROW_GAP_Y],
+		throttleUpdate = 100,
+		throttleResize = 100,
+		selectedIds,
+		allIdsInPath,
+		containerWidth = $bindable(undefined),
+		scroller = undefined,
+		sensor = 20,
+		root = false,
+		parentWidth = undefined,
+		disableMove = false,
+		children
+	}: Props = $props()
 	const cols = columnConfiguration
 
-	let getComputedCols: 3 | 12 | undefined =
+	let getComputedCols: 3 | 12 | undefined = $state(
 		$app.mobileViewOnSmallerScreens == false ? WIDE_GRID_COLUMNS : undefined
-	let container
+	)
+	let container = $state()
 
-	$: [gapX, gapY] = gap
-
-	let xPerPx = 0
+	let xPerPx = $state(0)
 	let yPerPx = rowHeight
 
-	$: containerHeight = getContainerHeight(items, yPerPx, getComputedCols)
-
 	const onResize = throttle(() => {
-		items = specifyUndefinedColumns(items, getComputedCols, cols)
+		sortedItems = specifyUndefinedColumns(sortedItems, getComputedCols, cols)
 		dispatch('resize', {
 			cols: getComputedCols,
 			xPerPx,
@@ -79,7 +95,7 @@
 		})
 	}, throttleUpdate)
 
-	let mounted = false
+	let mounted = $state(false)
 
 	onMount(() => {
 		const sizeObserver = new ResizeObserver((entries) => {
@@ -99,7 +115,7 @@
 				xPerPx = width / getComputedCols!
 
 				if (!containerWidth) {
-					items = specifyUndefinedColumns(items, getComputedCols, cols)
+					sortedItems = specifyUndefinedColumns(sortedItems, getComputedCols, cols)
 
 					dispatch('mount', {
 						cols: getComputedCols,
@@ -115,15 +131,14 @@
 			})
 		})
 
-		sizeObserver.observe(container)
+		sizeObserver.observe(container as Element)
 
 		return () => sizeObserver.disconnect()
 	})
 
-	let sortedItems: FilledItem<T>[] = []
-	$: sortedItems = smartCopy(items).sort((a, b) => a.id.localeCompare(b.id))
+	let sortedItems: FilledItem<T>[] = $state([])
 
-	let resizing: boolean = false
+	let resizing: boolean = $state(false)
 
 	function handleKeyUp(event) {
 		if ((event.key === 'Control' || event.key === 'Meta') && $isCtrlOrMetaPressedStore) {
@@ -199,9 +214,9 @@
 							return item
 						})
 
-						let { items } = moveItem(activeItem, fixedContainer, getComputedCols)
+						let { items: nitems } = moveItem(activeItem, fixedContainer, getComputedCols)
 
-						items = items.map((item) => {
+						nitems = nitems.map((item) => {
 							if (initialFixedStates.has(item.id)) {
 								const initialState = initialFixedStates.get(item.id)
 
@@ -213,12 +228,12 @@
 							return item
 						})
 
-						sortedItems = items
+						sortedItems = nitems
 					}
 				} else {
-					let { items } = moveItem(activeItem, sortedItems, getComputedCols)
+					let { items: nitems } = moveItem(activeItem, sortedItems, getComputedCols)
 
-					sortedItems = items
+					sortedItems = nitems
 				}
 			}
 		}
@@ -238,8 +253,16 @@
 
 	//let hiddenComponents = writable({})
 
-	let lastDetail: { isPointerUp: false; activate: false; id: string | undefined } | undefined =
-		undefined
+	let lastDetail:
+		| {
+				cordDiff: { x: number; y: number }
+				clientY: number
+				intersectingElement?: string | undefined
+				shadow?: GridShadow | undefined
+				overlapped?: string | undefined
+		  }
+		| undefined = $state(undefined)
+
 	const handleRepaint = ({ detail }) => {
 		if (!detail.isPointerUp) {
 			throttleMatrix({ detail })
@@ -273,12 +296,20 @@
 	}
 
 	let moveResizes: Record<string, MoveResize> = {}
-	let shadows: Record<string, { x: number; y: number; w: number; h: number } | undefined> = {}
+	let shadows: Record<string, { x: number; y: number; w: number; h: number } | undefined> = $state(
+		{}
+	)
 
-	export function handleMove({ detail }) {
+	export function handleMove(detail: {
+		cordDiff: { x: number; y: number }
+		clientY: number
+		intersectingElement?: string | undefined
+		shadow?: GridShadow | undefined
+		overlapped?: string | undefined
+	}) {
 		Object.entries(moveResizes).forEach(([id, moveResize]) => {
 			if (selectedIds?.includes(id)) {
-				moveResize?.updateMove(structuredClone(stateSnapshot(detail.cordDiff)), detail.eventY)
+				moveResize?.updateMove(detail.cordDiff, detail.clientY)
 			}
 		})
 
@@ -304,7 +335,7 @@
 				draggedItem[getComputedCols].y = detail.shadow.y
 			}
 
-			let items: GridItem[] = []
+			let nitems: GridItem[] = []
 
 			if ($overlappedStore) {
 				const div = document.getElementById(`component-${$overlappedStore}`)
@@ -316,16 +347,16 @@
 
 				const index = type ? subGridIndexKey(type, $overlappedStore, $worldStore) : 0
 
-				items = $app.subgrids[`${$overlappedStore}-${index}`] ?? []
+				nitems = $app.subgrids[`${$overlappedStore}-${index}`] ?? []
 			} else {
-				items = $app.grid ?? []
+				nitems = $app.grid ?? []
 			}
 
 			if (!draggedItem) {
 				return
 			}
 
-			const freeSpace = gridHelp.findSpace(draggedItem, items, getComputedCols)
+			const freeSpace = gridHelp.findSpace(draggedItem, nitems, getComputedCols)
 
 			$fakeShadowStore = {
 				x: freeSpace.x,
@@ -357,16 +388,21 @@
 			}
 		})
 	}
+	let [gapX, gapY] = $derived(gap)
+	let containerHeight = $derived(getContainerHeight(items, yPerPx, getComputedCols))
+	$effect.pre(() => {
+		sortedItems = smartCopy(items).sort((a, b) => a.id.localeCompare(b.id))
+	})
 </script>
 
 <svelte:window
-	on:focus={() => {
+	onfocus={() => {
 		if ($isCtrlOrMetaPressedStore) {
 			$isCtrlOrMetaPressedStore = false
 		}
 	}}
-	on:keydown={handleKeyDown}
-	on:keyup={handleKeyUp}
+	onkeydown={handleKeyDown}
+	onkeyup={handleKeyUp}
 />
 
 <div
@@ -458,7 +494,7 @@
 				<MoveResize
 					{mounted}
 					on:initmove={() => handleInitMove(item.id)}
-					on:move={handleMove}
+					onMove={handleMove}
 					bind:shadow={shadows[item.id]}
 					bind:this={moveResizes[item.id]}
 					on:repaint={handleRepaint}
@@ -502,13 +538,13 @@
 					{disableMove}
 				>
 					{#if item[getComputedCols]}
-						<slot
-							dataItem={item}
-							hidden={false}
-							overlapped={$overlappedStore}
-							moveMode={$isCtrlOrMetaPressedStore ? 'insert' : 'move'}
-							componentDraggedId={$componentDraggedIdStore}
-						/>
+						{@render children?.({
+							dataItem: item,
+							hidden: false,
+							overlapped: $overlappedStore,
+							moveMode: $isCtrlOrMetaPressedStore ? 'insert' : 'move',
+							componentDraggedId: $componentDraggedIdStore
+						})}
 					{/if}
 				</MoveResize>
 			{/if}

@@ -443,6 +443,7 @@
 	let box: HTMLElement | undefined = $state(undefined)
 	function parseScroll() {
 		$yTop = box?.scrollTop ?? 0
+		// console.log('parse scroll', $yTop)
 	}
 
 	let mounted = false

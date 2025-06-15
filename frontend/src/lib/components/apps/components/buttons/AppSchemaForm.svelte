@@ -66,6 +66,7 @@
 	let args: Record<string, unknown> = $state(!iterContext ? (outputs?.values?.peak() ?? {}) : {})
 
 	function handleArgsChange() {
+		// console.log('handleArgsChange', args)
 		const newArgs: Record<string, unknown> = {}
 
 		for (const key in args) {
