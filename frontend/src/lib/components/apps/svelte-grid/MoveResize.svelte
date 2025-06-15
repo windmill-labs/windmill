@@ -36,6 +36,13 @@
 		fakeShadow?: GridShadow | undefined
 		disableMove?: boolean
 		mounted?: boolean
+		onMove: (detail: {
+			cordDiff: { x: number; y: number }
+			clientY: number
+			intersectingElement?: string | undefined
+			shadow?: GridShadow | undefined
+			overlapped?: string | undefined
+		}) => void
 		children?: import('svelte').Snippet
 	}
 
@@ -62,6 +69,7 @@
 		fakeShadow = undefined,
 		disableMove = true,
 		mounted = false,
+		onMove,
 		children
 	}: Props = $props()
 
@@ -112,7 +120,7 @@
 						y: (moveY / $scale) * 100 - initY
 					}
 
-					dispatch('move', { cordDiff, clientY: clientY })
+					onMove({ cordDiff, clientY: clientY })
 				}
 				return x
 			})
@@ -281,7 +289,7 @@
 		const cordDiff = { x: (clientX / $scale) * 100 - initX, y: (clientY / $scale) * 100 - initY }
 
 		if (moveMode === 'move') {
-			dispatch('move', {
+			onMove({
 				cordDiff,
 				clientY,
 				intersectingElement: undefined,
@@ -293,7 +301,7 @@
 
 		throttledComputeShadow(clientX, clientY)
 
-		dispatch('move', {
+		onMove({
 			cordDiff,
 			clientY,
 			intersectingElement: currentIntersectingElementId,
@@ -310,7 +318,6 @@
 			trans = false
 		}
 		cordDiff = newCoordDiff
-		// console.log(cordDiff, id, 'B')
 		const Y_SENSOR = sensor
 
 		if (containerFrame) {
