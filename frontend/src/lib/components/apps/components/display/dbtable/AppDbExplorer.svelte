@@ -75,9 +75,7 @@
 		// @ts-ignore
 		gridItem.data.configuration.columnDefs = { value: [], type: 'static', loading: false }
 
-		$app = {
-			...$app
-		}
+		$app = $app
 	}
 
 	const resolvedConfig = initConfig(
@@ -230,9 +228,7 @@
 		)
 
 		if (!resolvedConfig.type?.configuration?.[resolvedConfig.type.selected]?.resource) {
-			$app = {
-				...$app
-			}
+			$app = $app
 			return
 		}
 
@@ -265,9 +261,7 @@
 				}
 			)
 
-			$app = {
-				...$app
-			}
+			$app = $app
 		} catch (e) {}
 	}
 

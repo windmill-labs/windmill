@@ -117,7 +117,7 @@
 		)
 
 		// Update the app state
-		$app = { ...$app }
+		$app = $app
 
 		$selectedComponent = [parentComponentId]
 		$focusedGrid = {

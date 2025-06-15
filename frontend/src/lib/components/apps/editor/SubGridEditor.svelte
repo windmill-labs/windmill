@@ -124,7 +124,7 @@
 		)
 
 		// Update the app state
-		$app = { ...$app }
+		$app = $app
 
 		if (parentGrid) {
 			$focusedGrid = {
@@ -173,7 +173,7 @@
 		)
 
 		// Update the app state
-		$app = { ...$app }
+		$app = $app
 	}
 </script>
 
@@ -201,7 +201,7 @@
 								isActive && !$selectedComponent?.includes(id)
 									? 'outline-orange-600'
 									: 'outline-gray-400 dark:outline-gray-600'
-						  }`
+							}`
 						: ''}
 				>
 					<Grid

@@ -74,7 +74,8 @@
 						>Status</div
 					>
 					<div class="font-semibold bg-gray-100 dark:bg-gray-900 px-2 py-1 text-xs border-b"
-						>Action</div>
+						>Action</div
+					>
 
 					<!-- Iterate over uninitializedComponents to display each component in the grid -->
 					{#each unintitializedComponents as c}
@@ -82,41 +83,39 @@
 						{#if !item}
 							<div>Item {c} not found</div>
 						{:else}
-						<!-- Component Id -->
-						<div class="text-xs flex items-center px-2 py-2">
-							<Badge>
-								{c}
-							</Badge>
-						</div>
+							<!-- Component Id -->
+							<div class="text-xs flex items-center px-2 py-2">
+								<Badge>
+									{c}
+								</Badge>
+							</div>
 
-						<div class="text-xs flex items-center px-2 py-2">
-							<Badge color="blue">
-								{item?.data?.type || 'Unknown'}
-							</Badge>
-						</div>
+							<div class="text-xs flex items-center px-2 py-2">
+								<Badge color="blue">
+									{item?.data?.type || 'Unknown'}
+								</Badge>
+							</div>
 
-						<div class="text-xs flex items-center px-2 py-2">
-							<Badge color="red">Uninitialized</Badge>
-						</div>
-						<div class="text-xs flex items-center px-2 py-2">
-
-							<Button
-								color="light"
-								startIcon={{
-									icon: Trash
-								}}
-								size="xs2"
-								on:click={() => {
-									let parent = findGridItemParentGrid($app, c)
-									deleteGridItem($app, item.data, parent)
-									$app = $app
-								}}
-							>
-								Remove
-							</Button>
-						</div>
+							<div class="text-xs flex items-center px-2 py-2">
+								<Badge color="red">Uninitialized</Badge>
+							</div>
+							<div class="text-xs flex items-center px-2 py-2">
+								<Button
+									color="light"
+									startIcon={{
+										icon: Trash
+									}}
+									size="xs2"
+									on:click={() => {
+										let parent = findGridItemParentGrid($app, c)
+										deleteGridItem($app, item.data, parent)
+										$app = $app
+									}}
+								>
+									Remove
+								</Button>
+							</div>
 						{/if}
-
 					{/each}
 				</div>
 			</div>
@@ -166,7 +165,7 @@
 								on:click={() => {
 									if ($app.subgrids && s) {
 										delete $app.subgrids[s.subGridId]
-										$app = { ...$app }
+										$app = $app
 									}
 								}}
 							>
