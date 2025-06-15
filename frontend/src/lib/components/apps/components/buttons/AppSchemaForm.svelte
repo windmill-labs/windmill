@@ -66,7 +66,6 @@
 	let args: Record<string, unknown> = $state(!iterContext ? (outputs?.values?.peak() ?? {}) : {})
 
 	function handleArgsChange() {
-		// console.log('handleArgsChange', args)
 		const newArgs: Record<string, unknown> = {}
 
 		for (const key in args) {
@@ -74,7 +73,6 @@
 				newArgs[key] = args[key]
 			}
 		}
-
 		outputs.values.set(newArgs, true)
 		if (iterContext && listInputs) {
 			listInputs.set(id, newArgs)
@@ -130,6 +128,7 @@
 		for (const key in args) {
 			args[key]
 		}
+		result
 		untrack(() => handleArgsChange())
 	})
 	$effect(() => {
