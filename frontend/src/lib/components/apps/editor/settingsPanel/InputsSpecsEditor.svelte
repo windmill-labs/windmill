@@ -7,21 +7,39 @@
 	import OneOfInputSpecsEditor from './OneOfInputSpecsEditor.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
-	export let id: string
-	export let inputSpecs: RichConfigurations
-	export let inputSpecsConfiguration: RichConfigurations | undefined = undefined
-	export let userInputEnabled: boolean = false
-	export let shouldCapitalize: boolean = true
-	export let resourceOnly = false
-	export let displayType = false
-	export let deletable = false
-	export let acceptSelf: boolean = false
-	export let recomputeOnInputChanged = true
-	export let showOnDemandOnlyToggle = false
-	export let securedContext = false
-	export let overridenByComponent: string[] = []
+	interface Props {
+		id: string
+		inputSpecs: RichConfigurations
+		inputSpecsConfiguration?: RichConfigurations | undefined
+		userInputEnabled?: boolean
+		shouldCapitalize?: boolean
+		resourceOnly?: boolean
+		displayType?: boolean
+		deletable?: boolean
+		acceptSelf?: boolean
+		recomputeOnInputChanged?: boolean
+		showOnDemandOnlyToggle?: boolean
+		securedContext?: boolean
+		overridenByComponent?: string[]
+	}
 
-	$: finalInputSpecsConfiguration = inputSpecsConfiguration ?? inputSpecs
+	let {
+		id,
+		inputSpecs = $bindable(),
+		inputSpecsConfiguration = undefined,
+		userInputEnabled = false,
+		shouldCapitalize = true,
+		resourceOnly = false,
+		displayType = false,
+		deletable = false,
+		acceptSelf = false,
+		recomputeOnInputChanged = true,
+		showOnDemandOnlyToggle = false,
+		securedContext = false,
+		overridenByComponent = []
+	}: Props = $props()
+
+	let finalInputSpecsConfiguration = $derived(inputSpecsConfiguration ?? inputSpecs)
 
 	const dispatch = createEventDispatcher()
 

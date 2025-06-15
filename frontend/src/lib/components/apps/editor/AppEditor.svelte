@@ -100,7 +100,8 @@
 
 	migrateApp(app)
 
-	const appStore = writable<App>(app)
+	const stateApp = $state(app)
+	const appStore = writable<App>(stateApp)
 	const selectedComponent = writable<string[] | undefined>(undefined)
 
 	// $: selectedComponent.subscribe((s) => {

@@ -46,11 +46,19 @@
 	import { twMerge } from 'tailwind-merge'
 	import Popover from '$lib/components/Popover.svelte'
 
-	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
-		undefined
-	export let onDelete: (() => void) | undefined = undefined
-	export let noGrid = false
-	export let duplicateMoveAllowed = true
+	interface Props {
+		componentSettings?: { item: GridItem; parent: string | undefined } | undefined
+		onDelete?: (() => void) | undefined
+		noGrid?: boolean
+		duplicateMoveAllowed?: boolean
+	}
+
+	let {
+		componentSettings = $bindable(undefined),
+		onDelete = undefined,
+		noGrid = false,
+		duplicateMoveAllowed = true
+	}: Props = $props()
 
 	const {
 		app,
@@ -108,10 +116,10 @@
 
 	let viewCssOptions = false
 
-	$: extraLib =
+	let extraLib = $derived(
 		(componentSettings?.item?.data?.componentInput?.type === 'template' ||
 			componentSettings?.item?.data?.componentInput?.type === 'templatev2') &&
-		$worldStore
+			$worldStore
 			? buildExtraLib(
 					$worldStore?.outputsById ?? {},
 					componentSettings?.item?.data?.id,
@@ -119,6 +127,7 @@
 					false
 				)
 			: undefined
+	)
 
 	// 	`
 	// /** The current's app state */
@@ -144,7 +153,7 @@
 		? isTriggerable(componentSettings?.item.data.type)
 		: false
 
-	let evalV2editor: EvalV2InputEditor | undefined = undefined
+	let evalV2editor: EvalV2InputEditor | undefined = $state(undefined)
 
 	function transformToFrontend() {
 		if (componentSettings?.item.data.componentInput) {
@@ -173,7 +182,7 @@
 	}
 </script>
 
-<svelte:window on:keydown={keydown} />
+<svelte:window onkeydown={keydown} />
 
 {#if componentSettings?.item?.id && isTableAction(componentSettings?.item?.id, $app)}
 	<div
@@ -181,9 +190,9 @@
 	>
 		<div class="flex flex-row items-center gap-2">
 			<Popover>
-				<svelte:fragment slot="text">
+				{#snippet text()}
 					<div class="flex flex-row gap-1"> Back to table component </div>
-				</svelte:fragment>
+				{/snippet}
 				<Button
 					iconOnly
 					startIcon={{
@@ -238,7 +247,7 @@
 								: 'Data source'}
 					id={'component-input'}
 				>
-					<svelte:fragment slot="action">
+					{#snippet action()}
 						<div class="flex flex-row gap-1 justify-center items-center">
 							<DocLink
 								docLink={'https://www.windmill.dev/docs/apps/app-runnable-panel#creating-a-runnable'}
@@ -252,7 +261,7 @@
 								{`${component.id}`}
 							</div>
 						</div>
-					</svelte:fragment>
+					{/snippet}
 
 					{#if componentSettings.item.data.componentInput}
 						<ComponentInputTypeEditor
@@ -314,7 +323,7 @@
 									id={component.id}
 									bind:componentInput={componentSettings.item.data.componentInput}
 								/>
-								<a class="text-2xs" on:click={transformToFrontend} href={undefined}>
+								<a class="text-2xs" onclick={transformToFrontend} href={undefined}>
 									transform to a frontend script
 								</a>
 							{:else if componentSettings.item.data.componentInput?.type === 'runnable' && component.componentInput !== undefined}
@@ -470,17 +479,19 @@
 
 		{#if Object.keys(ccomponents[component.type]?.customCss ?? {}).length > 0}
 			<PanelSection title="Styling">
-				<div slot="action" class="flex justify-end flex-wrap gap-1">
-					<Button
-						color="light"
-						size="xs"
-						variant="border"
-						startIcon={{ icon: ChevronLeft }}
-						on:click={() => secondaryMenuLeft.toggle(StylePanel, { type: 'style' })}
-					>
-						Show
-					</Button>
-				</div>
+				{#snippet action()}
+					<div class="flex justify-end flex-wrap gap-1">
+						<Button
+							color="light"
+							size="xs"
+							variant="border"
+							startIcon={{ icon: ChevronLeft }}
+							on:click={() => secondaryMenuLeft.toggle(StylePanel, { type: 'style' })}
+						>
+							Show
+						</Button>
+					</div>
+				{/snippet}
 				<div class="flex gap-2 items-center flex-wrap">
 					<div class="!text-2xs">Full height</div>
 					{#if componentSettings?.item?.[12]?.fullHeight !== undefined}
@@ -525,20 +536,22 @@
 
 		{#if duplicateMoveAllowed}
 			<PanelSection title="Copy/Move">
-				<div slot="action">
-					<Button
-						size="xs"
-						color="red"
-						variant="border"
-						on:click={removeGridElement}
-						shortCut={{
-							key: isMac() ? getModifierKey() + 'Del' : 'Del',
-							withoutModifier: true
-						}}
-					>
-						Delete
-					</Button>
-				</div>
+				{#snippet action()}
+					<div>
+						<Button
+							size="xs"
+							color="red"
+							variant="border"
+							on:click={removeGridElement}
+							shortCut={{
+								key: isMac() ? getModifierKey() + 'Del' : 'Del',
+								withoutModifier: true
+							}}
+						>
+							Delete
+						</Button>
+					</div>
+				{/snippet}
 
 				<div class="overflow-auto grid grid-cols-2 gap-1 text-tertiary">
 					<div>
