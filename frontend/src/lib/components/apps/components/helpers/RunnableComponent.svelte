@@ -419,7 +419,7 @@
 					allowUserResources.push(k)
 				}
 			} else if (field?.type == 'eval' || (field?.type == 'evalv2' && inputValues[k])) {
-				const ctxMatch = field.expr.match(ctxRegex)
+				const ctxMatch = field?.expr?.match(ctxRegex)
 				if (ctxMatch) {
 					nonStaticRunnableInputs[k] = '$ctx:' + ctxMatch[1]
 				} else {
