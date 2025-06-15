@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -14,18 +16,34 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 
-	export let customCss: ComponentCustomCSS<'drawercomponent'> | undefined = undefined
-	export let id: string
-	export let configuration: RichConfigurations
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let noWFull = false
-	export let render: boolean
-	export let onOpenRecomputeIds: string[] | undefined = undefined
-	export let onCloseRecomputeIds: string[] | undefined = undefined
+	interface Props {
+		customCss?: ComponentCustomCSS<'drawercomponent'> | undefined
+		id: string
+		configuration: RichConfigurations
+		horizontalAlignment?: 'left' | 'center' | 'right' | undefined
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		noWFull?: boolean
+		render: boolean
+		onOpenRecomputeIds?: string[] | undefined
+		onCloseRecomputeIds?: string[] | undefined
+	}
 
-	let everRender = render
-	$: render && !everRender && (everRender = true)
+	let {
+		customCss = undefined,
+		id,
+		configuration,
+		horizontalAlignment = undefined,
+		verticalAlignment = undefined,
+		noWFull = false,
+		render,
+		onOpenRecomputeIds = undefined,
+		onCloseRecomputeIds = undefined
+	}: Props = $props()
+
+	let everRender = $state(render)
+	run(() => {
+		render && !everRender && (everRender = true)
+	})
 
 	const {
 		app,
@@ -38,17 +56,16 @@
 		runnableComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	const resolvedConfig = initConfig(
-		components['drawercomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['drawercomponent'].initialData.configuration, configuration)
 	)
 	const outputs = initOutput($worldStore, id, {
 		open: false
 	})
 
-	let containerHeight: number = 0
+	let containerHeight: number = $state(0)
 
-	let appDrawer: Drawer
+	let appDrawer: Drawer | undefined = $state()
 
 	$componentControl[id] = {
 		open: () => {
@@ -59,7 +76,7 @@
 		}
 	}
 
-	let css = initCss($app.css?.drawercomponent, customCss)
+	let css = $state(initCss($app.css?.drawercomponent, customCss))
 </script>
 
 {#each Object.keys(components['drawercomponent'].initialData.configuration) as key (key)}
@@ -105,7 +122,7 @@
 						parentComponentId: id,
 						subGridIndex: 0
 					}
-					appDrawer.toggleDrawer()
+					appDrawer?.toggleDrawer()
 				}}
 				size={resolvedConfig.size}
 				color={resolvedConfig.color}
@@ -122,7 +139,6 @@
 {#if everRender}
 	<Portal target="#app-editor-top-level-drawer" name="app-drawer">
 		<Drawer
-			let:open
 			bind:this={appDrawer}
 			size="800px"
 			alwaysOpen
@@ -138,48 +154,50 @@
 			}}
 			disableChatOffset={true}
 		>
-			<DrawerContent
-				title={resolvedConfig.drawerTitle}
-				on:close={() => {
-					appDrawer?.toggleDrawer()
-					$focusedGrid = undefined
-				}}
-				fullScreen={$mode !== 'dnd'}
-			>
-				<div
-					class={twMerge('h-full', css?.drawer?.class, 'wm-drawer')}
-					style={css?.drawer?.style}
-					bind:clientHeight={containerHeight}
-					on:pointerdown={(e) => {
-						e?.stopPropagation()
-						if (!$connectingInput.opened) {
-							$selectedComponent = [id]
-							$focusedGrid = {
-								parentComponentId: id,
-								subGridIndex: 0
-							}
-						}
+			{#snippet children({ open })}
+				<DrawerContent
+					title={resolvedConfig.drawerTitle}
+					on:close={() => {
+						appDrawer?.toggleDrawer()
+						$focusedGrid = undefined
 					}}
+					fullScreen={$mode !== 'dnd'}
 				>
-					{#if $app.subgrids?.[`${id}-0`]}
-						<SubGridEditor
-							visible={open && render}
-							{id}
-							{containerHeight}
-							subGridId={`${id}-0`}
-							on:focus={() => {
-								if (!$connectingInput.opened) {
-									$selectedComponent = [id]
-									$focusedGrid = {
-										parentComponentId: id,
-										subGridIndex: 0
-									}
+					<div
+						class={twMerge('h-full', css?.drawer?.class, 'wm-drawer')}
+						style={css?.drawer?.style}
+						bind:clientHeight={containerHeight}
+						onpointerdown={(e) => {
+							e?.stopPropagation()
+							if (!$connectingInput.opened) {
+								$selectedComponent = [id]
+								$focusedGrid = {
+									parentComponentId: id,
+									subGridIndex: 0
 								}
-							}}
-						/>
-					{/if}
-				</div>
-			</DrawerContent>
+							}
+						}}
+					>
+						{#if $app.subgrids?.[`${id}-0`]}
+							<SubGridEditor
+								visible={open && render}
+								{id}
+								{containerHeight}
+								subGridId={`${id}-0`}
+								on:focus={() => {
+									if (!$connectingInput.opened) {
+										$selectedComponent = [id]
+										$focusedGrid = {
+											parentComponentId: id,
+											subGridIndex: 0
+										}
+									}
+								}}
+							/>
+						{/if}
+					</div>
+				</DrawerContent>
+			{/snippet}
 		</Drawer>
 	</Portal>
 {:else if $app.subgrids?.[`${id}-0`]}

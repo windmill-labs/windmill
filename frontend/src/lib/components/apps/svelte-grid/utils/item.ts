@@ -141,13 +141,13 @@ export function moveItem(active, items, cols) {
 	}
 
 	// Update items
-	items = updateItem(items, active, item, cols)
+	const nitems = updateItem(items, active, item, cols)
 
 	// Create matrix of items expect close elements
-	matrix = makeMatrixFromItemsIgnore(items, closeBlocks, getRowsCount(items, cols), cols)
+	matrix = makeMatrixFromItemsIgnore(nitems, closeBlocks, getRowsCount(nitems, cols), cols)
 
 	// Create temp vars
-	let tempItems = items
+	let tempItems = nitems
 	let tempCloseBlocks = closeBlocks
 
 	// Exclude resolved elements ids in array

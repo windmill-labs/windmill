@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { stopPropagation } from 'svelte/legacy'
+
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
@@ -10,14 +12,25 @@
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let componentContainerHeight: number
-	export let customCss:
-		| ComponentCustomCSS<'horizontalsplitpanescomponent' | 'verticalsplitpanescomponent'>
-		| undefined = undefined
-	export let horizontal: boolean = false
-	export let panes: number[]
-	export let render: boolean
+	interface Props {
+		id: string
+		componentContainerHeight: number
+		customCss?:
+			| ComponentCustomCSS<'horizontalsplitpanescomponent' | 'verticalsplitpanescomponent'>
+			| undefined
+		horizontal?: boolean
+		panes: number[]
+		render: boolean
+	}
+
+	let {
+		id,
+		componentContainerHeight,
+		customCss = undefined,
+		horizontal = false,
+		panes,
+		render
+	}: Props = $props()
 
 	const { app, focusedGrid, selectedComponent, componentControl, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -25,9 +38,11 @@
 	//used so that we can count number of outputs setup for first refresh
 	initOutput($worldStore, id, {})
 
-	let everRender = render
+	let everRender = $state(render)
 
-	$: render && !everRender && (everRender = true)
+	$effect.pre(() => {
+		render && !everRender && (everRender = true)
+	})
 
 	function onFocus() {
 		$focusedGrid = {
@@ -36,7 +51,7 @@
 		}
 	}
 
-	let css = initCss($app.css?.containercomponent, customCss)
+	let css = $state(initCss($app.css?.containercomponent, customCss))
 
 	$componentControl[id] = {
 		left: () => {
@@ -63,13 +78,13 @@
 		}
 	}
 
-	let sumedup = panes.map((x) => (x / panes.reduce((a, b) => a + b, 0)) * 100)
-	$: {
+	let sumedup = $state(panes.map((x) => (x / panes.reduce((a, b) => a + b, 0)) * 100))
+	$effect.pre(() => {
 		let ns = panes.map((x) => (x / panes.reduce((a, b) => a + b, 0)) * 100)
 		if (!deepEqual(ns, sumedup)) {
 			sumedup = ns
 		}
-	}
+	})
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -87,20 +102,20 @@
 <InitializeComponent {id} />
 
 {#if everRender}
-	<div class="h-full w-full border" on:pointerdown={onFocus}>
+	<div class="h-full w-full border" onpointerdown={onFocus}>
 		{#key sumedup}
 			<Splitpanes {horizontal}>
 				{#each sumedup as paneSize, index (index)}
 					<Pane size={paneSize} minSize={20}>
 						<div
 							class="w-full h-full"
-							on:pointerdown|stopPropagation={() => {
+							onpointerdown={stopPropagation(() => {
 								$selectedComponent = [id]
 								$focusedGrid = {
 									parentComponentId: id,
 									subGridIndex: index
 								}
-							}}
+							})}
 						>
 							{#if $app.subgrids?.[`${id}-${index}`]}
 								<SubGridEditor

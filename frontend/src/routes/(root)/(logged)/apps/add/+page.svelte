@@ -34,10 +34,10 @@
 		$importStore = undefined
 	}
 
-	const state = nodraft ? undefined : localStorage.getItem('app')
+	const appState = nodraft ? undefined : localStorage.getItem('app')
 
-	let summary = ''
-	let value: App = {
+	let summary = $state('')
+	let value: App = $state({
 		grid: [],
 		fullscreen: false,
 		unusedInlineScripts: [],
@@ -46,7 +46,7 @@
 			type: 'path',
 			path: DEFAULT_THEME
 		}
-	}
+	})
 	afterNavigate(() => {
 		if (nodraft) {
 			let url = new URL($page.url.href)
@@ -54,13 +54,13 @@
 			replaceState(url.toString(), $page.state)
 		}
 	})
-	let policy: Policy = {
+	let policy: Policy = $state({
 		on_behalf_of: $userStore?.username.includes('@')
 			? $userStore?.username
 			: `u/${$userStore?.username}`,
 		on_behalf_of_email: $userStore?.email,
 		execution_mode: 'publisher'
-	}
+	})
 
 	loadApp()
 
@@ -101,7 +101,7 @@
 			summary = hub.app.summary
 			sendUserToast('App loaded from Hub')
 			goto('?', { replaceState: true })
-		} else if (!templatePath && !hubId && state) {
+		} else if (!templatePath && !hubId && appState) {
 			sendUserToast('App restored from browser stored autosave', false, [
 				{
 					label: 'Start from blank',
@@ -116,7 +116,7 @@
 					}
 				}
 			])
-			value = decodeState(state)
+			value = decodeState(appState)
 		} else {
 			const preset = presets['topbarcomponent']
 
@@ -168,18 +168,17 @@
 				replaceStateFn={(path) => replaceState(path, $page.state)}
 				gotoFn={(path, opt) => goto(path, opt)}
 			>
-				<svelte:fragment
-					slot="unsavedConfirmationModal"
-					let:diffDrawer
-					let:additionalExitAction
-					let:getInitialAndModifiedValues
-				>
+				{#snippet unsavedConfirmationModal({
+					diffDrawer,
+					additionalExitAction,
+					getInitialAndModifiedValues
+				})}
 					<UnsavedConfirmationModal
 						{diffDrawer}
 						{additionalExitAction}
 						{getInitialAndModifiedValues}
 					/>
-				</svelte:fragment>
+				{/snippet}
 			</AppEditor>
 		{/key}
 	</div>

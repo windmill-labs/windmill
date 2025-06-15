@@ -16,8 +16,11 @@
 	import type { App } from '$lib/components/apps/types'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
+	import { untrack } from 'svelte'
 
-	let app = undefined as (AppWithLastVersion & { draft_only?: boolean; value: any }) | undefined
+	let app = $state(
+		undefined as (AppWithLastVersion & { draft_only?: boolean; value: any }) | undefined
+	)
 	let savedApp:
 		| {
 				value: App
@@ -28,8 +31,8 @@
 				draft_only?: boolean
 				custom_path?: string
 		  }
-		| undefined = undefined
-	let redraw = 0
+		| undefined = $state(undefined)
+	let redraw = $state(0)
 	let path = $page.params.path
 
 	let nodraft = $page.url.searchParams.get('nodraft')
@@ -93,8 +96,8 @@
 				actions.push({
 					label: 'Show diff',
 					callback: async () => {
-						diffDrawer.openDrawer()
-						diffDrawer.setDiff({
+						diffDrawer?.openDrawer()
+						diffDrawer?.setDiff({
 							mode: 'simple',
 							original: draftOrDeployed,
 							current: urlScript,
@@ -139,8 +142,8 @@
 					{
 						label: 'Show diff',
 						callback: async () => {
-							diffDrawer.openDrawer()
-							diffDrawer.setDiff({
+							diffDrawer?.openDrawer()
+							diffDrawer?.setDiff({
 								mode: 'simple',
 								original: deployed,
 								current: draft,
@@ -156,18 +159,20 @@
 		}
 	}
 
-	$: {
+	$effect(() => {
 		if ($workspaceStore) {
-			loadApp()
+			untrack(() => {
+				loadApp()
+			})
 		}
-	}
+	})
 
 	async function restoreDraft() {
 		if (!savedApp || !savedApp.draft) {
 			sendUserToast('Could not restore to draft', true)
 			return
 		}
-		diffDrawer.closeDrawer()
+		diffDrawer?.closeDrawer()
 		goto(`/apps/edit/${savedApp.draft.path}`)
 		await loadApp()
 		redraw++
@@ -178,7 +183,7 @@
 			sendUserToast('Could not restore to deployed', true)
 			return
 		}
-		diffDrawer.closeDrawer()
+		diffDrawer?.closeDrawer()
 		if (savedApp.draft) {
 			await DraftService.deleteDraft({
 				workspace: $workspaceStore!,
@@ -191,7 +196,7 @@
 		redraw++
 	}
 
-	let diffDrawer: DiffDrawer
+	let diffDrawer: DiffDrawer | undefined = $state()
 
 	function onRestore(ev: any) {
 		sendUserToast('App restored from previous deployment')
@@ -233,18 +238,17 @@
 				replaceStateFn={(path) => replaceState(path, $page.state)}
 				gotoFn={(path, opt) => goto(path, opt)}
 			>
-				<svelte:fragment
-					slot="unsavedConfirmationModal"
-					let:diffDrawer
-					let:additionalExitAction
-					let:getInitialAndModifiedValues
-				>
+				{#snippet unsavedConfirmationModal({
+					diffDrawer,
+					additionalExitAction,
+					getInitialAndModifiedValues
+				})}
 					<UnsavedConfirmationModal
 						{diffDrawer}
 						{additionalExitAction}
 						{getInitialAndModifiedValues}
 					/>
-				</svelte:fragment>
+				{/snippet}
 			</AppEditor>
 		</div>
 	{/if}

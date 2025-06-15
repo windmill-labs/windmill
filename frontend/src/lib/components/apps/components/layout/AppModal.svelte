@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { stopPropagation } from 'svelte/legacy'
+
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -17,16 +19,29 @@
 	import Disposable from '$lib/components/common/drawer/Disposable.svelte'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 
-	export let customCss: ComponentCustomCSS<'modalcomponent'> | undefined = undefined
-	export let id: string
-	export let configuration: RichConfigurations
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let noWFull = false
-	export let render: boolean
+	interface Props {
+		customCss?: ComponentCustomCSS<'modalcomponent'> | undefined
+		id: string
+		configuration: RichConfigurations
+		horizontalAlignment?: 'left' | 'center' | 'right' | undefined
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		noWFull?: boolean
+		render: boolean
+		onOpenRecomputeIds?: string[] | undefined
+		onCloseRecomputeIds?: string[] | undefined
+	}
 
-	export let onOpenRecomputeIds: string[] | undefined = undefined
-	export let onCloseRecomputeIds: string[] | undefined = undefined
+	let {
+		customCss = undefined,
+		id,
+		configuration,
+		horizontalAlignment = undefined,
+		verticalAlignment = undefined,
+		noWFull = false,
+		render,
+		onOpenRecomputeIds = undefined,
+		onCloseRecomputeIds = undefined
+	}: Props = $props()
 
 	const {
 		app,
@@ -40,23 +55,24 @@
 		breakpoint
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	let everRender = render
-	$: render && !everRender && (everRender = true)
+	let everRender = $state(render)
+	$effect.pre(() => {
+		render && !everRender && (everRender = true)
+	})
 
 	//used so that we can count number of outputs setup for first refresh
 	const outputs = initOutput($worldStore, id, {
 		open: false
 	})
 
-	let css = initCss($app.css?.modalcomponent, customCss)
-	let disposable: Disposable | undefined = undefined
+	let css = $state(initCss($app.css?.modalcomponent, customCss))
+	let disposable: Disposable | undefined = $state(undefined)
 
-	let resolvedConfig = initConfig(
-		components['modalcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['modalcomponent'].initialData.configuration, configuration)
 	)
 
-	let unclickableOutside = false
+	let unclickableOutside = $state(false)
 	function unclosableModal() {
 		unclickableOutside = true
 		setTimeout(() => {
@@ -81,14 +97,16 @@
 			disposable?.closeDrawer()
 		}
 	}
-	let wrapperHeight: number = 0
-	let headerHeight: number = 0
+	let wrapperHeight: number = $state(0)
+	let headerHeight: number = $state(0)
 
-	$: containerHeight = Math.min(
-		// 8px * 2 of padding
-		maxHeight($app.subgrids?.[`${id}-0`] ?? [], 0, $breakpoint) * (ROW_HEIGHT + ROW_GAP_Y) + 16,
-		// 32px (2rem) of top and bottom margin
-		wrapperHeight - headerHeight - 64
+	let containerHeight = $derived(
+		Math.min(
+			// 8px * 2 of padding
+			maxHeight($app.subgrids?.[`${id}-0`] ?? [], 0, $breakpoint) * (ROW_HEIGHT + ROW_GAP_Y) + 16,
+			// 32px (2rem) of top and bottom margin
+			wrapperHeight - headerHeight - 64
+		)
 	)
 
 	async function getMenuElements(): Promise<HTMLElement[]> {
@@ -154,9 +172,6 @@
 	<Portal target="#app-editor-top-level-drawer" name="app-modal">
 		<Disposable
 			{id}
-			let:handleClickAway
-			let:zIndex
-			let:open
 			bind:this={disposable}
 			on:open={() => {
 				outputs?.open.set(true)
@@ -167,80 +182,82 @@
 				onCloseRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
 			}}
 		>
-			<div
-				class={twMerge(
-					`${
-						$mode == 'dnd' ? 'absolute' : 'fixed'
-					} top-0 bottom-0 left-0 right-0 transition-all duration-50`,
-					open ? ' bg-black bg-opacity-60' : 'h-0 overflow-hidden invisible'
-				)}
-				style="z-index: {zIndex}"
-				bind:clientHeight={wrapperHeight}
-			>
+			{#snippet children({ handleClickAway, zIndex, open })}
 				<div
-					style={css?.popup?.style}
-					class={twMerge('mx-24 mt-8 bg-surface wm-modal rounded-lg relative', css?.popup?.class)}
-					use:clickOutside={{
-						capture: false,
-						stopPropagation: false,
-						exclude: getMenuElements
-					}}
-					on:click_outside={(e) => {
-						if ($mode !== 'dnd' && !unclickableOutside) {
-							handleClickAway(e)
-						}
-					}}
+					class={twMerge(
+						`${
+							$mode == 'dnd' ? 'absolute' : 'fixed'
+						} top-0 bottom-0 left-0 right-0 transition-all duration-50`,
+						open ? ' bg-black bg-opacity-60' : 'h-0 overflow-hidden invisible'
+					)}
+					style="z-index: {zIndex}"
+					bind:clientHeight={wrapperHeight}
 				>
 					<div
-						class="px-4 py-2 border-b flex justify-between items-center"
-						bind:clientHeight={headerHeight}
-					>
-						<div>{resolvedConfig.modalTitle}</div>
-						<div class="w-8">
-							<button
-								on:click|stopPropagation={() => {
-									disposable?.closeDrawer()
-								}}
-								class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"
-							>
-								<X class="text-tertiary" />
-							</button>
-						</div>
-					</div>
-
-					<div
-						class={twMerge('wm-modal-container h-full', 'overflow-y-auto', css?.container?.class)}
-						on:pointerdown={(e) => {
-							e?.stopPropagation()
-							if (!$connectingInput.opened) {
-								$selectedComponent = [id]
-								$focusedGrid = {
-									parentComponentId: id,
-									subGridIndex: 0
+						style={css?.popup?.style}
+						class={twMerge('mx-24 mt-8 bg-surface wm-modal rounded-lg relative', css?.popup?.class)}
+						use:clickOutside={{
+							capture: false,
+							stopPropagation: false,
+							exclude: getMenuElements,
+							onClickOutside: (e: MouseEvent) => {
+								if ($mode !== 'dnd' && !unclickableOutside) {
+									handleClickAway(e)
 								}
 							}
 						}}
 					>
-						{#if $app.subgrids?.[`${id}-0`]}
-							<SubGridEditor
-								visible={open && render}
-								{id}
-								{containerHeight}
-								subGridId={`${id}-0`}
-								on:focus={() => {
-									if (!$connectingInput.opened) {
-										$selectedComponent = [id]
-										$focusedGrid = {
-											parentComponentId: id,
-											subGridIndex: 0
-										}
+						<div
+							class="px-4 py-2 border-b flex justify-between items-center"
+							bind:clientHeight={headerHeight}
+						>
+							<div>{resolvedConfig.modalTitle}</div>
+							<div class="w-8">
+								<button
+									onclick={stopPropagation(() => {
+										disposable?.closeDrawer()
+									})}
+									class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"
+								>
+									<X class="text-tertiary" />
+								</button>
+							</div>
+						</div>
+
+						<div
+							class={twMerge('wm-modal-container h-full', 'overflow-y-auto', css?.container?.class)}
+							onpointerdown={(e) => {
+								e?.stopPropagation()
+								if (!$connectingInput.opened) {
+									$selectedComponent = [id]
+									$focusedGrid = {
+										parentComponentId: id,
+										subGridIndex: 0
 									}
-								}}
-							/>
-						{/if}
+								}
+							}}
+						>
+							{#if $app.subgrids?.[`${id}-0`]}
+								<SubGridEditor
+									visible={open && render}
+									{id}
+									{containerHeight}
+									subGridId={`${id}-0`}
+									on:focus={() => {
+										if (!$connectingInput.opened) {
+											$selectedComponent = [id]
+											$focusedGrid = {
+												parentComponentId: id,
+												subGridIndex: 0
+											}
+										}
+									}}
+								/>
+							{/if}
+						</div>
 					</div>
 				</div>
-			</div>
+			{/snippet}
 		</Disposable>
 	</Portal>
 {:else if $app.subgrids?.[`${id}-0`]}
