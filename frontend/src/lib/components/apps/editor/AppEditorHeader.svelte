@@ -726,14 +726,19 @@
 		switch (event.key) {
 			case 'Z':
 				if (event.ctrlKey || event.metaKey) {
-					$app = redo(history)
+					const napp = redo(history)
+					for (const key in napp) {
+						$app[key] = napp[key]
+					}
 					event.preventDefault()
 				}
 				break
 			case 'z':
 				if (event.ctrlKey || event.metaKey) {
-					$app = undo(history, $app)
-
+					const napp = undo(history, $app)
+					for (const key in napp) {
+						$app[key] = napp[key]
+					}
 					event.preventDefault()
 				}
 				break
@@ -1313,10 +1318,16 @@
 				undoProps={{ disabled: $history?.index === 0 }}
 				redoProps={{ disabled: $history && $history?.index === $history.history.length - 1 }}
 				on:undo={() => {
-					$app = undo(history, $app)
+					const napp = undo(history, $app)
+					for (const key in napp) {
+						$app[key] = napp[key]
+					}
 				}}
 				on:redo={() => {
-					$app = redo(history)
+					const napp = redo(history)
+					for (const key in napp) {
+						$app[key] = napp[key]
+					}
 				}}
 			/>
 
