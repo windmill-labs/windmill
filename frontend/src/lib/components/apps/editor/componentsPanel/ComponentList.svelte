@@ -233,6 +233,7 @@
 										<button
 											id={item}
 											on:pointerdown={async (e) => {
+												e.preventDefault()
 												const id = addComponent(item)
 												dndTimeout && clearTimeout(dndTimeout)
 												dndTimeout = setTimeout(async () => {
