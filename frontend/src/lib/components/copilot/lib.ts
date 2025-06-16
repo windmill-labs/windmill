@@ -52,7 +52,8 @@ export async function fetchAvailableModels(
 	const models = await fetch(`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/models`, {
 		headers: {
 			'X-Resource-Path': resourcePath,
-			'X-Provider': provider
+			'X-Provider': provider,
+			...(provider === 'anthropic' ? { 'anthropic-version': '2023-06-01' } : {})
 		}
 	})
 	const data = (await models.json()) as { data: ModelResponse[] }
@@ -518,7 +519,6 @@ export async function getCompletion(
 ) {
 	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
 	const openaiClient = workspaceAIClients.getOpenaiClient()
-	console.log('config', config)
 	const completion = await openaiClient.chat.completions.create(config, {
 		signal: abortController.signal,
 		headers: {

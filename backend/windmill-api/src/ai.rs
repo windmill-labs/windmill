@@ -142,6 +142,7 @@ impl AIRequestConfig {
         provider: &AIProvider,
         path: &str,
         method: Method,
+        headers: HeaderMap,
         body: Bytes,
     ) -> Result<RequestBuilder> {
         let body = if let Some(user) = self.user {
@@ -154,6 +155,7 @@ impl AIRequestConfig {
 
         let is_azure = matches!(provider, AIProvider::OpenAI) && base_url != OPENAI_BASE_URL
             || matches!(provider, AIProvider::AzureOpenAI);
+        let is_anthropic = matches!(provider, AIProvider::Anthropic);
 
         let url = if is_azure {
             if base_url.ends_with("/deployments") {
@@ -173,8 +175,15 @@ impl AIRequestConfig {
 
         let mut request = HTTP_CLIENT
             .request(method, url)
-            .header("content-type", "application/json")
-            .body(body);
+            .header("content-type", "application/json");
+
+        for (header_name, header_value) in headers.iter() {
+            if header_name.to_string().starts_with("anthropic-") {
+                request = request.header(header_name, header_value);
+            }
+        }
+
+        request = request.body(body);
 
         if is_azure {
             request = request.query(&[("api-version", AZURE_API_VERSION)])
@@ -182,9 +191,12 @@ impl AIRequestConfig {
 
         if let Some(api_key) = self.api_key {
             if is_azure {
-                request = request.header("api-key", api_key)
+                request = request.header("api-key", api_key.clone())
             } else {
-                request = request.header("authorization", format!("Bearer {}", api_key))
+                request = request.header("authorization", format!("Bearer {}", api_key.clone()))
+            }
+            if is_anthropic {
+                request = request.header("X-API-Key", api_key);
             }
         }
 
@@ -495,9 +507,7 @@ async fn proxy(
         }
     };
 
-    let request = request_config
-        .clone()
-        .prepare_request(&provider, &ai_path, method, body)?;
+    let request = request_config.prepare_request(&provider, &ai_path, method, headers, body)?;
 
     let response = request.send().await.map_err(to_anyhow)?;
 
