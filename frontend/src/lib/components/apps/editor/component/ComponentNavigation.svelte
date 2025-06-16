@@ -1,9 +1,34 @@
 <script lang="ts">
-	import ComponentCallbacks from './ComponentCallbacks.svelte'
+	import { getContext } from 'svelte'
+	import {
+		handleEscape,
+		handlePaste,
+		handleArrowUp,
+		handleCut,
+		handleCopy,
+		down,
+		right,
+		left
+	} from './componentCallbacks.svelte'
+	import type { AppEditorContext, AppViewerContext } from '../../types'
 
-	let componentCallbacks: ComponentCallbacks | undefined = undefined
-
+	const { history, movingcomponents, jobsDrawerOpen } = getContext<AppEditorContext>(
+		'AppEditorContext'
+	) as AppEditorContext
+	const { app, selectedComponent, focusedGrid, componentControl } = getContext<AppViewerContext>(
+		'AppViewerContext'
+	) as AppViewerContext
+	const ctx = {
+		history,
+		app,
+		selectedComponent,
+		focusedGrid,
+		componentControl,
+		movingcomponents,
+		jobsDrawerOpen
+	}
 	function keydown(event: KeyboardEvent) {
+		// console.log('keydown', $focusedGrid, $selectedComponent)
 		// Ignore keydown events if the user is typing in monaco
 		let classes = event.target?.['className']
 		if (
@@ -14,38 +39,38 @@
 		}
 		switch (event.key) {
 			case 'Escape':
-				componentCallbacks?.handleEscape(event)
+				handleEscape(event, ctx)
 				break
 
 			case 'ArrowUp': {
-				componentCallbacks?.handleArrowUp(event)
+				handleArrowUp(event, ctx)
 				break
 			}
 
 			case 'ArrowDown': {
-				componentCallbacks?.down(event)
+				down(event, ctx)
 				break
 			}
 
 			case 'ArrowRight': {
-				componentCallbacks?.right(event)
+				right(event, ctx)
 				break
 			}
 
 			case 'ArrowLeft': {
-				componentCallbacks?.left(event)
+				left(event, ctx)
 				break
 			}
 
 			case 'c':
 				if (event.ctrlKey || event.metaKey) {
-					componentCallbacks?.handleCopy(event)
+					handleCopy(event, ctx)
 				}
 				break
 
 			case 'x':
 				if (event.ctrlKey || event.metaKey) {
-					componentCallbacks?.handleCut(event)
+					handleCut(event, ctx)
 				}
 				break
 
@@ -55,6 +80,4 @@
 	}
 </script>
 
-<ComponentCallbacks bind:this={componentCallbacks} />
-
-<svelte:window on:keydown={keydown} on:paste={componentCallbacks?.handlePaste} />
+<svelte:window onkeydown={keydown} onpaste={(e) => handlePaste(e, ctx)} />

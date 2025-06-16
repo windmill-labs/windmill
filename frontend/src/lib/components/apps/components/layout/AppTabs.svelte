@@ -18,6 +18,7 @@
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	interface Props {
 		id: string
@@ -121,8 +122,24 @@
 		}
 	}
 
+	let lastTabs: string[] | undefined = tabs
 	$effect.pre(() => {
-		tabs
+		if (!untrack(() => selected)) {
+			return
+		}
+		if (
+			!deepEqual(
+				untrack(() => lastTabs),
+				tabs
+			)
+		) {
+			lastTabs = structuredClone($state.snapshot(tabs))
+		} else {
+			return
+		}
+		untrack(() => handleTabSelection())
+	})
+	$effect.pre(() => {
 		selected != undefined && untrack(() => handleTabSelection())
 	})
 

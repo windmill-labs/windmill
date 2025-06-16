@@ -343,7 +343,6 @@
 		on:resultSet={(e) => {
 			const res = e.detail
 			if ($initialized?.runnableInitialized?.[fullId] === undefined) {
-				console.log('resultSet', id)
 				$initialized.runnableInitialized = {
 					...($initialized.runnableInitialized ?? {}),
 					[fullId]: res
