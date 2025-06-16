@@ -351,7 +351,6 @@
 											parameters this component is attached to.
 										</Tooltip>
 									</div>
-
 									<InputsSpecsEditor
 										id={component.id}
 										shouldCapitalize={false}
