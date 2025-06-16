@@ -11,7 +11,7 @@
 		type OpenapiV3Info,
 		type WebhookFilters
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -21,12 +21,17 @@
 	import { ClipboardCopy, Download, Trash } from 'lucide-svelte'
 	import Select from '$lib/components/Select.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { copyToClipboard, download, emptyString, emptyStringTrimmed } from '$lib/utils'
+	import {
+		copyToClipboard,
+		download,
+		emptyString,
+		emptyStringTrimmed,
+		generateRandomString
+	} from '$lib/utils'
 	import YAML from 'yaml'
 	import { tick } from 'svelte'
 	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
 	import { bash } from 'svelte-highlight/languages'
-	import Section from '$lib/components/Section.svelte'
 	import CreateToken from '$lib/components/settings/CreateToken.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 
@@ -156,20 +161,18 @@
 >
 	<DrawerContent on:close={generateCurlCommandDrawer.closeDrawer} title={''}>
 		<div class="flex flex-col gap-2">
-			<Section label="Create a Windmill token" collapsable collapsed={false}>
-				<div class="flex flex-col gap-3">
-					<Alert title="Full Access Warning" type="warning">
-						Any token generated using the form below will grant unrestricted access to the Windmill
-						API. Only share it with trusted parties.
-					</Alert>
-					<CreateToken
-						on:tokenCreated={(e) => {
-							token = e.detail
-						}}
-						newTokenLabel="generate openapi spec token"
-					/>
-				</div>
-			</Section>
+			<div class="flex flex-col gap-3">
+				<Alert title="Full Access Warning" type="warning">
+					Any token generated using the form below will grant unrestricted access to the Windmill
+					API. Only share it with trusted parties.
+				</Alert>
+				<CreateToken
+					on:tokenCreated={(e) => {
+						token = e.detail
+					}}
+					newTokenLabel={`openapi-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
+				/>
+			</div>
 
 			<Label label="Token">
 				<input
