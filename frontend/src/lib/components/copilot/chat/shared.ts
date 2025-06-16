@@ -6,12 +6,14 @@ import type {
 import { get } from 'svelte/store'
 import type { ContextElement } from './context'
 import { workspaceStore } from '$lib/stores'
+import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 
 export type DisplayMessage =
 	| {
 			role: 'user' | 'assistant'
 			content: string
 			contextElements?: ContextElement[]
+			snapshot?: ExtendedOpenFlow
 	  }
 	| {
 			role: 'tool'

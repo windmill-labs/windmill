@@ -38,7 +38,14 @@
 	}
 
 	const flowHelpers: FlowAIChatHelpers = {
-		getFlowAndSelectedId: () => ({ flow: flowStore.val, selectedId: $selectedId }),
+		getFlowAndSelectedId: () => ({
+			flow: $state.snapshot(flowStore).val,
+			selectedId: $selectedId
+		}),
+		setFlow: (flow) => {
+			flowStore.val = flow
+			refreshStateStore(flowStore)
+		},
 		setCode: async (id, code) => {
 			const module = getModule(id)
 			if (!module) {
@@ -186,8 +193,6 @@
 			}
 
 			refreshStateStore(flowStore)
-
-			flowModuleSchemaMap?.updateFlowInputsStore()
 		},
 		getStepInputs: async (id) => {
 			const module = getModule(id)

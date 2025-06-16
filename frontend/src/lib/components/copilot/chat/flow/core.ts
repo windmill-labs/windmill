@@ -1,10 +1,4 @@
-import {
-	ScriptService,
-	type FlowModule,
-	type OpenFlow,
-	type RawScript,
-	type Script
-} from '$lib/gen'
+import { ScriptService, type FlowModule, type RawScript, type Script } from '$lib/gen'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionTool,
@@ -25,7 +19,8 @@ import type { Tool } from '../shared'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 
 export interface FlowAIChatHelpers {
-	getFlowAndSelectedId: () => { flow: OpenFlow; selectedId: string }
+	getFlowAndSelectedId: () => { flow: ExtendedOpenFlow; selectedId: string }
+	setFlow: (flow: ExtendedOpenFlow) => void
 	insertStep: (location: InsertLocation, step: NewStep) => Promise<string>
 	removeStep: (id: string) => Promise<void>
 	getStepInputs: (id: string) => Promise<Record<string, any>>
@@ -653,6 +648,8 @@ For step inputs, forloop iterator expressions and branch predicates, use JavaScr
 - Static values: Use JavaScript syntax (e.g., "hello", true, 3)
 
 Note: These variables are only accessible in step inputs, forloop iterator expressions and branch predicates. They must be passed as script arguments using the set_step_inputs tool.
+
+For truly static values in step inputs (those not linked to previous steps or loop iterations), prefer using flow inputs by default unless explicitly specified otherwise. This makes the flow more configurable and reusable. For example, instead of hardcoding an email address in a step input, create a flow input for it.
 
 ### Special Modules
 - Preprocessor: Runs before the first step when triggered externally

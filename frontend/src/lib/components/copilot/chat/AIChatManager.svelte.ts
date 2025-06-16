@@ -64,7 +64,7 @@ class AIChatManager {
 	currentReply = $state<string>('')
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
-	automaticScroll = $state<boolean>(true)
+	#automaticScroll = $state<boolean>(true)
 	systemMessage = $state<ChatCompletionSystemMessageParam>({
 		role: 'system',
 		content: ''
@@ -340,12 +340,10 @@ class AIChatManager {
 					}
 				}
 			}
-			return messages
 		} catch (err) {
+			callbacks.onMessageEnd()
 			if (!abortController.signal.aborted) {
 				throw err
-			} else {
-				return messages
 			}
 		}
 	}
@@ -377,15 +375,25 @@ class AIChatManager {
 				this.contextManager?.updateContextOnRequest(options)
 			}
 			this.loading = true
-			this.automaticScroll = true
+			this.#automaticScroll = true
 			this.abortController = new AbortController()
+
+			if (this.mode === AIMode.FLOW && !this.flowAiChatHelpers) {
+				throw new Error('No flow helpers found')
+			}
+
+			let snapshot: ExtendedOpenFlow | undefined = undefined
+			if (this.mode === AIMode.FLOW) {
+				snapshot = this.flowAiChatHelpers!.getFlowAndSelectedId().flow
+			}
 
 			this.displayMessages = [
 				...this.displayMessages,
 				{
 					role: 'user',
 					content: this.instructions,
-					contextElements: this.mode === AIMode.SCRIPT ? oldSelectedContext : undefined
+					contextElements: this.mode === AIMode.SCRIPT ? oldSelectedContext : undefined,
+					snapshot
 				}
 			]
 			const oldInstructions = this.instructions
@@ -454,28 +462,9 @@ class AIChatManager {
 				}
 			}
 
-			if (this.mode === AIMode.FLOW && !this.flowAiChatHelpers) {
-				throw new Error('No flow helpers found')
-			}
 			await this.chatRequest({
 				...params
 			})
-			if (this.currentReply) {
-				// just in case the onMessageEnd is not called (due to an error for instance)
-				this.displayMessages = [
-					...this.displayMessages,
-					{
-						role: 'assistant',
-						content: this.currentReply,
-						contextElements:
-							this.mode === AIMode.SCRIPT
-								? oldSelectedContext.filter((c) => c.type === 'code')
-								: undefined
-					}
-				]
-				this.currentReply = ''
-			}
-
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
 		} catch (err) {
 			console.error(err)
@@ -490,7 +479,6 @@ class AIChatManager {
 	}
 
 	cancel = () => {
-		this.currentReply = ''
 		this.abortController?.abort()
 	}
 
@@ -523,8 +511,16 @@ class AIChatManager {
 		if (chat) {
 			this.displayMessages = chat.displayMessages
 			this.messages = chat.actualMessages
-			this.automaticScroll = true
+			this.#automaticScroll = true
 		}
+	}
+
+	get automaticScroll() {
+		return this.#automaticScroll
+	}
+
+	disableAutomaticScroll = () => {
+		this.#automaticScroll = false
 	}
 
 	generateStep = async (moduleId: string, lang: ScriptLang, instructions: string) => {
@@ -658,6 +654,13 @@ class AIChatManager {
 		return () => {
 			this.flowAiChatHelpers = undefined
 		}
+	}
+
+	revertToSnapshot = (snapshot: ExtendedOpenFlow) => {
+		if (!this.flowAiChatHelpers) {
+			throw new Error('No flow helpers found')
+		}
+		this.flowAiChatHelpers.setFlow(snapshot)
 	}
 }
 

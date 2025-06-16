@@ -92,21 +92,10 @@
 		}
 	}
 
-	function findLastIndex<T>(array: T[], predicate: (item: T) => boolean): number {
-		for (let i = array.length - 1; i >= 0; i--) {
-			if (predicate(array[i])) {
-				return i
-			}
-		}
-		return -1
-	}
-
 	function submitSuggestion(suggestion: string) {
 		aiChatManager.instructions = suggestion
 		aiChatManager.sendRequest()
 	}
-
-	const lastUserMessageIndex = $derived(findLastIndex(messages, (m) => m.role === 'user'))
 </script>
 
 <div class="flex flex-col h-full">
@@ -187,10 +176,10 @@
 	</div>
 	{#if messages.length > 0}
 		<div
-			class="h-full overflow-y-scroll pt-2"
+			class="h-full overflow-y-scroll pt-2 pb-12"
 			bind:this={scrollEl}
 			onwheel={(e) => {
-				aiChatManager.automaticScroll = false
+				aiChatManager.disableAutomaticScroll()
 			}}
 		>
 			<div class="flex flex-col" bind:clientHeight={height}>
@@ -206,12 +195,8 @@
 						class={twMerge(
 							'text-sm py-1 mx-2',
 							message.role === 'user' &&
-								'px-2 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 rounded-lg',
-							message.role === 'user'
-								? aiChatManager.loading && lastUserMessageIndex === messageIndex
-									? 'mb-1'
-									: 'mb-2'
-								: '',
+								'px-2 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 rounded-lg mb-2',
+							message.role === 'user' && messageIndex > 0 && 'mt-6',
 							(message.role === 'assistant' || message.role === 'tool') && 'px-[1px]',
 							message.role === 'tool' && 'text-tertiary'
 						)}
@@ -222,21 +207,19 @@
 							{message.content}
 						{/if}
 					</div>
-					{#if message.role === 'user' && aiChatManager.loading && lastUserMessageIndex === messageIndex}
-						<div class="flex flex-row px-2 mb-2">
-							<Button
-								startIcon={{ icon: StopCircleIcon }}
-								size="xs3"
-								variant="border"
-								btnClasses="px-1.5"
-								color="light"
-								on:click={() => {
-									cancel()
-								}}
-							>
-								Stop
-							</Button>
-						</div>
+					{#if message.role === 'user' && message.snapshot}
+						<Button
+							size="xs"
+							variant="border"
+							color="light"
+							on:click={() => {
+								if (message.snapshot) {
+									aiChatManager.revertToSnapshot(message.snapshot)
+								}
+							}}
+						>
+							Revert to snapshot
+						</Button>
 					{/if}
 				{/each}
 				{#if aiChatManager.loading && !aiChatManager.currentReply}
@@ -248,7 +231,22 @@
 		</div>
 	{/if}
 
-	<div class:border-t={messages.length > 0}>
+	<div class:border-t={messages.length > 0} class="relative">
+		{#if aiChatManager.loading}
+			<div class="absolute -top-10 w-full flex flex-row justify-center">
+				<Button
+					startIcon={{ icon: StopCircleIcon }}
+					size="xs"
+					variant="border"
+					color="light"
+					on:click={() => {
+						cancel()
+					}}
+				>
+					Stop
+				</Button>
+			</div>
+		{/if}
 		{#if aiChatManager.mode === 'script'}
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 px-2 no-scrollbar">
 				<Popover>
