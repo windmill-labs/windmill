@@ -52,10 +52,31 @@ export async function fetchAvailableModels(
 	const models = await fetch(`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/models`, {
 		headers: {
 			'X-Resource-Path': resourcePath,
-			'X-Provider': 'openai'
+			'X-Provider': provider
 		}
 	})
 	const data = (await models.json()) as { data: ModelResponse[] }
+	if (data.data.length > 0) {
+		switch (provider) {
+			case 'openai':
+				return data.data
+					.filter(
+						(m) => m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.startsWith('codex')
+					)
+					.map((m) => m.id)
+			case 'azure_openai':
+				return data.data
+					.filter(
+						(m) => m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.startsWith('codex')
+					)
+					.map((m) => m.id)
+			case 'googleai':
+				return data.data.map((m) => m.id.split('/')[1])
+			default:
+				return data.data.map((m) => m.id)
+		}
+	}
+
 	return data?.data.map((m) => m.id) ?? []
 }
 

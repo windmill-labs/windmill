@@ -10,11 +10,9 @@
 	import { Pen, Plus, RotateCw } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { isDbType } from './apps/components/display/dbtable/utils'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import Select from './Select.svelte'
 
 	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	export let initialValue: string | undefined = undefined
 	export let value: string | undefined = initialValue
@@ -98,7 +96,7 @@
 
 	$: $workspaceStore && loadResources(resourceType)
 
-	$: dispatchIfMounted('change', value)
+	$: dispatch('change', value)
 
 	let appConnect: AppConnect
 	let resourceEditor: ResourceEditorDrawer
