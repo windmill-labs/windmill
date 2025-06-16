@@ -257,7 +257,10 @@
 							itemIndex === keyArrowPos ? 'bg-surface-hover' : '',
 							item.value === value ? 'bg-surface-selected' : 'hover:bg-surface-hover'
 						)}
-						onclick={() => setValue(item)}
+						onclick={(e) => {
+							e.stopImmediatePropagation()
+							setValue(item)
+						}}
 					>
 						{item.label}
 					</button>
