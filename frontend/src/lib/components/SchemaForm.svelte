@@ -239,6 +239,11 @@
 	})
 	$effect.pre(() => {
 		;[schema, args]
+		if (args && typeof args == 'object') {
+			for (const key in args) {
+				args[key]
+			}
+		}
 		untrack(() => handleHiddenFields(schema, args ?? {}))
 	})
 	$effect.pre(() => {
