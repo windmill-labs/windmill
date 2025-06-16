@@ -23,6 +23,7 @@
 		insertNewGridItem,
 		setUpTopBarComponentContent
 	} from '$lib/components/apps/editor/appUtils'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const hubId = $page.url.searchParams.get('hub')
@@ -36,17 +37,8 @@
 
 	const appState = nodraft ? undefined : localStorage.getItem('app')
 
-	let summary = $state('')
-	let value: App = $state({
-		grid: [],
-		fullscreen: false,
-		unusedInlineScripts: [],
-		hiddenInlineScripts: [],
-		theme: {
-			type: 'path',
-			path: DEFAULT_THEME
-		}
-	})
+	let data = usePromise(loadApp)
+
 	afterNavigate(() => {
 		if (nodraft) {
 			let url = new URL($page.url.href)
@@ -62,9 +54,18 @@
 		execution_mode: 'publisher'
 	})
 
-	loadApp()
-
 	async function loadApp() {
+		let summary = ''
+		let value: App = {
+			grid: [],
+			fullscreen: false,
+			unusedInlineScripts: [],
+			hiddenInlineScripts: [],
+			theme: {
+				type: 'path',
+				path: DEFAULT_THEME
+			}
+		}
 		if (importRaw) {
 			sendUserToast('Loaded from YAML/JSON')
 			if ('value' in importRaw) {
@@ -146,40 +147,38 @@
 
 			value.hideLegacyTopBar = true
 			value.mobileViewOnSmallerScreens = false
-
-			value = value
 		}
+		return { app: value, summary }
 	}
 </script>
 
-{#if value}
+{#if data.status === 'ok'}
+	{@const { app, summary } = data.value}
 	<div class="h-screen">
-		{#key value}
-			<AppEditor
-				on:savedNewAppPath={(event) => {
-					goto(`/apps/edit/${event.detail}`)
-				}}
-				{summary}
-				app={value}
-				path={''}
-				{policy}
-				fromHub={hubId != null}
-				newApp={true}
-				replaceStateFn={(path) => replaceState(path, $page.state)}
-				gotoFn={(path, opt) => goto(path, opt)}
-			>
-				{#snippet unsavedConfirmationModal({
-					diffDrawer,
-					additionalExitAction,
-					getInitialAndModifiedValues
-				})}
-					<UnsavedConfirmationModal
-						{diffDrawer}
-						{additionalExitAction}
-						{getInitialAndModifiedValues}
-					/>
-				{/snippet}
-			</AppEditor>
-		{/key}
+		<AppEditor
+			on:savedNewAppPath={(event) => {
+				goto(`/apps/edit/${event.detail}`)
+			}}
+			{summary}
+			{app}
+			path={''}
+			{policy}
+			fromHub={hubId != null}
+			newApp={true}
+			replaceStateFn={(path) => replaceState(path, $page.state)}
+			gotoFn={(path, opt) => goto(path, opt)}
+		>
+			{#snippet unsavedConfirmationModal({
+				diffDrawer,
+				additionalExitAction,
+				getInitialAndModifiedValues
+			})}
+				<UnsavedConfirmationModal
+					{diffDrawer}
+					{additionalExitAction}
+					{getInitialAndModifiedValues}
+				/>
+			{/snippet}
+		</AppEditor>
 	</div>
 {/if}
