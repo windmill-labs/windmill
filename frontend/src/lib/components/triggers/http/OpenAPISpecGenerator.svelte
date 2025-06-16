@@ -24,11 +24,11 @@
 	import { copyToClipboard, download, emptyString, emptyStringTrimmed } from '$lib/utils'
 	import YAML from 'yaml'
 	import { tick } from 'svelte'
-	import TriggersToken from '../TriggerTokens.svelte'
-	import TokensTable from '$lib/components/settings/TokensTable.svelte'
 	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
 	import { bash } from 'svelte-highlight/languages'
 	import Section from '$lib/components/Section.svelte'
+	import CreateToken from '$lib/components/settings/CreateToken.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 
 	type HttpRouteAndWebhook = WebhookFilters | OpenapiHttpRouteFilters
 
@@ -49,7 +49,6 @@
 	let webhookAndHttpRouteFilter: HttpRouteAndWebhook[] = $state([])
 	let disabled = $derived(webhookAndHttpRouteFilter.length === 0)
 	let token = $state('')
-	let triggerTokens: TriggersToken | undefined = $state()
 	let obj: Record<string, unknown> = $state({})
 
 	function isWebhookFilter(data: HttpRouteAndWebhook): data is WebhookFilters {
@@ -148,17 +147,37 @@
 	}
 </script>
 
-<Drawer size="700px" bind:this={generateCurlCommandDrawer}>
+<Drawer
+	size="700px"
+	bind:this={generateCurlCommandDrawer}
+	on:close={() => {
+		token = ''
+	}}
+>
 	<DrawerContent on:close={generateCurlCommandDrawer.closeDrawer} title={''}>
 		<div class="flex flex-col gap-2">
-			<Section label="Generate token" collapsable collapsed>
-				<TokensTable
-					on:tokenCreated={(e) => {
-						token = e.detail
-						triggerTokens?.listTokens()
-					}}
-				/>
+			<Section label="Create a Windmill token" collapsable collapsed={false}>
+				<div class="flex flex-col gap-3">
+					<Alert title="Full Access Warning" type="warning">
+						Any token generated using the form below will grant unrestricted access to the Windmill
+						API. Only share it with trusted parties.
+					</Alert>
+					<CreateToken
+						on:tokenCreated={(e) => {
+							token = e.detail
+						}}
+						newTokenLabel="generate openapi spec token"
+					/>
+				</div>
 			</Section>
+
+			<Label label="Token">
+				<input
+					bind:value={token}
+					placeholder="paste a windmill token to alter the example below"
+					class="!text-xs !font-normal"
+				/>
+			</Label>
 
 			<Label label="Example cURL">
 				<svelte:fragment slot="header">
@@ -169,7 +188,9 @@
 
 						You can either:
 						<ul class="list-disc pl-5 mt-1 text-sm leading-snug">
-							<li>Paste an existing Windmill token into the <code>token variable</code> placeholder</li>
+							<li
+								>Paste an existing Windmill token into the <code>token variable</code> placeholder</li
+							>
 							<li>Or generate a new token</li>
 						</ul>
 
