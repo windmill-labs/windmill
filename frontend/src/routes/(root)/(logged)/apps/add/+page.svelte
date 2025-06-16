@@ -160,7 +160,7 @@
 				goto(`/apps/edit/${event.detail}`)
 			}}
 			{summary}
-			{app}
+			appInitial={app}
 			path={''}
 			{policy}
 			fromHub={hubId != null}
