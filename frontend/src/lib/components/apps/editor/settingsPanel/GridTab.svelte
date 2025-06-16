@@ -23,14 +23,17 @@
 	}
 
 	let {
-		tabs = $bindable([]),
-		disabledTabs = $bindable([]),
+		tabs = $bindable(undefined),
+		disabledTabs = $bindable(undefined),
 		canDisableTabs = false,
 		word = 'Tab',
 		component = $bindable()
 	}: Props = $props()
 
 	$effect.pre(() => {
+		if (tabs == undefined) {
+			tabs = []
+		}
 		if (disabledTabs == undefined) {
 			disabledTabs = [
 				{ type: 'static', value: false, fieldType: 'boolean' },
@@ -40,7 +43,7 @@
 	})
 
 	let items = $state.raw(
-		tabs.map((tab, index) => {
+		(tabs ?? []).map((tab, index) => {
 			return { value: tab, id: generateRandomString(), originalIndex: index }
 		})
 	)
@@ -134,7 +137,7 @@
 
 			const newDisabledTabs: RichConfiguration[] = []
 			for (let i = 0; i < items.length; i++) {
-				newDisabledTabs.push(disabledTabs[items[i].originalIndex])
+				disabledTabs && newDisabledTabs.push(disabledTabs[items[i].originalIndex])
 			}
 			disabledTabs = newDisabledTabs
 

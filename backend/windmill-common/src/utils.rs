@@ -84,7 +84,7 @@ lazy_static::lazy_static! {
                 }
                 Mode::Worker
             } else if &x == "agent" {
-                println!("Binary is in 'agent' mode");
+                println!("Binary is in 'agent' mode with BASE_INTERNAL_URL={}", std::env::var("BASE_INTERNAL_URL").unwrap_or_default());
                 if std::env::var("BASE_INTERNAL_URL").is_err() {
                     panic!("BASE_INTERNAL_URL is required in agent mode")
                 }

@@ -185,9 +185,8 @@
 		if (detail.id && !selectedIds?.includes(detail.id)) {
 			nselectedIds = [detail.id, ...(selectedIds ?? [])]
 		}
-		sortedItems = citems
 		for (let id of nselectedIds) {
-			let activeItem = getItemById(id, sortedItems)
+			let activeItem = getItemById(id, citems)
 
 			if (activeItem && getComputedCols) {
 				activeItem = {
@@ -200,7 +199,7 @@
 
 				if ($isCtrlOrMetaPressedStore) {
 					if ($componentDraggedParentIdStore === $overlappedStore) {
-						const fixedContainer = sortedItems.map((item) => {
+						const fixedContainer = citems.map((item) => {
 							if (isContainer(item.data['type'])) {
 								initialFixedStates.set(item.id, {
 									item3Fixed: item[3].fixed,
@@ -231,7 +230,7 @@
 						sortedItems = nitems
 					}
 				} else {
-					let { items: nitems } = moveItem(activeItem, sortedItems, getComputedCols)
+					let { items: nitems } = moveItem(activeItem, citems, getComputedCols)
 
 					sortedItems = nitems
 				}
