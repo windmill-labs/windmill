@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT worker, worker_instance, vcpus, memory FROM worker_ping WHERE ping_at > NOW() - INTERVAL '2 minutes'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "worker",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "worker_instance",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "vcpus",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "memory",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "4887db074e9058bc0c1887428d6b2a897fe4b30c83f2aa5e9464c156f08f1c3a"
+}
