@@ -37,6 +37,71 @@ export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
 	customai: []
 }
 
+export interface OpenRouterModel {
+	id: string
+	name: string
+	top_provider?: {
+		max_completion_tokens?: number
+	}
+}
+
+export async function fetchOpenRouterModels(aiProviders: AIProvider[]) {
+	const MODELS_STORAGE_KEY = 'windmill_ai_models_cache'
+	const MODELS_EXPIRY_KEY = 'windmill_ai_models_expiry'
+	const EXPIRY_DAYS = 7
+
+	// Check if we have cached models in localStorage and they're not expired
+	const cachedModels = localStorage.getItem(MODELS_STORAGE_KEY)
+	const expiryTimestamp = localStorage.getItem(MODELS_EXPIRY_KEY)
+	const now = Date.now()
+
+	if (cachedModels && expiryTimestamp && parseInt(expiryTimestamp) > now) {
+		// Use cached models if available and not expired
+		return JSON.parse(cachedModels)
+	}
+
+	// Fetch fresh models
+	const models = await fetch('https://openrouter.ai/api/v1/models')
+	const data = await models.json()
+	const newModels = Object.fromEntries(aiProviders.map((p) => [p, []])) as unknown as Record<
+		AIProvider,
+		OpenRouterModel[]
+	>
+	for (const model of data.data) {
+		let provider = model.id.split('/')[0]
+		if (provider === 'google') {
+			provider = 'googleai'
+		}
+		if (newModels[provider]) {
+			newModels[provider].push(model)
+		}
+	}
+	newModels.azure_openai = [...newModels.openai]
+	newModels.deepseek = ['deepseek-chat', 'deepseek-reasoner'].map((m) => ({
+		id: `deepseek/${m}`,
+		name: m
+	}))
+	newModels.openrouter = data.data
+	for (const provider of Object.keys(newModels)) {
+		if (newModels[provider].length === 0) {
+			newModels[provider] = AI_DEFAULT_MODELS[provider].map((m: string) => ({
+				id: `${provider}/${m}`,
+				name: m
+			}))
+		}
+	}
+
+	// Cache the models in localStorage with expiry
+	try {
+		localStorage.setItem(MODELS_STORAGE_KEY, JSON.stringify(newModels))
+		const expiryTime = now + EXPIRY_DAYS * 24 * 60 * 60 * 1000 // 7 days in milliseconds
+		localStorage.setItem(MODELS_EXPIRY_KEY, expiryTime.toString())
+	} catch (e) {
+		console.error('Failed to cache AI models in localStorage:', e)
+	}
+	return newModels
+}
+
 function getModelMaxTokens(model: string) {
 	if (model.startsWith('gpt-4.1')) {
 		return 32768

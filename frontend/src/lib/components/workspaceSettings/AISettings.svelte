@@ -2,7 +2,7 @@
 	import { WorkspaceService, type AIConfig, type AIProvider } from '$lib/gen'
 	import { setCopilotInfo, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { AI_DEFAULT_MODELS } from '../copilot/lib'
+	import { AI_DEFAULT_MODELS, fetchOpenRouterModels } from '../copilot/lib'
 	import TestAiKey from '../copilot/TestAIKey.svelte'
 	import Description from '../Description.svelte'
 	import Label from '../Label.svelte'
@@ -11,6 +11,14 @@
 	import ArgEnum from '../ArgEnum.svelte'
 	import Button from '../common/button/Button.svelte'
 	import MultiSelectWrapper from '../multiselect/MultiSelectWrapper.svelte'
+
+	interface OpenRouterModel {
+		id: string
+		name: string
+		top_provider?: {
+			max_completion_tokens?: number
+		}
+	}
 
 	const aiProviderLabels: [AIProvider, string][] = [
 		['openai', 'OpenAI'],
@@ -37,7 +45,14 @@
 		usingOpenaiClientCredentialsOauth: boolean
 	} = $props()
 
+	let openRouterModels = $state<Record<AIProvider, OpenRouterModel[]>>(
+		Object.fromEntries(aiProviderLabels.map(([p]) => [p, []])) as unknown as Record<
+			AIProvider,
+			OpenRouterModel[]
+		>
+	)
 	let availableAIModels = $derived(Object.values(aiProviders).flatMap((p) => p.models))
+	$inspect(availableAIModels)
 	let modelProviderMap = $derived(
 		Object.fromEntries(
 			Object.entries(aiProviders).flatMap(([provider, config]) =>
@@ -50,6 +65,26 @@
 			codeCompletionModel = undefined
 			defaultModel = undefined
 		}
+	})
+
+	$effect(() => {
+		;(async () => {
+			try {
+				const models = await fetchOpenRouterModels(Object.keys(aiProviders) as AIProvider[])
+				openRouterModels = models
+			} catch (e) {
+				console.error('Failed to fetch OpenRouter models:', e)
+				openRouterModels = Object.fromEntries(
+					Object.keys(AI_DEFAULT_MODELS).map((p) => [
+						p,
+						AI_DEFAULT_MODELS[p].map((m) => ({
+							id: `${p}/${m}`,
+							name: m
+						}))
+					])
+				) as unknown as Record<AIProvider, OpenRouterModel[]>
+			}
+		})()
 	})
 
 	async function editCopilotConfig(): Promise<void> {
@@ -145,8 +180,6 @@
 						<div class="mb-4 flex flex-col gap-2">
 							<div class="flex flex-row gap-1">
 								{#key aiProviders[provider].resource_path}
-									<!-- this can be removed once the parent component moves to runes -->
-									<!-- svelte-ignore binding_property_non_reactive -->
 									<ResourcePicker
 										resourceType={provider === 'openai' && usingOpenaiClientCredentialsOauth
 											? 'openai_client_credentials_oauth'
@@ -172,10 +205,8 @@
 							</div>
 
 							<Label label="Enabled models">
-								<!-- this can be removed once the parent component moves to runes -->
-								<!-- svelte-ignore binding_property_non_reactive -->
 								<MultiSelectWrapper
-									items={AI_DEFAULT_MODELS[provider]}
+									items={(openRouterModels[provider] ?? []).map((m) => m.id.split('/')[1] ?? m.id)}
 									bind:value={aiProviders[provider].models}
 									placeholder="Select models"
 									allowUserOptions="append"
