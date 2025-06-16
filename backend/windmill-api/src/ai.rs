@@ -4,7 +4,7 @@ use crate::{
 };
 
 use axum::{body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Router};
-use http::HeaderMap;
+use http::{HeaderMap, Method};
 use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
@@ -141,6 +141,7 @@ impl AIRequestConfig {
         self,
         provider: &AIProvider,
         path: &str,
+        method: Method,
         body: Bytes,
     ) -> Result<RequestBuilder> {
         let body = if let Some(user) = self.user {
@@ -171,7 +172,7 @@ impl AIRequestConfig {
         tracing::debug!("AI request URL: {}", url);
 
         let mut request = HTTP_CLIENT
-            .post(url)
+            .request(method, url)
             .header("content-type", "application/json")
             .body(body);
 
@@ -339,17 +340,18 @@ pub struct AIConfig {
 }
 
 pub fn global_service() -> Router {
-    Router::new().route("/proxy/*ai", post(global_proxy))
+    Router::new().route("/proxy/*ai", post(global_proxy).get(global_proxy))
 }
 
 pub fn workspaced_service() -> Router {
-    Router::new().route("/proxy/*ai", post(proxy))
+    Router::new().route("/proxy/*ai", post(proxy).get(proxy))
 }
 
 async fn global_proxy(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(ai_path): Path<String>,
+    method: Method,
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
@@ -374,7 +376,7 @@ async fn global_proxy(
     let url = format!("{}/{}", base_url, ai_path);
 
     let request = HTTP_CLIENT
-        .post(url)
+        .request(method, url)
         .header("content-type", "application/json")
         .header("Authorization", format!("Bearer {}", api_key))
         .body(body);
@@ -410,6 +412,7 @@ async fn proxy(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, ai_path)): Path<(String, String)>,
+    method: Method,
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
@@ -492,7 +495,9 @@ async fn proxy(
         }
     };
 
-    let request = request_config.prepare_request(&provider, &ai_path, body)?;
+    let request = request_config
+        .clone()
+        .prepare_request(&provider, &ai_path, method, body)?;
 
     let response = request.send().await.map_err(to_anyhow)?;
 
