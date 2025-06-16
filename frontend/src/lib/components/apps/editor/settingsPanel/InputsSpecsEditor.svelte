@@ -51,7 +51,7 @@
 
 {#if inputSpecs}
 	<div class="w-full flex flex-col gap-4">
-		{#each Object.keys(finalInputSpecsConfiguration) as k}
+		{#each Object.keys(finalInputSpecsConfiguration) as k (k)}
 			{#if overridenByComponent.includes(k)}
 				<div>
 					<span class="text-xs font-semibold truncate text-primary">

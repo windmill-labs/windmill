@@ -232,6 +232,9 @@
 	})
 
 	async function loadTriggers() {
+		if (!initialPath) {
+			return
+		}
 		$triggersCount = await ScriptService.getTriggersCountOfScript({
 			workspace: $workspaceStore!,
 			path: initialPath

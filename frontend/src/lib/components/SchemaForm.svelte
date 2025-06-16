@@ -239,6 +239,21 @@
 	})
 	$effect.pre(() => {
 		;[schema, args]
+
+		if (args && typeof args == 'object') {
+			let oneShowExpr = false
+			for (const key of fields) {
+				if (schema.properties?.[key.value]?.showExpr) {
+					oneShowExpr = true
+				}
+			}
+			if (!oneShowExpr) {
+				return
+			}
+			for (const key in args) {
+				args[key]
+			}
+		}
 		untrack(() => handleHiddenFields(schema, args ?? {}))
 	})
 	$effect.pre(() => {

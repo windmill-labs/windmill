@@ -298,7 +298,12 @@
 							}
 						} catch {}
 					} else {
-						$focusedGrid = undefined
+						const drawerAlreadyHandledFocusedGrid =
+							item?.data.type === 'drawercomponent' &&
+							$focusedGrid?.parentComponentId === befSelected
+						if (!drawerAlreadyHandledFocusedGrid) {
+							$focusedGrid = undefined
+						}
 					}
 				}
 			}
