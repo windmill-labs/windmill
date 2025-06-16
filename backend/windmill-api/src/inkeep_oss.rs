@@ -7,5 +7,6 @@ use axum::Router;
 
 #[cfg(not(feature = "private"))]
 pub fn global_service() -> Router {
+    println!("hello");
     Router::new()
 }
