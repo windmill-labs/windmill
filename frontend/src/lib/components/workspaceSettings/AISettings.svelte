@@ -150,40 +150,38 @@
 					{#if aiProviders[provider]}
 						<div class="mb-4 flex flex-col gap-2">
 							<div class="flex flex-row gap-1">
-								{#key aiProviders[provider].resource_path}
-									<!-- this can be removed once the parent component moves to runes -->
-									<!-- svelte-ignore binding_property_non_reactive -->
-									<ResourcePicker
-										resourceType={provider === 'openai' && usingOpenaiClientCredentialsOauth
-											? 'openai_client_credentials_oauth'
-											: provider}
-										initialValue={aiProviders[provider].resource_path}
-										bind:value={aiProviders[provider].resource_path}
-										on:change={async () => {
-											if (aiProviders[provider].resource_path) {
-												try {
-													const models = await fetchAvailableModels(
-														aiProviders[provider].resource_path,
-														$workspaceStore!,
-														provider as AIProvider
-													)
-													availableAiModels[provider] = models
-												} catch (e) {
-													console.error('failed to fetch models for provider', provider, e)
-													availableAiModels[provider] = AI_DEFAULT_MODELS[provider]
-												}
+								<!-- this can be removed once the parent component moves to runes -->
+								<!-- svelte-ignore binding_property_non_reactive -->
+								<ResourcePicker
+									resourceType={provider === 'openai' && usingOpenaiClientCredentialsOauth
+										? 'openai_client_credentials_oauth'
+										: provider}
+									initialValue={aiProviders[provider].resource_path}
+									bind:value={aiProviders[provider].resource_path}
+									on:change={async () => {
+										if (aiProviders[provider].resource_path) {
+											try {
+												const models = await fetchAvailableModels(
+													aiProviders[provider].resource_path,
+													$workspaceStore!,
+													provider as AIProvider
+												)
+												availableAiModels[provider] = models
+											} catch (e) {
+												console.error('failed to fetch models for provider', provider, e)
+												availableAiModels[provider] = AI_DEFAULT_MODELS[provider]
 											}
+										}
 
-											if (
-												aiProviders[provider]?.resource_path &&
-												aiProviders[provider]?.models.length === 0 &&
-												availableAiModels[provider].length > 0
-											) {
-												aiProviders[provider].models = availableAiModels[provider].slice(0, 1)
-											}
-										}}
-									/>
-								{/key}
+										if (
+											aiProviders[provider]?.resource_path &&
+											aiProviders[provider]?.models.length === 0 &&
+											availableAiModels[provider].length > 0
+										) {
+											aiProviders[provider].models = availableAiModels[provider].slice(0, 1)
+										}
+									}}
+								/>
 								<TestAiKey
 									aiProvider={provider}
 									resourcePath={aiProviders[provider].resource_path}

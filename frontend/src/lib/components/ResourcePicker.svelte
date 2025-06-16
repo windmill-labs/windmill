@@ -11,8 +11,10 @@
 	import { sendUserToast } from '$lib/toast'
 	import { isDbType } from './apps/components/display/dbtable/utils'
 	import Select from './Select.svelte'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	export let initialValue: string | undefined = undefined
 	export let value: string | undefined = initialValue
@@ -96,7 +98,7 @@
 
 	$: $workspaceStore && loadResources(resourceType)
 
-	$: dispatch('change', value)
+	$: dispatchIfMounted('change', value)
 
 	let appConnect: AppConnect
 	let resourceEditor: ResourceEditorDrawer
