@@ -37,6 +37,7 @@
 		usingOpenaiClientCredentialsOauth: boolean
 	} = $props()
 
+	let fetchedAiModels = $state(false)
 	let availableAiModels = $state(
 		Object.fromEntries(
 			aiProviderLabels.map(([provider]) => [provider, AI_DEFAULT_MODELS[provider]])
@@ -56,6 +57,28 @@
 			codeCompletionModel = undefined
 			defaultModel = undefined
 		}
+	})
+
+	$effect(() => {
+		;(async () => {
+			if (fetchedAiModels) {
+				return
+			}
+			for (const provider of Object.keys(aiProviders)) {
+				try {
+					const models = await fetchAvailableModels(
+						aiProviders[provider].resource_path,
+						$workspaceStore!,
+						provider as AIProvider
+					)
+					availableAiModels[provider] = models
+				} catch (e) {
+					console.error('failed to fetch models for provider', provider, e)
+					availableAiModels[provider] = AI_DEFAULT_MODELS[provider]
+				}
+			}
+			fetchedAiModels = true
+		})()
 	})
 
 	async function editCopilotConfig(): Promise<void> {
