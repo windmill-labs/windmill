@@ -83,25 +83,24 @@
 
 	async function editCopilotConfig(): Promise<void> {
 		if (Object.keys(aiProviders ?? {}).length > 0) {
-			const code_completion_model = codeCompletionModel
-				? { model: codeCompletionModel, provider: modelProviderMap[codeCompletionModel] }
-				: undefined
-			const default_model = defaultModel
-				? { model: defaultModel, provider: modelProviderMap[defaultModel] }
-				: undefined
-			await WorkspaceService.editCopilotConfig({
-				workspace: $workspaceStore!,
-				requestBody: {
-					providers: aiProviders,
-					code_completion_model,
-					default_model
-				}
-			})
-			setCopilotInfo({
+			const code_completion_model =
+				codeCompletionModel && modelProviderMap[codeCompletionModel]
+					? { model: codeCompletionModel, provider: modelProviderMap[codeCompletionModel] }
+					: undefined
+			const default_model =
+				defaultModel && modelProviderMap[defaultModel]
+					? { model: defaultModel, provider: modelProviderMap[defaultModel] }
+					: undefined
+			const config: AIConfig = {
 				providers: aiProviders,
 				code_completion_model,
 				default_model
+			}
+			await WorkspaceService.editCopilotConfig({
+				workspace: $workspaceStore!,
+				requestBody: config
 			})
+			setCopilotInfo(config)
 		} else {
 			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
