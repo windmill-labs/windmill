@@ -52,7 +52,7 @@
 		>
 	)
 	let availableAIModels = $derived(Object.values(aiProviders).flatMap((p) => p.models))
-	$inspect(availableAIModels)
+	$inspect('availableAIModels', availableAIModels)
 	let modelProviderMap = $derived(
 		Object.fromEntries(
 			Object.entries(aiProviders).flatMap(([provider, config]) =>
@@ -95,6 +95,7 @@
 			const default_model = defaultModel
 				? { model: defaultModel, provider: modelProviderMap[defaultModel] }
 				: undefined
+			console.log('aiProviders', aiProviders)
 			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -109,6 +110,7 @@
 				default_model
 			})
 		} else {
+			console.log('no aiProviders')
 			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
 				requestBody: {}
@@ -212,6 +214,10 @@
 									allowUserOptions="append"
 								/>
 							</Label>
+							<p class="text-xs">
+								If you do not find the model you are looking for, you can type it manually in the
+								selector.
+							</p>
 						</div>
 					{/if}
 				</div>
@@ -263,7 +269,7 @@
 								valid={true}
 								create={false}
 							/>
-							<p class="text-xs">
+							<p class="text-xs mt-2">
 								We highly recommend using Mistral's Codestral model for code completion.
 							</p>
 						</Label>

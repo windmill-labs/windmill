@@ -540,6 +540,7 @@ export async function getCompletion(
 ) {
 	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
 	const openaiClient = workspaceAIClients.getOpenaiClient()
+	console.log('config', config)
 	const completion = await openaiClient.chat.completions.create(config, {
 		signal: abortController.signal,
 		headers: {
