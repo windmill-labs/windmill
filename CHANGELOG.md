@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.497.1](https://github.com/windmill-labs/windmill/compare/v1.497.0...v1.497.1) (2025-06-16)
+
+
+### Bug Fixes
+
+* fix mcp server initialization ([1c6a7c8](https://github.com/windmill-labs/windmill/commit/1c6a7c8cd0bd8396f158e3cb0583b927ce957f12))
+
 ## [1.497.0](https://github.com/windmill-labs/windmill/compare/v1.496.3...v1.497.0) (2025-06-16)
 
 
