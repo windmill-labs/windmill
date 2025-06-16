@@ -847,6 +847,7 @@
 	}}
 />
 
+<!-- {$focusedGrid?.parentComponentId} -->
 {#if !$userStore?.operator}
 	{#if $appStore}
 		<AppEditorHeader
