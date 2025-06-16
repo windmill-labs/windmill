@@ -16,19 +16,33 @@
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'carousellistcomponent'> | undefined = undefined
-	export let render: boolean
-	export let initializing: boolean | undefined
-	export let componentContainerHeight: number
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'carousellistcomponent'> | undefined
+		render: boolean
+		initializing: boolean | undefined
+		componentContainerHeight: number
+	}
+
+	let {
+		id,
+		componentInput,
+		configuration,
+		customCss = undefined,
+		render,
+		initializing = $bindable(),
+		componentContainerHeight
+	}: Props = $props()
 
 	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let everRender = render
-	$: render && !everRender && (everRender = true)
+	let everRender = $state(render)
+	$effect.pre(() => {
+		render && !everRender && (everRender = true)
+	})
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -36,9 +50,8 @@
 		inputs: {}
 	})
 
-	const resolvedConfig = initConfig(
-		components['carousellistcomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['carousellistcomponent'].initialData.configuration, configuration)
 	)
 
 	function onFocus() {
@@ -48,19 +61,21 @@
 		}
 	}
 
-	let css = initCss($app.css?.carousellistcomponent, customCss)
-	let result: any[] | undefined = undefined
+	let css = $state(initCss($app.css?.carousellistcomponent, customCss))
+	let result: any[] | undefined = $state(undefined)
 
-	let inputs = {}
-	let carousel: Carousel
+	let inputs = $state({})
+	let carousel: Carousel = $state()
 
-	$: $selectedComponent?.includes(id) &&
-		$focusedGrid === undefined &&
-		($focusedGrid = {
-			parentComponentId: id,
-			subGridIndex: 0
-		})
-	let currentPageIndex = 0
+	$effect.pre(() => {
+		$selectedComponent?.includes(id) &&
+			$focusedGrid === undefined &&
+			($focusedGrid = {
+				parentComponentId: id,
+				subGridIndex: 0
+			})
+	})
+	let currentPageIndex = $state(0)
 </script>
 
 {#each Object.keys(components['carousellistcomponent'].initialData.configuration) as key (key)}
@@ -116,41 +131,45 @@
 								}
 							}}
 						>
-							<div slot="prev" class="h-full flex justify-center flex-col p-2">
-								<div>
-									<Button
-										color="light"
-										on:click={() => {
-											const pagesCount = result?.length ?? 0
+							{#snippet prev()}
+								<div class="h-full flex justify-center flex-col p-2">
+									<div>
+										<Button
+											color="light"
+											on:click={() => {
+												const pagesCount = result?.length ?? 0
 
-											if (currentPageIndex > 0) {
-												carousel.goTo(currentPageIndex - 1)
-											} else {
-												carousel.goTo(pagesCount - 1)
-											}
-										}}
-									>
-										<ArrowLeftCircle size={16} />
-									</Button>
+												if (currentPageIndex > 0) {
+													carousel.goTo(currentPageIndex - 1)
+												} else {
+													carousel.goTo(pagesCount - 1)
+												}
+											}}
+										>
+											<ArrowLeftCircle size={16} />
+										</Button>
+									</div>
 								</div>
-							</div>
-							<div slot="next" class="h-full flex justify-center flex-col p-2">
-								<div>
-									<Button
-										color="light"
-										on:click={() => {
-											const pagesCount = result?.length ?? 0
-											if (currentPageIndex < pagesCount - 1) {
-												carousel.goTo(currentPageIndex + 1)
-											} else {
-												carousel.goTo(0)
-											}
-										}}
-									>
-										<ArrowRightCircle size={16} />
-									</Button>
+							{/snippet}
+							{#snippet next()}
+								<div class="h-full flex justify-center flex-col p-2">
+									<div>
+										<Button
+											color="light"
+											on:click={() => {
+												const pagesCount = result?.length ?? 0
+												if (currentPageIndex < pagesCount - 1) {
+													carousel.goTo(currentPageIndex + 1)
+												} else {
+													carousel.goTo(0)
+												}
+											}}
+										>
+											<ArrowRightCircle size={16} />
+										</Button>
+									</div>
 								</div>
-							</div>
+							{/snippet}
 							{#each result ?? [] as value, index}
 								<div class="overflow-auto w-full">
 									<ListWrapper

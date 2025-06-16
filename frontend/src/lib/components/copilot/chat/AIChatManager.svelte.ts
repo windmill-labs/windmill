@@ -18,6 +18,7 @@ import type {
 } from 'openai/resources/chat/completions.mjs'
 import { prepareScriptSystemMessage, prepareScriptTools } from './script/core'
 import { navigatorTools, prepareNavigatorSystemMessage } from './navigator/core'
+import { loadApiTools } from './navigator/apiTools'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
@@ -49,7 +50,7 @@ class AIChatManager {
 	DEFAULT_SIZE = 22
 	NAVIGATION_SYSTEM_PROMPT = `
 	CONSIDERATIONS:
-	 - You are provided with a tool to switch to navigation mode, only use it when you are sure that the user is asking you to navigate the application or help them find something. Do not use it otherwise.
+	 - You are provided with a tool to switch to navigation mode, only use it when you are sure that the user is asking you to navigate the application, help them find something or fetch data from the API. Do not use it otherwise.
 	`
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
@@ -78,6 +79,7 @@ class AIChatManager {
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	pendingNewCode = $state<string | undefined>(undefined)
+	apiTools = $state<Tool<any>[]>([])
 
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script: this.scriptEditorOptions !== undefined,
@@ -87,6 +89,15 @@ class AIChatManager {
 	})
 
 	open = $derived(this.size > 0)
+
+	async loadApiTools() {
+		if (this.apiTools.length === 0) {
+			this.apiTools = await loadApiTools()
+			if (this.mode === AIMode.NAVIGATOR) {
+				this.tools = [this.changeModeTool, ...navigatorTools, ...this.apiTools]
+			}
+		}
+	}
 
 	updateMode(currentMode: AIMode) {
 		if (
@@ -129,7 +140,7 @@ class AIChatManager {
 			this.helpers = this.flowAiChatHelpers
 		} else if (mode === AIMode.NAVIGATOR) {
 			this.systemMessage = prepareNavigatorSystemMessage()
-			this.tools = [this.changeModeTool, ...navigatorTools]
+			this.tools = [this.changeModeTool, ...navigatorTools, ...this.apiTools]
 			this.helpers = {}
 		} else if (mode === AIMode.ASK) {
 			this.systemMessage = prepareAskSystemMessage()

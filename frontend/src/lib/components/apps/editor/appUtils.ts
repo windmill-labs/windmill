@@ -476,7 +476,7 @@ export function appComponentFromType<T extends keyof typeof components>(
 			),
 			recomputeIds: init.recomputeIds ? [] : undefined,
 			actionButtons: init.actionButtons ? [] : undefined,
-			actions: [],
+			actions: undefined,
 			menuItems: init.menuItems ? [] : undefined,
 			numberOfSubgrids: init.numberOfSubgrids,
 			horizontalAlignment: override?.horizontalAlignment ?? init.horizontalAlignment,

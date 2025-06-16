@@ -93,6 +93,13 @@ shouldUsePortal={true} -->
 		</button>
 	{/snippet}
 	{#snippet children({ close })}
-		<InsertModuleInner on:close={() => close(null)} on:insert on:new on:pickFlow on:pickScript />
+		<InsertModuleInner
+			on:close={() => close(null)}
+			on:insert
+			on:new
+			on:pickFlow
+			on:pickScript
+			{kind}
+		/>
 	{/snippet}
 </PopupV2>
