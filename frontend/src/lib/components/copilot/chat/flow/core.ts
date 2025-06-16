@@ -70,7 +70,8 @@ const newStepSchema = z.union([
 			type: z.literal('rawscript'),
 			language: langSchema.describe(
 				'The language to use for the code, default to bun if none specified'
-			)
+			),
+			summary: z.string().describe('The summary of what the step does')
 		})
 		.describe('Add a raw script step at the specified location'),
 	z
@@ -342,13 +343,13 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: searchScriptsToolDef,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-			toolCallbacks.onToolCall(
+			toolCallbacks.setToolStatus(
 				toolId,
 				'Searching for workspace scripts related to "' + args.query + '"...'
 			)
 			const parsedArgs = searchScriptsSchema.parse(args)
 			const scriptResults = await workspaceScriptsSearch.search(parsedArgs.query, workspace)
-			toolCallbacks.onFinishToolCall(
+			toolCallbacks.setToolStatus(
 				toolId,
 				'Found ' +
 					scriptResults.length +
@@ -362,7 +363,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: searchHubScriptsToolDef,
 		fn: async ({ args, toolId, toolCallbacks }) => {
-			toolCallbacks.onToolCall(
+			toolCallbacks.setToolStatus(
 				toolId,
 				'Searching for hub scripts related to "' + args.query + '"...'
 			)
@@ -371,7 +372,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				text: parsedArgs.query,
 				kind: 'script'
 			})
-			toolCallbacks.onFinishToolCall(
+			toolCallbacks.setToolStatus(
 				toolId,
 				'Found ' + scripts.length + ' scripts in the hub related to "' + args.query + '"'
 			)
@@ -387,16 +388,16 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		def: addStepToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = addStepSchema.parse(args)
-			toolCallbacks.onToolCall(
+			toolCallbacks.setToolStatus(
 				toolId,
 				parsedArgs.location.type === 'after'
-					? `Adding a step after, ${parsedArgs.location.afterId}`
+					? `Adding a step after step '${parsedArgs.location.afterId}'`
 					: parsedArgs.location.type === 'start'
 						? 'Adding a step at the start'
 						: parsedArgs.location.type === 'start_inside_forloop'
-							? `Adding a step at the start of the forloop ${parsedArgs.location.inside}`
+							? `Adding a step at the start of the forloop step '${parsedArgs.location.inside}'`
 							: parsedArgs.location.type === 'start_inside_branch'
-								? `Adding a step at the start of the branch ${parsedArgs.location.inside} ${parsedArgs.location.branchIndex}`
+								? `Adding a step at the start of the branch ${parsedArgs.location.branchIndex + 1} of step '${parsedArgs.location.inside}'`
 								: parsedArgs.location.type === 'preprocessor'
 									? 'Adding a preprocessor step'
 									: parsedArgs.location.type === 'failure'
@@ -406,7 +407,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const id = await helpers.insertStep(parsedArgs.location, parsedArgs.step)
 			helpers.selectStep(id)
 
-			toolCallbacks.onFinishToolCall(toolId, `Added step '${id}'`)
+			toolCallbacks.setToolStatus(toolId, `Added step '${id}'`)
 
 			return `Step ${id} added. Here is the updated flow, make sure to take it into account when adding another step:\n${YAML.stringify(helpers.getModules())}`
 		}
@@ -414,46 +415,52 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	{
 		def: removeStepToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.onToolCall(toolId, `Removing step ${args.id}...`)
+			toolCallbacks.setToolStatus(toolId, `Removing step ${args.id}...`)
 			const parsedArgs = removeStepSchema.parse(args)
 			await helpers.removeStep(parsedArgs.id)
-			toolCallbacks.onFinishToolCall(toolId, `Removed step '${parsedArgs.id}'`)
+			toolCallbacks.setToolStatus(toolId, `Removed step '${parsedArgs.id}'`)
 			return `Step '${parsedArgs.id}' removed. Here is the updated flow:\n${YAML.stringify(helpers.getModules())}`
 		}
 	},
 	{
 		def: getStepInputsToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.onToolCall(toolId, `Getting step ${args.id} inputs...`)
+			toolCallbacks.setToolStatus(toolId, `Getting step ${args.id} inputs...`)
 			const parsedArgs = getStepInputsSchema.parse(args)
 			const inputs = await helpers.getStepInputs(parsedArgs.id)
-			toolCallbacks.onFinishToolCall(toolId, `Retrieved step '${parsedArgs.id}' inputs`)
+			toolCallbacks.setToolStatus(toolId, `Retrieved step '${parsedArgs.id}' inputs`)
 			return YAML.stringify(inputs)
 		}
 	},
 	{
 		def: setStepInputsToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.onToolCall(toolId, `Setting step ${args.id} inputs...`)
+			toolCallbacks.setToolStatus(toolId, `Setting step ${args.id} inputs...`)
 			const parsedArgs = setStepInputsSchema.parse(args)
 			await helpers.setStepInputs(parsedArgs.id, parsedArgs.inputs)
 			helpers.selectStep(parsedArgs.id)
 			const inputs = await helpers.getStepInputs(parsedArgs.id)
-			toolCallbacks.onFinishToolCall(toolId, `Set step '${parsedArgs.id}' inputs`)
+			toolCallbacks.setToolStatus(toolId, `Set step '${parsedArgs.id}' inputs`)
 			return `Step '${parsedArgs.id}' inputs set. New inputs:\n${YAML.stringify(inputs)}`
+		},
+		preAction: ({ toolCallbacks, toolId }) => {
+			toolCallbacks.setToolStatus(toolId, 'Setting step inputs...')
 		}
 	},
 	{
 		def: setFlowInputsSchemaToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.onToolCall(toolId, 'Setting flow inputs schema...')
+			toolCallbacks.setToolStatus(toolId, 'Setting flow inputs schema...')
 			const parsedArgs = setFlowInputsSchemaSchema.parse(args)
 			const schema = JSON.parse(parsedArgs.schema)
 			await helpers.setFlowInputsSchema(schema)
 			helpers.selectStep('Input')
 			const updatedSchema = await helpers.getFlowInputsSchema()
-			toolCallbacks.onFinishToolCall(toolId, 'Set flow inputs schema')
+			toolCallbacks.setToolStatus(toolId, 'Set flow inputs schema')
 			return `Flow inputs schema set. New schema:\n${JSON.stringify(updatedSchema)}`
+		},
+		preAction: ({ toolCallbacks, toolId }) => {
+			toolCallbacks.setToolStatus(toolId, 'Setting flow inputs schema...')
 		}
 	},
 	{
@@ -464,7 +471,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				allowResourcesFetch: true,
 				isPreprocessor: parsedArgs.id === 'preprocessor'
 			})
-			toolCallbacks.onFinishToolCall(
+			toolCallbacks.setToolStatus(
 				toolId,
 				'Retrieved instructions for code generation in ' + parsedArgs.language
 			)
@@ -475,11 +482,14 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		def: setCodeToolDef,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = setCodeSchema.parse(args)
-			toolCallbacks.onToolCall(toolId, `Setting code for step '${parsedArgs.id}'...`)
+			toolCallbacks.setToolStatus(toolId, `Setting code for step '${parsedArgs.id}'...`)
 			await helpers.setCode(parsedArgs.id, parsedArgs.code)
 			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.onFinishToolCall(toolId, `Set code for step '${parsedArgs.id}'`)
+			toolCallbacks.setToolStatus(toolId, `Set code for step '${parsedArgs.id}'`)
 			return `Step code set`
+		},
+		preAction: ({ toolCallbacks, toolId }) => {
+			toolCallbacks.setToolStatus(toolId, 'Setting code for step...')
 		}
 	},
 	{
@@ -488,7 +498,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const parsedArgs = setBranchPredicateSchema.parse(args)
 			await helpers.setBranchPredicate(parsedArgs.id, parsedArgs.branchIndex, parsedArgs.expression)
 			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.onFinishToolCall(
+			toolCallbacks.setToolStatus(
 				toolId,
 				`Set predicate of branch ${parsedArgs.branchIndex + 1} of '${parsedArgs.id}'`
 			)
@@ -501,7 +511,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const parsedArgs = addBranchSchema.parse(args)
 			await helpers.addBranch(parsedArgs.id)
 			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.onFinishToolCall(toolId, `Added branch to '${parsedArgs.id}'`)
+			toolCallbacks.setToolStatus(toolId, `Added branch to '${parsedArgs.id}'`)
 			return `Branch added to '${parsedArgs.id}'`
 		}
 	},
@@ -511,7 +521,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const parsedArgs = removeBranchSchema.parse(args)
 			await helpers.removeBranch(parsedArgs.id, parsedArgs.branchIndex)
 			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.onFinishToolCall(
+			toolCallbacks.setToolStatus(
 				toolId,
 				`Removed branch ${parsedArgs.branchIndex + 1} of '${parsedArgs.id}'`
 			)
@@ -524,7 +534,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const parsedArgs = setForLoopIteratorExpressionSchema.parse(args)
 			await helpers.setForLoopIteratorExpression(parsedArgs.id, parsedArgs.expression)
 			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.onFinishToolCall(toolId, `Set forloop '${parsedArgs.id}' iterator expression`)
+			toolCallbacks.setToolStatus(toolId, `Set forloop '${parsedArgs.id}' iterator expression`)
 			return `Forloop '${parsedArgs.id}' iterator expression set`
 		}
 	},
@@ -532,16 +542,16 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		def: resourceTypeToolDef,
 		fn: async ({ args, toolId, workspace, toolCallbacks }) => {
 			const parsedArgs = resourceTypeToolSchema.parse(args)
-			toolCallbacks.onToolCall(toolId, 'Searching resource types for "' + parsedArgs.query + '"...')
+			toolCallbacks.setToolStatus(
+				toolId,
+				'Searching resource types for "' + parsedArgs.query + '"...'
+			)
 			const formattedResourceTypes = await getFormattedResourceTypes(
 				parsedArgs.language,
 				parsedArgs.query,
 				workspace
 			)
-			toolCallbacks.onFinishToolCall(
-				toolId,
-				'Retrieved resource types for "' + parsedArgs.query + '"'
-			)
+			toolCallbacks.setToolStatus(toolId, 'Retrieved resource types for "' + parsedArgs.query + '"')
 			return formattedResourceTypes
 		}
 	}
@@ -578,51 +588,84 @@ export function prepareFlowSystemMessage(): ChatCompletionSystemMessageParam {
 Follow the user instructions carefully.
 Go step by step, and explain what you're doing as you're doing it.
 DO NOT wait for user confirmation before performing an action. Only do it if the user explicitly asks you to wait in their initial instructions.
-Take note of the following:
 
-## Flow editor
+## Understanding User Requests
 
-### Script steps and inputs
-You can add a script step in different ways:
-- from a script in the workspace
-- from a script in the hub
-- a raw script: create an empty step and write the code directly
+### Individual Actions
+When the user asks for a specific action, perform ONLY that action:
+- Updating code for a step
+- Setting step inputs
+- Setting flow inputs schema
+- Setting branch predicates
+- Setting forloop iterator expressions
+- Adding/removing branches
+- etc.
 
-When generating code for a raw script step, you should make sure it's in the correct format for Windmill. Format varies depending on the language and on the type of step (preprocessor or not). Use the get_instructions_for_code_generation tool to get instructions to help you write the code. Make sure to follow them carefully. DO NOT tell the user you're using this specific tool, just use it.
-Also, make sure to display the code to the user before setting it.
+### Full Step Creation Process
+When the user asks to add one or more steps with broad instructions (e.g., "add a step to send an email", "create a flow to process data"), follow the complete process below for EACH step.
 
-Unless the user explicitly specifies how the script should be created (e.g., from the workspace, from the hub, or as a new one), whenever they ask you to add a script step, you must first check for matching scripts in the workspace and the hub. If no suitable script is found, create a raw script step and write the necessary code directly.
+### Complete Step Creation Process
+When creating new steps, follow this process for EACH step:
+1. If the user hasn't explicitly asked to write from scratch:
+   - First search for matching scripts in the workspace
+   - Then search for matching scripts in the hub, but ONLY consider highly relevant results that match the user's requirements
+   - Only if no suitable script is found, create a raw script step
+2. For raw script steps:
+   - If no language is specified, use 'bun' as the default language
+   - Use get_instructions_for_code_generation to get the correct code format
+   - Display the code to the user before setting it
+   - Set the code using set_code
+3. After adding any step:
+   - Get the step inputs using get_step_inputs
+   - Set the step inputs using set_step_inputs
+   - If any inputs use flow_input properties that don't exist yet, add them to the schema using set_flow_inputs_schema
 
-Once you've added a new step and set the path or written the code, you should use the get_step_inputs tool to get the current/possible inputs for the step and set the step input values using the set_step_inputs tool.
-Step input keys and types are automatically inferred from the code.
-If you use flow_input in the step inputs, make sure to add the missing properties to the schema using the set_flow_inputs_schema tool.
+## Additional instructions for the Flow Editor
 
-### Branchone/branchall and forloop
-You can add branchone/branchall and forloops to the flow. Make sure to set the predicates for the branches (of branchone only) and the iterator expression for the forloops.
-You can also add or remove branches. Steps can be added inside branches and forloops.
+### Special Step Types
+For special step types, follow these additional steps:
+- For forloop steps: Set the iterator expression using set_forloop_iterator_expression
+- For branchone steps: Set the predicates for each branch using set_branch_predicate
+- For branchall steps: No additional setup needed
 
-### Special instructions when adding steps
-When adding a step, always consider the current sequence of steps to ensure the new step is inserted in the correct position.
-Important: Steps are executed in the order they appear in the flow definition — not in the order they were added or by the alphanumeric order of their IDs.
+### Step Insertion Rules
+When adding steps, carefully consider the execution order:
+1. Steps are executed in the order they appear in the flow definition, not in the order they were added
+2. For inserting steps:
+   - Use 'start' to add at the beginning of the flow
+   - Use 'after' with the previous step's ID to add in sequence (can be inside a branch or a forloop)
+   - Use 'start_inside_forloop' to add at the start of a forloop
+   - Use 'start_inside_branch' to add at the start of a branch
+   - Use 'preprocessor' to add a preprocessor step
+   - Use 'failure' to add a failure step
+3. Always verify the flow structure after adding steps to ensure correct execution order
 
-### Flow inputs schema
-You can use the set_flow_inputs_schema tool to set the flow inputs schema.
+### Flow Inputs and Schema
+- Use set_flow_inputs_schema to define or update the flow's input schema
+- When using flow_input in step inputs, ensure the properties exist in the schema
+- For resource inputs, set the property type to "object" and add a "format" key with value "resource-nameofresourcetype"
 
-### JavaScript expressions
-For step inputs, forloop iterator expressions and branch predicates, you should use JavaScript expressions.
-Here are the variables you can use:
-- Step results are accessible as results.stepid or results.stepid.property_name. 
-- Inside loops, the iterator value is accessible as flow_input.iter.value.
-- Flow inputs are accessible as flow_input.property_name. The flow input doesn't have to exist already but make sure to add it to the schema if it doesn't.
-- If you want to use static values, set them like in javascript (e.g. "hello", true, 3, etc...).
-Note: these variables are only accessible in step inputs, forloop iterator expressions and branch predicates. They are not directly accessible in the code and should be passed as script arguments using the set_step_inputs tool.
+### JavaScript Expressions
+For step inputs, forloop iterator expressions and branch predicates, use JavaScript expressions with these variables:
+- Step results: results.stepid or results.stepid.property_name
+- Loop iterator: flow_input.iter.value (inside loops)
+- Flow inputs: flow_input.property_name
+- Static values: Use JavaScript syntax (e.g., "hello", true, 3)
 
-### Special modules
-- Preprocessor: Runs before the first step when triggered externally. You cannot link its inputs. It's id is 'preprocessor'
-- Error handler: Runs when the flow fails. When linking it's input, you can only refer to flow_input and error (error: { message, name, stack, step_id }). It's id is 'failure'. 
+Note: These variables are only accessible in step inputs, forloop iterator expressions and branch predicates. They must be passed as script arguments using the set_step_inputs tool.
+
+### Special Modules
+- Preprocessor: Runs before the first step when triggered externally
+  - ID: 'preprocessor'
+  - Cannot link inputs
+  - Only supports script/rawscript steps
+- Error handler: Runs when the flow fails
+  - ID: 'failure'
+  - Can only reference flow_input and error object
+  - Error object structure: { message, name, stack, step_id }
+  - Only supports script/rawscript steps
 
 Both modules only support a script or rawscript step. You cannot nest modules using foorloop/branchone/branchall.
-
 
 ## Resource types
 On Windmill, credentials and configuration are stored in resources. Resource types define the format of the resource.
