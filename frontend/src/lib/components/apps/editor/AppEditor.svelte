@@ -63,7 +63,7 @@
 	import panzoom from 'panzoom'
 
 	interface Props {
-		app: App
+		appInitial: App
 		path: string
 		policy: Policy
 		summary: string
@@ -89,7 +89,7 @@
 	}
 
 	let {
-		app,
+		appInitial,
 		path,
 		policy,
 		summary,
@@ -104,9 +104,9 @@
 		unsavedConfirmationModal
 	}: Props = $props()
 
-	migrateApp(app)
+	migrateApp(appInitial)
 
-	const stateApp = $state(app)
+	const stateApp = $state(appInitial)
 	const appStore: StateStore<App> = $state({ val: stateApp })
 	const selectedComponent = writable<string[] | undefined>(undefined)
 
@@ -124,7 +124,7 @@
 
 	const cssEditorOpen = writable<boolean>(false)
 
-	const history = initHistory(app)
+	const history = initHistory(appInitial)
 
 	const jobsById = writable<
 		Record<
