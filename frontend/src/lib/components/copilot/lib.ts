@@ -42,6 +42,11 @@ export interface ModelResponse {
 	object: string
 	created: number
 	owned_by: string
+	lifecycle_status: string
+	capabilities: {
+		completion: boolean
+		chat_completion: boolean
+	}
 }
 
 export async function fetchAvailableModels(
@@ -72,7 +77,10 @@ export async function fetchAvailableModels(
 			case 'azure_openai':
 				return data.data
 					.filter(
-						(m) => m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.startsWith('codex')
+						(m) =>
+							(m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.startsWith('codex')) &&
+							m.lifecycle_status !== 'deprecated' &&
+							(m.capabilities.completion || m.capabilities.chat_completion)
 					)
 					.map((m) => m.id)
 			case 'googleai':

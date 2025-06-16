@@ -157,7 +157,7 @@ impl AIRequestConfig {
             || matches!(provider, AIProvider::AzureOpenAI);
         let is_anthropic = matches!(provider, AIProvider::Anthropic);
 
-        let url = if is_azure {
+        let url = if is_azure && method != Method::GET {
             if base_url.ends_with("/deployments") {
                 let model = Self::get_azure_model(&body)?;
                 format!("{}/{}/{}", base_url, model, path)
