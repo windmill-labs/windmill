@@ -21,9 +21,14 @@
 	import { ClipboardCopy, Download, Trash } from 'lucide-svelte'
 	import Select from '$lib/components/Select.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { copyToClipboard, emptyString, emptyStringTrimmed } from '$lib/utils'
+	import { copyToClipboard, download, emptyString, emptyStringTrimmed } from '$lib/utils'
 	import YAML from 'yaml'
 	import { tick } from 'svelte'
+	import TriggersToken from '../TriggerTokens.svelte'
+	import TokensTable from '$lib/components/settings/TokensTable.svelte'
+	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
+	import { bash } from 'svelte-highlight/languages'
+	import Section from '$lib/components/Section.svelte'
 
 	type HttpRouteAndWebhook = WebhookFilters | OpenapiHttpRouteFilters
 
@@ -40,8 +45,12 @@
 	let openapiDocument = $state('')
 	let lang: OpenapiSpecFormat = $state('yaml')
 	let editor: SimpleEditor | undefined = $state()
+	let generateCurlCommandDrawer: Drawer | undefined = $state()
 	let webhookAndHttpRouteFilter: HttpRouteAndWebhook[] = $state([])
 	let disabled = $derived(webhookAndHttpRouteFilter.length === 0)
+	let token = $state('')
+	let triggerTokens: TriggersToken | undefined = $state()
+	let obj: Record<string, unknown> = $state({})
 
 	function isWebhookFilter(data: HttpRouteAndWebhook): data is WebhookFilters {
 		return (data as WebhookFilters).runnable_kind !== undefined
@@ -95,39 +104,17 @@
 		return info
 	}
 
-	async function downloadSpec() {
-		try {
-			const blob = new Blob([openapiDocument], {
-				type: lang === 'yaml' ? 'text/x-yaml' : 'application/json'
-			})
-			const url = window.URL.createObjectURL(blob)
-			const a = document.createElement('a')
-			a.href = url
-			a.download = `openapi-3.1.${lang}`
-			a.click()
-		} catch (error) {
-			sendUserToast(error.body || error.message, true)
-		} finally {
-		}
-	}
-
-	async function CopyCommand() {
+	async function copyCommandToClipboard() {
 		try {
 			const info = buildInfo()
-			const obj = {
+			obj = {
 				openapi_spec_format: lang,
 				info,
 				url: `${window.location.origin}${base}`,
 				http_route_filters: getHttpRouteFilters(),
 				webhook_filters: getWebhookFilters()
 			}
-
-			copyToClipboard(
-				`curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/http_triggers/openapi/generate" \
--H "Authorization: Bearer YOUR_TOKEN_HERE" \
--H "Content-Type: application/json" \
--d '${JSON.stringify(obj)}'`
-			)
+			generateCurlCommandDrawer?.openDrawer()
 		} catch (error) {
 			sendUserToast(error.message || error, true)
 		}
@@ -160,6 +147,47 @@
 		openAPIGenerator.openDrawer()
 	}
 </script>
+
+<Drawer size="700px" bind:this={generateCurlCommandDrawer}>
+	<DrawerContent on:close={generateCurlCommandDrawer.closeDrawer} title={''}>
+		<div class="flex flex-col gap-2">
+			<Section label="Generate token" collapsable collapsed>
+				<TokensTable
+					on:tokenCreated={(e) => {
+						token = e.detail
+						triggerTokens?.listTokens()
+					}}
+				/>
+			</Section>
+
+			<Label label="Example cURL">
+				<svelte:fragment slot="header">
+					<Tooltip>
+						Use this cURL command to call the OpenAPI generation endpoint.
+
+						<br /><br />
+
+						You can either:
+						<ul class="list-disc pl-5 mt-1 text-sm leading-snug">
+							<li>Paste an existing Windmill token into the <code>token variable</code> placeholder</li>
+							<li>Or generate a new token</li>
+						</ul>
+
+						<br />
+					</Tooltip>
+				</svelte:fragment>
+				<CopyableCodeBlock
+					code={`token=${emptyString(token) ? '' : token}; \\
+curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/http_triggers/openapi/generate" \\
+-H "Authorization: Bearer $token" \\
+-H "Content-Type: application/json" \\
+-d '${JSON.stringify(obj)}'`}
+					language={bash}
+				/>
+			</Label>
+		</div>
+	</DrawerContent>
+</Drawer>
 
 <Drawer size="1400px" bind:this={openAPIGenerator}>
 	<DrawerContent
@@ -520,7 +548,7 @@
 						color="light"
 						size="xs"
 						variant="border"
-						on:click={CopyCommand}
+						on:click={copyCommandToClipboard}
 						startIcon={{ icon: ClipboardCopy }}
 					>
 						Copy cURL command
@@ -543,7 +571,9 @@
 										openapiDocument = JSON.stringify(obj)
 									}
 									await tick()
-									editor?.setCode(openapiDocument, true)
+									editor?.setCode(openapiDocument)
+									editor?.formatCode()
+									await tick()
 								} catch (error) {
 									const message = error instanceof Error ? error.message : JSON.stringify(error)
 									sendUserToast(`Conversion failed: ${message}`, true)
@@ -576,7 +606,13 @@
 							color="light"
 							variant="border"
 							btnClasses="mb-2"
-							on:click={downloadSpec}
+							on:click={() => {
+								download(
+									`openapi-3.1.${lang}`,
+									openapiDocument,
+									lang === 'yaml' ? 'text/x-yaml' : 'application/json'
+								)
+							}}
 							startIcon={{ icon: Download }}
 							iconOnly
 						/>

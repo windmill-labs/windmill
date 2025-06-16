@@ -166,6 +166,10 @@
 		}
 	}
 
+	export function formatCode(): void {
+		format()
+	}
+
 	function updateCode() {
 		const ncode = getCode()
 		if (code == ncode) {

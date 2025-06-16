@@ -661,6 +661,17 @@ export function classNames(...classes: Array<string | undefined>): string {
 	return classes.filter(Boolean).join(' ')
 }
 
+export function download(filename: string, fileContent: string, mimeType?: string) {
+	const blob = new Blob([fileContent], {
+		type: mimeType
+	})
+	const url = window.URL.createObjectURL(blob)
+	const a = document.createElement('a')
+	a.href = url
+	a.download = filename
+	a.click()
+}
+
 export async function copyToClipboard(value?: string, sendToast = true): Promise<boolean> {
 	if (!value) {
 		return false
