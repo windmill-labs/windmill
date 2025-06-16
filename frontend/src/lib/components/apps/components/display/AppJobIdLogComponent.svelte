@@ -33,7 +33,7 @@
 
 	initializing = false
 
-	let css = initCss($app.css?.jobidlogcomponent, customCss)
+	let css = initCss(app.val.css?.jobidlogcomponent, customCss)
 
 	let testJobLoader: TestJobLoader | undefined = undefined
 	let testIsLoading: boolean = false
@@ -60,7 +60,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.jobidlogcomponent}
+		componentStyle={app.val.css?.jobidlogcomponent}
 	/>
 {/each}
 

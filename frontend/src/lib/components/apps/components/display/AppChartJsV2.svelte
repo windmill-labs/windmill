@@ -80,7 +80,7 @@
 							grid: { color: $darkMode ? '#555' : '#ddd' }
 						}
 					}
-			  }
+				}
 			: {})
 	}) as ChartOptions
 
@@ -92,10 +92,10 @@
 						label: d.name,
 						data: Array.isArray(resolvedDatasetsValues[index]) ? resolvedDatasetsValues[index] : []
 					}))
-			  }
+				}
 			: result
 
-	let css = initCss($app.css?.chartjscomponent, customCss)
+	let css = initCss(app.val.css?.chartjscomponent, customCss)
 </script>
 
 {#if datasets}
@@ -137,7 +137,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.chartjscomponent}
+		componentStyle={app.val.css?.chartjscomponent}
 	/>
 {/each}
 

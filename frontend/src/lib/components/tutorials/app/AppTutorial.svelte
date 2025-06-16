@@ -28,16 +28,16 @@
 	}
 
 	function addComponent(appComponentType: TypedComponent['type']): void {
-		push(history, $app)
+		push(history, app.val)
 
 		const id = insertNewGridItem(
-			$app,
+			app.val,
 			appComponentFromType(appComponentType) as (id: string) => AppComponent,
 			$focusedGrid
 		)
 
 		$selectedComponent = [id]
-		$app = $app
+		app.val = app.val
 	}
 </script>
 
@@ -47,7 +47,7 @@
 	{name}
 	on:error
 	on:skipAll
-	tainted={isAppTainted($app)}
+	tainted={isAppTainted(app.val)}
 	getSteps={(driver) => {
 		const steps = [
 			{
@@ -186,7 +186,7 @@
 						setTimeout(() => {
 							if ($selectedComponent?.[0]) {
 								updateInlineRunnableCode(
-									$app,
+									app.val,
 									$selectedComponent[0],
 									`export async function main(x: string) {
   return x?.toLocaleUpperCase();
@@ -265,9 +265,9 @@
 					description:
 						'We can now type in the text input and see the result in the display component',
 					onNextClick: () => {
-						connectInlineRunnableInputToComponentOutput($app, 'e', 'x', 'd', 'result', 'integer')
+						connectInlineRunnableInputToComponentOutput(app.val, 'e', 'x', 'd', 'result', 'integer')
 
-						$app = $app
+						app.val = app.val
 
 						updateProgress(7)
 

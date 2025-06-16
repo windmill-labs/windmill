@@ -80,7 +80,7 @@
 		return typeof item == 'string' ? item : item.label
 	}
 
-	let css = initCss($app.css?.selectstepcomponent, customCss)
+	let css = initCss(app.val.css?.selectstepcomponent, customCss)
 	$: selected && handleSelection(selected)
 </script>
 
@@ -99,7 +99,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.selectstepcomponent}
+		componentStyle={app.val.css?.selectstepcomponent}
 	/>
 {/each}
 

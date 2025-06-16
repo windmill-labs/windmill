@@ -76,7 +76,7 @@
 
 	$: value != undefined && handleInput()
 
-	let css = initCss($app.css?.currencycomponent, customCss)
+	let css = initCss(app.val.css?.currencycomponent, customCss)
 </script>
 
 {#each Object.keys(components['currencycomponent'].initialData.configuration) as key (key)}
@@ -94,7 +94,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.currencycomponent}
+		componentStyle={app.val.css?.currencycomponent}
 	/>
 {/each}
 

@@ -68,7 +68,7 @@
 		comfortable: 50
 	}
 
-	let css = initCss($app.css?.aggridcomponent, customCss)
+	let css = initCss(app.val.css?.aggridcomponent, customCss)
 
 	let result: any[] | undefined = undefined
 
@@ -559,7 +559,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.tablecomponent}
+		componentStyle={app.val.css?.tablecomponent}
 	/>
 {/each}
 

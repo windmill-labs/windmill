@@ -94,7 +94,7 @@
 		datasets: result ?? []
 	} as ChartData<'scatter', (number | Point)[], unknown>
 
-	let css = initCss($app.css?.timeseriescomponent, customCss)
+	let css = initCss(app.val.css?.timeseriescomponent, customCss)
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -103,7 +103,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.timeseriescomponent}
+		componentStyle={app.val.css?.timeseriescomponent}
 	/>
 {/each}
 

@@ -21,7 +21,7 @@
 
 	let onSuccessEvents: string[] = []
 
-	$: computeOnSuccessEvents($app, id)
+	$: computeOnSuccessEvents(app.val, id)
 
 	function computeOnSuccessEvents(app: App, _id: string) {
 		const nr: string[] = []
@@ -85,7 +85,7 @@
 			inlineScript.refreshOn = [...inlineScript.refreshOn, refresh]
 		}
 		inlineScript = inlineScript
-		$app = $app
+		app.val = app.val
 	}
 </script>
 

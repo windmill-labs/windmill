@@ -25,7 +25,7 @@
 	const { selectedComponent, app, hoverStore, allIdsInPath, connectingInput, worldStore } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	$: subids = $search != '' ? allsubIds($app, id) : []
+	$: subids = $search != '' ? allsubIds(app.val, id) : []
 	$: inSearch =
 		$search != '' &&
 		($hasResult[id] ||
@@ -55,7 +55,7 @@
 	}
 
 	function renameId(newId: string): void {
-		const item = findGridItem($app, id)
+		const item = findGridItem(app.val, id)
 
 		if (!item) {
 			return
@@ -63,23 +63,23 @@
 		item.data.id = newId
 		item.id = newId
 
-		const oldSubgrids = Object.keys($app.subgrids ?? {}).filter((subgrid) =>
+		const oldSubgrids = Object.keys(app.val.subgrids ?? {}).filter((subgrid) =>
 			subgrid.startsWith(id + '-')
 		)
 
 		oldSubgrids.forEach((subgrid) => {
-			if ($app.subgrids) {
-				$app.subgrids[subgrid.replace(id, newId)] = $app.subgrids[subgrid]
-				delete $app.subgrids[subgrid]
+			if (app.val.subgrids) {
+				app.val.subgrids[subgrid.replace(id, newId)] = app.val.subgrids[subgrid]
+				delete app.val.subgrids[subgrid]
 			}
 		})
 
 		function propagateRename(from: string, to: string) {
-			allItems($app.grid, $app.subgrids).forEach((item) => {
+			allItems(app.val.grid, app.val.subgrids).forEach((item) => {
 				renameComponent(from, to, item.data)
 			})
 
-			$app.hiddenInlineScripts?.forEach((x) => {
+			app.val.hiddenInlineScripts?.forEach((x) => {
 				processRunnable(from, to, x)
 			})
 		}
@@ -114,7 +114,7 @@
 			}
 		}
 
-		$app = $app
+		app.val = app.val
 		$selectedComponent = [newId]
 
 		delete $worldStore.outputsById[id]
@@ -221,8 +221,8 @@
 				$selectedComponent?.includes(id)
 					? openBackground[color]
 					: $connectingInput.hoveredComponent === id
-					? 'bg-[#fab157]'
-					: 'bg-surface-secondary',
+						? 'bg-[#fab157]'
+						: 'bg-surface-secondary',
 				first ? 'border-t' : '',
 				nested ? 'border-l' : '',
 				'transition-all'
@@ -271,8 +271,8 @@
 						docLink={id === 'state'
 							? 'https://www.windmill.dev/docs/apps/outputs#state'
 							: id === 'ctx'
-							? 'https://www.windmill.dev/docs/apps/outputs#app-context'
-							: ''}
+								? 'https://www.windmill.dev/docs/apps/outputs#app-context'
+								: ''}
 						size="xs2"
 					/>
 				{/if}

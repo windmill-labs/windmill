@@ -91,9 +91,9 @@
 				title={name}
 				prefix={TITLE_PREFIX}
 				on:open={(e) => {
-					if ($app.css != undefined) {
-						if (type && e.detail && $app.css[type] == undefined) {
-							$app.css[type] = Object.fromEntries((ids ?? []).map(({ id }) => [id, {}]))
+					if (app.val.css != undefined) {
+						if (type && e.detail && app.val.css[type] == undefined) {
+							app.val.css[type] = Object.fromEntries((ids ?? []).map(({ id }) => [id, {}]))
 						}
 					}
 				}}

@@ -71,7 +71,7 @@
 	let runnableComponent: RunnableComponent | undefined = $state()
 	let loading = $state(false)
 
-	let css = $state(initCss($app.css?.formcomponent, customCss))
+	let css = $state(initCss(app.val.css?.formcomponent, customCss))
 
 	let wrapper: RunnableWrapper | undefined = $state()
 	$effect(() => {
@@ -98,7 +98,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.formcomponent}
+		componentStyle={app.val.css?.formcomponent}
 	/>
 {/each}
 

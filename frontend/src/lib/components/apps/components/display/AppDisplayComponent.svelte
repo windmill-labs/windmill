@@ -56,7 +56,7 @@
 		loading: false
 	})
 
-	let css = $state(initCss($app.css?.displaycomponent, customCss))
+	let css = $state(initCss(app.val.css?.displaycomponent, customCss))
 </script>
 
 {#each Object.keys(components['displaycomponent'].initialData.configuration) as key (key)}
@@ -74,7 +74,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.displaycomponent}
+		componentStyle={app.val.css?.displaycomponent}
 	/>
 {/each}
 
@@ -92,13 +92,13 @@
 		</div>
 		<div
 			style={twMerge(
-				$app.css?.['displaycomponent']?.['container']?.style,
+				app.val.css?.['displaycomponent']?.['container']?.style,
 				customCss?.container?.style,
 				'wm-rich-result-container'
 			)}
 			class={twMerge(
 				'p-2 grow overflow-auto',
-				$app.css?.['displaycomponent']?.['container']?.class,
+				app.val.css?.['displaycomponent']?.['container']?.class,
 				customCss?.container?.class
 			)}
 		>

@@ -64,7 +64,7 @@
 		}
 	}
 
-	let css = initCss($app.css?.rangecomponent, customCss)
+	let css = initCss(app.val.css?.rangecomponent, customCss)
 
 	let lastStyle: string | undefined = undefined
 	$: if (css && slider && lastStyle !== css?.handles?.style) {
@@ -95,7 +95,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.rangecomponent}
+		componentStyle={app.val.css?.rangecomponent}
 	/>
 {/each}
 

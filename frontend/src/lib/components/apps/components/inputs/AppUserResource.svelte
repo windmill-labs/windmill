@@ -37,7 +37,7 @@
 		result: undefined as string | undefined
 	})
 
-	let css = initCss($app.css?.['userresourcecomponent'], customCss)
+	let css = initCss(app.val.css?.['userresourcecomponent'], customCss)
 
 	$: classInput = twMerge(
 		'windmillapp w-full px-2',
@@ -94,7 +94,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.textinputcomponent}
+		componentStyle={app.val.css?.textinputcomponent}
 	/>
 {/each}
 

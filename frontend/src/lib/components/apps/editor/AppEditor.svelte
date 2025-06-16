@@ -26,7 +26,13 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/TabsV2.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { classNames, encodeState, getModifierKey, sendUserToast } from '$lib/utils'
+	import {
+		classNames,
+		encodeState,
+		getModifierKey,
+		sendUserToast,
+		type StateStore
+	} from '$lib/utils'
 	import AppPreview from './AppPreview.svelte'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
@@ -101,7 +107,7 @@
 	migrateApp(app)
 
 	const stateApp = $state(app)
-	const appStore = writable<App>(stateApp)
+	const appStore: StateStore<App> = $state({ val: stateApp })
 	const selectedComponent = writable<string[] | undefined>(undefined)
 
 	// $: selectedComponent.subscribe((s) => {
@@ -243,7 +249,7 @@
 		timeout && clearTimeout(timeout)
 		timeout = setTimeout(() => {
 			try {
-				localStorage.setItem(path != '' ? `app-${path}` : 'app', encodeState($appStore))
+				localStorage.setItem(path != '' ? `app-${path}` : 'app', encodeState(appStore.val))
 			} catch (err) {
 				console.error('Error storing frontend draft in localStorage', err)
 			}
@@ -263,7 +269,7 @@
 		selectedTab = 'settings'
 		if (befSelected) {
 			if (!['ctx', 'state'].includes(befSelected) && !befSelected?.startsWith(BG_PREFIX)) {
-				let item = findGridItem($appStore, befSelected)
+				let item = findGridItem(appStore.val, befSelected)
 				if (
 					item?.data.type === 'containercomponent' ||
 					item?.data.type === 'listcomponent' ||
@@ -289,7 +295,7 @@
 							($worldStore.outputsById?.[befSelected]?.selectedTabIndex?.peak() as number) ?? 0
 					}
 				} else {
-					let subgrid = findGridItemParentGrid($appStore, befSelected)
+					let subgrid = findGridItemParentGrid(appStore.val, befSelected)
 					if (subgrid) {
 						try {
 							$focusedGrid = {
@@ -398,22 +404,25 @@
 	let css: string | undefined = $state(undefined)
 
 	let lastTheme: string | undefined = undefined
-	appStore.subscribe(async (currentAppStore) => {
-		if (!currentAppStore.theme) {
-			return
-		}
-
-		if (JSON.stringify(currentAppStore.theme) != lastTheme) {
-			if (currentAppStore.theme.type === 'inlined') {
-				css = currentAppStore.theme.css
-			} else if (currentAppStore.theme.type === 'path' && currentAppStore.theme?.path) {
-				let loadedCss = await getTheme($workspaceStore!, currentAppStore.theme.path)
-				if (loadedCss) {
-					css = loadedCss.value
-				}
+	$effect(() => {
+		;[appStore.val]
+		untrack(async () => {
+			if (!appStore.val.theme) {
+				return
 			}
-			lastTheme = JSON.stringify(currentAppStore.theme)
-		}
+
+			if (JSON.stringify(appStore.val.theme) != lastTheme) {
+				if (appStore.val.theme.type === 'inlined') {
+					css = appStore.val.theme.css
+				} else if (appStore.val.theme.type === 'path' && appStore.val.theme?.path) {
+					let loadedCss = await getTheme($workspaceStore!, appStore.val.theme.path)
+					if (loadedCss) {
+						css = loadedCss.value
+					}
+				}
+				lastTheme = JSON.stringify(appStore.val.theme)
+			}
+		})
 	})
 
 	function addOrRemoveCss(isPremium: boolean, isPreview: boolean = false) {
@@ -771,15 +780,15 @@
 		path && untrack(() => onPathChange())
 	})
 	$effect(() => {
-		$appStore && untrack(() => saveFrontendDraft())
+		appStore.val && untrack(() => saveFrontendDraft())
 	})
 	$effect(() => {
 		context.mode = $mode == 'dnd' ? 'editor' : 'viewer'
 	})
 	let width = $derived(
-		$breakpoint === 'sm' && $appStore?.mobileViewOnSmallerScreens !== false
+		$breakpoint === 'sm' && appStore.val?.mobileViewOnSmallerScreens !== false
 			? 'min-w-[400px] max-w-[656px]'
-			: `min-w-[710px] ${$appStore.fullscreen ? 'w-full' : 'max-w-7xl'}`
+			: `min-w-[710px] ${appStore.val.fullscreen ? 'w-full' : 'max-w-7xl'}`
 	)
 	$effect(() => {
 		if ($selectedComponent?.[0] != befSelected) {
@@ -858,7 +867,7 @@
 
 <!-- {$focusedGrid?.parentComponentId} -->
 {#if !$userStore?.operator}
-	{#if $appStore}
+	{#if appStore.val}
 		<AppEditorHeader
 			{newPath}
 			{newApp}
@@ -897,15 +906,15 @@
 				<div
 					class={twMerge(
 						'h-full w-full relative',
-						$appStore.css?.['app']?.['viewer']?.class,
+						appStore.val.css?.['app']?.['viewer']?.class,
 						'wm-app-viewer'
 					)}
-					style={$appStore.css?.['app']?.['viewer']?.style}
+					style={appStore.val.css?.['app']?.['viewer']?.style}
 				>
 					<AppPreview
 						workspace={$workspaceStore ?? ''}
 						summary={$summaryStore}
-						app={$appStore}
+						app={appStore.val}
 						appPath={path}
 						{breakpoint}
 						{policy}
@@ -963,11 +972,11 @@
 									}}
 									class={twMerge(
 										'bg-surface-secondary h-full w-full relative',
-										$appStore.css?.['app']?.['viewer']?.class,
+										appStore.val.css?.['app']?.['viewer']?.class,
 										'wm-app-viewer h-full overflow-visible',
 										$panzoomActive ? 'cursor-grab' : ''
 									)}
-									style={$appStore.css?.['app']?.['viewer']?.style}
+									style={appStore.val.css?.['app']?.['viewer']?.style}
 									bind:clientWidth={centerPanelWidth}
 								>
 									{#if leftPanelSize === 0}
@@ -1097,7 +1106,7 @@
 										)}
 										style={$componentActive ? `top: -${$yTop}px;` : ''}
 									>
-										{#if $appStore.grid}
+										{#if appStore.val.grid}
 											{#if !$connectingInput?.opened}
 												<ComponentNavigation />
 											{/if}
@@ -1114,7 +1123,7 @@
 												<GridEditor {policy} />
 											</div>
 										{/if}
-										{#if !$appStore?.mobileViewOnSmallerScreens && $breakpoint === 'sm'}
+										{#if !appStore.val?.mobileViewOnSmallerScreens && $breakpoint === 'sm'}
 											<div
 												class="absolute inset-0 flex bg-surface center-center z-10000 bg-opacity-60"
 											>
@@ -1131,7 +1140,7 @@
 														variant="border"
 														size="xs"
 														on:click={() => {
-															$appStore.mobileViewOnSmallerScreens = true
+															appStore.val.mobileViewOnSmallerScreens = true
 														}}
 														startIcon={{
 															icon: Smartphone

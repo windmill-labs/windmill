@@ -107,7 +107,7 @@
 		}
 	}
 
-	let css = initCss($app.css?.barchartcomponent, customCss)
+	let css = initCss(app.val.css?.barchartcomponent, customCss)
 </script>
 
 {#each Object.keys(components['barchartcomponent'].initialData.configuration) as key (key)}
@@ -125,7 +125,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.barchartcomponent}
+		componentStyle={app.val.css?.barchartcomponent}
 	/>
 {/each}
 

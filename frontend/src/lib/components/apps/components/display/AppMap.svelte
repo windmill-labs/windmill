@@ -185,7 +185,7 @@
 
 	$: map && resolvedConfig && updateInteractions(map)
 
-	let css = initCss($app.css?.mapcomponent, customCss)
+	let css = initCss(app.val.css?.mapcomponent, customCss)
 
 	function updateRegionOutput() {
 		if (map && !resolvedConfig.lock) {
@@ -202,7 +202,7 @@
 	}
 
 	async function handleSyncRegion() {
-		const gridItem = findGridItem($app, id)
+		const gridItem = findGridItem(app.val, id)
 		if (!map || !gridItem) {
 			return
 		}
@@ -226,7 +226,7 @@
 			//@ts-ignore
 			gridItem.data.configuration.latitude.value = center[1]
 
-			$app = $app
+			app.val = app.val
 		}
 	}
 </script>
@@ -250,7 +250,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.mapcomponent}
+		componentStyle={app.val.css?.mapcomponent}
 	/>
 {/each}
 

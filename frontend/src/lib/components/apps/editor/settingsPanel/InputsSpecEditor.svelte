@@ -130,7 +130,7 @@
 			]
 		}
 		evalV2editor?.setCode(expr)
-		$app = $app
+		app.val = app.val
 	}
 
 	function closeConnection() {

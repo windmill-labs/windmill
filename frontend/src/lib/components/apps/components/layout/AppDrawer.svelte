@@ -76,7 +76,7 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.drawercomponent, customCss))
+	let css = $state(initCss(app.val.css?.drawercomponent, customCss))
 </script>
 
 {#each Object.keys(components['drawercomponent'].initialData.configuration) as key (key)}
@@ -94,7 +94,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.drawercomponent}
+		componentStyle={app.val.css?.drawercomponent}
 	/>
 {/each}
 
@@ -178,7 +178,7 @@
 							}
 						}}
 					>
-						{#if $app.subgrids?.[`${id}-0`]}
+						{#if app.val.subgrids?.[`${id}-0`]}
 							<SubGridEditor
 								visible={open && render}
 								{id}
@@ -200,6 +200,6 @@
 			{/snippet}
 		</Drawer>
 	</Portal>
-{:else if $app.subgrids?.[`${id}-0`]}
+{:else if app.val.subgrids?.[`${id}-0`]}
 	<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
 {/if}

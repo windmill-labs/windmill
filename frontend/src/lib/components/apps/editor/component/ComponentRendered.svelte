@@ -63,14 +63,15 @@
 	}
 
 	function componentDraggedIsNotChild(componentDraggedId: string, componentId: string) {
-		let parentGrid = findGridItemParentGrid($app, componentDraggedId)
+		let parentGrid = findGridItemParentGrid(app.val, componentDraggedId)
 
 		return !parentGrid?.startsWith(`${componentId}-`)
 	}
 
 	function areOnTheSameSubgrid(componentDraggedId: string, componentId: string) {
 		return (
-			findGridItemParentGrid($app, componentDraggedId) === findGridItemParentGrid($app, componentId)
+			findGridItemParentGrid(app.val, componentDraggedId) ===
+			findGridItemParentGrid(app.val, componentId)
 		)
 	}
 
@@ -183,11 +184,11 @@
 			selected && $mode !== 'preview' ? 'outline outline-blue-600' : '',
 			$mode != 'preview' ? 'cursor-pointer' : '',
 			'relative z-auto',
-			$app.css?.['app']?.['component']?.class,
+			app.val.css?.['app']?.['component']?.class,
 			'wm-app-component',
 			ismoving ? 'animate-pulse' : ''
 		)}
-		style={$app.css?.['app']?.['component']?.style}
+		style={app.val.css?.['app']?.['component']?.style}
 		bind:clientHeight={componentContainerHeight}
 		bind:clientWidth={componentContainerWidth}
 	>

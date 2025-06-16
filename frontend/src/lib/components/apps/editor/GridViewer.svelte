@@ -35,7 +35,7 @@
 	let showSkeleton = false
 
 	let getComputedCols: 3 | 12 | undefined =
-		$app.mobileViewOnSmallerScreens == false ? WIDE_GRID_COLUMNS : undefined
+		app.val.mobileViewOnSmallerScreens == false ? WIDE_GRID_COLUMNS : undefined
 
 	let container
 
@@ -68,7 +68,7 @@
 					width = 1
 				}
 				if (width === containerWidth) return
-				if ($app.mobileViewOnSmallerScreens != false || !getComputedCols) {
+				if (app.val.mobileViewOnSmallerScreens != false || !getComputedCols) {
 					getComputedCols = getColumn(parentWidth ?? width, cols)
 				}
 

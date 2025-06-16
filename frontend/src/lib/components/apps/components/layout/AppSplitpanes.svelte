@@ -51,7 +51,7 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.containercomponent, customCss))
+	let css = $state(initCss(app.val.css?.containercomponent, customCss))
 
 	$componentControl[id] = {
 		left: () => {
@@ -93,7 +93,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.[
+		componentStyle={app.val.css?.[
 			horizontal ? 'horizontalsplitpanescomponent' : 'verticalsplitpanescomponent'
 		]}
 	/>
@@ -117,7 +117,7 @@
 								}
 							})}
 						>
-							{#if $app.subgrids?.[`${id}-${index}`]}
+							{#if app.val.subgrids?.[`${id}-${index}`]}
 								<SubGridEditor
 									visible={render}
 									{id}

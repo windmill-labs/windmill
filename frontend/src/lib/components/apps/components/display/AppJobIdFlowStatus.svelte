@@ -31,7 +31,7 @@
 
 	initializing = false
 
-	let css = initCss($app.css?.jobidflowstatuscomponent, customCss)
+	let css = initCss(app.val.css?.jobidflowstatuscomponent, customCss)
 
 	$: jobId = resolvedConfig.jobId
 </script>
@@ -51,7 +51,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.jobidflowstatuscomponent}
+		componentStyle={app.val.css?.jobidflowstatuscomponent}
 	/>
 {/each}
 
@@ -70,12 +70,12 @@
 		</div>
 		<div
 			style={twMerge(
-				$app.css?.['flowstatuscomponent']?.['container']?.style,
+				app.val.css?.['flowstatuscomponent']?.['container']?.style,
 				customCss?.container?.style
 			)}
 			class={twMerge(
 				'p-2 grow overflow-auto',
-				$app.css?.['flowstatuscomponent']?.['container']?.class,
+				app.val.css?.['flowstatuscomponent']?.['container']?.class,
 				customCss?.container?.class
 			)}
 		>

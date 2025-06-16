@@ -12,15 +12,15 @@
 
 	const { app, initialized } = getContext<AppViewerContext>('AppViewerContext')
 
-	$: unintitializedComponents = allItems($app.grid, $app.subgrids)
+	$: unintitializedComponents = allItems(app.val.grid, app.val.subgrids)
 		.map((x) => x.id)
 		.filter((x) => !$initialized.initializedComponents?.includes(x))
 		.sort()
 
-	$: subgridsErrors = Object.keys($app.subgrids ?? {})
+	$: subgridsErrors = Object.keys(app.val.subgrids ?? {})
 		.map((x) => {
 			const parentId = x.split('-')[0]
-			const parent = findGridItem($app, parentId)
+			const parent = findGridItem(app.val, parentId)
 			const subgrid = x.replace(`${parentId}-`, '')
 			if (subgrid == '-1') {
 				return {
@@ -79,7 +79,7 @@
 
 					<!-- Iterate over uninitializedComponents to display each component in the grid -->
 					{#each unintitializedComponents as c}
-						{@const item = findGridItem($app, c)}
+						{@const item = findGridItem(app.val, c)}
 						{#if !item}
 							<div>Item {c} not found</div>
 						{:else}
@@ -107,9 +107,9 @@
 									}}
 									size="xs2"
 									on:click={() => {
-										let parent = findGridItemParentGrid($app, c)
-										deleteGridItem($app, item.data, parent)
-										$app = $app
+										let parent = findGridItemParentGrid(app.val, c)
+										deleteGridItem(app.val, item.data, parent)
+										app.val = app.val
 									}}
 								>
 									Remove
@@ -163,9 +163,9 @@
 								}}
 								size="xs2"
 								on:click={() => {
-									if ($app.subgrids && s) {
-										delete $app.subgrids[s.subGridId]
-										$app = $app
+									if (app.val.subgrids && s) {
+										delete app.val.subgrids[s.subGridId]
+										app.val = app.val
 									}
 								}}
 							>

@@ -66,7 +66,7 @@
 		}
 	})
 
-	let css = $state(initCss($app.css?.containercomponent, customCss))
+	let css = $state(initCss(app.val.css?.containercomponent, customCss))
 </script>
 
 <InitializeComponent {id} />
@@ -77,7 +77,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.containercomponent}
+		componentStyle={app.val.css?.containercomponent}
 	/>
 {/each}
 
@@ -89,7 +89,7 @@
 
 {#if everRender}
 	<div class="w-full h-full">
-		{#if $app.subgrids?.[`${id}-0`]}
+		{#if app.val.subgrids?.[`${id}-0`]}
 			<GroupWrapper {id} context={groupContext}>
 				<SubGridEditor
 					visible={render}
@@ -108,7 +108,7 @@
 			</GroupWrapper>
 		{/if}
 	</div>
-{:else if $app.subgrids?.[`${id}-0`]}
+{:else if app.val.subgrids?.[`${id}-0`]}
 	<GroupWrapper {id} context={groupContext}>
 		<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
 	</GroupWrapper>

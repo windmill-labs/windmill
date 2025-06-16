@@ -22,7 +22,7 @@
 	let selectedTab: 'css' | 'theme' = 'css'
 
 	function insertSelector(selector: string) {
-		if ($app?.theme?.type === 'path') {
+		if (app.val?.theme?.type === 'path') {
 			sendUserToast(
 				'You cannot edit the theme because it is a path theme. Fork the theme to edit it.',
 				true
@@ -32,7 +32,7 @@
 
 		const code = cssEditor?.getCode()
 		cssEditor?.setCode(code + '\n' + selector)
-		$app = $app
+		app.val = app.val
 	}
 </script>
 
@@ -71,25 +71,25 @@
 							</div>
 						{/if}
 						<div style="height: calc(100% - {alertHeight || 0}px);">
-							{#if $app.theme?.type === 'inlined'}
+							{#if app.val.theme?.type === 'inlined'}
 								<SimpleEditor
 									class="h-full"
 									lang="css"
-									bind:code={$app.theme.css}
+									bind:code={app.val.theme.css}
 									fixedOverflowWidgets={true}
 									small
 									automaticLayout
 									bind:this={cssEditor}
 								/>
 							{:else}
-								<ThemeCodePreview theme={$app.theme}>
+								<ThemeCodePreview theme={app.val.theme}>
 									<div class="p-2 w-min">
 										<Button
 											size="xs"
 											color="dark"
 											on:click={async () => {
-												const theme = await resolveTheme($app.theme, $workspaceStore)
-												$app.theme = {
+												const theme = await resolveTheme(app.val.theme, $workspaceStore)
+												app.val.theme = {
 													type: 'inlined',
 													css: theme
 												}

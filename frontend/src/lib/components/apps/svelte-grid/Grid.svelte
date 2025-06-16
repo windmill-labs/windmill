@@ -78,7 +78,7 @@
 	const cols = columnConfiguration
 
 	let getComputedCols: 3 | 12 | undefined = $state(
-		$app.mobileViewOnSmallerScreens == false ? WIDE_GRID_COLUMNS : undefined
+		app.val.mobileViewOnSmallerScreens == false ? WIDE_GRID_COLUMNS : undefined
 	)
 	let container = $state()
 
@@ -109,7 +109,7 @@
 					return
 				}
 
-				if ($app.mobileViewOnSmallerScreens != false || !getComputedCols) {
+				if (app.val.mobileViewOnSmallerScreens != false || !getComputedCols) {
 					getComputedCols = getColumn(parentWidth ?? width, cols)
 				}
 				xPerPx = width / getComputedCols!
@@ -340,15 +340,15 @@
 				const div = document.getElementById(`component-${$overlappedStore}`)
 				const type = div?.getAttribute('data-componenttype')
 
-				if (!$app.subgrids) {
+				if (!app.val.subgrids) {
 					return
 				}
 
 				const index = type ? subGridIndexKey(type, $overlappedStore, $worldStore) : 0
 
-				nitems = $app.subgrids[`${$overlappedStore}-${index}`] ?? []
+				nitems = app.val.subgrids[`${$overlappedStore}-${index}`] ?? []
 			} else {
-				nitems = $app.grid ?? []
+				nitems = app.val.grid ?? []
 			}
 
 			if (!draggedItem) {
@@ -379,7 +379,7 @@
 
 	export function handleInitMove(id: string) {
 		$componentDraggedIdStore = id
-		$componentDraggedParentIdStore = findGridItemParentGrid($app, id)?.split('-')[0] ?? undefined
+		$componentDraggedParentIdStore = findGridItemParentGrid(app.val, id)?.split('-')[0] ?? undefined
 
 		Object.entries(moveResizes).forEach(([id, moveResize]) => {
 			if (selectedIds?.includes(id)) {

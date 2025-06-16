@@ -95,7 +95,7 @@
 
 					<div>
 						<span class="text-xs font-semibold text-secondary p-2">Components</span>
-						{#each $app.grid as gridItem, index (gridItem.id)}
+						{#each app.val.grid as gridItem, index (gridItem.id)}
 							<ComponentOutput {gridItem} first={index === 0} />
 						{/each}
 					</div>

@@ -71,7 +71,7 @@
 	}
 
 	function appendMigrationsToCss(migrations: Map<string, string[]>) {
-		const theme = $app.theme
+		const theme = app.val.theme
 
 		if (theme?.type === 'path') {
 			sendUserToast(
@@ -111,7 +111,7 @@
 
 			theme.css = cssString
 
-			$app.theme = theme
+			app.val.theme = theme
 		}
 	}
 
@@ -167,7 +167,7 @@
 										</Badge>
 									</div>
 								{/if}
-								{#if component?.type && $app.css}
+								{#if component?.type && app.val.css}
 									{#each Object.keys(component.customCss ?? {}) as cssKey}
 										{#if component.customCss?.[cssKey].style != undefined && component.customCss[cssKey].style !== ''}
 											<div class="grid grid-cols-2 gap-2">
@@ -215,15 +215,15 @@
 									{/each}
 								{/if}
 
-								{#if hasStyles(component?.type ? $app.css?.[component?.type] : undefined)}
+								{#if hasStyles(component?.type ? app.val.css?.[component?.type] : undefined)}
 									<div class="leading-6 text-xs font-semibold">
 										Global: {component?.type ? ccomponents[component.type]?.name : ''}
 									</div>
 								{/if}
 
-								{#if component?.type && $app.css}
-									{#each Object.keys($app.css[component?.type] ?? {}) as cssKey}
-										{#if type && $app.css?.[type]?.[cssKey].style != undefined && $app.css[type]?.[cssKey].style !== ''}
+								{#if component?.type && app.val.css}
+									{#each Object.keys(app.val.css[component?.type] ?? {}) as cssKey}
+										{#if type && app.val.css?.[type]?.[cssKey].style != undefined && app.val.css[type]?.[cssKey].style !== ''}
 											<div class="grid grid-cols-2 gap-2">
 												<div>
 													<div class="flex flex-row justify-between items-center py-0.5">
@@ -236,9 +236,9 @@
 															color="dark"
 															size="xs"
 															on:click={() => {
-																if (type && $app.css?.[type]) {
-																	setOrUpdateMigration(cssKey, $app.css[type][cssKey].style)
-																	$app.css[type][cssKey].style = ''
+																if (type && app.val.css?.[type]) {
+																	setOrUpdateMigration(cssKey, app.val.css[type][cssKey].style)
+																	app.val.css[type][cssKey].style = ''
 																}
 															}}
 															endIcon={{ icon: MoveRight }}
@@ -247,14 +247,14 @@
 														</Button>
 													</div>
 													<div class="border p-2 rounded-md">
-														<Highlight code={$app.css[type][cssKey].style} language={css} />
+														<Highlight code={app.val.css[type][cssKey].style} language={css} />
 													</div>
 												</div>
 												<div class="">
 													<div class="leading-6 text-xs font-semibold my-1">Preview</div>
 													<div class="border rounded-md p-2">
 														<Highlight
-															code={`${getSelector(cssKey)} {\n\t${$app.css[type][cssKey].style}\n}`}
+															code={`${getSelector(cssKey)} {\n\t${app.val.css[type][cssKey].style}\n}`}
 															language={css}
 														/>
 													</div>

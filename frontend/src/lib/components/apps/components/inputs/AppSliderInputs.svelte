@@ -73,7 +73,7 @@
 		}
 	}
 
-	let css = initCss($app.css?.slidercomponent, customCss)
+	let css = initCss(app.val.css?.slidercomponent, customCss)
 
 	let lastStyle: string | undefined = undefined
 	$: if (css && slider && lastStyle !== css?.handle?.style) {
@@ -121,7 +121,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.slidercomponent}
+		componentStyle={app.val.css?.slidercomponent}
 	/>
 {/each}
 

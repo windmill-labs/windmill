@@ -61,11 +61,11 @@
 	function addTab() {
 		const numberOfTabs = items.length
 
-		if (!$app.subgrids) {
-			$app.subgrids = {}
+		if (!app.val.subgrids) {
+			app.val.subgrids = {}
 		}
 
-		$app.subgrids[`${component.id}-${numberOfTabs}`] = []
+		app.val.subgrids[`${component.id}-${numberOfTabs}`] = []
 		items = [
 			...items,
 			{
@@ -81,8 +81,8 @@
 
 	function deleteSubgrid(index: number) {
 		let subgrid = `${component.id}-${index}`
-		for (const item of $app!.subgrids![subgrid]) {
-			const components = deleteGridItem($app, item.data, subgrid)
+		for (const item of app.val!.subgrids![subgrid]) {
+			const components = deleteGridItem(app.val, item.data, subgrid)
 			for (const key in components) {
 				delete $runnableComponents[key]
 			}
@@ -90,7 +90,7 @@
 		$runnableComponents = $runnableComponents
 
 		for (let i = index; i < items.length - 1; i++) {
-			$app!.subgrids![`${component.id}-${i}`] = $app!.subgrids![`${component.id}-${i + 1}`]
+			app.val!.subgrids![`${component.id}-${i}`] = app.val!.subgrids![`${component.id}-${i + 1}`]
 		}
 
 		// Remove the corresponding item from the items array
@@ -106,8 +106,8 @@
 		})
 		items = items
 
-		delete $app!.subgrids![`${component.id}-${items.length}`]
-		$app = $app
+		delete app.val!.subgrids![`${component.id}-${items.length}`]
+		app.val = app.val
 	}
 
 	function handleConsider(e: CustomEvent): void {
@@ -132,7 +132,7 @@
 			const newSubgrids = {}
 			for (let i = 0; i < items.length; i++) {
 				newSubgrids[`${component.id}-${i}`] =
-					$app!.subgrids![`${component.id}-${items[i].originalIndex}`] ?? []
+					app.val!.subgrids![`${component.id}-${items[i].originalIndex}`] ?? []
 			}
 
 			const newDisabledTabs: RichConfiguration[] = []
@@ -146,11 +146,11 @@
 				item.originalIndex = i
 			})
 
-			$app!.subgrids = {
-				...$app!.subgrids,
+			app.val!.subgrids = {
+				...app.val!.subgrids,
 				...newSubgrids
 			}
-			$app = $app
+			app.val = app.val
 
 			tick().then(() => {
 				const targetIndex = items.findIndex((i) => i.id === e.detail.info.id)

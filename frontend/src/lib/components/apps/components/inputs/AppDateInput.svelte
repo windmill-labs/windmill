@@ -77,7 +77,7 @@
 	function handleDefault(defaultValue: string | undefined) {
 		value = defaultValue
 	}
-	let css = initCss($app.css?.dateinputcomponent, customCss)
+	let css = initCss(app.val.css?.dateinputcomponent, customCss)
 </script>
 
 {#each Object.keys(components['dateinputcomponent'].initialData.configuration) as key (key)}
@@ -95,7 +95,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.dateinputcomponent}
+		componentStyle={app.val.css?.dateinputcomponent}
 	/>
 {/each}
 

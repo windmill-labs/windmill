@@ -56,7 +56,7 @@
 		configuration
 	)
 
-	let css = initCss($app.css?.agchartscomponent, customCss)
+	let css = initCss(app.val.css?.agchartscomponent, customCss)
 	let chartInstance: AgChartInstance | undefined = undefined
 
 	function getChartStyleByTheme() {
@@ -373,7 +373,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.chartjscomponent}
+		componentStyle={app.val.css?.chartjscomponent}
 	/>
 {/each}
 

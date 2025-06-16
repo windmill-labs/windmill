@@ -13,7 +13,7 @@
 
 	function selectComponent(e: PointerEvent, id: string) {
 		if (!$connectingInput.opened) {
-			selectId(e, id, selectedComponent, $app)
+			selectId(e, id, selectedComponent, app.val)
 		}
 	}
 
@@ -29,7 +29,7 @@
 		if (!$connectingInput.opened) {
 			selectComponent(e, id)
 		} else {
-			const allIdsInPath = dfs($app.grid, id, $app.subgrids ?? {}) ?? []
+			const allIdsInPath = dfs(app.val.grid, id, app.val.subgrids ?? {}) ?? []
 
 			allIdsInPath.forEach((id) => {
 				$manuallyOpened[id] = true

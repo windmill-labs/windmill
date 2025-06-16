@@ -66,7 +66,7 @@
 	}
 
 	function clearColumnDefs() {
-		const gridItem = findGridItem($app, id)
+		const gridItem = findGridItem(app.val, id)
 
 		if (!gridItem) {
 			return
@@ -75,7 +75,7 @@
 		// @ts-ignore
 		gridItem.data.configuration.columnDefs = { value: [], type: 'static', loading: false }
 
-		$app = $app
+		app.val = app.val
 	}
 
 	const resolvedConfig = initConfig(
@@ -210,7 +210,7 @@
 
 		if (lastResource === resource) return
 		lastResource = resource
-		const gridItem = findGridItem($app, id)
+		const gridItem = findGridItem(app.val, id)
 
 		if (!gridItem) {
 			return
@@ -228,7 +228,7 @@
 		)
 
 		if (!resolvedConfig.type?.configuration?.[resolvedConfig.type.selected]?.resource) {
-			$app = $app
+			app.val = app.val
 			return
 		}
 
@@ -261,7 +261,7 @@
 				}
 			)
 
-			$app = $app
+			app.val = app.val
 		} catch (e) {}
 	}
 
@@ -365,7 +365,7 @@
 
 		lastTable = table
 
-		const gridItem = findGridItem($app, id)
+		const gridItem = findGridItem(app.val, id)
 		if (!gridItem) return
 
 		let columnDefs = gridItem.data.configuration.columnDefs as StaticInput<TableMetadata>
@@ -375,7 +375,7 @@
 		//@ts-ignore
 		gridItem.data.configuration.columnDefs.loading = true
 		gridItem.data = gridItem.data
-		$app = $app
+		app.val = app.val
 
 		let tableMetadata = await loadTableMetaData(
 			resolvedConfig.type.configuration[selected].resource,
@@ -400,7 +400,7 @@
 			gridItem.data.configuration.columnDefs.loading = false
 			gridItem.data = gridItem.data
 
-			$app = $app
+			app.val = app.val
 			return
 		}
 
@@ -453,7 +453,7 @@
 		gridItem.data.configuration.columnDefs = { value: ncols, type: 'static', loading: false }
 		gridItem.data = gridItem.data
 
-		$app = $app
+		app.val = app.val
 		let oldS = $selectedComponent
 		$selectedComponent = []
 		await tick()

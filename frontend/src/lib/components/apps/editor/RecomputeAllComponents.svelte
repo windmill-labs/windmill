@@ -14,7 +14,7 @@
 	let progressTimer: NodeJS.Timeout | undefined = undefined
 
 	$: !firstLoad &&
-		canInitializeAll($initialized?.initializedComponents, $app) &&
+		canInitializeAll($initialized?.initializedComponents, app.val) &&
 		refresh('all initialized')
 
 	// $: console.log('canInitializeAll', firstLoad, $initialized?.initializedComponents)

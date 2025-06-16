@@ -74,7 +74,7 @@
 		]
 	}
 
-	let css = initCss($app.css?.piechartcomponent, customCss)
+	let css = initCss(app.val.css?.piechartcomponent, customCss)
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -83,7 +83,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.piechartcomponent}
+		componentStyle={app.val.css?.piechartcomponent}
 	/>
 {/each}
 

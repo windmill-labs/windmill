@@ -22,7 +22,7 @@
 
 	$: subgridItems = subGrids.map((k) => ({
 		k,
-		items: $app.subgrids?.[k] ?? []
+		items: app.val.subgrids?.[k] ?? []
 	}))
 
 	$: if (outputs?.selectedTabIndex) {

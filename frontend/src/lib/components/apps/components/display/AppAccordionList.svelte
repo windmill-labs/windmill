@@ -65,7 +65,7 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.accordionlistcomponent, customCss))
+	let css = $state(initCss(app.val.css?.accordionlistcomponent, customCss))
 	let result: any[] | undefined = $state(undefined)
 
 	let inputs = $state({})
@@ -91,7 +91,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.accordionlistcomponent}
+		componentStyle={app.val.css?.accordionlistcomponent}
 	/>
 {/each}
 
@@ -108,7 +108,7 @@
 >
 	{#if everRender}
 		<div class="w-full flex flex-col overflow-auto max-h-full">
-			{#if $app.subgrids?.[`${id}-0`]}
+			{#if app.val.subgrids?.[`${id}-0`]}
 				{#if Array.isArray(result) && result.length > 0}
 					{#each result ?? [] as value, index}
 						<div class="border-b">
@@ -181,7 +181,7 @@
 				{/if}
 			{/if}
 		</div>
-	{:else if $app.subgrids}
+	{:else if app.val.subgrids}
 		<ListWrapper disabled value={undefined} index={0}>
 			<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
 		</ListWrapper>

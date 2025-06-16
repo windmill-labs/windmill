@@ -20,7 +20,7 @@
 	$: render && !everRender && (everRender = true)
 </script>
 
-{#if everRender || $app.eagerRendering}
+{#if everRender || app.val.eagerRendering}
 	<ComponentRendered
 		on:expand
 		on:lock

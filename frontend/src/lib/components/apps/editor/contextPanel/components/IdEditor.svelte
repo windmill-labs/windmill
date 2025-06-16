@@ -12,7 +12,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	$: reservedIds = allItems($app.grid, $app.subgrids).map((item) => item.id)
+	$: reservedIds = allItems(app.val.grid, app.val.subgrids).map((item) => item.id)
 </script>
 
 <Popover

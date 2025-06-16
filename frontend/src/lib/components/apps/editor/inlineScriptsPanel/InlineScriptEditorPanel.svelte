@@ -19,7 +19,7 @@
 	function clear() {
 		if (componentInput && componentInput.type == 'runnable') {
 			componentInput = clearResultAppInput(componentInput)
-			$app = $app
+			app.val = app.val
 		}
 	}
 
@@ -76,7 +76,7 @@
 			/>
 		{:else}
 			<EmptyInlineScript
-				unusedInlineScripts={$app?.unusedInlineScripts}
+				unusedInlineScripts={app.val?.unusedInlineScripts}
 				{componentType}
 				on:delete={clear}
 				on:new={(e) => {
@@ -88,7 +88,7 @@
 						componentInput.runnable.inlineScript = e.detail
 						componentInput.autoRefresh = true
 						componentInput.recomputeOnInputChanged = true
-						$app = $app
+						app.val = app.val
 					}
 				}}
 			/>

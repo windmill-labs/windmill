@@ -43,7 +43,7 @@
 	const contextPanel = getContext<ContextPanelContext>('ContextPanel')
 	const { app, selectedComponent, componentControl, darkMode, mode } = context
 
-	let css = initCss($app.css?.aggridcomponent, customCss)
+	let css = initCss(app.val.css?.aggridcomponent, customCss)
 
 	let selectedRowIndex = -1
 
@@ -443,7 +443,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.tablecomponent}
+		componentStyle={app.val.css?.tablecomponent}
 	/>
 {/each}
 

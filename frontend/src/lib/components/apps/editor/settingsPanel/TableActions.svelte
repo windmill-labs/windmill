@@ -69,7 +69,7 @@
 		]
 
 		components = [...components, newComponent]
-		$app = $app
+		app.val = app.val
 	}
 
 	function deleteComponent(cid: string, index: number) {
@@ -80,7 +80,7 @@
 		delete $errorByComponent[cid]
 
 		$selectedComponent = [id]
-		$app = $app
+		app.val = app.val
 		// Remove the corresponding item from the items array
 		items = items.filter((item) => item.originalIndex !== index)
 	}

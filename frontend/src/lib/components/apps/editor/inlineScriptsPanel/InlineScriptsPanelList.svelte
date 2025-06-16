@@ -26,7 +26,7 @@
 		}
 	}
 
-	$: runnables = getAppScripts($app.grid, $app.subgrids)
+	$: runnables = getAppScripts(app.val.grid, app.val.subgrids)
 
 	// When selected component changes, update selectedScriptComponentId
 	$: selectedComponent && handleSelectedComponent($selectedComponent)
@@ -45,10 +45,10 @@
 			appTutorials?.runTutorialById('backgroundrunnables', { skipStepsCount: 2 })
 		}
 
-		for (const [index, script] of $app.hiddenInlineScripts.entries()) {
+		for (const [index, script] of app.val.hiddenInlineScripts.entries()) {
 			if (script.hidden) {
 				delete script.hidden
-				$app.hiddenInlineScripts = $app.hiddenInlineScripts
+				app.val.hiddenInlineScripts = app.val.hiddenInlineScripts
 				selectScript(BG_PREFIX + index)
 				return
 			}
@@ -56,18 +56,18 @@
 		let index = 0
 		let newScriptPath = `Background Runnable ${index}`
 
-		const names = getAllScriptNames($app)
+		const names = getAllScriptNames(app.val)
 
 		// Find a name that is not used by any other inline script
 		while (names.includes(newScriptPath)) {
 			newScriptPath = `Background Runnable ${++index}`
 		}
 
-		if (!$app.hiddenInlineScripts) {
-			$app.hiddenInlineScripts = []
+		if (!app.val.hiddenInlineScripts) {
+			app.val.hiddenInlineScripts = []
 		}
 
-		$app.hiddenInlineScripts.push({
+		app.val.hiddenInlineScripts.push({
 			name: newScriptPath,
 			inlineScript: undefined,
 			autoRefresh: true,
@@ -75,8 +75,8 @@
 			fields: {},
 			recomputeIds: undefined
 		})
-		$app.hiddenInlineScripts = $app.hiddenInlineScripts
-		selectScript(`${BG_PREFIX}${$app.hiddenInlineScripts.length - 1}`)
+		app.val.hiddenInlineScripts = app.val.hiddenInlineScripts
+		selectScript(`${BG_PREFIX}${app.val.hiddenInlineScripts.length - 1}`)
 	}
 
 	let appTutorials: AppTutorials | undefined = undefined
@@ -161,9 +161,9 @@
 					{/if}
 				{/each}
 
-				{#if $app.unusedInlineScripts?.length > 0}
+				{#if app.val.unusedInlineScripts?.length > 0}
 					<div class="flex gap-1 flex-col">
-						{#each $app.unusedInlineScripts as unusedInlineScript, index (index)}
+						{#each app.val.unusedInlineScripts as unusedInlineScript, index (index)}
 							{@const id = `unused-${index}`}
 							<button
 								id={PREFIX + id}
@@ -179,7 +179,7 @@
 						{/each}
 					</div>
 				{/if}
-				{#if runnables.inline.length == 0 && $app.unusedInlineScripts?.length == 0 && runnables.imported.length == 0}
+				{#if runnables.inline.length == 0 && app.val.unusedInlineScripts?.length == 0 && runnables.imported.length == 0}
 					<div class="text-xs text-tertiary">No scripts/flows</div>
 				{/if}
 			</div>
@@ -210,8 +210,8 @@
 				</Button>
 			</div>
 			<div class="flex flex-col gap-1 w-full">
-				{#if $app.hiddenInlineScripts?.length > 0}
-					{#each $app.hiddenInlineScripts as { name, hidden, transformer }, index (index)}
+				{#if app.val.hiddenInlineScripts?.length > 0}
+					{#each app.val.hiddenInlineScripts as { name, hidden, transformer }, index (index)}
 						{#if !hidden}
 							{@const id = BG_PREFIX + index}
 							<button

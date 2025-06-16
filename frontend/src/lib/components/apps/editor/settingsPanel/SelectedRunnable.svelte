@@ -18,11 +18,11 @@
 
 	function detach() {
 		if (appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript) {
-			$app.unusedInlineScripts.push({
+			app.val.unusedInlineScripts.push({
 				name: appInput.runnable.name,
 				inlineScript: appInput.runnable.inlineScript
 			})
-			$app = $app
+			app.val = app.val
 			appInput = clearResultAppInput(appInput)
 		}
 	}
@@ -56,7 +56,7 @@
 							color: 'light',
 							callback: detach
 						}
-				  ] as const)
+					] as const)
 				: []),
 			{
 				label: 'Clear',

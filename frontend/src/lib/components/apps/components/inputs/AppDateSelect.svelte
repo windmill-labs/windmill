@@ -82,7 +82,7 @@
 		}
 	}
 
-	let css = initCss($app.css?.dateinputcomponent, customCss)
+	let css = initCss(app.val.css?.dateinputcomponent, customCss)
 
 	let selectedDay: string | undefined = undefined
 	let selectedMonth: string | undefined = undefined
@@ -209,7 +209,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.dateselectcomponent}
+		componentStyle={app.val.css?.dateselectcomponent}
 	/>
 {/each}
 

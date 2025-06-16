@@ -24,7 +24,7 @@
 			recomputeIds: []
 		}
 		components = [...components, newComponent]
-		$app = $app
+		app.val = app.val
 	}
 
 	function deleteComponent(cid: string) {
@@ -33,7 +33,7 @@
 		delete $errorByComponent[cid]
 
 		$selectedComponent = [id]
-		$app = $app
+		app.val = app.val
 	}
 </script>
 

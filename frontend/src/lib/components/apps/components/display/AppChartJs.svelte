@@ -41,7 +41,7 @@
 		...(resolvedConfig.options ?? {})
 	} as ChartOptions
 
-	let css = initCss($app.css?.chartjscomponent, customCss)
+	let css = initCss(app.val.css?.chartjscomponent, customCss)
 </script>
 
 {#each Object.keys(components['chartjscomponent'].initialData.configuration) as key (key)}
@@ -59,7 +59,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.chartjscomponent}
+		componentStyle={app.val.css?.chartjscomponent}
 	/>
 {/each}
 

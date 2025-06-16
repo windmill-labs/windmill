@@ -30,7 +30,7 @@
 		}
 	})
 
-	let css = initCss($app.css?.navbarcomponent, customCss)
+	let css = initCss(app.val.css?.navbarcomponent, customCss)
 </script>
 
 {#each Object.keys(components['navbarcomponent'].initialData.configuration) as key (key)}
@@ -48,7 +48,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.navbarcomponent}
+		componentStyle={app.val.css?.navbarcomponent}
 	/>
 {/each}
 
@@ -67,10 +67,10 @@
 				src={resolvedConfig.logo?.configuration?.yes?.sourceKind == 'png encoded as base64'
 					? 'data:image/png;base64,' + resolvedConfig.logo?.configuration?.yes?.source
 					: resolvedConfig.logo?.configuration?.yes?.sourceKind == 'jpeg encoded as base64'
-					? 'data:image/jpeg;base64,' + resolvedConfig.logo?.configuration?.yes?.source
-					: resolvedConfig.logo?.configuration?.yes?.sourceKind == 'svg encoded as base64'
-					? 'data:image/svg+xml;base64,' + resolvedConfig.logo?.configuration?.yes?.source
-					: resolvedConfig.logo?.configuration?.yes?.source}
+						? 'data:image/jpeg;base64,' + resolvedConfig.logo?.configuration?.yes?.source
+						: resolvedConfig.logo?.configuration?.yes?.sourceKind == 'svg encoded as base64'
+							? 'data:image/svg+xml;base64,' + resolvedConfig.logo?.configuration?.yes?.source
+							: resolvedConfig.logo?.configuration?.yes?.source}
 				alt={resolvedConfig.logo?.configuration?.yes?.altText}
 				style={css?.image?.style ?? ''}
 				class={twMerge(`w-auto h-8`, css?.image?.class, 'wm-image')}

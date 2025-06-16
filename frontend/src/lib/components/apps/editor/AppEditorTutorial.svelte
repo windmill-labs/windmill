@@ -23,7 +23,7 @@
 		const forkedFromTemplate = urlParams.get('template')
 
 		if (
-			!isAppTainted($app) &&
+			!isAppTainted(app.val) &&
 			!$ignoredTutorials.includes(7) &&
 			$tutorialsToDo.includes(7) &&
 			!forkedFromTheHub &&

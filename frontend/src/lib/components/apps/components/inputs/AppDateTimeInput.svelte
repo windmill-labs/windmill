@@ -138,7 +138,7 @@
 		value = defaultValue
 	}
 
-	let css = initCss($app.css?.datetimeinputcomponent, customCss)
+	let css = initCss(app.val.css?.datetimeinputcomponent, customCss)
 </script>
 
 {#each Object.keys(components['datetimeinputcomponent'].initialData.configuration) as key (key)}
@@ -156,7 +156,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.datetimeinputcomponent}
+		componentStyle={app.val.css?.datetimeinputcomponent}
 	/>
 {/each}
 

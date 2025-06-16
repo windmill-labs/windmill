@@ -369,7 +369,7 @@
 				const uuid = await executeRunnable(
 					runnable,
 					workspace,
-					$app.version,
+					app.val.version,
 					$userStore?.username,
 					$appPath,
 					id,
@@ -436,7 +436,7 @@
 			}
 		}
 
-		const oneOfRunnableInputs = isEditor ? collectOneOfFields(fields, $app) : {}
+		const oneOfRunnableInputs = isEditor ? collectOneOfFields(fields, app.val) : {}
 
 		const requestBody: ExecuteComponentData['requestBody'] = {
 			args: nonStaticRunnableInputs,
@@ -608,7 +608,7 @@
 
 	function handleInputClick(e: CustomEvent) {
 		const event = e as unknown as PointerEvent
-		!$connectingInput.opened && selectId(event, id, selectedComponent, $app)
+		!$connectingInput.opened && selectId(event, id, selectedComponent, app.val)
 	}
 
 	let cancellableRun: ((inlineScript?: InlineScript) => CancelablePromise<void>) | undefined =

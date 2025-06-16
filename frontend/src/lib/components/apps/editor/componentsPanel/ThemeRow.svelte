@@ -25,8 +25,9 @@
 
 	const { previewTheme, app } = getContext<AppViewerContext>('AppViewerContext')
 
-	let cssString: string | undefined = $app?.theme?.type === 'inlined' ? $app.theme.css : undefined
-	$: type = $app?.theme?.type
+	let cssString: string | undefined =
+		app.val?.theme?.type === 'inlined' ? app.val.theme.css : undefined
+	$: type = app.val?.theme?.type
 
 	const dispatch = createEventDispatcher()
 
@@ -41,7 +42,7 @@
 				}
 			})
 
-			$app.theme = {
+			app.val.theme = {
 				type: 'path',
 				path: row.path
 			}
@@ -71,7 +72,7 @@
 		})
 
 		stopPreview()
-		$app.theme = {
+		app.val.theme = {
 			type: 'path',
 			path: DEFAULT_THEME
 		}
@@ -111,7 +112,7 @@
 
 		const resolvedTheme = await resolveTheme(theme, $workspaceStore)
 
-		$app.theme = {
+		app.val.theme = {
 			type: 'inlined',
 			css: resolvedTheme
 		}
@@ -126,7 +127,7 @@
 
 	function apply() {
 		stopPreview()
-		$app.theme = {
+		app.val.theme = {
 			type: 'path',
 			path: row.path ?? ''
 		}
@@ -179,7 +180,7 @@
 				<Badge color="blue" small>Default</Badge>
 			{/if}
 
-			{#if $app?.theme?.type === 'path' && $app.theme.path === row.path}
+			{#if app.val?.theme?.type === 'path' && app.val.theme.path === row.path}
 				<Badge color="green" small>Active</Badge>
 			{/if}
 
@@ -193,7 +194,7 @@
 					Update
 				</Button>
 			{/if}
-			{#if $app?.theme?.type !== 'path' || $app.theme.path !== row.path}
+			{#if app.val?.theme?.type !== 'path' || app.val.theme.path !== row.path}
 				<Button color="light" size="xs" on:click={preview} startIcon={{ icon: Eye }}>
 					Preview
 				</Button>

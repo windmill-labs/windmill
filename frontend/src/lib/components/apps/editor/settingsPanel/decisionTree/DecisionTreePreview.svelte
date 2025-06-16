@@ -57,10 +57,10 @@
 
 	function addSubGrid() {
 		const numberOfPanes = nodes.length
-		if (!$app.subgrids) {
-			$app.subgrids = {}
+		if (!app.val.subgrids) {
+			app.val.subgrids = {}
 		}
-		$app.subgrids[`${component.id}-${numberOfPanes}`] = []
+		app.val.subgrids[`${component.id}-${numberOfPanes}`] = []
 
 		component.numberOfSubgrids = nodes.length + 1
 	}
@@ -68,26 +68,26 @@
 	function deleteSubgrid(index: number) {
 		let subgrid = `${component.id}-${index}`
 
-		if (!$app.subgrids![subgrid]) {
+		if (!app.val.subgrids![subgrid]) {
 			return
 		}
 
-		for (const item of $app!.subgrids![subgrid]) {
-			const components = deleteGridItem($app, item.data, subgrid)
+		for (const item of app.val!.subgrids![subgrid]) {
+			const components = deleteGridItem(app.val, item.data, subgrid)
 			for (const key in components) {
 				delete $runnableComponents[key]
 			}
 		}
 		$runnableComponents = $runnableComponents
 		for (let i = index; i < nodes.length - 1; i++) {
-			$app!.subgrids![`${component.id}-${i}`] = $app!.subgrids![`${component.id}-${i + 1}`]
+			app.val!.subgrids![`${component.id}-${i}`] = app.val!.subgrids![`${component.id}-${i + 1}`]
 		}
 		nodes.splice(index, 1)
-		delete $app!.subgrids![`${component.id}-${nodes.length}`]
+		delete app.val!.subgrids![`${component.id}-${nodes.length}`]
 
 		nodes = nodes
 		component.numberOfSubgrids = nodes.length
-		$app = $app
+		app.val = app.val
 	}
 
 	function nodeCallbackHandler(

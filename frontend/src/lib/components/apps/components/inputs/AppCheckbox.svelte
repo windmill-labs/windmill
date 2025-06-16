@@ -93,7 +93,7 @@
 
 	$: resolvedConfig.defaultValue != undefined && handleDefault()
 
-	let css = initCss($app.css?.checkboxcomponent, customCss)
+	let css = initCss(app.val.css?.checkboxcomponent, customCss)
 </script>
 
 {#each Object.keys(components['checkboxcomponent'].initialData.configuration) as key (key)}
@@ -112,7 +112,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.checkboxcomponent}
+		componentStyle={app.val.css?.checkboxcomponent}
 	/>
 {/each}
 
