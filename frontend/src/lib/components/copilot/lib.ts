@@ -56,6 +56,10 @@ export async function fetchAvailableModels(
 			...(provider === 'anthropic' ? { 'anthropic-version': '2023-06-01' } : {})
 		}
 	})
+	if (!models.ok) {
+		console.error('Failed to fetch models for provider', provider, models)
+		throw new Error(`Failed to fetch models for provider ${provider}`)
+	}
 	const data = (await models.json()) as { data: ModelResponse[] }
 	if (data.data.length > 0) {
 		switch (provider) {

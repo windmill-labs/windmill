@@ -215,9 +215,7 @@
 								<!-- this can be removed once the parent component moves to runes -->
 								<!-- svelte-ignore binding_property_non_reactive -->
 								<MultiSelectWrapper
-									items={availableAiModels[provider].length > 0
-										? availableAiModels[provider]
-										: availableAiModels[provider]}
+									items={availableAiModels[provider]}
 									bind:value={aiProviders[provider].models}
 									placeholder="Select models"
 									allowUserOptions="append"
