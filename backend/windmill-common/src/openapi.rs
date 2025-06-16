@@ -31,6 +31,7 @@ const BASIC_HTTP_AUTH_SCHEME: &'static str = "BasicHttp";
 const DEFAULT_REQUEST_KEY: &'static str = "defaultRequest";
 const DEFAULT_ASYNC_RESPONSE_KEY: &'static str = "AsyncResponse";
 const DEFAULT_SYNC_RESPONSE_KEY: &'static str = "SyncResponse";
+const DEFAULT_PAYLOAD_PARAM_KEY: &'static str = "PayloadParam";
 
 #[derive(Debug, Deserialize, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
@@ -109,13 +110,39 @@ pub enum SecurityScheme {
     BasicHttp,
     ApiKey(String),
 }
+#[derive(Debug)]
+pub struct WebhookConfig {
+    runnable_kind: RunnableKind,
+}
+
+impl WebhookConfig {
+    pub fn new(runnable_kind: RunnableKind) -> Self {
+        Self { runnable_kind }
+    }
+}
+
+#[derive(Debug)]
+pub struct HttpRouteConfig {
+    method: HttpMethod,
+}
+
+impl HttpRouteConfig {
+    pub fn new(method: HttpMethod) -> Self {
+        Self { method }
+    }
+}
+
+#[derive(Debug)]
+pub enum Kind {
+    Webhook(WebhookConfig),
+    HttpRoute(HttpRouteConfig),
+}
 
 #[derive(Debug)]
 pub struct FuturePath {
     route_path: String,
-    http_method: HttpMethod,
-    is_async: bool,
-    runnable_kind: Option<RunnableKind>,
+    kind: Kind,
+    is_async: Option<bool>,
     summary: Option<String>,
     description: Option<String>,
     security_scheme: Option<SecurityScheme>,
@@ -124,26 +151,20 @@ pub struct FuturePath {
 impl FuturePath {
     pub fn new(
         route_path: String,
-        http_method: HttpMethod,
-        is_async: bool,
-        runnable_kind: Option<RunnableKind>,
+        kind: Kind,
+        is_async: Option<bool>,
         summary: Option<String>,
         description: Option<String>,
         security_scheme: Option<SecurityScheme>,
     ) -> FuturePath {
-        FuturePath {
-            route_path,
-            http_method,
-            is_async,
-            runnable_kind,
-            summary,
-            description,
-            security_scheme,
-        }
+        FuturePath { route_path, kind, is_async, summary, description, security_scheme }
     }
 }
 
-fn from_route_path_to_openapi_path(route_path: &str) -> Result<(String, Option<Value>)> {
+fn from_route_path_to_openapi_path(
+    route_path: &str,
+    kind: &Kind,
+) -> Result<(Vec<String>, Option<Value>)> {
     let mut openapi_path = String::new();
     let mut parameters = Vec::new();
 
@@ -176,13 +197,53 @@ fn from_route_path_to_openapi_path(route_path: &str) -> Result<(String, Option<V
         Some(Value::Array(parameters))
     };
 
-    let normalized_path = if openapi_path.starts_with('/') {
-        openapi_path
-    } else {
-        format!("/{}", openapi_path)
+    let prefix = match kind {
+        Kind::HttpRoute(_) => "",
+        Kind::Webhook(WebhookConfig { runnable_kind }) => match runnable_kind {
+            RunnableKind::Script => "p",
+            RunnableKind::Flow => "f",
+        },
     };
 
-    Ok((normalized_path, parameters_json))
+    let normalized_path = if openapi_path.starts_with('/') {
+        format!("{prefix}{openapi_path}")
+    } else {
+        format!("{}/{}", prefix, openapi_path)
+    };
+
+    let route_paths = if prefix.is_empty() {
+        vec![normalized_path]
+    } else {
+        vec![
+            format!("/run/{}", &normalized_path),
+            format!("/run_wait_result/{}", &normalized_path),
+        ]
+    };
+
+    Ok((route_paths, parameters_json))
+}
+
+fn get_servers_component(url: &str, kind: &Kind) -> Server {
+    let url = url.trim_end_matches('/');
+
+    let server = match kind {
+        Kind::HttpRoute(_) => {
+            Server { url: format!("{}/api/r", url), description: None, variables: None }
+        }
+        Kind::Webhook(_) => Server {
+            url: format!("{}/api/w/{{workspace}}/jobs", url),
+            variables: Some(HashMap::from([(
+                "workspace".to_string(),
+                serde_json::json!({
+                    "default": "test",
+                    "description": "Workspace identifier"
+                }),
+            )])),
+            description: None,
+        },
+    };
+
+    server
 }
 
 fn generate_paths(
@@ -231,83 +292,65 @@ fn generate_paths(
         }
     };
 
+    let mut duplicate_webhooks = HashSet::new();
+
     for path in paths {
-        let (route_path, parameters) = from_route_path_to_openapi_path(&path.route_path)?;
-        let http_method = path.http_method.to_string().to_lowercase();
+        let (route_paths, parameters) =
+            from_route_path_to_openapi_path(&path.route_path, &path.kind)?;
 
-        match map.get_mut(&route_path) {
-            Some(paths) => {
-                let path_object = paths.get(&http_method);
-
-                if path_object.is_some() {
-                    return Err(anyhow!("Found duplicate route: {}", path.route_path).into());
-                }
-
-                let mut method_map = IndexMap::with_capacity(2);
-
-                method_map.insert(
-                    "security",
-                    to_value(get_security_scheme(path.security_scheme.as_ref()))?,
-                );
-
-                if path.http_method != HttpMethod::GET {
-                    method_map.insert("requestBody", generate_default_request());
-                }
-
-                method_map.insert("responses", generate_response(path.is_async));
-
-                paths.insert(http_method, to_value(&method_map)?);
-            }
-            None => {
+        for route_path in route_paths {
+            let path_object = map.entry(route_path.clone()).or_insert_with(|| {
                 let mut path_object = IndexMap::new();
+
                 if let Some(url) = url {
-                    let url = url.as_str().trim_end_matches('/');
-
-                    let server = match path.runnable_kind {
-                        Some(RunnableKind::Script) => Server {
-                            url: format!("{}/api/w/{{workspace}}/jobs/run/p", &url),
-                            variables: Some(HashMap::from([(
-                                "workspace".to_string(),
-                                serde_json::json!({
-                                    "default": "test",
-                                    "description": "Workspace identifier"
-                                }),
-                            )])),
-                            description: None,
-                        },
-                        Some(RunnableKind::Flow) => Server {
-                            url: format!("{}/api/w/{{workspace}}/jobs/run/f", &url),
-                            variables: Some(HashMap::from([(
-                                "workspace".to_string(),
-                                serde_json::json!({
-                                    "default": "test",
-                                    "description": "Workspace identifier"
-                                }),
-                            )])),
-                            description: None,
-                        },
-                        None => Server {
-                            url: format!("{}/api/r", url),
-                            description: None,
-                            variables: None,
-                        },
-                    };
-
-                    path_object.insert("servers".to_string(), to_value(vec![server])?);
+                    let servers = get_servers_component(url.as_str(), &path.kind);
+                    path_object.insert("servers".to_string(), to_value(vec![servers]).unwrap());
                 }
 
                 if parameters.is_some() {
-                    path_object.insert("parameters".to_string(), to_value(parameters)?);
+                    path_object.insert(
+                        "parameters".to_string(),
+                        to_value(parameters.clone()).unwrap(),
+                    );
                 }
 
+                path_object
+            });
+
+            let is_async;
+
+            let (methods, is_webhook) = match &path.kind {
+                Kind::Webhook(_) => {
+                    if !duplicate_webhooks.insert(route_path.clone()) {
+                        return Err(anyhow!("Found duplicate webhook: {}", path.route_path).into());
+                    }
+                    is_async = route_path.starts_with("/run/");
+                    let methods = if is_async {
+                        vec![HttpMethod::POST]
+                    } else {
+                        vec![HttpMethod::GET, HttpMethod::POST]
+                    };
+
+                    (methods, true)
+                }
+                Kind::HttpRoute(HttpRouteConfig { method }) => {
+                    if path_object.get(&method.to_string()).is_some() {
+                        return Err(anyhow!("Found duplicate route: {}", path.route_path).into());
+                    }
+                    is_async = path.is_async.unwrap_or(true);
+                    (vec![method.to_owned()], false)
+                }
+            };
+
+            for method in methods {
                 let mut method_map = IndexMap::new();
 
-                if let Some(summary) = path.summary {
-                    method_map.insert("summary", Value::String(summary));
+                if let Some(summary) = path.summary.as_ref().filter(|s| !s.is_empty()) {
+                    method_map.insert("summary", Value::String(summary.to_owned()));
                 }
 
-                if let Some(description) = path.description {
-                    method_map.insert("description", Value::String(description));
+                if let Some(description) = path.description.as_ref().filter(|s| !s.is_empty()) {
+                    method_map.insert("description", Value::String(description.to_owned()));
                 }
 
                 method_map.insert(
@@ -315,15 +358,20 @@ fn generate_paths(
                     to_value(get_security_scheme(path.security_scheme.as_ref()))?,
                 );
 
-                if path.http_method != HttpMethod::GET {
+                if method != HttpMethod::GET {
                     method_map.insert("requestBody", generate_default_request());
+                } else if is_webhook {
+                    method_map.insert(
+                        "parameters",
+                        Value::Array(vec![serde_json::json!({
+                            "$ref": format!("#/components/parameters/{DEFAULT_PAYLOAD_PARAM_KEY}")
+                        })]),
+                    );
                 }
 
-                method_map.insert("responses", generate_response(path.is_async));
+                method_map.insert("responses", generate_response(is_async));
 
-                path_object.insert(http_method, to_value(&method_map)?);
-
-                map.insert(route_path, path_object);
+                path_object.insert(method.to_string().to_lowercase(), to_value(&method_map)?);
             }
         }
     }
@@ -425,6 +473,26 @@ fn generate_all_security_schemes(future_paths: &[FuturePath]) -> SecuritySchemeT
 fn generate_components(future_paths: &[FuturePath]) -> Map<String, Value> {
     let mut components = Map::new();
 
+    if future_paths
+        .iter()
+        .any(|path| matches!(path.kind, Kind::Webhook(_)))
+    {
+        components.insert(
+            "parameters".to_owned(),
+            serde_json::json!({
+                "PayloadParam": {
+                    "name": "payload",
+                    "in": "query",
+                    "required": true,
+                    "description": "A URL-safe base64-encoded JSON string payload.",
+                    "schema": {
+                        "type": "string"
+                    }
+                }
+            }),
+        );
+    }
+
     {
         let mut security_scheme = Map::new();
 
@@ -440,7 +508,7 @@ fn generate_components(future_paths: &[FuturePath]) -> Map<String, Value> {
                 }),
             );
         }
-    
+
         if bearer_jwt {
             security_scheme.insert(
                 JWT_SECURITY_SCHEME.to_owned(),
@@ -488,7 +556,8 @@ fn generate_components(future_paths: &[FuturePath]) -> Map<String, Value> {
             "content": {
                 "application/octet-stream": {}
             }
-        }
+        },
+
     }));
 
     components

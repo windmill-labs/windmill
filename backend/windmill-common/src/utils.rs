@@ -819,7 +819,7 @@ impl<F: Future> Future for WarnAfterFuture<F> {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum RunnableKind {
     Script,

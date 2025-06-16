@@ -26,7 +26,7 @@ use axum::{
 };
 #[cfg(feature = "parquet")]
 use http::header::IF_NONE_MATCH;
-use http::{header, HeaderMap, HeaderValue, Method, StatusCode};
+use http::{header, HeaderMap, HeaderValue, StatusCode};
 use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
@@ -42,8 +42,8 @@ use url::Url;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::error::{Error, Result as WindmillResult};
 use windmill_common::openapi::{
-    generate_openapi_document, transform_to_minified_postgres_regex, Format, FuturePath, Info,
-    SecurityScheme,
+    generate_openapi_document, transform_to_minified_postgres_regex, Format, FuturePath,
+    HttpRouteConfig, Info, Kind, SecurityScheme, WebhookConfig,
 };
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::build_object_store_client;
@@ -1520,9 +1520,7 @@ async fn http_routes_to_future_paths(
             http_method: HttpMethod,
             is_async: bool,
             workspaced_route: bool,
-            #[serde(default, deserialize_with = "empty_as_none")]
             summary: Option<String>,
-            #[serde(default, deserialize_with = "empty_as_none")]
             description: Option<String>,
             authentication_method: AuthenticationMethod,
             authentication_resource_path: Option<String>,
@@ -1601,9 +1599,8 @@ async fn http_routes_to_future_paths(
 
         let future_path = FuturePath::new(
             route_path,
-            method,
-            http_route.is_async,
-            None,
+            Kind::HttpRoute(HttpRouteConfig::new(method)),
+            Some(http_route.is_async),
             http_route.summary,
             http_route.description,
             auth_method,
@@ -1644,9 +1641,7 @@ async fn webhook_to_future_paths(
         #[derive(Debug, Deserialize, Clone, Hash)]
         struct MinifiedWebhook {
             path: String,
-            #[serde(default, deserialize_with = "empty_as_none")]
             description: Option<String>,
-            #[serde(default, deserialize_with = "empty_as_none")]
             summary: Option<String>,
         }
 
@@ -1705,9 +1700,8 @@ async fn webhook_to_future_paths(
         for webhook in webhook_scripts {
             openapi_future_paths.push(FuturePath::new(
                 webhook.path,
-                Method::POST,
-                true,
-                Some(RunnableKind::Script),
+                Kind::Webhook(WebhookConfig::new(RunnableKind::Script)),
+                None,
                 webhook.summary,
                 webhook.description,
                 Some(SecurityScheme::BearerJwt),
@@ -1717,9 +1711,8 @@ async fn webhook_to_future_paths(
         for webhook in webhook_flows {
             openapi_future_paths.push(FuturePath::new(
                 webhook.path,
-                Method::POST,
-                true,
-                Some(RunnableKind::Flow),
+                Kind::Webhook(WebhookConfig::new(RunnableKind::Flow)),
+                None,
                 webhook.summary,
                 webhook.description,
                 Some(SecurityScheme::BearerJwt),
