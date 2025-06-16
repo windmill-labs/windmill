@@ -670,7 +670,7 @@ export function download(filename: string, fileContent: string, mimeType?: strin
 	a.href = url
 	a.download = filename
 	a.click()
-	URL.revokeObjectURL(url)
+	setTimeout(() => URL.revokeObjectURL(url), 100)
 }
 
 export async function copyToClipboard(value?: string, sendToast = true): Promise<boolean> {
