@@ -4009,7 +4009,7 @@ async fn flow_to_payload(
     w_id: &str,
     db: &DB,
 ) -> Result<JobPayloadWithTag, Error> {
-    let FlowVersionInfo { version, on_behalf_of_email, edited_by, .. } =
+    let FlowVersionInfo { version, on_behalf_of_email, edited_by, tag, .. } =
         get_latest_flow_version_info_for_path(db, w_id, &path, true).await?;
     let on_behalf_of = if let Some(email) = on_behalf_of_email {
         Some(OnBehalfOf { email, permissioned_as: username_to_permissioned_as(&edited_by) })
@@ -4018,7 +4018,7 @@ async fn flow_to_payload(
     };
     let payload =
         JobPayload::Flow { path, dedicated_worker: None, apply_preprocessor: false, version };
-    Ok(JobPayloadWithTag { payload, tag: None, delete_after_use, timeout: None, on_behalf_of })
+    Ok(JobPayloadWithTag { payload, tag, delete_after_use, timeout: None, on_behalf_of })
 }
 
 async fn script_to_payload(
