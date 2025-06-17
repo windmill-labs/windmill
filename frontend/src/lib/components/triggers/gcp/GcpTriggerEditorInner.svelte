@@ -128,7 +128,7 @@
 			delivery_type = defaultValues?.delivery_type ?? 'pull'
 			delivery_config = defaultValues?.delivery_config ?? undefined
 			subscription_id = ''
-			topic_id = defaultValues?.topic_id
+			topic_id = defaultValues?.topic_id ?? ''
 			subscription_mode = defaultValues?.subscription_mode ?? 'create_update'
 			path = defaultValues?.path ?? ''
 			initialPath = ''
@@ -168,7 +168,7 @@
 		is_flow = cfg?.is_flow
 		path = cfg?.path
 		enabled = cfg?.enabled
-		topic_id = cfg?.topic_id
+		topic_id = cfg?.topic_id ?? ''
 		can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
 	}
 
