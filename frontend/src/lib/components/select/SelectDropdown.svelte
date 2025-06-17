@@ -6,7 +6,7 @@
 	import { twMerge } from 'tailwind-merge'
 
 	let {
-		processedItems,
+		processedItems: _processedItems,
 		value,
 		filterText,
 		listAutoWidth = true,
@@ -26,6 +26,14 @@
 		open: boolean
 		onSelectValue: (item: ProcessedItem<T>) => void
 	} = $props()
+
+	let processedItems = $derived(
+		!filterText
+			? _processedItems
+			: _processedItems?.filter((item) =>
+					item?.label?.toLowerCase().includes(filterText?.toLowerCase())
+				)
+	)
 
 	let listEl: HTMLDivElement | undefined = $state()
 	let dropdownPos = $state(computeDropdownPos())

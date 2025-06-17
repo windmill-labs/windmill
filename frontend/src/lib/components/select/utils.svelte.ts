@@ -18,9 +18,6 @@ export function processItems<Item extends { label?: string; value: any }>({
 			...item,
 			label: getLabel(item)
 		})) ?? []
-	if (filterText) {
-		items2 = items2.filter((item) => item?.label?.toLowerCase().includes(filterText?.toLowerCase()))
-	}
 	if (groupBy) {
 		items2 =
 			items2?.map((item) => ({
