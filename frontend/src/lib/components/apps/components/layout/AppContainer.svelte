@@ -48,7 +48,6 @@
 	})
 
 	function onFocus() {
-		console.log('focus 2', id)
 		$focusedGrid = {
 			parentComponentId: id,
 			subGridIndex: 0
