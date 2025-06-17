@@ -62,11 +62,6 @@ In some places we have `dev.nu` files. They can help you developing and testing 
 
 It is recommended to use [nix-alien](https://github.com/thiagokokada/nix-alien) for running compiled windmill binaries. We need this because sometimes windmill may fetch unpatched binaries that are not compatible with NixOS.
 
-Windmill use [nix flakes](https://nixos.wiki/wiki/Flakes):
-```bash
-nix run github:windmill-labs/windmill
-```
-
 ## Traditional instructions
 
 ### Frontend only
