@@ -47,6 +47,9 @@
 	let filterText = $state<string>('')
 	let open = $state<boolean>(false)
 	let wrapperEl: HTMLDivElement | undefined = $state()
+	let searchInputEl: HTMLInputElement | undefined = $state()
+
+	$effect(() => searchInputEl?.focus())
 
 	let processedItems: ProcessedItem<Value>[] = $derived.by(() => {
 		let args = { items, createText, filterText, groupBy, onCreateItem, sortBy }
@@ -101,10 +104,8 @@
 				onRemove={onRemoveValue}
 				onReorder={reorderable
 					? (item, newIndex) => {
-							console.log('Reordering item:', item, 'to new index:', newIndex)
 							const filtered = value.filter((v) => v !== item.value)
 							value = [...filtered.slice(0, newIndex), item.value, ...filtered.slice(newIndex)]
-							console.log('New value order:', value)
 						}
 					: undefined}
 			/>
@@ -121,5 +122,13 @@
 		{filterText}
 		getInputRect={wrapperEl && (() => wrapperEl!.getBoundingClientRect())}
 		{listAutoWidth}
-	/>
+	>
+		{#snippet header()}
+			{#if processedItems.length - value.length > 0 || onCreateItem}
+				<div class="mx-2 mb-1 mt-2">
+					<input bind:this={searchInputEl} bind:value={filterText} placeholder="Search" />
+				</div>
+			{/if}
+		{/snippet}
+	</SelectDropdown>
 </div>

@@ -1,7 +1,7 @@
 <script lang="ts" generics="T">
 	import { deepEqual } from 'fast-equals'
 	import ConditionalPortal from '../common/drawer/ConditionalPortal.svelte'
-	import { untrack } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import type { ProcessedItem } from './utils.svelte'
 	import { twMerge } from 'tailwind-merge'
 
@@ -12,8 +12,9 @@
 		listAutoWidth = true,
 		disabled,
 		disablePortal = false,
-		getInputRect,
 		open,
+		header,
+		getInputRect,
 		onSelectValue
 	}: {
 		processedItems?: ProcessedItem<T>[]
@@ -22,8 +23,9 @@
 		listAutoWidth?: Boolean
 		disabled?: boolean
 		disablePortal?: boolean
-		getInputRect?: () => DOMRect
 		open: boolean
+		header?: Snippet
+		getInputRect?: () => DOMRect
 		onSelectValue: (item: ProcessedItem<T>) => void
 	} = $props()
 
@@ -99,6 +101,7 @@
 				: ''}"
 			bind:this={listEl}
 		>
+			{@render header?.()}
 			{#if processedItems?.length === 0}
 				<div class="py-8 px-4 text-center text-primary">No items</div>
 			{/if}
