@@ -17,7 +17,7 @@ agent_worker_server = []
 enterprise_saml = ["dep:samael", "dep:libxml"]
 benchmark = []
 embedding = ["dep:tinyvector", "dep:hf-hub", "dep:tokenizers", "dep:candle-core", "dep:candle-transformers", "dep:candle-nn"]
-parquet = ["dep:datafusion", "dep:object_store", "dep:url", "windmill-common/parquet", "windmill-worker/parquet"]
+parquet = ["dep:datafusion", "dep:object_store", "windmill-common/parquet", "windmill-worker/parquet"]
 prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker/prometheus"]
 openidconnect = ["dep:openidconnect", "windmill-common/openidconnect"]
 tantivy = ["dep:windmill-indexer"]
@@ -28,7 +28,7 @@ smtp = ["dep:mail-parser", "dep:openssl", "windmill-common/smtp"]
 license = ["dep:rsa"]
 zip = ["dep:async_zip"]
 oauth2 = ["dep:async-oauth2"]
-http_trigger = ["dep:matchit", "dep:thiserror", "dep:sha1", "dep:constant_time_eq", "dep:url"]
+http_trigger = ["dep:matchit", "dep:thiserror", "dep:sha1", "dep:constant_time_eq"]
 static_frontend = ["dep:rust-embed"]
 postgres_trigger = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:thiserror", "dep:rust_decimal", "dep:rust-postgres-native-tls"]
 mqtt_trigger = ["dep:thiserror", "dep:rumqttc"]
@@ -76,6 +76,7 @@ hex.workspace = true
 base64.workspace = true
 base32.workspace = true
 serde_urlencoded.workspace = true
+serde_yml.workspace = true
 cron.workspace = true
 mime_guess.workspace = true
 rust-embed = { workspace = true, optional = true }
@@ -102,6 +103,7 @@ prometheus = { workspace = true, optional = true }
 async_zip = { workspace = true, optional = true }
 regex.workspace = true
 bytes.workspace = true
+url.workspace = true
 samael = { workspace = true, optional = true }
 libxml = { workspace = true, optional = true }
 async-recursion.workspace = true
@@ -116,7 +118,6 @@ candle-nn = { workspace = true, optional = true}
 datafusion = { workspace = true, optional = true}
 object_store = { workspace = true, optional = true}
 openidconnect = { workspace = true, optional = true}
-url = { workspace = true, optional = true}
 jsonwebtoken = { workspace = true }
 matchit = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true}
@@ -126,6 +127,7 @@ nkeys = { workspace = true, optional = true }
 const_format.workspace = true
 pin-project.workspace = true
 http.workspace = true
+indexmap.workspace = true
 async-stream.workspace = true
 ulid.workspace = true
 rust-postgres = { workspace = true, optional = true }

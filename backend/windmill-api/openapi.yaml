@@ -8451,12 +8451,12 @@ paths:
         "201":
           description: default error handler set
 
-  /w/{workspace}/http_triggers/openapi/generate:
+  /w/{workspace}/openapi/generate:
     post:
       summary: generate openapi spec from http routes/webhook
       operationId: generateOpenapiSpec
       tags:
-        - http_trigger
+        - openapi
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
@@ -8473,12 +8473,12 @@ paths:
               schema:
                 type: string
     
-  /w/{workspace}/http_triggers/openapi/download:
+  /w/{workspace}/openapi/download:
     post:
       summary: Download the OpenAPI v3.1 spec as a file
       operationId: DownloadOpenapiSpec
       tags:
-        - http_trigger
+        - openapi
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:

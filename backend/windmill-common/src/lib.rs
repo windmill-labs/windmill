@@ -55,7 +55,6 @@ pub mod oidc_ee;
 #[cfg(all(feature = "enterprise", feature = "openidconnect"))]
 pub mod oidc_oss;
 
-pub mod openapi;
 pub mod jobs;
 pub mod jwt;
 pub mod more_serde;

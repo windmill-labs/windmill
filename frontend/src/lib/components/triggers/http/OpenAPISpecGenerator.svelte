@@ -5,7 +5,7 @@
 	import Required from '$lib/components/Required.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import {
-		HttpTriggerService,
+		OpenapiService,
 		type OpenapiHttpRouteFilters,
 		type OpenapiSpecFormat,
 		type OpenapiV3Info,
@@ -128,7 +128,7 @@
 		try {
 			const info = buildInfo()
 			isGeneratingOpenapiSpec = true
-			openapiDocument = await HttpTriggerService.generateOpenapiSpec({
+			openapiDocument = await OpenapiService.generateOpenapiSpec({
 				workspace: $workspaceStore!,
 				requestBody: {
 					openapi_spec_format,
@@ -202,7 +202,7 @@
 				</svelte:fragment>
 				<CopyableCodeBlock
 					code={`token=${emptyString(token) ? '' : token}; \\
-curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/http_triggers/openapi/generate" \\
+curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi/generate" \\
 -H "Authorization: Bearer $token" \\
 -H "Content-Type: application/json" \\
 -d '${JSON.stringify(obj)}'`}
@@ -596,7 +596,6 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/http_tr
 									}
 									await tick()
 									editor?.setCode(openapiDocument, true)
-									await tick()
 								} catch (error) {
 									const message = error instanceof Error ? error.message : JSON.stringify(error)
 									sendUserToast(`Conversion failed: ${message}`, true)
