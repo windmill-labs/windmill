@@ -43,11 +43,10 @@ use crate::{
         OccupancyMetrics,
     },
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    POWERSHELL_CACHE_DIR, POWERSHELL_PATH, PROXY_ENVS, TZ_ENV,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, POWERSHELL_CACHE_DIR,
+    POWERSHELL_PATH, PROXY_ENVS, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
-
 
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
@@ -275,6 +274,18 @@ exit $exit_status
     )))
 }
 
+async fn rm_container(client: &bollard::Docker, container_id: &str) {
+    if let Err(e) = client
+        .remove_container(
+            container_id,
+            Some(RemoveContainerOptions { force: true, ..Default::default() }),
+        )
+        .await
+    {
+        tracing::error!("Error removing container: {:?}", e);
+    }
+}
+
 #[cfg(feature = "dind")]
 async fn handle_docker_job(
     job_id: Uuid,
@@ -446,19 +457,12 @@ async fn handle_docker_job(
                 }
             }
         }
+        rm_container(&client, &container_id).await;
 
         return Err(e);
     }
 
-    if let Err(e) = client
-        .remove_container(
-            &container_id,
-            Some(RemoveContainerOptions { force: true, ..Default::default() }),
-        )
-        .await
-    {
-        tracing::error!("Error removing container: {:?}", e);
-    }
+    rm_container(&client, &container_id).await;
 
     let result = result.unwrap();
 
