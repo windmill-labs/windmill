@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.498.0](https://github.com/windmill-labs/windmill/compare/v1.497.2...v1.498.0) (2025-06-17)
+
+
+### Features
+
+* use provider api to list available AI models in workspace settings ([#5947](https://github.com/windmill-labs/windmill/issues/5947)) ([7490e88](https://github.com/windmill-labs/windmill/commit/7490e883d747a7f65b2fefd3ec14b1cfc3d9bbd4))
+* windmill http triggers and webhooks to openapi spec ([#5918](https://github.com/windmill-labs/windmill/issues/5918)) ([aba8c01](https://github.com/windmill-labs/windmill/commit/aba8c01d7f44ba4be369a3c711be9e156d6bf215))
+
 ## [1.497.2](https://github.com/windmill-labs/windmill/compare/v1.497.1...v1.497.2) (2025-06-17)
 
 
