@@ -1,4 +1,18 @@
-./substitute_ee_code.sh --dir ../windmill-ee-private
+#!/bin/bash
+
+# Default directory
+EE_DIR="../windmill-ee-private"
+
+# Parse arguments
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --dir) EE_DIR="$2"; shift ;;
+        *) echo "Unknown parameter: $1"; exit 1 ;;
+    esac
+    shift
+done
+
+./substitute_ee_code.sh --dir "$EE_DIR"
 
 # Check if running on macOS
 if [[ "$(uname)" == "Darwin" ]]; then

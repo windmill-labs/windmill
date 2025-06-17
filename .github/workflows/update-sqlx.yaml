@@ -1,0 +1,37 @@
+name: Update SQLx
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  update-sqlx:
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/update-sqlx')
+    runs-on: ubicloud-standard-4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Checkout windmill-ee-private
+        uses: actions/checkout@v3
+        with:
+          repository: windmill-labs/windmill-ee-private
+          path: windmill-ee-private
+          token: ${{ secrets.EE_PRIVATE_TOKEN }}
+
+      - name: Run update-sqlx script
+        run: |
+          # checkout the PR branch
+          git checkout ${{ github.head_ref }}
+          cd backend
+          cargo install sqlx-cli
+          ./update_sqlx.sh --dir ./windmill-ee-private
+
+      - name: Commit changes if any
+        run: |
+          BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add backend/.sqlx
+          git commit -m "Update SQLx metadata"
+          git push origin $BRANCH_NAME
