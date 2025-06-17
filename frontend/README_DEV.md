@@ -65,12 +65,10 @@ It is recommended to use [nix-alien](https://github.com/thiagokokada/nix-alien) 
 ## Traditional instructions
 
 ### Frontend only
-In the `frontend/` directory:
-
-- install the dependencies with `npm install` (or `pnpm install` or `yarn`)
-- generate the windmill client:
 
 ```bash
+cd frontend/
+
 # Install dependencies.
 npm install # or pnpm or yarn or bun
 
