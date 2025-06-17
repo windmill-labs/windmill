@@ -54,22 +54,6 @@ wm-minio-keys
 
 You can read about all others commands individually in [flake.nix](../flake.nix). 
 
-### Building Docker image locally
-
-Sometimes it is important to build docker image for your branch locally. It is crucial part of testing, since local environment may differ from the containerized one.
-
-That's why we provide [docker/dev.nu](../docker/dev.nu). It is helper that can build images locally and execute them. 
-
-it can build the image and run on local repository.
-
-```
-# Issue the build
-docker/dev.nu up --features "python,static_frontend" docker/DockerfileNsjail --rebuild
-# Will create and run `main__nsjail__python-static_frontend`
-```
-
-If you develop wasm parser for new language you can also pass --wasm-pkg <language> and it will include local parser to the image. For more information please see the script directly or run it with `--help` flag.
-
 ### dev.nu
 
 In some places we have `dev.nu` files. They can help you developing and testing specific features. Their functionality depends on context, but you can get more info by running it with `--help` flag.
@@ -127,13 +111,19 @@ REMOTE=http://localhost REMOTE_LSP=http://localhost npm run dev
 
 #### 2. Backend is run by docker, but built from the local source code
 
+Sometimes it is important to build docker image for your branch locally. It is crucial part of testing, since local environment may differ from the containerized one.
+
+That's why we provide [docker/dev.nu](../docker/dev.nu). It is helper that can build images locally and execute them. 
+
+it can build the image and run on local repository.
+
 ```bash
 # Issue the build
 docker/dev.nu up --features "python,static_frontend" docker/DockerfileNsjail --rebuild
 # Will create and run `main__nsjail__python-static_frontend`
 ```
 
-If you develop wasm parser for new language you can also pass --wasm-pkg <language> and it will include local parser to the image. For more information please see the script directly or run it with `--help` flag.
+If you develop wasm parser for new language you can also pass `--wasm-pkg <language>` and it will include local parser to the image. For more information please see the script directly or run it with `--help` flag.
 
 #### 3. Backend is run by cargo
 
