@@ -6,6 +6,12 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Test title',
+		href: 'https://www.windmill.dev/changelog/test-slug',
+		date: '2025-06-12'
+	},
+
+	{
 		label: 'MQTT triggers',
 		href: 'https://www.windmill.dev/changelog/mqtt-triggers',
 		date: '2025-03-11'
