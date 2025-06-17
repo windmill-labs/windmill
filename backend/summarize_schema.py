@@ -1,3 +1,8 @@
+# This script is used to summarize the database schema.
+# You can use pg_dump to dump the schema to a file.
+# pg_dump --file "schema.sql" --host "localhost" --port "5432" --username "postgres" --no-password --format=c --large-objects --schema-only --no-owner --no-privileges --no-tablespaces --no-unlogged-table-data --no-comments --no-publications --no-subscriptions --no-security-labels --no-toast-compression --no-table-access-method --verbose --schema "public" "windmill"
+# Then you can run python summarize_schema.py schema.sql to get the summarized schema.
+
 import re
 import sys
 from collections import defaultdict
