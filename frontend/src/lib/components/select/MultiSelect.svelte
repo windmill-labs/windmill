@@ -43,7 +43,7 @@
 
 	let filterText = $state<string>('')
 	let open = $state<boolean>(false)
-	let triggerEl: HTMLDivElement | undefined = $state()
+	let wrapperEl: HTMLDivElement | undefined = $state()
 
 	let processedItems: ProcessedItem<Value>[] = $derived.by(() => {
 		let args = { items, createText, filterText, groupBy, onCreateItem, sortBy }
@@ -76,6 +76,7 @@
 </script>
 
 <div
+	bind:this={wrapperEl}
 	class={`relative flex items-center w-full  ${className}`}
 	use:clickOutside={{ onClickOutside: () => (open = false) }}
 	onpointerdown={() => onFocus?.()}
@@ -85,8 +86,7 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<div
-		bind:this={triggerEl}
-		class="bg-surface w-full min-h-8 rounded-md cursor-pointer items-center flex gap-1 py-0.5 px-0.5"
+		class="bg-surface w-full min-h-8 rounded-md cursor-pointer items-center flex flex-wrap gap-1 py-0.5 px-0.5"
 		onclick={() => (open = true)}
 		role="list"
 	>
@@ -96,11 +96,15 @@
 		{#each valueEntry ?? [] as item}
 			<div class="pl-3 pr-1 bg-surface-secondary rounded-full flex items-center gap-0.5">
 				<span class="text-sm">{item.label || item.value}</span>
-				<CloseButton small on:close={(e) => (onRemoveValue(item), e.stopPropagation())} />
+				<CloseButton
+					class="text-tertiary"
+					small
+					on:close={(e) => (onRemoveValue(item), e.stopPropagation())}
+				/>
 			</div>
 		{/each}
 	</div>
-	<CloseButton class="mr-1" small on:close={(e) => (clearValue(), e.stopPropagation())} />
+	<CloseButton noBg class="mr-1" small on:close={(e) => (clearValue(), e.stopPropagation())} />
 	<SelectDropdown
 		{disablePortal}
 		onSelectValue={onAddValue}
@@ -109,7 +113,7 @@
 		value={undefined}
 		{disabled}
 		{filterText}
-		getInputRect={triggerEl && (() => triggerEl!.getBoundingClientRect())}
+		getInputRect={wrapperEl && (() => wrapperEl!.getBoundingClientRect())}
 		{listAutoWidth}
 	/>
 </div>
