@@ -167,6 +167,8 @@
             '')
             (pkgs.writeScriptBin "wm" ''
               cd ./frontend
+              npm install
+              npm run generate-backend-client
               npm run dev $*
             '')
             (pkgs.writeScriptBin "wm-minio" ''
@@ -187,7 +189,6 @@
               echo "bucket: wmill"
               echo "endpoint: http://localhost:9000"
             '')
-
           ];
 
           inherit PKG_CONFIG_PATH RUSTY_V8_ARCHIVE;

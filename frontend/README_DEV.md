@@ -1,21 +1,106 @@
-# Developing
+# Windmill's build guide
 
-[Using Nix](#nix), otherwise:
+## Using Nix (Recommended)
 
+Nix will manage all environment variables, packages and other configuration that you would usually do manually.
+
+**Prerequisites**
+
+- Install Nix [link](https://github.com/DeterminateSystems/nix-installer).
+- Install Docker.
+- Optionally install [direnv](https://direnv.net/docs/installation.html).
+
+That's it! You are ready to go.
+
+Using **direnv** is highly recommended, since it can load shell automatically based on your CWD. It also can give you hints.
+
+### Development
+```bash
+# enter a dev shell containing all necessary packages. `direnv allow` if direnv is installed.
+nix develop 
+## or ignore if you have `direnv`
+
+# Start db (if not started already)
+sudo docker compose up db -d 
+
+# run the frontend.
+wm
+
+# In an other shell:
+#
+nix develop 
+## or ignore if you have `direnv`
+
+cd backend
+# You don't need to install anything extra. All dependencies are already in place!
+cargo run --features all_languages 
+```
+
+The default proxy is setup to use the local backend: <http://localhost:8000>.
+
+### wm-* Commands
+
+Nix shell provides you with several helper commands prefixed with `wm-`
+
+```bash
+# Start minio server (implements S3)
+wm-minio 
+# Note: You will need access to EE private repo in order to compile, don't forget "enterprise" and "parquet" freatures as well. 
+
+# Generate keys for local dev.
+wm-minio-keys 
+# Minio data as well as generated keys are stored in `backend/.minio-data`
+```
+
+You can read about all others commands individually in [flake.nix](../flake.nix). 
+
+### Building Docker image locally
+
+Sometimes it is important to build docker image for your branch locally. It is crucial part of testing, since local environment may differ from the containerized one.
+
+That's why we provide `docker/dev.nu`. It is helper that can build images locally and execute them. 
+
+it can build the image and run on local repository.
+
+```
+# Issue the build
+docker/dev.nu up --features "python,static_frontend" docker/DockerfileNsjail --rebuild
+# Will create and run `main__nsjail__python-static_frontend`
+```
+
+If you develop wasm parser for new language you can also pass --wasm-pkg <language> and it will include local parser to the image. For more information please see the script directly or run it with `--help` flag.
+
+### dev.nu
+
+In some places we have `dev.nu` files. They can help you developing and testing specific features. Their functionality depends on context, but you can get more info by running it with `--help` flag.
+
+### Running on NixOS
+
+It is recommended to use [nix-alien](https://github.com/thiagokokada/nix-alien) for running compiled windmill binaries. We need this because sometimes windmill may fetch unpatched binaries that are not compatible with NixOS.
+
+Windmill use [nix flakes](https://nixos.wiki/wiki/Flakes):
+```bash
+nix run github:windmill-labs/windmill
+```
+
+## Traditional instructions
+
+### Frontend only
 In the `frontend/` directory:
 
 - install the dependencies with `npm install` (or `pnpm install` or `yarn`)
 - generate the windmill client:
 
 ```bash
+# Install dependencies.
+npm install # or pnpm or yarn or bun
+
+# Generate windmill client.
 npm run generate-backend-client
 ## on mac use
 npm run generate-backend-client-mac
-```
 
-Once the dependencies are installed, just start the dev server:
-
-```bash
+# Start dev server
 npm run dev
 ```
 
@@ -27,9 +112,9 @@ You can configure another proxy to use like so:
 REMOTE=http://127.0.0.1:8000 REMOTE_LSP=http://127.0.0.1:3001 npm run dev
 ```
 
-## Use a Local backend
+### Use a Local backend
 
-### 1. Backend is run by docker
+#### 1. Backend is run by docker
 
 ```bash
 docker build . -t windmill
@@ -40,7 +125,17 @@ docker compose up db windmill_server windmill_worker
 REMOTE=http://localhost REMOTE_LSP=http://localhost npm run dev
 ```
 
-### 2. Backend is run by cargo
+#### 2. Backend is run by docker, but built from the local source code
+
+```bash
+# Issue the build
+docker/dev.nu up --features "python,static_frontend" docker/DockerfileNsjail --rebuild
+# Will create and run `main__nsjail__python-static_frontend`
+```
+
+If you develop wasm parser for new language you can also pass --wasm-pkg <language> and it will include local parser to the image. For more information please see the script directly or run it with `--help` flag.
+
+#### 3. Backend is run by cargo
 
 **Prerequisites**
 
@@ -87,13 +182,7 @@ In the frontend folder:
 REMOTE=http://127.0.0.1:8000 REMOTE_LSP=http://127.0.0.1:3001 npm run dev
 ```
 
-## Building
-
-```bash
-NODE_OPTIONS=--max_old_space_size=8096 npm run build
-```
-
-## Formatting
+### Formatting
 
 This project uses [prettier](https://prettier.io/docs/en/install.html) and
 [prettier-plugin-svelte](https://github.com/sveltejs/prettier-plugin-svelte), be
@@ -116,15 +205,15 @@ Recommended config for VS Code:
 
 - turn _format on save_ on
 
-## Building
+### Building frontend
 
 The project is built with [SvelteKit](https://kit.svelte.dev/) and uses as output static files.
 There are others adapters for sveltekit, but we use the static adapter.
 
 To build the frontend as static assets, use:
 
-```
-npm run build
+```bash
+NODE_OPTIONS=--max_old_space_size=8096 npm run build
 ```
 
 The output is in the `build` folder.
@@ -139,27 +228,7 @@ which will generate an index.html and allow you to serve the frontend with any s
 
 Env variables used for build are set in .env file. See [https://vitejs.dev/guide/env-and-mode.html#env-files](https://vitejs.dev/guide/env-and-mode.html#env-files) for more details.
 
-## Nix
-
-Windmill use [nix flakes](https://nixos.wiki/wiki/Flakes):
-```bash
-nix run github:windmill-labs/windmill
-```
-
-### Development
-```bash
-nix develop # enter a dev shell containing all necessary packages.
-
-wm-setup # build the frontend and setup the database.
-wm # run the frontend.
-
-# In an other shell:
-nix develop
-cd backend
-cargo run
-```
-
-### Updating [`flake.nix`](../flake.nix)
+## Updating [`flake.nix`](../flake.nix)
 
 ```bash
 nix flake update # update the lock file.
