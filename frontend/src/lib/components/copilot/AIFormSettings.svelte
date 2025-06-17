@@ -4,7 +4,7 @@
 	import Tooltip from '../Tooltip.svelte'
 
 	export let prompt: string | undefined = undefined
-	export let type: 'form' | 'script' = 'script'
+	export let type: 'flow' | 'script' = 'script'
 </script>
 
 <div class="flex flex-col gap-2">
