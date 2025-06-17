@@ -25,6 +25,7 @@
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import FileUpload from '$lib/components/common/fileUpload/FileUpload.svelte'
+	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -395,7 +396,15 @@
 				</div>
 			</div>
 		{:else if fieldType === 'app-path'}
-			<AppPicker bind:value={componentInput.value} />
+			<AppPicker
+				bind:value={
+					() => componentInput!.value,
+					(v) => {
+						componentInput!.value = v
+						componentInput = stateSnapshot(componentInput)
+					}
+				}
+			/>
 		{:else}
 			<div class="flex gap-1 relative w-full">
 				<textarea
