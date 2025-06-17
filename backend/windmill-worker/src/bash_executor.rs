@@ -274,6 +274,7 @@ exit $exit_status
     )))
 }
 
+#[cfg(feature = "dind")]
 async fn rm_container(client: &bollard::Docker, container_id: &str) {
     if let Err(e) = client
         .remove_container(
