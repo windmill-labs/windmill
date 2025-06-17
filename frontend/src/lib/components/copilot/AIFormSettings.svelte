@@ -4,6 +4,7 @@
 	import Tooltip from '../Tooltip.svelte'
 
 	export let prompt: string | undefined = undefined
+	export let type: 'form' | 'script' = 'script'
 </script>
 
 <div class="flex flex-col gap-2">
@@ -18,7 +19,7 @@
 			}
 		}}
 		options={{
-			right: 'Enable filling script inputs with AI'
+			right: `Enable filling ${type} inputs with AI`
 		}}
 	/>
 	{#if prompt !== undefined}

@@ -126,7 +126,10 @@
 				</Label>
 
 				{#if flowStore.val.schema}
-					<AIFormSettings bind:prompt={flowStore.val.schema.prompt_for_ai as string | undefined} />
+					<AIFormSettings
+						bind:prompt={flowStore.val.schema.prompt_for_ai as string | undefined}
+						type="flow"
+					/>
 				{/if}
 			</div>
 
