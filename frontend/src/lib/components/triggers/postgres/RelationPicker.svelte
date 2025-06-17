@@ -9,7 +9,7 @@
 	import AddPropertyFormV2 from '$lib/components/schema/AddPropertyFormV2.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { emptyStringTrimmed, sendUserToast } from '$lib/utils'
-	import MultiSelect from 'svelte-multiselect'
+	import MultiselectLegacy from 'svelte-multiselect'
 
 	interface Props {
 		relations?: Relations[] | undefined
@@ -169,7 +169,7 @@
 											</Tooltip>
 										{/snippet}
 										<div class="mt-1">
-											<MultiSelect
+											<MultiselectLegacy
 												options={table_to_track.columns_name ?? []}
 												allowUserOptions="append"
 												ulOptionsClass={'!bg-surface !text-sm'}
@@ -221,7 +221,7 @@
 														<X size={12} />
 													</div>
 												</svelte:fragment>
-											</MultiSelect>
+											</MultiselectLegacy>
 										</div>
 									</Label>
 									<Label label="Where Clause">

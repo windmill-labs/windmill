@@ -3,7 +3,7 @@
 	import { emptyString, formatCron, sendUserToast } from '$lib/utils'
 	import Badge from './Badge.svelte'
 	// @ts-ignore
-	import Multiselect from 'svelte-multiselect'
+	import MultiselectLegacy from 'svelte-multiselect'
 	import { Button } from './common'
 	import timezones from './timezones'
 	import CronBuilder from './CronBuilder.svelte'
@@ -280,7 +280,7 @@
 						<div class="w-full flex flex-col gap-4">
 							{#if executeEvery == 'month'}
 								<div class="w-full flex flex-col">
-									<Multiselect
+									<MultiselectLegacy
 										{disabled}
 										bind:selected={monthsOfYear}
 										options={monthsOfYearOptions}
@@ -293,7 +293,7 @@
 
 							{#if executeEvery == 'day-week'}
 								<div class="w-full flex flex-col">
-									<Multiselect
+									<MultiselectLegacy
 										{disabled}
 										bind:selected={daysOfWeek}
 										options={daysOfWeekOptions}
@@ -311,7 +311,7 @@
 									{/if}
 									<div class="w-full flex gap-4">
 										<div class="w-full flex">
-											<Multiselect
+											<MultiselectLegacy
 												{disabled}
 												bind:selected={daysOfMonth}
 												options={daysOfMonthOptions}

@@ -21,7 +21,7 @@
 	import { tick } from 'svelte'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	import MultiSelect from '$lib/components/multiselect/MultiSelect.svelte'
+	import MultiselectLegacy from '$lib/components/multiselect/MultiSelectLegacy.svelte'
 	import { deepEqual } from 'fast-equals'
 
 	export let id: string
@@ -206,7 +206,7 @@
 		bind:clientWidth={w}
 	>
 		{#if !selectedItems || Array.isArray(selectedItems)}
-			<MultiSelect
+			<MultiselectLegacy
 				bind:outerDiv
 				outerDivClass={`${resolvedConfig.allowOverflow ? '' : 'h-full'}`}
 				ulSelectedClass={`${resolvedConfig.allowOverflow ? '' : 'overflow-auto max-h-full'} `}
@@ -246,7 +246,7 @@
 				>
 					{typeof option == 'object' ? (option?.label ?? 'NO_LABEL') : option}
 				</div>
-			</MultiSelect>
+			</MultiselectLegacy>
 			<Portal name="app-multiselect-v2">
 				<div use:floatingContent class="z5000" hidden={!open}>
 					<!-- svelte-ignore a11y-click-events-have-key-events -->

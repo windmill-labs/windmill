@@ -12,7 +12,7 @@
 	import Toggle from '../Toggle.svelte'
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import MultiSelectWrapper from '../multiselect/MultiSelectWrapper.svelte'
+	import MultiSelectWrapper from '../multiselect/MultiSelectLegacyWrapper.svelte'
 	import TriggerableByAI from '../TriggerableByAI.svelte'
 
 	// --- Props ---

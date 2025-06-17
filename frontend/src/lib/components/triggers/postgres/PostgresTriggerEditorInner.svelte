@@ -15,7 +15,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import MultiSelect from 'svelte-multiselect'
+	import MultiselectLegacy from 'svelte-multiselect'
 	import PublicationPicker from './PublicationPicker.svelte'
 	import SlotPicker from './SlotPicker.svelte'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
@@ -585,7 +585,7 @@
 									</p>
 								</Tooltip>
 							{/snippet}
-							<MultiSelect
+							<MultiselectLegacy
 								noMatchingOptionsMsg=""
 								createOptionMsg={null}
 								duplicates={false}
@@ -605,7 +605,7 @@
 										<X size={12} />
 									</div>
 								</svelte:fragment>
-							</MultiSelect>
+							</MultiselectLegacy>
 						</Label>
 						<Label label="Table Tracking" headerClass="grow min-w-0">
 							{#snippet header()}

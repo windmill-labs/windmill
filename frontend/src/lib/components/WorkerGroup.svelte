@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Copy, Plus, RefreshCcwIcon, Settings, Trash, X } from 'lucide-svelte'
 	import { Alert, Badge, Button, Drawer } from './common'
-	import Multiselect from 'svelte-multiselect'
+	import MultiselectLegacy from 'svelte-multiselect'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { ConfigService, WorkspaceService, type WorkerPing, type Workspace } from '$lib/gen'
@@ -358,7 +358,7 @@
 										{/if}
 									</Tooltip>
 								{/snippet}
-								<Multiselect
+								<MultiselectLegacy
 									outerDivClass="text-secondary !bg-surface-disabled !border-0"
 									disabled={!$enterpriseLicense}
 									selected={Object.keys(nconfig?.priority_tags ?? {})}

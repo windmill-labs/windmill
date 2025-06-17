@@ -3,7 +3,7 @@
 	import { createFloatingActions } from 'svelte-floating-ui'
 	import { tick } from 'svelte'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
-	import MultiSelect from '$lib/components/multiselect/MultiSelect.svelte'
+	import MultiselectLegacy from '$lib/components/multiselect/MultiSelectLegacy.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import { deepEqual } from 'fast-equals'
 
@@ -61,7 +61,7 @@
 <div use:floatingRef bind:clientWidth={w}>
 	{#if !value || Array.isArray(value)}
 		<div class="border rounded-md border-gray-300 shadow-sm dark:border-gray-600 !w-full">
-			<MultiSelect
+			<MultiselectLegacy
 				{allowUserOptions}
 				outerDivClass={`!text-xs`}
 				ulSelectedClass="overflow-auto"
@@ -106,7 +106,7 @@
 				>
 					{option}
 				</div>
-			</MultiSelect>
+			</MultiselectLegacy>
 		</div>
 		<Portal {target} name="multi-select">
 			<div use:floatingContent class="z5000" hidden={!open}>

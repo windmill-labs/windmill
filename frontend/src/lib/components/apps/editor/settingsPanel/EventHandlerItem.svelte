@@ -1,11 +1,15 @@
 <script lang="ts">
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
-	import MultiSelect from '$lib/components/multiselect/MultiSelectWrapper.svelte'
+	import MultiselectLegacy from '$lib/components/multiselect/MultiSelectLegacyWrapper.svelte'
 	import { twMerge } from 'tailwind-merge'
 
-
-	let { items, value = $bindable(), title, tooltip } = $props<{
+	let {
+		items,
+		value = $bindable(),
+		title,
+		tooltip
+	} = $props<{
 		items: string[]
 		value: string[] | undefined
 		title: string
@@ -34,7 +38,7 @@
 				No components to recompute.
 			</div>
 		{:else}
-			<MultiSelect {items} bind:value />
+			<MultiselectLegacy {items} bind:value />
 		{/if}
 	</div>
 </div>

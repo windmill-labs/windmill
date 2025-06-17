@@ -10,7 +10,7 @@
 	import { ExternalLink, Search } from 'lucide-svelte'
 	import { Popover } from './meltComponents'
 	import SchemaForm from './SchemaForm.svelte'
-	import MultiSelect from './multiselect/MultiSelectWrapper.svelte'
+	import MultiselectLegacy from './multiselect/MultiSelectLegacyWrapper.svelte'
 	const dispatch = createEventDispatcher()
 
 	interface Props {
@@ -174,7 +174,7 @@
 										</div>
 									</div>
 									<div class="my-2">
-										<MultiSelect
+										<MultiselectLegacy
 											topPlacement
 											target="#multi-select-search"
 											placeholder="arg fields to filter on"

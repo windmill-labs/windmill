@@ -3,7 +3,7 @@
 	import Required from '$lib/components/Required.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import { emptyStringTrimmed } from '$lib/utils'
-	import MultiSelect from 'svelte-multiselect'
+	import MultiselectLegacy from 'svelte-multiselect'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import { Plus, X } from 'lucide-svelte'
@@ -140,7 +140,7 @@
 					</ToggleButtonGroup>
 				</div>
 				<div class="flex flex-col mt-3 gap-1">
-					<MultiSelect
+					<MultiselectLegacy
 						options={message_attributes ?? []}
 						allowUserOptions="append"
 						bind:selected={message_attributes}
@@ -160,7 +160,7 @@
 								<X size={12} />
 							</div>
 						</svelte:fragment>
-					</MultiSelect>
+					</MultiselectLegacy>
 				</div>
 			</Subsection>
 		</div>

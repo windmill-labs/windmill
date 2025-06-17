@@ -10,7 +10,7 @@
 	import Toggle from '../Toggle.svelte'
 	import ArgEnum from '../ArgEnum.svelte'
 	import Button from '../common/button/Button.svelte'
-	import MultiSelectWrapper from '../multiselect/MultiSelectWrapper.svelte'
+	import MultiSelectWrapper from '../multiselect/MultiSelectLegacyWrapper.svelte'
 
 	const aiProviderLabels: [AIProvider, string][] = [
 		['openai', 'OpenAI'],

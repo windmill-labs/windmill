@@ -9,7 +9,7 @@
 	import { ExternalLink } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Label from './Label.svelte'
-	import MultiSelect from 'svelte-multiselect'
+	import MultiselectLegacy from 'svelte-multiselect'
 
 	interface Props {
 		config: AutoscalingConfig | undefined
@@ -208,7 +208,7 @@
 						{/snippet}
 						{#if config}
 							{#if config.custom_tags}
-								<MultiSelect
+								<MultiselectLegacy
 									outerDivClass="text-secondary !bg-surface-disabled !border-0"
 									selected={config.custom_tags}
 									onchange={(e) => {

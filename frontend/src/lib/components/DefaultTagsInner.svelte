@@ -7,7 +7,7 @@
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING } from '$lib/consts'
 	import Toggle from './Toggle.svelte'
-	import MultiSelectWrapper from './multiselect/MultiSelectWrapper.svelte'
+	import MultiSelectWrapper from './multiselect/MultiSelectLegacyWrapper.svelte'
 
 	let defaultTags: string[] | undefined = undefined
 	export let defaultTagPerWorkspace: boolean | undefined = undefined

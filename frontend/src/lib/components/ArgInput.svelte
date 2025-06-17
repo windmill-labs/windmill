@@ -11,7 +11,7 @@
 	} from '$lib/utils'
 	import { DollarSign, Pipette, Plus, X, Check, Loader2 } from 'lucide-svelte'
 	import { createEventDispatcher, onMount, tick, untrack } from 'svelte'
-	import Multiselect from 'svelte-multiselect'
+	import MultiselectLegacy from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
 	import { Button, SecondsInput } from './common'
 	import FieldHeader from './FieldHeader.svelte'
@@ -631,7 +631,7 @@
 				<div class="w-full">
 					{#if Array.isArray(itemsType?.multiselect) && Array.isArray(value)}
 						<div class="items-start">
-							<Multiselect
+							<MultiselectLegacy
 								ulOptionsClass={'p-2 !bg-surface-secondary'}
 								outerDivClass={'dark:!border-gray-500 !border-gray-300'}
 								{disabled}
@@ -648,7 +648,7 @@
 						</div>
 					{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && (Array.isArray(value) || value == undefined)}
 						<div class="items-start">
-							<Multiselect
+							<MultiselectLegacy
 								ulOptionsClass={'p-2 !bg-surface-secondary'}
 								outerDivClass={'dark:!border-gray-500 !border-gray-300'}
 								{disabled}
