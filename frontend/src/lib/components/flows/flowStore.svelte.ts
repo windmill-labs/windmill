@@ -24,7 +24,7 @@ export async function copyFirstStepSchema(
 	const firstModuleId = flowStore.val.value.modules[0]?.id
 
 	if (flowState[firstModuleId] && firstModuleId) {
-		flowStore.val.schema = structuredClone(flowState[firstModuleId].schema)
+		flowStore.val.schema = structuredClone($state.snapshot(flowState[firstModuleId].schema))
 		const v = flowStore.val.value.modules[0].value
 		if (v.type == 'rawscript' || v.type == 'script') {
 			Object.keys(v.input_transforms ?? {}).forEach((key) => {

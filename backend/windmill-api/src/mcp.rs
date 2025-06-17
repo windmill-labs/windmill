@@ -1177,7 +1177,11 @@ pub async fn extract_and_store_workspace_id(
 pub async fn setup_mcp_server() -> anyhow::Result<(Router, Arc<LocalSessionManager>)> {
     let session_manager = Arc::new(LocalSessionManager::default());
     let service_config = Default::default();
-    let service = StreamableHttpService::new(Runner::new, session_manager.clone(), service_config);
+    let service = StreamableHttpService::new(
+        || Ok(Runner::new()),
+        session_manager.clone(),
+        service_config,
+    );
 
     let router = axum::Router::new().nest_service("/", service);
     Ok((router, session_manager))

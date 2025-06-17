@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.497.2](https://github.com/windmill-labs/windmill/compare/v1.497.1...v1.497.2) (2025-06-17)
+
+
+### Bug Fixes
+
+* always rm containers in docker mode ([38eb71b](https://github.com/windmill-labs/windmill/commit/38eb71bdf55ee2f606d1d2ad2e987d5af16d88c0))
+* flow steps use their tags if any specific when used as subflow ([26bec05](https://github.com/windmill-labs/windmill/commit/26bec054a3447a91c5d5f56d8b98717c06496087))
+
+## [1.497.1](https://github.com/windmill-labs/windmill/compare/v1.497.0...v1.497.1) (2025-06-16)
+
+
+### Bug Fixes
+
+* fix mcp server initialization ([1c6a7c8](https://github.com/windmill-labs/windmill/commit/1c6a7c8cd0bd8396f158e3cb0583b927ce957f12))
+
+## [1.497.0](https://github.com/windmill-labs/windmill/compare/v1.496.3...v1.497.0) (2025-06-16)
+
+
+### Features
+
+* add api tools to ai chat ([#5921](https://github.com/windmill-labs/windmill/issues/5921)) ([f7a83c0](https://github.com/windmill-labs/windmill/commit/f7a83c03c12b8ae70179fb228e0e2391b6ea2858))
+* **backend:** use streamable http in favor of sse for MCP ([#5910](https://github.com/windmill-labs/windmill/issues/5910)) ([d47c078](https://github.com/windmill-labs/windmill/commit/d47c078bb5ab86d82d9cbbce3c55c89c0c20d809))
+* better graph layout algorithm + migrate to svelte 5 almost everywhere + xyflow 1.0 ([23920ae](https://github.com/windmill-labs/windmill/commit/23920aee84fdca4a557a34ff2d66a0bb7bdca605))
+* fill runnable inputs with AI chat ([#5887](https://github.com/windmill-labs/windmill/issues/5887)) ([b4a6a7e](https://github.com/windmill-labs/windmill/commit/b4a6a7e72429617d420af85a9de35bb13adfc6fb))
+* **go:** local go.mod ([#5929](https://github.com/windmill-labs/windmill/issues/5929)) ([0b89260](https://github.com/windmill-labs/windmill/commit/0b89260540b307c6d614ca4275dd038fbfdac33c))
+* multiple azure models support ([#5920](https://github.com/windmill-labs/windmill/issues/5920)) ([f412ede](https://github.com/windmill-labs/windmill/commit/f412ede6ed48e9a492f39582ac70a5584477529e))
+* **rust:** add rust sdk ([#5909](https://github.com/windmill-labs/windmill/issues/5909)) ([332f66e](https://github.com/windmill-labs/windmill/commit/332f66e3483abbeacd4e7c1b74c94c5265314882))
+
+
+### Bug Fixes
+
+* ai chat tooltip + user settings autocomplete issue ([#5917](https://github.com/windmill-labs/windmill/issues/5917)) ([6f907c7](https://github.com/windmill-labs/windmill/commit/6f907c79b4cf6279bd52e35a3ee96e0d021422f5))
+* audit logs for token refresh + consider refresh for active users ([#5930](https://github.com/windmill-labs/windmill/issues/5930)) ([cf2d09e](https://github.com/windmill-labs/windmill/commit/cf2d09e7a8c5d2472af0d483689c3fcfa2976117))
+* fix input with wrong height on first render ([#5935](https://github.com/windmill-labs/windmill/issues/5935)) ([1a6283b](https://github.com/windmill-labs/windmill/commit/1a6283b42a6a514ab2e05160855cdc0f70b61d0e))
+* flow step missing input warnings ([#5916](https://github.com/windmill-labs/windmill/issues/5916)) ([f077849](https://github.com/windmill-labs/windmill/commit/f077849b8f7c1916fd420e85b4844a5c5e93a139))
+* **frontend:** use correct kind for flow insert module btn ([#5938](https://github.com/windmill-labs/windmill/issues/5938)) ([17c8c8a](https://github.com/windmill-labs/windmill/commit/17c8c8a5616ab8656799cea3fc5bc7cfaedc4995))
+
 ## [1.496.3](https://github.com/windmill-labs/windmill/compare/v1.496.2...v1.496.3) (2025-06-09)
 
 

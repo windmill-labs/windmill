@@ -9,6 +9,7 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { HiddenRunnable } from '$lib/components/apps/types'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
+	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 
 	let files: Record<string, string> | undefined = undefined
 	let runnables = {}
@@ -62,7 +63,7 @@
 			path,
 			workspace: $workspaceStore!
 		})
-		const app_w_draft_ = structuredClone(app_w_draft)
+		const app_w_draft_ = structuredClone(stateSnapshot(app_w_draft))
 		savedApp = {
 			summary: app_w_draft_.summary,
 			value: app_w_draft_.value as any,
@@ -190,9 +191,9 @@
 		extractRawApp(prev)
 		savedApp = {
 			summary: prev.summary,
-			value: structuredClone(prev.value),
+			value: structuredClone(stateSnapshot(prev.value)),
 			path: prev.path,
-			policy: structuredClone(policy),
+			policy: structuredClone(stateSnapshot(policy)),
 			custom_path: prev.custom_path
 		}
 		redraw++

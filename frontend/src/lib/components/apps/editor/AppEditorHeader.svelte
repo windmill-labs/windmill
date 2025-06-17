@@ -392,7 +392,7 @@
 			})
 			savedApp = {
 				summary: $summary,
-				value: structuredClone($app),
+				value: structuredClone($state.snapshot($app)),
 				path: path,
 				policy: policy,
 				custom_path: customPath
@@ -488,7 +488,7 @@
 		})
 		savedApp = {
 			summary: $summary,
-			value: structuredClone($app),
+			value: structuredClone($state.snapshot($app)),
 			path: npath,
 			policy,
 			custom_path: customPath
@@ -572,13 +572,13 @@
 			})
 			savedApp = {
 				summary: $summary,
-				value: structuredClone($app),
+				value: structuredClone($state.snapshot($app)),
 				path: newEditedPath,
 				policy,
 				draft_only: true,
 				draft: {
 					summary: $summary,
-					value: structuredClone($app),
+					value: structuredClone($state.snapshot($app)),
 					path: newEditedPath,
 					policy,
 					custom_path: customPath
@@ -660,7 +660,7 @@
 				...(savedApp?.draft_only
 					? {
 							summary: $summary,
-							value: structuredClone($app),
+							value: structuredClone($state.snapshot($app)),
 							path: savedApp.draft_only ? newEditedPath || path : path,
 							policy,
 							draft_only: true,
@@ -669,7 +669,7 @@
 					: savedApp),
 				draft: {
 					summary: $summary,
-					value: structuredClone($app),
+					value: structuredClone($state.snapshot($app)),
 					path: newEditedPath || path,
 					policy,
 					custom_path: customPath
@@ -726,14 +726,19 @@
 		switch (event.key) {
 			case 'Z':
 				if (event.ctrlKey || event.metaKey) {
-					$app = redo(history)
+					const napp = redo(history)
+					for (const key in napp) {
+						$app[key] = napp[key]
+					}
 					event.preventDefault()
 				}
 				break
 			case 'z':
 				if (event.ctrlKey || event.metaKey) {
-					$app = undo(history, $app)
-
+					const napp = undo(history, $app)
+					for (const key in napp) {
+						$app[key] = napp[key]
+					}
 					event.preventDefault()
 				}
 				break
@@ -1313,10 +1318,16 @@
 				undoProps={{ disabled: $history?.index === 0 }}
 				redoProps={{ disabled: $history && $history?.index === $history.history.length - 1 }}
 				on:undo={() => {
-					$app = undo(history, $app)
+					const napp = undo(history, $app)
+					for (const key in napp) {
+						$app[key] = napp[key]
+					}
 				}}
 				on:redo={() => {
-					$app = redo(history)
+					const napp = redo(history)
+					for (const key in napp) {
+						$app[key] = napp[key]
+					}
 				}}
 			/>
 

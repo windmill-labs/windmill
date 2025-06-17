@@ -162,7 +162,7 @@
 											{/if}
 											<Button
 												on:click={async () => {
-													appliedSearchArgs = structuredClone(searchArgs)
+													appliedSearchArgs = structuredClone($state.snapshot(searchArgs))
 													await tick()
 													historicInputs?.refresh(true)
 												}}

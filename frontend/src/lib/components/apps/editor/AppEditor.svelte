@@ -100,7 +100,8 @@
 
 	migrateApp(app)
 
-	const appStore = writable<App>(app)
+	const stateApp = $state(app)
+	const appStore = writable<App>(stateApp)
 	const selectedComponent = writable<string[] | undefined>(undefined)
 
 	// $: selectedComponent.subscribe((s) => {
@@ -263,7 +264,11 @@
 		if (befSelected) {
 			if (!['ctx', 'state'].includes(befSelected) && !befSelected?.startsWith(BG_PREFIX)) {
 				let item = findGridItem($appStore, befSelected)
-				if (item?.data.type === 'containercomponent' || item?.data.type === 'listcomponent') {
+				if (
+					item?.data.type === 'containercomponent' ||
+					item?.data.type === 'listcomponent' ||
+					item?.data.type === 'modalcomponent'
+				) {
 					$focusedGrid = {
 						parentComponentId: befSelected,
 						subGridIndex: 0
@@ -293,7 +298,12 @@
 							}
 						} catch {}
 					} else {
-						$focusedGrid = undefined
+						const drawerAlreadyHandledFocusedGrid =
+							item?.data.type === 'drawercomponent' &&
+							$focusedGrid?.parentComponentId === befSelected
+						if (!drawerAlreadyHandledFocusedGrid) {
+							$focusedGrid = undefined
+						}
 					}
 				}
 			}
@@ -442,6 +452,7 @@
 	let box: HTMLElement | undefined = $state(undefined)
 	function parseScroll() {
 		$yTop = box?.scrollTop ?? 0
+		// console.log('parse scroll', $yTop)
 	}
 
 	let mounted = false
@@ -845,6 +856,7 @@
 	}}
 />
 
+<!-- {$focusedGrid?.parentComponentId} -->
 {#if !$userStore?.operator}
 	{#if $appStore}
 		<AppEditorHeader

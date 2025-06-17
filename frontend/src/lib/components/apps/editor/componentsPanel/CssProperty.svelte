@@ -53,10 +53,10 @@
 	const dispatch = createEventDispatcher()
 	let isQuickMenuOpen = $state(false)
 
-	let prevValue = structuredClone(value)
+	let prevValue = structuredClone($state.snapshot(value))
 	$effect(() => {
 		if (deepEqual(prevValue, value)) return
-		prevValue = structuredClone(value)
+		prevValue = structuredClone($state.snapshot(value))
 		dispatch('change', value)
 	})
 

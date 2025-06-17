@@ -1354,9 +1354,16 @@ async fn raw_script_by_path_internal(
                 )
                 .fetch_all(&db)
                 .await?;
-                tracing::info!(
-                    "Script {path} does not exist in workspace {w_id} but these paths do: {:?}",
-                    other_script_o.join(", ")
+                let other_script_archived = sqlx::query_scalar!(
+                    "SELECT distinct(path) FROM script WHERE workspace_id = $1 AND archived = true",
+                    w_id
+                )
+                .fetch_all(&db)
+                .await?;
+                tracing::warn!(
+                    "Script {path} does not exist in workspace {w_id} but these paths do, non-archived: {:?} | archived: {:?}",
+                    other_script_o.join(", "),
+                    other_script_archived.join(", ")
                 )
             }
         }

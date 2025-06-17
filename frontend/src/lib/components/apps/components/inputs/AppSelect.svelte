@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onDestroy } from 'svelte'
+	import { getContext, onDestroy, untrack } from 'svelte'
 
 	import type {
 		AppViewerContext,
@@ -21,19 +21,35 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import Select from '$lib/components/Select.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'selectcomponent'> | undefined = undefined
-	export let render: boolean
-	export let extraKey: string | undefined = undefined
-	export let preclickAction: (() => Promise<void>) | undefined = undefined
-	export let recomputeIds: string[] | undefined = undefined
-	export let noInitialize = false
-	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
-		undefined
-	export let noDefault = false
-	export let onSelect: string[] | undefined = undefined
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		customCss?: ComponentCustomCSS<'selectcomponent'> | undefined
+		render: boolean
+		extraKey?: string | undefined
+		preclickAction?: (() => Promise<void>) | undefined
+		recomputeIds?: string[] | undefined
+		noInitialize?: boolean
+		controls?: { left: () => boolean; right: () => boolean | string } | undefined
+		noDefault?: boolean
+		onSelect?: string[] | undefined
+	}
+
+	let {
+		id,
+		configuration,
+		verticalAlignment = undefined,
+		customCss = undefined,
+		render,
+		extraKey = undefined,
+		preclickAction = undefined,
+		recomputeIds = undefined,
+		noInitialize = false,
+		controls = undefined,
+		noDefault = false,
+		onSelect = undefined
+	}: Props = $props()
 
 	const {
 		app,
@@ -59,9 +75,8 @@
 		$componentControl[id] = { ...$componentControl[id], ...controls }
 	}
 
-	let resolvedConfig = initConfig(
-		components['selectcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['selectcomponent'].initialData.configuration, configuration)
 	)
 
 	let outputs = initOutput($worldStore, id, {
@@ -69,15 +84,15 @@
 	})
 
 	// The library expects double quotes around the value
-	let value: string | undefined = noDefault
-		? undefined
-		: outputs?.result.peak()
-			? JSON.stringify(outputs?.result.peak())
-			: undefined
+	let value: string | undefined = $state(
+		noDefault
+			? undefined
+			: outputs?.result.peak()
+				? JSON.stringify(outputs?.result.peak())
+				: undefined
+	)
 
-	$: resolvedConfig.items && handleItems()
-
-	let listItems: { label: string; value: string; created?: boolean }[] = []
+	let listItems: { label: string; value: string; created?: boolean }[] = $state([])
 
 	function setContextValue(value: any) {
 		if (iterContext && listInputs) {
@@ -174,7 +189,7 @@
 		setContextValue(undefined)
 	}
 
-	let css = initCss($app.css?.selectcomponent, customCss)
+	let css = $state(initCss($app.css?.selectcomponent, customCss))
 
 	let previsousFilter = ''
 
@@ -198,8 +213,6 @@
 		}
 	}
 
-	$: resolvedConfig.defaultValue != undefined && handleDefault()
-
 	function handleDefault() {
 		if (resolvedConfig.defaultValue != undefined) {
 			const nvalue = resolvedConfig.defaultValue
@@ -208,7 +221,13 @@
 			setContextValue(nvalue)
 		}
 	}
-	let filterText = ''
+	let filterText = $state('')
+	$effect(() => {
+		resolvedConfig.items && untrack(() => handleItems())
+	})
+	$effect(() => {
+		resolvedConfig.defaultValue != undefined && untrack(() => handleDefault())
+	})
 </script>
 
 {#each Object.keys(components['selectcomponent'].initialData.configuration) as key (key)}
@@ -239,7 +258,7 @@
 	<div
 		class="app-select w-full"
 		style="height: 34px;"
-		on:pointerdown={(e) => {
+		onpointerdown={(e) => {
 			if (!e.shiftKey) {
 				e.stopPropagation()
 			}
@@ -247,7 +266,7 @@
 	>
 		{#if Array.isArray(listItems) && listItems.every((x) => x && typeof x == 'object' && typeof x['label'] == 'string' && `value` in x)}
 			{#if resolvedConfig.nativeHtmlSelect}
-				<select class={css?.input?.class} style={css?.input?.style} on:change={onNativeChange}>
+				<select class={css?.input?.class} style={css?.input?.style} onchange={onNativeChange}>
 					{#if resolvedConfig.placeholder}
 						<option value="" disabled selected>{resolvedConfig.placeholder}</option>
 					{/if}
@@ -283,16 +302,18 @@
 				>
 					<Bug size={14} />
 				</div>
-				<span slot="text">
-					<div class="bg-surface">
-						<Alert title="Incorrect options" type="error" size="xs" class="h-full w-full ">
-							The selectable items should be an array of {'{"value": any, "label":}'}. Found:
-							<pre class="w-full bg-surface p-2 rounded-md whitespace-pre-wrap"
-								>{JSON.stringify(listItems, null, 4)}</pre
-							>
-						</Alert>
-					</div>
-				</span>
+				{#snippet text()}
+					<span>
+						<div class="bg-surface">
+							<Alert title="Incorrect options" type="error" size="xs" class="h-full w-full ">
+								The selectable items should be an array of {'{"value": any, "label":}'}. Found:
+								<pre class="w-full bg-surface p-2 rounded-md whitespace-pre-wrap"
+									>{JSON.stringify(listItems, null, 4)}</pre
+								>
+							</Alert>
+						</div>
+					</span>
+				{/snippet}
 			</Popover>
 		{/if}
 	</div>
