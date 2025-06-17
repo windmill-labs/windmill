@@ -1085,6 +1085,7 @@
 												<div class="mt-3">
 													<AIFormSettings
 														bind:prompt={script.schema.prompt_for_ai as string | undefined}
+														type="script"
 													/>
 												</div>
 											{/if}
