@@ -6,7 +6,7 @@ def summarize_schema(file_path):
     """
     Parses a PostgreSQL dump file and extracts a summarized schema.
     """
-    tables = defaultdict(lambda: {'columns': [], 'pks': set(), 'fks': []})
+    tables = defaultdict(lambda: {'columns': [], 'pks': set(), 'fks': [], 'indexes': []})
     enums = defaultdict(list)
     
     # Use state variables to parse multi-line definitions
@@ -70,6 +70,22 @@ def summarize_schema(file_path):
                 
                 fk_string = f"({from_cols_clean}) -> {to_table}({to_cols_clean})"
                 tables[from_table]['fks'].append(fk_string)
+            
+            # --- Parse Index definitions ---
+            match_index = re.match(r"CREATE (UNIQUE )?INDEX (\w+) ON public\.(\w+) USING (\w+) \((.+)\);", line)
+            if match_index:
+                is_unique = match_index.group(1) is not None
+                index_name = match_index.group(2)
+                table_name = match_index.group(3)
+                index_type = match_index.group(4)
+                columns = match_index.group(5)
+                
+                # Clean up column expressions
+                columns_clean = columns.replace('"', '')
+                
+                unique_str = "UNIQUE " if is_unique else ""
+                index_string = f"{unique_str}INDEX {index_name} ({index_type}) ON ({columns_clean})"
+                tables[table_name]['indexes'].append(index_string)
 
     return enums, tables
 
@@ -105,6 +121,11 @@ def format_output(enums, tables):
                 output.append("  Relationships:")
                 for fk in data['fks']:
                     output.append(f"    - {fk}")
+            
+            if data['indexes']:
+                output.append("  Indexes:")
+                for idx in data['indexes']:
+                    output.append(f"    - {idx}")
             output.append("-" * 20)
 
     return "\n".join(output)

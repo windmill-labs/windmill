@@ -198,6 +198,8 @@ TABLE: alerts
   - workspace_id (text)
   - acknowledged_workspace (boolean)
   - resource (text)
+  Indexes:
+    - INDEX alerts_by_workspace (btree) ON (workspace_id)
 --------------------
 TABLE: app
   - id (bigint)
@@ -240,6 +242,8 @@ TABLE: audit
   - action_kind (public.action_kind)
   - resource (character)
   - parameters (jsonb)
+  Indexes:
+    - INDEX ix_audit_timestamps (btree) ON (timestamp DESC)
 --------------------
 TABLE: autoscaling_event
   - id (integer)
@@ -248,6 +252,8 @@ TABLE: autoscaling_event
   - desired_workers (integer)
   - applied_at (timestamp)
   - reason (text)
+  Indexes:
+    - INDEX autoscaling_event_worker_group_idx (btree) ON (worker_group, applied_at)
 --------------------
 TABLE: capture
   - workspace_id (character)
@@ -288,6 +294,8 @@ TABLE: concurrency_key
   - key (character)
   - ended_at (timestamp)
   - job_id (uuid)
+  Indexes:
+    - INDEX concurrency_key_ended_at_idx (btree) ON (key, ended_at DESC)
 --------------------
 TABLE: concurrency_locks
   - id (character)
@@ -308,6 +316,8 @@ TABLE: dependency_map
   - importer_kind (public.importer_kind)
   - imported_path (character)
   - importer_node_id (character)
+  Indexes:
+    - INDEX dependency_map_imported_path_idx (btree) ON (workspace_id, imported_path)
 --------------------
 TABLE: deployment_metadata
   - workspace_id (character)
@@ -317,6 +327,10 @@ TABLE: deployment_metadata
   - callback_job_ids (uuid[])
   - deployment_msg (text)
   - flow_version (bigint)
+  Indexes:
+    - UNIQUE INDEX deployment_metadata_app (btree) ON (workspace_id, path, app_version) WHERE (app_version IS NOT NULL)
+    - UNIQUE INDEX deployment_metadata_flow (btree) ON (workspace_id, path, flow_version) WHERE (flow_version IS NOT NULL)
+    - UNIQUE INDEX deployment_metadata_script (btree) ON (workspace_id, script_hash) WHERE (script_hash IS NOT NULL)
 --------------------
 TABLE: draft
   - workspace_id (character)
@@ -358,6 +372,8 @@ TABLE: flow
   - on_behalf_of_email (text)
   - lock_error_logs (text)
   - CONSTRAINT (proper_id)
+  Indexes:
+    - INDEX flow_extra_perms (gin) ON (extra_perms)
 --------------------
 TABLE: flow_node
   - id (bigint)
@@ -368,6 +384,8 @@ TABLE: flow_node
   - code (text)
   - flow (jsonb)
   - hash_v2 (character(64))
+  Indexes:
+    - INDEX flow_node_hash (btree) ON (hash)
 --------------------
 TABLE: flow_version
   - id (bigint)
@@ -377,6 +395,8 @@ TABLE: flow_version
   - schema (json)
   - created_by (character)
   - created_at (timestamp)
+  Indexes:
+    - INDEX index_flow_version_path_created_at (btree) ON (path, created_at)
 --------------------
 TABLE: flow_version_lite
   - id (bigint)
@@ -391,6 +411,9 @@ TABLE: folder
   - summary (text)
   - edited_at (timestamp)
   - created_by (character)
+  Indexes:
+    - INDEX folder_extra_perms (gin) ON (extra_perms)
+    - INDEX folder_owners (gin) ON (owners)
 --------------------
 TABLE: gcp_trigger
   - gcp_resource_path (character)
@@ -414,6 +437,8 @@ TABLE: gcp_trigger
   - CONSTRAINT (gcp_trigger_check)
   - CONSTRAINT (gcp_trigger_subscription_id_check)
   - CONSTRAINT (gcp_trigger_topic_id_check)
+  Indexes:
+    - UNIQUE INDEX unique_subscription_per_gcp_resource (btree) ON (subscription_id, gcp_resource_path, workspace_id)
 --------------------
 TABLE: global_settings
   - name (character)
@@ -426,12 +451,16 @@ TABLE: group_
   - summary (text)
   - extra_perms (jsonb)
   - CONSTRAINT (proper_name)
+  Indexes:
+    - INDEX group_extra_perms (gin) ON (extra_perms)
 --------------------
 TABLE: healthchecks
   - id (bigint)
   - check_type (character)
   - healthy (boolean)
   - created_at (timestamp)
+  Indexes:
+    - INDEX healthchecks_check_type_created_at (btree) ON (check_type, created_at)
 --------------------
 TABLE: http_trigger
   - path (character)
@@ -502,6 +531,8 @@ TABLE: job_stats
   - timestamps (timestamp)
   - timeseries_int (integer[])
   - timeseries_float (real[])
+  Indexes:
+    - INDEX job_stats_id (btree) ON (job_id)
 --------------------
 TABLE: kafka_trigger
   - path (character)
@@ -529,16 +560,24 @@ TABLE: log_file
   - worker_group (character)
   - file_path (character)
   - json_fmt (boolean)
+  Indexes:
+    - INDEX log_file_log_ts_idx (btree) ON (log_ts)
 --------------------
 TABLE: magic_link
   - email (character)
   - token (character)
   - expiration (timestamp)
+  Indexes:
+    - INDEX index_magic_link_exp (btree) ON (expiration)
 --------------------
 TABLE: metrics
   - id (character)
   - value (jsonb)
   - created_at (timestamp)
+  Indexes:
+    - INDEX idx_metrics_id_created_at (btree) ON (id, created_at DESC) WHERE ((id)::text ~~ 'queue_%'::text)
+    - INDEX metrics_key_idx (btree) ON (id)
+    - INDEX metrics_sort_idx (btree) ON (created_at DESC)
 --------------------
 TABLE: mqtt_trigger
   - mqtt_resource_path (character)
@@ -647,6 +686,8 @@ TABLE: resource
   - edited_at (timestamp)
   - created_by (character)
   - CONSTRAINT (proper_id)
+  Indexes:
+    - INDEX resource_extra_perms (gin) ON (extra_perms)
 --------------------
 TABLE: resource_type
   - workspace_id (character)
@@ -700,6 +741,8 @@ TABLE: schedule
   - cron_version (text)
   - description (text)
   - CONSTRAINT (proper_id)
+  Indexes:
+    - INDEX schedule_extra_perms (gin) ON (extra_perms)
 --------------------
 TABLE: script
   - workspace_id (character)
@@ -740,6 +783,9 @@ TABLE: script
   - on_behalf_of_email (text)
   - schema_validation (boolean)
   - CONSTRAINT (proper_id)
+  Indexes:
+    - INDEX index_script_on_path_created_at (btree) ON (workspace_id, path, created_at DESC)
+    - INDEX script_extra_perms (gin) ON (extra_perms)
 --------------------
 TABLE: sqs_trigger
   - path (character)
@@ -771,6 +817,8 @@ TABLE: token
   - last_used_at (timestamp)
   - scopes (text[])
   - job (uuid)
+  Indexes:
+    - INDEX index_token_exp (btree) ON (expiration)
 --------------------
 TABLE: tutorial_progress
   - email (character)
@@ -793,6 +841,8 @@ TABLE: usr
   - role (character)
   - CONSTRAINT (proper_email)
   - CONSTRAINT (proper_username)
+  Indexes:
+    - INDEX index_usr_email (btree) ON (email)
 --------------------
 TABLE: usr_to_group
   - workspace_id (character)
@@ -833,6 +883,15 @@ TABLE: v2_job
   - args (jsonb)
   - labels (text[])
   - pre_run_error (text)
+  Indexes:
+    - INDEX ix_job_created_at (btree) ON (created_at DESC)
+    - INDEX ix_job_root_job_index_by_path_2 (btree) ON (workspace_id, runnable_path, created_at DESC) WHERE (parent_job IS NULL)
+    - INDEX ix_job_workspace_id_created_at_new_3 (btree) ON (workspace_id, created_at DESC)
+    - INDEX ix_job_workspace_id_created_at_new_5 (btree) ON (workspace_id, created_at DESC) WHERE ((kind = ANY (ARRAY['preview'::public.job_kind, 'flowpreview'::public.job_kind])) AND (parent_job IS NULL))
+    - INDEX ix_job_workspace_id_created_at_new_8 (btree) ON (workspace_id, created_at DESC) WHERE ((kind = 'deploymentcallback'::public.job_kind) AND (parent_job IS NULL))
+    - INDEX ix_job_workspace_id_created_at_new_9 (btree) ON (workspace_id, created_at DESC) WHERE ((kind = ANY (ARRAY['dependencies'::public.job_kind, 'flowdependencies'::public.job_kind, 'appdependencies'::public.job_kind])) AND (parent_job IS NULL))
+    - INDEX ix_v2_job_labels (gin) ON (labels) WHERE (labels IS NOT NULL)
+    - INDEX ix_v2_job_workspace_id_created_at (btree) ON (workspace_id, created_at DESC) WHERE ((kind = ANY (ARRAY['script'::public.job_kind, 'flow'::public.job_kind, 'singlescriptflow'::public.job_kind])) AND (parent_job IS NULL))
 --------------------
 TABLE: v2_job_completed
   - id (uuid)
@@ -852,6 +911,10 @@ TABLE: v2_job_completed
   - result_columns (text[])
   - retries (uuid[])
   - extras (jsonb)
+  Indexes:
+    - INDEX ix_completed_job_workspace_id_started_at_new_2 (btree) ON (workspace_id, started_at DESC)
+    - INDEX ix_job_completed_completed_at (btree) ON (completed_at DESC)
+    - INDEX labeled_jobs_on_jobs (gin) ON (((result -> 'wm_labels'::text))) WHERE (result ? 'wm_labels'::text)
 --------------------
 TABLE: v2_job_queue
   - id (uuid)
@@ -868,6 +931,11 @@ TABLE: v2_job_queue
   - priority (smallint)
   - worker (character)
   - extras (jsonb)
+  Indexes:
+    - INDEX queue_sort_v2 (btree) ON (priority DESC NULLS LAST, scheduled_for, tag) WHERE (running = false)
+    - INDEX queue_suspended (btree) ON (priority DESC NULLS LAST, created_at, suspend_until, suspend, tag) WHERE (suspend_until IS NOT NULL)
+    - INDEX root_queue_index_by_path (btree) ON (workspace_id, created_at)
+    - INDEX v2_job_queue_suspend (btree) ON (workspace_id, suspend) WHERE (suspend > 0)
 --------------------
 TABLE: v2_job_runtime
   - id (uuid)
@@ -891,6 +959,8 @@ TABLE: variable
   - is_oauth (boolean)
   - expires_at (timestamp)
   - CONSTRAINT (proper_id)
+  Indexes:
+    - INDEX variable_extra_perms (gin) ON (extra_perms)
 --------------------
 TABLE: websocket_trigger
   - path (character)
@@ -936,6 +1006,8 @@ TABLE: worker_ping
   - occupancy_rate_15s (real)
   - occupancy_rate_5m (real)
   - occupancy_rate_30m (real)
+  Indexes:
+    - INDEX worker_ping_on_ping_at (btree) ON (ping_at)
 --------------------
 TABLE: workspace
   - id (character)
@@ -970,6 +1042,12 @@ TABLE: workspace_runnable_dependencies
   - workspace_id (character)
   - app_path (character)
   - CONSTRAINT (workspace_runnable_dependencies_path_exclusive)
+  Indexes:
+    - UNIQUE INDEX app_workspace_with_hash_unique_idx (btree) ON (app_path, runnable_path, script_hash, runnable_is_flow, workspace_id) WHERE (script_hash IS NOT NULL)
+    - UNIQUE INDEX app_workspace_without_hash_unique_idx (btree) ON (app_path, runnable_path, runnable_is_flow, workspace_id) WHERE (script_hash IS NULL)
+    - INDEX flow_workspace_runnable_path_is_flow_idx (btree) ON (runnable_path, runnable_is_flow, workspace_id)
+    - UNIQUE INDEX flow_workspace_with_hash_unique_idx (btree) ON (flow_path, runnable_path, script_hash, runnable_is_flow, workspace_id) WHERE (script_hash IS NOT NULL)
+    - UNIQUE INDEX flow_workspace_without_hash_unique_idx (btree) ON (flow_path, runnable_path, runnable_is_flow, workspace_id) WHERE (script_hash IS NULL)
 --------------------
 TABLE: workspace_settings
   - workspace_id (character)
