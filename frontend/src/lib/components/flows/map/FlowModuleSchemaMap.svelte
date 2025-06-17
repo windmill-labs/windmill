@@ -63,16 +63,8 @@
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
 
-	const {
-		customUi,
-		selectedId,
-		moving,
-		history,
-		flowStateStore,
-		flowStore,
-		flowInputsStore,
-		pathStore
-	} = getContext<FlowEditorContext>('FlowEditorContext')
+	const { customUi, selectedId, moving, history, flowStateStore, flowStore, pathStore } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
@@ -340,7 +332,6 @@
 			modules={flowStore.val.value.modules}
 			preprocessorModule={flowStore.val.value?.preprocessor_module}
 			{selectedId}
-			{flowInputsStore}
 			{workspace}
 			editMode
 			onDelete={(id) => {

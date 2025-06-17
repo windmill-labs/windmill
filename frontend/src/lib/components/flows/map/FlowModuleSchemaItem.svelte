@@ -18,8 +18,7 @@
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import type { FlowEditorContext, FlowInput } from '../types'
-	import { type Writable } from 'svelte/store'
+	import type { FlowEditorContext } from '../types'
 	import { twMerge } from 'tailwind-merge'
 	import IdEditorInput from '$lib/components/IdEditorInput.svelte'
 	import { dfs } from '../dfs'
@@ -32,6 +31,7 @@
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
+	import Button from '$lib/components/common/button/Button.svelte'
 
 	interface Props {
 		selected?: boolean
@@ -96,11 +96,8 @@
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
 
-	const { flowInputsStore } = getContext<{ flowInputsStore: Writable<FlowInput | undefined> }>(
-		'FlowGraphContext'
-	)
-
-	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
+	const flowInputsStore = flowEditorContext?.flowInputsStore
 
 	const dispatch = createEventDispatcher()
 
@@ -387,6 +384,13 @@
 			</OutputPicker>
 		{/if}
 	</div>
+
+	{#if true}
+		<div class="absolute -right-20 flex-row">
+			<Button size="xs">Accept</Button>
+			<Button size="xs">Reject</Button>
+		</div>
+	{/if}
 
 	{#if deletable}
 		<button

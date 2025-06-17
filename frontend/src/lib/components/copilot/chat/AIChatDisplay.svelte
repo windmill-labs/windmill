@@ -208,18 +208,20 @@
 						{/if}
 					</div>
 					{#if message.role === 'user' && message.snapshot}
-						<Button
-							size="xs"
-							variant="border"
-							color="light"
-							on:click={() => {
-								if (message.snapshot) {
-									aiChatManager.revertToSnapshot(message.snapshot)
-								}
-							}}
-						>
-							Revert to snapshot
-						</Button>
+						<div class="self-start mx-2">
+							<Button
+								size="xs"
+								variant="border"
+								color="light"
+								on:click={() => {
+									if (message.snapshot) {
+										aiChatManager.revertToSnapshot(message.snapshot)
+									}
+								}}
+							>
+								Revert to snapshot
+							</Button>
+						</div>
 					{/if}
 				{/each}
 				{#if aiChatManager.loading && !aiChatManager.currentReply}
