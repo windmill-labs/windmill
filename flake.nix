@@ -167,6 +167,8 @@
             '')
             (pkgs.writeScriptBin "wm" ''
               cd ./frontend
+              npm install
+              npm run generate-backend-client
               npm run dev $*
             '')
             (pkgs.writeScriptBin "wm-minio" ''
@@ -187,7 +189,6 @@
               echo "bucket: wmill"
               echo "endpoint: http://localhost:9000"
             '')
-
           ];
 
           inherit PKG_CONFIG_PATH RUSTY_V8_ARCHIVE;
@@ -200,6 +201,7 @@
           RUSTC_WRAPPER = "${pkgs.sccache}/bin/sccache";
           DENO_PATH = "${pkgs.deno}/bin/deno";
           GO_PATH = "${pkgs.go}/bin/go";
+          PHP_PATH = "${pkgs.php}/bin/php";
           BUN_PATH = "${pkgs.bun}/bin/bun";
           UV_PATH = "${pkgs.uv}/bin/uv";
           NU_PATH = "${pkgs.nushell}/bin/nu";
