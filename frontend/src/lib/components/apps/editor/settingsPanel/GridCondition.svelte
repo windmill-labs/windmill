@@ -122,6 +122,7 @@
 			id: generateRandomString(),
 			originalIndex: items.length
 		})
+		items = items
 		component.numberOfSubgrids = items.length + 1
 	}
 </script>
