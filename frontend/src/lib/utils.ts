@@ -311,7 +311,6 @@ export function clickOutside(
 		if (node && !node.contains(target) && !event.defaultPrevented && !isExcluded) {
 			const portalDivsSelector = portalDivs.join(', ')
 			const parent = target.closest(portalDivsSelector)
-			console.log(parent)
 
 			if (!parent) {
 				if (opts?.stopPropagation) {
