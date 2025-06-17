@@ -8,23 +8,35 @@
 	}
 	let { items, onRemove, onReorder }: Props = $props()
 
-	let currentlyDragging: Item | undefined
+	let currentlyDragging: { item: Item; index: number } | undefined = $state()
+	let dragPos = $state<[number, number]>([0, 0])
 </script>
 
-<svelte:window onpointerup={(e) => (currentlyDragging = undefined)} />
+<svelte:window
+	onmousemove={(e) => {
+		if (!currentlyDragging) return
+		dragPos = [dragPos[0] + e.movementX, dragPos[1] + e.movementY]
+	}}
+	onpointerup={() => ((currentlyDragging = undefined), (dragPos = [0, 0]))}
+/>
 
 {#each items ?? [] as item, index}
 	<div
 		class={'pl-3 pr-1 bg-surface-secondary rounded-full flex items-center gap-0.5'}
+		style={currentlyDragging?.index === index
+			? `transform: translate(${dragPos[0]}px, ${dragPos[1]}px); pointer-events: none;`
+			: ''}
 		draggable
 		onpointerdown={(e) => {
 			e.stopPropagation()
-			currentlyDragging = item
+			dragPos = [0, 0]
+			currentlyDragging = { item, index }
 		}}
 		onpointerup={(e) => {
 			e.stopPropagation()
-			if (currentlyDragging) onReorder?.(currentlyDragging, index)
+			if (currentlyDragging) onReorder?.(currentlyDragging.item, index)
 			currentlyDragging = undefined
+			dragPos = [0, 0]
 		}}
 	>
 		<span class="text-sm">{item.label || item.value}</span>

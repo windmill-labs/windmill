@@ -17,6 +17,7 @@
 		disabled = false,
 		disablePortal = false,
 		createText,
+		reorderable = true,
 		groupBy,
 		sortBy,
 		onFocus,
@@ -34,6 +35,7 @@
 		inputClass?: string
 		disablePortal?: boolean
 		createText?: string
+		reorderable?: boolean
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onFocus?: () => void
@@ -87,7 +89,7 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<div
-		class="bg-surface w-full min-h-8 rounded-md cursor-pointer items-center flex flex-wrap gap-1 py-0.5 px-0.5"
+		class="bg-surface overflow-clip w-full min-h-8 rounded-md cursor-pointer items-center flex flex-wrap gap-1 py-0.5 px-0.5"
 		onclick={() => (open = true)}
 		role="list"
 	>
@@ -97,12 +99,14 @@
 			<DraggableTags
 				items={valueEntry}
 				onRemove={onRemoveValue}
-				onReorder={(item, newIndex) => {
-					console.log('Reordering item:', item, 'to new index:', newIndex)
-					const filtered = value.filter((v) => v !== item.value)
-					value = [...filtered.slice(0, newIndex), item.value, ...filtered.slice(newIndex)]
-					console.log('New value order:', value)
-				}}
+				onReorder={reorderable
+					? (item, newIndex) => {
+							console.log('Reordering item:', item, 'to new index:', newIndex)
+							const filtered = value.filter((v) => v !== item.value)
+							value = [...filtered.slice(0, newIndex), item.value, ...filtered.slice(newIndex)]
+							console.log('New value order:', value)
+						}
+					: undefined}
 			/>
 		{/if}
 	</div>
