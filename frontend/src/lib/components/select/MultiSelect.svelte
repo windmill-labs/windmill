@@ -1,5 +1,5 @@
 <script lang="ts" generics="Item extends { label?: string; value: any; }">
-	import { clickOutside } from '$lib/utils'
+	import { clickOutside, reorder } from '$lib/utils'
 	import { untrack } from 'svelte'
 	import { processItems, type ProcessedItem } from './utils.svelte'
 	import SelectDropdown from './SelectDropdown.svelte'
@@ -103,10 +103,7 @@
 				items={valueEntry}
 				onRemove={onRemoveValue}
 				onReorder={reorderable
-					? (item, newIndex) => {
-							const filtered = value.filter((v) => v !== item.value)
-							value = [...filtered.slice(0, newIndex), item.value, ...filtered.slice(newIndex)]
-						}
+					? (oldIdx, newIdx) => (value = reorder(value, oldIdx, newIdx))
 					: undefined}
 			/>
 		{/if}

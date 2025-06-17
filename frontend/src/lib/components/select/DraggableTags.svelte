@@ -4,38 +4,42 @@
 	type Props = {
 		items?: Item[]
 		onRemove: (item: Item) => void
-		onReorder?: (item: Item, newIndex: number) => void
+		onReorder?: (oldIndex: number, newIndex: number) => void
 	}
 	let { items, onRemove, onReorder }: Props = $props()
 
-	let currentlyDragging: { item: Item; index: number } | undefined = $state()
+	let currentlyDraggingIndex: number | undefined = $state()
 	let dragPos = $state<[number, number]>([0, 0])
 </script>
 
 <svelte:window
 	onmousemove={(e) => {
-		if (!currentlyDragging) return
+		if (currentlyDraggingIndex === undefined) return
 		dragPos = [dragPos[0] + e.movementX, dragPos[1] + e.movementY]
 	}}
-	onpointerup={() => ((currentlyDragging = undefined), (dragPos = [0, 0]))}
+	onpointerup={() => {
+		currentlyDraggingIndex = undefined
+		dragPos = [0, 0]
+	}}
 />
 
 {#each items ?? [] as item, index}
 	<div
+		role="listitem"
 		class={'pl-3 pr-1 bg-surface-secondary rounded-full flex items-center gap-0.5'}
-		style={currentlyDragging?.index === index
+		style={currentlyDraggingIndex === index
 			? `transform: translate(${dragPos[0]}px, ${dragPos[1]}px); pointer-events: none;`
 			: ''}
 		draggable
 		onpointerdown={(e) => {
 			e.stopPropagation()
 			dragPos = [0, 0]
-			currentlyDragging = { item, index }
+			currentlyDraggingIndex = index
 		}}
 		onpointerup={(e) => {
 			e.stopPropagation()
-			if (currentlyDragging) onReorder?.(currentlyDragging.item, index)
-			currentlyDragging = undefined
+			if (currentlyDraggingIndex !== undefined) onReorder?.(currentlyDraggingIndex, index)
+			currentlyDraggingIndex = undefined
 			dragPos = [0, 0]
 		}}
 	>
