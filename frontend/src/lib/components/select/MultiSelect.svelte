@@ -4,6 +4,7 @@
 	import { processItems, type ProcessedItem } from './utils.svelte'
 	import SelectDropdown from './SelectDropdown.svelte'
 	import CloseButton from '../common/CloseButton.svelte'
+	import DraggableTags from './DraggableTags.svelte'
 
 	type Value = Item['value']
 
@@ -92,17 +93,18 @@
 	>
 		{#if value.length === 0}
 			<span class="text-sm ml-2 text-tertiary">{placeholder}</span>
+		{:else}
+			<DraggableTags
+				items={valueEntry}
+				onRemove={onRemoveValue}
+				onReorder={(item, newIndex) => {
+					console.log('Reordering item:', item, 'to new index:', newIndex)
+					const filtered = value.filter((v) => v !== item.value)
+					value = [...filtered.slice(0, newIndex), item.value, ...filtered.slice(newIndex)]
+					console.log('New value order:', value)
+				}}
+			/>
 		{/if}
-		{#each valueEntry ?? [] as item}
-			<div class="pl-3 pr-1 bg-surface-secondary rounded-full flex items-center gap-0.5">
-				<span class="text-sm">{item.label || item.value}</span>
-				<CloseButton
-					class="text-tertiary"
-					small
-					on:close={(e) => (onRemoveValue(item), e.stopPropagation())}
-				/>
-			</div>
-		{/each}
 	</div>
 	<CloseButton noBg class="mr-1" small on:close={(e) => (clearValue(), e.stopPropagation())} />
 	<SelectDropdown
