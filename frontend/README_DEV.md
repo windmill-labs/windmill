@@ -6,13 +6,13 @@ Nix will manage all environment variables, packages and other configuration that
 
 **Prerequisites**
 
-- Install Nix [link](https://github.com/DeterminateSystems/nix-installer).
+- Install [Nix](https://github.com/DeterminateSystems/nix-installer).
 - Install Docker.
 - Optionally install [direnv](https://direnv.net/docs/installation.html).
 
 That's it! You are ready to go.
 
-Using **direnv** is highly recommended, since it can load shell automatically based on your CWD. It also can give you hints.
+> Using **direnv** is highly recommended, since it can load shell automatically based on your CWD. It also can give you hints.
 
 ### Development
 ```bash
