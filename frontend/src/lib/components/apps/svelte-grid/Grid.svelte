@@ -34,7 +34,6 @@
 		subGridIndexKey,
 		type GridShadow
 	} from '../editor/appUtils'
-	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -86,6 +85,7 @@
 	let yPerPx = rowHeight
 
 	const onResize = throttle(() => {
+		if (!getComputedCols) return
 		sortedItems = specifyUndefinedColumns(sortedItems, getComputedCols, cols)
 		dispatch('resize', {
 			cols: getComputedCols,
@@ -114,7 +114,7 @@
 				}
 				xPerPx = width / getComputedCols!
 
-				if (!containerWidth) {
+				if (!containerWidth && getComputedCols) {
 					sortedItems = specifyUndefinedColumns(sortedItems, getComputedCols, cols)
 
 					dispatch('mount', {
@@ -158,9 +158,7 @@
 			? items.map((item) => {
 					return {
 						...item,
-						[getComputedCols as number]: structuredClone(
-							stateSnapshot(item[getComputedCols as number])
-						)
+						[getComputedCols as number]: { ...item[getComputedCols as number] }
 					}
 				})
 			: []

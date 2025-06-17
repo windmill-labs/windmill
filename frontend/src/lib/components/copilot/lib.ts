@@ -37,6 +37,62 @@ export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
 	customai: []
 }
 
+export interface ModelResponse {
+	id: string
+	object: string
+	created: number
+	owned_by: string
+	lifecycle_status: string
+	capabilities: {
+		completion: boolean
+		chat_completion: boolean
+	}
+}
+
+export async function fetchAvailableModels(
+	resourcePath: string,
+	workspace: string,
+	provider: AIProvider
+): Promise<string[]> {
+	const models = await fetch(`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/models`, {
+		headers: {
+			'X-Resource-Path': resourcePath,
+			'X-Provider': provider,
+			...(provider === 'anthropic' ? { 'anthropic-version': '2023-06-01' } : {})
+		}
+	})
+	if (!models.ok) {
+		console.error('Failed to fetch models for provider', provider, models)
+		throw new Error(`Failed to fetch models for provider ${provider}`)
+	}
+	const data = (await models.json()) as { data: ModelResponse[] }
+	if (data.data.length > 0) {
+		switch (provider) {
+			case 'openai':
+				return data.data
+					.filter(
+						(m) => m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.startsWith('codex')
+					)
+					.map((m) => m.id)
+			case 'azure_openai':
+				return data.data
+					.filter(
+						(m) =>
+							(m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.startsWith('codex')) &&
+							m.lifecycle_status !== 'deprecated' &&
+							(m.capabilities.completion || m.capabilities.chat_completion)
+					)
+					.map((m) => m.id)
+			case 'googleai':
+				return data.data.map((m) => m.id.split('/')[1])
+			default:
+				return data.data.map((m) => m.id)
+		}
+	}
+
+	return data?.data.map((m) => m.id) ?? []
+}
+
 function getModelMaxTokens(model: string) {
 	if (model.startsWith('gpt-4.1')) {
 		return 32768

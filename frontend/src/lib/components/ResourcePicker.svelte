@@ -10,8 +10,8 @@
 	import { Pen, Plus, RotateCw } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { isDbType } from './apps/components/display/dbtable/utils'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import Select from './Select.svelte'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)

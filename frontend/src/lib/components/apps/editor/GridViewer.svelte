@@ -48,6 +48,7 @@
 	$: containerHeight = getContainerHeight(items, yPerPx, getComputedCols)
 
 	const onResize = throttle(() => {
+		if (!getComputedCols) return
 		items = specifyUndefinedColumns(items, getComputedCols, cols)
 		dispatch('resize', {
 			cols: getComputedCols,
@@ -75,6 +76,7 @@
 				xPerPx = width / getComputedCols!
 
 				if (!containerWidth) {
+					if (!getComputedCols) return
 					items = specifyUndefinedColumns(items, getComputedCols, cols)
 
 					dispatch('mount', {

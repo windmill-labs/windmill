@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.497.2](https://github.com/windmill-labs/windmill/compare/v1.497.1...v1.497.2) (2025-06-17)
+
+
+### Bug Fixes
+
+* always rm containers in docker mode ([38eb71b](https://github.com/windmill-labs/windmill/commit/38eb71bdf55ee2f606d1d2ad2e987d5af16d88c0))
+* flow steps use their tags if any specific when used as subflow ([26bec05](https://github.com/windmill-labs/windmill/commit/26bec054a3447a91c5d5f56d8b98717c06496087))
+
+## [1.497.1](https://github.com/windmill-labs/windmill/compare/v1.497.0...v1.497.1) (2025-06-16)
+
+
+### Bug Fixes
+
+* fix mcp server initialization ([1c6a7c8](https://github.com/windmill-labs/windmill/commit/1c6a7c8cd0bd8396f158e3cb0583b927ce957f12))
+
 ## [1.497.0](https://github.com/windmill-labs/windmill/compare/v1.496.3...v1.497.0) (2025-06-16)
 
 

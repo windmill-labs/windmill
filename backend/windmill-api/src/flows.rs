@@ -477,7 +477,7 @@ async fn create_flow(
         false,
         None,
         true,
-        nf.tag,
+        None,
         None,
         None,
         None,
