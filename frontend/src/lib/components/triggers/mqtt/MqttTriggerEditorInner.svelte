@@ -76,12 +76,12 @@
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
 	let subscribe_topics: MqttSubscribeTopic[] = $state([])
-	let v3_config: MqttV3Config | undefined = $state()
-	let v5_config: MqttV5Config | undefined = $state()
+	let v3_config: MqttV3Config | undefined = $state({})
+	let v5_config: MqttV5Config | undefined = $state({})
 	let client_version: MqttClientVersion | undefined = $state()
-	let client_id: string | undefined = $state(undefined)
-	let isValid: boolean | undefined = $state(undefined)
-	let initialConfig: Record<string, any> | undefined = undefined
+	let client_id: string | undefined = $state('')
+	let isValid: boolean = $state(false)
+	let initialConfig: Record<string, any> | undefined = {}
 	let deploymentLoading = $state(false)
 
 	const mqttConfig = $derived.by(getSaveCfg)
@@ -247,7 +247,7 @@
 	}
 
 	$effect(() => {
-		let args = [captureConfig, isValid ?? false] as const
+		let args = [captureConfig, isValid] as const
 		onCaptureConfigChange?.(...args)
 	})
 
