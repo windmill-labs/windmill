@@ -58,7 +58,7 @@ You can read about all others commands individually in [flake.nix](../flake.nix)
 
 Sometimes it is important to build docker image for your branch locally. It is crucial part of testing, since local environment may differ from the containerized one.
 
-That's why we provide `docker/dev.nu`. It is helper that can build images locally and execute them. 
+That's why we provide [docker/dev.nu](../docker/dev.nu). It is helper that can build images locally and execute them. 
 
 it can build the image and run on local repository.
 
