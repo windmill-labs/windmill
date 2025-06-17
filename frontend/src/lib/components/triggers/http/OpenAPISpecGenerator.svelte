@@ -592,11 +592,10 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/http_tr
 										openapiDocument = YAML.stringify(obj)
 									} else {
 										const obj = YAML.parse(openapiDocument)
-										openapiDocument = JSON.stringify(obj)
+										openapiDocument = JSON.stringify(obj, null, 2)
 									}
 									await tick()
-									editor?.setCode(openapiDocument)
-									editor?.formatCode()
+									editor?.setCode(openapiDocument, true)
 									await tick()
 								} catch (error) {
 									const message = error instanceof Error ? error.message : JSON.stringify(error)
