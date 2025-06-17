@@ -23,7 +23,7 @@
 	import { RefreshCw } from 'lucide-svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import TestingBadge from '../testingBadge.svelte'
-	import Select from '$lib/components/Select.svelte'
+	import Select from '$lib/components/select/Select.svelte'
 
 	let topic_items: string[] = $state([])
 	let subscription_items: string[] = $state([])

@@ -1,8 +1,8 @@
 <script lang="ts" generics="Item extends { label?: string; value: any; }">
 	import { clickOutside } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
-	import CloseButton from './common/CloseButton.svelte'
-	import ConditionalPortal from './common/drawer/ConditionalPortal.svelte'
+	import CloseButton from '../common/CloseButton.svelte'
+	import ConditionalPortal from '../common/drawer/ConditionalPortal.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { Loader2 } from 'lucide-svelte'
 	import { untrack } from 'svelte'

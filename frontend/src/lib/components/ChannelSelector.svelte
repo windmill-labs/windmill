@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Select from './Select.svelte'
+	import Select from './select/Select.svelte'
 
 	interface ChannelItem {
 		channel_id?: string

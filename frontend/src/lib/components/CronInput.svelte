@@ -9,7 +9,7 @@
 	import CronBuilder from './CronBuilder.svelte'
 	import Label from './Label.svelte'
 	import CronGen from './copilot/CronGen.svelte'
-	import Select from './Select.svelte'
+	import Select from './select/Select.svelte'
 
 	export let schedule: string
 	// export let offset: number = -60 * Math.floor(new Date().getTimezoneOffset() / 60)

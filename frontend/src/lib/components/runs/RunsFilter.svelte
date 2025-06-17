@@ -12,7 +12,7 @@
 	import { createEventDispatcher, untrack } from 'svelte'
 	import ToggleButtonMore from '../common/toggleButton-v2/ToggleButtonMore.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import Select from '../Select.svelte'
+	import Select from '../select/Select.svelte'
 
 	interface Props {
 		// Filters

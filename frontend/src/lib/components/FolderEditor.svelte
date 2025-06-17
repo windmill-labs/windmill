@@ -18,7 +18,7 @@
 	import Label from './Label.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { createEventDispatcher } from 'svelte'
-	import Select from './Select.svelte'
+	import Select from './select/Select.svelte'
 
 	export let name: string
 	let can_write = false

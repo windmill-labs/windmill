@@ -13,7 +13,7 @@
 	import { isOwner } from '$lib/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import Select from './Select.svelte'
+	import Select from './select/Select.svelte'
 
 	const dispatch = createEventDispatcher()
 

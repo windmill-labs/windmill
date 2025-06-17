@@ -11,7 +11,7 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { enUS, fr, de, pt, ja } from 'date-fns/locale'
-	import Select from '$lib/components/Select.svelte'
+	import Select from '$lib/components/select/Select.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations

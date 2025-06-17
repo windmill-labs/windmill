@@ -8,7 +8,7 @@
 	import { Alert } from '../common'
 	import AddPropertyV2 from '$lib/components/schema/AddPropertyV2.svelte'
 	import { Plus } from 'lucide-svelte'
-	import Select from '../Select.svelte'
+	import Select from '../select/Select.svelte'
 
 	interface Props {
 		schema: Schema | undefined | any

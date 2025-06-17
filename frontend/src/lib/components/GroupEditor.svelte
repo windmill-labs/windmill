@@ -17,7 +17,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
-	import Select from './Select.svelte'
+	import Select from './select/Select.svelte'
 
 	export let name: string
 	let can_write = false

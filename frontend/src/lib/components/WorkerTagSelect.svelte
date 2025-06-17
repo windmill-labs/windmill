@@ -3,7 +3,7 @@
 	import { WorkerService } from '$lib/gen'
 
 	import { createEventDispatcher } from 'svelte'
-	import Select from './Select.svelte'
+	import Select from './select/Select.svelte'
 
 	let {
 		tag = $bindable(),

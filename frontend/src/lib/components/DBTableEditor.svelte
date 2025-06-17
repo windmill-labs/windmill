@@ -71,7 +71,7 @@
 	import { getFlatTableNamesFromSchema, type DBSchema } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 	import DarkModeObserver from './DarkModeObserver.svelte'
-	import Select from './Select.svelte'
+	import Select from './select/Select.svelte'
 
 	const { onConfirm, resourceType, previewSql, dbSchema, currentSchema }: DBTableEditorProps =
 		$props()

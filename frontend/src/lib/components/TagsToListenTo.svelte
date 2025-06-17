@@ -4,7 +4,7 @@
 	import { superadmin } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import { defaultTags, nativeTags } from './worker_group'
-	import Select from './Select.svelte'
+	import Select from './select/Select.svelte'
 
 	const dispatch = createEventDispatcher()
 	type Props = {
