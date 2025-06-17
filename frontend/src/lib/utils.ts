@@ -274,7 +274,7 @@ export function validatePassword(password: string): boolean {
 	return re.test(password)
 }
 
-const portalDivs = ['app-editor-select']
+const portalDivs = ['#app-editor-select', '.select-dropdown-portal']
 
 interface ClickOutsideOptions {
 	capture?: boolean
@@ -309,8 +309,9 @@ export function clickOutside(
 		})
 
 		if (node && !node.contains(target) && !event.defaultPrevented && !isExcluded) {
-			const portalDivsSelector = portalDivs.map((id) => `#${id}`).join(', ')
+			const portalDivsSelector = portalDivs.join(', ')
 			const parent = target.closest(portalDivsSelector)
+			console.log(parent)
 
 			if (!parent) {
 				if (opts?.stopPropagation) {
@@ -372,7 +373,7 @@ export function pointerDownOutside(
 		})
 
 		if (node && !node.contains(target) && !event.defaultPrevented && !isExcluded) {
-			const portalDivsSelector = portalDivs.map((id) => `#${id}`).join(', ')
+			const portalDivsSelector = portalDivs.join(', ')
 			const parent = target.closest(portalDivsSelector)
 
 			if (!parent) {

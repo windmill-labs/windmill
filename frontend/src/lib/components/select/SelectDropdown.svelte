@@ -79,7 +79,7 @@
 	}}
 />
 
-<ConditionalPortal condition={!disablePortal}>
+<ConditionalPortal condition={!disablePortal} name="select-dropdown-portal">
 	{#if open && !disabled}
 		<div
 			class={twMerge(
