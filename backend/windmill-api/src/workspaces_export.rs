@@ -548,6 +548,8 @@ pub(crate) async fn tarball_workspace(
                     authentication_resource_path,
                     script_path, 
                     is_flow, 
+                    summary,
+                    description,
                     edited_by, 
                     edited_at, 
                     email, 

@@ -478,7 +478,7 @@ pub async fn test_mqtt_connection(
         test_postgres;
 
     let mqtt_resource = try_get_resource_from_db_as::<MqttResource>(
-        authed,
+        &authed,
         Some(user_db),
         &db,
         &mqtt_resource_path,
@@ -1253,7 +1253,7 @@ impl MqttConfig {
             }
         }
         let mqtt_resource = try_get_resource_from_db_as::<MqttResource>(
-            authed,
+            &authed,
             Some(UserDB::new(db.clone())),
             db,
             mqtt_resource_path,
