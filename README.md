@@ -367,10 +367,11 @@ you to have it being synced automatically everyday.
 
 ## Run a local dev setup
 
+Using [Nix](./frontend/README_DEV.md#nix) (Recommended).
+
 See the [./frontend/README_DEV.md](./frontend/README_DEV.md) file for all
 running options.
 
-Using [Nix](./frontend/README_DEV.md#nix).
 
 ### only Frontend
 
