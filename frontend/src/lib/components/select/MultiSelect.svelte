@@ -20,7 +20,6 @@
 		sortBy,
 		onFocus,
 		onBlur,
-		onClear,
 		onCreateItem
 	}: {
 		items?: Item[]
@@ -72,13 +71,12 @@
 
 	function clearValue() {
 		filterText = ''
-		if (onClear) onClear()
-		else value = []
+		value = []
 	}
 </script>
 
 <div
-	class={`relative w-full  ${className}`}
+	class={`relative flex items-center w-full  ${className}`}
 	use:clickOutside={{ onClickOutside: () => (open = false) }}
 	onpointerdown={() => onFocus?.()}
 	onfocus={() => onFocus?.()}
@@ -96,21 +94,13 @@
 			<span class="text-sm ml-2 text-tertiary">{placeholder}</span>
 		{/if}
 		{#each valueEntry ?? [] as item}
-			<div class="pl-3 pr-1 bg-surface-selected rounded-full flex items-center gap-0.5">
+			<div class="pl-3 pr-1 bg-surface-secondary rounded-full flex items-center gap-0.5">
 				<span class="text-sm">{item.label || item.value}</span>
-				<CloseButton
-					class="bg-surface-selected hover:bg-surface-secondary"
-					small
-					on:close={(e) => (onRemoveValue(item), e.stopPropagation())}
-				/>
-				<!-- <X
-					class="inline p-0.5"
-					onclick={(e) => (onRemoveValue(item), e.stopPropagation())}
-					size={20}
-				/> -->
+				<CloseButton small on:close={(e) => (onRemoveValue(item), e.stopPropagation())} />
 			</div>
 		{/each}
 	</div>
+	<CloseButton class="mr-1" small on:close={(e) => (clearValue(), e.stopPropagation())} />
 	<SelectDropdown
 		{disablePortal}
 		onSelectValue={onAddValue}
