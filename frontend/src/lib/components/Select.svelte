@@ -114,7 +114,7 @@
 		}
 		return items2
 	})
-	let valueEntry = $derived(value && processedItems?.find((item) => item.value === value))
+	let valueEntry = $derived(value && processedItems?.find((item) => deepEqual(item.value, value)))
 
 	function setValue(item: ProcessedItem) {
 		if (item.__is_create && onCreateItem) {

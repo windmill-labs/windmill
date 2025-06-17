@@ -21,7 +21,7 @@
 		</div>
 	</div>
 
-	{#if !$devopsRole}
+	{#if $devopsRole == false}
 		<Alert title="Service logs are only available to superadmins" type="warning">
 			Service logs are only available to superadmins (or devops)
 		</Alert>
