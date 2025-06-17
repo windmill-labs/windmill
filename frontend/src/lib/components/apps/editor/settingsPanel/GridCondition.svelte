@@ -9,27 +9,29 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { AppViewerContext, RichConfiguration } from '../../types'
-	import { getContext, tick } from 'svelte'
+	import { getContext, tick, untrack } from 'svelte'
 	import { deleteGridItem } from '../appUtils'
 	import type { AppComponent } from '../component'
 
-	export let conditions: RichConfiguration[] = []
-	export let component: AppComponent
+	interface Props {
+		conditions?: RichConfiguration[]
+		component: AppComponent
+	}
 
-	let items = conditions.slice(0, -1).map((condition, index) => {
-		return { value: condition, id: generateRandomString(), originalIndex: index }
+	let { conditions = $bindable([]), component = $bindable() }: Props = $props()
+
+	let items = $state(
+		conditions.slice(0, -1).map((condition, index) => {
+			return { value: condition, id: generateRandomString(), originalIndex: index }
+		})
+	)
+
+	$effect(() => {
+		const nItems = items
+			.map((item) => item.value)
+			.concat([{ type: 'evalv2', expr: 'true', fieldType: 'boolean', connections: [] }])
+		untrack(() => (conditions = nItems))
 	})
-
-	$: conditions = items
-		.map((item) => item.value)
-		.concat([
-			{
-				type: 'evalv2',
-				expr: 'true',
-				fieldType: 'boolean',
-				connections: []
-			}
-		])
 
 	const { app, runnableComponents, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -141,8 +143,8 @@
 				flipDurationMs: 200,
 				dropTargetStyle: {}
 			}}
-			on:consider={handleConsider}
-			on:finalize={handleFinalize}
+			onconsider={handleConsider}
+			onfinalize={handleFinalize}
 		>
 			{#each items as item, index (item.id)}
 				{@const condition = item.value}
@@ -168,14 +170,14 @@
 					</div>
 
 					<div class="flex flex-col justify-center gap-2">
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						<!-- svelte-ignore a11y-no-static-element-interactions -->
-						<div on:click={() => deleteSubgrid(index)}>
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div onclick={() => deleteSubgrid(index)}>
 							<X size={16} />
 						</div>
 
-						<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
-						<!-- svelte-ignore a11y-no-static-element-interactions -->
+						<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div use:dragHandle class="w-4 h-4 handle" aria-label="drag-handle">
 							<GripVertical size={16} />
 						</div>
