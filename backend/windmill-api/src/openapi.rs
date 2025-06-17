@@ -449,13 +449,12 @@ fn header_to_pascal_case(header: &str) -> String {
 struct SecuritySchemeToAdd {
     basic_http: bool,
     bearer_jwt: bool,
-    api_key: Option<Vec<(String, Value)>>,
+    api_keys: Vec<(String, Value)>,
 }
 
 fn generate_all_security_schemes(future_paths: &[FuturePath]) -> SecuritySchemeToAdd {
     let mut to_add = SecuritySchemeToAdd::default();
 
-    let mut vec = Vec::new();
     let mut set = HashSet::new();
     for future_path in future_paths {
         if !to_add.basic_http
@@ -478,12 +477,8 @@ fn generate_all_security_schemes(future_paths: &[FuturePath]) -> SecuritySchemeT
                     "in": "header",
                     "name": api_key
             });
-            vec.push((pascal_case_header, scheme));
+            to_add.api_keys.push((pascal_case_header, scheme));
         }
-    }
-
-    if vec.len() > 0 {
-        to_add.api_key = Some(vec);
     }
 
     to_add
@@ -515,7 +510,7 @@ fn generate_components(future_paths: &[FuturePath]) -> Map<String, Value> {
     {
         let mut security_scheme = Map::new();
 
-        let SecuritySchemeToAdd { basic_http, bearer_jwt, api_key } =
+        let SecuritySchemeToAdd { basic_http, bearer_jwt, api_keys } =
             generate_all_security_schemes(future_paths);
 
         if basic_http {
@@ -539,10 +534,8 @@ fn generate_components(future_paths: &[FuturePath]) -> Map<String, Value> {
             );
         }
 
-        if let Some(api_key) = api_key {
-            for (key, value) in api_key {
-                security_scheme.insert(key, value);
-            }
+        for (key, value) in api_keys {
+            security_scheme.insert(key, value);
         }
         components.insert("securitySchemes".to_owned(), Value::Object(security_scheme));
     }
