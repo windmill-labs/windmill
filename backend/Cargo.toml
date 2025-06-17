@@ -130,6 +130,7 @@ prometheus = { workspace = true, optional = true }
 uuid.workspace = true
 gethostname.workspace = true
 serde_json.workspace = true
+serde_yml.workspace = true
 serde.workspace = true
 deno_core = { workspace = true, optional = true }
 object_store = { workspace = true, optional = true }
@@ -201,6 +202,7 @@ tower-http = { version = "^0.6", features = ["trace", "cors"] }
 tower-cookies = "^0.10"
 serde = "^1"
 serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
+serde_yml = "0.0.12"
 uuid = { version = "^1", features = ["serde", "v4"] }
 thiserror = "^2"
 anyhow = "^1"
@@ -230,7 +232,7 @@ php-parser-rs = { git = "https://github.com/php-rust-tools/parser", rev = "ec4cb
 cron = "^0"
 mail-send = { version = "0.4.0", features = ["builder"], default-features=false }
 urlencoding = "^2"
-url = "^2"
+url = { version = "^2" , features = ["serde"]}
 async-oauth2 = "^0"
 reqwest = { version = "^0.12", features = ["json", "stream", "gzip"] }
 time = "^0"
