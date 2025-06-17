@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import type { InputType, StaticInput, StaticOptions } from '../../../inputType'
 	import ArrayStaticInputEditor from '../ArrayStaticInputEditor.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
@@ -25,34 +28,62 @@
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import FileUpload from '$lib/components/common/fileUpload/FileUpload.svelte'
-	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 
-	export let componentInput: StaticInput<any> | undefined
-	export let fieldType: InputType | undefined = undefined
-	export let subFieldType: InputType | undefined = undefined
-	export let selectOptions: StaticOptions['selectOptions'] | undefined = undefined
-	export let placeholder: string | undefined = undefined
-	export let format: string | undefined = undefined
-	export let id: string | undefined
+	interface Props {
+		componentInput: StaticInput<any> | undefined
+		fieldType?: InputType | undefined
+		subFieldType?: InputType | undefined
+		selectOptions?: StaticOptions['selectOptions'] | undefined
+		placeholder?: string | undefined
+		format?: string | undefined
+		id: string | undefined
+	}
+
+	let {
+		componentInput = $bindable(),
+		fieldType = undefined,
+		subFieldType = undefined,
+		selectOptions = undefined,
+		placeholder = undefined,
+		format = undefined,
+		id
+	}: Props = $props()
 
 	const appContext = getContext<AppViewerContext>('AppViewerContext')
 
-	$: componentInput && appContext?.onchange?.()
-	let s3FileUploadRawMode = false
-	let s3FilePicker: S3FilePicker | undefined = undefined
+	$effect(() => {
+		componentInput && appContext?.onchange?.()
+	})
+	let s3FileUploadRawMode = $state(false)
+	let s3FilePicker: S3FilePicker | undefined = $state(undefined)
 </script>
 
 {#key subFieldType}
 	{#if componentInput?.type === 'static'}
 		{#if fieldType === 'number' || fieldType === 'integer'}
-			<input on:keydown|stopPropagation type="number" bind:value={componentInput.value} />
+			<input
+				onkeydown={stopPropagation(bubble('keydown'))}
+				type="number"
+				bind:value={componentInput.value}
+			/>
 		{:else if fieldType === 'textarea'}
-			<textarea use:autosize on:keydown|stopPropagation bind:value={componentInput.value}
+			<textarea
+				use:autosize
+				onkeydown={stopPropagation(bubble('keydown'))}
+				bind:value={componentInput.value}
 			></textarea>
 		{:else if fieldType === 'date'}
-			<input on:keydown|stopPropagation type="date" bind:value={componentInput.value} />
+			<input
+				onkeydown={stopPropagation(bubble('keydown'))}
+				type="date"
+				bind:value={componentInput.value}
+			/>
 		{:else if fieldType === 'time'}
-			<input on:keydown|stopPropagation type="time" bind:value={componentInput.value} />
+			<input
+				onkeydown={stopPropagation(bubble('keydown'))}
+				type="time"
+				bind:value={componentInput.value}
+			/>
 		{:else if fieldType === 'datetime'}
 			<DateTimeInput bind:value={componentInput.value} />
 		{:else if fieldType === 'boolean'}
@@ -61,7 +92,7 @@
 			{#if subFieldType === 'db-table'}
 				<DBTableSelect bind:componentInput {selectOptions} {id} />
 			{:else}
-				<select on:keydown|stopPropagation bind:value={componentInput.value}>
+				<select onkeydown={stopPropagation(bubble('keydown'))} bind:value={componentInput.value}>
 					{#each selectOptions ?? [] as option}
 						{#if typeof option == 'string'}
 							<option value={option}>
@@ -115,7 +146,7 @@
 			{#if componentInput?.value && typeof componentInput?.value == 'object' && 'label' in componentInput?.value && (componentInput.value?.['value'] == undefined || typeof componentInput.value?.['value'] == 'string')}
 				<div class="flex flex-col gap-1 w-full">
 					<input
-						on:keydown|stopPropagation
+						onkeydown={stopPropagation(bubble('keydown'))}
 						placeholder="Label"
 						type="text"
 						bind:value={componentInput.value['label']}
@@ -401,7 +432,7 @@
 					() => componentInput!.value,
 					(v) => {
 						componentInput!.value = v
-						componentInput = stateSnapshot(componentInput)
+						componentInput = $state.snapshot(componentInput)
 					}
 				}
 			/>
@@ -410,7 +441,7 @@
 				<textarea
 					rows="1"
 					use:autosize
-					on:keydown|stopPropagation
+					onkeydown={stopPropagation(bubble('keydown'))}
 					placeholder={placeholder ?? 'Static value'}
 					bind:value={componentInput.value}
 					class="!pr-12"
