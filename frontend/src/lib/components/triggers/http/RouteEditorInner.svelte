@@ -225,6 +225,8 @@
 			signature_options_type = defaultValues?.signature_options_type ?? 'custom_signature'
 			raw_string = defaultValues?.raw_string ?? false
 			wrap_body = defaultValues?.wrap_body ?? false
+			summary = defaultValues?.summary ?? ''
+			routeDescription = defaultValues?.description ?? ''
 		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
