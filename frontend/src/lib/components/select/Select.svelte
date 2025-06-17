@@ -62,14 +62,7 @@
 	let inputEl: HTMLInputElement | undefined = $state()
 
 	let processedItems: ProcessedItem<Value>[] = $derived.by(() => {
-		let args: Parameters<typeof processItems<Item>>[0] = {
-			items,
-			createText,
-			filterText,
-			groupBy,
-			onCreateItem,
-			sortBy
-		}
+		let args = { items, createText, filterText, groupBy, onCreateItem, sortBy }
 		return untrack(() => processItems(args))
 	})
 
