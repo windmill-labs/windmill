@@ -1,8 +1,18 @@
+<script lang="ts" module>
+	type testModuleState = {
+		loading: boolean
+		instances: number
+		cancel?: () => void
+	}
+
+	let testModulesState = $state<Record<string, testModuleState>>({})
+</script>
+
 <script lang="ts">
 	import { ScriptService, type FlowModule, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getScriptByPath } from '$lib/scripts'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import TestJobLoader from './TestJobLoader.svelte'
 
@@ -42,6 +52,8 @@
 	export async function runTest(args: any) {
 		// Not defined if JobProgressBar not loaded
 		if (jobProgressReset) jobProgressReset()
+
+		testModulesState[mod.id].cancel = testJobLoader?.cancelJob
 
 		const val = mod.value
 		// let jobId: string | undefined = undefined
@@ -89,8 +101,26 @@
 	}
 
 	export function cancelJob() {
-		testJobLoader?.cancelJob()
+		testModulesState[mod.id]?.cancel?.()
 	}
+
+	$effect(() => {
+		testIsLoading = testModulesState[mod.id]?.loading ?? false
+	})
+
+	onMount(() => {
+		testModulesState[mod.id] = {
+			...(testModulesState[mod.id] ?? { loading: false, instances: 0 }),
+			loading: testIsLoading,
+			instances: testModulesState[mod.id]!.instances + 1
+		}
+		return () => {
+			testModulesState[mod.id]!.instances -= 1
+			if (testModulesState[mod.id]!.instances < 1) {
+				delete testModulesState[mod.id]
+			}
+		}
+	})
 </script>
 
 <TestJobLoader
@@ -98,6 +128,14 @@
 	on:done={() => jobDone()}
 	bind:scriptProgress
 	bind:this={testJobLoader}
-	bind:isLoading={testIsLoading}
+	bind:isLoading={
+		() => testModulesState[mod.id]?.loading ?? false,
+		(v) =>
+			(testModulesState[mod.id] = {
+				...testModulesState[mod.id],
+				loading: v ?? false,
+				instances: testModulesState[mod.id]?.instances ?? 0
+			})
+	}
 	bind:job={testJob}
 />

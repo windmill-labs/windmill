@@ -445,35 +445,52 @@
 	</div>
 
 	{#if deletable}
-		<div class="absolute top-1/2 -translate-y-1/2 -left-[54px] center-center w-12 h-9">
+		<div
+			class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-2 h-9 min-w-14"
+		>
 			{#if hover || selected}
 				<div transition:fade={{ duration: 100 }}>
-					<Button
-						size="sm"
-						color="dark"
-						title="Run"
-						btnClasses="p-1.5"
-						on:click={() => {
-							moduleTest?.loadArgsAndRunTest()
-						}}
-						dropdownItems={[
-							{
-								label: 'Test up to here',
-								onClick: () => {
-									if (id) {
-										onTestUpTo?.(id)
+					{#if !testIsLoading}
+						<Button
+							size="sm"
+							color="dark"
+							title="Run"
+							btnClasses="p-1.5"
+							on:click={() => {
+								moduleTest?.loadArgsAndRunTest()
+							}}
+							dropdownItems={[
+								{
+									label: 'Test up to here',
+									onClick: () => {
+										if (id) {
+											onTestUpTo?.(id)
+										}
 									}
 								}
-							}
-						]}
-						dropdownBtnClasses="!w-4 px-1"
-					>
-						{#if testIsLoading}
-							<Loader2 size={12} class="animate-spin" />
-						{:else}
-							<Play size={12} />
-						{/if}
-					</Button>
+							]}
+							dropdownBtnClasses="!w-4 px-1"
+						>
+							{#if testIsLoading}
+								<Loader2 size={12} class="animate-spin" />
+							{:else}
+								<Play size={12} />
+							{/if}
+						</Button>
+					{:else}
+						<Button
+							size="xs"
+							color="red"
+							variant="contained"
+							btnClasses="!h-[25.5px] !w-[44.5px] !p-1.5 gap-0.5"
+							on:click={async () => {
+								moduleTest?.cancelJob()
+							}}
+						>
+							<Loader2 size={10} class="animate-spin mr-0.5" />
+							<X size={14} />
+						</Button>
+					{/if}
 				</div>
 			{/if}
 		</div>
