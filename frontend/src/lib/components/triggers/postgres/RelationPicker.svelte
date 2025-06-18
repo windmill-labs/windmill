@@ -67,7 +67,6 @@
 				return r
 			})
 		}
-		console.log('Updated relations:', relations)
 	}
 </script>
 
