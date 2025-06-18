@@ -341,7 +341,7 @@ fn generate_paths(
             let (methods, is_webhook) = match &path.kind {
                 Kind::Webhook(_) => {
                     if !duplicate_webhooks.insert(route_path.clone()) {
-                        return Err(anyhow!("Found duplicate webhook: {}", path.route_path).into());
+                        continue;
                     }
                     is_async = route_path.starts_with("/run/");
                     let methods = if is_async {
@@ -809,14 +809,6 @@ async fn webhook_to_future_paths(
             summary: Option<String>,
         }
 
-        impl PartialEq for MinifiedWebhook {
-            fn eq(&self, other: &Self) -> bool {
-                self.path == other.path
-            }
-        }
-
-        impl Eq for MinifiedWebhook {}
-
         let webhook_scripts = sqlx::query_as!(
             MinifiedWebhook,
             r#"SELECT 
@@ -827,16 +819,14 @@ async fn webhook_to_future_paths(
                     script
                 WHERE
                     path ~ ANY($1) AND
-                    workspace_id = $2
+                    workspace_id = $2 AND
+                    archived is FALSE
             "#,
             &script_webhook_filter,
             &w_id
         )
         .fetch_all(&mut *pg_pool)
-        .await?
-        .into_iter()
-        .unique()
-        .collect_vec();
+        .await?;
 
         let webhook_flows = sqlx::query_as!(
             MinifiedWebhook,
@@ -848,16 +838,14 @@ async fn webhook_to_future_paths(
                     flow
                 WHERE
                     path ~ ANY($1) AND
-                    workspace_id = $2
+                    workspace_id = $2 AND
+                    archived is FALSE
             "#,
             &flow_webhook_filter,
             &w_id
         )
         .fetch_all(&mut *pg_pool)
-        .await?
-        .into_iter()
-        .unique()
-        .collect_vec();
+        .await?;
 
         openapi_future_paths.reserve_exact(webhook_scripts.len() + webhook_flows.len());
 
