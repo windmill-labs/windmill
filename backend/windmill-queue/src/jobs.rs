@@ -4353,12 +4353,14 @@ pub async fn push<'c, 'd>(
                 email: email.to_string(),
                 username: permissioned_as.trim_start_matches("u/").to_string(),
                 username_override: Some(user.to_string()),
+                token_prefix: None,
             }
         } else {
             AuditAuthor {
                 email: email.to_string(),
                 username: user.to_string(),
                 username_override: None,
+                token_prefix: None,
             }
         };
 

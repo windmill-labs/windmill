@@ -27,7 +27,7 @@ use sqlx::types::Json;
 use sqlx::{FromRow, Postgres, Transaction};
 use tracing::instrument;
 use uuid::Uuid;
-use windmill_common::auth::JobPerms;
+use windmill_common::auth::{JobPerms, TOKEN_PREFIX_LEN};
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::cache::{self, RawData};
@@ -2029,6 +2029,7 @@ async fn push_next_flow_job(
                     .to_string(),
                 email: flow_job.permissioned_as_email.clone(),
                 username_override: None,
+                token_prefix: Some(client.token[0..TOKEN_PREFIX_LEN].to_string()),
             };
 
             if can_be_resumed || disapproved_or_timeout_but_continue {

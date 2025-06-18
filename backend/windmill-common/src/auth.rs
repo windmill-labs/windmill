@@ -17,6 +17,8 @@ pub struct IdToken {
     expiration: DateTime<Utc>,
 }
 
+pub const TOKEN_PREFIX_LEN: usize = 10;
+
 pub fn has_expired(expiration_time: DateTime<Utc>, take: Option<Duration>) -> bool {
     let now = Utc::now();
 
@@ -92,6 +94,7 @@ impl From<JobPerms> for Authed {
                 .filter_map(|x| serde_json::from_value::<(String, bool, bool)>(x).ok())
                 .collect(),
             scopes: None,
+            token_prefix: None,
         }
     }
 }
@@ -171,38 +174,41 @@ pub async fn fetch_authed_from_permissioned_as(
             let folders = get_folders_for_user(w_id, &name, &groups, db).await?;
 
             Ok(Authed {
-                email: email,
+                email,
                 username: name.to_string(),
                 is_admin,
                 is_operator,
                 groups,
                 folders,
                 scopes: None,
+                token_prefix: None,
             })
         } else {
             let groups = vec![name.to_string()];
             let folders = get_folders_for_user(&w_id, "", &groups, db).await?;
             Ok(Authed {
-                email: email,
+                email,
                 username: format!("group-{name}"),
                 is_admin: false,
                 groups,
                 is_operator: false,
                 folders,
                 scopes: None,
+                token_prefix: None,
             })
         }
     } else {
         let groups = vec![];
         let folders = vec![];
         Ok(Authed {
-            email: email,
+            email,
             username: permissioned_as,
             is_admin: super_admin,
             is_operator: true,
             groups,
             folders,
             scopes: None,
+            token_prefix: None,
         })
     }
 }

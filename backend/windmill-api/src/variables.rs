@@ -7,9 +7,7 @@
  */
 
 use crate::{
-    db::{ApiAuthed, DB},
-    users::{maybe_refresh_folders, require_owner_of_path},
-    webhook_util::{WebhookMessage, WebhookShared},
+    db::{ApiAuthed, DB}, users::{maybe_refresh_folders, require_owner_of_path}, webhook_util::{WebhookMessage, WebhookShared}
 };
 
 use axum::{
@@ -23,12 +21,9 @@ use serde_json::Value;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
-    db::UserDB,
-    error::{Error, JsonResult, Result},
-    utils::{not_found_if_none, paginate, Pagination, StripPath},
-    variables::{
+    db::UserDB, error::{Error, JsonResult, Result}, utils::{not_found_if_none, paginate, Pagination, StripPath}, variables::{
         build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
-    },
+    }
 };
 
 use lazy_static::lazy_static;
