@@ -54,6 +54,12 @@ jobs:
           path: windmill-ee-private
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
 
+      # Cache rust dependencies
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./backend -> target"
+
       - name: Install xmlsec build-time deps
         run: |
           sudo apt-get update
@@ -70,8 +76,9 @@ jobs:
           BRANCH_NAME=$(gh pr view $PR_NUMBER --json headRefName --jq .headRefName)
           echo "Checking out PR branch: $BRANCH_NAME"
           git checkout $BRANCH_NAME
+          mkdir frontend/build
           cd backend
-          cargo install sqlx-cli
+          cargo install sqlx-cli --version 0.8.5
           sqlx migrate run
           ./update_sqlx.sh --dir ./windmill-ee-private
           # Pass the branch name to the next step
