@@ -116,11 +116,11 @@
 	}
 
 	function handleAiButtonClick() {
+		determineModeFromEditor()
+		
 		if (openAiChat) {
-			determineModeFromEditor()
 			openAiChatForScript()
 		} else {
-			determineModeFromEditor()
 			setTimeout(() => {
 				autoResize()
 			}, 0)
