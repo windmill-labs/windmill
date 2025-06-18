@@ -854,6 +854,7 @@
 		{:else if inputCat == 'resource-object' && resourceTypes == undefined}
 			<span class="text-2xs text-tertiary">Loading resource types...</span>
 		{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format && format?.split('-').length > 1 && resourceTypes.includes(format?.substring('resource-'.length))))}
+			<!-- {JSON.stringify(value)} -->
 			<ObjectResourceInput
 				{defaultValue}
 				selectFirst={!noDefaultOnSelectFirst}

@@ -142,7 +142,6 @@
 <AppConnect
 	on:refresh={async (e) => {
 		await loadResources(resourceType)
-		console.log('refresh', e.detail)
 		value = e.detail
 		valueType = collection.find((x) => x?.value == value)?.type
 	}}
@@ -154,7 +153,6 @@
 	on:refresh={async (e) => {
 		await loadResources(resourceType)
 		if (e.detail) {
-			console.log('refresh 2', e.detail)
 			value = e.detail
 			valueType = collection.find((x) => x?.value == value)?.type
 			// valueSelect = { value: e.detail, label: e.detail, type: valueType ?? '' }
@@ -171,13 +169,11 @@
 				bind:value={
 					() => value,
 					(v) => {
-						console.log('select', v)
 						value = v
 						valueType = collection.find((x) => x?.value == v)?.type
 					}
 				}
 				onClear={() => {
-					console.log('onClear')
 					initialValue = undefined
 					value = undefined
 					valueType = undefined

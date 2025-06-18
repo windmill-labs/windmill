@@ -52,7 +52,6 @@
 			bind:value={
 				() => valueToPath(),
 				(v) => {
-					console.log('onChange', v)
 					if (v == undefined) {
 						value = undefined
 					} else {
