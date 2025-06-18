@@ -3,7 +3,7 @@
 	import Button from '../common/button/Button.svelte'
 	import { base } from '$lib/base'
 
-	let { aiId, aiDescription } = $props<{ aiId: string; aiDescription: string }>()
+	let { aiId, aiDescription }: { aiId: string; aiDescription: string } = $props()
 </script>
 
 <!-- Buttons -->

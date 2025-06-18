@@ -7,11 +7,11 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
-	let { id, configuration, render } = $props<{
+	let { id, configuration, render }: {
 		id: string
 		configuration: RichConfigurations
 		render: boolean
-	}>()
+	} = $props()
 
 	const { componentControl, worldStore, selectedComponent, connectingInput, mode } =
 		getContext<AppViewerContext>('AppViewerContext')
