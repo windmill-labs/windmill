@@ -76,6 +76,57 @@
 		trimmedDesc = funcDesc.trim()
 	})
 
+	function determineModeFromEditor() {
+		if (editor && isInitialCode(editor.getCode())) {
+			mode = 'gen'
+		} else {
+			mode = 'edit'
+		}
+	}
+
+	async function callCopilot() {
+		if (mode === 'edit') {
+			await copilot(
+				{
+					// @ts-ignore
+					language: transformer && lang === 'frontend' ? 'transformer' : lang!,
+					description: trimmedDesc,
+					code: editor?.getCode() || '',
+					dbSchema: dbSchema,
+					type: 'edit',
+					workspace: $workspaceStore!
+				},
+				generatedCode,
+				abortController
+			)
+		} else {
+			await copilot(
+				{
+					// @ts-ignore
+					language: transformer && lang === 'frontend' ? 'transformer' : lang!,
+					description: trimmedDesc,
+					dbSchema: dbSchema,
+					type: 'gen',
+					workspace: $workspaceStore!
+				},
+				generatedCode,
+				abortController
+			)
+		}
+	}
+
+	function handleAiButtonClick() {
+		if (openAiChat) {
+			determineModeFromEditor()
+			openAiChatForScript()
+		} else {
+			determineModeFromEditor()
+			setTimeout(() => {
+				autoResize()
+			}, 0)
+		}
+	}
+
 	async function onGenerate(closePopup: () => void) {
 		if (trimmedDesc.length <= 0) {
 			return
@@ -85,34 +136,7 @@
 			genLoading = true
 			blockPopupOpen = true
 			abortController = new AbortController()
-			if (mode === 'edit') {
-				await copilot(
-					{
-						// @ts-ignore
-						language: transformer && lang === 'frontend' ? 'transformer' : lang!,
-						description: trimmedDesc,
-						code: editor?.getCode() || '',
-						dbSchema: dbSchema,
-						type: 'edit',
-						workspace: $workspaceStore!
-					},
-					generatedCode,
-					abortController
-				)
-			} else {
-				await copilot(
-					{
-						// @ts-ignore
-						language: transformer && lang === 'frontend' ? 'transformer' : lang!,
-						description: trimmedDesc,
-						dbSchema: dbSchema,
-						type: 'gen',
-						workspace: $workspaceStore!
-					},
-					generatedCode,
-					abortController
-				)
-			}
+			await callCopilot()
 			setupDiff()
 			diffEditor?.setModified($generatedCode)
 			blockPopupOpen = false
@@ -226,12 +250,26 @@
 	}
 
 	let promptHistory: string[] = $state([])
-	function getPromptHistory() {
+	
+	function getPromptStorageKey() {
+		return 'prompts-' + lang
+	}
+
+	function safeLocalStorageOperation<T>(operation: () => T, defaultValue?: T): T | undefined {
 		try {
-			promptHistory = JSON.parse(localStorage.getItem('prompts-' + lang) || '[]')
+			return operation()
 		} catch (e) {
 			console.error('error interacting with local storage', e)
+			return defaultValue
 		}
+	}
+
+	function getPromptHistory() {
+		const storageKey = getPromptStorageKey()
+		promptHistory = safeLocalStorageOperation(
+			() => JSON.parse(localStorage.getItem(storageKey) || '[]'),
+			[]
+		) || []
 	}
 
 	function savePrompt() {
@@ -242,20 +280,18 @@
 		while (promptHistory.length > 5) {
 			promptHistory.pop()
 		}
-		try {
-			localStorage.setItem('prompts-' + lang, JSON.stringify(promptHistory))
-		} catch (e) {
-			console.error('error interacting with local storage', e)
-		}
+		const storageKey = getPromptStorageKey()
+		safeLocalStorageOperation(() => 
+			localStorage.setItem(storageKey, JSON.stringify(promptHistory))
+		)
 	}
 
 	function clearPromptHistory() {
 		promptHistory = []
-		try {
-			localStorage.setItem('prompts-' + lang, JSON.stringify(promptHistory))
-		} catch (e) {
-			console.error('error interacting with local storage', e)
-		}
+		const storageKey = getPromptStorageKey()
+		safeLocalStorageOperation(() => 
+			localStorage.setItem(storageKey, JSON.stringify(promptHistory))
+		)
 	}
 	run(() => {
 		lang && getPromptHistory()
@@ -368,29 +404,7 @@
 					propagateEvent={!genLoading}
 					on:click={genLoading
 						? () => abortController?.abort()
-						: () => {
-								if (openAiChat) {
-									if (editor) {
-										if (isInitialCode(editor.getCode())) {
-											mode = 'gen'
-										} else {
-											mode = 'edit'
-										}
-									}
-									openAiChatForScript()
-								} else {
-									if (editor) {
-										if (isInitialCode(editor.getCode())) {
-											mode = 'gen'
-										} else {
-											mode = 'edit'
-										}
-									}
-									setTimeout(() => {
-										autoResize()
-									}, 0)
-								}
-							}}
+						: handleAiButtonClick}
 					bind:element={button}
 					iconOnly
 					title="Generate code from prompt"
@@ -412,29 +426,7 @@
 					propagateEvent={!genLoading}
 					on:click={genLoading
 						? () => abortController?.abort()
-						: () => {
-								if (openAiChat) {
-									if (editor) {
-										if (isInitialCode(editor.getCode())) {
-											mode = 'gen'
-										} else {
-											mode = 'edit'
-										}
-									}
-									openAiChatForScript()
-								} else {
-									if (editor) {
-										if (isInitialCode(editor.getCode())) {
-											mode = 'gen'
-										} else {
-											mode = 'edit'
-										}
-									}
-									setTimeout(() => {
-										autoResize()
-									}, 0)
-								}
-							}}
+						: handleAiButtonClick}
 					bind:element={button}
 					{iconOnly}
 				>
