@@ -54,6 +54,12 @@ jobs:
           path: windmill-ee-private
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
 
+      # Cache rust dependencies
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./backend -> target"
+
       - name: Install xmlsec build-time deps
         run: |
           sudo apt-get update
