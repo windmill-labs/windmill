@@ -10,6 +10,7 @@
 	import Label from './Label.svelte'
 	import CronGen from './copilot/CronGen.svelte'
 	import Select from './select/Select.svelte'
+	import MultiSelect from './select/MultiSelect.svelte'
 
 	export let schedule: string
 	// export let offset: number = -60 * Math.floor(new Date().getTimezoneOffset() / 60)
@@ -237,7 +238,7 @@
 							<div class="text-secondary text-sm leading-none">Execute schedule every</div>
 
 							<div class="w-full flex gap-4">
-								<div class="w-full flex flex-col gap-1">
+								<div class="w-full flex flex-col gap-1 mb-2">
 									<select
 										{disabled}
 										name="execute_every"
@@ -280,26 +281,24 @@
 						<div class="w-full flex flex-col gap-4">
 							{#if executeEvery == 'month'}
 								<div class="w-full flex flex-col">
-									<MultiselectLegacy
+									<MultiSelect
+										disablePortal
 										{disabled}
-										bind:selected={monthsOfYear}
-										options={monthsOfYearOptions}
-										selectedOptionsDraggable={false}
+										bind:value={monthsOfYear}
+										items={monthsOfYearOptions.map((value) => ({ value }))}
 										placeholder="Every month"
-										ulOptionsClass={'!bg-surface-secondary'}
 									/>
 								</div>
 							{/if}
 
 							{#if executeEvery == 'day-week'}
 								<div class="w-full flex flex-col">
-									<MultiselectLegacy
+									<MultiSelect
+										disablePortal
 										{disabled}
-										bind:selected={daysOfWeek}
-										options={daysOfWeekOptions}
-										selectedOptionsDraggable={false}
+										bind:value={daysOfWeek}
+										items={daysOfWeekOptions.map((value) => ({ value }))}
 										placeholder="Every day"
-										ulOptionsClass={'!bg-surface-secondary'}
 									/>
 								</div>
 							{/if}
@@ -311,13 +310,12 @@
 									{/if}
 									<div class="w-full flex gap-4">
 										<div class="w-full flex">
-											<MultiselectLegacy
+											<MultiSelect
+												disablePortal
 												{disabled}
-												bind:selected={daysOfMonth}
-												options={daysOfMonthOptions}
-												selectedOptionsDraggable={false}
+												bind:value={daysOfMonth}
+												items={daysOfMonthOptions.map((value) => ({ value }))}
 												placeholder="Every day"
-												ulOptionsClass={'!bg-surface-secondary'}
 											/>
 										</div>
 
