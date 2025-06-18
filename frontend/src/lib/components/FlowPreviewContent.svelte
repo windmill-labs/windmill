@@ -21,6 +21,7 @@
 	import { NEVER_TESTED_THIS_FAR } from './flows/models'
 	import { writable, type Writable } from 'svelte/store'
 	import type { DurationStatus, GraphModuleState } from './graph'
+	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
@@ -74,10 +75,11 @@
 	let currentJobId: string | undefined = undefined
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
+		const previewFlow = aiChatManager.flowAiChatHelpers?.getPreviewFlow()
 		if (previewMode === 'whole') {
-			return flowStore.val
+			return previewFlow ?? flowStore.val
 		} else {
-			const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
+			const flow: Flow = previewFlow ?? JSON.parse(JSON.stringify(flowStore.val))
 			const idOrders = dfs(flow.value.modules, (x) => x.id)
 			let upToIndex = idOrders.indexOf($selectedId)
 

@@ -12,6 +12,7 @@
 		bgColor: string
 		bgHoverColor?: string
 		children?: import('svelte').Snippet<[any]>
+		className?: string
 	}
 
 	let {
@@ -22,7 +23,8 @@
 		onTop = false,
 		bgColor,
 		bgHoverColor = '',
-		children
+		children,
+		className
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher<{
@@ -46,7 +48,8 @@
 		selectable ? 'cursor-pointer active:outline active:outline-2' : '',
 		selected ? 'outline outline-2' : '',
 		onTop ? 'z-[901]' : '',
-		'outline-offset-1 outline-gray-600 dark:outline-gray-400'
+		'outline-offset-1 outline-gray-600 dark:outline-gray-400',
+		className
 	)}
 	style="width: 275px; max-height: 38px; background-color: {hover && bgHoverColor && selectable
 		? bgHoverColor

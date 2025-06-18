@@ -207,6 +207,8 @@
 		if (!newFlow && !savedFlow) {
 			return
 		}
+		aiChatManager.flowAiChatHelpers?.rejectAllModuleActions()
+
 		if (savedFlow) {
 			const draftOrDeployed = cleanValueProperties(savedFlow.draft || savedFlow)
 			const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
@@ -331,6 +333,8 @@
 	}
 
 	async function handleSaveFlow(deploymentMsg?: string) {
+		aiChatManager.flowAiChatHelpers?.rejectAllModuleActions()
+
 		await compareVersions()
 		if (onLatest || initialPath == '' || savedFlow?.draft_only) {
 			// Handle directly

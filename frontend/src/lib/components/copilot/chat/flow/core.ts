@@ -18,11 +18,25 @@ import {
 import type { Tool } from '../shared'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 
+export type AIModuleAction = 'added' | 'modified' | 'removed'
+
 export interface FlowAIChatHelpers {
+	// flow context
 	getFlowAndSelectedId: () => { flow: ExtendedOpenFlow; selectedId: string }
-	setFlow: (flow: ExtendedOpenFlow) => void
+	// flow apply/reject
+	getPreviewFlow: () => ExtendedOpenFlow
+	hasDiff: () => boolean
+	setLastSnapshot: (snapshot: ExtendedOpenFlow) => void
+	showModuleDiff: (id: string) => void
+	getModuleAction: (id: string) => AIModuleAction | undefined
+	revertModuleAction: (id: string) => void
+	acceptModuleAction: (id: string) => void
+	acceptAllModuleActions: () => void
+	rejectAllModuleActions: () => void
+	revertToSnapshot: (snapshot?: ExtendedOpenFlow) => void
+	// ai chat tools
 	insertStep: (location: InsertLocation, step: NewStep) => Promise<string>
-	removeStep: (id: string) => Promise<void>
+	removeStep: (id: string) => void
 	getStepInputs: (id: string) => Promise<Record<string, any>>
 	setStepInputs: (id: string, inputs: string) => Promise<void>
 	getFlowInputsSchema: () => Promise<Record<string, any>>
@@ -412,7 +426,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			toolCallbacks.setToolStatus(toolId, `Removing step ${args.id}...`)
 			const parsedArgs = removeStepSchema.parse(args)
-			await helpers.removeStep(parsedArgs.id)
+			helpers.removeStep(parsedArgs.id)
 			toolCallbacks.setToolStatus(toolId, `Removed step '${parsedArgs.id}'`)
 			return `Step '${parsedArgs.id}' removed. Here is the updated flow:\n${YAML.stringify(helpers.getModules())}`
 		}

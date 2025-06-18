@@ -180,7 +180,7 @@
 		return dfsByModule(id, flowStore.val.value.modules)[0]
 	}
 
-	async function addBranch(id: string) {
+	export async function addBranch(id: string) {
 		push(history, flowStore.val)
 		let module = findModuleById(id)
 
@@ -197,7 +197,7 @@
 		}
 	}
 
-	function removeBranch(id: string, index: number) {
+	export function removeBranch(id: string, index: number) {
 		push(history, flowStore.val)
 		let module = findModuleById(id)
 

@@ -7,6 +7,10 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { fade } from 'svelte/transition'
 	import { Database, Square } from 'lucide-svelte'
+	import ModuleAcceptReject, {
+		aiModuleActionToBgColor,
+		getAiModuleAction
+	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 
 	interface Props {
 		label?: string | undefined
@@ -49,10 +53,24 @@
 		icon,
 		onUpdateMock
 	}: Props = $props()
+
+	let action = $derived(label === 'Input' ? getAiModuleAction(label) : undefined)
 </script>
 
-<VirtualItemWrapper {label} {bgColor} {bgHoverColor} {selected} {selectable} {id} on:select>
+<VirtualItemWrapper
+	{label}
+	{bgColor}
+	{bgHoverColor}
+	{selected}
+	{selectable}
+	{id}
+	on:select
+	className={editMode ? aiModuleActionToBgColor(action) : ''}
+>
 	{#snippet children({ hover })}
+		{#if editMode}
+			<ModuleAcceptReject id="Input" {action} />
+		{/if}
 		<div class="flex flex-col w-full">
 			<div
 				style={borderColor ? `border-color: ${borderColor};` : 'border: 0'}

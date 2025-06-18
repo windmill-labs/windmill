@@ -285,6 +285,11 @@ class AIChatManager {
 							callbacks.onNewToken(delta)
 						}
 						const toolCalls = c.choices[0].delta.tool_calls || []
+						if (toolCalls.length > 0 && answer) {
+							// if tool calls are present but we have some textual content already, we need to display it to the user first
+							callbacks.onMessageEnd()
+							answer = ''
+						}
 						for (const toolCall of toolCalls) {
 							const { index } = toolCall
 							let finalToolCall = finalToolCalls[index]
@@ -395,7 +400,9 @@ class AIChatManager {
 
 			let snapshot: ExtendedOpenFlow | undefined = undefined
 			if (this.mode === AIMode.FLOW) {
+				this.flowAiChatHelpers!.rejectAllModuleActions()
 				snapshot = this.flowAiChatHelpers!.getFlowAndSelectedId().flow
+				this.flowAiChatHelpers!.setLastSnapshot(snapshot)
 			}
 
 			this.displayMessages = [
@@ -665,13 +672,6 @@ class AIChatManager {
 		return () => {
 			this.flowAiChatHelpers = undefined
 		}
-	}
-
-	revertToSnapshot = (snapshot: ExtendedOpenFlow) => {
-		if (!this.flowAiChatHelpers) {
-			throw new Error('No flow helpers found')
-		}
-		this.flowAiChatHelpers.setFlow(snapshot)
 	}
 }
 

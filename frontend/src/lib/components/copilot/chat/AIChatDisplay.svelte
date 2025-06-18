@@ -2,7 +2,16 @@
 	import { twMerge } from 'tailwind-merge'
 	import AssistantMessage from './AssistantMessage.svelte'
 	import { type Snippet } from 'svelte'
-	import { HistoryIcon, Loader2, Plus, StopCircleIcon, X } from 'lucide-svelte'
+	import {
+		CheckIcon,
+		HistoryIcon,
+		Loader2,
+		Plus,
+		StopCircleIcon,
+		Undo2Icon,
+		X,
+		XIcon
+	} from 'lucide-svelte'
 	import autosize from '$lib/autosize'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -208,18 +217,23 @@
 						{/if}
 					</div>
 					{#if message.role === 'user' && message.snapshot}
-						<div class="self-start mx-2">
+						<div
+							class="mx-2 text-sm text-tertiary flex flex-row items-center justify-between gap-2 mb-2"
+						>
+							Saved a flow snapshot
 							<Button
-								size="xs"
+								size="xs2"
 								variant="border"
 								color="light"
 								on:click={() => {
 									if (message.snapshot) {
-										aiChatManager.revertToSnapshot(message.snapshot)
+										aiChatManager.flowAiChatHelpers?.revertToSnapshot(message.snapshot)
 									}
 								}}
+								title="Revert to snapshot"
+								startIcon={{ icon: Undo2Icon }}
 							>
-								Revert to snapshot
+								Revert
 							</Button>
 						</div>
 					{/if}
@@ -246,6 +260,33 @@
 					}}
 				>
 					Stop
+				</Button>
+			</div>
+		{:else if aiChatManager.flowAiChatHelpers?.hasDiff()}
+			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
+				<Button
+					startIcon={{ icon: CheckIcon }}
+					size="xs"
+					variant="border"
+					color="light"
+					btnClasses="bg-green-500 hover:bg-green-600 text-white hover:text-white"
+					on:click={() => {
+						aiChatManager.flowAiChatHelpers?.acceptAllModuleActions()
+					}}
+				>
+					Accept all
+				</Button>
+				<Button
+					startIcon={{ icon: XIcon }}
+					size="xs"
+					variant="border"
+					color="light"
+					btnClasses="text-tertiary"
+					on:click={() => {
+						aiChatManager.flowAiChatHelpers?.rejectAllModuleActions()
+					}}
+				>
+					Reject all
 				</Button>
 			</div>
 		{/if}
