@@ -4187,6 +4187,14 @@ pub async fn run_wait_result(
                         Error::internal_err(format!("Invalid content type {content_type}: {err}"))
                     })?,
                 );
+                
+                // If content type is octet-stream and result is base64, decode it and send as bytes
+                if content_type == "application/octet-stream" {
+                    if let Ok(decoded_bytes) = base64::engine::general_purpose::STANDARD.decode(&serialized_result) {
+                        return Ok((status_code_or_default, headers, decoded_bytes).into_response());
+                    }
+                }
+                
                 return Ok((status_code_or_default, headers, serialized_result).into_response());
             }
             if let Some(result_value) = result_value {
