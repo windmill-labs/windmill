@@ -1034,6 +1034,11 @@
 					}}
 					{savedFlow}
 					onDeployTrigger={handleDeployTrigger}
+					onEditInput={(moduleId, key) => {
+						selectedIdStore.set(moduleId)
+						//TODO: open the iput tab
+						//TODO: focus the input matching the key
+					}}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

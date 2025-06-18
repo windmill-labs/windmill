@@ -71,6 +71,7 @@
 		onTestUpTo?: ((id: string) => void) | undefined
 		inputTransform?: Record<string, any> | undefined
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
+		onEditInput?: (moduleId: string, key: string) => void
 	}
 
 	let {
@@ -100,7 +101,8 @@
 		icon,
 		onTestUpTo,
 		inputTransform,
-		onUpdateMock
+		onUpdateMock,
+		onEditInput
 	}: Props = $props()
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
@@ -418,6 +420,7 @@
 				id={id ?? ''}
 				bind:bottomBarOpen={outputPickerBarOpen}
 				{loopStatus}
+				{onEditInput}
 			>
 				{#snippet children({ allowCopy, isConnecting, selectConnection })}
 					<OutputPickerInner
@@ -455,7 +458,7 @@
 						}}
 						dropdownItems={[
 							{
-								label: 'test up to here',
+								label: 'Test up to here',
 								onClick: () => {
 									if (id) {
 										onTestUpTo?.(id)

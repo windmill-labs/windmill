@@ -44,6 +44,7 @@
 			id: string
 			mock: { enabled: boolean; return_value?: unknown }
 		}) => void
+		onEditInput?: (moduleId: string, key: string) => void
 	}
 
 	let {
@@ -61,7 +62,8 @@
 		editMode = false,
 		onSelect,
 		onTestUpTo,
-		onUpdateMock
+		onUpdateMock,
+		onEditInput
 	}: Props = $props()
 
 	const { selectedId } = getContext<{
@@ -243,6 +245,7 @@
 					loopStatus={parentLoop ? { type: 'inside', flow: parentLoop.type } : undefined}
 					inputTransform={mod.value.type !== 'identity' ? mod.value.input_transforms : undefined}
 					{onTestUpTo}
+					{onEditInput}
 				>
 					{#snippet icon()}
 						<div>

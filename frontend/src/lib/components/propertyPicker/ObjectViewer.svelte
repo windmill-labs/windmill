@@ -3,25 +3,16 @@
 
 	import { copyToClipboard, truncate } from '$lib/utils'
 
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { createEventDispatcher, untrack, type Snippet } from 'svelte'
 	import { computeKey, keepByKeyOrValue } from './utils'
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
 	import Portal from '$lib/components/Portal.svelte'
 	import { Button } from '$lib/components/common'
-	import {
-		DollarSign,
-		Download,
-		PanelRightOpen,
-		Search,
-		SquareFunction,
-		TriangleAlertIcon,
-		X
-	} from 'lucide-svelte'
+	import { Download, PanelRightOpen, Search, TriangleAlertIcon, X } from 'lucide-svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import Popover from '../Popover.svelte'
-	import type { InputTransform } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
@@ -37,7 +28,8 @@
 		prefix?: string
 		expandedEvenOnLevel0?: string | undefined
 		connecting?: boolean
-		inputTransform?: Record<string, InputTransform>
+		metaData?: Snippet<[any]>
+		editKey?: Snippet<[any]>
 	}
 
 	let {
@@ -53,7 +45,8 @@
 		prefix = '',
 		expandedEvenOnLevel0 = undefined,
 		connecting = false,
-		inputTransform = {}
+		metaData,
+		editKey
 	}: Props = $props()
 
 	let jsonFiltered = $state(json)
@@ -179,25 +172,6 @@
 	</span>
 {/snippet}
 
-{#snippet metaData(key: string)}
-	{#if inputTransform[key]}
-		<span
-			class={twMerge(
-				'inline-flex items-center h-4 text-blue-500 border dark:bg-blue-200 dark:text-blue-900 px-1 rounded-[0.275rem] rounded-l-none border-l-0 gap-0.5',
-				'text-2xs',
-				inputTransform[key].type === 'javascript' ? 'text-blue-500' : 'text-tertiary font-mono'
-			)}
-			title={inputTransform[key].type === 'javascript' ? inputTransform[key].expr : 'Static'}
-		>
-			{#if inputTransform[key].type === 'javascript'}
-				<SquareFunction size={14} class="-my-1" />
-			{:else if inputTransform[key].type === 'static'}
-				<DollarSign size={12} class="-my-1" />
-			{/if}
-		</span>
-	{/if}
-{/snippet}
-
 <Portal name="object-viewer">
 	<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
 </Portal>
@@ -282,13 +256,13 @@
 								btnClasses={twMerge(
 									'font-mono h-4 py-1 text-2xs',
 									'font-thin px-1 rounded-[0.275rem]',
-									inputTransform[key] ? 'rounded-r-none border-r-0.5' : ''
+									metaData ? 'rounded-r-none border-r-0.5' : ''
 								)}
 								title={computeFullKey(key, rawKey)}
 							>
 								<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index}</span>
 							</Button>
-							{@render metaData(key)}
+							{@render metaData?.(key)}
 						</AnimatedButton>
 						<span class="text-2xs -ml-0.5 text-tertiary">:</span>
 
@@ -309,6 +283,7 @@
 						{:else}
 							{@render renderScalar(key, jsonFiltered[key])}
 						{/if}
+						{@render editKey?.(key)}
 					</li>
 				{/each}
 				{#if keys.length > keyLimit}

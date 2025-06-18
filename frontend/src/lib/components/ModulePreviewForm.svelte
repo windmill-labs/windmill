@@ -20,15 +20,17 @@
 		pickableProperties: PickableProperties | undefined
 		isValid?: boolean
 		autofocus?: boolean
+		onSetArgs: (argName: string, value: any) => void
 	}
 
 	let {
 		schema,
-		args = $bindable({}),
+		args = {},
 		mod,
 		pickableProperties,
 		isValid = $bindable(true),
-		autofocus = false
+		autofocus = false,
+		onSetArgs
 	}: Props = $props()
 
 	const { testSteps } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -99,7 +101,7 @@
 							autofocus={i == 0 && autofocus}
 							label={argName}
 							description={schema.properties[argName].description}
-							bind:value={args[argName]}
+							bind:value={() => args[argName], (v) => onSetArgs(argName, v)}
 							type={schema.properties[argName].type}
 							oneOf={schema.properties[argName].oneOf}
 							required={schema?.required?.includes(argName)}

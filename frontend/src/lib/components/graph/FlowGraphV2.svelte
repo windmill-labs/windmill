@@ -109,6 +109,7 @@
 		onUpdateMock?: (detail: { mock: FlowModule['mock']; id: string }) => void
 		onTestUpTo?: ((id: string) => void) | undefined
 		onSelectedIteration?: onSelectedIteration
+		onEditInput?: (moduleId: string, key: string) => void
 	}
 
 	let {
@@ -147,7 +148,8 @@
 		editMode = false,
 		allowSimplifiedPoll = true,
 		expandedSubflows = $bindable({}),
-		onTestUpTo = undefined
+		onTestUpTo = undefined,
+		onEditInput = undefined
 	}: Props = $props()
 
 	setContext<{
@@ -306,6 +308,9 @@
 		},
 		testUpTo: (id: string) => {
 			onTestUpTo?.(id)
+		},
+		editInput: (moduleId: string, key: string) => {
+			onEditInput?.(moduleId, key)
 		}
 	}
 

@@ -19,6 +19,7 @@
 		id: string
 		bottomBarOpen?: boolean
 		loopStatus?: { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' } | undefined
+		onEditInput?: (moduleId: string, key: string) => void
 	}
 
 	let {
@@ -31,7 +32,8 @@
 		inputTransform,
 		id,
 		bottomBarOpen = $bindable(false),
-		loopStatus
+		loopStatus,
+		onEditInput
 	}: Props = $props()
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
@@ -162,7 +164,7 @@
 						</button>
 					{/snippet}
 					{#snippet content()}
-						<InputPickerInner {inputTransform} {id} />
+						<InputPickerInner {inputTransform} {id} {onEditInput} />
 					{/snippet}
 				</Popover>
 			{/if}

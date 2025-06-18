@@ -53,6 +53,7 @@ export type GraphEventHandlers = {
 	minimizeSubflow: (id: string) => void
 	updateMock: (detail: { mock: FlowModule['mock']; id: string }) => void
 	testUpTo: (id: string) => void
+	editInput: (moduleId: string, key: string) => void
 }
 
 export type SimplifiableFlow = { simplifiedFlow: boolean }

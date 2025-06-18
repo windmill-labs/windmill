@@ -78,6 +78,7 @@
 		{pickableProperties}
 		{mod}
 		{schema}
-		bind:args={() => testSteps.getStepArgs(mod.id) ?? {}, (v) => testSteps.setStepArgs(mod.id, v)}
+		args={testSteps.getStepArgs(mod.id) ?? {}}
+		onSetArgs={(argName, value) => testSteps.setArgManually(mod.id, argName, value)}
 	/>
 </div>
