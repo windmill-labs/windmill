@@ -674,7 +674,14 @@ except BaseException as e:
             //    ^^^^^^ ^
             // We also want this be priorotized, that's why we insert it to the beginning
         }
-        paths.iter().join(":")
+        #[cfg(windows)]
+        {
+            paths.iter().join(";")
+        }
+        #[cfg(not(windows))]
+        {
+            paths.iter().join(":")
+        }
     };
 
     #[cfg(windows)]
