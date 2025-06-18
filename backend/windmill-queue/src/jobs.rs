@@ -3445,6 +3445,7 @@ pub async fn push<'c, 'd>(
     }
 
     let mut preprocessed = None;
+    let mut args_from_payload: Option<HashMap<String, Box<RawValue>>> = None;
     let (
         script_hash,
         script_path,
@@ -4011,6 +4012,31 @@ pub async fn push<'c, 'd>(
             None,
             None,
         ),
+        JobPayload::PiptarUpload { venv_path, cache_dir, python_version } => {
+            // Store payload parameters in args for the worker to retrieve
+            let mut payload_args = HashMap::new();
+            payload_args.insert("venv_path".to_string(), to_raw_value(&venv_path));
+            payload_args.insert("cache_dir".to_string(), to_raw_value(&cache_dir)); 
+            payload_args.insert("python_version".to_string(), to_raw_value(&python_version));
+            // Store these args to be merged with user args later
+            args_from_payload = Some(payload_args);
+            
+            (
+                None,
+                None,
+                None,
+                JobKind::PiptarUpload,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        },
         JobPayload::Noop => (
             None,
             None,
@@ -4026,6 +4052,20 @@ pub async fn push<'c, 'd>(
             None,
             None,
         ),
+    };
+
+    // Merge payload args with user args for PiptarUpload jobs
+    let args = if let Some(payload_args) = args_from_payload {
+        let mut combined_extra = args.extra.clone().unwrap_or_default();
+        for (key, value) in payload_args {
+            combined_extra.insert(key, value);
+        }
+        PushArgs {
+            extra: Some(combined_extra),
+            args: args.args,
+        }
+    } else {
+        args
     };
 
     let final_priority: Option<i16>;
