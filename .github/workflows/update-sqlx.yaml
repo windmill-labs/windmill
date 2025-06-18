@@ -6,7 +6,7 @@ on:
 
 jobs:
   update-sqlx:
-    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/update-sqlx')
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/updatesqlx')
     runs-on: ubicloud-standard-8
     permissions:
       contents: write
@@ -52,7 +52,7 @@ jobs:
         with:
           repository: windmill-labs/windmill-ee-private
           path: windmill-ee-private
-          token: ${{ secrets.EE_PRIVATE_TOKEN }}
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
 
       - name: Install xmlsec build-time deps
         run: |
