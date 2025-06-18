@@ -9,7 +9,6 @@ use axum::{
 };
 use http::{header, HeaderValue, Method, StatusCode};
 use indexmap::IndexMap;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{to_value, Map, Value};
 use sqlx::PgConnection;
@@ -24,9 +23,12 @@ use windmill_common::{
 use crate::db::ApiAuthed;
 
 #[cfg(feature = "http_trigger")]
-use crate::{
-    http_trigger_args::HttpMethod, http_trigger_auth::ApiKeyAuthentication,
-    http_triggers::AuthenticationMethod, resources::try_get_resource_from_db_as,
+use {
+    crate::{
+        http_trigger_args::HttpMethod, http_trigger_auth::ApiKeyAuthentication,
+        http_triggers::AuthenticationMethod, resources::try_get_resource_from_db_as,
+    },
+    itertools::Itertools,
 };
 
 lazy_static::lazy_static! {
