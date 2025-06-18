@@ -70,6 +70,7 @@ jobs:
           BRANCH_NAME=$(gh pr view $PR_NUMBER --json headRefName --jq .headRefName)
           echo "Checking out PR branch: $BRANCH_NAME"
           git checkout $BRANCH_NAME
+          mkdir frontend/build
           cd backend
           cargo install sqlx-cli
           sqlx migrate run
