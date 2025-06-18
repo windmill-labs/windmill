@@ -28,7 +28,7 @@ members = [
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
     "./parsers/windmill-sql-datatype-parser-wasm",
-    "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu",
+    "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu", "parsers/test-ts-parser",
 ]
 
 [workspace.package]

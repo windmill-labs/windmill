@@ -1,0 +1,10 @@
+[package]
+name = "test-ts-parser"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+tokio.workspace = true
+windmill-parser-ts.workspace = true

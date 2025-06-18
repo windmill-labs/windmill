@@ -7,7 +7,7 @@
  */
 // use deno_core::{serde_v8, v8, JsRuntime, RuntimeOptions};
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use swc_ecma_visit::{noop_visit_type, Visit, VisitWith};
 use windmill_parser::{
     json_to_typ, to_snake_case, Arg, MainArgSignature, ObjectProperty, OneOfVariant, Typ,
@@ -17,9 +17,10 @@ use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Span, Spanned};
 use swc_ecma_ast::{
     ArrayLit, AssignPat, BigInt, BindingIdent, Bool, Decl, ExportDecl, Expr, FnDecl, Ident,
     IdentName, Lit, MemberExpr, MemberProp, ModuleDecl, ModuleItem, Number, ObjectLit, ObjectPat,
-    Param, Pat, Str, TsArrayType, TsEntityName, TsKeywordType, TsKeywordTypeKind, TsLit, TsLitType,
-    TsOptionalType, TsParenthesizedType, TsPropertySignature, TsType, TsTypeAnn, TsTypeElement,
-    TsTypeLit, TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
+    Param, Pat, Stmt, Str, TsArrayType, TsEntityName, TsInterfaceDecl, TsKeywordType,
+    TsKeywordTypeKind, TsLit, TsLitType, TsOptionalType, TsParenthesizedType, TsPropertySignature,
+    TsType, TsTypeAliasDecl, TsTypeAnn, TsTypeElement, TsTypeLit, TsTypeRef,
+    TsUnionOrIntersectionType, TsUnionType,
 };
 use swc_ecma_parser::{lexer::Lexer, EsSyntax, Parser, StringInput, Syntax, TsSyntax};
 
@@ -135,13 +136,45 @@ pub fn parse_expr_for_ids(code: &str) -> anyhow::Result<Vec<(String, String)>> {
     Ok(visitor.idents.into_iter().collect())
 }
 
+#[derive(Debug)]
+pub enum TypeDecl {
+    Interface(TsInterfaceDecl),
+    Alias(TsTypeAliasDecl),
+}
+
+#[derive(Debug)]
+struct TypeResolver {
+    symbol_table: HashMap<String, TypeDecl>,
+    type_ref_to_arg: HashMap<String, Arg>,
+}
+
+impl TypeResolver {
+    fn new(
+        symbol_table: HashMap<String, TypeDecl>,
+        type_ref_to_arg: Option<HashMap<String, Arg>>,
+    ) -> TypeResolver {
+        TypeResolver { type_ref_to_arg: type_ref_to_arg.unwrap_or_default(), symbol_table }
+    }
+
+    fn get_arg(&mut self, type_name: &str) -> anyhow::Result<Arg> {
+        if let Some(arg) = self.type_ref_to_arg.get(type_name) {
+            return Ok(arg.to_owned());
+        };
+
+
+        
+
+        todo!()
+    }
+}
+
 /// skip_params is a micro optimization for when we just want to find the main
 /// function without parsing all the params.
 pub fn parse_deno_signature(
     code: &str,
     skip_dflt: bool,
     skip_params: bool,
-    main_override: Option<String>,
+    entrypoint_override: Option<String>,
 ) -> anyhow::Result<MainArgSignature> {
     let cm: Lrc<SourceMap> = Default::default();
     let fm = cm.new_source_file(FileName::Custom("main.ts".into()).into(), code.into());
@@ -161,6 +194,9 @@ pub fn parse_deno_signature(
         err_s += &e.into_kind().msg().to_string();
     }
 
+    let mut has_preprocessor = false;
+    let mut entrypoint_params = None;
+
     let ast = parser
         .parse_module()
         .map_err(|e| {
@@ -168,35 +204,52 @@ pub fn parse_deno_signature(
         })?
         .body;
 
-    let has_preprocessor = ast.iter().any(|x| match x {
-        ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
-            decl: Decl::Fn(FnDecl { ident: Ident { sym, .. }, .. }),
-            ..
-        })) => &sym.to_string() == "preprocessor",
-        _ => false,
-    });
+    println!("{:#?}", &ast);
 
-    let main_name = main_override.unwrap_or("main".to_string());
-    let params = ast.into_iter().find_map(|x| match x {
-        ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
-            decl: Decl::Fn(FnDecl { ident: Ident { sym, .. }, function, .. }),
-            ..
-        })) if &sym.to_string() == &main_name => Some(function.params),
-        _ => None,
-    });
+    let entrypoint_function = entrypoint_override.as_deref().unwrap_or("main");
+
+    let mut symbol_table: HashMap<String, TypeDecl> = HashMap::new();
+
+    for item in ast {
+        if let ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl { decl, .. }))
+        | ModuleItem::Stmt(Stmt::Decl(decl)) = item
+        {
+            match decl {
+                Decl::TsInterface(iface) => {
+                    symbol_table.insert(iface.id.sym.to_string(), TypeDecl::Interface(*iface));
+                }
+                Decl::TsTypeAlias(alias) => {
+                    symbol_table.insert(alias.id.sym.to_string(), TypeDecl::Alias(*alias));
+                }
+                Decl::Fn(fn_decl) => {
+                    let name = fn_decl.ident.sym.to_string();
+                    if name == "preprocessor" {
+                        has_preprocessor = true;
+                    }
+                    if name == entrypoint_function {
+                        entrypoint_params = Some(fn_decl.function.params.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
 
     let mut c: u16 = 0;
-    let no_main_func = params.is_none();
+    let mut type_resolver = TypeResolver::new(symbol_table, None);
+    let no_main_func = entrypoint_params.is_none();
+
     let r = MainArgSignature {
         star_args: false,
         star_kwargs: false,
         args: if skip_params {
             vec![]
         } else {
-            params
-                .map(|x| {
-                    x.into_iter()
-                        .map(|x| parse_param(x, &cm, skip_dflt, &mut c))
+            entrypoint_params
+                .map(|param| {
+                    param
+                        .into_iter()
+                        .map(|param| parse_param(&mut type_resolver, param, &cm, skip_dflt, &mut c))
                         .collect::<anyhow::Result<Vec<Arg>>>()
                 })
                 .transpose()?
@@ -209,12 +262,13 @@ pub fn parse_deno_signature(
 }
 
 fn parse_param(
-    x: Param,
+    type_resolver: &mut TypeResolver,
+    param: Param,
     cm: &Lrc<SourceMap>,
     skip_dflt: bool,
     counter: &mut u16,
 ) -> anyhow::Result<Arg> {
-    let r = match x.pat {
+    let r = match param.pat {
         Pat::Ident(ident) => {
             let (name, typ, nullable) = binding_ident_to_arg(&ident);
             Ok(Arg {
@@ -280,9 +334,9 @@ fn parse_param(
         }
         _ => Err(anyhow::anyhow!(
             "parameter syntax unsupported: `{}`: {:#?}",
-            cm.span_to_snippet(x.span())
-                .unwrap_or_else(|_| cm.span_to_string(x.span())),
-            x.pat
+            cm.span_to_snippet(param.span())
+                .unwrap_or_else(|_| cm.span_to_string(param.span())),
+            param.pat
         )),
     };
     r
@@ -450,6 +504,7 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
             }
         }
         TsType::TsTypeRef(TsTypeRef { type_name, type_params, .. }) => {
+            println!("Type name: {:#?}", type_name);
             let sym = match type_name {
                 TsEntityName::Ident(Ident { sym, .. }) => sym,
                 TsEntityName::TsQualifiedName(p) => &*p.right.sym,

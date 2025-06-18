@@ -12820,6 +12820,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "test-ts-parser"
+version = "1.498.0"
+dependencies = [
+ "anyhow",
+ "tokio",
+ "windmill-parser-ts",
+]
+
+[[package]]
 name = "text_lines"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
