@@ -17,24 +17,41 @@
 	import TriggerableByAI from '../TriggerableByAI.svelte'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	export let loading: boolean
-	export let disableStaticInputs = false
-	export let disableTutorials = false
-	export let disableAi = false
-	export let disableSettings = false
-	export let disabledFlowInputs = false
-	export let smallErrorHandler = false
-	export let newFlow: boolean = false
-	export let savedFlow:
-		| (Flow & {
-				draft?: Flow | undefined
-		  })
-		| undefined = undefined
-	export let onDeployTrigger: (trigger: Trigger) => void = () => {}
-	export let onTestUpTo: ((id: string) => void) | undefined = undefined
-	export let onEditInput: ((moduleId: string, key: string) => void) | undefined = undefined
+	interface Props {
+		loading: boolean
+		disableStaticInputs?: boolean
+		disableTutorials?: boolean
+		disableAi?: boolean
+		disableSettings?: boolean
+		disabledFlowInputs?: boolean
+		smallErrorHandler?: boolean
+		newFlow?: boolean
+		savedFlow?:
+			| (Flow & {
+					draft?: Flow | undefined
+			  })
+			| undefined
+		onDeployTrigger?: (trigger: Trigger) => void
+		onTestUpTo?: ((id: string) => void) | undefined
+		onEditInput?: ((moduleId: string, key: string) => void) | undefined
+	}
 
-	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined
+	let {
+		loading,
+		disableStaticInputs = false,
+		disableTutorials = false,
+		disableAi = false,
+		disableSettings = false,
+		disabledFlowInputs = false,
+		smallErrorHandler = false,
+		newFlow = false,
+		savedFlow = undefined,
+		onDeployTrigger = () => {},
+		onTestUpTo = undefined,
+		onEditInput = undefined
+	}: Props = $props()
+
+	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
 
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
