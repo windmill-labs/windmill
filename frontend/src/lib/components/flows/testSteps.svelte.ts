@@ -29,7 +29,7 @@ export class TestSteps {
 		const args = Object.fromEntries(
 			Object.keys(schema.properties ?? {}).map((k) => [
 				k,
-				evalValue(k, mod, this.#steps, pickableProperties, false)
+				evalValue(k, mod, this.#steps[mod.id] ?? {}, pickableProperties, false)
 			])
 		)
 		this.setStepArgs(mod.id, args)
@@ -50,8 +50,8 @@ export class TestSteps {
 			return
 		}
 		let parentModule: FlowModule | undefined = undefined
-		if (modules.length > 2) {
-			parentModule = modules[-1]
+		if (modules.length > 1) {
+			parentModule = modules[modules.length - 1]
 		}
 		const stepPropPicker = getStepPropPicker(
 			flowState,
