@@ -4,6 +4,7 @@
 
 	import { createEventDispatcher } from 'svelte'
 	import Select from './select/Select.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 
 	let {
 		tag = $bindable(),
@@ -41,7 +42,7 @@
 		class="w-full"
 		{disabled}
 		placeholder={nullTag ? `default: ${nullTag}` : 'lang default'}
-		items={items.map((value) => ({ value }))}
+		items={safeSelectItems(items)}
 		bind:value={() => tag, (value) => ((tag = value), dispatch('change', value))}
 	/>
 </div>

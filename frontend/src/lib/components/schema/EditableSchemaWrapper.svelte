@@ -9,6 +9,7 @@
 	import AddPropertyV2 from '$lib/components/schema/AddPropertyV2.svelte'
 	import { Plus } from 'lucide-svelte'
 	import Select from '../select/Select.svelte'
+	import { safeSelectItems } from '../select/utils.svelte'
 
 	interface Props {
 		schema: Schema | undefined | any
@@ -146,7 +147,7 @@
 		File extension :
 		<Select
 			autofocus
-			items={suggestedFileExtensions.map((e) => ({ value: e, label: e }))}
+			items={safeSelectItems(suggestedFileExtensions)}
 			bind:value={formatExtension}
 			onCreateItem={(ext) => ((formatExtension = ext), suggestedFileExtensions.push(ext))}
 		/>

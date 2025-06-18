@@ -19,6 +19,7 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { deepEqual } from 'fast-equals'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
+	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 
 	interface Props {
 		id: string
@@ -167,7 +168,7 @@
 	>
 		<MultiSelect
 			style={css.multiselect?.style}
-			items={[...items, ...customItems.map((value) => ({ value }))]}
+			items={safeSelectItems([...items, ...customItems])}
 			placeholder={resolvedConfig.placeholder}
 			bind:value={selectedItems}
 			onCreateItem={resolvedConfig.create

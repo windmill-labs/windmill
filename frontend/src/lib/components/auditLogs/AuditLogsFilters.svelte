@@ -36,6 +36,7 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import Select from '../select/Select.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
+	import { safeSelectItems } from '../select/utils.svelte'
 
 	let usernames: string[] | undefined = $state()
 	let resources = usePromise(() => loadResources($workspaceStore!), { loadInit: false })
@@ -397,7 +398,7 @@
 			onCreateItem={(r) => (resources.value?.push(r), (resource = r))}
 			createText="Press enter to use this value"
 			bind:value={resource}
-			items={['all', ...(resources.value ?? [])].map((r) => ({ value: r, label: r }))}
+			items={safeSelectItems(['all', ...(resources.value ?? [])])}
 			inputClass="dark:!bg-gray-700"
 			RightIcon={ChevronDown}
 		/>

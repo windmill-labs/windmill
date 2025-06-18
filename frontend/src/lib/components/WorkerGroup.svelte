@@ -21,6 +21,7 @@
 	import TagsToListenTo from './TagsToListenTo.svelte'
 	import Select from './select/Select.svelte'
 	import MultiSelect from './select/MultiSelect.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 
 	function computeVCpuAndMemory(workers: [string, WorkerPing[]][]) {
 		let vcpus = 0
@@ -340,7 +341,7 @@
 						{#if defaultTagPerWorkspace}
 							<Select
 								bind:value={workspaceTag}
-								items={workspaces.map((w) => ({ value: w.id, label: w.id }))}
+								items={workspaces.map((w) => ({ value: w.id }))}
 								onCreateItem={(c) => (workspaceTag = c)}
 								placeholder="Workspace ID"
 							/>
@@ -367,7 +368,7 @@
 											dirty = true
 										}
 									}
-									items={nconfig?.worker_tags.map((value) => ({ value })) ?? []}
+									items={safeSelectItems(nconfig?.worker_tags)}
 								/>
 							</Label>
 						{/if}

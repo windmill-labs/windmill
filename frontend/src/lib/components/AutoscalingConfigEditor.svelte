@@ -10,6 +10,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import Label from './Label.svelte'
 	import MultiSelect from './select/MultiSelect.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 
 	interface Props {
 		config: AutoscalingConfig | undefined
@@ -216,7 +217,7 @@
 											dispatch('dirty')
 										}
 									}
-									items={worker_tags?.map((value) => ({ value })) ?? []}
+									items={safeSelectItems(worker_tags)}
 									placeholder="Tags"
 								/>
 							{:else}

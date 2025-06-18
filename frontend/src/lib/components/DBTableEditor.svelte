@@ -72,6 +72,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import Select from './select/Select.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 
 	const { onConfirm, resourceType, previewSql, dbSchema, currentSchema }: DBTableEditorProps =
 		$props()
@@ -165,7 +166,7 @@
 											}
 										}
 									}
-									items={columnTypes.map((type) => ({ value: type, label: type }))}
+									items={safeSelectItems(columnTypes)}
 									class="w-48"
 								/>
 							</Cell>

@@ -34,6 +34,7 @@
 	import { bash } from 'svelte-highlight/languages'
 	import CreateToken from '$lib/components/settings/CreateToken.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 
 	type HttpRouteAndWebhook = WebhookFilters | OpenapiHttpRouteFilters
 
@@ -372,7 +373,7 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 																		clearable={false}
 																		class="grow shrink"
 																		bind:value={webhookFilters.user_or_folder_regex}
-																		items={['*', 'u', 'f'].map((value) => ({ value }))}
+																		items={safeSelectItems(['*', 'u', 'f'])}
 																	/>
 																	<span class="text-xl">/</span>
 																	<div>

@@ -14,6 +14,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import Select from './select/Select.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -138,9 +139,9 @@
 						</div>
 						{#key ownerKind}
 							<Select
-								items={(ownerKind === 'user' ? usernames : groups)
-									.map((x) => x.toString())
-									.map((x) => ({ value: x, label: x }))}
+								items={safeSelectItems(
+									(ownerKind === 'user' ? usernames : groups).map((x) => x.toString())
+								)}
 								bind:value={owner}
 							/>
 						{/key}

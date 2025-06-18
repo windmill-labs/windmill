@@ -24,6 +24,7 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 	import Select from '$lib/components/select/Select.svelte'
+	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 
 	let topic_items: string[] = $state([])
 	let subscription_items: string[] = $state([])
@@ -176,7 +177,7 @@
 										loadAllSubscriptionFromGooglePubSubTopic()
 									}
 								}
-								items={topic_items.map((value) => ({ value }))}
+								items={safeSelectItems(topic_items)}
 								placeholder="Choose a topic"
 							/>
 							<Button
@@ -312,7 +313,7 @@
 											(t) => ((subscription_id = t), (cloud_subscription_id = t))
 										}
 										onClear={() => (subscription_id = '')}
-										items={subscription_items.map((value) => ({ value }))}
+										items={safeSelectItems(subscription_items)}
 										placeholder="Choose a subscription"
 									/>
 									<Button

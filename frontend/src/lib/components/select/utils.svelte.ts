@@ -65,7 +65,7 @@ export function safeSelectItems<T>(
 				return { value: item }
 			}
 			if (typeof item === 'object' && 'value' in item) {
-				return { value: item.value, label: item.label }
+				return item
 			}
 			return { value: null as any, label: 'UNKNOWN_ITEM' }
 		})

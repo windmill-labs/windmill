@@ -41,6 +41,7 @@
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { ComponentCustomCSS } from './apps/types'
 	import MultiSelect from './select/MultiSelect.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 
 	interface Props {
 		label?: string
@@ -634,7 +635,7 @@
 							<MultiSelect
 								{disabled}
 								bind:value
-								items={itemsType?.multiselect.map((value) => ({ value })) ?? []}
+								items={safeSelectItems(itemsType?.multiselect)}
 								onOpen={() => dispatch('focus')}
 								reorderable
 							/>
@@ -644,7 +645,7 @@
 							<MultiSelect
 								{disabled}
 								bind:value
-								items={itemsType?.enum.map((value) => ({ value })) ?? []}
+								items={safeSelectItems(itemsType?.enum)}
 								onOpen={() => dispatch('focus')}
 								reorderable
 							/>

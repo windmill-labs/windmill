@@ -5,6 +5,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { defaultTags, nativeTags } from './worker_group'
 	import Select from './select/Select.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 
 	const dispatch = createEventDispatcher()
 	type Props = {
@@ -51,9 +52,11 @@
 {#if $superadmin}
 	<div class="max-w-md space-y-2">
 		<Select
-			items={[...(customTags ?? []), ...createdTags, ...defaultTags, ...nativeTags]
-				.filter((x) => !worker_tags?.includes(x))
-				.map((x) => ({ value: x, label: x }))}
+			items={safeSelectItems(
+				[...(customTags ?? []), ...createdTags, ...defaultTags, ...nativeTags].filter(
+					(x) => !worker_tags?.includes(x)
+				)
+			)}
 			{disabled}
 			bind:value={newTag}
 			onFocus={() => dispatch('focus')}

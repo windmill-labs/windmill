@@ -11,6 +11,7 @@
 	import { Popover } from './meltComponents'
 	import SchemaForm from './SchemaForm.svelte'
 	import MultiSelect from './select/MultiSelect.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 	const dispatch = createEventDispatcher()
 
 	interface Props {
@@ -175,7 +176,7 @@
 									<div class="my-2">
 										<MultiSelect
 											placeholder="arg fields to filter on"
-											items={Object.keys(schema?.properties ?? {}).map((value) => ({ value }))}
+											items={safeSelectItems(Object.keys(schema?.properties ?? {}))}
 											bind:value={searchArgsFields}
 											disablePortal
 										/>

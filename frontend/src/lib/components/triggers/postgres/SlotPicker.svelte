@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
+	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 	import { PostgresTriggerService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -77,7 +78,7 @@
 		class="grow shrink max-w-full"
 		bind:value={replication_slot_name}
 		onClear={() => (replication_slot_name = '')}
-		items={items.map((value) => ({ value }))}
+		items={safeSelectItems(items)}
 		placeholder="Choose a slot name"
 		disablePortal
 		clearable

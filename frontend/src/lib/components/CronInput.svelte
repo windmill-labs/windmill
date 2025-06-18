@@ -11,6 +11,7 @@
 	import CronGen from './copilot/CronGen.svelte'
 	import Select from './select/Select.svelte'
 	import MultiSelect from './select/MultiSelect.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 
 	export let schedule: string
 	// export let offset: number = -60 * Math.floor(new Date().getTimezoneOffset() / 60)
@@ -285,7 +286,7 @@
 										disablePortal
 										{disabled}
 										bind:value={monthsOfYear}
-										items={monthsOfYearOptions.map((value) => ({ value }))}
+										items={safeSelectItems(monthsOfYearOptions)}
 										placeholder="Every month"
 									/>
 								</div>
@@ -297,7 +298,7 @@
 										disablePortal
 										{disabled}
 										bind:value={daysOfWeek}
-										items={daysOfWeekOptions.map((value) => ({ value }))}
+										items={safeSelectItems(daysOfWeekOptions)}
 										placeholder="Every day"
 									/>
 								</div>
@@ -314,7 +315,7 @@
 												disablePortal
 												{disabled}
 												bind:value={daysOfMonth}
-												items={daysOfMonthOptions.map((value) => ({ value }))}
+												items={safeSelectItems(daysOfMonthOptions)}
 												placeholder="Every day"
 											/>
 										</div>
