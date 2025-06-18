@@ -1,4 +1,5 @@
 <script lang="ts" generics="Item extends { label?: string; value: any }">
+	import { twMerge } from 'tailwind-merge'
 	import CloseButton from '../common/CloseButton.svelte'
 
 	type Props = {
@@ -26,7 +27,10 @@
 {#each items ?? [] as item, index}
 	<div
 		role="listitem"
-		class={'pl-3 pr-1 bg-surface-secondary rounded-full flex items-center gap-0.5'}
+		class={twMerge(
+			'pl-3 pr-1 bg-surface-secondary rounded-full flex items-center gap-0.5',
+			!!currentlyDraggingIndex ? 'hover:opacity-20' : ''
+		)}
 		style={currentlyDraggingIndex === index
 			? `transform: translate(${dragPos[0]}px, ${dragPos[1]}px); pointer-events: none;`
 			: ''}
