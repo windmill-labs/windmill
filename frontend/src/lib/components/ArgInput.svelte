@@ -11,7 +11,6 @@
 	} from '$lib/utils'
 	import { DollarSign, Pipette, Plus, X, Check, Loader2 } from 'lucide-svelte'
 	import { createEventDispatcher, onMount, tick, untrack } from 'svelte'
-	import MultiselectLegacy from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
 	import { Button, SecondsInput } from './common'
 	import FieldHeader from './FieldHeader.svelte'
@@ -41,6 +40,7 @@
 	import type { Script } from '$lib/gen'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { ComponentCustomCSS } from './apps/types'
+	import MultiSelect from './select/MultiSelect.svelte'
 
 	interface Props {
 		label?: string
@@ -631,43 +631,22 @@
 				<div class="w-full">
 					{#if Array.isArray(itemsType?.multiselect) && Array.isArray(value)}
 						<div class="items-start">
-							<MultiselectLegacy
-								ulOptionsClass={'p-2 !bg-surface-secondary'}
-								outerDivClass={'dark:!border-gray-500 !border-gray-300'}
+							<MultiSelect
 								{disabled}
-								bind:selected={value}
-								onremove={(e) => {
-									if (Array.isArray(value)) value = value.filter((v) => v !== e.option)
-								}}
-								options={itemsType?.multiselect ?? []}
-								selectedOptionsDraggable={true}
-								onopen={() => {
-									dispatch('focus')
-								}}
+								bind:value
+								items={itemsType?.multiselect.map((value) => ({ value })) ?? []}
+								onOpen={() => dispatch('focus')}
+								reorderable
 							/>
 						</div>
 					{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && (Array.isArray(value) || value == undefined)}
 						<div class="items-start">
-							<MultiselectLegacy
-								ulOptionsClass={'p-2 !bg-surface-secondary'}
-								outerDivClass={'dark:!border-gray-500 !border-gray-300'}
+							<MultiSelect
 								{disabled}
-								onremove={(e) => {
-									if (Array.isArray(value)) value = value.filter((v) => v !== e.option)
-								}}
-								bind:selected={
-									() => [...(value ?? [])],
-									(v) => {
-										if (!deepEqual(v, value)) {
-											value = v
-										}
-									}
-								}
-								options={itemsType?.enum ?? []}
-								selectedOptionsDraggable={true}
-								onopen={() => {
-									dispatch('focus')
-								}}
+								bind:value
+								items={itemsType?.enum.map((value) => ({ value })) ?? []}
+								onOpen={() => dispatch('focus')}
+								reorderable
 							/>
 						</div>
 					{:else if itemsType?.type == 'object' && itemsType?.resourceType == 's3object'}

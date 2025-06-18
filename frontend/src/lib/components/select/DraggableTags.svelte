@@ -43,7 +43,7 @@
 			dragPos = [0, 0]
 		}}
 	>
-		<span class="text-sm">{item.label || item.value}</span>
+		<span class="text-sm select-none">{item.label || item.value}</span>
 		<CloseButton
 			class="text-tertiary"
 			small

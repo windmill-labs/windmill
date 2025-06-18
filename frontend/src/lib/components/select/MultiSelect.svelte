@@ -6,6 +6,7 @@
 	import CloseButton from '../common/CloseButton.svelte'
 	import DraggableTags from './DraggableTags.svelte'
 	import { Search } from 'lucide-svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	type Value = Item['value']
 
@@ -91,7 +92,10 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<div
-		class="bg-surface overflow-clip w-full min-h-8 rounded-md cursor-pointer items-center flex flex-wrap gap-1 py-0.5 px-0.5"
+		class={twMerge(
+			'bg-surface border border-gray-300 overflow-clip w-full min-h-8 rounded-md cursor-pointer items-center flex flex-wrap gap-1 py-0.5 px-0.5',
+			disabled ? 'bg-gray-100 dark:bg-gray-700' : ''
+		)}
 		onclick={() => (open = true)}
 		role="list"
 	>
