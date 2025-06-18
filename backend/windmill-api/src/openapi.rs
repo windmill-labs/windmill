@@ -313,9 +313,15 @@ fn generate_paths(
         }
     };
 
-    let mut duplicate_webhooks = HashSet::new();
+    let mut webhooks = HashSet::new();
 
     for path in paths {
+        if let Kind::Webhook(WebhookConfig { runnable_kind }) = &path.kind {
+            if !webhooks.insert((path.route_path.clone(), runnable_kind.to_owned())) {
+                continue;
+            }
+        }
+
         let (route_paths, parameters) =
             from_route_path_to_openapi_path(&path.route_path, &path.kind)?;
 
@@ -342,9 +348,6 @@ fn generate_paths(
 
             let (methods, is_webhook) = match &path.kind {
                 Kind::Webhook(_) => {
-                    if !duplicate_webhooks.insert(route_path.clone()) {
-                        continue;
-                    }
                     is_async = route_path.starts_with("/run/");
                     let methods = if is_async {
                         vec![Method::POST]
@@ -356,7 +359,12 @@ fn generate_paths(
                 }
                 Kind::HttpRoute(HttpRouteConfig { method }) => {
                     if path_object.get(&method.to_string()).is_some() {
-                        return Err(anyhow!("Found duplicate route: {}", path.route_path).into());
+                        return Err(anyhow!(
+                            "Found duplicate {} method, for route at path: {}",
+                            method,
+                            path.route_path
+                        )
+                        .into());
                     }
                     is_async = path.is_async.unwrap_or(true);
                     (vec![method.to_owned()], false)
