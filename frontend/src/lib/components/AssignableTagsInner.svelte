@@ -5,7 +5,7 @@
 	import { ExternalLink, Loader2, X } from 'lucide-svelte'
 	import { SettingService, WorkerService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { superadmin } from '$lib/stores'
+	import { superadmin, devopsRole } from '$lib/stores'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
 	import { CUSTOM_TAGS_SETTING } from '$lib/consts'
 	import { base } from '$lib/base'
@@ -80,10 +80,10 @@
 				loadCustomTags()
 				sendUserToast('Tag added')
 			}}
-			disabled={newTag.trim() == '' || !$superadmin}
+			disabled={newTag.trim() == '' || !($superadmin || $devopsRole)}
 		>
-			Add {#if !$superadmin}
-				<span class="text-2xs text-tertiary">superadmin only</span>
+			Add {#if !($superadmin || $devopsRole)}
+				<span class="text-2xs text-tertiary">superadmin or devops only</span>
 			{/if}
 		</Button>
 		<span class="text-sm text-primary"

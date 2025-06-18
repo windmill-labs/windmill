@@ -9,7 +9,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString, pluralize } from '$lib/utils'
-	import { enterpriseLicense, superadmin } from '$lib/stores'
+	import { enterpriseLicense, superadmin, devopsRole } from '$lib/stores'
 	import Tooltip from './Tooltip.svelte'
 	import Editor from './Editor.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -155,7 +155,7 @@
 	let vcpus_memory = $derived(computeVCpuAndMemory(workers))
 	let selected = $derived(nconfig?.dedicated_worker != undefined ? 'dedicated' : 'normal')
 	$effect(() => {
-		$superadmin && listWorkspaces()
+		($superadmin || $devopsRole) && listWorkspaces()
 	})
 </script>
 
@@ -209,7 +209,7 @@
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent
 		on:close={() => drawer?.closeDrawer()}
-		title={$superadmin ? `Edit worker config '${name}'` : `Worker config '${name}'`}
+		title={($superadmin || $devopsRole) ? `Edit worker config '${name}'` : `Worker config '${name}'`}
 	>
 		{#if !$enterpriseLicense}
 			<Alert type="warning" title="Worker management UI is EE only">
@@ -433,7 +433,7 @@
 		{:else if selected == 'dedicated'}
 			{#if nconfig?.dedicated_worker != undefined}
 				<input
-					disabled={!$superadmin}
+					disabled={!($superadmin || $devopsRole)}
 					placeholder="<workspace>:<script path>"
 					type="text"
 					onchange={() => {
@@ -442,7 +442,7 @@
 					}}
 					bind:value={nconfig.dedicated_worker}
 				/>
-				{#if $superadmin}
+				{#if $superadmin || $devopsRole}
 					<div class="py-2"
 						><Alert
 							type="info"
@@ -471,11 +471,11 @@
 						<div class="flex gap-1 items-center">
 							<input
 								type="text"
-								disabled={!$superadmin}
+								disabled={!($superadmin || $devopsRole)}
 								placeholder="/path/to/python3.X/site-packages"
 								bind:value={nconfig.additional_python_paths![i]}
 							/>
-							{#if $superadmin}
+							{#if $superadmin || $devopsRole}
 								<button
 									class="rounded-full bg-surface/60 hover:bg-gray-200"
 									aria-label="Clear"
@@ -497,7 +497,7 @@
 						</div>
 					{/each}
 				{/if}
-				{#if $superadmin}
+				{#if $superadmin || $devopsRole}
 					<div class="flex">
 						<Button
 							variant="contained"
@@ -523,12 +523,12 @@
 					{#each nconfig.pip_local_dependencies as _, i}
 						<div class="flex gap-1 items-center">
 							<input
-								disabled={!$superadmin}
+								disabled={!($superadmin || $devopsRole)}
 								type="text"
 								placeholder="httpx"
 								bind:value={nconfig.pip_local_dependencies[i]}
 							/>
-							{#if $superadmin}
+							{#if $superadmin || $devopsRole}
 								<button
 									class="rounded-full bg-surface/60 hover:bg-gray-200"
 									aria-label="Clear"
@@ -550,7 +550,7 @@
 						</div>
 					{/each}
 				{/if}
-				{#if $superadmin}
+				{#if $superadmin || $devopsRole}
 					<div class="flex">
 						<Button
 							variant="contained"
@@ -584,7 +584,7 @@
 				{#each customEnvVars as envvar, i}
 					<div class="flex gap-1 items-center">
 						<input
-							disabled={!$superadmin}
+							disabled={!($superadmin || $devopsRole)}
 							type="text"
 							placeholder="ENV_VAR_NAME"
 							bind:value={envvar.key}
@@ -593,7 +593,7 @@
 							}}
 						/>
 						<ToggleButtonGroup
-							disabled={!$superadmin}
+							disabled={!($superadmin || $devopsRole)}
 							class="w-128"
 							bind:selected={envvar.type}
 							on:selected={(e) => {
@@ -610,13 +610,13 @@
 						</ToggleButtonGroup>
 						<input
 							type="text"
-							disabled={!$superadmin || envvar.type === 'dynamic'}
+							disabled={!($superadmin || $devopsRole) || envvar.type === 'dynamic'}
 							placeholder={envvar.type === 'dynamic'
 								? 'value read from worker env var'
 								: 'static value'}
 							bind:value={envvar.value}
 						/>
-						{#if $superadmin}
+						{#if $superadmin || $devopsRole}
 							<button
 								class="rounded-full bg-surface/60 hover:bg-gray-200"
 								aria-label="Clear"
@@ -639,7 +639,7 @@
 						{/if}
 					</div>
 				{/each}
-				{#if $superadmin}
+				{#if $superadmin || $devopsRole}
 					<div class="flex">
 						<Button
 							variant="contained"
@@ -657,7 +657,7 @@
 					</div>
 				{/if}
 			</div>
-			{#if !superadmin}
+			{#if !($superadmin || $devopsRole)}
 				<div class="flex flex-wrap items-center gap-1 pt-2">
 					<Button
 						variant="contained"
@@ -745,7 +745,7 @@
 						>
 					{/if}
 					<Editor
-						disabled={!$superadmin}
+						disabled={!($superadmin || $devopsRole)}
 						class="flex flex-1 grow h-full w-full"
 						automaticLayout
 						scriptLang={'bash'}
@@ -824,7 +824,7 @@
 						}}
 						disabled={(!dirty && nconfig?.dedicated_worker == undefined) ||
 							!$enterpriseLicense ||
-							!$superadmin}
+							!($superadmin || $devopsRole)}
 					>
 						Apply changes
 					</Button>

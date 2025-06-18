@@ -19,6 +19,7 @@
 	import {
 		enterpriseLicense,
 		superadmin,
+		devopsRole,
 		userStore,
 		workspaceStore,
 		userWorkspaces
@@ -131,7 +132,7 @@
 	loadWorkers()
 	loadWorkerGroups()
 	loadCustomTags()
-	$: $superadmin && loadDefaultTagsPerWorkspace()
+	$: ($superadmin || $devopsRole) && loadDefaultTagsPerWorkspace()
 
 	onDestroy(() => {
 		if (intervalId) {
@@ -271,7 +272,7 @@
 	}
 </script>
 
-{#if $superadmin}
+{#if $superadmin || $devopsRole}
 	<QueueMetricsDrawer bind:this={queueMetricsDrawer} />
 {/if}
 
@@ -331,7 +332,7 @@
 			tooltip="The workers are the dutiful servants that execute the jobs."
 			documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
 		>
-			{#if $superadmin}
+			{#if $superadmin || $devopsRole}
 				<div class="flex flex-row-reverse w-full pb-2 items-center gap-4">
 					<div>
 						<AssignableTags
@@ -392,7 +393,7 @@
 				>
 				<div></div>
 
-				{#if $superadmin}
+				{#if $superadmin || $devopsRole}
 					<div class="flex flex-row gap-4 items-center">
 						<Button
 							size="sm"
@@ -577,7 +578,7 @@
 									<Cell head>Last ping</Cell>
 									<Cell head>Worker start</Cell>
 									<Cell head>Jobs ran</Cell>
-									{#if (!config || config?.dedicated_worker == undefined) && $superadmin}
+									{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
 										<Cell head>Last job</Cell>
 										<Cell head>Occupancy rate<br />(15s/5m/30m/ever)</Cell>
 									{/if}
@@ -585,7 +586,7 @@
 									<Cell head>Limits</Cell>
 									<Cell head>Version</Cell>
 									<Cell head>Liveness</Cell>
-									{#if $superadmin}
+									{#if $superadmin || $devopsRole}
 										<Cell head>
 											Live Shell
 											<Tooltip>
@@ -604,7 +605,7 @@
 									<tr class="border-t">
 										<Cell
 											first
-											colspan={(!config || config?.dedicated_worker == undefined) && $superadmin
+											colspan={(!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)
 												? 12
 												: 9}
 											scope="colgroup"
@@ -655,7 +656,7 @@
 												>
 												<Cell>{displayDate(started_at)}</Cell>
 												<Cell>{jobs_executed}</Cell>
-												{#if (!config || config?.dedicated_worker == undefined) && $superadmin}
+												{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
 													<Cell>
 														{#if last_job_id}
 															<a href={`/run/${last_job_id}?workspace=${last_job_workspace_id}`}>
@@ -715,7 +716,7 @@
 															: 'Unknown'}
 													</Badge>
 												</Cell>
-												{#if $superadmin}
+												{#if $superadmin || $devopsRole}
 													<Cell>
 														<Button
 															size="xs"
