@@ -21,7 +21,7 @@ use windmill_common::{
     DB,
 };
 
-use crate::{db::ApiAuthed, utils::require_super_admin};
+use crate::{db::ApiAuthed, utils::{require_super_admin, require_devops_role}};
 
 pub fn global_service() -> Router {
     Router::new()
@@ -103,7 +103,7 @@ async fn get_config(
     Path(name): Path<String>,
     Extension(db): Extension<DB>,
 ) -> error::JsonResult<Option<serde_json::Value>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_devops_role(&db, &authed.email).await?;
 
     let config = sqlx::query_as!(Config, "SELECT * FROM config WHERE name = $1", name)
         .fetch_optional(&db)
@@ -119,7 +119,7 @@ async fn update_config(
     authed: ApiAuthed,
     Json(config): Json<serde_json::Value>,
 ) -> error::Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_devops_role(&db, &authed.email).await?;
 
     #[cfg(not(feature = "enterprise"))]
     if name.starts_with("worker__") {
@@ -157,7 +157,7 @@ async fn delete_config(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
 ) -> error::Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_devops_role(&db, &authed.email).await?;
 
     let mut tx = db.begin().await?;
 
@@ -232,7 +232,7 @@ async fn list_configs(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> error::JsonResult<Vec<Config>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_devops_role(&db, &authed.email).await?;
     let configs = sqlx::query_as!(Config, "SELECT name, config FROM config")
         .fetch_all(&db)
         .await?;
