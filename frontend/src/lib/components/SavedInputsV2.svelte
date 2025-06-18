@@ -10,7 +10,7 @@
 	import { ExternalLink, Search } from 'lucide-svelte'
 	import { Popover } from './meltComponents'
 	import SchemaForm from './SchemaForm.svelte'
-	import MultiselectLegacy from './multiselect/MultiSelectLegacyWrapper.svelte'
+	import MultiSelect from './select/MultiSelect.svelte'
 	const dispatch = createEventDispatcher()
 
 	interface Props {
@@ -142,7 +142,6 @@
 							{/snippet}
 
 							{#snippet content()}
-								<div id="multi-select-search"></div>
 								<div class="p-2 overflow-auto max-h-[400px] min-h-[300px] w-[400px]">
 									<div class="flex items-center flex-wrap gap-x-2 justify-between">
 										<div class="text-sm text-secondary">Search by args</div>
@@ -174,12 +173,11 @@
 										</div>
 									</div>
 									<div class="my-2">
-										<MultiselectLegacy
-											topPlacement
-											target="#multi-select-search"
+										<MultiSelect
 											placeholder="arg fields to filter on"
-											items={Object.keys(schema?.properties ?? {})}
+											items={Object.keys(schema?.properties ?? {}).map((value) => ({ value }))}
 											bind:value={searchArgsFields}
+											disablePortal
 										/>
 									</div>
 									{#key filteredSchema}
