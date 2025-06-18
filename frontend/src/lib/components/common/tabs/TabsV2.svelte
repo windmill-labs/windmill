@@ -3,6 +3,7 @@
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
 	import type { TabsContext } from '$lib/components/apps/editor/settingsPanel/inputEditor/tabs.svelte'
+	import { getTabStateContext, type TabsState } from './tabsState.svelte'
 
 	interface Props {
 		selected: string
@@ -43,6 +44,9 @@
 
 	function updateSelected() {
 		selectedStore.set(selected)
+		if (tabsState && id) {
+			tabsState.setSelected(id, selected)
+		}
 	}
 
 	function hashChange() {
@@ -63,6 +67,14 @@
 	})
 
 	let hashValues = $derived(values ? values.map((x) => '#' + x) : undefined)
+
+	if (id) {
+		tabsState = getTabStateContext()
+		const tabState = tabsState?.getSelected(id)
+		if (tabState) {
+			selected = tabState
+		}
+	}
 </script>
 
 <svelte:window onhashchange={hashChange} />
