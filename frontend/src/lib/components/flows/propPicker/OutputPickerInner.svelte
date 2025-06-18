@@ -136,8 +136,9 @@
 		}
 		selectJob(lastJob)
 
-		if (lastJob.preview) {
+		if (lastJob.preview && mock?.enabled) {
 			preview = 'job'
+			lastJob.preview = false
 		}
 	})
 

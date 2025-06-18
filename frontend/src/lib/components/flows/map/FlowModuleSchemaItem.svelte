@@ -451,7 +451,7 @@
 						title="Run"
 						btnClasses="p-1.5"
 						on:click={() => {
-							moduleTest?.runTestWithStepArgs()
+							moduleTest?.loadArgsAndRunTest()
 						}}
 						dropdownItems={[
 							{
