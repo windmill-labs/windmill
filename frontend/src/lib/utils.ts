@@ -11,19 +11,89 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Job, Script } from './gen'
+import type { Job, Script, ScriptLang } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
 import type { AnyMeltElement } from '@melt-ui/svelte'
 import type { RunsSelectionMode } from './components/runs/RunsBatchActionsDropdown.svelte'
 import type { TriggerKind } from './components/triggers'
+import { stateSnapshot } from './svelte5Utils.svelte'
+import { validate, dereference } from '@scalar/openapi-parser'
+
+export namespace OpenApi {
+	export enum OpenApiVersion {
+		V2,
+		V3,
+		V3_1
+	}
+
+	export function isV2(doc: OpenAPI.Document): doc is OpenAPIV2.Document {
+		return 'swagger' in doc && doc.swagger === '2.0'
+	}
+
+	export function isV3(doc: OpenAPI.Document): doc is OpenAPIV3.Document {
+		return 'openapi' in doc && typeof doc.openapi === 'string' && doc.openapi.startsWith('3.0')
+	}
+
+	export function isV3_1(doc: OpenAPI.Document): doc is OpenAPIV3_1.Document {
+		return 'openapi' in doc && typeof doc.openapi === 'string' && doc.openapi.startsWith('3.1')
+	}
+
+	export function getOpenApiVersion(version: string): OpenApiVersion {
+		if (version.startsWith('2.0')) {
+			return OpenApiVersion.V2
+		} else if (version.startsWith('3.0')) {
+			return OpenApiVersion.V3
+		} else {
+			return OpenApiVersion.V3_1
+		}
+	}
+
+	/**
+	 * Parses and validates an OpenAPI specification provided as a string in either JSON or YAML format.
+	 *
+	 * @param api - A string containing a valid OpenAPI specification in JSON or YAML format.
+	 * @returns A promise that resolves to a tuple:
+	 *   - The first element is the validated OpenAPI document.
+	 *   - The second element is the detected OpenAPI version (2, 3.0, or 3.1).
+	 *
+	 * @throws Will throw an error if the specification is invalid or cannot be parsed.
+	 */
+	export async function parse(api: string): Promise<[OpenAPI.Document, OpenApiVersion]> {
+		const { valid, errors } = await validate(api)
+
+		if (!valid) {
+			const errorMessage = errors
+				? errors.map((error) => error.message).join('\n')
+				: 'Invalid OpenAPI document'
+			throw new Error(errorMessage)
+		}
+
+		const document = await dereference(api)
+
+		const version = getOpenApiVersion(document.version!)
+
+		return [document.schema, version]
+	}
+}
 
 export function isJobCancelable(j: Job): boolean {
 	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
 }
+
 export function isJobReRunnable(j: Job): boolean {
 	return (j.job_kind === 'script' || j.job_kind === 'flow') && j.parent_job === undefined
+}
+
+export const WORKER_NAME_PREFIX = 'wk'
+export const AGENT_WORKER_NAME_PREFIX = 'ag'
+const SSH_AGENT_WORKER_SUFFIX = '/ssh'
+
+export function isAgentWorkerShell(workerName: string) {
+	return (
+		workerName.startsWith(AGENT_WORKER_NAME_PREFIX) && workerName.endsWith(SSH_AGENT_WORKER_SUFFIX)
+	)
 }
 
 export function isJobSelectable(selectionType: RunsSelectionMode) {
@@ -211,6 +281,8 @@ interface ClickOutsideOptions {
 	exclude?: (() => Promise<HTMLElement[]>) | HTMLElement[] | undefined
 	stopPropagation?: boolean
 	customEventName?: string
+	// on:click_outside cannot be used with svelte 5
+	onClickOutside?: (event: MouseEvent) => void
 }
 
 export function clickOutside(
@@ -245,6 +317,7 @@ export function clickOutside(
 					event.stopPropagation()
 				}
 				node.dispatchEvent(new CustomEvent<MouseEvent>('click_outside', { detail: event }))
+				if (typeof options === 'object') options.onClickOutside?.(event)
 			}
 		}
 
@@ -566,6 +639,10 @@ export function formatCron(inp: string): string {
 	}
 }
 
+export function scriptLangArrayToCommaList(languages: ScriptLang[]): string {
+	return languages.join(',')
+}
+
 export function cronV1toV2(inp: string): string {
 	let splitted = inp.split(' ')
 	splitted = splitted.filter(String)
@@ -582,6 +659,18 @@ export function cronV1toV2(inp: string): string {
 
 export function classNames(...classes: Array<string | undefined>): string {
 	return classes.filter(Boolean).join(' ')
+}
+
+export function download(filename: string, fileContent: string, mimeType?: string) {
+	const blob = new Blob([fileContent], {
+		type: mimeType
+	})
+	const url = window.URL.createObjectURL(blob)
+	const a = document.createElement('a')
+	a.href = url
+	a.download = filename
+	a.click()
+	setTimeout(() => URL.revokeObjectURL(url), 100)
 }
 
 export async function copyToClipboard(value?: string, sendToast = true): Promise<boolean> {
@@ -931,7 +1020,7 @@ export type Value = {
 }
 
 export function replaceFalseWithUndefined(obj: any) {
-	return replaceFalseWithUndefinedRec(structuredClone(obj))
+	return replaceFalseWithUndefinedRec(structuredClone(stateSnapshot(obj)))
 }
 
 function replaceFalseWithUndefinedRec(obj: any) {
@@ -960,7 +1049,7 @@ export function cleanValueProperties(obj: Value) {
 		let newObj: any = {}
 		for (const key of Object.keys(obj)) {
 			if (key !== 'parent_hash' && key !== 'draft' && key !== 'draft_only') {
-				newObj[key] = structuredClone(obj[key])
+				newObj[key] = structuredClone(stateSnapshot(obj[key]))
 			}
 		}
 		return newObj
@@ -1279,7 +1368,25 @@ export function getOS() {
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import type { Snippet } from 'svelte'
+import { OpenAPIV2, type OpenAPI, type OpenAPIV3, type OpenAPIV3_1 } from 'openapi-types'
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))
+}
+
+export type StateStore<T> = {
+	val: T
+}
+
+export function readFieldsRecursively(obj: any): void {
+	if (Array.isArray(obj)) {
+		// <= in case a new object is added. should read as undefined
+		for (let i = 0; i <= obj.length; i++) {
+			if (obj[i] && typeof obj[i] === 'object') {
+				readFieldsRecursively(obj[i])
+			}
+		}
+	} else if (obj !== null && typeof obj === 'object') {
+		Object.keys(obj).forEach((key) => readFieldsRecursively(obj[key]))
+	}
 }

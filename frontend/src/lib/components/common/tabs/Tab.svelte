@@ -1,21 +1,44 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import type { TabsContext } from '$lib/components/apps/editor/settingsPanel/inputEditor/tabs.svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { TabsContext } from './Tabs.svelte'
+	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
 
-	export let value: string
-	export let size: 'xs' | 'sm' | 'md' | 'lg' | 'xl' = 'sm'
-	let c = ''
-	export { c as class }
-	export let style = ''
-	export let selectedClass = ''
-	export let selectedStyle = ''
-	export let id: string | undefined = undefined
-	export let active: boolean | undefined = false
-	export let exact = false
-	export let otherValues: string[] = []
+	const dispatch = createEventDispatcher<{ onpointerdown: any }>()
 
-	export let disabled: boolean = false
+	interface Props {
+		aiId?: string | undefined
+		aiDescription?: string | undefined
+		value: string
+		size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl'
+		class?: string
+		style?: string
+		selectedClass?: string
+		selectedStyle?: string
+		id?: string | undefined
+		active?: boolean | undefined
+		exact?: boolean
+		otherValues?: string[]
+		disabled?: boolean
+		children?: import('svelte').Snippet
+	}
+
+	let {
+		aiId = undefined,
+		aiDescription = undefined,
+		value,
+		size = 'sm',
+		class: c = '',
+		style = '',
+		selectedClass = '',
+		selectedStyle = '',
+		id = undefined,
+		active = false,
+		exact = false,
+		otherValues = [],
+		disabled = false,
+		children
+	}: Props = $props()
 	const { selected, update, hashNavigation } = getContext<TabsContext>('Tabs')
 
 	function getIsSelectedFn(exact: boolean, otherValues: string[]) {
@@ -28,9 +51,9 @@
 		}
 	}
 
-	$: isSelectedFn = getIsSelectedFn(exact, otherValues)
+	let isSelectedFn = $derived(getIsSelectedFn(exact, otherValues))
 
-	$: isSelected = isSelectedFn($selected)
+	let isSelected = $derived(isSelectedFn($selected))
 
 	const fontSizeClasses = {
 		xs: 'text-xs',
@@ -41,30 +64,45 @@
 	}
 </script>
 
-<button
-	class={twMerge(
-		'border-b-2 py-1 px-2 cursor-pointer transition-all z-10 ease-linear font-normal text-tertiary',
-		isSelected
-			? 'wm-tab-active font-main'
-			: 'border-gray-300 dark:border-gray-600 border-opacity-0 hover:border-opacity-100 ',
-		fontSizeClasses[size],
-		c,
-		isSelected ? selectedClass : '',
-		disabled ? 'cursor-not-allowed text-tertiary' : ''
-	)}
-	style={`${style} ${isSelected ? selectedStyle : ''}`}
-	on:click={() => {
+<TriggerableByAI
+	id={aiId}
+	description={aiDescription}
+	onTrigger={() => {
 		if (hashNavigation) {
 			window.location.hash = value
 		} else {
 			update(value)
 		}
 	}}
-	on:pointerdown|stopPropagation
-	{disabled}
-	{id}
 >
-	<div class={twMerge(active ? 'bg-blue-50 text-blue-800 rounded-md ' : '', 'px-2 ')}>
-		<slot />
-	</div>
-</button>
+	<button
+		class={twMerge(
+			'border-b-2 py-1 px-2 cursor-pointer transition-all z-10 ease-linear font-normal text-tertiary',
+			isSelected
+				? 'wm-tab-active font-main'
+				: 'border-gray-300 dark:border-gray-600 border-opacity-0 hover:border-opacity-100 ',
+			fontSizeClasses[size],
+			c,
+			isSelected ? selectedClass : '',
+			disabled ? 'cursor-not-allowed text-tertiary' : ''
+		)}
+		style={`${style} ${isSelected ? selectedStyle : ''}`}
+		onclick={() => {
+			if (hashNavigation) {
+				window.location.hash = value
+			} else {
+				update(value)
+			}
+		}}
+		onpointerdown={(event) => {
+			event.stopPropagation()
+			dispatch('onpointerdown', event)
+		}}
+		{disabled}
+		{id}
+	>
+		<div class={twMerge(active ? 'bg-blue-50 text-blue-800 rounded-md ' : '', 'px-2 ')}>
+			{@render children?.()}
+		</div>
+	</button>
+</TriggerableByAI>

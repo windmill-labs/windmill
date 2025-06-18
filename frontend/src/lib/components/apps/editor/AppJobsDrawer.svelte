@@ -78,8 +78,8 @@
 														? 'bg-red-600 !border-blue-600'
 														: 'bg-red-400'
 													: selectedJobId == id
-													? 'text-blue-600'
-													: ''
+														? 'text-blue-600'
+														: ''
 											)}
 											on:click={() => {
 												selectedJobId = id
@@ -266,7 +266,7 @@
 				</div>
 			</Pane>
 		</Splitpanes>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			{#if refreshComponents}
 				<Button
 					size="md"
@@ -291,9 +291,9 @@
 			</Button>
 			{#if hasErrors}
 				<Button size="md" color="light" variant="border" on:click={() => dispatch('clearErrors')}>
-					>Clear Errors &nbsp;<BellOff size={14} />
+					Clear Errors &nbsp;<BellOff size={14} />
 				</Button>
 			{/if}
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

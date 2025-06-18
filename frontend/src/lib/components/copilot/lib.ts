@@ -21,16 +21,13 @@ import { formatResourceTypes } from './utils'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
+const OPENAI_MODELS = ['gpt-4o', 'gpt-4o-mini', 'o4-mini', 'o3', 'o3-mini']
+
 // need at least one model for each provider except customai
 export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
-	openai: ['gpt-4o', 'gpt-4o-mini'],
-	azure_openai: ['gpt-4o', 'gpt-4o-mini'],
-	anthropic: [
-		'claude-3-7-sonnet-latest',
-		'claude-3-7-sonnet-latest/thinking',
-		'claude-3-5-haiku-latest',
-		'claude-3-5-sonnet-latest'
-	],
+	openai: OPENAI_MODELS,
+	azure_openai: OPENAI_MODELS,
+	anthropic: ['claude-sonnet-4-0', 'claude-sonnet-4-0/thinking', 'claude-3-5-haiku-latest'],
 	mistral: ['codestral-latest'],
 	deepseek: ['deepseek-chat', 'deepseek-reasoner'],
 	googleai: ['gemini-1.5-pro', 'gemini-2.0-flash', 'gemini-1.5-flash'],
@@ -40,13 +37,104 @@ export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
 	customai: []
 }
 
+export interface ModelResponse {
+	id: string
+	object: string
+	created: number
+	owned_by: string
+	lifecycle_status: string
+	capabilities: {
+		completion: boolean
+		chat_completion: boolean
+	}
+}
+
+export async function fetchAvailableModels(
+	resourcePath: string,
+	workspace: string,
+	provider: AIProvider
+): Promise<string[]> {
+	const models = await fetch(`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/models`, {
+		headers: {
+			'X-Resource-Path': resourcePath,
+			'X-Provider': provider,
+			...(provider === 'anthropic' ? { 'anthropic-version': '2023-06-01' } : {})
+		}
+	})
+	if (!models.ok) {
+		console.error('Failed to fetch models for provider', provider, models)
+		throw new Error(`Failed to fetch models for provider ${provider}`)
+	}
+	const data = (await models.json()) as { data: ModelResponse[] }
+	if (data.data.length > 0) {
+		switch (provider) {
+			case 'openai':
+				return data.data
+					.filter(
+						(m) => m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.startsWith('codex')
+					)
+					.map((m) => m.id)
+			case 'azure_openai':
+				return data.data
+					.filter(
+						(m) =>
+							(m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.startsWith('codex')) &&
+							m.lifecycle_status !== 'deprecated' &&
+							(m.capabilities.completion || m.capabilities.chat_completion)
+					)
+					.map((m) => m.id)
+			case 'googleai':
+				return data.data.map((m) => m.id.split('/')[1])
+			default:
+				return data.data.map((m) => m.id)
+		}
+	}
+
+	return data?.data.map((m) => m.id) ?? []
+}
+
 function getModelMaxTokens(model: string) {
-	if (model.startsWith('gpt-4o') || model.startsWith('codestral')) {
+	if (model.startsWith('gpt-4.1')) {
+		return 32768
+	} else if (model.startsWith('gpt-4o') || model.startsWith('codestral')) {
 		return 16384
 	} else if (model.startsWith('gpt-4-turbo') || model.startsWith('gpt-3.5')) {
 		return 4096
 	}
 	return 8192
+}
+
+function getModelSpecificConfig(
+	modelProvider: AIProviderModel,
+	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
+) {
+	if (
+		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
+		modelProvider.model.startsWith('o')
+	) {
+		return {
+			model: modelProvider.model,
+			...(tools && tools.length > 0 ? { tools } : {}),
+			max_completion_tokens: 100000
+		}
+	} else {
+		return {
+			...(modelProvider.model.endsWith('/thinking')
+				? {
+						thinking: {
+							type: 'enabled',
+							budget_tokens: 1024
+						},
+						model: modelProvider.model.slice(0, -9)
+					}
+				: {
+						model: modelProvider.model,
+						temperature: 0
+					}),
+			...(tools && tools.length > 0 ? { tools } : {}),
+			max_completion_tokens: getModelMaxTokens(modelProvider.model)
+		}
+	}
 }
 
 function prepareMessages(aiProvider: AIProvider, messages: ChatCompletionMessageParam[]) {
@@ -374,20 +462,7 @@ function getProviderAndCompletionConfig<K extends boolean>({
 		provider: modelProvider.provider,
 		config: {
 			...providerConfig,
-			...(modelProvider.model.endsWith('/thinking')
-				? {
-						thinking: {
-							type: 'enabled',
-							budget_tokens: 1024
-						},
-						model: modelProvider.model.slice(0, -9)
-					}
-				: {
-						model: modelProvider.model,
-						temperature: 0,
-						...(tools && tools.length > 0 ? { tools } : {})
-					}),
-			max_tokens: getModelMaxTokens(modelProvider.model),
+			...getModelSpecificConfig(modelProvider, tools),
 			messages: processedMessages,
 			stream
 		} as any

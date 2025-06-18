@@ -2,6 +2,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { createGrid, type GridApi } from 'ag-grid-community'
 	import DarkModeObserver from './DarkModeObserver.svelte'
+	import { untrack } from 'svelte'
 
 	type Props = {
 		data: Record<string, any>[]
@@ -11,7 +12,7 @@
 	let api: GridApi<any> | undefined = $state()
 	let eGui: HTMLDivElement | undefined = $state()
 
-	$effect(() => eGui && mountGrid())
+	$effect(() => eGui && untrack(() => mountGrid()))
 	function mountGrid() {
 		if (eGui) {
 			createGrid(eGui, {

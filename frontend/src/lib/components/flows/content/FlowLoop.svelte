@@ -9,7 +9,7 @@
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	// import FlowRetries from './FlowRetries.svelte'
-	import { Button, Drawer, Tab, TabContent, Tabs } from '$lib/components/common'
+	import { Button, Drawer, Tab, TabContent } from '$lib/components/common'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { getStepPropPicker } from '../previousResults'
 	import { enterpriseLicense } from '$lib/stores'
@@ -26,40 +26,53 @@
 
 	import PropPickerWrapper, { CONNECT } from '../propPicker/PropPickerWrapper.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
+	import TabsV2 from '$lib/components/common/tabs/TabsV2.svelte'
 
-	const { previewArgs, flowStateStore, flowStore } =
+	const { previewArgs, flowStateStore, flowStore, currentEditor } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	export let mod: FlowModule
-	export let parentModule: FlowModule | undefined
-	export let previousModule: FlowModule | undefined
-	export let noEditor: boolean
-	export let enableAi = false
+	interface Props {
+		mod: FlowModule
+		parentModule: FlowModule | undefined
+		previousModule: FlowModule | undefined
+		noEditor: boolean
+		enableAi?: boolean
+	}
 
-	let editor: SimpleEditor | undefined = undefined
-	let selected: string = 'early-stop'
+	let {
+		mod = $bindable(),
+		parentModule,
+		previousModule,
+		noEditor,
+		enableAi = false
+	}: Props = $props()
+
+	let editor: SimpleEditor | undefined = $state(undefined)
+	let selected: string = $state('early-stop')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
 	flowPropPickerConfig.set(undefined)
 
-	$: stepPropPicker = getStepPropPicker(
-		$flowStateStore,
-		parentModule,
-		previousModule,
-		mod.id,
-		$flowStore,
-		$previewArgs,
-		false
+	let stepPropPicker = $derived(
+		getStepPropPicker(
+			$flowStateStore,
+			parentModule,
+			previousModule,
+			mod.id,
+			flowStore.val,
+			previewArgs.val,
+			false
+		)
 	)
 
-	let previewOpen = false
-	let jobId: string | undefined = undefined
-	let job: Job | undefined = undefined
+	let previewOpen = $state(false)
+	let jobId: string | undefined = $state(undefined)
+	let job: Job | undefined = $state(undefined)
 
-	let iteratorFieldFocused = false
-	let iteratorGen: IteratorGen | undefined = undefined
+	let iteratorFieldFocused = $state(false)
+	let iteratorGen: IteratorGen | undefined = $state(undefined)
 
-	$: previewIterationArgs = $flowStateStore[mod.id]?.previewArgs ?? {}
+	let previewIterationArgs = $derived($flowStateStore[mod.id]?.previewArgs ?? {})
 
 	function setExpr(code: string) {
 		if (mod.value.type === 'forloopflow') {
@@ -71,6 +84,10 @@
 		editor?.setCode('')
 		editor?.insertAtCursor(code)
 	}
+
+	$effect(() => {
+		editor && currentEditor.set({ type: 'iterator', editor, stepId: mod.id })
+	})
 </script>
 
 <Drawer bind:open={previewOpen} alwaysOpen size="75%">
@@ -87,27 +104,29 @@
 </Drawer>
 
 <FlowCard {noEditor} title="For loop">
-	<div slot="header" class="grow">
-		<div class="my-2 flex flex-row gap-2 items-center">
-			<div>
-				<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops">
-					Add steps inside the loop and specify an iterator expression that defines the sequence
-					over which your subsequent steps will iterate.
-				</Tooltip>
-			</div>
-			<div class="grow">
-				<input bind:value={mod.summary} placeholder={'Summary'} />
-			</div>
-			<div class="justify-end">
-				<Button
-					on:click={() => (previewOpen = true)}
-					startIcon={{ icon: Play }}
-					color="dark"
-					size="sm">Test an iteration</Button
-				>
+	{#snippet header()}
+		<div class="grow">
+			<div class="my-2 flex flex-row gap-2 items-center">
+				<div>
+					<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops">
+						Add steps inside the loop and specify an iterator expression that defines the sequence
+						over which your subsequent steps will iterate.
+					</Tooltip>
+				</div>
+				<div class="grow">
+					<input bind:value={mod.summary} placeholder={'Summary'} />
+				</div>
+				<div class="justify-end">
+					<Button
+						on:click={() => (previewOpen = true)}
+						startIcon={{ icon: Play }}
+						color="dark"
+						size="sm">Test an iteration</Button
+					>
+				</div>
 			</div>
 		</div>
-	</div>
+	{/snippet}
 
 	<Splitpanes horizontal class="h-full">
 		<Pane size={50} minSize={20} class="p-4">
@@ -197,11 +216,11 @@
 				</div>
 
 				{#if mod.value.iterator.type == 'javascript'}
-					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
 						class="border w-full"
 						id="flow-editor-iterator-expression"
-						on:keyup={iteratorGen?.onKeyUp}
+						onkeyup={iteratorGen?.onKeyUp}
 					>
 						<PropPickerWrapper
 							alwaysOn
@@ -245,7 +264,7 @@
 			{/if}
 		</Pane>
 		<Pane size={40} minSize={20} class="flex flex-col flex-1">
-			<Tabs bind:selected id={`flow-editor-loop-${mod.id}`}>
+			<TabsV2 bind:selected id={`flow-editor-loop-${mod.id}`}>
 				<!-- <Tab value="retries">Retries</Tab> -->
 				<Tab value="early-stop">Early Stop/Break</Tab>
 				<Tab value="skip">Skip</Tab>
@@ -254,13 +273,13 @@
 				<Tab value="mock">Mock</Tab>
 				<Tab value="lifetime">Lifetime</Tab>
 
-				<svelte:fragment slot="content">
+				{#snippet content()}
 					<div class="overflow-hidden bg-surface" style="height:calc(100% - 32px);">
 						<!-- <TabContent value="retries" class="flex flex-col flex-1 h-full">
-								<div class="p-4 overflow-y-auto">
-									<FlowRetries bind:flowModule={mod} />
-								</div>
-							</TabContent> -->
+									<div class="p-4 overflow-y-auto">
+										<FlowRetries bind:flowModule={mod} />
+									</div>
+								</TabContent> -->
 
 						<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 							<div class="p-4 overflow-y-auto">
@@ -293,8 +312,8 @@
 							</div>
 						</TabContent>
 					</div>
-				</svelte:fragment>
-			</Tabs>
+				{/snippet}
+			</TabsV2>
 		</Pane>
 	</Splitpanes>
 </FlowCard>

@@ -15,7 +15,7 @@ use {
 
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
 use {
-    crate::gcp_triggers_ee::{
+    crate::gcp_triggers_oss::{
         manage_google_subscription, process_google_push_request, validate_jwt_token,
         CreateUpdateConfig, SubscriptionMode,
     },
@@ -46,28 +46,24 @@ use serde::de::DeserializeOwned;
 use windmill_common::error::Error;
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
-use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
+use crate::kafka_triggers_oss::KafkaTriggerConfigConnection;
 
 #[cfg(feature = "mqtt_trigger")]
 use crate::mqtt_triggers::{MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic};
 
 #[cfg(all(feature = "enterprise", feature = "nats"))]
-use crate::nats_triggers_ee::NatsTriggerConfigConnection;
+use crate::nats_triggers_oss::NatsTriggerConfigConnection;
 
 #[cfg(feature = "postgres_trigger")]
-use {
-    crate::postgres_triggers::{
-        create_logical_replication_slot, create_pg_publication, generate_random_string,
-        get_pg_connection, PublicationData,
-    },
-    sqlx::Connection,
+use crate::postgres_triggers::{
+    create_logical_replication_slot, create_pg_publication, generate_random_string,
+    get_default_pg_connection, PublicationData,
 };
 
 use crate::{
     args::RawWebhookArgs,
     db::{ApiAuthed, DB},
     users::fetch_api_authed,
-    utils::RunnableKind,
 };
 
 use axum::{
@@ -85,7 +81,7 @@ use windmill_common::{
     db::UserDB,
     error::{JsonResult, Result},
     triggers::{RunnableFormat, RunnableFormatVersion, TriggerKind},
-    utils::{not_found_if_none, paginate, Pagination, StripPath},
+    utils::{not_found_if_none, paginate, Pagination, RunnableKind, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
 
@@ -304,13 +300,15 @@ async fn set_postgres_trigger_config(
     user_db: UserDB,
     mut capture_config: NewCaptureConfig,
 ) -> Result<NewCaptureConfig> {
+    use windmill_common::error::to_anyhow;
+
     let Some(TriggerConfig::Postgres(postgres_config)) = capture_config.trigger_config.as_mut()
     else {
         return Err(Error::BadRequest("Invalid postgres config".to_string()));
     };
 
     if postgres_config.basic_mode.unwrap_or(false) {
-        let mut pg_connection = get_pg_connection(
+        let mut pg_connection = get_default_pg_connection(
             authed,
             Some(user_db),
             &db,
@@ -319,22 +317,26 @@ async fn set_postgres_trigger_config(
         )
         .await?;
 
-        let mut tx = pg_connection.begin().await?;
+        let tx = pg_connection.transaction().await.map_err(to_anyhow)?;
 
         let publication_name = format!("windmill_capture_{}", generate_random_string());
         let replication_slot_name = publication_name.clone();
 
-        create_logical_replication_slot(&mut tx, &replication_slot_name).await?;
+        create_logical_replication_slot(tx.client(), &replication_slot_name)
+            .await
+            .map_err(to_anyhow)?;
 
         create_pg_publication(
-            &mut tx,
+            tx.client(),
             &publication_name,
             postgres_config.publication.table_to_track.as_deref(),
             &postgres_config.publication.transaction_to_track,
         )
-        .await?;
+        .await
+        .map_err(to_anyhow)?;
 
-        tx.commit().await?;
+        tx.commit().await.map_err(to_anyhow)?;
+
         postgres_config.publication_name = Some(publication_name);
         postgres_config.replication_slot_name = Some(replication_slot_name);
     } else {
@@ -905,7 +907,7 @@ async fn gcp_payload(
     headers: HeaderMap,
     request: Request,
 ) -> Result<StatusCode> {
-    use crate::{gcp_triggers_ee::GcpTrigger, trigger_helpers::TriggerJobArgs};
+    use crate::{gcp_triggers_oss::GcpTrigger, trigger_helpers::TriggerJobArgs};
 
     let is_flow = matches!(runnable_kind, RunnableKind::Flow);
     let (gcp_trigger_config, owner, email): (GcpTriggerConfig, _, _) =

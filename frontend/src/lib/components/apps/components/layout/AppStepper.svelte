@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
@@ -14,16 +14,31 @@
 	import RunnableComponent from '../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
-	export let id: string
-	export let componentContainerHeight: number
-	export let tabs: string[]
-	export let customCss: ComponentCustomCSS<'steppercomponent'> | undefined = undefined
-	export let render: boolean
-	export let recomputeIds: string[] | undefined = undefined
-	export let extraQueryParams: Record<string, any> = {}
-	export let componentInput: AppInput | undefined
-	export let onNext: string[] | undefined = undefined
-	export let onPrevious: string[] | undefined = undefined
+	interface Props {
+		id: string
+		componentContainerHeight: number
+		tabs: string[]
+		customCss?: ComponentCustomCSS<'steppercomponent'> | undefined
+		render: boolean
+		recomputeIds?: string[] | undefined
+		extraQueryParams?: Record<string, any>
+		componentInput: AppInput | undefined
+		onNext?: string[] | undefined
+		onPrevious?: string[] | undefined
+	}
+
+	let {
+		id,
+		componentContainerHeight,
+		tabs,
+		customCss = undefined,
+		render,
+		recomputeIds = undefined,
+		extraQueryParams = {},
+		componentInput,
+		onNext = undefined,
+		onPrevious = undefined
+	}: Props = $props()
 
 	const {
 		app,
@@ -36,16 +51,18 @@
 		runnableComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	let everRender = render
-	$: render && !everRender && (everRender = true)
+	let everRender = $state(render)
+	$effect.pre(() => {
+		render && !everRender && (everRender = true)
+	})
 
-	let selected = tabs[0]
-	let tabHeight: number = 0
-	let footerHeight: number = 0
-	let runnableComponent: RunnableComponent
-	let selectedIndex = tabs?.indexOf(selected) ?? -1
-	let maxReachedIndex = -1
-	let statusByStep = [] as Array<'success' | 'error' | 'pending'>
+	let selected = $state(tabs[0])
+	let tabHeight: number = $state(0)
+	let footerHeight: number = $state(0)
+	let runnableComponent: RunnableComponent | undefined = $state()
+	let selectedIndex = $state(tabs?.indexOf(selected) ?? -1)
+	let maxReachedIndex = $state(-1)
+	let statusByStep = $state([] as Array<'success' | 'error' | 'pending'>)
 	let debugMode: boolean = false
 
 	let outputs = initOutput($worldStore, id, {
@@ -74,7 +91,8 @@
 		}
 	}
 
-	let result: { error: { name: string; message: string; stack: string } } | undefined = undefined
+	let result: { error: { name: string; message: string; stack: string } } | undefined =
+		$state(undefined)
 
 	async function runStep(targetIndex: number) {
 		statusByStep[selectedIndex] = 'pending'
@@ -122,14 +140,22 @@
 			}
 
 			handleTabSelection()
+		},
+		setSelectedIndex(index) {
+			if (index >= 0 && index < tabs.length) {
+				selected = tabs[index]
+				handleTabSelection()
+			}
 		}
 	}
 
-	$: selected != undefined && handleTabSelection()
-	let css = initCss($app.css?.steppercomponent, customCss)
-	$: lastStep = selectedIndex === tabs.length - 1
+	$effect.pre(() => {
+		selected != undefined && untrack(() => handleTabSelection())
+	})
+	let css = $state(initCss($app.css?.steppercomponent, customCss))
+	let lastStep = $derived(selectedIndex === tabs.length - 1)
 
-	let directionClicked: 'left' | 'right' | undefined = undefined
+	let directionClicked: 'left' | 'right' | undefined = $state(undefined)
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}

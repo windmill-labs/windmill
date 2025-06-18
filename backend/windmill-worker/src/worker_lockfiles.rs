@@ -1965,11 +1965,10 @@ async fn ansible_dep(
     use windmill_parser_yaml::add_versions_to_requirements_yaml;
 
     use crate::ansible_executor::{
-            create_ansible_cfg, get_collection_locks, get_git_ssh_cmd, get_role_locks,
-            install_galaxy_collections,
-        };
+        create_ansible_cfg, get_collection_locks, get_git_ssh_cmd, get_role_locks,
+        install_galaxy_collections,
+    };
     use windmill_common::client::AuthedClient;
-
 
     let python_lockfile = python_dep(
         reqs.python_reqs.join("\n").to_string(),
@@ -1989,12 +1988,12 @@ async fn ansible_dep(
 
     let conn = &Connection::Sql(db.clone());
 
-    let authed_client = AuthedClient {
-        base_internal_url: base_internal_url.to_string(),
-        token: token.to_string(),
-        workspace: w_id.to_string(),
-        force_client: None,
-    };
+    let authed_client = AuthedClient::new(
+        base_internal_url.to_string(),
+        w_id.to_string(),
+        token.to_string(),
+        None,
+    );
 
     let git_ssh_cmd = get_git_ssh_cmd(&reqs, job_dir, &authed_client).await?;
 
@@ -2102,7 +2101,12 @@ async fn capture_dependency_job(
 
                     (
                         job_raw_code.to_owned(),
-                        crate::PyV::parse_from_requirements(&split_requirements(job_raw_code)),
+                        match crate::PyV::try_parse_from_requirements(&split_requirements(
+                            job_raw_code,
+                        )) {
+                            Some(pyv) => pyv,
+                            None => crate::PyV::gravitational_version(job_id, w_id, None).await,
+                        },
                     )
                 } else {
                     let mut version_specifiers = vec![];
@@ -2189,11 +2193,6 @@ async fn capture_dependency_job(
             }
         }
         ScriptLang::Go => {
-            if raw_deps {
-                return Err(Error::ExecutionErr(
-                    "Raw dependencies not supported for go".to_string(),
-                ));
-            }
             install_go_dependencies(
                 job_id,
                 job_raw_code,
@@ -2204,6 +2203,7 @@ async fn capture_dependency_job(
                 false,
                 false,
                 false,
+                raw_deps,
                 worker_name,
                 w_id,
                 occupancy_metrics,

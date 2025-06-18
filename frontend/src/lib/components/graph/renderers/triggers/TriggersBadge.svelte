@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Calendar, Mail, Webhook, Unplug, Database, Terminal } from 'lucide-svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { type ComponentType } from 'svelte'
+	import { type Component, type ComponentType } from 'svelte'
 	import { Route } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { type TriggerContext } from '$lib/components/triggers'
@@ -44,7 +44,11 @@
 	let menuOpen = $state(false)
 
 	const triggerTypeConfig: {
-		[key in TriggerType]: { icon: ComponentType; countKey?: string; disabled?: boolean }
+		[key in TriggerType]: {
+			icon: ComponentType | Component<any, {}, ''>
+			countKey?: string
+			disabled?: boolean
+		}
 	} = {
 		webhook: { icon: Webhook, countKey: 'webhook_count' },
 		schedule: { icon: Calendar, countKey: 'schedule_count' },
@@ -178,7 +182,7 @@
 						bind:open={menuOpen}
 						disabled={!triggersGrouped[type]}
 					>
-						{#snippet trigger({ trigger })}
+						{#snippet triggr({ trigger })}
 							{@render triggerButton({
 								type,
 								isSelected,
@@ -208,7 +212,7 @@
 				class="h-fit center-center mr-1"
 				bind:open={menuOpen}
 			>
-				{#snippet trigger({ trigger })}
+				{#snippet triggr({ trigger })}
 					<MeltButton
 						class="w-[23px] h-[23px] rounded-md center-center text-[12px] hover:bg-slate-300 transition-all duration-100 font-normal text-secondary hover:text-primary"
 						meltElement={trigger}
@@ -237,6 +241,8 @@
 	{@const { icon: SvelteComponent, countKey } = triggerTypeConfig[type]}
 
 	<MeltButton
+		aiId={`trigger-button-${type}`}
+		aiDescription={`Trigger button for ${type}`}
 		class={twMerge(
 			'hover:bg-surface-hover rounded-md shadow-sm text-xs relative center-center cursor-pointer bg-slate-100 dark:bg-slate-700',
 			'dark:outline dark:outline-1 outline-tertiary/20 group',

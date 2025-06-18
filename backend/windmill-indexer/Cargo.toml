@@ -11,6 +11,7 @@ path = "src/lib.rs"
 [features]
 default = []
 parquet = ["dep:object_store"]
+private = []
 enterprise = []
 
 [dependencies]

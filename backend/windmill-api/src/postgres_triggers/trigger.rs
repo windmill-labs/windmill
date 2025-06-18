@@ -19,25 +19,27 @@ use crate::{
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::TimeZone;
 use futures::{pin_mut, SinkExt, StreamExt};
-use native_tls::{Certificate, TlsConnector};
 use pg_escape::{quote_identifier, quote_literal};
 use rand::seq::SliceRandom;
-use rust_postgres::{config::SslMode, Client, Config, CopyBothDuplex, NoTls, SimpleQueryMessage};
-use rust_postgres_native_tls::MakeTlsConnector;
+use rust_postgres::{Client, CopyBothDuplex, SimpleQueryMessage};
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use sqlx::types::Json as SqlxJson;
 
 use windmill_common::{
-    db::UserDB, error, triggers::TriggerKind, utils::report_critical_error, worker::to_raw_value,
+    db::UserDB,
+    error::{self, to_anyhow},
+    triggers::TriggerKind,
+    utils::report_critical_error,
+    worker::to_raw_value,
     INSTANCE_NAME,
 };
 
 use super::{
-    drop_publication, get_pg_connection,
+    drop_publication, get_default_pg_connection, get_raw_postgres_connection,
     handler::{drop_logical_replication_slot, Postgres, PostgresTrigger},
     replication_message::PrimaryKeepAliveBody,
-    ERROR_PUBLICATION_NAME_NOT_EXISTS, ERROR_REPLICATION_SLOT_NOT_EXISTS,
+    Error, ERROR_PUBLICATION_NAME_NOT_EXISTS, ERROR_REPLICATION_SLOT_NOT_EXISTS,
 };
 
 pub struct LogicalReplicationSettings {
@@ -69,109 +71,11 @@ impl RowExist for Vec<SimpleQueryMessage> {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
-enum Error {
-    #[error("Error from database: {0}")]
-    Postgres(#[from] rust_postgres::Error),
-    #[error("Error : {0}")]
-    Common(#[from] windmill_common::error::Error),
-    #[error("Tls Error: {0}")]
-    Tls(#[from] native_tls::Error),
-}
-
-fn build_tls_connector(
-    ssl_mode: SslMode,
-    root_certificate_pem: Option<&String>,
-) -> Result<Option<MakeTlsConnector>, Error> {
-    let get_tls_builder_for_verify = |root_certificate: Option<&String>| {
-        let mut builder = TlsConnector::builder();
-        if let Some(root_certificate) = root_certificate {
-            let root_certificate_pem = Certificate::from_pem(root_certificate.as_bytes()).map_err(|e| {
-                Error::Common(error::Error::BadConfig(format!("Invalid Certs: {e:#}")))
-            })?;
-            builder.add_root_certificate(root_certificate_pem);
-        }
-        Ok::<_, Error>(builder)
-    };
-    let connector = match ssl_mode {
-        SslMode::Disable => return Ok(None),
-        SslMode::Require | SslMode::Prefer => {
-            let mut builder = TlsConnector::builder();
-            builder.danger_accept_invalid_certs(true);
-            builder.danger_accept_invalid_hostnames(true);
-            builder
-        }
-
-        SslMode::VerifyCa => {
-            let mut builder = get_tls_builder_for_verify(root_certificate_pem)?;
-            builder.danger_accept_invalid_hostnames(true);
-            builder
-        }
-
-        SslMode::VerifyFull => {
-            let builder = get_tls_builder_for_verify(root_certificate_pem)?;
-            builder
-        }
-        _ => unreachable!(),
-    };
-
-    Ok(Some(MakeTlsConnector::new(connector.build()?)))
-}
-
 pub struct PostgresSimpleClient(Client);
 
 impl PostgresSimpleClient {
     async fn new(database: &Postgres) -> Result<Self, Error> {
-        let ssl_mode = match database.sslmode.as_ref() {
-            "disable" => SslMode::Disable,
-            "" | "prefer" | "allow" => SslMode::Prefer,
-            "require" => SslMode::Require,
-            "verify-ca" => SslMode::VerifyCa,
-            "verify-full" => SslMode::VerifyFull,
-            ssl_mode => {
-                return Err(Error::Common(windmill_common::error::Error::BadRequest(
-                    format!("Invalid ssl mode for postgres: {}, please put a valid ssl_mode among the following avalible ssl mode: ['disable', 'allow', 'prefer', 'verify-ca', 'verify-full']", ssl_mode),
-                )))
-            }
-        };
-
-        let mut config = Config::new();
-        config
-            .dbname(&database.dbname)
-            .host(&database.host)
-            .user(&database.user)
-            .ssl_mode(ssl_mode)
-            .replication_mode(rust_postgres::config::ReplicationMode::Logical);
-
-        if let Some(port) = database.port {
-            config.port(port);
-        };
-
-        if !database.password.is_empty() {
-            config.password(&database.password);
-        }
-
-        let connector = build_tls_connector(ssl_mode, database.root_certificate_pem.as_ref())?;
-
-        let client = if let Some(connector) = connector {
-            let (client, connection) = config.connect(connector).await?;
-            tokio::spawn(async move {
-                if let Err(e) = connection.await {
-                    tracing::debug!("{:#?}", e);
-                };
-                tracing::info!("Successfully Connected into database");
-            });
-            client
-        } else {
-            let (client, connection) = config.connect(NoTls).await?;
-            tokio::spawn(async move {
-                if let Err(e) = connection.await {
-                    tracing::debug!("{:#?}", e);
-                };
-                tracing::info!("Successfully Connected into database");
-            });
-            client
-        };
+        let client = get_raw_postgres_connection(database, true).await?;
 
         Ok(PostgresSimpleClient(client))
     }
@@ -202,7 +106,8 @@ impl PostgresSimpleClient {
         Ok((
             self.0
                 .copy_both_simple::<bytes::Bytes>(query.as_str())
-                .await?,
+                .await
+                .map_err(to_anyhow)?,
             LogicalReplicationSettings::new(false),
         ))
     }
@@ -512,7 +417,7 @@ impl PostgresConfig {
         };
 
         let database = try_get_resource_from_db_as::<Postgres>(
-            authed,
+            &authed,
             Some(UserDB::new(db.clone())),
             &db,
             postgres_resource_path,
@@ -527,12 +432,13 @@ impl PostgresConfig {
                 "SELECT pubname FROM pg_publication WHERE pubname = {}",
                 quote_literal(&publication_name)
             ))
-            .await?;
+            .await
+            .map_err(to_anyhow)?;
 
         if !publication.row_exist() {
-            return Err(Error::Common(error::Error::BadConfig(
+            return Err(Error::BadConfig(
                 ERROR_PUBLICATION_NAME_NOT_EXISTS.to_string(),
-            )));
+            ));
         }
 
         let replication_slot = client
@@ -540,17 +446,19 @@ impl PostgresConfig {
                 "SELECT slot_name FROM pg_replication_slots WHERE slot_name = {}",
                 quote_literal(&replication_slot_name)
             ))
-            .await?;
+            .await
+            .map_err(to_anyhow)?;
 
         if !replication_slot.row_exist() {
-            return Err(Error::Common(error::Error::BadConfig(
+            return Err(Error::BadConfig(
                 ERROR_REPLICATION_SLOT_NOT_EXISTS.to_string(),
-            )));
+            ));
         }
 
         let (logical_replication_stream, logical_replication_settings) = client
             .get_logical_replication_stream(&publication_name, &replication_slot_name)
-            .await?;
+            .await
+            .map_err(to_anyhow)?;
 
         Ok((logical_replication_stream, logical_replication_settings))
     }
@@ -585,7 +493,7 @@ impl PostgresConfig {
 
                 let user_db = UserDB::new(db.clone());
 
-                let mut pg_connection = get_pg_connection(
+                let mut pg_connection = get_default_pg_connection(
                     authed.clone(),
                     Some(user_db.clone()),
                     &db,

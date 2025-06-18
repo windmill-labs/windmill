@@ -1,16 +1,15 @@
 <script>
-	export let width = 16
-	export let height = 16
+	/**
+	 * @typedef {Object} Props
+	 * @property {number} [width]
+	 * @property {number} [height]
+	 */
+
+	/** @type {Props & { [key: string]: any }} */
+	let { width = 16, height = 16, ...rest } = $props()
 </script>
 
-<svg
-	{width}
-	{height}
-	{...$$restProps}
-	viewBox="0 0 16 16"
-	fill="none"
-	xmlns="http://www.w3.org/2000/svg"
->
+<svg {width} {height} {...rest} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
 	<path
 		d="M1.20743 6.82123C1.17627 6.82123 1.16848 6.80565 1.18406 6.78228L1.34764 6.57197C1.36322 6.5486 1.40217 6.53302 1.43333 6.53302H4.21424C4.2454 6.53302 4.25319 6.55639 4.23761 6.57976L4.10519 6.78228C4.08961 6.80565 4.05066 6.82902 4.02729 6.82902L1.20743 6.82123Z"
 		fill="#00ACD7"

@@ -19,7 +19,7 @@ use std::{
 
 use tokio::sync::broadcast;
 
-use ee::CriticalErrorChannel;
+use ee_oss::CriticalErrorChannel;
 use error::Error;
 use scripts::ScriptLang;
 use sqlx::{Pool, Postgres};
@@ -32,8 +32,12 @@ pub mod bench;
 pub mod cache;
 pub mod client;
 pub mod db;
+#[cfg(feature = "private")]
 pub mod ee;
+pub mod ee_oss;
+#[cfg(feature = "private")]
 pub mod email_ee;
+pub mod email_oss;
 pub mod error;
 pub mod external_ip;
 pub mod flow_status;
@@ -41,25 +45,35 @@ pub mod flows;
 pub mod global_settings;
 pub mod indexer;
 pub mod job_metrics;
-#[cfg(feature = "parquet")]
+#[cfg(all(feature = "parquet", feature = "private"))]
 pub mod job_s3_helpers_ee;
+#[cfg(feature = "parquet")]
+pub mod job_s3_helpers_oss;
 
-#[cfg(all(feature = "enterprise", feature = "openidconnect"))]
+#[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
 pub mod oidc_ee;
+#[cfg(all(feature = "enterprise", feature = "openidconnect"))]
+pub mod oidc_oss;
 
 pub mod jobs;
 pub mod jwt;
 pub mod more_serde;
 pub mod oauth2;
+#[cfg(feature = "private")]
 pub mod otel_ee;
+pub mod otel_oss;
 pub mod queue;
 pub mod s3_helpers;
 pub mod schedule;
 pub mod schema;
 pub mod scripts;
 pub mod server;
+#[cfg(feature = "private")]
 pub mod stats_ee;
+pub mod stats_oss;
+#[cfg(feature = "private")]
 pub mod teams_ee;
+pub mod teams_oss;
 pub mod tracing_init;
 pub mod users;
 pub mod utils;
@@ -134,6 +148,8 @@ lazy_static::lazy_static! {
     pub static ref FLOW_VERSION_CACHE: Cache<(String, String), ExpiringLatestVersionId> = Cache::new(1000);
     pub static ref DEPLOYED_SCRIPT_INFO_CACHE: Cache<(String, i64), ScriptHashInfo> = Cache::new(1000);
     pub static ref FLOW_INFO_CACHE: Cache<(String, i64), FlowVersionInfo> = Cache::new(1000);
+
+    pub static ref QUIET_LOGS: bool = std::env::var("QUIET_LOGS").map(|s| s.parse::<bool>().unwrap_or(false)).unwrap_or(false);
 
 }
 

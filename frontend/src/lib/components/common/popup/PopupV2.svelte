@@ -3,13 +3,25 @@
 	import { clickOutside } from '$lib/utils'
 	import { createFloatingActions, type ComputeConfig } from 'svelte-floating-ui'
 
-	export let floatingConfig: ComputeConfig = {
-		strategy: 'absolute',
-		//@ts-ignore
-		placement: 'bottom-center'
+	interface Props {
+		floatingConfig?: ComputeConfig
+		open?: boolean
+		target?: string | undefined
+		button?: import('svelte').Snippet<[any]>
+		children?: import('svelte').Snippet<[any]>
 	}
-	export let open = false
-	export let target: string | undefined = undefined
+
+	let {
+		floatingConfig = {
+			strategy: 'absolute',
+			//@ts-ignore
+			placement: 'bottom-center'
+		},
+		open = $bindable(false),
+		target = undefined,
+		button,
+		children
+	}: Props = $props()
 
 	// export let containerClasses: string = 'rounded-lg shadow-md border p-4 bg-surface'
 	// export let floatingClasses: string = ''
@@ -19,7 +31,7 @@
 		open = false
 	}
 
-	let acceptClickoutside = false
+	let acceptClickoutside = $state(false)
 	function pointerup() {
 		setTimeout(() => {
 			acceptClickoutside = true
@@ -37,7 +49,7 @@
 </script>
 
 <div use:floatingRef>
-	<slot {pointerup} {pointerdown} name="button" />
+	{@render button?.({ pointerup, pointerdown })}
 </div>
 
 <Portal name="popup-v2" {target}>
@@ -47,6 +59,7 @@
 			style="position:absolute"
 			use:floatingContent
 		>
+			<!-- svelte-ignore event_directive_deprecated -->
 			<div
 				use:clickOutside
 				on:click_outside={() => {
@@ -56,7 +69,7 @@
 					}
 				}}
 			>
-				<slot {close} />
+				{@render children?.({ close })}
 			</div>
 		</div>
 	{/if}

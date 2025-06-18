@@ -26,7 +26,7 @@ use serde_json::{value::RawValue, Value};
 use sql_builder::{bind::Bind, quote, SqlBuilder};
 use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
-use windmill_audit::audit_ee::{audit_log, AuditAuthor};
+use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
@@ -1217,7 +1217,7 @@ async fn update_resource_type(
     )
 ))]
 pub async fn try_get_resource_from_db_as<T>(
-    authed: ApiAuthed,
+    authed: &ApiAuthed,
     user_db: Option<UserDB>,
     db: &DB,
     resource_path: &str,

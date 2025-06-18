@@ -12,6 +12,7 @@
 	} from '$lib/utils'
 	import { page } from '$app/stores'
 	import type { GetInitialAndModifiedValues } from './unsavedTypes'
+	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
 
 	export let getInitialAndModifiedValues: GetInitialAndModifiedValues = undefined
 	export let diffDrawer: DiffDrawer | undefined = undefined
@@ -66,6 +67,13 @@
 		}
 	})
 </script>
+
+{#if open}
+	<TriggerableByAI
+		id="unsaved-changes-confirmation-modal"
+		description="Unsaved changes confirmation modal. Needs user confirmation to leave the page."
+	/>
+{/if}
 
 <ConfirmationModal
 	{open}

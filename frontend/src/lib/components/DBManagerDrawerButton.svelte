@@ -18,7 +18,7 @@
 	import { Alert } from './common'
 	import { dbDeleteTableActionWithPreviewScript, dbTableOpsWithPreviewScripts } from './dbOps'
 	import { makeCreateTableQuery } from './apps/components/display/dbtable/queries/createTable'
-	import { runPreviewJobAndPollResult } from './jobs/utils'
+	import { runScriptAndPollResult } from './jobs/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SqlRepl from './SqlRepl.svelte'
 	import SimpleAgTable from './SimpleAgTable.svelte'
@@ -208,7 +208,7 @@
 								previewSql: (values) =>
 									makeCreateTableQuery(values, resourceType, selectedSchemaKey),
 								async onConfirm(values) {
-									await runPreviewJobAndPollResult({
+									await runScriptAndPollResult({
 										workspace: $workspaceStore,
 										requestBody: {
 											args: { database: '$res:' + resourcePath },
@@ -249,7 +249,7 @@
 					</Pane>
 				</Splitpanes>
 			{/if}
-			<svelte:fragment slot="actions">
+			{#snippet actions()}
 				<Button
 					loading={refreshing}
 					on:click={() => refresh()}
@@ -266,7 +266,7 @@
 					size="xs"
 					color="light"
 				/>
-			</svelte:fragment>
+			{/snippet}
 		</DrawerContent>
 	</Drawer>
 {/if}

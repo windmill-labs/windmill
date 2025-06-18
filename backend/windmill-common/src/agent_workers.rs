@@ -36,6 +36,7 @@ pub struct AgentAuth {
 }
 
 pub const AGENT_JWT_PREFIX: &str = "jwt_agent_";
+
 pub fn build_agent_http_client(worker_suffix: &str) -> HttpClient {
     let client = ClientBuilder::new(
         reqwest::Client::builder()

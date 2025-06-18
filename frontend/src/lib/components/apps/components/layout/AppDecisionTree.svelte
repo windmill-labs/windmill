@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { initCss } from '../../utils'
@@ -14,14 +14,34 @@
 	import { getFirstNode, isDebugging } from '../../editor/settingsPanel/decisionTree/utils'
 	import InputValue from '../helpers/InputValue.svelte'
 
-	export let id: string
-	export let componentContainerHeight: number
-	export let customCss: ComponentCustomCSS<'decisiontreecomponent'> | undefined = undefined
-	export let render: boolean
-	export let nodes: DecisionTreeNode[]
+	interface Props {
+		id: string
+		componentContainerHeight: number
+		customCss?: ComponentCustomCSS<'decisiontreecomponent'> | undefined
+		render: boolean
+		nodes: DecisionTreeNode[]
+	}
 
-	let everRender = render
-	$: render && !everRender && (everRender = true)
+	let { id, componentContainerHeight, customCss = undefined, render, nodes }: Props = $props()
+
+	let resolvedConditions = $derived(
+		nodes.reduce((acc, node) => {
+			acc[node.id] = acc[node.id] || []
+			return acc
+		}, {})
+	)
+
+	let resolvedNext = $derived(
+		nodes.reduce((acc, node) => {
+			acc[node.id] = acc[node.id] || false
+			return acc
+		}, {})
+	)
+
+	let everRender = $state(render)
+	$effect.pre(() => {
+		render && !everRender && (everRender = true)
+	})
 
 	const {
 		app,
@@ -33,35 +53,27 @@
 		debuggingComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	let css = initCss($app.css?.conditionalwrapper, customCss)
+	let css = $state(initCss($app.css?.conditionalwrapper, customCss))
 	let selectedConditionIndex = 0
-	let currentNodeId = getFirstNode(nodes)?.id ?? ''
+	let currentNodeId = $state(getFirstNode(nodes)?.id ?? '')
 
 	let outputs = initOutput($worldStore, id, {
 		currentNodeId,
 		currentNodeIndex: selectedConditionIndex
 	})
 
-	$: resolvedConditions = nodes.reduce((acc, node) => {
-		acc[node.id] = acc[node.id] || []
-		return acc
-	}, resolvedConditions || {})
+	$effect.pre(() => {
+		if (!nodes.map((n) => n.id).includes(currentNodeId)) {
+			const firstNode = untrack(() => getFirstNode(nodes)?.id)
 
-	$: resolvedNext = nodes.reduce((acc, node) => {
-		acc[node.id] = acc[node.id] || false
-		return acc
-	}, resolvedNext || {})
-
-	$: if (!nodes.map((n) => n.id).includes(currentNodeId)) {
-		const firstNode = getFirstNode(nodes)?.id
-
-		if (firstNode) {
-			currentNodeId = firstNode
+			if (firstNode) {
+				currentNodeId = firstNode
+			}
 		}
-	}
+	})
 
-	$: lastNodeId = nodes?.find((node) => node.next.length === 0)?.id
-	$: isNextDisabled = resolvedNext?.[currentNodeId] === false
+	let lastNodeId = $derived(nodes?.find((node) => node.next.length === 0)?.id)
+	let isNextDisabled = $derived(resolvedNext?.[currentNodeId] === false)
 
 	const history: string[] = []
 
@@ -136,17 +148,21 @@
 		}
 	}
 
-	$: if (currentNodeId) {
-		outputs.currentNodeId.set(currentNodeId)
-		outputs.currentNodeIndex.set(nodes.findIndex((next) => next.id == currentNodeId))
-	}
-
-	$: if ($selectedComponent?.[0] === id && !$focusedGrid) {
-		$focusedGrid = {
-			parentComponentId: id,
-			subGridIndex: nodes.findIndex((node) => node.id === currentNodeId)
+	$effect.pre(() => {
+		if (currentNodeId) {
+			outputs.currentNodeId.set(currentNodeId)
+			outputs.currentNodeIndex.set(nodes.findIndex((next) => next.id == currentNodeId))
 		}
-	}
+	})
+
+	$effect.pre(() => {
+		if ($selectedComponent?.[0] === id && !$focusedGrid) {
+			$focusedGrid = {
+				parentComponentId: id,
+				subGridIndex: nodes.findIndex((node) => node.id === currentNodeId)
+			}
+		}
+	})
 </script>
 
 {#if Object.keys(resolvedConditions).length === nodes.length}

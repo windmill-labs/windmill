@@ -153,7 +153,7 @@
 	import { AIChatEditorHandler } from './copilot/chat/monaco-adapter'
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
 	import { writable } from 'svelte/store'
-	import { formatResourceTypes } from './copilot/chat/core'
+	import { formatResourceTypes } from './copilot/chat/script/core'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	// import EditorTheme from './EditorTheme.svelte'
 
@@ -187,7 +187,6 @@
 	export let files: Record<string, { code: string; readonly?: boolean }> | undefined = {}
 	export let extraLib: string | undefined = undefined
 	export let changeTimeout: number = 500
-	export let isAiPanelOpen: boolean = false
 	export let loadAsync = false
 
 	let lang = scriptLangToEditorLang(scriptLang)
@@ -207,7 +206,7 @@
 	let websocketInterval: NodeJS.Timeout | undefined
 	let lastWsAttempt: Date = new Date()
 	let nbWsAttempt = 0
-	let disposeMethod: () => void | undefined
+	let disposeMethod: (() => void) | undefined
 	const dispatch = createEventDispatcher()
 	let graphqlService: MonacoGraphQLAPI | undefined = undefined
 
@@ -1268,15 +1267,20 @@
 
 		onFileChanges()
 
-		editor = meditor.create(divEl as HTMLDivElement, {
-			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
-			model,
-			fontSize: !small ? 14 : 12,
-			lineNumbersMinChars,
-			// overflowWidgetsDomNode: widgets,
-			tabSize: lang == 'python' ? 4 : 2,
-			folding
-		})
+		try {
+			editor = meditor.create(divEl as HTMLDivElement, {
+				...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
+				model,
+				fontSize: !small ? 14 : 12,
+				lineNumbersMinChars,
+				// overflowWidgetsDomNode: widgets,
+				tabSize: lang == 'python' ? 4 : 2,
+				folding
+			})
+		} catch (e) {
+			console.error('Error loading monaco:', e)
+			return
+		}
 
 		keepModelAroundToAvoidDisposalOfWorkers()
 
@@ -1333,9 +1337,6 @@
 						startLine: selection.startLineNumber,
 						endLine: selection.endLineNumber
 					})
-					if (!isAiPanelOpen) {
-						dispatch('toggleAiPanel')
-					}
 				} else {
 					dispatch('toggleAiPanel')
 				}

@@ -10,13 +10,14 @@ path = "src/lib.rs"
 
 [features]
 default = []
+private = ["windmill-audit/private"]
 enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker/enterprise"]
 stripe = []
 agent_worker_server = []
 enterprise_saml = ["dep:samael", "dep:libxml"]
 benchmark = []
 embedding = ["dep:tinyvector", "dep:hf-hub", "dep:tokenizers", "dep:candle-core", "dep:candle-transformers", "dep:candle-nn"]
-parquet = ["dep:datafusion", "dep:object_store", "dep:url", "windmill-common/parquet", "windmill-worker/parquet"]
+parquet = ["dep:datafusion", "dep:object_store", "windmill-common/parquet", "windmill-worker/parquet"]
 prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker/prometheus"]
 openidconnect = ["dep:openidconnect", "windmill-common/openidconnect"]
 tantivy = ["dep:windmill-indexer"]
@@ -39,7 +40,7 @@ mcp = ["dep:rmcp"]
 python = []
 
 [dependencies]
-rmcp = { git = "https://github.com/windmill-labs/rust-sdk", features = ["transport-sse-server"], optional = true }
+rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", features=["transport-streamable-http-server", "transport-streamable-http-server-session", "transport-worker"], optional = true }
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-audit.workspace = true
@@ -75,6 +76,7 @@ hex.workspace = true
 base64.workspace = true
 base32.workspace = true
 serde_urlencoded.workspace = true
+serde_yml.workspace = true
 cron.workspace = true
 mime_guess.workspace = true
 rust-embed = { workspace = true, optional = true }
@@ -101,6 +103,7 @@ prometheus = { workspace = true, optional = true }
 async_zip = { workspace = true, optional = true }
 regex.workspace = true
 bytes.workspace = true
+url.workspace = true
 samael = { workspace = true, optional = true }
 libxml = { workspace = true, optional = true }
 async-recursion.workspace = true
@@ -115,7 +118,6 @@ candle-nn = { workspace = true, optional = true}
 datafusion = { workspace = true, optional = true}
 object_store = { workspace = true, optional = true}
 openidconnect = { workspace = true, optional = true}
-url = { workspace = true, optional = true}
 jsonwebtoken = { workspace = true }
 matchit = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true}
@@ -125,6 +127,7 @@ nkeys = { workspace = true, optional = true }
 const_format.workspace = true
 pin-project.workspace = true
 http.workspace = true
+indexmap.workspace = true
 async-stream.workspace = true
 ulid.workspace = true
 rust-postgres = { workspace = true, optional = true }

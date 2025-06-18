@@ -12,7 +12,7 @@ use crate::db::ApiAuthed;
 use crate::triggers::{
     get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
 };
-use crate::utils::{RunnableKind, WithStarredInfoQuery};
+use crate::utils::WithStarredInfoQuery;
 use crate::{
     db::DB,
     schedule::clear_schedule,
@@ -31,7 +31,7 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::utils::query_elems_from_hub;
 use windmill_common::worker::to_raw_value;
@@ -43,7 +43,7 @@ use windmill_common::{
     jobs::JobPayload,
     schedule::Schedule,
     scripts::Schema,
-    utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, StripPath},
+    utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, RunnableKind, StripPath},
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, schedule::push_scheduled_job, PushIsolationLevel};
@@ -477,7 +477,7 @@ async fn create_flow(
         false,
         None,
         true,
-        nf.tag,
+        None,
         None,
         None,
         None,

@@ -1,6 +1,11 @@
 <script lang="ts">
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
-	import { AppService, type AppWithLastVersion, DraftService } from '$lib/gen'
+	import {
+		AppService,
+		type AppWithLastVersion,
+		type AppWithLastVersionWDraft,
+		DraftService
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { page } from '$app/stores'
 	import { cleanValueProperties, decodeState, type Value } from '$lib/utils'
@@ -10,8 +15,12 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
+	import { untrack } from 'svelte'
 
-	let app = undefined as (AppWithLastVersion & { draft_only?: boolean; value: any }) | undefined
+	let app = $state(
+		undefined as (AppWithLastVersion & { draft_only?: boolean; value: any }) | undefined
+	)
 	let savedApp:
 		| {
 				value: App
@@ -22,8 +31,8 @@
 				draft_only?: boolean
 				custom_path?: string
 		  }
-		| undefined = undefined
-	let redraw = 0
+		| undefined = $state(undefined)
+	let redraw = $state(0)
 	let path = $page.params.path
 
 	let nodraft = $page.url.searchParams.get('nodraft')
@@ -44,7 +53,7 @@
 			path,
 			workspace: $workspaceStore!
 		})
-		const app_w_draft_ = structuredClone(app_w_draft)
+		const app_w_draft_: AppWithLastVersionWDraft = structuredClone(stateSnapshot(app_w_draft))
 		savedApp = {
 			summary: app_w_draft_.summary,
 			value: app_w_draft_.value as App,
@@ -55,14 +64,14 @@
 				app_w_draft_.draft?.['summary'] !== undefined // backward compatibility for old drafts missing metadata
 					? app_w_draft_.draft
 					: app_w_draft_.draft
-					? {
-							summary: app_w_draft_.summary,
-							value: app_w_draft_.draft,
-							path: app_w_draft_.path,
-							policy: app_w_draft_.policy,
-							custom_path: app_w_draft_.custom_path
-					  }
-					: undefined,
+						? {
+								summary: app_w_draft_.summary,
+								value: app_w_draft_.draft,
+								path: app_w_draft_.path,
+								policy: app_w_draft_.policy,
+								custom_path: app_w_draft_.custom_path
+							}
+						: undefined,
 			custom_path: app_w_draft_.custom_path
 		}
 
@@ -87,8 +96,8 @@
 				actions.push({
 					label: 'Show diff',
 					callback: async () => {
-						diffDrawer.openDrawer()
-						diffDrawer.setDiff({
+						diffDrawer?.openDrawer()
+						diffDrawer?.setDiff({
 							mode: 'simple',
 							original: draftOrDeployed,
 							current: urlScript,
@@ -133,8 +142,8 @@
 					{
 						label: 'Show diff',
 						callback: async () => {
-							diffDrawer.openDrawer()
-							diffDrawer.setDiff({
+							diffDrawer?.openDrawer()
+							diffDrawer?.setDiff({
 								mode: 'simple',
 								original: deployed,
 								current: draft,
@@ -150,18 +159,20 @@
 		}
 	}
 
-	$: {
+	$effect(() => {
 		if ($workspaceStore) {
-			loadApp()
+			untrack(() => {
+				loadApp()
+			})
 		}
-	}
+	})
 
 	async function restoreDraft() {
 		if (!savedApp || !savedApp.draft) {
 			sendUserToast('Could not restore to draft', true)
 			return
 		}
-		diffDrawer.closeDrawer()
+		diffDrawer?.closeDrawer()
 		goto(`/apps/edit/${savedApp.draft.path}`)
 		await loadApp()
 		redraw++
@@ -172,7 +183,7 @@
 			sendUserToast('Could not restore to deployed', true)
 			return
 		}
-		diffDrawer.closeDrawer()
+		diffDrawer?.closeDrawer()
 		if (savedApp.draft) {
 			await DraftService.deleteDraft({
 				workspace: $workspaceStore!,
@@ -185,12 +196,12 @@
 		redraw++
 	}
 
-	let diffDrawer: DiffDrawer
+	let diffDrawer: DiffDrawer | undefined = $state()
 
 	function onRestore(ev: any) {
 		sendUserToast('App restored from previous deployment')
 		app = ev.detail
-		const app_ = structuredClone(app!)
+		const app_ = structuredClone(stateSnapshot(app!))
 		savedApp = {
 			summary: app_.summary,
 			value: app_.value as App,
@@ -227,18 +238,17 @@
 				replaceStateFn={(path) => replaceState(path, $page.state)}
 				gotoFn={(path, opt) => goto(path, opt)}
 			>
-				<svelte:fragment
-					slot="unsavedConfirmationModal"
-					let:diffDrawer
-					let:additionalExitAction
-					let:getInitialAndModifiedValues
-				>
+				{#snippet unsavedConfirmationModal({
+					diffDrawer,
+					additionalExitAction,
+					getInitialAndModifiedValues
+				})}
 					<UnsavedConfirmationModal
 						{diffDrawer}
 						{additionalExitAction}
 						{getInitialAndModifiedValues}
 					/>
-				</svelte:fragment>
+				{/snippet}
 			</AppEditor>
 		</div>
 	{/if}

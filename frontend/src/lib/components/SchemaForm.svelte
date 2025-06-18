@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
 	import { VariableService, type Script } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -11,111 +14,145 @@
 	import { getResourceTypes } from './resourceTypesStore'
 	import { Plus } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { deepEqual } from 'fast-equals'
 	import { dragHandleZone, type Options as DndOptions } from '@windmill-labs/svelte-dnd-action'
-	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
+	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { ComponentCustomCSS } from './apps/types'
 
-	export let schema: Schema | any
-	export let hiddenArgs: string[] = []
-	export let schemaFieldTooltip: Record<string, string> = {}
-	export let args: Record<string, any> = {}
-	export let disabledArgs: string[] = []
-	export let disabled = false
+	interface Props {
+		schema: Schema | any
+		hiddenArgs?: string[]
+		schemaFieldTooltip?: Record<string, string>
+		args?: Record<string, any>
+		disabledArgs?: string[]
+		disabled?: boolean
+		isValid?: boolean
+		autofocus?: boolean
+		defaultValues?: Record<string, any>
+		shouldHideNoInputs?: boolean
+		compact?: boolean
+		linkedSecret?: string | undefined
+		linkedSecretCandidates?: string[] | undefined
+		noVariablePicker?: boolean
+		flexWrap?: boolean
+		noDelete?: boolean
+		prettifyHeader?: boolean
+		disablePortal?: boolean
+		showSchemaExplorer?: boolean
+		showReset?: boolean
+		onlyMaskPassword?: boolean
+		dndConfig?: DndOptions | undefined
+		items?: { id: string; value: string }[] | undefined
+		helperScript?:
+			| { type: 'inline'; path?: string; lang: Script['language']; code: string }
+			| { type: 'hash'; hash: string }
+			| undefined
+		lightHeader?: boolean
+		diff?: Record<string, SchemaDiff>
+		nestedParent?: { label: string; nestedParent: any | undefined } | undefined
+		shouldDispatchChanges?: boolean
+		nestedClasses?: string
+		dynamicEnums?: Record<string, any>
+		largeGap?: boolean
+		css?: ComponentCustomCSS<'schemaformcomponent'> | undefined
+		displayType?: boolean
+		appPath?: string | undefined
+		className?: string
+		computeS3ForceViewerPolicies?:
+			| (() =>
+					| {
+							allowed_resources: string[]
+							allow_user_resources: boolean
+							allow_workspace_resource: boolean
+							file_key_regex: string
+					  }
+					| undefined)
+			| undefined
+		workspace?: string | undefined
+		actions?: import('svelte').Snippet
+	}
 
-	export let isValid: boolean = true
-	export let autofocus = false
-	export let defaultValues: Record<string, any> = {}
-
-	export let shouldHideNoInputs: boolean = false
-	export let compact = false
-	export let linkedSecret: string | undefined = undefined
-	export let linkedSecretCandidates: string[] | undefined = undefined
-	export let noVariablePicker = false
-	export let flexWrap = false
-	export let noDelete = false
-	export let prettifyHeader = false
-	export let disablePortal = false
-	export let showSchemaExplorer = false
-	export let showReset = false
-	export let onlyMaskPassword = false
-	export let dndConfig: DndOptions | undefined = undefined
-	export let items: { id: string; value: string }[] | undefined = undefined
-	export let helperScript:
-		| { type: 'inline'; path?: string; lang: Script['language']; code: string }
-		| { type: 'hash'; hash: string }
-		| undefined = undefined
-	export let lightHeader = false
-	export let diff: Record<string, SchemaDiff> = {}
-	export let nestedParent: { label: string; nestedParent: any | undefined } | undefined = undefined
-	export let shouldDispatchChanges = false
-	export let nestedClasses = ''
-	export let dynamicEnums: Record<string, any> = {}
-	export let largeGap: boolean = false
-	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
-	export let displayType: boolean = true
-
-	export let appPath: string | undefined = undefined
-
-	export let computeS3ForceViewerPolicies:
-		| (() =>
-				| {
-						allowed_resources: string[]
-						allow_user_resources: boolean
-						allow_workspace_resource: boolean
-						file_key_regex: string
-				  }
-				| undefined)
-		| undefined = undefined
-	export let workspace: string | undefined = undefined
+	let {
+		schema = $bindable(),
+		hiddenArgs = [],
+		schemaFieldTooltip = {},
+		args = $bindable(undefined),
+		disabledArgs = [],
+		disabled = false,
+		isValid = $bindable(true),
+		autofocus = false,
+		defaultValues = {},
+		shouldHideNoInputs = false,
+		compact = false,
+		linkedSecret = $bindable(undefined),
+		linkedSecretCandidates = undefined,
+		noVariablePicker = false,
+		flexWrap = false,
+		noDelete = false,
+		prettifyHeader = false,
+		disablePortal = false,
+		showSchemaExplorer = false,
+		showReset = false,
+		onlyMaskPassword = false,
+		dndConfig = undefined,
+		items = undefined,
+		helperScript = undefined,
+		lightHeader = false,
+		diff = {},
+		nestedParent = undefined,
+		shouldDispatchChanges = false,
+		nestedClasses = '',
+		dynamicEnums = {},
+		largeGap = false,
+		css = undefined,
+		displayType = true,
+		appPath = undefined,
+		className = '',
+		computeS3ForceViewerPolicies = undefined,
+		workspace = undefined,
+		actions
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
-	let inputCheck: { [id: string]: boolean } = {}
-
-	$: if (args == undefined || typeof args !== 'object') {
-		args = {}
-	}
+	let inputCheck: { [id: string]: boolean } = $state({})
 
 	export function setDefaults() {
-		const nargs = structuredClone(defaultValues)
+		const nargs = structuredClone($state.snapshot(defaultValues))
 
 		Object.keys(schema?.properties ?? {}).forEach((key) => {
-			if (schema?.properties[key].default != undefined && args[key] == undefined) {
+			if (schema?.properties[key].default != undefined && args && args[key] == undefined) {
 				let value = schema?.properties[key].default
-				nargs[key] = value === 'object' ? structuredClone(value) : value
+				nargs[key] = value === 'object' ? structuredClone($state.snapshot(value)) : value
 			}
 		})
 		args = nargs
 	}
 
-	let keys: string[]
-	$: keys = Array.isArray(schema?.order) ? schema?.order : Object.keys(schema?.properties ?? {})
+	let keys: string[] = $state([])
 
 	function removeExtraKey() {
 		const nargs = {}
 		Object.keys(args ?? {}).forEach((key) => {
-			if (keys.includes(key)) {
+			if (keys.includes(key) && args) {
 				nargs[key] = args[key]
 			}
 		})
 		args = nargs
 	}
 
-	let pickForField: string | undefined
-	let itemPicker: ItemPicker | undefined = undefined
-	let variableEditor: VariableEditor | undefined = undefined
+	let pickForField: string | undefined = $state()
+	let itemPicker: ItemPicker | undefined = $state(undefined)
+	let variableEditor: VariableEditor | undefined = $state(undefined)
 
-	let resourceTypes: string[] | undefined = undefined
+	let resourceTypes: string[] | undefined = $state(undefined)
 
 	async function loadResourceTypes() {
 		resourceTypes = await getResourceTypes()
 	}
 
 	loadResourceTypes()
-
-	$: schema && (reorder(), (hidden = {}))
 
 	function hasExtraKeys() {
 		return Object.keys(args ?? {}).some((x) => !keys.includes(x))
@@ -147,20 +184,26 @@
 				dispatch('change')
 			}
 		}
+		// let missingKeys = keys.filter((x) => args && !(x in args))
+		// console.log('missingKeys', missingKeys)
+		// missingKeys.forEach((x) => {
+		// 	if (args) {
+		// 		args[x] = undefined
+		// 	}
+		// })
 
 		if (!noDelete && hasExtraKeys()) {
 			removeExtraKey()
 		}
 	}
 
-	$: fields = items ?? keys.map((x) => ({ id: x, value: x }))
-
-	let hidden: Record<string, boolean> = {}
+	let hidden: Record<string, boolean> = $state({})
+	let fields = $derived(items ?? keys.map((x) => ({ id: x, value: x })))
 
 	function handleHiddenFields(schema: Schema | any, args: Record<string, any>) {
 		for (const x of fields) {
-			if (schema?.properties[x.value]?.showExpr) {
-				if (computeShow(x.value, schema.properties[x.value].showExpr, args)) {
+			if (schema?.properties?.[x.value]?.showExpr) {
+				if (computeShow(x.value, schema.properties?.[x.value]?.showExpr, args)) {
 					hidden[x.value] = false
 				} else if (!hidden[x.value]) {
 					hidden[x.value] = true
@@ -173,12 +216,52 @@
 		}
 	}
 
-	$: handleHiddenFields(schema, args)
+	$effect.pre(() => {
+		if (args == undefined || typeof args !== 'object') {
+			args = {}
+		}
+	})
+	$effect.pre(() => {
+		const newKeys = [
+			...new Set(
+				(Array.isArray(schema?.order)
+					? schema?.order
+					: Object.keys(schema?.properties ?? {})) as string[]
+			)
+		]
 
-	$: isValid = allTrue(inputCheck ?? {})
+		if (!deepEqual(keys, newKeys)) {
+			keys = newKeys
+		}
+	})
+	$effect.pre(() => {
+		schema && (untrack(() => reorder()), (hidden = {}))
+	})
+	$effect.pre(() => {
+		;[schema, args]
+
+		if (args && typeof args == 'object') {
+			let oneShowExpr = false
+			for (const key of fields) {
+				if (schema.properties?.[key.value]?.showExpr) {
+					oneShowExpr = true
+				}
+			}
+			if (!oneShowExpr) {
+				return
+			}
+			for (const key in args) {
+				args[key]
+			}
+		}
+		untrack(() => handleHiddenFields(schema, args ?? {}))
+	})
+	$effect.pre(() => {
+		isValid = allTrue(inputCheck ?? {})
+	})
+	const actions_render = $derived(actions)
 </script>
 
-<!-- {JSON.stringify(args)} -->
 {#if showReset}
 	<div class="flex flex-row-reverse w-full">
 		<Button size="xs" color="light" on:click={() => setDefaults()}>
@@ -188,14 +271,12 @@
 {/if}
 
 <div
-	class="w-full {$$props.class} {flexWrap
-		? 'flex flex-row flex-wrap gap-x-6 '
-		: ''} {nestedClasses}"
+	class="w-full {className} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''} {nestedClasses}"
 	use:dragHandleZone={dndConfig ?? { items: [], dragDisabled: true }}
-	on:finalize
-	on:consider
+	onfinalize={bubble('finalize')}
+	onconsider={bubble('consider')}
 >
-	{#if keys.length > 0}
+	{#if keys.length > 0 && args}
 		{#each fields as item, i (item.id)}
 			{@const argName = item.value}
 			<div
@@ -203,7 +284,7 @@
 					? 'bg-red-300 dark:bg-red-800 rounded-md'
 					: ''}
 			>
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
 				{#if !hiddenArgs.includes(argName) && keys.includes(argName)}
 					{#if typeof diff[argName] === 'object' && diff[argName].oldSchema}
 						{@const formerProperty = diff[argName].oldSchema}
@@ -221,7 +302,8 @@
 								required={formerProperty?.required}
 								pattern={formerProperty?.pattern}
 								valid={inputCheck[argName]}
-								defaultValue={defaultValues?.[argName] ?? structuredClone(formerProperty?.default)}
+								defaultValue={defaultValues?.[argName] ??
+									structuredClone($state.snapshot(formerProperty?.default))}
 								enum_={dynamicEnums?.[argName] ?? formerProperty?.enum}
 								format={formerProperty?.format}
 								contentEncoding={formerProperty?.contentEncoding}
@@ -257,10 +339,10 @@
 							/>
 						</div>
 					{/if}
-					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
 						class="flex flex-row items-center {largeGap ? 'pb-4' : ''} "
-						on:click={() => {
+						onclick={() => {
 							dispatch('click', argName)
 						}}
 					>
@@ -292,7 +374,7 @@
 									pattern={schema.properties[argName].pattern}
 									bind:valid={inputCheck[argName]}
 									defaultValue={defaultValues?.[argName] ??
-										structuredClone(schema.properties[argName].default)}
+										structuredClone($state.snapshot(schema.properties[argName].default))}
 									enum_={dynamicEnums?.[argName] ?? schema.properties[argName].enum}
 									format={schema.properties[argName].format}
 									contentEncoding={schema.properties[argName].contentEncoding}
@@ -330,8 +412,8 @@
 									{css}
 									{displayType}
 								>
-									<svelte:fragment slot="actions">
-										<slot name="actions" />
+									{#snippet actions()}
+										{@render actions_render?.()}
 										{#if linkedSecretCandidates?.includes(argName)}
 											<div>
 												<ToggleButtonGroup
@@ -343,30 +425,31 @@
 															linkedSecret = undefined
 														}
 													}}
-													let:item
 												>
-													<ToggleButton
-														value="inlined"
-														size="sm"
-														label="Inlined"
-														tooltip="The value is inlined in the resource and thus has no special treatment."
-														{item}
-													/>
-													<ToggleButton
-														position="right"
-														value="secret"
-														size="sm"
-														label="Secret"
-														tooltip="The value will be stored in a newly created linked secret variable at the same path. That variable can be permissioned differently, will be treated as a secret the UI, operators will not be able to load it and every access will generate a corresponding audit log."
-														{item}
-													/>
+													{#snippet children({ item })}
+														<ToggleButton
+															value="inlined"
+															size="sm"
+															label="Inlined"
+															tooltip="The value is inlined in the resource and thus has no special treatment."
+															{item}
+														/>
+														<ToggleButton
+															position="right"
+															value="secret"
+															size="sm"
+															label="Secret"
+															tooltip="The value will be stored in a newly created linked secret variable at the same path. That variable can be permissioned differently, will be treated as a secret the UI, operators will not be able to load it and every access will generate a corresponding audit log."
+															{item}
+														/>
+													{/snippet}
 												</ToggleButtonGroup>
-											</div>{/if}</svelte:fragment
-									>
+											</div>{/if}
+									{/snippet}
 								</ArgInput>
 							{/if}
-							<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
-							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
 						{/if}
 					</div>
 				{/if}
@@ -380,7 +463,7 @@
 	<ItemPicker
 		bind:this={itemPicker}
 		pickCallback={(path, _) => {
-			if (pickForField) {
+			if (pickForField && args) {
 				args[pickForField] = '$var:' + path
 			}
 		}}
@@ -394,17 +477,19 @@
 				...x
 			}))}
 	>
-		<div slot="submission">
-			<Button
-				variant="border"
-				color="blue"
-				size="sm"
-				startIcon={{ icon: Plus }}
-				on:click={() => variableEditor?.initNew?.()}
-			>
-				New variable
-			</Button>
-		</div>
+		{#snippet submission()}
+			<div>
+				<Button
+					variant="border"
+					color="blue"
+					size="sm"
+					startIcon={{ icon: Plus }}
+					on:click={() => variableEditor?.initNew?.()}
+				>
+					New variable
+				</Button>
+			</div>
+		{/snippet}
 	</ItemPicker>
 
 	<VariableEditor bind:this={variableEditor} />

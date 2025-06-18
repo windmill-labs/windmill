@@ -18,7 +18,7 @@
 	import Required from '$lib/components/Required.svelte'
 	import GcpTriggerEditorConfigSection from './GcpTriggerEditorConfigSection.svelte'
 	import { base } from '$app/paths'
-	import type { Snippet } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveGcpTriggerFromCfg } from './utils'
 	import { handleConfigChange, type Trigger } from '../utils'
@@ -128,7 +128,7 @@
 			delivery_type = defaultValues?.delivery_type ?? 'pull'
 			delivery_config = defaultValues?.delivery_config ?? undefined
 			subscription_id = ''
-			topic_id = defaultValues?.topic_id
+			topic_id = defaultValues?.topic_id ?? ''
 			subscription_mode = defaultValues?.subscription_mode ?? 'create_update'
 			path = defaultValues?.path ?? ''
 			initialPath = ''
@@ -168,7 +168,7 @@
 		is_flow = cfg?.is_flow
 		path = cfg?.path
 		enabled = cfg?.enabled
-		topic_id = cfg?.topic_id
+		topic_id = cfg?.topic_id ?? ''
 		can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
 	}
 
@@ -234,7 +234,8 @@
 	}
 
 	$effect(() => {
-		onCaptureConfigChange?.(captureConfig, isValid)
+		const args = [captureConfig, isValid] as const
+		untrack(() => onCaptureConfigChange?.(...args))
 	})
 
 	$effect(() => {
@@ -254,9 +255,9 @@
 				: 'New GCP Pub/Sub trigger'}
 			on:close={drawer?.closeDrawer}
 		>
-			<svelte:fragment slot="actions">
+			{#snippet actions()}
 				{@render actionsButtons()}
-			</svelte:fragment>
+			{/snippet}
 			{@render config()}
 		</DrawerContent>
 	</Drawer>
@@ -370,7 +371,7 @@
 				bind:delivery_config
 				bind:topic_id
 				bind:subscription_mode
-				bind:path
+				{path}
 				cloud_subscription_id={subscription_id}
 				create_update_subscription_id={subscription_id}
 				{can_write}

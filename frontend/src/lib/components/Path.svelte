@@ -1,4 +1,4 @@
-<script lang="ts" context="module">
+<script lang="ts" module>
 	const lastMetaUsed = writable<Meta | undefined>(undefined)
 </script>
 
@@ -22,20 +22,19 @@
 		MqttTriggerService,
 		SqsTriggerService,
 		GcpTriggerService
-
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
-	import { Alert, Button, Drawer, DrawerContent } from './common'
+	import { Alert, Button } from './common'
 	import Badge from './common/badge/Badge.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import FolderEditor from './FolderEditor.svelte'
 	import { random_adj } from './random_positive_adjetive'
-	import { Eye, Folder, Loader2, Plus, SearchCode, User } from 'lucide-svelte'
+	import { Folder, Loader2, SearchCode, User } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { tick } from 'svelte'
+	import FolderPicker from './FolderPicker.svelte'
 
 	type PathKind =
 		| 'resource'
@@ -53,27 +52,51 @@
 		| 'mqtt_trigger'
 		| 'sqs_trigger'
 		| 'gcp_trigger'
-	let meta: Meta | undefined = undefined
-	export let fullNamePlaceholder: string | undefined = undefined
-	export let namePlaceholder = ''
-	export let initialPath: string
-	export let path = ''
-	export let error = ''
-	export let disabled = false
-	export let checkInitialPathExistence = false
-	export let autofocus = true
-	export let dirty = false
-	export let kind: PathKind
-	export let hideUser: boolean = false
-	export let disableEditing = false
+	let meta: Meta | undefined = $state(undefined)
+	interface Props {
+		fullNamePlaceholder?: string | undefined
+		namePlaceholder?: string
+		initialPath: string
+		path?: string
+		error?: string
+		disabled?: boolean
+		checkInitialPathExistence?: boolean
+		autofocus?: boolean
+		dirty?: boolean
+		kind: PathKind
+		hideUser?: boolean
+		disableEditing?: boolean
+	}
 
-	let inputP: HTMLInputElement | undefined = undefined
+	let {
+		fullNamePlaceholder = undefined,
+		namePlaceholder = '',
+		initialPath,
+		path = $bindable(undefined),
+		error = $bindable(undefined),
+		disabled = $bindable(false),
+		checkInitialPathExistence = false,
+		autofocus = true,
+		dirty = $bindable(false),
+		kind,
+		hideUser = false,
+		disableEditing = false
+	}: Props = $props()
+
+	$effect.pre(() => {
+		if (path == undefined) {
+			path = ''
+		}
+		if (error == undefined) {
+			error = ''
+		}
+	})
+
+	let inputP: HTMLInputElement | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 
-	let folders: { name: string; write: boolean }[] = []
-
-	$: meta && onMetaChange()
+	let folders: { name: string; write: boolean }[] = $state([])
 
 	function onMetaChange() {
 		if (meta) {
@@ -151,7 +174,7 @@
 			meta = newMeta
 			path = metaToPath(meta)
 		} else {
-			meta = pathToMeta(path, hideUser)
+			meta = pathToMeta(path ?? '', hideUser)
 		}
 	}
 
@@ -162,20 +185,14 @@
 			initialFolder = initialPath?.split('/')?.[1]
 			initialFolders.push({ name: initialFolder, write: true })
 		}
+		const excludedFolders = [initialFolder, 'app_groups', 'app_custom', 'app_themes']
 		folders = initialFolders.concat(
 			(
 				await FolderService.listFolderNames({
 					workspace: $workspaceStore!
 				})
 			)
-				.filter(
-					(x) =>
-						x != initialFolder &&
-						x != 'app_groups' &&
-						x != 'app_custom' &&
-						x != 'app_themes' &&
-						x != 'app_custom'
-				)
+				.filter((x) => !excludedFolders.includes(x))
 				.map((x) => ({
 					name: x,
 					write:
@@ -211,6 +228,7 @@
 	}
 
 	async function pathExists(path: string, kind: PathKind): Promise<boolean> {
+		if (!path.length) return false
 		if (kind == 'flow') {
 			return await FlowService.existsFlowByPath({ workspace: $workspaceStore!, path: path })
 		} else if (kind == 'script') {
@@ -295,13 +313,6 @@
 		}
 	}
 
-	$: {
-		if ($workspaceStore && $userStore) {
-			loadFolders()
-			initPath()
-		}
-	}
-
 	async function initPath() {
 		await tick()
 		if (path != undefined && path != '') {
@@ -318,24 +329,6 @@
 		}
 	}
 
-	let newFolder: Drawer
-	let viewFolder: Drawer
-	let newFolderName: string
-	let folderCreated: string | undefined = undefined
-
-	async function addFolder() {
-		await FolderService.createFolder({
-			workspace: $workspaceStore ?? '',
-			requestBody: { name: newFolderName }
-		})
-		folderCreated = newFolderName
-		$userStore?.folders?.push(newFolderName)
-		loadFolders()
-		if (meta) {
-			meta.owner = newFolderName
-		}
-	}
-
 	function setDirty() {
 		!dirty && (dirty = true)
 	}
@@ -344,72 +337,58 @@
 		'openSearchWithPrefilledText'
 	)
 
-	$: displayPathChangedWarning =
+	$effect(() => {
+		;[meta?.name, meta?.owner, meta?.ownerKind]
+		meta && untrack(() => onMetaChange())
+	})
+	$effect(() => {
+		if ($workspaceStore && $userStore) {
+			untrack(() => {
+				loadFolders()
+				initPath()
+			})
+		}
+	})
+	let displayPathChangedWarning = $derived(
 		(['flow', 'script', 'resource', 'variable'] as PathKind[]).includes(kind) &&
-		initialPath &&
-		initialPath !== path
-
-	$: pathUsageInFlowsPromise =
+			initialPath &&
+			initialPath !== path
+	)
+	let pathUsageInFlowsPromise = $derived(
 		(kind == 'script' || kind == 'flow') &&
-		$workspaceStore &&
-		initialPath &&
-		FlowService.listFlowPathsFromWorkspaceRunnable({
-			workspace: $workspaceStore,
-			path: initialPath,
-			runnableKind: kind
-		})
-
-	$: pathUsageInAppsPromise =
+			$workspaceStore &&
+			initialPath &&
+			FlowService.listFlowPathsFromWorkspaceRunnable({
+				workspace: $workspaceStore,
+				path: initialPath,
+				runnableKind: kind
+			})
+	)
+	let pathUsageInAppsPromise = $derived(
 		(kind == 'script' || kind == 'flow') &&
-		$workspaceStore &&
-		initialPath &&
-		AppService.listAppPathsFromWorkspaceRunnable({
-			workspace: $workspaceStore,
-			path: initialPath,
-			runnableKind: kind
-		})
-
-	$: pathUsageInScriptsPromise =
+			$workspaceStore &&
+			initialPath &&
+			AppService.listAppPathsFromWorkspaceRunnable({
+				workspace: $workspaceStore,
+				path: initialPath,
+				runnableKind: kind
+			})
+	)
+	let pathUsageInScriptsPromise = $derived(
 		kind == 'script' &&
-		$workspaceStore &&
-		initialPath &&
-		ScriptService.listScriptPathsFromWorkspaceRunnable({
-			workspace: $workspaceStore,
-			path: initialPath
-		})
+			$workspaceStore &&
+			initialPath &&
+			ScriptService.listScriptPathsFromWorkspaceRunnable({
+				workspace: $workspaceStore,
+				path: initialPath
+			})
+	)
 </script>
-
-<Drawer bind:this={newFolder}>
-	<DrawerContent
-		title="New Folder"
-		on:close={() => {
-			newFolder.closeDrawer()
-			folderCreated = undefined
-		}}
-	>
-		{#if !folderCreated}
-			<div class="flex flex-col gap-2">
-				<input placeholder="New folder name" bind:value={newFolderName} />
-				<Button size="md" startIcon={{ icon: Plus }} disabled={!newFolderName} on:click={addFolder}>
-					New&nbsp;folder
-				</Button>
-			</div>
-		{:else}
-			<FolderEditor name={folderCreated} />
-		{/if}
-	</DrawerContent>
-</Drawer>
-
-<Drawer bind:this={viewFolder}>
-	<DrawerContent title="Folder {meta?.owner}" on:close={viewFolder.closeDrawer}>
-		<FolderEditor name={meta?.owner ?? ''} />
-	</DrawerContent>
-</Drawer>
 
 <div>
 	<div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 pb-0 mb-1">
 		{#if meta != undefined}
-			<!-- svelte-ignore a11y-label-has-associated-control -->
+			<!-- svelte-ignore a11y_label_has_associated_control -->
 			{#if !hideUser}
 				<div class="block">
 					<ToggleButtonGroup
@@ -429,29 +408,30 @@
 							}
 						}}
 						disabled={disabled || disableEditing}
-						let:item
 					>
-						<ToggleButton
-							icon={User}
-							disabled={disabled || disableEditing}
-							light
-							size="xs"
-							value="user"
-							position="left"
-							label="User"
-							{item}
-						/>
-						<!-- <ToggleButton light size="xs" value="group" position="center">Group</ToggleButton> -->
-						<ToggleButton
-							icon={Folder}
-							disabled={disabled || disableEditing}
-							light
-							size="xs"
-							value="folder"
-							position="right"
-							label="Folder"
-							{item}
-						/>
+						{#snippet children({ item })}
+							<ToggleButton
+								icon={User}
+								disabled={disabled || disableEditing}
+								light
+								size="xs"
+								value="user"
+								position="left"
+								label="User"
+								{item}
+							/>
+							<!-- <ToggleButton light size="xs" value="group" position="center">Group</ToggleButton> -->
+							<ToggleButton
+								icon={Folder}
+								disabled={disabled || disableEditing}
+								light
+								size="xs"
+								value="folder"
+								position="right"
+								label="Folder"
+								{item}
+							/>
+						{/snippet}
 					</ToggleButtonGroup>
 				</div>
 			{/if}
@@ -469,55 +449,18 @@
 							disabled={disabled ||
 								!($superadmin || ($userStore?.is_admin ?? false)) ||
 								disableEditing}
-							on:keydown={setDirty}
+							onkeydown={setDirty}
 						/>
 					</label>
 				{:else if meta.ownerKind === 'folder'}
 					<label class="block grow w-48">
-						<div class="flex flex-row items-center gap-1 w-full">
-							<select
-								class="grow w-full"
-								disabled={disabled || disableEditing}
-								bind:value={meta.owner}
-							>
-								{#if folders?.length == 0}
-									<option disabled>No folders</option>
-								{/if}
-								{#each folders as { name, write }}
-									<option disabled={!write}>{name}{write ? '' : ' (read-only)'}</option>
-								{/each}
-							</select>
-							<Button
-								title="View folder"
-								btnClasses="!p-1.5"
-								variant="border"
-								color="light"
-								size="xs"
-								disabled={!meta.owner || meta.owner == ''}
-								on:click={viewFolder.openDrawer}
-								iconOnly
-								startIcon={{ icon: Eye }}
-							/>
-							{#if !disableEditing}
-								<Button
-									title="New folder"
-									btnClasses="!p-1.5"
-									variant="border"
-									color="light"
-									size="xs"
-									{disabled}
-									on:click={newFolder.openDrawer}
-									iconOnly
-									startIcon={{ icon: Plus }}
-								/>
-							{/if}
-						</div>
+						<FolderPicker bind:folderName={meta.owner} {initialPath} {disabled} {disableEditing} />
 					</label>
 				{/if}
 			</div>
 			<span class="text-xl">/</span>
 			<label class="block grow w-full max-w-md">
-				<!-- svelte-ignore a11y-autofocus -->
+				<!-- svelte-ignore a11y_autofocus -->
 				<input
 					disabled={disabled || disableEditing}
 					type="text"
@@ -525,7 +468,7 @@
 					{autofocus}
 					bind:this={inputP}
 					autocomplete="off"
-					on:keyup={handleKeyUp}
+					onkeyup={handleKeyUp}
 					bind:value={meta.name}
 					placeholder={namePlaceholder}
 					class={error === ''
@@ -550,7 +493,7 @@
 				value={path}
 				size={path?.length || 50}
 				class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
-				on:focus={({ currentTarget }) => {
+				onfocus={({ currentTarget }) => {
 					currentTarget.select()
 				}}
 			/>

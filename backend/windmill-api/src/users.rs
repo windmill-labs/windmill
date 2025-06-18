@@ -42,7 +42,7 @@ use sqlx::FromRow;
 use time::OffsetDateTime;
 use tower_cookies::{Cookie, Cookies};
 use tracing::Instrument;
-use windmill_audit::audit_ee::{audit_log, AuditAuthor};
+use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 use windmill_common::auth::fetch_authed_from_permissioned_as;
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
@@ -542,7 +542,7 @@ async fn list_users_as_super_admin(
     let rows = if active_only.is_some_and(|x| x) {
         sqlx::query_as!(
             GlobalUserInfo,
-            "WITH active_users AS (SELECT distinct username as email FROM audit WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login')),
+            "WITH active_users AS (SELECT distinct username as email FROM audit WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),
             authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)
             SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, devops, name, company, username
             FROM password
@@ -1508,7 +1508,7 @@ async fn create_user(
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Json(nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
-    crate::users_ee::create_user(authed, db, webhook, argon2, nu).await
+    crate::users_oss::create_user(authed, db, webhook, argon2, nu).await
 }
 
 async fn delete_workspace_user(
@@ -1582,7 +1582,7 @@ async fn set_password(
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
     let email = authed.email.clone();
-    crate::users_ee::set_password(db, argon2, authed, &email, ep).await
+    crate::users_oss::set_password(db, argon2, authed, &email, ep).await
 }
 
 async fn set_password_of_user(
@@ -1593,7 +1593,7 @@ async fn set_password_of_user(
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    crate::users_ee::set_password(db, argon2, authed, &email, ep).await
+    crate::users_oss::set_password(db, argon2, authed, &email, ep).await
 }
 
 async fn set_login_type(
@@ -1750,7 +1750,22 @@ async fn refresh_token(
     .await?
     .unwrap_or(false);
 
-    let _ = create_session_token(&authed.email, super_admin, &mut tx, cookies).await?;
+    let new_token = create_session_token(&authed.email, super_admin, &mut tx, cookies).await?;
+
+    audit_log(
+        &mut *tx,
+        &AuditAuthor {
+            email: authed.email.to_string(),
+            username: authed.email.to_string(),
+            username_override: None,
+        },
+        "users.token.refresh",
+        ActionKind::Create,
+        &"global",
+        Some(&truncate_token(&new_token)),
+        None,
+    )
+    .await?;
 
     tx.commit().await?;
     Ok("token refreshed".to_string())

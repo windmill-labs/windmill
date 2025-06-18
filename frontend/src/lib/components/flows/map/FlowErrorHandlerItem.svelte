@@ -1,58 +1,44 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
-	import { getContext } from 'svelte'
-	import { classNames, emptySchema } from '$lib/utils'
-	import type { FlowModuleState } from '../flowState'
-	import { NEVER_TESTED_THIS_FAR } from '../models'
-	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
-	import { fade } from 'svelte/transition'
+	import { createEventDispatcher, getContext } from 'svelte'
+	import { classNames } from '$lib/utils'
 	import { Bug, X } from 'lucide-svelte'
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
-	import { createInlineScriptModule, pickScript } from '$lib/components/flows/flowStateUtils'
-	import type { FlowModule, RawScript } from '$lib/gen'
+	import { insertNewFailureModule } from '$lib/components/flows/flowStateUtils.svelte'
+	import type { RawScript, ScriptLang } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 
 	export let small: boolean
+
+	const dispatch = createEventDispatcher<{
+		generateStep: { moduleId: string; instructions: string; lang: ScriptLang }
+	}>()
 
 	const { selectedId, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	async function insertNewFailureModule(
+	async function insertFailureModule(
 		inlineScript?: {
 			language: RawScript['language']
 			subkind: 'pgsql' | 'flow'
+			instructions?: string
 		},
 		wsScript?: { path: string; summary: string; hash: string | undefined }
 	) {
-		var module: FlowModule = {
-			id: 'failure',
-			value: { type: 'identity' }
-		}
-		var state: FlowModuleState = {
-			schema: emptySchema(),
-			previewResult: NEVER_TESTED_THIS_FAR
-		}
+		await insertNewFailureModule(flowStore, flowStateStore, inlineScript, wsScript)
 
-		if (inlineScript) {
-			;[module, state] = await createInlineScriptModule(
-				inlineScript.language,
-				'failure',
-				inlineScript.subkind,
-				'failure'
-			)
-		} else if (wsScript) {
-			;[module, state] = await pickScript(wsScript.path, wsScript.summary, module.id, wsScript.hash)
+		if (inlineScript?.instructions) {
+			dispatch('generateStep', {
+				moduleId: 'failure',
+				instructions: inlineScript.instructions,
+				lang: inlineScript.language
+			})
 		}
-
-		$flowStore.value.failure_module = module
-		$flowStateStore[module.id] = state
 
 		$selectedId = 'failure'
-		$flowStore = $flowStore
+		refreshStateStore(flowStore)
 	}
-
-	const { currentStepStore: copilotCurrentStepStore } =
-		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -62,48 +48,42 @@
 	id="flow-editor-error-handler"
 	class={classNames(
 		'z-10',
-		$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : 'cursor-pointer',
-		'border transition-colors duration-[400ms] ease-linear rounded-sm px-2 py-1 gap-2 bg-surface text-sm flex items-center flex-row',
+		'cursor-pointer border transition-colors duration-[400ms] ease-linear rounded-sm px-2 py-1 gap-2 bg-surface text-sm flex items-center flex-row',
 		$selectedId?.includes('failure')
 			? 'outline outline-offset-1 outline-2 outline-slate-900 dark:outline-slate-900/0 dark:bg-surface-secondary dark:border-gray-400'
 			: ''
 	)}
 	style="min-width: {small ? '200px' : '230px'}; max-width: 275px;"
 	on:click={() => {
-		if ($copilotCurrentStepStore !== undefined) return
-		if ($flowStore?.value?.failure_module) {
+		if (flowStore.val?.value?.failure_module) {
 			$selectedId = 'failure'
 		}
 	}}
 >
-	{#if $copilotCurrentStepStore !== undefined}
-		<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900]"></div>
-	{/if}
 	<div class="flex items-center grow-0 min-w-0 gap-2">
-		<Bug size={16} color={$flowStore?.value?.failure_module ? '#3b82f6' : '#9CA3AF'} />
+		<Bug size={16} color={flowStore.val?.value?.failure_module ? '#3b82f6' : '#9CA3AF'} />
 	</div>
 
-	{#if !$flowStore?.value?.failure_module}
+	{#if !flowStore.val?.value?.failure_module}
 		<div class="grow text-center font-bold text-xs">Error Handler</div>
 	{:else}
 		<div class="truncate grow min-w-0 text-center text-xs">
-			{$flowStore.value.failure_module?.summary ||
-				($flowStore.value.failure_module?.value.type === 'rawscript'
-					? `${$flowStore.value.failure_module?.value.language}`
+			{flowStore.val.value.failure_module?.summary ||
+				(flowStore.val.value.failure_module?.value.type === 'rawscript'
+					? `${flowStore.val.value.failure_module?.value.language}`
 					: 'TBD')}
 		</div>
 	{/if}
 
-	{#if !$flowStore?.value?.failure_module}
+	{#if !flowStore.val?.value?.failure_module}
 		<InsertModuleButton
-			disableAi={false}
 			index={0}
 			placement={'top-center'}
 			on:new={(e) => {
-				insertNewFailureModule(e.detail.inlineScript)
+				insertFailureModule(e.detail.inlineScript)
 			}}
 			on:pickScript={(e) => {
-				insertNewFailureModule(undefined, e.detail)
+				insertFailureModule(undefined, e.detail)
 			}}
 			kind="failure"
 		/>
@@ -118,7 +98,7 @@
 				'bg-surface focus:outline-none hover:bg-surface-hover rounded '
 			)}
 			on:click={() => {
-				$flowStore.value.failure_module = undefined
+				flowStore.val.value.failure_module = undefined
 				$selectedId = 'settings-metadata'
 			}}
 		>

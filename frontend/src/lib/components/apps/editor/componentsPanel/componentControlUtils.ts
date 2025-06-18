@@ -85,11 +85,11 @@ const validateAll = {
 export function getComponentControl(type: keyof typeof components): Array<ComponentFunction> {
 	switch (type) {
 		case 'tabscomponent':
-			return [setTab]
+			return [setTab, setSelectedIndex]
 		case 'selectstepcomponent':
-			return [setTab, setValue]
+			return [setTab, setValue, setSelectedIndex]
 		case 'selecttabcomponent':
-			return [setTab, setValue]
+			return [setTab, setValue, setSelectedIndex]
 		case 'conditionalwrapper':
 		case 'steppercomponent':
 			return [setTab]

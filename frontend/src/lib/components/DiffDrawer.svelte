@@ -55,7 +55,6 @@
 		diffViewer.closeDrawer()
 	}
 
-
 	function prepareDiff(data: Value) {
 		const metadata = structuredClone(cleanValueProperties(replaceFalseWithUndefined(data)))
 		const content = metadata['content']
@@ -126,8 +125,8 @@
 			data_[dataType]?.content !== data_.current.content
 				? 'content'
 				: data_[dataType]?.metadata !== data_.current.metadata
-				? 'metadata'
-				: undefined
+					? 'metadata'
+					: undefined
 	}
 
 	$: updateContentType(data, diffType)
@@ -256,7 +255,7 @@
 				<Loader2 class="animate-spin" />
 			{/if}
 		</div>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			{#if data?.button}
 				<Button
 					color="light"
@@ -268,6 +267,6 @@
 					}}>{data.button.text}</Button
 				>
 			{/if}
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

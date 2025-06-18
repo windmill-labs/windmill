@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { melt, type MenubarBuilders } from '@melt-ui/svelte'
 
-	export let createMenu: MenubarBuilders['createMenu']
+	interface Props {
+		createMenu: MenubarBuilders['createMenu']
+		triggr?: import('svelte').Snippet<[any]>
+		children?: import('svelte').Snippet<[any]>
+	}
+
+	let { createMenu, triggr, children }: Props = $props()
 
 	const menu = createMenu()
 
@@ -11,8 +17,8 @@
 </script>
 
 <div class="hover:z-50 flex w-full h-8">
-	<slot name="trigger" {trigger} />
+	{@render triggr?.({ trigger })}
 	<div use:melt={$menuElement}>
-		<slot {item} />
+		{@render children?.({ item })}
 	</div>
 </div>

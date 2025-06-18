@@ -2,11 +2,12 @@
 	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
 	import type { Script } from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
-	import Select from './apps/svelte-select/lib/Select.svelte'
+	import SelectLegacy from './apps/svelte-select/lib/SelectLegacy.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import ResultJobLoader from './ResultJobLoader.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { Loader2 } from 'lucide-svelte'
+	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 
 	export let value: any = undefined
 	export let helperScript:
@@ -74,7 +75,7 @@
 						{ ...args, text, _ENTRYPOINT_OVERRIDE: entrypoint },
 						undefined,
 						cb
-				  )
+					)
 				: resultJobLoader?.runScriptByHash(
 						helperScript?.hash ?? 'NO_HASH',
 						{
@@ -83,11 +84,11 @@
 							_ENTRYPOINT_OVERRIDE: entrypoint
 						},
 						cb
-				  )
+					)
 		})
 	}
 
-	let lastArgs = structuredClone({ ...args, [name]: undefined })
+	let lastArgs = structuredClone({ ...stateSnapshot(args), [name]: undefined })
 	$: (entrypoint || helperScript) && refreshOptions()
 
 	$: args && changeArgs()
@@ -96,7 +97,7 @@
 	function changeArgs() {
 		timeout && clearTimeout(timeout)
 		timeout = setTimeout(() => {
-			let argsWithoutSelf = { ...args, [name]: undefined }
+			let argsWithoutSelf = { ...stateSnapshot(args), [name]: undefined }
 			if (deepEqual(argsWithoutSelf, lastArgs)) {
 				return
 			}
@@ -123,7 +124,7 @@
 	<div class="w-full flex-col flex">
 		<div class="w-full">
 			{#key renderCount}
-				<Select
+				<SelectLegacy
 					on:error={(e) => {
 						error = e.detail.details
 					}}

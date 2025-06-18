@@ -8,6 +8,7 @@ import {
 	type VisualChange
 } from '../shared'
 import { writable, type Writable } from 'svelte/store'
+import { aiChatManager } from './AIChatManager.svelte'
 
 type ExcludeVariant<T, K extends keyof T, V> = T extends Record<K, V> ? never : T
 type VisualChangeWithDiffIndex = ExcludeVariant<VisualChange, 'type', 'added_inline'> & {
@@ -22,7 +23,6 @@ export class AIChatEditorHandler {
 
 	reviewingChanges: Writable<boolean> = writable(false)
 	groupChanges: { changes: VisualChangeWithDiffIndex[]; groupIndex: number }[] = []
-	pendingNewCode: string | undefined = undefined
 
 	constructor(editor: meditor.IStandaloneCodeEditor) {
 		this.editor = editor
@@ -30,7 +30,7 @@ export class AIChatEditorHandler {
 
 	clear() {
 		this.groupChanges = []
-		this.pendingNewCode = undefined
+		aiChatManager.pendingNewCode = undefined
 		for (const collection of this.decorationsCollections) {
 			collection.clear()
 		}
@@ -168,12 +168,13 @@ export class AIChatEditorHandler {
 	}
 
 	async reviewAndApply(newCode: string) {
-		if (this.pendingNewCode === newCode) {
+		if (aiChatManager.pendingNewCode === newCode) {
+			this.acceptAll()
 			return
-		} else if (this.pendingNewCode) {
+		} else if (aiChatManager.pendingNewCode) {
 			this.clear()
 		}
-		this.pendingNewCode = newCode
+		aiChatManager.pendingNewCode = newCode
 		const changedLines = await this.calculateVisualChanges(newCode)
 		if (changedLines.length === 0) return
 

@@ -28,7 +28,9 @@ use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
 
 #[cfg(feature = "enterprise")]
-use windmill_common::ee::{maybe_renew_license_key_on_start, LICENSE_KEY_ID, LICENSE_KEY_VALID};
+use windmill_common::ee_oss::{
+    maybe_renew_license_key_on_start, LICENSE_KEY_ID, LICENSE_KEY_VALID,
+};
 
 use windmill_common::{
     agent_workers::build_agent_http_client,
@@ -49,9 +51,12 @@ use windmill_common::{
         TIMEOUT_WAIT_RESULT_SETTING,
     },
     scripts::ScriptLang,
-    stats_ee::schedule_stats,
+    stats_oss::schedule_stats,
     triggers::TriggerKind,
-    utils::{hostname, rd_string, Mode, GIT_VERSION, MODE_AND_ADDONS},
+    utils::{
+        create_default_worker_suffix, create_ssh_agent_worker_suffix, worker_name_with_suffix,
+        Mode, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS,
+    },
     worker::{
         reload_custom_tags_setting, Connection, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
     },
@@ -75,8 +80,7 @@ use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR,
     DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR,
     JAVA_CACHE_DIR, NU_CACHE_DIR, POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR,
-    PY312_CACHE_DIR, PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR, TAR_PY310_CACHE_DIR,
-    TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR, TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
+    PY312_CACHE_DIR, PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -98,7 +102,9 @@ const DEFAULT_NUM_WORKERS: usize = 1;
 const DEFAULT_PORT: u16 = 8000;
 const DEFAULT_SERVER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 
-mod ee;
+#[cfg(feature = "private")]
+pub mod ee;
+mod ee_oss;
 mod monitor;
 
 pub fn setup_deno_runtime() -> anyhow::Result<()> {
@@ -153,6 +159,7 @@ lazy_static::lazy_static! {
         .ok()
         .and_then(|x| x.parse::<u64>().ok())
         .unwrap_or(3600 * 12);
+
 }
 
 pub fn main() -> anyhow::Result<()> {
@@ -261,7 +268,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         tracing::error!("Failed to install rustls crypto provider");
     }
 
-    let hostname = hostname();
+    let hostname = HOSTNAME.to_owned();
 
     let mode_and_addons = MODE_AND_ADDONS.clone();
     let mode = mode_and_addons.mode;
@@ -340,7 +347,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             "Creating http client for cluster using base internal url {}",
             std::env::var("BASE_INTERNAL_URL").unwrap_or_default()
         );
-        let suffix = windmill_common::utils::worker_suffix(&hostname, &rd_string(5));
+        let suffix = create_ssh_agent_worker_suffix(&hostname);
         (
             Connection::Http(build_agent_http_client(&suffix)),
             Some(suffix),
@@ -552,7 +559,7 @@ Windmill Community Edition {GIT_VERSION}
                 _ = indexer_rx.recv() => {
                     tracing::info!("Received killpill, aborting index initialization");
                 },
-                res = windmill_indexer::completed_runs_ee::init_index(&db) => {
+                res = windmill_indexer::completed_runs_oss::init_index(&db) => {
                         let res = res?;
                         reader = Some(res.0);
                         writer = Some(res.1);
@@ -574,7 +581,7 @@ Windmill Community Edition {GIT_VERSION}
             async {
                 if let Some(db) = conn.as_sql() {
                     if let Some(index_writer) = index_writer2 {
-                        windmill_indexer::completed_runs_ee::run_indexer(
+                        windmill_indexer::completed_runs_oss::run_indexer(
                             db.clone(),
                             index_writer,
                             indexer_rx,
@@ -596,7 +603,7 @@ Windmill Community Edition {GIT_VERSION}
                     _ = indexer_rx.recv() => {
                         tracing::info!("Received killpill, aborting index initialization");
                     },
-                    res = windmill_indexer::service_logs_ee::init_index(&db, killpill_tx.clone()) => {
+                    res = windmill_indexer::service_logs_oss::init_index(&db, killpill_tx.clone()) => {
                             let res = res?;
                             reader = Some(res.0);
                             writer = Some(res.1);
@@ -618,7 +625,7 @@ Windmill Community Edition {GIT_VERSION}
             async {
                 if let Some(db) = conn.as_sql() {
                     if let Some(log_index_writer) = log_index_writer2 {
-                        windmill_indexer::service_logs_ee::run_indexer(
+                        windmill_indexer::service_logs_oss::run_indexer(
                             db.clone(),
                             log_index_writer,
                             log_indexer_rx,
@@ -675,19 +682,21 @@ Windmill Community Edition {GIT_VERSION}
                 let base_internal_url = base_internal_rx.await?;
                 if worker_mode {
                     let mut workers = vec![];
+
                     for i in 0..num_workers {
-                        let suffix: String = if i == 0 && first_suffix.as_ref().is_some() {
+                        let suffix = if i == 0 && first_suffix.is_some() {
                             first_suffix.as_ref().unwrap().clone()
                         } else {
-                            windmill_common::utils::worker_suffix(&hostname, &rd_string(5))
+                            create_default_worker_suffix(&hostname)
                         };
+
                         let worker_conn = WorkerConn {
                             conn: if i == 0 || mode != Mode::Agent {
                                 conn.clone()
                             } else {
                                 Connection::Http(build_agent_http_client(&suffix))
                             },
-                            worker_name: windmill_common::utils::worker_name_with_suffix(
+                            worker_name: worker_name_with_suffix(
                                 mode == Mode::Agent,
                                 WORKER_GROUP.as_str(),
                                 &suffix,
@@ -852,6 +861,11 @@ Windmill Community Edition {GIT_VERSION}
                                                         }
                                                     };
                                                 },
+                                                "notify_token_invalidation" => {
+                                                    let token = n.payload();
+                                                    tracing::info!("Token invalidation detected for token: {}...", &token[..token.len().min(8)]);
+                                                    windmill_api::auth::invalidate_token_from_cache(token);
+                                                },
                                                 "notify_global_setting_change" => {
                                                     tracing::info!("Global setting change detected: {}", n.payload());
                                                     match n.payload() {
@@ -884,7 +898,7 @@ Windmill Community Edition {GIT_VERSION}
                                                             if let Err(e) = load_tag_per_workspace_workspaces(&db).await {
                                                                 tracing::error!("Error loading default tag per workspace workspaces: {e:#}");
                                                             }
-                                                        }
+                                                        },
                                                         SMTP_SETTING => {
                                                             reload_smtp_config(&db).await;
                                                         },
@@ -1001,7 +1015,6 @@ Windmill Community Edition {GIT_VERSION}
                                                                 tracing::error!(error = %e, "Could not reload critical alert UI setting");
                                                             }
                                                         },
-
                                                         a @_ => {
                                                             tracing::info!("Unrecognized Global Setting Change Payload: {:?}", a);
                                                         }
@@ -1053,7 +1066,9 @@ Windmill Community Edition {GIT_VERSION}
                                     }
 
                                     if server_mode {
-                                        tracing::info!("monitor task started");
+                                        if !*windmill_common::QUIET_LOGS {
+                                            tracing::info!("monitor task started");
+                                        }
                                     }
                                     monitor_db(
                                         &conn,
@@ -1065,7 +1080,9 @@ Windmill Community Edition {GIT_VERSION}
                                     )
                                     .await;
                                     if server_mode {
-                                        tracing::info!("monitor task finished");
+                                        if !*windmill_common::QUIET_LOGS {
+                                            tracing::info!("monitor task finished");
+                                        }
                                     }
                                 },
                             }
@@ -1086,7 +1103,7 @@ Windmill Community Edition {GIT_VERSION}
                             tracing::info!("Reloading config after 12 hours");
                             initial_load(&conn, tx.clone(), worker_mode, server_mode, #[cfg(feature = "parquet")] disable_s3_store).await;
                             #[cfg(feature = "enterprise")]
-                            ee::verify_license_key().await;
+                            ee_oss::verify_license_key().await;
                         }
                     }
                 },
@@ -1174,6 +1191,7 @@ async fn listen_pg(url: &str) -> Option<PgListener> {
         "notify_webhook_change",
         "notify_workspace_envs_change",
         "notify_runnable_version_change",
+        "notify_token_invalidation",
     ];
 
     #[cfg(feature = "http_trigger")]
@@ -1267,10 +1285,6 @@ pub async fn run_workers(
         PY311_CACHE_DIR,
         PY312_CACHE_DIR,
         PY313_CACHE_DIR,
-        TAR_PY310_CACHE_DIR,
-        TAR_PY311_CACHE_DIR,
-        TAR_PY312_CACHE_DIR,
-        TAR_PY313_CACHE_DIR,
         BUN_BUNDLE_CACHE_DIR,
         GO_CACHE_DIR,
         GO_BIN_CACHE_DIR,

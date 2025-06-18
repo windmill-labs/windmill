@@ -548,6 +548,8 @@ pub(crate) async fn tarball_workspace(
                     authentication_resource_path,
                     script_path, 
                     is_flow, 
+                    summary,
+                    description,
                     edited_by, 
                     edited_at, 
                     email, 
@@ -622,7 +624,7 @@ pub(crate) async fn tarball_workspace(
         #[cfg(all(feature = "enterprise", feature = "kafka"))]
         {
             let kafka_triggers = sqlx::query_as!(
-                crate::kafka_triggers_ee::KafkaTrigger,
+                crate::kafka_triggers_oss::KafkaTrigger,
                 "SELECT * FROM kafka_trigger
                  WHERE workspace_id = $1",
                 &w_id
@@ -644,7 +646,7 @@ pub(crate) async fn tarball_workspace(
         #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
         {
             let sqs_triggers = sqlx::query_as!(
-                crate::sqs_triggers_ee::SqsTrigger,
+                crate::sqs_triggers_oss::SqsTrigger,
                 r#"
                 SELECT
                     aws_auth_resource_type AS "aws_auth_resource_type: _",
@@ -684,7 +686,7 @@ pub(crate) async fn tarball_workspace(
         #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
         {
             let gcp_triggers = sqlx::query_as!(
-                crate::gcp_triggers_ee::GcpTrigger,
+                crate::gcp_triggers_oss::GcpTrigger,
                 r#"
                 SELECT
                     gcp_resource_path,
@@ -726,7 +728,7 @@ pub(crate) async fn tarball_workspace(
         #[cfg(all(feature = "enterprise", feature = "nats"))]
         {
             let nats_triggers = sqlx::query_as!(
-                crate::nats_triggers_ee::NatsTrigger,
+                crate::nats_triggers_oss::NatsTrigger,
                 "SELECT * FROM nats_trigger
                  WHERE workspace_id = $1",
                 &w_id

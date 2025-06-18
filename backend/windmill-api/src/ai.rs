@@ -4,13 +4,13 @@ use crate::{
 };
 
 use axum::{body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Router};
-use http::HeaderMap;
+use http::{HeaderMap, Method};
 use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
-use windmill_audit::{audit_ee::audit_log, ActionKind};
+use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::error::{to_anyhow, Error, Result};
 
 lazy_static::lazy_static! {
@@ -24,7 +24,7 @@ lazy_static::lazy_static! {
     pub static ref AI_REQUEST_CACHE: Cache<(String, AIProvider), ExpiringAIRequestConfig> = Cache::new(500);
 }
 
-const AZURE_API_VERSION: &str = "2024-10-21";
+const AZURE_API_VERSION: &str = "2025-04-01-preview";
 const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 
 #[derive(Deserialize, Debug)]
@@ -141,23 +141,49 @@ impl AIRequestConfig {
         self,
         provider: &AIProvider,
         path: &str,
+        method: Method,
+        headers: HeaderMap,
         body: Bytes,
     ) -> Result<RequestBuilder> {
-        let url = format!("{}/{}", self.base_url, path);
-
         let body = if let Some(user) = self.user {
             Self::add_user_to_body(body, user)?
         } else {
             body
         };
 
-        let is_azure = matches!(provider, AIProvider::OpenAI) && self.base_url != OPENAI_BASE_URL
+        let base_url = self.base_url.trim_end_matches('/');
+
+        let is_azure = matches!(provider, AIProvider::OpenAI) && base_url != OPENAI_BASE_URL
             || matches!(provider, AIProvider::AzureOpenAI);
+        let is_anthropic = matches!(provider, AIProvider::Anthropic);
+
+        let url = if is_azure && method != Method::GET {
+            if base_url.ends_with("/deployments") {
+                let model = Self::get_azure_model(&body)?;
+                format!("{}/{}/{}", base_url, model, path)
+            } else if base_url.ends_with("/openai") {
+                let model = Self::get_azure_model(&body)?;
+                format!("{}/deployments/{}/{}", base_url, model, path)
+            } else {
+                format!("{}/{}", base_url, path)
+            }
+        } else {
+            format!("{}/{}", base_url, path)
+        };
+
+        tracing::debug!("AI request URL: {}", url);
 
         let mut request = HTTP_CLIENT
-            .post(url)
-            .header("content-type", "application/json")
-            .body(body);
+            .request(method, url)
+            .header("content-type", "application/json");
+
+        for (header_name, header_value) in headers.iter() {
+            if header_name.to_string().starts_with("anthropic-") {
+                request = request.header(header_name, header_value);
+            }
+        }
+
+        request = request.body(body);
 
         if is_azure {
             request = request.query(&[("api-version", AZURE_API_VERSION)])
@@ -165,9 +191,12 @@ impl AIRequestConfig {
 
         if let Some(api_key) = self.api_key {
             if is_azure {
-                request = request.header("api-key", api_key)
+                request = request.header("api-key", api_key.clone())
             } else {
-                request = request.header("authorization", format!("Bearer {}", api_key))
+                request = request.header("authorization", format!("Bearer {}", api_key.clone()))
+            }
+            if is_anthropic {
+                request = request.header("X-API-Key", api_key);
             }
         }
 
@@ -198,6 +227,18 @@ impl AIRequestConfig {
         Ok(serde_json::to_vec(&json_body)
             .map_err(|e| Error::internal_err(format!("Failed to reserialize request body: {}", e)))?
             .into())
+    }
+
+    fn get_azure_model(body: &Bytes) -> Result<String> {
+        #[derive(Deserialize, Debug)]
+        struct AzureModel {
+            model: String,
+        }
+
+        let azure_model: AzureModel = serde_json::from_slice(body)
+            .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
+
+        Ok(azure_model.model)
     }
 }
 
@@ -311,17 +352,18 @@ pub struct AIConfig {
 }
 
 pub fn global_service() -> Router {
-    Router::new().route("/proxy/*ai", post(global_proxy))
+    Router::new().route("/proxy/*ai", post(global_proxy).get(global_proxy))
 }
 
 pub fn workspaced_service() -> Router {
-    Router::new().route("/proxy/*ai", post(proxy))
+    Router::new().route("/proxy/*ai", post(proxy).get(proxy))
 }
 
 async fn global_proxy(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(ai_path): Path<String>,
+    method: Method,
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
@@ -346,7 +388,7 @@ async fn global_proxy(
     let url = format!("{}/{}", base_url, ai_path);
 
     let request = HTTP_CLIENT
-        .post(url)
+        .request(method, url)
         .header("content-type", "application/json")
         .header("Authorization", format!("Bearer {}", api_key))
         .body(body);
@@ -382,6 +424,7 @@ async fn proxy(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, ai_path)): Path<(String, String)>,
+    method: Method,
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
@@ -464,7 +507,7 @@ async fn proxy(
         }
     };
 
-    let request = request_config.prepare_request(&provider, &ai_path, body)?;
+    let request = request_config.prepare_request(&provider, &ai_path, method, headers, body)?;
 
     let response = request.send().await.map_err(to_anyhow)?;
 

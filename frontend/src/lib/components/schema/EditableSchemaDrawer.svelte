@@ -1,4 +1,5 @@
 <script lang="ts">
+	import EditableSchemaDrawer from './EditableSchemaDrawer.svelte'
 	import type { Schema } from '$lib/common'
 	import { GripVertical, Pen, Trash, Plus } from 'lucide-svelte'
 	import EditableSchemaForm from '../EditableSchemaForm.svelte'
@@ -14,23 +15,13 @@
 	import SimpleEditor from '../SimpleEditor.svelte'
 	import AddPropertyV2 from '$lib/components/schema/AddPropertyV2.svelte'
 
-	export let schema: Schema | undefined | any
-	export let parentId: string | undefined = undefined
-
 	const flipDurationMs = 200
 
 	const dispatch = createEventDispatcher()
 
-	let addProperty: AddProperty | undefined = undefined
-	let schemaFormDrawer: Drawer | undefined = undefined
-	let editableSchemaForm: EditableSchemaForm | undefined = undefined
-
-	$: items = ((schema?.order ?? Object.keys(schema?.properties ?? {}))?.map((item, index) => {
-		return { value: item, id: item }
-	}) ?? []) as Array<{
-		value: string
-		id: string
-	}>
+	let addPropertyComponent: AddProperty | undefined = $state(undefined)
+	let schemaFormDrawer: Drawer | undefined = $state(undefined)
+	let editableSchemaForm: EditableSchemaForm | undefined = $state(undefined)
 
 	function handleConsider(e) {
 		const { items: newItems } = e.detail
@@ -45,21 +36,41 @@
 
 		const keys = items.map((item) => item.value)
 
-		schema.properties = keys.reduce((acc, key) => {
-			acc[key] = schema.properties[key]
-			return acc
-		}, {})
+		schema = {
+			...schema,
+			properties: keys.reduce((acc, key) => {
+				acc[key] = schema.properties[key]
+				return acc
+			}, {}),
+			order: keys
+		}
 
-		schema.order = keys
-
-		schema = { ...schema }
 		tick().then(() => dispatch('change', schema))
 	}
 
-	export let jsonView: boolean = false
-	let schemaString: string = JSON.stringify(schema, null, '\t')
-	let editor: SimpleEditor | undefined = undefined
-	let error: string | undefined = undefined
+	interface Props {
+		schema: Schema | undefined | any
+		parentId?: string | undefined
+		jsonView?: boolean
+	}
+
+	let { schema = $bindable(), parentId = undefined, jsonView = $bindable(false) }: Props = $props()
+
+	// let schema = $state(structuredClone($state.snapshot(schema)))
+
+	let schemaString: string = $state(JSON.stringify(schema, null, '\t'))
+	let editor: SimpleEditor | undefined = $state(undefined)
+	let error: string | undefined = $state(undefined)
+	let items = $derived([
+		...new Set(
+			(schema?.order ?? Object.keys(schema?.properties ?? {}))?.map((item, index) => {
+				return { value: item, id: item }
+			}) ?? []
+		)
+	]) as Array<{
+		value: string
+		id: string
+	}>
 </script>
 
 <div class="flex flex-col items-end mb-2 w-full">
@@ -70,7 +81,7 @@
 		options={{
 			right: 'JSON editor',
 			rightTooltip:
-				'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
+				'Arguments can be edited either using the wizard, or by editing their JSON schema.'
 		}}
 		lightMode
 		on:change={() => {
@@ -86,18 +97,9 @@
 			schemaString = JSON.stringify(schema, null, '\t')
 			editor?.setCode(schemaString)
 		}
-		// TODO: find out why this work.
-		// Solves a bug where adding a new field in a OneOf input in a flow did not do anything
-		//
-		// It seemed that the schema was correctly changed but then reset higher in the component
-		// tree due to the change event, as removing the dispatched removed the bug.
-		// I already spent way too long trying to figure out the chain of effects
-		setTimeout(() => {
-			dispatch('change', schema)
-		}, 0.5)
 	}}
 	bind:schema
-	bind:this={addProperty}
+	bind:this={addPropertyComponent}
 />
 
 {#if !jsonView}
@@ -108,13 +110,13 @@
 			dropTargetStyle: {},
 			type: parentId ? `app-editor-fields-${parentId}` : 'app-editor-fields'
 		}}
-		on:consider={handleConsider}
-		on:finalize={handleFinalize}
+		onconsider={handleConsider}
+		onfinalize={handleFinalize}
 		class="gap-1 flex flex-col mt-2"
 	>
 		{#if items?.length > 0}
 			{#each items as item (item.id)}
-				<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 				<div
 					animate:flip={{ duration: 200 }}
 					class="w-full flex flex-col justify-between border items-center py-1 px-2 rounded-md bg-surface text-sm"
@@ -126,8 +128,8 @@
 									? ` (title: ${schema.properties?.[item.value]?.title})`
 									: ''
 							} `}
-							<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
-							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
 							<div class="flex flex-row gap-1 item-center h-full justify-center">
 								<Button
 									iconOnly
@@ -135,7 +137,7 @@
 									color="light"
 									startIcon={{ icon: Trash }}
 									on:click={() => {
-										addProperty?.handleDeleteArgument([item.value])
+										addPropertyComponent?.handleDeleteArgument([item.value])
 									}}
 								/>
 								<Button
@@ -161,9 +163,9 @@
 						{#if schema.properties[item.value]?.type === 'object' && !(schema.properties[item.value].oneOf && schema.properties[item.value].oneOf.length >= 2)}
 							<div class="flex flex-col w-full mt-2">
 								<Label label="Nested properties">
-									<svelte:self
+									<EditableSchemaDrawer
 										on:change={() => {
-											schema = schema
+											schema = $state.snapshot(schema)
 											dispatch('change', schema)
 										}}
 										bind:schema={schema.properties[item.value]}
@@ -183,36 +185,40 @@
 	<Drawer bind:this={schemaFormDrawer} size="1200px">
 		<DrawerContent title="UI Customisation" on:close={schemaFormDrawer.closeDrawer}>
 			<EditableSchemaForm
-				on:change
+				on:change={(e) => {
+					schema = $state.snapshot(schema)
+					dispatch('change', schema)
+				}}
 				bind:this={editableSchemaForm}
 				bind:schema
 				isAppInput
 				on:edit={(e) => {
-					addProperty?.openDrawer(e.detail)
+					addPropertyComponent?.openDrawer(e.detail)
 				}}
 				on:delete={(e) => {
-					addProperty?.handleDeleteArgument([e.detail])
+					addPropertyComponent?.handleDeleteArgument([e.detail])
 				}}
 				dndType="drawer"
 				editTab="inputEditor"
 			>
-				<svelte:fragment slot="addProperty">
+				{#snippet addProperty()}
 					<AddPropertyV2
 						bind:schema
 						on:change
 						on:addNew={(e) => {
+							schema = $state.snapshot(schema)
 							editableSchemaForm?.openField(e.detail)
 						}}
 					>
-						<svelte:fragment slot="trigger">
+						{#snippet trigger()}
 							<div
 								class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
 							>
 								<Plus size={14} />
 							</div>
-						</svelte:fragment>
+						{/snippet}
 					</AddPropertyV2>
-				</svelte:fragment>
+				{/snippet}
 			</EditableSchemaForm>
 		</DrawerContent>
 	</Drawer>

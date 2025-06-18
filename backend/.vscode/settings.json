@@ -12,5 +12,6 @@
   "conventionalCommits.scopes": [
     "restructring triggers, decoding trigger message on work"
   ],
-  "rust-analyzer.cargo.features": ["postgres_trigger"]
+  "files.exclude": { "**/*ee.rs": false },
+  "search.exclude": { "**/*ee.rs": false }
 }

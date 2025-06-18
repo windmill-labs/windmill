@@ -12,13 +12,13 @@ use crate::{
     db::{ApiAuthed, DB},
     resources::get_resource_value_interpolated_internal,
     users::{require_owner_of_path, OptAuthed},
-    utils::{RunnableKind, WithStarredInfoQuery},
+    utils::WithStarredInfoQuery,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
 #[cfg(feature = "parquet")]
 use crate::{
-    job_helpers_ee::{
+    job_helpers_oss::{
         download_s3_file_internal, get_random_file_name, get_s3_resource,
         get_workspace_s3_resource, upload_file_from_req, DownloadFileQuery,
     },
@@ -48,7 +48,7 @@ use sha2::{Digest, Sha256};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{types::Uuid, FromRow};
 use std::str;
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
     apps::{AppScriptId, ListAppQuery},
@@ -59,7 +59,7 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
-        Pagination, StripPath,
+        Pagination, RunnableKind, StripPath,
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},

@@ -25,7 +25,7 @@
 	import { invalidRelations, savePostgresTriggerFromCfg } from './utils'
 	import CheckPostgresRequirement from './CheckPostgresRequirement.svelte'
 	import { base } from '$lib/base'
-	import type { Snippet } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 	import { handleConfigChange, type Trigger } from '../utils'
@@ -395,7 +395,8 @@
 	}
 
 	$effect(() => {
-		onCaptureConfigChange?.(captureConfig, isValid)
+		const args = [captureConfig, isValid] as const
+		untrack(() => onCaptureConfigChange?.(...args))
 	})
 
 	$effect(() => {
@@ -434,7 +435,7 @@
 				: 'New Postgres trigger'}
 			on:close={drawer.closeDrawer}
 		>
-			<svelte:fragment slot="actions">{@render actions()}</svelte:fragment>
+			{#snippet actions()}{@render actionsSnippet()}{/snippet}
 			{@render content()}
 		</DrawerContent>
 	</Drawer>
@@ -446,13 +447,13 @@
 			{/if}
 		</svelte:fragment>
 		<svelte:fragment slot="action">
-			{@render actions()}
+			{@render actionsSnippet()}
 		</svelte:fragment>
 		{@render content()}
 	</Section>
 {/if}
 
-{#snippet actions()}
+{#snippet actionsSnippet()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
 			{trigger}
@@ -526,7 +527,7 @@
 							allowEdit={!$userStore?.operator}
 						/>
 
-						{#if emptyStringTrimmed(script_path) && is_flow === false}
+						{#if emptyString(script_path) && is_flow === false}
 							<div class="flex">
 								<Button
 									disabled={!can_write}
@@ -599,7 +600,6 @@
 								--sms-open-z-index="100"
 								disabled={!can_write}
 							>
-								<!-- @migration-task: migrate this slot by hand, `remove-icon` is an invalid identifier -->
 								<svelte:fragment slot="remove-icon">
 									<div class="hover:text-primary p-0.5">
 										<X size={12} />
@@ -663,7 +663,7 @@
 										></div
 									></Tab
 								>
-								<svelte:fragment slot="content">
+								{#snippet content()}
 									<div class="mt-5 overflow-hidden bg-surface">
 										<TabContent value="basic">
 											<RelationPicker {can_write} bind:pg14 bind:relations disabled={!can_write} />
@@ -786,7 +786,7 @@
 											>
 										</TabContent>
 									</div>
-								</svelte:fragment>
+								{/snippet}
 							</Tabs>
 						</Label>
 					{/if}

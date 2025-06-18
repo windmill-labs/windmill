@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { Tab, Tabs } from '$lib/components/common'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
@@ -15,22 +18,37 @@
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import { deepEqual } from 'fast-equals'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let componentContainerHeight: number
-	export let tabs: string[]
-	export let customCss: ComponentCustomCSS<'tabscomponent'> | undefined = undefined
-	export let render: boolean
-	export let disabledTabs: RichConfiguration[]
-	export let onTabChange: string[] | undefined = undefined
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		componentContainerHeight: number
+		tabs: string[]
+		customCss?: ComponentCustomCSS<'tabscomponent'> | undefined
+		render: boolean
+		disabledTabs: RichConfiguration[]
+		onTabChange?: string[] | undefined
+	}
 
-	let resolvedConfig = initConfig(
-		components['tabscomponent'].initialData.configuration,
-		configuration
+	let {
+		id,
+		configuration,
+		componentContainerHeight,
+		tabs,
+		customCss = undefined,
+		render,
+		disabledTabs,
+		onTabChange = undefined
+	}: Props = $props()
+
+	let resolvedConfig = $state(
+		initConfig(components['tabscomponent'].initialData.configuration, configuration)
 	)
-	let everRender = render
-	$: render && !everRender && (everRender = true)
+	let everRender = $state(render)
+	$effect.pre(() => {
+		render && !everRender && (everRender = true)
+	})
 
 	const {
 		app,
@@ -43,8 +61,11 @@
 		runnableComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	let selected: string = tabs[0]
-	let tabHeight: number = 0
+	let selected: string = $state(tabs[0])
+	let selectedIndex = $state(tabs?.indexOf(selected) ?? -1)
+	let css = $state(initCss($app.css?.tabscomponent, customCss))
+
+	let tabHeight: number = $state(0)
 
 	let outputs = initOutput($worldStore, id, {
 		selectedTabIndex: 0
@@ -53,7 +74,14 @@
 	const titleBarHeight = 40 // Example height of a single accordion title bar in pixels
 
 	function handleTabSelection() {
+		let oldSelectedIndex = selectedIndex
 		selectedIndex = tabs?.indexOf(selected)
+		if (selectedIndex == -1) {
+			selectedIndex = oldSelectedIndex
+			if (selectedIndex != -1 && tabs.length > 0) {
+				selected = tabs[selectedIndex]
+			}
+		}
 		outputs?.selectedTabIndex.set(selectedIndex)
 
 		onTabChange?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
@@ -67,6 +95,11 @@
 	}
 
 	$componentControl[id] = {
+		setSelectedIndex(index) {
+			if (index >= 0 && index < tabs.length) {
+				selected = tabs[index]
+			}
+		},
 		left: () => {
 			const index = tabs.indexOf(selected)
 			if (index > 0) {
@@ -89,11 +122,28 @@
 		}
 	}
 
-	$: selected != undefined && handleTabSelection()
-	let selectedIndex = tabs?.indexOf(selected) ?? -1
-	let css = initCss($app.css?.tabscomponent, customCss)
+	let lastTabs: string[] | undefined = tabs
+	$effect.pre(() => {
+		if (!untrack(() => selected)) {
+			return
+		}
+		if (
+			!deepEqual(
+				untrack(() => lastTabs),
+				tabs
+			)
+		) {
+			lastTabs = structuredClone($state.snapshot(tabs))
+		} else {
+			return
+		}
+		untrack(() => handleTabSelection())
+	})
+	$effect.pre(() => {
+		selected != undefined && untrack(() => handleTabSelection())
+	})
 
-	let resolvedDisabledTabs: boolean[] = []
+	let resolvedDisabledTabs: boolean[] = $state([])
 </script>
 
 <InputValue key="kind" {id} input={configuration.tabsKind} bind:value={resolvedConfig.tabsKind} />
@@ -153,8 +203,8 @@
 			>
 				{#each tabs ?? [] as res, index}
 					<button
-						on:pointerdown|stopPropagation
-						on:click={() => !resolvedDisabledTabs[index] && (selected = res)}
+						onpointerdown={stopPropagation(bubble('pointerdown'))}
+						onclick={() => !resolvedDisabledTabs[index] && (selected = res)}
 						disabled={resolvedDisabledTabs[index]}
 						class={twMerge(
 							'rounded-sm !truncate text-sm  hover:text-primary px-1 py-2',
@@ -167,7 +217,9 @@
 										'wm-tabs-selectedTab'
 									)
 								: '',
-							resolvedDisabledTabs[index] ? 'opacity-50 cursor-not-allowed hover:text-secondary' : ''
+							resolvedDisabledTabs[index]
+								? 'opacity-50 cursor-not-allowed hover:text-secondary'
+								: ''
 						)}
 						style={selected == res
 							? [css?.allTabs?.style, css?.selectedTab?.style].filter(Boolean).join(';')
@@ -183,8 +235,8 @@
 				{#each tabs ?? [] as res, index}
 					<div class="border-b">
 						<button
-							on:pointerdown|stopPropagation
-							on:click={() => !resolvedDisabledTabs[index] && (selected = res)}
+							onpointerdown={stopPropagation(bubble('pointerdown'))}
+							onclick={() => !resolvedDisabledTabs[index] && (selected = res)}
 							disabled={resolvedDisabledTabs[index]}
 							class={twMerge(
 								'w-full text-left bg-surface !truncate text-sm hover:text-primary px-1 py-2',
@@ -197,7 +249,9 @@
 											'wm-tabs-selectedTab'
 										)
 									: 'text-secondary',
-								resolvedDisabledTabs[index] ? 'opacity-50 cursor-not-allowed hover:text-secondary' : ''
+								resolvedDisabledTabs[index]
+									? 'opacity-50 cursor-not-allowed hover:text-secondary'
+									: ''
 							)}
 						>
 							<span class="mr-2 w-8 font-mono">{selected == res ? '-' : '+'}</span>

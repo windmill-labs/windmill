@@ -66,7 +66,7 @@ use windmill_queue::{
 
 type DB = sqlx::Pool<sqlx::Postgres>;
 
-use windmill_audit::audit_ee::{audit_log, AuditAuthor};
+use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 use windmill_queue::{canceled_job_to_result, push};
 
@@ -80,7 +80,7 @@ pub async fn update_flow_status_after_job_completion(
     success: bool,
     result: Arc<Box<RawValue>>,
     unrecoverable: bool,
-    same_worker_tx: SameWorkerSender,
+    same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
     stop_early_override: Option<bool>,
     worker_name: &str,
@@ -89,6 +89,7 @@ pub async fn update_flow_status_after_job_completion(
 ) -> error::Result<Option<Arc<MiniPulledJob>>> {
     // this is manual tailrecursion because async_recursion blows up the stack
     potentially_crash_for_testing();
+
     let mut rec = RecUpdateFlowStatusAfterJobCompletion {
         flow,
         job_id_for_status: job_id_for_status.clone(),
@@ -109,7 +110,7 @@ pub async fn update_flow_status_after_job_completion(
             rec.success,
             rec.result,
             unrecoverable,
-            same_worker_tx.clone(),
+            same_worker_tx,
             worker_dir,
             rec.stop_early_override,
             rec.skip_error_handler,
@@ -134,7 +135,7 @@ pub async fn update_flow_status_after_job_completion(
                         error: json!(e.to_string()),
                     }))),
                     true,
-                    same_worker_tx.clone(),
+                    same_worker_tx,
                     worker_dir,
                     rec.stop_early_override,
                     rec.skip_error_handler,
@@ -147,6 +148,7 @@ pub async fn update_flow_status_after_job_completion(
             }
         };
         unrecoverable = false;
+
         match nrec {
             UpdateFlowStatusAfterJobCompletion::Done(job) => {
                 add_time!(bench, "update flow status internal END");
@@ -226,7 +228,7 @@ pub async fn update_flow_status_after_job_completion_internal(
     mut success: bool,
     result: Arc<Box<RawValue>>,
     unrecoverable: bool,
-    same_worker_tx: SameWorkerSender,
+    same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
     stop_early_override: Option<bool>,
     skip_error_handler: bool,
@@ -625,9 +627,10 @@ pub async fn update_flow_status_after_job_completion_internal(
                         sqlx::query!(
                             "UPDATE v2_job_queue q SET suspend = 0
                              FROM v2_job j, v2_job_status f
-                             WHERE parent_job = $1
+                             WHERE q.workspace_id = $1 AND q.suspend = $3 AND j.parent_job = $2
                                  AND f.id = j.id AND q.id = j.id
-                                 AND suspend = $2 AND (f.flow_status->'step')::int = 0",
+                                 AND (f.flow_status->'step')::int = 0",
+                            w_id,
                             flow,
                             nindex
                         )
@@ -1289,7 +1292,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             db,
             client,
             Some(nresult.clone()),
-            same_worker_tx.clone(),
+            same_worker_tx,
             worker_dir,
             job_completed_tx,
             worker_name,
@@ -1586,7 +1589,7 @@ pub async fn handle_flow(
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
     last_result: Option<Arc<Box<RawValue>>>,
-    same_worker_tx: SameWorkerSender,
+    same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
     job_completed_tx: JobCompletedSender,
     worker_name: &str,
@@ -1643,7 +1646,7 @@ pub async fn handle_flow(
             db,
             client,
             last_result.clone(),
-            same_worker_tx.clone(),
+            same_worker_tx,
             worker_dir,
             worker_name,
         )
@@ -1736,7 +1739,7 @@ async fn push_next_flow_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
     last_job_result: Option<Arc<Box<RawValue>>>,
-    same_worker_tx: SameWorkerSender,
+    same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
     worker_name: &str,
 ) -> error::Result<PushNextFlowJob> {
@@ -4006,7 +4009,7 @@ async fn flow_to_payload(
     w_id: &str,
     db: &DB,
 ) -> Result<JobPayloadWithTag, Error> {
-    let FlowVersionInfo { version, on_behalf_of_email, edited_by, .. } =
+    let FlowVersionInfo { version, on_behalf_of_email, edited_by, tag, .. } =
         get_latest_flow_version_info_for_path(db, w_id, &path, true).await?;
     let on_behalf_of = if let Some(email) = on_behalf_of_email {
         Some(OnBehalfOf { email, permissioned_as: username_to_permissioned_as(&edited_by) })
@@ -4015,7 +4018,7 @@ async fn flow_to_payload(
     };
     let payload =
         JobPayload::Flow { path, dedicated_worker: None, apply_preprocessor: false, version };
-    Ok(JobPayloadWithTag { payload, tag: None, delete_after_use, timeout: None, on_behalf_of })
+    Ok(JobPayloadWithTag { payload, tag, delete_after_use, timeout: None, on_behalf_of })
 }
 
 async fn script_to_payload(

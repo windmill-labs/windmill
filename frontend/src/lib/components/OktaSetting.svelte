@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import CollapseLink from './CollapseLink.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import Toggle from './Toggle.svelte'
@@ -6,11 +8,11 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 
-	export let value: any
+	interface Props {
+		value: any
+	}
 
-	$: enabled = value != undefined
-
-	$: changeDomain(value?.['domain'], value?.['custom'])
+	let { value = $bindable() }: Props = $props()
 
 	function changeDomain(domain, custom) {
 		if (value) {
@@ -31,10 +33,14 @@
 			}
 		}
 	}
+	let enabled = $derived(value != undefined)
+	run(() => {
+		changeDomain(value?.['domain'], value?.['custom'])
+	})
 </script>
 
 <div class="flex flex-col gap-1">
-	<!-- svelte-ignore a11y-label-has-associated-control -->
+	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<label class="text-sm font-medium text-primary flex gap-4 items-center"
 		><div class="w-[120px]"><IconedResourceType name="okta" after={true} /></div><Toggle
 			checked={enabled}
@@ -57,10 +63,11 @@
 							on:selected={({ detail }) => {
 								value['custom'] = detail === 'custom'
 							}}
-							let:item
 						>
-							<ToggleButton value="org" label={'Org'} {item} />
-							<ToggleButton value="custom" label="Custom" {item} />
+							{#snippet children({ item })}
+								<ToggleButton value="org" label={'Org'} {item} />
+								<ToggleButton value="custom" label="Custom" {item} />
+							{/snippet}
 						</ToggleButtonGroup>
 					</div>
 					<div class="grow">

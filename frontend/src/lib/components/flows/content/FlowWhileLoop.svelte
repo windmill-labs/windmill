@@ -7,7 +7,7 @@
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	// import FlowRetries from './FlowRetries.svelte'
-	import { Button, Drawer, Tab, TabContent, Tabs, Alert } from '$lib/components/common'
+	import { Button, Drawer, Tab, TabContent, Alert } from '$lib/components/common'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { enterpriseLicense } from '$lib/stores'
 
@@ -18,21 +18,26 @@
 	import FlowLoopIterationPreview from '$lib/components/FlowLoopIterationPreview.svelte'
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
+	import TabsV2 from '$lib/components/common/tabs/TabsV2.svelte'
 
 	const { flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	export let mod: FlowModule
-	export let previousModule: FlowModule | undefined
-	export let parentModule: FlowModule | undefined
-	export let noEditor: boolean
+	interface Props {
+		mod: FlowModule
+		previousModule: FlowModule | undefined
+		parentModule: FlowModule | undefined
+		noEditor: boolean
+	}
 
-	let selected: string = 'early-stop'
+	let { mod = $bindable(), previousModule, parentModule, noEditor }: Props = $props()
 
-	let previewOpen = false
-	let jobId: string | undefined = undefined
-	let job: Job | undefined = undefined
+	let selected: string = $state('early-stop')
 
-	$: previewIterationArgs = $flowStateStore[mod.id]?.previewArgs ?? {}
+	let previewOpen = $state(false)
+	let jobId: string | undefined = $state(undefined)
+	let job: Job | undefined = $state(undefined)
+
+	let previewIterationArgs = $derived($flowStateStore[mod.id]?.previewArgs ?? {})
 </script>
 
 <Drawer bind:open={previewOpen} alwaysOpen size="75%">
@@ -49,9 +54,11 @@
 </Drawer>
 
 <FlowCard {noEditor} title="While loop">
-	<div slot="header" class="grow">
-		<input bind:value={mod.summary} placeholder={'Summary'} />
-	</div>
+	{#snippet header()}
+		<div class="grow">
+			<input bind:value={mod.summary} placeholder={'Summary'} />
+		</div>
+	{/snippet}
 
 	<Splitpanes horizontal class="h-full">
 		<Pane size={50} minSize={20} class="p-4">
@@ -103,7 +110,7 @@
 			{/if}
 		</Pane>
 		<Pane size={40} minSize={20} class="flex flex-col flex-1">
-			<Tabs bind:selected id={`flow-editor-while-loop-${mod.id}`}>
+			<TabsV2 bind:selected id={`flow-editor-while-loop-${mod.id}`}>
 				<!-- <Tab value="retries">Retries</Tab> -->
 				<Tab value="early-stop">Early Stop/Break</Tab>
 				<Tab value="skip">Skip</Tab>
@@ -112,13 +119,13 @@
 				<Tab value="mock">Mock</Tab>
 				<Tab value="lifetime">Lifetime</Tab>
 
-				<svelte:fragment slot="content">
+				{#snippet content()}
 					<div class="overflow-hidden bg-surface" style="height:calc(100% - 32px);">
 						<!-- <TabContent value="retries" class="flex flex-col flex-1 h-full">
-								<div class="p-4 overflow-y-auto">
-									<FlowRetries bind:flowModule={mod} />
-								</div>
-							</TabContent> -->
+									<div class="p-4 overflow-y-auto">
+										<FlowRetries bind:flowModule={mod} />
+									</div>
+								</TabContent> -->
 
 						<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 							<div class="p-4 overflow-y-auto">
@@ -153,8 +160,8 @@
 							</div>
 						</TabContent>
 					</div>
-				</svelte:fragment>
-			</Tabs>
+				{/snippet}
+			</TabsV2>
 		</Pane>
 	</Splitpanes>
 </FlowCard>
