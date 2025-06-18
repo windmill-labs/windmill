@@ -156,11 +156,18 @@
 		}
 	}
 
-	export function setCode(ncode: string): void {
+	export function setCode(ncode: string, formatCode?: boolean): void {
 		if (ncode != code) {
 			code = ncode
 		}
 		editor?.setValue(ncode)
+		if (formatCode) {
+			format()
+		}
+	}
+
+	export function formatCode(): void {
+		format()
 	}
 
 	function updateCode() {

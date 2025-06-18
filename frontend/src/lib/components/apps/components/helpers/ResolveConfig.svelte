@@ -1,20 +1,36 @@
 <script lang="ts">
 	import InputValue from './InputValue.svelte'
 	import type { RichConfiguration } from '../../types'
+	import { untrack } from 'svelte'
 
-	export let id: string
-	export let extraKey: string = ''
-	export let key: string
-	export let resolvedConfig: any | { type: 'oneOf'; configuration: any; selected: string }
-	export let configuration: RichConfiguration
-	export let initialConfig: RichConfiguration | undefined = undefined
-	$: configuration?.type == 'oneOf' && handleSelected(configuration.selected)
+	interface Props {
+		id: string
+		extraKey?: string
+		key: string
+		resolvedConfig: any | { type: 'oneOf'; configuration: any; selected: string }
+		configuration: RichConfiguration
+		initialConfig?: RichConfiguration | undefined
+	}
+
+	let {
+		id,
+		extraKey = '',
+		key,
+		resolvedConfig = $bindable(),
+		configuration,
+		initialConfig = undefined
+	}: Props = $props()
 
 	function handleSelected(selected: string) {
 		if (resolvedConfig?.selected != undefined && resolvedConfig?.selected != selected) {
 			resolvedConfig.selected = selected
 		}
 	}
+	$effect(() => {
+		configuration?.type == 'oneOf' &&
+			configuration.selected &&
+			untrack(() => handleSelected(configuration.selected))
+	})
 </script>
 
 {#if configuration?.type == 'oneOf' && resolvedConfig?.type == 'oneOf'}

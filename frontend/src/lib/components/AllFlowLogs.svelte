@@ -6,7 +6,11 @@
 	import type { DurationStatus } from './graph'
 	import type { Writable } from 'svelte/store'
 
-	export let states: Writable<Record<string, DurationStatus>> | undefined
+	interface Props {
+		states: Writable<Record<string, DurationStatus>> | undefined
+	}
+
+	let { states }: Props = $props()
 </script>
 
 <div class="flex flex-col">

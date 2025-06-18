@@ -160,7 +160,7 @@ pub async fn get_pg_connection(
     logical_mode: bool,
 ) -> Result<Client> {
     let database =
-        try_get_resource_from_db_as::<Postgres>(authed, user_db, db, postgres_resource_path, w_id)
+        try_get_resource_from_db_as::<Postgres>(&authed, user_db, db, postgres_resource_path, w_id)
             .await?;
 
     Ok(get_raw_postgres_connection(&database, logical_mode).await?)

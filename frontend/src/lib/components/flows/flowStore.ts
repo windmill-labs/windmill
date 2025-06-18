@@ -3,6 +3,7 @@ import { writable, type Writable } from 'svelte/store'
 import { initFlowState, type FlowState } from './flowState'
 import { sendUserToast } from '$lib/toast'
 import type { StateStore } from '$lib/utils'
+import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 
 export type FlowMode = 'push' | 'pull'
 
@@ -22,7 +23,7 @@ export async function copyFirstStepSchema(flowState: FlowState, flowStore: Writa
 		const firstModuleId = flow.value.modules[0]?.id
 
 		if (flowState[firstModuleId] && firstModuleId) {
-			flow.schema = structuredClone(flowState[firstModuleId].schema)
+			flow.schema = structuredClone(stateSnapshot(flowState[firstModuleId].schema))
 			const v = flow.value.modules[0].value
 			if (v.type == 'rawscript' || v.type == 'script') {
 				Object.keys(v.input_transforms ?? {}).forEach((key) => {
@@ -49,7 +50,7 @@ export async function getFirstStepSchema(flowState: FlowState, flowStore: StateS
 		throw new Error('no first step found')
 	}
 
-	const schema = structuredClone(flowState[firstModuleId].schema)
+	const schema = structuredClone(stateSnapshot(flowState[firstModuleId].schema))
 	const v = flow.value.modules[0].value
 
 	if (v.type !== 'rawscript' && v.type !== 'script') {

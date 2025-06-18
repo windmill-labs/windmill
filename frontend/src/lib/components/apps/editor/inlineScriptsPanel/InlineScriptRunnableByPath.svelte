@@ -48,7 +48,6 @@
 	async function refreshScript(runnable: RunnableByPath) {
 		try {
 			let { schema } = await getScriptByPath(runnable.path)
-			console.log('schema1', schema)
 			if (!deepEqual(runnable.schema, schema)) {
 				runnable.schema = schema
 				if (!runnable.schema.order) {

@@ -232,6 +232,9 @@
 	})
 
 	async function loadTriggers() {
+		if (!initialPath) {
+			return
+		}
 		$triggersCount = await ScriptService.getTriggersCountOfScript({
 			workspace: $workspaceStore!,
 			path: initialPath
@@ -560,7 +563,7 @@
 			}
 
 			const { draft_triggers: _, ...newScript } = structuredClone($state.snapshot(script))
-			savedScript = structuredClone(newScript) as NewScriptWithDraft
+			savedScript = structuredClone($state.snapshot(newScript)) as NewScriptWithDraft
 			setDraftTriggers([])
 
 			if (!disableHistoryChange) {
@@ -1082,6 +1085,7 @@
 												<div class="mt-3">
 													<AIFormSettings
 														bind:prompt={script.schema.prompt_for_ai as string | undefined}
+														type="script"
 													/>
 												</div>
 											{/if}

@@ -54,7 +54,9 @@ export async function saveHttpRouteFromCfg(
 		workspaced_route: routeCfg.workspaced_route,
 		authentication_resource_path: routeCfg.authentication_resource_path,
 		wrap_body: routeCfg.wrap_body,
-		raw_string: routeCfg.raw_string
+		raw_string: routeCfg.raw_string,
+		description: routeCfg.description,
+		summary: routeCfg.summary
 	}
 	try {
 		if (edit) {
