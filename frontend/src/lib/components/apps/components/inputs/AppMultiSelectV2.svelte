@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { getContext, onDestroy } from 'svelte'
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type {
 		AppViewerContext,
@@ -21,14 +24,24 @@
 	import { tick } from 'svelte'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	import MultiselectLegacy from '$lib/components/multiselect/MultiSelectLegacy.svelte'
 	import { deepEqual } from 'fast-equals'
+	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'multiselectcomponent'> | undefined = undefined
-	export let render: boolean
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'multiselectcomponent'> | undefined
+		render: boolean
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+	}
+
+	let {
+		id,
+		configuration,
+		customCss = undefined,
+		render,
+		verticalAlignment = undefined
+	}: Props = $props()
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
@@ -40,37 +53,23 @@
 
 	const { app, worldStore, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
-	let items: (string | { value: string; label: any })[] = []
 
-	const resolvedConfig = initConfig(
-		components['multiselectcomponent'].initialData.configuration,
-		configuration
+	let items: { value: string; label?: any }[] = $state([])
+
+	const resolvedConfig = $state(
+		initConfig(components['multiselectcomponent'].initialData.configuration, configuration)
 	)
 
 	const outputs = initOutput($worldStore, id, {
 		result: [] as string[]
 	})
 
-	let selectedItems: (number | string | { value: string; label: any })[] | undefined = [
-		...new Set(outputs?.result.peak())
-	] as (number | string | { value: string; label: any })[]
+	let selectedItems: string[] = $state([...new Set(outputs?.result.peak())].map(convertToValue))
+	$effect(() => setResultsFromSelectedItems(selectedItems))
 
-	function setResultsFromSelectedItems() {
-		const value = [
-			...(selectedItems?.map((item) => {
-				if (typeof item == 'number') {
-					return item.toString()
-				} else if (typeof item == 'object' && item.value != undefined && item.label != undefined) {
-					return item?.value ?? `NOT_STRING`
-				} else if (typeof item == 'string') {
-					return item
-				} else if (typeof item == 'object' && item.label != undefined) {
-					return item.label
-				} else {
-					return 'NOT_STRING'
-				}
-			}) ?? [])
-		]
+	let customItems: string[] = $state([])
+
+	function setResultsFromSelectedItems(value: string[]) {
 		outputs?.result.set(value)
 		setContextValue(value)
 	}
@@ -95,46 +94,49 @@
 		}
 	}
 
-	$: resolvedConfig.items && handleItems()
-
 	function handleItems() {
 		if (Array.isArray(resolvedConfig.items)) {
-			items = resolvedConfig.items?.map((item) => {
-				if (typeof item == 'object' && item.value != undefined && item.label != undefined) {
-					return item
-				}
-				if (typeof item == 'number') {
-					return item.toString()
-				}
-				return typeof item === 'string' ? item : `NOT_STRING`
-			})
+			items = resolvedConfig.items?.map(convertToItem)
 		}
 	}
 
-	$: resolvedConfig.defaultItems && setSelectedItemsFromValues(resolvedConfig.defaultItems)
+	function convertToItem(v: any) {
+		if (typeof v == 'object' && v.value != undefined && v.label != undefined) {
+			return v as { value: any; label?: string }
+		}
+		if (typeof v == 'number') return { value: v.toString() }
+		return { value: typeof v === 'string' ? v : `NOT_STRING` }
+	}
+	function convertToValue(item: any): string {
+		if (typeof item == 'object' && item.value != undefined) return item.value
+		if (typeof item == 'number') return item.toString()
+		if (typeof item == 'string') return item
+		return item?.toString?.() ?? 'NOT_STRING'
+	}
 
 	function setSelectedItemsFromValues(values: any[]) {
 		if (Array.isArray(values)) {
 			const nvalue = values
 				.map((value) => {
+					const x = items.find((item) => {
+						if (typeof item == 'object' && item.value != undefined && item.label != undefined) {
+							return deepEqual(item.value, value)
+						}
+						return item == value
+					})
 					return (
-						items.find((item) => {
-							if (typeof item == 'object' && item.value != undefined && item.label != undefined) {
-								return deepEqual(item.value, value)
-							}
-							return item == value
-						}) ??
+						(typeof x === 'object' ? x.value : x) ??
 						(typeof value == 'string' ? value : undefined) ??
 						(typeof value == 'number' ? value.toString() : undefined)
 					)
 				})
 				.filter((item) => item != undefined)
 			selectedItems = [...new Set(nvalue)]
-			setResultsFromSelectedItems()
+			setResultsFromSelectedItems(selectedItems)
 		}
 	}
 
-	let css = initCss($app.css?.multiselectcomponent, customCss)
+	let css = $state(initCss($app.css?.multiselectcomponent, customCss))
 
 	function setOuterDivStyle(outerDiv: HTMLDivElement, portalRef: HTMLDivElement, style: string) {
 		outerDiv.setAttribute('style', style)
@@ -143,13 +145,8 @@
 		ul?.setAttribute('style', extractCustomProperties(style))
 	}
 
-	$: outerDiv &&
-		portalRef &&
-		css?.multiselect?.style &&
-		setOuterDivStyle(outerDiv, portalRef, css?.multiselect?.style)
-
 	let outerDiv: HTMLDivElement | undefined = undefined
-	let portalRef: HTMLDivElement | undefined = undefined
+	let portalRef: HTMLDivElement | undefined = $state(undefined)
 
 	function moveOptionsToPortal() {
 		// Find ul element with class 'options' within the outerDiv
@@ -161,13 +158,28 @@
 		}
 	}
 
-	$: if (render && portalRef && outerDiv && items?.length > 0) {
-		tick().then(() => {
-			moveOptionsToPortal()
-		})
-	}
-	let w = 0
+	let w = $state(0)
 	let open: boolean = false
+	$effect(() => {
+		resolvedConfig.items && untrack(() => handleItems())
+	})
+	$effect(() => {
+		resolvedConfig.defaultItems &&
+			untrack(() => setSelectedItemsFromValues(resolvedConfig.defaultItems))
+	})
+	$effect(() => {
+		outerDiv &&
+			portalRef &&
+			css?.multiselect?.style &&
+			untrack(() => setOuterDivStyle(outerDiv, portalRef!, css.multiselect!.style))
+	})
+	$effect(() => {
+		if (render && portalRef && outerDiv && items?.length > 0) {
+			tick().then(() => {
+				moveOptionsToPortal()
+			})
+		}
+	})
 </script>
 
 {#each Object.keys(components['multiselectcomponent'].initialData.configuration) as key (key)}
@@ -194,7 +206,7 @@
 <AlignWrapper {render} hFull {verticalAlignment}>
 	<div
 		class="w-full app-editor-input"
-		on:pointerdown={(e) => {
+		onpointerdown={(e) => {
 			$selectedComponent = [id]
 
 			if (!e.shiftKey) {
@@ -206,56 +218,26 @@
 		bind:clientWidth={w}
 	>
 		{#if !selectedItems || Array.isArray(selectedItems)}
-			<MultiselectLegacy
-				bind:outerDiv
-				outerDivClass={`${resolvedConfig.allowOverflow ? '' : 'h-full'}`}
-				ulSelectedClass={`${resolvedConfig.allowOverflow ? '' : 'overflow-auto max-h-full'} `}
-				--sms-border={'none'}
-				--sms-min-height={'32px'}
-				--sms-focus-border={'none'}
-				bind:selected={selectedItems}
-				options={items}
-				placeholder={resolvedConfig.placeholder}
-				allowUserOptions={resolvedConfig.create}
-				on:change={(event) => {
-					if (event?.detail?.type === 'removeAll') {
-						outputs?.result.set([])
-						setContextValue([])
-					} else {
-						setResultsFromSelectedItems()
-					}
+			<MultiSelect
+				items={[...items, ...customItems.map((value) => ({ value }))]}
+				bind:value={selectedItems}
+				onCreateItem={(item) => {
+					customItems.push(item)
+					selectedItems.push(item)
+					customItems = customItems
+					selectedItems = selectedItems
 				}}
-				on:open={() => {
-					$selectedComponent = [id]
-					open = true
-				}}
-				on:close={() => {
-					open = false
-				}}
-				let:option
-			>
-				<!-- needed because portal doesn't work for mouseup event en mobile -->
-				<!-- svelte-ignore a11y-no-static-element-interactions -->
-				<div
-					class="w-full"
-					on:mouseup|stopPropagation
-					on:pointerdown|stopPropagation={(e) => {
-						let newe = new MouseEvent('mouseup')
-						e.target?.['parentElement']?.dispatchEvent(newe)
-					}}
-				>
-					{typeof option == 'object' ? (option?.label ?? 'NO_LABEL') : option}
-				</div>
-			</MultiselectLegacy>
+			/>
+
 			<Portal name="app-multiselect-v2">
 				<div use:floatingContent class="z5000" hidden={!open}>
-					<!-- svelte-ignore a11y-click-events-have-key-events -->
-					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
 						bind:this={portalRef}
 						class="multiselect"
 						style={`min-width: ${w}px;`}
-						on:click|stopPropagation
+						onclick={stopPropagation(bubble('click'))}
 					></div>
 				</div>
 			</Portal>
