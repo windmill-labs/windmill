@@ -105,31 +105,33 @@
 			{#if processedItems?.length === 0}
 				<div class="py-8 px-4 text-center text-primary">No items</div>
 			{/if}
-			{#each processedItems ?? [] as item, itemIndex}
-				{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1]?.__select_group !== item.__select_group}
-					<div
+			<div class="flex-1 overflow-y-auto flex flex-col">
+				{#each processedItems ?? [] as item, itemIndex}
+					{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1]?.__select_group !== item.__select_group}
+						<div
+							class={twMerge(
+								'mx-4 pb-1 mb-2 text-xs font-semibold text-primary border-b',
+								itemIndex === 0 ? 'mt-3' : 'mt-6'
+							)}
+						>
+							{item.__select_group}
+						</div>
+					{/if}
+					<button
 						class={twMerge(
-							'mx-4 pb-1 mb-2 text-xs font-semibold text-primary border-b',
-							itemIndex === 0 ? 'mt-3' : 'mt-6'
+							'py-2 px-4 w-full font-normal text-left text-primary',
+							itemIndex === keyArrowPos ? 'bg-surface-hover' : '',
+							item.value === value ? 'bg-surface-selected' : 'hover:bg-surface-hover'
 						)}
+						onclick={(e) => {
+							e.stopImmediatePropagation()
+							onSelectValue(item)
+						}}
 					>
-						{item.__select_group}
-					</div>
-				{/if}
-				<button
-					class={twMerge(
-						'py-2 px-4 w-full font-normal text-left text-primary',
-						itemIndex === keyArrowPos ? 'bg-surface-hover' : '',
-						item.value === value ? 'bg-surface-selected' : 'hover:bg-surface-hover'
-					)}
-					onclick={(e) => {
-						e.stopImmediatePropagation()
-						onSelectValue(item)
-					}}
-				>
-					{item.label}
-				</button>
-			{/each}
+						{item.label}
+					</button>
+				{/each}
+			</div>
 		</div>
 	{/if}
 </ConditionalPortal>
