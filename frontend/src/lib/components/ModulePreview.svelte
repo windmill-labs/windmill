@@ -17,6 +17,7 @@
 		testIsLoading?: boolean
 		noEditor?: boolean
 		scriptProgress?: any
+		focusArg?: string
 	}
 
 	let {
@@ -26,7 +27,8 @@
 		testJob = $bindable(undefined),
 		testIsLoading = $bindable(false),
 		noEditor = false,
-		scriptProgress = $bindable(undefined)
+		scriptProgress = $bindable(undefined),
+		focusArg = undefined
 	}: Props = $props()
 
 	const { flowStore, testSteps } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -74,11 +76,5 @@
 		{/if}
 	</div>
 
-	<ModulePreviewForm
-		{pickableProperties}
-		{mod}
-		{schema}
-		args={testSteps.getStepArgs(mod.id) ?? {}}
-		onSetArgs={(argName, value) => testSteps.setArgManually(mod.id, argName, value)}
-	/>
+	<ModulePreviewForm {pickableProperties} {mod} {schema} {focusArg} />
 </div>

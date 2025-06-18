@@ -77,6 +77,7 @@
 		noEditor: boolean
 		enableAi: boolean
 		savedModule?: FlowModule | undefined
+		focusArg?: string
 	}
 
 	let {
@@ -89,7 +90,8 @@
 		scriptTemplate = 'script',
 		noEditor,
 		enableAi,
-		savedModule = undefined
+		savedModule = undefined,
+		focusArg
 	}: Props = $props()
 
 	let tag: string | undefined = $state(undefined)
@@ -524,6 +526,7 @@
 												bind:testJob
 												bind:testIsLoading
 												bind:scriptProgress
+												{focusArg}
 											/>
 										{:else if selected === 'advanced'}
 											<Tabs bind:selected={advancedSelected}>

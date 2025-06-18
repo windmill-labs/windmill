@@ -40,6 +40,7 @@
 		parentModule?: FlowModule | undefined
 		// Pointer to previous module, for easy access to testing results
 		previousModule?: FlowModule | undefined
+		focusArg?: string
 	}
 
 	let {
@@ -48,7 +49,8 @@
 		enableAi = false,
 		savedModule = undefined,
 		parentModule = $bindable(),
-		previousModule = undefined
+		previousModule = undefined,
+		focusArg
 	}: Props = $props()
 
 	function initializePrimaryScheduleForTriggerScript(module: FlowModule) {
@@ -196,6 +198,7 @@
 			{scriptTemplate}
 			{enableAi}
 			{savedModule}
+			{focusArg}
 		/>
 	{/if}
 {:else if flowModule.value.type === 'forloopflow' || flowModule.value.type == 'whileloopflow'}

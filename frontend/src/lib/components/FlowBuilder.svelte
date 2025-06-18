@@ -703,6 +703,7 @@
 	let jsonViewerDrawer: Drawer | undefined = $state(undefined)
 	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
 	let flowHistory: FlowHistory | undefined = $state(undefined)
+	let focusArg: string | undefined = $state(undefined)
 
 	export function triggerTutorial() {
 		const urlParams = new URLSearchParams(window.location.search)
@@ -1037,8 +1038,9 @@
 					onEditInput={(moduleId, key) => {
 						selectedIdStore.set(moduleId)
 						//TODO: open the iput tab
-						//TODO: focus the input matching the key
+						focusArg = key
 					}}
+					{focusArg}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

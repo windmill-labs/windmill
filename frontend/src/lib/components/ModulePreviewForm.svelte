@@ -5,7 +5,7 @@
 	import { RefreshCw } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
 	import { Button } from './common'
-	import { getContext, untrack } from 'svelte'
+	import { getContext, onMount, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { evalValue } from './flows/utils'
 	import type { FlowModule } from '$lib/gen'
@@ -15,25 +15,24 @@
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any>; required?: string[] }
-		args?: Record<string, any>
 		mod: FlowModule
 		pickableProperties: PickableProperties | undefined
 		isValid?: boolean
 		autofocus?: boolean
-		onSetArgs: (argName: string, value: any) => void
+		focusArg?: string
 	}
 
 	let {
 		schema,
-		args = {},
 		mod,
 		pickableProperties,
 		isValid = $bindable(true),
 		autofocus = false,
-		onSetArgs
+		focusArg = undefined
 	}: Props = $props()
 
-	const { testSteps } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { testSteps, flowStateStore, flowStore, previewArgs } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let inputCheck: { [id: string]: boolean } = $state({})
 	$effect(() => {
@@ -41,41 +40,34 @@
 	})
 
 	$effect(() => {
-		if (args == undefined || typeof args !== 'object') {
-			args = {}
+		if (
+			testSteps?.getStepArgs(mod.id) == undefined ||
+			typeof testSteps?.getStepArgs(mod.id) !== 'object'
+		) {
+			testSteps?.setStepArgs(mod.id, {})
 		}
 	})
-
-	function removeExtraKey() {
-		const nargs = {}
-		Object.keys(args ?? {}).forEach((key) => {
-			if (keys.includes(key)) {
-				nargs[key] = args[key]
-			}
-		})
-		args = nargs
-	}
 
 	let keys: string[] = $state([])
 	$effect(() => {
 		let lkeys = Object.keys(schema?.properties ?? {})
 		if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {
 			keys = lkeys
-			untrack(() => removeExtraKey())
+			untrack(() => testSteps?.removeExtraKey(mod.id, keys))
 		}
 	})
 
 	function plugIt(argName: string) {
-		args[argName] = structuredClone(
-			$state.snapshot(
-				evalValue(argName, mod, testSteps.getStepArgs(mod.id) ?? {}, pickableProperties, true)
+		testSteps?.setStepArg(
+			mod.id,
+			argName,
+			structuredClone(
+				$state.snapshot(
+					evalValue(argName, mod, testSteps.getStepArgs(mod.id) ?? {}, pickableProperties, true)
+				)
 			)
 		)
-		try {
-			editor?.[argName]?.setCode(JSON.stringify(args[argName], null, 4))
-		} catch {
-			//ignore
-		}
+		testSteps?.resetArgManually(mod.id, argName)
 	}
 
 	let editor: Record<string, SimpleEditor | undefined> = $state({})
@@ -87,6 +79,10 @@
 	}
 
 	loadResourceTypes()
+
+	onMount(() => {
+		testSteps?.updateStepArgs(mod.id, $flowStateStore, flowStore?.val, previewArgs?.val)
+	})
 </script>
 
 <div class="w-full pt-2">
@@ -94,14 +90,17 @@
 		{#each keys as argName, i (argName)}
 			{#if Object.keys(schema.properties ?? {}).includes(argName)}
 				<div class="flex gap-2">
-					{#if typeof args == 'object' && schema?.properties?.[argName]}
+					{#if typeof testSteps?.getStepArgs(mod.id) == 'object' && schema?.properties?.[argName]}
 						<ArgInput
 							{resourceTypes}
 							minW={false}
-							autofocus={i == 0 && autofocus}
+							autofocus={autofocus && focusArg ? focusArg === argName : i == 0}
 							label={argName}
 							description={schema.properties[argName].description}
-							bind:value={() => args[argName], (v) => onSetArgs(argName, v)}
+							bind:value={
+								() => testSteps?.getStepArg(mod.id, argName),
+								(v) => testSteps?.setStepArg(mod.id, argName, v, true)
+							}
 							type={schema.properties[argName].type}
 							oneOf={schema.properties[argName].oneOf}
 							required={schema?.required?.includes(argName)}
@@ -121,15 +120,19 @@
 							placeholder={schema.properties[argName].placeholder}
 						/>
 					{/if}
-					<div class="pt-6 mt-0.5">
-						<Button
-							on:click={() => plugIt(argName)}
-							size="sm"
-							variant="border"
-							color="light"
-							title="Re-evaluate input step"><RefreshCw size={14} /></Button
-						>
-					</div>
+					{#if testSteps?.manuallySetArgs[mod.id]?.[argName]}
+						<div class="pt-6 mt-0.5">
+							<Button
+								on:click={() => {
+									plugIt(argName)
+								}}
+								size="sm"
+								variant="border"
+								color="light"
+								title="Re-evaluate input step"><RefreshCw size={14} /></Button
+							>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		{/each}

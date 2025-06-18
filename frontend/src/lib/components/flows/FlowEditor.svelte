@@ -34,6 +34,7 @@
 		onDeployTrigger?: (trigger: Trigger) => void
 		onTestUpTo?: ((id: string) => void) | undefined
 		onEditInput?: ((moduleId: string, key: string) => void) | undefined
+		focusArg?: string
 	}
 
 	let {
@@ -48,7 +49,8 @@
 		savedFlow = undefined,
 		onDeployTrigger = () => {},
 		onTestUpTo = undefined,
-		onEditInput = undefined
+		onEditInput = undefined,
+		focusArg
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -119,6 +121,7 @@
 					on:applyArgs
 					on:testWithArgs
 					{onDeployTrigger}
+					{focusArg}
 				/>
 			{/if}
 		</Pane>

@@ -22,15 +22,27 @@ export class TestSteps {
 		this.#steps[moduleId] = args
 	}
 
-	setArgManually(moduleId: string, argName: string, value: any) {
-		if (!this.#manuallySetArgs[moduleId]) {
-			this.#manuallySetArgs[moduleId] = {}
+	setStepArg(moduleId: string, argName: string, value: any, manually: boolean = false) {
+		if (manually) {
+			if (!this.#manuallySetArgs[moduleId]) {
+				this.#manuallySetArgs[moduleId] = {}
+			}
+			this.#manuallySetArgs[moduleId][argName] = true
 		}
-		this.#manuallySetArgs[moduleId][argName] = true
 		if (!this.#steps[moduleId]) {
 			this.#steps[moduleId] = {}
 		}
 		this.#steps[moduleId][argName] = value
+	}
+
+	getStepArg(moduleId: string, argName: string): any | undefined {
+		return this.#steps[moduleId]?.[argName]
+	}
+
+	resetArgManually(moduleId: string, argName: string) {
+		if (this.#manuallySetArgs[moduleId]) {
+			delete this.#manuallySetArgs[moduleId][argName]
+		}
 	}
 
 	get manuallySetArgs() {
@@ -47,7 +59,6 @@ export class TestSteps {
 		if (!flowState || !flow) {
 			return
 		}
-		console.log('dbg updateArg', moduleId, argName, this.#manuallySetArgs)
 		const modules = dfs(moduleId, flow, true)
 		const previousModule = getPreviousModule(moduleId, flow)
 		if (modules.length < 1) {
@@ -82,7 +93,6 @@ export class TestSteps {
 		if (this.#manuallySetArgs[moduleId]) {
 			delete this.#manuallySetArgs[moduleId][argName]
 		}
-		console.log('dbg updateArg done', this.#manuallySetArgs)
 	}
 
 	initializeFromSchema(
@@ -130,5 +140,15 @@ export class TestSteps {
 		)
 		const pickableProperties = stepPropPicker.pickableProperties
 		this.initializeFromSchema(modules[0], flowState[id]?.schema ?? {}, pickableProperties)
+	}
+
+	removeExtraKey(moduleId: string, keys: string[]) {
+		const nargs = {}
+		Object.keys(this.#steps[moduleId] ?? {}).forEach((key) => {
+			if (keys.includes(key)) {
+				nargs[key] = this.#steps[moduleId][key]
+			}
+		})
+		this.#steps[moduleId] = nargs
 	}
 }
