@@ -86,16 +86,17 @@
 
 <div
 	bind:this={wrapperEl}
-	class={`relative flex items-center w-full  ${className}`}
+	class={twMerge(
+		'relative flex items-center w-full bg-surface border border-gray-300 rounded-md',
+		disabled ? 'bg-gray-100 dark:bg-gray-700' : '',
+		className
+	)}
 	use:clickOutside={{ onClickOutside: () => (open = false) }}
 >
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<div
-		class={twMerge(
-			'bg-surface border border-gray-300 overflow-clip w-full min-h-8 rounded-md cursor-pointer items-center flex flex-wrap gap-1 py-0.5 px-0.5',
-			disabled ? 'bg-gray-100 dark:bg-gray-700' : ''
-		)}
+		class={'overflow-clip w-full min-h-8 cursor-pointer items-center flex flex-wrap gap-1 py-0.5 px-0.5'}
 		onclick={() => (open = true)}
 		role="list"
 	>
