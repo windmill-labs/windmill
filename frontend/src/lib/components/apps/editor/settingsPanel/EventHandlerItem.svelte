@@ -5,12 +5,12 @@
 	import { twMerge } from 'tailwind-merge'
 
 
-	let { items, value = $bindable(), title, tooltip } = $props<{
+	let { items, value = $bindable(), title, tooltip }: {
 		items: string[]
 		value: string[] | undefined
 		title: string
 		tooltip: string
-	}>()
+	} = $props()
 
 	let width = $state(0)
 	const inputWidth = 280

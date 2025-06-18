@@ -5,10 +5,10 @@
 	import { WorkerService } from '$lib/gen'
 	import WorkerTagSelect from '$lib/components/WorkerTagSelect.svelte'
 
-	let { tag = $bindable(), nullTag = $bindable() } = $props<{
+	let { tag = $bindable(), nullTag = $bindable() }: {
 		tag: string | undefined
 		nullTag?: string | undefined
-	}>()
+	} = $props()
 
 	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
