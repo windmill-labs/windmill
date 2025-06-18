@@ -94,7 +94,7 @@
 		<div
 			class={twMerge(
 				disablePortal ? 'absolute' : 'fixed',
-				'flex flex-col z-[5001] max-h-64 overflow-y-auto bg-surface-secondary text-tertiary text-sm select-none border rounded-lg'
+				'flex flex-col z-[5001] max-h-64 overflow-y-auto bg-surface-secondary text-tertiary text-sm select-none border rounded-lg shadow-lg'
 			)}
 			style="{`top: ${dropdownPos.y}px; left: ${dropdownPos.x}px;`} {listAutoWidth
 				? `min-width: ${dropdownPos.width}px;`

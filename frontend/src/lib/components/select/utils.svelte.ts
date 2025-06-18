@@ -53,3 +53,20 @@ export function getLabel<T>(item: { label?: string; value: T } | undefined): str
 
 	return JSON.stringify(item.value)
 }
+
+export function safeSelectItems<T>(
+	list: (T | { value: T; label?: string } | undefined | null)[] | undefined | null
+): { value: T; label?: string }[] {
+	if (!list) return []
+	return list
+		.filter((item) => item !== undefined && item !== null)
+		.map((item) => {
+			if (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean') {
+				return { value: item }
+			}
+			if (typeof item === 'object' && 'value' in item) {
+				return { value: item.value, label: item.label }
+			}
+			return { value: null as any, label: 'UNKNOWN_ITEM' }
+		})
+}
