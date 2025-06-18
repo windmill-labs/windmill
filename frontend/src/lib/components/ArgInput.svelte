@@ -718,8 +718,7 @@
 													/>
 												{:else if itemsType?.type == 'resource' && itemsType?.resourceType && resourceTypes?.includes(itemsType.resourceType)}
 													<ObjectResourceInput
-														value={v ? `$res:${v}` : undefined}
-														bind:path={value[i]}
+														bind:value={value[i]}
 														format={'resource-' + itemsType?.resourceType}
 														defaultValue={undefined}
 													/>
@@ -835,6 +834,7 @@
 		{:else if inputCat == 'resource-object' && resourceTypes == undefined}
 			<span class="text-2xs text-tertiary">Loading resource types...</span>
 		{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format && format?.split('-').length > 1 && resourceTypes.includes(format?.substring('resource-'.length))))}
+			<!-- {JSON.stringify(value)} -->
 			<ObjectResourceInput
 				{defaultValue}
 				selectFirst={!noDefaultOnSelectFirst}

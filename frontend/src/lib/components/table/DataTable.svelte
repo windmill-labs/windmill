@@ -73,7 +73,7 @@
 
 		const hasScrollbar = tableContainer.scrollHeight > tableContainer.clientHeight
 		if (!hasScrollbar && hasMore) {
-			dispatch('loadMore')
+			triggerLoadMore()
 		}
 	}
 
@@ -92,9 +92,18 @@
 
 		if (!tableContainer) return
 		const { scrollTop, scrollHeight, clientHeight } = tableContainer
-		if (scrollHeight - (scrollTop + clientHeight) < 50) {
-			dispatch('loadMore')
+		if (scrollHeight - (scrollTop + clientHeight) === 0) {
+			triggerLoadMore()
 		}
+	}
+
+	let lastLoadMoreDispatch: number | undefined = $state(undefined)
+	function triggerLoadMore() {
+		if (lastLoadMoreDispatch && Date.now() - lastLoadMoreDispatch < 1000) {
+			return
+		}
+		dispatch('loadMore')
+		lastLoadMoreDispatch = Date.now()
 	}
 
 	$effect(() => {
@@ -170,7 +179,7 @@
 				<Button
 					color="light"
 					size="xs2"
-					on:click={() => dispatch('loadMore')}
+					on:click={() => triggerLoadMore()}
 					endIcon={{ icon: ArrowDownIcon }}
 				>
 					Load {loadMore} more
