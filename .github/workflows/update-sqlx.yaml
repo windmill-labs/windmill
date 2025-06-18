@@ -10,7 +10,8 @@ jobs:
     runs-on: ubicloud-standard-8
     permissions:
       contents: write
-      pull-requests: read
+      pull-requests: write
+      issues: write
 
     services:
       postgres:
@@ -28,6 +29,18 @@ jobs:
           --health-retries 5
 
     steps:
+      - name: Comment on PR - Starting
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: 'Starting sqlx update...'
+            })
+
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
@@ -71,3 +84,15 @@ jobs:
           git add backend/.sqlx
           git commit -m "Update SQLx metadata"
           git push origin ${{ env.BRANCH_NAME }}
+
+      - name: Comment on PR - Completed
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: 'Successfully ran sqlx update'
+            })
