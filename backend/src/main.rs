@@ -498,6 +498,8 @@ Windmill Community Edition {GIT_VERSION}
             default_base_internal_url.clone()
         };
 
+        println("test");
+
         initial_load(
             &conn,
             killpill_tx.clone(),
