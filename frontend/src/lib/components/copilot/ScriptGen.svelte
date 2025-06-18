@@ -28,6 +28,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { onDestroy } from 'svelte'
 	import ProviderModelSelector from './chat/ProviderModelSelector.svelte'
+	import { aiChatManager, AIMode } from './chat/AIChatManager.svelte'
 
 	interface Props {
 		// props
@@ -38,6 +39,7 @@
 		inlineScript?: boolean
 		args: Record<string, any>
 		transformer?: boolean
+		openAiChat?: boolean
 	}
 
 	let {
@@ -47,7 +49,8 @@
 		diffEditor,
 		inlineScript = false,
 		args,
-		transformer = false
+		transformer = false,
+		openAiChat = false
 	}: Props = $props()
 
 	run(() => {
@@ -134,6 +137,24 @@
 				autoResize()
 			}, 0)
 		}
+	}
+
+	function openAiChatForScript() {
+		if (!openAiChat || !lang) {
+			return
+		}
+		
+		// Open the AI chat in script mode
+		aiChatManager.openChat()
+		aiChatManager.changeMode(AIMode.SCRIPT)
+		
+		// Set a default prompt if the user hasn't entered anything specific
+		const defaultPrompt = mode === 'edit' 
+			? 'Edit this script based on my requirements'
+			: 'Generate a script that accomplishes the following task'
+			
+		aiChatManager.instructions = trimmedDesc.length > 0 ? trimmedDesc : defaultPrompt
+		aiChatManager.sendRequest()
 	}
 
 	function acceptDiff() {
@@ -348,16 +369,27 @@
 					on:click={genLoading
 						? () => abortController?.abort()
 						: () => {
-								if (editor) {
-									if (isInitialCode(editor.getCode())) {
-										mode = 'gen'
-									} else {
-										mode = 'edit'
+								if (openAiChat) {
+									if (editor) {
+										if (isInitialCode(editor.getCode())) {
+											mode = 'gen'
+										} else {
+											mode = 'edit'
+										}
 									}
+									openAiChatForScript()
+								} else {
+									if (editor) {
+										if (isInitialCode(editor.getCode())) {
+											mode = 'gen'
+										} else {
+											mode = 'edit'
+										}
+									}
+									setTimeout(() => {
+										autoResize()
+									}, 0)
 								}
-								setTimeout(() => {
-									autoResize()
-								}, 0)
 							}}
 					bind:element={button}
 					iconOnly
@@ -381,16 +413,27 @@
 					on:click={genLoading
 						? () => abortController?.abort()
 						: () => {
-								if (editor) {
-									if (isInitialCode(editor.getCode())) {
-										mode = 'gen'
-									} else {
-										mode = 'edit'
+								if (openAiChat) {
+									if (editor) {
+										if (isInitialCode(editor.getCode())) {
+											mode = 'gen'
+										} else {
+											mode = 'edit'
+										}
 									}
+									openAiChatForScript()
+								} else {
+									if (editor) {
+										if (isInitialCode(editor.getCode())) {
+											mode = 'gen'
+										} else {
+											mode = 'edit'
+										}
+									}
+									setTimeout(() => {
+										autoResize()
+									}, 0)
 								}
-								setTimeout(() => {
-									autoResize()
-								}, 0)
 							}}
 					bind:element={button}
 					{iconOnly}
