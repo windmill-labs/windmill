@@ -1397,3 +1397,27 @@ export function reorder<T>(items: T[], oldIndex: number, newIndex: number): T[] 
 	updatedItems.splice(newIndex, 0, removedItem)
 	return updatedItems
 }
+
+export function scroll_into_view_if_needed_polyfill(elem: Element, centerIfNeeded: boolean = true) {
+	const observer = new IntersectionObserver(
+		function ([entry]) {
+			const ratio = entry.intersectionRatio
+			if (ratio < 1) {
+				const place = ratio <= 0 && centerIfNeeded ? `center` : `nearest`
+				elem.scrollIntoView({
+					block: place,
+					inline: place
+				})
+			}
+			observer.disconnect()
+		},
+		{
+			root: null, // or specify a scrolling parent if needed
+			rootMargin: '0px 1000px', // Essentially making horizontal checks irrelevant
+			threshold: 0.1 // Adjust threshold to control when observer should trigger
+		}
+	)
+	observer.observe(elem)
+
+	return observer // return for testing
+}
