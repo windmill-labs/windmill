@@ -4,26 +4,30 @@
 	import S3ObjectPicker from './S3ObjectPicker.svelte'
 	import type SimpleEditor from './SimpleEditor.svelte'
 
-	export let format: string
-	export let value: any
-	export let disablePortal = false
-	export let showSchemaExplorer = false
-	export let selectFirst = false
-	export let defaultValue: any
-	export let editor: SimpleEditor | undefined = undefined
 	function isString(value: any) {
 		return typeof value === 'string' || value instanceof String
 	}
 
-	export let path: string = ''
-
-	function resourceToValue() {
-		if (path && path != '') {
-			value = `$res:${path}`
-		} else {
-			value = undefined
-		}
+	interface Props {
+		format: string
+		value: any
+		disablePortal?: boolean
+		showSchemaExplorer?: boolean
+		selectFirst?: boolean
+		defaultValue: any
+		editor?: SimpleEditor | undefined
+		path?: string
 	}
+
+	let {
+		format,
+		value = $bindable(),
+		disablePortal = false,
+		showSchemaExplorer = false,
+		selectFirst = false,
+		defaultValue,
+		editor = $bindable(undefined)
+	}: Props = $props()
 
 	function isResource() {
 		return isString(value) && value.length >= '$res:'.length
@@ -31,13 +35,12 @@
 
 	function valueToPath() {
 		if (isResource()) {
-			path = value.substr('$res:'.length)
+			return value.substr('$res:'.length)
 		}
 	}
-
-	$: value && valueToPath()
 </script>
 
+<!-- {JSON.stringify({ value })} -->
 <div class="flex flex-row w-full flex-wrap gap-x-2 gap-y-0.5">
 	{#if format === 'resource-s3_object'}
 		<S3ObjectPicker bind:value />
@@ -45,12 +48,17 @@
 		<ResourcePicker
 			{selectFirst}
 			{disablePortal}
-			on:change={(e) => {
-				path = e.detail
-				resourceToValue()
-			}}
 			on:clear
-			bind:value={path}
+			bind:value={
+				() => valueToPath(),
+				(v) => {
+					if (v == undefined) {
+						value = undefined
+					} else {
+						value = `$res:${v}`
+					}
+				}
+			}
 			initialValue={typeof defaultValue == 'string' && defaultValue.startsWith('$res:')
 				? defaultValue.substr('$res:'.length)
 				: defaultValue}
