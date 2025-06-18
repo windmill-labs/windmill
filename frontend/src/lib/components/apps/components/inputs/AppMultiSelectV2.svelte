@@ -171,6 +171,7 @@
 			items={safeSelectItems([...items, ...customItems])}
 			placeholder={resolvedConfig.placeholder}
 			bind:value={selectedItems}
+			wrap={resolvedConfig.allowOverflow}
 			onCreateItem={resolvedConfig.create
 				? (item) => {
 						customItems.push(item)

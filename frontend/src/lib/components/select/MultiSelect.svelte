@@ -22,6 +22,7 @@
 		createText,
 		reorderable = true,
 		noItemsMsg,
+		wrap = true,
 		onOpen,
 		groupBy,
 		sortBy,
@@ -41,6 +42,7 @@
 		createText?: string
 		reorderable?: boolean
 		noItemsMsg?: string
+		wrap?: boolean
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onOpen?: () => void
@@ -101,7 +103,10 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<div
-		class={'overflow-clip w-full min-h-8 cursor-pointer items-center flex flex-wrap gap-1 py-0.5 px-0.5'}
+		class={twMerge(
+			'overflow-clip overflow-x-hidden min-h-8 cursor-pointer items-center flex gap-1 py-0.5 px-0.5',
+			wrap ? 'flex-wrap' : 'flex-1 flex-nowrap'
+		)}
 		onpointerup={() => (open = true)}
 		role="list"
 	>
