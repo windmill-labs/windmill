@@ -15,6 +15,7 @@
 		placeholder = 'Select items',
 		value = $bindable(),
 		class: className = '',
+		style,
 		listAutoWidth = true,
 		disabled = false,
 		disablePortal = false,
@@ -30,6 +31,7 @@
 		value: Value[]
 		placeholder?: string
 		class?: string
+		style?: string
 		filterText?: string
 		disabled?: boolean
 		listAutoWidth?: boolean
@@ -89,10 +91,11 @@
 <div
 	bind:this={wrapperEl}
 	class={twMerge(
-		'relative flex items-center w-full bg-surface border border-gray-300 rounded-md',
+		'relative flex items-center w-full bg-surface border border-gray-300 rounded-md text-tertiary',
 		disabled ? 'bg-gray-100 dark:bg-gray-700' : '',
 		className
 	)}
+	{style}
 	use:clickOutside={{ onClickOutside: () => (open = false) }}
 >
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -103,7 +106,7 @@
 		role="list"
 	>
 		{#if value.length === 0}
-			<span class="text-sm ml-2 text-tertiary">{placeholder}</span>
+			<span class="text-sm ml-2">{placeholder}</span>
 		{:else}
 			<DraggableTags
 				items={valueEntry}

@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import { getContext, onDestroy, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type {
@@ -19,10 +16,6 @@
 	// @ts-ignore
 	import Portal from '$lib/components/Portal.svelte'
 
-	import { createFloatingActions } from 'svelte-floating-ui'
-	import { extractCustomProperties } from '$lib/utils'
-	import { tick } from 'svelte'
-	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { deepEqual } from 'fast-equals'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
@@ -45,11 +38,6 @@
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
-
-	const [floatingRef, floatingContent] = createFloatingActions({
-		strategy: 'absolute',
-		middleware: [offset(5), flip(), shift()]
-	})
 
 	const { app, worldStore, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -138,47 +126,12 @@
 
 	let css = $state(initCss($app.css?.multiselectcomponent, customCss))
 
-	function setOuterDivStyle(outerDiv: HTMLDivElement, portalRef: HTMLDivElement, style: string) {
-		outerDiv.setAttribute('style', style)
-		// find ul in portalRef and set style
-		const ul = portalRef.querySelector('ul')
-		ul?.setAttribute('style', extractCustomProperties(style))
-	}
-
-	let outerDiv: HTMLDivElement | undefined = undefined
-	let portalRef: HTMLDivElement | undefined = $state(undefined)
-
-	function moveOptionsToPortal() {
-		// Find ul element with class 'options' within the outerDiv
-		const ul = outerDiv?.querySelector('.options')
-
-		if (ul) {
-			// Move the ul element to the portal
-			portalRef?.appendChild(ul)
-		}
-	}
-
-	let w = $state(0)
-	let open: boolean = $state(false)
 	$effect(() => {
 		resolvedConfig.items && untrack(() => handleItems())
 	})
 	$effect(() => {
-		resolvedConfig.defaultItems &&
-			untrack(() => setSelectedItemsFromValues(resolvedConfig.defaultItems))
-	})
-	$effect(() => {
-		outerDiv &&
-			portalRef &&
-			css?.multiselect?.style &&
-			untrack(() => setOuterDivStyle(outerDiv, portalRef!, css.multiselect!.style))
-	})
-	$effect(() => {
-		if (render && portalRef && outerDiv && items?.length > 0) {
-			tick().then(() => {
-				moveOptionsToPortal()
-			})
-		}
+		;[resolvedConfig.defaultItems]
+		untrack(() => setSelectedItemsFromValues(resolvedConfig.defaultItems))
 	})
 </script>
 
@@ -208,45 +161,24 @@
 		class="w-full"
 		onpointerdown={(e) => {
 			$selectedComponent = [id]
-
-			if (!e.shiftKey) {
-				e.stopPropagation()
-			}
+			if (!e.shiftKey) e.stopPropagation()
 			selectedComponent.set([id])
 		}}
-		use:floatingRef
-		bind:clientWidth={w}
 	>
-		{#if !selectedItems || Array.isArray(selectedItems)}
-			<MultiSelect
-				items={[...items, ...customItems.map((value) => ({ value }))]}
-				placeholder={resolvedConfig.placeholder}
-				bind:value={selectedItems}
-				onCreateItem={resolvedConfig.create
-					? (item) => {
-							customItems.push(item)
-							selectedItems.push(item)
-							customItems = customItems
-							selectedItems = selectedItems
-						}
-					: undefined}
-				onOpen={() => (($selectedComponent = [id]), (open = true))}
-			/>
-
-			<Portal name="app-multiselect-v2">
-				<div use:floatingContent class="z5000" hidden={!open}>
-					<!-- svelte-ignore a11y_click_events_have_key_events -->
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						bind:this={portalRef}
-						class="multiselect"
-						style={`min-width: ${w}px;`}
-						onclick={stopPropagation(bubble('click'))}
-					></div>
-				</div>
-			</Portal>
-		{:else}
-			Value {selectedItems} is not an array
-		{/if}
+		<MultiSelect
+			style={css.multiselect?.style}
+			items={[...items, ...customItems.map((value) => ({ value }))]}
+			placeholder={resolvedConfig.placeholder}
+			bind:value={selectedItems}
+			onCreateItem={resolvedConfig.create
+				? (item) => {
+						customItems.push(item)
+						selectedItems.push(item)
+						customItems = customItems
+						selectedItems = selectedItems
+					}
+				: undefined}
+			onOpen={() => ($selectedComponent = [id])}
+		/>
 	</div>
 </AlignWrapper>
