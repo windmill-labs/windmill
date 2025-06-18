@@ -80,5 +80,5 @@ jobs:
           - Bash(npm run check): Run the check script. You should run this tool after making changes to the frontend code.
           - Bash(npm install): Install dependencies. You need this to run npm run check.
           - Bash(npm run generate-backend-client): Generate the backend client. You need this to run npm run check.
-          - Bash(cargo check): Run the cargo check script. You should run this tool after making changes to the backend code.
+          - Bash(cargo check): Run the cargo check script. You should run this tool after making changes to the backend code."
           trigger_phrase: "/ai"
