@@ -18,6 +18,7 @@
 		inputTransform?: Record<string, any> | undefined
 		id: string
 		bottomBarOpen?: boolean
+		loopStatus?: { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' } | undefined
 	}
 
 	let {
@@ -29,7 +30,8 @@
 		children,
 		inputTransform,
 		id,
-		bottomBarOpen = $bindable(false)
+		bottomBarOpen = $bindable(false),
+		loopStatus
 	}: Props = $props()
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
@@ -76,7 +78,9 @@
 		bottomBarOpen = inputOpen || outputOpen || selected || hover || showConnecting
 	})
 
-	const showInput = $derived(variant === 'default' && !showConnecting)
+	const showInput = $derived(
+		variant === 'default' && !showConnecting && loopStatus?.type !== 'self'
+	)
 
 	function updatePositioning(historyOpen: boolean, zoom: number) {
 		inputPopover?.updatePositioning({

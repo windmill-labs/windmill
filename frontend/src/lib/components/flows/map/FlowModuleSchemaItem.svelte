@@ -417,6 +417,7 @@
 				{inputTransform}
 				id={id ?? ''}
 				bind:bottomBarOpen={outputPickerBarOpen}
+				{loopStatus}
 			>
 				{#snippet children({ allowCopy, isConnecting, selectConnection })}
 					<OutputPickerInner
