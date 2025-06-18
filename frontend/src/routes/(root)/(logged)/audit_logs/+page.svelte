@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { page } from '$app/stores'
+	// import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import type { ActionKind } from '$lib/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import AuditLogDetails from '$lib/components/auditLogs/AuditLogDetails.svelte'
@@ -14,21 +15,22 @@
 	import type { AuditLog } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
+	import AuditLogsTimeline from '$lib/components/auditLogs/AuditLogsTimeline.svelte'
 
-	let username: string = $state($page.url.searchParams.get('username') ?? 'all')
-	let pageIndex: number | undefined = $state(Number($page.url.searchParams.get('page')) || 0)
-	let before: string | undefined = $state($page.url.searchParams.get('before') ?? undefined)
+	let username: string = $derived(page.url.searchParams.get('username') ?? 'all')
+	let pageIndex: number | undefined = $derived(Number(page.url.searchParams.get('page')) || 0)
+	let before: string | undefined = $derived(page.url.searchParams.get('before') ?? undefined)
 	let hasMore: boolean = $state(false)
-	let after: string | undefined = $state($page.url.searchParams.get('after') ?? undefined)
-	let perPage: number | undefined = $state(Number($page.url.searchParams.get('perPage')) || 100)
-	let operation: string = $state($page.url.searchParams.get('operation') ?? 'all')
-	let resource: string | undefined = $state($page.url.searchParams.get('resource') ?? undefined)
-	let scope: undefined | 'all_workspaces' | 'instance' = $state(
-		($page.url.searchParams.get('scope') ?? undefined) as undefined | 'all_workspaces' | 'instance'
+	let after: string | undefined = $derived(page.url.searchParams.get('after') ?? undefined)
+	let perPage: number | undefined = $derived(Number(page.url.searchParams.get('perPage')) || 100)
+	let operation: string = $derived(page.url.searchParams.get('operation') ?? 'all')
+	let resource: string | undefined = $derived(page.url.searchParams.get('resource') ?? undefined)
+	let scope: undefined | 'all_workspaces' | 'instance' = $derived(
+		(page.url.searchParams.get('scope') ?? undefined) as undefined | 'all_workspaces' | 'instance'
 	)
 
-	let actionKind: ActionKind | 'all' = $state(
-		($page.url.searchParams.get('actionKind') as ActionKind) ?? 'all'
+	let actionKind: ActionKind | 'all' = $derived(
+		(page.url.searchParams.get('actionKind') as ActionKind) ?? 'all'
 	)
 
 	let logs: AuditLog[] = $state([])
@@ -44,6 +46,7 @@
 	</div>
 {:else}
 	<div class="w-full h-screen">
+		<AuditLogsTimeline {logs} />
 		<div class="px-2">
 			<div class="flex items-center space-x-2 flex-row justify-between">
 				<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1 items-center">
