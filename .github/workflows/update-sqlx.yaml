@@ -72,7 +72,7 @@ jobs:
           git checkout $BRANCH_NAME
           mkdir frontend/build
           cd backend
-          cargo install sqlx-cli
+          cargo install sqlx-cli --version 0.8.5
           sqlx migrate run
           ./update_sqlx.sh --dir ./windmill-ee-private
           # Pass the branch name to the next step
