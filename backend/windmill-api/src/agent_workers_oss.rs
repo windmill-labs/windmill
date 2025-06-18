@@ -14,7 +14,11 @@ pub use crate::agent_workers_ee::*;
 use crate::db::DB;
 
 #[cfg(not(feature = "private"))]
-use axum::Router;
+use axum::{routing::post, Router, extract::State, Json, http::StatusCode};
+#[cfg(not(feature = "private"))]
+use chrono::{DateTime, Utc};
+#[cfg(not(feature = "private"))]
+use windmill_common::agent_workers::{BlacklistTokenRequest, blacklist_token, remove_token_from_blacklist};
 
 #[cfg(not(feature = "private"))]
 use serde::{Deserialize, Serialize};
@@ -22,6 +26,8 @@ use serde::{Deserialize, Serialize};
 #[cfg(not(feature = "private"))]
 pub fn global_service() -> Router {
     Router::new()
+        .route("/api/agent_workers/blacklist_token", post(blacklist_token_handler))
+        .route("/api/agent_workers/remove_blacklist_token", post(remove_blacklist_token_handler))
 }
 
 #[cfg(not(feature = "private"))]
@@ -61,4 +67,22 @@ impl AgentCache {
     pub fn new() -> Self {
         AgentCache {}
     }
+}
+
+#[cfg(not(feature = "private"))]
+async fn blacklist_token_handler(
+    State(db): State<DB>,
+    Json(req): Json<BlacklistTokenRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    // For OSS version, return not implemented
+    Err((StatusCode::NOT_IMPLEMENTED, "Blacklist functionality requires Enterprise Edition".to_string()))
+}
+
+#[cfg(not(feature = "private"))]
+async fn remove_blacklist_token_handler(
+    State(db): State<DB>,
+    Json(req): Json<BlacklistTokenRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    // For OSS version, return not implemented
+    Err((StatusCode::NOT_IMPLEMENTED, "Blacklist functionality requires Enterprise Edition".to_string()))
 }

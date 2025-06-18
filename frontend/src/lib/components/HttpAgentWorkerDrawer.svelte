@@ -15,6 +15,8 @@
 	let selectedTags: string[] = $state(!$enterpriseLicense ? ['agent_test'] : [])
 	let workerGroup: string = $state('agent')
 	let token: string = $state('')
+	let blacklistToken: string = $state('')
+	let blacklistExpiry: string = $state('')
 
 	async function refreshToken(workerGroup: string, selectedTags: string[]) {
 		try {
@@ -29,6 +31,44 @@
 			token = newToken
 		} catch (error) {
 			sendUserToast('Error creating agent token: ' + error.toString(), true)
+		}
+	}
+
+	async function addToBlacklist() {
+		if (!blacklistToken.trim()) {
+			sendUserToast('Please enter a token to blacklist', true)
+			return
+		}
+
+		if (!blacklistExpiry) {
+			sendUserToast('Please set an expiry date', true)
+			return
+		}
+
+		try {
+			const expiryDate = new Date(blacklistExpiry).toISOString()
+			
+			const response = await fetch('/api/agent_workers/blacklist_token', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({
+					token: blacklistToken.trim(),
+					expires_at: expiryDate
+				})
+			})
+
+			if (!response.ok) {
+				const errorText = await response.text()
+				throw new Error(errorText || 'Failed to blacklist token')
+			}
+
+			sendUserToast('Token successfully added to blacklist')
+			blacklistToken = ''
+			blacklistExpiry = ''
+		} catch (error) {
+			sendUserToast('Error blacklisting token: ' + error.toString(), true)
 		}
 	}
 
@@ -136,5 +176,52 @@
 				</div>
 			</CollapseLink>
 		</div>
+	</Section>
+
+	<Section label="Token Blacklist Management" eeOnly>
+		{#if !$enterpriseLicense}
+			<div class="text-sm text-secondary mb-2 max-w-md">
+				Token blacklist management is only available in the enterprise edition.
+			</div>
+		{:else}
+			<div class="text-sm text-secondary mb-4 max-w-md">
+				Add tokens to the blacklist to prevent them from being used by agent workers. Blacklisted tokens are cached for 5 minutes for optimal performance.
+			</div>
+			
+			<div class="flex flex-col gap-3 max-w-md">
+				<div>
+					<label class="block text-sm font-medium mb-1">Token to blacklist</label>
+					<input 
+						class="w-full" 
+						type="text" 
+						bind:value={blacklistToken} 
+						placeholder="Enter token (with or without jwt_agent_ prefix)"
+					/>
+				</div>
+				
+				<div>
+					<label class="block text-sm font-medium mb-1">Blacklist expires on</label>
+					<input 
+						class="w-full" 
+						type="datetime-local" 
+						bind:value={blacklistExpiry}
+					/>
+				</div>
+				
+				<button 
+					class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+					onclick={addToBlacklist}
+					disabled={!$superadmin}
+				>
+					Add to Blacklist
+				</button>
+				
+				{#if !$superadmin}
+					<div class="text-xs text-amber-600">
+						Only superadmins can manage the token blacklist.
+					</div>
+				{/if}
+			</div>
+		{/if}
 	</Section>
 </div>
