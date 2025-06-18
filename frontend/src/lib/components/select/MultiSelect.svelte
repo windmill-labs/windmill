@@ -5,6 +5,7 @@
 	import SelectDropdown from './SelectDropdown.svelte'
 	import CloseButton from '../common/CloseButton.svelte'
 	import DraggableTags from './DraggableTags.svelte'
+	import { Search } from 'lucide-svelte'
 
 	type Value = Item['value']
 
@@ -18,10 +19,9 @@
 		disablePortal = false,
 		createText,
 		reorderable = true,
+		onOpen,
 		groupBy,
 		sortBy,
-		onFocus,
-		onBlur,
 		onCreateItem
 	}: {
 		items?: Item[]
@@ -38,8 +38,7 @@
 		reorderable?: boolean
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
-		onFocus?: () => void
-		onBlur?: () => void
+		onOpen?: () => void
 		onClear?: () => void
 		onCreateItem?: (value: string) => void
 	} = $props()
@@ -58,6 +57,9 @@
 
 	$effect(() => {
 		if (!open) filterText = ''
+	})
+	$effect(() => {
+		open && untrack(() => onOpen?.())
 	})
 
 	let valueEntry = $derived(
@@ -85,9 +87,6 @@
 	bind:this={wrapperEl}
 	class={`relative flex items-center w-full  ${className}`}
 	use:clickOutside={{ onClickOutside: () => (open = false) }}
-	onpointerdown={() => onFocus?.()}
-	onfocus={() => onFocus?.()}
-	onblur={() => onBlur?.()}
 >
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -122,13 +121,15 @@
 	>
 		{#snippet header()}
 			{#if processedItems.length - value.length > 0 || onCreateItem}
-				<div class="mx-2 mb-1 mt-2">
+				<div class="mx-2 mb-1 mt-2 flex items-center relative">
 					<input
 						bind:this={searchInputEl}
 						bind:value={filterText}
 						onblur={(e) => (e.preventDefault(), searchInputEl?.focus())}
 						placeholder="Search"
+						class="!pr-7"
 					/>
+					<Search size={16} class="absolute right-2 text-tertiary" />
 				</div>
 			{/if}
 		{/snippet}
