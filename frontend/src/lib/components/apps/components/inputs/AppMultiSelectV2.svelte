@@ -205,7 +205,7 @@
 
 <AlignWrapper {render} hFull {verticalAlignment}>
 	<div
-		class="w-full app-editor-input"
+		class="w-full"
 		onpointerdown={(e) => {
 			$selectedComponent = [id]
 
