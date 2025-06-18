@@ -47,11 +47,31 @@
 	let licenseName = $state('')
 	let licenseUrl = $state('')
 	let isGeneratingOpenapiSpec = $state(false)
-	let openapiDocument = $state('')
+	let openapiDocument = $state(
+		'# Click "Generate OpenAPI document" to generate your OpenAPI spec.'
+	)
 	let lang: OpenapiSpecFormat = $state('yaml')
 	let editor: SimpleEditor | undefined = $state()
 	let generateCurlCommandDrawer: Drawer | undefined = $state()
-	let webhookAndHttpRouteFilter: HttpRouteAndWebhook[] = $state([])
+	let webhookAndHttpRouteFilter: HttpRouteAndWebhook[] = $state([
+		{
+			user_or_folder_regex: '*',
+			user_or_folder_regex_value: '*',
+			path: '*',
+			runnable_kind: 'script'
+		},
+		{
+			user_or_folder_regex: '*',
+			user_or_folder_regex_value: '*',
+			path: '*',
+			runnable_kind: 'flow'
+		},
+		{
+			folder_regex: '*',
+			path_regex: '*',
+			route_path_regex: '*'
+		}
+	])
 	let disabled = $derived(webhookAndHttpRouteFilter.length === 0)
 	let token = $state('')
 	let obj: Record<string, unknown> = $state({})
@@ -556,8 +576,6 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 					</div>
 					<Button
 						{disabled}
-						color="light"
-						variant="border"
 						spacingSize="sm"
 						loading={isGeneratingOpenapiSpec}
 						on:click={async () => {
