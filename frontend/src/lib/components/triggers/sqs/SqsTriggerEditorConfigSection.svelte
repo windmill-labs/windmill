@@ -3,10 +3,9 @@
 	import Required from '$lib/components/Required.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import { emptyStringTrimmed } from '$lib/utils'
-	import MultiselectLegacy from 'svelte-multiselect'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
-	import { Plus, X } from 'lucide-svelte'
+	import { Plus } from 'lucide-svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ArgInput from '$lib/components/ArgInput.svelte'
@@ -16,6 +15,8 @@
 	import { VariableService, type AwsAuthResourceType } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import TestingBadge from '../testingBadge.svelte'
+	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
+	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 
 	interface Props {
 		can_write?: boolean
@@ -140,27 +141,14 @@
 					</ToggleButtonGroup>
 				</div>
 				<div class="flex flex-col mt-3 gap-1">
-					<MultiselectLegacy
-						options={message_attributes ?? []}
-						allowUserOptions="append"
-						bind:selected={message_attributes}
-						ulOptionsClass={'!bg-surface !text-sm'}
-						ulSelectedClass="!text-sm"
-						outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
-						noMatchingOptionsMsg=""
-						createOptionMsg={null}
-						duplicates={false}
+					<MultiSelect
+						bind:value={message_attributes}
+						items={safeSelectItems(message_attributes)}
+						onCreateItem={(x) => message_attributes.push(x)}
 						placeholder="Set message attributes"
-						--sms-options-margin="4px"
+						noItemsMsg="Add message attributes to filter on"
 						disabled={tab === 'all'}
-					>
-						<!-- @migration-task: migrate this slot by hand, `remove-icon` is an invalid identifier -->
-						<svelte:fragment slot="remove-icon">
-							<div class="hover:text-primary p-0.5">
-								<X size={12} />
-							</div>
-						</svelte:fragment>
-					</MultiselectLegacy>
+					/>
 				</div>
 			</Subsection>
 		</div>

@@ -13,6 +13,7 @@
 		disabled,
 		disablePortal = false,
 		open,
+		noItemsMsg = 'No items found',
 		header,
 		getInputRect,
 		onSelectValue
@@ -24,6 +25,7 @@
 		disabled?: boolean
 		disablePortal?: boolean
 		open: boolean
+		noItemsMsg?: string
 		header?: Snippet
 		getInputRect?: () => DOMRect
 		onSelectValue: (item: ProcessedItem<T>) => void
@@ -103,7 +105,7 @@
 		>
 			{@render header?.()}
 			{#if processedItems?.length === 0}
-				<div class="py-8 px-4 text-center text-primary">No items</div>
+				<div class="py-8 px-4 text-center text-primary">{noItemsMsg}</div>
 			{/if}
 			<div class="flex-1 overflow-y-auto flex flex-col">
 				{#each processedItems ?? [] as item, itemIndex}

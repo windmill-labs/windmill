@@ -19,7 +19,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { ClipboardCopy, Download, Trash } from 'lucide-svelte'
-	import Select from '$lib/components/Select.svelte'
+	import Select from '$lib/components/select/Select.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import {
 		copyToClipboard,

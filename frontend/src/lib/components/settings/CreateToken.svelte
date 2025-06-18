@@ -3,7 +3,6 @@
 	import { Button } from '../common'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import MultiSelectWrapper from '../multiselect/MultiSelectWrapper.svelte'
 	import TriggerableByAI from '../TriggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
 	import { UserService, type NewToken } from '$lib/gen'
@@ -11,6 +10,7 @@
 	import { Clipboard } from 'lucide-svelte'
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 	import { createEventDispatcher } from 'svelte'
+	import MultiSelectLegacyWrapper from '../multiselect/MultiSelectLegacyWrapper.svelte'
 
 	interface Props {
 		showMcpMode?: boolean
@@ -205,7 +205,11 @@
 					{:else if errorFetchApps}
 						<div>Error fetching apps</div>
 					{:else}
-						<MultiSelectWrapper items={allApps} placeholder="Select apps" bind:value={newMcpApps} />
+						<MultiSelectLegacyWrapper
+							items={allApps}
+							placeholder="Select apps"
+							bind:value={newMcpApps}
+						/>
 					{/if}
 				</div>
 

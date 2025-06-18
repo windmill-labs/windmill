@@ -159,7 +159,7 @@
 	}
 
 	let w = $state(0)
-	let open: boolean = false
+	let open: boolean = $state(false)
 	$effect(() => {
 		resolvedConfig.items && untrack(() => handleItems())
 	})

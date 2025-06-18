@@ -20,6 +20,7 @@
 		disablePortal = false,
 		createText,
 		reorderable = true,
+		noItemsMsg,
 		onOpen,
 		groupBy,
 		sortBy,
@@ -37,6 +38,7 @@
 		disablePortal?: boolean
 		createText?: string
 		reorderable?: boolean
+		noItemsMsg?: string
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onOpen?: () => void
@@ -123,6 +125,7 @@
 		{filterText}
 		getInputRect={wrapperEl && (() => wrapperEl!.getBoundingClientRect())}
 		{listAutoWidth}
+		{noItemsMsg}
 	>
 		{#snippet header()}
 			{#if processedItems.length - value.length > 0 || onCreateItem}

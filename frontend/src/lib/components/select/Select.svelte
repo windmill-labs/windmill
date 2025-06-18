@@ -26,6 +26,7 @@
 		autofocus,
 		RightIcon,
 		createText,
+		noItemsMsg,
 		groupBy,
 		sortBy,
 		onFocus,
@@ -48,6 +49,7 @@
 		autofocus?: boolean
 		RightIcon?: any
 		createText?: string
+		noItemsMsg?: string
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onFocus?: () => void
@@ -149,5 +151,6 @@
 		{filterText}
 		getInputRect={inputEl && (() => inputEl!.getBoundingClientRect())}
 		{listAutoWidth}
+		{noItemsMsg}
 	/>
 </div>
