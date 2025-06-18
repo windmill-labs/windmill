@@ -700,9 +700,14 @@
 								{#if Array.isArray(value)}
 									{#each value ?? [] as v, i}
 										{#if i < itemsLimit}
+											{@const get = () => value[i]}
+											{@const set = (v) => {
+												value[i] = v
+												value = value // if we don't do this, the root value will not call the setter, which can cause issues if the root argInput has side effects on the value prop
+											}}
 											<div class="flex max-w-md mt-1 w-full items-center">
 												{#if itemsType?.type == 'number'}
-													<input type="number" bind:value={value[i]} id="arg-input-number-array" />
+													<input type="number" bind:value={get, set} id="arg-input-number-array" />
 												{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
 													<input
 														type="file"
@@ -716,7 +721,7 @@
 													{:then Module}
 														<Module.default
 															code={JSON.stringify(v, null, 2)}
-															bind:value={value[i]}
+															bind:value={get, set}
 														/>
 													{/await}
 												{:else if Array.isArray(itemsType?.enum)}
@@ -732,13 +737,13 @@
 														valid={valid ?? true}
 														{disabled}
 														{autofocus}
-														bind:value={value[i]}
+														bind:value={get, set}
 														enum_={itemsType?.enum ?? []}
 														enumLabels={extra['enumLabels']}
 													/>
 												{:else if itemsType?.type == 'resource' && itemsType?.resourceType && resourceTypes?.includes(itemsType.resourceType)}
 													<ObjectResourceInput
-														bind:value={value[i]}
+														bind:value={get, set}
 														format={'resource-' + itemsType?.resourceType}
 														defaultValue={undefined}
 													/>
@@ -755,7 +760,7 @@
 																dispatch('blur')
 															}}
 															code={JSON.stringify(v, null, 2)}
-															bind:value={value[i]}
+															bind:value={get, set}
 														/>
 													{/await}
 												{:else if itemsType?.type === 'object' && itemsType?.properties}
@@ -765,11 +770,11 @@
 															{disablePortal}
 															{disabled}
 															schema={getSchemaFromProperties(itemsType?.properties)}
-															bind:args={value[i]}
+															bind:args={get, set}
 														/>
 													</div>
 												{:else}
-													<input type="text" bind:value={value[i]} id="arg-input-array" />
+													<input type="text" bind:value={get, set} id="arg-input-array" />
 												{/if}
 												<button
 													transition:fade|local={{ duration: 100 }}

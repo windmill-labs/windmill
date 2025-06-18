@@ -108,7 +108,7 @@ export class TestSteps {
 					: evalValue(k, mod, this.#steps[mod.id] ?? {}, pickableProperties, false)
 			])
 		)
-		this.setStepArgs(mod.id, args)
+		this.setStepArgs(mod.id, structuredClone($state.snapshot(args)))
 	}
 
 	updateStepArgs(
