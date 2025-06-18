@@ -10,7 +10,6 @@
 	import { Clipboard } from 'lucide-svelte'
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 	import { createEventDispatcher } from 'svelte'
-	import MultiSelectLegacyWrapper from '../multiselect/MultiSelectLegacyWrapper.svelte'
 
 	interface Props {
 		showMcpMode?: boolean
@@ -39,7 +38,7 @@
 	let newMcpScope = $state('favorites')
 	let loadingApps = $state(false)
 	let errorFetchApps = $state(false)
-	let allApps = $state<string[]>([])
+	// let allApps = $state<string[]>([])
 
 	function handleCopyClick() {
 		copyToClipboard(newToken ?? '')
@@ -205,11 +204,7 @@
 					{:else if errorFetchApps}
 						<div>Error fetching apps</div>
 					{:else}
-						<MultiSelectLegacyWrapper
-							items={allApps}
-							placeholder="Select apps"
-							bind:value={newMcpApps}
-						/>
+						<!-- MultiSelectWrapper was confirmed not to be necessary : deleted -->
 					{/if}
 				</div>
 

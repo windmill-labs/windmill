@@ -106,7 +106,7 @@
 	}
 
 	let defaultTagPerWorkspace: boolean | undefined = undefined
-	let defaultTagWorkspaces: string[] | undefined = undefined
+	let defaultTagWorkspaces: string[] = []
 	async function loadDefaultTagsPerWorkspace() {
 		try {
 			defaultTagPerWorkspace = await WorkerService.isDefaultTagsPerWorkspace()
