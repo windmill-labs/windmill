@@ -24,14 +24,14 @@
 
 	let { id, componentContainerHeight, customCss = undefined, render, nodes }: Props = $props()
 
-	let resolvedConditions = $derived(
+	let resolvedConditions = $state(
 		nodes.reduce((acc, node) => {
 			acc[node.id] = acc[node.id] || []
 			return acc
 		}, {})
 	)
 
-	let resolvedNext = $derived(
+	let resolvedNext = $state(
 		nodes.reduce((acc, node) => {
 			acc[node.id] = acc[node.id] || false
 			return acc
@@ -165,6 +165,8 @@
 	})
 </script>
 
+<!-- {JSON.stringify(resolvedConditions)}
+{JSON.stringify(resolvedNext)} -->
 {#if Object.keys(resolvedConditions).length === nodes.length}
 	{#each nodes ?? [] as node (node.id)}
 		{#each node.next ?? [] as next, conditionIndex}
