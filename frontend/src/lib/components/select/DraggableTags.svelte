@@ -41,8 +41,10 @@
 			currentlyDraggingIndex = index
 		}}
 		onpointerup={(e) => {
-			e.stopPropagation()
-			if (currentlyDraggingIndex !== undefined) onReorder?.(currentlyDraggingIndex, index)
+			if (currentlyDraggingIndex !== undefined) {
+				e.stopPropagation()
+				onReorder?.(currentlyDraggingIndex, index)
+			}
 			currentlyDraggingIndex = undefined
 			dragPos = [0, 0]
 		}}

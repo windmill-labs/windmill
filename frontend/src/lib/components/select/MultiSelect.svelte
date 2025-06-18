@@ -99,7 +99,7 @@
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<div
 		class={'overflow-clip w-full min-h-8 cursor-pointer items-center flex flex-wrap gap-1 py-0.5 px-0.5'}
-		onclick={() => (open = true)}
+		onpointerup={() => (open = true)}
 		role="list"
 	>
 		{#if value.length === 0}
