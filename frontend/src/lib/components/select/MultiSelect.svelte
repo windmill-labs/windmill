@@ -123,7 +123,12 @@
 		{#snippet header()}
 			{#if processedItems.length - value.length > 0 || onCreateItem}
 				<div class="mx-2 mb-1 mt-2">
-					<input bind:this={searchInputEl} bind:value={filterText} placeholder="Search" />
+					<input
+						bind:this={searchInputEl}
+						bind:value={filterText}
+						onblur={(e) => (e.preventDefault(), searchInputEl?.focus())}
+						placeholder="Search"
+					/>
 				</div>
 			{/if}
 		{/snippet}

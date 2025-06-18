@@ -1378,3 +1378,10 @@ export function readFieldsRecursively(obj: any): void {
 		Object.keys(obj).forEach((key) => readFieldsRecursively(obj[key]))
 	}
 }
+
+export function reorder<T>(items: T[], oldIndex: number, newIndex: number): T[] {
+	const updatedItems = [...items]
+	const [removedItem] = updatedItems.splice(oldIndex, 1)
+	updatedItems.splice(newIndex, 0, removedItem)
+	return updatedItems
+}
