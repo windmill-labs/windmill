@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import CollapseLink from './CollapseLink.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import Toggle from './Toggle.svelte'
@@ -34,7 +32,7 @@
 		}
 	}
 	let enabled = $derived(value != undefined)
-	run(() => {
+	$effect(() => {
 		changeDomain(value?.['domain'], value?.['custom'])
 	})
 </script>
