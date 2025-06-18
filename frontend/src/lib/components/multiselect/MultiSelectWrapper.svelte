@@ -72,7 +72,7 @@
 				--sms-selected-bg={darkMode ? '#c7d2fe' : '#e0e7ff'}
 				--sms-selected-text-color={darkMode ? '#312e81' : '#3730a3'}
 				bind:selected={
-					() => [...value],
+					() => [...(value ?? [])],
 					(newVal) => {
 						if (!deepEqual(value, newVal)) {
 							value = newVal

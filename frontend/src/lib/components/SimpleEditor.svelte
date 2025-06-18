@@ -343,7 +343,7 @@
 		// 	})
 		// }
 		try {
-			model = meditor.createModel(code, lang, mUri.parse(uri))
+			model = meditor.createModel(code ?? '', lang, mUri.parse(uri))
 		} catch (err) {
 			console.log('model already existed', err)
 			const nmodel = meditor.getModel(mUri.parse(uri))
@@ -361,7 +361,7 @@
 		}
 		try {
 			editor = meditor.create(divEl as HTMLDivElement, {
-				...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
+				...editorConfig(code ?? '', lang, automaticLayout, fixedOverflowWidgets),
 				model,
 				lineDecorationsWidth: 6,
 				lineNumbersMinChars: 2,
@@ -546,7 +546,7 @@
 		})
 	}
 
-	let previousExtraLib = undefined
+	let previousExtraLib: string | undefined = undefined
 	function loadExtraLib() {
 		if (lang == 'javascript') {
 			const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
@@ -609,11 +609,11 @@
 		}
 	}
 
-	updatePlaceholderVisibility(code)
+	updatePlaceholderVisibility(code ?? '')
 </script>
 
 <EditorTheme />
-{#if editor && suggestion && code.length === 0}
+{#if editor && suggestion && code?.length === 0}
 	<div
 		class="absolute top-[0.05rem] left-[2.05rem] z-10 text-sm text-[#0007] italic font-mono dark:text-[#ffffff56] text-ellipsis overflow-hidden whitespace-nowrap"
 		style={`max-width: calc(${width}px - 2.05rem)`}
