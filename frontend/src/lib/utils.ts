@@ -661,6 +661,18 @@ export function classNames(...classes: Array<string | undefined>): string {
 	return classes.filter(Boolean).join(' ')
 }
 
+export function download(filename: string, fileContent: string, mimeType?: string) {
+	const blob = new Blob([fileContent], {
+		type: mimeType
+	})
+	const url = window.URL.createObjectURL(blob)
+	const a = document.createElement('a')
+	a.href = url
+	a.download = filename
+	a.click()
+	setTimeout(() => URL.revokeObjectURL(url), 100)
+}
+
 export async function copyToClipboard(value?: string, sendToast = true): Promise<boolean> {
 	if (!value) {
 		return false
@@ -1356,7 +1368,7 @@ export function getOS() {
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import type { Snippet } from 'svelte'
-import type { OpenAPI, OpenAPIV2, OpenAPIV3, OpenAPIV3_1 } from 'openapi-types'
+import { OpenAPIV2, type OpenAPI, type OpenAPIV3, type OpenAPIV3_1 } from 'openapi-types'
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))

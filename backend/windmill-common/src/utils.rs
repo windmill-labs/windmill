@@ -22,11 +22,14 @@ use croner::Cron;
 use rand::{distr::Alphanumeric, rng, Rng};
 use reqwest::Client;
 use semver::Version;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{de::Error as SerdeDeserializerError, Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
+use std::borrow::Cow;
+use std::fmt::Display;
 use std::{fs::DirBuilder as SyncDirBuilder, str::FromStr};
 use tokio::fs::DirBuilder as AsyncDirBuilder;
+use url::Url;
 
 pub const MAX_PER_PAGE: usize = 10000;
 pub const DEFAULT_PER_PAGE: usize = 1000;
@@ -523,6 +526,18 @@ impl<T> IsEmpty for Vec<T> {
     }
 }
 
+impl<T> IsEmpty for Option<T>
+where
+    T: IsEmpty,
+{
+    fn is_empty(&self) -> bool {
+        match self {
+            Some(v) => v.is_empty(),
+            None => true,
+        }
+    }
+}
+
 pub fn empty_as_none<'de, D, T>(deserializer: D) -> std::result::Result<Option<T>, D::Error>
 where
     D: Deserializer<'de>,
@@ -530,6 +545,26 @@ where
 {
     let option = <Option<T> as serde::Deserialize>::deserialize(deserializer)?;
     Ok(option.filter(|s| !s.is_empty()))
+}
+
+pub fn is_empty<T>(value: &T) -> bool
+where
+    T: IsEmpty,
+{
+    value.is_empty()
+}
+
+pub fn deserialize_url<'de, D: Deserializer<'de>>(
+    de: D,
+) -> std::result::Result<Option<Url>, D::Error> {
+    let intermediate = <Option<Cow<'de, str>>>::deserialize(de)?;
+
+    match intermediate.as_deref() {
+        None | Some("") => Ok(None),
+        Some(non_empty_string) => Url::parse(non_empty_string)
+            .map(Some)
+            .map_err(D::Error::custom),
+    }
 }
 
 pub async fn fetch_mute_workspace(_db: &DB, workspace_id: &str) -> Result<bool> {
@@ -781,5 +816,22 @@ impl<F: Future> Future for WarnAfterFuture<F> {
             }
             Poll::Pending => Poll::Pending,
         }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum RunnableKind {
+    Script,
+    Flow,
+}
+
+impl Display for RunnableKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let runnable_kind = match self {
+            RunnableKind::Script => "script",
+            RunnableKind::Flow => "flow",
+        };
+        write!(f, "{}", runnable_kind)
     }
 }

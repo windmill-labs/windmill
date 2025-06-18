@@ -6,6 +6,7 @@
 	import { untrack } from 'svelte'
 	import { processItems, type ProcessedItem } from './utils.svelte'
 	import SelectDropdown from './SelectDropdown.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	type Value = Item['value']
 
@@ -80,7 +81,7 @@
 		if (!open) filterText = ''
 	})
 
-	let valueEntry = $derived(value && processedItems?.find((item) => item.value === value))
+	let valueEntry = $derived(value && processedItems?.find((item) => deepEqual(item.value, value)))
 
 	function setValue(item: ProcessedItem<Value>) {
 		if (item.__is_create && onCreateItem) {

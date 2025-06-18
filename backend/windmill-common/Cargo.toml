@@ -80,6 +80,7 @@ backon.workspace = true
 openidconnect = { workspace = true, optional = true }
 strum.workspace = true
 strum_macros.workspace = true
+url.workspace = true
 
 semver.workspace = true
 croner = "2.0.6"
