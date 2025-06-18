@@ -220,13 +220,17 @@
 		{#if !selectedItems || Array.isArray(selectedItems)}
 			<MultiSelect
 				items={[...items, ...customItems.map((value) => ({ value }))]}
+				placeholder={resolvedConfig.placeholder}
 				bind:value={selectedItems}
-				onCreateItem={(item) => {
-					customItems.push(item)
-					selectedItems.push(item)
-					customItems = customItems
-					selectedItems = selectedItems
-				}}
+				onCreateItem={resolvedConfig.create
+					? (item) => {
+							customItems.push(item)
+							selectedItems.push(item)
+							customItems = customItems
+							selectedItems = selectedItems
+						}
+					: undefined}
+				onOpen={() => (($selectedComponent = [id]), (open = true))}
 			/>
 
 			<Portal name="app-multiselect-v2">
