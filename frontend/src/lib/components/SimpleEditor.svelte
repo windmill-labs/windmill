@@ -115,7 +115,7 @@
 		tailwindClasses = [],
 		class: className = '',
 		loadAsync = false
-	} = $props<{
+	}: {
 		lang: string
 		code?: string
 		hash?: string
@@ -137,7 +137,7 @@
 		tailwindClasses?: string[]
 		class?: string
 		loadAsync?: boolean
-	}>()
+	} = $props()
 
 	const dispatch = createEventDispatcher()
 

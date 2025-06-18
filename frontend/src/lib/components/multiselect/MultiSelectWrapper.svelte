@@ -14,14 +14,14 @@
 		target = undefined,
 		topPlacement = false,
 		allowUserOptions = undefined
-	} = $props<{
+	}: {
 		items: any[]
 		value?: string[]
 		placeholder?: string
 		target?: string | HTMLElement
 		topPlacement?: boolean
 		allowUserOptions?: boolean | 'append'
-	}>()
+	} = $props()
 
 	$effect.pre(() => {
 		if (value === undefined) value = []
