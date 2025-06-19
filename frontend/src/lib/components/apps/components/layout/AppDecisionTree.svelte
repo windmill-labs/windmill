@@ -24,19 +24,29 @@
 
 	let { id, componentContainerHeight, customCss = undefined, render, nodes }: Props = $props()
 
-	let resolvedConditions = $state(
-		nodes.reduce((acc, node) => {
+	let resolvedConditions = $state(createResolvedConditions())
+
+	function createResolvedConditions() {
+		return nodes.reduce((acc, node) => {
 			acc[node.id] = acc[node.id] || []
 			return acc
 		}, {})
-	)
+	}
 
-	let resolvedNext = $state(
-		nodes.reduce((acc, node) => {
+	let resolvedNext = $state(createResolvedNext())
+
+	function createResolvedNext() {
+		return nodes.reduce((acc, node) => {
 			acc[node.id] = acc[node.id] || false
 			return acc
 		}, {})
-	)
+	}
+
+	$effect(() => {
+		nodes
+		resolvedConditions = untrack(() => createResolvedConditions())
+		resolvedNext = untrack(() => createResolvedNext())
+	})
 
 	let everRender = $state(render)
 	$effect.pre(() => {
