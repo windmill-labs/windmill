@@ -40,15 +40,6 @@
 		isValid = allTrue(inputCheck) ?? false
 	})
 
-	$effect(() => {
-		if (
-			testSteps?.getStepArgs(mod.id) == undefined ||
-			typeof testSteps?.getStepArgs(mod.id) !== 'object'
-		) {
-			testSteps?.setStepArgs(mod.id, {})
-		}
-	})
-
 	let keys: string[] = $state([])
 	$effect(() => {
 		let lkeys = Object.keys(schema?.properties ?? {})
@@ -59,17 +50,21 @@
 	})
 
 	function plugIt(argName: string) {
-		testSteps?.setStepArg(
+		testSteps?.setEvaluatedStepArg(
 			mod.id,
 			argName,
 			structuredClone(
 				$state.snapshot(
-					evalValue(argName, mod, testSteps.getStepArgs(mod.id) ?? {}, pickableProperties, true)
+					evalValue(
+						argName,
+						mod,
+						testSteps?.getStepArgs(mod.id)?.value ?? {},
+						pickableProperties,
+						true
+					)
 				)
 			)
 		)
-		testSteps?.resetArgManually(mod.id, argName)
-		args = structuredClone($state.snapshot(testSteps?.getMergedArgs(mod.id) ?? {}))
 	}
 
 	let editor: Record<string, SimpleEditor | undefined> = $state({})
@@ -114,22 +109,12 @@
 	loadResourceTypes()
 
 	let args = $state(<Record<string, any>>{})
-	$effect(() => {
-		const stepArgs = structuredClone($state.snapshot(testSteps?.getStepArgs(mod.id) ?? {}))
-
-		for (const [key, value] of Object.entries(args)) {
-			if (JSON.stringify(stepArgs?.[key]) !== JSON.stringify(value)) {
-				testSteps?.setStepArgManually(mod.id, key, structuredClone($state.snapshot(value)))
-			}
-		}
-	})
-
-	$inspect('dbg args', args)
 
 	onMount(() => {
 		testSteps?.updateStepArgs(mod.id, $flowStateStore, flowStore?.val, previewArgs?.val)
-		args = structuredClone($state.snapshot(testSteps?.getMergedArgs(mod.id) ?? {}))
+		args = testSteps?.getStepArgs(mod.id) ?? {}
 	})
+
 </script>
 
 <div class="w-full pt-2" data-popover>
@@ -150,7 +135,7 @@
 							autofocus={autofocus && !focusArg && i == 0}
 							label={argName}
 							description={schema.properties[argName].description}
-							bind:value={args[argName]}
+							bind:value={args.value[argName]}
 							type={schema.properties[argName].type}
 							oneOf={schema.properties[argName].oneOf}
 							required={schema?.required?.includes(argName)}
@@ -170,7 +155,7 @@
 							placeholder={schema.properties[argName].placeholder}
 						/>
 					{/if}
-					{#if testSteps?.getStepArgManually(mod.id, argName)}
+					{#if testSteps?.isArgManuallySet(mod.id, argName)}
 						<div class="pt-6 mt-0.5">
 							<Button
 								on:click={() => {

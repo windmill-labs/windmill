@@ -8,64 +8,68 @@ import {
 } from './previousResults'
 import { evalValue } from './utils'
 
+type ModuleArgs = { value: Record<string, any> }
+
 export class TestSteps {
-	#steps = $state<Record<string, any>>({})
-	stepsManuallySet = $state<Record<string, any>>({})
+	#stepsEvaluated = $state<Record<string, ModuleArgs>>({})
+	#steps = $state<Record<string, { value: any }>>({})
 
 	constructor() {}
 
-	getStepArgs(moduleId: string): Record<string, any> | undefined {
+	setStepArgsManually(moduleId: string, args: Record<string, any>) {
+		if (!this.#steps[moduleId]) {
+			this.#steps[moduleId] = { value: {} }
+		}
+		this.#steps[moduleId].value = args
+	}
+
+	getStepArgs(moduleId: string): { value: Record<string, any> } | undefined {
 		return this.#steps[moduleId]
 	}
 
-	setStepArgs(moduleId: string, args: Record<string, any> | undefined) {
-		this.#steps[moduleId] = args
-	}
-
-	setStepArg(moduleId: string, argName: string, value: any) {
+	setStepArgs(moduleId: string, args: Record<string, any>) {
 		if (!this.#steps[moduleId]) {
-			this.#steps[moduleId] = {}
+			this.#steps[moduleId] = { value: {} }
 		}
-		this.#steps[moduleId][argName] = value
+		this.#steps[moduleId].value = args
 	}
 
 	getStepArg(moduleId: string, argName: string): any | undefined {
 		return this.#steps[moduleId]?.[argName]
 	}
 
-	setStepArgManually(moduleId: string, argName: string, value: any) {
-		if (!this.stepsManuallySet[moduleId]) {
-			this.stepsManuallySet[moduleId] = {}
+	setEvaluatedStepArg(moduleId: string, argName: string, value: any) {
+		if (!this.#steps[moduleId]) {
+			this.#steps[moduleId] = { value: {} }
 		}
-		this.stepsManuallySet[moduleId][argName] = value
+		this.#steps[moduleId].value[argName] = structuredClone($state.snapshot(value))
+		this.#stepsEvaluated[moduleId].value[argName] = structuredClone($state.snapshot(value))
 	}
 
-	setStepArgsManually(moduleId: string, args: Record<string, any>) {
-		this.stepsManuallySet[moduleId] = args
+	isArgManuallySet(moduleId: string, argName: string): boolean {
+		return (
+			JSON.stringify(this.#steps[moduleId]?.value?.[argName]) !==
+			JSON.stringify(this.#stepsEvaluated[moduleId]?.value?.[argName])
+		)
 	}
 
-	getStepArgsManually(moduleId: string): Record<string, any> | undefined {
-		return this.stepsManuallySet[moduleId]
+	getManuallyEditedArgs(moduleId: string): string[] {
+		const manuallyEditedArgs: string[] = []
+
+		const moduleArgs = this.#steps[moduleId]?.value ?? {}
+
+		Object.keys(moduleArgs).forEach((argName) => {
+			if (this.isArgManuallySet(moduleId, argName)) {
+				manuallyEditedArgs.push(argName)
+			}
+		})
+		return manuallyEditedArgs
 	}
 
-	getStepArgManually(moduleId: string, argName: string): any | undefined {
-		return this.stepsManuallySet[moduleId]?.[argName]
-	}
-
-	resetArgManually(moduleId: string, argName: string) {
-		if (this.stepsManuallySet[moduleId]) {
-			delete this.stepsManuallySet[moduleId][argName]
-		}
-	}
-
-	getMergedArgs(moduleId: string): Record<string, any> | undefined {
-		return {
-			...this.getStepArgs(moduleId),
-			...this.getStepArgsManually(moduleId)
-		}
-	}
-
-	updateArg(
+	/*
+		Evaluate the arg value from the flow state and replace the test value.
+	*/
+	evalArg(
 		moduleId: string,
 		argName: string,
 		flowState: FlowState | undefined,
@@ -95,20 +99,17 @@ export class TestSteps {
 		)
 		const pickableProperties = stepPropPicker.pickableProperties
 
-		if (!this.#steps[moduleId]) {
-			this.#steps[moduleId] = {}
-		}
-		this.#steps[moduleId][argName] = evalValue(
-			argName,
-			modules[0],
-			this.#steps[moduleId] ?? {},
-			pickableProperties,
-			false
+		const argSnapshot = $state.snapshot(
+			evalValue(
+				argName,
+				modules[0],
+				this.#stepsEvaluated[moduleId] ?? {},
+				pickableProperties,
+				false
+			)
 		)
-		// Remove from manually set args if it was set manually
-		if (this.stepsManuallySet[moduleId]) {
-			delete this.stepsManuallySet[moduleId][argName]
-		}
+		this.#stepsEvaluated[moduleId].value[argName] = structuredClone(argSnapshot)
+		this.#steps[moduleId].value[argName] = structuredClone(argSnapshot)
 	}
 
 	initializeFromSchema(
@@ -119,12 +120,30 @@ export class TestSteps {
 		const args = Object.fromEntries(
 			Object.keys(schema.properties ?? {}).map((k) => [
 				k,
-				this.stepsManuallySet[mod.id]?.[k]
-					? this.#steps[mod.id]?.[k]
-					: evalValue(k, mod, this.#steps[mod.id] ?? {}, pickableProperties, false)
+				this.#steps[mod.id]?.[k]
+					? this.#stepsEvaluated[mod.id]?.[k]
+					: evalValue(k, mod, this.#stepsEvaluated[mod.id] ?? {}, pickableProperties, false)
 			])
 		)
-		this.setStepArgs(mod.id, structuredClone($state.snapshot(args)))
+
+		const manuallyEditedArgs = this.getManuallyEditedArgs(mod.id)
+
+		if (!this.#steps[mod.id]) {
+			this.#steps[mod.id] = { value: {} }
+		}
+		if (!this.#stepsEvaluated[mod.id]) {
+			this.#stepsEvaluated[mod.id] = { value: {} }
+		}
+		this.#stepsEvaluated[mod.id].value = structuredClone($state.snapshot(args))
+
+		// Preserve manually edited args
+		const argsSnapshot = structuredClone($state.snapshot(args))
+		Object.keys(argsSnapshot).forEach((key) => {
+			if (manuallyEditedArgs.includes(key)) {
+				argsSnapshot[key] = this.#steps[mod.id]?.value?.[key]
+			}
+		})
+		this.#steps[mod.id].value = argsSnapshot
 	}
 
 	updateStepArgs(
@@ -159,12 +178,15 @@ export class TestSteps {
 	}
 
 	removeExtraKey(moduleId: string, keys: string[]) {
+		if (!this.#stepsEvaluated[moduleId]) {
+			return
+		}
 		const nargs = {}
-		Object.keys(this.#steps[moduleId] ?? {}).forEach((key) => {
+		Object.keys(this.#stepsEvaluated[moduleId]?.value ?? {}).forEach((key) => {
 			if (keys.includes(key)) {
-				nargs[key] = this.#steps[moduleId][key]
+				nargs[key] = this.#stepsEvaluated[moduleId]?.value?.[key]
 			}
 		})
-		this.#steps[moduleId] = nargs
+		this.#stepsEvaluated[moduleId].value = nargs
 	}
 }
