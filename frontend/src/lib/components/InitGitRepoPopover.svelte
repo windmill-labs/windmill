@@ -96,7 +96,7 @@
 							workspace,
 							id: jobId,
 							requestBody: {
-								reason: 'Preview job timed out after 5s'
+								reason: 'Preview job timed out after 15s'
 							}
 						})
 					} catch (err) {
@@ -104,7 +104,7 @@
 					}
 				},
 				interval: 500,
-				timeout: 10000
+				timeout: 15000
 			})
 
 			if (jobSuccess) {
@@ -246,17 +246,26 @@
 						{#if isCliInfoExpanded}
 							<div class="p-1 bg-surface-tertiary">
 								<div class="text-2xs mb-2">
-									Not familiar with Windmill CLI? <a href="https://www.windmill.dev/docs/advanced/cli/sync" class="text-blue-500 hover:text-blue-600 underline" target="_blank" rel="noopener noreferrer">Check out the docs</a>
+									Not familiar with Windmill CLI? <a
+										href="https://www.windmill.dev/docs/advanced/cli/sync"
+										class="text-blue-500 hover:text-blue-600 underline"
+										target="_blank"
+										rel="noopener noreferrer">Check out the docs</a
+									>
 								</div>
 								<div class="font-mono text-2xs">
-								<pre class="overflow-auto max-h-60"><code>npm install -g windmill-cli
+									<pre class="overflow-auto max-h-60"
+										><code
+											>npm install -g windmill-cli
 wmill workspace add {$workspaceStore} {$workspaceStore} {`${$page.url.protocol}//${$page.url.hostname}/`}
 wmill init
 # adjust wmill.yaml file configuraton as needed
 wmill sync pull
 git add -A
 git commit -m 'Initial commit'
-git push</code></pre>
+git push</code
+										></pre
+									>
 								</div>
 							</div>
 						{/if}
@@ -330,13 +339,13 @@ git push</code></pre>
 					color="light"
 					size="xs"
 					on:click={() => {
-						previewResult = undefined;
-						previewJobId = null;
-						previewJobStatus = undefined;
-						pushJobId = null;
-						pushJobStatus = undefined;
-						initResult = null;
-						close();
+						previewResult = undefined
+						previewJobId = null
+						previewJobStatus = undefined
+						pushJobId = null
+						pushJobStatus = undefined
+						initResult = null
+						close()
 					}}
 					disabled={isPreviewLoading || isInitializing}
 				>

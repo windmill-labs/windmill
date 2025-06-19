@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { Plus, X, Filter, Save, Eye, Loader2, CheckCircle2, XCircle, Check } from 'lucide-svelte'
+	import { Filter, Save, Eye, Loader2, CheckCircle2, XCircle, Check } from 'lucide-svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import yaml from 'js-yaml'
 	import hubPaths from '$lib/hubPaths.json'
@@ -8,6 +8,8 @@
 	import { workspaceStore } from '$lib/stores'
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
+	import FilterList from './FilterList.svelte'
+	import { Tabs, Tab } from '$lib/components/common'
 
 	type ObjectType =
 		| 'script'
@@ -52,13 +54,15 @@
 		git_repo_resource_path = $bindable(''),
 		include_path = $bindable(['f/**']),
 		include_type = $bindable(['script', 'flow', 'app', 'folder'] as ObjectType[]),
+		exclude_types_override = $bindable([] as ObjectType[]),
+		isLegacyRepo = false,
 		yamlText = $bindable(''),
-		onSettingsChange = (settings: { yaml: string }) => {}
+		onSettingsChange = (settings: { yaml: string }) => {},
+		excludes = $bindable([] as string[]),
+		extraIncludes = $bindable([] as string[])
 	} = $props()
 
 	// Component state
-	let newFilter = $state('')
-	let newFilterInput: HTMLInputElement | null = $state(null)
 	let collapsed = $state(false)
 	let editAsYaml = $state(false)
 	let yamlError = $state('')
@@ -74,23 +78,33 @@
 	let isPushing = $state(false)
 	let previewError = $state('')
 
-	// Compute type toggles from include_type
+	// Compute effective include types (include_type minus exclude_types_override for legacy repos only)
+	const effectiveIncludeTypes = $derived(
+		isLegacyRepo
+			? include_type.filter(type => !exclude_types_override.includes(type))
+			: include_type
+	)
+
+	// Compute type toggles from effective include types
 	const typeToggles = $derived({
-		scripts: include_type.includes('script'),
-		flows: include_type.includes('flow'),
-		apps: include_type.includes('app'),
-		folders: include_type.includes('folder'),
-		resourceTypes: include_type.includes('resourcetype'),
-		resources: include_type.includes('resource'),
-		variables: include_type.includes('variable'),
-		secrets: include_type.includes('secret'),
-		schedules: include_type.includes('schedule'),
-		users: include_type.includes('user'),
-		groups: include_type.includes('group'),
-		triggers: include_type.includes('trigger'),
-		settings: include_type.includes('settings'),
-		key: include_type.includes('key')
+		scripts: effectiveIncludeTypes.includes('script'),
+		flows: effectiveIncludeTypes.includes('flow'),
+		apps: effectiveIncludeTypes.includes('app'),
+		folders: effectiveIncludeTypes.includes('folder'),
+		resourceTypes: effectiveIncludeTypes.includes('resourcetype'),
+		resources: effectiveIncludeTypes.includes('resource'),
+		variables: effectiveIncludeTypes.includes('variable'),
+		secrets: effectiveIncludeTypes.includes('secret'),
+		schedules: effectiveIncludeTypes.includes('schedule'),
+		users: effectiveIncludeTypes.includes('user'),
+		groups: effectiveIncludeTypes.includes('group'),
+		triggers: effectiveIncludeTypes.includes('trigger'),
+		settings: effectiveIncludeTypes.includes('settings'),
+		key: effectiveIncludeTypes.includes('key')
 	})
+
+	// Tab selection for filter kinds
+	let filtersTab = $state<'includes' | 'excludes' | 'extra'>('includes')
 
 	function updateIncludeType(key: keyof GitSyncTypeMap, value: boolean) {
 		const newTypes = new Set(include_type)
@@ -123,19 +137,6 @@
 		include_type = Array.from(newTypes)
 	}
 
-	function addPathFilterInline() {
-		const value = newFilter.trim()
-		if (value && !include_path.includes(value)) {
-			include_path = [...include_path, value]
-			newFilter = ''
-			newFilterInput?.focus()
-		}
-	}
-
-	function removePathFilter(idx: number) {
-		include_path = include_path.filter((_, i) => i !== idx)
-	}
-
 	function capitalize(str: string) {
 		return str.charAt(0).toUpperCase() + str.slice(1)
 	}
@@ -144,6 +145,8 @@
 	function getUIState() {
 		return {
 			include_path,
+			exclude_path: excludes,
+			extra_include_path: extraIncludes,
 			include_type
 		}
 	}
@@ -217,30 +220,32 @@
 	// Simple YAML generation for manual editing mode
 	function generateYamlFromUI() {
 		try {
-			const validIncludePath = include_path.length > 0 ? include_path : ['f/**']
-			const validIncludeType = include_type.length > 0 ? include_type : ['script', 'flow', 'app', 'folder']
+			const validIncludePath = include_path
+			const validExcludePath = excludes
+			const validExtraInclude = extraIncludes
 
 			// Basic YAML structure - let the CLI handle the proper normalization
 			let config: any = {
 				defaultTs: 'bun',
 				includes: validIncludePath,
-				excludes: [],
+				excludes: validExcludePath,
+				extraIncludes: validExtraInclude,
 				codebases: []
 			}
 
 			// Let the CLI handle the optimization of skip/include flags
 			// Just convert the UI state directly
-			if (!validIncludeType.includes('variable')) config.skipVariables = true
-			if (!validIncludeType.includes('resource')) config.skipResources = true
-			if (!validIncludeType.includes('secret')) config.skipSecrets = true
-			if (!validIncludeType.includes('resourcetype')) config.skipResourceTypes = true
+			if (!include_type.includes('variable')) config.skipVariables = true
+			if (!include_type.includes('resource')) config.skipResources = true
+			if (!include_type.includes('secret')) config.skipSecrets = true
+			if (!include_type.includes('resourcetype')) config.skipResourceTypes = true
 
-			if (validIncludeType.includes('schedule')) config.includeSchedules = true
-			if (validIncludeType.includes('trigger')) config.includeTriggers = true
-			if (validIncludeType.includes('user')) config.includeUsers = true
-			if (validIncludeType.includes('group')) config.includeGroups = true
-			if (validIncludeType.includes('settings')) config.includeSettings = true
-			if (validIncludeType.includes('key')) config.includeKey = true
+			if (include_type.includes('schedule')) config.includeSchedules = true
+			if (include_type.includes('trigger')) config.includeTriggers = true
+			if (include_type.includes('user')) config.includeUsers = true
+			if (include_type.includes('group')) config.includeGroups = true
+			if (include_type.includes('settings')) config.includeSettings = true
+			if (include_type.includes('key')) config.includeKey = true
 
 			return yaml.dump(config, {
 				indent: 2,
@@ -256,6 +261,7 @@
 includes:
   - f/**
 excludes: []
+extraIncludes: []
 codebases: []`
 		}
 	}
@@ -524,53 +530,41 @@ codebases: []`
 		{:else}
 			<div class="px-4 py-2">
 				<div class="grid grid-cols-1 md:grid-cols-2 md:gap-32">
-					<!-- Path Filters Section (Left) -->
-					<div>
-						<div class="flex items-center gap-2 mb-3">
-							<h4 class="font-semibold text-sm">Path filters</h4>
-							<Tooltip>
-								Only scripts, flows and apps with their path matching one of those filters will be
-								synced to the Git repositories below. The filters allow '*' and '**' characters,
-								with '*' matching any character allowed in paths until the next slash (/) and '**'
-								matching anything including slashes. By default everything in folders will be
-								synced.
-							</Tooltip>
-						</div>
-						<div class="flex flex-wrap gap-2 items-center mb-2">
-							{#each include_path as path, idx (path)}
-								<span
-									class="flex items-center bg-gray-100 rounded-full px-3 py-1 text-xs text-gray-700"
-								>
-									{path}
-									<button
-										class="ml-2 text-gray-400 hover:text-red-500 focus:outline-none"
-										onclick={() => removePathFilter(idx)}
-										aria-label="Remove filter"
-									>
-										<X size={14} />
-									</button>
-								</span>
-							{/each}
-							<input
-								bind:this={newFilterInput}
-								class="border border-gray-300 rounded-full px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-primary"
-								placeholder="Add filter (e.g. f/**)"
-								value={newFilter}
-								oninput={(e) => (newFilter = e.currentTarget.value)}
-								onkeydown={(e) => e.key === 'Enter' && (addPathFilterInline(), e.preventDefault())}
-							/>
-							<button
-								class="ml-1 text-primary hover:bg-primary/10 rounded-full p-1"
-								onclick={addPathFilterInline}
-								aria-label="Add filter"
-							>
-								<Plus size={14} />
-							</button>
-						</div>
-						{#if include_path.length === 0}
-							<div class="text-xs text-gray-400 mt-1"
-								>No filters set. Everything will be synced.</div
-							>
+					<div class="flex flex-col gap-2">
+						<Tabs bind:selected={filtersTab}>
+							<Tab value="includes">Includes</Tab>
+							<Tab value="excludes">Excludes</Tab>
+							<Tab value="extra">Extra include</Tab>
+						</Tabs>
+
+						{#if filtersTab === 'includes'}
+							<FilterList title="Include path filters" bind:items={include_path} placeholder="Add filter (e.g. f/**)">
+								{#snippet tooltip()}
+									<Tooltip>
+										Only scripts, flows and apps with their path matching one of those filters will be
+										synced to the Git repositories below. The filters allow '*' and '**' characters,
+										with '*' matching any character allowed in paths until the next slash (/) and '**'
+										matching anything including slashes. By default everything in folders will be
+										synced.
+									</Tooltip>
+								{/snippet}
+							</FilterList>
+						{:else if filtersTab === 'excludes'}
+							<FilterList title="Exclude path filters" bind:items={excludes} placeholder="Add filter (e.g. f/**)">
+								{#snippet tooltip()}
+									<Tooltip>
+										After the include / extra include checks, if a file matches any of these patterns it will be skipped.
+									</Tooltip>
+								{/snippet}
+							</FilterList>
+						{:else}
+							<FilterList title="Extra include filters" bind:items={extraIncludes} placeholder="Add filter (e.g. f/**)">
+								{#snippet tooltip()}
+									<Tooltip>
+										Secondary allow-list applied after include/exclude. File must match at least one of these in addition to the main includes list if provided.
+									</Tooltip>
+								{/snippet}
+							</FilterList>
 						{/if}
 					</div>
 					<!-- Type Filters Section (Right) -->

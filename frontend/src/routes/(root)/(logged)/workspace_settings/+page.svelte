@@ -66,6 +66,11 @@
 	import PullGitRepoPopover from '$lib/components/PullGitRepoPopover.svelte'
 	import GitSyncFilterSettings from '$lib/components/workspaceSettings/GitSyncFilterSettings.svelte'
 
+	// Shared defaults for new Git-Sync repositories
+	const DEFAULT_INCLUDE_PATH = ['f/**'] as const;
+	const DEFAULT_EXCLUDE_PATH: string[] = [];
+	const DEFAULT_EXTRA_INCLUDE_PATH: string[] = [];
+
 	type ObjectType =
 		| 'script'
 		| 'flow'
@@ -88,6 +93,8 @@
 
 	type GitRepositorySettings = {
 		include_path: string[]
+		exclude_path: string[]
+		extra_include_path: string[]
 		include_type: ObjectType[]
 	}
 
@@ -98,7 +105,13 @@
 		group_by_folder: boolean
 		collapsed: boolean
 		settings: GitRepositorySettings
+		exclude_types_override?: ObjectType[]
+		legacyImported?: boolean
 	}
+
+	// Workspace-level legacy filter arrays (populated if we imported legacy settings)
+	let legacyWorkspaceIncludePath = $state<string[]>([])
+	let legacyWorkspaceIncludeType = $state<ObjectType[]>([])
 
 	let slackInitialPath = $state('')
 	let slackScriptPath = $state('')
@@ -143,7 +156,6 @@
 		}[]
 	>([])
 
-	let gitSyncComponent = $state<any>(undefined)
 	let workspaceDefaultAppPath = $state<string | undefined>(undefined)
 	let workspaceEncryptionKey = $state<string | undefined>(undefined)
 	let editedWorkspaceEncryptionKey = $state<string | undefined>(undefined)
@@ -161,61 +173,125 @@
 
 	const latestGitSyncHubScript = hubPaths.gitSync
 
+	// Each repository may have been populated from workspace-level legacy settings. Track on the repo itself.
+	const anyLegacyImported = $derived(gitSyncSettings.repositories.some((r) => r.legacyImported))
+
 	// Track changes in repositories
 	const repoChanges = $derived(
 		gitSyncSettings.repositories.map((repo, idx) => {
+			const repoValid = isRepoValid(idx)
+
+			// If there were no initial repos, treat each repo as changed only when valid
 			if (!initialGitSyncSettings || !initialGitSyncSettings.repositories || initialGitSyncSettings.repositories.length === 0) {
-				// If initial settings were empty but we now have repositories, that's a change
-				return true
+				return repoValid
 			}
-			const initial = initialGitSyncSettings.repositories[idx]
-			if (!initial || !repo) return false
+
+			const initial = initialGitSyncSettings.repositories.find(
+				initialRepo => initialRepo.git_repo_resource_path === repo.git_repo_resource_path
+			)
+
+			// If no matching initial repo found, this is a new repo - changed only when valid
+			if (!initial) return repoValid
 
 			// Handle array ordering for consistent comparison
 			const settings1 = {
 				include_path: [...initial.settings.include_path].sort(),
+				exclude_path: [...(initial.settings.exclude_path ?? [])].sort(),
+				extra_include_path: [...(initial.settings.extra_include_path ?? [])].sort(),
 				include_type: [...initial.settings.include_type].sort()
 			};
 
 			const settings2 = {
 				include_path: [...repo.settings.include_path].sort(),
+				exclude_path: [...(repo.settings.exclude_path ?? [])].sort(),
+				extra_include_path: [...(repo.settings.extra_include_path ?? [])].sort(),
 				include_type: [...repo.settings.include_type].sort()
 			};
 
 			// Compare all properties in a consistent way
-			return !deepEqual(
+			const isChanged = !deepEqual(
 				{
 					settings: settings1,
 					use_individual_branch: initial.use_individual_branch,
 					group_by_folder: initial.group_by_folder,
 					script_path: initial.script_path,
-					git_repo_resource_path: initial.git_repo_resource_path
+					git_repo_resource_path: initial.git_repo_resource_path,
+					exclude_types_override: [...(initial.exclude_types_override ?? [])].sort()
 				},
 				{
 					settings: settings2,
 					use_individual_branch: repo.use_individual_branch,
 					group_by_folder: repo.group_by_folder,
 					script_path: repo.script_path,
-					git_repo_resource_path: repo.git_repo_resource_path
+					git_repo_resource_path: repo.git_repo_resource_path,
+					exclude_types_override: [...(repo.exclude_types_override ?? [])].sort()
 				}
 			)
+
+			return isChanged && repoValid
 		})
 	)
 
 	const hasAnyChanges = $derived(
 		repoChanges.some(Boolean) ||
-		// Also detect when we have repositories but initial settings were empty
-		((!initialGitSyncSettings || !initialGitSyncSettings.repositories || initialGitSyncSettings.repositories.length === 0) &&
-		 gitSyncSettings.repositories.some(repo => !emptyString(repo.git_repo_resource_path))) ||
-		// Also detect when we had repositories but now have none (counting only valid ones)
-		((initialGitSyncSettings?.repositories?.length ?? 0) > 0 &&
-		 gitSyncSettings.repositories.filter(repo => !emptyString(repo.git_repo_resource_path)).length === 0)
+		anyLegacyImported ||
+		// Check if the set of valid repos has changed (added/removed repos)
+		(() => {
+			if (!initialGitSyncSettings?.repositories) return gitSyncSettings.repositories.filter((_,i)=>isRepoValid(i)).length > 0
+
+			const initialValidPaths = new Set(
+				initialGitSyncSettings.repositories
+					.filter(r => !emptyString(r.git_repo_resource_path))
+					.map(r => r.git_repo_resource_path)
+			)
+			const currentValidPaths = new Set(
+				gitSyncSettings.repositories
+					.filter((_,i) => isRepoValid(i))
+					.map(r => r.git_repo_resource_path)
+			)
+
+			// Check if sets are different (repos added or removed)
+			return initialValidPaths.size !== currentValidPaths.size ||
+				   [...initialValidPaths].some(path => !currentValidPaths.has(path)) ||
+				   [...currentValidPaths].some(path => !initialValidPaths.has(path))
+		})()
 	)
+
+	// Helper that tells if a repo card is valid (resource selected and not duplicated)
+	function isRepoValid(idx: number): boolean {
+		const repo = gitSyncSettings.repositories[idx]
+		if (!repo) return false
+		if (emptyString(repo.git_repo_resource_path)) return false
+		return !isRepoDuplicate(idx)
+	}
+
+	// Helper: true if repo shares its resource with an earlier repo
+	function isRepoDuplicate(idx: number): boolean {
+		const repo = gitSyncSettings.repositories[idx]
+		if (!repo || emptyString(repo.git_repo_resource_path)) return false
+		const firstIdx = gitSyncSettings.repositories.findIndex(r => r.git_repo_resource_path === repo.git_repo_resource_path)
+		return firstIdx !== idx
+	}
+
+	function serializeRepo(repo: GitSyncRepository) {
+		const serialized: any = {
+			script_path: repo.script_path,
+			git_repo_resource_path: `$res:${repo.git_repo_resource_path.replace('$res:', '')}`,
+			use_individual_branch: repo.use_individual_branch,
+			group_by_folder: repo.group_by_folder,
+			settings: repo.settings
+		}
+
+		// exclude_types_override should never be included for migrated repos (only legacy repos have it)
+		// Migration removes excluded types from include_type and drops exclude_types_override
+
+		return serialized
+	}
 
 	async function saveRepoSettings(idx: number): Promise<void> {
 		const currentRepo = gitSyncSettings.repositories[idx]
-		if (!currentRepo || emptyString(currentRepo.git_repo_resource_path)) {
-			sendUserToast('Cannot save repository without a git resource selected', true)
+		if (!currentRepo || !isRepoValid(idx)) {
+			sendUserToast('Cannot save invalid repository (missing or duplicate resource)', true)
 			return
 		}
 
@@ -223,15 +299,8 @@
 		if (!initialGitSyncSettings || !initialGitSyncSettings.repositories || initialGitSyncSettings.repositories.length === 0) {
 			// For new repositories starting from empty, save all current repositories with valid resources
 			const validRepositories = gitSyncSettings.repositories
-				.filter(repo => !emptyString(repo.git_repo_resource_path))
-				.map(repo => ({
-					script_path: repo.script_path,
-					git_repo_resource_path: `$res:${repo.git_repo_resource_path.replace('$res:', '')}`,
-					use_individual_branch: repo.use_individual_branch,
-					group_by_folder: repo.group_by_folder,
-					collapsed: false,
-					settings: repo.settings
-				}))
+				.filter((_,i)=>isRepoValid(i))
+				.map(repo => serializeRepo(repo))
 
 			await WorkspaceService.editWorkspaceGitSyncConfig({
 				workspace: $workspaceStore!,
@@ -240,35 +309,89 @@
 				}
 			})
 
+			// Mark all repos migrated and reset legacy arrays
+			gitSyncSettings.repositories.forEach(r => r.legacyImported = false)
+			legacyWorkspaceIncludePath = []
+			legacyWorkspaceIncludeType = []
 			// Update initial settings to reflect what we just saved
 			initialGitSyncSettings = JSON.parse(JSON.stringify(gitSyncSettings))
 		} else {
-			// Update existing repository in the context of existing repositories
-			const repositories = initialGitSyncSettings.repositories.map((repo, i) => {
-				if (i === idx) {
-					return {
-						script_path: currentRepo.script_path,
-						git_repo_resource_path: `$res:${currentRepo.git_repo_resource_path.replace('$res:', '')}`,
-						use_individual_branch: currentRepo.use_individual_branch,
-						group_by_folder: currentRepo.group_by_folder,
-						collapsed: false,
-						settings: currentRepo.settings
+			// Build repositories array: include all repos but serialize differently based on migration status
+			let repositories: any[] = []
+
+			// Process all repos that should be in the final payload
+			for (const repo of gitSyncSettings.repositories) {
+				if (repo === currentRepo) {
+					// This is the repo we're saving - migrate if legacy, otherwise serialize normally
+					if (currentRepo.legacyImported) {
+						// Migrate legacy repo: remove excluded types from include_type and drop exclude_types_override
+						const migratedRepo = {
+							...currentRepo,
+							settings: {
+								...currentRepo.settings,
+								include_type: currentRepo.settings.include_type.filter(
+									type => !currentRepo.exclude_types_override?.includes(type)
+								)
+							},
+							exclude_types_override: [], // Clear this for migrated repo
+							legacyImported: false
+						}
+						repositories.push(serializeRepo(migratedRepo))
+						// Update the current repo in the UI to reflect migration
+						Object.assign(currentRepo, migratedRepo)
+					} else {
+						repositories.push(serializeRepo(currentRepo))
 					}
+				} else if (repo.legacyImported) {
+					// This is a legacy repo - serialize without settings field at all
+					const legacyRepoData: any = {
+						script_path: repo.script_path,
+						git_repo_resource_path: `$res:${repo.git_repo_resource_path.replace('$res:', '')}`,
+						use_individual_branch: repo.use_individual_branch,
+						group_by_folder: repo.group_by_folder
+					}
+					// Include exclude_types_override if it has values
+					if (repo.exclude_types_override && repo.exclude_types_override.length > 0) {
+						legacyRepoData.exclude_types_override = repo.exclude_types_override
+					}
+					repositories.push(legacyRepoData)
+				} else {
+					// This is an already-migrated repo
+					repositories.push(serializeRepo(repo))
 				}
-				return repo
-			})
+			}
+
+			// Mark current repo as migrated
+			currentRepo.legacyImported = false;
+
+			// Check if there are still legacy repos
+			const remainingLegacy = gitSyncSettings.repositories.some(r => r.legacyImported)
+
+			const gitSyncPayload: any = {
+				git_sync_settings: {
+					repositories,
+					...(remainingLegacy && {
+						include_path: legacyWorkspaceIncludePath,
+						include_type: legacyWorkspaceIncludeType
+					})
+				}
+			}
+
+			console.log('Sending payload:', JSON.stringify(gitSyncPayload, null, 2))
 
 			await WorkspaceService.editWorkspaceGitSyncConfig({
 				workspace: $workspaceStore!,
-				requestBody: {
-					git_sync_settings: { repositories }
-				}
+				requestBody: gitSyncPayload
 			})
 
-			// Update initial settings for this repo
-			initialGitSyncSettings.repositories[idx] = JSON.parse(
-				JSON.stringify(gitSyncSettings.repositories[idx])
-			)
+			// Update initial settings to reflect current state
+			initialGitSyncSettings = JSON.parse(JSON.stringify(gitSyncSettings))
+
+			// if no more legacy repos, clear workspace-level legacy arrays
+			if (!remainingLegacy) {
+				legacyWorkspaceIncludePath = []
+				legacyWorkspaceIncludeType = []
+			}
 		}
 
 		sendUserToast('Repository settings updated')
@@ -289,8 +412,6 @@
 			platform === 'slack' ? WorkspaceService.editSlackCommand : WorkspaceService.editTeamsCommand
 
 		if (scriptPath) {
-			console.log('editWorkspaceCommand', scriptPath)
-			console.log('itemKind', itemKind)
 			await updateCommandScript({
 				workspace: $workspaceStore!,
 				requestBody: { [commandScriptKey]: `${itemKind}/${scriptPath}` }
@@ -332,20 +453,13 @@
 
 	async function editWindmillGitSyncSettings(): Promise<void> {
 		// Filter out repositories with empty resource paths before processing
-		const validRepos = gitSyncSettings.repositories.filter(repo => !emptyString(repo.git_repo_resource_path))
+		const validRepos = gitSyncSettings.repositories.filter((_,i)=>isRepoValid(i))
 
 		let alreadySeenResource: string[] = []
 		let repositories = validRepos.map((repo) => {
 			alreadySeenResource.push(repo.git_repo_resource_path)
 
-			return {
-				script_path: repo.script_path,
-				git_repo_resource_path: `$res:${repo.git_repo_resource_path.replace('$res:', '')}`,
-				use_individual_branch: repo.use_individual_branch,
-				group_by_folder: repo.group_by_folder,
-				collapsed: false,
-				settings: repo.settings
-			}
+			return serializeRepo(repo)
 		})
 
 		if (alreadySeenResource.some((res, index) => alreadySeenResource.indexOf(res) !== index)) {
@@ -364,18 +478,21 @@
 			})
 			// Update initial settings to reflect what we just saved
 			initialGitSyncSettings = {
-				repositories: gitSyncSettings.repositories.filter(repo => !emptyString(repo.git_repo_resource_path))
+				repositories: gitSyncSettings.repositories.filter((_,i)=>isRepoValid(i))
 			}
 			sendUserToast('Workspace Git sync settings updated')
+			gitSyncSettings.repositories.forEach(r => r.legacyImported = false);
+			legacyWorkspaceIncludePath = [];
+			legacyWorkspaceIncludeType = [];
 		} else {
 			await WorkspaceService.editWorkspaceGitSyncConfig({
 				workspace: $workspaceStore!,
 				requestBody: {
-					git_sync_settings: undefined
+					git_sync_settings: { repositories: [] }
 				}
 			})
-			initialGitSyncSettings = undefined
-			sendUserToast('Workspace Git sync settings reset')
+			initialGitSyncSettings = { repositories: [] }
+			sendUserToast('Workspace Git sync settings updated (no repositories)')
 		}
 	}
 
@@ -482,17 +599,40 @@
 
 		if (settings.git_sync !== undefined && settings.git_sync !== null) {
 			gitSyncTestJobs = []
+			// Derive workspace-level legacy defaults (outside repositories)
+			const workspaceLegacyIncludePath: string[] = (settings.git_sync as any)?.include_path ?? [];
+			const workspaceLegacyIncludeTypeRaw: ObjectType[] = (settings.git_sync as any)?.include_type ?? [];
+			// Note: exclude_types_override is only at repository level, not workspace level
+			const workspaceLegacyIncludeType: ObjectType[] = [...workspaceLegacyIncludeTypeRaw];
+
+			legacyWorkspaceIncludePath = [...workspaceLegacyIncludePath];
+			legacyWorkspaceIncludeType = [...workspaceLegacyIncludeType];
+
 			gitSyncSettings.repositories = (settings.git_sync.repositories ?? []).map((repo) => {
 				gitSyncTestJobs.push({
 					jobId: undefined,
 					status: undefined
 				})
 
-				// Use repository-specific settings if available, otherwise use defaults
-				const repoSettings = repo.settings ?? {
-					include_path: ['f/**'],
-					include_type: ['script', 'flow', 'app', 'folder'] as ObjectType[]
-				}
+				// First grab raw settings (could be undefined or partially filled)
+				const rawSettings = (repo.settings ?? {}) as Partial<GitRepositorySettings>;
+				const defaultTypes: ObjectType[] = workspaceLegacyIncludeType.length > 0
+					? [...workspaceLegacyIncludeType]
+					: (['script', 'flow', 'app', 'folder'] as ObjectType[]);
+
+				// Check if this is a legacy repo (no settings field)
+				const isRepoLegacy = !repo.settings;
+				const repoExcludeTypesOverride = isRepoLegacy ? ((repo as any).exclude_types_override ?? []) : [];
+
+				const repoSettings: GitRepositorySettings = {
+					include_path: rawSettings.include_path ?? [...workspaceLegacyIncludePath],
+					exclude_path: rawSettings.exclude_path ?? [],
+					extra_include_path: rawSettings.extra_include_path ?? [],
+					include_type:
+						(rawSettings.include_type && rawSettings.include_type.length > 0)
+							? (rawSettings.include_type as ObjectType[])
+							: [...defaultTypes]
+				};
 
 				return {
 					git_repo_resource_path: repo.git_repo_resource_path.replace('$res:', ''),
@@ -500,10 +640,9 @@
 					use_individual_branch: repo.use_individual_branch ?? false,
 					group_by_folder: repo.group_by_folder ?? false,
 					collapsed: false,
-					settings: {
-						include_path: repoSettings.include_path ?? ['f/**'],
-						include_type: repoSettings.include_type ?? ['script', 'flow', 'app', 'folder']
-					}
+					settings: repoSettings,
+					exclude_types_override: isRepoLegacy ? repoExcludeTypesOverride : [],
+					legacyImported: isRepoLegacy && (legacyWorkspaceIncludePath.length > 0 || legacyWorkspaceIncludeType.length > 0)
 				} satisfies GitSyncRepository
 			})
 			// Store initial settings
@@ -630,6 +769,7 @@
 			jobId: jobId,
 			status: 'running'
 		}
+		gitSyncTestJobs = [...gitSyncTestJobs]
 		tryEvery({
 			tryCode: async () => {
 				const testResult = await JobService.getCompletedJob({
@@ -637,6 +777,7 @@
 					id: jobId
 				})
 				gitSyncTestJobs[settingsIdx].status = testResult.success ? 'success' : 'failure'
+				gitSyncTestJobs = [...gitSyncTestJobs]
 			},
 			timeoutCode: async () => {
 				try {
@@ -649,6 +790,9 @@
 					})
 				} catch (err) {
 					console.error(err)
+				} finally {
+					gitSyncTestJobs[settingsIdx].status = 'failure'
+					gitSyncTestJobs = [...gitSyncTestJobs]
 				}
 			},
 			interval: 500,
@@ -1144,9 +1288,7 @@
 					<Button
 						color="red"
 						startIcon={{ icon: Save }}
-						disabled={!$enterpriseLicense ||
-							!hasAnyChanges ||
-							gitSyncSettings.repositories.filter(repo => !emptyString(repo.git_repo_resource_path)).length === 0}
+						disabled={!$enterpriseLicense || !hasAnyChanges || gitSyncSettings.repositories.some((_,i)=>!isRepoValid(i))}
 						on:click={() => {
 							editWindmillGitSyncSettings()
 							console.log('Saving git sync settings', gitSyncSettings)
@@ -1175,7 +1317,7 @@
 									</span>
 								</div>
 								<div class="flex items-center gap-2">
-									{#if repoChanges[idx] && !emptyString(repo.git_repo_resource_path)}
+									{#if (repoChanges[idx] || repo.legacyImported) && isRepoValid(idx)}
 										<Button
 											color="red"
 											size="xs"
@@ -1274,13 +1416,13 @@
 
 									{#if !emptyString(repo.git_repo_resource_path)}
 										<div class="flex mb-5 text-normal text-2xs gap-1">
-											{#if gitSyncSettings.repositories.filter((settings) => settings.git_repo_resource_path === repo.git_repo_resource_path).length > 1}
+											{#if isRepoDuplicate(idx)}
 												<span class="text-red-700">Using the same resource twice is not allowed.</span
 												>
 											{/if}
 											{#if gitSyncTestJobs[idx].status !== undefined}
 												{#if gitSyncTestJobs[idx].status === 'running'}
-													<RotateCw size={14} />
+													<RotateCw size={14} class="animate-spin" />
 												{:else if gitSyncTestJobs[idx].status === 'success'}
 													<CheckCircle2 size={14} class="text-green-600" />
 												{:else}
@@ -1296,6 +1438,11 @@
 											{/if}
 										</div>
 
+										{#if repo.legacyImported}
+											<Alert type="warning" title="Legacy git sync settings imported">
+												This repository was initialized from workspace-level legacy Git-Sync settings. Review the filters and press <b>Save</b> to migrate.
+											</Alert>
+										{/if}
 										<div class="flex flex-col mt-5 mb-1 gap-4">
 											{#if gitSyncSettings && repo}
 												{#if repo.script_path != latestGitSyncHubScript}
@@ -1323,10 +1470,13 @@
 													</Alert>
 												{/if}
 												<GitSyncFilterSettings
-													bind:this={gitSyncComponent}
 													git_repo_resource_path={repo.git_repo_resource_path}
 													bind:include_path={repo.settings.include_path}
 													bind:include_type={repo.settings.include_type}
+													bind:exclude_types_override={repo.exclude_types_override}
+													isLegacyRepo={repo.legacyImported}
+													bind:excludes={repo.settings.exclude_path}
+													bind:extraIncludes={repo.settings.extra_include_path}
 													bind:yamlText
 													onSettingsChange={(settings) => {
 														yamlText = settings.yaml
@@ -1401,9 +1551,13 @@
 									group_by_folder: false,
 									collapsed: false,
 									settings: {
-										include_path: ['f/**'],
+										include_path: [...DEFAULT_INCLUDE_PATH],
+										exclude_path: [...DEFAULT_EXCLUDE_PATH],
+										extra_include_path: [...DEFAULT_EXTRA_INCLUDE_PATH],
 										include_type: ['script', 'flow', 'app', 'folder'] as ObjectType[]
-									}
+									},
+									exclude_types_override: [],
+									legacyImported: false
 								}
 							]
 							gitSyncTestJobs = [
