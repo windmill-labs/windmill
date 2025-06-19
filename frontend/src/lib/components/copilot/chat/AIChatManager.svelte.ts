@@ -500,6 +500,36 @@ class AIChatManager {
 		this.abortController?.abort()
 	}
 
+	restartLastGeneration = (displayMessageIndex: number) => {
+		const userMessage = this.displayMessages[displayMessageIndex]
+		
+		if (!userMessage || userMessage.role !== 'user') {
+			throw new Error('No user message found at the specified index')
+		}
+
+		// Remove all messages including and after the specified user message
+		this.displayMessages = this.displayMessages.slice(0, displayMessageIndex)
+
+		// Find the last user message in actual messages and remove it and everything after it
+		let lastActualUserMessageIndex = -1
+		for (let i = this.messages.length - 1; i >= 0; i--) {
+			if (this.messages[i].role === 'user') {
+				lastActualUserMessageIndex = i
+				break
+			}
+		}
+
+		if (lastActualUserMessageIndex === -1) {
+			throw new Error('No actual user message found to restart from')
+		}
+
+		this.messages = this.messages.slice(0, lastActualUserMessageIndex)
+
+		// Resend the request with the same instructions
+		this.instructions = userMessage.content
+		this.sendRequest()
+	}
+
 	fix = () => {
 		if (!this.open) {
 			this.toggleOpen()

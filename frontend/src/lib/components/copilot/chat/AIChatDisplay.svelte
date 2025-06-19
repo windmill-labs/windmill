@@ -7,6 +7,7 @@
 		HistoryIcon,
 		Loader2,
 		Plus,
+		RefreshCwIcon,
 		StopCircleIcon,
 		Undo2Icon,
 		X,
@@ -105,6 +106,20 @@
 		aiChatManager.instructions = suggestion
 		aiChatManager.sendRequest()
 	}
+
+	function isLastUserMessage(messageIndex: number): boolean {
+		// Find the last user message index
+		for (let i = messages.length - 1; i >= 0; i--) {
+			if (messages[i].role === 'user') {
+				return i === messageIndex
+			}
+		}
+		return false
+	}
+
+	function restartGeneration(messageIndex: number) {
+		aiChatManager.restartLastGeneration(messageIndex)
+	}
 </script>
 
 <div class="flex flex-col h-full">
@@ -187,7 +202,7 @@
 		<div
 			class="h-full overflow-y-scroll pt-2 pb-12"
 			bind:this={scrollEl}
-			onwheel={(e) => {
+			onwheel={() => {
 				aiChatManager.disableAutomaticScroll()
 			}}
 		>
@@ -204,7 +219,7 @@
 						class={twMerge(
 							'text-sm py-1 mx-2',
 							message.role === 'user' &&
-								'px-2 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 rounded-lg mb-2',
+								'px-2 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 rounded-lg mb-2 relative group',
 							message.role === 'user' && messageIndex > 0 && 'mt-6',
 							(message.role === 'assistant' || message.role === 'tool') && 'px-[1px]',
 							message.role === 'tool' && 'text-tertiary'
@@ -214,6 +229,23 @@
 							<AssistantMessage {message} />
 						{:else}
 							{message.content}
+						{/if}
+
+						{#if message.role === 'user' && isLastUserMessage(messageIndex) && !aiChatManager.loading}
+							<div
+								class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity"
+							>
+								<Button
+									size="xs2"
+									variant="border"
+									color="light"
+									iconOnly
+									title="Restart generation"
+									startIcon={{ icon: RefreshCwIcon }}
+									btnClasses="!p-1 !h-6 !w-6"
+									on:click={() => restartGeneration(messageIndex)}
+								/>
+							</div>
 						{/if}
 					</div>
 					{#if message.role === 'user' && message.snapshot}
@@ -281,7 +313,7 @@
 					size="xs"
 					variant="border"
 					color="light"
-					btnClasses="text-tertiary"
+					btnClasses="dark:opacity-50 opacity-60 hover:opacity-100"
 					on:click={() => {
 						aiChatManager.flowAiChatHelpers?.rejectAllModuleActions()
 					}}

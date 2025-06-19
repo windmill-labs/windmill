@@ -32,6 +32,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { Drawer } from '$lib/components/common'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
+	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
 	import { onMount, setContext, untrack, type ComponentType } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
@@ -139,11 +140,31 @@
 	let draftTriggersModalOpen = $state(false)
 	let confirmDeploymentCallback: (triggersToDeploy: Trigger[]) => void = () => {}
 
+	// AI changes warning modal
+	let aiChangesWarningOpen = $state(false)
+	let aiChangesConfirmCallback = $state<() => void>(() => {})
+
 	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
 		const { selectedTriggers } = event.detail
 		// Continue with saving the flow
 		draftTriggersModalOpen = false
 		confirmDeploymentCallback(selectedTriggers)
+	}
+
+	function hasAIChanges(): boolean {
+		return aiChatManager.flowAiChatHelpers?.hasDiff() ?? false
+	}
+
+	function withAIChangesWarning(callback: () => void) {
+		if (hasAIChanges()) {
+			aiChangesConfirmCallback = () => {
+				aiChatManager.flowAiChatHelpers?.rejectAllModuleActions()
+				callback()
+			}
+			aiChangesWarningOpen = true
+		} else {
+			callback()
+		}
 	}
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
@@ -204,10 +225,15 @@
 	let loadingDraft = $state(false)
 
 	export async function saveDraft(forceSave = false): Promise<void> {
+		withAIChangesWarning(async () => {
+			await saveDraftInternal(forceSave)
+		})
+	}
+
+	async function saveDraftInternal(forceSave = false): Promise<void> {
 		if (!newFlow && !savedFlow) {
 			return
 		}
-		aiChatManager.flowAiChatHelpers?.rejectAllModuleActions()
 
 		if (savedFlow) {
 			const draftOrDeployed = cleanValueProperties(savedFlow.draft || savedFlow)
@@ -224,7 +250,7 @@
 					{
 						label: 'Save anyway',
 						callback: () => {
-							saveDraft(true)
+							saveDraftInternal(true)
 						}
 					}
 				])
@@ -333,8 +359,12 @@
 	}
 
 	async function handleSaveFlow(deploymentMsg?: string) {
-		aiChatManager.flowAiChatHelpers?.rejectAllModuleActions()
+		withAIChangesWarning(async () => {
+			await handleSaveFlowInternal(deploymentMsg)
+		})
+	}
 
+	async function handleSaveFlowInternal(deploymentMsg?: string) {
 		await compareVersions()
 		if (onLatest || initialPath == '' || savedFlow?.draft_only) {
 			// Handle directly
@@ -725,7 +755,10 @@
 		disabled?: boolean
 	}[] = $state([])
 
-	function onCustomUiChange(customUi: FlowBuilderWhitelabelCustomUi | undefined) {
+	function onCustomUiChange(
+		customUi: FlowBuilderWhitelabelCustomUi | undefined,
+		hasAiDiff: boolean
+	) {
 		moreItems = [
 			...(customUi?.topBar?.history != false
 				? [
@@ -749,7 +782,8 @@
 						{
 							displayName: 'Edit in YAML',
 							icon: FileJson,
-							action: () => yamlEditorDrawer?.openDrawer()
+							action: () => yamlEditorDrawer?.openDrawer(),
+							disabled: hasAiDiff
 						}
 					]
 				: [])
@@ -792,7 +826,8 @@
 		initialPath && initialPath != '' && $workspaceStore && untrack(() => loadTriggers())
 	})
 	run(() => {
-		customUi && untrack(() => onCustomUiChange(customUi))
+		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasDiff() ?? false
+		customUi && untrack(() => onCustomUiChange(customUi, hasAiDiff))
 	})
 </script>
 
@@ -818,6 +853,8 @@
 	}}
 	on:confirmed={handleDraftTriggersConfirmed}
 />
+
+<AIChangesWarningModal bind:open={aiChangesWarningOpen} onConfirm={aiChangesConfirmCallback} />
 
 {#key renderCount}
 	{#if !$userStore?.operator}
@@ -956,12 +993,14 @@
 								)
 
 								diffDrawer?.openDrawer()
+								const currentFlow =
+									aiChatManager.flowAiChatHelpers?.getPreviewFlow() ?? flowStore.val
 								diffDrawer?.setDiff({
 									mode: 'normal',
 									deployed: deployedValue ?? savedFlow,
 									draft: savedFlow?.draft,
 									current: {
-										...flowStore.val,
+										...currentFlow,
 										path: $pathStore,
 										draft_triggers: currentDraftTriggers
 									}

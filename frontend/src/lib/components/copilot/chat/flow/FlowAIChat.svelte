@@ -1,6 +1,6 @@
 <script lang="ts">
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { FlowCopilotContext } from '../../flow'
 	import type { ExtendedOpenFlow, FlowEditorContext } from '$lib/components/flows/types'
 	import { dfs } from '$lib/components/flows/previousResults'
@@ -36,8 +36,18 @@
 		}
 	> = $state({})
 	let lastSnapshot: ExtendedOpenFlow | undefined = $state(undefined)
-
-	$inspect(affectedModules)
+	let previewFlow = $derived.by(() => {
+		const flow = $state.snapshot(flowStore).val
+		if (Object.values(affectedModules).some((m) => m.action === 'removed')) {
+			dfsApply(flow.value.modules, (m, modules) => {
+				const action = affectedModules[m.id]?.action
+				if (action === 'removed') {
+					modules.splice(modules.indexOf(m), 1)
+				}
+			})
+		}
+		return flow
+	})
 
 	function setModuleStatus(id: string, action: AIModuleAction) {
 		const existingAction: AIModuleAction | undefined = affectedModules[id]?.action
@@ -67,17 +77,6 @@
 		}
 	}
 
-	function clearSubmodulesActions(id: string) {
-		const module = getModule(id)
-		if (!module) {
-			throw new Error('Module not found')
-		}
-		const submoduleIds = dfsApply([module], (m) => m.id)
-		for (const submoduleId of submoduleIds) {
-			delete affectedModules[submoduleId]
-		}
-	}
-
 	const flowHelpers: FlowAIChatHelpers = {
 		// flow context
 		getFlowAndSelectedId: () => {
@@ -89,16 +88,7 @@
 		},
 		// flow apply/reject
 		getPreviewFlow: () => {
-			const flow = $state.snapshot(flowStore).val
-			if (Object.values(affectedModules).some((m) => m.action === 'removed')) {
-				dfsApply(flow.value.modules, (m, modules) => {
-					const action = affectedModules[m.id]?.action
-					if (action === 'removed') {
-						modules.splice(modules.indexOf(m), 1)
-					}
-				})
-			}
-			return flow
+			return previewFlow
 		},
 		hasDiff: () => {
 			return Object.keys(affectedModules).length > 0
@@ -127,7 +117,7 @@
 				refreshStateStore(flowStore)
 			}
 		},
-		showModuleDiff: (id: string) => {
+		showModuleDiff(id: string) {
 			if (!lastSnapshot) {
 				return
 			}
@@ -145,6 +135,7 @@
 						text: 'Accept',
 						onClick: () => {
 							diffDrawer?.closeDrawer()
+							this.acceptModuleAction(id)
 						}
 					}
 				})
@@ -160,8 +151,6 @@
 					if (id === 'Input') {
 						flowStore.val.schema = lastSnapshot.schema
 					} else if (action === 'added') {
-						// delete all submodule changes if any
-						clearSubmodulesActions(id)
 						deleteStep(id)
 					} else if (action === 'modified') {
 						const oldModule = getModule(id, lastSnapshot)
@@ -182,7 +171,6 @@
 		},
 		acceptModuleAction: (id: string) => {
 			if (affectedModules[id]?.action === 'removed') {
-				clearSubmodulesActions(id)
 				deleteStep(id)
 			}
 			delete affectedModules[id]
@@ -480,7 +468,6 @@
 	}
 
 	function deleteStep(id: string) {
-		console.log('delete step', id, flowStore.val)
 		flowModuleSchemaMap?.selectNextId(id)
 		if (id === 'preprocessor') {
 			flowStore.val.value.preprocessor_module = undefined
@@ -493,6 +480,18 @@
 
 		refreshStateStore(flowStore)
 	}
+
+	const allModuleIds = $derived(dfsApply(flowStore.val.value.modules, (m) => m.id))
+
+	$effect(() => {
+		// remove any affected modules that are no longer in the flow
+		const untrackedAffectedModules = untrack(() => affectedModules)
+		for (const id of Object.keys(untrackedAffectedModules)) {
+			if (!allModuleIds.includes(id)) {
+				delete affectedModules[id]
+			}
+		}
+	})
 
 	$effect(() => {
 		const cleanup = aiChatManager.setFlowHelpers(flowHelpers)
