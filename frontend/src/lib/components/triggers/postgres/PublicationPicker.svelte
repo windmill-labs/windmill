@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import Select from '$lib/components/Select.svelte'
+	import Select from '$lib/components/select/Select.svelte'
+	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 	import type { Relations } from '$lib/gen'
 	import { PostgresTriggerService } from '$lib/gen/services.gen'
 	import { workspaceStore } from '$lib/stores'
@@ -102,7 +103,7 @@
 		disabled={!can_write || disabled}
 		class="grow shrink"
 		bind:value={publication_name}
-		items={items.map((value) => ({ value }))}
+		items={safeSelectItems(items)}
 		placeholder="Choose a publication"
 		clearable
 		disablePortal

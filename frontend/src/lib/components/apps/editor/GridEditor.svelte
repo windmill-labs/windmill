@@ -127,6 +127,7 @@
 	}
 </script>
 
+<input />
 <div class="w-full z-[1000] overflow-visible h-full">
 	<div class={$app.hideLegacyTopBar ? 'hidden' : ''}>
 		<div
