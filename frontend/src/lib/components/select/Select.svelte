@@ -4,7 +4,7 @@
 	import CloseButton from '../common/CloseButton.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { untrack } from 'svelte'
-	import { processItems, type ProcessedItem } from './utils.svelte'
+	import { getLabel, processItems, type ProcessedItem } from './utils.svelte'
 	import SelectDropdown from './SelectDropdown.svelte'
 	import { deepEqual } from 'fast-equals'
 
@@ -14,7 +14,7 @@
 		items,
 		placeholder = 'Please select',
 		value = $bindable(),
-		filterText: _filterTextBind = $bindable(undefined),
+		filterText = $bindable(''),
 		class: className = '',
 		clearable = false,
 		listAutoWidth = true,
@@ -27,6 +27,7 @@
 		RightIcon,
 		createText,
 		noItemsMsg,
+		open = $bindable(false),
 		groupBy,
 		sortBy,
 		onFocus,
@@ -50,6 +51,7 @@
 		RightIcon?: any
 		createText?: string
 		noItemsMsg?: string
+		open?: boolean
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onFocus?: () => void
@@ -60,20 +62,11 @@
 
 	let disabled = $derived(_disabled || loading)
 
-	let filterText = $state<string>('')
-	let open = $state<boolean>(false)
 	let inputEl: HTMLInputElement | undefined = $state()
 
 	let processedItems: ProcessedItem<Value>[] = $derived.by(() => {
 		let args = { items, createText, filterText, groupBy, onCreateItem, sortBy }
 		return untrack(() => processItems(args))
-	})
-
-	$effect(() => {
-		if (_filterTextBind !== undefined) filterText = _filterTextBind
-	})
-	$effect(() => {
-		if (_filterTextBind !== undefined) _filterTextBind = filterText
 	})
 
 	$effect(() => {
@@ -128,12 +121,12 @@
 		{disabled}
 		type="text"
 		bind:value={() => filterText, (v) => (filterText = v)}
-		placeholder={loading ? 'Loading...' : (valueEntry?.label ?? placeholder)}
+		placeholder={loading ? 'Loading...' : (valueEntry?.label ?? getLabel({ value }) ?? placeholder)}
 		style={containerStyle}
 		class={twMerge(
 			'!bg-surface text-ellipsis',
 			open ? '' : 'cursor-pointer',
-			valueEntry && !loading ? '!placeholder-primary' : '',
+			value && !loading ? '!placeholder-primary' : '',
 			(clearable || RightIcon) && !disabled && value ? '!pr-8' : '',
 			inputClass ?? ''
 		)}
