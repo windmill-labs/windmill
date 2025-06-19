@@ -676,7 +676,7 @@ For truly static values in step inputs (those not linked to previous steps or lo
   - Error object structure: { message, name, stack, step_id }
   - Only supports script/rawscript steps
 
-Both modules only support a script or rawscript step. You cannot nest modules using foorloop/branchone/branchall.
+Both modules only support a script or rawscript step. You cannot nest modules using forloop/branchone/branchall.
 
 ## Resource types
 On Windmill, credentials and configuration are stored in resources. Resource types define the format of the resource.
