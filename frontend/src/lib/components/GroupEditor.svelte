@@ -17,7 +17,8 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
-	import Select from './Select.svelte'
+	import Select from './select/Select.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 
 	export let name: string
 	let can_write = false
@@ -129,7 +130,7 @@
 <Section label={`Members (${members?.length ?? 0})`}>
 	{#if can_write}
 		<div class="flex items-start">
-			<Select items={usernames?.map((u) => ({ value: u, label: u }))} bind:value={username} />
+			<Select items={safeSelectItems(usernames)} bind:value={username} />
 			<Button variant="contained" color="blue" size="sm" btnClasses="!ml-4" on:click={addToGroup}>
 				Add member
 			</Button>
