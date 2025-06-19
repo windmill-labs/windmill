@@ -4,7 +4,7 @@
 	import CloseButton from '../common/CloseButton.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { untrack } from 'svelte'
-	import { processItems, type ProcessedItem } from './utils.svelte'
+	import { getLabel, processItems, type ProcessedItem } from './utils.svelte'
 	import SelectDropdown from './SelectDropdown.svelte'
 	import { deepEqual } from 'fast-equals'
 
@@ -128,7 +128,7 @@
 		{disabled}
 		type="text"
 		bind:value={() => filterText, (v) => (filterText = v)}
-		placeholder={loading ? 'Loading...' : (valueEntry?.label ?? placeholder)}
+		placeholder={loading ? 'Loading...' : (valueEntry?.label ?? getLabel(value) ?? placeholder)}
 		style={containerStyle}
 		class={twMerge(
 			'!bg-surface text-ellipsis',
