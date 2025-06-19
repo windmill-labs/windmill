@@ -26,11 +26,19 @@ function formatColumnNames(columns: ColumnDef[]): string {
 function getUserDefaultValue(column: ColumnDef) {
 	if (column.defaultValueNull) {
 		return 'NULL'
-	} else if (column.defaultUserValue) {
+	} else if (column.defaultUserValue !== undefined) {
 		return typeof column.defaultUserValue === 'string'
 			? `'${column.defaultUserValue}'`
 			: column.defaultUserValue
 	}
+}
+
+function isStringType(datatype: string): boolean {
+	if (!datatype) return false
+	const lowerType = datatype.toLowerCase()
+	// Covers common SQL string types like VARCHAR, CHAR, TEXT, NVARCHAR, NCHAR
+	// and also types like 'string' from BigQuery.
+	return lowerType.includes('char') || lowerType.includes('text') || lowerType.includes('string')
 }
 
 function formatDefaultValues(columns: ColumnDef[]): string {
@@ -38,10 +46,24 @@ function formatDefaultValues(columns: ColumnDef[]): string {
 		.map((c) => {
 			const userDefaultValue = getUserDefaultValue(c)
 			if (c.overrideDefaultValue === true) {
-				return userDefaultValue
+				// User wants to override the database default.
+				if (userDefaultValue !== undefined) {
+					// User specified an explicit override (e.g., a value, or NULL via defaultValueNull)
+					return userDefaultValue
+				} else {
+					// User specified "override" but didn't provide a value or check "set to NULL".
+					// For string types, interpret this as "override with empty string".
+					// For non-string types, interpret as "override with NULL" (by returning undefined).
+					if (isStringType(c.datatype)) {
+						return "''" // SQL empty string literal
+					}
+					return undefined // Will result in NULL for this column in the INSERT statement
+				}
+			} else {
+				// User does not want to override the database default.
+				// Use user-specified default if available, otherwise use database default.
+				return userDefaultValue ?? c.defaultvalue
 			}
-
-			return userDefaultValue ?? c.defaultvalue
 		})
 		.join(', ')
 
