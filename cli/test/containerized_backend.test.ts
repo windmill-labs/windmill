@@ -1,6 +1,16 @@
 import { assertEquals, assertStringIncludes, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { withContainerizedBackend, ContainerizedBackend } from "./containerized_backend.ts";
 
+// Helper function to check if file exists
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await Deno.stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // =============================================================================
 // CONTAINERIZED BACKEND TESTS - REAL WINDMILL EE BACKEND
 // =============================================================================
@@ -52,7 +62,7 @@ excludes: []`);
   });
 });
 
-Deno.test("Containerized Backend: CLI sync pull creates files", async () => {
+Deno.test("Containerized Backend: CLI sync pull verifies files match backend content", async () => {
   await withContainerizedBackend(async (backend, tempDir) => {
     // Create basic wmill.yaml first
     await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
@@ -62,7 +72,14 @@ excludes:
   - "*.test.ts"
   - "*.spec.ts"`);
     
-    console.log('🔍 Running sync pull to create files from backend...');
+    console.log('🔍 Getting backend state before sync pull...');
+    
+    // Get backend state BEFORE pull
+    const backendScripts = await backend.listAllScripts();
+    const backendApps = await backend.listAllApps();
+    const backendResources = await backend.listAllResources();
+    
+    console.log(`📊 Backend has ${backendScripts.length} scripts, ${backendApps.length} apps, ${backendResources.length} resources`);
     
     // Run sync pull
     const result = await backend.runCLICommand([
@@ -75,55 +92,92 @@ excludes:
     
     assertEquals(result.code, 0);
     
-    // Verify directory structure was created
-    console.log('📂 Checking created directory structure...');
+    console.log('📂 Verifying pulled files match backend content...');
     
-    try {
-      // Check if f/ directory was created
-      const fDirStat = await Deno.stat(`${tempDir}/f`);
-      assertEquals(fDirStat.isDirectory, true);
-      console.log('✅ f/ directory created');
-      
-      // List all files created
-      const createdFiles: string[] = [];
-      for await (const entry of Deno.readDir(`${tempDir}/f`)) {
-        createdFiles.push(entry.name);
-        console.log(`  📄 Found file: ${entry.name}`);
+    // STRONG ASSERTIONS: Verify pulled files match backend content exactly
+    
+    // 1. Check scripts that should be pulled (f/** pattern)
+    for (const script of backendScripts) {
+      if (script.path.startsWith('f/')) {
+        const localScriptPath = `${tempDir}/${script.path}.ts`;
+        const localMetaPath = `${tempDir}/${script.path}.script.yaml`;
         
-        // If it's a TypeScript file, verify it has content
-        if (entry.name.endsWith('.ts')) {
-          try {
-            const content = await Deno.readTextFile(`${tempDir}/f/${entry.name}`);
-            console.log(`    📝 Content length: ${content.length} characters`);
-            assertEquals(content.length > 0, true, `File ${entry.name} should not be empty`);
-          } catch (e) {
-            console.log(`    ⚠️  Could not read ${entry.name}: ${e instanceof Error ? e.message : e}`);
+        console.log(`  🔍 Checking script: ${script.path}`);
+        
+        // File must exist
+        assert(await fileExists(localScriptPath), `Script file should exist: ${localScriptPath}`);
+        assert(await fileExists(localMetaPath), `Script metadata should exist: ${localMetaPath}`);
+        
+        // Content must match backend exactly
+        const localContent = await Deno.readTextFile(localScriptPath);
+        assertEquals(localContent.trim(), script.content.trim(), 
+          `Script content should match backend: ${script.path}`);
+        
+        // Metadata must contain summary
+        const localMeta = await Deno.readTextFile(localMetaPath);
+        assertStringIncludes(localMeta, script.summary, 
+          `Script metadata should contain summary: ${script.path}`)
+        
+        console.log(`  ✅ Script verified: ${script.path}`);
+      }
+    }
+    
+    // 2. Check apps that should be pulled (f/** pattern)
+    for (const app of backendApps) {
+      if (app.path.startsWith('f/')) {
+        const localAppPath = `${tempDir}/${app.path}.app/app.yaml`;
+        
+        console.log(`  🔍 Checking app: ${app.path}`);
+        
+        assert(await fileExists(localAppPath), `App should exist: ${localAppPath}`);
+        
+        const localContent = await Deno.readTextFile(localAppPath);
+        assertStringIncludes(localContent, app.summary,
+          `App metadata should contain summary: ${app.path}`);
+        
+        console.log(`  ✅ App verified: ${app.path}`);
+      }
+    }
+    
+    // 3. Check resources that should be pulled (f/** pattern) 
+    for (const resource of backendResources) {
+      if (resource.path.startsWith('f/')) {
+        const localResourcePath = `${tempDir}/${resource.path}.resource.yaml`;
+        
+        console.log(`  🔍 Checking resource: ${resource.path}`);
+        
+        assert(await fileExists(localResourcePath), `Resource should exist: ${localResourcePath}`);
+        
+        const localContent = await Deno.readTextFile(localResourcePath);
+        assertStringIncludes(localContent, resource.resource_type,
+          `Resource metadata should contain type: ${resource.path}`);
+        
+        console.log(`  ✅ Resource verified: ${resource.path}`);
+      }
+    }
+    
+    // 4. Verify excluded files are NOT pulled
+    const checkExcludedFiles = async (dir: string) => {
+      try {
+        for await (const entry of Deno.readDir(dir)) {
+          if (entry.isDirectory) {
+            await checkExcludedFiles(`${dir}/${entry.name}`);
+          } else if (entry.name.endsWith('.test.ts') || entry.name.endsWith('.spec.ts')) {
+            assert(false, `Excluded file should not exist: ${dir}/${entry.name}`);
           }
         }
+      } catch {
+        // Directory doesn't exist, which is fine
       }
-      
-      console.log(`📊 Total files created: ${createdFiles.length}`);
-      console.log(`📋 Files: ${createdFiles.join(', ')}`);
-      
-      // We should have created at least the app and resource (scripts/flows failed)
-      assertEquals(createdFiles.length > 0, true, 'Should have created at least some files');
-      
-    } catch (error) {
-      console.log(`❌ No f/ directory created or other error: ${error instanceof Error ? error.message : error}`);
-      
-      // List what was actually created in the temp directory
-      console.log('📂 Contents of temp directory:');
-      for await (const entry of Deno.readDir(tempDir)) {
-        console.log(`  ${entry.isDirectory ? '📁' : '📄'} ${entry.name}`);
-      }
-      
-      // For now, don't fail the test - just log what happened
-      console.log('⚠️  This might be expected if no content was synced');
-    }
+    };
+    
+    await checkExcludedFiles(`${tempDir}/f`);
+    
+    console.log('✅ All pulled files verified against backend content');
   });
 });
 
-Deno.test("Containerized Backend: CLI sync push with local files", async () => {
+Deno.test("Containerized Backend: CLI sync push verifies backend receives content", async () => {
   await withContainerizedBackend(async (backend, tempDir) => {
     // Create wmill.yaml
     await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
@@ -131,29 +185,51 @@ includes:
   - f/**
 excludes: []`);
     
-    // Create local test script with proper naming convention  
-    await Deno.mkdir(`${tempDir}/f/sync`, { recursive: true });
-    await Deno.writeTextFile(`${tempDir}/f/sync/local_test_script.ts`, `
-export async function main() {
-  return "Hello from local test script!";
-}`);
+    // Create unique test files locally with timestamp to avoid conflicts
+    const timestamp = Date.now();
+    const scriptPath = `sync/test_push_script_${timestamp}`;
+    const appPath = `sync/test_push_app_${timestamp}`;
     
-    await Deno.writeTextFile(`${tempDir}/f/sync/local_test_script.script.yaml`, `
-summary: Local Test Script
-description: 'Test script created locally'
+    const scriptContent = `export async function main() {
+  return "Test push verification - ${timestamp}";
+}`;
+    
+    const appContent = `summary: Test App ${timestamp}
+policy:
+  execution_mode: viewer
+value:
+  grid: []
+  fullscreen: false`;
+    
+    // Create both script and app locally in one setup
+    await Deno.mkdir(`${tempDir}/f/sync`, { recursive: true });
+    
+    // Script files
+    await Deno.writeTextFile(`${tempDir}/f/${scriptPath}.ts`, scriptContent);
+    await Deno.writeTextFile(`${tempDir}/f/${scriptPath}.script.yaml`, 
+      `summary: Test Push Verification Script ${timestamp}
+description: Script created to test sync push verification
 schema:
   type: object
-  properties: {}
-`);
+  properties: {}`);
     
-    await Deno.writeTextFile(`${tempDir}/f/sync/local_test_script.script.lock`, `
-{
-  "dependencies": {}
-}
-`);
+    // App files
+    await Deno.mkdir(`${tempDir}/f/${appPath}.app`, { recursive: true });
+    await Deno.writeTextFile(`${tempDir}/f/${appPath}.app/app.yaml`, appContent);
     
-    // Run sync push
-    console.log('🔍 Running sync push to upload local files...');
+    console.log(`🔍 Getting backend state before sync push...`);
+    
+    // Get backend state BEFORE push
+    const beforeScripts = await backend.listAllScripts();
+    const beforeApps = await backend.listAllApps();
+    const scriptExistsBefore = beforeScripts.some(s => s.path === `f/${scriptPath}`);
+    const appExistsBefore = beforeApps.some(a => a.path === `f/${appPath}`);
+    
+    assertEquals(scriptExistsBefore, false, `Script should not exist on backend before push: f/${scriptPath}`);
+    assertEquals(appExistsBefore, false, `App should not exist on backend before push: f/${appPath}`);
+    
+    // Run sync push ONCE to push both script and app
+    console.log('🔍 Running sync push to upload all local files...');
     const result = await backend.runCLICommand([
       'sync', 'push', '--yes'
     ], tempDir);
@@ -163,7 +239,30 @@ schema:
     console.log('Sync push exit code:', result.code);
     
     assertEquals(result.code, 0);
-    assertStringIncludes(result.stdout.toLowerCase(), 'script');
+    
+    console.log('📂 Verifying backend received pushed content...');
+    
+    // STRONG ASSERTIONS: Verify backend actually received the content
+    
+    // 1. Script must exist on backend with correct content
+    const afterScripts = await backend.listAllScripts();
+    const pushedScript = afterScripts.find(s => s.path === `f/${scriptPath}`);
+    assert(pushedScript, `Script should exist on backend after push: f/${scriptPath}`);
+    assertEquals(pushedScript.content.trim(), scriptContent.trim(),
+      'Backend script content should match local file');
+    assertEquals(pushedScript.summary, `Test Push Verification Script ${timestamp}`,
+      'Backend script summary should match local metadata');
+    
+    console.log(`✅ Script successfully pushed and verified: f/${scriptPath}`);
+    
+    // 2. App must exist on backend with correct content  
+    const afterApps = await backend.listAllApps();
+    const pushedApp = afterApps.find(a => a.path === `f/${appPath}`);
+    assert(pushedApp, `App should exist on backend after push: f/${appPath}`);
+    assertEquals(pushedApp.summary, `Test App ${timestamp}`,
+      'Backend app summary should match local metadata');
+    
+    console.log(`✅ App successfully pushed and verified: f/${appPath}`);
   });
 });
 
@@ -177,7 +276,17 @@ Deno.test("Containerized Backend: settings update persistence", async () => {
       extra_include_path: []
     };
     
-    await backend.updateGitSyncConfig(newConfig);
+    await backend.updateGitSyncConfig({
+      git_sync_settings: {
+        repositories: [{
+          settings: newConfig,
+          script_path: "f/**",
+          group_by_folder: false,
+          use_individual_branch: false,
+          git_repo_resource_path: "u/test/test_repo"
+        }]
+      }
+    });
     
     // Pull settings and verify they were updated
     const result = await backend.runCLICommand([
@@ -1494,5 +1603,154 @@ Deno.test("Settings: push --from-json with no local wmill.yaml works correctly",
     
     // Backend should now have the settings we pushed
     assertStringIncludes(JSON.stringify(jsonResponse.settings), 'test/**', 'Backend should have the pushed paths');
+  });
+});
+
+// =============================================================================
+// STRONG CONSISTENCY TESTS - Dry-run vs Actual Operations
+// =============================================================================
+
+Deno.test("Sync: dry-run predictions match actual push operations", async () => {
+  await withContainerizedBackend(async (backend, tempDir) => {
+    // Setup test scenario with local files
+    await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - f/**`);
+    
+    const timestamp = Date.now();
+    const scriptPath = `consistency/test_${timestamp}`;
+    const scriptContent = `export async function main() {
+  return "Consistency test - ${timestamp}";
+}`;
+    
+    await Deno.mkdir(`${tempDir}/f/consistency`, { recursive: true });
+    await Deno.writeTextFile(`${tempDir}/f/${scriptPath}.ts`, scriptContent);
+    await Deno.writeTextFile(`${tempDir}/f/${scriptPath}.script.yaml`, 
+      `summary: Consistency Test Script ${timestamp}`);
+    
+    console.log('🔍 Running dry-run to get predictions...');
+    
+    // Run dry-run and capture predictions
+    const dryResult = await backend.runCLICommand(['sync', 'push', '--dry-run', '--json-output'], tempDir);
+    assertEquals(dryResult.code, 0);
+    
+    const dryJsonLine = dryResult.stdout.split('\n').find(line => line.trim().startsWith('{'));
+    assert(dryJsonLine, 'Dry-run should produce JSON output');
+    const dryData = JSON.parse(dryJsonLine);
+    
+    console.log('📊 Dry-run predictions:', JSON.stringify(dryData, null, 2));
+    
+    // Get backend state before actual push
+    const beforeScripts = await backend.listAllScripts();
+    const beforeExists = beforeScripts.some(s => s.path === `f/${scriptPath}`);
+    
+    console.log('🔍 Running actual push operation...');
+    
+    // Run actual push
+    const actualResult = await backend.runCLICommand(['sync', 'push', '--yes'], tempDir);
+    assertEquals(actualResult.code, 0);
+    
+    // Get backend state after push
+    const afterScripts = await backend.listAllScripts();
+    
+    console.log('📂 Verifying dry-run predictions match reality...');
+    
+    // STRONG ASSERTION: Verify dry-run predictions match reality
+    if (dryData.created && dryData.created.length > 0) {
+      for (const predictedFile of dryData.created) {
+        console.log(`  🔍 Checking predicted creation: ${predictedFile}`);
+        
+        if (predictedFile.includes('.script.')) {
+          // Extract script path from file name
+          const scriptMatch = predictedFile.match(/^(.+)\.script\./);
+          if (scriptMatch) {
+            const scriptPath = scriptMatch[1];
+            const actuallyExists = afterScripts.some(s => s.path === scriptPath);
+            assert(actuallyExists, `Dry-run predicted creation of script ${scriptPath} but it doesn't exist after push`);
+            console.log(`  ✅ Script created as predicted: ${scriptPath}`);
+          }
+        }
+      }
+    }
+    
+    if (dryData.modified && dryData.modified.length > 0) {
+      for (const predictedFile of dryData.modified) {
+        console.log(`  🔍 Checking predicted modification: ${predictedFile}`);
+        
+        if (predictedFile.includes('.script.')) {
+          const scriptMatch = predictedFile.match(/^(.+)\.script\./);
+          if (scriptMatch) {
+            const scriptPath = scriptMatch[1];
+            const beforeScript = beforeScripts.find(s => s.path === scriptPath);
+            const afterScript = afterScripts.find(s => s.path === scriptPath);
+            
+            assert(afterScript, `Modified script should exist: ${scriptPath}`);
+            
+            if (beforeScript) {
+              assert(beforeScript.content !== afterScript.content || 
+                     beforeScript.summary !== afterScript.summary,
+                     `Script should actually be modified: ${scriptPath}`);
+            }
+            console.log(`  ✅ Script modified as predicted: ${scriptPath}`);
+          }
+        }
+      }
+    }
+    
+    console.log('✅ Dry-run predictions verified against actual operations');
+  });
+});
+
+Deno.test("Sync: dry-run predictions match actual pull operations", async () => {
+  await withContainerizedBackend(async (backend, tempDir) => {
+    // Setup: ensure backend has content to pull
+    await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - f/**`);
+    
+    console.log('🔍 Running dry-run pull to get predictions...');
+    
+    // Run dry-run and capture predictions
+    const dryResult = await backend.runCLICommand(['sync', 'pull', '--dry-run', '--json-output'], tempDir);
+    assertEquals(dryResult.code, 0);
+    
+    const dryJsonLine = dryResult.stdout.split('\n').find(line => line.trim().startsWith('{'));
+    assert(dryJsonLine, 'Dry-run should produce JSON output');
+    const dryData = JSON.parse(dryJsonLine);
+    
+    console.log('📊 Dry-run predictions:', JSON.stringify(dryData, null, 2));
+    
+    console.log('🔍 Running actual pull operation...');
+    
+    // Run actual pull
+    const actualResult = await backend.runCLICommand(['sync', 'pull', '--yes'], tempDir);
+    assertEquals(actualResult.code, 0);
+    
+    console.log('📂 Verifying dry-run predictions match reality...');
+    
+    // STRONG ASSERTION: Verify predicted files actually exist
+    if (dryData.added && dryData.added.length > 0) {
+      for (const predictedFile of dryData.added) {
+        console.log(`  🔍 Checking predicted addition: ${predictedFile}`);
+        
+        const localPath = `${tempDir}/${predictedFile}`;
+        const exists = await fileExists(localPath);
+        assert(exists, `Dry-run predicted ${predictedFile} would be added but it doesn't exist after pull`);
+        console.log(`  ✅ File added as predicted: ${predictedFile}`);
+      }
+    }
+    
+    if (dryData.modified && dryData.modified.length > 0) {
+      for (const predictedFile of dryData.modified) {
+        console.log(`  🔍 Checking predicted modification: ${predictedFile}`);
+        
+        const localPath = `${tempDir}/${predictedFile}`;
+        const exists = await fileExists(localPath);
+        assert(exists, `Dry-run predicted ${predictedFile} would be modified but it doesn't exist after pull`);
+        console.log(`  ✅ File modified as predicted: ${predictedFile}`);
+      }
+    }
+    
+    console.log('✅ Dry-run predictions verified against actual pull operations');
   });
 });

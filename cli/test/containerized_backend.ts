@@ -115,7 +115,7 @@ export class ContainerizedBackend {
       
       console.log('✅ Workspace reset complete');
     } catch (error) {
-      console.error('Reset failed:', error.message);
+      console.error('Reset failed:', error instanceof Error ? error.message : String(error));
       // Don't throw - tests can continue with existing state
     }
   }
@@ -667,6 +667,76 @@ export async function main(
     
     if (!response.ok) {
       throw new Error(`Failed to get workspace settings: ${response.status} ${response.statusText}`);
+    }
+    
+    return await response.json();
+  }
+
+  /**
+   * List all scripts in workspace with full content
+   */
+  async listAllScripts(): Promise<Array<{path: string, content: string, summary: string, description?: string}>> {
+    // First get the list of scripts
+    const response = await fetch(`${this.config.baseUrl}/api/w/${this.config.workspace}/scripts/list`, {
+      headers: { 'Authorization': `Bearer ${this.config.token}` }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to list scripts: ${response.status}`);
+    }
+    
+    const scriptList = await response.json();
+    
+    // Then fetch full details (including content) for each script
+    const scriptsWithContent = [];
+    for (const script of scriptList) {
+      try {
+        const detailResponse = await fetch(`${this.config.baseUrl}/api/w/${this.config.workspace}/scripts/get/p/${script.path}`, {
+          headers: { 'Authorization': `Bearer ${this.config.token}` }
+        });
+        
+        if (detailResponse.ok) {
+          const fullScript = await detailResponse.json();
+          scriptsWithContent.push(fullScript);
+        } else {
+          // If we can't get details, include the basic info without content
+          console.warn(`Could not fetch details for script ${script.path}: ${detailResponse.status}`);
+          scriptsWithContent.push(script);
+        }
+      } catch (error) {
+        console.warn(`Error fetching script ${script.path}:`, error);
+        scriptsWithContent.push(script);
+      }
+    }
+    
+    return scriptsWithContent;
+  }
+
+  /**
+   * List all apps in workspace  
+   */
+  async listAllApps(): Promise<Array<{path: string, summary: string, value: any}>> {
+    const response = await fetch(`${this.config.baseUrl}/api/w/${this.config.workspace}/apps/list`, {
+      headers: { 'Authorization': `Bearer ${this.config.token}` }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to list apps: ${response.status}`);
+    }
+    
+    return await response.json();
+  }
+
+  /**
+   * List all resources in workspace
+   */
+  async listAllResources(): Promise<Array<{path: string, description?: string, resource_type: string, value: any}>> {
+    const response = await fetch(`${this.config.baseUrl}/api/w/${this.config.workspace}/resources/list`, {
+      headers: { 'Authorization': `Bearer ${this.config.token}` }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to list resources: ${response.status}`);
     }
     
     return await response.json();

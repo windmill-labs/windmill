@@ -6,6 +6,8 @@ import { stringify } from "jsr:@std/yaml@^1.0.5";
 export interface UIState {
   include_path: string[];
   include_type: string[];
+  exclude_path?: string[];
+  extra_include_path?: string[];
 }
 
 // ========== REPOSITORY PATH UTILITIES ==========
@@ -281,21 +283,52 @@ export async function resolveWorkspaceAndRepositoryForSync(
 // ========== NORMALISATION HELPERS ==========
 
 /**
+ * Base utility for cleaning objects with configurable options
+ */
+function cleanObject(
+  obj: Record<string, unknown>, 
+  options: {
+    removeUndefined?: boolean;
+    removeFalse?: boolean; 
+    removeEmptyArrays?: boolean;
+    removeLocalFields?: boolean;
+    clone?: boolean;
+  } = {}
+): Record<string, unknown> {
+  const { 
+    removeUndefined = true, 
+    removeFalse = true, 
+    removeEmptyArrays = true, 
+    removeLocalFields = false,
+    clone = false
+  } = options;
+  
+  let cleaned = clone ? JSON.parse(JSON.stringify(obj)) : obj;
+  
+  if (removeLocalFields) {
+    const { codebases, defaultTs, ...rest } = cleaned as any;
+    cleaned = rest;
+  }
+
+  const result = { ...cleaned };
+  Object.entries(result).forEach(([k, v]) => {
+    if ((removeUndefined && v === undefined) ||
+        (removeFalse && v === false) ||
+        (removeEmptyArrays && Array.isArray(v) && v.length === 0)) {
+      delete result[k];
+    }
+  });
+  return result;
+}
+
+/**
  * Remove fields that do not affect semantics when comparing settings.
  * - Drops undefined and boolean false values
  * - Drops empty arrays
  * - Drops `codebases` and `defaultTs` completely (local-only fields)
  */
 export function createSettingsForComparison<T extends SyncOptions | Record<string, unknown>>(settings: T): any {
-  const { codebases, defaultTs, ...rest } = settings as any;
-  Object.entries(rest).forEach(([k, v]) => {
-    if (v === undefined || v === false) {
-      delete (rest as any)[k];
-    } else if (Array.isArray(v) && v.length === 0) {
-      delete (rest as any)[k];
-    }
-  });
-  return rest;
+  return cleanObject(settings as Record<string, unknown>, { removeLocalFields: true });
 }
 
 // Produce a comparison object that keeps explicit `false` or empty-array values when they
@@ -321,18 +354,7 @@ export function createSettingsForDiff(reference: SyncOptions, candidate: SyncOpt
  * considered differences during diffing operations.
  */
 export function sanitizeSyncOptionsForYaml(o: SyncOptions | Record<string, unknown>): Record<string, unknown> {
-  // Deep clone through JSON to avoid mutating caller input
-  const cloned: Record<string, unknown> = JSON.parse(JSON.stringify(o));
-  Object.entries(cloned).forEach(([k, v]) => {
-    if (v === undefined) {
-      delete cloned[k];
-    } else if (typeof v === "boolean" && v === false) {
-      delete cloned[k];
-    } else if (Array.isArray(v) && v.length === 0) {
-      delete cloned[k];
-    }
-  });
-  return cloned;
+  return cleanObject(o as Record<string, unknown>, { clone: true });
 }
 
 /**
@@ -411,7 +433,6 @@ export function yamlSafe(value: unknown): string {
 
 // YAML stringify with consistent field ordering for semantic comparisons
 export function yamlSafeForComparison(value: unknown): string {
-  // First clean using the same logic as yamlSafe
   const cleaned = JSON.parse(JSON.stringify(value));
 
   // Then sort keys for consistent ordering
@@ -448,8 +469,6 @@ export function extractSyncOptions(cfg: SyncOptions): SyncOptions {
   } as SyncOptions;
 }
 
-// Alias for repository-level extraction (identical set today)
-export const extractRepositorySyncOptions = extractSyncOptions;
 
 // Keep backend values but preserve local-only fields that the backend doesn't track
 export function mergeBackendSettingsWithLocalCodebases(backend: SyncOptions, local: SyncOptions): SyncOptions {

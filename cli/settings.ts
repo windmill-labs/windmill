@@ -22,7 +22,6 @@ import {
   yamlSafe,
   yamlSafeForComparison,
   extractSyncOptions,
-  extractRepositorySyncOptions,
   mergeBackendSettingsWithLocalCodebases,
   mergePreservingOrder,
   syncOptionsToUIState,
