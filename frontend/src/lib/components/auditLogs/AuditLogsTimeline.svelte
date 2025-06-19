@@ -77,7 +77,10 @@
 		return actionColors[actionKind as keyof typeof actionColors] || actionColors.default
 	}
 
-	function groupLogsBySpan(logs: AuditLog[]): Record<string, AuditLog[]> {
+	function groupLogsBySpan(logs: AuditLog[]): {
+		grouped: Record<string, AuditLog[]>
+		jobGrouped: Map<string, AuditLog[]>
+	} {
 		const grouped: Record<string, AuditLog[]> = {}
 
 		const jobGrouped: Map<string, AuditLog[]> = new Map()
@@ -99,23 +102,24 @@
 		}
 
 		for (const jobid of jobGrouped.keys()) {
-			const auditSpan = Object.values(grouped).flat().find((log) => log.parameters?.uuid === jobid)?.span
+			const auditSpan = Object.values(grouped)
+				.flat()
+				.find((log) => log.parameters?.uuid === jobid)?.span
 			if (auditSpan != undefined) {
-				grouped[auditSpan].push(...(jobGrouped.get(jobid)!))
+				grouped[auditSpan].push(...jobGrouped.get(jobid)!)
 			} else {
 				if (!grouped[jobid]) {
 					grouped[jobid] = []
 				}
 				grouped[jobid].push(...jobGrouped.get(jobid)!)
 			}
-
 		}
 		// Sort logs within each span by timestamp
 		Object.values(grouped).forEach((spanLogs) => {
 			spanLogs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
 		})
 
-		return grouped
+		return { grouped, jobGrouped }
 	}
 
 	function isDark(): boolean {
@@ -126,7 +130,9 @@
 	ChartJS.defaults.color = isDark() ? '#ccc' : '#666'
 	ChartJS.defaults.borderColor = isDark() ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
 
-	const groupedLogs = $derived(groupLogsBySpan(logs))
+	const groupedData = $derived(groupLogsBySpan(logs))
+	const groupedLogs = $derived(groupedData.grouped)
+	const jobGrouped = $derived(groupedData.jobGrouped)
 	const spanIds = $derived(Object.keys(groupedLogs).sort())
 
 	// Transform data for ChartJS scatter plot
@@ -135,10 +141,14 @@
 			return { datasets: [] }
 		}
 
-		const datasets = spanIds.map((spanId, index) => {
+		const datasets: any[] = []
+
+		// Create datasets for regular span groups (points only)
+		spanIds.forEach((spanId, index) => {
 			const spanLogs = groupedLogs[spanId]
 			console.log(`Processing span ${spanId} with ${spanLogs.length} logs`)
-			return {
+
+			datasets.push({
 				label: spanId === 'untraced' ? 'Untraced' : spanId,
 				data: spanLogs.map((log) => ({
 					x: log.timestamp as any,
@@ -147,12 +157,63 @@
 				})) as any[],
 				backgroundColor: spanLogs.map((log) => getActionColor(log.action_kind)),
 				borderColor: spanLogs.map((log) => getActionColor(log.action_kind)),
-				borderWidth: 2,
-				pointRadius: 6,
-				pointHoverRadius: 8,
+				borderWidth: 1,
+				pointRadius: 3,
+				pointHoverRadius: 5,
 				showLine: false
+			})
+		})
+
+		// Create datasets for job-connected lines
+		jobGrouped.forEach((jobLogs, jobId) => {
+			if (jobLogs.length > 1) {
+				// Only create lines if there are multiple points
+				// Sort job logs by timestamp to ensure proper line connection
+				const sortedJobLogs = [...jobLogs].sort(
+					(a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+				)
+
+				// Find the y-position for each log based on its span
+				const lineData = sortedJobLogs.map((log) => {
+					const spanId = log.span || 'untraced'
+					let yPosition = spanIds.indexOf(spanId)
+					if (yPosition === -1) {
+						// Handle job-span logs that might not be in regular spans
+						const jobSpanId = spanId.startsWith('job-span-')
+							? spanId.slice('job-span-'.length)
+							: spanId
+						yPosition = spanIds.findIndex((id) => id === jobSpanId)
+						if (yPosition === -1) {
+							// If still not found, assign to the span where this job's audit logs are grouped
+							const auditSpan = Object.entries(groupedLogs).find(([, spanLogs]) =>
+								spanLogs.some((l) => l.parameters?.uuid === jobId)
+							)?.[0]
+							yPosition = auditSpan ? spanIds.indexOf(auditSpan) : 0
+						}
+					}
+
+					return {
+						x: log.timestamp as any,
+						y: yPosition,
+						log: log
+					}
+				})
+
+				datasets.push({
+					label: `Job ${jobId} Connection`,
+					data: lineData,
+					backgroundColor: 'transparent',
+					borderColor: '#8b5cf6', // Purple color for job connections
+					borderWidth: 2,
+					pointRadius: 0, // Hide points for connection lines
+					pointHoverRadius: 0,
+					showLine: true,
+					tension: 0, // Straight lines
+					fill: false
+				})
 			}
 		})
+
 		console.log('Chart datasets:', datasets)
 		return { datasets }
 	})
@@ -283,6 +344,10 @@
 				<div class="flex items-center gap-1">
 					<div class="w-3 h-3 rounded-full" style="background-color: {actionColors.Delete}"></div>
 					<span class="text-xs">Delete</span>
+				</div>
+				<div class="flex items-center gap-1">
+					<div class="w-6 h-0.5" style="background-color: #8b5cf6"></div>
+					<span class="text-xs">Job Connection</span>
 				</div>
 			</div>
 		</div>
