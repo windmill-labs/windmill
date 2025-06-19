@@ -11313,9 +11313,9 @@ paths:
                 items:
                   type: object
                   properties:
-                    token_hash:
+                    token:
                       type: string
-                      description: SHA256 hash of the blacklisted token
+                      description: The blacklisted token (without prefix)
                     expires_at:
                       type: string
                       format: date-time
@@ -11328,7 +11328,7 @@ paths:
                       type: string
                       description: Email of the user who blacklisted the token
                   required:
-                    - token_hash
+                    - token
                     - expires_at
                     - blacklisted_at
                     - blacklisted_by

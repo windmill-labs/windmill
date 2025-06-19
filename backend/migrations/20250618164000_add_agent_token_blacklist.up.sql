@@ -1,6 +1,6 @@
 -- Add agent token blacklist table
 CREATE TABLE agent_token_blacklist (
-    token_hash VARCHAR PRIMARY KEY,
+    token VARCHAR PRIMARY KEY,
     expires_at TIMESTAMP NOT NULL,
     blacklisted_at TIMESTAMP NOT NULL DEFAULT NOW(),
     blacklisted_by VARCHAR NOT NULL
