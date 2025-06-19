@@ -18,7 +18,8 @@
 	import Label from './Label.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { createEventDispatcher } from 'svelte'
-	import Select from './Select.svelte'
+	import Select from './select/Select.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 
 	export let name: string
 	let can_write = false
@@ -197,7 +198,7 @@
 						ownerKind === 'user'
 							? usernames.filter((x) => !perms?.map((y) => y.owner_name).includes('u/' + x))
 							: groups.filter((x) => !perms?.map((y) => y.owner_name).includes('g/' + x))}
-					<Select items={items.map((x) => ({ label: x, value: x }))} bind:value={ownerItem} />
+					<Select items={safeSelectItems(items)} bind:value={ownerItem} />
 					{#if ownerKind == 'group'}
 						<Button
 							title="View Group"

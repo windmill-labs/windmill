@@ -5,7 +5,7 @@
 	import { base } from '$lib/base'
 	import { createEventDispatcher, untrack } from 'svelte'
 
-	import Select from './Select.svelte'
+	import Select from './select/Select.svelte'
 
 	import { getScriptByPath } from '$lib/scripts'
 	import { Button, Drawer, DrawerContent } from './common'

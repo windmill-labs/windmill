@@ -18,6 +18,7 @@
 
 <Button
 	on:click={() => dispatch('close')}
+	on:pointerdown={(e) => e.stopPropagation()}
 	startIcon={{ icon: Icon ?? X }}
 	iconOnly
 	size="sm"

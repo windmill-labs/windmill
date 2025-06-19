@@ -11,7 +11,8 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { enUS, fr, de, pt, ja } from 'date-fns/locale'
-	import Select from '$lib/components/Select.svelte'
+	import Select from '$lib/components/select/Select.svelte'
+	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -238,9 +239,10 @@
 							outputs.day.set(v ? Number(v) : undefined)
 						}
 					}
-					items={Array.from({ length: computeDayPerMonth(selectedMonth, selectedYear) }, (_, i) => {
-						return { label: String(i + 1), value: String(i + 1) }
-					})}
+					items={Array.from(
+						{ length: computeDayPerMonth(selectedMonth, selectedYear) },
+						(_, i) => ({ value: String(i + 1) })
+					)}
 					class={twMerge('text-clip min-w-0', css?.input?.class, 'wm-date-select')}
 					containerStyle={css?.input?.style}
 					placeholder="Pick a day"
@@ -280,9 +282,7 @@
 							outputs.year.set(selectedYear ? Number(selectedYear) : undefined)
 						}
 					}
-					items={Array.from({ length: 201 }, (_, i) => `${1900 + i}`).map((value) => ({
-						value
-					}))}
+					items={safeSelectItems(Array.from({ length: 201 }, (_, i) => `${1900 + i}`))}
 					placeholder="Pick a year"
 					class={twMerge('text-clip min-w-0', css?.input?.class, 'wm-date-select')}
 					containerStyle={css?.input?.style}

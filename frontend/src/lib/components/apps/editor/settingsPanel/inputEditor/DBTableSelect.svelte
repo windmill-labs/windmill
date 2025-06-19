@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { StaticInput, StaticOptions } from '../../../inputType'
-	import Select from '$lib/components/Select.svelte'
+	import Select from '$lib/components/select/Select.svelte'
 
 	interface Props {
 		componentInput: StaticInput<any> | undefined

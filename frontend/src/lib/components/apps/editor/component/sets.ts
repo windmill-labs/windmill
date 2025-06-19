@@ -110,5 +110,7 @@ export const COMPONENT_SETS = [layout, tabs, buttons, inputs, tables, display, c
 
 export const DEPRECATED_COMPONENTS = {
 	tablecomponent:
-		'We will be removing this component in the future. we recommend using the AgGrid table instead.'
+		'We will be removing this component in the future. we recommend using the AgGrid table instead.',
+	chartjscomponent: 'Use the new ChartJS v2 component instead',
+	multiselectcomponent: 'Use the new MultiSelect v2 component instead'
 }

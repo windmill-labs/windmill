@@ -19,7 +19,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import { JobService, type QueuedJob } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import Select from './Select.svelte'
+	import Select from './select/Select.svelte'
 	import { emptyString } from '$lib/utils'
 
 	let container: HTMLDivElement

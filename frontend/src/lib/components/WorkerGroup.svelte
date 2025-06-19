@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { Copy, Plus, RefreshCcwIcon, Settings, Trash, X } from 'lucide-svelte'
 	import { Alert, Badge, Button, Drawer } from './common'
-	import Multiselect from 'svelte-multiselect'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { ConfigService, WorkspaceService, type WorkerPing, type Workspace } from '$lib/gen'
@@ -20,7 +19,9 @@
 	import { defaultTags, nativeTags, type AutoscalingConfig } from './worker_group'
 	import AutoscalingConfigEditor from './AutoscalingConfigEditor.svelte'
 	import TagsToListenTo from './TagsToListenTo.svelte'
-	import Select from './Select.svelte'
+	import Select from './select/Select.svelte'
+	import MultiSelect from './select/MultiSelect.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 
 	function computeVCpuAndMemory(workers: [string, WorkerPing[]][]) {
 		let vcpus = 0
@@ -340,7 +341,7 @@
 						{#if defaultTagPerWorkspace}
 							<Select
 								bind:value={workspaceTag}
-								items={workspaces.map((w) => ({ value: w.id, label: w.id }))}
+								items={workspaces.map((w) => ({ value: w.id }))}
 								onCreateItem={(c) => (workspaceTag = c)}
 								placeholder="Workspace ID"
 							/>
@@ -358,36 +359,16 @@
 										{/if}
 									</Tooltip>
 								{/snippet}
-								<Multiselect
-									outerDivClass="text-secondary !bg-surface-disabled !border-0"
+								<MultiSelect
 									disabled={!$enterpriseLicense}
-									selected={Object.keys(nconfig?.priority_tags ?? {})}
-									onchange={(e) => {
-										if (e.type === 'add') {
-											if (nconfig.priority_tags) {
-												if (e.option && typeof e.option !== 'object') {
-													nconfig.priority_tags[e.option] = 100
-												}
-											}
+									bind:value={
+										() => new Array(...(nconfig?.priority_tags?.keys?.() ?? [])),
+										(v) => {
+											nconfig.priority_tags = new Map<string, number>(v.map((k) => [k, 100]))
 											dirty = true
-										} else if (e.type === 'remove') {
-											if (nconfig.priority_tags) {
-												if (e.option && typeof e.option !== 'object') {
-													delete nconfig.priority_tags[e.option]
-												}
-											}
-											dirty = true
-										} else if (e.type === 'removeAll') {
-											nconfig.priority_tags = new Map<string, number>()
-											dirty = true
-										} else {
-											console.error(`Priority tags multiselect - unknown event type: '${e.type}'`)
 										}
-									}}
-									options={nconfig?.worker_tags}
-									selectedOptionsDraggable={false}
-									ulOptionsClass={'!bg-surface-secondary'}
-									placeholder="High priority tags"
+									}
+									items={safeSelectItems(nconfig?.worker_tags)}
 								/>
 							</Label>
 						{/if}

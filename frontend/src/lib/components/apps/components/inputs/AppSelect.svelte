@@ -19,7 +19,7 @@
 	import { Bug } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	import Select from '$lib/components/Select.svelte'
+	import Select from '$lib/components/select/Select.svelte'
 
 	interface Props {
 		id: string

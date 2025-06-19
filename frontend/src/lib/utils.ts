@@ -274,7 +274,7 @@ export function validatePassword(password: string): boolean {
 	return re.test(password)
 }
 
-const portalDivs = ['app-editor-select']
+const portalDivs = ['#app-editor-select', '.select-dropdown-portal']
 
 interface ClickOutsideOptions {
 	capture?: boolean
@@ -309,7 +309,7 @@ export function clickOutside(
 		})
 
 		if (node && !node.contains(target) && !event.defaultPrevented && !isExcluded) {
-			const portalDivsSelector = portalDivs.map((id) => `#${id}`).join(', ')
+			const portalDivsSelector = portalDivs.join(', ')
 			const parent = target.closest(portalDivsSelector)
 
 			if (!parent) {
@@ -372,7 +372,7 @@ export function pointerDownOutside(
 		})
 
 		if (node && !node.contains(target) && !event.defaultPrevented && !isExcluded) {
-			const portalDivsSelector = portalDivs.map((id) => `#${id}`).join(', ')
+			const portalDivsSelector = portalDivs.join(', ')
 			const parent = target.closest(portalDivsSelector)
 
 			if (!parent) {
@@ -1389,4 +1389,35 @@ export function readFieldsRecursively(obj: any): void {
 	} else if (obj !== null && typeof obj === 'object') {
 		Object.keys(obj).forEach((key) => readFieldsRecursively(obj[key]))
 	}
+}
+
+export function reorder<T>(items: T[], oldIndex: number, newIndex: number): T[] {
+	const updatedItems = [...items]
+	const [removedItem] = updatedItems.splice(oldIndex, 1)
+	updatedItems.splice(newIndex, 0, removedItem)
+	return updatedItems
+}
+
+export function scroll_into_view_if_needed_polyfill(elem: Element, centerIfNeeded: boolean = true) {
+	const observer = new IntersectionObserver(
+		function ([entry]) {
+			const ratio = entry.intersectionRatio
+			if (ratio < 1) {
+				const place = ratio <= 0 && centerIfNeeded ? `center` : `nearest`
+				elem.scrollIntoView({
+					block: place,
+					inline: place
+				})
+			}
+			observer.disconnect()
+		},
+		{
+			root: null, // or specify a scrolling parent if needed
+			rootMargin: '0px 1000px', // Essentially making horizontal checks irrelevant
+			threshold: 0.1 // Adjust threshold to control when observer should trigger
+		}
+	)
+	observer.observe(elem)
+
+	return observer // return for testing
 }

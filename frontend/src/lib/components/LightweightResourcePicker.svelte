@@ -8,7 +8,7 @@
 	import type { AppViewerContext } from './apps/types'
 	import { sendUserToast } from '$lib/toast'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
-	import Select from './Select.svelte'
+	import Select from './select/Select.svelte'
 
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)

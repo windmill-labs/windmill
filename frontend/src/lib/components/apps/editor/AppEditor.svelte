@@ -1256,7 +1256,7 @@
 													<SecondaryMenu right />
 												{:else}
 													<div class="min-w-[150px] text-sm !text-secondary text-center py-8 px-2">
-														Select a component to see the settings&nbsp;for&nbsp;it
+														Select a component to see the settings for it
 													</div>
 												{/if}
 											</TabContent>

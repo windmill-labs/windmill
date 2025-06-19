@@ -10,7 +10,8 @@
 	import Toggle from '../Toggle.svelte'
 	import ArgEnum from '../ArgEnum.svelte'
 	import Button from '../common/button/Button.svelte'
-	import MultiSelectWrapper from '../multiselect/MultiSelectWrapper.svelte'
+	import MultiSelect from '../select/MultiSelect.svelte'
+	import { safeSelectItems } from '../select/utils.svelte'
 
 	const aiProviderLabels: [AIProvider, string][] = [
 		['openai', 'OpenAI'],
@@ -212,13 +213,15 @@
 							</div>
 
 							<Label label="Enabled models">
-								<!-- this can be removed once the parent component moves to runes -->
-								<!-- svelte-ignore binding_property_non_reactive -->
-								<MultiSelectWrapper
-									items={availableAiModels[provider]}
+								<MultiSelect
+									items={safeSelectItems([
+										...availableAiModels[provider],
+										...aiProviders[provider].models
+									])}
 									bind:value={aiProviders[provider].models}
 									placeholder="Select models"
-									allowUserOptions="append"
+									onCreateItem={(item) =>
+										(aiProviders[provider].models = [...aiProviders[provider].models, item])}
 								/>
 							</Label>
 							<p class="text-xs">

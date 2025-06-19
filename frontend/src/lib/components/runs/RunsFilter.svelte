@@ -12,7 +12,8 @@
 	import { createEventDispatcher, untrack } from 'svelte'
 	import ToggleButtonMore from '../common/toggleButton-v2/ToggleButtonMore.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import Select from '../Select.svelte'
+	import Select from '../select/Select.svelte'
+	import { safeSelectItems } from '../select/utils.svelte'
 
 	interface Props {
 		// Filters
@@ -174,7 +175,7 @@
 					<div class="relative">
 						<span class="text-xs absolute -top-4">User</span>
 						<Select
-							items={usernames.map((p) => ({ label: p, value: p }))}
+							items={safeSelectItems(usernames)}
 							bind:value={() => user ?? undefined, (v) => (user = v ?? null)}
 							clearable
 							onClear={() => ((user = null), dispatch('reset'))}
@@ -190,7 +191,7 @@
 						<span class="text-xs absolute -top-4">Folder</span>
 
 						<Select
-							items={folders.map((p) => ({ label: p, value: p }))}
+							items={safeSelectItems(folders)}
 							bind:value={() => folder ?? undefined, (v) => (folder = v ?? null)}
 							clearable
 							onClear={() => ((folder = null), dispatch('reset'))}
@@ -203,7 +204,7 @@
 					<div class="relative">
 						<span class="text-xs absolute -top-4">Path</span>
 						<Select
-							items={paths.map((p) => ({ label: p, value: p }))}
+							items={safeSelectItems(paths)}
 							bind:value={() => path ?? undefined, (v) => (path = v ?? null)}
 							clearable
 							onClear={() => ((path = null), dispatch('reset'))}
@@ -564,7 +565,7 @@
 							<Label label="User">
 								<Select
 									disablePortal
-									items={usernames.map((p) => ({ label: p, value: p }))}
+									items={safeSelectItems(usernames)}
 									bind:value={() => user ?? undefined, (v) => (user = v ?? null)}
 									clearable
 									onClear={() => ((user = null), dispatch('reset'))}
@@ -575,7 +576,7 @@
 							<Label label="Folder">
 								<Select
 									disablePortal
-									items={folders.map((p) => ({ label: p, value: p }))}
+									items={safeSelectItems(folders)}
 									bind:value={() => folder ?? undefined, (v) => (folder = v ?? null)}
 									clearable
 									onClear={() => ((folder = null), dispatch('reset'))}
@@ -586,7 +587,7 @@
 							<Label label="Path">
 								<Select
 									disablePortal
-									items={paths.map((p) => ({ label: p, value: p }))}
+									items={safeSelectItems(paths)}
 									bind:value={() => path ?? undefined, (v) => (path = v ?? null)}
 									clearable
 									onClear={() => ((path = null), dispatch('reset'))}
