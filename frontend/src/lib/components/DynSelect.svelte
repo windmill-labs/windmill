@@ -44,42 +44,42 @@
 	})
 
 	async function getItemsFromOptions() {
-		let { promise, reject, resolve } = Promise.withResolvers<{ label: string; value: any }[]>()
-		let cb = {
-			done(res) {
-				if (!res || !Array.isArray(res)) {
-					reject('Result was not an array')
-					return
-				}
-				if (res.length == 0) resolve([])
-				if (res.every((x) => typeof x == 'string')) {
-					res = res.map((x) => ({ label: x, value: x }))
-				} else if (res.find((x) => validSelectObject(x) != undefined)) {
-					reject(validSelectObject(res.find((x) => validSelectObject(x) != undefined)))
-				} else {
-					if (filterText != undefined && filterText != '')
-						res = res.filter((x) => x['label'].includes(filterText))
-					resolve(res)
-				}
-			},
-			cancel: () => reject(),
-			error: (err) => reject(err)
-		}
-		helperScript?.type == 'inline'
-			? resultJobLoader?.runPreview(
-					helperScript?.path ?? 'NO_PATH',
-					helperScript.code,
-					helperScript.lang,
-					{ ...args, filterText, _ENTRYPOINT_OVERRIDE: entrypoint },
-					undefined,
-					cb
-				)
-			: resultJobLoader?.runScriptByHash(
-					helperScript?.hash ?? 'NO_HASH',
-					{ ...args, filterText, _ENTRYPOINT_OVERRIDE: entrypoint },
-					cb
-				)
-		return promise
+		return new Promise<{ label: string; value: any }[]>((resolve, reject) => {
+			let cb = {
+				done(res) {
+					if (!res || !Array.isArray(res)) {
+						reject('Result was not an array')
+						return
+					}
+					if (res.length == 0) resolve([])
+					if (res.every((x) => typeof x == 'string')) {
+						res = res.map((x) => ({ label: x, value: x }))
+					} else if (res.find((x) => validSelectObject(x) != undefined)) {
+						reject(validSelectObject(res.find((x) => validSelectObject(x) != undefined)))
+					} else {
+						if (filterText != undefined && filterText != '')
+							res = res.filter((x) => x['label'].includes(filterText))
+						resolve(res)
+					}
+				},
+				cancel: () => reject(),
+				error: (err) => reject(err)
+			}
+			helperScript?.type == 'inline'
+				? resultJobLoader?.runPreview(
+						helperScript?.path ?? 'NO_PATH',
+						helperScript.code,
+						helperScript.lang,
+						{ ...args, filterText, _ENTRYPOINT_OVERRIDE: entrypoint },
+						undefined,
+						cb
+					)
+				: resultJobLoader?.runScriptByHash(
+						helperScript?.hash ?? 'NO_HASH',
+						{ ...args, filterText, _ENTRYPOINT_OVERRIDE: entrypoint },
+						cb
+					)
+		})
 	}
 
 	let _items = usePromise(getItemsFromOptions)
