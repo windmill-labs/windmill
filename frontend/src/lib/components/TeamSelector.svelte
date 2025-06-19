@@ -2,7 +2,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { RefreshCcw } from 'lucide-svelte'
 	import { WorkspaceService } from '$lib/gen'
-	import Select from './Select.svelte'
+	import Select from './select/Select.svelte'
 	import { onMount } from 'svelte'
 
 	interface TeamItem {

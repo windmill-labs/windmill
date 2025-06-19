@@ -62,12 +62,52 @@ lazy_static::lazy_static! {
     static ref EPHEMERAL_TOKEN_CMD: Option<String> = var("EPHEMERAL_TOKEN_CMD").ok();
 }
 
+#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+lazy_static::lazy_static! {
+    static ref PIPTAR_UPLOAD_CHANNEL: tokio::sync::mpsc::UnboundedSender<PiptarUploadTask> = {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        
+        // Spawn background task to handle uploads sequentially
+        tokio::spawn(handle_piptar_uploads(rx));
+        
+        tx
+    };
+}
+
+#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[derive(Debug)]
+struct PiptarUploadTask {
+    venv_path: String,
+    cache_dir: String,
+}
+
+#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<PiptarUploadTask>) {
+    use crate::global_cache::build_tar_and_push;
+    use windmill_common::s3_helpers::get_object_store;
+    
+    while let Some(task) = rx.recv().await {
+        if let Some(os) = get_object_store().await {
+            match build_tar_and_push(os, task.venv_path.clone(), task.cache_dir, None, false).await {
+                Ok(()) => {
+                    tracing::info!("Successfully uploaded piptar for {}", task.venv_path);
+                }
+                Err(e) => {
+                    tracing::error!("Failed to upload piptar for {}: {}", task.venv_path, e);
+                }
+            }
+        } else {
+            tracing::warn!("S3 object store not available for piptar upload: {}", task.venv_path);
+        }
+    }
+}
+
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
 const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
-use crate::global_cache::{build_tar_and_push, pull_from_tar};
+use crate::global_cache::pull_from_tar;
 
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use windmill_common::s3_helpers::OBJECT_STORE_SETTINGS;
@@ -674,7 +714,14 @@ except BaseException as e:
             //    ^^^^^^ ^
             // We also want this be priorotized, that's why we insert it to the beginning
         }
-        paths.iter().join(":")
+        #[cfg(windows)]
+        {
+            paths.iter().join(";")
+        }
+        #[cfg(not(windows))]
+        {
+            paths.iter().join(":")
+        }
     };
 
     #[cfg(windows)]
@@ -1890,8 +1937,16 @@ pub async fn handle_python_reqs(
 
             #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
             if s3_push {
-                if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
-                    tokio::spawn(build_tar_and_push(os, venv_p.clone(), py_version.to_cache_dir_top_level(false), None, false));
+                // Send to upload channel for sequential processing
+                let upload_task = PiptarUploadTask {
+                    venv_path: venv_p.clone(),
+                    cache_dir: py_version.to_cache_dir_top_level(false),
+                };
+                
+                if let Err(e) = PIPTAR_UPLOAD_CHANNEL.send(upload_task) {
+                    tracing::warn!("Failed to queue piptar upload for {venv_p}: {e}");
+                } else {
+                    tracing::info!("Queued piptar upload for {venv_p}");
                 }
             }
 
@@ -2193,3 +2248,4 @@ for line in sys.stdin:
     )
     .await
 }
+

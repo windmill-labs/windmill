@@ -9,7 +9,6 @@ use axum::{
 };
 use http::{header, HeaderValue, Method, StatusCode};
 use indexmap::IndexMap;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{to_value, Map, Value};
 use sqlx::PgConnection;
@@ -24,9 +23,12 @@ use windmill_common::{
 use crate::db::ApiAuthed;
 
 #[cfg(feature = "http_trigger")]
-use crate::{
-    http_trigger_args::HttpMethod, http_trigger_auth::ApiKeyAuthentication,
-    http_triggers::AuthenticationMethod, resources::try_get_resource_from_db_as,
+use {
+    crate::{
+        http_trigger_args::HttpMethod, http_trigger_auth::ApiKeyAuthentication,
+        http_triggers::AuthenticationMethod, resources::try_get_resource_from_db_as,
+    },
+    itertools::Itertools,
 };
 
 lazy_static::lazy_static! {
@@ -311,9 +313,15 @@ fn generate_paths(
         }
     };
 
-    let mut duplicate_webhooks = HashSet::new();
+    let mut webhooks = HashSet::new();
 
     for path in paths {
+        if let Kind::Webhook(WebhookConfig { runnable_kind }) = &path.kind {
+            if !webhooks.insert((path.route_path.clone(), runnable_kind.to_owned())) {
+                continue;
+            }
+        }
+
         let (route_paths, parameters) =
             from_route_path_to_openapi_path(&path.route_path, &path.kind)?;
 
@@ -340,9 +348,6 @@ fn generate_paths(
 
             let (methods, is_webhook) = match &path.kind {
                 Kind::Webhook(_) => {
-                    if !duplicate_webhooks.insert(route_path.clone()) {
-                        return Err(anyhow!("Found duplicate webhook: {}", path.route_path).into());
-                    }
                     is_async = route_path.starts_with("/run/");
                     let methods = if is_async {
                         vec![Method::POST]
@@ -354,7 +359,12 @@ fn generate_paths(
                 }
                 Kind::HttpRoute(HttpRouteConfig { method }) => {
                     if path_object.get(&method.to_string()).is_some() {
-                        return Err(anyhow!("Found duplicate route: {}", path.route_path).into());
+                        return Err(anyhow!(
+                            "Found duplicate {} method, for route at path: {}",
+                            method,
+                            path.route_path
+                        )
+                        .into());
                     }
                     is_async = path.is_async.unwrap_or(true);
                     (vec![method.to_owned()], false)
@@ -809,14 +819,6 @@ async fn webhook_to_future_paths(
             summary: Option<String>,
         }
 
-        impl PartialEq for MinifiedWebhook {
-            fn eq(&self, other: &Self) -> bool {
-                self.path == other.path
-            }
-        }
-
-        impl Eq for MinifiedWebhook {}
-
         let webhook_scripts = sqlx::query_as!(
             MinifiedWebhook,
             r#"SELECT 
@@ -827,16 +829,14 @@ async fn webhook_to_future_paths(
                     script
                 WHERE
                     path ~ ANY($1) AND
-                    workspace_id = $2
+                    workspace_id = $2 AND
+                    archived is FALSE
             "#,
             &script_webhook_filter,
             &w_id
         )
         .fetch_all(&mut *pg_pool)
-        .await?
-        .into_iter()
-        .unique()
-        .collect_vec();
+        .await?;
 
         let webhook_flows = sqlx::query_as!(
             MinifiedWebhook,
@@ -848,16 +848,14 @@ async fn webhook_to_future_paths(
                     flow
                 WHERE
                     path ~ ANY($1) AND
-                    workspace_id = $2
+                    workspace_id = $2 AND
+                    archived is FALSE
             "#,
             &flow_webhook_filter,
             &w_id
         )
         .fetch_all(&mut *pg_pool)
-        .await?
-        .into_iter()
-        .unique()
-        .collect_vec();
+        .await?;
 
         openapi_future_paths.reserve_exact(webhook_scripts.len() + webhook_flows.len());
 
