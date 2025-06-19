@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { EnumType } from '$lib/common'
 	import { createEventDispatcher } from 'svelte'
-	import Select from './Select.svelte'
+	import Select from './select/Select.svelte'
 
 	interface Props {
 		disabled: boolean
