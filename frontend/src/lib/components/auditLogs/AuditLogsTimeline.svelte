@@ -80,20 +80,41 @@
 	function groupLogsBySpan(logs: AuditLog[]): Record<string, AuditLog[]> {
 		const grouped: Record<string, AuditLog[]> = {}
 
+		const jobGrouped: Map<string, AuditLog[]> = new Map()
 		for (const log of logs) {
 			const spanId = log.span || 'untraced'
+			if (spanId.startsWith('job-span-')) {
+				const jobid = spanId.slice('job-span-'.length)
+
+				if (!jobGrouped.has(jobid)) {
+					jobGrouped.set(jobid, [])
+				}
+				jobGrouped.get(jobid)?.push(log)
+				continue
+			}
 			if (!grouped[spanId]) {
 				grouped[spanId] = []
 			}
 			grouped[spanId].push(log)
 		}
 
+		for (const jobid of jobGrouped.keys()) {
+			const auditSpan = Object.values(grouped).flat().find((log) => log.parameters?.uuid === jobid)?.span
+			if (auditSpan != undefined) {
+				grouped[auditSpan].push(...(jobGrouped.get(jobid)!))
+			} else {
+				if (!grouped[jobid]) {
+					grouped[jobid] = []
+				}
+				grouped[jobid].push(...jobGrouped.get(jobid)!)
+			}
+
+		}
 		// Sort logs within each span by timestamp
 		Object.values(grouped).forEach((spanLogs) => {
 			spanLogs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
 		})
 
-		console.log('Grouped logs:', grouped)
 		return grouped
 	}
 
@@ -226,6 +247,10 @@
 				}
 			}) as any
 	)
+
+	function unifySpanForSameJobLogs(logs: AuditLog[]): AuditLog[] {
+		return logs
+	}
 </script>
 
 <div class="timeline-container p-4 bg-surface mb-4">
