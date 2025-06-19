@@ -430,8 +430,9 @@ fn resolve_ts_interface_and_type_alias(
             // retrieve their properties first and add them to the current interface's object definition.
             for interfaces in ts_interface.extends.iter() {
                 if let Expr::Ident(Ident { sym, .. }) = &*interfaces.expr {
-                    if let Some(TypeDecl::Interface(interface)) = symbol_table.get(sym.as_str()) {
-                        collect_interface_properties(interface, &mut object_property)
+                    if let Some(TypeDecl::Interface(ts_interface)) = symbol_table.get(sym.as_str())
+                    {
+                        collect_interface_properties(ts_interface, &mut object_property)
                     }
                 }
             }
