@@ -23,6 +23,7 @@
 		reorderable = true,
 		noItemsMsg,
 		selectedUlClass = '',
+		placeholderClass = '',
 		onOpen,
 		groupBy,
 		sortBy,
@@ -43,6 +44,7 @@
 		reorderable?: boolean
 		noItemsMsg?: string
 		selectedUlClass?: string
+		placeholderClass?: string
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onOpen?: () => void
@@ -93,7 +95,7 @@
 <div
 	bind:this={wrapperEl}
 	class={twMerge(
-		'relative flex items-center w-full bg-surface border border-gray-300 rounded-md text-tertiary',
+		'relative min-h-8 flex items-center w-full bg-surface border border-gray-300 rounded-md text-tertiary',
 		disabled ? 'disabled bg-gray-100 dark:bg-gray-700' : '',
 		open ? 'open' : '',
 		className
@@ -106,11 +108,13 @@
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 
 	{#if value.length === 0}
-		<span class="text-sm ml-2 min-h-8 flex items-center flex-1">{placeholder}</span>
+		<span class={twMerge('text-sm ml-2 h-full flex items-center flex-1', placeholderClass)}>
+			{placeholder}
+		</span>
 	{:else}
 		<ul
 			class={twMerge(
-				'overflow-clip overflow-x-hidden min-h-8 cursor-pointer items-center flex flex-wrap gap-1 py-0.5 px-0.5 flex-1 text-primary',
+				'overflow-clip overflow-x-hidden h-full cursor-pointer items-center flex flex-wrap gap-1 py-0.5 px-0.5 flex-1 text-primary',
 				selectedUlClass
 			)}
 			role="list"

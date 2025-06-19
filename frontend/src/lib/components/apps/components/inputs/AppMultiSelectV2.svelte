@@ -20,6 +20,7 @@
 	import { deepEqual } from 'fast-equals'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		id: string
@@ -159,7 +160,7 @@
 
 <AlignWrapper {render} hFull {verticalAlignment}>
 	<div
-		class="w-full"
+		class={twMerge('w-full', resolvedConfig.allowOverflow ? '' : 'absolute inset-0')}
 		onpointerdown={(e) => {
 			$selectedComponent = [id]
 			if (!e.shiftKey) e.stopPropagation()
@@ -168,7 +169,10 @@
 	>
 		<MultiSelect
 			style={css.multiselect?.style}
-			class={'multiselect'}
+			class={twMerge(
+				'multiselect',
+				resolvedConfig.allowOverflow ? '' : 'max-h-full overflow-y-scroll'
+			)}
 			selectedUlClass="selected"
 			items={safeSelectItems([...items, ...customItems])}
 			placeholder={resolvedConfig.placeholder}
