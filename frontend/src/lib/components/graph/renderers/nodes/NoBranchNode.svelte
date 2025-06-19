@@ -14,7 +14,7 @@
 <NodeWrapper offset={data.offset} enableSourceHandle enableTargetHandle>
 	{#snippet children({ darkMode })}
 		<VirtualItem
-			label="No branches"
+			label={data.label ?? 'No branches'}
 			id={data.id}
 			hideId={true}
 			selectable={true}
