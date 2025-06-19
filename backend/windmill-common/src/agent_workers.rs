@@ -6,14 +6,14 @@ pub struct QueueInitJob {
 }
 
 use lazy_static::lazy_static;
-use std::time::{Duration, Instant};
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
+use chrono::{DateTime, Utc};
 use reqwest_middleware::ClientBuilder;
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use sha2::{Digest, Sha256};
-use chrono::{DateTime, Utc};
 
 use crate::{jwt::decode_without_verify, worker::HttpClient, DB};
 
@@ -103,7 +103,8 @@ struct BlacklistCacheEntry {
 }
 
 lazy_static! {
-    static ref BLACKLIST_CACHE: Mutex<HashMap<String, BlacklistCacheEntry>> = Mutex::new(HashMap::new());
+    static ref BLACKLIST_CACHE: Mutex<HashMap<String, BlacklistCacheEntry>> =
+        Mutex::new(HashMap::new());
 }
 
 const BLACKLIST_CACHE_TTL: Duration = Duration::from_secs(300); // 5 minutes
@@ -116,7 +117,7 @@ pub fn hash_token(token: &str) -> String {
 
 pub async fn is_token_blacklisted(db: &DB, token: &str) -> Result<bool, sqlx::Error> {
     let token_hash = hash_token(token);
-    
+
     // Check cache first
     {
         let mut cache = BLACKLIST_CACHE.lock().unwrap();
@@ -128,9 +129,9 @@ pub async fn is_token_blacklisted(db: &DB, token: &str) -> Result<bool, sqlx::Er
             cache.remove(&token_hash);
         }
     }
-    
+
     // Query database for blacklist status
-    let now = Utc::now();
+    let now = Utc::now().naive_utc();
     let is_blacklisted = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM agent_token_blacklist WHERE token_hash = $1 AND expires_at > $2)",
         token_hash,
@@ -139,30 +140,33 @@ pub async fn is_token_blacklisted(db: &DB, token: &str) -> Result<bool, sqlx::Er
     .fetch_one(db)
     .await?
     .unwrap_or(false);
-    
+
     // Update cache
     {
         let mut cache = BLACKLIST_CACHE.lock().unwrap();
-        cache.insert(token_hash, BlacklistCacheEntry {
-            is_blacklisted,
-            expires_at: Instant::now() + BLACKLIST_CACHE_TTL,
-        });
-        
+        cache.insert(
+            token_hash,
+            BlacklistCacheEntry {
+                is_blacklisted,
+                expires_at: Instant::now() + BLACKLIST_CACHE_TTL,
+            },
+        );
+
         // Clean up expired entries to prevent memory leak
         cache.retain(|_, entry| entry.expires_at > Instant::now());
     }
-    
+
     Ok(is_blacklisted)
 }
 
 pub async fn blacklist_token(
-    db: &DB, 
-    token: &str, 
-    expires_at: DateTime<Utc>, 
-    blacklisted_by: &str
+    db: &DB,
+    token: &str,
+    expires_at: DateTime<Utc>,
+    blacklisted_by: &str,
 ) -> Result<(), sqlx::Error> {
     let token_hash = hash_token(token);
-    
+
     sqlx::query!(
         "INSERT INTO agent_token_blacklist (token_hash, expires_at, blacklisted_by) 
          VALUES ($1, $2, $3) 
@@ -171,26 +175,26 @@ pub async fn blacklist_token(
             blacklisted_at = NOW(),
             blacklisted_by = EXCLUDED.blacklisted_by",
         token_hash,
-        expires_at,
+        expires_at.naive_utc(),
         blacklisted_by
     )
     .execute(db)
     .await?;
-    
+
     // Invalidate cache entry
     {
         let mut cache = BLACKLIST_CACHE.lock().unwrap();
         cache.remove(&token_hash);
     }
-    
+
     Ok(())
 }
 
 pub async fn blacklist_token_with_optional_expiry(
-    db: &DB, 
-    token: &str, 
-    expires_at: Option<DateTime<Utc>>, 
-    blacklisted_by: &str
+    db: &DB,
+    token: &str,
+    expires_at: Option<DateTime<Utc>>,
+    blacklisted_by: &str,
 ) -> Result<(), sqlx::Error> {
     // Determine the expiration time
     let final_expires_at = match expires_at {
@@ -206,34 +210,34 @@ pub async fn blacklist_token_with_optional_expiry(
             }
         }
     };
-    
+
     // Use the existing blacklist_token function
     blacklist_token(db, token, final_expires_at, blacklisted_by).await
 }
 
 pub async fn remove_token_from_blacklist(db: &DB, token: &str) -> Result<bool, sqlx::Error> {
     let token_hash = hash_token(token);
-    
+
     let result = sqlx::query!(
         "DELETE FROM agent_token_blacklist WHERE token_hash = $1",
         token_hash
     )
     .execute(db)
     .await?;
-    
+
     // Invalidate cache entry
     {
         let mut cache = BLACKLIST_CACHE.lock().unwrap();
         cache.remove(&token_hash);
     }
-    
+
     Ok(result.rows_affected() > 0)
 }
 
 pub fn extract_jwt_expiration(token: &str) -> Option<DateTime<Utc>> {
     // Remove prefix if present
     let clean_token = token.trim_start_matches(AGENT_JWT_PREFIX);
-    
+
     // Try to decode the JWT and extract exp claim
     if let Ok(claims) = decode_without_verify::<serde_json::Value>(clean_token) {
         if let Some(exp_value) = claims.get("exp") {
@@ -245,12 +249,13 @@ pub fn extract_jwt_expiration(token: &str) -> Option<DateTime<Utc>> {
             }
         }
     }
-    
+
     None
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BlacklistTokenRequest {
     pub token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<DateTime<Utc>>,
 }
