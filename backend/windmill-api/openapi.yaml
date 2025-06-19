@@ -11290,6 +11290,49 @@ paths:
         "200":
           description: token removed from blacklist successfully
 
+  /agent_workers/list_blacklisted_tokens:
+    get:
+      summary: list blacklisted agent tokens (requires super admin)
+      operationId: listBlacklistedAgentTokens
+      tags:
+        - agent_workers
+      parameters:
+        - name: include_expired
+          in: query
+          description: Whether to include expired blacklisted tokens
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: list of blacklisted tokens
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    token_hash:
+                      type: string
+                      description: SHA256 hash of the blacklisted token
+                    expires_at:
+                      type: string
+                      format: date-time
+                      description: When the blacklist entry expires
+                    blacklisted_at:
+                      type: string
+                      format: date-time
+                      description: When the token was blacklisted
+                    blacklisted_by:
+                      type: string
+                      description: Email of the user who blacklisted the token
+                  required:
+                    - token_hash
+                    - expires_at
+                    - blacklisted_at
+                    - blacklisted_by
+
   /w/{workspace}/acls/get/{kind}/{path}:
     get:
       summary: get granular acls

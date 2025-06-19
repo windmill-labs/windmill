@@ -259,3 +259,45 @@ pub struct BlacklistTokenRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<DateTime<Utc>>,
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BlacklistedTokenInfo {
+    pub token_hash: String,
+    pub expires_at: DateTime<Utc>,
+    pub blacklisted_at: DateTime<Utc>,
+    pub blacklisted_by: String,
+}
+
+pub async fn list_blacklisted_tokens(
+    db: &DB,
+    include_expired: bool,
+) -> Result<Vec<BlacklistedTokenInfo>, sqlx::Error> {
+    let now = Utc::now().naive_utc();
+    
+    let query = if include_expired {
+        sqlx::query_as!(
+            BlacklistedTokenInfo,
+            "SELECT token_hash, expires_at, blacklisted_at, blacklisted_by 
+             FROM agent_token_blacklist 
+             ORDER BY blacklisted_at DESC"
+        )
+    } else {
+        sqlx::query_as!(
+            BlacklistedTokenInfo,
+            "SELECT token_hash, expires_at, blacklisted_at, blacklisted_by 
+             FROM agent_token_blacklist 
+             WHERE expires_at > $1 
+             ORDER BY blacklisted_at DESC",
+            now
+        )
+    };
+    
+    let results = query.fetch_all(db).await?;
+    
+    Ok(results.into_iter().map(|row| BlacklistedTokenInfo {
+        token_hash: row.token_hash,
+        expires_at: DateTime::from_naive_utc_and_offset(row.expires_at, Utc),
+        blacklisted_at: DateTime::from_naive_utc_and_offset(row.blacklisted_at, Utc),
+        blacklisted_by: row.blacklisted_by,
+    }).collect())
+}
