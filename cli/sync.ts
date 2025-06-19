@@ -46,7 +46,13 @@ import {
 } from "./metadata.ts";
 import { FlowModule, OpenFlow, RawScript } from "./gen/types.gen.ts";
 import { pushResource } from "./resource.ts";
-import { uiStateToSyncOptions, syncOptionsToUIState, parseJsonInput, resolveWorkspaceAndRepositoryForSync } from "./settings_utils.ts";
+import {
+  uiStateToSyncOptions,
+  syncOptionsToUIState,
+  parseJsonInput,
+  resolveWorkspaceAndRepositoryForSync,
+  sanitizeSyncOptionsForYaml,
+} from "./settings_utils.ts";
 import { readConfigFile } from "./conf.ts";
 
 
@@ -61,31 +67,11 @@ function overrideSyncOptionsFromJson(opts: SyncOptions, jsonSettings?: string): 
 
   // Merge the JSON settings into the existing options
   Object.assign(opts, jsonSyncOptions);
+  
+  // When using JSON settings, automatically include wmill.yaml changes in output
+  opts.includeWmillYaml = true;
 }
 
-// Helper function to add wmill.yaml change detection for JSON settings
-async function addWmillYamlChangeFromJson(opts: SyncOptions, modified: string[]): Promise<void> {
-  if (!opts.settingsFromJson) return;
-
-  // Parse the JSON input to get the new settings
-  const uiState = parseJsonInput(opts.settingsFromJson);
-  const newSyncOptions = uiStateToSyncOptions(uiState);
-  const afterContent = yamlStringify(newSyncOptions as Record<string, unknown>);
-
-  // Read current wmill.yaml if it exists
-  let beforeContent = '';
-  try {
-    beforeContent = await Deno.readTextFile(path.join(Deno.cwd(), "wmill.yaml"));
-  } catch {
-    beforeContent = '';
-  }
-
-  const hasDifferences = afterContent.trim() !== beforeContent.trim();
-
-  if (hasDifferences && !modified.includes('wmill.yaml')) {
-    modified.push('wmill.yaml');
-  }
-}
 
 // Helper function to create workspace object with proper token resolution
 async function createWorkspaceWithToken(
@@ -93,6 +79,11 @@ async function createWorkspaceWithToken(
   workspaceName: string | undefined,
   opts: GlobalOptions
 ): Promise<Workspace> {
+  // If --base-url is specified, always use resolveWorkspace to handle it properly
+  if (opts.baseUrl) {
+    return await resolveWorkspace(opts);
+  }
+
   // Import and use tryGetLoginInfo to get token properly
   const { tryGetLoginInfo } = await import("./login.ts");
   const token = await tryGetLoginInfo(opts);
@@ -1195,9 +1186,16 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
     // Fall back to legacy resolution
     workspace = await resolveWorkspace(opts);
     repositoryPath = opts.repository; // Legacy: just use specified repository
-    const { mergeConfigWithConfigFile } = await import("./conf.ts");
+    const { mergeConfigWithConfigFile, getWorkspaceRepositorySettings } = await import("./conf.ts");
     const legacyConfig = await mergeConfigWithConfigFile({});
-    opts = { ...legacyConfig, ...opts };
+    
+    // Extract repository-specific settings if available
+    let extractedConfig = legacyConfig;
+    if (opts.workspace && repositoryPath && legacyConfig.workspaces?.[opts.workspace]) {
+      extractedConfig = getWorkspaceRepositorySettings(legacyConfig, opts.workspace, repositoryPath);
+    }
+    
+    opts = { ...extractedConfig, ...opts };
   }
 
   await requireLogin(opts);
@@ -1253,7 +1251,7 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
   const local = !opts.stateful
     ? await FSFSElement(Deno.cwd(), codebases, true)
     : await FSFSElement(path.join(Deno.cwd(), ".wmill"), [], true);
-  const changes = await compareDynFSElement(
+  let changes = await compareDynFSElement(
     remote,
     local,
     await ignoreF(opts),
@@ -1264,17 +1262,30 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
     true
   );
 
+  // Always filter out wmill.yaml from normal sync operations - it will be handled separately by includeWmillYaml logic if requested
+  changes = changes.filter(change => change.path !== 'wmill.yaml');
+
   // Add wmill.yaml change from JSON settings if requested
   if (opts.settingsFromJson) {
     // Parse the JSON input to get the new settings
     const uiState = parseJsonInput(opts.settingsFromJson);
     const newSyncOptions = uiStateToSyncOptions(uiState);
-    const afterContent = yamlStringify(newSyncOptions as Record<string, unknown>);
+    const afterContent = yamlStringify(
+      sanitizeSyncOptionsForYaml(newSyncOptions) as Record<string, unknown>
+    );
 
-    // Read current wmill.yaml if it exists
+    // Read and sanitise current wmill.yaml if it exists
     let beforeContent = '';
     try {
       beforeContent = await Deno.readTextFile(path.join(Deno.cwd(), "wmill.yaml"));
+      try {
+        const parsedBefore: any = yamlParseContent("wmill.yaml", beforeContent);
+        beforeContent = yamlStringify(
+          sanitizeSyncOptionsForYaml(parsedBefore) as Record<string, unknown>
+        );
+      } catch {
+        // If parsing fails, keep raw content for comparison
+      }
     } catch {
       beforeContent = '';
     }
@@ -1291,8 +1302,28 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
     }
   }
 
+  // Add wmill.yaml change detection if requested - reuse settings.ts logic
+  let wmillYamlSettingsResult = null;
+  if (opts.includeWmillYaml) {
+    try {
+      const { pullSettings } = await import("./settings.ts");
+      wmillYamlSettingsResult = await pullSettings({ 
+        ...opts, 
+        diff: true,
+        workspace: opts.workspace,
+        repository: repositoryPath 
+      });
+    } catch (error) {
+      console.warn("Failed to check wmill.yaml changes:", error);
+    }
+  }
+
+  // Calculate total changes including wmill.yaml if applicable
+  const wmillYamlChanges = (wmillYamlSettingsResult?.success && wmillYamlSettingsResult?.diff?.trim()) ? 1 : 0;
+  const totalChanges = changes.length + wmillYamlChanges;
+
   log.info(
-    `remote (${workspace.name}) -> local: ${changes.length} changes to apply`
+    `remote (${workspace.name}) -> local: ${totalChanges} changes to apply`
   );
 
   // Handle JSON output for dry-run (both with and without changes)
@@ -1312,21 +1343,17 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
       }
     }
 
-    // Add wmill.yaml change detection if requested
-    if (opts.includeWmillYaml) {
-      // Check if settings would generate a different wmill.yaml
-      const currentWmillYaml = await readCurrentWmillYaml();
-      const generatedWmillYaml = generateWmillYamlFromOpts(opts);
-
-      if (currentWmillYaml !== generatedWmillYaml) {
-        if (!modified.includes('wmill.yaml')) {
-          modified.push('wmill.yaml');
-        }
+    // Use wmill.yaml change detection from main logic if requested
+    if (opts.includeWmillYaml && wmillYamlSettingsResult?.success && wmillYamlSettingsResult?.diff?.trim()) {
+      // There are differences, so wmill.yaml would be modified
+      const wmillYamlExists = await readCurrentWmillYaml() !== null;
+      if (!wmillYamlExists && !added.includes('wmill.yaml')) {
+        added.push('wmill.yaml');
+      } else if (wmillYamlExists && !modified.includes('wmill.yaml')) {
+        modified.push('wmill.yaml');
       }
     }
 
-    // Add wmill.yaml change detection from JSON settings if requested
-    await addWmillYamlChangeFromJson(opts, modified);
 
     const result = {
       success: true,
@@ -1338,8 +1365,16 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
     return;
   }
 
-  if (changes.length > 0) {
+  if (totalChanges > 0) {
     prettyChanges(changes);
+    
+    // Show wmill.yaml change if applicable
+    if (wmillYamlChanges > 0) {
+      const wmillYamlExists = await readCurrentWmillYaml() !== null;
+      const changeType = wmillYamlExists ? "~" : "+";
+      log.info(colors.yellow(`${changeType} wmill.yaml`));
+    }
+    
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
       return;
@@ -1347,7 +1382,7 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
     if (
       !opts.yes &&
       !(await Confirm.prompt({
-        message: `Do you want to apply these ${changes.length} changes to your local files?`,
+        message: `Do you want to apply these ${totalChanges} changes to your local files?`,
         default: true,
       }))
     ) {
@@ -1487,9 +1522,28 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
         )} scripts were changed but ignoring for now`
       );
     }
+    // Apply wmill.yaml changes if requested and there are differences
+    if (opts.includeWmillYaml && wmillYamlSettingsResult?.success && wmillYamlSettingsResult?.diff?.trim()) {
+      try {
+        log.info("Applying wmill.yaml changes...");
+        const { pullSettings } = await import("./settings.ts");
+        // Apply the settings (without diff mode to actually write the file)
+        await pullSettings({ 
+          ...opts, 
+          diff: false,
+          workspace: opts.workspace,
+          repository: repositoryPath 
+        });
+        log.info(colors.green("wmill.yaml updated successfully"));
+      } catch (error) {
+        log.error(colors.red(`Failed to apply wmill.yaml changes: ${error}`));
+      }
+    }
+
+    const totalAppliedChanges = changes.length + ((opts.includeWmillYaml && wmillYamlSettingsResult?.success && wmillYamlSettingsResult?.diff?.trim()) ? 1 : 0);
     log.info(
       colors.bold.green.underline(
-        `\nDone! All ${changes.length} changes applied locally and wmill-lock.yaml updated.`
+        `\nDone! All ${totalAppliedChanges} changes applied locally and wmill-lock.yaml updated.`
       )
     );
   }
@@ -1570,14 +1624,21 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
     // Fall back to legacy resolution
     workspace = await resolveWorkspace(opts);
     repositoryPath = opts.repository; // Legacy: just use specified repository
-    const { mergeConfigWithConfigFile } = await import("./conf.ts");
+    const { mergeConfigWithConfigFile, getWorkspaceRepositorySettings } = await import("./conf.ts");
     const legacyConfig = await mergeConfigWithConfigFile({});
-    opts = { ...legacyConfig, ...opts };
+    
+    // Extract repository-specific settings if available
+    let extractedConfig = legacyConfig;
+    if (opts.workspace && repositoryPath && legacyConfig.workspaces?.[opts.workspace]) {
+      extractedConfig = getWorkspaceRepositorySettings(legacyConfig, opts.workspace, repositoryPath);
+    }
+    
+    opts = { ...extractedConfig, ...opts };
   }
 
   await requireLogin(opts);
 
-  // Override sync configuration with JSON settings if provided
+  // Override sync configuration with JSON settings if provided - MUST happen before file scanning
   overrideSyncOptionsFromJson(opts, opts.settingsFromJson);
 
   if (repositoryPath) {
@@ -1635,7 +1696,7 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
   );
 
   const local = await FSFSElement(path.join(Deno.cwd(), ""), codebases, false);
-  const changes = await compareDynFSElement(
+  let changes = await compareDynFSElement(
     local,
     remote,
     await ignoreF(opts),
@@ -1646,17 +1707,46 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
     false
   );
 
+  // Always filter out wmill.yaml from normal sync operations - it will be handled separately by includeWmillYaml logic if requested
+  changes = changes.filter(change => change.path !== 'wmill.yaml');
+
+  // Add wmill.yaml change detection if requested - reuse settings.ts logic for push direction
+  let wmillYamlSettingsResult = null;
+  if (opts.includeWmillYaml) {
+    try {
+      const { pushSettings } = await import("./settings.ts");
+      wmillYamlSettingsResult = await pushSettings({ 
+        ...opts, 
+        diff: true,
+        workspace: opts.workspace,
+        repository: repositoryPath 
+      });
+    } catch (error) {
+      console.warn("Failed to check wmill.yaml changes:", error);
+    }
+  }
+
   // Add wmill.yaml change from JSON settings if requested
   if (opts.settingsFromJson) {
     // Parse the JSON input to get the new settings
     const uiState = parseJsonInput(opts.settingsFromJson);
     const newSyncOptions = uiStateToSyncOptions(uiState);
-    const afterContent = yamlStringify(newSyncOptions as Record<string, unknown>);
+    const afterContent = yamlStringify(
+      sanitizeSyncOptionsForYaml(newSyncOptions) as Record<string, unknown>
+    );
 
-    // Read current wmill.yaml if it exists
+    // Read and sanitise current wmill.yaml if it exists
     let beforeContent = '';
     try {
       beforeContent = await Deno.readTextFile(path.join(Deno.cwd(), "wmill.yaml"));
+      try {
+        const parsedBefore: any = yamlParseContent("wmill.yaml", beforeContent);
+        beforeContent = yamlStringify(
+          sanitizeSyncOptionsForYaml(parsedBefore) as Record<string, unknown>
+        );
+      } catch {
+        // If parsing fails, keep raw content for comparison
+      }
     } catch {
       beforeContent = '';
     }
@@ -1734,12 +1824,16 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
 
   log.info(colors.gray("Remote version: " + version));
 
+  // Calculate total changes including wmill.yaml if applicable
+  const wmillYamlChanges = (wmillYamlSettingsResult?.success && wmillYamlSettingsResult?.diff?.trim()) ? 1 : 0;
+  const totalChanges = changes.length + wmillYamlChanges;
+
   log.info(
-    `remote (${workspace.name}) <- local: ${changes.length} changes to apply`
+    `remote (${workspace.name}) <- local: ${totalChanges} changes to apply`
   );
 
   // Handle JSON output when there are no changes
-  if (changes.length === 0 && opts.jsonOutput) {
+  if (totalChanges === 0 && opts.jsonOutput) {
     try {
       const localConfig = await readConfigFile();
       const localUIState = syncOptionsToUIState(localConfig);
@@ -1766,8 +1860,14 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
     return;
   }
 
-  if (changes.length > 0) {
+  if (totalChanges > 0) {
     prettyChanges(changes);
+    
+    // Show wmill.yaml change if applicable
+    if (wmillYamlChanges > 0) {
+      log.info(colors.yellow(`~ wmill.yaml`));
+    }
+    
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
       if (opts.jsonOutput) {
@@ -1786,21 +1886,10 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
           }
         }
 
-        // Add wmill.yaml change detection if requested
-        if (opts.includeWmillYaml) {
-          // Check if settings would generate a different wmill.yaml
-          const currentWmillYaml = await readCurrentWmillYaml();
-          const generatedWmillYaml = generateWmillYamlFromOpts(opts);
-
-          if (currentWmillYaml !== generatedWmillYaml) {
-            if (!modified.includes('wmill.yaml')) {
-              modified.push('wmill.yaml');
-            }
-          }
+        // Add wmill.yaml to modified array if there are differences
+        if (wmillYamlChanges > 0) {
+          modified.push('wmill.yaml');
         }
-
-        // Add wmill.yaml change detection from JSON settings if requested
-        await addWmillYamlChangeFromJson(opts, modified);
 
         const result = {
           success: true,
@@ -1815,7 +1904,7 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
     if (
       !opts.yes &&
       !(await Confirm.prompt({
-        message: `Do you want to apply these ${changes.length} changes to the remote?`,
+        message: `Do you want to apply these ${totalChanges} changes to the remote?`,
         default: true,
       }))
     ) {
@@ -2174,9 +2263,29 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
         await Promise.race(pool);
       }
     }
+    
+    // Apply wmill.yaml changes if requested and there are differences
+    if (opts.includeWmillYaml && wmillYamlSettingsResult?.success && wmillYamlSettingsResult?.diff?.trim()) {
+      try {
+        log.info("Applying wmill.yaml settings to remote...");
+        const { pushSettings } = await import("./settings.ts");
+        // Apply the settings (without diff mode to actually push to remote)
+        await pushSettings({ 
+          ...opts, 
+          diff: false,
+          workspace: opts.workspace,
+          repository: repositoryPath 
+        });
+        log.info(colors.green("wmill.yaml settings pushed to remote successfully"));
+      } catch (error) {
+        log.error(colors.red(`Failed to push wmill.yaml settings: ${error}`));
+      }
+    }
+
+    const totalAppliedChanges = changes.length + ((opts.includeWmillYaml && wmillYamlSettingsResult?.success && wmillYamlSettingsResult?.diff?.trim()) ? 1 : 0);
     log.info(
       colors.bold.green.underline(
-        `\nDone! All ${changes.length} changes pushed to the remote workspace ${
+        `\nDone! All ${totalAppliedChanges} changes pushed to the remote workspace ${
           workspace.workspaceId
         } named ${workspace.name} (${(performance.now() - start).toFixed(0)}ms)`
       )
@@ -2251,7 +2360,7 @@ const command = new Command()
   )
   .option("--json-output", "Output changes in JSON format for frontend integration")
   .option("--include-wmill-yaml", "Include wmill.yaml changes in output when using --json-output")
-  .option("--settings-from-json <json:string>", "Configure sync settings using JSON format (include_path, include_type) as alternative to individual flags")
+  .option("--settings-from-json <json:string>", "Override sync configuration with JSON settings for this pull operation. JSON format: {\"include_path\": [\"f/**\"], \"include_type\": [\"script\", \"flow\", \"app\"]}. Controls which files are pulled from Windmill backend. Automatically includes wmill.yaml updates. Alternative to using individual --skip-* and --include-* flags.")
   .option("--repository <repo:string>", "Specify git repository path (e.g. u/user/repo)")
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
@@ -2299,7 +2408,7 @@ const command = new Command()
   .option("--parallel <number>", "Number of changes to process in parallel")
   .option("--json-output", "Output changes in JSON format for frontend integration")
   .option("--include-wmill-yaml", "Include wmill.yaml changes in output when using --json-output")
-  .option("--settings-from-json <json:string>", "Configure sync settings using JSON format (include_path, include_type) as alternative to individual flags")
+  .option("--settings-from-json <json:string>", "Override sync configuration with JSON settings for this push operation. JSON format: {\"include_path\": [\"f/**\"], \"include_type\": [\"script\", \"flow\", \"app\"]}. Controls which local files are pushed to Windmill backend. May update local wmill.yaml. Alternative to using individual --skip-* and --include-* flags.")
   .option("--repository <repo:string>", "Specify git repository path (e.g. u/user/repo)")
   // deno-lint-ignore no-explicit-any
   .action(push as any);
@@ -2338,5 +2447,5 @@ function generateWmillYamlFromOpts(opts: SyncOptions): string {
     includeKey: opts.includeKey ?? false
   };
 
-  return yamlStringify(config);
+  return yamlStringify(sanitizeSyncOptionsForYaml(config));
 }

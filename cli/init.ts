@@ -44,8 +44,8 @@ async function initAction(opts: {
   await readLockfile();
 }
 
-async function setupAuthAndWorkspace(opts: GlobalOptions) {
-  const mergedOpts = await mergeConfigWithConfigFile(opts);
+async function setupAuthAndWorkspace(opts: GlobalOptions, config?: any) {
+  const mergedOpts = config ? { ...config, ...opts } : await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(mergedOpts);
 
   if (opts.baseUrl && opts.token) {
@@ -70,7 +70,7 @@ async function addWorkspaceToConfig(opts: {
 }) {
   try {
     const existingConfig = await mergeConfigWithConfigFile({});
-    const workspace = await setupAuthAndWorkspace(opts as GlobalOptions);
+    const workspace = await setupAuthAndWorkspace(opts as GlobalOptions, existingConfig);
 
     if (!existingConfig.workspaces) {
       existingConfig.workspaces = {};

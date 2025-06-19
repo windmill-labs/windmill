@@ -1,5 +1,5 @@
 import process from "node:process";
-import { colors, Confirm, log, yamlParseFile, yamlStringify } from "./deps.ts";
+import { colors, Confirm, log, yamlParseFile } from "./deps.ts";
 import * as wmill from "./gen/services.gen.ts";
 import { AIConfig, Config, GlobalSetting } from "./gen/types.gen.ts";
 import { compareInstanceObjects, InstanceSyncOptions } from "./instance.ts";
@@ -8,11 +8,26 @@ import { deepEqual } from "./utils.ts";
 import { removeWorkerPrefix } from "./worker_groups.ts";
 import { Command } from "./deps.ts";
 import { GlobalOptions } from "./types.ts";
-import { SyncOptions, mergeConfigWithConfigFile, DEFAULT_SYNC_OPTIONS, readConfigFile } from "./conf.ts";
+import { SyncOptions, DEFAULT_SYNC_OPTIONS, readConfigFile } from "./conf.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
 import { Workspace } from "./workspace.ts";
-import { uiStateToSyncOptions, parseJsonInput, normalizeRepositoryPath, displayRepositoryPath, selectRepositoryInteractively, resolveWorkspaceAndRepositoryForSync } from "./settings_utils.ts";
-import { stringify, parse } from "jsr:@std/yaml@^1.0.5";
+import {
+  uiStateToSyncOptions,
+  parseJsonInput,
+  normalizeRepositoryPath,
+  displayRepositoryPath,
+  selectRepositoryInteractively,
+  resolveWorkspaceAndRepositoryForSync,
+  createSettingsForComparison,
+  yamlSafe,
+  yamlSafeForComparison,
+  extractSyncOptions,
+  extractRepositorySyncOptions,
+  mergeBackendSettingsWithLocalCodebases,
+  mergePreservingOrder,
+  syncOptionsToUIState,
+} from "./settings_utils.ts";
+import { parse } from "jsr:@std/yaml@^1.0.5";
 
 export interface SimplifiedSettings {
   // slack_team_id?: string;
@@ -405,7 +420,7 @@ export async function pullInstanceSettings(
     );
     await Deno.writeTextFile(
       instanceSettingsPath,
-      yamlStringify(processedSettings)
+      yamlSafe(processedSettings)
     );
 
     log.info(colors.green(`Settings written to ${instanceSettingsPath}`));
@@ -514,7 +529,7 @@ export async function pullInstanceConfigs(
 
     await Deno.writeTextFile(
       instanceConfigsPath,
-      yamlStringify(remoteConfigs as any)
+      yamlSafe(remoteConfigs as any)
     );
 
     log.info(colors.green(`Configs written to ${instanceConfigsPath}`));
@@ -602,10 +617,13 @@ function handleError(error: unknown): SettingsResult {
 }
 
 // Shared workspace resolution function to eliminate duplication
-async function resolveWorkspaceForSettings(opts: GlobalOptions & SyncOptions & {
-  repository?: string;
-  workspace?: string;
-}): Promise<{
+async function resolveWorkspaceForSettings(
+  opts: GlobalOptions & SyncOptions & {
+    repository?: string;
+    workspace?: string;
+  },
+  config?: SyncOptions
+): Promise<{
   workspace: Workspace;
   repositoryPath: string | undefined;
   workspaceName: string | undefined;
@@ -615,10 +633,18 @@ async function resolveWorkspaceForSettings(opts: GlobalOptions & SyncOptions & {
   let repositoryPath: string | undefined;
   let workspaceName: string | undefined;
 
+  if (opts.workspace && opts.repository) {
+    workspace = await resolveWorkspace(opts);
+    workspaceName = opts.workspace;
+    repositoryPath = opts.repository;
+    const mergedOpts = { ...(config || {}), ...opts };
+    return { workspace, repositoryPath, workspaceName, mergedOpts };
+  }
+
   try {
     // Try to resolve using workspace-aware method
     const { workspaceName: resolvedWorkspace, workspaceProfile, repositoryPath: resolvedRepo, syncOptions } =
-      await resolveWorkspaceAndRepositoryForSync(opts.workspace, opts.repository);
+      await resolveWorkspaceAndRepositoryForSync(opts.workspace, opts.repository, config);
 
     if (workspaceProfile) {
       // Use workspace profile to create workspace object
@@ -642,9 +668,27 @@ async function resolveWorkspaceForSettings(opts: GlobalOptions & SyncOptions & {
   } catch (error) {
     // Fall back to legacy resolution
     workspace = await resolveWorkspace(opts);
+    workspaceName = workspace.name;
     repositoryPath = opts.repository; // Legacy: just use specified repository
-    const legacyConfig = await mergeConfigWithConfigFile({});
-    const mergedOpts = { ...legacyConfig, ...opts };
+
+    // If no explicit repository but we have a workspace, try to resolve from backend
+    if (!repositoryPath && workspaceName) {
+      try {
+        const repositories = await listRepositories(workspace);
+        if (repositories.length === 1) {
+          // If exactly one repository, use it
+          repositoryPath = repositories[0].display_path;
+        } else if (repositories.length > 1) {
+          // Multiple repositories - would need interactive selection for true CLI usage
+          // For now, just use first one to enable multi-workspace format
+          repositoryPath = repositories[0].display_path;
+        }
+      } catch {
+        // If backend call fails, just continue with undefined repositoryPath
+      }
+    }
+
+    const mergedOpts = { ...(config || {}), ...opts };
 
     return { workspace, repositoryPath, workspaceName, mergedOpts };
   }
@@ -709,12 +753,14 @@ export async function fetchBackendSettings(workspace: { workspaceId: string }, r
     let targetRepo;
 
     if (repositoryPath) {
-      // Normalize the repository path to include $res: prefix
+      // Try both normalized and display formats to handle different backend storage formats
       const normalizedPath = normalizeRepositoryPath(repositoryPath);
+      const displayPath = displayRepositoryPath(repositoryPath);
+
 
       // Find specific repository by git_repo_resource_path
       targetRepo = backendSettings.git_sync.repositories.find(
-        repo => repo.git_repo_resource_path === normalizedPath
+        repo => repo.git_repo_resource_path === normalizedPath || repo.git_repo_resource_path === displayPath
       );
       if (!targetRepo) {
         const availableRepos = backendSettings.git_sync.repositories
@@ -748,22 +794,15 @@ export async function fetchBackendSettings(workspace: { workspaceId: string }, r
 
     const repoSettings = targetRepo.settings || {};
 
-    return {
-      defaultTs: 'bun',
-      includes: repoSettings.include_path,
-      excludes: [],
-      codebases: [],
-      skipVariables: !repoSettings.include_type?.includes('variable'),
-      skipResources: !repoSettings.include_type?.includes('resource'),
-      skipResourceTypes: !repoSettings.include_type?.includes('resourcetype'),
-      skipSecrets: !repoSettings.include_type?.includes('secret'),
-      includeSchedules: repoSettings.include_type?.includes('schedule') || false,
-      includeTriggers: repoSettings.include_type?.includes('trigger') || false,
-      includeUsers: repoSettings.include_type?.includes('user') || false,
-      includeGroups: repoSettings.include_type?.includes('group') || false,
-      includeSettings: (repoSettings.include_type as string[])?.includes('settings') || false,
-      includeKey: (repoSettings.include_type as string[])?.includes('key') || false
+    // Convert backend repository settings to SyncOptions format using existing utility
+    const uiState = {
+      include_path: repoSettings.include_path || ['f/**'],
+      include_type: repoSettings.include_type || ['script', 'flow', 'app', 'folder']
     };
+    const syncOptions = uiStateToSyncOptions(uiState);
+    syncOptions.excludes = repoSettings.exclude_path || [];
+    syncOptions.extraIncludes = repoSettings.extra_include_path || [];
+    return syncOptions;
   } else {
     return { ...DEFAULT_SYNC_OPTIONS };
   }
@@ -800,48 +839,6 @@ async function generateDiff(fromFile: string, toFile: string): Promise<string> {
   return diffResult.success ? diffResult.stdout : `Failed to compare: ${diffResult.stderr}`;
 }
 
-
-
-// Helper function to extract only sync options from full config
-function extractSyncOptions(config: SyncOptions): SyncOptions {
-  return {
-    defaultTs: config.defaultTs,
-    includes: config.includes,
-    excludes: config.excludes,
-    // codebases: excluded - local dev setting only, not synced with backend
-    skipVariables: config.skipVariables,
-    skipResources: config.skipResources,
-    skipResourceTypes: config.skipResourceTypes,
-    skipSecrets: config.skipSecrets,
-    skipScripts: config.skipScripts,
-    skipFlows: config.skipFlows,
-    skipApps: config.skipApps,
-    skipFolders: config.skipFolders,
-    includeSchedules: config.includeSchedules,
-    includeTriggers: config.includeTriggers,
-    includeUsers: config.includeUsers,
-    includeGroups: config.includeGroups,
-    includeSettings: config.includeSettings,
-    includeKey: config.includeKey
-  };
-}
-
-// Helper function to merge backend settings while preserving local codebases
-function mergeBackendSettingsWithLocalCodebases(backendSettings: SyncOptions, localSettings: SyncOptions): SyncOptions {
-  return {
-    ...backendSettings,
-    // Preserve local codebases - never let backend override them
-    codebases: localSettings.codebases || []
-  };
-}
-
-// Helper function to create settings objects for comparison that exclude codebases
-function createSettingsForComparison(settings: SyncOptions): SyncOptions {
-  const { codebases, ...settingsWithoutCodebases } = settings;
-  return settingsWithoutCodebases;
-}
-
-
 // Helper function to read local settings file
 async function readLocalSettingsFile(filePath: string = 'wmill.yaml'): Promise<{ content: string; settings: SyncOptions }> {
   try {
@@ -866,48 +863,48 @@ async function createTempDiffFiles(content1: string, content2: string): Promise<
   return { file1, file2 };
 }
 
-// Helper function to extract only repository-relevant sync options
-function extractRepositorySyncOptions(config: SyncOptions): any {
-  return {
-    skipVariables: config.skipVariables,
-    skipResources: config.skipResources,
-    skipResourceTypes: config.skipResourceTypes,
-    skipSecrets: config.skipSecrets,
-    skipScripts: config.skipScripts,
-    skipFlows: config.skipFlows,
-    skipApps: config.skipApps,
-    skipFolders: config.skipFolders,
-    includeSchedules: config.includeSchedules,
-    includeTriggers: config.includeTriggers,
-    includeUsers: config.includeUsers,
-    includeGroups: config.includeGroups,
-    includeSettings: config.includeSettings,
-    includeKey: config.includeKey,
-    includes: config.includes,
-    extraIncludes: config.extraIncludes,
-    excludes: config.excludes,
-    defaultTs: config.defaultTs,
-    // codebases: excluded - local dev setting only, not synced with backend
-  };
-}
-
 // Helper function to write settings to a specific workspace repository
 async function writeWorkspaceRepositorySettings(
   workspaceName: string,
   repositoryPath: string,
   newSettings: SyncOptions,
-  filePath: string = 'wmill.yaml'
+  filePath: string = 'wmill.yaml',
+  workspace?: Workspace,
+  providedConfig?: SyncOptions
 ): Promise<void> {
-  // Read current config
-  const currentConfig = await readConfigFile();
-
-  // Ensure workspace exists
-  if (!currentConfig.workspaces) {
-    throw new Error(`No workspaces configured in ${filePath}. Cannot write to multi-workspace format.`);
+  // Use provided config or read current config, or create new one if file doesn't exist
+  let currentConfig;
+  if (providedConfig) {
+    currentConfig = providedConfig;
+  } else {
+    try {
+      currentConfig = await readConfigFile();
+    } catch (error) {
+      // If file doesn't exist or can't be read, create a new multi-workspace config
+      currentConfig = {
+        defaultWorkspace: workspaceName,
+        workspaces: {}
+      };
+    }
   }
 
+  // Ensure workspaces object exists
+  if (!currentConfig.workspaces) {
+    currentConfig.workspaces = {};
+  }
+
+  // Create workspace if it doesn't exist
   if (!currentConfig.workspaces[workspaceName]) {
-    throw new Error(`Workspace '${workspaceName}' not found in ${filePath}. Available workspaces: ${Object.keys(currentConfig.workspaces).join(', ')}`);
+    currentConfig.workspaces[workspaceName] = {
+      baseUrl: workspace?.remote || "", // Use actual base URL if available
+      workspaceId: workspaceName,
+      repositories: {}
+    };
+  }
+
+  // Set default workspace if not set
+  if (!currentConfig.defaultWorkspace) {
+    currentConfig.defaultWorkspace = workspaceName;
   }
 
   // Ensure repositories object exists for this workspace
@@ -915,8 +912,8 @@ async function writeWorkspaceRepositorySettings(
     currentConfig.workspaces[workspaceName].repositories = {};
   }
 
-  // Extract only repository-relevant options from newSettings
-  const repositorySettings = extractRepositorySyncOptions(newSettings);
+  // Use all settings including local-only fields (defaultTs, codebases) for local config
+  const repositorySettings = { ...newSettings } as any;
 
   // Remove undefined values to keep the config clean
   Object.keys(repositorySettings).forEach(key => {
@@ -928,14 +925,36 @@ async function writeWorkspaceRepositorySettings(
   // Update the specific repository settings
   currentConfig.workspaces[workspaceName].repositories![repositoryPath] = repositorySettings;
 
-  // Write back to file
-  await Deno.writeTextFile(filePath, stringify(currentConfig as Record<string, unknown>));
+  let existingObj: any = undefined;
+  try {
+    existingObj = (await yamlParseFile(filePath)) as any;
+  } catch {
+    // file may not exist or parse error; treat as different
+  }
+  const mergedConfig = mergePreservingOrder(existingObj || {}, currentConfig as any, false);
+
+  const existingYaml = yamlSafe(existingObj || {});
+  const targetYaml = yamlSafe(mergedConfig as any);
+  if (existingYaml.trim() !== targetYaml.trim()) {
+    await Deno.writeTextFile(filePath, targetYaml);
+  }
 }
 
 // Helper function to write settings to config file (legacy format)
 async function writeSettings(settings: SyncOptions, filePath: string = 'wmill.yaml'): Promise<void> {
-  // For legacy format, just write the settings directly
-  await Deno.writeTextFile(filePath, stringify(settings as Record<string, unknown>));
+  let existingLegacy: any = undefined;
+  try {
+    existingLegacy = (await yamlParseFile(filePath)) as any;
+  } catch {
+    // ignore
+  }
+  const mergedLegacy = mergePreservingOrder(existingLegacy || {}, settings as any, false);
+
+  const existingLegacyYaml = yamlSafe(existingLegacy || {});
+  const targetLegacyYaml = yamlSafe(mergedLegacy as any);
+  if (existingLegacyYaml.trim() !== targetLegacyYaml.trim()) {
+    await Deno.writeTextFile(filePath, targetLegacyYaml);
+  }
 }
 
 // Helper function to update git sync repositories with new settings
@@ -958,7 +977,7 @@ async function updateGitSyncRepositories(workspace: { workspaceId: string }, loc
 
     const repositories = backendSettings.git_sync.repositories.map((repo) => {
             const shouldUpdate = normalizedRepositoryPath ?
-        repo.git_repo_resource_path === normalizedRepositoryPath :
+        (repo.git_repo_resource_path === normalizedRepositoryPath || repo.git_repo_resource_path === displayRepositoryPath(normalizedRepositoryPath)) :
         backendSettings.git_sync!.repositories!.length === 1; // Only update first repo if there's exactly one
 
       if (shouldUpdate) {
@@ -968,31 +987,22 @@ async function updateGitSyncRepositories(workspace: { workspaceId: string }, loc
           use_individual_branch: repo.use_individual_branch ?? false,
           group_by_folder: repo.group_by_folder ?? false,
           collapsed: false,
-          settings: {
-            include_path: localSettings.includes || ['f/**'],
-            include_type: [
-              ...(localSettings.skipScripts === false ? ['script'] as const : []),
-              ...(localSettings.skipFlows === false ? ['flow'] as const : []),
-              ...(localSettings.skipApps === false ? ['app'] as const : []),
-              ...(localSettings.skipFolders === false ? ['folder'] as const : []),
-              ...(localSettings.skipVariables === false ? ['variable'] as const : []),
-              ...(localSettings.skipResources === false ? ['resource'] as const : []),
-              ...(localSettings.skipResourceTypes === false ? ['resourcetype'] as const : []),
-              ...(localSettings.skipSecrets === false ? ['secret'] as const : []),
-              ...(localSettings.includeSchedules === true ? ['schedule'] as const : []),
-              ...(localSettings.includeTriggers === true ? ['trigger'] as const : []),
-              ...(localSettings.includeUsers === true ? ['user'] as const : []),
-              ...(localSettings.includeGroups === true ? ['group'] as const : []),
-              ...(localSettings.includeSettings === true ? ['settings'] as const : []),
-              ...(localSettings.includeKey === true ? ['key'] as const : [])
-            ] as ('script' | 'flow' | 'app' | 'folder' | 'variable' | 'resource' | 'resourcetype' | 'secret' | 'schedule' | 'trigger' | 'user' | 'group' | 'settings' | 'key')[]
-          }
+          settings: (() => {
+            // Convert SyncOptions to backend format using existing utility
+            const uiState = syncOptionsToUIState(localSettings);
+            return {
+              include_path: uiState.include_path,
+              exclude_path: localSettings.excludes && localSettings.excludes.length > 0 ? localSettings.excludes : [],
+              extra_include_path: localSettings.extraIncludes && localSettings.extraIncludes.length > 0 ? localSettings.extraIncludes : [],
+              include_type: uiState.include_type as ('script' | 'flow' | 'app' | 'folder' | 'variable' | 'resource' | 'resourcetype' | 'secret' | 'schedule' | 'trigger' | 'user' | 'group' | 'settings' | 'key')[]
+            };
+          })()
         };
       }
       return repo;
     });
 
-    if (normalizedRepositoryPath && !repositories.find(r => r.git_repo_resource_path === normalizedRepositoryPath)) {
+    if (normalizedRepositoryPath && !repositories.find(r => r.git_repo_resource_path === normalizedRepositoryPath || r.git_repo_resource_path === displayRepositoryPath(normalizedRepositoryPath))) {
       const availableRepos = backendSettings.git_sync.repositories
         .map(r => displayRepositoryPath(r.git_repo_resource_path))
         .join(', ');
@@ -1015,7 +1025,11 @@ async function updateGitSyncRepositories(workspace: { workspaceId: string }, loc
 // Helper function to handle fromJson processing (eliminating duplication between pull/push)
 async function handleFromJsonProcessing(
   opts: { fromJson?: string; diff?: boolean; dryRun?: boolean },
-  operationType: 'pull' | 'push'
+  operationType: 'pull' | 'push',
+  workspaceName?: string,
+  repositoryPath?: string,
+  workspace?: Workspace,
+  config?: SyncOptions
 ): Promise<SettingsResult | null> {
   if (!opts.fromJson) return null;
 
@@ -1029,14 +1043,59 @@ async function handleFromJsonProcessing(
       error: (error as Error).message
     };
   }
-  const simulatedBackendSettings = uiStateToSyncOptions(uiState);
+  let jsonSyncOptions = uiStateToSyncOptions(uiState);
+  // Strip redundant defaults so behaviour matches backend
+  jsonSyncOptions = createSettingsForComparison(jsonSyncOptions);
 
-  if (opts.diff) {
-    // For --from-json --diff: Compare JSON (simulated backend) with local wmill.yamlfile
+    if (opts.diff) {
+    // For --from-json --diff: Compare JSON (simulated backend) with local wmill.yaml file
+    let actualLocalSettings: SyncOptions = {};
+    let hasLocalFile = true;
+
     try {
-      const { settings: actualLocalSettings } = await readLocalSettingsFile();
-      const simulatedBackendYaml = stringify(simulatedBackendSettings as Record<string, unknown>);
-      const localYaml = stringify(actualLocalSettings as Record<string, unknown>);
+      // Check if file exists first
+      await Deno.stat('wmill.yaml');
+      const result = await readLocalSettingsFile();
+      actualLocalSettings = result.settings;
+    } catch (error) {
+      if (error instanceof Deno.errors.NotFound) {
+        // File doesn't exist - this is fine for new repositories
+        hasLocalFile = false;
+        actualLocalSettings = {};
+      } else {
+        // Some other error (permissions, invalid YAML, etc.)
+        return {
+          success: false,
+          error: `Error reading wmill.yaml: ${(error as Error).message}`
+        };
+      }
+    }
+
+    if (!hasLocalFile) {
+      // No local file - show all JSON settings as additions
+      const jsonYaml = yamlSafeForComparison(jsonSyncOptions as Record<string, unknown>);
+      const emptyYaml = '';
+
+      const { file1: tmpEmptyFile, file2: tmpJsonFile } = await createTempDiffFiles(emptyYaml, jsonYaml);
+      const diff = await generateDiff(tmpEmptyFile, tmpJsonFile);
+
+      const message = operationType === 'pull'
+        ? "New wmill.yaml file would be created from JSON input"
+        : "Diff showing what would be pushed from JSON input (new repository)";
+
+      return {
+        success: true,
+        yaml: jsonYaml,
+        settings: jsonSyncOptions,
+        diff: diff,
+        message
+      };
+    } else {
+      // Local file exists - normal diff
+      const cleanedLocal = createSettingsForComparison(actualLocalSettings);
+      const backendForDiff = createSettingsForComparison(jsonSyncOptions);
+      const simulatedBackendYaml = yamlSafeForComparison(backendForDiff as Record<string, unknown>);
+      const localYaml = yamlSafeForComparison(cleanedLocal as Record<string, unknown>);
 
       const { file1: tmpSimulatedBackendFile, file2: tmpLocalFile } = await createTempDiffFiles(simulatedBackendYaml, localYaml);
       let diff = '';
@@ -1057,16 +1116,11 @@ async function handleFromJsonProcessing(
         diff: diff,
         message
       };
-    } catch (error) {
-      return {
-        success: false,
-        error: `Could not read local wmill.yaml file: ${(error as Error).message}`
-      };
     }
   }
 
       // For non-diff operations, use JSON as the settings
-    const yamlContent = stringify(simulatedBackendSettings as Record<string, unknown>);
+    const yamlContent = yamlSafe(jsonSyncOptions as Record<string, unknown>);
 
   if (opts.dryRun) {
     const message = operationType === 'pull'
@@ -1076,26 +1130,49 @@ async function handleFromJsonProcessing(
     return {
       success: true,
       yaml: yamlContent,
-      settings: simulatedBackendSettings,
+      settings: jsonSyncOptions,
       message
     };
   }
 
   // For actual operations
   if (operationType === 'pull') {
-    await Deno.writeTextFile('wmill.yaml', yamlContent);
-    return {
-      success: true,
-      yaml: yamlContent,
-      settings: simulatedBackendSettings,
-      message: "Settings written to wmill.yaml from JSON input"
-    };
+    // Use multi-workspace format if we have workspace and repository info
+    if (workspaceName && repositoryPath) {
+      await writeWorkspaceRepositorySettings(workspaceName, repositoryPath, jsonSyncOptions, 'wmill.yaml', workspace, config);
+      return {
+        success: true,
+        yaml: yamlContent,
+        settings: jsonSyncOptions,
+        message: "Settings written to multi-workspace format from JSON input"
+      };
+    } else {
+      // Legacy format
+      let existingObj: any = undefined;
+      try {
+        existingObj = (await yamlParseFile('wmill.yaml')) as any;
+      } catch {
+        // ignore
+      }
+      const merged = mergePreservingOrder(existingObj || {}, jsonSyncOptions as any, false);
+      const existingYaml = yamlSafe(existingObj || {});
+      const mergedYaml = yamlSafe(merged as Record<string, unknown>);
+      if (existingYaml.trim() !== mergedYaml.trim()) {
+        await Deno.writeTextFile('wmill.yaml', mergedYaml);
+      }
+      return {
+        success: true,
+        yaml: yamlContent,
+        settings: jsonSyncOptions,
+        message: "Settings written to wmill.yaml from JSON input"
+      };
+    }
   } else {
     // Push operation requires workspace parameter - will be handled by caller
     return {
       success: true,
       yaml: yamlContent,
-      settings: simulatedBackendSettings,
+      settings: jsonSyncOptions,
       message: "Settings ready to push from JSON input"
     };
   }
@@ -1111,18 +1188,21 @@ export async function pullSettings(opts: GlobalOptions & SyncOptions & {
   workspace?: string;
 }): Promise<SettingsResult> {
   try {
-    opts = await mergeConfigWithConfigFile(opts);
+    // Load config once at the beginning
+    const config = await readConfigFile();
+    opts = { ...config, ...opts };
 
-    const { workspace, repositoryPath, workspaceName, mergedOpts } = await resolveWorkspaceForSettings(opts);
-    opts = mergedOpts;
-
+    // Ensure authentication before workspace resolution (which may need to call APIs)
     await requireLogin(opts);
+
+    const { workspace, repositoryPath, workspaceName, mergedOpts } = await resolveWorkspaceForSettings(opts, config);
+    opts = mergedOpts;
 
     let currentSettings: SyncOptions;
     let yamlContent: string;
 
     if (opts.fromJson) {
-      const result = await handleFromJsonProcessing(opts, 'pull');
+      const result = await handleFromJsonProcessing(opts, 'pull', workspaceName, repositoryPath, workspace, config);
       if (result) {
         if (!result.success) {
           return result;
@@ -1140,47 +1220,81 @@ export async function pullSettings(opts: GlobalOptions & SyncOptions & {
     } else {
       // Original backend pulling logic
       currentSettings = await fetchBackendSettings(workspace, repositoryPath);
-      yamlContent = stringify(currentSettings as Record<string, unknown>);
+      yamlContent = yamlSafe(currentSettings as Record<string, unknown>);
     }
 
     if (opts.diff) {
       // Compare backend with local repository-specific settings within workspace scope
-      let currentLocalSettings: SyncOptions;
+      let currentLocalSettings: SyncOptions = {};
+      let hasLocalSettings = true;
+
       try {
         if (workspaceName && repositoryPath) {
           // Get repository-specific settings from workspace profile
           const { getWorkspaceRepositorySettings } = await import("./conf.ts");
-          const localConfig = await mergeConfigWithConfigFile({});
-          const fullSettings = getWorkspaceRepositorySettings(localConfig, workspaceName, repositoryPath);
+          const fullSettings = getWorkspaceRepositorySettings(config || {}, workspaceName, repositoryPath);
           currentLocalSettings = extractSyncOptions(fullSettings);
-          // Preserve original local settings including codebases for comparison
+          // Preserve original local settings including local-only fields for comparison
           currentLocalSettings.codebases = fullSettings.codebases;
+          currentLocalSettings.defaultTs = fullSettings.defaultTs;
         } else {
-          // Legacy format - just use the flat config (no repository awareness)
+          // Legacy format - check if file exists first
+          await Deno.stat('wmill.yaml');
           const { settings } = await readLocalSettingsFile('wmill.yaml');
           currentLocalSettings = extractSyncOptions(settings);
-          // Preserve original local settings including codebases for comparison
+          // Preserve original local settings including local-only fields for comparison
           currentLocalSettings.codebases = settings.codebases;
+          currentLocalSettings.defaultTs = settings.defaultTs;
         }
-      } catch {
-        // No local settings found
-        currentLocalSettings = {};
+      } catch (error) {
+        if (error instanceof Deno.errors.NotFound) {
+          // No local settings file found - this is fine for new repositories
+          hasLocalSettings = false;
+          currentLocalSettings = {};
+        } else {
+          // Some other error reading settings
+          return {
+            success: false,
+            error: `Error reading local settings: ${(error as Error).message}`
+          };
+        }
       }
 
-            // Create comparison versions without codebases (since codebases are local-only)
-      const localForComparison = createSettingsForComparison(currentLocalSettings);
-      const backendForComparison = createSettingsForComparison(currentSettings);
+      // Create repository-scoped semantic comparison
+      let diff: string;
+      let mergedBackendSettings: SyncOptions;
+      let mergedBackendYaml: string;
 
-      const localComparisonYaml = stringify(localForComparison as Record<string, unknown>);
-      const backendComparisonYaml = stringify(backendForComparison as Record<string, unknown>);
+      if (!hasLocalSettings) {
+        // No local settings - show all backend settings as additions
+        const cleanedBackendSettings = createSettingsForComparison(currentSettings);
+        const backendYaml = yamlSafeForComparison(cleanedBackendSettings);
+        const emptyYaml = '';
 
-      const { file1: tmpLocalFile, file2: tmpBackendFile } = await createTempDiffFiles(localComparisonYaml, backendComparisonYaml);
-      const diffResult = await runDiffCommand([tmpLocalFile, tmpBackendFile]);
-      const diff = diffResult.success ? diffResult.stdout : `Failed to compare: ${diffResult.stderr}`;
+        const { file1: tmpEmptyFile, file2: tmpBackendFile } = await createTempDiffFiles(emptyYaml, backendYaml);
+        const diffResult = await runDiffCommand([tmpEmptyFile, tmpBackendFile]);
+        diff = diffResult.success ? diffResult.stdout : `Failed to compare: ${diffResult.stderr}`;
 
-      // For the result, merge backend settings with local codebases but don't include in diff
-      const mergedBackendSettings = mergeBackendSettingsWithLocalCodebases(currentSettings, currentLocalSettings);
-      const mergedBackendYaml = stringify(mergedBackendSettings as Record<string, unknown>);
+        mergedBackendSettings = currentSettings;
+        mergedBackendYaml = backendYaml;
+      } else {
+        // Local settings exist - semantic repository-scoped diff
+        // Both are already repository-scoped, just clean them for semantic comparison
+        const cleanedLocalSettings = createSettingsForComparison(currentLocalSettings);
+        const cleanedBackendSettings = createSettingsForComparison(currentSettings);
+
+                // Use consistent field ordering for semantic comparison
+        const localComparisonYaml = yamlSafeForComparison(cleanedLocalSettings);
+        const backendComparisonYaml = yamlSafeForComparison(cleanedBackendSettings);
+
+        const { file1: tmpLocalFile, file2: tmpBackendFile } = await createTempDiffFiles(localComparisonYaml, backendComparisonYaml);
+        const diffResult = await runDiffCommand([tmpLocalFile, tmpBackendFile]);
+        diff = diffResult.success ? diffResult.stdout : `Failed to compare: ${diffResult.stderr}`;
+
+        // For the result, merge backend settings with local codebases but don't include in diff
+        mergedBackendSettings = mergeBackendSettingsWithLocalCodebases(currentSettings, currentLocalSettings);
+        mergedBackendYaml = yamlSafe(mergedBackendSettings as Record<string, unknown>);
+      }
 
       const scopeMessage = workspaceName && repositoryPath
         ? `workspace '${workspaceName}' repository '${repositoryPath}'`
@@ -1188,50 +1302,82 @@ export async function pullSettings(opts: GlobalOptions & SyncOptions & {
         ? `repository '${repositoryPath}'`
         : "settings";
 
+      const diffMessage = !hasLocalSettings
+        ? `New ${scopeMessage} would be created from backend settings`
+        : `Diff between local ${scopeMessage} settings and backend settings`;
+
       return {
         success: true,
         yaml: mergedBackendYaml,
         settings: mergedBackendSettings,
         diff: diff,
-        message: `Diff between local ${scopeMessage} settings and backend settings`
+        message: diffMessage
       };
     }
 
     if (opts.dryRun) {
-      // For dry run, show what would actually be written (backend settings merged with local codebases)
+      // For dry run, show repository-scoped semantic diff only
       let settingsToWrite = currentSettings;
-      let currentLocalYaml = '';
+      let hasExistingSettings = true;
 
+      // Get current repository-specific settings
+      let existingRepositorySettings: SyncOptions = {};
       try {
-        let existingLocalSettings: SyncOptions;
         if (workspaceName && repositoryPath) {
           const { getWorkspaceRepositorySettings } = await import("./conf.ts");
-          const localConfig = await mergeConfigWithConfigFile({});
-          existingLocalSettings = getWorkspaceRepositorySettings(localConfig, workspaceName, repositoryPath);
+          const fullSettings = getWorkspaceRepositorySettings(config || {}, workspaceName, repositoryPath);
+          // Extract only repository-relevant settings, not the full config
+          existingRepositorySettings = extractSyncOptions(fullSettings);
         } else {
+          // Legacy format - check if file exists first
+          await Deno.stat('wmill.yaml');
           const { settings } = await readLocalSettingsFile('wmill.yaml');
-          existingLocalSettings = settings;
+          existingRepositorySettings = extractSyncOptions(settings);
         }
 
-        currentLocalYaml = stringify(existingLocalSettings as Record<string, unknown>);
-        // Merge backend settings with existing local codebases for dry run display
-        settingsToWrite = mergeBackendSettingsWithLocalCodebases(currentSettings, existingLocalSettings);
-      } catch {
-        currentLocalYaml = '';
-        settingsToWrite = currentSettings;
+        // Merge backend settings with existing local codebases for display
+        settingsToWrite = mergeBackendSettingsWithLocalCodebases(currentSettings, existingRepositorySettings);
+      } catch (error) {
+        if (error instanceof Deno.errors.NotFound) {
+          hasExistingSettings = false;
+          existingRepositorySettings = {};
+          settingsToWrite = currentSettings;
+        } else {
+          // Some other error reading settings
+          return {
+            success: false,
+            error: `Error reading local settings for dry run: ${(error as Error).message}`
+          };
+        }
       }
 
-      const settingsToWriteYaml = stringify(settingsToWrite as Record<string, unknown>);
-      const { file1: tmpLocalFile, file2: tmpBackendFile } = await createTempDiffFiles(currentLocalYaml, settingsToWriteYaml);
-      const diffResult = await runDiffCommand([tmpLocalFile, tmpBackendFile]);
+      // Create semantic repository-scoped comparison
+      const cleanedLocalSettings = createSettingsForComparison(existingRepositorySettings);
+      const cleanedNewSettings = createSettingsForComparison(settingsToWrite);
+
+      const localYaml = yamlSafeForComparison(cleanedLocalSettings);
+      const newYaml = yamlSafeForComparison(cleanedNewSettings);
+
+      const { file1: tmpLocalFile, file2: tmpNewFile } = await createTempDiffFiles(localYaml, newYaml);
+      const diffResult = await runDiffCommand([tmpLocalFile, tmpNewFile]);
       const diff = diffResult.success ? diffResult.stdout : `Failed to compare: ${diffResult.stderr}`;
+
+      const scopeMessage = workspaceName && repositoryPath
+        ? `workspace '${workspaceName}' repository '${repositoryPath}'`
+        : repositoryPath
+        ? `repository '${repositoryPath}'`
+        : "settings";
+
+      const dryRunMessage = hasExistingSettings
+        ? `Dry run - showing semantic changes for ${scopeMessage}`
+        : `Dry run - showing new ${scopeMessage} that would be created`;
 
       return {
         success: true,
-        yaml: settingsToWriteYaml,
+        yaml: newYaml,
         settings: settingsToWrite,
         diff: diff,
-        message: "Dry run - showing what would be written to local files"
+        message: dryRunMessage
       };
     }
 
@@ -1243,8 +1389,7 @@ export async function pullSettings(opts: GlobalOptions & SyncOptions & {
       let existingLocalSettings: SyncOptions;
       if (workspaceName && repositoryPath) {
         const { getWorkspaceRepositorySettings } = await import("./conf.ts");
-        const localConfig = await mergeConfigWithConfigFile({});
-        existingLocalSettings = getWorkspaceRepositorySettings(localConfig, workspaceName, repositoryPath);
+        existingLocalSettings = getWorkspaceRepositorySettings(config || {}, workspaceName, repositoryPath);
       } else {
         const { settings } = await readLocalSettingsFile('wmill.yaml');
         existingLocalSettings = settings;
@@ -1259,7 +1404,7 @@ export async function pullSettings(opts: GlobalOptions & SyncOptions & {
 
     if (workspaceName && repositoryPath) {
       // Multi-workspace format: Update workspace profile
-      await writeWorkspaceRepositorySettings(workspaceName, repositoryPath, settingsToWrite);
+      await writeWorkspaceRepositorySettings(workspaceName, repositoryPath, settingsToWrite, 'wmill.yaml', workspace, config);
     } else {
       // Legacy format - write directly to wmill.yaml
       await writeSettings(settingsToWrite);
@@ -1267,7 +1412,7 @@ export async function pullSettings(opts: GlobalOptions & SyncOptions & {
 
     return {
       success: true,
-      yaml: stringify(settingsToWrite as Record<string, unknown>),
+      yaml: yamlSafe(settingsToWrite as Record<string, unknown>),
       settings: settingsToWrite,
       message: repositoryPath
         ? `Settings pulled for repository '${repositoryPath}'`
@@ -1289,17 +1434,20 @@ export async function pushSettings(opts: GlobalOptions & SyncOptions & {
   workspace?: string;
 }): Promise<SettingsResult> {
   try {
-    opts = await mergeConfigWithConfigFile(opts);
+    // Load config once at the beginning
+    const config = await readConfigFile();
+    opts = { ...config, ...opts };
 
-    const { workspace, repositoryPath, workspaceName, mergedOpts } = await resolveWorkspaceForSettings(opts);
-    opts = mergedOpts;
-
+    // Ensure authentication before workspace resolution (which may need to call APIs)
     await requireLogin(opts);
+
+    const { workspace, repositoryPath, workspaceName, mergedOpts } = await resolveWorkspaceForSettings(opts, config);
+    opts = mergedOpts;
 
     let localSettings: SyncOptions;
 
     if (opts.fromJson) {
-      const result = await handleFromJsonProcessing(opts, 'push');
+      const result = await handleFromJsonProcessing(opts, 'push', workspaceName, repositoryPath, workspace, config);
       if (result) {
         if (!result.success) {
           return result;
@@ -1310,7 +1458,7 @@ export async function pushSettings(opts: GlobalOptions & SyncOptions & {
         }
         localSettings = result.settings!;
 
-        const yamlContent = stringify(localSettings as Record<string, unknown>);
+        const yamlContent = yamlSafe(localSettings as Record<string, unknown>);
 
         if (opts.dryRun) {
           return {
@@ -1347,23 +1495,32 @@ export async function pushSettings(opts: GlobalOptions & SyncOptions & {
         // Get repository-specific settings from workspace scope if applicable
         if (workspaceName && repositoryPath) {
           const { getWorkspaceRepositorySettings } = await import("./conf.ts");
-          const localConfig = await mergeConfigWithConfigFile({});
-          const fullSettings = getWorkspaceRepositorySettings(localConfig, workspaceName, repositoryPath);
+          const fullSettings = getWorkspaceRepositorySettings(config || {}, workspaceName, repositoryPath);
           localSettings = extractSyncOptions(fullSettings);
           // Preserve original local settings including codebases for display/writing
           localSettings.codebases = fullSettings.codebases;
         } else {
-          // Legacy format - just use the flat config (no repository awareness)
+          // Legacy format - check if file exists first
+          await Deno.stat('wmill.yaml');
           const { settings } = await readLocalSettingsFile();
           localSettings = extractSyncOptions(settings);
           // Preserve original local settings including codebases for display/writing
           localSettings.codebases = settings.codebases;
         }
       } catch (error) {
-        return {
-          success: false,
-          error: "Could not read local wmill.yaml file. Make sure it exists or use --file to specify a different file."
-        };
+        if (error instanceof Deno.errors.NotFound) {
+          // For new repositories, there might not be a wmill.yaml file yet
+          return {
+            success: false,
+            error: "wmill.yaml file not found. For new repositories, use --from-json with settings data, or --file to specify a different file."
+          };
+        } else {
+          // Some other error (permissions, invalid YAML, etc.)
+          return {
+            success: false,
+            error: `Error reading wmill.yaml: ${(error as Error).message}`
+          };
+        }
       }
     }
 
@@ -1375,8 +1532,8 @@ export async function pushSettings(opts: GlobalOptions & SyncOptions & {
       const localForComparison = createSettingsForComparison(localSettings);
       const backendForComparison = createSettingsForComparison(backendSyncOptions);
 
-      const localComparisonYaml = stringify(localForComparison as Record<string, unknown>);
-      const backendComparisonYaml = stringify(backendForComparison as Record<string, unknown>);
+      const localComparisonYaml = yamlSafeForComparison(localForComparison as Record<string, unknown>);
+      const backendComparisonYaml = yamlSafeForComparison(backendForComparison as Record<string, unknown>);
 
       const { file1: tmpBackendFile, file2: tmpLocalFile } = await createTempDiffFiles(backendComparisonYaml, localComparisonYaml);
       const diff = await generateDiff(tmpBackendFile, tmpLocalFile);
@@ -1389,7 +1546,7 @@ export async function pushSettings(opts: GlobalOptions & SyncOptions & {
 
       return {
         success: true,
-        yaml: stringify(localSettings as Record<string, unknown>),
+        yaml: yamlSafe(localSettings as Record<string, unknown>),
         settings: localSettings,
         diff: diff,
         message: `Diff between backend settings and local ${scopeMessage} (codebases excluded from comparison as they are local-only)`
@@ -1397,7 +1554,7 @@ export async function pushSettings(opts: GlobalOptions & SyncOptions & {
     }
 
     if (opts.dryRun) {
-      const localYaml = stringify(localSettings as Record<string, unknown>);
+      const localYaml = yamlSafe(localSettings as Record<string, unknown>);
 
       return {
         success: true,
@@ -1426,19 +1583,13 @@ const settingsCommand = new Command()
   .description("Pull workspace settings from backend")
   .option("--format <format:string>", "Output format: json or yaml", { default: "yaml" })
   .option("--dry-run", "Preview changes without applying them")
-  .option("--from-json <data:string>", "JSON string of UI state data (include_path, include_type)")
+  .option("--from-json <data:string>", "Use JSON data as backend settings instead of fetching from Windmill backend. JSON format: {\"include_path\": [\"f/**\"], \"include_type\": [\"script\", \"flow\", \"app\"]}. Useful for testing settings changes offline or comparing against hypothetical backend state.")
   .option("--json-output", "Output in JSON format")
   .option("--diff", "Show diff between local and remote settings")
   .option("--repository <repo:string>", "Specify git repository path (e.g. u/user/repo)")
   .action(async (opts) => {
     try {
-      const mergedOpts = await mergeConfigWithConfigFile(opts) as (GlobalOptions & SyncOptions & {
-        format?: 'json' | 'yaml';
-        diff?: boolean;
-        fromJson?: string;
-        repository?: string;
-      });
-      const result = await pullSettings(mergedOpts);
+      const result = await pullSettings(opts as any);
 
       if (!result.success) {
         if (opts.jsonOutput) {
@@ -1482,21 +1633,13 @@ const settingsCommand = new Command()
   .option("--dry-run", "Preview changes without applying them")
   .option("--json-output", "Output in JSON format")
   .option("--diff", "Show diff between local and remote settings")
-  .option("--from-json <data:string>", "JSON string of UI state data (include_path, include_type)")
+  .option("--from-json <data:string>", "Push settings from JSON data to Windmill backend instead of reading from wmill.yaml. JSON format: {\"include_path\": [\"f/**\"], \"include_type\": [\"script\", \"flow\", \"app\"]}. Bypasses local wmill.yaml file and directly configures Windmill backend git sync settings.")
   .option("--file <file:string>", "Settings file to push")
   .option("--repository <repo:string>", "Specify git repository path (e.g. u/user/repo)")
   .action(async (opts) => {
     try {
       const { file, fromJson, repository, ...restOpts } = opts;
-      const mergedOpts = await mergeConfigWithConfigFile(restOpts) as (GlobalOptions & SyncOptions & {
-        format?: 'json' | 'yaml';
-        settingsData?: SyncOptions;
-        settingsFile?: string;
-        diff?: boolean;
-        fromJson?: string;
-        repository?: string;
-      });
-      const result = await pushSettings({ ...mergedOpts, settingsFile: file, fromJson, repository });
+      const result = await pushSettings({ ...restOpts, settingsFile: file, fromJson, repository } as any);
 
       if (!result.success) {
         if (opts.jsonOutput) {
@@ -1632,14 +1775,14 @@ const settingsCommand = new Command()
 
             // Show sync options if they differ from defaults
             const syncOptions = [];
-            if (repoSettings.skipVariables) syncOptions.push("skip variables");
-            if (repoSettings.skipResources) syncOptions.push("skip resources");
-            if (repoSettings.skipResourceTypes) syncOptions.push("skip resource types");
-            if (repoSettings.skipSecrets) syncOptions.push("skip secrets");
-            if (repoSettings.skipScripts) syncOptions.push("skip scripts");
-            if (repoSettings.skipFlows) syncOptions.push("skip flows");
-            if (repoSettings.skipApps) syncOptions.push("skip apps");
-            if (repoSettings.skipFolders) syncOptions.push("skip folders");
+            if (repoSettings.skipVariables !== true) syncOptions.push("skip variables");
+            if (repoSettings.skipResources !== true) syncOptions.push("skip resources");
+            if (repoSettings.skipResourceTypes !== true) syncOptions.push("skip resource types");
+            if (repoSettings.skipSecrets !== true) syncOptions.push("skip secrets");
+            if (repoSettings.skipScripts !== true) syncOptions.push("skip scripts");
+            if (repoSettings.skipFlows !== true) syncOptions.push("skip flows");
+            if (repoSettings.skipApps !== true) syncOptions.push("skip apps");
+            if (repoSettings.skipFolders !== true) syncOptions.push("skip folders");
             if (repoSettings.includeSchedules) syncOptions.push("include schedules");
             if (repoSettings.includeTriggers) syncOptions.push("include triggers");
             if (repoSettings.includeUsers) syncOptions.push("include users");

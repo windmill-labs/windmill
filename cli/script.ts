@@ -481,6 +481,9 @@ async function createScript(
           req.statusText
         } - ${await req.text()} `
       );
+    } else {
+      // Consume response body on success to avoid resource leak
+      await req.text();
     }
   }
   return performance.now() - start;

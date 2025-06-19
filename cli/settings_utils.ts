@@ -1,5 +1,6 @@
 import type { SyncOptions, WorkspaceProfile } from "./conf.ts";
 import { DEFAULT_SYNC_OPTIONS } from "./conf.ts";
+import { stringify } from "jsr:@std/yaml@^1.0.5";
 
 // Interface for structured responses
 export interface UIState {
@@ -52,28 +53,33 @@ export async function selectRepositoryInteractively(
 // ========== SYNC OPTIONS UTILITIES ==========
 
 export function uiStateToSyncOptions(uiState: UIState): SyncOptions {
+  // Provide defaults for potentially missing fields to handle permissive JSON input
+  const includeTypes = uiState.include_type || [];
+  
   return {
     ...DEFAULT_SYNC_OPTIONS,
-    includes: uiState.include_path.length > 0 ? uiState.include_path : DEFAULT_SYNC_OPTIONS.includes,
+    includes: uiState.include_path || [],
+    excludes: uiState.exclude_path || [],
+    extraIncludes: uiState.extra_include_path || [],
 
     // Core types
-    skipScripts: !uiState.include_type.includes('script'),
-    skipFlows: !uiState.include_type.includes('flow'),
-    skipApps: !uiState.include_type.includes('app'),
-    skipFolders: !uiState.include_type.includes('folder'),
+    skipScripts: !includeTypes.includes('script'),
+    skipFlows: !includeTypes.includes('flow'),
+    skipApps: !includeTypes.includes('app'),
+    skipFolders: !includeTypes.includes('folder'),
 
     // Secondary types
-    skipVariables: !uiState.include_type.includes('variable'),
-    skipResources: !uiState.include_type.includes('resource'),
-    skipResourceTypes: !uiState.include_type.includes('resourcetype'),
-    skipSecrets: !uiState.include_type.includes('secret'),
+    skipVariables: !includeTypes.includes('variable'),
+    skipResources: !includeTypes.includes('resource'),
+    skipResourceTypes: !includeTypes.includes('resourcetype'),
+    skipSecrets: !includeTypes.includes('secret'),
 
-    includeSchedules: uiState.include_type.includes('schedule'),
-    includeTriggers: uiState.include_type.includes('trigger'),
-    includeUsers: uiState.include_type.includes('user'),
-    includeGroups: uiState.include_type.includes('group'),
-    includeSettings: uiState.include_type.includes('settings'),
-    includeKey: uiState.include_type.includes('key')
+    includeSchedules: includeTypes.includes('schedule'),
+    includeTriggers: includeTypes.includes('trigger'),
+    includeUsers: includeTypes.includes('user'),
+    includeGroups: includeTypes.includes('group'),
+    includeSettings: includeTypes.includes('settings'),
+    includeKey: includeTypes.includes('key')
   };
 }
 
@@ -101,7 +107,7 @@ export function syncOptionsToUIState(syncOptions: SyncOptions): UIState {
   if (syncOptions.includeKey === true) include_type.push('key');
 
   return {
-    include_path: syncOptions.includes || DEFAULT_SYNC_OPTIONS.includes,
+    include_path: syncOptions.includes || [],
     include_type
   };
 }
@@ -122,11 +128,12 @@ export function parseJsonInput(jsonInput: string): UIState {
  */
 export async function resolveWorkspaceAndRepository(
   specifiedWorkspace?: string,
-  specifiedRepository?: string
+  specifiedRepository?: string,
+  providedConfig?: SyncOptions
 ): Promise<{ workspace?: string; repository?: string }> {
   try {
-    const { mergeConfigWithConfigFile, listWorkspaces, listWorkspaceRepositories } = await import("./conf.ts");
-    const localConfig = await mergeConfigWithConfigFile({});
+    const { listWorkspaces, listWorkspaceRepositories } = await import("./conf.ts");
+    const localConfig = providedConfig || {};
 
     // Handle workspace resolution
     let resolvedWorkspace = specifiedWorkspace;
@@ -187,15 +194,14 @@ export function resolveRepositoryPathLegacy(specifiedRepository?: string): strin
   return specifiedRepository || undefined;
 }
 
-
-
 /**
  * Helper function to resolve workspace and repository for sync operations
  * Returns workspace profile, repository path, and applicable sync options
  */
 export async function resolveWorkspaceAndRepositoryForSync(
   specifiedWorkspace?: string,
-  specifiedRepository?: string
+  specifiedRepository?: string,
+  providedConfig?: SyncOptions
 ): Promise<{
   workspaceName?: string;
   workspaceProfile?: WorkspaceProfile;
@@ -203,13 +209,14 @@ export async function resolveWorkspaceAndRepositoryForSync(
   syncOptions: SyncOptions;
 }> {
   try {
-    const { mergeConfigWithConfigFile, getWorkspaceProfile, getWorkspaceRepositorySettings } = await import("./conf.ts");
-    const baseConfig = await mergeConfigWithConfigFile({});
+    const { getWorkspaceProfile, getWorkspaceRepositorySettings, readConfigFile } = await import("./conf.ts");
+    const baseConfig = providedConfig || await readConfigFile();
 
     // Resolve workspace and repository
     const { workspace: workspaceName, repository: repositoryPath } = await resolveWorkspaceAndRepository(
       specifiedWorkspace,
-      specifiedRepository
+      specifiedRepository,
+      baseConfig
     );
 
     let workspaceProfile: WorkspaceProfile | undefined = undefined;
@@ -231,6 +238,11 @@ export async function resolveWorkspaceAndRepositoryForSync(
       syncOptions = baseConfig;
     }
 
+    // If we don't have either workspace or repository from config, throw to trigger fallback
+    if (!workspaceName && !repositoryPath) {
+      throw new Error("No workspace or repository found in multi-workspace config");
+    }
+
     return {
       workspaceName,
       workspaceProfile,
@@ -239,16 +251,23 @@ export async function resolveWorkspaceAndRepositoryForSync(
     };
   } catch (error) {
     // Fall back to legacy mode for backward compatibility
-    const { mergeConfigWithConfigFile } = await import("./conf.ts");
     try {
-      const legacyConfig = await mergeConfigWithConfigFile({});
+      const legacyConfig = providedConfig || {};
+      if (!specifiedWorkspace && !specifiedRepository) {
+        throw new Error("No workspace or repository specified and no multi-workspace config found");
+      }
+
       return {
         workspaceName: undefined,
         workspaceProfile: undefined,
         repositoryPath: specifiedRepository,
         syncOptions: legacyConfig
       };
-    } catch {
+    } catch (innerError) {
+      if (!specifiedWorkspace && !specifiedRepository) {
+        throw new Error("No workspace or repository specified and config file error");
+      }
+
       return {
         workspaceName: undefined,
         workspaceProfile: undefined,
@@ -257,5 +276,189 @@ export async function resolveWorkspaceAndRepositoryForSync(
       };
     }
   }
+}
+
+// ========== NORMALISATION HELPERS ==========
+
+/**
+ * Remove fields that do not affect semantics when comparing settings.
+ * - Drops undefined and boolean false values
+ * - Drops empty arrays
+ * - Drops `codebases` and `defaultTs` completely (local-only fields)
+ */
+export function createSettingsForComparison<T extends SyncOptions | Record<string, unknown>>(settings: T): any {
+  const { codebases, defaultTs, ...rest } = settings as any;
+  Object.entries(rest).forEach(([k, v]) => {
+    if (v === undefined || v === false) {
+      delete (rest as any)[k];
+    } else if (Array.isArray(v) && v.length === 0) {
+      delete (rest as any)[k];
+    }
+  });
+  return rest;
+}
+
+// Produce a comparison object that keeps explicit `false` or empty-array values when they
+// represent a change between reference and candidate (used for diff views).
+export function createSettingsForDiff(reference: SyncOptions, candidate: SyncOptions): SyncOptions {
+  const cleaned = createSettingsForComparison(candidate) as any;
+
+  for (const [key, refVal] of Object.entries(reference as any)) {
+    if (!(key in cleaned)) {
+      const candVal = (candidate as any)[key];
+      const changedToFalse = typeof refVal === "boolean" && candVal === false;
+      const changedToEmptyArr = Array.isArray(refVal) && Array.isArray(candVal) && candVal.length === 0;
+      if (changedToFalse || changedToEmptyArr) {
+        cleaned[key] = candVal;
+      }
+    }
+  }
+  return cleaned;
+}
+
+/**
+ * Prepare settings object for YAML serialisation so default/empty values are not
+ * considered differences during diffing operations.
+ */
+export function sanitizeSyncOptionsForYaml(o: SyncOptions | Record<string, unknown>): Record<string, unknown> {
+  // Deep clone through JSON to avoid mutating caller input
+  const cloned: Record<string, unknown> = JSON.parse(JSON.stringify(o));
+  Object.entries(cloned).forEach(([k, v]) => {
+    if (v === undefined) {
+      delete cloned[k];
+    } else if (typeof v === "boolean" && v === false) {
+      delete cloned[k];
+    } else if (Array.isArray(v) && v.length === 0) {
+      delete cloned[k];
+    }
+  });
+  return cloned;
+}
+
+/**
+ * Merge target object with redundant keys (false / empty array) that are present
+ * in existing, ensuring we never drop explicit declarations the user already had.
+ * This runs AFTER `sanitizeSyncOptionsForYaml` removed such keys.
+ */
+export function mergePreserveRedundantKeys<T extends Record<string, unknown>>(existing: any, target: T): T {
+  if (existing == null || typeof existing !== "object") return target;
+
+  for (const [key, value] of Object.entries(existing)) {
+    if (!(key in target)) {
+      // key was omitted by sanitizer; keep it if user had it explicitly
+      (target as any)[key] = value;
+    } else if (
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      typeof (target as any)[key] === "object" &&
+      !Array.isArray((target as any)[key])
+    ) {
+      // recurse into nested objects (e.g. workspace -> repositories)
+      mergePreserveRedundantKeys(value as any, (target as any)[key]);
+    }
+  }
+  return target;
+}
+
+// ---------- Generic order-preserving merge helper ----------
+
+export function mergePreservingOrder<T extends Record<string, unknown>>(existing: Record<string, unknown>, target: T, keepFalsy = true): T {
+  const result: Record<string, unknown> = {};
+  const processed = new Set<string>();
+
+  for (const key of Object.keys(existing)) {
+    if (key in target) {
+      result[key] = (target as any)[key];
+      processed.add(key);
+    } else {
+      result[key] = existing[key];
+    }
+  }
+
+  for (const key of Object.keys(target)) {
+    if (processed.has(key)) continue;
+    const v = (target as any)[key];
+    const redundant = v === undefined || (typeof v === "boolean" && v === false) || (Array.isArray(v) && v.length === 0);
+    if (keepFalsy || !redundant) {
+      result[key] = v;
+    }
+  }
+  return result as T;
+}
+
+// ---------- YAML diff helper ----------
+import { createTwoFilesPatch } from "npm:diff";
+export async function yamlDiff(objA: unknown, objB: unknown): Promise<string> {
+  const a = yamlSafe(objA);
+  const b = yamlSafe(objB);
+  if (a === b) return "";
+  return createTwoFilesPatch("a.yaml", "b.yaml", a, b, "", "", { context: 3 });
+}
+
+// ---------- Equality helper ----------
+export function syncOptionsEqual(a: SyncOptions, b: SyncOptions): boolean {
+  return JSON.stringify(createSettingsForComparison(a)) === JSON.stringify(createSettingsForComparison(b));
+}
+
+// ================= YAML & SyncOption helpers (shared) =================
+
+// Safe YAML stringify that first removes undefined / function fields.
+export function yamlSafe(value: unknown): string {
+  const cleaned = JSON.parse(JSON.stringify(value));
+  return stringify(cleaned as Record<string, unknown>);
+}
+
+// YAML stringify with consistent field ordering for semantic comparisons
+export function yamlSafeForComparison(value: unknown): string {
+  // First clean using the same logic as yamlSafe
+  const cleaned = JSON.parse(JSON.stringify(value));
+
+  // Then sort keys for consistent ordering
+  if (cleaned && typeof cleaned === 'object' && !Array.isArray(cleaned)) {
+    const sortedObj = Object.keys(cleaned).sort().reduce((acc, key) => {
+      acc[key] = cleaned[key];
+      return acc;
+    }, {} as Record<string, unknown>);
+    return stringify(sortedObj);
+  }
+  return stringify(cleaned as Record<string, unknown>);
+}
+
+// Extract only the fields that are relevant to backend syncing (drops codebases and defaultTs).
+export function extractSyncOptions(cfg: SyncOptions): SyncOptions {
+  return {
+    includes: cfg.includes,
+    extraIncludes: (cfg as any).extraIncludes,
+    excludes: cfg.excludes,
+    skipScripts: cfg.skipScripts,
+    skipFlows: cfg.skipFlows,
+    skipApps: cfg.skipApps,
+    skipFolders: cfg.skipFolders,
+    skipVariables: cfg.skipVariables,
+    skipResources: cfg.skipResources,
+    skipResourceTypes: cfg.skipResourceTypes,
+    skipSecrets: cfg.skipSecrets,
+    includeSchedules: cfg.includeSchedules,
+    includeTriggers: cfg.includeTriggers,
+    includeUsers: cfg.includeUsers,
+    includeGroups: cfg.includeGroups,
+    includeSettings: cfg.includeSettings,
+    includeKey: cfg.includeKey,
+  } as SyncOptions;
+}
+
+// Alias for repository-level extraction (identical set today)
+export const extractRepositorySyncOptions = extractSyncOptions;
+
+// Keep backend values but preserve local-only fields that the backend doesn't track
+export function mergeBackendSettingsWithLocalCodebases(backend: SyncOptions, local: SyncOptions): SyncOptions {
+  return { 
+    ...backend, 
+    // Preserve local-only fields that backend doesn't track
+    codebases: local.codebases || [],
+    defaultTs: local.defaultTs, // TypeScript/Deno preference
+    // Add any other local-only fields as needed
+  };
 }
 
