@@ -75,15 +75,6 @@
 	run(() => {
 		trimmedDesc = funcDesc.trim()
 	})
-
-	function determineModeFromEditor() {
-		if (editor && isInitialCode(editor.getCode())) {
-			mode = 'gen'
-		} else {
-			mode = 'edit'
-		}
-	}
-
 	async function callCopilot() {
 		if (mode === 'edit') {
 			await copilot(
@@ -116,10 +107,16 @@
 	}
 
 	function handleAiButtonClick() {
-		determineModeFromEditor()
-		
+		if (editor && isInitialCode(editor.getCode())) {
+			mode = 'gen'
+		} else {
+			mode = 'edit'
+		}
+
 		if (openAiChat) {
-			openAiChatForScript()
+			// Open the AI chat in script mode
+			aiChatManager.openChat()
+			aiChatManager.changeMode(AIMode.SCRIPT)
 		} else {
 			setTimeout(() => {
 				autoResize()
@@ -161,24 +158,6 @@
 				autoResize()
 			}, 0)
 		}
-	}
-
-	function openAiChatForScript() {
-		if (!openAiChat || !lang) {
-			return
-		}
-		
-		// Open the AI chat in script mode
-		aiChatManager.openChat()
-		aiChatManager.changeMode(AIMode.SCRIPT)
-		
-		// Set a default prompt if the user hasn't entered anything specific
-		const defaultPrompt = mode === 'edit' 
-			? 'Edit this script based on my requirements'
-			: 'Generate a script that accomplishes the following task'
-			
-		aiChatManager.instructions = trimmedDesc.length > 0 ? trimmedDesc : defaultPrompt
-		aiChatManager.sendRequest()
 	}
 
 	function acceptDiff() {
@@ -250,7 +229,7 @@
 	}
 
 	let promptHistory: string[] = $state([])
-	
+
 	function getPromptStorageKey() {
 		return 'prompts-' + lang
 	}
@@ -266,10 +245,9 @@
 
 	function getPromptHistory() {
 		const storageKey = getPromptStorageKey()
-		promptHistory = safeLocalStorageOperation(
-			() => JSON.parse(localStorage.getItem(storageKey) || '[]'),
+		promptHistory =
+			safeLocalStorageOperation(() => JSON.parse(localStorage.getItem(storageKey) || '[]'), []) ||
 			[]
-		) || []
 	}
 
 	function savePrompt() {
@@ -281,17 +259,13 @@
 			promptHistory.pop()
 		}
 		const storageKey = getPromptStorageKey()
-		safeLocalStorageOperation(() => 
-			localStorage.setItem(storageKey, JSON.stringify(promptHistory))
-		)
+		safeLocalStorageOperation(() => localStorage.setItem(storageKey, JSON.stringify(promptHistory)))
 	}
 
 	function clearPromptHistory() {
 		promptHistory = []
 		const storageKey = getPromptStorageKey()
-		safeLocalStorageOperation(() => 
-			localStorage.setItem(storageKey, JSON.stringify(promptHistory))
-		)
+		safeLocalStorageOperation(() => localStorage.setItem(storageKey, JSON.stringify(promptHistory)))
 	}
 	run(() => {
 		lang && getPromptHistory()
@@ -322,6 +296,10 @@
 		if (!dbSchema) return
 		;(dbSchema as any).publicOnly = detail === 'true'
 	}
+
+	const aiChatScriptModeClasses = $derived(
+		aiChatManager.mode === AIMode.SCRIPT && aiChatManager.isOpen ? 'bg-violet-200' : ''
+	)
 
 	onDestroy(() => {
 		abortController?.abort()
@@ -400,11 +378,9 @@
 				<Button
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
-					btnClasses={genLoading ? '!px-3 z-[5000]' : '!px-2'}
-					propagateEvent={!genLoading}
-					on:click={genLoading
-						? () => abortController?.abort()
-						: handleAiButtonClick}
+					btnClasses={twMerge(genLoading ? '!px-3 z-[5000]' : '!px-2', aiChatScriptModeClasses)}
+					propagateEvent={!genLoading && !openAiChat}
+					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
 					bind:element={button}
 					iconOnly
 					title="Generate code from prompt"
@@ -417,16 +393,15 @@
 					title="Generate code from prompt"
 					btnClasses={twMerge(
 						'!font-medium',
-						genLoading ? 'z-[5000]' : 'text-violet-800 dark:text-violet-400'
+						genLoading ? 'z-[5000]' : 'text-violet-800 dark:text-violet-400',
+						aiChatScriptModeClasses
 					)}
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					spacingSize="md"
 					startIcon={genLoading ? { icon: Ban } : { icon: Wand2 }}
-					propagateEvent={!genLoading}
-					on:click={genLoading
-						? () => abortController?.abort()
-						: handleAiButtonClick}
+					propagateEvent={!genLoading && !openAiChat}
+					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
 					bind:element={button}
 					{iconOnly}
 				>
