@@ -180,7 +180,7 @@
 </script>
 
 <div class="flex flex-col gap-0.5 rounded-lg relative not-prose">
-	{#if aiChatManager.canApplyCode && code !== aiChatManager.scriptEditorOptions?.code}
+	{#if aiChatManager.canApplyCode}
 		<div class="flex justify-end items-end">
 			<Button
 				color="dark"

@@ -26,6 +26,13 @@ export class AIChatEditorHandler {
 
 	constructor(editor: meditor.IStandaloneCodeEditor) {
 		this.editor = editor
+		
+		// Reset acceptAllClicked when user manually edits the code
+		this.editor.onDidChangeModelContent(() => {
+			if (aiChatManager.acceptAllClicked) {
+				aiChatManager.resetAcceptAllClicked()
+			}
+		})
 	}
 
 	clear() {
@@ -79,6 +86,7 @@ export class AIChatEditorHandler {
 		for (const group of this.groupChanges) {
 			this.applyGroup(group)
 		}
+		aiChatManager.markAcceptAllClicked()
 		this.finish()
 	}
 
