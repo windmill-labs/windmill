@@ -11,3 +11,7 @@
 
 - Follow existing design system
 - Use consistent spacing and colors
+
+## Backend API
+
+- If you need to call the backend API, you can find the available routes in ../backend/windmill-api/openapi.yaml
