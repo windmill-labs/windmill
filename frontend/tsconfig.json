@@ -2,7 +2,7 @@
 	"compilerOptions": {
 		"moduleResolution": "bundler",
 		"module": "esnext",
-		"lib": ["es2021", "DOM"],
+		"lib": ["ES2024", "DOM"],
 		"target": "esnext",
 		"outDir": "build",
 		"noUnusedLocals": true,
