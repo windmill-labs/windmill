@@ -107,7 +107,7 @@ const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.pyth
 const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
-use crate::global_cache::{build_tar_and_push, pull_from_tar};
+use crate::global_cache::pull_from_tar;
 
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use windmill_common::s3_helpers::OBJECT_STORE_SETTINGS;
