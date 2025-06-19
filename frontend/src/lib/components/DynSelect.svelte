@@ -91,13 +91,22 @@
 
 	let resultJobLoader: ResultJobLoader | undefined = $state()
 	let filterText: string = $state('')
+	let open: boolean = $state(false)
 </script>
 
 {#if helperScript}
 	<ResultJobLoader bind:this={resultJobLoader} />
 
 	<div class="w-full flex-col flex">
-		<Select bind:value {items} bind:filterText loading={_items.status === 'loading'} clearable />
+		<Select
+			bind:value
+			bind:open
+			{items}
+			bind:filterText
+			loading={!open && _items.status === 'loading'}
+			clearable
+			noItemsMsg={_items.status === 'loading' ? 'Loading...' : 'No items found'}
+		/>
 		{#if _items.error}
 			<div class="text-red-400 text-2xs">
 				error: <Tooltip>{JSON.stringify(_items.error)}</Tooltip>

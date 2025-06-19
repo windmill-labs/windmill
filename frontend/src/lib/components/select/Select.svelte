@@ -27,6 +27,7 @@
 		RightIcon,
 		createText,
 		noItemsMsg,
+		open: _open = $bindable(),
 		groupBy,
 		sortBy,
 		onFocus,
@@ -50,6 +51,7 @@
 		RightIcon?: any
 		createText?: string
 		noItemsMsg?: string
+		open?: boolean
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onFocus?: () => void
@@ -74,6 +76,12 @@
 	})
 	$effect(() => {
 		if (_filterTextBind !== undefined) _filterTextBind = filterText
+	})
+	$effect(() => {
+		if (_open !== undefined) _open = open
+	})
+	$effect(() => {
+		if (_open !== undefined) open = _open
 	})
 
 	$effect(() => {
@@ -128,12 +136,12 @@
 		{disabled}
 		type="text"
 		bind:value={() => filterText, (v) => (filterText = v)}
-		placeholder={loading ? 'Loading...' : (valueEntry?.label ?? getLabel(value) ?? placeholder)}
+		placeholder={loading ? 'Loading...' : (valueEntry?.label ?? getLabel({ value }) ?? placeholder)}
 		style={containerStyle}
 		class={twMerge(
 			'!bg-surface text-ellipsis',
 			open ? '' : 'cursor-pointer',
-			valueEntry && !loading ? '!placeholder-primary' : '',
+			value && !loading ? '!placeholder-primary' : '',
 			(clearable || RightIcon) && !disabled && value ? '!pr-8' : '',
 			inputClass ?? ''
 		)}
