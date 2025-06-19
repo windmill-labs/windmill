@@ -40,23 +40,22 @@
 			return
 		}
 
-		if (!blacklistExpiry) {
-			sendUserToast('Please set an expiry date', true)
-			return
-		}
-
 		try {
-			const expiryDate = new Date(blacklistExpiry).toISOString()
+			const requestBody: { token: string; expires_at?: string } = {
+				token: blacklistToken.trim()
+			}
+			
+			// Only include expires_at if a date is provided
+			if (blacklistExpiry) {
+				requestBody.expires_at = new Date(blacklistExpiry).toISOString()
+			}
 			
 			const response = await fetch('/api/agent_workers/blacklist_token', {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json'
 				},
-				body: JSON.stringify({
-					token: blacklistToken.trim(),
-					expires_at: expiryDate
-				})
+				body: JSON.stringify(requestBody)
 			})
 
 			if (!response.ok) {
@@ -109,9 +108,10 @@
 			</div>
 		{/if}
 		<div class="relative max-w-md group">
-			<!-- svelte-ignore event_directive_deprecated -->
 			<input
-				on:click|preventDefault|stopPropagation={() => {
+				onclick={(e) => {
+					e.preventDefault()
+					e.stopPropagation()
 					if (token) {
 						navigator.clipboard.writeText(token)
 						sendUserToast('Copied to clipboard')
@@ -124,11 +124,12 @@
 				class="w-full pr-10 pl-3 py-2 text-sm text-gray-600 bg-gray-50 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-100 transition truncate"
 			/>
 
-			<!-- svelte-ignore event_directive_deprecated -->
 			<button
 				class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 group-hover:text-blue-600 hover:scale-105 transition"
 				aria-label="Copy token to clipboard"
-				on:click|preventDefault|stopPropagation={() => {
+				onclick={(e) => {
+					e.preventDefault()
+					e.stopPropagation()
 					if (token) {
 						navigator.clipboard.writeText(token)
 						sendUserToast('Copied to clipboard')
@@ -200,12 +201,15 @@
 				</div>
 				
 				<div>
-					<label class="block text-sm font-medium mb-1">Blacklist expires on</label>
+					<label class="block text-sm font-medium mb-1">Blacklist expires on (optional)</label>
 					<input 
 						class="w-full" 
 						type="datetime-local" 
 						bind:value={blacklistExpiry}
 					/>
+					<div class="text-xs text-secondary mt-1">
+						If not specified, expiration will be extracted from the JWT token's 'exp' field. If extraction fails, defaults to 1 year from now.
+					</div>
 				</div>
 				
 				<button 

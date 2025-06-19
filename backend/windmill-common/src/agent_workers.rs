@@ -186,6 +186,31 @@ pub async fn blacklist_token(
     Ok(())
 }
 
+pub async fn blacklist_token_with_optional_expiry(
+    db: &DB, 
+    token: &str, 
+    expires_at: Option<DateTime<Utc>>, 
+    blacklisted_by: &str
+) -> Result<(), sqlx::Error> {
+    // Determine the expiration time
+    let final_expires_at = match expires_at {
+        Some(expiry) => expiry,
+        None => {
+            // Try to extract expiration from JWT token
+            match extract_jwt_expiration(token) {
+                Some(jwt_expiry) => jwt_expiry,
+                None => {
+                    // If we can't extract expiration, use a default (e.g., 1 year from now)
+                    Utc::now() + chrono::Duration::days(365)
+                }
+            }
+        }
+    };
+    
+    // Use the existing blacklist_token function
+    blacklist_token(db, token, final_expires_at, blacklisted_by).await
+}
+
 pub async fn remove_token_from_blacklist(db: &DB, token: &str) -> Result<bool, sqlx::Error> {
     let token_hash = hash_token(token);
     
@@ -205,8 +230,27 @@ pub async fn remove_token_from_blacklist(db: &DB, token: &str) -> Result<bool, s
     Ok(result.rows_affected() > 0)
 }
 
+pub fn extract_jwt_expiration(token: &str) -> Option<DateTime<Utc>> {
+    // Remove prefix if present
+    let clean_token = token.trim_start_matches(AGENT_JWT_PREFIX);
+    
+    // Try to decode the JWT and extract exp claim
+    if let Ok(claims) = decode_without_verify::<serde_json::Value>(clean_token) {
+        if let Some(exp_value) = claims.get("exp") {
+            if let Some(exp_timestamp) = exp_value.as_u64() {
+                // Convert Unix timestamp to DateTime<Utc>
+                if let Some(datetime) = DateTime::from_timestamp(exp_timestamp as i64, 0) {
+                    return Some(datetime);
+                }
+            }
+        }
+    }
+    
+    None
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BlacklistTokenRequest {
     pub token: String,
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Option<DateTime<Utc>>,
 }

@@ -18,7 +18,7 @@ use axum::{routing::post, Router, extract::State, Json, http::StatusCode};
 #[cfg(not(feature = "private"))]
 use chrono::{DateTime, Utc};
 #[cfg(not(feature = "private"))]
-use windmill_common::agent_workers::{BlacklistTokenRequest, blacklist_token, remove_token_from_blacklist};
+use windmill_common::agent_workers::{BlacklistTokenRequest, blacklist_token_with_optional_expiry, remove_token_from_blacklist};
 
 #[cfg(not(feature = "private"))]
 use serde::{Deserialize, Serialize};
@@ -74,8 +74,13 @@ async fn blacklist_token_handler(
     State(db): State<DB>,
     Json(req): Json<BlacklistTokenRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    // For OSS version, return not implemented
-    Err((StatusCode::NOT_IMPLEMENTED, "Blacklist functionality requires Enterprise Edition".to_string()))
+    // Extract blacklisted_by from request context or use default
+    let blacklisted_by = "system"; // TODO: Extract from auth context if available
+    
+    match blacklist_token_with_optional_expiry(&db, &req.token, req.expires_at, blacklisted_by).await {
+        Ok(()) => Ok(StatusCode::OK),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to blacklist token: {}", e)))
+    }
 }
 
 #[cfg(not(feature = "private"))]
@@ -83,6 +88,14 @@ async fn remove_blacklist_token_handler(
     State(db): State<DB>,
     Json(req): Json<BlacklistTokenRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    // For OSS version, return not implemented
-    Err((StatusCode::NOT_IMPLEMENTED, "Blacklist functionality requires Enterprise Edition".to_string()))
+    match remove_token_from_blacklist(&db, &req.token).await {
+        Ok(removed) => {
+            if removed {
+                Ok(StatusCode::OK)
+            } else {
+                Err((StatusCode::NOT_FOUND, "Token not found in blacklist".to_string()))
+            }
+        }
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to remove token from blacklist: {}", e)))
+    }
 }
