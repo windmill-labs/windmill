@@ -2276,7 +2276,6 @@ pub async fn handle_queued_job(
                     ));
                 }
             },
-            },
             JobKind::Identity => Ok(job
                 .args
                 .as_ref()
