@@ -125,6 +125,7 @@ jobs:
             **Frontend Changes:**
             - Run: `npm run check` in the frontend directory
             - Fix all warnings and errors before proceeding
+            - After all your changes, run `npm run format` to format the code
 
             **Backend Changes:**  
             - Run: `cargo check --features $(./all_features_oss.sh)` in the backend directory

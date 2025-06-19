@@ -15,3 +15,4 @@
 ## Backend API
 
 - If you need to call the backend API, you can find the available routes in ../backend/windmill-api/openapi.yaml
+- You can also use the associated types and services that are auto generated from the openapi file. They are in src/lib/gen/\*gen.ts files
