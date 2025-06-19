@@ -26,8 +26,3 @@ Windmill is an open-source developer platform for building internal tools, workf
 - Database: Always use transactions for multi-step operations
 - API endpoints: Update openapi.yaml after changes
 - UI components: Use runes for reactivity, keep components small
-
-## Deployment
-
-- Use feature flags for enterprise features
-- Database migrations in `backend/migrations/`
