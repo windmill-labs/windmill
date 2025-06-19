@@ -10,12 +10,12 @@
 		noLabel = false,
 		nullTag = undefined,
 		disabled = false
-	} = $props<{
+	}: {
 		tag: string | undefined
 		noLabel?: boolean
 		nullTag?: string | undefined
 		disabled?: boolean
-	}>()
+	} = $props()
 
 	loadWorkerGroups()
 

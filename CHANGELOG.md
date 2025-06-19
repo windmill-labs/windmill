@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.499.0](https://github.com/windmill-labs/windmill/compare/v1.498.0...v1.499.0) (2025-06-18)
+
+
+### Features
+
+* devOps role can edit worker groups ([#5984](https://github.com/windmill-labs/windmill/issues/5984)) ([b1c4f8b](https://github.com/windmill-labs/windmill/commit/b1c4f8b29d0fb4cad76853110b84a87892b54661))
+
+
+### Bug Fixes
+
+* prevent keypress events from bubbling in decision tree drawer ([#5993](https://github.com/windmill-labs/windmill/issues/5993)) ([2a33442](https://github.com/windmill-labs/windmill/commit/2a334421e85abf046784aab57522582439ef2901))
+
 ## [1.498.0](https://github.com/windmill-labs/windmill/compare/v1.497.2...v1.498.0) (2025-06-17)
 
 

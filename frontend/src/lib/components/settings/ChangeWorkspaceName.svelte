@@ -7,7 +7,7 @@
 	import { Pen } from 'lucide-svelte'
 	import { untrack } from 'svelte'
 
-	let { open = false } = $props<{ open?: boolean }>()
+	let { open = false }: { open?: boolean } = $props()
 
 	let newName = $state('')
 	let currentName = $state('')
