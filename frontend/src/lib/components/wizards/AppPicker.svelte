@@ -6,7 +6,7 @@
 	import { canWrite } from '$lib/utils'
 	import type { AppViewerContext } from '../apps/types'
 	import Alert from '../common/alert/Alert.svelte'
-	import Select from '../Select.svelte'
+	import Select from '../select/Select.svelte'
 
 	export let value = ''
 	let darkMode = false

@@ -4,12 +4,13 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { Relations } from '$lib/gen'
-	import { Plus, Trash, X } from 'lucide-svelte'
+	import { Plus, Trash } from 'lucide-svelte'
 	import { getDefaultTableToTrack, invalidRelations } from './utils'
 	import AddPropertyFormV2 from '$lib/components/schema/AddPropertyFormV2.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { emptyStringTrimmed, sendUserToast } from '$lib/utils'
-	import MultiSelect from 'svelte-multiselect'
+	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
+	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 
 	interface Props {
 		relations?: Relations[] | undefined
@@ -170,58 +171,28 @@
 										{/snippet}
 										<div class="mt-1">
 											<MultiSelect
-												options={table_to_track.columns_name ?? []}
-												allowUserOptions="append"
-												ulOptionsClass={'!bg-surface !text-sm'}
-												ulSelectedClass="!text-sm"
-												outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
-												noMatchingOptionsMsg=""
-												createOptionMsg={null}
-												disabled={pg14}
-												duplicates={false}
-												selected={table_to_track.columns_name ?? []}
+												items={safeSelectItems(table_to_track.columns_name ?? [])}
 												placeholder="Select columns"
-												--sms-options-margin="4px"
-												onchange={(e) => {
-													const option = e.option?.toString()
-													updateRelationsFor(i, (rel) => {
-														const updatedTables = rel.table_to_track.map((t, idx) => {
-															if (idx !== j) return t
-
-															let updatedColumns = t.columns_name ?? []
-
-															if (e.type === 'add' && option) {
-																updatedColumns = [...updatedColumns, option]
-															} else if (e.type === 'remove') {
-																updatedColumns = updatedColumns.filter((col) => col !== option)
-															} else if (e.type === 'removeAll') {
-																updatedColumns = []
-															} else {
-																console.error(
-																	`Priority tags multiselect - unknown event type: '${e.type}'`
-																)
-															}
-
-															return {
-																...t,
-																columns_name: updatedColumns
-															}
-														})
-
-														return {
+												disabled={pg14}
+												bind:value={
+													() => table_to_track.columns_name ?? [],
+													(columns_name) => {
+														updateRelationsFor(i, (rel) => ({
 															...rel,
-															table_to_track: updatedTables
-														}
-													})
-												}}
-											>
-												<!-- @migration-task: migrate this slot by hand, `remove-icon` is an invalid identifier -->
-												<svelte:fragment slot="remove-icon">
-													<div class="hover:text-primary p-0.5">
-														<X size={12} />
-													</div>
-												</svelte:fragment>
-											</MultiSelect>
+															table_to_track: rel.table_to_track.map((t, idx) =>
+																idx !== j ? t : { ...t, columns_name }
+															)
+														}))
+													}
+												}
+												onCreateItem={(x) =>
+													updateRelationsFor(i, (rel) => ({
+														...rel,
+														table_to_track: rel.table_to_track.map((t, idx) =>
+															idx !== j ? t : { ...t, columns_name: [...(t.columns_name ?? []), x] }
+														)
+													}))}
+											/>
 										</div>
 									</Label>
 									<Label label="Where Clause">
