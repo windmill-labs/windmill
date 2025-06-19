@@ -14,7 +14,7 @@
 		items,
 		placeholder = 'Please select',
 		value = $bindable(),
-		filterText: _filterTextBind = $bindable(undefined),
+		filterText = $bindable(''),
 		class: className = '',
 		clearable = false,
 		listAutoWidth = true,
@@ -27,7 +27,7 @@
 		RightIcon,
 		createText,
 		noItemsMsg,
-		open: _open = $bindable(),
+		open = $bindable(false),
 		groupBy,
 		sortBy,
 		onFocus,
@@ -62,26 +62,11 @@
 
 	let disabled = $derived(_disabled || loading)
 
-	let filterText = $state<string>('')
-	let open = $state<boolean>(false)
 	let inputEl: HTMLInputElement | undefined = $state()
 
 	let processedItems: ProcessedItem<Value>[] = $derived.by(() => {
 		let args = { items, createText, filterText, groupBy, onCreateItem, sortBy }
 		return untrack(() => processItems(args))
-	})
-
-	$effect(() => {
-		if (_filterTextBind !== undefined) filterText = _filterTextBind
-	})
-	$effect(() => {
-		if (_filterTextBind !== undefined) _filterTextBind = filterText
-	})
-	$effect(() => {
-		if (_open !== undefined) _open = open
-	})
-	$effect(() => {
-		if (_open !== undefined) open = _open
 	})
 
 	$effect(() => {
