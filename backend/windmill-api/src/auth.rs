@@ -133,7 +133,7 @@ impl AuthCache {
                             folders: claims.folders,
                             scopes: None,
                             username_override,
-                            token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                            token_prefix: claims.audit_span,
                         };
 
                         AUTH_CACHE.insert(

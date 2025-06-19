@@ -1702,6 +1702,13 @@ async fn login(
 
             let token = create_session_token(&email, super_admin, &mut tx, cookies).await?;
 
+            let audit_author = AuditAuthor {
+                email: email.clone(),
+                username: email.clone(),
+                username_override: None,
+                token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+            };
+
             audit_log(
                 &mut *tx,
                 &audit_author,

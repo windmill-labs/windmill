@@ -27,8 +27,8 @@ use sqlx::types::Json;
 use sqlx::{FromRow, Postgres, Transaction};
 use tracing::instrument;
 use uuid::Uuid;
-use windmill_common::auth::{JobPerms, TOKEN_PREFIX_LEN};
-#[cfg(feature = "benchmark")]
+use windmill_common::auth::JobPerms;
+`[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::cache::{self, RawData};
 use windmill_common::client::AuthedClient;
@@ -2029,7 +2029,7 @@ async fn push_next_flow_job(
                     .to_string(),
                 email: flow_job.permissioned_as_email.clone(),
                 username_override: None,
-                token_prefix: Some(client.token[0..TOKEN_PREFIX_LEN].to_string()),
+                token_prefix: Some(format!("psh.nxt.flowjob-{}", client.token.to_string())),
             };
 
             if can_be_resumed || disapproved_or_timeout_but_continue {
@@ -2772,6 +2772,7 @@ async fn push_next_flow_job(
             &flow_job.created_by,
             email,
             permissioned_as,
+            Some(&format!("job-span-{}", flow_job.flow_innermost_root_job.unwrap_or(flow_job.id))),
             scheduled_for_o,
             flow_job.schedule_path(),
             Some(flow_job.id),

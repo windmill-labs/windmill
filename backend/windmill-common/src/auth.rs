@@ -68,6 +68,7 @@ pub struct JWTAuthClaims {
     pub exp: usize,
     pub job_id: Option<String>,
     pub scopes: Option<Vec<String>>,
+    pub audit_span: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -268,6 +269,7 @@ pub async fn create_token_for_owner(
     email: &str,
     job_id: &Uuid,
     perms: Option<JobPerms>,
+    audit_span: Option<String>,
 ) -> crate::error::Result<String> {
     let job_perms = if perms.is_some() {
         Ok(perms)
@@ -308,6 +310,7 @@ pub async fn create_token_for_owner(
             as usize,
         job_id: Some(job_id.to_string()),
         scopes: None,
+        audit_span,
     };
 
     let token = jwt::encode_with_internal_secret(&payload)
