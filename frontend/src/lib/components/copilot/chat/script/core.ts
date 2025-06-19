@@ -61,6 +61,40 @@ You should only use them if you need them to satisfy the user's instructions. Al
 
 const TS_INLINE_TYPE_INSTRUCTION = `When using resource types, you should use RT.ResourceType as parameter type. For other parameters, you should inline the objects types instead of defining them separately. This is because Windmill requires the types (other than resource types) to be inlined to generate a user friendly UI from the parameters.`
 
+const TS_WINDMILL_CLIENT_CONTEXT = `
+
+The windmill client (wmill) can be used to interact with Windmill from the script. Import it with \`import * as wmill from "wmill"\`. Key functions include:
+
+// Resource operations
+wmill.getResource(path?: string): Promise<any> // Get resource value by path
+wmill.setResource(value: any, path?: string): Promise<void> // Set resource value
+
+// State management (persistent across executions)  
+wmill.getState(): Promise<any> // Get shared state
+wmill.setState(state: any): Promise<void> // Set shared state
+
+// Variables
+wmill.getVariable(path: string): Promise<string> // Get variable value
+wmill.setVariable(path: string, value: string): Promise<void> // Set variable value
+
+// Script execution
+wmill.runScript(path: string, args?: Record<string, any>): Promise<any> // Run script synchronously
+wmill.runScriptAsync(path: string, args?: Record<string, any>): Promise<string> // Run script async, returns job ID
+wmill.waitJob(jobId: string): Promise<any> // Wait for job completion and get result
+
+// S3 file operations (if S3 is configured)
+wmill.loadS3File(s3object: S3Object): Promise<Uint8Array> // Load file content from S3
+wmill.writeS3File(s3object: S3Object, content: string | Blob): Promise<S3Object> // Write file to S3
+
+// Flow operations
+wmill.setFlowUserState(key: string, value: any): Promise<void> // Set flow user state
+wmill.getFlowUserState(key: string): Promise<any> // Get flow user state
+wmill.getResumeUrls(): Promise<{approvalPage: string, resume: string, cancel: string}> // Get approval URLs
+
+// Utilities
+wmill.getWorkspace(): string // Get current workspace
+wmill.databaseUrlFromResource(path: string): Promise<string> // Get database URL from resource`
+
 const PYTHON_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type.
 You need to **redefine** the type of the resources that are needed before the main function as TypedDict, but only include them if they are actually needed to achieve the function purpose.
@@ -124,7 +158,7 @@ export function getLangContext(
 			: TS_RESOURCE_TYPE_SYSTEM +
 				(allowResourcesFetch
 					? `To query the RT namespace, you can use the \`search_resource_types\` tool.\n`
-					: '')) + TS_INLINE_TYPE_INSTRUCTION
+					: '')) + TS_INLINE_TYPE_INSTRUCTION + TS_WINDMILL_CLIENT_CONTEXT
 
 	const mainFunctionName = isPreprocessor ? 'preprocessor' : 'main'
 
