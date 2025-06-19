@@ -680,7 +680,7 @@ Both modules only support a script or rawscript step. You cannot nest modules us
 
 ## Resource types
 On Windmill, credentials and configuration are stored in resources. Resource types define the format of the resource.
-If the user needs a resource as flow input, you should the property type in the schema to "object" as well as add a key called "format" and set it to "resource-nameofresourcetype" (e.g. "resource-stripe").
+If the user needs a resource as flow input, you should set the property type in the schema to "object" as well as add a key called "format" and set it to "resource-nameofresourcetype" (e.g. "resource-stripe").
 If the user wants a specific resource as step input, you should set the step value to a static string in the following format: "$res:path/to/resource".
 `
 
