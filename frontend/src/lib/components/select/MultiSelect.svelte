@@ -100,6 +100,7 @@
 		'relative min-h-8 flex items-center w-full bg-surface border border-gray-300 rounded-md text-tertiary',
 		disabled ? 'pointer-events-none' : '',
 		open && !disabled ? 'open' : '',
+		disabled ? 'disabled' : '',
 		className
 	)}
 	{style}
@@ -150,7 +151,11 @@
 		getInputRect={wrapperEl && (() => wrapperEl!.getBoundingClientRect())}
 		{listAutoWidth}
 		{noItemsMsg}
-		class="multiselect"
+		class={twMerge(
+			'multiselect dropdown',
+			open && !disabled ? 'open' : '',
+			disabled ? 'disabled' : ''
+		)}
 		ulClass="options"
 	>
 		{#snippet header()}
