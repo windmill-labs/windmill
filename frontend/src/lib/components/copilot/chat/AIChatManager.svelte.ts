@@ -58,6 +58,7 @@ class AIChatManager {
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
 	size = $state<number>(localStorage.getItem('ai-chat-open') === 'true' ? this.DEFAULT_SIZE : 0)
+	readonly isOpen = $derived(this.size > 0)
 	savedSize = $state<number>(0)
 	instructions = $state<string>('')
 	pendingPrompt = $state<string>('')
