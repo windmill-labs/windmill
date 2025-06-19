@@ -11,4 +11,3 @@
 
 - Follow existing design system
 - Use consistent spacing and colors
-- Accessibility: proper ARIA labels and keyboard navigation
