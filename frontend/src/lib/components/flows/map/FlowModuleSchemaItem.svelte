@@ -252,7 +252,7 @@
 	</Drawer>
 {/if}
 
-{#if deletable && id && flowEditorContext?.flowStore}
+{#if deletable && id && flowEditorContext?.flowStore && outputPickerVisible}
 	{@const flowStore = flowEditorContext?.flowStore ? flowEditorContext?.flowStore.val : undefined}
 	{@const mod = flowStore?.value ? dfsPreviousResults(id, flowStore, false)[0] : undefined}
 	{#if mod && $flowStateStore[id]}
@@ -441,7 +441,7 @@
 		<div
 			class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-2 h-9 min-w-14"
 		>
-			{#if hover || selected}
+			{#if (hover || selected) && outputPickerVisible}
 				<div transition:fade={{ duration: 100 }}>
 					{#if !testIsLoading}
 						<Button

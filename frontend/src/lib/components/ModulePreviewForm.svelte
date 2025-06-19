@@ -53,15 +53,13 @@
 		testSteps?.setEvaluatedStepArg(
 			mod.id,
 			argName,
-			structuredClone(
-				$state.snapshot(
-					evalValue(
-						argName,
-						mod,
-						testSteps?.getStepArgs(mod.id)?.value ?? {},
-						pickableProperties,
-						true
-					)
+			$state.snapshot(
+				evalValue(
+					argName,
+					mod,
+					testSteps?.getStepArgs(mod.id)?.value ?? {},
+					pickableProperties,
+					true
 				)
 			)
 		)
@@ -112,9 +110,8 @@
 
 	onMount(() => {
 		testSteps?.updateStepArgs(mod.id, $flowStateStore, flowStore?.val, previewArgs?.val)
-		args = testSteps?.getStepArgs(mod.id) ?? {}
+		args = testSteps?.getStepArgs(mod.id) ?? { value: {} }
 	})
-
 </script>
 
 <div class="w-full pt-2" data-popover>
@@ -128,7 +125,7 @@
 					)}
 					data-arg={argName}
 				>
-					{#if typeof testSteps?.getStepArgs(mod.id) == 'object' && schema?.properties?.[argName]}
+					{#if typeof args.value == 'object' && schema?.properties?.[argName]}
 						<ArgInput
 							{resourceTypes}
 							minW={false}

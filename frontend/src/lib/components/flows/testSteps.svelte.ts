@@ -42,8 +42,8 @@ export class TestSteps {
 		if (!this.#steps[moduleId]) {
 			this.#steps[moduleId] = { value: {} }
 		}
-		this.#steps[moduleId].value[argName] = structuredClone($state.snapshot(value))
-		this.#stepsEvaluated[moduleId].value[argName] = structuredClone($state.snapshot(value))
+		this.#steps[moduleId].value[argName] = $state.snapshot(value)
+		this.#stepsEvaluated[moduleId].value[argName] = $state.snapshot(value)
 	}
 
 	isArgManuallySet(moduleId: string, argName: string): boolean {
@@ -108,7 +108,7 @@ export class TestSteps {
 				false
 			)
 		)
-		this.#stepsEvaluated[moduleId].value[argName] = structuredClone(argSnapshot)
+		this.#stepsEvaluated[moduleId].value[argName] = argSnapshot
 		this.#steps[moduleId].value[argName] = structuredClone(argSnapshot)
 	}
 
@@ -134,10 +134,10 @@ export class TestSteps {
 		if (!this.#stepsEvaluated[mod.id]) {
 			this.#stepsEvaluated[mod.id] = { value: {} }
 		}
-		this.#stepsEvaluated[mod.id].value = structuredClone($state.snapshot(args))
+		this.#stepsEvaluated[mod.id].value = $state.snapshot(args)
 
 		// Preserve manually edited args
-		const argsSnapshot = structuredClone($state.snapshot(args))
+		const argsSnapshot = $state.snapshot(args)
 		Object.keys(argsSnapshot).forEach((key) => {
 			if (manuallyEditedArgs.includes(key)) {
 				argsSnapshot[key] = this.#steps[mod.id]?.value?.[key]
