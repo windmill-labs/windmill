@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { setContext, untrack } from 'svelte'
+	import { onMount, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -18,6 +18,7 @@
 		values?: string[] | undefined
 		children?: import('svelte').Snippet<[any]>
 		content?: import('svelte').Snippet
+		id?: string
 	}
 
 	let {
@@ -29,9 +30,11 @@
 		hashNavigation = false,
 		values = undefined,
 		children,
-		content
+		content,
+		id
 	}: Props = $props()
 
+	let tabsState: TabsState | undefined = $state(undefined)
 	const selectedStore = writable(selected)
 
 	setContext<TabsContext>('Tabs', {
@@ -63,13 +66,15 @@
 		}
 	}
 
-	if (id) {
-		tabsState = getTabStateContext()
-		const tabState = tabsState?.getSelected(id)
-		if (tabState) {
-			selected = tabState
+	onMount(() => {
+		if (id) {
+			tabsState = getTabStateContext()
+			const tabState = tabsState?.getSelected(id)
+			if (tabState) {
+				selected = tabState
+			}
 		}
-	}
+	})
 
 	$effect(() => {
 		selected && untrack(() => updateSelected())

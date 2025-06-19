@@ -180,8 +180,6 @@
 	}
 
 	let forceReload = $state(0)
-	let editorPanelSize = $state(noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50)
-	let editorSettingsPanelSize = $state(100 - untrack(() => editorPanelSize))
 
 	function onSelectedIdChange() {
 		if (!$flowStateStore?.[$selectedId]?.schema && flowModule) {
@@ -207,8 +205,6 @@
 			lastJob = job
 		}
 	}
-
-	let leftPanelSize = $state(0)
 
 	function showDiffMode() {
 		diffMode = true
@@ -255,13 +251,6 @@
 	let parentLoop = $derived(
 		flowStore.val && flowModule ? checkIfParentLoop(flowStore.val, flowModule.id) : undefined
 	)
-	$effect(() => {
-		if (selected === 'test') {
-			leftPanelSize = 50
-		} else {
-			leftPanelSize = 100
-		}
-	})
 
 	$effect(() => {
 		editor &&
