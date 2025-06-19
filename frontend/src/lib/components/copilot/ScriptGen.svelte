@@ -298,7 +298,9 @@
 	}
 
 	const aiChatScriptModeClasses = $derived(
-		aiChatManager.mode === AIMode.SCRIPT && aiChatManager.isOpen ? 'bg-violet-200' : ''
+		aiChatManager.mode === AIMode.SCRIPT && aiChatManager.isOpen
+			? 'dark:bg-violet-900 bg-violet-100'
+			: ''
 	)
 
 	onDestroy(() => {

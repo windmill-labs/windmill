@@ -369,7 +369,7 @@
 							on:hideDiffMode={hideDiffMode}
 							{lastDeployedCode}
 							{diffMode}
-							openAiChat={true}
+							openAiChat
 						/>
 					</div>
 				{/if}
