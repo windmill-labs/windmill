@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            UPDATE \n                http_trigger \n            SET \n                route_path = $1, \n                route_path_key = $2, \n                workspaced_route = $3,\n                wrap_body = $4,\n                raw_string = $5,\n                authentication_resource_path = $6,\n                script_path = $7, \n                path = $8, \n                is_flow = $9, \n                http_method = $10, \n                static_asset_config = $11, \n                edited_by = $12, \n                email = $13, \n                is_async = $14, \n                authentication_method = $15, \n                edited_at = now(), \n                is_static_website = $16\n            WHERE \n                workspace_id = $17 AND \n                path = $18\n            ",
+  "query": "\n            UPDATE \n                http_trigger \n            SET \n                route_path = $1, \n                route_path_key = $2, \n                workspaced_route = $3,\n                wrap_body = $4,\n                raw_string = $5,\n                authentication_resource_path = $6,\n                script_path = $7, \n                path = $8, \n                is_flow = $9, \n                http_method = $10, \n                static_asset_config = $11, \n                edited_by = $12, \n                email = $13, \n                is_async = $14, \n                authentication_method = $15, \n                summary = $16,\n                description = $17,\n                edited_at = now(), \n                is_static_website = $18\n            WHERE \n                workspace_id = $19 AND \n                path = $20\n            ",
   "describe": {
     "columns": [],
     "parameters": {
@@ -47,6 +47,8 @@
             }
           }
         },
+        "Varchar",
+        "Text",
         "Bool",
         "Text",
         "Text"
@@ -54,5 +56,5 @@
     },
     "nullable": []
   },
-  "hash": "187e8f85a71dea958e89fdfdf96c913a19eef8678dc7890c2f0e1ef8758ec43b"
+  "hash": "3f05e6186050a7ce6d8efb41067d3c5282319fe7e041f114e02fb22b91716637"
 }

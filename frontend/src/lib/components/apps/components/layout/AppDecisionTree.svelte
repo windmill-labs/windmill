@@ -24,19 +24,29 @@
 
 	let { id, componentContainerHeight, customCss = undefined, render, nodes }: Props = $props()
 
-	let resolvedConditions = $derived(
-		nodes.reduce((acc, node) => {
+	let resolvedConditions = $state(createResolvedConditions())
+
+	function createResolvedConditions() {
+		return nodes.reduce((acc, node) => {
 			acc[node.id] = acc[node.id] || []
 			return acc
 		}, {})
-	)
+	}
 
-	let resolvedNext = $derived(
-		nodes.reduce((acc, node) => {
+	let resolvedNext = $state(createResolvedNext())
+
+	function createResolvedNext() {
+		return nodes.reduce((acc, node) => {
 			acc[node.id] = acc[node.id] || false
 			return acc
 		}, {})
-	)
+	}
+
+	$effect(() => {
+		nodes
+		resolvedConditions = untrack(() => createResolvedConditions())
+		resolvedNext = untrack(() => createResolvedNext())
+	})
 
 	let everRender = $state(render)
 	$effect.pre(() => {
@@ -165,6 +175,8 @@
 	})
 </script>
 
+<!-- {JSON.stringify(resolvedConditions)}
+{JSON.stringify(resolvedNext)} -->
 {#if Object.keys(resolvedConditions).length === nodes.length}
 	{#each nodes ?? [] as node (node.id)}
 		{#each node.next ?? [] as next, conditionIndex}

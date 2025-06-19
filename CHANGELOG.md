@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.499.0](https://github.com/windmill-labs/windmill/compare/v1.498.0...v1.499.0) (2025-06-18)
+
+
+### Features
+
+* devOps role can edit worker groups ([#5984](https://github.com/windmill-labs/windmill/issues/5984)) ([b1c4f8b](https://github.com/windmill-labs/windmill/commit/b1c4f8b29d0fb4cad76853110b84a87892b54661))
+
+
+### Bug Fixes
+
+* prevent keypress events from bubbling in decision tree drawer ([#5993](https://github.com/windmill-labs/windmill/issues/5993)) ([2a33442](https://github.com/windmill-labs/windmill/commit/2a334421e85abf046784aab57522582439ef2901))
+
+## [1.498.0](https://github.com/windmill-labs/windmill/compare/v1.497.2...v1.498.0) (2025-06-17)
+
+
+### Features
+
+* use provider api to list available AI models in workspace settings ([#5947](https://github.com/windmill-labs/windmill/issues/5947)) ([7490e88](https://github.com/windmill-labs/windmill/commit/7490e883d747a7f65b2fefd3ec14b1cfc3d9bbd4))
+* windmill http triggers and webhooks to openapi spec ([#5918](https://github.com/windmill-labs/windmill/issues/5918)) ([aba8c01](https://github.com/windmill-labs/windmill/commit/aba8c01d7f44ba4be369a3c711be9e156d6bf215))
+
 ## [1.497.2](https://github.com/windmill-labs/windmill/compare/v1.497.1...v1.497.2) (2025-06-17)
 
 

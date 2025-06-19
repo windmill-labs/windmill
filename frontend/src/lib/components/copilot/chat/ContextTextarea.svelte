@@ -333,11 +333,8 @@
 </script>
 
 <div class="relative w-full px-2 scroll-pb-2">
-	<div
-		class="absolute top-0 left-0 w-full h-full min-h-12 px-4 text-sm pt-1 pointer-events-none"
-		style="line-height: 1.72"
-	>
-		<span class="break-words" style="white-space: pre-wrap;">
+	<div class="textarea-input absolute top-0 left-0 pointer-events-none">
+		<span class="break-words">
 			{@html getHighlightedText(aiChatManager.instructions)}
 		</span>
 	</div>
@@ -355,7 +352,7 @@
 			}, 200)
 		}}
 		placeholder={isFirstMessage ? 'Ask anything' : 'Ask followup'}
-		class="resize-none bg-transparent caret-black dark:caret-white"
+		class="textarea-input resize-none bg-transparent caret-black dark:caret-white"
 		style={aiChatManager.instructions.length > 0
 			? 'color: transparent; -webkit-text-fill-color: transparent;'
 			: ''}
@@ -381,3 +378,17 @@
 		/>
 	</div>
 {/if}
+
+<style>
+	.textarea-input {
+		padding: 0.25rem 1rem;
+		border: 1px solid transparent;
+		font-family: inherit;
+		font-size: 0.875rem;
+		line-height: 1.72;
+		white-space: pre-wrap;
+		word-break: break-words;
+		width: 100%;
+		min-height: 3rem;
+	}
+</style>
