@@ -1,3 +1,0 @@
--- Add down migration script here
--- Note: Cannot drop enum values in PostgreSQL once added
--- The piptarupload value will remain in the JOB_KIND enum
