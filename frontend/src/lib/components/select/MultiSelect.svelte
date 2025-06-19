@@ -74,7 +74,7 @@
 	})
 
 	let valueEntry = $derived(
-		value.map((v) => processedItems.find((item) => item.value === v)!).filter(Boolean)
+		value.map((v) => processedItems.find((item) => item.value === v) ?? { value: v, label: v })
 	)
 
 	function onAddValue(item: ProcessedItem<Value>) {
