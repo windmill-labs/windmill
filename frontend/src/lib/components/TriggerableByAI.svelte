@@ -7,13 +7,13 @@
 		onTrigger,
 		children,
 		showAnimation = true
-	} = $props<{
+	}: {
 		id: string | undefined
 		description: string | undefined
 		onTrigger?: (value?: string) => void // Function to call when the trigger is activated, if not provided, the component is discoverable for information purposes only
 		children?: () => any
 		showAnimation?: boolean
-	}>()
+	} = $props()
 
 	let isAnimating = $state(false)
 

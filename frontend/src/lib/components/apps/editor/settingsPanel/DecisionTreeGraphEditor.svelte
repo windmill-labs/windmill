@@ -57,7 +57,13 @@
 				</div>
 			</Pane>
 			<Pane size={40}>
-				<div class="h-full w-full bg-surface p-4 flex flex-col gap-6">
+				<div 
+					class="h-full w-full bg-surface p-4 flex flex-col gap-6"
+					on:keydown={(e) => {
+						// Prevent keyboard events from bubbling to SvelteFlow
+						e.stopPropagation()
+					}}
+				>
 					{#if selectedNode}
 						<Section label="Conditions" class="w-full flex flex-col gap-2">
 							<svelte:fragment slot="action">
@@ -91,6 +97,10 @@
 											nodes = nodes
 											renderCount++
 										}, 300)()
+									}}
+									on:keydown={(e) => {
+										// Prevent keyboard events from bubbling to SvelteFlow
+										e.stopPropagation()
 									}}
 								/>
 							</Label>

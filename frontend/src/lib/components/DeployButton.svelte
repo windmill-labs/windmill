@@ -8,7 +8,7 @@
 		loadingSave = false,
 		newFlow = false,
 		dropdownItems = []
-	} = $props<{
+	}: {
 		loading?: boolean
 		loadingSave?: boolean
 		newFlow?: boolean
@@ -16,7 +16,7 @@
 			label: string
 			onClick: () => void
 		}>
-	}>()
+	} = $props()
 
 	const dispatch = createEventDispatcher()
 
