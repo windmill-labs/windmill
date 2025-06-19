@@ -22,7 +22,7 @@
 
 	let component: AppComponent | undefined
 	$: {
-		const newComponent = findComponentSettings($app, $selectedComponent?.[0])?.item?.data
+		const newComponent = findComponentSettings(app.val, $selectedComponent?.[0])?.item?.data
 		if (component != newComponent) {
 			component = newComponent
 		}
@@ -35,8 +35,8 @@
 	let migrationModal: CssMigrationModal | undefined = undefined
 
 	$: customCssByComponentType =
-		component?.type && $app.css
-			? Object.entries($app.css[component.type] || {}).map(([id, v]) => ({
+		component?.type && app.val.css
+			? Object.entries(app.val.css[component.type] || {}).map(([id, v]) => ({
 					id,
 					forceStyle: v?.style != undefined,
 					forceClass: v?.['class'] != undefined
@@ -51,18 +51,18 @@
 
 			if (!type) return
 
-			if (hasStyleValue($app.css?.[type]?.[name])) {
+			if (hasStyleValue(app.val.css?.[type]?.[name])) {
 				overrideGlobalCSS = () => {
-					$app.css![type]![name] = JSON.parse(JSON.stringify(value))
-					app.set($app)
+					app.val.css![type]![name] = JSON.parse(JSON.stringify(value))
+					app.val = app.val
 				}
 			} else {
-				if (!$app.css![type]) {
+				if (!app.val.css![type]) {
 					initGlobalCss()
 				}
 
-				$app.css![type]![name] = JSON.parse(JSON.stringify(value))
-				app.set($app)
+				app.val.css![type]![name] = JSON.parse(JSON.stringify(value))
+				app.val = app.val
 				sendUserToast('Global CSS copied')
 			}
 		}
@@ -75,11 +75,11 @@
 			if (hasStyleValue(value)) {
 				overrideLocalCSS = () => {
 					component!.customCss![id] = JSON.parse(JSON.stringify(value))
-					app.set($app)
+					app.val = app.val
 				}
 			} else {
 				component!.customCss![id] = JSON.parse(JSON.stringify(value))
-				app.set($app)
+				app.val = app.val
 				sendUserToast('Local CSS copied')
 			}
 		}
@@ -88,21 +88,21 @@
 	function initGlobalCss() {
 		// If the global css is not initialised, we initialise it.
 		// Should only happen once per app
-		if (!$app.css) {
-			$app.css = {}
+		if (!app.val.css) {
+			app.val.css = {}
 		}
 
 		// If the global css for this component type is not initialised, we initialise it.
 		// Should only happen once per component type
 		if (
-			$app.css &&
+			app.val.css &&
 			component &&
-			!$app.css[component.type]?.style &&
+			!app.val.css[component.type]?.style &&
 			components[component.type] &&
-			$app.css[component.type] === undefined
+			app.val.css[component.type] === undefined
 		) {
-			$app.css[component.type] = JSON.parse(JSON.stringify(components[component.type].customCss))
-			app.set($app)
+			app.val.css[component.type] = JSON.parse(JSON.stringify(components[component.type].customCss))
+			app.val = app.val
 		}
 	}
 
@@ -196,13 +196,13 @@
 										wmClass={getSelector(name)}
 										componentType={component.type}
 										bind:value={component.customCss[name]}
-										on:change={() => app.set($app)}
+										on:change={() => (app.val = app.val)}
 										shouldDisplayRight={hasStyleValue(component.customCss[name])}
 										on:right={() => {
 											copyLocalToGlobal(name, component?.customCss?.[name])
 											tab = 'global'
 										}}
-										overridding={hasStyleValue($app.css?.[component.type]?.[name]) &&
+										overridding={hasStyleValue(app.val.css?.[component.type]?.[name]) &&
 											hasStyleValue(component.customCss[name])}
 									/>
 								</div>
@@ -214,16 +214,16 @@
 					{#if type}
 						{#each customCssByComponentType ?? [] as { id, forceStyle, forceClass }}
 							<div class="w-full">
-								{#if $app.css && type && $app.css[type] && component?.customCss}
+								{#if app.val.css && type && app.val.css[type] && component?.customCss}
 									<CssPropertyWrapper
 										{forceStyle}
 										{forceClass}
 										{id}
-										bind:property={$app.css[type]}
+										bind:property={app.val.css[type]}
 										on:left={() => {
 											copyGlobalToLocal(
 												id,
-												component?.type ? $app?.css?.[component?.type]?.[id] : undefined
+												component?.type ? app.val?.css?.[component?.type]?.[id] : undefined
 											)
 											tab = 'local'
 										}}

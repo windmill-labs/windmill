@@ -54,7 +54,7 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.conditionalwrapper, customCss))
+	let css = $state(initCss(app.val.css?.conditionalwrapper, customCss))
 
 	let resolvedConditions: boolean[] = $state(conditions.map((_x) => false))
 	let selectedConditionIndex = $state(0)
@@ -109,7 +109,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.conditionalwrapper}
+		componentStyle={app.val.css?.conditionalwrapper}
 	/>
 {/each}
 
@@ -117,7 +117,7 @@
 
 {#if everRender}
 	<div class="w-full h-full">
-		{#if $app.subgrids}
+		{#if app.val.subgrids}
 			{#each resolvedConditions ?? [] as _res, i}
 				<SubGridEditor
 					visible={render && i == selectedConditionIndex}
@@ -136,7 +136,7 @@
 			{/each}
 		{/if}
 	</div>
-{:else if $app.subgrids}
+{:else if app.val.subgrids}
 	{#each resolvedConditions ?? [] as _res, i}
 		<SubGridEditor visible={false} {id} subGridId={`${id}-${i}`} />
 	{/each}

@@ -96,7 +96,7 @@
 		value = defaultValue
 	}
 
-	let css = initCss($app.css?.[appCssKey], customCss)
+	let css = initCss(app.val.css?.[appCssKey], customCss)
 
 	$: classInput = twMerge(
 		'windmillapp w-full py-1.5 px-2 text-sm',
@@ -152,7 +152,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.textinputcomponent}
+		componentStyle={app.val.css?.textinputcomponent}
 	/>
 {/each}
 
@@ -170,7 +170,7 @@
 			)}
 			style="resize:none; {css?.input?.style ?? ''}"
 			on:pointerdown|stopPropagation={(e) =>
-				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
+				!$connectingInput.opened && selectId(e, id, selectedComponent, app.val)}
 			on:keydown|stopPropagation
 			bind:value
 			placeholder={resolvedConfig.placeholder}
@@ -196,7 +196,7 @@
 						)}
 						style={css?.input?.style ?? ''}
 						on:pointerdown|stopPropagation={(e) =>
-							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
+							!$connectingInput.opened && selectId(e, id, selectedComponent, app.val)}
 						on:keydown|stopPropagation
 						type="password"
 						autocomplete="new-password"
@@ -213,7 +213,7 @@
 						)}
 						style={css?.input?.style ?? ''}
 						on:pointerdown|stopPropagation={(e) =>
-							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
+							!$connectingInput.opened && selectId(e, id, selectedComponent, app.val)}
 						on:keydown|stopPropagation
 						type="text"
 						bind:value
@@ -229,7 +229,7 @@
 						)}
 						style={css?.input?.style ?? ''}
 						on:pointerdown|stopPropagation={(e) =>
-							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
+							!$connectingInput.opened && selectId(e, id, selectedComponent, app.val)}
 						on:keydown|stopPropagation
 						type="email"
 						bind:value

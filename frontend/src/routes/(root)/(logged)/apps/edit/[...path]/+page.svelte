@@ -227,7 +227,7 @@
 				}}
 				on:restore={onRestore}
 				summary={app.summary}
-				app={app.value}
+				appInitial={$state.snapshot(app.value)}
 				newPath={app.path}
 				path={$page.params.path}
 				policy={app.policy}

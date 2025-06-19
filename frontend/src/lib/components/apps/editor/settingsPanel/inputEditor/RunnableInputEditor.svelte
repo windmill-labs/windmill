@@ -34,7 +34,7 @@
 	<SelectedRunnable {appComponent} bind:appInput />
 {:else if appInput !== undefined}
 	<RunnableSelector
-		unusedInlineScripts={$app.unusedInlineScripts}
+		unusedInlineScripts={app.val.unusedInlineScripts}
 		hideCreateScript={appComponent.type === 'flowstatuscomponent'}
 		onlyFlow={appComponent.type === 'flowstatuscomponent'}
 		{defaultUserInput}

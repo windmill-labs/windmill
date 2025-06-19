@@ -40,7 +40,7 @@
 
 	initializing = false
 
-	let css = initCss($app.css?.jobiddisplaycomponent, customCss)
+	let css = initCss(app.val.css?.jobiddisplaycomponent, customCss)
 
 	let testJobLoader: TestJobLoader | undefined = undefined
 	let testIsLoading: boolean = false
@@ -69,7 +69,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.jobiddisplaycomponent}
+		componentStyle={app.val.css?.jobiddisplaycomponent}
 	/>
 {/each}
 
@@ -101,13 +101,13 @@
 		</div>
 		<div
 			style={twMerge(
-				$app.css?.['displaycomponent']?.['container']?.style,
+				app.val.css?.['displaycomponent']?.['container']?.style,
 				customCss?.container?.style,
 				'wm-rich-result-container'
 			)}
 			class={twMerge(
 				'p-2 grow overflow-auto',
-				$app.css?.['displaycomponent']?.['container']?.class,
+				app.val.css?.['displaycomponent']?.['container']?.class,
 				customCss?.container?.class
 			)}
 		>

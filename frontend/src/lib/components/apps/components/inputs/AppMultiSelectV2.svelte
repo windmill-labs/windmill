@@ -134,7 +134,7 @@
 		}
 	}
 
-	let css = initCss($app.css?.multiselectcomponent, customCss)
+	let css = initCss(app.val.css?.multiselectcomponent, customCss)
 
 	function setOuterDivStyle(outerDiv: HTMLDivElement, portalRef: HTMLDivElement, style: string) {
 		outerDiv.setAttribute('style', style)
@@ -185,7 +185,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.multiselectcomponent}
+		componentStyle={app.val.css?.multiselectcomponent}
 	/>
 {/each}
 

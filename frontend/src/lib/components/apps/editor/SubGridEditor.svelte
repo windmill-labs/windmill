@@ -85,22 +85,22 @@
 
 	function selectComponent(e: PointerEvent, id: string) {
 		if (!$connectingInput.opened) {
-			selectId(e, id, selectedComponent, $app)
+			selectId(e, id, selectedComponent, app.val)
 		}
 	}
 
 	function lock(dataItem: GridItem) {
-		let fComponent = findGridItem($app, dataItem.id)
+		let fComponent = findGridItem(app.val, dataItem.id)
 		if (fComponent) {
 			fComponent = toggleFixed(fComponent)
 		}
-		$app = $app
+		app.val = app.val
 	}
 
 	let container: HTMLElement | undefined = $state(undefined)
 
 	let maxRow = $derived(
-		maxHeight($app.subgrids?.[subGridId] ?? [], containerHeight ?? 0, $breakpoint)
+		maxHeight(app.val.subgrids?.[subGridId] ?? [], containerHeight ?? 0, $breakpoint)
 	)
 
 	export function moveComponentBetweenSubgrids(
@@ -110,27 +110,27 @@
 		position?: { x: number; y: number }
 	) {
 		// Find the component in the source subgrid
-		const component = findGridItem($app, componentId)
+		const component = findGridItem(app.val, componentId)
 
 		if (!component) {
 			return
 		}
 
-		let parentGrid = findGridItemParentGrid($app, component.id)
+		let parentGrid = findGridItemParentGrid(app.val, component.id)
 
 		if (parentGrid) {
-			$app.subgrids &&
-				($app.subgrids[parentGrid] = $app.subgrids[parentGrid].filter(
+			app.val.subgrids &&
+				(app.val.subgrids[parentGrid] = app.val.subgrids[parentGrid].filter(
 					(item) => item.id !== component?.id
 				))
 		} else {
-			$app.grid = $app.grid.filter((item) => item.id !== component?.id)
+			app.val.grid = app.val.grid.filter((item) => item.id !== component?.id)
 		}
 
 		const gridItem = component
 
 		insertNewGridItem(
-			$app,
+			app.val,
 			(id) => ({ ...gridItem.data, id }),
 			{ parentComponentId: parentComponentId, subGridIndex: subGridIndex },
 			Object.fromEntries(gridColumns.map((column) => [column, gridItem[column]])),
@@ -143,7 +143,7 @@
 		)
 
 		// Update the app state
-		$app = $app
+		app.val = app.val
 
 		if (parentGrid) {
 			$focusedGrid = {
@@ -159,27 +159,27 @@
 
 	export function moveToRoot(componentId: string, position?: { x: number; y: number }) {
 		// Find the component in the source subgrid
-		const component = findGridItem($app, componentId)
+		const component = findGridItem(app.val, componentId)
 
 		if (!component) {
 			return
 		}
 
-		let parentGrid = findGridItemParentGrid($app, component.id)
+		let parentGrid = findGridItemParentGrid(app.val, component.id)
 
 		if (parentGrid) {
-			$app.subgrids &&
-				($app.subgrids[parentGrid] = $app.subgrids[parentGrid].filter(
+			app.val.subgrids &&
+				(app.val.subgrids[parentGrid] = app.val.subgrids[parentGrid].filter(
 					(item) => item.id !== component?.id
 				))
 		} else {
-			$app.grid = $app.grid.filter((item) => item.id !== component?.id)
+			app.val.grid = app.val.grid.filter((item) => item.id !== component?.id)
 		}
 
 		const gridItem = component
 
 		insertNewGridItem(
-			$app,
+			app.val,
 			(id) => ({ ...gridItem.data, id }),
 			undefined,
 			Object.fromEntries(gridColumns.map((column) => [column, gridItem[column]])),
@@ -192,13 +192,13 @@
 		)
 
 		// Update the app state
-		$app = $app
+		app.val = app.val
 	}
 </script>
 
 <!-- {visible}
 {everVisible} -->
-{#if everVisible || $app.eagerRendering}
+{#if everVisible || app.val.eagerRendering}
 	<div
 		class="translate-x-0 translate-y-0 w-full subgrid {visible
 			? 'visible'
@@ -225,14 +225,14 @@
 							}`
 						: ''}
 				>
-					<!-- A{JSON.stringify($app.subgrids?.[subGridId]) ?? []}B -->
+					<!-- A{JSON.stringify(app.val.subgrids?.[subGridId]) ?? []}B -->
 					<Grid
 						allIdsInPath={$allIdsInPath}
-						items={$app.subgrids?.[subGridId] ?? []}
+						items={app.val.subgrids?.[subGridId] ?? []}
 						on:redraw={(e) => {
-							push(editorContext?.history, $app)
-							if ($app.subgrids) {
-								$app.subgrids[subGridId] = e.detail
+							push(editorContext?.history, app.val)
+							if (app.val.subgrids) {
+								app.val.subgrids[subGridId] = e.detail
 							}
 						}}
 						selectedIds={$selectedComponent}
@@ -245,7 +245,7 @@
 							if (!overlapped) {
 								moveToRoot(id, { x, y })
 							} else {
-								const overlappedComponent = findGridItem($app, overlapped)
+								const overlappedComponent = findGridItem(app.val, overlapped)
 
 								if (overlappedComponent && !isContainer(overlappedComponent.data.type)) {
 									return
@@ -288,31 +288,31 @@
 										locked={isFixed(dataItem)}
 										on:lock={() => lock(dataItem)}
 										on:expand={() => {
-											const parentGridItem = findGridItem($app, id)
+											const parentGridItem = findGridItem(app.val, id)
 
 											if (!parentGridItem) {
 												return
 											}
 
 											$selectedComponent = [dataItem.id]
-											push(editorContext?.history, $app)
+											push(editorContext?.history, app.val)
 
 											expandGriditem(
-												$app.subgrids?.[subGridId] ?? [],
+												app.val.subgrids?.[subGridId] ?? [],
 												dataItem.id,
 												$breakpoint,
 												parentGridItem
 											)
-											$app = $app
+											app.val = app.val
 										}}
 										on:fillHeight={() => {
-											const gridItem = findGridItem($app, dataItem.id)
+											const gridItem = findGridItem(app.val, dataItem.id)
 											const b = $breakpoint === 'sm' ? 3 : 12
 
 											if (gridItem?.[b]) {
 												gridItem[b].fullHeight = !gridItem[b].fullHeight
 											}
-											$app = $app
+											app.val = app.val
 										}}
 										{moveMode}
 										{componentDraggedId}
@@ -325,7 +325,7 @@
 			{:else}
 				<GridViewer
 					allIdsInPath={$allIdsInPath}
-					items={$app.subgrids?.[subGridId] ?? []}
+					items={app.val.subgrids?.[subGridId] ?? []}
 					breakpoint={$breakpoint}
 					parentWidth={$parentWidth - 17}
 					{containerWidth}
@@ -352,8 +352,8 @@
 			{/if}
 		</div>
 	</div>
-{:else if $app.lazyInitRequire == undefined}
-	{#each $app?.subgrids?.[subGridId] ?? [] as item}
+{:else if app.val.lazyInitRequire == undefined}
+	{#each app.val?.subgrids?.[subGridId] ?? [] as item}
 		<Component selected={false} fullHeight={false} render={false} component={item.data} />
 	{/each}
 {/if}

@@ -75,7 +75,7 @@
 	const { history, movingcomponents } = getContext<AppEditorContext>('AppEditorContext')
 
 	function removeGridElement() {
-		push(history, $app)
+		push(history, app.val)
 
 		const id = componentSettings?.item?.id
 		const onDeleteComponentControl = id ? $componentControl[id]?.onDelete : undefined
@@ -99,7 +99,7 @@
 		$selectedComponent = undefined
 		$focusedGrid = undefined
 		if (componentSettings?.item && !noGrid) {
-			let ids = deleteGridItem($app, componentSettings?.item.data, componentSettings?.parent)
+			let ids = deleteGridItem(app.val, componentSettings?.item.data, componentSettings?.parent)
 			for (const key of ids) {
 				delete $runnableComponents[key]
 			}
@@ -108,7 +108,7 @@
 		if (componentSettings?.item?.data?.id) {
 			delete $runnableComponents[componentSettings?.item?.data?.id]
 		}
-		$app = $app
+		app.val = app.val
 		$runnableComponents = $runnableComponents
 
 		onDelete?.()
@@ -184,7 +184,7 @@
 
 <svelte:window onkeydown={keydown} />
 
-{#if componentSettings?.item?.id && isTableAction(componentSettings?.item?.id, $app)}
+{#if componentSettings?.item?.id && isTableAction(componentSettings?.item?.id, app.val)}
 	<div
 		class="flex items-center px-3 py-2 bg-surface border-b text-xs font-semibold gap-2 justify-between"
 	>

@@ -70,7 +70,7 @@
 
 	let errors: Record<string, string> = {}
 
-	let css = $state(initCss($app?.css?.formbuttoncomponent, customCss))
+	let css = $state(initCss(app.val?.css?.formbuttoncomponent, customCss))
 	let runnableWrapper: RunnableWrapper | undefined = $state()
 	let loading = $state(false)
 	let modal: AlwaysMountedModal | undefined = $state()
@@ -93,7 +93,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.formbuttoncomponent}
+		componentStyle={app.val.css?.formbuttoncomponent}
 	/>
 {/each}
 

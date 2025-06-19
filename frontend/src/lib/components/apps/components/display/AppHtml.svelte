@@ -22,7 +22,7 @@
 
 	let result: string | undefined = undefined
 
-	let css = initCss($app.css?.htmlcomponent, customCss)
+	let css = initCss(app.val.css?.htmlcomponent, customCss)
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -31,7 +31,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.htmlcomponent}
+		componentStyle={app.val.css?.htmlcomponent}
 	/>
 {/each}
 

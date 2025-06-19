@@ -29,10 +29,10 @@ function getSortedGridItemsOfChildren(ctx: {
 }): GridItem[] {
 	const focusedGrid = get(ctx.focusedGrid)
 	if (!focusedGrid) {
-		return get(ctx.app).grid
+		return ctx.app.val.grid
 	}
 
-	let subgrids = get(ctx.app).subgrids
+	let subgrids = ctx.app.val.subgrids
 	if (!subgrids) {
 		return []
 	}
@@ -44,10 +44,10 @@ function getGridItems(ctx: {
 	app: AppViewerContext['app']
 	selectedComponent: AppViewerContext['selectedComponent']
 }): GridItem[] {
-	const app = get(ctx.app)
+	const app = ctx.app.val
 	const selectedComponent = get(ctx.selectedComponent)
 	if (app.grid.find((item) => item.id === selectedComponent?.[0])) {
-		return get(ctx.app).grid
+		return ctx.app.val.grid
 	}
 
 	if (!app.subgrids) {
@@ -141,7 +141,7 @@ export function down(
 ) {
 	const focusedGrid = get(ctx.focusedGrid)
 	const selectedComponent = get(ctx.selectedComponent)
-	const app = get(ctx.app)
+	const app = ctx.app.val
 	if (!focusedGrid) {
 		ctx.selectedComponent.set([getSortedGridItemsOfChildren(ctx)[0]?.id])
 		event.preventDefault()
@@ -182,7 +182,7 @@ export function handleArrowUp(
 ) {
 	const selectedComponent = get(ctx.selectedComponent)
 	if (!selectedComponent) return
-	let parentId = findGridItemParentGrid(get(ctx.app), selectedComponent?.[0])?.split('-')[0]
+	let parentId = findGridItemParentGrid(ctx.app.val, selectedComponent?.[0])?.split('-')[0]
 
 	if (parentId) {
 		ctx.selectedComponent.set([parentId])
@@ -206,7 +206,7 @@ export async function handleCopy(
 	}
 	tempGridItems = undefined
 	const copiedGridItems = selectedComponent
-		.map((x) => findGridItem(get(ctx.app), x))
+		.map((x) => findGridItem(ctx.app.val, x))
 		.filter((x) => x != undefined) as GridItem[]
 
 	copyGridItemsToClipboard(copiedGridItems, ctx, 'copy')
@@ -219,7 +219,7 @@ async function copyGridItemsToClipboard(
 	},
 	type: 'copy' | 'cut' | undefined = undefined
 ) {
-	const app = get(ctx.app)
+	const app = ctx.app.val
 	let allSubgrids = {}
 	for (let item of items) {
 		let subgrids = getAllSubgridsAndComponentIds(app, item.data)[0]
@@ -250,7 +250,7 @@ export function handleCut(
 	}
 ) {
 	const selectedComponent = get(ctx.selectedComponent)
-	const app = get(ctx.app)
+	const app = ctx.app.val
 	if (!selectedComponent) {
 		return
 	}
@@ -290,7 +290,7 @@ export async function handlePaste(
 		return
 	}
 	event.preventDefault()
-	const app = get(ctx.app)
+	const app = ctx.app.val
 	const focusedGrid = get(ctx.focusedGrid)
 
 	push(ctx.history, app)
@@ -353,5 +353,5 @@ export async function handlePaste(
 		ctx.selectedComponent.set(nitems.map((x) => x))
 	}
 
-	ctx.app.update((x) => x)
+	ctx.app.val = ctx.app.val
 }

@@ -16,7 +16,7 @@
 	const { app, mode, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
 	async function syncColumns() {
-		let gridItem = findGridItem($app, id)
+		let gridItem = findGridItem(app.val, id)
 
 		if (gridItem && result) {
 			const keys = Object.keys(result[0] ?? {}) ?? []
@@ -42,7 +42,7 @@
 	}
 
 	async function setEmptyColumns() {
-		let gridItem = findGridItem($app, id)
+		let gridItem = findGridItem(app.val, id)
 		if (gridItem && gridItem.data.configuration.columnDefs.type === 'static') {
 			gridItem.data.configuration.columnDefs.value = []
 			await updateConfiguration()

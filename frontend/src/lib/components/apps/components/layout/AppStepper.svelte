@@ -60,7 +60,7 @@
 	let tabHeight: number = $state(0)
 	let footerHeight: number = $state(0)
 	let runnableComponent: RunnableComponent | undefined = $state()
-	let selectedIndex = $state(tabs?.indexOf(selected) ?? -1)
+	let selectedIndex = $state(tabs?.indexOf(untrack(() => selected)) ?? -1)
 	let maxReachedIndex = $state(-1)
 	let statusByStep = $state([] as Array<'success' | 'error' | 'pending'>)
 	let debugMode: boolean = false
@@ -152,7 +152,7 @@
 	$effect.pre(() => {
 		selected != undefined && untrack(() => handleTabSelection())
 	})
-	let css = $state(initCss($app.css?.steppercomponent, customCss))
+	let css = $state(initCss(app.val.css?.steppercomponent, customCss))
 	let lastStep = $derived(selectedIndex === tabs.length - 1)
 
 	let directionClicked: 'left' | 'right' | undefined = $state(undefined)
@@ -164,7 +164,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.steppercomponent}
+		componentStyle={app.val.css?.steppercomponent}
 	/>
 {/each}
 
@@ -205,7 +205,7 @@
 			{/if}
 
 			<div class="w-full">
-				{#if $app.subgrids}
+				{#if app.val.subgrids}
 					{#each tabs ?? [] as _res, i}
 						<SubGridEditor
 							{id}
@@ -284,7 +284,7 @@
 				</div>
 			{/if}
 		</div>
-	{:else if $app.subgrids}
+	{:else if app.val.subgrids}
 		{#each tabs ?? [] as _res, i}
 			<SubGridEditor {id} visible={false} subGridId={`${id}-${i}`} />
 		{/each}

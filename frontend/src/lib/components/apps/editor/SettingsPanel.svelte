@@ -17,13 +17,13 @@
 
 	$: $selectedComponent?.[0] != firstComponent && (firstComponent = $selectedComponent?.[0])
 
-	$: hiddenInlineScript = $app?.hiddenInlineScripts
+	$: hiddenInlineScript = app.val?.hiddenInlineScripts
 		?.map((x, i) => ({ script: x, index: i }))
 		.find(({ script, index }) => $selectedComponent?.includes(BG_PREFIX + index))
 
-	$: gridItemWithLocation = findGridItemWithLocation($app, firstComponent)
-	$: tableActionSettings = findTableActionSettings($app, firstComponent)
-	$: menuItemsSettings = findMenuItemsSettings($app, firstComponent)
+	$: gridItemWithLocation = findGridItemWithLocation(app.val, firstComponent)
+	$: tableActionSettings = findTableActionSettings(app.val, firstComponent)
+	$: menuItemsSettings = findMenuItemsSettings(app.val, firstComponent)
 
 	function findTableActionSettings(app: App, id: string | undefined) {
 		return allItemsWithLocation(app.grid, app.subgrids)
@@ -116,17 +116,17 @@
 				() => gridItemWithLocation,
 				(cs) => {
 					if (gridItemWithLocation?.location.type === 'grid') {
-						$app.grid[gridItemWithLocation.location.gridItemIndex] = cs.item
+						app.val.grid[gridItemWithLocation.location.gridItemIndex] = cs.item
 					} else if (
 						gridItemWithLocation?.location.type === 'subgrid' &&
-						Array.isArray($app.subgrids?.[gridItemWithLocation.location.subgridKey])
+						Array.isArray(app.val.subgrids?.[gridItemWithLocation.location.subgridKey])
 					) {
 						if (
-							$app.subgrids[gridItemWithLocation.location.subgridKey][
+							app.val.subgrids[gridItemWithLocation.location.subgridKey][
 								gridItemWithLocation.location.subgridItemIndex
 							]
 						) {
-							$app.subgrids[gridItemWithLocation.location.subgridKey][
+							app.val.subgrids[gridItemWithLocation.location.subgridKey][
 								gridItemWithLocation.location.subgridItemIndex
 							] = cs.item
 						}
@@ -149,14 +149,14 @@
 						if (tableActionSettings.gridItemLocation.type === 'grid') {
 							const { gridItemIndex } = tableActionSettings.gridItemLocation
 							const { key, index } = tableActionSettings.location
-							if ($app.grid[gridItemIndex]?.data?.[key]) {
-								$app.grid[gridItemIndex].data[key][index] = cs.item.data
+							if (app.val.grid[gridItemIndex]?.data?.[key]) {
+								app.val.grid[gridItemIndex].data[key][index] = cs.item.data
 							}
 						} else if (tableActionSettings.gridItemLocation.type === 'subgrid') {
 							const { subgridKey, subgridItemIndex } = tableActionSettings.gridItemLocation
 							const { key, index } = tableActionSettings.location
-							if ($app.subgrids?.[subgridKey]?.[subgridItemIndex]?.data?.[key]) {
-								$app.subgrids[subgridKey][subgridItemIndex].data[key][index] = cs.item.data
+							if (app.val.subgrids?.[subgridKey]?.[subgridItemIndex]?.data?.[key]) {
+								app.val.subgrids[subgridKey][subgridItemIndex].data[key][index] = cs.item.data
 							}
 						}
 					}
@@ -165,7 +165,7 @@
 			duplicateMoveAllowed={false}
 			onDelete={() => {
 				if (tableActionSettings) {
-					const item = findGridItemWithLocation($app, tableActionSettings.parent)
+					const item = findGridItemWithLocation(app.val, tableActionSettings.parent)
 					if (!item) return
 					const { item: parent, location } = item
 					if (parent.data.type === 'tablecomponent') {
@@ -174,15 +174,15 @@
 						)
 						if (location.type === 'grid') {
 							const { gridItemIndex } = location
-							if ($app.grid[gridItemIndex]?.data?.type === 'tablecomponent') {
-								$app.grid[gridItemIndex].data.actionButtons = newActionButtons
+							if (app.val.grid[gridItemIndex]?.data?.type === 'tablecomponent') {
+								app.val.grid[gridItemIndex].data.actionButtons = newActionButtons
 							}
 						} else if (location.type === 'subgrid') {
 							const { subgridKey, subgridItemIndex } = location
 							if (
-								$app.subgrids?.[subgridKey]?.[subgridItemIndex]?.data?.type === 'tablecomponent'
+								app.val.subgrids?.[subgridKey]?.[subgridItemIndex]?.data?.type === 'tablecomponent'
 							) {
-								$app.subgrids[subgridKey][subgridItemIndex].data.actionButtons = newActionButtons
+								app.val.subgrids[subgridKey][subgridItemIndex].data.actionButtons = newActionButtons
 							}
 						}
 					}
@@ -192,13 +192,13 @@
 						)
 						if (location.type === 'grid') {
 							const { gridItemIndex } = location
-							if (itemHasActions($app.grid[gridItemIndex])) {
-								$app.grid[gridItemIndex].data.actions = newActions
+							if (itemHasActions(app.val.grid[gridItemIndex])) {
+								app.val.grid[gridItemIndex].data.actions = newActions
 							}
 						} else {
 							const { subgridKey, subgridItemIndex } = location
-							if (itemHasActions($app.subgrids?.[subgridKey]?.[subgridItemIndex])) {
-								$app.subgrids[subgridKey][subgridItemIndex].data.actions = newActions
+							if (itemHasActions(app.val.subgrids?.[subgridKey]?.[subgridItemIndex])) {
+								app.val.subgrids[subgridKey][subgridItemIndex].data.actions = newActions
 							}
 						}
 					}
@@ -216,13 +216,16 @@
 					if (menuItemsSettings) {
 						if (menuItemsSettings.gridItemLocation.type === 'grid') {
 							const { gridItemIndex } = menuItemsSettings.gridItemLocation
-							if ($app.grid[gridItemIndex]?.data?.type === 'menucomponent') {
-								$app.grid[gridItemIndex].data.menuItems[cs.index] = cs.item.data
+							if (app.val.grid[gridItemIndex]?.data?.type === 'menucomponent') {
+								app.val.grid[gridItemIndex].data.menuItems[cs.index] = cs.item.data
 							}
 						} else if (menuItemsSettings.gridItemLocation.type === 'subgrid') {
 							const { subgridKey, subgridItemIndex } = menuItemsSettings.gridItemLocation
-							if ($app.subgrids?.[subgridKey]?.[subgridItemIndex]?.data?.type === 'menucomponent') {
-								$app.subgrids[subgridKey][subgridItemIndex].data.menuItems[cs.index] = cs.item.data
+							if (
+								app.val.subgrids?.[subgridKey]?.[subgridItemIndex]?.data?.type === 'menucomponent'
+							) {
+								app.val.subgrids[subgridKey][subgridItemIndex].data.menuItems[cs.index] =
+									cs.item.data
 							}
 						}
 					}
@@ -230,7 +233,7 @@
 			}
 			onDelete={() => {
 				if (menuItemsSettings) {
-					const item = findGridItemWithLocation($app, menuItemsSettings.parent)
+					const item = findGridItemWithLocation(app.val, menuItemsSettings.parent)
 					if (!item) return
 					const { item: parent, location } = item
 					if (parent.data.type === 'menucomponent') {
@@ -239,13 +242,15 @@
 						)
 						if (location.type === 'grid') {
 							const { gridItemIndex } = location
-							if ($app.grid[gridItemIndex]?.data?.type === 'menucomponent') {
-								$app.grid[gridItemIndex].data.menuItems = newItems
+							if (app.val.grid[gridItemIndex]?.data?.type === 'menucomponent') {
+								app.val.grid[gridItemIndex].data.menuItems = newItems
 							}
 						} else if (location.type === 'subgrid') {
 							const { subgridKey, subgridItemIndex } = location
-							if ($app.subgrids?.[subgridKey]?.[subgridItemIndex]?.data?.type === 'menucomponent') {
-								$app.subgrids[subgridKey][subgridItemIndex].data.menuItems = newItems
+							if (
+								app.val.subgrids?.[subgridKey]?.[subgridItemIndex]?.data?.type === 'menucomponent'
+							) {
+								app.val.subgrids[subgridKey][subgridItemIndex].data.menuItems = newItems
 							}
 						}
 					}
@@ -260,7 +265,7 @@
 			bind:runnable={
 				() => hiddenInlineScript.script,
 				(r) => {
-					$app.hiddenInlineScripts[hiddenInlineScript.index] = r
+					app.val.hiddenInlineScripts[hiddenInlineScript.index] = r
 				}
 			}
 			{id}
@@ -276,8 +281,8 @@
 							bind:inputSpecs={
 								() => hiddenInlineScript.script.fields,
 								(is) => {
-									if ($app.hiddenInlineScripts[hiddenInlineScript.index]) {
-										$app.hiddenInlineScripts[hiddenInlineScript.index].fields = is
+									if (app.val.hiddenInlineScripts[hiddenInlineScript.index]) {
+										app.val.hiddenInlineScripts[hiddenInlineScript.index].fields = is
 									}
 								}
 							}
@@ -301,8 +306,8 @@
 				bind:value={
 					() => hiddenInlineScript.script.recomputeIds ?? [],
 					(v) => {
-						if ($app.hiddenInlineScripts[hiddenInlineScript.index]) {
-							$app.hiddenInlineScripts[hiddenInlineScript.index].recomputeIds = v
+						if (app.val.hiddenInlineScripts[hiddenInlineScript.index]) {
+							app.val.hiddenInlineScripts[hiddenInlineScript.index].recomputeIds = v
 						}
 					}
 				}

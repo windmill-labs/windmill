@@ -61,7 +61,7 @@
 		}
 	}
 
-	let css = initCss($app.css?.downloadcomponent, customCss)
+	let css = initCss(app.val.css?.downloadcomponent, customCss)
 </script>
 
 <InitializeComponent {id} />
@@ -81,7 +81,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.downloadcomponent}
+		componentStyle={app.val.css?.downloadcomponent}
 	/>
 {/each}
 

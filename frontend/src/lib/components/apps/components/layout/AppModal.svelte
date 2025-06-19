@@ -65,7 +65,7 @@
 		open: false
 	})
 
-	let css = $state(initCss($app.css?.modalcomponent, customCss))
+	let css = $state(initCss(app.val.css?.modalcomponent, customCss))
 	let disposable: Disposable | undefined = $state(undefined)
 
 	let resolvedConfig = $state(
@@ -103,7 +103,8 @@
 	let containerHeight = $derived(
 		Math.min(
 			// 8px * 2 of padding
-			maxHeight($app.subgrids?.[`${id}-0`] ?? [], 0, $breakpoint) * (ROW_HEIGHT + ROW_GAP_Y) + 16,
+			maxHeight(app.val.subgrids?.[`${id}-0`] ?? [], 0, $breakpoint) * (ROW_HEIGHT + ROW_GAP_Y) +
+				16,
 			// 32px (2rem) of top and bottom margin
 			wrapperHeight - headerHeight - 64
 		)
@@ -131,7 +132,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.modalcomponent}
+		componentStyle={app.val.css?.modalcomponent}
 	/>
 {/each}
 
@@ -237,7 +238,7 @@
 								}
 							}}
 						>
-							{#if $app.subgrids?.[`${id}-0`]}
+							{#if app.val.subgrids?.[`${id}-0`]}
 								<SubGridEditor
 									visible={open && render}
 									{id}
@@ -260,6 +261,6 @@
 			{/snippet}
 		</Disposable>
 	</Portal>
-{:else if $app.subgrids?.[`${id}-0`]}
+{:else if app.val.subgrids?.[`${id}-0`]}
 	<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
 {/if}

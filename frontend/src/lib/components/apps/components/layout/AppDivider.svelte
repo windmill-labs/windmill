@@ -29,7 +29,7 @@
 	let size = 2
 	let color = '#00000060'
 
-	let css = initCss($app.css?.[position + 'dividercomponent'], customCss)
+	let css = initCss(app.val.css?.[position + 'dividercomponent'], customCss)
 
 	//used so that we can count number of outputs setup for first refresh
 	initOutput($worldStore, id, {})
@@ -57,7 +57,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.[position + 'dividercomponent']}
+		componentStyle={app.val.css?.[position + 'dividercomponent']}
 	/>
 {/each}
 

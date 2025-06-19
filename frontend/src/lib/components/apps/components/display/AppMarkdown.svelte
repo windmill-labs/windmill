@@ -39,7 +39,7 @@
 
 	let result: string | undefined = undefined
 
-	let css = initCss($app.css?.mardowncomponent, customCss)
+	let css = initCss(app.val.css?.mardowncomponent, customCss)
 
 	const proseMapping = {
 		sm: 'prose-sm',
@@ -65,7 +65,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.mardowncomponent}
+		componentStyle={app.val.css?.mardowncomponent}
 	/>
 {/each}
 
@@ -150,8 +150,8 @@
 	.wm-markdown h4:last-child {
 		margin-bottom: 0;
 	}
-	.wm-markdown code:not([class~="not-prose"]):not(.not-prose *)::before,
-	.wm-markdown code:not([class~="not-prose"]):not(.not-prose *)::after {
+	.wm-markdown code:not([class~='not-prose']):not(.not-prose *)::before,
+	.wm-markdown code:not([class~='not-prose']):not(.not-prose *)::after {
 		content: none !important;
 	}
 	.wm-markdown.prose code::before,

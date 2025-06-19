@@ -41,7 +41,7 @@
 		onFileChange?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
 	}
 
-	let css = initCss($app.css?.fileinputcomponent, customCss)
+	let css = initCss(app.val.css?.fileinputcomponent, customCss)
 
 	let fileInput: FileInput | undefined = undefined
 
@@ -70,7 +70,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.fileinputcomponent}
+		componentStyle={app.val.css?.fileinputcomponent}
 	/>
 {/each}
 

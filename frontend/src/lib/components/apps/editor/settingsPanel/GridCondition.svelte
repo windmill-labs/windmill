@@ -51,7 +51,7 @@
 			const newSubgrids = {}
 			for (let i = 0; i < items.length; i++) {
 				newSubgrids[`${component.id}-${i}`] =
-					$app!.subgrids![`${component.id}-${items[i].originalIndex}`] ?? []
+					app.val!.subgrids![`${component.id}-${items[i].originalIndex}`] ?? []
 			}
 
 			// update originalIndex
@@ -59,11 +59,11 @@
 				item.originalIndex = i
 			})
 
-			$app!.subgrids = {
-				...$app!.subgrids,
+			app.val!.subgrids = {
+				...app.val!.subgrids,
 				...newSubgrids
 			}
-			$app = $app
+			app.val = app.val
 
 			tick().then(() => {
 				const targetIndex = items.findIndex((i) => i.id === e.detail.info.id)
@@ -74,8 +74,8 @@
 
 	function deleteSubgrid(index: number) {
 		let subgrid = `${component.id}-${index}`
-		for (const item of $app!.subgrids![subgrid]) {
-			const components = deleteGridItem($app, item.data, subgrid)
+		for (const item of app.val!.subgrids![subgrid]) {
+			const components = deleteGridItem(app.val, item.data, subgrid)
 			for (const key in components) {
 				delete $runnableComponents[key]
 			}
@@ -83,7 +83,7 @@
 
 		$runnableComponents = $runnableComponents
 		for (let i = index; i < items.length; i++) {
-			$app!.subgrids![`${component.id}-${i}`] = $app!.subgrids![`${component.id}-${i + 1}`]
+			app.val!.subgrids![`${component.id}-${i}`] = app.val!.subgrids![`${component.id}-${i + 1}`]
 		}
 
 		// Remove the corresponding item from the items array
@@ -96,21 +96,21 @@
 		})
 		items = nitems
 
-		delete $app!.subgrids![`${component.id}-${items.length + 1}`]
-		$app = $app
+		delete app.val!.subgrids![`${component.id}-${items.length + 1}`]
+		app.val = app.val
 	}
 
 	function addCondition(): void {
 		const numberOfConditions = conditions.length
 
-		if (!$app.subgrids) {
-			$app.subgrids = {}
+		if (!app.val.subgrids) {
+			app.val.subgrids = {}
 		}
 
-		$app.subgrids[`${component.id}-${numberOfConditions}`] =
-			$app.subgrids[`${component.id}-${numberOfConditions - 1}`]
+		app.val.subgrids[`${component.id}-${numberOfConditions}`] =
+			app.val.subgrids[`${component.id}-${numberOfConditions - 1}`]
 
-		$app.subgrids[`${component.id}-${numberOfConditions - 1}`] = []
+		app.val.subgrids[`${component.id}-${numberOfConditions - 1}`] = []
 
 		const newCondition: AppInputSpec<'boolean', boolean> = {
 			type: 'evalv2',

@@ -100,7 +100,7 @@
 						placeholder="Inline script name"
 						class="!text-xs !rounded-sm !shadow-none"
 						on:keyup={() => {
-							// $app = $app
+							// app.val = app.val
 							// if (stateId) {
 							// 	$stateId++
 							// }
@@ -197,7 +197,7 @@
 								syncFields()
 							}
 						}
-						// $app = $app
+						// app.val = app.val
 					}}
 					args={Object.entries(fields ?? {}).reduce((acc, [key, obj]) => {
 						acc[key] = obj.type === 'static' ? obj.value : undefined

@@ -7,7 +7,7 @@
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 </script>
 
-{#each $app.hiddenInlineScripts ?? [] as action, index}
+{#each app.val.hiddenInlineScripts ?? [] as action, index}
 	{#if !action.hidden}
 		<BackgroundScriptOutput id={BG_PREFIX + index} name={action.name} first={index === 0} />
 	{/if}

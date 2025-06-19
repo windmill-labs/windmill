@@ -42,7 +42,7 @@
 	//used so that we can count number of outputs setup for first refresh
 	initOutput($worldStore, id, {})
 
-	let css = initCss($app.css?.imagecomponent, customCss)
+	let css = initCss(app.val.css?.imagecomponent, customCss)
 
 	let imageUrl: string | undefined = undefined
 
@@ -111,7 +111,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.imagecomponent}
+		componentStyle={app.val.css?.imagecomponent}
 	/>
 {/each}
 

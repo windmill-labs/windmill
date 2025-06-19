@@ -175,7 +175,7 @@
 	}
 	let loading = $state(false)
 
-	let css = $state(initCss($app.css?.buttoncomponent, customCss))
+	let css = $state(initCss(app.val.css?.buttoncomponent, customCss))
 	$effect(() => {
 		errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
 	})
@@ -210,7 +210,7 @@
 		{extraKey}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.buttoncomponent}
+		componentStyle={app.val.css?.buttoncomponent}
 	/>
 {/each}
 

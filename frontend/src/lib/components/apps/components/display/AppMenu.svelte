@@ -53,7 +53,7 @@
 		initConfig(components['menucomponent'].initialData.configuration, configuration)
 	)
 
-	let css = $state(initCss($app.css?.menucomponent, customCss))
+	let css = $state(initCss(app.val.css?.menucomponent, customCss))
 
 	let beforeIconComponent: any = $state()
 	let afterIconComponent: any = $state()
@@ -106,7 +106,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.menucomponent}
+		componentStyle={app.val.css?.menucomponent}
 	/>
 {/each}
 

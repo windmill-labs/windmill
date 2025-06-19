@@ -26,7 +26,7 @@
 
 	initOutput($worldStore, id, {})
 
-	let css = initCss($app.css?.statcomponent, customCss)
+	let css = initCss(app.val.css?.statcomponent, customCss)
 
 	let iconComponent: any
 
@@ -62,7 +62,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.imagecomponent}
+		componentStyle={app.val.css?.imagecomponent}
 	/>
 {/each}
 

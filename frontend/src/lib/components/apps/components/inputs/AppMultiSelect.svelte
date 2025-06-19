@@ -7,7 +7,9 @@
 	import MultiSelect from 'svelte-multiselect'
 
 	export let id: string
+	// svelte-ignore export_let_unused
 	export let configuration: RichConfigurations
+	// svelte-ignore export_let_unused
 	export let customCss: ComponentCustomCSS<'multiselectcomponent'> | undefined = undefined
 	export let render: boolean
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined

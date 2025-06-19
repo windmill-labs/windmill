@@ -80,7 +80,7 @@
 		datasets: result ?? []
 	} as ChartData<'scatter', (number | Point)[], unknown>
 
-	let css = initCss($app.css?.scatterchartcomponent, customCss)
+	let css = initCss(app.val.css?.scatterchartcomponent, customCss)
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -89,7 +89,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.scatterchartcomponent}
+		componentStyle={app.val.css?.scatterchartcomponent}
 	/>
 {/each}
 

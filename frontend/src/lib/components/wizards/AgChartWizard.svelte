@@ -18,8 +18,8 @@
 
 	let component: GridItem | undefined = undefined
 
-	$: if (component === undefined && $selectedComponent && $app) {
-		component = findGridItem($app, $selectedComponent[0])
+	$: if (component === undefined && $selectedComponent && app.val) {
+		component = findGridItem(app.val, $selectedComponent[0])
 	}
 
 	$: isEE = component?.data.type === 'agchartscomponentee'

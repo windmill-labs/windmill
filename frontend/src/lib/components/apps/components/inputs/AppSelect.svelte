@@ -189,7 +189,7 @@
 		setContextValue(undefined)
 	}
 
-	let css = $state(initCss($app.css?.selectcomponent, customCss))
+	let css = $state(initCss(app.val.css?.selectcomponent, customCss))
 
 	let previsousFilter = ''
 
@@ -246,7 +246,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.selectcomponent}
+		componentStyle={app.val.css?.selectcomponent}
 	/>
 {/each}
 

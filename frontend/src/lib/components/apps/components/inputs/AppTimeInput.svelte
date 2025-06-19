@@ -91,7 +91,7 @@
 	function handleDefault(defaultValue: string | undefined) {
 		value = defaultValue
 	}
-	let css = initCss($app.css?.timeinputcomponent, customCss)
+	let css = initCss(app.val.css?.timeinputcomponent, customCss)
 </script>
 
 {#each Object.keys(components['timeinputcomponent'].initialData.configuration) as key (key)}
@@ -109,7 +109,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.timeinputcomponent}
+		componentStyle={app.val.css?.timeinputcomponent}
 	/>
 {/each}
 

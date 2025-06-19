@@ -63,12 +63,12 @@
 		debuggingComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	let css = $state(initCss($app.css?.conditionalwrapper, customCss))
+	let css = $state(initCss(app.val.css?.conditionalwrapper, customCss))
 	let selectedConditionIndex = 0
 	let currentNodeId = $state(getFirstNode(nodes)?.id ?? '')
 
 	let outputs = initOutput($worldStore, id, {
-		currentNodeId,
+		currentNodeId: untrack(() => currentNodeId),
 		currentNodeIndex: selectedConditionIndex
 	})
 
@@ -207,7 +207,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.conditionalwrapper}
+		componentStyle={app.val.css?.conditionalwrapper}
 	/>
 {/each}
 
@@ -216,7 +216,7 @@
 {#if everRender}
 	<div class="w-full overflow-auto">
 		<div class="w-full">
-			{#if $app.subgrids}
+			{#if app.val.subgrids}
 				{#each Object.values(nodes) ?? [] as node, i}
 					<SubGridEditor
 						visible={render && node.id === currentNodeId}
@@ -268,7 +268,7 @@
 			</Button>
 		</div>
 	{/if}
-{:else if $app.subgrids}
+{:else if app.val.subgrids}
 	{#each Object.values(nodes) ?? [] as _node, i}
 		<SubGridEditor visible={false} {id} subGridId={`${id}-${i}`} />
 	{/each}

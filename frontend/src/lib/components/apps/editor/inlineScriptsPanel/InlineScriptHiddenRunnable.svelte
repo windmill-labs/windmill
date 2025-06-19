@@ -69,7 +69,7 @@
 	/>
 {:else}
 	<EmptyInlineScript
-		unusedInlineScripts={$app?.unusedInlineScripts}
+		unusedInlineScripts={app.val?.unusedInlineScripts}
 		on:pick={(e) => onPick(e.detail)}
 		on:delete
 		showScriptPicker

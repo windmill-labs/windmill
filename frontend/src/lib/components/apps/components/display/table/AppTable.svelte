@@ -240,7 +240,7 @@
 
 	$: filteredResult != undefined && rerender()
 
-	let css = initCss($app.css?.tablecomponent, customCss)
+	let css = initCss(app.val.css?.tablecomponent, customCss)
 
 	$componentControl[id] = {
 		right: (skipActions: boolean | undefined) => {
@@ -347,7 +347,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.tablecomponent}
+		componentStyle={app.val.css?.tablecomponent}
 	/>
 {/each}
 

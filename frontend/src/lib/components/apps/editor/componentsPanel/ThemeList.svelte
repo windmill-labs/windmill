@@ -18,8 +18,9 @@
 
 	const { previewTheme, app } = getContext<AppViewerContext>('AppViewerContext')
 
-	let cssString: string | undefined = $app?.theme?.type === 'inlined' ? $app.theme.css : undefined
-	$: type = $app?.theme?.type
+	let cssString: string | undefined =
+		app.val?.theme?.type === 'inlined' ? app.val.theme.css : undefined
+	$: type = app.val?.theme?.type
 
 	let themes: Array<{
 		name: string
@@ -56,7 +57,7 @@
 
 		sendUserToast('Theme created:' + message)
 
-		$app.theme = {
+		app.val.theme = {
 			type: 'path',
 			path: theme.path
 		}

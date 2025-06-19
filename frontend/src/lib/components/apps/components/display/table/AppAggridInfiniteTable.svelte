@@ -40,7 +40,7 @@
 	const context = getContext<AppViewerContext>('AppViewerContext')
 	const { app, worldStore } = context
 
-	let css = initCss($app.css?.aggridcomponent, customCss)
+	let css = initCss(app.val.css?.aggridcomponent, customCss)
 	let result: any[] | undefined = undefined
 	let loading: boolean = false
 
@@ -166,7 +166,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.tablecomponent}
+		componentStyle={app.val.css?.tablecomponent}
 	/>
 {/each}
 

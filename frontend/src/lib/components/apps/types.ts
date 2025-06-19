@@ -23,10 +23,11 @@ import type {
 	TemplateV2AppInput,
 	UploadAppInput,
 	UploadS3AppInput,
-	UserAppInput,
+	UserAppInput
 } from './inputType'
 import type { World } from './rx'
 import type { FilledItem } from './svelte-grid/types'
+import type { StateStore } from '$lib/utils'
 
 export type HorizontalAlignment = 'left' | 'center' | 'right'
 export type VerticalAlignment = 'top' | 'center' | 'bottom'
@@ -141,13 +142,13 @@ export type HiddenRunnable = {
 
 export type AppTheme =
 	| {
-		type: 'path'
-		path: string
-	}
+			type: 'path'
+			path: string
+	  }
 	| {
-		type: 'inlined'
-		css: string
-	}
+			type: 'inlined'
+			css: string
+	  }
 
 export type App = {
 	grid: GridItem[]
@@ -209,7 +210,7 @@ export type JobById = {
 
 export type AppViewerContext = {
 	worldStore: Writable<World>
-	app: Writable<App>
+	app: StateStore<App>
 	summary: Writable<string>
 	initialized: Writable<{
 		initializedComponents: string[]

@@ -22,7 +22,7 @@
 	let source: string | ArrayBuffer | undefined = undefined
 	let zoom: number | undefined = undefined
 
-	let css = initCss($app.css?.pdfcomponent, customCss)
+	let css = initCss(app.val.css?.pdfcomponent, customCss)
 </script>
 
 <InputValue key="source" {id} input={configuration.source} bind:value={source} />
@@ -34,7 +34,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.pdfcomponent}
+		componentStyle={app.val.css?.pdfcomponent}
 	/>
 {/each}
 

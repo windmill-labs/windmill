@@ -39,7 +39,7 @@
 	const { app, worldStore, mode, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let css = initCss($app.css?.textcomponent, customCss)
+	let css = initCss(app.val.css?.textcomponent, customCss)
 
 	let result: string | undefined = undefined
 
@@ -157,7 +157,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.textcomponent}
+		componentStyle={app.val.css?.textcomponent}
 	/>
 {/each}
 
@@ -187,8 +187,8 @@
 						horizontalAlignment === 'center'
 							? 'text-center'
 							: horizontalAlignment === 'right'
-							? 'text-right'
-							: 'text-left'
+								? 'text-right'
+								: 'text-left'
 					)}
 					on:pointerdown|stopPropagation
 					style={css?.text?.style}
@@ -232,8 +232,8 @@
 								horizontalAlignment === 'center'
 									? 'text-center'
 									: horizontalAlignment === 'right'
-									? 'text-right'
-									: 'text-left'
+										? 'text-right'
+										: 'text-left'
 							)}
 							style={css?.text?.style}
 						>

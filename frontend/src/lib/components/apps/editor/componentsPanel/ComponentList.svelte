@@ -53,16 +53,16 @@
 	}
 
 	function addComponent(appComponentType: TypedComponent['type']): string {
-		push(history, $app)
+		push(history, app.val)
 
 		const id = insertNewGridItem(
-			$app,
+			app.val,
 			appComponentFromType(appComponentType) as (id: string) => AppComponent,
 			$focusedGrid
 		)
 
 		$selectedComponent = [id]
-		$app = $app
+		app.val = app.val
 		return id
 	}
 
@@ -72,21 +72,21 @@
 
 		if (!res) return
 
-		push(history, $app)
+		push(history, app.val)
 
-		const id = copyComponent($app, res.value.item, $focusedGrid, res.value.subgrids, [])
+		const id = copyComponent(app.val, res.value.item, $focusedGrid, res.value.subgrids, [])
 
 		if (id) {
 			$selectedComponent = [id]
-			$app = $app
+			app.val = app.val
 		}
 	}
 
 	async function addNewGroup() {
-		push(history, $app)
+		push(history, app.val)
 
 		const id = insertNewGridItem(
-			$app,
+			app.val,
 			appComponentFromType('containercomponent', undefined, { groupFields: {} }) as (
 				id: string
 			) => AppComponent,
@@ -95,7 +95,7 @@
 
 		if (id) {
 			$selectedComponent = [id]
-			$app = $app
+			app.val = app.val
 		}
 	}
 
@@ -114,10 +114,10 @@
 
 		if (!res) return
 
-		push(history, $app)
+		push(history, app.val)
 
 		const id = insertNewGridItem(
-			$app,
+			app.val,
 			appComponentFromType('customcomponent', undefined, {
 				customComponent: {
 					name: cc.name.replace(/-/g, '_').replace(/\s/g, '_'),
@@ -131,17 +131,17 @@
 
 		if (id) {
 			$selectedComponent = [id]
-			$app = $app
+			app.val = app.val
 		}
 	}
 
 	function addPresetComponent(appComponentType: string): void {
 		const preset = presetsRecord[appComponentType]
 
-		push(history, $app)
+		push(history, app.val)
 
 		const id = insertNewGridItem(
-			$app,
+			app.val,
 			appComponentFromType(preset.targetComponent, preset.configuration, undefined) as (
 				id: string
 			) => AppComponent,
@@ -158,10 +158,10 @@
 		$selectedComponent = [id]
 
 		if (appComponentType === 'topbarcomponent') {
-			setUpTopBarComponentContent(id, $app)
+			setUpTopBarComponentContent(id, app.val)
 		}
 
-		$app = $app
+		app.val = app.val
 	}
 
 	let search = ''

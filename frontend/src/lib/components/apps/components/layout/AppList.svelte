@@ -60,7 +60,7 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.listcomponent, customCss))
+	let css = $state(initCss(app.val.css?.listcomponent, customCss))
 	let result: any[] | undefined = $state(undefined)
 
 	let isCard = $derived(resolvedConfig.width?.selected == 'card')
@@ -138,7 +138,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.listcomponent}
+		componentStyle={app.val.css?.listcomponent}
 	/>
 {/each}
 
@@ -169,7 +169,7 @@
 						? 'divide-y flex-col'
 						: 'flex-col'}"
 			>
-				{#if $app.subgrids?.[`${id}-0`] && Array.isArray(result) && result.length > 0}
+				{#if app.val.subgrids?.[`${id}-0`] && Array.isArray(result) && result.length > 0}
 					{#each result ?? [] as value, index (index)}
 						{@const inRange = index <= pagination.maxIndex && index >= pagination.indexOffset}
 						<div
@@ -288,7 +288,7 @@
 				</div>
 			{/if}
 		</div>
-	{:else if $app.subgrids}
+	{:else if app.val.subgrids}
 		<ListWrapper disabled value={undefined} index={0}>
 			<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
 		</ListWrapper>

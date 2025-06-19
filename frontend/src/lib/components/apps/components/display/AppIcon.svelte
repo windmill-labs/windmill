@@ -37,7 +37,7 @@
 		}
 	}
 
-	let css = initCss($app.css?.iconcomponent, customCss)
+	let css = initCss(app.val.css?.iconcomponent, customCss)
 </script>
 
 {#each Object.keys(components['iconcomponent'].initialData.configuration) as key (key)}
@@ -55,7 +55,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.iconcomponent}
+		componentStyle={app.val.css?.iconcomponent}
 	/>
 {/each}
 

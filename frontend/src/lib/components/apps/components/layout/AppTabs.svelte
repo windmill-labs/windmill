@@ -62,8 +62,8 @@
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	let selected: string = $state(tabs[0])
-	let selectedIndex = $state(tabs?.indexOf(selected) ?? -1)
-	let css = $state(initCss($app.css?.tabscomponent, customCss))
+	let selectedIndex = $state(tabs?.indexOf(untrack(() => selected)) ?? -1)
+	let css = $state(initCss(app.val.css?.tabscomponent, customCss))
 
 	let tabHeight: number = $state(0)
 
@@ -154,7 +154,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.tabscomponent}
+		componentStyle={app.val.css?.tabscomponent}
 	/>
 {/each}
 
@@ -278,7 +278,7 @@
 			</div>
 		{:else}
 			<div class="w-full">
-				{#if $app.subgrids}
+				{#if app.val.subgrids}
 					{#each tabs ?? [] as _res, i}
 						<SubGridEditor
 							{id}
@@ -301,7 +301,7 @@
 			</div>
 		{/if}
 	</div>
-{:else if $app.subgrids}
+{:else if app.val.subgrids}
 	{#each tabs ?? [] as _res, i}
 		<SubGridEditor {id} visible={false} subGridId={`${id}-${i}`} />
 	{/each}

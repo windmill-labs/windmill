@@ -21,16 +21,16 @@
 	}
 
 	function addComponent(): void {
-		push(history, $app)
+		push(history, app.val)
 
 		const id = insertNewGridItem(
-			$app,
+			app.val,
 			appComponentFromType('textcomponent') as (id: string) => AppComponent,
 			$focusedGrid
 		)
 
 		$selectedComponent = [id]
-		$app = $app
+		app.val = app.val
 	}
 </script>
 

@@ -83,7 +83,7 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.selecttabcomponent, customCss))
+	let css = $state(initCss(app.val.css?.selecttabcomponent, customCss))
 	$effect.pre(() => {
 		selected === '' && resolvedConfig.defaultValue && untrack(() => setDefaultValue())
 	})
@@ -107,7 +107,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.selecttabcomponent}
+		componentStyle={app.val.css?.selecttabcomponent}
 	/>
 {/each}
 

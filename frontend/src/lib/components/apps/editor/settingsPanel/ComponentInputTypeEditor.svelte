@@ -46,7 +46,7 @@
 			]
 		}
 		evalV2editor?.setCode(expr)
-		$app = $app
+		app.val = app.val
 	}
 
 	let clientWidth: number = $state(0)

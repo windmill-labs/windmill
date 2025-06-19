@@ -92,7 +92,7 @@
 		}
 	}
 
-	let css = initCss($app.css?.dateslidercomponent, customCss)
+	let css = initCss(app.val.css?.dateslidercomponent, customCss)
 
 	let lastStyle: string | undefined = undefined
 	$: if (css && slider && lastStyle !== css?.handle?.style) {
@@ -143,7 +143,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.dateslidercomponent}
+		componentStyle={app.val.css?.dateslidercomponent}
 	/>
 {/each}
 

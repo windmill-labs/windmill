@@ -47,7 +47,7 @@
 
 	$: resolvedConfigS3 = resolvedConfig.type.configuration.s3
 
-	let css = initCss($app.css?.fileinputcomponent, customCss)
+	let css = initCss(app.val.css?.fileinputcomponent, customCss)
 	/*
 
 		{#if resolvedConfig.displayDirectLink && fileUpload.progress === 100}
@@ -77,7 +77,10 @@
 		if (!isEditor) {
 			return undefined
 		}
-		const policy = computeS3FileInputPolicy((configuration as any)?.type?.configuration?.s3, $app)
+		const policy = computeS3FileInputPolicy(
+			(configuration as any)?.type?.configuration?.s3,
+			app.val
+		)
 		return policy
 	}
 </script>
@@ -90,7 +93,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.fileinputcomponent}
+		componentStyle={app.val.css?.fileinputcomponent}
 	/>
 {/each}
 

@@ -80,7 +80,7 @@
 		value = defaultValue
 	}
 
-	let css = initCss($app.css?.numberinputcomponent, customCss)
+	let css = initCss(app.val.css?.numberinputcomponent, customCss)
 </script>
 
 {#each Object.keys(components['numberinputcomponent'].initialData.configuration) as key (key)}
@@ -98,7 +98,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.numberinputcomponent}
+		componentStyle={app.val.css?.numberinputcomponent}
 	/>
 {/each}
 

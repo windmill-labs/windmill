@@ -21,8 +21,8 @@
 
 	export function removeGridElement() {
 		const id = $selectedComponent?.[0]
-		const componentSetting = findComponentSettings($app, id)
-		push(history, $app)
+		const componentSetting = findComponentSettings(app.val, id)
+		push(history, app.val)
 
 		const onDeleteComponentControl = id ? $componentControl[id]?.onDelete : undefined
 		if (onDeleteComponentControl) {
@@ -44,7 +44,7 @@
 		$selectedComponent = undefined
 		$focusedGrid = undefined
 		if (componentSetting?.item && !noGrid) {
-			let ids = deleteGridItem($app, componentSetting?.item.data, componentSetting?.parent)
+			let ids = deleteGridItem(app.val, componentSetting?.item.data, componentSetting?.parent)
 			for (const key of ids) {
 				delete $runnableComponents[key]
 			}
@@ -53,7 +53,7 @@
 		if (componentSetting?.item?.data?.id) {
 			delete $runnableComponents[componentSetting?.item?.data?.id]
 		}
-		$app = $app
+		app.val = app.val
 		$runnableComponents = $runnableComponents
 
 		onDelete?.()

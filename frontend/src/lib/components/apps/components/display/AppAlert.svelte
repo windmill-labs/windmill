@@ -27,7 +27,7 @@
 
 	initOutput($worldStore, id, {})
 
-	let css = initCss($app.css?.alertcomponent, customCss)
+	let css = initCss(app.val.css?.alertcomponent, customCss)
 </script>
 
 {#each Object.keys(components['alertcomponent'].initialData.configuration) as key (key)}
@@ -45,7 +45,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.alertcomponent}
+		componentStyle={app.val.css?.alertcomponent}
 	/>
 {/each}
 

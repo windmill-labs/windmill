@@ -416,7 +416,7 @@
 			return
 		}
 
-		const parent = findGridItemParentGrid($app, id)
+		const parent = findGridItemParentGrid(app.val, id)
 
 		if (overlapped && (overlapped === parent || parent?.startsWith(overlapped))) {
 			return
@@ -501,7 +501,7 @@
 			return true
 		}
 
-		const parent = findGridItemParentGrid($app, id)
+		const parent = findGridItemParentGrid(app.val, id)
 
 		if (parent === undefined) {
 			return overlapped === undefined
