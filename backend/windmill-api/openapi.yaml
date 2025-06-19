@@ -581,7 +581,7 @@ paths:
       summary: get connected repositories
       operationId: getGlobalConnectedRepositories
       tags:
-        - git_sync
+        - Git Sync
       responses:
         "200":
           description: connected repositories
@@ -9913,7 +9913,7 @@ paths:
             application/json:
               schema:
                 type: string
-  
+
   /w/{workspace}/postgres_triggers/is_valid_postgres_configuration/{path}:
     get:
       summary: check if postgres configuration is set to logical
@@ -16729,6 +16729,14 @@ components:
                   - trigger
                   - settings
                   - key
+            exclude_path:
+              type: array
+              items:
+                type: string
+            extra_include_path:
+              type: array
+              items:
+                type: string
       required:
         - script_path
         - git_repo_resource_path
