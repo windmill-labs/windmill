@@ -1,0 +1,1 @@
+For backend modifications, follow the rules mentioned here @../.cursor/rules/rust-best-practices.mdc. You also have access to a summarized version of the database schema here @backend/summarized_schema.txt
