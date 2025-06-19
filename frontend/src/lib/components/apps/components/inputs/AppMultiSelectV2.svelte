@@ -24,7 +24,7 @@
 	interface Props {
 		id: string
 		configuration: RichConfigurations
-		customCss?: ComponentCustomCSS<'multiselectcomponent'> | undefined
+		customCss?: ComponentCustomCSS<'multiselectcomponentv2'> | undefined
 		render: boolean
 		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
 	}
@@ -46,7 +46,7 @@
 	let items: { value: string; label?: any }[] = $state([])
 
 	const resolvedConfig = $state(
-		initConfig(components['multiselectcomponent'].initialData.configuration, configuration)
+		initConfig(components['multiselectcomponentv2'].initialData.configuration, configuration)
 	)
 
 	const outputs = initOutput($worldStore, id, {
@@ -125,7 +125,7 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.multiselectcomponent, customCss))
+	let css = $state(initCss($app.css?.multiselectcomponentv2, customCss))
 
 	$effect(() => {
 		resolvedConfig.items && untrack(() => handleItems())
@@ -136,7 +136,7 @@
 	})
 </script>
 
-{#each Object.keys(components['multiselectcomponent'].initialData.configuration) as key (key)}
+{#each Object.keys(components['multiselectcomponentv2'].initialData.configuration) as key (key)}
 	<ResolveConfig
 		{id}
 		{key}
@@ -151,7 +151,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.multiselectcomponent}
+		componentStyle={$app.css?.multiselectcomponentv2}
 	/>
 {/each}
 
@@ -168,10 +168,12 @@
 	>
 		<MultiSelect
 			style={css.multiselect?.style}
+			class={'multiselect'}
+			selectedUlClass="selected"
 			items={safeSelectItems([...items, ...customItems])}
 			placeholder={resolvedConfig.placeholder}
 			bind:value={selectedItems}
-			wrap={resolvedConfig.allowOverflow}
+			disabled={resolvedConfig.disabled}
 			onCreateItem={resolvedConfig.create
 				? (item) => {
 						customItems.push(item)

@@ -22,7 +22,7 @@
 		createText,
 		reorderable = true,
 		noItemsMsg,
-		wrap = true,
+		selectedUlClass = '',
 		onOpen,
 		groupBy,
 		sortBy,
@@ -42,7 +42,7 @@
 		createText?: string
 		reorderable?: boolean
 		noItemsMsg?: string
-		wrap?: boolean
+		selectedUlClass?: string
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onOpen?: () => void
@@ -94,25 +94,27 @@
 	bind:this={wrapperEl}
 	class={twMerge(
 		'relative flex items-center w-full bg-surface border border-gray-300 rounded-md text-tertiary',
-		disabled ? 'bg-gray-100 dark:bg-gray-700' : '',
+		disabled ? 'disabled bg-gray-100 dark:bg-gray-700' : '',
+		open ? 'open' : '',
 		className
 	)}
 	{style}
+	onpointerup={() => (open = true)}
 	use:clickOutside={{ onClickOutside: () => (open = false) }}
 >
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-	<div
-		class={twMerge(
-			'overflow-clip overflow-x-hidden min-h-8 cursor-pointer items-center flex gap-1 py-0.5 px-0.5',
-			wrap ? 'flex-wrap' : 'flex-1 flex-nowrap'
-		)}
-		onpointerup={() => (open = true)}
-		role="list"
-	>
-		{#if value.length === 0}
-			<span class="text-sm ml-2">{placeholder}</span>
-		{:else}
+
+	{#if value.length === 0}
+		<span class="text-sm ml-2 min-h-8 flex items-center flex-1">{placeholder}</span>
+	{:else}
+		<ul
+			class={twMerge(
+				'overflow-clip overflow-x-hidden min-h-8 cursor-pointer items-center flex flex-wrap gap-1 py-0.5 px-0.5 flex-1 text-primary',
+				selectedUlClass
+			)}
+			role="list"
+		>
 			<DraggableTags
 				items={valueEntry}
 				onRemove={onRemoveValue}
@@ -120,9 +122,14 @@
 					? (oldIdx, newIdx) => (value = reorder(value, oldIdx, newIdx))
 					: undefined}
 			/>
-		{/if}
-	</div>
-	<CloseButton noBg class="mr-1" small on:close={(e) => (clearValue(), e.stopPropagation())} />
+		</ul>
+	{/if}
+	<CloseButton
+		noBg
+		class="mr-1 remove-all"
+		small
+		on:close={(e) => (clearValue(), e.stopPropagation())}
+	/>
 	<SelectDropdown
 		{disablePortal}
 		onSelectValue={onAddValue}
@@ -134,6 +141,8 @@
 		getInputRect={wrapperEl && (() => wrapperEl!.getBoundingClientRect())}
 		{listAutoWidth}
 		{noItemsMsg}
+		class="multiselect"
+		ulClass="options"
 	>
 		{#snippet header()}
 			{#if processedItems.length - value.length > 0 || onCreateItem}

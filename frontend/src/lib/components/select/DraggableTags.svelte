@@ -25,11 +25,11 @@
 />
 
 {#each items ?? [] as item, index}
-	<div
+	<li
 		role="listitem"
 		class={twMerge(
 			'pl-3 pr-1 bg-surface-secondary rounded-full flex items-center gap-0.5',
-			!!currentlyDraggingIndex ? 'hover:opacity-20' : ''
+			currentlyDraggingIndex !== undefined ? 'hover:opacity-20' : ''
 		)}
 		style={currentlyDraggingIndex === index
 			? `transform: translate(${dragPos[0]}px, ${dragPos[1]}px); pointer-events: none;`
@@ -49,11 +49,11 @@
 			dragPos = [0, 0]
 		}}
 	>
-		<span class="text-sm select-none text-primary">{item.label || item.value}</span>
+		<span class="text-sm select-none">{item.label || item.value}</span>
 		<CloseButton
 			class="text-tertiary"
 			small
 			on:close={(e) => (onRemove(item), e.stopPropagation())}
 		/>
-	</div>
+	</li>
 {/each}
