@@ -108,7 +108,7 @@ export async function requireLogin(
     addWorkspace(workspace, opts);
 
     setClient(
-      token,
+      newToken,
       workspace.remote.substring(0, workspace.remote.length - 1)
     );
     return await wmill.globalWhoami();
@@ -130,6 +130,13 @@ export async function fetchVersion(baseUrl: string): Promise<string> {
     new URL(new URL(baseUrl).origin + "/api/version"),
     { headers: requestHeaders, method: "GET" }
   );
+  
+  if (!response.ok) {
+    // Consume response body even on error to avoid resource leak
+    await response.text();
+    throw new Error(`Failed to fetch version: ${response.status} ${response.statusText}`);
+  }
+  
   return await response.text();
 }
 export async function tryResolveVersion(

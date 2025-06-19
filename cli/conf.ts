@@ -111,9 +111,28 @@ export async function readConfigFile(): Promise<SyncOptions> {
   try {
     const conf = (await yamlParseFile("wmill.yaml")) as SyncOptions;
     if (conf?.defaultTs == undefined) {
-      log.warn(
-        "No defaultTs defined in your wmill.yaml. Using 'bun' as default."
-      );
+      // Check if this is a multi-workspace format with defaultTs in repositories
+      let hasRepositoryDefaultTs = false;
+      if (conf?.workspaces) {
+        for (const workspace of Object.values(conf.workspaces)) {
+          if (workspace.repositories) {
+            for (const repo of Object.values(workspace.repositories)) {
+              if (repo.defaultTs) {
+                hasRepositoryDefaultTs = true;
+                break;
+              }
+            }
+          }
+          if (hasRepositoryDefaultTs) break;
+        }
+      }
+
+      // Only warn if neither top-level nor repository-level defaultTs is found
+      if (!hasRepositoryDefaultTs) {
+        log.warn(
+          "No defaultTs defined in your wmill.yaml. Using 'bun' as default."
+        );
+      }
     }
     return typeof conf == "object" ? conf : ({} as SyncOptions);
   } catch (e) {
