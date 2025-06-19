@@ -3,9 +3,6 @@
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
-	// @ts-ignore
-	import MultiSelect from 'svelte-multiselect'
-
 	export let id: string
 	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'multiselectcomponent'> | undefined = undefined

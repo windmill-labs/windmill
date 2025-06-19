@@ -7,7 +7,7 @@
 	import DefaultTagsInner from './DefaultTagsInner.svelte'
 
 	export let defaultTagPerWorkspace: boolean | undefined = undefined
-	export let defaultTagWorkspaces: string[] | undefined = undefined
+	export let defaultTagWorkspaces: string[] = []
 
 	let placement: 'bottom-end' | 'top-end' = 'bottom-end'
 </script>
