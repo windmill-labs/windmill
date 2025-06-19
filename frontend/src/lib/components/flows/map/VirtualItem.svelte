@@ -27,6 +27,7 @@
 		editMode?: boolean
 		icon?: import('svelte').Snippet
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
+		onEditInput?: (moduleId: string, key: string) => void
 	}
 
 	let {
@@ -47,7 +48,8 @@
 		earlyStop = false,
 		editMode = false,
 		icon,
-		onUpdateMock
+		onUpdateMock,
+		onEditInput
 	}: Props = $props()
 
 	const outputPickerVisible = $derived(
@@ -114,6 +116,8 @@
 							rightMargin
 							historyOffset={{ mainAxis: 12, crossAxis: -9 }}
 							clazz="p-1"
+							{onEditInput}
+							selectionId={id ?? label ?? ''}
 						/>
 					{/snippet}
 				</OutputPicker>

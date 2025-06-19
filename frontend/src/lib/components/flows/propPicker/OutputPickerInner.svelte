@@ -16,7 +16,7 @@
 
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Pin, History, Pen, Check, X, Loader2 } from 'lucide-svelte'
+	import { Pin, History, Pen, Check, X, Loader2, Pencil } from 'lucide-svelte'
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import StepHistory from './StepHistory.svelte'
 	import { Popover } from '$lib/components/meltComponents'
@@ -62,6 +62,8 @@
 		copilot_fix?: import('svelte').Snippet
 		onSelect?: (key: string) => void
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
+		onEditInput?: (moduleId: string, key: string) => void
+		selectionId?: string
 	}
 
 	let {
@@ -91,7 +93,9 @@
 		clazz,
 		copilot_fix,
 		onSelect,
-		onUpdateMock
+		onUpdateMock,
+		onEditInput,
+		selectionId
 	}: Props = $props()
 
 	type SelectedJob =
@@ -590,6 +594,7 @@
 						onSelect?.(e.detail)
 					}}
 					{allowCopy}
+					{editKey}
 				/>
 			{:else if jsonView}
 				{#await import('$lib/components/JsonEditor.svelte')}
@@ -694,6 +699,15 @@
 		</div>
 	</div>
 </div>
+
+{#snippet editKey(key: string)}
+	<button
+		onclick={() => onEditInput?.(selectionId ?? '', key)}
+		class="h-4 w-fit items-center text-gray-300 dark:text-gray-500 hover:text-primary dark:hover:text-primary px-1 rounded-[0.275rem] align-baseline"
+	>
+		<Pencil size={12} class="-my-1 inline-flex items-center" />
+	</button>
+{/snippet}
 
 <style>
 	.dbl-click-editable {
