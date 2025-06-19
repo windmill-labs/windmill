@@ -45,7 +45,6 @@ pub enum JobKind {
     FlowScript,
     FlowNode,
     AppScript,
-    PiptarUpload,
 }
 
 impl JobKind {
@@ -361,11 +360,6 @@ pub enum JobPayload {
     },
     DeploymentCallback {
         path: String,
-    },
-    PiptarUpload {
-        venv_path: String,
-        cache_dir: String, 
-        python_version: String,
     },
     Identity,
     Noop,

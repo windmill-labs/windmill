@@ -118,7 +118,6 @@ use crate::{
     worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
     },
-    python_executor::handle_piptar_upload_job,
     worker_utils::{insert_ping, queue_vacuum, update_worker_ping_full},
 };
 
@@ -2277,26 +2276,6 @@ pub async fn handle_queued_job(
                     ));
                 }
             },
-            JobKind::PiptarUpload => match conn {
-                Connection::Sql(db) => handle_piptar_upload_job(
-                    &job,
-                    &mut mem_peak,
-                    &mut canceled_by,
-                    job_dir,
-                    db,
-                    worker_name,
-                    worker_dir,
-                    base_internal_url,
-                    &client.token,
-                    occupancy_metrics,
-                )
-                .await
-                .map(|()| serde_json::from_str("{}").unwrap()),
-                Connection::Http(_) => {
-                    return Err(Error::internal_err(
-                        "Could not handle piptar upload job with agent worker".to_string(),
-                    ));
-                }
             },
             JobKind::Identity => Ok(job
                 .args

@@ -36,10 +36,7 @@ use windmill_common::{
 use windmill_common::variables::get_secret_value_as_admin;
 
 use std::env::var;
-use windmill_queue::{append_logs, CanceledBy, PrecomputedAgentInfo, push, PushArgs, PushIsolationLevel};
-use windmill_common::jobs::{JobPayload, JobKind};
-use windmill_common::db::DB;
-use windmill_common::worker::to_raw_value;
+use windmill_queue::{append_logs, CanceledBy, PrecomputedAgentInfo};
 
 lazy_static::lazy_static! {
     pub(crate) static ref PYTHON_PATH: Option<String> = var("PYTHON_PATH").ok().map(|v| {
@@ -63,6 +60,46 @@ lazy_static::lazy_static! {
     static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(((u|f)\.)|\.)"#).unwrap();
 
     static ref EPHEMERAL_TOKEN_CMD: Option<String> = var("EPHEMERAL_TOKEN_CMD").ok();
+}
+
+#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+lazy_static::lazy_static! {
+    static ref PIPTAR_UPLOAD_CHANNEL: tokio::sync::mpsc::UnboundedSender<PiptarUploadTask> = {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        
+        // Spawn background task to handle uploads sequentially
+        tokio::spawn(handle_piptar_uploads(rx));
+        
+        tx
+    };
+}
+
+#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[derive(Debug)]
+struct PiptarUploadTask {
+    venv_path: String,
+    cache_dir: String,
+}
+
+#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<PiptarUploadTask>) {
+    use crate::global_cache::build_tar_and_push;
+    use windmill_common::s3_helpers::get_object_store;
+    
+    while let Some(task) = rx.recv().await {
+        if let Some(os) = get_object_store().await {
+            match build_tar_and_push(os, task.venv_path.clone(), task.cache_dir, None, false).await {
+                Ok(()) => {
+                    tracing::info!("Successfully uploaded piptar for {}", task.venv_path);
+                }
+                Err(e) => {
+                    tracing::error!("Failed to upload piptar for {}: {}", task.venv_path, e);
+                }
+            }
+        } else {
+            tracing::warn!("S3 object store not available for piptar upload: {}", task.venv_path);
+        }
+    }
 }
 
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
@@ -1900,56 +1937,16 @@ pub async fn handle_python_reqs(
 
             #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
             if s3_push {
-                // Queue piptar upload job instead of spawning directly
-                if let Some(db) = conn.as_sql() {
-                    let job_payload = JobPayload::PiptarUpload {
-                        venv_path: venv_p.clone(),
-                        cache_dir: py_version.to_cache_dir_top_level(false),
-                        python_version: py_version.to_cache_dir(),
-                    };
-                    
-                    let args = HashMap::new();
-                    let push_args = PushArgs {
-                        extra: None,
-                        args: &args,
-                    };
-                    
-                    // Queue the job for background processing
-                    match push(
-                        db,
-                        PushIsolationLevel::IsolatedRoot(db.clone()),
-                        &w_id,
-                        job_payload,
-                        push_args,
-                        "system", // created_by
-                        "system@windmill.dev", // email
-                        "g/all".to_string(), // permissioned_as
-                        None, // scheduled_for
-                        None, // schedule_path
-                        None, // parent_job
-                        None, // root_job
-                        None, // job_id
-                        false, // is_flow_step
-                        false, // same_worker
-                        None, // pre_run_error
-                        false, // visible_to_owner
-                        Some("piptarupload".to_string()), // tag
-                        None, // custom_timeout
-                        None, // flow_step_id
-                        None, // priority_override
-                        None, // authed
-                    ).await {
-                        Ok((job_uuid, tx)) => {
-                            if let Err(e) = tx.commit().await {
-                                tracing::warn!("Failed to commit piptar upload job {job_uuid}: {e}");
-                            } else {
-                                tracing::info!("Queued piptar upload job {job_uuid} for {venv_p}");
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!("Failed to queue piptar upload job for {venv_p}: {e}");
-                        }
-                    }
+                // Send to upload channel for sequential processing
+                let upload_task = PiptarUploadTask {
+                    venv_path: venv_p.clone(),
+                    cache_dir: py_version.to_cache_dir_top_level(false),
+                };
+                
+                if let Err(e) = PIPTAR_UPLOAD_CHANNEL.send(upload_task) {
+                    tracing::warn!("Failed to queue piptar upload for {venv_p}: {e}");
+                } else {
+                    tracing::info!("Queued piptar upload for {venv_p}");
                 }
             }
 
@@ -2252,93 +2249,3 @@ for line in sys.stdin:
     .await
 }
 
-/// Handle PiptarUpload job - uploads Python dependency tar archives to S3
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
-pub async fn handle_piptar_upload_job(
-    job: &windmill_queue::QueuedJob,
-    _mem_peak: &mut i32,
-    _canceled_by: &mut Option<CanceledBy>,
-    _job_dir: &str,
-    _db: &DB,
-    _worker_name: &str,
-    _worker_dir: &str,
-    _base_internal_url: &str,
-    _token: &str,
-    _occupancy_metrics: &mut OccupancyMetrics,
-) -> windmill_common::error::Result<()> {
-    use crate::global_cache::build_tar_and_push;
-    use windmill_common::s3_helpers::get_object_store;
-    
-    tracing::info!("Started processing piptar upload job {}", job.id);
-    
-    // Extract job payload from args
-    let args = job.args.as_ref().ok_or_else(|| {
-        windmill_common::error::Error::BadRequest("PiptarUpload job missing args".to_string())
-    })?;
-    
-    // Parse the JobPayload::PiptarUpload parameters
-    let venv_path = args.get("venv_path")
-        .and_then(|v| v.get().parse::<String>().ok())
-        .or_else(|| {
-            // Try alternative extraction methods for serde_json::Value
-            args.get("venv_path")
-                .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
-        })
-        .ok_or_else(|| {
-            windmill_common::error::Error::BadRequest("PiptarUpload job missing venv_path".to_string())
-        })?;
-        
-    let cache_dir = args.get("cache_dir")
-        .and_then(|v| v.get().parse::<String>().ok())
-        .or_else(|| {
-            args.get("cache_dir")
-                .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
-        })
-        .ok_or_else(|| {
-            windmill_common::error::Error::BadRequest("PiptarUpload job missing cache_dir".to_string())
-        })?;
-        
-    let _python_version = args.get("python_version")
-        .and_then(|v| v.get().parse::<String>().ok())
-        .or_else(|| {
-            args.get("python_version")
-                .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
-        })
-        .ok_or_else(|| {
-            windmill_common::error::Error::BadRequest("PiptarUpload job missing python_version".to_string())
-        })?;
-    
-    // Get the S3 object store
-    let os = get_object_store().await.ok_or_else(|| {
-        windmill_common::error::Error::BadRequest("S3 object store not available".to_string())
-    })?;
-    
-    // Call the existing build_tar_and_push function
-    match build_tar_and_push(os, venv_path.clone(), cache_dir, None, false).await {
-        Ok(()) => {
-            tracing::info!("Successfully uploaded piptar for {}", venv_path);
-            Ok(())
-        }
-        Err(e) => {
-            tracing::error!("Failed to upload piptar for {}: {}", venv_path, e);
-            Err(e)
-        }
-    }
-}
-
-#[cfg(not(all(feature = "enterprise", feature = "parquet", unix)))]
-pub async fn handle_piptar_upload_job(
-    job: &windmill_queue::QueuedJob,
-    _mem_peak: &mut i32,
-    _canceled_by: &mut Option<CanceledBy>,
-    _job_dir: &str,
-    _db: &DB,
-    _worker_name: &str,
-    _worker_dir: &str,
-    _base_internal_url: &str,
-    _token: &str,
-    _occupancy_metrics: &mut OccupancyMetrics,
-) -> windmill_common::error::Result<()> {
-    tracing::warn!("PiptarUpload job {} ignored - enterprise/parquet features not enabled", job.id);
-    Ok(())
-}
