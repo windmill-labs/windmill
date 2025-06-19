@@ -34,6 +34,7 @@
 	export let extraProps: Record<string, any> = {}
 	export let disabled: boolean = false
 	export let documentationLink: string | undefined = undefined
+	export let disableFocusTrap: boolean = false
 
 	let fullScreen = false
 	const dispatch = createEventDispatcher()
@@ -46,6 +47,7 @@
 	} = createPopover({
 		forceVisible: true,
 		portal,
+		disableFocusTrap,
 		onOpenChange: ({ curr, next }) => {
 			if (curr != next) {
 				dispatch('openChange', next)

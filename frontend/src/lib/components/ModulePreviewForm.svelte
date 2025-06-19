@@ -12,6 +12,7 @@
 	import type { PickableProperties } from './flows/previousResults'
 	import type SimpleEditor from './SimpleEditor.svelte'
 	import { getResourceTypes } from './resourceTypesStore'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any>; required?: string[] }
@@ -72,6 +73,37 @@
 
 	let editor: Record<string, SimpleEditor | undefined> = $state({})
 
+	// Animation and highlighting for focusArg
+	let animateArg: string | undefined = $state(undefined)
+	$effect(() => {
+		if (focusArg) {
+			// Add a slight delay to ensure the form is rendered
+			setTimeout(() => {
+				const argElement = document.querySelector(`[data-arg="${focusArg}"]`)
+				if (argElement) {
+					// Add highlight animation
+					animateArg = focusArg
+					argElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+
+					// Focus the input if it exists
+					const input = argElement.querySelector('input, textarea, select') as
+						| HTMLInputElement
+						| HTMLTextAreaElement
+						| HTMLSelectElement
+						| null
+					if (input) {
+						input.focus()
+					}
+
+					// Remove highlight after animation
+					setTimeout(() => {
+						animateArg = undefined
+					}, 2000)
+				}
+			}, 200)
+		}
+	})
+
 	let resourceTypes: string[] | undefined = $state(undefined)
 
 	async function loadResourceTypes() {
@@ -85,16 +117,22 @@
 	})
 </script>
 
-<div class="w-full pt-2">
+<div class="w-full pt-2" data-popover>
 	{#if keys.length > 0}
 		{#each keys as argName, i (argName)}
 			{#if Object.keys(schema.properties ?? {}).includes(argName)}
-				<div class="flex gap-2">
+				<div
+					class={twMerge(
+						'flex gap-2',
+						animateArg === argName && 'animate-pulse ring-2 ring-offset-2 ring-blue-500 rounded'
+					)}
+					data-arg={argName}
+				>
 					{#if typeof testSteps?.getStepArgs(mod.id) == 'object' && schema?.properties?.[argName]}
 						<ArgInput
 							{resourceTypes}
 							minW={false}
-							autofocus={autofocus && focusArg ? focusArg === argName : i == 0}
+							autofocus={autofocus && !focusArg && i == 0}
 							label={argName}
 							description={schema.properties[argName].description}
 							bind:value={

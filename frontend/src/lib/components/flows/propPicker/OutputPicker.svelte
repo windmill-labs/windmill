@@ -147,6 +147,7 @@
 					contentStyle={`width: calc(${MIN_WIDTH}px); min-width: calc(${MIN_WIDTH}px); height: calc(${MIN_HEIGHT}px); min-height: calc(${MIN_HEIGHT}px); `}
 					extraProps={{ 'data-prop-picker': true }}
 					closeOnOtherPopoverOpen
+					disableFocusTrap
 					class="flex-1 h-full"
 					bind:isOpen={inputOpen}
 					bind:this={inputPopover}

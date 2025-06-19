@@ -703,7 +703,6 @@
 	let jsonViewerDrawer: Drawer | undefined = $state(undefined)
 	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
 	let flowHistory: FlowHistory | undefined = $state(undefined)
-	let focusArg: string | undefined = $state(undefined)
 
 	export function triggerTutorial() {
 		const urlParams = new URLSearchParams(window.location.search)
@@ -767,6 +766,9 @@
 	}
 
 	let flowPreviewButtons: FlowPreviewButtons | undefined = $state()
+
+	let forceTestTab: Record<string, boolean> = $state({})
+	let highlightArg: Record<string, string | undefined> = $state({})
 
 	run(() => {
 		initialPathStore.set(initialPath)
@@ -1037,10 +1039,17 @@
 					onDeployTrigger={handleDeployTrigger}
 					onEditInput={(moduleId, key) => {
 						selectedIdStore.set(moduleId)
-						//TODO: open the iput tab
-						focusArg = key
+						// Use new prop-based system
+						forceTestTab[moduleId] = true
+						highlightArg[moduleId] = key
+						// Reset the force flag after a short delay to allow re-triggering
+						setTimeout(() => {
+							forceTestTab[moduleId] = false
+							highlightArg[moduleId] = undefined
+						}, 500)
 					}}
-					{focusArg}
+					{forceTestTab}
+					{highlightArg}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

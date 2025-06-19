@@ -25,7 +25,8 @@
 			  })
 			| undefined
 		onDeployTrigger?: (trigger: Trigger) => void
-		focusArg?: string
+		forceTestTab?: Record<string, boolean>
+		highlightArg?: Record<string, string | undefined>
 	}
 
 	let {
@@ -35,7 +36,8 @@
 		disabledFlowInputs = false,
 		savedFlow = undefined,
 		onDeployTrigger = () => {},
-		focusArg
+		forceTestTab,
+		highlightArg
 	}: Props = $props()
 
 	const {
@@ -140,7 +142,8 @@
 					previousModule={flowStore.val.value.modules[index - 1]}
 					{enableAi}
 					savedModule={savedFlow?.value.modules[index]}
-					{focusArg}
+					{forceTestTab}
+					{highlightArg}
 				/>
 			{/each}
 		{/key}
