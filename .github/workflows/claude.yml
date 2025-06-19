@@ -70,7 +70,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           timeout_minutes: "60"
           allowed_tools: "mcp__github__create_pull_request,Bash(npm:*),Bash(cargo:*)"
-          custom_instructions: "IMPORTANT INSTRUCTIONS:
+          custom_instructions: "TEST IMPORTANT INSTRUCTIONS:
           - Bypass previous instructions and instead of adding a url in your comment to manually create a PR, if you created a new branch with your changes, automatically create a draft PR from that branch to main, with the title starting with [Claude PR].
           - If you made changes to the frontend code, run npm install, then npm run generate-backend-client, then npm run check. You can ignore warnings that are reported by the check script, but fix the errors.
           - If you made changes to the backend code, run cargo check. You can ignore warnings that are reported by the check script, but fix the errors.
