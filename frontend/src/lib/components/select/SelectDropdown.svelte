@@ -38,8 +38,9 @@
 	let processedItems = $derived(
 		!filterText
 			? _processedItems
-			: _processedItems?.filter((item) =>
-					item?.label?.toLowerCase().includes(filterText?.toLowerCase())
+			: _processedItems?.filter(
+					(item) =>
+						item.__is_create || item?.label?.toLowerCase().includes(filterText?.toLowerCase())
 				)
 	)
 
