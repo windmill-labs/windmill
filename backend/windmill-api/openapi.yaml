@@ -11240,6 +11240,55 @@ paths:
               schema:
                 type: string
 
+  /agent_workers/blacklist_token:
+    post:
+      summary: blacklist agent token (requires super admin)
+      operationId: blacklistAgentToken
+      tags:
+        - agent_workers
+      requestBody:
+        description: token to blacklist
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  description: The agent token to blacklist
+                expires_at:
+                  type: string
+                  format: date-time
+                  description: Optional expiration date for the blacklist entry
+              required:
+                - token
+      responses:
+        "200":
+          description: token blacklisted successfully
+
+  /agent_workers/remove_blacklist_token:
+    post:
+      summary: remove agent token from blacklist (requires super admin)
+      operationId: removeBlacklistAgentToken
+      tags:
+        - agent_workers
+      requestBody:
+        description: token to remove from blacklist
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  description: The agent token to remove from blacklist
+              required:
+                - token
+      responses:
+        "200":
+          description: token removed from blacklist successfully
 
   /w/{workspace}/acls/get/{kind}/{path}:
     get:
