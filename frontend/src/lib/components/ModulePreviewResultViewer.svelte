@@ -49,7 +49,7 @@
 	let jobProgressReset: () => void = $state(() => {})
 
 	let nlastJob = $derived.by(() => {
-		if (testJob) {
+		if (testJob && testJob.type === 'CompletedJob') {
 			return { ...testJob, preview: true }
 		}
 		if (lastJob) {

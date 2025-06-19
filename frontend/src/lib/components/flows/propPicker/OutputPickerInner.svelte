@@ -131,6 +131,8 @@
 			selectedJob = job
 		} else if (lastJob && 'result' in lastJob) {
 			selectedJob = lastJob
+		} else {
+			selectedJob = undefined
 		}
 	}
 
