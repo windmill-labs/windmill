@@ -31,11 +31,11 @@
 		focusArg = undefined
 	}: Props = $props()
 
-	const { flowStore, testSteps } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	let moduleTest: ModuleTest | undefined = $state()
 
 	export function runTestWithStepArgs() {
-		moduleTest?.runTest(testSteps.getStepArgs(mod.id))
+		moduleTest?.runTestWithStepArgs()
 	}
 </script>
 

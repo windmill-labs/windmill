@@ -69,7 +69,7 @@
 			)
 		)
 		testSteps?.resetArgManually(mod.id, argName)
-		args = structuredClone($state.snapshot(testSteps?.getStepArgs(mod.id) ?? {}))
+		args = structuredClone($state.snapshot(testSteps?.getMergedArgs(mod.id) ?? {}))
 	}
 
 	let editor: Record<string, SimpleEditor | undefined> = $state({})
@@ -114,32 +114,21 @@
 	loadResourceTypes()
 
 	let args = $state(<Record<string, any>>{})
-
 	$effect(() => {
-		args
-		console.log('dbg updateArgs')
-		untrack(() => updateArgs(args))
-	})
-
-	function updateArgs(args) {
-		const stepArgs = structuredClone(
-			$state.snapshot(untrack(() => testSteps?.getStepArgs(mod.id) ?? {}))
-		)
+		const stepArgs = structuredClone($state.snapshot(testSteps?.getStepArgs(mod.id) ?? {}))
 
 		for (const [key, value] of Object.entries(args)) {
-			if (untrack(() => stepArgs?.[key]) !== value) {
-				untrack(() =>
-					testSteps?.setStepArg(mod.id, key, structuredClone($state.snapshot(value)), true)
-				)
+			if (JSON.stringify(stepArgs?.[key]) !== JSON.stringify(value)) {
+				testSteps?.setStepArgManually(mod.id, key, structuredClone($state.snapshot(value)))
 			}
 		}
-	}
+	})
 
 	$inspect('dbg args', args)
 
 	onMount(() => {
 		testSteps?.updateStepArgs(mod.id, $flowStateStore, flowStore?.val, previewArgs?.val)
-		args = structuredClone($state.snapshot(testSteps?.getStepArgs(mod.id) ?? {}))
+		args = structuredClone($state.snapshot(testSteps?.getMergedArgs(mod.id) ?? {}))
 	})
 </script>
 
@@ -181,7 +170,7 @@
 							placeholder={schema.properties[argName].placeholder}
 						/>
 					{/if}
-					{#if testSteps?.stepsManuallySet[mod.id]?.[argName]}
+					{#if testSteps?.getStepArgManually(mod.id, argName)}
 						<div class="pt-6 mt-0.5">
 							<Button
 								on:click={() => {

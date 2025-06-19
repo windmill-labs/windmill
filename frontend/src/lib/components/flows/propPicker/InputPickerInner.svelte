@@ -22,7 +22,7 @@
 </script>
 
 <div class="p-4 pr-6 h-full overflow-y-auto">
-	<ObjectViewer json={testSteps?.getStepArgs(id)} {inputTransform} {metaData} {editKey} />
+	<ObjectViewer json={testSteps?.getMergedArgs(id)} {inputTransform} {metaData} {editKey} />
 </div>
 
 {#snippet metaData(key: string)}
@@ -39,7 +39,7 @@
 			{:else if inputTransform[key].type === 'static'}
 				<DollarSign size={12} class="text-tertiary font-mono -my-1" />
 			{/if}
-			{#if testSteps?.manuallySetArgs[id]?.[key]}
+			{#if testSteps?.stepsManuallySet[id]?.[key]}
 				<button
 					onclick={() =>
 						testSteps?.updateArg(id, key, $flowStateStore, flowStore?.val, previewArgs?.val)}

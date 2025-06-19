@@ -10,7 +10,7 @@ import { evalValue } from './utils'
 
 export class TestSteps {
 	#steps = $state<Record<string, any>>({})
-	#manuallySetArgs = $state<Record<string, Record<string, boolean>>>({})
+	stepsManuallySet = $state<Record<string, any>>({})
 
 	constructor() {}
 
@@ -22,13 +22,7 @@ export class TestSteps {
 		this.#steps[moduleId] = args
 	}
 
-	setStepArg(moduleId: string, argName: string, value: any, manually: boolean = false) {
-		if (manually) {
-			if (!this.#manuallySetArgs[moduleId]) {
-				this.#manuallySetArgs[moduleId] = {}
-			}
-			this.#manuallySetArgs[moduleId][argName] = true
-		}
+	setStepArg(moduleId: string, argName: string, value: any) {
 		if (!this.#steps[moduleId]) {
 			this.#steps[moduleId] = {}
 		}
@@ -39,14 +33,36 @@ export class TestSteps {
 		return this.#steps[moduleId]?.[argName]
 	}
 
+	setStepArgManually(moduleId: string, argName: string, value: any) {
+		if (!this.stepsManuallySet[moduleId]) {
+			this.stepsManuallySet[moduleId] = {}
+		}
+		this.stepsManuallySet[moduleId][argName] = value
+	}
+
+	setStepArgsManually(moduleId: string, args: Record<string, any>) {
+		this.stepsManuallySet[moduleId] = args
+	}
+
+	getStepArgsManually(moduleId: string): Record<string, any> | undefined {
+		return this.stepsManuallySet[moduleId]
+	}
+
+	getStepArgManually(moduleId: string, argName: string): any | undefined {
+		return this.stepsManuallySet[moduleId]?.[argName]
+	}
+
 	resetArgManually(moduleId: string, argName: string) {
-		if (this.#manuallySetArgs[moduleId]) {
-			delete this.#manuallySetArgs[moduleId][argName]
+		if (this.stepsManuallySet[moduleId]) {
+			delete this.stepsManuallySet[moduleId][argName]
 		}
 	}
 
-	get manuallySetArgs() {
-		return this.#manuallySetArgs
+	getMergedArgs(moduleId: string): Record<string, any> | undefined {
+		return {
+			...this.getStepArgs(moduleId),
+			...this.getStepArgsManually(moduleId)
+		}
 	}
 
 	updateArg(
@@ -90,8 +106,8 @@ export class TestSteps {
 			false
 		)
 		// Remove from manually set args if it was set manually
-		if (this.#manuallySetArgs[moduleId]) {
-			delete this.#manuallySetArgs[moduleId][argName]
+		if (this.stepsManuallySet[moduleId]) {
+			delete this.stepsManuallySet[moduleId][argName]
 		}
 	}
 
@@ -103,7 +119,7 @@ export class TestSteps {
 		const args = Object.fromEntries(
 			Object.keys(schema.properties ?? {}).map((k) => [
 				k,
-				this.#manuallySetArgs[mod.id]?.[k]
+				this.stepsManuallySet[mod.id]?.[k]
 					? this.#steps[mod.id]?.[k]
 					: evalValue(k, mod, this.#steps[mod.id] ?? {}, pickableProperties, false)
 			])

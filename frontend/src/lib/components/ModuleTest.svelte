@@ -41,12 +41,12 @@
 	let jobProgressReset: () => void = () => {}
 
 	export function runTestWithStepArgs() {
-		runTest(testSteps.getStepArgs(mod.id))
+		runTest(testSteps.getMergedArgs(mod.id))
 	}
 
 	export function loadArgsAndRunTest() {
 		testSteps?.updateStepArgs(mod.id, $flowStateStore, flowStore?.val, previewArgs?.val)
-		runTest(testSteps.getStepArgs(mod.id))
+		runTest(testSteps.getMergedArgs(mod.id))
 	}
 
 	export async function runTest(args: any) {
