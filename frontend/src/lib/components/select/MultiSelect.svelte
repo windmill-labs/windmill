@@ -24,6 +24,7 @@
 		noItemsMsg,
 		selectedUlClass = '',
 		placeholderClass = '',
+		allowClear = true,
 		onOpen,
 		groupBy,
 		sortBy,
@@ -45,6 +46,7 @@
 		noItemsMsg?: string
 		selectedUlClass?: string
 		placeholderClass?: string
+		allowClear?: boolean
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onOpen?: () => void
@@ -96,8 +98,8 @@
 	bind:this={wrapperEl}
 	class={twMerge(
 		'relative min-h-8 flex items-center w-full bg-surface border border-gray-300 rounded-md text-tertiary',
-		disabled ? 'disabled bg-gray-100 dark:bg-gray-700' : '',
-		open ? 'open' : '',
+		disabled ? 'pointer-events-none' : '',
+		open && !disabled ? 'open' : '',
 		className
 	)}
 	{style}
@@ -121,6 +123,7 @@
 		>
 			<DraggableTags
 				items={valueEntry}
+				{allowClear}
 				onRemove={onRemoveValue}
 				onReorder={reorderable
 					? (oldIdx, newIdx) => (value = reorder(value, oldIdx, newIdx))
@@ -128,12 +131,14 @@
 			/>
 		</ul>
 	{/if}
-	<CloseButton
-		noBg
-		class="mr-1 remove-all"
-		small
-		on:close={(e) => (clearValue(), e.stopPropagation())}
-	/>
+	{#if allowClear}
+		<CloseButton
+			noBg
+			class="mr-1 remove-all"
+			small
+			on:close={(e) => (clearValue(), e.stopPropagation())}
+		/>
+	{/if}
 	<SelectDropdown
 		{disablePortal}
 		onSelectValue={onAddValue}

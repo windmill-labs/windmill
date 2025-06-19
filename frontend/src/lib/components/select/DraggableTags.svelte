@@ -4,10 +4,11 @@
 
 	type Props = {
 		items?: Item[]
+		allowClear?: boolean
 		onRemove: (item: Item) => void
 		onReorder?: (oldIndex: number, newIndex: number) => void
 	}
-	let { items, onRemove, onReorder }: Props = $props()
+	let { items, onRemove, onReorder, allowClear = true }: Props = $props()
 
 	let currentlyDraggingIndex: number | undefined = $state()
 	let dragPos = $state<[number, number]>([0, 0])
@@ -28,7 +29,8 @@
 	<li
 		role="listitem"
 		class={twMerge(
-			'pl-3 pr-1 bg-surface-secondary rounded-full flex items-center gap-0.5',
+			allowClear ? 'pr-1' : 'pr-3',
+			'pl-3 min-h-6 bg-surface-secondary rounded-full flex items-center gap-0.5',
 			currentlyDraggingIndex !== undefined ? 'hover:opacity-20' : ''
 		)}
 		style={currentlyDraggingIndex === index
@@ -50,10 +52,12 @@
 		}}
 	>
 		<span class="text-sm select-none">{item.label || item.value}</span>
-		<CloseButton
-			class="text-tertiary"
-			small
-			on:close={(e) => (onRemove(item), e.stopPropagation())}
-		/>
+		{#if allowClear}
+			<CloseButton
+				class="text-tertiary"
+				small
+				on:close={(e) => (onRemove(item), e.stopPropagation())}
+			/>
+		{/if}
 	</li>
 {/each}
