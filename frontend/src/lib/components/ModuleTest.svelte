@@ -22,7 +22,6 @@
 		testIsLoading?: boolean
 		noEditor?: boolean
 		scriptProgress?: any
-		onJobDone?: ((job: Job | undefined) => void) | undefined
 	}
 
 	let {
@@ -30,8 +29,7 @@
 		testJob = $bindable(undefined),
 		testIsLoading = $bindable(false),
 		noEditor = false,
-		scriptProgress = $bindable(undefined),
-		onJobDone = undefined
+		scriptProgress = $bindable(undefined)
 	}: Props = $props()
 
 	const { flowStore, flowStateStore, pathStore, testSteps, previewArgs } =
@@ -95,9 +93,7 @@
 				$flowStateStore = $flowStateStore
 			}
 		}
-		const finishedJob = testJob
 		testJob = undefined
-		onJobDone?.(finishedJob)
 	}
 
 	export function cancelJob() {

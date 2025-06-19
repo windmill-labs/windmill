@@ -256,15 +256,7 @@
 	{@const flowStore = flowEditorContext?.flowStore ? flowEditorContext?.flowStore.val : undefined}
 	{@const mod = flowStore?.value ? dfsPreviousResults(id, flowStore, false)[0] : undefined}
 	{#if mod && $flowStateStore[id]}
-		<ModuleTest
-			bind:this={moduleTest}
-			{mod}
-			bind:testIsLoading
-			onJobDone={(job) => {
-				testJob = job
-				outputPicker?.toggleOpen(true)
-			}}
-		/>
+		<ModuleTest bind:this={moduleTest} {mod} bind:testIsLoading bind:testJob />
 	{/if}
 {/if}
 
@@ -438,6 +430,7 @@
 						bind:derivedHistoryOpen={historyOpen}
 						historyOffset={{ mainAxis: 12, crossAxis: -9 }}
 						clazz="p-1"
+						isLoading={testIsLoading}
 					/>
 				{/snippet}
 			</OutputPicker>
@@ -457,6 +450,7 @@
 							title="Run"
 							btnClasses="p-1.5"
 							on:click={() => {
+								outputPicker?.toggleOpen(true)
 								moduleTest?.loadArgsAndRunTest()
 							}}
 							dropdownItems={[
