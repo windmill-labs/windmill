@@ -55,6 +55,7 @@ pub enum Typ {
     DynSelect(String),
     Object(Vec<ObjectProperty>),
     OneOf(Vec<OneOfVariant>),
+    TypeRef(String),
     Unknown,
 }
 
