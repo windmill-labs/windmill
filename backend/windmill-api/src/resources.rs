@@ -583,7 +583,6 @@ pub async fn transform_json_value<'c>(
                 job.schedule_path.clone(),
                 job.flow_step_id.clone(),
                 job.root_job.map(|x| x.to_string()),
-                None,
                 Some(job.scheduled_for.clone()),
             )
             .await;
@@ -1217,7 +1216,7 @@ async fn update_resource_type(
     )
 ))]
 pub async fn try_get_resource_from_db_as<T>(
-    authed: ApiAuthed,
+    authed: &ApiAuthed,
     user_db: Option<UserDB>,
     db: &DB,
     resource_path: &str,

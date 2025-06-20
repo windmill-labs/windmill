@@ -15,19 +15,32 @@
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'listcomponent'> | undefined = undefined
-	export let render: boolean
-	export let initializing: boolean | undefined
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'listcomponent'> | undefined
+		render: boolean
+		initializing: boolean | undefined
+	}
+
+	let {
+		id,
+		componentInput,
+		configuration,
+		customCss = undefined,
+		render,
+		initializing = $bindable()
+	}: Props = $props()
 
 	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, allIdsInPath, mode } =
 		getContext<AppViewerContext>('AppViewerContext')
-	let page = 0
+	let page = $state(0)
 
-	let everRender = render
-	$: render && !everRender && (everRender = true)
+	let everRender = $state(render)
+	$effect.pre(() => {
+		render && !everRender && (everRender = true)
+	})
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -36,9 +49,8 @@
 		page: 0
 	})
 
-	let resolvedConfig = initConfig(
-		components['listcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['listcomponent'].initialData.configuration, configuration)
 	)
 
 	function onFocus() {
@@ -48,20 +60,22 @@
 		}
 	}
 
-	let css = initCss($app.css?.listcomponent, customCss)
-	let result: any[] | undefined = undefined
+	let css = $state(initCss($app.css?.listcomponent, customCss))
+	let result: any[] | undefined = $state(undefined)
 
-	$: isCard = resolvedConfig.width?.selected == 'card'
+	let isCard = $derived(resolvedConfig.width?.selected == 'card')
 
-	let inputs = {}
-	let loading: boolean = false
-	let isPreviousLoading = false
-	let isNextLoading = false
+	let inputs = $state({})
+	let loading: boolean = $state(false)
+	let isPreviousLoading = $state(false)
+	let isNextLoading = $state(false)
 
-	$: if (!loading) {
-		isPreviousLoading = false
-		isNextLoading = false
-	}
+	$effect.pre(() => {
+		if (!loading) {
+			isPreviousLoading = false
+			isNextLoading = false
+		}
+	})
 
 	function getPagination(
 		configuration: {
@@ -99,11 +113,13 @@
 		}
 	}
 
-	$: pagination = getPagination(
-		resolvedConfig.pagination?.configuration,
-		resolvedConfig.pagination?.selected,
-		result,
-		page
+	let pagination = $derived(
+		getPagination(
+			resolvedConfig.pagination?.configuration,
+			resolvedConfig.pagination?.selected,
+			result,
+			page
+		)
 	)
 </script>
 
@@ -150,8 +166,8 @@
 					: 'overflow-auto'} {isCard
 					? 'gap-2 flex-wrap'
 					: resolvedConfig?.displayBorders
-					? 'divide-y flex-col'
-					: 'flex-col'}"
+						? 'divide-y flex-col'
+						: 'flex-col'}"
 			>
 				{#if $app.subgrids?.[`${id}-0`] && Array.isArray(result) && result.length > 0}
 					{#each result ?? [] as value, index (index)}
@@ -162,16 +178,16 @@
 										isCard
 											? `min-width: ${resolvedConfig.width?.configuration?.card?.minWidthPx}px; `
 											: ''
-								  } max-height: ${resolvedConfig.heightPx}px;`
+									} max-height: ${resolvedConfig.heightPx}px;`
 								: ''}
 							class={inRange
 								? `${
 										$allIdsInPath.includes(id)
 											? 'overflow-visible'
 											: resolvedConfig.heightPx
-											? 'overflow-auto'
-											: ''
-								  } ${!isCard ? 'w-full' : resolvedConfig?.displayBorders ? 'border' : ''}`
+												? 'overflow-auto'
+												: ''
+									} ${!isCard ? 'w-full' : resolvedConfig?.displayBorders ? 'border' : ''}`
 								: 'h-0 float overflow-hidden invisible absolute'}
 						>
 							<ListWrapper

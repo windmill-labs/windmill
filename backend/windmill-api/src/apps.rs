@@ -12,7 +12,7 @@ use crate::{
     db::{ApiAuthed, DB},
     resources::get_resource_value_interpolated_internal,
     users::{require_owner_of_path, OptAuthed},
-    utils::{RunnableKind, WithStarredInfoQuery},
+    utils::WithStarredInfoQuery,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -59,7 +59,7 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
-        Pagination, StripPath,
+        Pagination, RunnableKind, StripPath,
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},
@@ -2011,7 +2011,7 @@ async fn upload_s3_file_from_app(
 
             if !has_unnamed_policy {
                 return Err(Error::BadRequest(
-                    "no policy found for unnamed s3 file uplooad".to_string(),
+                    "no policy found for unnamed s3 file upload".to_string(),
                 ));
             }
 

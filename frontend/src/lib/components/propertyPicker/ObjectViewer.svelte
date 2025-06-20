@@ -3,7 +3,7 @@
 
 	import { copyToClipboard, truncate } from '$lib/utils'
 
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack, type Snippet } from 'svelte'
 	import { computeKey, keepByKeyOrValue } from './utils'
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
 	import Portal from '$lib/components/Portal.svelte'
@@ -13,6 +13,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import Popover from '../Popover.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		json: any
@@ -27,6 +28,8 @@
 		prefix?: string
 		expandedEvenOnLevel0?: string | undefined
 		connecting?: boolean
+		metaData?: Snippet<[any]>
+		editKey?: Snippet<[any]>
 	}
 
 	let {
@@ -41,7 +44,9 @@
 		collapseLevel = undefined,
 		prefix = '',
 		expandedEvenOnLevel0 = undefined,
-		connecting = false
+		connecting = false,
+		metaData,
+		editKey
 	}: Props = $props()
 
 	let jsonFiltered = $state(json)
@@ -117,7 +122,7 @@
 		jsonFiltered = onJsonChange(json)
 	})
 	$effect(() => {
-		search != undefined && searchOpen && onSearch()
+		search != undefined && searchOpen && untrack(() => onSearch())
 	})
 	let keys = $derived(
 		['object', 's3object'].includes(getTypeAsString(jsonFiltered)) ? Object.keys(jsonFiltered) : []
@@ -248,11 +253,16 @@
 								color="light"
 								variant="border"
 								wrapperClasses="p-0 whitespace-nowrap w-fit"
-								btnClasses="font-mono h-4 py-1 text-2xs font-thin px-1 rounded-[0.275rem]"
+								btnClasses={twMerge(
+									'font-mono h-4 py-1 text-2xs',
+									'font-thin px-1 rounded-[0.275rem]',
+									metaData ? 'rounded-r-none border-r-0.5' : ''
+								)}
 								title={computeFullKey(key, rawKey)}
 							>
-								<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index} </span>
+								<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index}</span>
 							</Button>
+							{@render metaData?.(key)}
 						</AnimatedButton>
 						<span class="text-2xs -ml-0.5 text-tertiary">:</span>
 
@@ -273,6 +283,7 @@
 						{:else}
 							{@render renderScalar(key, jsonFiltered[key])}
 						{/if}
+						{@render editKey?.(key)}
 					</li>
 				{/each}
 				{#if keys.length > keyLimit}

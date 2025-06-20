@@ -1,38 +1,38 @@
-<script context="module" lang="ts">
-	export type TabsContext = {
-		selected: Writable<string>
-		update: (value: string) => void
-		hashNavigation: boolean
-	}
-</script>
-
 <script lang="ts">
-	import { setContext } from 'svelte'
-	import { writable, type Writable } from 'svelte/store'
+	import { setContext, untrack } from 'svelte'
+	import { writable } from 'svelte/store'
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import type { TabsContext } from '$lib/components/apps/editor/settingsPanel/inputEditor/tabs.svelte'
 
-	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
+	const dispatch = createEventDispatcher<{ selected: string }>()
 
-	export let selected: string
-	export let hideTabs = false
+	interface Props {
+		selected: string
+		hideTabs?: boolean
+		class?: string
+		wrapperClass?: string
+		style?: string
+		hashNavigation?: boolean
+		values?: string[] | undefined
+		children?: import('svelte').Snippet<[any]>
+		content?: import('svelte').Snippet
+	}
 
-	let c = ''
-	export { c as class }
-	export let wrapperClass = ''
-	export let style = ''
-	export let hashNavigation = false
-	export let values: string[] | undefined = undefined
-
-	$: selected && updateSelected()
+	let {
+		selected = $bindable(),
+		hideTabs = false,
+		class: c = '',
+		wrapperClass = '',
+		style = '',
+		hashNavigation = false,
+		values = undefined,
+		children,
+		content
+	}: Props = $props()
 
 	const selectedStore = writable(selected)
 
-	$: $selectedStore && dispatchIfMounted('selected', $selectedStore)
-
-	$: hashValues = values ? values.map((x) => '#' + x) : undefined
 	setContext<TabsContext>('Tabs', {
 		selected: selectedStore,
 		update: (value: string) => {
@@ -46,6 +46,8 @@
 		selectedStore.set(selected)
 	}
 
+	let hashValues = $derived(values ? values.map((x) => '#' + x) : undefined)
+
 	function hashChange() {
 		if (hashNavigation) {
 			const hash = window.location.hash
@@ -56,14 +58,25 @@
 			}
 		}
 	}
+	$effect(() => {
+		selected && untrack(() => updateSelected())
+	})
+
+	let lastSelected: string | undefined = $state(undefined)
+	$effect(() => {
+		if ($selectedStore !== untrack(() => lastSelected)) {
+			lastSelected = $selectedStore
+			$selectedStore && dispatch('selected', $selectedStore)
+		}
+	})
 </script>
 
-<svelte:window on:hashchange={hashChange} />
+<svelte:window onhashchange={hashChange} />
 {#if !hideTabs}
 	<div class="overflow-x-auto {wrapperClass}">
 		<div class={twMerge('border-b flex flex-row whitespace-nowrap scrollbar-hidden', c)} {style}>
-			<slot {selected} />
+			{@render children?.({ selected })}
 		</div>
 	</div>
 {/if}
-<slot name="content" />
+{@render content?.()}

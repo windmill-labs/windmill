@@ -1,7 +1,10 @@
 <script lang="ts">
+	import { createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import type { Job } from '$lib/gen'
 	import RunRow from './RunRow.svelte'
-	import VirtualList from 'svelte-tiny-virtual-list'
+	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
 	import { createEventDispatcher, onMount } from 'svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
@@ -10,28 +13,44 @@
 	import { twMerge } from 'tailwind-merge'
 	import { isJobSelectable } from '$lib/utils'
 	import type { RunsSelectionMode } from './RunsBatchActionsDropdown.svelte'
-	//import InfiniteLoading from 'svelte-infinite-loading'
 
-	export let jobs: Job[] | undefined = undefined
-	export let externalJobs: Job[] = []
-	export let omittedObscuredJobs: boolean
-	export let showExternalJobs: boolean = false
-	export let selectionMode: RunsSelectionMode | false = false
-	export let selectedIds: string[] = []
-	export let selectedWorkspace: string | undefined = undefined
-	export let activeLabel: string | null = null
-	// const loadMoreQuantity: number = 100
-	export let lastFetchWentToEnd = false
+	interface Props {
+		//import InfiniteLoading from 'svelte-infinite-loading'
+		jobs?: Job[] | undefined
+		externalJobs?: Job[]
+		omittedObscuredJobs: boolean
+		showExternalJobs?: boolean
+		selectionMode?: RunsSelectionMode | false
+		selectedIds?: string[]
+		selectedWorkspace?: string | undefined
+		activeLabel?: string | null
+		// const loadMoreQuantity: number = 100
+		lastFetchWentToEnd?: boolean
+	}
+
+	let {
+		jobs = undefined,
+		externalJobs = [],
+		omittedObscuredJobs,
+		showExternalJobs = false,
+		selectionMode = false,
+		selectedIds = $bindable([]),
+		selectedWorkspace = $bindable(undefined),
+		activeLabel = null,
+		lastFetchWentToEnd = $bindable(false)
+	}: Props = $props()
 
 	function getTime(job: Job): string | undefined {
 		return job['started_at'] ?? job['scheduled_for'] ?? job['created_at']
 	}
 
-	let containsLabel = false
-	function groupJobsByDay(jobs: Job[]): Record<string, Job[]> {
-		const groupedLogs: Record<string, Job[]> = {}
+	function groupJobsByDay(jobs: Job[]): {
+		groupedJobs: Record<string, Job[]>
+		newContainsLabel: boolean | undefined
+	} {
+		const groupedJobs: Record<string, Job[]> = {}
 
-		if (!jobs) return groupedLogs
+		if (!jobs) return { groupedJobs, newContainsLabel: undefined }
 
 		let newContainsLabel = false
 		for (const job of jobs) {
@@ -49,38 +68,31 @@
 					day: 'numeric'
 				})
 
-				if (!groupedLogs[day]) {
-					groupedLogs[day] = []
+				if (!groupedJobs[day]) {
+					groupedJobs[day] = []
 				}
 
-				groupedLogs[day].push(job)
+				groupedJobs[day].push(job)
 			}
 		}
-		containsLabel = newContainsLabel
 
-		for (const day in groupedLogs) {
-			groupedLogs[day].sort((a, b) => {
+		for (const day in groupedJobs) {
+			groupedJobs[day].sort((a, b) => {
 				return new Date(getTime(b)!).getTime() - new Date(getTime(a)!).getTime()
 			})
 		}
 
-		const sortedLogs: Record<string, Job[]> = {}
-		Object.keys(groupedLogs)
+		const sortedJobs: Record<string, Job[]> = {}
+		Object.keys(groupedJobs)
 			.sort((a, b) => {
 				return new Date(b).getTime() - new Date(a).getTime()
 			})
 			.forEach((key) => {
-				sortedLogs[key] = groupedLogs[key]
+				sortedJobs[key] = groupedJobs[key]
 			})
 
-		return sortedLogs
+		return { groupedJobs: sortedJobs, newContainsLabel }
 	}
-
-	$: groupedJobs = jobs
-		? showExternalJobs
-			? groupJobsByDay([...jobs, ...externalJobs])
-			: groupJobsByDay(jobs)
-		: undefined
 
 	type FlatJobs =
 		| {
@@ -105,24 +117,9 @@
 		return flatJobs
 	}
 
-	$: flatJobs = groupedJobs ? flattenJobs(groupedJobs) : undefined
-
-	let stickyIndices: number[] = []
-
-	$: {
-		stickyIndices = []
-		let index = 0
-		for (const entry of flatJobs ?? []) {
-			if (entry.type === 'date') {
-				stickyIndices.push(index)
-			}
-			index++
-		}
-	}
-
-	let tableHeight: number = 0
-	let header: number = 0
-	let containerWidth: number = 0
+	let tableHeight: number = $state(0)
+	let headerHeight: number = $state(0)
+	let containerWidth: number = $state(0)
 	// const MAX_ITEMS = 1000
 
 	/*
@@ -141,7 +138,13 @@
 	}
 	*/
 
-	let allSelected: boolean = false
+	let selectableJobCount = $derived.by(() => {
+		if (!selectionMode) return 0
+		return jobs?.filter(isJobSelectable(selectionMode)).length ?? 0
+	})
+	let allSelected = $derived.by(() => {
+		return selectionMode && selectedIds.length === selectableJobCount
+	})
 
 	function selectAll() {
 		if (!selectionMode) return
@@ -153,11 +156,6 @@
 			selectedIds = jobs?.filter(isJobSelectable(selectionMode)).map((j) => j.id) ?? []
 		}
 	}
-	$: selectionMode && (allSelected = selectedIds.length === selectableJobCount)
-
-	let selectableJobCount: number = 0
-	$: selectionMode &&
-		(selectableJobCount = jobs?.filter(isJobSelectable(selectionMode)).length ?? 0)
 
 	function jobCountString(jobCount: number | undefined, lastFetchWentToEnd: boolean): string {
 		if (jobCount === undefined) {
@@ -177,7 +175,7 @@
 	})
 	const dispatch = createEventDispatcher()
 
-	let scrollToIndex = 0
+	let scrollToIndex = $state(0)
 
 	export function scrollToRun(ids: string[]) {
 		if (flatJobs && ids.length > 0) {
@@ -189,29 +187,55 @@
 			}
 		}
 	}
+	let { groupedJobs, newContainsLabel } = $derived(
+		jobs
+			? showExternalJobs
+				? groupJobsByDay([...jobs, ...externalJobs])
+				: groupJobsByDay(jobs)
+			: { groupedJobs: undefined, newContainsLabel: undefined }
+	)
+
+	let containsLabel = $state(false)
+	$effect(() => {
+		if (newContainsLabel != undefined) {
+			containsLabel = newContainsLabel
+		}
+	})
+	let flatJobs = $derived(groupedJobs ? flattenJobs(groupedJobs) : undefined)
+	let stickyIndices = $derived.by(() => {
+		const nstickyIndices: number[] = []
+		let index = 0
+		for (const entry of flatJobs ?? []) {
+			if (entry.type === 'date') {
+				nstickyIndices.push(index)
+			}
+			index++
+		}
+		return nstickyIndices
+	})
 </script>
 
-<svelte:window on:resize={() => computeHeight()} />
+<svelte:window onresize={() => computeHeight()} />
 
 <div
 	class="divide-y min-w-[640px] h-full"
 	id="runs-table-wrapper"
 	bind:clientWidth={containerWidth}
 >
-	<div bind:clientHeight={header}>
+	<div bind:clientHeight={headerHeight}>
 		{#if selectionMode && selectableJobCount}
-			<!-- svelte-ignore a11y-click-events-have-key-events -->
-			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class={twMerge(
 					'hover:bg-surface-hover bg-surface-primary cursor-pointer',
 					allSelected ? 'bg-blue-50 dark:bg-blue-900/50' : '',
 					'flex flex-row items-center sticky w-full p-2 pr-4 top-0 font-semibold border-t text-sm'
 				)}
-				on:click={selectAll}
+				onclick={selectAll}
 			>
 				<div class="px-2">
-					<input on:focus type="checkbox" checked={allSelected} />
+					<input onfocus={bubble('focus')} type="checkbox" checked={allSelected} />
 				</div>
 				Select all
 			</div>
@@ -230,10 +254,10 @@
 					{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}
 					<Popover>
 						<AlertTriangle size={16} class="ml-0.5 text-yellow-500" />
-						<svelte:fragment slot="text">
+						{#snippet text()}
 							Too specific filtering may have caused the omission of obscured jobs. This is done for
 							security reasons. To see obscured jobs, try removing some filters.
-						</svelte:fragment>
+						{/snippet}
 					</Popover>
 				</div>
 			{:else}
@@ -254,7 +278,7 @@
 	{:else}
 		<VirtualList
 			width="100%"
-			height={tableHeight - header}
+			height={tableHeight - headerHeight}
 			itemCount={flatJobs?.length ?? 3}
 			itemSize={42}
 			overscanCount={20}
@@ -263,71 +287,76 @@
 			scrollToAlignment="center"
 			scrollToBehaviour="smooth"
 		>
-			<div slot="item" let:index let:style {style} class="w-full">
-				{#if flatJobs}
-					{@const jobOrDate = flatJobs[index]}
+			{#snippet header()}{/snippet}
+			{#snippet children({ index, style })}
+				<div {style} class="w-full">
+					{#if flatJobs}
+						{@const jobOrDate = flatJobs[index]}
 
-					{#if jobOrDate}
-						{#if jobOrDate?.type === 'date'}
-							<div class="bg-surface-secondary py-2 border-b font-semibold text-xs pl-5">
-								{jobOrDate.date}
-							</div>
-						{:else}
-							<div class="flex flex-row items-center h-full w-full">
-								<RunRow
-									{containsLabel}
-									job={jobOrDate.job}
-									selected={jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
-									{selectionMode}
-									on:select={() => {
-										const jobId = jobOrDate.job.id
-										if (selectionMode) {
-											if (selectedIds.includes(jobOrDate.job.id)) {
-												selectedIds = selectedIds.filter((id) => id != jobId)
+						{#if jobOrDate}
+							{#if jobOrDate?.type === 'date'}
+								<div class="bg-surface-secondary py-2 border-b font-semibold text-xs pl-5">
+									{jobOrDate.date}
+								</div>
+							{:else}
+								<div class="flex flex-row items-center h-full w-full">
+									<RunRow
+										{containsLabel}
+										job={jobOrDate.job}
+										selected={jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
+										{selectionMode}
+										on:select={() => {
+											const jobId = jobOrDate.job.id
+											if (selectionMode) {
+												if (selectedIds.includes(jobOrDate.job.id)) {
+													selectedIds = selectedIds.filter((id) => id != jobId)
+												} else {
+													selectedIds.push(jobId)
+													selectedIds = selectedIds
+												}
 											} else {
-												selectedIds.push(jobId)
-												selectedIds = selectedIds
+												selectedWorkspace = jobOrDate.job.workspace_id
+												selectedIds = [jobOrDate.job.id]
+												dispatch('select')
 											}
-										} else {
-											selectedWorkspace = jobOrDate.job.workspace_id
-											selectedIds = [jobOrDate.job.id]
-											dispatch('select')
-										}
-									}}
-									{activeLabel}
-									on:filterByLabel
-									on:filterByPath
-									on:filterByUser
-									on:filterByFolder
-									on:filterByConcurrencyKey
-									on:filterBySchedule
-									on:filterByWorker
-									{containerWidth}
-								/>
-							</div>
+										}}
+										{activeLabel}
+										on:filterByLabel
+										on:filterByPath
+										on:filterByUser
+										on:filterByFolder
+										on:filterByConcurrencyKey
+										on:filterBySchedule
+										on:filterByWorker
+										{containerWidth}
+									/>
+								</div>
+							{/if}
+						{:else}
+							{JSON.stringify(jobOrDate)}
 						{/if}
 					{:else}
-						{JSON.stringify(jobOrDate)}
+						<div class="flex flex-row items-center h-full w-full">
+							<div class="w-1/12 text-2xs">...</div>
+							<div class="w-4/12 text-xs">...</div>
+							<div class="w-4/12 text-xs">...</div>
+							<div class="w-3/12 text-xs">...</div>
+						</div>
 					{/if}
-				{:else}
-					<div class="flex flex-row items-center h-full w-full">
-						<div class="w-1/12 text-2xs">...</div>
-						<div class="w-4/12 text-xs">...</div>
-						<div class="w-4/12 text-xs">...</div>
-						<div class="w-3/12 text-xs">...</div>
-					</div>
-				{/if}
-			</div>
-			<div slot="footer"
-				>{#if !lastFetchWentToEnd && jobs && jobs.length >= 1000}
-					<button
-						class="text-xs text-blue-600 text-center w-full pb-2"
-						on:click={() => {
-							dispatch('loadExtra')
-						}}>Load next 1000 jobs</button
-					>
-				{/if}</div
-			>
+				</div>
+			{/snippet}
+			{#snippet footer()}
+				<div
+					>{#if !lastFetchWentToEnd && jobs && jobs.length >= 1000}
+						<button
+							class="text-xs text-blue-600 text-center w-full pb-2"
+							onclick={() => {
+								dispatch('loadExtra')
+							}}>Load next 1000 jobs</button
+						>
+					{/if}</div
+				>
+			{/snippet}
 		</VirtualList>
 	{/if}
 </div>

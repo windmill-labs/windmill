@@ -627,9 +627,10 @@ pub async fn update_flow_status_after_job_completion_internal(
                         sqlx::query!(
                             "UPDATE v2_job_queue q SET suspend = 0
                              FROM v2_job j, v2_job_status f
-                             WHERE parent_job = $1
+                             WHERE q.workspace_id = $1 AND q.suspend = $3 AND j.parent_job = $2
                                  AND f.id = j.id AND q.id = j.id
-                                 AND suspend = $2 AND (f.flow_status->'step')::int = 0",
+                                 AND (f.flow_status->'step')::int = 0",
+                            w_id,
                             flow,
                             nindex
                         )
@@ -4008,7 +4009,7 @@ async fn flow_to_payload(
     w_id: &str,
     db: &DB,
 ) -> Result<JobPayloadWithTag, Error> {
-    let FlowVersionInfo { version, on_behalf_of_email, edited_by, .. } =
+    let FlowVersionInfo { version, on_behalf_of_email, edited_by, tag, .. } =
         get_latest_flow_version_info_for_path(db, w_id, &path, true).await?;
     let on_behalf_of = if let Some(email) = on_behalf_of_email {
         Some(OnBehalfOf { email, permissioned_as: username_to_permissioned_as(&edited_by) })
@@ -4017,7 +4018,7 @@ async fn flow_to_payload(
     };
     let payload =
         JobPayload::Flow { path, dedicated_worker: None, apply_preprocessor: false, version };
-    Ok(JobPayloadWithTag { payload, tag: None, delete_after_use, timeout: None, on_behalf_of })
+    Ok(JobPayloadWithTag { payload, tag, delete_after_use, timeout: None, on_behalf_of })
 }
 
 async fn script_to_payload(

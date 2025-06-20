@@ -15,13 +15,9 @@
 
 	import { argSigToJsonSchemaType } from '$lib/inferArgSig'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import { untrack } from 'svelte'
 
-	export let args: Record<string, any> = {}
-	export let dbType: DbType = 'postgresql'
-
-	let schema: Schema | undefined = undefined
-
-	export let columnDefs: Array<ColumnDef & ColumnMetadata> = []
+	let schema: Schema | undefined = $state(undefined)
 
 	type FieldMetadata = {
 		type: string
@@ -31,28 +27,6 @@
 		identity: ColumnIdentity
 		nullable: 'YES' | 'NO'
 	}
-
-	$: fields = columnDefs
-		?.filter((t) => {
-			const shouldFilter = t.isidentity === ColumnIdentity.Always || t?.hideInsert === true
-
-			return !shouldFilter
-		})
-		.map((column) => {
-			const type = column.datatype
-			const name = column.field
-			const isPrimaryKey = column.isprimarykey
-			const defaultValue = column.defaultValueNull ? null : column.defaultUserValue
-
-			return {
-				type,
-				name,
-				isPrimaryKey,
-				defaultValue,
-				identity: column.isidentity,
-				nullable: column.isnullable
-			}
-		}) as FieldMetadata[] | undefined
 
 	function parseSQLArgs(field: string, dbType: DbType): string {
 		let rawType = ''
@@ -141,18 +115,57 @@
 		} as Schema
 	}
 
-	$: builtSchema(fields ?? [], dbType)
-
-	export let isInsertable: boolean = false
-
-	$: if (schema) {
-		const requiredFields = schema.required ?? []
-		const filledFields = Object.keys(args).filter(
-			(key) => args[key] !== undefined && args[key] !== null && args[key] !== ''
-		)
-
-		isInsertable = requiredFields.every((field) => filledFields.includes(field))
+	interface Props {
+		args?: Record<string, any>
+		dbType?: DbType
+		columnDefs?: Array<ColumnDef & ColumnMetadata>
+		isInsertable?: boolean
 	}
+
+	let {
+		args = $bindable({}),
+		dbType = 'postgresql',
+		columnDefs = [],
+		isInsertable = $bindable(false)
+	}: Props = $props()
+
+	let fields = $derived(
+		columnDefs
+			?.filter((t) => {
+				const shouldFilter = t.isidentity === ColumnIdentity.Always || t?.hideInsert === true
+
+				return !shouldFilter
+			})
+			.map((column) => {
+				const type = column.datatype
+				const name = column.field
+				const isPrimaryKey = column.isprimarykey
+				const defaultValue = column.defaultValueNull ? null : column.defaultUserValue
+
+				return {
+					type,
+					name,
+					isPrimaryKey,
+					defaultValue,
+					identity: column.isidentity,
+					nullable: column.isnullable
+				}
+			}) as FieldMetadata[] | undefined
+	)
+	$effect(() => {
+		;[fields, dbType]
+		untrack(() => builtSchema(fields ?? [], dbType))
+	})
+	$effect(() => {
+		if (schema) {
+			const requiredFields = schema.required ?? []
+			const filledFields = Object.keys(args).filter(
+				(key) => args[key] !== undefined && args[key] !== null && args[key] !== ''
+			)
+
+			isInsertable = requiredFields.every((field) => filledFields.includes(field))
+		}
+	})
 </script>
 
 {#if schema}

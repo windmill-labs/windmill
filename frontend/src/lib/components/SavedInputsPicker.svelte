@@ -3,7 +3,7 @@
 	import { InputService, type Input, type RunnableType } from '$lib/gen/index.js'
 	import { userStore, workspaceStore } from '$lib/stores.js'
 	import { sendUserToast } from '$lib/utils.js'
-	import { createEventDispatcher, onDestroy } from 'svelte'
+	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { Edit, Trash2, Save } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import { Cell } from './table/index'
@@ -13,13 +13,25 @@
 	import { twMerge } from 'tailwind-merge'
 	import SavedInputsPickerViewer from './SavedInputsPickerViewer.svelte'
 
-	export let previewArgs: any = undefined
-	export let runnableId: string | undefined = undefined
-	export let runnableType: RunnableType | undefined = undefined
-	export let isValid: boolean = false
-	export let noButton: boolean = false
-	export let jsonView: boolean = false
-	export let limitPayloadSize: boolean = false
+	interface Props {
+		previewArgs?: any
+		runnableId?: string | undefined
+		runnableType?: RunnableType | undefined
+		isValid?: boolean
+		noButton?: boolean
+		jsonView?: boolean
+		limitPayloadSize?: boolean
+	}
+
+	let {
+		previewArgs = undefined,
+		runnableId = undefined,
+		runnableType = undefined,
+		isValid = false,
+		noButton = false,
+		jsonView = false,
+		limitPayloadSize = false
+	}: Props = $props()
 
 	interface EditableInput extends Input {
 		isEditing?: boolean
@@ -30,13 +42,13 @@
 		getFullPayload?: () => Promise<any>
 	}
 
-	let infiniteList: InfiniteList | null = null
-	let draft = true
-	let selectedInput: string | null = null
-	let isEditing: EditableInput | null = null
-	let viewerOpen = false
-	let openStates: Record<string, boolean> = {}
-	let clientWidth: number = 0
+	let infiniteList: InfiniteList | null = $state(null)
+	let draft = $state(true)
+	let selectedInput: string | null = $state(null)
+	let isEditing: EditableInput | null = $state(null)
+	let viewerOpen = $state(false)
+	let openStates: Record<string, boolean> = $state({})
+	let clientWidth: number = $state(0)
 
 	const dispatch = createEventDispatcher()
 
@@ -125,7 +137,7 @@
 				const fullPayload = await input.getFullPayload?.()
 				dispatch('select', fullPayload)
 			} else {
-				selectedArgs = structuredClone(input.payloadData ?? {})
+				selectedArgs = structuredClone($state.snapshot(input.payloadData) ?? {})
 				dispatch('select', selectedArgs)
 			}
 		}
@@ -185,25 +197,27 @@
 		viewerOpen = Object.values(openStates).some((state) => state)
 	}
 
-	$: $workspaceStore &&
-		runnableId &&
-		runnableType &&
-		(infiniteList && initLoadInputs(), (draft = false))
+	$effect(() => {
+		$workspaceStore &&
+			runnableId &&
+			runnableType &&
+			(infiniteList && untrack(() => initLoadInputs()), (draft = false))
+	})
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} />
 
 <div class="w-full flex flex-col gap-1 h-full overflow-y-auto">
 	{#if !noButton}
 		<div>
 			<Popover class="w-full" placement="bottom" disablePopup={runnableId && previewArgs}>
-				<svelte:fragment slot="text">
+				{#snippet text()}
 					{#if !runnableId}
 						Save draft first before you can save inputs
 					{:else if !previewArgs}
 						Add inputs before saving
 					{/if}
-				</svelte:fragment>
+				{/snippet}
 				<SaveInputsButton
 					{runnableId}
 					{runnableType}
@@ -225,13 +239,13 @@
 				on:error={(e) => handleError(e.detail)}
 				on:select={(e) => handleSelect(e.detail)}
 			>
-				<svelte:fragment slot="columns">
+				{#snippet columns()}
 					<colgroup>
 						<col class="w-8" />
 						<col />
 					</colgroup>
-				</svelte:fragment>
-				<svelte:fragment let:item let:hover>
+				{/snippet}
+				{#snippet children({ item, hover })}
 					{@const editOptions =
 						item.created_by == $userStore?.username ||
 						$userStore?.is_admin ||
@@ -249,7 +263,7 @@
 							<div class="w-full h-full items-center justify-between flex gap-1 min-w-0">
 								{#if isEditing && isEditing.id === item.id}
 									<form
-										on:submit={() => {
+										onsubmit={() => {
 											updateInput(isEditing)
 											setEditing(null)
 										}}
@@ -336,10 +350,10 @@
 							</div>
 						</div>
 					</Cell>
-				</svelte:fragment>
-				<svelte:fragment slot="empty">
+				{/snippet}
+				{#snippet empty()}
 					<div class="text-center text-xs text-tertiary">No saved Inputs</div>
-				</svelte:fragment>
+				{/snippet}
 			</InfiniteList>
 		{/if}
 	</div>

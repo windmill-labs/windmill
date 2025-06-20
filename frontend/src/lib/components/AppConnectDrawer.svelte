@@ -61,29 +61,31 @@
 			on:refresh
 			express={expressOAuthSetup}
 		/>
-		<div slot="actions" class="flex gap-1">
-			{#if step > 1}
-				<Button variant="border" on:click={appConnectInner?.back}>Back</Button>
-			{/if}
-			{#if isGoogleSignin}
-				<button {disabled} on:click={appConnectInner?.next}>
-					<img
-						class="h-10 w-auto object-contain"
-						src={darkMode ? '/google_signin_dark.png' : '/google_signin_light.png'}
-						alt="Google sign-in"
-					/>
-				</button>
-			{:else}
-				<Button {disabled} on:click={appConnectInner?.next}>
-					{#if step == 2 && !manual}
-						Connect
-					{:else if step == 1}
-						Next
-					{:else}
-						Save
-					{/if}
-				</Button>
-			{/if}
-		</div>
+		{#snippet actions()}
+			<div class="flex gap-1">
+				{#if step > 1}
+					<Button variant="border" on:click={appConnectInner?.back ?? (() => {})}>Back</Button>
+				{/if}
+				{#if isGoogleSignin}
+					<button {disabled} on:click={appConnectInner?.next}>
+						<img
+							class="h-10 w-auto object-contain"
+							src={darkMode ? '/google_signin_dark.png' : '/google_signin_light.png'}
+							alt="Google sign-in"
+						/>
+					</button>
+				{:else}
+					<Button {disabled} on:click={appConnectInner?.next ?? (() => {})}>
+						{#if step == 2 && !manual}
+							Connect
+						{:else if step == 1}
+							Next
+						{:else}
+							Save
+						{/if}
+					</Button>
+				{/if}
+			</div>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

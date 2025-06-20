@@ -9,13 +9,12 @@
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, X } from 'lucide-svelte'
+	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import MultiSelect from 'svelte-multiselect'
 	import PublicationPicker from './PublicationPicker.svelte'
 	import SlotPicker from './SlotPicker.svelte'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
@@ -25,11 +24,13 @@
 	import { invalidRelations, savePostgresTriggerFromCfg } from './utils'
 	import CheckPostgresRequirement from './CheckPostgresRequirement.svelte'
 	import { base } from '$lib/base'
-	import type { Snippet } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 	import { handleConfigChange, type Trigger } from '../utils'
 	import { fade } from 'svelte/transition'
+	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
+	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -95,7 +96,7 @@
 	let selectedPublicationAction: actions | undefined = $state(undefined)
 	let selectedSlotAction: actions | undefined = $state(undefined)
 	let publicationItems: string[] = $state([])
-	let transactionType: string[] = ['Insert', 'Update', 'Delete']
+	let transactionType: string[] = $state(['Insert', 'Update', 'Delete'])
 	let tab: 'advanced' | 'basic' = $state('basic')
 	let basic_mode = $derived(tab === 'basic')
 	let initialConfig: Record<string, any> | undefined = undefined
@@ -395,7 +396,8 @@
 	}
 
 	$effect(() => {
-		onCaptureConfigChange?.(captureConfig, isValid)
+		const args = [captureConfig, isValid] as const
+		untrack(() => onCaptureConfigChange?.(...args))
 	})
 
 	$effect(() => {
@@ -434,25 +436,25 @@
 				: 'New Postgres trigger'}
 			on:close={drawer.closeDrawer}
 		>
-			<svelte:fragment slot="actions">{@render actions()}</svelte:fragment>
+			{#snippet actions()}{@render actionsSnippet()}{/snippet}
 			{@render content()}
 		</DrawerContent>
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'Postgres trigger' : ''} headerClass="grow min-w-0 h-[30px]">
-		<svelte:fragment slot="header">
+		{#snippet header()}
 			{#if customLabel}
 				{@render customLabel()}
 			{/if}
-		</svelte:fragment>
-		<svelte:fragment slot="action">
-			{@render actions()}
-		</svelte:fragment>
+		{/snippet}
+		{#snippet action()}
+			{@render actionsSnippet()}
+		{/snippet}
 		{@render content()}
 	</Section>
 {/if}
 
-{#snippet actions()}
+{#snippet actionsSnippet()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
 			{trigger}
@@ -526,7 +528,7 @@
 							allowEdit={!$userStore?.operator}
 						/>
 
-						{#if emptyStringTrimmed(script_path) && is_flow === false}
+						{#if emptyString(script_path) && is_flow === false}
 							<div class="flex">
 								<Button
 									disabled={!can_write}
@@ -550,11 +552,11 @@
 				</Section>
 			{/if}
 			<Section label="Database">
-				<svelte:fragment slot="badge">
+				{#snippet badge()}
 					{#if isEditor}
 						<TestingBadge />
 					{/if}
-				</svelte:fragment>
+				{/snippet}
 				<p class="text-xs text-tertiary mb-2">
 					Pick a database to connect to <Required required={true} />
 				</p>
@@ -585,27 +587,12 @@
 								</Tooltip>
 							{/snippet}
 							<MultiSelect
-								noMatchingOptionsMsg=""
-								createOptionMsg={null}
-								duplicates={false}
-								options={transactionType}
-								allowUserOptions="append"
-								bind:selected={transaction_to_track}
-								ulOptionsClass={'!bg-surface !text-sm'}
-								ulSelectedClass="!text-sm"
-								outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
+								bind:value={transaction_to_track}
+								items={safeSelectItems(transactionType)}
+								onCreateItem={(x) => (transactionType.push(x), transaction_to_track.push(x))}
 								placeholder="Select transactions"
-								--sms-options-margin="4px"
-								--sms-open-z-index="100"
 								disabled={!can_write}
-							>
-								<!-- @migration-task: migrate this slot by hand, `remove-icon` is an invalid identifier -->
-								<svelte:fragment slot="remove-icon">
-									<div class="hover:text-primary p-0.5">
-										<X size={12} />
-									</div>
-								</svelte:fragment>
-							</MultiSelect>
+							/>
 						</Label>
 						<Label label="Table Tracking" headerClass="grow min-w-0">
 							{#snippet header()}
@@ -663,7 +650,7 @@
 										></div
 									></Tab
 								>
-								<svelte:fragment slot="content">
+								{#snippet content()}
 									<div class="mt-5 overflow-hidden bg-surface">
 										<TabContent value="basic">
 											<RelationPicker {can_write} bind:pg14 bind:relations disabled={!can_write} />
@@ -786,7 +773,7 @@
 											>
 										</TabContent>
 									</div>
-								</svelte:fragment>
+								{/snippet}
 							</Tabs>
 						</Label>
 					{/if}

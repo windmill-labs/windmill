@@ -4,7 +4,7 @@
 	const bubble = createBubbler()
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview } from '$lib/gen'
-	import { createEventDispatcher, getContext, onMount } from 'svelte'
+	import { createEventDispatcher, getContext, onMount, untrack } from 'svelte'
 	import type { AppViewerContext, InlineScript } from '../../types'
 	import { Maximize2, Trash2 } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
@@ -196,6 +196,7 @@
 					$stateId++
 				}
 			}
+			$app = $app
 		}
 	}
 
@@ -231,7 +232,7 @@
 	$effect(() => {
 		if (name && name !== lastName) {
 			lastName = name
-			onNameChange()
+			untrack(() => onNameChange())
 		}
 	})
 

@@ -13,7 +13,7 @@
 	import { AlertTriangle, ArrowRight, CornerDownLeft, Play, RefreshCw, X } from 'lucide-svelte'
 	import { emptyString, sendUserToast } from '$lib/utils'
 	import { dfs } from './flows/dfs'
-	import { sliceModules } from './flows/flowStateUtils'
+	import { sliceModules } from './flows/flowStateUtils.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import Toggle from './Toggle.svelte'
 	import JsonInputs from './JsonInputs.svelte'
@@ -53,7 +53,7 @@
 
 	export function test() {
 		renderCount++
-		runPreview($previewArgs, undefined)
+		runPreview(previewArgs.val, undefined)
 	}
 
 	const {
@@ -75,9 +75,9 @@
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
 		if (previewMode === 'whole') {
-			return $flowStore
+			return flowStore.val
 		} else {
-			const flow: Flow = JSON.parse(JSON.stringify($flowStore))
+			const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
 			const idOrders = dfs(flow.value.modules, (x) => x.id)
 			let upToIndex = idOrders.indexOf($selectedId)
 
@@ -97,13 +97,13 @@
 			initial = false
 		}
 		try {
-			lastPreviewFlow = JSON.stringify($flowStore)
+			lastPreviewFlow = JSON.stringify(flowStore.val)
 			jobProgressReset()
 			const newFlow = extractFlow(previewMode)
 			jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
 			isRunning = true
 			if (inputSelected) {
-				savedArgs = $previewArgs
+				savedArgs = previewArgs.val
 				inputSelected = undefined
 			}
 		} catch (e) {
@@ -120,7 +120,7 @@
 				case 'Enter':
 					if (event.ctrlKey || event.metaKey) {
 						event.preventDefault()
-						runPreview($previewArgs, undefined)
+						runPreview(previewArgs.val, undefined)
 					}
 					break
 
@@ -156,20 +156,20 @@
 		}
 	}
 
-	let savedArgs = $previewArgs
+	let savedArgs = previewArgs.val
 	let inputSelected: 'captures' | 'history' | 'saved' | undefined = undefined
 	async function selectInput(input, type?: 'captures' | 'history' | 'saved' | undefined) {
 		if (!input) {
-			$previewArgs = savedArgs
+			previewArgs.val = savedArgs
 			inputSelected = undefined
 			setTimeout(() => {
 				preventEscape = false
 			}, 100)
 		} else {
-			$previewArgs = input
+			previewArgs.val = input
 			inputSelected = type
 			preventEscape = true
-			jsonEditor?.setCode(JSON.stringify($previewArgs ?? {}, null, '\t'))
+			jsonEditor?.setCode(JSON.stringify(previewArgs.val ?? {}, null, '\t'))
 		}
 	}
 
@@ -185,7 +185,7 @@
 
 	async function loadIndividualStepsStates() {
 		// console.log('loadIndividualStepsStates')
-		dfs($flowStore.value.modules, async (module) => {
+		dfs(flowStore.val.value.modules, async (module) => {
 			// console.log('module', $flowStateStore[module.id], module.id)
 			const prev = $flowStateStore[module.id]?.previewResult
 			if (prev && prev != NEVER_TESTED_THIS_FAR) {
@@ -283,7 +283,7 @@
 							variant="border"
 							title={`Re-start this flow from step ${selectedJobStep} (included).`}
 							on:click={() => {
-								runPreview($previewArgs, {
+								runPreview(previewArgs.val, {
 									flow_job_id: jobId,
 									step_id: selectedJobStep,
 									branch_or_iteration_n: 0
@@ -308,7 +308,7 @@
 									color="blue"
 									startIcon={{ icon: RefreshCw }}
 									on:click={() => {
-										runPreview($previewArgs, {
+										runPreview(previewArgs.val, {
 											flow_job_id: jobId,
 											step_id: selectedJobStep,
 											branch_or_iteration_n: 0
@@ -354,7 +354,7 @@
 											btnClasses="!p-1 !w-[34px] !ml-1"
 											aria-label="Restart flow"
 											on:click|once={() => {
-												runPreview($previewArgs, {
+												runPreview(previewArgs.val, {
 													flow_job_id: jobId,
 													step_id: selectedJobStep,
 													branch_or_iteration_n: branchOrIterationN
@@ -375,17 +375,24 @@
 					color="dark"
 					size="sm"
 					btnClasses="w-full max-w-lg"
-					on:click={() => runPreview($previewArgs, undefined)}
+					on:click={() => runPreview(previewArgs.val, undefined)}
 					id="flow-editor-test-flow-drawer"
 					shortCut={{ Icon: CornerDownLeft }}
 				>
-					Test flow
+					{#if previewMode == 'upTo'}
+						Test up to
+						<Badge baseClass="ml-1" color="indigo">
+							{$selectedId}
+						</Badge>
+					{:else}
+						Test flow
+					{/if}
 				</Button>
 			</div>
 		{/if}
 	</div>
 	<div class="w-full flex flex-col gap-y-1">
-		{#if lastPreviewFlow && JSON.stringify($flowStore) != lastPreviewFlow}
+		{#if lastPreviewFlow && JSON.stringify(flowStore.val) != lastPreviewFlow}
 			<div class="pt-1">
 				<div
 					class="bg-orange-200 text-orange-600 border border-orange-600 p-2 flex items-center gap-2 rounded"
@@ -409,7 +416,7 @@
 				runnableId={$initialPathStore}
 				stablePathForCaptures={$initialPathStore || fakeInitialPath}
 				runnableType={'FlowPath'}
-				previewArgs={$previewArgs}
+				previewArgs={previewArgs.val}
 				on:openTriggers
 				on:select={(e) => {
 					selectInput(e.detail.payload, e.detail?.type)
@@ -419,7 +426,7 @@
 			>
 				<div class="w-full flex flex-row justify-between">
 					<InputSelectedBadge
-						on:click={() => schemaFormWithArgPicker?.resetSelected()}
+						onReject={() => schemaFormWithArgPicker?.resetSelected()}
 						{inputSelected}
 					/>
 					<div class="flex flex-row gap-2">
@@ -433,7 +440,7 @@
 							}}
 							lightMode
 							on:change={(e) => {
-								jsonEditor?.setCode(JSON.stringify($previewArgs ?? {}, null, '\t'))
+								jsonEditor?.setCode(JSON.stringify(previewArgs.val ?? {}, null, '\t'))
 								refresh()
 							}}
 						/>
@@ -445,7 +452,7 @@
 							bind:this={jsonEditor}
 							on:select={(e) => {
 								if (e.detail) {
-									$previewArgs = e.detail
+									previewArgs.val = e.detail
 								}
 							}}
 							updateOnBlur={false}
@@ -458,10 +465,10 @@
 							<SchemaForm
 								noVariablePicker
 								compact
-								schema={$flowStore.schema}
-								bind:args={$previewArgs}
+								schema={flowStore.val.schema}
+								bind:args={previewArgs.val}
 								on:change={() => {
-									savedArgs = $previewArgs
+									savedArgs = previewArgs.val
 								}}
 								bind:isValid
 							/>

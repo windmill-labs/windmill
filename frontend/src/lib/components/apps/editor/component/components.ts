@@ -2354,6 +2354,11 @@ This is a paragraph.
 
 					tooltip:
 						'If too many items, the box overflow its container instead of having an internal scroll'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}

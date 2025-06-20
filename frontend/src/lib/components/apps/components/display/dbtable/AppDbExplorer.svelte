@@ -75,9 +75,7 @@
 		// @ts-ignore
 		gridItem.data.configuration.columnDefs = { value: [], type: 'static', loading: false }
 
-		$app = {
-			...$app
-		}
+		$app = $app
 	}
 
 	const resolvedConfig = initConfig(
@@ -230,9 +228,7 @@
 		)
 
 		if (!resolvedConfig.type?.configuration?.[resolvedConfig.type.selected]?.resource) {
-			$app = {
-				...$app
-			}
+			$app = $app
 			return
 		}
 
@@ -265,9 +261,7 @@
 				}
 			)
 
-			$app = {
-				...$app
-			}
+			$app = $app
 		} catch (e) {}
 	}
 
@@ -680,19 +674,3 @@
 		{/if}
 	</div>
 </RunnableWrapper>
-
-<!-- <Portal name="db-explorer">
-	<Drawer bind:this={insertDrawer} size="800px">
-		<DrawerContent title="Insert row" on:close={insertDrawer.closeDrawer}>
-			<svelte:fragment slot="actions">
-				<Button color="dark" size="xs" on:click={insert} disabled={!isInsertable}>Insert</Button>
-			</svelte:fragment>
-			<InsertRow
-				bind:args
-				bind:isInsertable
-				columnDefs={resolvedConfig.columnDefs}
-				dbType={resolvedConfig.type.selected}
-			/>
-		</DrawerContent>
-	</Drawer>
-</Portal> -->

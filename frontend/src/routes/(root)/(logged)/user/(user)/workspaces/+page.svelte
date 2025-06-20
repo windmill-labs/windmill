@@ -62,6 +62,7 @@
 			}
 		} else {
 			const url = $page.url
+			console.log('logout 1')
 			await logoutWithRedirect(url.href.replace(url.origin, ''))
 		}
 	}
@@ -133,7 +134,7 @@
 				} else {
 					await goto(rd ?? '/')
 				}
-				console.log('Workspace selected going to ' + (rd ? `rd: ${rd}` : 'home')) 
+				console.log('Workspace selected going to ' + (rd ? `rd: ${rd}` : 'home'))
 			} catch (e) {
 				console.error('Error going to', rd, e)
 				window.location.reload()

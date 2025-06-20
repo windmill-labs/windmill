@@ -1,18 +1,35 @@
 <script>
 	import { FileText } from 'lucide-svelte'
 	import { APP_TO_ICON_COMPONENT } from './icons'
-	export let name
-	export let silent = false
-	export let after = false
-	export let height = '24px'
-	export let width = '24px'
-	export let center = false
-	export let isSelected = false
-	export let formatExtension = undefined
+	/**
+	 * @typedef {Object} Props
+	 * @property {any} name
+	 * @property {boolean} [silent]
+	 * @property {boolean} [after]
+	 * @property {string} [height]
+	 * @property {string} [width]
+	 * @property {boolean} [center]
+	 * @property {boolean} [isSelected]
+	 * @property {any} [formatExtension]
+	 */
 
-	$: iconComponent = name === "teams" 
-		? APP_TO_ICON_COMPONENT.ms_teams_webhook 
-		: APP_TO_ICON_COMPONENT[name] || APP_TO_ICON_COMPONENT[name.split('_')[0]]
+	/** @type {Props} */
+	let {
+		name,
+		silent = false,
+		after = false,
+		height = '24px',
+		width = '24px',
+		center = false,
+		isSelected = false,
+		formatExtension = undefined
+	} = $props()
+
+	let iconComponent = $derived(
+		name === 'teams'
+			? APP_TO_ICON_COMPONENT.ms_teams_webhook
+			: APP_TO_ICON_COMPONENT[name] || APP_TO_ICON_COMPONENT[name.split('_')[0]]
+	)
 </script>
 
 <div class="truncate flex flex-row gap-2 {center ? 'justify-center items-center' : ''}  -pl-2">
@@ -20,12 +37,13 @@
 		{name}
 	{/if}
 	{#if iconComponent}
+		{@const SvelteComponent = iconComponent}
 		<span class={isSelected ? 'text-secondary' : 'text-secondary grayscale'}>
-			<svelte:component this={iconComponent} {height} {width} />
+			<SvelteComponent {height} {width} />
 		</span>
 	{:else if formatExtension}
 		<span class={isSelected ? 'text-secondary' : 'text-secondary grayscale'}>
-			<svelte:component this={FileText} {height} {width} />
+			<FileText {height} {width} />
 		</span>
 	{:else}
 		<span style="width: {width}; height: {height}" class="bg-gray-100 rounded-full"></span>
@@ -34,4 +52,3 @@
 		{name}
 	{/if}
 </div>
-

@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler, preventDefault } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { IndexSearchService, ServiceLogsService } from '$lib/gen'
 
 	import ManuelDatePicker from './runs/ManuelDatePicker.svelte'
@@ -6,32 +9,38 @@
 	import LogViewer from './LogViewer.svelte'
 	import Toggle from './Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { onDestroy, tick } from 'svelte'
+	import { onDestroy, tick, untrack } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { copyToClipboard, truncateRev } from '$lib/utils'
+	import { copyToClipboard, scroll_into_view_if_needed_polyfill, truncateRev } from '$lib/utils'
 	import LogSnippetViewer from './LogSnippetViewer.svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import ClipboardCopy from 'lucide-svelte/icons/clipboard-copy'
 	import AnsiUp from 'ansi_up'
-	import { scroll_into_view_if_needed_polyfill } from './multiselect/utils'
 	import SplitPanesOrColumnOnMobile from './splitPanes/SplitPanesOrColumnOnMobile.svelte'
+	import Select from './select/Select.svelte'
+	import { goto } from '$lib/navigation'
+	import { page } from '$app/stores'
 
-	export let searchTerm: string
-	export let queryParseErrors: string[] = []
+	interface Props {
+		searchTerm: string
+		queryParseErrors?: string[]
+	}
 
-	let minTs: undefined | string = undefined
-	let maxTs: undefined | string = undefined
+	let { searchTerm, queryParseErrors = $bindable() }: Props = $props()
 
-	let minTsManual: undefined | string = undefined
-	let maxTsManual: undefined | string = undefined
+	let minTs: undefined | string = $state(undefined)
+	let maxTs: undefined | string = $state(undefined)
 
-	let max_lines: undefined | number = undefined
+	let minTsManual: undefined | string = $state($page.url.searchParams.get('minTs') ?? undefined)
+	let maxTsManual: undefined | string = $state($page.url.searchParams.get('maxTs') ?? undefined)
+
+	let max_lines: undefined | number = $state(undefined)
 
 	// let lastSeen: undefined | string = undefined
 
-	let withError = false
-	let autoRefresh = true
-	let loading = false
+	let withError = $state(false)
+	let autoRefresh = $state(true)
+	let loading = $state(false)
 
 	type LogFile = {
 		ts: number
@@ -45,15 +54,13 @@
 	type ByWorkerGroup = Record<string, ByHostname>
 	type ByMode = Record<string, ByWorkerGroup>
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: NodeJS.Timeout | undefined = $state(undefined)
 
-	let allLogs: ByMode | undefined = undefined
-	let manualPicker: ManuelDatePicker | undefined = undefined
+	let allLogs: ByMode | undefined = $state(undefined)
+	let manualPicker: ManuelDatePicker | undefined = $state(undefined)
 
-	let upTo: undefined | string = undefined
-	let upToIsLatest = true
-
-	$: minTsManual || maxTsManual || onManualChanges()
+	let upTo: undefined | string = $state(undefined)
+	let upToIsLatest = $state(true)
 
 	function onManualChanges() {
 		getAllLogs(minTsManual ?? maxTs, maxTsManual)
@@ -161,9 +168,20 @@
 			})
 	}
 
-	let selected: [string, string, string] | undefined = undefined
+	type Selected = { mode: string; workerGroup: string; hostname: string }
+	let initialSelected =
+		$page.url.searchParams.get('mode') &&
+		$page.url.searchParams.get('workerGroup') &&
+		$page.url.searchParams.get('hostname')
+			? {
+					mode: $page.url.searchParams.get('mode')!,
+					workerGroup: $page.url.searchParams.get('workerGroup')!,
+					hostname: $page.url.searchParams.get('hostname')!
+				}
+			: undefined
+	let selected: Selected | undefined = $state(initialSelected)
 
-	let logsContent: Record<string, { content?: string; error?: string }> = {}
+	let logsContent: Record<string, { content?: string; error?: string }> = $state({})
 	export async function getLogFile(hostname: string, path: string) {
 		if (logsContent[path]) {
 			return
@@ -178,11 +196,11 @@
 
 	getAllLogs(undefined, undefined)
 
-	function getLogs(selected: [string, string, string], upTo: string | undefined) {
+	function getLogs(selected: Selected, upTo: string | undefined) {
 		if (!selected) {
 			return []
 		}
-		let logs = allLogs?.[selected[0]]?.[selected[1]]?.[selected[2]]
+		let logs = allLogs?.[selected.mode]?.[selected.workerGroup]?.[selected.hostname]
 		if (!logs) {
 			return []
 		}
@@ -192,7 +210,7 @@
 			logs = nlogs.slice(nlogs.length - 5, undefined)
 
 			getFiles(
-				selected[2],
+				selected.hostname,
 				logs.map((x) => x.file_path)
 			)
 		}
@@ -204,11 +222,11 @@
 		scrollToBottom()
 	}
 
-	function getLatestUpTo(selected: [string, string, string]): any {
+	function getLatestUpTo(selected: Selected): any {
 		if (!selected) {
 			return undefined
 		}
-		let logs = allLogs?.[selected[0]]?.[selected[1]]?.[selected[2]]
+		let logs = allLogs?.[selected.mode]?.[selected.workerGroup]?.[selected.hostname]
 		if (!logs) {
 			return undefined
 		}
@@ -277,23 +295,31 @@
 		}
 	}
 
-	let logs: any
+	let logs: any = $state()
 
 	let debounceTimeout: NodeJS.Timeout | undefined = undefined
 	const debouncePeriod: number = 400
-	let loadingLogs = false
-	let loadingLogCounts = false
+	let loadingLogs = $state(false)
+	let loadingLogCounts = $state(false)
 
-	let countsPerHost: any
-	let sumOtherDocCount: number = 0
+	let countsPerHost: any = $state()
+	let sumOtherDocCount: number = $state(0)
 
 	async function searchLogs(
 		searchTerm: string,
-		selected: [string, string, string] | undefined,
+		selected: Selected | undefined,
 		minTs: string | undefined,
 		maxTs: string | undefined,
 		allLogs: ByMode | undefined
 	) {
+		const params = new URLSearchParams()
+		if (searchTerm) params.set('searchTerm', searchTerm)
+		if (minTs) params.set('minTs', minTs)
+		if (maxTs) params.set('maxTs', maxTs)
+		if (selected?.mode) params.set('mode', selected.mode)
+		if (selected?.workerGroup) params.set('workerGroup', selected.workerGroup)
+		if (selected?.hostname) params.set('hostname', selected.hostname)
+		goto(`?${params.toString()}`)
 		if (searchTerm.trim() === '') {
 			debounceTimeout && clearTimeout(debounceTimeout)
 			logs = undefined
@@ -333,9 +359,9 @@
 			if (selected) {
 				logs = await IndexSearchService.searchLogsIndex({
 					searchQuery: searchTerm,
-					mode: selected[0],
-					workerGroup: selected[1] != '' ? selected[1] : undefined,
-					hostname: selected[2],
+					mode: selected.mode,
+					workerGroup: selected.workerGroup != '' ? selected.workerGroup : undefined,
+					hostname: selected.hostname,
 					minTs,
 					maxTs
 				})
@@ -348,10 +374,10 @@
 	const ansi_up = new AnsiUp()
 	ansi_up.use_classes = true
 
-	let logDrawer: Drawer
-	let logDrawerOpen: boolean
-	let content: string = ''
-	let hitLineNumber: number | undefined = undefined
+	let logDrawer: Drawer | undefined = $state(undefined)
+	let logDrawerOpen: boolean = $state(false)
+	let content: string = $state('')
+	let hitLineNumber: number | undefined = $state(undefined)
 
 	async function seeLogContext(
 		lineNumber: number,
@@ -369,8 +395,6 @@
 		let el = document.getElementById(`log-line-${lineNumber}`)
 		if (el) scroll_into_view_if_needed_polyfill(el, false)
 	}
-
-	$: searchLogs(searchTerm, selected, minTsManual, maxTsManual, allLogs)
 
 	function allLogsOrQueryResults(allLogs: ByMode, countsPerHost: any): ByMode {
 		if (countsPerHost == undefined) {
@@ -395,11 +419,33 @@
 
 		return ret
 	}
+
+	function getSelectItems(
+		allLogs: ByMode,
+		countsPerHost: any
+	): { label: string; value: Selected }[] {
+		return Object.entries(allLogsOrQueryResults(allLogs, countsPerHost)).flatMap(([mode, o1]) =>
+			Object.entries(o1).flatMap(([wg, o2]) =>
+				Object.keys(o2).map((hn) => ({
+					label: hn,
+					value: { mode, workerGroup: wg, hostname: hn }
+				}))
+			)
+		)
+	}
+
+	$effect(() => {
+		minTsManual || maxTsManual || untrack(() => onManualChanges())
+	})
+	$effect(() => {
+		;[searchTerm, selected, minTsManual, maxTsManual, allLogs]
+		untrack(() => searchLogs(searchTerm, selected, minTsManual, maxTsManual, allLogs))
+	})
 </script>
 
 <Drawer bind:this={logDrawer} bind:open={logDrawerOpen} size="1400px">
 	<DrawerContent title="See context" on:close={logDrawer.closeDrawer}>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button
 				on:click={() => copyToClipboard(content)}
 				color="light"
@@ -410,7 +456,7 @@
 			>
 				Copy to clipboard
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 		<div class="w-fit">
 			<pre
 				class="bg-surface-secondary text-secondary text-xs w-full p-2 whitespace-pre border rounded-md"
@@ -424,7 +470,7 @@
 </Drawer>
 
 <SplitPanesOrColumnOnMobile>
-	<svelte:fragment slot="left-pane">
+	{#snippet left_pane()}
 		<div class="p-1">
 			<div
 				class="flex flex-col lg:flex-row gap-y-1 justify-between w-full relative pb-4 gap-x-0.5"
@@ -551,6 +597,16 @@
 						>
 					</div>
 				{/if}
+				<div class="mr-0.5 mb-2">
+					<Select
+						bind:value={selected}
+						items={getSelectItems(allLogs, countsPerHost)}
+						onClear={() => {
+							selected = undefined
+						}}
+						placeholder="Select a service"
+					/>
+				</div>
 				{#each Object.entries(allLogsOrQueryResults(allLogs, countsPerHost)) as [mode, o1]}
 					<div class="w-full pb-8">
 						<h2 class="pb-2 text-2xl">{mode}s</h2>
@@ -561,7 +617,7 @@
 								{/if}
 								<div class="divide-y flex flex-col">
 									{#each Object.entries(o2).filter(([hn, files]) => {
-										if (selected && selected[0] === mode && selected[1] === wg && selected[2] === hn) {
+										if (selected && selected.mode === mode && selected.workerGroup === wg && selected.hostname === hn) {
 											return true
 										}
 										const hostKey = `${mode},${wg},${hn}`
@@ -571,17 +627,17 @@
 										return true
 									}) as [hn, files]}
 										{@const hostKey = `${mode},${wg},${hn}`}
-										<!-- svelte-ignore a11y-click-events-have-key-events -->
-										<!-- svelte-ignore a11y-no-static-element-interactions -->
+										<!-- svelte-ignore a11y_click_events_have_key_events -->
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
 										<div
 											class="w-full flex items-baseline justify-between rounded px-1 hover:bg-surface-hover cursor-pointer {selected &&
-											selected[0] == mode &&
-											selected[1] == wg &&
-											selected[2] == hn
+											selected.mode == mode &&
+											selected.workerGroup == wg &&
+											selected.hostname == hn
 												? 'bg-surface-secondary'
 												: ''}"
-											on:click={() => {
-												selected = [mode, wg, hn]
+											onclick={() => {
+												selected = { mode, workerGroup: wg, hostname: hn }
 												upToIsLatest = true
 												upTo = getLatestUpTo(selected)
 												scrollToBottom()
@@ -631,8 +687,8 @@
 				{/if}
 			{/if}
 		</div>
-	</svelte:fragment>
-	<svelte:fragment slot="right-pane">
+	{/snippet}
+	{#snippet right_pane()}
 		<div class="relative h-full flex flex-col gap-1 pb-2">
 			{#if selected}
 				{#if !loadingLogs && logs == undefined}
@@ -707,9 +763,9 @@
 											>
 										{/if}
 									{:else if logsContent[file.file_path].content}
-										<!-- svelte-ignore a11y-click-events-have-key-events -->
-										<!-- svelte-ignore a11y-no-static-element-interactions -->
-										<div on:click|preventDefault class="pr-2"
+										<!-- svelte-ignore a11y_click_events_have_key_events -->
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
+										<div onclick={preventDefault(bubble('click'))} class="pr-2"
 											><LogViewer
 												noAutoScroll
 												noMaxH
@@ -735,7 +791,7 @@
 						<div class="flex grow text-xs justify-center px-2 items-center gap-2">
 							{#if upTo}
 								<button
-									on:click={() => {
+									onclick={() => {
 										if (upTo) {
 											upToIsLatest = false
 											upTo = new Date(new Date(upTo).getTime() - 5 * 60 * 1000).toISOString()
@@ -764,7 +820,7 @@
 							>
 							{#if upTo}
 								<button
-									on:click={() => {
+									onclick={() => {
 										if (upTo) {
 											upToIsLatest = false
 											upTo = new Date(new Date(upTo).getTime() + 5 * 60 * 1000).toISOString()
@@ -778,7 +834,7 @@
 						<div>
 							<button
 								class="text-xs"
-								on:click={() => {
+								onclick={() => {
 									upTo = new Date().toISOString()
 									upToIsLatest = true
 								}}>now</button
@@ -790,5 +846,5 @@
 				<div class="flex justify-center items-center pt-8">Select a host to see its logs</div>
 			{/if}</div
 		>
-	</svelte:fragment>
+	{/snippet}
 </SplitPanesOrColumnOnMobile>

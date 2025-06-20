@@ -840,6 +840,24 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::error!("Error deleting audit log on CE: {:?}", e);
     }
 
+    match sqlx::query_scalar!(
+        "DELETE FROM agent_token_blacklist WHERE expires_at <= now() RETURNING token",
+    )
+    .fetch_all(db)
+    .await
+    {
+        Ok(deleted_tokens) => {
+            if deleted_tokens.len() > 0 {
+                tracing::info!(
+                    "deleted {} expired blacklisted agent tokens: {:?}",
+                    deleted_tokens.len(),
+                    deleted_tokens
+                );
+            }
+        }
+        Err(e) => tracing::error!("Error deleting expired blacklisted agent tokens: {:?}", e),
+    }
+
     let job_retention_secs = *JOB_RETENTION_SECS.read().await;
     if job_retention_secs > 0 {
         match db.begin().await {
@@ -1324,7 +1342,6 @@ pub async fn monitor_db(
     initial_load: bool,
     _killpill_tx: KillpillSender,
 ) {
-    tracing::info!("Starting periodic monitor task");
     let zombie_jobs_f = async {
         if server_mode && !initial_load && !*DISABLE_ZOMBIE_JOBS_MONITORING {
             if let Some(db) = conn.as_sql() {
@@ -1422,7 +1439,6 @@ pub async fn monitor_db(
         apply_autoscaling_f,
         update_min_worker_version_f,
     );
-    tracing::info!("Periodic monitor task completed");
 }
 
 pub async fn expose_queue_metrics(db: &Pool<Postgres>) {

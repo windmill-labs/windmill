@@ -1,11 +1,10 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::body::to_bytes;
 use axum::Router;
-use rmcp::transport::sse_server::{SseServer, SseServerConfig};
+use axum::{extract::Path, http::Request, middleware::Next, response::Response};
 use rmcp::{
     handler::server::ServerHandler,
     model::*,
@@ -17,7 +16,6 @@ use serde_json::Value;
 use sql_builder::prelude::*;
 use sqlx::FromRow;
 use tokio::try_join;
-use tokio_util::sync::CancellationToken;
 use windmill_common::db::UserDB;
 use windmill_common::worker::to_raw_value;
 use windmill_common::{DB, HUB_BASE_URL};
@@ -29,6 +27,9 @@ use crate::jobs::{
     run_wait_result_flow_by_path_internal, run_wait_result_script_by_path_internal, RunJobQuery,
 };
 use crate::HTTP_CLIENT;
+use rmcp::transport::streamable_http_server::{
+    session::local::LocalSessionManager, SessionManager, StreamableHttpService,
+};
 use windmill_common::utils::{query_elems_from_hub, StripPath};
 
 /// Transforms the path for workspace scripts/flows.
@@ -856,19 +857,36 @@ impl ServerHandler for Runner {
             })
         };
 
-        let authed = context
-            .req_extensions
-            .get::<ApiAuthed>()
-            .ok_or_else(|| Error::internal_error("ApiAuthed not found", None))?;
-        let db = context
-            .req_extensions
-            .get::<DB>()
-            .ok_or_else(|| Error::internal_error("DB not found", None))?;
-        let user_db = context
-            .req_extensions
-            .get::<UserDB>()
-            .ok_or_else(|| Error::internal_error("UserDB not found", None))?;
+        let http_parts = context
+            .extensions
+            .get::<axum::http::request::Parts>()
+            .ok_or_else(|| {
+                tracing::error!("http::request::Parts not found");
+                Error::internal_error("http::request::Parts not found", None)
+            })?;
+
+        let authed = http_parts.extensions.get::<ApiAuthed>().ok_or_else(|| {
+            tracing::error!("ApiAuthed Axum extension not found");
+            Error::internal_error("ApiAuthed Axum extension not found", None)
+        })?;
+        let db = http_parts.extensions.get::<DB>().ok_or_else(|| {
+            tracing::error!("DB Axum extension not found");
+            Error::internal_error("DB Axum extension not found", None)
+        })?;
+        let user_db = http_parts.extensions.get::<UserDB>().ok_or_else(|| {
+            tracing::error!("UserDB Axum extension not found");
+            Error::internal_error("UserDB Axum extension not found", None)
+        })?;
         let args = parse_args(request.arguments)?;
+
+        let workspace_id = http_parts
+            .extensions
+            .get::<WorkspaceId>()
+            .ok_or_else(|| {
+                tracing::error!("WorkspaceId not found");
+                Error::internal_error("WorkspaceId not found", None)
+            })
+            .map(|w_id| w_id.0.clone())?;
 
         let (tool_type, path, is_hub) =
             Runner::reverse_transform(&request.name).unwrap_or_default();
@@ -876,8 +894,7 @@ impl ServerHandler for Runner {
         let item_schema = if is_hub {
             Runner::get_hub_script_schema(&format!("hub/{}", path), db).await?
         } else {
-            Runner::get_item_schema(&path, user_db, authed, &context.workspace_id, &tool_type)
-                .await?
+            Runner::get_item_schema(&path, user_db, authed, &workspace_id, &tool_type).await?
         };
 
         let schema_obj = if let Some(ref s) = item_schema {
@@ -906,8 +923,6 @@ impl ServerHandler for Runner {
         } else {
             windmill_queue::PushArgsOwned::default()
         };
-
-        let w_id = context.workspace_id.clone();
         let script_or_flow_path = if is_hub {
             StripPath(format!("hub/{}", path))
         } else {
@@ -922,7 +937,7 @@ impl ServerHandler for Runner {
                 script_or_flow_path,
                 authed.clone(),
                 user_db.clone(),
-                w_id.clone(),
+                workspace_id.clone(),
                 push_args,
             )
             .await
@@ -934,7 +949,7 @@ impl ServerHandler for Runner {
                 authed.clone(),
                 user_db.clone(),
                 push_args,
-                w_id.clone(),
+                workspace_id.clone(),
             )
             .await
         };
@@ -978,19 +993,38 @@ impl ServerHandler for Runner {
         _request: Option<PaginatedRequestParam>,
         mut _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, Error> {
-        let workspace_id = _context.workspace_id.clone();
-        let db = _context
-            .req_extensions
-            .get::<DB>()
-            .ok_or_else(|| Error::internal_error("DB not found", None))?;
-        let user_db = _context
-            .req_extensions
-            .get::<UserDB>()
-            .ok_or_else(|| Error::internal_error("UserDB not found", None))?;
-        let authed = _context
-            .req_extensions
-            .get::<ApiAuthed>()
-            .ok_or_else(|| Error::internal_error("ApiAuthed not found", None))?;
+        let http_parts = _context
+            .extensions
+            .get::<axum::http::request::Parts>()
+            .ok_or_else(|| {
+                tracing::error!("http::request::Parts not found");
+                Error::internal_error("http::request::Parts not found", None)
+            })?;
+
+        let db = http_parts.extensions.get::<DB>().ok_or_else(|| {
+            tracing::error!("DB Axum extension not found");
+            Error::internal_error("DB Axum extension not found", None)
+        })?;
+
+        let user_db = http_parts.extensions.get::<UserDB>().ok_or_else(|| {
+            tracing::error!("UserDB Axum extension not found");
+            Error::internal_error("UserDB Axum extension not found", None)
+        })?;
+
+        let authed = http_parts.extensions.get::<ApiAuthed>().ok_or_else(|| {
+            tracing::error!("ApiAuthed Axum extension not found");
+            Error::internal_error("ApiAuthed Axum extension not found", None)
+        })?;
+
+        let workspace_id = http_parts
+            .extensions
+            .get::<WorkspaceId>()
+            .ok_or_else(|| {
+                tracing::error!("WorkspaceId not found");
+                Error::internal_error("WorkspaceId not found", None)
+            })
+            .map(|w_id| w_id.0.clone())?;
+
         let owned_scope = authed.scopes.as_ref().and_then(|scopes| {
             scopes
                 .iter()
@@ -1127,15 +1161,54 @@ impl ServerHandler for Runner {
     }
 }
 
-pub fn setup_mcp_server(addr: SocketAddr, path: &str) -> anyhow::Result<(SseServer, Router)> {
-    let config = SseServerConfig {
-        bind: addr,
-        sse_path: "/sse".to_string(),
-        post_path: "/message".to_string(),
-        full_message_path: path.to_string(),
-        ct: CancellationToken::new(),
-        sse_keep_alive: None,
+#[derive(Clone, Debug)]
+pub struct WorkspaceId(pub String);
+
+pub async fn extract_and_store_workspace_id(
+    Path(params): Path<String>,
+    mut request: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
+    let workspace_id = params;
+    request.extensions_mut().insert(WorkspaceId(workspace_id));
+    next.run(request).await
+}
+
+pub async fn setup_mcp_server() -> anyhow::Result<(Router, Arc<LocalSessionManager>)> {
+    let session_manager = Arc::new(LocalSessionManager::default());
+    let service_config = Default::default();
+    let service = StreamableHttpService::new(
+        || Ok(Runner::new()),
+        session_manager.clone(),
+        service_config,
+    );
+
+    let router = axum::Router::new().nest_service("/", service);
+    Ok((router, session_manager))
+}
+
+pub async fn shutdown_mcp_server(session_manager: Arc<LocalSessionManager>) {
+    let session_ids_to_close = {
+        let sessions_map = session_manager.sessions.read().await;
+        sessions_map.keys().cloned().collect::<Vec<_>>()
     };
 
-    Ok(SseServer::new(config))
+    if !session_ids_to_close.is_empty() {
+        tracing::info!(
+            "Closing {} active MCP session(s)...",
+            session_ids_to_close.len()
+        );
+        let close_futures = session_ids_to_close
+            .iter()
+            .map(|session_id| {
+                let manager_clone = session_manager.clone();
+                async move {
+                    if let Err(_) = manager_clone.close_session(session_id).await {
+                        tracing::warn!("Error closing MCP session");
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
+        futures::future::join_all(close_futures).await;
+    }
 }

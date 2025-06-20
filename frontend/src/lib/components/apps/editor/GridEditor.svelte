@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { gridColumns, isFixed, toggleFixed } from '../gridUtils'
 	import { twMerge } from 'tailwind-merge'
@@ -29,7 +29,11 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import type { Policy } from '$lib/gen'
 
-	export let policy: Policy
+	interface Props {
+		policy: Policy
+	}
+
+	let { policy }: Props = $props()
 
 	const {
 		selectedComponent,
@@ -46,13 +50,17 @@
 
 	const { history, componentActive } = getContext<AppEditorContext>('AppEditorContext')
 
-	let previousSelectedIds: string[] | undefined = undefined
-	$: if (!deepEqual(previousSelectedIds, $selectedComponent)) {
-		previousSelectedIds = $selectedComponent
-		$allIdsInPath = ($selectedComponent ?? [])
-			.flatMap((id) => dfs($app.grid, id, $app.subgrids ?? {}))
-			.filter((x) => x != undefined) as string[]
-	}
+	let previousSelectedIds: string[] | undefined = $state(undefined)
+	$effect(() => {
+		if (!deepEqual(previousSelectedIds, $selectedComponent)) {
+			untrack(() => {
+				previousSelectedIds = $selectedComponent
+				$allIdsInPath = ($selectedComponent ?? [])
+					.flatMap((id) => dfs($app.grid, id, $app.subgrids ?? {}))
+					.filter((x) => x != undefined) as string[]
+			})
+		}
+	})
 
 	function handleLock(id: string) {
 		const gridItem = findGridItem($app, id)
@@ -109,7 +117,7 @@
 		)
 
 		// Update the app state
-		$app = { ...$app }
+		$app = $app
 
 		$selectedComponent = [parentComponentId]
 		$focusedGrid = {
@@ -119,6 +127,7 @@
 	}
 </script>
 
+<input />
 <div class="w-full z-[1000] overflow-visible h-full">
 	<div class={$app.hideLegacyTopBar ? 'hidden' : ''}>
 		<div
@@ -138,15 +147,17 @@
 						<span class="!text-2xs text-tertiary inline-flex gap-1 items-center"
 							><Loader2 size={10} class="animate-spin" /> {$bgRuns.length}
 						</span>
-						<span slot="text"
-							><div class="flex flex-col">
-								{#each $bgRuns as bgRun}
-									<div class="flex gap-2 items-center">
-										<div class="text-2xs text-tertiary">{bgRun}</div>
-									</div>
-								{/each}
-							</div></span
-						>
+						{#snippet text()}
+							<span
+								><div class="flex flex-col">
+									{#each $bgRuns as bgRun}
+										<div class="flex gap-2 items-center">
+											<div class="text-2xs text-tertiary">{bgRun}</div>
+										</div>
+									{/each}
+								</div></span
+							>
+						{/snippet}
 					</Popover>
 				{:else}
 					<span class="w-9"></span>
@@ -167,7 +178,7 @@
 			</div>
 		</div>
 	</div>
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
 		style={$app.css?.['app']?.['grid']?.style}
 		class={twMerge(
@@ -175,7 +186,7 @@
 			$app.css?.['app']?.['grid']?.class ?? '',
 			'wm-app-grid !static h-full w-full'
 		)}
-		on:pointerdown={() => {
+		onpointerdown={() => {
 			$selectedComponent = undefined
 			$focusedGrid = undefined
 		}}
@@ -194,10 +205,6 @@
 					$app.grid = e.detail
 				}}
 				root
-				let:dataItem
-				let:overlapped
-				let:moveMode
-				let:componentDraggedId
 				on:dropped={(e) => {
 					const { id, overlapped, x, y } = e.detail
 
@@ -224,55 +231,57 @@
 				}}
 				disableMove={!!$connectingInput.opened}
 			>
-				<ComponentWrapper
-					id={dataItem.id}
-					type={dataItem.data.type}
-					class={classNames(
-						'h-full w-full center-center outline outline-surface-secondary',
-						Boolean($selectedComponent?.includes(dataItem.id)) ? 'active-grid-item' : ''
-					)}
-				>
-					<GridEditorMenu
+				{#snippet children({ dataItem, overlapped, moveMode, componentDraggedId })}
+					<ComponentWrapper
 						id={dataItem.id}
-						on:expand={() => {
-							push(history, $app)
-							$selectedComponent = [dataItem.id]
-							expandGriditem($app.grid, dataItem.id, $breakpoint)
-							$app = $app
-						}}
-						on:lock={() => {
-							handleLock(dataItem.id)
-						}}
-						on:fillHeight={() => {
-							handleFillHeight(dataItem.id)
-						}}
-						locked={isFixed(dataItem)}
-						fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
+						type={dataItem.data.type}
+						class={classNames(
+							'h-full w-full center-center outline outline-surface-secondary',
+							Boolean($selectedComponent?.includes(dataItem.id)) ? 'active-grid-item' : ''
+						)}
 					>
-						<Component
-							render={true}
-							component={dataItem.data}
-							selected={Boolean($selectedComponent?.includes(dataItem.id))}
-							locked={isFixed(dataItem)}
-							fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
-							on:lock={() => {
-								handleLock(dataItem.id)
-							}}
-							on:fillHeight={() => {
-								handleFillHeight(dataItem.id)
-							}}
+						<GridEditorMenu
+							id={dataItem.id}
 							on:expand={() => {
 								push(history, $app)
 								$selectedComponent = [dataItem.id]
 								expandGriditem($app.grid, dataItem.id, $breakpoint)
 								$app = $app
 							}}
-							{overlapped}
-							{moveMode}
-							{componentDraggedId}
-						/>
-					</GridEditorMenu>
-				</ComponentWrapper>
+							on:lock={() => {
+								handleLock(dataItem.id)
+							}}
+							on:fillHeight={() => {
+								handleFillHeight(dataItem.id)
+							}}
+							locked={isFixed(dataItem)}
+							fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
+						>
+							<Component
+								render={true}
+								component={dataItem.data}
+								selected={Boolean($selectedComponent?.includes(dataItem.id))}
+								locked={isFixed(dataItem)}
+								fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
+								on:lock={() => {
+									handleLock(dataItem.id)
+								}}
+								on:fillHeight={() => {
+									handleFillHeight(dataItem.id)
+								}}
+								on:expand={() => {
+									push(history, $app)
+									$selectedComponent = [dataItem.id]
+									expandGriditem($app.grid, dataItem.id, $breakpoint)
+									$app = $app
+								}}
+								{overlapped}
+								{moveMode}
+								{componentDraggedId}
+							/>
+						</GridEditorMenu>
+					</ComponentWrapper>
+				{/snippet}
 			</Grid>
 		</div>
 	</div>

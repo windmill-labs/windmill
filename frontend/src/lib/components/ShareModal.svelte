@@ -1,9 +1,10 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import TableCustom from './TableCustom.svelte'
 
 	import { GroupService, UserService, GranularAclService } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
-	import AutoComplete from 'simple-svelte-autocomplete'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -12,6 +13,8 @@
 	import { isOwner } from '$lib/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import Select from './select/Select.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -34,22 +37,24 @@
 		| 'gcp_trigger'
 	let kind: Kind
 
-	let path: string = ''
+	let path: string = $state('')
 
-	let ownerKind: 'user' | 'group' = 'user'
-	let owner: string = ''
+	let ownerKind: 'user' | 'group' = $state('user')
+	let owner: string = $state('')
 
-	let newOwner: string = ''
+	let newOwner: string = $state('')
 	let write: boolean = false
-	let acls: [string, boolean][] = []
-	let groups: String[] = []
-	let usernames: string[] = []
+	let acls: [string, boolean][] = $state([])
+	let groups: String[] = $state([])
+	let usernames: string[] = $state([])
 
-	let drawer: Drawer
+	let drawer: Drawer | undefined = $state()
 
-	$: newOwner = [ownerKind === 'group' ? 'g' : 'u', owner].join('/')
+	run(() => {
+		newOwner = [ownerKind === 'group' ? 'g' : 'u', owner].join('/')
+	})
 
-	let own = false
+	let own = $state(false)
 	export async function openDrawer(newPath: string, kind_l: Kind) {
 		path = newPath
 		kind = kind_l
@@ -57,7 +62,7 @@
 		loadGroups()
 		loadUsernames()
 		loadOwner()
-		drawer.openDrawer()
+		drawer?.openDrawer()
 	}
 
 	async function loadOwner() {
@@ -106,7 +111,7 @@
 </script>
 
 <Drawer bind:this={drawer}>
-	<DrawerContent title="Share {path}" on:close={drawer.closeDrawer}>
+	<DrawerContent title="Share {path}" on:close={drawer?.closeDrawer}>
 		<div class="flex flex-col gap-6">
 			<h1>{path}</h1>
 			<h2
@@ -125,73 +130,75 @@
 				{#if own}
 					<div class="flex flex-row flex-wrap gap-2 items-center">
 						<div>
-							<ToggleButtonGroup
-								bind:selected={ownerKind}
-								on:selected={() => (owner = '')}
-								let:item
-							>
-								<ToggleButton value="user" size="xs" label="User" {item} />
-								<ToggleButton value="group" size="xs" label="Group" {item} />
+							<ToggleButtonGroup bind:selected={ownerKind} on:selected={() => (owner = '')}>
+								{#snippet children({ item })}
+									<ToggleButton value="user" size="xs" label="User" {item} />
+									<ToggleButton value="group" size="xs" label="Group" {item} />
+								{/snippet}
 							</ToggleButtonGroup>
 						</div>
 						{#key ownerKind}
-							<AutoComplete
-								required
-								noInputStyles
-								items={ownerKind === 'user' ? usernames : groups}
-								bind:selectedItem={owner}
+							<Select
+								items={safeSelectItems(
+									(ownerKind === 'user' ? usernames : groups).map((x) => x.toString())
+								)}
+								bind:value={owner}
 							/>
 						{/key}
 						<Button size="sm" on:click={() => addAcl(newOwner, write)}>Add permission</Button>
 					</div>
 				{/if}
 				<TableCustom>
+					<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
 					<tr slot="header-row">
 						<th>owner</th>
 						<th></th>
 						<th></th>
 					</tr>
-					<tbody slot="body">
-						{#each acls as [owner, write]}
-							<tr>
-								<td>{owner}</td>
-								<td
-									>{#if own}
-										<div>
-											<ToggleButtonGroup
-												selected={write ? 'writer' : 'viewer'}
-												on:selected={async (e) => {
-													const role = e.detail
-													if (role == 'writer') {
-														await addAcl(owner, true)
-													} else {
-														await addAcl(owner, false)
-													}
-													loadAcls()
-												}}
-												let:item
+					{#snippet body()}
+						<tbody>
+							{#each acls as [owner, write]}
+								<tr>
+									<td>{owner}</td>
+									<td
+										>{#if own}
+											<div>
+												<ToggleButtonGroup
+													selected={write ? 'writer' : 'viewer'}
+													on:selected={async (e) => {
+														const role = e.detail
+														if (role == 'writer') {
+															await addAcl(owner, true)
+														} else {
+															await addAcl(owner, false)
+														}
+														loadAcls()
+													}}
+												>
+													{#snippet children({ item })}
+														<ToggleButton value="viewer" size="xs" label="Viewer" {item} />
+														<ToggleButton value="writer" size="xs" label="Writer" {item} />
+													{/snippet}
+												</ToggleButtonGroup>
+											</div>
+										{:else}{write}{/if}</td
+									>
+									<td>
+										{#if own}
+											<Button
+												variant="border"
+												color="red"
+												size="xs"
+												on:click={() => deleteAcl(owner)}
 											>
-												<ToggleButton value="viewer" size="xs" label="Viewer" {item} />
-												<ToggleButton value="writer" size="xs" label="Writer" {item} />
-											</ToggleButtonGroup>
-										</div>
-									{:else}{write}{/if}</td
-								>
-								<td>
-									{#if own}
-										<Button
-											variant="border"
-											color="red"
-											size="xs"
-											on:click={() => deleteAcl(owner)}
-										>
-											Delete
-										</Button>
-									{/if}
-								</td>
-							</tr>
-						{/each}
-					</tbody>
+												Delete
+											</Button>
+										{/if}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					{/snippet}
 				</TableCustom>
 			</div>
 		</div>

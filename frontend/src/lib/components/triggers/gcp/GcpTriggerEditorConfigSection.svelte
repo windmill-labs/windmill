@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import Section from '$lib/components/Section.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
@@ -21,25 +23,13 @@
 	import { RefreshCw } from 'lucide-svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import TestingBadge from '../testingBadge.svelte'
-	import Select from '$lib/components/Select.svelte'
+	import Select from '$lib/components/select/Select.svelte'
+	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 
-	export let can_write: boolean = false
-	export let headless: boolean = false
-	export let isValid: boolean = false
-	export let gcp_resource_path = ''
-	export let subscription_id = ''
-	export let topic_id = ''
-	export let delivery_type: DeliveryType | undefined = 'pull'
-	export let delivery_config: PushConfig | undefined
-	export let subscription_mode: SubscriptionMode = 'create_update'
-	export let base_endpoint: string = getBaseUrl()
-	export let path = ''
-	export let showTestingBadge: boolean = false
-
-	let topic_items: string[] = []
-	let subscription_items: string[] = []
-	let loadingTopic = false
-	let loadingSubscription = false
+	let topic_items: string[] = $state([])
+	let subscription_items: string[] = $state([])
+	let loadingTopic = $state(false)
+	let loadingSubscription = $state(false)
 
 	const DEFAULT_PUSH_CONFIG: PushConfig = {
 		audience: getBaseUrl(),
@@ -79,40 +69,79 @@
 		}
 	}
 
-	export let cloud_subscription_id = ''
-	export let create_update_subscription_id = ''
+	interface Props {
+		can_write?: boolean
+		headless?: boolean
+		isValid?: boolean
+		gcp_resource_path?: string
+		subscription_id?: string
+		topic_id?: string
+		delivery_type?: DeliveryType | undefined
+		delivery_config: PushConfig | undefined
+		subscription_mode?: SubscriptionMode
+		base_endpoint?: string
+		path?: string
+		showTestingBadge?: boolean
+		cloud_subscription_id?: string
+		create_update_subscription_id?: string
+	}
 
-	$: isValid =
-		!emptyStringTrimmed(gcp_resource_path) &&
-		!emptyStringTrimmed(topic_id) &&
-		!emptyStringTrimmed(subscription_id)
-	$: if (!delivery_type) {
-		delivery_type = 'pull'
-	}
-	$: if (!delivery_config) {
-		delivery_config = DEFAULT_PUSH_CONFIG
-	}
+	let {
+		can_write = false,
+		headless = false,
+		isValid = $bindable(false),
+		gcp_resource_path = $bindable(''),
+		subscription_id = $bindable(''),
+		topic_id = $bindable(''),
+		delivery_type = $bindable('pull'),
+		delivery_config = $bindable(),
+		subscription_mode = $bindable('create_update'),
+		base_endpoint = $bindable(getBaseUrl()),
+		path = '',
+		showTestingBadge = false,
+		cloud_subscription_id = $bindable(''),
+		create_update_subscription_id = $bindable('')
+	}: Props = $props()
+
+	run(() => {
+		isValid =
+			!emptyStringTrimmed(gcp_resource_path) &&
+			!emptyStringTrimmed(topic_id) &&
+			!emptyStringTrimmed(subscription_id)
+	})
+	run(() => {
+		if (!delivery_type) {
+			delivery_type = 'pull'
+		}
+	})
+	run(() => {
+		if (!delivery_config) {
+			delivery_config = DEFAULT_PUSH_CONFIG
+		}
+	})
 
 	function getBaseUrl() {
 		return `${window.location.origin}${base}/api/gcp/w/${$workspaceStore!}`
 	}
 
-	$: !base_endpoint && (base_endpoint = getBaseUrl())
+	run(() => {
+		!base_endpoint && (base_endpoint = getBaseUrl())
+	})
 
-	$: {
+	run(() => {
 		if (emptyStringTrimmed(subscription_id) && !emptyStringTrimmed(path)) {
 			subscription_id = `windmill-${$workspaceStore!}-${path.replaceAll('/', '_')}`
 		}
-	}
+	})
 </script>
 
 <div>
 	<Section label="GCP Pub/Sub" {headless}>
-		<svelte:fragment slot="header">
+		{#snippet header()}
 			{#if showTestingBadge}
 				<TestingBadge />
 			{/if}
-		</svelte:fragment>
+		{/snippet}
 		<div class="flex flex-col w-full gap-4">
 			<Subsection label="Connection setup">
 				<div class="flex flex-col gap-1 mt-2">
@@ -148,7 +177,7 @@
 										loadAllSubscriptionFromGooglePubSubTopic()
 									}
 								}
-								items={topic_items.map((value) => ({ value }))}
+								items={safeSelectItems(topic_items)}
 								placeholder="Choose a topic"
 							/>
 							<Button
@@ -178,22 +207,23 @@
 									loadAllSubscriptionFromGooglePubSubTopic()
 								}
 							}}
-							let:item
 						>
-							<ToggleButton
-								label="Create/Update"
-								value="create_update"
-								tooltip="Create a new subscription or update an existing one with custom settings"
-								showTooltipIcon
-								{item}
-							/>
-							<ToggleButton
-								label="Existing subscription"
-								value="existing"
-								tooltip="Select an existing subscription from GCP Pub/Sub"
-								showTooltipIcon
-								{item}
-							/>
+							{#snippet children({ item })}
+								<ToggleButton
+									label="Create/Update"
+									value="create_update"
+									tooltip="Create a new subscription or update an existing one with custom settings"
+									showTooltipIcon
+									{item}
+								/>
+								<ToggleButton
+									label="Existing subscription"
+									value="existing"
+									tooltip="Select an existing subscription from GCP Pub/Sub"
+									showTooltipIcon
+									{item}
+								/>
+							{/snippet}
 						</ToggleButtonGroup>
 
 						{#if subscription_mode === 'create_update'}
@@ -207,7 +237,7 @@
 										autocomplete="off"
 										placeholder="Enter subscription ID (leave empty to auto-generate)"
 										bind:value={create_update_subscription_id}
-										on:input={(event) => {
+										oninput={(event) => {
 											subscription_id = event?.currentTarget.value
 										}}
 									/>
@@ -219,21 +249,23 @@
 									tooltip="Select the delivery type for the Pub/Sub subscription. If the subscription already exists and you want to keep it as-is, choose the same delivery type as in Google Cloud. You can switch the type here if the API allows it — otherwise, make the change directly in Google Cloud."
 								>
 									<div class="flex flex-col gap-2 mt-2">
-										<ToggleButtonGroup bind:selected={delivery_type} let:item>
-											<ToggleButton
-												label="Pull"
-												tooltip="Create a subscription where your service will pull messages from the queue. Suitable for services that periodically check for new messages."
-												value="pull"
-												showTooltipIcon
-												{item}
-											/>
-											<ToggleButton
-												label="Push"
-												tooltip="Windmill will auto-generate a push endpoint for this subscription. You must not modify this endpoint in Google Cloud, as it is managed internally by Windmill."
-												showTooltipIcon
-												value="push"
-												{item}
-											/>
+										<ToggleButtonGroup bind:selected={delivery_type}>
+											{#snippet children({ item })}
+												<ToggleButton
+													label="Pull"
+													tooltip="Create a subscription where your service will pull messages from the queue. Suitable for services that periodically check for new messages."
+													value="pull"
+													showTooltipIcon
+													{item}
+												/>
+												<ToggleButton
+													label="Push"
+													tooltip="Windmill will auto-generate a push endpoint for this subscription. You must not modify this endpoint in Google Cloud, as it is managed internally by Windmill."
+													showTooltipIcon
+													value="push"
+													{item}
+												/>
+											{/snippet}
 										</ToggleButtonGroup>
 									</div>
 								</Subsection>
@@ -281,7 +313,7 @@
 											(t) => ((subscription_id = t), (cloud_subscription_id = t))
 										}
 										onClear={() => (subscription_id = '')}
-										items={subscription_items.map((value) => ({ value }))}
+										items={safeSelectItems(subscription_items)}
 										placeholder="Choose a subscription"
 									/>
 									<Button

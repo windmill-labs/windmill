@@ -18,6 +18,7 @@ export { sendUserToast }
 import type { AnyMeltElement } from '@melt-ui/svelte'
 import type { RunsSelectionMode } from './components/runs/RunsBatchActionsDropdown.svelte'
 import type { TriggerKind } from './components/triggers'
+import { stateSnapshot } from './svelte5Utils.svelte'
 import { validate, dereference } from '@scalar/openapi-parser'
 
 export namespace OpenApi {
@@ -273,7 +274,7 @@ export function validatePassword(password: string): boolean {
 	return re.test(password)
 }
 
-const portalDivs = ['app-editor-select']
+const portalDivs = ['#app-editor-select', '.select-dropdown-portal']
 
 interface ClickOutsideOptions {
 	capture?: boolean
@@ -308,7 +309,7 @@ export function clickOutside(
 		})
 
 		if (node && !node.contains(target) && !event.defaultPrevented && !isExcluded) {
-			const portalDivsSelector = portalDivs.map((id) => `#${id}`).join(', ')
+			const portalDivsSelector = portalDivs.join(', ')
 			const parent = target.closest(portalDivsSelector)
 
 			if (!parent) {
@@ -371,7 +372,7 @@ export function pointerDownOutside(
 		})
 
 		if (node && !node.contains(target) && !event.defaultPrevented && !isExcluded) {
-			const portalDivsSelector = portalDivs.map((id) => `#${id}`).join(', ')
+			const portalDivsSelector = portalDivs.join(', ')
 			const parent = target.closest(portalDivsSelector)
 
 			if (!parent) {
@@ -658,6 +659,18 @@ export function cronV1toV2(inp: string): string {
 
 export function classNames(...classes: Array<string | undefined>): string {
 	return classes.filter(Boolean).join(' ')
+}
+
+export function download(filename: string, fileContent: string, mimeType?: string) {
+	const blob = new Blob([fileContent], {
+		type: mimeType
+	})
+	const url = window.URL.createObjectURL(blob)
+	const a = document.createElement('a')
+	a.href = url
+	a.download = filename
+	a.click()
+	setTimeout(() => URL.revokeObjectURL(url), 100)
 }
 
 export async function copyToClipboard(value?: string, sendToast = true): Promise<boolean> {
@@ -1007,7 +1020,7 @@ export type Value = {
 }
 
 export function replaceFalseWithUndefined(obj: any) {
-	return replaceFalseWithUndefinedRec(structuredClone(obj))
+	return replaceFalseWithUndefinedRec(structuredClone(stateSnapshot(obj)))
 }
 
 function replaceFalseWithUndefinedRec(obj: any) {
@@ -1036,7 +1049,7 @@ export function cleanValueProperties(obj: Value) {
 		let newObj: any = {}
 		for (const key of Object.keys(obj)) {
 			if (key !== 'parent_hash' && key !== 'draft' && key !== 'draft_only') {
-				newObj[key] = structuredClone(obj[key])
+				newObj[key] = structuredClone(stateSnapshot(obj[key]))
 			}
 		}
 		return newObj
@@ -1355,8 +1368,62 @@ export function getOS() {
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import type { Snippet } from 'svelte'
-import type { OpenAPI, OpenAPIV2, OpenAPIV3, OpenAPIV3_1 } from 'openapi-types'
+import { OpenAPIV2, type OpenAPI, type OpenAPIV3, type OpenAPIV3_1 } from 'openapi-types'
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))
+}
+
+export type StateStore<T> = {
+	val: T
+}
+
+export type ReadFieldsRecursivelyOptions = {
+	excludeField?: string[]
+}
+
+export function readFieldsRecursively(obj: any, options: ReadFieldsRecursivelyOptions = {}): void {
+	if (Array.isArray(obj)) {
+		// <= in case a new object is added. should read as undefined
+		for (let i = 0; i <= obj.length; i++) {
+			if (obj[i] && typeof obj[i] === 'object') {
+				readFieldsRecursively(obj[i])
+			}
+		}
+	} else if (obj !== null && typeof obj === 'object') {
+		Object.keys(obj).forEach((key) => {
+			if (!options.excludeField?.includes(key)) readFieldsRecursively(obj[key], options)
+		})
+	}
+}
+
+export function reorder<T>(items: T[], oldIndex: number, newIndex: number): T[] {
+	const updatedItems = [...items]
+	const [removedItem] = updatedItems.splice(oldIndex, 1)
+	updatedItems.splice(newIndex, 0, removedItem)
+	return updatedItems
+}
+
+export function scroll_into_view_if_needed_polyfill(elem: Element, centerIfNeeded: boolean = true) {
+	const observer = new IntersectionObserver(
+		function ([entry]) {
+			const ratio = entry.intersectionRatio
+			if (ratio < 1) {
+				const place = ratio <= 0 && centerIfNeeded ? `center` : `nearest`
+				elem.scrollIntoView({
+					block: place,
+					inline: place
+				})
+			}
+			observer.disconnect()
+		},
+		{
+			root: null, // or specify a scrolling parent if needed
+			rootMargin: '0px 1000px', // Essentially making horizontal checks irrelevant
+			threshold: 0.1 // Adjust threshold to control when observer should trigger
+		}
+	)
+	observer.observe(elem)
+
+	return observer // return for testing
 }

@@ -676,8 +676,8 @@ export const customisationByComponent: Customisation[] = [
 				comment: 'buttons to remove a single or all selected options at once'
 			},
 			{
-				selector: '.multiselect > input[autocomplete]',
-				comment: 'input inside the top-level wrapper div'
+				selector: '.multiselect.dropdown',
+				comment: 'dropdown container'
 			},
 			{
 				selector: '.multiselect > ul.options',
@@ -686,23 +686,6 @@ export const customisationByComponent: Customisation[] = [
 			{
 				selector: '.multiselect > ul.options > li',
 				comment: 'dropdown list items'
-			},
-			{
-				selector: '.multiselect > ul.options > li.selected',
-				comment: 'selected options in the dropdown list'
-			},
-			{
-				selector: '.multiselect > ul.options > li:not(.selected):hover',
-				comment: 'unselected but hovered options in the dropdown list'
-			},
-			{
-				selector: '.multiselect > ul.options > li.active',
-				comment:
-					'active item, navigated to with up/down arrow keys and ready to be selected by pressing enter'
-			},
-			{
-				selector: '.multiselect > ul.options > li.disabled',
-				comment: 'options with disabled key set to true'
 			}
 		],
 		variables: [

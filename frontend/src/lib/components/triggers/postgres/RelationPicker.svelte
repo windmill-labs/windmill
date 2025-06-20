@@ -4,38 +4,50 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { Relations } from '$lib/gen'
-	import { Plus, Trash, X } from 'lucide-svelte'
+	import { Plus, Trash } from 'lucide-svelte'
 	import { getDefaultTableToTrack, invalidRelations } from './utils'
 	import AddPropertyFormV2 from '$lib/components/schema/AddPropertyFormV2.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { emptyStringTrimmed, sendUserToast } from '$lib/utils'
-	import MultiSelect from 'svelte-multiselect'
+	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
+	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 
-	export let relations: Relations[] | undefined = undefined
-	export let can_write: boolean = true
-	export let disabled: boolean = false
-	export let pg14: boolean = false
-
-	$: selected = relations && relations.length > 0 ? 'specific' : 'all'
-
-	let cached: Relations[] | undefined = relations
-
-	$: if (pg14 && relations) {
-		relations.forEach((relation) => {
-			if (relation.table_to_track.length === 0) {
-				relation.table_to_track.push({ table_name: '' })
-			} else {
-				relation.table_to_track.forEach((table_to_track) => {
-					if (table_to_track.columns_name) {
-						table_to_track.columns_name = undefined
-					}
-					if (!emptyStringTrimmed(table_to_track.where_clause)) {
-						table_to_track.where_clause = undefined
-					}
-				})
-			}
-		})
+	interface Props {
+		relations?: Relations[] | undefined
+		can_write?: boolean
+		disabled?: boolean
+		pg14?: boolean
 	}
+
+	let {
+		relations = $bindable(undefined),
+		can_write = true,
+		disabled = false,
+		pg14 = $bindable(false)
+	}: Props = $props()
+
+	let selected = $derived(relations && relations.length > 0 ? 'specific' : 'all')
+
+	let cached: Relations[] | undefined = $state(relations)
+
+	$effect(() => {
+		if (pg14 && relations) {
+			relations.forEach((relation) => {
+				if (relation.table_to_track.length === 0) {
+					relation.table_to_track.push({ table_name: '' })
+				} else {
+					relation.table_to_track.forEach((table_to_track) => {
+						if (table_to_track.columns_name) {
+							table_to_track.columns_name = undefined
+						}
+						if (!emptyStringTrimmed(table_to_track.where_clause)) {
+							table_to_track.where_clause = undefined
+						}
+					})
+				}
+			})
+		}
+	})
 
 	function addTable(name: string, index: number) {
 		if (relations) {
@@ -80,11 +92,12 @@
 					}
 				}}
 				bind:selected
-				let:item
 				{disabled}
 			>
-				<ToggleButton value="all" label="All Tables" {item} />
-				<ToggleButton value="specific" label="Specific Tables" {item} />
+				{#snippet children({ item })}
+					<ToggleButton value="all" label="All Tables" {item} />
+					<ToggleButton value="specific" label="Specific Tables" {item} />
+				{/snippet}
 			</ToggleButtonGroup>
 		</div>
 	</div>
@@ -95,7 +108,7 @@
 				<div class="flex w-full gap-3 items-center">
 					<div class="w-full flex flex-col gap-2 border py-2 px-4 rounded-md">
 						<Label label="Schema Name" required class="w-full">
-							<svelte:fragment slot="header">
+							{#snippet header()}
 								<Tooltip small>
 									<p>
 										Enter the name of the <strong>schema</strong> that contains the table(s) you
@@ -104,7 +117,7 @@
 										be tracked for the selected transactions (insert, update, delete).
 									</p>
 								</Tooltip>
-							</svelte:fragment>
+							{/snippet}
 
 							<input class="mt-1" type="text" bind:value={v.schema_name} {disabled} />
 						</Label>
@@ -114,9 +127,9 @@
 									class="relative rounded bg-surface-disabled p-2 flex w-full flex-col gap-4 group"
 								>
 									<Label label="Table Name" required>
-										<svelte:fragment slot="header">
+										{#snippet header()}
 											<Tooltip small>Enter the name of the table you want to track.</Tooltip>
-										</svelte:fragment>
+										{/snippet}
 										<input
 											type="text"
 											bind:value={table_to_track.table_name}
@@ -125,7 +138,7 @@
 										/>
 									</Label>
 									<Label label="Columns">
-										<svelte:fragment slot="header">
+										{#snippet header()}
 											<Tooltip
 												documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#selecting-specific-columns"
 												small
@@ -155,64 +168,35 @@
 													filter WHERE clause can use any column.
 												</p>
 											</Tooltip>
-										</svelte:fragment>
+										{/snippet}
 										<div class="mt-1">
 											<MultiSelect
-												options={table_to_track.columns_name ?? []}
-												allowUserOptions="append"
-												ulOptionsClass={'!bg-surface !text-sm'}
-												ulSelectedClass="!text-sm"
-												outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
-												noMatchingOptionsMsg=""
-												createOptionMsg={null}
-												disabled={pg14}
-												duplicates={false}
-												selected={table_to_track.columns_name ?? []}
+												items={safeSelectItems(table_to_track.columns_name ?? [])}
 												placeholder="Select columns"
-												--sms-options-margin="4px"
-												onchange={(e) => {
-													const option = e.option?.toString()
-													updateRelationsFor(i, (rel) => {
-														const updatedTables = rel.table_to_track.map((t, idx) => {
-															if (idx !== j) return t
-
-															let updatedColumns = t.columns_name ?? []
-
-															if (e.type === 'add' && option) {
-																updatedColumns = [...updatedColumns, option]
-															} else if (e.type === 'remove') {
-																updatedColumns = updatedColumns.filter((col) => col !== option)
-															} else if (e.type === 'removeAll') {
-																updatedColumns = []
-															} else {
-																console.error(
-																	`Priority tags multiselect - unknown event type: '${e.type}'`
-																)
-															}
-
-															return {
-																...t,
-																columns_name: updatedColumns
-															}
-														})
-
-														return {
+												disabled={pg14}
+												bind:value={
+													() => table_to_track.columns_name ?? [],
+													(columns_name) => {
+														updateRelationsFor(i, (rel) => ({
 															...rel,
-															table_to_track: updatedTables
-														}
-													})
-												}}
-											>
-												<svelte:fragment slot="remove-icon">
-													<div class="hover:text-primary p-0.5">
-														<X size={12} />
-													</div>
-												</svelte:fragment>
-											</MultiSelect>
+															table_to_track: rel.table_to_track.map((t, idx) =>
+																idx !== j ? t : { ...t, columns_name }
+															)
+														}))
+													}
+												}
+												onCreateItem={(x) =>
+													updateRelationsFor(i, (rel) => ({
+														...rel,
+														table_to_track: rel.table_to_track.map((t, idx) =>
+															idx !== j ? t : { ...t, columns_name: [...(t.columns_name ?? []), x] }
+														)
+													}))}
+											/>
 										</div>
 									</Label>
 									<Label label="Where Clause">
-										<svelte:fragment slot="header">
+										{#snippet header()}
 											<Tooltip
 												documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#filtering-rows-with-where-condition"
 												small
@@ -244,7 +228,7 @@
 													filter WHERE clause can use any column.
 												</p>
 											</Tooltip>
-										</svelte:fragment>
+										{/snippet}
 										<input
 											disabled={pg14}
 											type="text"
@@ -284,7 +268,7 @@
 								}}
 								{disabled}
 							>
-								<svelte:fragment slot="trigger">
+								{#snippet trigger()}
 									<Button
 										wrapperClasses="w-full border border-dashed rounded-md"
 										color="light"
@@ -295,7 +279,7 @@
 									>
 										Add table
 									</Button>
-								</svelte:fragment>
+								{/snippet}
 							</AddPropertyFormV2>
 						</div>
 					</div>
@@ -343,7 +327,7 @@
 				}}
 				{disabled}
 			>
-				<svelte:fragment slot="trigger">
+				{#snippet trigger()}
 					<Button
 						variant="border"
 						color="light"
@@ -355,7 +339,7 @@
 					>
 						Add schema
 					</Button>
-				</svelte:fragment>
+				{/snippet}
 			</AddPropertyFormV2>
 		</div>
 	{/if}

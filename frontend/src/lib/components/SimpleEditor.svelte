@@ -69,7 +69,7 @@
 
 	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
 
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import domContent from '$lib/dom.d.ts.txt?raw'
@@ -115,7 +115,7 @@
 		tailwindClasses = [],
 		class: className = '',
 		loadAsync = false
-	} = $props<{
+	}: {
 		lang: string
 		code?: string
 		hash?: string
@@ -137,7 +137,7 @@
 		tailwindClasses?: string[]
 		class?: string
 		loadAsync?: boolean
-	}>()
+	} = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -156,11 +156,18 @@
 		}
 	}
 
-	export function setCode(ncode: string): void {
+	export function setCode(ncode: string, formatCode?: boolean): void {
 		if (ncode != code) {
 			code = ncode
 		}
 		editor?.setValue(ncode)
+		if (formatCode) {
+			format()
+		}
+	}
+
+	export function formatCode(): void {
+		format()
 	}
 
 	function updateCode() {
@@ -238,13 +245,13 @@
 
 	$effect(() => {
 		if (allowVim && editor !== null && $vimMode && statusDiv) {
-			onVimMode()
+			untrack(() => onVimMode())
 		}
 	})
 
 	$effect(() => {
 		if (!$vimMode && vimDisposable) {
-			onVimDisable()
+			untrack(() => onVimDisable())
 		}
 	})
 
@@ -303,7 +310,7 @@
 
 	$effect(() => {
 		if (editor !== null && (lang || disableLinting || disableSuggestions || hideLineNumbers)) {
-			updateModelAndOptions()
+			untrack(() => updateModelAndOptions())
 		}
 	})
 
@@ -336,7 +343,7 @@
 		// 	})
 		// }
 		try {
-			model = meditor.createModel(code, lang, mUri.parse(uri))
+			model = meditor.createModel(code ?? '', lang, mUri.parse(uri))
 		} catch (err) {
 			console.log('model already existed', err)
 			const nmodel = meditor.getModel(mUri.parse(uri))
@@ -352,26 +359,31 @@
 		if (!divEl) {
 			return
 		}
-		editor = meditor.create(divEl as HTMLDivElement, {
-			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
-			model,
-			lineDecorationsWidth: 6,
-			lineNumbersMinChars: 2,
-			fontSize: fontSize,
-			quickSuggestions: disableSuggestions
-				? { other: false, comments: false, strings: false }
-				: { other: true, comments: true, strings: true },
-			suggestOnTriggerCharacters: !disableSuggestions,
-			wordBasedSuggestions: disableSuggestions ? 'off' : 'matchingDocuments',
-			parameterHints: { enabled: !disableSuggestions },
-			suggest: {
-				showIcons: !disableSuggestions,
-				showSnippets: !disableSuggestions,
-				showKeywords: !disableSuggestions,
-				showWords: !disableSuggestions,
-				snippetsPreventQuickSuggestions: disableSuggestions
-			}
-		})
+		try {
+			editor = meditor.create(divEl as HTMLDivElement, {
+				...editorConfig(code ?? '', lang, automaticLayout, fixedOverflowWidgets),
+				model,
+				lineDecorationsWidth: 6,
+				lineNumbersMinChars: 2,
+				fontSize: fontSize,
+				quickSuggestions: disableSuggestions
+					? { other: false, comments: false, strings: false }
+					: { other: true, comments: true, strings: true },
+				suggestOnTriggerCharacters: !disableSuggestions,
+				wordBasedSuggestions: disableSuggestions ? 'off' : 'matchingDocuments',
+				parameterHints: { enabled: !disableSuggestions },
+				suggest: {
+					showIcons: !disableSuggestions,
+					showSnippets: !disableSuggestions,
+					showKeywords: !disableSuggestions,
+					showWords: !disableSuggestions,
+					snippetsPreventQuickSuggestions: disableSuggestions
+				}
+			})
+		} catch (e) {
+			console.error('Error loading monaco:', e)
+			return
+		}
 		keepModelAroundToAvoidDisposalOfWorkers()
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
@@ -534,7 +546,7 @@
 		})
 	}
 
-	let previousExtraLib = undefined
+	let previousExtraLib: string | undefined = undefined
 	function loadExtraLib() {
 		if (lang == 'javascript') {
 			const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
@@ -575,7 +587,7 @@
 
 	$effect(() => {
 		if (mounted && extraLib && initialized) {
-			loadExtraLib()
+			untrack(() => loadExtraLib())
 		}
 	})
 
@@ -597,11 +609,11 @@
 		}
 	}
 
-	updatePlaceholderVisibility(code)
+	updatePlaceholderVisibility(code ?? '')
 </script>
 
 <EditorTheme />
-{#if editor && suggestion && code.length === 0}
+{#if editor && suggestion && code?.length === 0}
 	<div
 		class="absolute top-[0.05rem] left-[2.05rem] z-10 text-sm text-[#0007] italic font-mono dark:text-[#ffffff56] text-ellipsis overflow-hidden whitespace-nowrap"
 		style={`max-width: calc(${width}px - 2.05rem)`}

@@ -80,7 +80,6 @@ const emptyApp = {
 						style: ''
 					}
 				},
-				actions: [],
 				numberOfSubgrids: 1,
 				id: 'a'
 			},
@@ -163,7 +162,6 @@ const emptyApp = {
 							style: ''
 						}
 					},
-					actions: [],
 					horizontalAlignment: 'left',
 					verticalAlignment: 'center',
 					id: 'b'
@@ -190,7 +188,6 @@ const emptyApp = {
 				data: {
 					type: 'recomputeallcomponent',
 					configuration: {},
-					actions: [],
 					menuItems: [],
 					horizontalAlignment: 'right',
 					verticalAlignment: 'center',

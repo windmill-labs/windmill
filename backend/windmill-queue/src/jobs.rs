@@ -2716,7 +2716,7 @@ pub async fn get_result_by_id(
     .await
     {
         Ok(res) => Ok(res),
-        Err(_) => {
+        Err(e) => {
             let root = sqlx::query!(
                 "SELECT
                     id As \"id!\",
@@ -2733,7 +2733,7 @@ pub async fn get_result_by_id(
                     let restarted_from_id = not_found_if_none(
                         root.restarted_from,
                         "Id not found in the result's mapping of the root job and root job had no restarted from information",
-                        format!("parent: {}, root: {}, id: {}", flow_id, root.id, node_id),
+                        format!("parent: {}, root: {}, id: {}, error: {e:#}", flow_id, root.id, node_id),
                     )?;
 
                     get_result_by_id_from_original_flow(
@@ -4027,6 +4027,7 @@ pub async fn push<'c, 'd>(
             None,
         ),
     };
+
 
     let final_priority: Option<i16>;
     #[cfg(not(feature = "enterprise"))]

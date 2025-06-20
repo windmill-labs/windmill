@@ -1,0 +1,105 @@
+name: Update SQLx
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  update-sqlx:
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/updatesqlx')
+    runs-on: ubicloud-standard-8
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: windmill
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Comment on PR - Starting
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: 'Starting sqlx update...'
+            })
+
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.issue.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Checkout windmill-ee-private
+        uses: actions/checkout@v3
+        with:
+          repository: windmill-labs/windmill-ee-private
+          path: windmill-ee-private
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+
+      # Cache rust dependencies
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./backend -> target"
+
+      - name: Install xmlsec build-time deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libxml2-dev libssl-dev \
+            xmlsec1 libxmlsec1-dev libxmlsec1-openssl
+
+      - name: Run update-sqlx script
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/windmill
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=${{ github.event.issue.number }}
+          BRANCH_NAME=$(gh pr view $PR_NUMBER --json headRefName --jq .headRefName)
+          echo "Checking out PR branch: $BRANCH_NAME"
+          git checkout $BRANCH_NAME
+          mkdir frontend/build
+          cd backend
+          cargo install sqlx-cli --version 0.8.5
+          sqlx migrate run
+          ./update_sqlx.sh --dir ./windmill-ee-private
+          # Pass the branch name to the next step
+          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+
+      - name: Commit changes if any
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add backend/.sqlx
+          git commit -m "Update SQLx metadata"
+          git push origin ${{ env.BRANCH_NAME }}
+
+      - name: Comment on PR - Completed
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: 'Successfully ran sqlx update'
+            })

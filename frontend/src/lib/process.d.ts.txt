@@ -174,7 +174,6 @@ declare module 'process' {
 				WM_STATE_PATH: string
 				WM_FLOW_STEP_ID: string
 				WM_OBJECT_PATH: string
-				WM_OIDC_JWT: string
 				WM_WORKER_GROUP: string
 			}
 			interface HRTime {

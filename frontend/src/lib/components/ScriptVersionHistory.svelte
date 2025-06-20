@@ -196,13 +196,14 @@
 								<div class="w-min">
 									<ToggleButtonGroup
 										selected={showDiff ? 'diff' : 'code'}
-										let:item
 										on:selected={({ detail }) => {
 											showDiff = detail === 'diff'
 										}}
 									>
-										<ToggleButton light small value="code" label="Code" icon={Code} {item} />
-										<ToggleButton light small value="diff" label="Diff" icon={Diff} {item} />
+										{#snippet children({ item })}
+											<ToggleButton light small value="code" label="Code" icon={Code} {item} />
+											<ToggleButton light small value="diff" label="Diff" icon={Diff} {item} />
+										{/snippet}
 									</ToggleButtonGroup>
 								</div>
 
