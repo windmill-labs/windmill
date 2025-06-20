@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.500.1](https://github.com/windmill-labs/windmill/compare/v1.500.0...v1.500.1) (2025-06-20)
+
+
+### Bug Fixes
+
+* git repository resource picker effect loop ([#6017](https://github.com/windmill-labs/windmill/issues/6017)) ([1b1bee5](https://github.com/windmill-labs/windmill/commit/1b1bee5b53d78e4407b684b567d0fddd2b5283f3))
+
 ## [1.500.0](https://github.com/windmill-labs/windmill/compare/v1.499.0...v1.500.0) (2025-06-20)
 
 
