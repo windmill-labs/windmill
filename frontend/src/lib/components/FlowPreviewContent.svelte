@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { type Job, JobService, type Flow, type RestartedFrom, type OpenFlow } from '$lib/gen'
+	import { type Job, JobService, type RestartedFrom, type OpenFlow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Badge, Button } from './common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -21,6 +21,8 @@
 	import { NEVER_TESTED_THIS_FAR } from './flows/models'
 	import { writable, type Writable } from 'svelte/store'
 	import type { DurationStatus, GraphModuleState } from './graph'
+	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
+	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
@@ -74,10 +76,11 @@
 	let currentJobId: string | undefined = undefined
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
+		const previewFlow = aiChatManager.flowAiChatHelpers?.getPreviewFlow()
 		if (previewMode === 'whole') {
-			return flowStore.val
+			return previewFlow ?? flowStore.val
 		} else {
-			const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
+			const flow = previewFlow ?? stateSnapshot(flowStore).val
 			const idOrders = dfs(flow.value.modules, (x) => x.id)
 			let upToIndex = idOrders.indexOf($selectedId)
 

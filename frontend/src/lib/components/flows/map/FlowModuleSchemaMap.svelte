@@ -63,16 +63,8 @@
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
 
-	const {
-		customUi,
-		selectedId,
-		moving,
-		history,
-		flowStateStore,
-		flowStore,
-		flowInputsStore,
-		pathStore
-	} = getContext<FlowEditorContext>('FlowEditorContext')
+	const { customUi, selectedId, moving, history, flowStateStore, flowStore, pathStore } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
@@ -188,7 +180,7 @@
 		return dfsByModule(id, flowStore.val.value.modules)[0]
 	}
 
-	async function addBranch(id: string) {
+	export async function addBranch(id: string) {
 		push(history, flowStore.val)
 		let module = findModuleById(id)
 
@@ -205,7 +197,7 @@
 		}
 	}
 
-	function removeBranch(id: string, index: number) {
+	export function removeBranch(id: string, index: number) {
 		push(history, flowStore.val)
 		let module = findModuleById(id)
 
@@ -340,7 +332,6 @@
 			modules={flowStore.val.value.modules}
 			preprocessorModule={flowStore.val.value?.preprocessor_module}
 			{selectedId}
-			{flowInputsStore}
 			{workspace}
 			editMode
 			onDelete={(id) => {

@@ -5,7 +5,6 @@
 
 	import { get, writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/base.css'
-	import type { FlowInput } from '../flows/types'
 	import {
 		SvelteFlow,
 		type Node,
@@ -82,7 +81,6 @@
 		download?: boolean
 		fullSize?: boolean
 		disableAi?: boolean
-		flowInputsStore?: Writable<FlowInput | undefined>
 		triggerNode?: boolean
 		workspace?: string
 		editMode?: boolean
@@ -140,7 +138,6 @@
 		download = false,
 		fullSize = false,
 		disableAi = false,
-		flowInputsStore = writable<FlowInput | undefined>(undefined),
 		triggerNode = false,
 		workspace = $workspaceStore ?? 'NO_WORKSPACE',
 		editMode = false,
@@ -150,9 +147,8 @@
 
 	setContext<{
 		selectedId: Writable<string | undefined>
-		flowInputsStore: Writable<FlowInput | undefined>
 		useDataflow: Writable<boolean | undefined>
-	}>('FlowGraphContext', { selectedId, flowInputsStore, useDataflow })
+	}>('FlowGraphContext', { selectedId, useDataflow })
 
 	if (triggerContext && allowSimplifiedPoll) {
 		if (isSimplifiable(modules)) {

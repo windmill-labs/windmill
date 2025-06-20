@@ -18,8 +18,7 @@
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import type { FlowEditorContext, FlowInput } from '../types'
-	import { type Writable } from 'svelte/store'
+	import type { FlowEditorContext } from '../types'
 	import { twMerge } from 'tailwind-merge'
 	import IdEditorInput from '$lib/components/IdEditorInput.svelte'
 	import { dfs } from '../dfs'
@@ -32,6 +31,10 @@
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
+	import ModuleAcceptReject, {
+		aiModuleActionToBgColor,
+		getAiModuleAction
+	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 
 	interface Props {
 		selected?: boolean
@@ -96,11 +99,8 @@
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
 
-	const { flowInputsStore } = getContext<{ flowInputsStore: Writable<FlowInput | undefined> }>(
-		'FlowGraphContext'
-	)
-
-	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
+	const flowInputsStore = flowEditorContext?.flowInputsStore
 
 	const dispatch = createEventDispatcher()
 
@@ -163,6 +163,8 @@
 	)
 
 	const icon_render = $derived(icon)
+
+	const action = $derived(getAiModuleAction(id))
 </script>
 
 {#if deletable && id && editId}
@@ -229,7 +231,8 @@
 	class={classNames(
 		'w-full module flex rounded-sm cursor-pointer max-w-full outline-offset-0 outline-slate-500 dark:outline-gray-400',
 		selected ? 'outline outline-2' : 'active:outline active:outline-2',
-		'flex relative'
+		'flex relative',
+		deletable ? aiModuleActionToBgColor(action) : ''
 	)}
 	style="width: 275px; height: 38px; background-color: {hover && bgHoverColor
 		? bgHoverColor
@@ -238,6 +241,9 @@
 	onmouseleave={() => (hover = false)}
 	onpointerdown={stopPropagation(preventDefault(() => dispatch('pointerdown')))}
 >
+	{#if deletable}
+		<ModuleAcceptReject {action} {id} />
+	{/if}
 	<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
 		{#if retry}
 			<Popover notClickable>
@@ -351,8 +357,16 @@
 		{/if}
 	</div>
 
-	<div class="flex flex-col w-full">
-		<FlowModuleSchemaItemViewer {label} {path} {id} {deletable} {bold} bind:editId {hover}>
+	<div class={twMerge('flex flex-col w-full', action === 'removed' ? 'opacity-50' : '')}>
+		<FlowModuleSchemaItemViewer
+			{label}
+			{path}
+			{id}
+			deletable={deletable && !action}
+			{bold}
+			bind:editId
+			{hover}
+		>
 			{#snippet icon()}
 				{@render icon_render?.()}
 			{/snippet}
@@ -388,7 +402,7 @@
 		{/if}
 	</div>
 
-	{#if deletable}
+	{#if deletable && !action}
 		<button
 			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
 	outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-red-400 hover:text-white
