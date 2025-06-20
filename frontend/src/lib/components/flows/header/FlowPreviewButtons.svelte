@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { Badge } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -78,22 +77,6 @@
 	}
 </script>
 
-{#if !upToDisabled}
-	<Button
-		size="xs"
-		disabled={upToDisabled}
-		color="light"
-		variant="border"
-		on:click={testUpTo}
-		startIcon={{ icon: Play }}
-	>
-		Test up to&nbsp;
-		<Badge baseClass="ml-1" small color="indigo" wrapperClass="max-h-[15px]">
-			{$selectedId}
-		</Badge>
-	</Button>
-{/if}
-
 <Button
 	color="dark"
 	size="xs"
@@ -106,6 +89,14 @@
 	}}
 	startIcon={{ icon: Play }}
 	id="flow-editor-test-flow"
+	dropdownItems={!upToDisabled
+		? [
+				{
+					label: 'Test up to ' + $selectedId,
+					onClick: testUpTo
+				}
+			]
+		: undefined}
 >
 	Test flow
 </Button>

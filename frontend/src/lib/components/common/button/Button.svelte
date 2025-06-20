@@ -310,7 +310,7 @@
 							'rounded-md m-0 p-0 center-center h-full',
 							variant === 'border' ? 'border-0 border-r border-y ' : 'border-0',
 							'rounded-r-md !rounded-l-none',
-							size === 'xs2' ? '!w-8' : '!w-10',
+							size === 'xs2' || size === 'xs' ? '!w-8' : '!w-10',
 							dropdownBtnClasses
 						)}
 					>
