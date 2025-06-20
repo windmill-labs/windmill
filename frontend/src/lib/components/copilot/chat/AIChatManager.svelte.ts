@@ -81,6 +81,7 @@ class AIChatManager {
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	pendingNewCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
+	acceptAllClicked = $state<boolean>(false)
 
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script: this.scriptEditorOptions !== undefined,
@@ -150,7 +151,7 @@ class AIChatManager {
 		}
 	}
 
-	canApplyCode = $derived(this.allowedModes.script && this.mode === AIMode.SCRIPT)
+	canApplyCode = $derived(this.allowedModes.script && this.mode === AIMode.SCRIPT && !this.acceptAllClicked)
 
 	private changeModeTool = {
 		def: {
@@ -664,6 +665,14 @@ class AIChatManager {
 		return () => {
 			this.flowAiChatHelpers = undefined
 		}
+	}
+
+	markAcceptAllClicked = () => {
+		this.acceptAllClicked = true
+	}
+
+	resetAcceptAllClicked = () => {
+		this.acceptAllClicked = false
 	}
 }
 
