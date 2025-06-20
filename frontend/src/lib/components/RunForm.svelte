@@ -132,19 +132,22 @@
 </script>
 
 <!-- Standalone triggerable registration for the run form -->
-<div style="display: none" use:triggerableByAI={{
-	id: `run-form-${runnable?.path ?? ''}`,
-	description: `Form to fill the inputs to run ${runnable?.summary && runnable?.summary.length > 0 ? runnable?.summary : runnable?.path}.
+<div
+	style="display: none"
+	use:triggerableByAI={{
+		id: `run-form-${runnable?.path ?? ''}`,
+		description: `Form to fill the inputs to run ${runnable?.summary && runnable?.summary.length > 0 ? runnable?.summary : runnable?.path}.
 	## Script description: ${runnable?.description ?? ''}.
 	## Schema used: ${JSON.stringify(runnable?.schema)}.
 	## Current args: ${JSON.stringify(args)}}`,
-	callback: (value) => {
-		savedPreviousArgs = args
-		setArgs(JSON.parse(value ?? '{}'))
-		showInputSelectedBadge = true
-	},
-	showAnimation: false
-}}></div>
+		callback: (value) => {
+			savedPreviousArgs = args
+			setArgs(JSON.parse(value ?? '{}'))
+			showInputSelectedBadge = true
+		},
+		showAnimation: false
+	}}
+></div>
 
 {#snippet acceptButton()}
 	<Button
@@ -216,10 +219,13 @@
 			</div>
 		{:else}
 			<!-- Standalone triggerable registration for loading state -->
-			<div style="display: none" use:triggerableByAI={{
-				id: "run-form-loading",
-				description: "Run form is loading, should scan the page until this is gone"
-			}}></div>
+			<div
+				style="display: none"
+				use:triggerableByAI={{
+					id: 'run-form-loading',
+					description: 'Run form is loading, should scan the page until this is gone'
+				}}
+			></div>
 			<h1>Loading...</h1>
 		{/if}
 	{/if}

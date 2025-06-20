@@ -77,13 +77,7 @@ export function triggerableByAI(element: HTMLElement, options: TriggerableByAIOp
 
 	return {
 		update(newOptions: TriggerableByAIOptions) {
-			// Unregister with old options
-			unregister()
-
-			// Update options
 			;({ id, description, callback, disabled = false, showAnimation = true } = newOptions)
-
-			// Re-register with new options
 			register()
 		},
 		destroy() {
