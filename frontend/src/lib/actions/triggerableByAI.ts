@@ -9,10 +9,10 @@ export interface TriggerableByAIOptions {
 }
 
 export function triggerableByAI(element: HTMLElement, options: TriggerableByAIOptions = {}) {
-	let { id, description, callback, disabled = false, showAnimation = true } = options
+	let { id, description, callback, showAnimation = true } = options
 
 	// Component is not discoverable if id or description is not provided
-	const isDisabled = disabled || !id || !description
+	const isDisabled = !id || !description
 
 	function createPulseEffect() {
 		if (!showAnimation) return
@@ -77,7 +77,7 @@ export function triggerableByAI(element: HTMLElement, options: TriggerableByAIOp
 
 	return {
 		update(newOptions: TriggerableByAIOptions) {
-			;({ id, description, callback, disabled = false, showAnimation = true } = newOptions)
+			;({ id, description, callback, showAnimation = true } = newOptions)
 			register()
 		},
 		destroy() {
