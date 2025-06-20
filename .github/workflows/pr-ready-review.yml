@@ -1,0 +1,29 @@
+name: Auto Comment on PR Ready for Review
+
+on:
+  pull_request:
+    types: [ready_for_review]
+
+jobs:
+  add-review-comment:
+    if: github.event.pull_request.draft == false
+    runs-on: ubicloud-standard-2
+    steps:
+      - name: Generate an installation token
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.INTERNAL_APP_KEY }}
+
+      - name: Add review comment
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app.outputs.token }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: '/ai review these changes'
+            });
