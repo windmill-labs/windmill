@@ -387,21 +387,21 @@ pub fn remove_pinned_imports(code: &str) -> anyhow::Result<String> {
 
 const DEFAULT_DEPTH_LEVEL: u8 = 10;
 
-fn resolve_object(type_resolver: &HashMap<String, (Typ, bool)>, typ: &mut Typ, depth_level: u8) {
+fn resolve_type_ref(type_resolver: &HashMap<String, (Typ, bool)>, typ: &mut Typ, depth_level: u8) {
     match typ {
         Typ::Object(obj) => {
             for property in obj {
-                resolve_object(type_resolver, &mut property.typ, depth_level);
+                resolve_type_ref(type_resolver, &mut property.typ, depth_level);
             }
         }
         Typ::List(list) => match list.as_mut() {
             Typ::Object(obj) => {
                 for property in obj {
-                    resolve_object(type_resolver, &mut property.typ, depth_level);
+                    resolve_type_ref(type_resolver, &mut property.typ, depth_level);
                 }
             }
             Typ::List(list) => {
-                resolve_object(type_resolver, list, depth_level);
+                resolve_type_ref(type_resolver, list, depth_level);
             }
             _ => {}
         },
@@ -413,7 +413,7 @@ fn resolve_object(type_resolver: &HashMap<String, (Typ, bool)>, typ: &mut Typ, d
                     .unwrap_or(Typ::Unknown);
 
                 *typ = maybe_resolved_type;
-                resolve_object(type_resolver, typ, depth_level - 1);
+                resolve_type_ref(type_resolver, typ, depth_level - 1);
             }
         }
         _ => {}
@@ -460,16 +460,16 @@ fn resolve_type_alias(
     alias: &TsTypeAliasDecl,
     symbol_table: &HashMap<String, TypeDecl>,
     type_resolver: &mut HashMap<String, (Typ, bool)>,
-    marker: Option<()>,
+    top_level_call: Option<()>,
 ) -> (Typ, bool) {
-    tstype_to_typ(symbol_table, type_resolver, &alias.type_ann, marker)
+    tstype_to_typ(symbol_table, type_resolver, &alias.type_ann, top_level_call)
 }
 
 fn resolve_ts_interface_and_type_alias(
     type_name: &str,
     symbol_table: &HashMap<String, TypeDecl>,
     type_resolver: &mut HashMap<String, (Typ, bool)>,
-    marker: Option<()>,
+    top_level_call: Option<()>,
 ) -> Option<(Typ, bool)> {
     if let Some(resolved_type) = type_resolver.get(type_name) {
         return Some(resolved_type.to_owned());
@@ -485,7 +485,9 @@ fn resolve_ts_interface_and_type_alias(
     };
 
     let mut resolved_type = match type_declaration {
-        TypeDecl::Alias(alias) => resolve_type_alias(alias, symbol_table, type_resolver, marker),
+        TypeDecl::Alias(alias) => {
+            resolve_type_alias(alias, symbol_table, type_resolver, top_level_call)
+        }
         TypeDecl::Interface(iface) => (
             Typ::Object(resolve_interface(iface, symbol_table, type_resolver)),
             false,
@@ -494,11 +496,11 @@ fn resolve_ts_interface_and_type_alias(
 
     type_resolver.insert(type_name.to_owned(), resolved_type.clone());
 
-    // If `marker` is some, we are at the root of the object.
+    // If `top_level_call` is some, we are at the root of the object.
     // This is the point where we can attempt to resolve any interfaces or types
     // that have not yet been resolved.
-    if let Some(_) = marker {
-        resolve_object(type_resolver, &mut resolved_type.0, DEFAULT_DEPTH_LEVEL);
+    if let Some(_) = top_level_call {
+        resolve_type_ref(type_resolver, &mut resolved_type.0, DEFAULT_DEPTH_LEVEL);
     }
 
     Some(resolved_type)
@@ -508,7 +510,7 @@ fn tstype_to_typ(
     symbol_table: &HashMap<String, TypeDecl>,
     type_resolver: &mut HashMap<String, (Typ, bool)>,
     ts_type: &TsType,
-    marker: Option<()>,
+    top_level_call: Option<()>,
 ) -> (Typ, bool) {
     match ts_type {
         TsType::TsKeywordType(t) => (
@@ -541,7 +543,7 @@ fn tstype_to_typ(
                                             symbol_table,
                                             type_resolver,
                                             &*typ.type_ann,
-                                            marker,
+                                            top_level_call,
                                         )
                                         .0,
                                     )
@@ -556,12 +558,12 @@ fn tstype_to_typ(
             (Typ::Object(properties), false)
         }
         TsType::TsParenthesizedType(TsParenthesizedType { type_ann, .. }) => {
-            tstype_to_typ(symbol_table, type_resolver, type_ann, marker)
+            tstype_to_typ(symbol_table, type_resolver, type_ann, top_level_call)
         }
         // TODO: we can do better here and extract the inner type of array
         TsType::TsArrayType(TsArrayType { elem_type, .. }) => (
             Typ::List(Box::new(
-                tstype_to_typ(symbol_table, type_resolver, &**elem_type, marker).0,
+                tstype_to_typ(symbol_table, type_resolver, &**elem_type, top_level_call).0,
             )),
             false,
         ),
@@ -569,7 +571,7 @@ fn tstype_to_typ(
             (Typ::Str(Some(vec![value.to_string()])), false)
         }
         TsType::TsOptionalType(TsOptionalType { type_ann, .. }) => (
-            tstype_to_typ(symbol_table, type_resolver, type_ann, marker).0,
+            tstype_to_typ(symbol_table, type_resolver, type_ann, top_level_call).0,
             true,
         ),
         TsType::TsUnionOrIntersectionType(TsUnionOrIntersectionType::TsUnionType(
@@ -597,14 +599,16 @@ fn tstype_to_typ(
                     0
                 };
                 (
-                    tstype_to_typ(symbol_table, type_resolver, &types[other_p], marker).0,
+                    tstype_to_typ(symbol_table, type_resolver, &types[other_p], top_level_call).0,
                     true,
                 )
             } else {
                 if types.len() > 1 {
                     let one_of_values: Vec<OneOfVariant> = types
                         .into_iter()
-                        .map_while(|t| parse_one_of_type(symbol_table, type_resolver, t, marker))
+                        .map_while(|t| {
+                            parse_one_of_type(symbol_table, type_resolver, t, top_level_call)
+                        })
                         .collect();
 
                     if one_of_values.len() == types.len() {
@@ -669,10 +673,13 @@ fn tstype_to_typ(
                     Typ::DynSelect(symbol.strip_prefix("DynSelect_").unwrap().to_string()),
                     false,
                 ),
-                symbol @ _ => {
-                    resolve_ts_interface_and_type_alias(symbol, symbol_table, type_resolver, marker)
-                        .unwrap_or_else(|| (Typ::Unknown, false))
-                }
+                symbol @ _ => resolve_ts_interface_and_type_alias(
+                    symbol,
+                    symbol_table,
+                    type_resolver,
+                    top_level_call,
+                )
+                .unwrap_or_else(|| (Typ::Unknown, false)),
             }
         }
         _ => (Typ::Unknown, false),
@@ -683,12 +690,13 @@ fn parse_one_of_type(
     symbol_table: &HashMap<String, TypeDecl>,
     type_resolver: &mut HashMap<String, (Typ, bool)>,
     x: &Box<TsType>,
-    marker: Option<()>,
+    top_level_call: Option<()>,
 ) -> Option<OneOfVariant> {
     match &**x {
         TsType::TsTypeLit(TsTypeLit { members, .. }) => {
             let label = one_of_label(members)?;
-            let properties = one_of_properties(symbol_table, type_resolver, members, marker);
+            let properties =
+                one_of_properties(symbol_table, type_resolver, members, top_level_call);
             Some(OneOfVariant { label, properties })
         }
         TsType::TsTypeRef(TsTypeRef { type_name, .. }) => {
@@ -708,7 +716,7 @@ fn parse_one_of_type(
                         symbol,
                         symbol_table,
                         type_resolver,
-                        marker,
+                        top_level_call,
                     )
                     .unwrap_or_else(|| (Typ::Unknown, false))
                     .0
@@ -755,7 +763,7 @@ fn one_of_properties(
     symbol_table: &HashMap<String, TypeDecl>,
     type_resolver: &mut HashMap<String, (Typ, bool)>,
     members: &Vec<TsTypeElement>,
-    marker: Option<()>,
+    top_level_call: Option<()>,
 ) -> Vec<ObjectProperty> {
     members
         .iter()
@@ -771,11 +779,11 @@ fn one_of_properties(
             let typ = type_ann
                 .as_ref()
                 .map(|typ| {
-                    Box::new(tstype_to_typ(symbol_table, type_resolver, &*typ.type_ann, marker).0)
+                    tstype_to_typ(symbol_table, type_resolver, &*typ.type_ann, top_level_call).0
                 })
-                .unwrap_or(Box::new(Typ::Unknown));
+                .unwrap_or(Typ::Unknown);
 
-            Some(ObjectProperty { key: sym.to_string(), typ })
+            Some(ObjectProperty { key: sym.to_string(), typ: Box::new(typ) })
         })
         .collect()
 }
