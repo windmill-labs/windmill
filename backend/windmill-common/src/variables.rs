@@ -180,7 +180,6 @@ pub async fn get_reserved_variables(
     schedule_path: Option<String>,
     step_id: Option<String>,
     root_flow_id: Option<String>,
-    jwt_token: Option<String>,
     scheduled_for: Option<chrono::DateTime<Utc>>,
 ) -> Vec<ContextualVariable> {
     let state_path = {
@@ -332,12 +331,6 @@ pub async fn get_reserved_variables(
         name: "WM_OBJECT_PATH".to_string(),
         value: object_path,
         description: "Script or flow step execution unique path, useful for storing results in an external service".to_string(),
-        is_custom: false,
-    },
-    ContextualVariable {
-        name: "WM_OIDC_JWT".to_string(),
-        value: jwt_token.unwrap_or_else(|| "".to_string()),
-        description: "OIDC JWT token (EE only)".to_string(),
         is_custom: false,
     },
     ContextualVariable {

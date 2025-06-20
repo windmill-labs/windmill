@@ -434,7 +434,6 @@ pub async fn get_reserved_variables(
         job.schedule_path(),
         job.flow_step_id.clone(),
         job.flow_innermost_root_job.clone().map(|x| x.to_string()),
-        None,
         Some(job.scheduled_for.clone()),
     )
     .await

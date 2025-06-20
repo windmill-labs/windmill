@@ -2077,7 +2077,6 @@ pub async fn start_worker(
         None,
         None,
         None,
-        None,
     )
     .await
     .to_vec();
@@ -2191,7 +2190,6 @@ for line in sys.stdin:
         Uuid::nil().to_string().as_str(),
         "dedicated_worker",
         Some(script_path.to_string()),
-        None,
         None,
         None,
         None,
