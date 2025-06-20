@@ -9,11 +9,18 @@ jobs:
     runs-on: ubicloud-standard-2
 
     steps:
+      - name: Generate an installation token
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.INTERNAL_APP_KEY }}
+
       - name: Checkout on helm repository
         uses: actions/checkout@v3
         with:
           repository: windmill-labs/windmill-helm-charts
-          token: ${{ secrets.HELM_CHART_TOKEN }}
+          token: ${{ steps.app.outputs.token }}
 
       - name: Get version
         id: get_version
@@ -57,7 +64,7 @@ jobs:
 
       - name: Create PR
         env:
-          GH_TOKEN: ${{ secrets.HELM_CHART_TOKEN }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
         run: |
           gh pr create \
             --title "helm: bump version to ${{ env.VERSION }}" \
