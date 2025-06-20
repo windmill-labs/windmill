@@ -2,7 +2,7 @@
 	import { AgentWorkersService, type ListBlacklistedAgentTokensResponse } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { Copy, Trash2, RefreshCw } from 'lucide-svelte'
-	import { Alert, Tab, Tabs } from './common'
+	import { Alert, Button, Tab, Tabs } from './common'
 	import Section from './Section.svelte'
 	import TagsToListenTo from './TagsToListenTo.svelte'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
@@ -62,23 +62,9 @@
 				token: blacklistToken.trim()
 			}
 
-			// Only include expires_at if a date is provided
-			if (blacklistExpiry) {
-				requestBody.expires_at = new Date(blacklistExpiry).toISOString()
-			}
-
-			const response = await fetch('/api/agent_workers/blacklist_token', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json'
-				},
-				body: JSON.stringify(requestBody)
+			await AgentWorkersService.blacklistAgentToken({
+				requestBody
 			})
-
-			if (!response.ok) {
-				const errorText = await response.text()
-				throw new Error(errorText || 'Failed to blacklist token')
-			}
 
 			sendUserToast('Token successfully added to blacklist')
 			blacklistToken = ''
@@ -179,7 +165,7 @@
 								type="text"
 								disabled
 								value={token}
-								class="w-full pr-10 pl-3 py-2 text-sm text-gray-600 bg-gray-50 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-100 transition truncate"
+								class="w-full pr-10 pl-3 py-2 text-sm text-gray-600 bg-gray-50 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-100 transition truncatere"
 							/>
 
 							<button
@@ -240,7 +226,7 @@
 				</div>
 			{:else if selectedTab === 'blacklist'}
 				<div class="flex flex-col gap-y-4 mt-4">
-					<Section label="Token Blacklist Management" eeOnly>
+					<Section label="Agent Token Blacklist" eeOnly>
 						{#if !$enterpriseLicense}
 							<div class="text-sm text-secondary mb-2 max-w-md">
 								Token blacklist management is only available in the enterprise edition.
@@ -248,46 +234,27 @@
 						{:else}
 							<div class="text-sm text-secondary mb-4 max-w-md">
 								Add tokens to the blacklist to prevent them from being used by agent workers.
-								Blacklisted tokens are cached for 5 minutes for optimal performance.
+								Blacklisted tokens may take up to 5 minutes to be effective because of caching.
 							</div>
 
-							<div class="flex flex-col gap-3 max-w-md mb-6">
+							<div class="flex flex-col gap-3 w-full mb-6">
 								<div>
 									<label class="block text-sm font-medium mb-1" for="blacklistTokenInput"
-										>Token to blacklist</label
+										>Token</label
 									>
 									<input
 										id="blacklistTokenInput"
 										class="w-full"
 										type="text"
 										bind:value={blacklistToken}
-										placeholder="Enter token (with or without jwt_agent_ prefix)"
+										placeholder="jwt_agent_eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ3b3JrZXJfZ3JvdXAiOiJhZ2VudCIsInN1ZmZpeCI6bnVsbCwidGFncyI6WyJiYXNoIl0sImV4cCI6MTg0NDk1NDYxMX0.JQWb-_ERGaomukbl_cEPPmmCAEepTR79d9oIrKREscE"
 									/>
 								</div>
-
-								<div>
-									<label class="block text-sm font-medium mb-1" for="blacklistExpiryInput"
-										>Blacklist expires on (optional)</label
+								<div class="flex">
+									<Button color="red" onclick={addToBlacklist} disabled={!$superadmin}
+										>Blacklist</Button
 									>
-									<input
-										id="blacklistExpiryInput"
-										class="w-full"
-										type="datetime-local"
-										bind:value={blacklistExpiry}
-									/>
-									<div class="text-xs text-secondary mt-1">
-										If not specified, expiration will be extracted from the JWT token's 'exp' field.
-										If extraction fails, defaults to 1 year from now.
-									</div>
 								</div>
-
-								<button
-									class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-									onclick={addToBlacklist}
-									disabled={!$superadmin}
-								>
-									Add to Blacklist
-								</button>
 
 								{#if !$superadmin}
 									<div class="text-xs text-amber-600">
@@ -323,7 +290,7 @@
 												class="flex items-center justify-between p-3 bg-gray-50 rounded-lg border"
 											>
 												<div class="flex-1 min-w-0">
-													<div class="font-mono text-sm text-gray-700 truncate">
+													<div class="font-mono text-xs text-gray-700 pr-4 break-all">
 														{blacklistedToken.token}
 													</div>
 													{#if blacklistedToken.expires_at}
@@ -335,7 +302,7 @@
 												{#if $superadmin}
 													<button
 														class="ml-3 p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition"
-														onclick={() => removeFromBlacklist(blacklistedToken.token_hash)}
+														onclick={() => removeFromBlacklist(blacklistedToken.token)}
 														title="Remove from blacklist"
 													>
 														<Trash2 size={16} />
