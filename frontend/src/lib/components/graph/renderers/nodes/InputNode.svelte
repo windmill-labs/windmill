@@ -76,6 +76,7 @@
 			cache={data.cache}
 			earlyStop={data.earlyStop}
 			editMode={data.editMode}
+			onEditInput={data.eventHandlers.editInput}
 		/>
 	{/snippet}
 </NodeWrapper>

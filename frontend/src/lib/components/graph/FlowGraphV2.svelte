@@ -107,7 +107,9 @@
 		onChangeId?: (detail: { id: string; newId: string; deps: Record<string, string[]> }) => void
 		onMove?: (id: string) => void
 		onUpdateMock?: (detail: { mock: FlowModule['mock']; id: string }) => void
+		onTestUpTo?: ((id: string) => void) | undefined
 		onSelectedIteration?: onSelectedIteration
+		onEditInput?: (moduleId: string, key: string) => void
 	}
 
 	let {
@@ -145,7 +147,9 @@
 		workspace = $workspaceStore ?? 'NO_WORKSPACE',
 		editMode = false,
 		allowSimplifiedPoll = true,
-		expandedSubflows = $bindable({})
+		expandedSubflows = $bindable({}),
+		onTestUpTo = undefined,
+		onEditInput = undefined
 	}: Props = $props()
 
 	setContext<{
@@ -301,6 +305,12 @@
 		},
 		updateMock: (detail) => {
 			onUpdateMock?.(detail)
+		},
+		testUpTo: (id: string) => {
+			onTestUpTo?.(id)
+		},
+		editInput: (moduleId: string, key: string) => {
+			onEditInput?.(moduleId, key)
 		}
 	}
 

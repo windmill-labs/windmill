@@ -32,6 +32,10 @@
 			  })
 			| undefined
 		onDeployTrigger?: (trigger: Trigger) => void
+		onTestUpTo?: ((id: string) => void) | undefined
+		onEditInput?: ((moduleId: string, key: string) => void) | undefined
+		forceTestTab?: Record<string, boolean>
+		highlightArg?: Record<string, string | undefined>
 	}
 
 	let {
@@ -44,7 +48,11 @@
 		smallErrorHandler = false,
 		newFlow = false,
 		savedFlow = undefined,
-		onDeployTrigger = () => {}
+		onDeployTrigger = () => {},
+		onTestUpTo = undefined,
+		onEditInput = undefined,
+		forceTestTab,
+		highlightArg
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -93,6 +101,8 @@
 							}
 							aiChatManager.generateStep(detail.moduleId, detail.lang, detail.instructions)
 						}}
+						{onTestUpTo}
+						{onEditInput}
 					/>
 				{/if}
 			</div>
@@ -113,6 +123,8 @@
 					on:applyArgs
 					on:testWithArgs
 					{onDeployTrigger}
+					{forceTestTab}
+					{highlightArg}
 				/>
 			{/if}
 		</Pane>

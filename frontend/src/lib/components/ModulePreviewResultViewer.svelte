@@ -41,7 +41,7 @@
 		onUpdateMock
 	}: Props = $props()
 
-	const { testStepStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { testSteps } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let selectedJob: Job | undefined = $state(undefined)
 	let fetchingLastJob = false
@@ -49,7 +49,7 @@
 	let jobProgressReset: () => void = $state(() => {})
 
 	let nlastJob = $derived.by(() => {
-		if (testJob) {
+		if (testJob && testJob.type === 'CompletedJob') {
 			return { ...testJob, preview: true }
 		}
 		if (lastJob) {
@@ -90,7 +90,7 @@
 			{disableHistory}
 		>
 			{#snippet copilot_fix()}
-				{#if lang && editor && diffEditor && $testStepStore[mod.id] && selectedJob?.type === 'CompletedJob' && !selectedJob.success && getStringError(selectedJob.result)}
+				{#if lang && editor && diffEditor && testSteps.getStepArgs(mod.id) && selectedJob?.type === 'CompletedJob' && !selectedJob.success && getStringError(selectedJob.result)}
 					<ScriptFix {lang} />
 				{/if}
 			{/snippet}

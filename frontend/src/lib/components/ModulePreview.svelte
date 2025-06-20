@@ -1,22 +1,13 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import type { Schema } from '$lib/common'
-	import { ScriptService, type FlowModule, type Job } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-	import { getScriptByPath } from '$lib/scripts'
-
+	import { type FlowModule, type Job } from '$lib/gen'
 	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
-	import { getContext } from 'svelte'
-
 	import Button from './common/button/Button.svelte'
-	import type { FlowEditorContext } from './flows/types'
-
-	import TestJobLoader from './TestJobLoader.svelte'
 	import ModulePreviewForm from './ModulePreviewForm.svelte'
-
-	import { evalValue } from './flows/utils'
 	import type { PickableProperties } from './flows/previousResults'
+	import ModuleTest from './ModuleTest.svelte'
+	import { getContext } from 'svelte'
+	import type { FlowEditorContext } from './flows/types'
 
 	interface Props {
 		mod: FlowModule
@@ -26,6 +17,7 @@
 		testIsLoading?: boolean
 		noEditor?: boolean
 		scriptProgress?: any
+		focusArg?: string
 	}
 
 	let {
@@ -35,90 +27,25 @@
 		testJob = $bindable(undefined),
 		testIsLoading = $bindable(false),
 		noEditor = false,
-		scriptProgress = $bindable(undefined)
+		scriptProgress = $bindable(undefined),
+		focusArg = undefined
 	}: Props = $props()
 
-	const { flowStore, flowStateStore, testStepStore, pathStore } =
-		getContext<FlowEditorContext>('FlowEditorContext')
-
-	// Test
-
-	let testJobLoader: TestJobLoader | undefined = $state()
-
-	let jobProgressReset: () => void = () => {}
-
-	let stepArgs: Record<string, any> | undefined = $state(
-		Object.fromEntries(
-			Object.keys(schema.properties ?? {}).map((k) => [
-				k,
-				evalValue(k, mod, $testStepStore, pickableProperties, false)
-			])
-		)
-	)
-
-	run(() => {
-		$testStepStore[mod.id] = stepArgs
-	})
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	let moduleTest: ModuleTest | undefined = $state()
 
 	export function runTestWithStepArgs() {
-		runTest(stepArgs)
-	}
-
-	export async function runTest(args: any) {
-		// Not defined if JobProgressBar not loaded
-		if (jobProgressReset) jobProgressReset()
-
-		const val = mod.value
-		// let jobId: string | undefined = undefined
-		if (val.type == 'rawscript') {
-			await testJobLoader?.runPreview(
-				val.path ?? ($pathStore ?? '') + '/' + mod.id,
-				val.content,
-				val.language,
-				mod.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args } : args,
-				flowStore.val?.tag ?? val.tag
-			)
-		} else if (val.type == 'script') {
-			const script = val.hash
-				? await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash: val.hash })
-				: await getScriptByPath(val.path)
-			await testJobLoader?.runPreview(
-				val.path,
-				script.content,
-				script.language,
-				mod.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args } : args,
-				flowStore.val?.tag ?? (val.tag_override ? val.tag_override : script.tag),
-				script.lock,
-				val.hash ?? script.hash
-			)
-		} else if (val.type == 'flow') {
-			await testJobLoader?.runFlowByPath(val.path, args)
-		} else {
-			throw Error('Not supported module type')
-		}
-	}
-
-	function jobDone() {
-		if (testJob && !testJob.canceled && testJob.type == 'CompletedJob' && `result` in testJob) {
-			if ($flowStateStore[mod.id]) {
-				$flowStateStore[mod.id].previewResult = testJob.result
-				$flowStateStore[mod.id].previewSuccess = testJob.success
-				$flowStateStore[mod.id].previewJobId = testJob.id
-				$flowStateStore[mod.id].previewWorkspaceId = testJob.workspace_id
-				$flowStateStore = $flowStateStore
-			}
-		}
-		testJob = undefined
+		moduleTest?.runTestWithStepArgs()
 	}
 </script>
 
-<TestJobLoader
-	toastError={noEditor}
-	on:done={() => jobDone()}
+<ModuleTest
+	{mod}
+	{noEditor}
+	bind:testJob
+	bind:testIsLoading
 	bind:scriptProgress
-	bind:this={testJobLoader}
-	bind:isLoading={testIsLoading}
-	bind:job={testJob}
+	bind:this={moduleTest}
 />
 
 <div class="p-4">
@@ -130,7 +57,7 @@
 
 	<div class="w-full justify-center flex">
 		{#if testIsLoading}
-			<Button size="sm" on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red">
+			<Button size="sm" on:click={moduleTest?.cancelJob} btnClasses="w-full" color="red">
 				<Loader2 size={16} class="animate-spin mr-1" />
 				Cancel
 			</Button>
@@ -139,7 +66,7 @@
 				color="dark"
 				btnClasses="truncate"
 				size="sm"
-				on:click={() => runTest(stepArgs)}
+				on:click={runTestWithStepArgs}
 				shortCut={{
 					Icon: CornerDownLeft
 				}}
@@ -149,5 +76,5 @@
 		{/if}
 	</div>
 
-	<ModulePreviewForm {pickableProperties} {mod} {schema} bind:args={stepArgs} />
+	<ModulePreviewForm {pickableProperties} {mod} {schema} {focusArg} />
 </div>

@@ -2,7 +2,7 @@ import type { FlowStatusModule } from '$lib/gen'
 
 export const NODE = {
 	width: 275,
-	height: 38,
+	height: 34,
 	gap: {
 		horizontal: 40,
 		vertical: 50

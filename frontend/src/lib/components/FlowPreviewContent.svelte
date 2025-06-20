@@ -379,7 +379,14 @@
 					id="flow-editor-test-flow-drawer"
 					shortCut={{ Icon: CornerDownLeft }}
 				>
-					Test flow
+					{#if previewMode == 'upTo'}
+						Test up to
+						<Badge baseClass="ml-1" color="indigo">
+							{$selectedId}
+						</Badge>
+					{:else}
+						Test flow
+					{/if}
 				</Button>
 			</div>
 		{/if}

@@ -48,6 +48,7 @@
 	import type { FlowPropPickerConfig, PropPickerContext } from './prop_picker'
 	import type { PickableProperties } from './flows/previousResults'
 	import { Triggers } from './triggers/triggers.svelte'
+	import { TestSteps } from './flows/testSteps.svelte'
 
 	let flowCopilotContext: FlowCopilotContext = {
 		shouldUpdatePropertyType: writable<{
@@ -436,7 +437,7 @@
 	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory(flowStore.val)
 
-	const testStepStore = writable<Record<string, any>>({})
+	const testSteps = new TestSteps()
 	const selectedIdStore = writable('settings-metadata')
 
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
@@ -455,7 +456,7 @@
 		pathStore: writable(''),
 		flowStateStore,
 		flowStore,
-		testStepStore,
+		testSteps,
 		saveDraft: () => {},
 		initialPathStore: writable(''),
 		fakeInitialPath: '',
@@ -715,7 +716,7 @@
 								noEditor
 								on:applyArgs={(ev) => {
 									if (ev.detail.kind === 'preprocessor') {
-										$testStepStore['preprocessor'] = ev.detail.args ?? {}
+										testSteps.setStepArgs('preprocessor', ev.detail.args ?? {})
 										$selectedIdStore = 'preprocessor'
 									} else {
 										previewArgsStore.val = ev.detail.args ?? {}
