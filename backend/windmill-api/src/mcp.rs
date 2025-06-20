@@ -197,6 +197,7 @@ struct ScriptInfo {
     summary: Option<String>,
     description: Option<String>,
     schema: Option<Schema>,
+    no_main_func: Option<bool>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -387,7 +388,7 @@ impl Runner {
         item_type: &str,
     ) -> Result<Vec<T>, Error> {
         let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
-        sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]);
+        sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema", "o.no_main_func"]);
         if scope_type == "favorites" {
             sqlb.join("favorite")
                 .on("favorite.favorite_kind = ? AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?".bind(&item_type)
@@ -1072,6 +1073,11 @@ impl ServerHandler for Runner {
         let mut tools: Vec<Tool> = Vec::new();
 
         for script in scripts {
+            // Filter out scripts without main function
+            if script.no_main_func.unwrap_or(false) {
+                continue;
+            }
+            
             tools.push(
                 Runner::create_tool_from_item(
                     &script,
