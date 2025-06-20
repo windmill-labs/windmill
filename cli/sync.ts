@@ -1,37 +1,37 @@
 import { fetchVersion, requireLogin, resolveWorkspace } from "./context.ts";
 import { Workspace } from "./workspace.ts";
 import {
-  colors,
-  Command,
-  Confirm,
-  ensureDir,
-  minimatch,
-  JSZip,
-  path,
-  log,
-  yamlStringify,
-  yamlParseContent,
-  SEP,
+    colors,
+    Command,
+    Confirm,
+    ensureDir,
+    minimatch,
+    JSZip,
+    path,
+    log,
+    yamlStringify,
+    yamlParseContent,
+    SEP,
 } from "./deps.ts";
 import * as wmill from "./gen/services.gen.ts";
 
 import {
-  getTypeStrFromPath,
-  GlobalOptions,
-  parseFromPath,
-  pushObj,
-  showConflict,
-  showDiff,
+    getTypeStrFromPath,
+    GlobalOptions,
+    parseFromPath,
+    pushObj,
+    showConflict,
+    showDiff,
 } from "./types.ts";
 import { downloadZip } from "./pull.ts";
 
 import {
-  exts,
-  findContentFile,
-  findGlobalDeps,
-  findResourceFile,
-  handleScriptMetadata,
-  removeExtensionToPath,
+    exts,
+    findContentFile,
+    findGlobalDeps,
+    findResourceFile,
+    handleScriptMetadata,
+    removeExtensionToPath,
 } from "./script.ts";
 
 import { handleFile } from "./script.ts";
@@ -40,1538 +40,1657 @@ import { SyncOptions, DEFAULT_SYNC_OPTIONS, WorkspaceProfile } from "./conf.ts";
 import { removePathPrefix } from "./types.ts";
 import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
 import {
-  generateFlowLockInternal,
-  generateScriptMetadataInternal,
-  readLockfile,
+    generateFlowLockInternal,
+    generateScriptMetadataInternal,
+    readLockfile,
 } from "./metadata.ts";
 import { FlowModule, OpenFlow, RawScript } from "./gen/types.gen.ts";
 import { pushResource } from "./resource.ts";
 import {
-  uiStateToSyncOptions,
-  syncOptionsToUIState,
-  parseJsonInput,
-  resolveWorkspaceAndRepositoryForSync,
-  sanitizeSyncOptionsForYaml,
+    uiStateToSyncOptions,
+    syncOptionsToUIState,
+    parseJsonInput,
+    resolveWorkspaceAndRepositoryForSync,
+    sanitizeSyncOptionsForYaml,
 } from "./settings_utils.ts";
 import { readConfigFile } from "./conf.ts";
 
-
-
 // Helper function to override sync options with JSON settings
-function overrideSyncOptionsFromJson(opts: SyncOptions, jsonSettings?: string): void {
-  if (!jsonSettings) return;
+function overrideSyncOptionsFromJson(
+    opts: SyncOptions,
+    jsonSettings?: string,
+): void {
+    if (!jsonSettings) return;
 
-  console.log("DEBUG: Overriding sync configuration with JSON settings");
-  const uiState = parseJsonInput(jsonSettings);
-  const jsonSyncOptions = uiStateToSyncOptions(uiState);
+    console.log("DEBUG: Overriding sync configuration with JSON settings");
+    const uiState = parseJsonInput(jsonSettings);
+    const jsonSyncOptions = uiStateToSyncOptions(uiState);
 
-  // Merge the JSON settings into the existing options
-  Object.assign(opts, jsonSyncOptions);
-  
-  // When using JSON settings, automatically include wmill.yaml changes in output
-  opts.includeWmillYaml = true;
+    // Merge the JSON settings into the existing options
+    Object.assign(opts, jsonSyncOptions);
+
+    // When using JSON settings, automatically include wmill.yaml changes in output
+    opts.includeWmillYaml = true;
 }
-
 
 // Helper function to create workspace object with proper token resolution
 async function createWorkspaceWithToken(
-  workspaceProfile: WorkspaceProfile,
-  workspaceName: string | undefined,
-  opts: GlobalOptions
+    workspaceProfile: WorkspaceProfile,
+    workspaceName: string | undefined,
+    opts: GlobalOptions,
 ): Promise<Workspace> {
-  // If --base-url is specified, always use resolveWorkspace to handle it properly
-  if (opts.baseUrl) {
-    return await resolveWorkspace(opts);
-  }
+    // If --base-url is specified, always use resolveWorkspace to handle it properly
+    if (opts.baseUrl) {
+        return await resolveWorkspace(opts);
+    }
 
-  // Import and use tryGetLoginInfo to get token properly
-  const { tryGetLoginInfo } = await import("./login.ts");
-  const token = await tryGetLoginInfo(opts);
-  if (!token || !workspaceName) {
-    // If no global token or no workspace name, fall back to resolveWorkspace which handles auth properly
-    return await resolveWorkspace(opts);
-  } else {
-    return {
-      workspaceId: workspaceProfile.workspaceId,
-      name: workspaceName,
-      remote: workspaceProfile.baseUrl,
-      token: token
-    };
-  }
+    // Import and use tryGetLoginInfo to get token properly
+    const { tryGetLoginInfo } = await import("./login.ts");
+    const token = await tryGetLoginInfo(opts);
+    if (!token || !workspaceName) {
+        // If no global token or no workspace name, fall back to resolveWorkspace which handles auth properly
+        return await resolveWorkspace(opts);
+    } else {
+        return {
+            workspaceId: workspaceProfile.workspaceId,
+            name: workspaceName,
+            remote: workspaceProfile.baseUrl,
+            token: token,
+        };
+    }
 }
 
-
-
 type DynFSElement = {
-  isDirectory: boolean;
-  path: string;
-  // getContentBytes(): Promise<Uint8Array>;
-  getContentText(): Promise<string>;
-  getChildren(): AsyncIterable<DynFSElement>;
+    isDirectory: boolean;
+    path: string;
+    // getContentBytes(): Promise<Uint8Array>;
+    getContentText(): Promise<string>;
+    getChildren(): AsyncIterable<DynFSElement>;
 };
 
 export function findCodebase(
-  path: string,
-  codebases: SyncCodebase[]
+    path: string,
+    codebases: SyncCodebase[],
 ): SyncCodebase | undefined {
-  if (!path.endsWith(".ts")) {
-    return;
-  }
-  for (const c of codebases) {
-    let included = false;
-    let excluded = false;
-    if (c.includes == undefined || c.includes == null) {
-      included = true;
+    if (!path.endsWith(".ts")) {
+        return;
     }
-    if (typeof c.includes == "string") {
-      c.includes = [c.includes];
+    for (const c of codebases) {
+        let included = false;
+        let excluded = false;
+        if (c.includes == undefined || c.includes == null) {
+            included = true;
+        }
+        if (typeof c.includes == "string") {
+            c.includes = [c.includes];
+        }
+        for (const r of c.includes ?? []) {
+            if (included) {
+                break;
+            }
+            if (minimatch(path, r)) {
+                included = true;
+            }
+        }
+        if (typeof c.excludes == "string") {
+            c.excludes = [c.excludes];
+        }
+        for (const r of c.excludes ?? []) {
+            if (minimatch(path, r)) {
+                excluded = true;
+            }
+        }
+        if (included && !excluded) {
+            return c;
+        }
     }
-    for (const r of c.includes ?? []) {
-      if (included) {
-        break;
-      }
-      if (minimatch(path, r)) {
-        included = true;
-      }
-    }
-    if (typeof c.excludes == "string") {
-      c.excludes = [c.excludes];
-    }
-    for (const r of c.excludes ?? []) {
-      if (minimatch(path, r)) {
-        excluded = true;
-      }
-    }
-    if (included && !excluded) {
-      return c;
-    }
-  }
 }
 
 async function addCodebaseDigestIfRelevant(
-  path: string,
-  content: string,
-  codebases: SyncCodebase[],
-  ignoreCodebaseChanges: boolean
+    path: string,
+    content: string,
+    codebases: SyncCodebase[],
+    ignoreCodebaseChanges: boolean,
 ): Promise<string> {
-  const isScript = path.endsWith(".script.yaml");
-  if (!isScript) {
-    return content;
-  }
-  let isTs = true;
-  const replacedPath = path.replace(".script.yaml", ".ts");
-  try {
-    await Deno.stat(replacedPath);
-  } catch {
-    isTs = false;
-  }
-  if (!isTs) {
-    return content;
-  }
-  if (isTs) {
-    const c = findCodebase(replacedPath, codebases);
-    if (c) {
-      const parsed: any = yamlParseContent(path, content);
-      if (parsed && typeof parsed == "object") {
-        if (ignoreCodebaseChanges) {
-          parsed["codebase"] = undefined;
-        } else {
-          parsed["codebase"] = await c.getDigest();
-        }
-        parsed["lock"] = "";
-        return yamlStringify(parsed, yamlOptions);
-      } else {
-        throw Error(
-          `Expected local yaml ${path} to be an object, found: ${content} instead`
-        );
-      }
+    const isScript = path.endsWith(".script.yaml");
+    if (!isScript) {
+        return content;
     }
-  }
-  return content;
+    let isTs = true;
+    const replacedPath = path.replace(".script.yaml", ".ts");
+    try {
+        await Deno.stat(replacedPath);
+    } catch {
+        isTs = false;
+    }
+    if (!isTs) {
+        return content;
+    }
+    if (isTs) {
+        const c = findCodebase(replacedPath, codebases);
+        if (c) {
+            const parsed: any = yamlParseContent(path, content);
+            if (parsed && typeof parsed == "object") {
+                if (ignoreCodebaseChanges) {
+                    parsed["codebase"] = undefined;
+                } else {
+                    parsed["codebase"] = await c.getDigest();
+                }
+                parsed["lock"] = "";
+                return yamlStringify(parsed, yamlOptions);
+            } else {
+                throw Error(
+                    `Expected local yaml ${path} to be an object, found: ${content} instead`,
+                );
+            }
+        }
+    }
+    return content;
 }
 
 export async function FSFSElement(
-  p: string,
-  codebases: SyncCodebase[],
-  ignoreCodebaseChanges: boolean
+    p: string,
+    codebases: SyncCodebase[],
+    ignoreCodebaseChanges: boolean,
 ): Promise<DynFSElement> {
-  function _internal_element(
-    localP: string,
-    isDir: boolean,
-    codebases: SyncCodebase[]
-  ): DynFSElement {
-    return {
-      isDirectory: isDir,
-      path: localP.substring(p.length + 1),
-      async *getChildren(): AsyncIterable<DynFSElement> {
-        if (!isDir) return [];
-        try {
-          for await (const e of Deno.readDir(localP)) {
-            yield _internal_element(
-              path.join(localP, e.name),
-              e.isDirectory,
-              codebases
-            );
-          }
-        } catch (e) {
-          log.warn(`Error reading dir: ${localP}, ${e}`);
-        }
-      },
-      // async getContentBytes(): Promise<Uint8Array> {
-      //   return await Deno.readFile(localP);
-      // },
-      async getContentText(): Promise<string> {
-        const content = await Deno.readTextFile(localP);
-        const itemPath = localP.substring(p.length + 1);
-        const r = await addCodebaseDigestIfRelevant(
-          itemPath,
-          content,
-          codebases,
-          ignoreCodebaseChanges
-        );
-        return r;
-      },
-    };
-  }
-  return _internal_element(p, (await Deno.stat(p)).isDirectory, codebases);
+    function _internal_element(
+        localP: string,
+        isDir: boolean,
+        codebases: SyncCodebase[],
+    ): DynFSElement {
+        return {
+            isDirectory: isDir,
+            path: localP.substring(p.length + 1),
+            async *getChildren(): AsyncIterable<DynFSElement> {
+                if (!isDir) return [];
+                try {
+                    for await (const e of Deno.readDir(localP)) {
+                        yield _internal_element(
+                            path.join(localP, e.name),
+                            e.isDirectory,
+                            codebases,
+                        );
+                    }
+                } catch (e) {
+                    log.warn(`Error reading dir: ${localP}, ${e}`);
+                }
+            },
+            // async getContentBytes(): Promise<Uint8Array> {
+            //   return await Deno.readFile(localP);
+            // },
+            async getContentText(): Promise<string> {
+                const content = await Deno.readTextFile(localP);
+                const itemPath = localP.substring(p.length + 1);
+                const r = await addCodebaseDigestIfRelevant(
+                    itemPath,
+                    content,
+                    codebases,
+                    ignoreCodebaseChanges,
+                );
+                return r;
+            },
+        };
+    }
+    return _internal_element(p, (await Deno.stat(p)).isDirectory, codebases);
 }
 
 function prioritizeName(name: string): string {
-  if (name == "id") return "aa";
-  if (name == "type") return "ab";
-  if (name == "summary") return "ad";
-  if (name == "name") return "ae";
-  if (name == "display_name") return "af";
-  if (name == "description") return "ag";
-  if (name == "value") return "ah";
-  if (name == "content") return "ai";
-  if (name == "modules") return "aj";
-  if (name == "failure_module") return "ak";
-  if (name == "input_transforms") return "al";
-  if (name == "lock") return "az";
+    if (name == "id") return "aa";
+    if (name == "type") return "ab";
+    if (name == "summary") return "ad";
+    if (name == "name") return "ae";
+    if (name == "display_name") return "af";
+    if (name == "description") return "ag";
+    if (name == "value") return "ah";
+    if (name == "content") return "ai";
+    if (name == "modules") return "aj";
+    if (name == "failure_module") return "ak";
+    if (name == "input_transforms") return "al";
+    if (name == "lock") return "az";
 
-  return name;
+    return name;
 }
 
 export const yamlOptions = {
-  sortKeys: (a: any, b: any) => {
-    return prioritizeName(a).localeCompare(prioritizeName(b));
-  },
-  noCompatMode: true,
-  noRefs: true,
-  skipInvalid: true,
+    sortKeys: (a: any, b: any) => {
+        return prioritizeName(a).localeCompare(prioritizeName(b));
+    },
+    noCompatMode: true,
+    noRefs: true,
+    skipInvalid: true,
 };
 
 export interface InlineScript {
-  path: string;
-  content: string;
+    path: string;
+    content: string;
 }
 
 export function extractInlineScriptsForFlows(
-  modules: FlowModule[],
-  pathAssigner: PathAssigner
+    modules: FlowModule[],
+    pathAssigner: PathAssigner,
 ): InlineScript[] {
-  return modules.flatMap((m) => {
-    if (m.value.type == "rawscript") {
-      const [basePath, ext] = pathAssigner.assignPath(
-        m.summary,
-        m.value.language
-      );
-      const path = basePath + ext;
-      const content = m.value.content;
-      const r = [{ path: path, content: content }];
-      m.value.content = "!inline " + path.replaceAll(SEP, "/");
-      const lock = m.value.lock;
-      if (lock && lock != "") {
-        const lockPath = basePath + "lock";
-        m.value.lock = "!inline " + lockPath.replaceAll(SEP, "/");
-        r.push({ path: lockPath, content: lock });
-      }
-      return r;
-    } else if (m.value.type == "forloopflow") {
-      return extractInlineScriptsForFlows(m.value.modules, pathAssigner);
-    } else if (m.value.type == "branchall") {
-      return m.value.branches.flatMap((b) =>
-        extractInlineScriptsForFlows(b.modules, pathAssigner)
-      );
-    } else if (m.value.type == "whileloopflow") {
-      return extractInlineScriptsForFlows(m.value.modules, pathAssigner);
-    } else if (m.value.type == "branchone") {
-      return [
-        ...m.value.branches.flatMap((b) =>
-          extractInlineScriptsForFlows(b.modules, pathAssigner)
-        ),
-        ...extractInlineScriptsForFlows(m.value.default, pathAssigner),
-      ];
-    } else {
-      return [];
-    }
-  });
+    return modules.flatMap((m) => {
+        if (m.value.type == "rawscript") {
+            const [basePath, ext] = pathAssigner.assignPath(
+                m.summary,
+                m.value.language,
+            );
+            const path = basePath + ext;
+            const content = m.value.content;
+            const r = [{ path: path, content: content }];
+            m.value.content = "!inline " + path.replaceAll(SEP, "/");
+            const lock = m.value.lock;
+            if (lock && lock != "") {
+                const lockPath = basePath + "lock";
+                m.value.lock = "!inline " + lockPath.replaceAll(SEP, "/");
+                r.push({ path: lockPath, content: lock });
+            }
+            return r;
+        } else if (m.value.type == "forloopflow") {
+            return extractInlineScriptsForFlows(m.value.modules, pathAssigner);
+        } else if (m.value.type == "branchall") {
+            return m.value.branches.flatMap((b) =>
+                extractInlineScriptsForFlows(b.modules, pathAssigner),
+            );
+        } else if (m.value.type == "whileloopflow") {
+            return extractInlineScriptsForFlows(m.value.modules, pathAssigner);
+        } else if (m.value.type == "branchone") {
+            return [
+                ...m.value.branches.flatMap((b) =>
+                    extractInlineScriptsForFlows(b.modules, pathAssigner),
+                ),
+                ...extractInlineScriptsForFlows(m.value.default, pathAssigner),
+            ];
+        } else {
+            return [];
+        }
+    });
 }
 
 interface PathAssigner {
-  assignPath(summary: string | undefined, language: string): [string, string];
+    assignPath(summary: string | undefined, language: string): [string, string];
 }
 const INLINE_SCRIPT = "inline_script";
 
 export function extractInlineScriptsForApps(
-  rec: any,
-  pathAssigner: PathAssigner
+    rec: any,
+    pathAssigner: PathAssigner,
 ): InlineScript[] {
-  if (!rec) {
+    if (!rec) {
+        return [];
+    }
+    if (typeof rec == "object") {
+        return Object.entries(rec).flatMap(([k, v]) => {
+            if (k == "inlineScript" && typeof v == "object") {
+                const o: Record<string, any> = v as any;
+                const name = rec["name"];
+                const [basePath, ext] = pathAssigner.assignPath(
+                    name,
+                    o["language"],
+                );
+                const r = [];
+                if (o["content"]) {
+                    const content = o["content"];
+                    o["content"] =
+                        "!inline " + basePath.replaceAll(SEP, "/") + ext;
+                    r.push({
+                        path: basePath + ext,
+                        content: content,
+                    });
+                }
+                if (o["lock"] && o["lock"] != "") {
+                    const lock = o["lock"];
+                    o["lock"] =
+                        "!inline " + basePath.replaceAll(SEP, "/") + "lock";
+                    r.push({
+                        path: basePath + "lock",
+                        content: lock,
+                    });
+                }
+                return r;
+            } else {
+                return extractInlineScriptsForApps(v, pathAssigner);
+            }
+        });
+    }
     return [];
-  }
-  if (typeof rec == "object") {
-    return Object.entries(rec).flatMap(([k, v]) => {
-      if (k == "inlineScript" && typeof v == "object") {
-        const o: Record<string, any> = v as any;
-        const name = rec["name"];
-        const [basePath, ext] = pathAssigner.assignPath(name, o["language"]);
-        const r = [];
-        if (o["content"]) {
-          const content = o["content"];
-          o["content"] = "!inline " + basePath.replaceAll(SEP, "/") + ext;
-          r.push({
-            path: basePath + ext,
-            content: content,
-          });
-        }
-        if (o["lock"] && o["lock"] != "") {
-          const lock = o["lock"];
-          o["lock"] = "!inline " + basePath.replaceAll(SEP, "/") + "lock";
-          r.push({
-            path: basePath + "lock",
-            content: lock,
-          });
-        }
-        return r;
-      } else {
-        return extractInlineScriptsForApps(v, pathAssigner);
-      }
-    });
-  }
-  return [];
 }
 
 export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
-  let counter = 0;
-  const seen_names = new Set<string>();
-  function assignPath(
-    summary: string | undefined,
-    language: RawScript["language"] | "frontend" | "bunnative"
-  ): [string, string] {
-    let name;
+    let counter = 0;
+    const seen_names = new Set<string>();
+    function assignPath(
+        summary: string | undefined,
+        language: RawScript["language"] | "frontend" | "bunnative",
+    ): [string, string] {
+        let name;
 
-    name = summary?.toLowerCase()?.replaceAll(" ", "_") ?? "";
+        name = summary?.toLowerCase()?.replaceAll(" ", "_") ?? "";
 
-    let original_name = name;
+        let original_name = name;
 
-    if (name == "") {
-      original_name = INLINE_SCRIPT;
-      name = `${INLINE_SCRIPT}_0`;
+        if (name == "") {
+            original_name = INLINE_SCRIPT;
+            name = `${INLINE_SCRIPT}_0`;
+        }
+
+        while (seen_names.has(name)) {
+            counter++;
+            name = `${original_name}_${counter}`;
+        }
+        seen_names.add(name);
+
+        let ext;
+        if (language == "python3") ext = "py";
+        else if (language == defaultTs || language == "bunnative") ext = "ts";
+        else if (language == "bun") ext = "bun.ts";
+        else if (language == "deno") ext = "deno.ts";
+        else if (language == "go") ext = "go";
+        else if (language == "bash") ext = "sh";
+        else if (language == "powershell") ext = "ps1";
+        else if (language == "postgresql") ext = "pg.sql";
+        else if (language == "mysql") ext = "my.sql";
+        else if (language == "bigquery") ext = "bq.sql";
+        else if (language == "oracledb") ext = "odb.sql";
+        else if (language == "snowflake") ext = "sf.sql";
+        else if (language == "mssql") ext = "ms.sql";
+        else if (language == "graphql") ext = "gql";
+        else if (language == "nativets") ext = "native.ts";
+        else if (language == "frontend") ext = "frontend.js";
+        else if (language == "php") ext = "php";
+        else if (language == "rust") ext = "rs";
+        else if (language == "csharp") ext = "cs";
+        else if (language == "nu") ext = "nu";
+        else if (language == "ansible") ext = "playbook.yml";
+        else if (language == "java") ext = "java";
+        else if (language == "duckdb") ext = "duckdb.sql";
+        // for related places search: ADD_NEW_LANG
+        else ext = "no_ext";
+
+        return [`${name}.inline_script.`, ext];
     }
 
-    while (seen_names.has(name)) {
-      counter++;
-      name = `${original_name}_${counter}`;
-    }
-    seen_names.add(name);
-
-    let ext;
-    if (language == "python3") ext = "py";
-    else if (language == defaultTs || language == "bunnative") ext = "ts";
-    else if (language == "bun") ext = "bun.ts";
-    else if (language == "deno") ext = "deno.ts";
-    else if (language == "go") ext = "go";
-    else if (language == "bash") ext = "sh";
-    else if (language == "powershell") ext = "ps1";
-    else if (language == "postgresql") ext = "pg.sql";
-    else if (language == "mysql") ext = "my.sql";
-    else if (language == "bigquery") ext = "bq.sql";
-    else if (language == "oracledb") ext = "odb.sql";
-    else if (language == "snowflake") ext = "sf.sql";
-    else if (language == "mssql") ext = "ms.sql";
-    else if (language == "graphql") ext = "gql";
-    else if (language == "nativets") ext = "native.ts";
-    else if (language == "frontend") ext = "frontend.js";
-    else if (language == "php") ext = "php";
-    else if (language == "rust") ext = "rs";
-    else if (language == "csharp") ext = "cs";
-    else if (language == "nu") ext = "nu";
-    else if (language == "ansible") ext = "playbook.yml";
-    else if (language == "java") ext = "java";
-    else if (language == "duckdb") ext = "duckdb.sql";
-    // for related places search: ADD_NEW_LANG
-    else ext = "no_ext";
-
-    return [`${name}.inline_script.`, ext];
-  }
-
-  return { assignPath };
+    return { assignPath };
 }
 function ZipFSElement(
-  zip: JSZip,
-  useYaml: boolean,
-  defaultTs: "bun" | "deno",
-  resourceTypeToFormatExtension: Record<string, string>,
-  ignoreCodebaseChanges: boolean
+    zip: JSZip,
+    useYaml: boolean,
+    defaultTs: "bun" | "deno",
+    resourceTypeToFormatExtension: Record<string, string>,
+    ignoreCodebaseChanges: boolean,
 ): DynFSElement {
-  async function _internal_file(
-    p: string,
-    f: JSZip.JSZipObject
-  ): Promise<DynFSElement[]> {
-    const kind: "flow" | "app" | "script" | "resource" | "other" = p.endsWith(
-      "flow.json"
-    )
-      ? "flow"
-      : p.endsWith("app.json")
-      ? "app"
-      : p.endsWith("script.json")
-      ? "script"
-      : p.endsWith("resource.json")
-      ? "resource"
-      : "other";
+    async function _internal_file(
+        p: string,
+        f: JSZip.JSZipObject,
+    ): Promise<DynFSElement[]> {
+        const kind: "flow" | "app" | "script" | "resource" | "other" =
+            p.endsWith("flow.json")
+                ? "flow"
+                : p.endsWith("app.json")
+                  ? "app"
+                  : p.endsWith("script.json")
+                    ? "script"
+                    : p.endsWith("resource.json")
+                      ? "resource"
+                      : "other";
 
-    const isJson = p.endsWith(".json");
+        const isJson = p.endsWith(".json");
 
-    function transformPath() {
-      if (kind == "flow") {
-        return p.replace("flow.json", "flow");
-      } else if (kind == "app") {
-        return p.replace("app.json", "app");
-      } else {
-        return useYaml && isJson ? p.replaceAll(".json", ".yaml") : p;
-      }
-    }
-
-    const finalPath = transformPath();
-    const r = [
-      {
-        isDirectory: kind == "flow" || kind == "app",
-        path: finalPath,
-        async *getChildren(): AsyncIterable<DynFSElement> {
-          if (kind == "flow") {
-            const flow: OpenFlow = JSON.parse(await f.async("text"));
-            const inlineScripts = extractInlineScriptsForFlows(
-              flow.value.modules,
-              newPathAssigner(defaultTs)
-            );
-            for (const s of inlineScripts) {
-              yield {
-                isDirectory: false,
-                path: path.join(finalPath, s.path),
-                async *getChildren() {},
-                // deno-lint-ignore require-await
-                async getContentText() {
-                  return s.content;
-                },
-              };
-            }
-
-            yield {
-              isDirectory: false,
-              path: path.join(finalPath, "flow.yaml"),
-              async *getChildren() {},
-              // deno-lint-ignore require-await
-              async getContentText() {
-                return yamlStringify(flow, yamlOptions);
-              },
-            };
-          } else if (kind == "app") {
-            const app = JSON.parse(await f.async("text"));
-            const inlineScripts = extractInlineScriptsForApps(
-              app?.["value"],
-              newPathAssigner(defaultTs)
-            );
-            for (const s of inlineScripts) {
-              yield {
-                isDirectory: false,
-                path: path.join(finalPath, s.path),
-                async *getChildren() {},
-                // deno-lint-ignore require-await
-                async getContentText() {
-                  return s.content;
-                },
-              };
-            }
-
-            yield {
-              isDirectory: false,
-              path: path.join(finalPath, "app.yaml"),
-              async *getChildren() {},
-              // deno-lint-ignore require-await
-              async getContentText() {
-                return yamlStringify(app, yamlOptions);
-              },
-            };
-          }
-        },
-
-        async getContentText(): Promise<string> {
-          const content = await f.async("text");
-
-          if (kind == "script") {
-            const parsed = JSON.parse(content);
-            if (
-              parsed["lock"] &&
-              parsed["lock"] != "" &&
-              parsed["codebase"] == undefined
-            ) {
-              parsed["lock"] =
-                "!inline " +
-                removeSuffix(p.replaceAll(SEP, "/"), ".json") +
-                ".lock";
-            } else if (parsed["lock"] == "") {
-              parsed["lock"] = "";
+        function transformPath() {
+            if (kind == "flow") {
+                return p.replace("flow.json", "flow");
+            } else if (kind == "app") {
+                return p.replace("app.json", "app");
             } else {
-              parsed["lock"] = undefined;
+                return useYaml && isJson ? p.replaceAll(".json", ".yaml") : p;
             }
-            if (ignoreCodebaseChanges && parsed["codebase"]) {
-              parsed["codebase"] = undefined;
-            }
-            return useYaml
-              ? yamlStringify(parsed, yamlOptions)
-              : JSON.stringify(parsed, null, 2);
-          }
+        }
 
-          if (kind == "resource") {
+        const finalPath = transformPath();
+        const r = [
+            {
+                isDirectory: kind == "flow" || kind == "app",
+                path: finalPath,
+                async *getChildren(): AsyncIterable<DynFSElement> {
+                    if (kind == "flow") {
+                        const flow: OpenFlow = JSON.parse(
+                            await f.async("text"),
+                        );
+                        const inlineScripts = extractInlineScriptsForFlows(
+                            flow.value.modules,
+                            newPathAssigner(defaultTs),
+                        );
+                        for (const s of inlineScripts) {
+                            yield {
+                                isDirectory: false,
+                                path: path.join(finalPath, s.path),
+                                async *getChildren() {},
+                                // deno-lint-ignore require-await
+                                async getContentText() {
+                                    return s.content;
+                                },
+                            };
+                        }
+
+                        yield {
+                            isDirectory: false,
+                            path: path.join(finalPath, "flow.yaml"),
+                            async *getChildren() {},
+                            // deno-lint-ignore require-await
+                            async getContentText() {
+                                return yamlStringify(flow, yamlOptions);
+                            },
+                        };
+                    } else if (kind == "app") {
+                        const app = JSON.parse(await f.async("text"));
+                        const inlineScripts = extractInlineScriptsForApps(
+                            app?.["value"],
+                            newPathAssigner(defaultTs),
+                        );
+                        for (const s of inlineScripts) {
+                            yield {
+                                isDirectory: false,
+                                path: path.join(finalPath, s.path),
+                                async *getChildren() {},
+                                // deno-lint-ignore require-await
+                                async getContentText() {
+                                    return s.content;
+                                },
+                            };
+                        }
+
+                        yield {
+                            isDirectory: false,
+                            path: path.join(finalPath, "app.yaml"),
+                            async *getChildren() {},
+                            // deno-lint-ignore require-await
+                            async getContentText() {
+                                return yamlStringify(app, yamlOptions);
+                            },
+                        };
+                    }
+                },
+
+                async getContentText(): Promise<string> {
+                    const content = await f.async("text");
+
+                    if (kind == "script") {
+                        const parsed = JSON.parse(content);
+                        if (
+                            parsed["lock"] &&
+                            parsed["lock"] != "" &&
+                            parsed["codebase"] == undefined
+                        ) {
+                            parsed["lock"] =
+                                "!inline " +
+                                removeSuffix(p.replaceAll(SEP, "/"), ".json") +
+                                ".lock";
+                        } else if (parsed["lock"] == "") {
+                            parsed["lock"] = "";
+                        } else {
+                            parsed["lock"] = undefined;
+                        }
+                        if (ignoreCodebaseChanges && parsed["codebase"]) {
+                            parsed["codebase"] = undefined;
+                        }
+                        return useYaml
+                            ? yamlStringify(parsed, yamlOptions)
+                            : JSON.stringify(parsed, null, 2);
+                    }
+
+                    if (kind == "resource") {
+                        const content = await f.async("text");
+                        const parsed = JSON.parse(content);
+                        const formatExtension =
+                            resourceTypeToFormatExtension[
+                                parsed["resource_type"]
+                            ];
+
+                        if (formatExtension) {
+                            parsed["value"]["content"] =
+                                "!inline " +
+                                removeSuffix(
+                                    p.replaceAll(SEP, "/"),
+                                    ".resource.json",
+                                ) +
+                                ".resource.file." +
+                                formatExtension;
+                        }
+                        return useYaml
+                            ? yamlStringify(parsed, yamlOptions)
+                            : JSON.stringify(parsed, null, 2);
+                    }
+
+                    return useYaml && isJson
+                        ? yamlStringify(JSON.parse(content), yamlOptions)
+                        : content;
+                },
+            },
+        ];
+        if (kind == "script") {
+            const content = await f.async("text");
+            const parsed = JSON.parse(content);
+            const lock = parsed["lock"];
+            if (lock && lock != "") {
+                r.push({
+                    isDirectory: false,
+                    path: removeSuffix(finalPath, ".json") + ".lock",
+                    async *getChildren() {},
+                    // deno-lint-ignore require-await
+                    async getContentText() {
+                        return lock;
+                    },
+                });
+            }
+        }
+        if (kind == "resource") {
             const content = await f.async("text");
             const parsed = JSON.parse(content);
             const formatExtension =
-              resourceTypeToFormatExtension[parsed["resource_type"]];
+                resourceTypeToFormatExtension[parsed["resource_type"]];
 
             if (formatExtension) {
-              parsed["value"]["content"] =
-                "!inline " +
-                removeSuffix(p.replaceAll(SEP, "/"), ".resource.json") +
-                ".resource.file." +
-                formatExtension;
+                const fileContent: string = parsed["value"]["content"];
+                if (typeof fileContent === "string") {
+                    r.push({
+                        isDirectory: false,
+                        path:
+                            removeSuffix(finalPath, ".resource.json") +
+                            ".resource.file." +
+                            formatExtension,
+                        async *getChildren() {},
+                        // deno-lint-ignore require-await
+                        async getContentText() {
+                            return fileContent;
+                        },
+                    });
+                }
             }
-            return useYaml
-              ? yamlStringify(parsed, yamlOptions)
-              : JSON.stringify(parsed, null, 2);
-          }
-
-          return useYaml && isJson
-            ? yamlStringify(JSON.parse(content), yamlOptions)
-            : content;
-        },
-      },
-    ];
-    if (kind == "script") {
-      const content = await f.async("text");
-      const parsed = JSON.parse(content);
-      const lock = parsed["lock"];
-      if (lock && lock != "") {
-        r.push({
-          isDirectory: false,
-          path: removeSuffix(finalPath, ".json") + ".lock",
-          async *getChildren() {},
-          // deno-lint-ignore require-await
-          async getContentText() {
-            return lock;
-          },
-        });
-      }
+        }
+        return r;
     }
-    if (kind == "resource") {
-      const content = await f.async("text");
-      const parsed = JSON.parse(content);
-      const formatExtension =
-        resourceTypeToFormatExtension[parsed["resource_type"]];
-
-      if (formatExtension) {
-        const fileContent: string = parsed["value"]["content"];
-        if (typeof fileContent === "string") {
-          r.push({
-            isDirectory: false,
-            path:
-              removeSuffix(finalPath, ".resource.json") +
-              ".resource.file." +
-              formatExtension,
-            async *getChildren() {},
-            // deno-lint-ignore require-await
-            async getContentText() {
-              return fileContent;
+    function _internal_folder(p: string, zip: JSZip): DynFSElement {
+        return {
+            isDirectory: true,
+            path: p,
+            async *getChildren(): AsyncIterable<DynFSElement> {
+                for (const filename in zip.files) {
+                    const file = zip.files[filename];
+                    const totalPath = path.join(p, filename);
+                    if (file.dir) {
+                        const e = zip.folder(file.name)!;
+                        yield _internal_folder(totalPath, e);
+                    } else {
+                        const fs = await _internal_file(totalPath, file);
+                        for (const f of fs) {
+                            yield f;
+                        }
+                    }
+                }
             },
-          });
-        }
-      }
+            // // deno-lint-ignore require-await
+            // async getContentBytes(): Promise<Uint8Array> {
+            //   throw new Error("Cannot get content of folder");
+            // },
+            // deno-lint-ignore require-await
+            async getContentText(): Promise<string> {
+                throw new Error("Cannot get content of folder");
+            },
+        };
     }
-    return r;
-  }
-  function _internal_folder(p: string, zip: JSZip): DynFSElement {
-    return {
-      isDirectory: true,
-      path: p,
-      async *getChildren(): AsyncIterable<DynFSElement> {
-        for (const filename in zip.files) {
-          const file = zip.files[filename];
-          const totalPath = path.join(p, filename);
-          if (file.dir) {
-            const e = zip.folder(file.name)!;
-            yield _internal_folder(totalPath, e);
-          } else {
-            const fs = await _internal_file(totalPath, file);
-            for (const f of fs) {
-              yield f;
-            }
-          }
-        }
-      },
-      // // deno-lint-ignore require-await
-      // async getContentBytes(): Promise<Uint8Array> {
-      //   throw new Error("Cannot get content of folder");
-      // },
-      // deno-lint-ignore require-await
-      async getContentText(): Promise<string> {
-        throw new Error("Cannot get content of folder");
-      },
-    };
-  }
-  return _internal_folder("." + SEP, zip);
+    return _internal_folder("." + SEP, zip);
 }
 
 export async function* readDirRecursiveWithIgnore(
-  ignore: (path: string, isDirectory: boolean) => boolean,
-  root: DynFSElement
+    ignore: (path: string, isDirectory: boolean) => boolean,
+    root: DynFSElement,
 ): AsyncGenerator<{
-  path: string;
-  ignored: boolean;
-  isDirectory: boolean;
-  // getContentBytes(): Promise<Uint8Array>;
-  getContentText(): Promise<string>;
-}> {
-  const stack: {
     path: string;
-    isDirectory: boolean;
     ignored: boolean;
-    c(): AsyncIterable<DynFSElement>;
+    isDirectory: boolean;
     // getContentBytes(): Promise<Uint8Array>;
     getContentText(): Promise<string>;
-  }[] = [
-    {
-      path: root.path,
-      ignored: ignore(root.path, root.isDirectory),
-      isDirectory: root.isDirectory,
-      c: root.getChildren,
-      // getContentBytes(): Promise<Uint8Array> {
-      //   throw undefined;
-      // },
-      getContentText(): Promise<string> {
-        throw undefined;
-      },
-    },
-  ];
+}> {
+    const stack: {
+        path: string;
+        isDirectory: boolean;
+        ignored: boolean;
+        c(): AsyncIterable<DynFSElement>;
+        // getContentBytes(): Promise<Uint8Array>;
+        getContentText(): Promise<string>;
+    }[] = [
+        {
+            path: root.path,
+            ignored: ignore(root.path, root.isDirectory),
+            isDirectory: root.isDirectory,
+            c: root.getChildren,
+            // getContentBytes(): Promise<Uint8Array> {
+            //   throw undefined;
+            // },
+            getContentText(): Promise<string> {
+                throw undefined;
+            },
+        },
+    ];
 
-  while (stack.length > 0) {
-    const e = stack.pop()!;
-    // console.log(e.path);
-    yield e;
-    for await (const e2 of e.c()) {
-      if (e2.isDirectory) {
-        const dirName = e2.path.split(SEP).pop();
-        if (dirName == "node_modules" || dirName?.startsWith(".")) {
-          continue;
+    while (stack.length > 0) {
+        const e = stack.pop()!;
+        // console.log(e.path);
+        yield e;
+        for await (const e2 of e.c()) {
+            if (e2.isDirectory) {
+                const dirName = e2.path.split(SEP).pop();
+                if (dirName == "node_modules" || dirName?.startsWith(".")) {
+                    continue;
+                }
+            }
+            // console.log(e2.path);
+            stack.push({
+                path: e2.path,
+                ignored: e.ignored || ignore(e2.path, e2.isDirectory),
+                isDirectory: e2.isDirectory,
+                // getContentBytes: e2.getContentBytes,
+                getContentText: e2.getContentText,
+                c: e2.getChildren,
+            });
         }
-      }
-      // console.log(e2.path);
-      stack.push({
-        path: e2.path,
-        ignored: e.ignored || ignore(e2.path, e2.isDirectory),
-        isDirectory: e2.isDirectory,
-        // getContentBytes: e2.getContentBytes,
-        getContentText: e2.getContentText,
-        c: e2.getChildren,
-      });
     }
-  }
 }
 
 type Added = { name: "added"; path: string; content: string };
 type Deleted = { name: "deleted"; path: string };
 type Edit = {
-  name: "edited";
-  path: string;
-  before: string;
-  after: string;
-  codebase?: string;
+    name: "edited";
+    path: string;
+    before: string;
+    after: string;
+    codebase?: string;
 };
 
 type Change = Added | Deleted | Edit;
 
 export async function elementsToMap(
-  els: DynFSElement,
-  ignore: (path: string, isDirectory: boolean) => boolean,
-  json: boolean,
-  skips: Skips
+    els: DynFSElement,
+    ignore: (path: string, isDirectory: boolean) => boolean,
+    json: boolean,
+    skips: Skips,
 ): Promise<{ [key: string]: string }> {
-  const map: { [key: string]: string } = {};
-  for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
-    if (entry.isDirectory || entry.ignored) continue;
-    const path = entry.path;
-    if (json && path.endsWith(".yaml") && !isFileResource(path)) continue;
-    if (!json && path.endsWith(".json") && !isFileResource(path)) continue;
-    const ext = json ? ".json" : ".yaml";
-    // Core object type skip checks
-    {
-      const _t = getTypeStrFromPath(path);
-      if (skips.skipScripts && _t === "script") continue;
-      if (skips.skipFlows && _t === "flow") continue;
-      if (skips.skipApps && _t === "app") continue;
-      if (skips.skipFolders && _t === "folder") continue;
-    }
-    if (!skips.includeSchedules && path.endsWith(".schedule" + ext)) continue;
-    if (
-      !skips.includeTriggers &&
-      (path.endsWith(".http_trigger" + ext) ||
-        path.endsWith(".websocket_trigger" + ext) ||
-        path.endsWith(".kafka_trigger" + ext) ||
-        path.endsWith(".nats_trigger" + ext) ||
-        path.endsWith(".postgres_trigger" + ext) ||
-        path.endsWith(".mqtt_trigger" + ext) ||
-        path.endsWith(".sqs_trigger" + ext) ||
-        path.endsWith(".gcp_trigger" + ext))
-    )
-      continue;
-    if (!skips.includeUsers && path.endsWith(".user" + ext)) continue;
-    if (!skips.includeGroups && path.endsWith(".group" + ext)) continue;
-    if (!skips.includeSettings && path === "settings" + ext) continue;
-    if (!skips.includeKey && path === "encryption_key") continue;
-    if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
-    if (skips.skipResourceTypes && path.endsWith(".resource-type" + ext))
-      continue;
-
-    if (skips.skipVariables && path.endsWith(".variable" + ext)) continue;
-
-    if (skips.skipResources && isFileResource(path)) continue;
-
-    if (
-      ![
-        "json",
-        "yaml",
-        "go",
-        "sh",
-        "ts",
-        "py",
-        "sql",
-        "gql",
-        "ps1",
-        "php",
-        "js",
-        "lock",
-        "rs",
-        "cs",
-        "yml",
-        "nu",
-        "java",
-        // for related places search: ADD_NEW_LANG
-      ].includes(path.split(".").pop() ?? "") &&
-      !isFileResource(path)
-    )
-      continue;
-    const content = await entry.getContentText();
-
-    if (skips.skipSecrets && path.endsWith(".variable" + ext)) {
-      try {
-        let o;
-        if (json) {
-          o = JSON.parse(content);
-        } else {
-          o = yamlParseContent(path, content);
+    const map: { [key: string]: string } = {};
+    for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
+        if (entry.isDirectory || entry.ignored) continue;
+        const path = entry.path;
+        if (json && path.endsWith(".yaml") && !isFileResource(path)) continue;
+        if (!json && path.endsWith(".json") && !isFileResource(path)) continue;
+        const ext = json ? ".json" : ".yaml";
+        // Core object type skip checks
+        {
+            const _t = getTypeStrFromPath(path);
+            if (skips.skipScripts && _t === "script") continue;
+            if (skips.skipFlows && _t === "flow") continue;
+            if (skips.skipApps && _t === "app") continue;
+            if (skips.skipFolders && _t === "folder") continue;
         }
-        if (o["is_secret"]) {
-          continue;
+        if (!skips.includeSchedules && path.endsWith(".schedule" + ext))
+            continue;
+        if (
+            !skips.includeTriggers &&
+            (path.endsWith(".http_trigger" + ext) ||
+                path.endsWith(".websocket_trigger" + ext) ||
+                path.endsWith(".kafka_trigger" + ext) ||
+                path.endsWith(".nats_trigger" + ext) ||
+                path.endsWith(".postgres_trigger" + ext) ||
+                path.endsWith(".mqtt_trigger" + ext) ||
+                path.endsWith(".sqs_trigger" + ext) ||
+                path.endsWith(".gcp_trigger" + ext))
+        )
+            continue;
+        if (!skips.includeUsers && path.endsWith(".user" + ext)) continue;
+        if (!skips.includeGroups && path.endsWith(".group" + ext)) continue;
+        if (!skips.includeSettings && path === "settings" + ext) continue;
+        if (!skips.includeKey && path === "encryption_key") continue;
+        if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
+        if (skips.skipResourceTypes && path.endsWith(".resource-type" + ext))
+            continue;
+
+        if (skips.skipVariables && path.endsWith(".variable" + ext)) continue;
+
+        if (skips.skipResources && isFileResource(path)) continue;
+
+        if (
+            ![
+                "json",
+                "yaml",
+                "go",
+                "sh",
+                "ts",
+                "py",
+                "sql",
+                "gql",
+                "ps1",
+                "php",
+                "js",
+                "lock",
+                "rs",
+                "cs",
+                "yml",
+                "nu",
+                "java",
+                // for related places search: ADD_NEW_LANG
+            ].includes(path.split(".").pop() ?? "") &&
+            !isFileResource(path)
+        )
+            continue;
+        const content = await entry.getContentText();
+
+        if (skips.skipSecrets && path.endsWith(".variable" + ext)) {
+            try {
+                let o;
+                if (json) {
+                    o = JSON.parse(content);
+                } else {
+                    o = yamlParseContent(path, content);
+                }
+                if (o["is_secret"]) {
+                    continue;
+                }
+            } catch (e) {
+                log.warn(`Error reading variable ${path} to check for secrets`);
+            }
         }
-      } catch (e) {
-        log.warn(`Error reading variable ${path} to check for secrets`);
-      }
+        map[entry.path] = content;
     }
-    map[entry.path] = content;
-  }
-  return map;
+    return map;
 }
 
 export interface Skips {
-  skipVariables?: boolean | undefined;
-  skipResources?: boolean | undefined;
-  skipResourceTypes?: boolean | undefined;
-  skipSecrets?: boolean | undefined;
-  skipScriptsMetadata?: boolean | undefined;
-  includeSchedules?: boolean | undefined;
-  includeTriggers?: boolean | undefined;
-  includeUsers?: boolean | undefined;
-  includeGroups?: boolean | undefined;
-  includeSettings?: boolean | undefined;
-  includeKey?: boolean | undefined;
-  skipScripts?: boolean | undefined;
-  skipFlows?: boolean | undefined;
-  skipApps?: boolean | undefined;
-  skipFolders?: boolean | undefined;
+    skipVariables?: boolean | undefined;
+    skipResources?: boolean | undefined;
+    skipResourceTypes?: boolean | undefined;
+    skipSecrets?: boolean | undefined;
+    skipScriptsMetadata?: boolean | undefined;
+    includeSchedules?: boolean | undefined;
+    includeTriggers?: boolean | undefined;
+    includeUsers?: boolean | undefined;
+    includeGroups?: boolean | undefined;
+    includeSettings?: boolean | undefined;
+    includeKey?: boolean | undefined;
+    skipScripts?: boolean | undefined;
+    skipFlows?: boolean | undefined;
+    skipApps?: boolean | undefined;
+    skipFolders?: boolean | undefined;
 }
 
 async function compareDynFSElement(
-  els1: DynFSElement,
-  els2: DynFSElement | undefined,
-  ignore: (path: string, isDirectory: boolean) => boolean,
-  json: boolean,
-  skips: Skips,
-  ignoreMetadataDeletion: boolean,
-  codebases: SyncCodebase[],
-  ignoreCodebaseChanges: boolean
+    els1: DynFSElement,
+    els2: DynFSElement | undefined,
+    ignore: (path: string, isDirectory: boolean) => boolean,
+    json: boolean,
+    skips: Skips,
+    ignoreMetadataDeletion: boolean,
+    codebases: SyncCodebase[],
+    ignoreCodebaseChanges: boolean,
 ): Promise<Change[]> {
-  const [m1, m2] = els2
-    ? await Promise.all([
-        elementsToMap(els1, ignore, json, skips),
-        elementsToMap(els2, ignore, json, skips),
-      ])
-    : [await elementsToMap(els1, ignore, json, skips), {}];
+    const [m1, m2] = els2
+        ? await Promise.all([
+              elementsToMap(els1, ignore, json, skips),
+              elementsToMap(els2, ignore, json, skips),
+          ])
+        : [await elementsToMap(els1, ignore, json, skips), {}];
 
-  const changes: Change[] = [];
+    const changes: Change[] = [];
 
-  function parseYaml(k: string, v: string) {
-    if (k.endsWith(".script.yaml")) {
-      const o: any = yamlParseContent(k, v);
-      if (typeof o == "object") {
-        if (Array.isArray(o?.["lock"])) {
-          o["lock"] = o["lock"].join("\n");
-        }
-        if (o["is_template"] != undefined) {
-          delete o["is_template"];
-        }
-      }
-      return o;
-    } else if (k.endsWith(".app.yaml")) {
-      const o: any = yamlParseContent(k, v);
-      const o2 = o["policy"];
-
-      if (typeof o2 == "object") {
-        if (o2["on_behalf_of"] != undefined) {
-          delete o2["on_behalf_of"];
-        }
-        if (o2["on_behalf_of_email"] != undefined) {
-          delete o2["on_behalf_of_email"];
-        }
-      }
-      return o;
-    } else {
-      return yamlParseContent(k, v);
-    }
-  }
-
-  const codebaseChanges: Record<string, string> = {};
-
-  for (let [k, v] of Object.entries(m1)) {
-    const isScriptMetadata =
-      k.endsWith(".script.yaml") || k.endsWith(".script.json");
-    const skipMetadata = skips.skipScriptsMetadata && isScriptMetadata;
-
-    if (m2[k] === undefined) {
-      if (skipMetadata) {
-        continue;
-      }
-      changes.push({ name: "added", path: k, content: v });
-    } else {
-      if (m2[k] == v) {
-        continue;
-      } else if (k.endsWith(".json")) {
-        if (deepEqual(JSON.parse(v), JSON.parse(m2[k]))) {
-          continue;
-        }
-      } else if (k.endsWith(".yaml")) {
-        const before = parseYaml(k, m2[k]);
-        const after = parseYaml(k, v);
-        if (deepEqual(before, after)) {
-          continue;
-        }
-        if (!ignoreCodebaseChanges) {
-          if (before.codebase != undefined) {
-            delete before.codebase;
-            m2[k] = yamlStringify(before, yamlOptions);
-          }
-          if (after.codebase != undefined) {
-            if (before.codebase != after.codebase) {
-              codebaseChanges[k] = after.codebase;
+    function parseYaml(k: string, v: string) {
+        if (k.endsWith(".script.yaml")) {
+            const o: any = yamlParseContent(k, v);
+            if (typeof o == "object") {
+                if (Array.isArray(o?.["lock"])) {
+                    o["lock"] = o["lock"].join("\n");
+                }
+                if (o["is_template"] != undefined) {
+                    delete o["is_template"];
+                }
             }
-            delete after.codebase;
-            v = yamlStringify(after, yamlOptions);
-          }
+            return o;
+        } else if (k.endsWith(".app.yaml")) {
+            const o: any = yamlParseContent(k, v);
+            const o2 = o["policy"];
+
+            if (typeof o2 == "object") {
+                if (o2["on_behalf_of"] != undefined) {
+                    delete o2["on_behalf_of"];
+                }
+                if (o2["on_behalf_of_email"] != undefined) {
+                    delete o2["on_behalf_of_email"];
+                }
+            }
+            return o;
+        } else {
+            return yamlParseContent(k, v);
         }
-        if (skipMetadata) {
-          continue;
+    }
+
+    const codebaseChanges: Record<string, string> = {};
+
+    for (let [k, v] of Object.entries(m1)) {
+        const isScriptMetadata =
+            k.endsWith(".script.yaml") || k.endsWith(".script.json");
+        const skipMetadata = skips.skipScriptsMetadata && isScriptMetadata;
+
+        if (m2[k] === undefined) {
+            if (skipMetadata) {
+                continue;
+            }
+            changes.push({ name: "added", path: k, content: v });
+        } else {
+            if (m2[k] == v) {
+                continue;
+            } else if (k.endsWith(".json")) {
+                if (deepEqual(JSON.parse(v), JSON.parse(m2[k]))) {
+                    continue;
+                }
+            } else if (k.endsWith(".yaml")) {
+                const before = parseYaml(k, m2[k]);
+                const after = parseYaml(k, v);
+                if (deepEqual(before, after)) {
+                    continue;
+                }
+                if (!ignoreCodebaseChanges) {
+                    if (before.codebase != undefined) {
+                        delete before.codebase;
+                        m2[k] = yamlStringify(before, yamlOptions);
+                    }
+                    if (after.codebase != undefined) {
+                        if (before.codebase != after.codebase) {
+                            codebaseChanges[k] = after.codebase;
+                        }
+                        delete after.codebase;
+                        v = yamlStringify(after, yamlOptions);
+                    }
+                }
+                if (skipMetadata) {
+                    continue;
+                }
+            }
+            changes.push({
+                name: "edited",
+                path: k,
+                after: v,
+                before: m2[k],
+                codebase: codebaseChanges[k],
+            });
         }
-      }
-      changes.push({
-        name: "edited",
-        path: k,
-        after: v,
-        before: m2[k],
-        codebase: codebaseChanges[k],
-      });
     }
-  }
 
-  const remoteCodebase: Record<string, string> = {};
-  for (const [k] of Object.entries(m2)) {
-    if (m1[k] === undefined) {
-      if (
-        !ignoreMetadataDeletion ||
-        (!k?.endsWith(".script.yaml") && !k?.endsWith(".script.json"))
-      ) {
-        changes.push({ name: "deleted", path: k });
-      } else if (k?.endsWith(".script.yaml")) {
-        let o = parseYaml(k, m2[k]);
-        if (o.codebase != undefined) {
-          remoteCodebase[k] = o.codebase;
+    const remoteCodebase: Record<string, string> = {};
+    for (const [k] of Object.entries(m2)) {
+        if (m1[k] === undefined) {
+            if (
+                !ignoreMetadataDeletion ||
+                (!k?.endsWith(".script.yaml") && !k?.endsWith(".script.json"))
+            ) {
+                changes.push({ name: "deleted", path: k });
+            } else if (k?.endsWith(".script.yaml")) {
+                let o = parseYaml(k, m2[k]);
+                if (o.codebase != undefined) {
+                    remoteCodebase[k] = o.codebase;
+                }
+            }
         }
-      }
     }
-  }
 
-  if (!ignoreCodebaseChanges) {
-    for (const [k, v] of Object.entries(remoteCodebase)) {
-      const tsFile = k.replace(".script.yaml", ".ts");
-      if (
-        changes.find(
-          (c) => c.path == tsFile && (c.name == "edited" || c.name == "deleted")
-        )
-      ) {
-        continue;
-      }
-      const c = findCodebase(tsFile, codebases);
-      if ((await c?.getDigest()) != v) {
-        changes.push({
-          name: "edited",
-          path: tsFile,
-          codebase: v,
-          before: m1[tsFile],
-          after: m2[tsFile],
-        });
-      }
+    if (!ignoreCodebaseChanges) {
+        for (const [k, v] of Object.entries(remoteCodebase)) {
+            const tsFile = k.replace(".script.yaml", ".ts");
+            if (
+                changes.find(
+                    (c) =>
+                        c.path == tsFile &&
+                        (c.name == "edited" || c.name == "deleted"),
+                )
+            ) {
+                continue;
+            }
+            const c = findCodebase(tsFile, codebases);
+            if ((await c?.getDigest()) != v) {
+                changes.push({
+                    name: "edited",
+                    path: tsFile,
+                    codebase: v,
+                    before: m1[tsFile],
+                    after: m2[tsFile],
+                });
+            }
+        }
     }
-  }
 
-  if (!ignoreCodebaseChanges) {
-    for (const change of changes) {
-      const codebase = codebaseChanges[change.path];
-      if (!codebase) continue;
+    if (!ignoreCodebaseChanges) {
+        for (const change of changes) {
+            const codebase = codebaseChanges[change.path];
+            if (!codebase) continue;
 
-      const tsFile = change.path.replace(".script.yaml", ".ts");
-      if (change.name == "edited" && change.path == tsFile) {
-        change.codebase = codebase;
-      }
+            const tsFile = change.path.replace(".script.yaml", ".ts");
+            if (change.name == "edited" && change.path == tsFile) {
+                change.codebase = codebase;
+            }
+        }
     }
-  }
 
-  changes.sort((a, b) =>
-    getOrderFromPath(a.path) == getOrderFromPath(b.path)
-      ? a.path.localeCompare(b.path)
-      : getOrderFromPath(a.path) - getOrderFromPath(b.path)
-  );
+    changes.sort((a, b) =>
+        getOrderFromPath(a.path) == getOrderFromPath(b.path)
+            ? a.path.localeCompare(b.path)
+            : getOrderFromPath(a.path) - getOrderFromPath(b.path),
+    );
 
-  return changes;
+    return changes;
 }
 
 function getOrderFromPath(p: string) {
-  const typ = getTypeStrFromPath(p);
-  if (typ == "settings") {
-    return 0;
-  } else if (typ == "folder") {
-    return 1;
-  } else if (typ == "resource-type") {
-    return 2;
-  } else if (typ == "resource") {
-    return 3;
-  } else if (typ == "script") {
-    return 4;
-  } else if (typ == "flow") {
-    return 5;
-  } else if (typ == "app") {
-    return 6;
-  } else if (typ == "schedule") {
-    return 7;
-  } else if (
-    typ == "http_trigger" ||
-    typ == "websocket_trigger" ||
-    typ == "kafka_trigger" ||
-    typ == "nats_trigger" ||
-    typ == "postgres_trigger" ||
-    typ == "mqtt_trigger" ||
-    typ == "sqs_trigger" ||
-    typ == "gcp_trigger"
-  ) {
-    return 8;
-  } else if (typ == "variable") {
-    return 9;
-  } else if (typ == "user") {
-    return 10;
-  } else if (typ == "group") {
-    return 11;
-  } else if (typ == "encryption_key") {
-    return 12;
-  } else {
-    return 13;
-  }
+    const typ = getTypeStrFromPath(p);
+    if (typ == "settings") {
+        return 0;
+    } else if (typ == "folder") {
+        return 1;
+    } else if (typ == "resource-type") {
+        return 2;
+    } else if (typ == "resource") {
+        return 3;
+    } else if (typ == "script") {
+        return 4;
+    } else if (typ == "flow") {
+        return 5;
+    } else if (typ == "app") {
+        return 6;
+    } else if (typ == "schedule") {
+        return 7;
+    } else if (
+        typ == "http_trigger" ||
+        typ == "websocket_trigger" ||
+        typ == "kafka_trigger" ||
+        typ == "nats_trigger" ||
+        typ == "postgres_trigger" ||
+        typ == "mqtt_trigger" ||
+        typ == "sqs_trigger" ||
+        typ == "gcp_trigger"
+    ) {
+        return 8;
+    } else if (typ == "variable") {
+        return 9;
+    } else if (typ == "user") {
+        return 10;
+    } else if (typ == "group") {
+        return 11;
+    } else if (typ == "encryption_key") {
+        return 12;
+    } else {
+        return 13;
+    }
 }
 
 const isNotWmillFile = (p: string, isDirectory: boolean) => {
-  if (p.endsWith(SEP)) {
-    return false;
-  }
-  if (isDirectory) {
-    return (
-      !p.startsWith("u" + SEP) &&
-      !p.startsWith("f" + SEP) &&
-      !p.startsWith("g" + SEP) &&
-      !p.startsWith("users" + SEP) &&
-      !p.startsWith("groups" + SEP)
-    );
-  }
-
-  try {
-    const typ = getTypeStrFromPath(p);
-    if (
-      typ == "resource-type" ||
-      typ == "settings" ||
-      typ == "encryption_key"
-    ) {
-      return p.includes(SEP);
-    } else {
-      return (
-        !p.startsWith("u" + SEP) &&
-        !p.startsWith("f" + SEP) &&
-        !p.startsWith("g" + SEP) &&
-        !p.startsWith("users" + SEP) &&
-        !p.startsWith("groups" + SEP)
-      );
+    if (p.endsWith(SEP)) {
+        return false;
     }
-  } catch {
-    return true;
-  }
+    if (isDirectory) {
+        return (
+            !p.startsWith("u" + SEP) &&
+            !p.startsWith("f" + SEP) &&
+            !p.startsWith("g" + SEP) &&
+            !p.startsWith("users" + SEP) &&
+            !p.startsWith("groups" + SEP)
+        );
+    }
+
+    try {
+        const typ = getTypeStrFromPath(p);
+        if (
+            typ == "resource-type" ||
+            typ == "settings" ||
+            typ == "encryption_key"
+        ) {
+            return p.includes(SEP);
+        } else {
+            return (
+                !p.startsWith("u" + SEP) &&
+                !p.startsWith("f" + SEP) &&
+                !p.startsWith("g" + SEP) &&
+                !p.startsWith("users" + SEP) &&
+                !p.startsWith("groups" + SEP)
+            );
+        }
+    } catch {
+        return true;
+    }
 };
 
 export const isWhitelisted = (p: string) => {
-  return (
-    p == "." + SEP ||
-    p == "" ||
-    p == "u" ||
-    p == "f" ||
-    p == "g" ||
-    p == "users" ||
-    p == "groups"
-  );
+    return (
+        p == "." + SEP ||
+        p == "" ||
+        p == "u" ||
+        p == "f" ||
+        p == "g" ||
+        p == "users" ||
+        p == "groups"
+    );
 };
 
 export async function ignoreF(wmillconf: {
-  includes?: string[];
-  excludes?: string[];
-  extraIncludes?: string[];
-  skipResourceTypes?: boolean;
-  json?: boolean;
+    includes?: string[];
+    excludes?: string[];
+    extraIncludes?: string[];
+    skipResourceTypes?: boolean;
+    json?: boolean;
 }): Promise<(p: string, isDirectory: boolean) => boolean> {
-  let whitelist: { approve(file: string): boolean } | undefined = undefined;
+    let whitelist: { approve(file: string): boolean } | undefined = undefined;
 
-  if (
-    (Array.isArray(wmillconf?.includes) && wmillconf?.includes?.length > 0) ||
-    (Array.isArray(wmillconf?.excludes) && wmillconf?.excludes?.length > 0)
-  ) {
-    whitelist = {
-      approve(file: string): boolean {
-        return (
-          (!wmillconf.includes ||
-            wmillconf.includes?.some((i) => minimatch(file, i))) &&
-          (!wmillconf?.excludes ||
-            wmillconf.excludes!.every((i) => !minimatch(file, i))) &&
-          (!wmillconf.extraIncludes ||
-            wmillconf.extraIncludes.some((i) => minimatch(file, i)))
-        );
-      },
-    };
-  }
-
-  try {
-    await Deno.stat(".wmillignore");
-    throw Error(".wmillignore is not supported anymore, switch to wmill.yaml");
-  } catch {
-    //expected
-  }
-
-  // new Gitignore.default({ initialRules: ignoreContent.split("\n")}).ignoreContent).compile();
-
-  return (p: string, isDirectory: boolean) => {
-    const ext = wmillconf.json ? ".json" : ".yaml";
-    if (!isDirectory && p.endsWith(".resource-type" + ext)) {
-      return wmillconf.skipResourceTypes ?? false;
+    if (
+        (Array.isArray(wmillconf?.includes) &&
+            wmillconf?.includes?.length > 0) ||
+        (Array.isArray(wmillconf?.excludes) && wmillconf?.excludes?.length > 0)
+    ) {
+        whitelist = {
+            approve(file: string): boolean {
+                return (
+                    (!wmillconf.includes ||
+                        wmillconf.includes?.some((i) => minimatch(file, i))) &&
+                    (!wmillconf?.excludes ||
+                        wmillconf.excludes!.every(
+                            (i) => !minimatch(file, i),
+                        )) &&
+                    (!wmillconf.extraIncludes ||
+                        wmillconf.extraIncludes.some((i) => minimatch(file, i)))
+                );
+            },
+        };
     }
-    return (
-      !isWhitelisted(p) &&
-      (isNotWmillFile(p, isDirectory) ||
-        (!isDirectory && whitelist != undefined && !whitelist.approve(p)))
-    );
-  };
+
+    try {
+        await Deno.stat(".wmillignore");
+        throw Error(
+            ".wmillignore is not supported anymore, switch to wmill.yaml",
+        );
+    } catch {
+        //expected
+    }
+
+    // new Gitignore.default({ initialRules: ignoreContent.split("\n")}).ignoreContent).compile();
+
+    return (p: string, isDirectory: boolean) => {
+        const ext = wmillconf.json ? ".json" : ".yaml";
+        if (!isDirectory && p.endsWith(".resource-type" + ext)) {
+            return wmillconf.skipResourceTypes ?? false;
+        }
+        return (
+            !isWhitelisted(p) &&
+            (isNotWmillFile(p, isDirectory) ||
+                (!isDirectory &&
+                    whitelist != undefined &&
+                    !whitelist.approve(p)))
+        );
+    };
 }
 
 interface ChangeTracker {
-  scripts: string[];
-  flows: string[];
-  apps: string[];
+    scripts: string[];
+    flows: string[];
+    apps: string[];
 }
 
 // deno-lint-ignore no-inner-declarations
 async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
-  const isScript = exts.some((e) => p.endsWith(e));
-  if (isScript) {
-    if (p.includes(".flow" + SEP)) {
-      const folder = p.substring(0, p.indexOf(".flow" + SEP)) + ".flow" + SEP;
-      if (!tracker.flows.includes(folder)) {
-        tracker.flows.push(folder);
-      }
-    } else if (p.includes(".app" + SEP)) {
-      const folder = p.substring(0, p.indexOf(".app" + SEP)) + ".app" + SEP;
-      if (!tracker.apps.includes(folder)) {
-        tracker.apps.push(folder);
-      }
-    } else {
-      if (!tracker.scripts.includes(p)) {
-        tracker.scripts.push(p);
-      }
+    const isScript = exts.some((e) => p.endsWith(e));
+    if (isScript) {
+        if (p.includes(".flow" + SEP)) {
+            const folder =
+                p.substring(0, p.indexOf(".flow" + SEP)) + ".flow" + SEP;
+            if (!tracker.flows.includes(folder)) {
+                tracker.flows.push(folder);
+            }
+        } else if (p.includes(".app" + SEP)) {
+            const folder =
+                p.substring(0, p.indexOf(".app" + SEP)) + ".app" + SEP;
+            if (!tracker.apps.includes(folder)) {
+                tracker.apps.push(folder);
+            }
+        } else {
+            if (!tracker.scripts.includes(p)) {
+                tracker.scripts.push(p);
+            }
+        }
+    } else if (p.endsWith(".script.yaml") || p.endsWith(".script.json")) {
+        try {
+            const contentPath = await findContentFile(p);
+            if (!contentPath) return;
+            if (tracker.scripts.includes(contentPath)) return;
+            tracker.scripts.push(contentPath);
+        } catch {
+            // ignore
+        }
     }
-  } else if (p.endsWith(".script.yaml") || p.endsWith(".script.json")) {
-    try {
-      const contentPath = await findContentFile(p);
-      if (!contentPath) return;
-      if (tracker.scripts.includes(contentPath)) return;
-      tracker.scripts.push(contentPath);
-    } catch {
-      // ignore
-    }
-  }
 }
 
 async function buildTracker(changes: Change[]) {
-  const tracker: ChangeTracker = {
-    scripts: [],
-    flows: [],
-    apps: [],
-  };
-  for (const change of changes) {
-    if (change.name == "added" || change.name == "edited") {
-      await addToChangedIfNotExists(change.path, tracker);
+    const tracker: ChangeTracker = {
+        scripts: [],
+        flows: [],
+        apps: [],
+    };
+    for (const change of changes) {
+        if (change.name == "added" || change.name == "edited") {
+            await addToChangedIfNotExists(change.path, tracker);
+        }
     }
-  }
-  return tracker;
+    return tracker;
 }
 
-export async function pull(opts: GlobalOptions & SyncOptions & { repository?: string; workspace?: string }) {
-  let workspace: any;
-  let repositoryPath: string | undefined;
+export async function pull(
+    opts: GlobalOptions &
+        SyncOptions & { repository?: string; workspace?: string },
+) {
+    let workspace: any;
+    let repositoryPath: string | undefined;
 
-  try {
-    // Try to resolve using workspace-aware method
-    const { workspaceName, workspaceProfile, repositoryPath: resolvedRepo, syncOptions } =
-      await resolveWorkspaceAndRepositoryForSync(opts.workspace, opts.repository);
+    try {
+        // Try to resolve using workspace-aware method
+        const {
+            workspaceName,
+            workspaceProfile,
+            repositoryPath: resolvedRepo,
+            syncOptions,
+        } = await resolveWorkspaceAndRepositoryForSync(
+            opts.workspace,
+            opts.repository,
+        );
 
-    if (workspaceProfile) {
-      // Use workspace profile to create workspace object with proper token resolution
-      workspace = await createWorkspaceWithToken(workspaceProfile, workspaceName, opts);
-    } else {
-      // Fallback to normal workspace resolution
-      workspace = await resolveWorkspace(opts);
+        if (workspaceProfile) {
+            // Use workspace profile to create workspace object with proper token resolution
+            workspace = await createWorkspaceWithToken(
+                workspaceProfile,
+                workspaceName,
+                opts,
+            );
+        } else {
+            // Fallback to normal workspace resolution
+            workspace = await resolveWorkspace(opts);
+        }
+
+        repositoryPath = resolvedRepo;
+        // Merge resolved repository options with command line options
+        opts = { ...syncOptions, ...opts };
+    } catch (error) {
+        // Fall back to legacy resolution
+        workspace = await resolveWorkspace(opts);
+        repositoryPath = opts.repository; // Legacy: just use specified repository
+        const { mergeConfigWithConfigFile, getWorkspaceRepositorySettings } =
+            await import("./conf.ts");
+        const legacyConfig = await mergeConfigWithConfigFile({});
+
+        // Extract repository-specific settings if available
+        let extractedConfig = legacyConfig;
+        if (
+            opts.workspace &&
+            repositoryPath &&
+            legacyConfig.workspaces?.[opts.workspace]
+        ) {
+            extractedConfig = getWorkspaceRepositorySettings(
+                legacyConfig,
+                opts.workspace,
+                repositoryPath,
+            );
+        }
+
+        opts = { ...extractedConfig, ...opts };
     }
 
-    repositoryPath = resolvedRepo;
-    // Merge resolved repository options with command line options
-    opts = { ...syncOptions, ...opts };
-  } catch (error) {
-    // Fall back to legacy resolution
-    workspace = await resolveWorkspace(opts);
-    repositoryPath = opts.repository; // Legacy: just use specified repository
-    const { mergeConfigWithConfigFile, getWorkspaceRepositorySettings } = await import("./conf.ts");
-    const legacyConfig = await mergeConfigWithConfigFile({});
-    
-    // Extract repository-specific settings if available
-    let extractedConfig = legacyConfig;
-    if (opts.workspace && repositoryPath && legacyConfig.workspaces?.[opts.workspace]) {
-      extractedConfig = getWorkspaceRepositorySettings(legacyConfig, opts.workspace, repositoryPath);
+    await requireLogin(opts);
+
+    // Override sync configuration with JSON settings if provided
+    overrideSyncOptionsFromJson(opts, opts.settingsFromJson);
+
+    // CRITICAL FIX: Apply wmill.yaml settings BEFORE main sync operation if requested
+    // This ensures that sync uses the updated backend settings rather than old local settings
+    if (opts.includeWmillYaml && !opts.dryRun && !opts.diff) {
+        try {
+            const { pullSettings } = await import("./settings.ts");
+            // First check if there are any differences
+            const wmillYamlCheck = await pullSettings({
+                ...opts,
+                diff: true,
+                workspace: opts.workspace,
+                repository: repositoryPath,
+            });
+
+            if (wmillYamlCheck?.success && wmillYamlCheck?.diff?.trim()) {
+                log.info("Applying wmill.yaml changes before sync...");
+
+                // Apply the settings (without diff mode to actually write the file)
+                await pullSettings({
+                    ...opts,
+                    diff: false,
+                    workspace: opts.workspace,
+                    repository: repositoryPath,
+                });
+                log.info(
+                    colors.green(
+                        "wmill.yaml updated - sync will use new settings",
+                    ),
+                );
+
+                // Re-resolve workspace and repository settings using the same method as initial sync
+                const { syncOptions: updatedSyncOptions } =
+                    await resolveWorkspaceAndRepositoryForSync(
+                        opts.workspace,
+                        repositoryPath,
+                    );
+
+                // Apply updated sync options, letting them override old settings
+                opts = { ...opts, ...updatedSyncOptions };
+            }
+        } catch (error) {
+            log.error(
+                colors.red(`Failed to process wmill.yaml changes: ${error}`),
+            );
+            // Continue with sync operation using existing settings
+        }
     }
-    
-    opts = { ...extractedConfig, ...opts };
-  }
 
-  await requireLogin(opts);
+    if (repositoryPath) {
+        log.info(colors.gray(`Syncing with repository: ${repositoryPath}`));
+    }
 
-  // Override sync configuration with JSON settings if provided
-  overrideSyncOptionsFromJson(opts, opts.settingsFromJson);
+    if (opts.stateful) {
+        await ensureDir(path.join(Deno.cwd(), ".wmill"));
+    }
 
-  if (repositoryPath) {
-    log.info(colors.gray(`Syncing with repository: ${repositoryPath}`));
-  }
+    const codebases = await listSyncCodebases(opts);
 
-  if (opts.stateful) {
-    await ensureDir(path.join(Deno.cwd(), ".wmill"));
-  }
-
-  const codebases = await listSyncCodebases(opts);
-
-  log.info(
-    colors.gray(
-      "Computing the files to update locally to match remote (taking wmill.yaml into account)"
-    )
-  );
-
-  let resourceTypeToFormatExtension: Record<string, string> = {};
-  try {
-    resourceTypeToFormatExtension = (await wmill.fileResourceTypeToFileExtMap({
-      workspace: workspace.workspaceId,
-    })) as Record<string, string>;
-  } catch {
-    // ignore
-  }
-  const remote = ZipFSElement(
-    (await downloadZip(
-      workspace,
-      opts.plainSecrets,
-      opts.skipVariables,
-      opts.skipResources,
-      opts.skipResourceTypes,
-      opts.skipSecrets,
-      opts.includeSchedules,
-      opts.includeTriggers,
-      opts.includeUsers,
-      opts.includeGroups,
-      opts.includeSettings,
-      opts.includeKey,
-      opts.defaultTs
-    ))!,
-    !opts.json,
-    opts.defaultTs ?? "bun",
-    resourceTypeToFormatExtension,
-    true
-  );
-  const local = !opts.stateful
-    ? await FSFSElement(Deno.cwd(), codebases, true)
-    : await FSFSElement(path.join(Deno.cwd(), ".wmill"), [], true);
-  let changes = await compareDynFSElement(
-    remote,
-    local,
-    await ignoreF(opts),
-    opts.json ?? false,
-    opts,
-    false,
-    codebases,
-    true
-  );
-
-  // Always filter out wmill.yaml from normal sync operations - it will be handled separately by includeWmillYaml logic if requested
-  changes = changes.filter(change => change.path !== 'wmill.yaml');
-
-  // Add wmill.yaml change from JSON settings if requested
-  if (opts.settingsFromJson) {
-    // Parse the JSON input to get the new settings
-    const uiState = parseJsonInput(opts.settingsFromJson);
-    const newSyncOptions = uiStateToSyncOptions(uiState);
-    const afterContent = yamlStringify(
-      sanitizeSyncOptionsForYaml(newSyncOptions) as Record<string, unknown>
+    log.info(
+        colors.gray(
+            "Computing the files to update locally to match remote (taking wmill.yaml into account)",
+        ),
     );
 
-    // Read and sanitise current wmill.yaml if it exists
-    let beforeContent = '';
+    let resourceTypeToFormatExtension: Record<string, string> = {};
     try {
-      beforeContent = await Deno.readTextFile(path.join(Deno.cwd(), "wmill.yaml"));
-      try {
-        const parsedBefore: any = yamlParseContent("wmill.yaml", beforeContent);
-        beforeContent = yamlStringify(
-          sanitizeSyncOptionsForYaml(parsedBefore) as Record<string, unknown>
-        );
-      } catch {
-        // If parsing fails, keep raw content for comparison
-      }
+        resourceTypeToFormatExtension =
+            (await wmill.fileResourceTypeToFileExtMap({
+                workspace: workspace.workspaceId,
+            })) as Record<string, string>;
     } catch {
-      beforeContent = '';
+        // ignore
     }
-
-    const hasDifferences = afterContent.trim() !== beforeContent.trim();
-
-    if (hasDifferences && !changes.some(c => c.path === 'wmill.yaml')) {
-      changes.push({
-        name: "edited",
-        path: "wmill.yaml",
-        before: beforeContent,
-        after: afterContent
-      });
-    }
-  }
-
-  // Add wmill.yaml change detection if requested - reuse settings.ts logic
-  let wmillYamlSettingsResult = null;
-  if (opts.includeWmillYaml) {
-    try {
-      const { pullSettings } = await import("./settings.ts");
-      wmillYamlSettingsResult = await pullSettings({ 
-        ...opts, 
-        diff: true,
-        workspace: opts.workspace,
-        repository: repositoryPath 
-      });
-    } catch (error) {
-      console.warn("Failed to check wmill.yaml changes:", error);
-    }
-  }
-
-  // Calculate total changes including wmill.yaml if applicable
-  const wmillYamlChanges = (wmillYamlSettingsResult?.success && wmillYamlSettingsResult?.diff?.trim()) ? 1 : 0;
-  const totalChanges = changes.length + wmillYamlChanges;
-
-  log.info(
-    `remote (${workspace.name}) -> local: ${totalChanges} changes to apply`
-  );
-
-  // Handle JSON output for dry-run (both with and without changes)
-  if (opts.dryRun && opts.jsonOutput) {
-    // Convert changes to frontend-compatible format
-    const added: string[] = [];
-    const deleted: string[] = [];
-    const modified: string[] = [];
-
-    for (const change of changes) {
-      if (change.name === "added") {
-        added.push(change.path);
-      } else if (change.name === "deleted") {
-        deleted.push(change.path);
-      } else if (change.name === "edited") {
-        modified.push(change.path);
-      }
-    }
-
-    // Use wmill.yaml change detection from main logic if requested
-    if (opts.includeWmillYaml && wmillYamlSettingsResult?.success && wmillYamlSettingsResult?.diff?.trim()) {
-      // There are differences, so wmill.yaml would be modified
-      const wmillYamlExists = await readCurrentWmillYaml() !== null;
-      if (!wmillYamlExists && !added.includes('wmill.yaml')) {
-        added.push('wmill.yaml');
-      } else if (wmillYamlExists && !modified.includes('wmill.yaml')) {
-        modified.push('wmill.yaml');
-      }
-    }
-
-
-    const result = {
-      success: true,
-      added,
-      deleted,
-      modified
-    };
-    console.log(JSON.stringify(result));
-    return;
-  }
-
-  if (totalChanges > 0) {
-    prettyChanges(changes);
-    
-    // Show wmill.yaml change if applicable
-    if (wmillYamlChanges > 0) {
-      const wmillYamlExists = await readCurrentWmillYaml() !== null;
-      const changeType = wmillYamlExists ? "~" : "+";
-      log.info(colors.yellow(`${changeType} wmill.yaml`));
-    }
-    
-    if (opts.dryRun) {
-      log.info(colors.gray(`Dry run complete.`));
-      return;
-    }
-    if (
-      !opts.yes &&
-      !(await Confirm.prompt({
-        message: `Do you want to apply these ${totalChanges} changes to your local files?`,
-        default: true,
-      }))
-    ) {
-      return;
-    }
-
-    const conflicts = [];
-
-    log.info(colors.gray(`Applying changes to files ...`));
-    for await (const change of changes) {
-      const target = path.join(Deno.cwd(), change.path);
-      const stateTarget = path.join(Deno.cwd(), ".wmill", change.path);
-      if (change.name === "edited") {
-        if (opts.stateful) {
-          try {
-            const currentLocal = await Deno.readTextFile(target);
-            if (
-              currentLocal !== change.before &&
-              currentLocal !== change.after
-            ) {
-              log.info(
-                colors.red(
-                  `Conflict detected on ${change.path}\nBoth local and remote have been modified.`
-                )
-              );
-              if (opts.failConflicts) {
-                conflicts.push({
-                  local: currentLocal,
-                  change,
-                  path: change.path,
-                });
-                continue;
-              } else if (opts.yes) {
-                log.info(
-                  colors.red(
-                    `Override local version with remote since --yes was passed and no --fail-conflicts.`
-                  )
-                );
-              } else {
-                showConflict(change.path, currentLocal, change.after);
-                if (
-                  await Confirm.prompt(
-                    "Preserve local (push to change remote and avoid seeing this again)?"
-                  )
-                ) {
-                  continue;
-                }
-              }
-            }
-          } catch {
-            // ignore
-          }
-        }
-        if (exts.some((e) => change.path.endsWith(e))) {
-          log.info(`Editing script content of ${change.path}`);
-        } else if (
-          change.path.endsWith(".yaml") ||
-          change.path.endsWith(".json")
-        ) {
-          log.info(`Editing ${getTypeStrFromPath(change.path)} ${change.path}`);
-        }
-        await Deno.writeTextFile(target, change.after);
-
-        if (opts.stateful) {
-          await ensureDir(path.dirname(stateTarget));
-          await Deno.copyFile(target, stateTarget);
-        }
-      } else if (change.name === "added") {
-        await ensureDir(path.dirname(target));
-        if (opts.stateful) {
-          await ensureDir(path.dirname(stateTarget));
-          log.info(`Adding ${getTypeStrFromPath(change.path)} ${change.path}`);
-        }
-        await Deno.writeTextFile(target, change.content);
-        log.info(`Writing ${getTypeStrFromPath(change.path)} ${change.path}`);
-        if (opts.stateful) {
-          await Deno.copyFile(target, stateTarget);
-        }
-      } else if (change.name === "deleted") {
-        try {
-          log.info(
-            `Deleting ${getTypeStrFromPath(change.path)} ${change.path}`
-          );
-          await Deno.remove(target);
-          if (opts.stateful) {
-            await Deno.remove(stateTarget);
-          }
-        } catch {
-          if (opts.stateful) {
-            await Deno.remove(stateTarget);
-          }
-        }
-      }
-    }
-    if (opts.failConflicts) {
-      if (conflicts.length > 0) {
-        console.error(colors.red(`Conflicts were found`));
-        log.info("Conflicts:");
-        for (const conflict of conflicts) {
-          showConflict(conflict.path, conflict.local, conflict.change.after);
-        }
-        log.info(
-          colors.red(`Please resolve these conflicts manually by either:
-  - reverting the content back to its remote (\`wmill pull\` and refuse to preserve local when prompted)
-  - pushing the changes with \`wmill push --skip-pull\` to override wmill with all your local changes
-`)
-        );
-        Deno.exit(1);
-      }
-    }
-    log.info("All local changes pulled, now updating wmill-lock.yaml");
-    await readLockfile(); // ensure wmill-lock.yaml exists
-    const globalDeps = await findGlobalDeps();
-
-    const tracker: ChangeTracker = await buildTracker(changes);
-
-    for (const change of tracker.scripts) {
-      await generateScriptMetadataInternal(
-        change,
-        workspace,
+    const remote = ZipFSElement(
+        (await downloadZip(
+            workspace,
+            opts.plainSecrets,
+            opts.skipVariables,
+            opts.skipResources,
+            opts.skipResourceTypes,
+            opts.skipSecrets,
+            opts.includeSchedules,
+            opts.includeTriggers,
+            opts.includeUsers,
+            opts.includeGroups,
+            opts.includeSettings,
+            opts.includeKey,
+            opts.defaultTs,
+        ))!,
+        !opts.json,
+        opts.defaultTs ?? "bun",
+        resourceTypeToFormatExtension,
+        true,
+    );
+    const local = !opts.stateful
+        ? await FSFSElement(Deno.cwd(), codebases, true)
+        : await FSFSElement(path.join(Deno.cwd(), ".wmill"), [], true);
+    let changes = await compareDynFSElement(
+        remote,
+        local,
+        await ignoreF(opts),
+        opts.json ?? false,
         opts,
         false,
-        true,
-        globalDeps,
         codebases,
-        true
-      );
-    }
-    for (const change of tracker.flows) {
-      log.info(`Updating lock for flow ${change}`);
-      await generateFlowLockInternal(change, false, workspace, true);
-    }
-    if (tracker.apps.length > 0) {
-      log.info(
-        `Apps ${tracker.apps.join(
-          ", "
-        )} scripts were changed but ignoring for now`
-      );
-    }
-    // Apply wmill.yaml changes if requested and there are differences
-    if (opts.includeWmillYaml && wmillYamlSettingsResult?.success && wmillYamlSettingsResult?.diff?.trim()) {
-      try {
-        log.info("Applying wmill.yaml changes...");
-        const { pullSettings } = await import("./settings.ts");
-        // Apply the settings (without diff mode to actually write the file)
-        await pullSettings({ 
-          ...opts, 
-          diff: false,
-          workspace: opts.workspace,
-          repository: repositoryPath 
-        });
-        log.info(colors.green("wmill.yaml updated successfully"));
-      } catch (error) {
-        log.error(colors.red(`Failed to apply wmill.yaml changes: ${error}`));
-      }
+        true,
+    );
+
+    // Always filter out wmill.yaml from normal sync operations - it will be handled separately by includeWmillYaml logic if requested
+    changes = changes.filter((change) => change.path !== "wmill.yaml");
+
+    // Add wmill.yaml change from JSON settings if requested
+    if (opts.settingsFromJson) {
+        // Parse the JSON input to get the new settings
+        const uiState = parseJsonInput(opts.settingsFromJson);
+        const newSyncOptions = uiStateToSyncOptions(uiState);
+        const afterContent = yamlStringify(
+            sanitizeSyncOptionsForYaml(newSyncOptions) as Record<
+                string,
+                unknown
+            >,
+        );
+
+        // Read and sanitise current wmill.yaml if it exists
+        let beforeContent = "";
+        try {
+            beforeContent = await Deno.readTextFile(
+                path.join(Deno.cwd(), "wmill.yaml"),
+            );
+            try {
+                const parsedBefore: any = yamlParseContent(
+                    "wmill.yaml",
+                    beforeContent,
+                );
+                beforeContent = yamlStringify(
+                    sanitizeSyncOptionsForYaml(parsedBefore) as Record<
+                        string,
+                        unknown
+                    >,
+                );
+            } catch {
+                // If parsing fails, keep raw content for comparison
+            }
+        } catch {
+            beforeContent = "";
+        }
+
+        const hasDifferences = afterContent.trim() !== beforeContent.trim();
+
+        if (hasDifferences && !changes.some((c) => c.path === "wmill.yaml")) {
+            changes.push({
+                name: "edited",
+                path: "wmill.yaml",
+                before: beforeContent,
+                after: afterContent,
+            });
+        }
     }
 
-    const totalAppliedChanges = changes.length + ((opts.includeWmillYaml && wmillYamlSettingsResult?.success && wmillYamlSettingsResult?.diff?.trim()) ? 1 : 0);
+    // Add wmill.yaml change detection if requested - reuse settings.ts logic
+    let wmillYamlSettingsResult = null;
+    if (opts.includeWmillYaml) {
+        try {
+            const { pullSettings } = await import("./settings.ts");
+            wmillYamlSettingsResult = await pullSettings({
+                ...opts,
+                diff: true,
+                workspace: opts.workspace,
+                repository: repositoryPath,
+            });
+        } catch (error) {
+            console.warn("Failed to check wmill.yaml changes:", error);
+        }
+    }
+
+    // Calculate total changes including wmill.yaml if applicable
+    const wmillYamlChanges =
+        wmillYamlSettingsResult?.success &&
+        wmillYamlSettingsResult?.diff?.trim()
+            ? 1
+            : 0;
+    const totalChanges = changes.length + wmillYamlChanges;
+
     log.info(
-      colors.bold.green.underline(
-        `\nDone! All ${totalAppliedChanges} changes applied locally and wmill-lock.yaml updated.`
-      )
+        `remote (${workspace.name}) -> local: ${totalChanges} changes to apply`,
     );
-  }
+
+    // Handle JSON output for dry-run (both with and without changes)
+    if (opts.dryRun && opts.jsonOutput) {
+        // Convert changes to frontend-compatible format
+        const added: string[] = [];
+        const deleted: string[] = [];
+        const modified: string[] = [];
+
+        for (const change of changes) {
+            if (change.name === "added") {
+                added.push(change.path);
+            } else if (change.name === "deleted") {
+                deleted.push(change.path);
+            } else if (change.name === "edited") {
+                modified.push(change.path);
+            }
+        }
+
+        // Use wmill.yaml change detection from main logic if requested
+        if (
+            opts.includeWmillYaml &&
+            wmillYamlSettingsResult?.success &&
+            wmillYamlSettingsResult?.diff?.trim()
+        ) {
+            // There are differences, so wmill.yaml would be modified
+            const wmillYamlExists = (await readCurrentWmillYaml()) !== null;
+            if (!wmillYamlExists && !added.includes("wmill.yaml")) {
+                added.push("wmill.yaml");
+            } else if (wmillYamlExists && !modified.includes("wmill.yaml")) {
+                modified.push("wmill.yaml");
+            }
+        }
+
+        const result = {
+            success: true,
+            added,
+            deleted,
+            modified,
+        };
+        console.log(JSON.stringify(result));
+        return;
+    }
+
+    if (totalChanges > 0) {
+        prettyChanges(changes);
+
+        // Show wmill.yaml change if applicable
+        if (wmillYamlChanges > 0) {
+            const wmillYamlExists = (await readCurrentWmillYaml()) !== null;
+            const changeType = wmillYamlExists ? "~" : "+";
+            log.info(colors.yellow(`${changeType} wmill.yaml`));
+        }
+
+        if (opts.dryRun) {
+            log.info(colors.gray(`Dry run complete.`));
+            return;
+        }
+        if (
+            !opts.yes &&
+            !(await Confirm.prompt({
+                message: `Do you want to apply these ${totalChanges} changes to your local files?`,
+                default: true,
+            }))
+        ) {
+            return;
+        }
+
+        const conflicts = [];
+
+        log.info(colors.gray(`Applying changes to files ...`));
+        for await (const change of changes) {
+            const target = path.join(Deno.cwd(), change.path);
+            const stateTarget = path.join(Deno.cwd(), ".wmill", change.path);
+            if (change.name === "edited") {
+                if (opts.stateful) {
+                    try {
+                        const currentLocal = await Deno.readTextFile(target);
+                        if (
+                            currentLocal !== change.before &&
+                            currentLocal !== change.after
+                        ) {
+                            log.info(
+                                colors.red(
+                                    `Conflict detected on ${change.path}\nBoth local and remote have been modified.`,
+                                ),
+                            );
+                            if (opts.failConflicts) {
+                                conflicts.push({
+                                    local: currentLocal,
+                                    change,
+                                    path: change.path,
+                                });
+                                continue;
+                            } else if (opts.yes) {
+                                log.info(
+                                    colors.red(
+                                        `Override local version with remote since --yes was passed and no --fail-conflicts.`,
+                                    ),
+                                );
+                            } else {
+                                showConflict(
+                                    change.path,
+                                    currentLocal,
+                                    change.after,
+                                );
+                                if (
+                                    await Confirm.prompt(
+                                        "Preserve local (push to change remote and avoid seeing this again)?",
+                                    )
+                                ) {
+                                    continue;
+                                }
+                            }
+                        }
+                    } catch {
+                        // ignore
+                    }
+                }
+                if (exts.some((e) => change.path.endsWith(e))) {
+                    log.info(`Editing script content of ${change.path}`);
+                } else if (
+                    change.path.endsWith(".yaml") ||
+                    change.path.endsWith(".json")
+                ) {
+                    log.info(
+                        `Editing ${getTypeStrFromPath(change.path)} ${change.path}`,
+                    );
+                }
+                await Deno.writeTextFile(target, change.after);
+
+                if (opts.stateful) {
+                    await ensureDir(path.dirname(stateTarget));
+                    await Deno.copyFile(target, stateTarget);
+                }
+            } else if (change.name === "added") {
+                await ensureDir(path.dirname(target));
+                if (opts.stateful) {
+                    await ensureDir(path.dirname(stateTarget));
+                    log.info(
+                        `Adding ${getTypeStrFromPath(change.path)} ${change.path}`,
+                    );
+                }
+                await Deno.writeTextFile(target, change.content);
+                log.info(
+                    `Writing ${getTypeStrFromPath(change.path)} ${change.path}`,
+                );
+                if (opts.stateful) {
+                    await Deno.copyFile(target, stateTarget);
+                }
+            } else if (change.name === "deleted") {
+                try {
+                    log.info(
+                        `Deleting ${getTypeStrFromPath(change.path)} ${change.path}`,
+                    );
+                    await Deno.remove(target);
+                    if (opts.stateful) {
+                        await Deno.remove(stateTarget);
+                    }
+                } catch {
+                    if (opts.stateful) {
+                        await Deno.remove(stateTarget);
+                    }
+                }
+            }
+        }
+        if (opts.failConflicts) {
+            if (conflicts.length > 0) {
+                console.error(colors.red(`Conflicts were found`));
+                log.info("Conflicts:");
+                for (const conflict of conflicts) {
+                    showConflict(
+                        conflict.path,
+                        conflict.local,
+                        conflict.change.after,
+                    );
+                }
+                log.info(
+                    colors.red(`Please resolve these conflicts manually by either:
+  - reverting the content back to its remote (\`wmill pull\` and refuse to preserve local when prompted)
+  - pushing the changes with \`wmill push --skip-pull\` to override wmill with all your local changes
+`),
+                );
+                Deno.exit(1);
+            }
+        }
+        log.info("All local changes pulled, now updating wmill-lock.yaml");
+        await readLockfile(); // ensure wmill-lock.yaml exists
+        const globalDeps = await findGlobalDeps();
+
+        const tracker: ChangeTracker = await buildTracker(changes);
+
+        for (const change of tracker.scripts) {
+            await generateScriptMetadataInternal(
+                change,
+                workspace,
+                opts,
+                false,
+                true,
+                globalDeps,
+                codebases,
+                true,
+            );
+        }
+        for (const change of tracker.flows) {
+            log.info(`Updating lock for flow ${change}`);
+            await generateFlowLockInternal(change, false, workspace, true);
+        }
+        if (tracker.apps.length > 0) {
+            log.info(
+                `Apps ${tracker.apps.join(
+                    ", ",
+                )} scripts were changed but ignoring for now`,
+            );
+        }
+        // wmill.yaml changes are now applied BEFORE the main sync operation (see earlier in function)
+        // This ensures sync uses updated backend settings rather than old local settings
+
+        const totalAppliedChanges =
+            changes.length +
+            (opts.includeWmillYaml &&
+            wmillYamlSettingsResult?.success &&
+            wmillYamlSettingsResult?.diff?.trim()
+                ? 1
+                : 0);
+        log.info(
+            colors.bold.green.underline(
+                `\nDone! All ${totalAppliedChanges} changes applied locally and wmill-lock.yaml updated.`,
+            ),
+        );
+    }
 }
 
 function prettyChanges(changes: Change[]) {
-  for (const change of changes) {
-    if (change.name === "added") {
-      log.info(
-        colors.green(`+ ${getTypeStrFromPath(change.path)} ` + change.path)
-      );
-    } else if (change.name === "deleted") {
-      log.info(
-        colors.red(`- ${getTypeStrFromPath(change.path)} ` + change.path)
-      );
-    } else if (change.name === "edited") {
-      log.info(
-        colors.yellow(
-          `~ ${getTypeStrFromPath(change.path)} ` +
-            change.path +
-            (change.codebase ? ` (codebase changed)` : "")
-        )
-      );
-      if (change.before != change.after) {
-        showDiff(change.before, change.after);
-      }
+    for (const change of changes) {
+        if (change.name === "added") {
+            log.info(
+                colors.green(
+                    `+ ${getTypeStrFromPath(change.path)} ` + change.path,
+                ),
+            );
+        } else if (change.name === "deleted") {
+            log.info(
+                colors.red(
+                    `- ${getTypeStrFromPath(change.path)} ` + change.path,
+                ),
+            );
+        } else if (change.name === "edited") {
+            log.info(
+                colors.yellow(
+                    `~ ${getTypeStrFromPath(change.path)} ` +
+                        change.path +
+                        (change.codebase ? ` (codebase changed)` : ""),
+                ),
+            );
+            if (change.before != change.after) {
+                showDiff(change.before, change.after);
+            }
+        }
     }
-  }
 }
 
 // function prettyDiff(diffs: Difference[]) {
@@ -1597,855 +1716,1029 @@ function prettyChanges(changes: Change[]) {
 // }
 
 function removeSuffix(str: string, suffix: string) {
-  return str.slice(0, str.length - suffix.length);
+    return str.slice(0, str.length - suffix.length);
 }
 
-export async function push(opts: GlobalOptions & SyncOptions & { repository?: string; workspace?: string }) {
-  let workspace: any;
-  let repositoryPath: string | undefined;
+export async function push(
+    opts: GlobalOptions &
+        SyncOptions & { repository?: string; workspace?: string },
+) {
+    let workspace: any;
+    let repositoryPath: string | undefined;
 
-  try {
-    // Try to resolve using workspace-aware method
-    const { workspaceName, workspaceProfile, repositoryPath: resolvedRepo, syncOptions } =
-      await resolveWorkspaceAndRepositoryForSync(opts.workspace, opts.repository);
-
-    if (workspaceProfile) {
-      // Use workspace profile to create workspace object with proper token resolution
-      workspace = await createWorkspaceWithToken(workspaceProfile, workspaceName, opts);
-    } else {
-      // Fallback to normal workspace resolution
-      workspace = await resolveWorkspace(opts);
-    }
-
-    repositoryPath = resolvedRepo;
-    // Merge resolved repository options with command line options
-    opts = { ...syncOptions, ...opts };
-  } catch (error) {
-    // Fall back to legacy resolution
-    workspace = await resolveWorkspace(opts);
-    repositoryPath = opts.repository; // Legacy: just use specified repository
-    const { mergeConfigWithConfigFile, getWorkspaceRepositorySettings } = await import("./conf.ts");
-    const legacyConfig = await mergeConfigWithConfigFile({});
-    
-    // Extract repository-specific settings if available
-    let extractedConfig = legacyConfig;
-    if (opts.workspace && repositoryPath && legacyConfig.workspaces?.[opts.workspace]) {
-      extractedConfig = getWorkspaceRepositorySettings(legacyConfig, opts.workspace, repositoryPath);
-    }
-    
-    opts = { ...extractedConfig, ...opts };
-  }
-
-  await requireLogin(opts);
-
-  // Override sync configuration with JSON settings if provided - MUST happen before file scanning
-  overrideSyncOptionsFromJson(opts, opts.settingsFromJson);
-
-  if (repositoryPath) {
-    log.info(colors.gray(`Syncing with repository: ${repositoryPath}`));
-  }
-
-  const codebases = await listSyncCodebases(opts);
-  if (opts.raw) {
-    log.info("--raw is now the default, you can remove it as a flag");
-  }
-  if (opts.stateful) {
-    if (!opts.skipPull) {
-      log.info(
-        colors.gray("You need to be up-to-date before pushing, pulling first.")
-      );
-      await pull({ ...opts, repository: opts.repository });
-      log.info(colors.green("Pull done, now pushing."));
-      log.info("\n");
-    }
-  }
-
-  log.info(
-    colors.gray(
-      "Computing the files to update on the remote to match local (taking wmill.yaml includes/excludes into account)"
-    )
-  );
-  let resourceTypeToFormatExtension: Record<string, string> = {};
-  try {
-    resourceTypeToFormatExtension = (await wmill.fileResourceTypeToFileExtMap({
-      workspace: workspace.workspaceId,
-    })) as Record<string, string>;
-  } catch {
-    // ignore
-  }
-  const remote = ZipFSElement(
-    (await downloadZip(
-      workspace,
-      opts.plainSecrets,
-      opts.skipVariables,
-      opts.skipResources,
-      opts.skipResourceTypes,
-      opts.skipSecrets,
-      opts.includeSchedules,
-      opts.includeTriggers,
-      opts.includeUsers,
-      opts.includeGroups,
-      opts.includeSettings,
-      opts.includeKey,
-      opts.defaultTs
-    ))!,
-    !opts.json,
-    opts.defaultTs ?? "bun",
-    resourceTypeToFormatExtension,
-    false
-  );
-
-  const local = await FSFSElement(path.join(Deno.cwd(), ""), codebases, false);
-  let changes = await compareDynFSElement(
-    local,
-    remote,
-    await ignoreF(opts),
-    opts.json ?? false,
-    opts,
-    true,
-    codebases,
-    false
-  );
-
-  // Always filter out wmill.yaml from normal sync operations - it will be handled separately by includeWmillYaml logic if requested
-  changes = changes.filter(change => change.path !== 'wmill.yaml');
-
-  // Add wmill.yaml change detection if requested - reuse settings.ts logic for push direction
-  let wmillYamlSettingsResult = null;
-  if (opts.includeWmillYaml) {
     try {
-      const { pushSettings } = await import("./settings.ts");
-      wmillYamlSettingsResult = await pushSettings({ 
-        ...opts, 
-        diff: true,
-        workspace: opts.workspace,
-        repository: repositoryPath 
-      });
-    } catch (error) {
-      console.warn("Failed to check wmill.yaml changes:", error);
-    }
-  }
-
-  // Add wmill.yaml change from JSON settings if requested
-  if (opts.settingsFromJson) {
-    // Parse the JSON input to get the new settings
-    const uiState = parseJsonInput(opts.settingsFromJson);
-    const newSyncOptions = uiStateToSyncOptions(uiState);
-    const afterContent = yamlStringify(
-      sanitizeSyncOptionsForYaml(newSyncOptions) as Record<string, unknown>
-    );
-
-    // Read and sanitise current wmill.yaml if it exists
-    let beforeContent = '';
-    try {
-      beforeContent = await Deno.readTextFile(path.join(Deno.cwd(), "wmill.yaml"));
-      try {
-        const parsedBefore: any = yamlParseContent("wmill.yaml", beforeContent);
-        beforeContent = yamlStringify(
-          sanitizeSyncOptionsForYaml(parsedBefore) as Record<string, unknown>
+        // Try to resolve using workspace-aware method
+        const {
+            workspaceName,
+            workspaceProfile,
+            repositoryPath: resolvedRepo,
+            syncOptions,
+        } = await resolveWorkspaceAndRepositoryForSync(
+            opts.workspace,
+            opts.repository,
         );
-      } catch {
-        // If parsing fails, keep raw content for comparison
-      }
-    } catch {
-      beforeContent = '';
-    }
 
-    const hasDifferences = afterContent.trim() !== beforeContent.trim();
+        if (workspaceProfile) {
+            // Use workspace profile to create workspace object with proper token resolution
+            workspace = await createWorkspaceWithToken(
+                workspaceProfile,
+                workspaceName,
+                opts,
+            );
+        } else {
+            // Fallback to normal workspace resolution
+            workspace = await resolveWorkspace(opts);
+        }
 
-    if (hasDifferences && !changes.some(c => c.path === 'wmill.yaml')) {
-      changes.push({
-        name: "edited",
-        path: "wmill.yaml",
-        before: beforeContent,
-        after: afterContent
-      });
-    }
-  }
-
-  const globalDeps = await findGlobalDeps();
-
-  const tracker: ChangeTracker = await buildTracker(changes);
-
-  const staleScripts: string[] = [];
-  const staleFlows: string[] = [];
-  for (const change of tracker.scripts) {
-    const stale = await generateScriptMetadataInternal(
-      change,
-      workspace,
-      opts,
-      true,
-      true,
-      globalDeps,
-      codebases,
-      false
-    );
-    if (stale) {
-      staleScripts.push(stale);
-    }
-  }
-
-  if (staleScripts.length > 0) {
-    log.info("");
-    log.warn(
-      "Stale scripts metadata found, you may want to update them using 'wmill script generate-metadata' before pushing:"
-    );
-    for (const stale of staleScripts) {
-      log.warn(stale);
-    }
-
-    log.info("");
-  }
-
-  for (const change of tracker.flows) {
-    const stale = await generateFlowLockInternal(
-      change,
-      true,
-      workspace,
-      false,
-      true
-    );
-    if (stale) {
-      staleFlows.push(stale);
-    }
-  }
-
-  if (staleFlows.length > 0) {
-    log.warn(
-      "Stale flows locks found, you may want to update them using 'wmill flow generate-locks' before pushing:"
-    );
-    for (const stale of staleFlows) {
-      log.warn(stale);
-    }
-    log.info("");
-  }
-
-  const version = await fetchVersion(workspace.remote);
-
-  log.info(colors.gray("Remote version: " + version));
-
-  // Calculate total changes including wmill.yaml if applicable
-  const wmillYamlChanges = (wmillYamlSettingsResult?.success && wmillYamlSettingsResult?.diff?.trim()) ? 1 : 0;
-  const totalChanges = changes.length + wmillYamlChanges;
-
-  log.info(
-    `remote (${workspace.name}) <- local: ${totalChanges} changes to apply`
-  );
-
-  // Handle JSON output when there are no changes
-  if (totalChanges === 0 && opts.jsonOutput) {
-    try {
-      const localConfig = await readConfigFile();
-      const localUIState = syncOptionsToUIState(localConfig);
-      const result = {
-        success: true,
-        message: "No changes to push",
-        settings_json: localUIState,
-        added: [],
-        deleted: [],
-        modified: []
-      };
-      console.log(JSON.stringify(result));
+        repositoryPath = resolvedRepo;
+        // Merge resolved repository options with command line options
+        opts = { ...syncOptions, ...opts };
     } catch (error) {
-      console.log(JSON.stringify({
-        success: true,
-        message: "No changes to push",
-        settings_json: null,
-        added: [],
-        deleted: [],
-        modified: [],
-        error: `Could not read local wmill.yaml: ${(error as Error).message}`
-      }));
-    }
-    return;
-  }
+        // Fall back to legacy resolution
+        workspace = await resolveWorkspace(opts);
+        repositoryPath = opts.repository; // Legacy: just use specified repository
+        const { mergeConfigWithConfigFile, getWorkspaceRepositorySettings } =
+            await import("./conf.ts");
+        const legacyConfig = await mergeConfigWithConfigFile({});
 
-  if (totalChanges > 0) {
-    prettyChanges(changes);
-    
-    // Show wmill.yaml change if applicable
-    if (wmillYamlChanges > 0) {
-      log.info(colors.yellow(`~ wmill.yaml`));
-    }
-    
-    if (opts.dryRun) {
-      log.info(colors.gray(`Dry run complete.`));
-      if (opts.jsonOutput) {
-        // Convert changes to frontend-compatible format
-        const added: string[] = [];
-        const deleted: string[] = [];
-        const modified: string[] = [];
-
-        for (const change of changes) {
-          if (change.name === "added") {
-            added.push(change.path);
-          } else if (change.name === "deleted") {
-            deleted.push(change.path);
-          } else if (change.name === "edited") {
-            modified.push(change.path);
-          }
+        // Extract repository-specific settings if available
+        let extractedConfig = legacyConfig;
+        if (
+            opts.workspace &&
+            repositoryPath &&
+            legacyConfig.workspaces?.[opts.workspace]
+        ) {
+            extractedConfig = getWorkspaceRepositorySettings(
+                legacyConfig,
+                opts.workspace,
+                repositoryPath,
+            );
         }
 
-        // Add wmill.yaml to modified array if there are differences
+        opts = { ...extractedConfig, ...opts };
+    }
+
+    await requireLogin(opts);
+
+    // Override sync configuration with JSON settings if provided - MUST happen before file scanning
+    overrideSyncOptionsFromJson(opts, opts.settingsFromJson);
+
+    if (repositoryPath) {
+        log.info(colors.gray(`Syncing with repository: ${repositoryPath}`));
+    }
+
+    const codebases = await listSyncCodebases(opts);
+    if (opts.raw) {
+        log.info("--raw is now the default, you can remove it as a flag");
+    }
+    if (opts.stateful) {
+        if (!opts.skipPull) {
+            log.info(
+                colors.gray(
+                    "You need to be up-to-date before pushing, pulling first.",
+                ),
+            );
+            await pull({ ...opts, repository: opts.repository });
+            log.info(colors.green("Pull done, now pushing."));
+            log.info("\n");
+        }
+    }
+
+    log.info(
+        colors.gray(
+            "Computing the files to update on the remote to match local (taking wmill.yaml includes/excludes into account)",
+        ),
+    );
+    let resourceTypeToFormatExtension: Record<string, string> = {};
+    try {
+        resourceTypeToFormatExtension =
+            (await wmill.fileResourceTypeToFileExtMap({
+                workspace: workspace.workspaceId,
+            })) as Record<string, string>;
+    } catch {
+        // ignore
+    }
+    const remote = ZipFSElement(
+        (await downloadZip(
+            workspace,
+            opts.plainSecrets,
+            opts.skipVariables,
+            opts.skipResources,
+            opts.skipResourceTypes,
+            opts.skipSecrets,
+            opts.includeSchedules,
+            opts.includeTriggers,
+            opts.includeUsers,
+            opts.includeGroups,
+            opts.includeSettings,
+            opts.includeKey,
+            opts.defaultTs,
+        ))!,
+        !opts.json,
+        opts.defaultTs ?? "bun",
+        resourceTypeToFormatExtension,
+        false,
+    );
+
+    const local = await FSFSElement(
+        path.join(Deno.cwd(), ""),
+        codebases,
+        false,
+    );
+    let changes = await compareDynFSElement(
+        local,
+        remote,
+        await ignoreF(opts),
+        opts.json ?? false,
+        opts,
+        true,
+        codebases,
+        false,
+    );
+
+    // Always filter out wmill.yaml from normal sync operations - it will be handled separately by includeWmillYaml logic if requested
+    changes = changes.filter((change) => change.path !== "wmill.yaml");
+
+    // Add wmill.yaml change detection if requested - reuse settings.ts logic for push direction
+    let wmillYamlSettingsResult = null;
+    if (opts.includeWmillYaml) {
+        try {
+            const { pushSettings } = await import("./settings.ts");
+            wmillYamlSettingsResult = await pushSettings({
+                ...opts,
+                diff: true,
+                workspace: opts.workspace,
+                repository: repositoryPath,
+            });
+        } catch (error) {
+            console.warn("Failed to check wmill.yaml changes:", error);
+        }
+    }
+
+    // Add wmill.yaml change from JSON settings if requested
+    if (opts.settingsFromJson) {
+        // Parse the JSON input to get the new settings
+        const uiState = parseJsonInput(opts.settingsFromJson);
+        const newSyncOptions = uiStateToSyncOptions(uiState);
+        const afterContent = yamlStringify(
+            sanitizeSyncOptionsForYaml(newSyncOptions) as Record<
+                string,
+                unknown
+            >,
+        );
+
+        // Read and sanitise current wmill.yaml if it exists
+        let beforeContent = "";
+        try {
+            beforeContent = await Deno.readTextFile(
+                path.join(Deno.cwd(), "wmill.yaml"),
+            );
+            try {
+                const parsedBefore: any = yamlParseContent(
+                    "wmill.yaml",
+                    beforeContent,
+                );
+                beforeContent = yamlStringify(
+                    sanitizeSyncOptionsForYaml(parsedBefore) as Record<
+                        string,
+                        unknown
+                    >,
+                );
+            } catch {
+                // If parsing fails, keep raw content for comparison
+            }
+        } catch {
+            beforeContent = "";
+        }
+
+        const hasDifferences = afterContent.trim() !== beforeContent.trim();
+
+        if (hasDifferences && !changes.some((c) => c.path === "wmill.yaml")) {
+            changes.push({
+                name: "edited",
+                path: "wmill.yaml",
+                before: beforeContent,
+                after: afterContent,
+            });
+        }
+    }
+
+    const globalDeps = await findGlobalDeps();
+
+    const tracker: ChangeTracker = await buildTracker(changes);
+
+    const staleScripts: string[] = [];
+    const staleFlows: string[] = [];
+    for (const change of tracker.scripts) {
+        const stale = await generateScriptMetadataInternal(
+            change,
+            workspace,
+            opts,
+            true,
+            true,
+            globalDeps,
+            codebases,
+            false,
+        );
+        if (stale) {
+            staleScripts.push(stale);
+        }
+    }
+
+    if (staleScripts.length > 0) {
+        log.info("");
+        log.warn(
+            "Stale scripts metadata found, you may want to update them using 'wmill script generate-metadata' before pushing:",
+        );
+        for (const stale of staleScripts) {
+            log.warn(stale);
+        }
+
+        log.info("");
+    }
+
+    for (const change of tracker.flows) {
+        const stale = await generateFlowLockInternal(
+            change,
+            true,
+            workspace,
+            false,
+            true,
+        );
+        if (stale) {
+            staleFlows.push(stale);
+        }
+    }
+
+    if (staleFlows.length > 0) {
+        log.warn(
+            "Stale flows locks found, you may want to update them using 'wmill flow generate-locks' before pushing:",
+        );
+        for (const stale of staleFlows) {
+            log.warn(stale);
+        }
+        log.info("");
+    }
+
+    const version = await fetchVersion(workspace.remote);
+
+    log.info(colors.gray("Remote version: " + version));
+
+    // Calculate total changes including wmill.yaml if applicable
+    const wmillYamlChanges =
+        wmillYamlSettingsResult?.success &&
+        wmillYamlSettingsResult?.diff?.trim()
+            ? 1
+            : 0;
+    const totalChanges = changes.length + wmillYamlChanges;
+
+    log.info(
+        `remote (${workspace.name}) <- local: ${totalChanges} changes to apply`,
+    );
+
+    // Handle JSON output when there are no changes
+    if (totalChanges === 0 && opts.jsonOutput) {
+        try {
+            const localConfig = await readConfigFile();
+            const localUIState = syncOptionsToUIState(localConfig);
+            const result = {
+                success: true,
+                message: "No changes to push",
+                settings_json: localUIState,
+                added: [],
+                deleted: [],
+                modified: [],
+            };
+            console.log(JSON.stringify(result));
+        } catch (error) {
+            console.log(
+                JSON.stringify({
+                    success: true,
+                    message: "No changes to push",
+                    settings_json: null,
+                    added: [],
+                    deleted: [],
+                    modified: [],
+                    error: `Could not read local wmill.yaml: ${(error as Error).message}`,
+                }),
+            );
+        }
+        return;
+    }
+
+    if (totalChanges > 0) {
+        prettyChanges(changes);
+
+        // Show wmill.yaml change if applicable
         if (wmillYamlChanges > 0) {
-          modified.push('wmill.yaml');
+            log.info(colors.yellow(`~ wmill.yaml`));
         }
 
-        const result = {
-          success: true,
-          added,
-          deleted,
-          modified
-        };
-        console.log(JSON.stringify(result));
-      }
-      return;
-    }
-    if (
-      !opts.yes &&
-      !(await Confirm.prompt({
-        message: `Do you want to apply these ${totalChanges} changes to the remote?`,
-        default: true,
-      }))
-    ) {
-      return;
-    }
+        if (opts.dryRun) {
+            log.info(colors.gray(`Dry run complete.`));
+            if (opts.jsonOutput) {
+                // Convert changes to frontend-compatible format
+                const added: string[] = [];
+                const deleted: string[] = [];
+                const modified: string[] = [];
 
-    const start = performance.now();
-    log.info(colors.gray(`Applying changes to files ...`));
+                for (const change of changes) {
+                    if (change.name === "added") {
+                        added.push(change.path);
+                    } else if (change.name === "deleted") {
+                        deleted.push(change.path);
+                    } else if (change.name === "edited") {
+                        modified.push(change.path);
+                    }
+                }
 
-    let stateful = opts.stateful;
-    if (stateful) {
-      try {
-        await Deno.stat(path.join(Deno.cwd(), ".wmill"));
-      } catch {
-        stateful = false;
-      }
-    }
+                // Add wmill.yaml to modified array if there are differences
+                if (wmillYamlChanges > 0) {
+                    modified.push("wmill.yaml");
+                }
 
-    // Group changes by base path (before first dot)
-    const groupedChanges = new Map<string, typeof changes>();
-    for (const change of changes) {
-      const basePath = change.path.split(".")[0];
-      if (!groupedChanges.has(basePath)) {
-        groupedChanges.set(basePath, []);
-      }
-      groupedChanges.get(basePath)!.push(change);
-    }
+                const result = {
+                    success: true,
+                    added,
+                    deleted,
+                    modified,
+                };
+                console.log(JSON.stringify(result));
+            }
+            return;
+        }
+        if (
+            !opts.yes &&
+            !(await Confirm.prompt({
+                message: `Do you want to apply these ${totalChanges} changes to the remote?`,
+                default: true,
+            }))
+        ) {
+            return;
+        }
 
-    let parallelizationFactor = opts.parallel ?? 1;
-    if (parallelizationFactor <= 0) {
-      parallelizationFactor = 1;
-    }
-    const groupedChangesArray = Array.from(groupedChanges.entries());
-    log.info(
-      `found changes for ${
-        groupedChangesArray.length
-      } items with a total of ${groupedChangesArray.reduce(
-        (acc, [_, changes]) => acc + changes.length,
-        0
-      )} files to process`
-    );
-    if (parallelizationFactor > 1) {
-      log.info(`Parallelizing ${parallelizationFactor} changes at a time`);
-    }
+        const start = performance.now();
+        log.info(colors.gray(`Applying changes to files ...`));
 
-    // Create a pool of workers that processes items as they become available
-    const pool = new Set();
-    const queue = [...groupedChangesArray];
+        let stateful = opts.stateful;
+        if (stateful) {
+            try {
+                await Deno.stat(path.join(Deno.cwd(), ".wmill"));
+            } catch {
+                stateful = false;
+            }
+        }
 
-    while (queue.length > 0 || pool.size > 0) {
-      // Fill the pool until we reach parallelizationFactor
-      while (pool.size < parallelizationFactor && queue.length > 0) {
-        const [_basePath, changes] = queue.shift()!;
-        const promise = (async () => {
-          const alreadySynced: string[] = [];
+        // Group changes by base path (before first dot)
+        const groupedChanges = new Map<string, typeof changes>();
+        for (const change of changes) {
+            const basePath = change.path.split(".")[0];
+            if (!groupedChanges.has(basePath)) {
+                groupedChanges.set(basePath, []);
+            }
+            groupedChanges.get(basePath)!.push(change);
+        }
 
-          for await (const change of changes) {
-            let stateTarget = undefined;
-            if (stateful) {
-              try {
-                stateTarget = path.join(Deno.cwd(), ".wmill", change.path);
-                await Deno.stat(stateTarget);
-              } catch {
-                stateTarget = undefined;
-              }
+        let parallelizationFactor = opts.parallel ?? 1;
+        if (parallelizationFactor <= 0) {
+            parallelizationFactor = 1;
+        }
+        const groupedChangesArray = Array.from(groupedChanges.entries());
+        log.info(
+            `found changes for ${
+                groupedChangesArray.length
+            } items with a total of ${groupedChangesArray.reduce(
+                (acc, [_, changes]) => acc + changes.length,
+                0,
+            )} files to process`,
+        );
+        if (parallelizationFactor > 1) {
+            log.info(
+                `Parallelizing ${parallelizationFactor} changes at a time`,
+            );
+        }
+
+        // Create a pool of workers that processes items as they become available
+        const pool = new Set();
+        const queue = [...groupedChangesArray];
+
+        while (queue.length > 0 || pool.size > 0) {
+            // Fill the pool until we reach parallelizationFactor
+            while (pool.size < parallelizationFactor && queue.length > 0) {
+                const [_basePath, changes] = queue.shift()!;
+                const promise = (async () => {
+                    const alreadySynced: string[] = [];
+
+                    for await (const change of changes) {
+                        let stateTarget = undefined;
+                        if (stateful) {
+                            try {
+                                stateTarget = path.join(
+                                    Deno.cwd(),
+                                    ".wmill",
+                                    change.path,
+                                );
+                                await Deno.stat(stateTarget);
+                            } catch {
+                                stateTarget = undefined;
+                            }
+                        }
+
+                        // Skip writing wmill.yaml changes during push operations (they're only for display in dry-run)
+                        if (change.path === "wmill.yaml") {
+                            log.info(
+                                `Skipping wmill.yaml modification during push (settings used for sync logic only)`,
+                            );
+                            continue;
+                        }
+
+                        if (change.name === "edited") {
+                            if (
+                                await handleScriptMetadata(
+                                    change.path,
+                                    workspace,
+                                    alreadySynced,
+                                    opts.message,
+                                    globalDeps,
+                                    codebases,
+                                    opts,
+                                )
+                            ) {
+                                if (stateTarget) {
+                                    await Deno.writeTextFile(
+                                        stateTarget,
+                                        change.after,
+                                    );
+                                }
+                                continue;
+                            } else if (
+                                await handleFile(
+                                    change.path,
+                                    workspace,
+                                    alreadySynced,
+                                    opts.message,
+                                    opts,
+                                    globalDeps,
+                                    codebases,
+                                )
+                            ) {
+                                if (stateTarget) {
+                                    await Deno.writeTextFile(
+                                        stateTarget,
+                                        change.after,
+                                    );
+                                }
+                                continue;
+                            }
+                            if (stateTarget) {
+                                await ensureDir(path.dirname(stateTarget));
+                                log.info(
+                                    `Editing ${getTypeStrFromPath(change.path)} ${change.path}`,
+                                );
+                            }
+
+                            if (isFileResource(change.path)) {
+                                const resourceFilePath = await findResourceFile(
+                                    change.path,
+                                );
+                                if (!alreadySynced.includes(resourceFilePath)) {
+                                    alreadySynced.push(resourceFilePath);
+
+                                    const newObj = parseFromPath(
+                                        resourceFilePath,
+                                        await Deno.readTextFile(
+                                            resourceFilePath,
+                                        ),
+                                    );
+
+                                    await pushResource(
+                                        workspace.workspaceId,
+                                        resourceFilePath,
+                                        undefined,
+                                        newObj,
+                                    );
+                                    if (stateTarget) {
+                                        await Deno.writeTextFile(
+                                            stateTarget,
+                                            change.after,
+                                        );
+                                    }
+                                    continue;
+                                }
+                            }
+                            const oldObj = parseFromPath(
+                                change.path,
+                                change.before,
+                            );
+                            const newObj = parseFromPath(
+                                change.path,
+                                change.after,
+                            );
+
+                            await pushObj(
+                                workspace.workspaceId,
+                                change.path,
+                                oldObj,
+                                newObj,
+                                opts.plainSecrets ?? false,
+                                alreadySynced,
+                                opts.message,
+                            );
+
+                            if (stateTarget) {
+                                await Deno.writeTextFile(
+                                    stateTarget,
+                                    change.after,
+                                );
+                            }
+                        } else if (change.name === "added") {
+                            if (
+                                change.path.endsWith(".script.json") ||
+                                change.path.endsWith(".script.yaml") ||
+                                change.path.endsWith(".lock") ||
+                                isFileResource(change.path)
+                            ) {
+                                continue;
+                            } else if (
+                                await handleFile(
+                                    change.path,
+                                    workspace,
+                                    alreadySynced,
+                                    opts.message,
+                                    opts,
+                                    globalDeps,
+                                    codebases,
+                                )
+                            ) {
+                                continue;
+                            }
+                            if (stateTarget) {
+                                await ensureDir(path.dirname(stateTarget));
+                                log.info(
+                                    `Adding ${getTypeStrFromPath(change.path)} ${change.path}`,
+                                );
+                            }
+                            const obj = parseFromPath(
+                                change.path,
+                                change.content,
+                            );
+                            await pushObj(
+                                workspace.workspaceId,
+                                change.path,
+                                undefined,
+                                obj,
+                                opts.plainSecrets ?? false,
+                                [],
+                                opts.message,
+                            );
+
+                            if (stateTarget) {
+                                await Deno.writeTextFile(
+                                    stateTarget,
+                                    change.content,
+                                );
+                            }
+                        } else if (change.name === "deleted") {
+                            if (change.path.endsWith(".lock")) {
+                                continue;
+                            }
+                            const typ = getTypeStrFromPath(change.path);
+
+                            if (typ == "script") {
+                                log.info(`Archiving ${typ} ${change.path}`);
+                            } else {
+                                log.info(`Deleting ${typ} ${change.path}`);
+                            }
+                            const workspaceId = workspace.workspaceId;
+                            const target = change.path.replaceAll(SEP, "/");
+                            switch (typ) {
+                                case "script": {
+                                    const script = await wmill.getScriptByPath({
+                                        workspace: workspaceId,
+                                        path: removeExtensionToPath(target),
+                                    });
+                                    await wmill.archiveScriptByHash({
+                                        workspace: workspaceId,
+                                        hash: script.hash,
+                                    });
+                                    break;
+                                }
+                                case "folder":
+                                    await wmill.deleteFolder({
+                                        workspace: workspaceId,
+                                        name: change.path.split(SEP)[1],
+                                    });
+                                    break;
+                                case "resource":
+                                    await wmill.deleteResource({
+                                        workspace: workspaceId,
+                                        path: removeSuffix(
+                                            target,
+                                            ".resource.json",
+                                        ),
+                                    });
+                                    break;
+                                case "resource-type":
+                                    await wmill.deleteResourceType({
+                                        workspace: workspaceId,
+                                        path: removeSuffix(
+                                            target,
+                                            ".resource-type.json",
+                                        ),
+                                    });
+                                    break;
+                                case "flow":
+                                    await wmill.deleteFlowByPath({
+                                        workspace: workspaceId,
+                                        path: removeSuffix(
+                                            target,
+                                            ".flow/flow.json",
+                                        ),
+                                    });
+                                    break;
+                                case "app":
+                                    await wmill.deleteApp({
+                                        workspace: workspaceId,
+                                        path: removeSuffix(
+                                            target,
+                                            ".app/app.json",
+                                        ),
+                                    });
+                                    break;
+                                case "schedule":
+                                    await wmill.deleteSchedule({
+                                        workspace: workspaceId,
+                                        path: removeSuffix(
+                                            target,
+                                            ".schedule.json",
+                                        ),
+                                    });
+                                    break;
+                                case "http_trigger":
+                                    await wmill.deleteHttpTrigger({
+                                        workspace: workspaceId,
+                                        path: removeSuffix(
+                                            target,
+                                            ".http_trigger.json",
+                                        ),
+                                    });
+                                    break;
+                                case "websocket_trigger":
+                                    await wmill.deleteWebsocketTrigger({
+                                        workspace: workspaceId,
+                                        path: removeSuffix(
+                                            target,
+                                            ".websocket_trigger.json",
+                                        ),
+                                    });
+                                    break;
+                                case "kafka_trigger":
+                                    await wmill.deleteKafkaTrigger({
+                                        workspace: workspaceId,
+                                        path: removeSuffix(
+                                            target,
+                                            ".kafka_trigger.json",
+                                        ),
+                                    });
+                                    break;
+                                case "nats_trigger":
+                                    await wmill.deleteNatsTrigger({
+                                        workspace: workspaceId,
+                                        path: removeSuffix(
+                                            target,
+                                            ".nats_trigger.json",
+                                        ),
+                                    });
+                                    break;
+                                case "postgres_trigger":
+                                    await wmill.deletePostgresTrigger({
+                                        workspace: workspaceId,
+                                        path: removeSuffix(
+                                            target,
+                                            ".postgres_trigger.json",
+                                        ),
+                                    });
+                                    break;
+                                case "mqtt_trigger":
+                                    await wmill.deleteMqttTrigger({
+                                        workspace: workspaceId,
+                                        path: removeSuffix(
+                                            target,
+                                            ".mqtt_trigger.json",
+                                        ),
+                                    });
+                                    break;
+                                case "sqs_trigger":
+                                    await wmill.deleteSqsTrigger({
+                                        workspace: workspaceId,
+                                        path: removeSuffix(
+                                            target,
+                                            ".sqs_trigger.json",
+                                        ),
+                                    });
+                                    break;
+                                case "gcp_trigger":
+                                    await wmill.deleteGcpTrigger({
+                                        workspace: workspaceId,
+                                        path: removeSuffix(
+                                            target,
+                                            ".gcp_trigger.json",
+                                        ),
+                                    });
+                                    break;
+                                case "variable":
+                                    await wmill.deleteVariable({
+                                        workspace: workspaceId,
+                                        path: removeSuffix(
+                                            target,
+                                            ".variable.json",
+                                        ),
+                                    });
+                                    break;
+                                case "user": {
+                                    const users = await wmill.listUsers({
+                                        workspace: workspaceId,
+                                    });
+
+                                    const email = removeSuffix(
+                                        removePathPrefix(change.path, "users"),
+                                        ".user.json",
+                                    );
+                                    const user = users.find(
+                                        (u) => u.email === email,
+                                    );
+                                    if (!user) {
+                                        throw new Error(
+                                            `User ${email} not found`,
+                                        );
+                                    }
+                                    await wmill.deleteUser({
+                                        workspace: workspaceId,
+                                        username: user.username,
+                                    });
+                                    break;
+                                }
+                                case "group":
+                                    await wmill.deleteGroup({
+                                        workspace: workspaceId,
+                                        name: removeSuffix(
+                                            removePathPrefix(
+                                                change.path,
+                                                "groups",
+                                            ),
+                                            ".group.json",
+                                        ),
+                                    });
+                                    break;
+                                default:
+                                    break;
+                            }
+                            if (stateTarget) {
+                                try {
+                                    await Deno.remove(stateTarget);
+                                } catch {
+                                    // state target may not exist already
+                                }
+                            }
+                        }
+                    }
+                })();
+
+                pool.add(promise);
+                // Remove from pool when complete
+                promise.then(() => pool.delete(promise));
             }
 
-            // Skip writing wmill.yaml changes during push operations (they're only for display in dry-run)
-            if (change.path === "wmill.yaml") {
-              log.info(`Skipping wmill.yaml modification during push (settings used for sync logic only)`);
-              continue;
+            // Wait for at least one task to complete before continuing
+            if (pool.size > 0) {
+                await Promise.race(pool);
             }
+        }
 
-            if (change.name === "edited") {
-              if (
-                await handleScriptMetadata(
-                  change.path,
-                  workspace,
-                  alreadySynced,
-                  opts.message,
-                  globalDeps,
-                  codebases,
-                  opts
-                )
-              ) {
-                if (stateTarget) {
-                  await Deno.writeTextFile(stateTarget, change.after);
-                }
-                continue;
-              } else if (
-                await handleFile(
-                  change.path,
-                  workspace,
-                  alreadySynced,
-                  opts.message,
-                  opts,
-                  globalDeps,
-                  codebases
-                )
-              ) {
-                if (stateTarget) {
-                  await Deno.writeTextFile(stateTarget, change.after);
-                }
-                continue;
-              }
-              if (stateTarget) {
-                await ensureDir(path.dirname(stateTarget));
+        // Apply wmill.yaml changes if requested and there are differences
+        if (
+            opts.includeWmillYaml &&
+            wmillYamlSettingsResult?.success &&
+            wmillYamlSettingsResult?.diff?.trim()
+        ) {
+            try {
+                log.info("Applying wmill.yaml settings to remote...");
+                const { pushSettings } = await import("./settings.ts");
+                // Apply the settings (without diff mode to actually push to remote)
+                await pushSettings({
+                    ...opts,
+                    diff: false,
+                    workspace: opts.workspace,
+                    repository: repositoryPath,
+                });
                 log.info(
-                  `Editing ${getTypeStrFromPath(change.path)} ${change.path}`
-                );
-              }
-
-              if (isFileResource(change.path)) {
-                const resourceFilePath = await findResourceFile(change.path);
-                if (!alreadySynced.includes(resourceFilePath)) {
-                  alreadySynced.push(resourceFilePath);
-
-                  const newObj = parseFromPath(
-                    resourceFilePath,
-                    await Deno.readTextFile(resourceFilePath)
-                  );
-
-                  await pushResource(
-                    workspace.workspaceId,
-                    resourceFilePath,
-                    undefined,
-                    newObj
-                  );
-                  if (stateTarget) {
-                    await Deno.writeTextFile(stateTarget, change.after);
-                  }
-                  continue;
-                }
-              }
-              const oldObj = parseFromPath(change.path, change.before);
-              const newObj = parseFromPath(change.path, change.after);
-
-              await pushObj(
-                workspace.workspaceId,
-                change.path,
-                oldObj,
-                newObj,
-                opts.plainSecrets ?? false,
-                alreadySynced,
-                opts.message
-              );
-
-              if (stateTarget) {
-                await Deno.writeTextFile(stateTarget, change.after);
-              }
-            } else if (change.name === "added") {
-              if (
-                change.path.endsWith(".script.json") ||
-                change.path.endsWith(".script.yaml") ||
-                change.path.endsWith(".lock") ||
-                isFileResource(change.path)
-              ) {
-                continue;
-              } else if (
-                await handleFile(
-                  change.path,
-                  workspace,
-                  alreadySynced,
-                  opts.message,
-                  opts,
-                  globalDeps,
-                  codebases
-                )
-              ) {
-                continue;
-              }
-              if (stateTarget) {
-                await ensureDir(path.dirname(stateTarget));
-                log.info(
-                  `Adding ${getTypeStrFromPath(change.path)} ${change.path}`
-                );
-              }
-              const obj = parseFromPath(change.path, change.content);
-              await pushObj(
-                workspace.workspaceId,
-                change.path,
-                undefined,
-                obj,
-                opts.plainSecrets ?? false,
-                [],
-                opts.message
-              );
-
-              if (stateTarget) {
-                await Deno.writeTextFile(stateTarget, change.content);
-              }
-            } else if (change.name === "deleted") {
-              if (change.path.endsWith(".lock")) {
-                continue;
-              }
-              const typ = getTypeStrFromPath(change.path);
-
-              if (typ == "script") {
-                log.info(`Archiving ${typ} ${change.path}`);
-              } else {
-                log.info(`Deleting ${typ} ${change.path}`);
-              }
-              const workspaceId = workspace.workspaceId;
-              const target = change.path.replaceAll(SEP, "/");
-              switch (typ) {
-                case "script": {
-                  const script = await wmill.getScriptByPath({
-                    workspace: workspaceId,
-                    path: removeExtensionToPath(target),
-                  });
-                  await wmill.archiveScriptByHash({
-                    workspace: workspaceId,
-                    hash: script.hash,
-                  });
-                  break;
-                }
-                case "folder":
-                  await wmill.deleteFolder({
-                    workspace: workspaceId,
-                    name: change.path.split(SEP)[1],
-                  });
-                  break;
-                case "resource":
-                  await wmill.deleteResource({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, ".resource.json"),
-                  });
-                  break;
-                case "resource-type":
-                  await wmill.deleteResourceType({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, ".resource-type.json"),
-                  });
-                  break;
-                case "flow":
-                  await wmill.deleteFlowByPath({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, ".flow/flow.json"),
-                  });
-                  break;
-                case "app":
-                  await wmill.deleteApp({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, ".app/app.json"),
-                  });
-                  break;
-                case "schedule":
-                  await wmill.deleteSchedule({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, ".schedule.json"),
-                  });
-                  break;
-                case "http_trigger":
-                  await wmill.deleteHttpTrigger({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, ".http_trigger.json"),
-                  });
-                  break;
-                case "websocket_trigger":
-                  await wmill.deleteWebsocketTrigger({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, ".websocket_trigger.json"),
-                  });
-                  break;
-                case "kafka_trigger":
-                  await wmill.deleteKafkaTrigger({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, ".kafka_trigger.json"),
-                  });
-                  break;
-                case "nats_trigger":
-                  await wmill.deleteNatsTrigger({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, ".nats_trigger.json"),
-                  });
-                  break;
-                case "postgres_trigger":
-                  await wmill.deletePostgresTrigger({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, ".postgres_trigger.json"),
-                  });
-                  break;
-                case "mqtt_trigger":
-                  await wmill.deleteMqttTrigger({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, ".mqtt_trigger.json"),
-                  });
-                  break;
-                case "sqs_trigger":
-                  await wmill.deleteSqsTrigger({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, ".sqs_trigger.json"),
-                  });
-                  break;
-                case "gcp_trigger":
-                  await wmill.deleteGcpTrigger({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, ".gcp_trigger.json"),
-                  });
-                  break;
-                case "variable":
-                  await wmill.deleteVariable({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, ".variable.json"),
-                  });
-                  break;
-                case "user": {
-                  const users = await wmill.listUsers({
-                    workspace: workspaceId,
-                  });
-
-                  const email = removeSuffix(
-                    removePathPrefix(change.path, "users"),
-                    ".user.json"
-                  );
-                  const user = users.find((u) => u.email === email);
-                  if (!user) {
-                    throw new Error(`User ${email} not found`);
-                  }
-                  await wmill.deleteUser({
-                    workspace: workspaceId,
-                    username: user.username,
-                  });
-                  break;
-                }
-                case "group":
-                  await wmill.deleteGroup({
-                    workspace: workspaceId,
-                    name: removeSuffix(
-                      removePathPrefix(change.path, "groups"),
-                      ".group.json"
+                    colors.green(
+                        "wmill.yaml settings pushed to remote successfully",
                     ),
-                  });
-                  break;
-                default:
-                  break;
-              }
-              if (stateTarget) {
-                try {
-                  await Deno.remove(stateTarget);
-                } catch {
-                  // state target may not exist already
-                }
-              }
+                );
+            } catch (error) {
+                log.error(
+                    colors.red(`Failed to push wmill.yaml settings: ${error}`),
+                );
             }
-          }
-        })();
+        }
 
-        pool.add(promise);
-        // Remove from pool when complete
-        promise.then(() => pool.delete(promise));
-      }
+        const totalAppliedChanges =
+            changes.length +
+            (opts.includeWmillYaml &&
+            wmillYamlSettingsResult?.success &&
+            wmillYamlSettingsResult?.diff?.trim()
+                ? 1
+                : 0);
+        log.info(
+            colors.bold.green.underline(
+                `\nDone! All ${totalAppliedChanges} changes pushed to the remote workspace ${
+                    workspace.workspaceId
+                } named ${workspace.name} (${(performance.now() - start).toFixed(0)}ms)`,
+            ),
+        );
 
-      // Wait for at least one task to complete before continuing
-      if (pool.size > 0) {
-        await Promise.race(pool);
-      }
+        // Output local wmill.yaml settings as JSON if requested
+        if (opts.jsonOutput) {
+            try {
+                const localConfig = await readConfigFile();
+                const localUIState = syncOptionsToUIState(localConfig);
+                const result = {
+                    success: true,
+                    message: "Push completed successfully",
+                    settings_json: localUIState,
+                };
+                console.log(JSON.stringify(result));
+            } catch (error) {
+                console.log(
+                    JSON.stringify({
+                        success: true,
+                        message: "Push completed successfully",
+                        settings_json: null,
+                        error: `Could not read local wmill.yaml: ${(error as Error).message}`,
+                    }),
+                );
+            }
+        }
     }
-    
-    // Apply wmill.yaml changes if requested and there are differences
-    if (opts.includeWmillYaml && wmillYamlSettingsResult?.success && wmillYamlSettingsResult?.diff?.trim()) {
-      try {
-        log.info("Applying wmill.yaml settings to remote...");
-        const { pushSettings } = await import("./settings.ts");
-        // Apply the settings (without diff mode to actually push to remote)
-        await pushSettings({ 
-          ...opts, 
-          diff: false,
-          workspace: opts.workspace,
-          repository: repositoryPath 
-        });
-        log.info(colors.green("wmill.yaml settings pushed to remote successfully"));
-      } catch (error) {
-        log.error(colors.red(`Failed to push wmill.yaml settings: ${error}`));
-      }
-    }
-
-    const totalAppliedChanges = changes.length + ((opts.includeWmillYaml && wmillYamlSettingsResult?.success && wmillYamlSettingsResult?.diff?.trim()) ? 1 : 0);
-    log.info(
-      colors.bold.green.underline(
-        `\nDone! All ${totalAppliedChanges} changes pushed to the remote workspace ${
-          workspace.workspaceId
-        } named ${workspace.name} (${(performance.now() - start).toFixed(0)}ms)`
-      )
-    );
-
-    // Output local wmill.yaml settings as JSON if requested
-    if (opts.jsonOutput) {
-      try {
-        const localConfig = await readConfigFile();
-        const localUIState = syncOptionsToUIState(localConfig);
-        const result = {
-          success: true,
-          message: "Push completed successfully",
-          settings_json: localUIState
-        };
-        console.log(JSON.stringify(result));
-      } catch (error) {
-        console.log(JSON.stringify({
-          success: true,
-          message: "Push completed successfully",
-          settings_json: null,
-          error: `Could not read local wmill.yaml: ${(error as Error).message}`
-        }));
-      }
-    }
-  }
 }
 
 const command = new Command()
-  .description(
-    "sync local with a remote workspaces or the opposite (push or pull)"
-  )
+    .description(
+        "sync local with a remote workspaces or the opposite (push or pull)",
+    )
 
-  .action(() =>
-    log.info("2 actions available, pull and push. Use -h to display help.")
-  )
-  .command("pull")
-  .description("Pull any remote changes and apply them locally.")
-  .option("--yes", "Pull without needing confirmation")
-  .option(
-    "--dry-run",
-    "Show changes that would be pulled without actually pushing"
-  )
-  .option("--plain-secrets", "Pull secrets as plain text")
-  .option("--json", "Use JSON instead of YAML")
-  .option("--skip-variables", "Skip syncing variables (including secrets)")
-  .option("--skip-secrets", "Skip syncing only secrets variables")
-  .option("--skip-resources", "Skip syncing  resources")
-  .option("--skip-resource-types", "Skip syncing  resource types")
-  .option("--skip-scripts", "Skip syncing scripts")
-  .option("--skip-flows", "Skip syncing flows")
-  .option("--skip-apps", "Skip syncing apps")
-  .option("--skip-folders", "Skip syncing folders")
-  // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
-  .option("--include-schedules", "Include syncing  schedules")
-  .option("--include-triggers", "Include syncing triggers")
-  .option("--include-users", "Include syncing users")
-  .option("--include-groups", "Include syncing groups")
-  .option("--include-settings", "Include syncing workspace settings")
-  .option("--include-key", "Include workspace encryption key")
-  .option(
-    "-i --includes <patterns:file[]>",
-    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Overrides wmill.yaml includes"
-  )
-  .option(
-    "-e --excludes <patterns:file[]>",
-    "Comma separated patterns to specify which file to NOT take into account. Overrides wmill.yaml excludes"
-  )
-  .option(
-    "--extra-includes <patterns:file[]>",
-    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy"
-  )
-  .option("--json-output", "Output changes in JSON format for frontend integration")
-  .option("--include-wmill-yaml", "Include wmill.yaml changes in output when using --json-output")
-  .option("--settings-from-json <json:string>", "Override sync configuration with JSON settings for this pull operation. JSON format: {\"include_path\": [\"f/**\"], \"include_type\": [\"script\", \"flow\", \"app\"]}. Controls which files are pulled from Windmill backend. Automatically includes wmill.yaml updates. Alternative to using individual --skip-* and --include-* flags.")
-  .option("--repository <repo:string>", "Specify git repository path (e.g. u/user/repo)")
-  // deno-lint-ignore no-explicit-any
-  .action(pull as any)
-  .command("push")
-  .description("Push any local changes and apply them remotely.")
-  .option("--yes", "Push without needing confirmation")
-  .option(
-    "--dry-run",
-    "Show changes that would be pushed without actually pushing"
-  )
-  .option("--plain-secrets", "Push secrets as plain text")
-  .option("--json", "Use JSON instead of YAML")
-  .option("--skip-variables", "Skip syncing variables (including secrets)")
-  .option("--skip-secrets", "Skip syncing only secrets variables")
-  .option("--skip-resources", "Skip syncing  resources")
-  .option("--skip-resource-types", "Skip syncing  resource types")
-  .option("--skip-scripts", "Skip syncing scripts")
-  .option("--skip-flows", "Skip syncing flows")
-  .option("--skip-apps", "Skip syncing apps")
-  .option("--skip-folders", "Skip syncing folders")
+    .action(() =>
+        log.info("2 actions available, pull and push. Use -h to display help."),
+    )
+    .command("pull")
+    .description("Pull any remote changes and apply them locally.")
+    .option("--yes", "Pull without needing confirmation")
+    .option(
+        "--dry-run",
+        "Show changes that would be pulled without actually pushing",
+    )
+    .option("--plain-secrets", "Pull secrets as plain text")
+    .option("--json", "Use JSON instead of YAML")
+    .option("--skip-variables", "Skip syncing variables (including secrets)")
+    .option("--skip-secrets", "Skip syncing only secrets variables")
+    .option("--skip-resources", "Skip syncing  resources")
+    .option("--skip-resource-types", "Skip syncing  resource types")
+    .option("--skip-scripts", "Skip syncing scripts")
+    .option("--skip-flows", "Skip syncing flows")
+    .option("--skip-apps", "Skip syncing apps")
+    .option("--skip-folders", "Skip syncing folders")
+    // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
+    .option("--include-schedules", "Include syncing  schedules")
+    .option("--include-triggers", "Include syncing triggers")
+    .option("--include-users", "Include syncing users")
+    .option("--include-groups", "Include syncing groups")
+    .option("--include-settings", "Include syncing workspace settings")
+    .option("--include-key", "Include workspace encryption key")
+    .option(
+        "-i --includes <patterns:file[]>",
+        "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Overrides wmill.yaml includes",
+    )
+    .option(
+        "-e --excludes <patterns:file[]>",
+        "Comma separated patterns to specify which file to NOT take into account. Overrides wmill.yaml excludes",
+    )
+    .option(
+        "--extra-includes <patterns:file[]>",
+        "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy",
+    )
+    .option(
+        "--json-output",
+        "Output changes in JSON format for frontend integration",
+    )
+    .option(
+        "--include-wmill-yaml",
+        "Include wmill.yaml changes in output when using --json-output",
+    )
+    .option(
+        "--settings-from-json <json:string>",
+        'Override sync configuration with JSON settings for this pull operation. JSON format: {"include_path": ["f/**"], "include_type": ["script", "flow", "app"]}. Controls which files are pulled from Windmill backend. Automatically includes wmill.yaml updates. Alternative to using individual --skip-* and --include-* flags.',
+    )
+    .option(
+        "--repository <repo:string>",
+        "Specify git repository path (e.g. u/user/repo)",
+    )
+    // deno-lint-ignore no-explicit-any
+    .action(pull as any)
+    .command("push")
+    .description("Push any local changes and apply them remotely.")
+    .option("--yes", "Push without needing confirmation")
+    .option(
+        "--dry-run",
+        "Show changes that would be pushed without actually pushing",
+    )
+    .option("--plain-secrets", "Push secrets as plain text")
+    .option("--json", "Use JSON instead of YAML")
+    .option("--skip-variables", "Skip syncing variables (including secrets)")
+    .option("--skip-secrets", "Skip syncing only secrets variables")
+    .option("--skip-resources", "Skip syncing  resources")
+    .option("--skip-resource-types", "Skip syncing  resource types")
+    .option("--skip-scripts", "Skip syncing scripts")
+    .option("--skip-flows", "Skip syncing flows")
+    .option("--skip-apps", "Skip syncing apps")
+    .option("--skip-folders", "Skip syncing folders")
 
-  // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
-  .option("--include-schedules", "Include syncing schedules")
-  .option("--include-triggers", "Include syncing triggers")
-  .option("--include-users", "Include syncing users")
-  .option("--include-groups", "Include syncing groups")
-  .option("--include-settings", "Include syncing workspace settings")
-  .option("--include-key", "Include workspace encryption key")
-  .option(
-    "-i --includes <patterns:file[]>",
-    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
-  )
-  .option(
-    "-e --excludes <patterns:file[]>",
-    "Comma separated patterns to specify which file to NOT take into account."
-  )
-  .option(
-    "--extra-includes <patterns:file[]>",
-    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy"
-  )
-  .option(
-    "--message <message:string>",
-    "Include a message that will be added to all scripts/flows/apps updated during this push"
-  )
-  .option("--parallel <number>", "Number of changes to process in parallel")
-  .option("--json-output", "Output changes in JSON format for frontend integration")
-  .option("--include-wmill-yaml", "Include wmill.yaml changes in output when using --json-output")
-  .option("--settings-from-json <json:string>", "Override sync configuration with JSON settings for this push operation. JSON format: {\"include_path\": [\"f/**\"], \"include_type\": [\"script\", \"flow\", \"app\"]}. Controls which local files are pushed to Windmill backend. May update local wmill.yaml. Alternative to using individual --skip-* and --include-* flags.")
-  .option("--repository <repo:string>", "Specify git repository path (e.g. u/user/repo)")
-  // deno-lint-ignore no-explicit-any
-  .action(push as any);
+    // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
+    .option("--include-schedules", "Include syncing schedules")
+    .option("--include-triggers", "Include syncing triggers")
+    .option("--include-users", "Include syncing users")
+    .option("--include-groups", "Include syncing groups")
+    .option("--include-settings", "Include syncing workspace settings")
+    .option("--include-key", "Include workspace encryption key")
+    .option(
+        "-i --includes <patterns:file[]>",
+        "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)",
+    )
+    .option(
+        "-e --excludes <patterns:file[]>",
+        "Comma separated patterns to specify which file to NOT take into account.",
+    )
+    .option(
+        "--extra-includes <patterns:file[]>",
+        "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy",
+    )
+    .option(
+        "--message <message:string>",
+        "Include a message that will be added to all scripts/flows/apps updated during this push",
+    )
+    .option("--parallel <number>", "Number of changes to process in parallel")
+    .option(
+        "--json-output",
+        "Output changes in JSON format for frontend integration",
+    )
+    .option(
+        "--include-wmill-yaml",
+        "Include wmill.yaml changes in output when using --json-output",
+    )
+    .option(
+        "--settings-from-json <json:string>",
+        'Override sync configuration with JSON settings for this push operation. JSON format: {"include_path": ["f/**"], "include_type": ["script", "flow", "app"]}. Controls which local files are pushed to Windmill backend. May update local wmill.yaml. Alternative to using individual --skip-* and --include-* flags.',
+    )
+    .option(
+        "--repository <repo:string>",
+        "Specify git repository path (e.g. u/user/repo)",
+    )
+    // deno-lint-ignore no-explicit-any
+    .action(push as any);
 
 export default command;
 
 // Helper functions for reading and generating wmill.yaml files
 async function readCurrentWmillYaml(): Promise<string | null> {
-  try {
-    const wmillYamlPath = path.join(Deno.cwd(), "wmill.yaml");
-    return await Deno.readTextFile(wmillYamlPath);
-  } catch {
-    return null;
-  }
+    try {
+        const wmillYamlPath = path.join(Deno.cwd(), "wmill.yaml");
+        return await Deno.readTextFile(wmillYamlPath);
+    } catch {
+        return null;
+    }
 }
 
 function generateWmillYamlFromOpts(opts: SyncOptions): string {
-  const config = {
-    defaultTs: opts.defaultTs ?? DEFAULT_SYNC_OPTIONS.defaultTs,
-    includes: opts.includes || DEFAULT_SYNC_OPTIONS.includes,
-    excludes: opts.excludes || [],
-    codebases: opts.codebases || [],
-    skipScripts: opts.skipScripts ?? false,
-    skipFlows: opts.skipFlows ?? false,
-    skipApps: opts.skipApps ?? false,
-    skipFolders: opts.skipFolders ?? false,
-    skipVariables: opts.skipVariables ?? false,
-    skipResources: opts.skipResources ?? false,
-    skipResourceTypes: opts.skipResourceTypes ?? false,
-    skipSecrets: opts.skipSecrets ?? false,
-    includeSchedules: opts.includeSchedules ?? false,
-    includeTriggers: opts.includeTriggers ?? false,
-    includeUsers: opts.includeUsers ?? false,
-    includeGroups: opts.includeGroups ?? false,
-    includeSettings: opts.includeSettings ?? false,
-    includeKey: opts.includeKey ?? false
-  };
+    const config = {
+        defaultTs: opts.defaultTs ?? DEFAULT_SYNC_OPTIONS.defaultTs,
+        includes: opts.includes || DEFAULT_SYNC_OPTIONS.includes,
+        excludes: opts.excludes || [],
+        codebases: opts.codebases || [],
+        skipScripts: opts.skipScripts ?? false,
+        skipFlows: opts.skipFlows ?? false,
+        skipApps: opts.skipApps ?? false,
+        skipFolders: opts.skipFolders ?? false,
+        skipVariables: opts.skipVariables ?? false,
+        skipResources: opts.skipResources ?? false,
+        skipResourceTypes: opts.skipResourceTypes ?? false,
+        skipSecrets: opts.skipSecrets ?? false,
+        includeSchedules: opts.includeSchedules ?? false,
+        includeTriggers: opts.includeTriggers ?? false,
+        includeUsers: opts.includeUsers ?? false,
+        includeGroups: opts.includeGroups ?? false,
+        includeSettings: opts.includeSettings ?? false,
+        includeKey: opts.includeKey ?? false,
+    };
 
-  return yamlStringify(sanitizeSyncOptionsForYaml(config));
+    return yamlStringify(sanitizeSyncOptionsForYaml(config));
 }
