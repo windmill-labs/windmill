@@ -253,7 +253,7 @@
 {/if}
 
 {#if deletable && id && flowEditorContext?.flowStore && outputPickerVisible}
-	{@const flowStore = flowEditorContext?.flowStore ? flowEditorContext?.flowStore.val : undefined}
+	{@const flowStore = flowEditorContext?.flowStore.val}
 	{@const mod = flowStore?.value ? dfsPreviousResults(id, flowStore, false)[0] : undefined}
 	{#if mod && $flowStateStore[id]}
 		<ModuleTest bind:this={moduleTest} {mod} bind:testIsLoading bind:testJob />

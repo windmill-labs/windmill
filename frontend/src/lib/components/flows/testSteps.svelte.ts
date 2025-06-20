@@ -42,6 +42,9 @@ export class TestSteps {
 		if (!this.#steps[moduleId]) {
 			this.#steps[moduleId] = { value: {} }
 		}
+		if (!this.#stepsEvaluated[moduleId]) {
+			this.#stepsEvaluated[moduleId] = { value: {} }
+		}
 		this.#steps[moduleId].value[argName] = $state.snapshot(value)
 		this.#stepsEvaluated[moduleId].value[argName] = $state.snapshot(value)
 	}
