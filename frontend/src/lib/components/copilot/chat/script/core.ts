@@ -63,7 +63,7 @@ const TS_INLINE_TYPE_INSTRUCTION = `When using resource types, you should use RT
 
 const TS_WINDMILL_CLIENT_CONTEXT = `
 
-The windmill client (wmill) can be used to interact with Windmill from the script. Import it with \`import * as wmill from "wmill"\`. Key functions include:
+The windmill client (wmill) can be used to interact with Windmill from the script. Import it with \`import * as wmill from "windmill-client"\`. Key functions include:
 
 // Resource operations
 wmill.getResource(path?: string): Promise<any> // Get resource value by path
@@ -158,7 +158,9 @@ export function getLangContext(
 			: TS_RESOURCE_TYPE_SYSTEM +
 				(allowResourcesFetch
 					? `To query the RT namespace, you can use the \`search_resource_types\` tool.\n`
-					: '')) + TS_INLINE_TYPE_INSTRUCTION + TS_WINDMILL_CLIENT_CONTEXT
+					: '')) +
+		TS_INLINE_TYPE_INSTRUCTION +
+		TS_WINDMILL_CLIENT_CONTEXT
 
 	const mainFunctionName = isPreprocessor ? 'preprocessor' : 'main'
 
