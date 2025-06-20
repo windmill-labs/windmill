@@ -232,7 +232,14 @@ fn parse_typ(id: &str) -> Typ {
         x @ _ if x.starts_with("DynSelect_") => {
             Typ::DynSelect(x.strip_prefix("DynSelect_").unwrap().to_string())
         }
-        _ => Typ::Resource(id.to_string()),
+        _ => Typ::Resource(map_resource_name(id)),
+    }
+}
+
+fn map_resource_name(x: &str) -> String {
+    match x {
+        "S3Object" => "s3_object".to_string(),
+        _ => x.to_string(),
     }
 }
 
