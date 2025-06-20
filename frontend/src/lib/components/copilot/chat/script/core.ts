@@ -95,6 +95,42 @@ wmill.getResumeUrls(): Promise<{approvalPage: string, resume: string, cancel: st
 wmill.getWorkspace(): string // Get current workspace
 wmill.databaseUrlFromResource(path: string): Promise<string> // Get database URL from resource`
 
+const PYTHON_WINDMILL_CLIENT_CONTEXT = `
+
+The windmill client (wmill) can be used to interact with Windmill from the script. Import it with \`import wmill\`. Key functions include:
+
+// Resource operations
+wmill.get_resource(path: str) -> dict | None  // Get resource value by path
+wmill.set_resource(path: str, value: Any, resource_type: str = "any") -> None  // Set resource value
+
+// State management (persistent across executions)
+wmill.get_state() -> Any  // Get shared state (deprecated, use flow user state)
+wmill.set_state(value: Any) -> None  // Set shared state
+wmill.get_flow_user_state(key: str) -> Any  // Get flow user state 
+wmill.set_flow_user_state(key: str, value: Any) -> None  // Set flow user state
+
+// Variables
+wmill.get_variable(path: str) -> str  // Get variable value
+wmill.set_variable(path: str, value: str, is_secret: bool = False) -> None  // Set variable value
+
+// Script execution
+wmill.run_script(path: str, args: dict = None, timeout = None) -> Any  // Run script synchronously
+wmill.run_script_async(path: str, args: dict = None, scheduled_in_secs: int = None) -> str  // Run script async, returns job ID
+wmill.wait_job(job_id: str, timeout = None) -> Any  // Wait for job completion and get result
+
+// S3 file operations (if S3 is configured)
+wmill.load_s3_file(s3object: S3Object, s3_resource_path: str = None) -> bytes  // Load file content from S3
+wmill.write_s3_file(s3object: S3Object, file_content: bytes, s3_resource_path: str = None) -> S3Object  // Write file to S3
+
+// Flow operations  
+wmill.run_flow_async(path: str, args: dict = None) -> str  // Run flow asynchronously
+wmill.get_resume_urls(approver: str = None) -> dict  // Get approval URLs for flow steps
+
+// Utilities
+wmill.whoami() -> dict  // Get current user information
+wmill.get_job_status(job_id: str) -> str  // Get job status ("RUNNING" | "WAITING" | "COMPLETED")
+wmill.set_progress(value: int) -> None  // Set job progress (0-100)`
+
 const PYTHON_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type.
 You need to **redefine** the type of the resources that are needed before the main function as TypedDict, but only include them if they are actually needed to achieve the function purpose.
@@ -188,7 +224,8 @@ export function getLangContext(
 				(isPreprocessor
 					? PYTHON_PREPROCESSOR_INSTRUCTION
 					: PYTHON_RESOURCE_TYPE_SYSTEM +
-						`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` tool.` : ''}`)
+						`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` tool.` : ''}`) +
+				PYTHON_WINDMILL_CLIENT_CONTEXT
 			)
 		case 'php':
 			return (
