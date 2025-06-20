@@ -46,7 +46,7 @@ export class ContainerizedBackend {
       stderr: 'piped',
       env: {
         ...Deno.env.toObject(),
-        EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY') || 'REMOVED_HARDCODED_LICENSE'
+        EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY')
       }
     });
 
@@ -87,7 +87,7 @@ export class ContainerizedBackend {
       stderr: 'piped',
       env: {
         ...Deno.env.toObject(),
-        EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY') || 'REMOVED_HARDCODED_LICENSE'
+        EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY')
       }
     });
 
@@ -933,10 +933,7 @@ export async function main(
       }'::jsonb, '{}'::jsonb)
       ON CONFLICT (workspace_id, path) DO UPDATE SET value = EXCLUDED.value;
 
-      -- Insert EE license key directly into global_settings
-      INSERT INTO global_settings (name, value)
-      VALUES ('license_key', '"REMOVED_HARDCODED_LICENSE"'::jsonb)
-      ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value;
+      -- EE license key is now handled via environment variable only
 
       -- Create workspace encryption key for sync operations
       INSERT INTO workspace_key (workspace_id, kind, key)
@@ -951,7 +948,7 @@ export async function main(
       stderr: 'piped',
       env: {
         ...Deno.env.toObject(),
-        EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY') || 'REMOVED_HARDCODED_LICENSE'
+        EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY')
       }
     });
 
@@ -998,7 +995,7 @@ export async function main(
         stderr: 'piped',
         env: {
           ...Deno.env.toObject(),
-          EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY') || 'REMOVED_HARDCODED_LICENSE'
+          EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY')
         }
       });
       
