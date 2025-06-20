@@ -11,7 +11,7 @@
 	import { yamlStringifyExceptKeys } from './utils'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
-	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI'
 
 	type PromptConfig = {
 		system: string
@@ -190,50 +190,50 @@ Generate a description for the flow below:
 </script>
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
-<TriggerableByAI
-	id={aiId}
-	description={aiDescription}
-	onTrigger={(value) => {
-		if (value) {
-			content = value
-			dispatchIfMounted('change', { content })
+<div
+	class={twMerge('relative', $$props.class)}
+	bind:clientWidth={width}
+	use:triggerableByAI={{
+		id: aiId,
+		description: aiDescription,
+		callback: (value) => {
+			if (value) {
+				content = value
+				dispatchIfMounted('change', { content })
+			}
 		}
 	}}
->
-	<div
-		class={twMerge('relative', $$props.class)}
-		bind:clientWidth={width}
-		on:keydown={(event) => {
-			if (!$copilotInfo.enabled || !$metadataCompletionEnabled) {
-				return
-			}
-			if (event.key === 'Tab') {
-				if (manualDisabled) {
-					event.preventDefault()
-					manualDisabled = false
-				} else if (!loading && generatedContent) {
-					event.preventDefault()
-					content = generatedContent
-					generatedContent = ''
-				} else if (!loading && !content) {
-					event.preventDefault()
-					generateContent()
-				}
-			} else if (event.key === 'Escape' && !manualDisabled) {
+	on:keydown={(event) => {
+		if (!$copilotInfo.enabled || !$metadataCompletionEnabled) {
+			return
+		}
+		if (event.key === 'Tab') {
+			if (manualDisabled) {
 				event.preventDefault()
-				event.stopPropagation()
-				if (loading) {
-					abortController.abort()
-				} else {
-					manualDisabled = true
-					generatedContent = ''
-				}
-			} else if (event.key === 'Backspace' && !loading && !content) {
+				manualDisabled = false
+			} else if (!loading && generatedContent) {
+				event.preventDefault()
+				content = generatedContent
+				generatedContent = ''
+			} else if (!loading && !content) {
+				event.preventDefault()
+				generateContent()
+			}
+		} else if (event.key === 'Escape' && !manualDisabled) {
+			event.preventDefault()
+			event.stopPropagation()
+			if (loading) {
+				abortController.abort()
+			} else {
 				manualDisabled = true
 				generatedContent = ''
 			}
-		}}
-	>
+		} else if (event.key === 'Backspace' && !loading && !content) {
+			manualDisabled = true
+			generatedContent = ''
+		}
+	}}
+>
 		<div
 			class="absolute left-[0.5rem] {elementType === 'textarea'
 				? 'top-[1.3rem]'
@@ -301,6 +301,5 @@ Generate a description for the flow below:
 				on:blur={() => (focused = false)}
 			/>
 		{/if}
-		<!-- <slot {updateFocus} {active} {generatedContent} classNames={active ? '!indent-[8.8rem]' : ''} /> -->
-	</div>
-</TriggerableByAI>
+	<!-- <slot {updateFocus} {active} {generatedContent} classNames={active ? '!indent-[8.8rem]' : ''} /> -->
+</div>
