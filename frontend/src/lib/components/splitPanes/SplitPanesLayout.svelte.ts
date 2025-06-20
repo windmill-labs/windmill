@@ -22,7 +22,7 @@ export class SplitPanesLayout {
 	}
 
 	setActivePane(layoutId: string, paneIndex: number) {
-		if (!this.#layout[layoutId][paneIndex].size) {
+		if (!this.#layout[layoutId]?.[paneIndex]?.size) {
 			return
 		} else {
 			this.#layout[layoutId][paneIndex].active = true
