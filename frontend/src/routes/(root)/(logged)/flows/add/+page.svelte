@@ -15,6 +15,7 @@
 	import { writable } from 'svelte/store'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import type { Trigger } from '$lib/components/triggers/utils'
+	import type { PanesLayout } from '$lib/components/splitPanes/types'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 
@@ -58,8 +59,11 @@
 	})
 	const flowStateStore = writable<FlowState>({})
 
+	let splitPanesLayoutFromUrl: Record<string, PanesLayout> | undefined = $state(undefined)
+	let tabsStateFromUrl: Record<string, string> | undefined = $state(undefined)
 	let draftTriggersFromUrl: Trigger[] | undefined = $state(undefined)
 	let selectedTriggerIndexFromUrl: number | undefined = $state(undefined)
+
 	async function loadFlow() {
 		loading = true
 		let flow: Flow = {
@@ -106,6 +110,10 @@
 			pathStoreInit = state.path
 			draftTriggersFromUrl = state.draft_triggers
 			selectedTriggerIndexFromUrl = state.selected_trigger
+			splitPanesLayoutFromUrl = state.split_panes_layout
+			tabsStateFromUrl = state.tabs_state
+			flowBuilder?.setSplitPanesLayout(splitPanesLayoutFromUrl)
+			flowBuilder?.setTabsState(tabsStateFromUrl)
 			flowBuilder?.setDraftTriggers(draftTriggersFromUrl)
 			flowBuilder?.setSelectedTriggerIndex(selectedTriggerIndexFromUrl)
 			state?.selectedId && (selectedId = state?.selectedId)
@@ -182,6 +190,8 @@
 	{loading}
 	{draftTriggersFromUrl}
 	{selectedTriggerIndexFromUrl}
+	savedSplitPanesLayout={splitPanesLayoutFromUrl}
+	{tabsStateFromUrl}
 >
 	<UnsavedConfirmationModal
 		getInitialAndModifiedValues={flowBuilder?.getInitialAndModifiedValues}

@@ -72,6 +72,12 @@
 	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
+	import {
+		SplitPanesLayout,
+		setSplitPanesLayoutContext
+	} from './splitPanes/SplitPanesLayout.svelte'
+	import type { PanesLayout } from './splitPanes/types'
+	import { setTabStateContext, TabsState } from './common/tabs/tabsState.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 
 	interface Props {
@@ -93,6 +99,8 @@
 		setSavedraftCb?: ((cb: () => void) => void) | undefined
 		draftTriggersFromUrl?: Trigger[] | undefined
 		selectedTriggerIndexFromUrl?: number | undefined
+		savedSplitPanesLayout?: Record<string, PanesLayout> | undefined
+		tabsStateFromUrl?: Record<string, string> | undefined
 		children?: import('svelte').Snippet
 	}
 
@@ -115,6 +123,8 @@
 		setSavedraftCb = undefined,
 		draftTriggersFromUrl = undefined,
 		selectedTriggerIndexFromUrl = undefined,
+		savedSplitPanesLayout = undefined,
+		tabsStateFromUrl = undefined,
 		children
 	}: Props = $props()
 
@@ -144,6 +154,24 @@
 		// Continue with saving the flow
 		draftTriggersModalOpen = false
 		confirmDeploymentCallback(selectedTriggers)
+	}
+
+	const splitPanesLayout = new SplitPanesLayout(savedSplitPanesLayout ?? {}, saveSessionDraft)
+	setSplitPanesLayoutContext(splitPanesLayout)
+
+	const tabsState = new TabsState(tabsStateFromUrl ?? {}, saveSessionDraft)
+	setTabStateContext(tabsState)
+
+	export function setSplitPanesLayout(layout: Record<string, PanesLayout> | undefined) {
+		if (layout !== undefined) {
+			splitPanesLayout.layout = layout
+		}
+	}
+
+	export function setTabsState(newTabsState: Record<string, string> | undefined) {
+		if (newTabsState !== undefined) {
+			tabsState.selected = newTabsState
+		}
 	}
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
@@ -197,7 +225,7 @@
 	}
 
 	export function setSelectedTriggerIndex(index: number | undefined) {
-		triggersState.selectedTriggerIndex = index
+		selectedTriggerIndexFromUrl = index
 	}
 
 	let loadingSave = $state(false)
@@ -498,7 +526,9 @@
 						path: $pathStore,
 						selectedId: $selectedIdStore,
 						draft_triggers: triggersState.getDraftTriggersSnapshot(),
-						selected_trigger: triggersState.getSelectedTriggerSnapshot()
+						selected_trigger: triggersState.getSelectedTriggerSnapshot(),
+						split_panes_layout: splitPanesLayout.getLayoutSnapshot(),
+						tabs_state: tabsState.getTabsStateSnapshot()
 					})
 				)
 			} catch (err) {
@@ -595,6 +625,8 @@
 		if (savedFlow && savedFlow.draft) {
 			savedFlow = filterDraftTriggers(savedFlow, triggersState) as FlowWithDraftAndDraftTriggers
 		}
+
+		triggersState.selectedTriggerIndex = selectedTriggerIndexFromUrl
 	}
 
 	function onKeyDown(event: KeyboardEvent) {

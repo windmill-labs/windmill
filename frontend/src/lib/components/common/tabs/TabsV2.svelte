@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { setContext, untrack } from 'svelte'
+	import { onMount, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
 	import type { TabsContext } from '$lib/components/apps/editor/settingsPanel/inputEditor/tabs.svelte'
+	import { getTabStateContext, type TabsState } from './tabsState.svelte'
 
 	interface Props {
 		selected: string
@@ -15,6 +16,7 @@
 		children?: import('svelte').Snippet<[any]>
 		content?: import('svelte').Snippet
 		onSelectedChange?: (value: string) => void
+		id?: string
 	}
 
 	let {
@@ -27,10 +29,12 @@
 		values = undefined,
 		children,
 		content,
-		onSelectedChange
+		onSelectedChange,
+		id
 	}: Props = $props()
 
 	const selectedStore = writable(selected)
+	let tabsState: TabsState | undefined = $state(undefined)
 
 	setContext<TabsContext>('Tabs', {
 		selected: selectedStore,
@@ -43,6 +47,9 @@
 
 	function updateSelected() {
 		selectedStore.set(selected)
+		if (tabsState && id) {
+			tabsState.setSelected(id, selected)
+		}
 	}
 
 	function hashChange() {
@@ -63,6 +70,16 @@
 	})
 
 	let hashValues = $derived(values ? values.map((x) => '#' + x) : undefined)
+
+	onMount(() => {
+		if (id) {
+			tabsState = getTabStateContext()
+			const tabStateInitial = tabsState?.getSelected(id)
+			if (tabStateInitial) {
+				selected = tabStateInitial
+			}
+		}
+	})
 </script>
 
 <svelte:window onhashchange={hashChange} />
