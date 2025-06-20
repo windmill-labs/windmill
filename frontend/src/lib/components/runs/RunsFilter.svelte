@@ -522,6 +522,7 @@
 		floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 		contentClasses="p-4"
 		closeButton
+		usePointerDownOutside
 	>
 		{#snippet trigger()}
 			<Button color="dark" size="xs" nonCaptureEvent={true} startIcon={{ icon: Filter }}>
