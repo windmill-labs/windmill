@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.500.2](https://github.com/windmill-labs/windmill/compare/v1.500.1...v1.500.2) (2025-06-20)
+
+
+### Bug Fixes
+
+* consistency of root job propagation fixing cases where runFlow in scripts would fail ([9c2f6a7](https://github.com/windmill-labs/windmill/commit/9c2f6a757fb168c7305c991c9fdbf78acd856a1c))
+
 ## [1.500.1](https://github.com/windmill-labs/windmill/compare/v1.500.0...v1.500.1) (2025-06-20)
 
 
