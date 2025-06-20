@@ -385,31 +385,36 @@ pub fn remove_pinned_imports(code: &str) -> anyhow::Result<String> {
     Ok(content)
 }
 
-fn resolve_object(type_resolver: &HashMap<String, (Typ, bool)>, typ: &mut Typ) {
+const DEFAULT_DEPTH_LEVEL: u8 = 10;
+
+fn resolve_object(type_resolver: &HashMap<String, (Typ, bool)>, typ: &mut Typ, depth_level: u8) {
     match typ {
         Typ::Object(obj) => {
             for property in obj {
-                resolve_object(type_resolver, &mut property.typ);
+                resolve_object(type_resolver, &mut property.typ, depth_level);
             }
         }
         Typ::List(list) => match list.as_mut() {
             Typ::Object(obj) => {
                 for property in obj {
-                    resolve_object(type_resolver, &mut property.typ);
+                    resolve_object(type_resolver, &mut property.typ, depth_level);
                 }
             }
             Typ::List(list) => {
-                resolve_object(type_resolver, list);
+                resolve_object(type_resolver, list, depth_level);
             }
             _ => {}
         },
         Typ::TypeRef(type_name) => {
-            let maybe_resolved_type = type_resolver
-                .get(type_name)
-                .map(|rs_typ| rs_typ.0.clone())
-                .unwrap_or(Typ::Unknown);
+            if depth_level > 0 {
+                let maybe_resolved_type = type_resolver
+                    .get(type_name)
+                    .map(|rs_typ| rs_typ.0.clone())
+                    .unwrap_or(Typ::Unknown);
 
-            *typ = maybe_resolved_type;
+                *typ = maybe_resolved_type;
+                resolve_object(type_resolver, typ, depth_level - 1);
+            }
         }
         _ => {}
     }
@@ -487,8 +492,11 @@ fn resolve_ts_interface_and_type_alias(
 
     type_resolver.insert(type_name.to_owned(), resolved_type.clone());
 
+    // If `marker` is some, we are at the root of the object.
+    // This is the point where we can attempt to resolve any interfaces or types
+    // that have not yet been resolved.
     if let Some(_) = marker {
-        resolve_object(type_resolver, &mut resolved_type.0);
+        resolve_object(type_resolver, &mut resolved_type.0, DEFAULT_DEPTH_LEVEL);
     }
 
     Some(resolved_type)
@@ -680,6 +688,35 @@ fn parse_one_of_type(
             let label = one_of_label(members)?;
             let properties = one_of_properties(symbol_table, type_resolver, members, marker);
             Some(OneOfVariant { label, properties })
+        }
+        TsType::TsTypeRef(TsTypeRef { type_name, .. }) => {
+            let label = type_name.as_ident()?.sym.to_string();
+            match label.as_str() {
+                symbol
+                    if ["Resource", "Date", "Base64", "Email", "Sql"]
+                        .iter()
+                        .find(|s| **s == symbol)
+                        .is_some()
+                        || symbol.starts_with("DynSelect_") =>
+                {
+                    return None
+                }
+                symbol @ _ => {
+                    let Typ::Object(properties) = resolve_ts_interface_and_type_alias(
+                        symbol,
+                        symbol_table,
+                        type_resolver,
+                        marker,
+                    )
+                    .unwrap_or_else(|| (Typ::Unknown, false))
+                    .0
+                    else {
+                        return None;
+                    };
+
+                    Some(OneOfVariant { label, properties })
+                }
+            }
         }
         _ => None,
     }
