@@ -396,8 +396,14 @@ impl Runner {
         }
         sqlb.and_where("o.workspace_id = ?".bind(&workspace_id))
             .and_where("o.archived = false")
-            .and_where("o.draft_only IS NOT TRUE")
-            .order_by(
+            .and_where("o.draft_only IS NOT TRUE");
+        
+        // Filter out scripts without main function at the database level
+        if item_type == "script" {
+            sqlb.and_where("(o.no_main_func IS NOT TRUE OR o.no_main_func IS NULL)");
+        }
+        
+        sqlb.order_by(
                 if item_type == "flow" {
                     "o.edited_at"
                 } else {
@@ -1073,11 +1079,6 @@ impl ServerHandler for Runner {
         let mut tools: Vec<Tool> = Vec::new();
 
         for script in scripts {
-            // Filter out scripts without main function
-            if script.no_main_func.unwrap_or(false) {
-                continue;
-            }
-            
             tools.push(
                 Runner::create_tool_from_item(
                     &script,
