@@ -24,6 +24,7 @@ jobs:
         with:
           app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.INTERNAL_APP_KEY }}
+          owner: windmill-labs
 
   trigger-docs:
     needs: [generate-token, check-membership]

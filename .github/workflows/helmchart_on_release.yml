@@ -15,6 +15,7 @@ jobs:
         with:
           app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.INTERNAL_APP_KEY }}
+          owner: windmill-labs
 
       - name: Checkout on helm repository
         uses: actions/checkout@v3
