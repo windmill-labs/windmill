@@ -9,7 +9,7 @@
 	import type { Placement } from '@floating-ui/core'
 	import { conditionalMelt } from '$lib/utils'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
-	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI'
 
 	export let id: string = ''
 	export let aiId: string | undefined = undefined
@@ -162,25 +162,25 @@
 	$: $open !== undefined && dispatchIfMounted('tooltipOpen', $open)
 </script>
 
-<TriggerableByAI
-	id={aiId}
-	description={aiDescription}
-	onTrigger={() => {
-		element?.click()
+<div
+	class={twMerge(
+		dropdownItems && dropdownItems.length > 0 && variant === 'contained'
+			? ButtonType.ColorVariants[color].divider
+			: '',
+		wrapperClasses,
+		'flex flex-row',
+		disabled ? 'divide-text-disabled' : ''
+	)}
+	style={wrapperStyle}
+	data-interactive
+	use:triggerableByAI={{
+		id: aiId,
+		description: aiDescription,
+		callback: () => {
+			element?.click()
+		}
 	}}
 >
-	<div
-		class={twMerge(
-			dropdownItems && dropdownItems.length > 0 && variant === 'contained'
-				? ButtonType.ColorVariants[color].divider
-				: '',
-			wrapperClasses,
-			'flex flex-row',
-			disabled ? 'divide-text-disabled' : ''
-		)}
-		style={wrapperStyle}
-		data-interactive
-	>
 		{#if href && !disabled}
 			<a
 				bind:this={element}
@@ -317,5 +317,4 @@
 				</svelte:fragment>
 			</Dropdown>
 		{/if}
-	</div>
-</TriggerableByAI>
+</div>

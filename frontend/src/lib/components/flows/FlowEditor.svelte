@@ -14,7 +14,7 @@
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
-	import TriggerableByAI from '../TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	interface Props {
@@ -67,7 +67,11 @@
 	id="flow-editor"
 	class={'h-full overflow-hidden transition-colors duration-[400ms] ease-linear border-t'}
 >
-	<TriggerableByAI id="flow-editor" description="Component to edit a flow" />
+	<!-- Standalone triggerable registration for the flow editor -->
+	<div style="display: none" use:triggerableByAI={{
+		id: "flow-editor", 
+		description: "Component to edit a flow"
+	}}></div>
 	<Splitpanes>
 		<Pane size={50} minSize={15} class="h-full relative z-0">
 			<div class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative">
