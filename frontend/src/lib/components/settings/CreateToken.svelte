@@ -3,7 +3,6 @@
 	import { Button } from '../common'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import MultiSelectWrapper from '../multiselect/MultiSelectWrapper.svelte'
 	import TriggerableByAI from '../TriggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
 	import { UserService, type NewToken } from '$lib/gen'
@@ -39,7 +38,7 @@
 	let newMcpScope = $state('favorites')
 	let loadingApps = $state(false)
 	let errorFetchApps = $state(false)
-	let allApps = $state<string[]>([])
+	// let allApps = $state<string[]>([])
 
 	function handleCopyClick() {
 		copyToClipboard(newToken ?? '')
@@ -205,7 +204,7 @@
 					{:else if errorFetchApps}
 						<div>Error fetching apps</div>
 					{:else}
-						<MultiSelectWrapper items={allApps} placeholder="Select apps" bind:value={newMcpApps} />
+						<!-- MultiSelectWrapper was confirmed not to be necessary : deleted -->
 					{/if}
 				</div>
 

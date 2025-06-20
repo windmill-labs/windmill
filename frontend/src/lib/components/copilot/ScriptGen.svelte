@@ -28,6 +28,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { onDestroy } from 'svelte'
 	import ProviderModelSelector from './chat/ProviderModelSelector.svelte'
+	import { aiChatManager, AIMode } from './chat/AIChatManager.svelte'
 
 	interface Props {
 		// props
@@ -38,6 +39,7 @@
 		inlineScript?: boolean
 		args: Record<string, any>
 		transformer?: boolean
+		openAiChat?: boolean
 	}
 
 	let {
@@ -47,7 +49,8 @@
 		diffEditor,
 		inlineScript = false,
 		args,
-		transformer = false
+		transformer = false,
+		openAiChat = false
 	}: Props = $props()
 
 	run(() => {
@@ -72,6 +75,54 @@
 	run(() => {
 		trimmedDesc = funcDesc.trim()
 	})
+	async function callCopilot() {
+		if (mode === 'edit') {
+			await copilot(
+				{
+					// @ts-ignore
+					language: transformer && lang === 'frontend' ? 'transformer' : lang!,
+					description: trimmedDesc,
+					code: editor?.getCode() || '',
+					dbSchema: dbSchema,
+					type: 'edit',
+					workspace: $workspaceStore!
+				},
+				generatedCode,
+				abortController
+			)
+		} else {
+			await copilot(
+				{
+					// @ts-ignore
+					language: transformer && lang === 'frontend' ? 'transformer' : lang!,
+					description: trimmedDesc,
+					dbSchema: dbSchema,
+					type: 'gen',
+					workspace: $workspaceStore!
+				},
+				generatedCode,
+				abortController
+			)
+		}
+	}
+
+	function handleAiButtonClick() {
+		if (editor && isInitialCode(editor.getCode())) {
+			mode = 'gen'
+		} else {
+			mode = 'edit'
+		}
+
+		if (openAiChat) {
+			// Open the AI chat in script mode
+			aiChatManager.openChat()
+			aiChatManager.changeMode(AIMode.SCRIPT)
+		} else {
+			setTimeout(() => {
+				autoResize()
+			}, 0)
+		}
+	}
 
 	async function onGenerate(closePopup: () => void) {
 		if (trimmedDesc.length <= 0) {
@@ -82,34 +133,7 @@
 			genLoading = true
 			blockPopupOpen = true
 			abortController = new AbortController()
-			if (mode === 'edit') {
-				await copilot(
-					{
-						// @ts-ignore
-						language: transformer && lang === 'frontend' ? 'transformer' : lang!,
-						description: trimmedDesc,
-						code: editor?.getCode() || '',
-						dbSchema: dbSchema,
-						type: 'edit',
-						workspace: $workspaceStore!
-					},
-					generatedCode,
-					abortController
-				)
-			} else {
-				await copilot(
-					{
-						// @ts-ignore
-						language: transformer && lang === 'frontend' ? 'transformer' : lang!,
-						description: trimmedDesc,
-						dbSchema: dbSchema,
-						type: 'gen',
-						workspace: $workspaceStore!
-					},
-					generatedCode,
-					abortController
-				)
-			}
+			await callCopilot()
 			setupDiff()
 			diffEditor?.setModified($generatedCode)
 			blockPopupOpen = false
@@ -205,12 +229,25 @@
 	}
 
 	let promptHistory: string[] = $state([])
-	function getPromptHistory() {
+
+	function getPromptStorageKey() {
+		return 'prompts-' + lang
+	}
+
+	function safeLocalStorageOperation<T>(operation: () => T, defaultValue?: T): T | undefined {
 		try {
-			promptHistory = JSON.parse(localStorage.getItem('prompts-' + lang) || '[]')
+			return operation()
 		} catch (e) {
 			console.error('error interacting with local storage', e)
+			return defaultValue
 		}
+	}
+
+	function getPromptHistory() {
+		const storageKey = getPromptStorageKey()
+		promptHistory =
+			safeLocalStorageOperation(() => JSON.parse(localStorage.getItem(storageKey) || '[]'), []) ||
+			[]
 	}
 
 	function savePrompt() {
@@ -221,20 +258,14 @@
 		while (promptHistory.length > 5) {
 			promptHistory.pop()
 		}
-		try {
-			localStorage.setItem('prompts-' + lang, JSON.stringify(promptHistory))
-		} catch (e) {
-			console.error('error interacting with local storage', e)
-		}
+		const storageKey = getPromptStorageKey()
+		safeLocalStorageOperation(() => localStorage.setItem(storageKey, JSON.stringify(promptHistory)))
 	}
 
 	function clearPromptHistory() {
 		promptHistory = []
-		try {
-			localStorage.setItem('prompts-' + lang, JSON.stringify(promptHistory))
-		} catch (e) {
-			console.error('error interacting with local storage', e)
-		}
+		const storageKey = getPromptStorageKey()
+		safeLocalStorageOperation(() => localStorage.setItem(storageKey, JSON.stringify(promptHistory)))
 	}
 	run(() => {
 		lang && getPromptHistory()
@@ -265,6 +296,12 @@
 		if (!dbSchema) return
 		;(dbSchema as any).publicOnly = detail === 'true'
 	}
+
+	const aiChatScriptModeClasses = $derived(
+		aiChatManager.mode === AIMode.SCRIPT && aiChatManager.isOpen
+			? 'dark:bg-violet-900 bg-violet-100'
+			: ''
+	)
 
 	onDestroy(() => {
 		abortController?.abort()
@@ -343,22 +380,9 @@
 				<Button
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
-					btnClasses={genLoading ? '!px-3 z-[5000]' : '!px-2'}
-					propagateEvent={!genLoading}
-					on:click={genLoading
-						? () => abortController?.abort()
-						: () => {
-								if (editor) {
-									if (isInitialCode(editor.getCode())) {
-										mode = 'gen'
-									} else {
-										mode = 'edit'
-									}
-								}
-								setTimeout(() => {
-									autoResize()
-								}, 0)
-							}}
+					btnClasses={twMerge(genLoading ? '!px-3 z-[5000]' : '!px-2', aiChatScriptModeClasses)}
+					propagateEvent={!genLoading && !openAiChat}
+					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
 					bind:element={button}
 					iconOnly
 					title="Generate code from prompt"
@@ -371,27 +395,15 @@
 					title="Generate code from prompt"
 					btnClasses={twMerge(
 						'!font-medium',
-						genLoading ? 'z-[5000]' : 'text-violet-800 dark:text-violet-400'
+						genLoading ? 'z-[5000]' : 'text-violet-800 dark:text-violet-400',
+						aiChatScriptModeClasses
 					)}
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					spacingSize="md"
 					startIcon={genLoading ? { icon: Ban } : { icon: Wand2 }}
-					propagateEvent={!genLoading}
-					on:click={genLoading
-						? () => abortController?.abort()
-						: () => {
-								if (editor) {
-									if (isInitialCode(editor.getCode())) {
-										mode = 'gen'
-									} else {
-										mode = 'edit'
-									}
-								}
-								setTimeout(() => {
-									autoResize()
-								}, 0)
-							}}
+					propagateEvent={!genLoading && !openAiChat}
+					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
 					bind:element={button}
 					{iconOnly}
 				>

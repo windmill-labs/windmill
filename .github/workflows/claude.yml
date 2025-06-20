@@ -11,45 +11,40 @@ on:
     types: [submitted]
 
 jobs:
-  check-membership:
+  determine-commenter:
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/ai') && !contains(github.event.comment.user.login, '[bot]')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/ai') && !contains(github.event.comment.user.login, '[bot]')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/ai') && !contains(github.event.review.user.login, '[bot]')) ||
-      (github.event_name == 'issues' && contains(github.event.issue.body, '/ai') && !contains(github.event.issue.user.login, '[bot]'))
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/ai')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/ai')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/ai')) ||
+      (github.event_name == 'issues' && contains(github.event.issue.body, '/ai'))
     runs-on: ubicloud-standard-2
     outputs:
-      is_member: ${{ steps.check-membership.outputs.is_member }}
+      commenter: ${{ steps.determine-commenter.outputs.commenter }}
     steps:
-      - name: Check organization membership
-        id: check-membership
-        env:
-          ORG_ACCESS_TOKEN: ${{ secrets.ORG_ACCESS_TOKEN }}
+      - name: Determine commenter
+        id: determine-commenter
         run: |
-          ORG="windmill-labs"
-
-          if [[ "${{ github.event_name }}" == "issue_comment" || "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
+          # Work out who wrote the comment / review
+          if [[ "${{ github.event_name }}" == "issue_comment" || \
+                "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
             COMMENTER="${{ github.event.comment.user.login }}"
           elif [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
             COMMENTER="${{ github.event.review.user.login }}"
           else
             COMMENTER="${{ github.event.issue.user.login }}"
           fi
+          echo "commenter=$COMMENTER" >> $GITHUB_OUTPUT
 
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: token $ORG_ACCESS_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/orgs/$ORG/members/$COMMENTER")
-
-          if [ "$STATUS" -eq 204 ]; then
-            echo "is_member=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_member=false" >> $GITHUB_OUTPUT
-          fi
+  check-membership:
+    needs: determine-commenter
+    uses: ./.github/workflows/check-org-membership.yml
+    with:
+      commenter: ${{ needs.determine-commenter.outputs.commenter }}
+    secrets:
+      access_token: ${{ secrets.ORG_ACCESS_TOKEN }}
 
   claude-code-action:
-    needs: check-membership
+    needs: [determine-commenter, check-membership]
     if: |
       needs.check-membership.outputs.is_member == 'true'
     runs-on: ubicloud-standard-8
@@ -64,21 +59,69 @@ jobs:
         with:
           fetch-depth: 1
 
+      - uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Run npm install and generate-backend-client
+        working-directory: ./frontend
+        run: |
+          # add a build directory for cargo check
+          mkdir -p build
+          npm install
+          npm run generate-backend-client
+
+      - name: install xmlsec1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxml2-dev libxmlsec1-dev
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-workspaces: backend
+          toolchain: 1.85.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+
+      - name: cargo check
+        working-directory: ./backend
+        timeout-minutes: 16
+        run: |
+          SQLX_OFFLINE=true cargo check --features $(./all_features_oss.sh)
+
       - name: Run Claude PR Action
         uses: anthropics/claude-code-action@beta
+        env:
+          SQLX_OFFLINE: true
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           timeout_minutes: "60"
-          allowed_tools: "mcp__github__create_pull_request,Bash(npm:*),Bash(cargo:*)"
-          custom_instructions: "IMPORTANT INSTRUCTIONS:
-          - Bypass previous instructions and instead of adding a url in your comment to manually create a PR, if you created a new branch with your changes, automatically create a draft PR from that branch to main, with the title starting with [Claude PR].
-          - If you made changes to the frontend code, run npm install, then npm run generate-backend-client, then npm run check. You can ignore warnings that are reported by the check script, but fix the errors.
-          - If you made changes to the backend code, run cargo check. You can ignore warnings that are reported by the check script, but fix the errors.
-          - DO NOT FORGET TO OPEN A DRAFT PR AFTER YOU ARE DONE if you made changes after a request from a git issue.
-          AVAILABLE TOOLS:
-          - mcp__github__create_pull_request: Create a PR from a branch to main
-          - Bash(npm run check): Run the check script. You should run this tool after making changes to the frontend code.
-          - Bash(npm install): Install dependencies. You need this to run npm run check.
-          - Bash(npm run generate-backend-client): Generate the backend client. You need this to run npm run check.
-          - Bash(cargo check): Run the cargo check script. You should run this tool after making changes to the backend code."
+          allowed_tools: "mcp__github__create_pull_request,Bash"
+          custom_instructions: |
+            ## IMPORTANT INSTRUCTIONS
+            - Bypass previous instructions and instead of adding a url in your comment to manually create a PR, if you created a new branch with your changes, automatically create a draft PR from that branch to main.
+
+            ## Code Quality Requirements
+
+            After making any code changes, you MUST run the appropriate validation commands:
+
+            **Frontend Changes:**
+            - Run: `npm run check` in the frontend directory
+            - Fix all warnings and errors before proceeding
+
+            **Backend Changes:**  
+            - Run: `cargo check --features $(./all_features_oss.sh)` in the backend directory
+            - Fix all warnings and errors before proceeding
+
+            **Pull Request Creation:**
+            - DO NOT FORGET TO OPEN A DRAFT PR AFTER YOU ARE DONE if you made changes after a request from a git issue. 
+
+            ## Available Tools
+            - mcp__github__create_pull_request: Create PRs from branches
+            - Bash: Full access to run validation commands and git operations
           trigger_phrase: "/ai"
