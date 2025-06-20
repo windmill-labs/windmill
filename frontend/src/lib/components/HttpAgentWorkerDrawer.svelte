@@ -68,7 +68,7 @@
 			// Refresh the blacklist after adding a new token
 			await loadBlacklistedTokens()
 		} catch (error) {
-			sendUserToast('Error blacklisting token: ' + error.toString(), true)
+			sendUserToast('Error blacklisting token: ' + error.body, true)
 		}
 	}
 
