@@ -72,6 +72,7 @@
 	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
+	import { TestSteps } from './flows/testSteps.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 
 	interface Props {
@@ -526,7 +527,7 @@
 		payloadData: undefined
 	})
 
-	const testStepStore = writable<Record<string, any>>({})
+	const testSteps = new TestSteps()
 
 	function select(selectedId: string) {
 		selectedIdStore.set(selectedId)
@@ -544,7 +545,7 @@
 		flowStateStore,
 		flowStore,
 		pathStore,
-		testStepStore,
+		testSteps,
 		saveDraft,
 		initialPathStore,
 		fakeInitialPath,
@@ -765,6 +766,9 @@
 	}
 
 	let flowPreviewButtons: FlowPreviewButtons | undefined = $state()
+
+	let forceTestTab: Record<string, boolean> = $state({})
+	let highlightArg: Record<string, string | undefined> = $state({})
 
 	run(() => {
 		initialPathStore.set(initialPath)
@@ -1020,7 +1024,7 @@
 					{newFlow}
 					on:applyArgs={(ev) => {
 						if (ev.detail.kind === 'preprocessor') {
-							$testStepStore['preprocessor'] = ev.detail.args ?? {}
+							testSteps.setStepArgs('preprocessor', ev.detail.args ?? {})
 							$selectedIdStore = 'preprocessor'
 						}
 					}}
@@ -1028,8 +1032,24 @@
 						previewArgsStore.val = JSON.parse(JSON.stringify(e.detail))
 						flowPreviewButtons?.openPreview(true)
 					}}
+					onTestUpTo={() => {
+						flowPreviewButtons?.testUpTo()
+					}}
 					{savedFlow}
 					onDeployTrigger={handleDeployTrigger}
+					onEditInput={(moduleId, key) => {
+						selectedIdStore.set(moduleId)
+						// Use new prop-based system
+						forceTestTab[moduleId] = true
+						highlightArg[moduleId] = key
+						// Reset the force flag after a short delay to allow re-triggering
+						setTimeout(() => {
+							forceTestTab[moduleId] = false
+							highlightArg[moduleId] = undefined
+						}, 500)
+					}}
+					{forceTestTab}
+					{highlightArg}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>
