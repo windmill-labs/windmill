@@ -13,10 +13,10 @@ on:
 jobs:
   check-membership:
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/ai') && !contains(github.event.comment.user.login, '[bot]')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/ai') && !contains(github.event.comment.user.login, '[bot]')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/ai') && !contains(github.event.review.user.login, '[bot]')) ||
-      (github.event_name == 'issues' && contains(github.event.issue.body, '/ai') && !contains(github.event.issue.user.login, '[bot]'))
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/ai')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/ai')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/ai')) ||
+      (github.event_name == 'issues' && contains(github.event.issue.body, '/ai'))
     runs-on: ubicloud-standard-2
     outputs:
       is_member: ${{ steps.check-membership.outputs.is_member }}
@@ -25,10 +25,13 @@ jobs:
         id: check-membership
         env:
           ORG_ACCESS_TOKEN: ${{ secrets.ORG_ACCESS_TOKEN }}
+          TRUSTED_BOT: windmill-internal-app[bot]
         run: |
           ORG="windmill-labs"
 
-          if [[ "${{ github.event_name }}" == "issue_comment" || "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
+          # 1. Work out who wrote the comment / review
+          if [[ "${{ github.event_name }}" == "issue_comment" || \
+                "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
             COMMENTER="${{ github.event.comment.user.login }}"
           elif [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
             COMMENTER="${{ github.event.review.user.login }}"
@@ -36,6 +39,13 @@ jobs:
             COMMENTER="${{ github.event.issue.user.login }}"
           fi
 
+          # 2. Allow the GitHub App straight away
+          if [[ "$COMMENTER" == "$TRUSTED_BOT" ]]; then
+            echo "is_member=true"  >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # 3. Otherwise fall back to the org-membership check
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: token $ORG_ACCESS_TOKEN" \
             -H "Accept: application/vnd.github+json" \
@@ -64,13 +74,6 @@ jobs:
         with:
           fetch-depth: 1
 
-      # Cache rust dependencies
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: "./backend -> target"
-
-      # Cache node dependencies
       - uses: actions/cache@v3
         with:
           path: ~/.npm
