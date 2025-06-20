@@ -12,7 +12,7 @@ jobs:
       - uses: actions/create-github-app-token@v2
         id: app
         with:
-          app-id: ${{ vars.APP_ID }}
+          app-id: ${{ vars.INTERNAL_APP_ID }}
           private-key: ${{ secrets.INTERNAL_APP_KEY }}
       - uses: actions/checkout@v4
         with:

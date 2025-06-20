@@ -13,7 +13,7 @@ jobs:
         id: app
         uses: actions/create-github-app-token@v2
         with:
-          app-id: ${{ vars.APP_ID }}
+          app-id: ${{ vars.INTERNAL_APP_ID }}
           private-key: ${{ secrets.INTERNAL_APP_KEY }}
           owner: windmill-labs
 
