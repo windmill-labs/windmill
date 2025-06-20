@@ -420,6 +420,51 @@ fn resolve_object(type_resolver: &HashMap<String, (Typ, bool)>, typ: &mut Typ, d
     }
 }
 
+fn resolve_interface(
+    iface: &TsInterfaceDecl,
+    symbol_table: &HashMap<String, TypeDecl>,
+    type_resolver: &mut HashMap<String, (Typ, bool)>,
+) -> Vec<ObjectProperty> {
+    let mut properties = vec![];
+
+    for ext in &iface.extends {
+        // If the current interface extends other interfaces,
+        // retrieve their properties first and add them to the current interface's object definition.
+        if let Expr::Ident(Ident { sym, .. }) = &*ext.expr {
+            if let Some(TypeDecl::Interface(parent_iface)) = symbol_table.get(sym.as_str()) {
+                properties.extend(resolve_interface(parent_iface, symbol_table, type_resolver));
+            }
+        }
+    }
+
+    for member in &iface.body.body {
+        if let TsTypeElement::TsPropertySignature(sig) = member {
+            if let Expr::Ident(Ident { sym, .. }) = &*sig.key {
+                let typ = sig
+                    .type_ann
+                    .as_ref()
+                    .map(|ta| {
+                        Box::new(tstype_to_typ(symbol_table, type_resolver, &ta.type_ann, None).0)
+                    })
+                    .unwrap_or(Box::new(Typ::Unknown));
+
+                properties.push(ObjectProperty { key: sym.to_string(), typ });
+            }
+        }
+    }
+
+    properties
+}
+
+fn resolve_type_alias(
+    alias: &TsTypeAliasDecl,
+    symbol_table: &HashMap<String, TypeDecl>,
+    type_resolver: &mut HashMap<String, (Typ, bool)>,
+    marker: Option<()>,
+) -> (Typ, bool) {
+    tstype_to_typ(symbol_table, type_resolver, &alias.type_ann, marker)
+}
+
 fn resolve_ts_interface_and_type_alias(
     type_name: &str,
     symbol_table: &HashMap<String, TypeDecl>,
@@ -439,55 +484,12 @@ fn resolve_ts_interface_and_type_alias(
         return None;
     };
 
-    let mut collect_interface_properties =
-        |ts_interface: &TsInterfaceDecl, object_property: &mut Vec<ObjectProperty>| {
-            for r#type in ts_interface.body.body.iter() {
-                match r#type {
-                    TsTypeElement::TsPropertySignature(property) => {
-                        if let Expr::Ident(ident) = &*property.key {
-                            let r#type = match &property.type_ann {
-                                Some(type_ann) => {
-                                    tstype_to_typ(
-                                        symbol_table,
-                                        type_resolver,
-                                        &type_ann.type_ann,
-                                        None,
-                                    )
-                                    .0
-                                }
-                                None => Typ::Unknown,
-                            };
-                            object_property
-                                .push(ObjectProperty::new(ident.sym.to_string(), Box::new(r#type)));
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        };
-
     let mut resolved_type = match type_declaration {
-        TypeDecl::Alias(type_alias) => {
-            tstype_to_typ(symbol_table, type_resolver, &type_alias.type_ann, None)
-        }
-        TypeDecl::Interface(ts_interface) => {
-            let mut object_property = Vec::with_capacity(ts_interface.body.body.len());
-
-            // If the current interface extends other interfaces,
-            // retrieve their properties first and add them to the current interface's object definition.
-            for interfaces in ts_interface.extends.iter() {
-                if let Expr::Ident(Ident { sym, .. }) = &*interfaces.expr {
-                    if let Some(TypeDecl::Interface(ts_interface)) = symbol_table.get(sym.as_str())
-                    {
-                        collect_interface_properties(ts_interface, &mut object_property)
-                    }
-                }
-            }
-
-            collect_interface_properties(ts_interface, &mut object_property);
-
-            (Typ::Object(object_property), false)
-        }
+        TypeDecl::Alias(alias) => resolve_type_alias(alias, symbol_table, type_resolver, marker),
+        TypeDecl::Interface(iface) => (
+            Typ::Object(resolve_interface(iface, symbol_table, type_resolver)),
+            false,
+        ),
     };
 
     type_resolver.insert(type_name.to_owned(), resolved_type.clone());
