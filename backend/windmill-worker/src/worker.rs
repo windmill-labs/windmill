@@ -1862,6 +1862,7 @@ pub async fn run_worker(
             }
             Err(err) => {
                 tracing::error!(worker = %worker_name, hostname = %hostname, "Failed to pull jobs: {}", err);
+                tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE * 5)).await;
             }
         };
     }
