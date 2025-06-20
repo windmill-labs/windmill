@@ -391,7 +391,7 @@ async fn parse_python_imports_inner(
                 })
                 .join("\n")
                 .parse::<toml::Table>()
-            .map_err(to_anyhow)?;
+                .map_err(to_anyhow)?;
 
             {
                 if let Some(v) = metadata.get("requires-python").and_then(|v| v.as_str()) {
