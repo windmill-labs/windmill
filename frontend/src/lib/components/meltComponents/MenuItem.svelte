@@ -22,11 +22,7 @@
 			id: aiId,
 			description: aiDescription,
 			callback: () => {
-				if (href) {
-					aRef?.click()
-				} else {
-					buttonRef?.click()
-				}
+				aRef?.click()
 			}
 		}}
 		{href}
@@ -49,11 +45,7 @@
 			id: aiId,
 			description: aiDescription,
 			callback: () => {
-				if (href) {
-					aRef?.click()
-				} else {
-					buttonRef?.click()
-				}
+				buttonRef?.click()
 			}
 		}}
 		{disabled}

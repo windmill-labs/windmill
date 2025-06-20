@@ -218,15 +218,12 @@
 				</div>
 			</div>
 		{:else}
-			<!-- Standalone triggerable registration for loading state -->
-			<div
-				style="display: none"
+			<h1
 				use:triggerableByAI={{
 					id: 'run-form-loading',
 					description: 'Run form is loading, should scan the page until this is gone'
-				}}
-			></div>
-			<h1>Loading...</h1>
+				}}>Loading...</h1
+			>
 		{/if}
 	{/if}
 	{#if topButton}

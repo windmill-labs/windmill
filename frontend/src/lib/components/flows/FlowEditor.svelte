@@ -66,12 +66,11 @@
 <div
 	id="flow-editor"
 	class={'h-full overflow-hidden transition-colors duration-[400ms] ease-linear border-t'}
+	use:triggerableByAI={{
+		id: 'flow-editor',
+		description: 'Component to edit a flow'
+	}}
 >
-	<!-- Standalone triggerable registration for the flow editor -->
-	<div style="display: none" use:triggerableByAI={{
-		id: "flow-editor", 
-		description: "Component to edit a flow"
-	}}></div>
 	<Splitpanes>
 		<Pane size={50} minSize={15} class="h-full relative z-0">
 			<div class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative">
