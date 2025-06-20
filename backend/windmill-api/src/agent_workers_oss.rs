@@ -14,13 +14,7 @@ pub use crate::agent_workers_ee::*;
 use crate::db::DB;
 
 #[cfg(not(feature = "private"))]
-use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
-#[cfg(not(feature = "private"))]
-use chrono::{DateTime, Utc};
-#[cfg(not(feature = "private"))]
-use windmill_common::agent_workers::{
-    blacklist_token_with_optional_expiry, remove_token_from_blacklist, BlacklistTokenRequest,
-};
+use axum::Router;
 
 #[cfg(not(feature = "private"))]
 use serde::{Deserialize, Serialize};
@@ -48,15 +42,6 @@ pub fn workspaced_service(
     let router = Router::new();
 
     (router, vec![], Some(job_completed_tx))
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg(not(feature = "private"))]
-pub struct AgentAuth {
-    pub worker_group: String,
-    pub suffix: Option<String>,
-    pub tags: Vec<String>,
-    pub exp: Option<usize>,
 }
 
 #[cfg(not(feature = "private"))]
