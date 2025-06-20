@@ -849,13 +849,13 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Ok(deleted_tokens) => {
             if deleted_tokens.len() > 0 {
                 tracing::info!(
-                    "deleted {} expired blacklisted tokens: {:?}",
+                    "deleted {} expired blacklisted agent tokens: {:?}",
                     deleted_tokens.len(),
                     deleted_tokens
                 );
             }
         }
-        Err(e) => tracing::error!("Error deleting expired blacklisted tokens: {:?}", e),
+        Err(e) => tracing::error!("Error deleting expired blacklisted agent tokens: {:?}", e),
     }
 
     let job_retention_secs = *JOB_RETENTION_SECS.read().await;

@@ -204,7 +204,10 @@ pub async fn blacklist_token_with_optional_expiry(
         None => {
             // Try to extract expiration from JWT token
             match extract_jwt_expiration(token) {
-                Some(jwt_expiry) => jwt_expiry,
+                Some(jwt_expiry) => {
+                    tracing::info!("jwt_expiry: {}", jwt_expiry);
+                    jwt_expiry
+                }
                 None => {
                     // If we can't extract expiration, use a default (e.g., 1 year from now)
                     Utc::now() + chrono::Duration::days(365)
