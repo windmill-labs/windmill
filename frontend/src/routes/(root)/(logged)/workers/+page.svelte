@@ -41,7 +41,7 @@
 	import AutoscalingEvents from '$lib/components/AutoscalingEvents.svelte'
 	import HttpAgentWorkerDrawer from '$lib/components/HttpAgentWorkerDrawer.svelte'
 	import WorkerRepl from '$lib/components/WorkerRepl.svelte'
-	import Select from '$lib/components/Select.svelte'
+	import Select from '$lib/components/select/Select.svelte'
 
 	let workers: WorkerPing[] | undefined = undefined
 	let workerGroups: Record<string, any> | undefined = undefined
@@ -107,7 +107,7 @@
 	}
 
 	let defaultTagPerWorkspace: boolean | undefined = undefined
-	let defaultTagWorkspaces: string[] | undefined = undefined
+	let defaultTagWorkspaces: string[] = []
 	async function loadDefaultTagsPerWorkspace() {
 		try {
 			defaultTagPerWorkspace = await WorkerService.isDefaultTagsPerWorkspace()
@@ -485,27 +485,7 @@
 			{#if (groupedWorkers ?? []).length > 5}
 				<div class="flex gap-2 items-center">
 					<div class="text-secondary text-sm">Worker group:</div>
-					<Select
-						items={groupedWorkers.map((x) => ({ value: x[0], label: x[0] }))}
-						bind:value={selectedTab}
-					/>
-
-					<!-- <select
-					class="max-w-64"
-					bind:value={selectedTab}
-					on:change={() => {
-						search = ''
-					}}
-				>
-					{#each groupedWorkers.map((x) => x[0]) as name (name)}
-						<option value={name}
-							>{name} ({pluralize(
-								groupedWorkers.find((x) => x[0] == name)?.[1].length ?? 0,
-								'worker'
-							)})
-						</option>
-					{/each}
-				</select> -->
+					<Select items={groupedWorkers.map((x) => ({ value: x[0] }))} bind:value={selectedTab} />
 				</div>
 			{:else}
 				<Tabs bind:selected={selectedTab}>

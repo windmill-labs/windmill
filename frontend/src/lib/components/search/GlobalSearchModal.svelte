@@ -11,7 +11,7 @@
 		type Script,
 		type SearchJobsIndexResponse
 	} from '$lib/gen'
-	import { clickOutside, isMac } from '$lib/utils'
+	import { clickOutside, isMac, scroll_into_view_if_needed_polyfill } from '$lib/utils'
 	import {
 		AlertTriangle,
 		BoxesIcon,
@@ -36,7 +36,6 @@
 	import { devopsRole, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import uFuzzy from '@leeoniya/ufuzzy'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
-	import { scroll_into_view_if_needed_polyfill } from '../multiselect/utils'
 	import { Alert } from '../common'
 	import Popover from '../Popover.svelte'
 	import Logs from 'lucide-svelte/icons/logs'
