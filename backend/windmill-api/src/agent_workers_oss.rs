@@ -17,9 +17,6 @@ use crate::db::DB;
 use axum::Router;
 
 #[cfg(not(feature = "private"))]
-use serde::{Deserialize, Serialize};
-
-#[cfg(not(feature = "private"))]
 pub fn global_service() -> Router {
     Router::new()
 }
