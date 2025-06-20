@@ -29,6 +29,8 @@ return ${eval_string}
 }`
 }
 
+export type ModuleArgs = { value: Record<string, any> }
+
 function make_context_evaluator(eval_string, context): (context) => any {
 	let template = create_context_function_template(eval_string, context)
 	let functor = Function(template)
@@ -38,33 +40,28 @@ function make_context_evaluator(eval_string, context): (context) => any {
 export function evalValue(
 	k: string,
 	mod: FlowModule,
-	testStep: Record<string, any>,
 	pickableProperties: PickableProperties | undefined,
 	showError: boolean
-) {
+): any {
 	let inputTransforms = (mod.value['input_transforms'] ?? {}) as Record<string, InputTransform>
-	let v = testStep[mod.id]?.[k]
+	let v: any
 	let t = inputTransforms?.[k]
-	if (!v) {
-		if (t.type == 'static') {
-			v = t.value
-		} else {
-			try {
-				let context = {
-					flow_input: pickableProperties?.flow_input,
-					results: pickableProperties?.priorIds
-				}
-				v = make_context_evaluator(t.expr, context)(context)
-			} catch (e) {
-				if (showError) {
-					sendUserToast(`Error evaluating ${k}: ${e.message}`, true)
-				}
-				v = undefined
+
+	if (t.type == 'static') {
+		v = t.value
+	} else {
+		try {
+			let context = {
+				flow_input: pickableProperties?.flow_input,
+				results: pickableProperties?.priorIds
 			}
+			v = make_context_evaluator(t.expr, context)(context)
+		} catch (e) {
+			if (showError) {
+				sendUserToast(`Error evaluating ${k}: ${e.message}`, true)
+			}
+			v = undefined
 		}
-	}
-	if (v == NEVER_TESTED_THIS_FAR) {
-		return undefined
 	}
 	return v
 }

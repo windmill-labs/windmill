@@ -53,15 +53,7 @@
 		testSteps?.setEvaluatedStepArg(
 			mod.id,
 			argName,
-			$state.snapshot(
-				evalValue(
-					argName,
-					mod,
-					testSteps?.getStepArgs(mod.id)?.value ?? {},
-					pickableProperties,
-					true
-				)
-			)
+			$state.snapshot(evalValue(argName, mod, pickableProperties, true))
 		)
 	}
 

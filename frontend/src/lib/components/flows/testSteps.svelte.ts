@@ -6,9 +6,7 @@ import {
 	getStepPropPicker,
 	type PickableProperties
 } from './previousResults'
-import { evalValue } from './utils'
-
-type ModuleArgs = { value: Record<string, any> }
+import { evalValue, type ModuleArgs } from './utils'
 
 export class TestSteps {
 	#stepsEvaluated = $state<Record<string, ModuleArgs>>({})
@@ -23,7 +21,7 @@ export class TestSteps {
 		this.#steps[moduleId].value = args
 	}
 
-	getStepArgs(moduleId: string): { value: Record<string, any> } | undefined {
+	getStepArgs(moduleId: string): ModuleArgs | undefined {
 		return this.#steps[moduleId]
 	}
 
@@ -102,15 +100,7 @@ export class TestSteps {
 		)
 		const pickableProperties = stepPropPicker.pickableProperties
 
-		const argSnapshot = $state.snapshot(
-			evalValue(
-				argName,
-				modules[0],
-				this.#stepsEvaluated[moduleId] ?? {},
-				pickableProperties,
-				false
-			)
-		)
+		const argSnapshot = $state.snapshot(evalValue(argName, modules[0], pickableProperties, false))
 		this.#stepsEvaluated[moduleId].value[argName] = argSnapshot
 		this.#steps[moduleId].value[argName] = structuredClone(argSnapshot)
 	}
@@ -123,9 +113,7 @@ export class TestSteps {
 		const args = Object.fromEntries(
 			Object.keys(schema.properties ?? {}).map((k) => [
 				k,
-				this.#steps[mod.id]?.[k]
-					? this.#stepsEvaluated[mod.id]?.[k]
-					: evalValue(k, mod, this.#stepsEvaluated[mod.id] ?? {}, pickableProperties, false)
+				evalValue(k, mod, pickableProperties, false)
 			])
 		)
 
