@@ -1,0 +1,60 @@
+name: Check Organization Membership
+
+on:
+  workflow_call:
+    inputs:
+      commenter:
+        required: true
+        type: string
+        description: 'The username to check for organization membership'
+      organization:
+        required: false
+        type: string
+        default: 'windmill-labs'
+        description: 'The organization to check membership for'
+      trusted_bot:
+        required: false
+        type: string
+        default: 'windmill-internal-app[bot]'
+        description: 'The trusted bot username to allow'
+    secrets:
+      access_token:
+        required: true
+        description: 'The access token to use for org membership check'
+    outputs:
+      is_member:
+        description: 'Whether the user is an organization member or trusted bot'
+        value: ${{ jobs.check-membership.outputs.is_member }}
+
+jobs:
+  check-membership:
+    runs-on: ubicloud-standard-2
+    outputs:
+      is_member: ${{ steps.check-membership.outputs.is_member }}
+    steps:
+      - name: Check organization membership
+        id: check-membership
+        env:
+          ORG_ACCESS_TOKEN: ${{ secrets.access_token }}
+          COMMENTER: ${{ inputs.commenter }}
+          ORG: ${{ inputs.organization }}
+          TRUSTED_BOT: ${{ inputs.trusted_bot }}
+        run: |
+          # 1. Allow the trusted bot straight away
+          if [[ "$COMMENTER" == "$TRUSTED_BOT" ]]; then
+            echo "is_member=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # 2. Otherwise fall back to the org-membership check
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token $ORG_ACCESS_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/orgs/$ORG/members/$COMMENTER")
+
+          if [ "$STATUS" -eq 204 ]; then
+            echo "is_member=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_member=false" >> $GITHUB_OUTPUT
+          fi
