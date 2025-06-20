@@ -13,7 +13,6 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use reqwest_middleware::ClientBuilder;
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
-use sha2::{Digest, Sha256};
 
 use crate::{jwt::decode_without_verify, worker::HttpClient, DB};
 
@@ -109,9 +108,12 @@ lazy_static! {
 
 const BLACKLIST_CACHE_TTL: Duration = Duration::from_secs(300); // 5 minutes
 
-pub async fn is_token_blacklisted(db: &DB, token: &str) -> Result<bool, sqlx::Error> {
-    // Remove the JWT prefix if present to get the clean token
-    let clean_token = token.trim_start_matches(AGENT_JWT_PREFIX);
+pub async fn is_token_blacklisted(db: &DB, clean_token: &str) -> Result<bool, sqlx::Error> {
+    if clean_token.is_empty() {
+        return Ok(true);
+    }
+
+    tracing::info!("Checking if token is blacklisted: {}", clean_token);
 
     // Check cache first
     {
@@ -149,6 +151,10 @@ pub async fn is_token_blacklisted(db: &DB, token: &str) -> Result<bool, sqlx::Er
 
         // Clean up expired entries to prevent memory leak
         cache.retain(|_, entry| entry.expires_at > Instant::now());
+    }
+
+    if is_blacklisted {
+        tracing::warn!("Token is blacklisted: {}", clean_token);
     }
 
     Ok(is_blacklisted)

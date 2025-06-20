@@ -840,6 +840,24 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::error!("Error deleting audit log on CE: {:?}", e);
     }
 
+    match sqlx::query_scalar!(
+        "DELETE FROM agent_token_blacklist WHERE expires_at <= now() RETURNING token",
+    )
+    .fetch_all(db)
+    .await
+    {
+        Ok(deleted_tokens) => {
+            if deleted_tokens.len() > 0 {
+                tracing::info!(
+                    "deleted {} expired blacklisted tokens: {:?}",
+                    deleted_tokens.len(),
+                    deleted_tokens
+                );
+            }
+        }
+        Err(e) => tracing::error!("Error deleting expired blacklisted tokens: {:?}", e),
+    }
+
     let job_retention_secs = *JOB_RETENTION_SECS.read().await;
     if job_retention_secs > 0 {
         match db.begin().await {
