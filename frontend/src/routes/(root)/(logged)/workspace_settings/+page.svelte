@@ -1265,9 +1265,7 @@
 								<ResourcePicker
 									resourceType="git_repository"
 									initialValue={gitSyncRepository.git_repo_resource_path}
-									on:change={(ev) => {
-										gitSyncRepository.git_repo_resource_path = ev.detail
-									}}
+									bind:value={gitSyncRepository.git_repo_resource_path}
 								/>
 								<Button
 									disabled={emptyString(gitSyncRepository.script_path)}
