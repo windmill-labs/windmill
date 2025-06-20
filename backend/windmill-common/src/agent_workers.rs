@@ -160,15 +160,12 @@ pub async fn is_token_blacklisted(db: &DB, clean_token: &str) -> Result<bool, sq
     Ok(is_blacklisted)
 }
 
-pub async fn blacklist_token(
+async fn blacklist_token_internal(
     db: &DB,
     token: &str,
     expires_at: DateTime<Utc>,
     blacklisted_by: &str,
 ) -> Result<(), sqlx::Error> {
-    // Remove the JWT prefix if present to get the clean token
-    let clean_token = token.trim_start_matches(AGENT_JWT_PREFIX);
-
     sqlx::query!(
         "INSERT INTO agent_token_blacklist (token, expires_at, blacklisted_by) 
          VALUES ($1, $2, $3) 
@@ -176,7 +173,7 @@ pub async fn blacklist_token(
             expires_at = EXCLUDED.expires_at,
             blacklisted_at = NOW(),
             blacklisted_by = EXCLUDED.blacklisted_by",
-        clean_token,
+        token,
         expires_at.naive_utc(),
         blacklisted_by
     )
@@ -186,13 +183,13 @@ pub async fn blacklist_token(
     // Invalidate cache entry
     {
         let mut cache = BLACKLIST_CACHE.lock().unwrap();
-        cache.remove(clean_token);
+        cache.remove(token);
     }
 
     Ok(())
 }
 
-pub async fn blacklist_token_with_optional_expiry(
+pub async fn blacklist_token(
     db: &DB,
     token: &str,
     expires_at: Option<DateTime<Utc>>,
@@ -217,7 +214,7 @@ pub async fn blacklist_token_with_optional_expiry(
     };
 
     // Use the existing blacklist_token function
-    blacklist_token(db, token, final_expires_at, blacklisted_by).await
+    blacklist_token_internal(db, token, final_expires_at, blacklisted_by).await
 }
 
 pub async fn remove_token_from_blacklist(db: &DB, token: &str) -> Result<bool, sqlx::Error> {
