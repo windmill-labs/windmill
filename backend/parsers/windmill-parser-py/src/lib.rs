@@ -475,7 +475,7 @@ def main(test1: str,
                     Arg {
                         otyp: None,
                         name: "s3o".to_string(),
-                        typ: Typ::Resource("S3Object".to_string()),
+                        typ: Typ::Resource("s3_object".to_string()),
                         default: None,
                         has_default: false,
                         oidx: None

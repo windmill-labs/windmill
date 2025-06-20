@@ -33,6 +33,7 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
+use windmill_common::cache::flow;
 use windmill_common::utils::now_from_db;
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 use windmill_common::{
@@ -2721,10 +2722,9 @@ pub async fn get_result_by_id(
                 "SELECT
                     id As \"id!\",
                     flow_status->'restarted_from'->'flow_job_id' AS \"restarted_from: Json<Uuid>\"
-                FROM v2_as_queue
-                WHERE COALESCE((SELECT flow_innermost_root_job FROM v2_job WHERE id = $1), $1) = id AND workspace_id = $2",
-                flow_id,
-                &w_id
+                FROM v2_job_status
+                WHERE COALESCE((SELECT flow_innermost_root_job FROM v2_job WHERE id = $1), $1) = id",
+                flow_id
             )
             .fetch_optional(&db)
             .await?;
@@ -2863,9 +2863,10 @@ pub async fn get_result_by_id_from_running_flow_inner(
     node_id: &str,
 ) -> error::Result<JobResult> {
     let flow_job_result = sqlx::query!(
-        "SELECT leaf_jobs->$1::text AS \"leaf_jobs: Json<Box<RawValue>>\", parent_job
-        FROM v2_as_queue
-        WHERE COALESCE((SELECT flow_innermost_root_job FROM v2_job WHERE id = $2), $2) = id AND workspace_id = $3",
+        "SELECT flow_leaf_jobs->$1::text AS \"leaf_jobs: Json<Box<RawValue>>\", v2_job.parent_job
+        FROM v2_job_status
+        LEFT JOIN v2_job ON v2_job.id = v2_job_status.id AND v2_job.workspace_id = $3
+        WHERE COALESCE((SELECT flow_innermost_root_job FROM v2_job WHERE id = $2), $2) = v2_job_status.id",
         node_id,
         flow_id,
         w_id,
@@ -2873,11 +2874,13 @@ pub async fn get_result_by_id_from_running_flow_inner(
     .fetch_optional(db)
     .await?;
 
+    // tracing::error!("flow_job_result: {:?} {:?}", flow_job_result, flow_id);
     let flow_job_result = windmill_common::utils::not_found_if_none(
         flow_job_result,
         "Root job of parent runnnig flow",
         format!("parent: {}, id: {}", flow_id, node_id),
     )?;
+    // tracing::error!("flow_job_result: {:?}, {:?}", flow_job_result.leaf_jobs, flow_job_result.parent_job);
 
     let job_result = flow_job_result
         .leaf_jobs
@@ -4230,10 +4233,10 @@ pub async fn push<'c, 'd>(
             INSERT INTO v2_job (id, workspace_id, raw_code, raw_lock, raw_flow, tag, parent_job,
                 created_by, permissioned_as, runnable_id, runnable_path, args, kind, trigger,
             script_lang, same_worker, pre_run_error, permissioned_as_email, visible_to_owner,
-            flow_innermost_root_job, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id,
+            flow_innermost_root_job, root_job, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id,
             cache_ttl, priority, trigger_kind, script_entrypoint_override, preprocessed)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-            $19, $20, $21, $22, $23, $24, $25, $26,
+            $19, $20, $38, $21, $22, $23, $24, $25, $26,
             CASE WHEN $14::VARCHAR IS NOT NULL THEN 'schedule'::job_trigger_kind END,
             ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27)
         ),
@@ -4289,6 +4292,7 @@ pub async fn push<'c, 'd>(
         job_authed.is_operator,
         folders.as_slice(),
         job_authed.groups.as_slice(),
+        root_job.or(parent_job)
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)
