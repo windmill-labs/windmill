@@ -16,7 +16,6 @@
 	let workerGroup: string = $state('agent')
 	let token: string = $state('')
 	let blacklistToken: string = $state('')
-	let blacklistExpiry: string = $state('')
 	let selectedTab: 'create' | 'blacklist' = $state('create')
 	let blacklistedTokens: ListBlacklistedAgentTokensResponse | undefined = $state(undefined)
 	let isLoadingBlacklist: boolean = $state(false)
@@ -58,17 +57,14 @@
 		}
 
 		try {
-			const requestBody: { token: string; expires_at?: string } = {
-				token: blacklistToken.trim()
-			}
-
 			await AgentWorkersService.blacklistAgentToken({
-				requestBody
+				requestBody: {
+					token: blacklistToken
+				}
 			})
 
 			sendUserToast('Token successfully added to blacklist')
 			blacklistToken = ''
-			blacklistExpiry = ''
 			// Refresh the blacklist after adding a new token
 			await loadBlacklistedTokens()
 		} catch (error) {
@@ -251,7 +247,7 @@
 									/>
 								</div>
 								<div class="flex">
-									<Button color="red" onclick={addToBlacklist} disabled={!$superadmin}
+									<Button color="red" on:click={addToBlacklist} disabled={!$superadmin}
 										>Blacklist</Button
 									>
 								</div>
