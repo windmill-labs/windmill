@@ -234,7 +234,8 @@
 					const inlineScript = {
 						language: step.language,
 						kind: 'script' as const,
-						subkind: 'flow' as const
+						subkind: 'flow' as const,
+						summary: step.summary
 					}
 					if (location.type === 'preprocessor') {
 						await insertNewPreprocessorModule(flowStore, flowStateStore, inlineScript)

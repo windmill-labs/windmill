@@ -81,8 +81,8 @@
 		inlineScript?: InlineScript
 	): Promise<FlowModule[]> {
 		push(history, flowStore.val)
-		var module = emptyModule($flowStateStore, flowStore.val, kind == 'flow')
-		var state = emptyFlowModuleState()
+		let module = emptyModule($flowStateStore, flowStore.val, kind == 'flow')
+		let state = emptyFlowModuleState()
 		$flowStateStore[module.id] = state
 		if (wsFlow) {
 			;[module, state] = await pickFlow(wsFlow.path, wsFlow.summary, module.id)
@@ -103,14 +103,8 @@
 		} else if (kind == 'branchall') {
 			;[module, state] = await createBranchAll(module.id)
 		} else if (inlineScript) {
-			const { language, kind, subkind } = inlineScript
-			;[module, state] = await createInlineScriptModule(
-				language,
-				kind,
-				subkind,
-				module.id,
-				module.summary
-			)
+			const { language, kind, subkind, summary } = inlineScript
+			;[module, state] = await createInlineScriptModule(language, kind, subkind, module.id, summary)
 			$flowStateStore[module.id] = state
 			if (kind == 'trigger') {
 				module.summary = 'Trigger'

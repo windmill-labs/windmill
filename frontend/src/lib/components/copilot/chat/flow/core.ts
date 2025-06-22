@@ -80,7 +80,7 @@ const newStepSchema = z.union([
 			language: langSchema.describe(
 				'The language to use for the code, default to bun if none specified'
 			),
-			summary: z.string().describe('The summary of what the step does')
+			summary: z.string().describe('The summary of what the step does, in 3-5 words')
 		})
 		.describe('Add a raw script step at the specified location'),
 	z
