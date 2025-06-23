@@ -8,6 +8,10 @@ description = "A client library for accessing Windmill server wrapping the Windm
 license = "Apache-2.0"
 homepage = "https://windmill.dev"
 
+# Comment out to enable LSP for this crate
+[package.metadata.rust-analyzer]
+rust-analyzer.check.overrideCommand = ["echo", "skip"]
+
 [workspace]
 resolver = "3"
 members = ["windmill_api"]
