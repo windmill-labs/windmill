@@ -27,6 +27,7 @@
 		}
 		flowPreviewContent?.test()
 	}
+	export let loadingJobs: 'wait' | 'loading' | 'done' = 'wait'
 
 	const dispatch = createEventDispatcher()
 
@@ -111,7 +112,7 @@
 </Button>
 
 {#if !loading}
-	<Drawer bind:open={previewOpen} size="75%" {preventEscape}>
+	<Drawer bind:open={previewOpen} size="75%" {preventEscape} alwaysOpen={loadingJobs === 'loading'}>
 		<FlowPreviewContent
 			bind:this={flowPreviewContent}
 			bind:localModuleStates
@@ -127,6 +128,9 @@
 			bind:selectedJobStepType
 			bind:branchOrIterationN
 			bind:rightColumnSelect
+			onJobsLoaded={() => {
+				loadingJobs = 'done'
+			}}
 			on:close={() => {
 				previewOpen = false
 			}}

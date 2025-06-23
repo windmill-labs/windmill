@@ -42,6 +42,7 @@
 		previousModule?: FlowModule | undefined
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
+		loadingJobs?: 'wait' | 'loading' | 'done'
 	}
 
 	let {
@@ -52,7 +53,8 @@
 		parentModule = $bindable(),
 		previousModule = undefined,
 		forceTestTab,
-		highlightArg
+		highlightArg,
+		loadingJobs
 	}: Props = $props()
 
 	function initializePrimaryScheduleForTriggerScript(module: FlowModule) {
@@ -202,6 +204,7 @@
 			{savedModule}
 			forceTestTab={forceTestTab?.[flowModule.id]}
 			highlightArg={highlightArg?.[flowModule.id]}
+			{loadingJobs}
 		/>
 	{/if}
 {:else if flowModule.value.type === 'forloopflow' || flowModule.value.type == 'whileloopflow'}

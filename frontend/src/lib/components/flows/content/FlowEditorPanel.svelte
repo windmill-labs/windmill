@@ -27,6 +27,7 @@
 		onDeployTrigger?: (trigger: Trigger) => void
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
+		loadingJobs?: 'wait' | 'loading' | 'done'
 	}
 
 	let {
@@ -37,7 +38,8 @@
 		savedFlow = undefined,
 		onDeployTrigger = () => {},
 		forceTestTab,
-		highlightArg
+		highlightArg,
+		loadingJobs
 	}: Props = $props()
 
 	const {
@@ -144,6 +146,7 @@
 					savedModule={savedFlow?.value.modules[index]}
 					{forceTestTab}
 					{highlightArg}
+					{loadingJobs}
 				/>
 			{/each}
 		{/key}

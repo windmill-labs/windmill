@@ -79,6 +79,7 @@
 		savedModule?: FlowModule | undefined
 		forceTestTab?: boolean
 		highlightArg?: string
+		loadingJobs?: 'wait' | 'loading' | 'done'
 	}
 
 	let {
@@ -93,7 +94,8 @@
 		enableAi,
 		savedModule = undefined,
 		forceTestTab = false,
-		highlightArg = undefined
+		highlightArg = undefined,
+		loadingJobs
 	}: Props = $props()
 
 	let tag: string | undefined = $state(undefined)
@@ -821,20 +823,32 @@
 								{#if selected === 'test'}
 									<Pane minSize={20} class="relative">
 										{#if $flowStateStore[flowModule.id]?.initial}
-											<!-- svelte-ignore a11y_no_static_element_interactions -->
-											<!-- svelte-ignore a11y_click_events_have_key_events -->
-											<div
-												onclick={() => {
-													$flowStateStore[flowModule.id]!.initial = false
-												}}
-												class="cursor-pointer h-full hover:bg-gray-500/20 dark:hover:bg-gray-500/20 dark:bg-gray-500/80 bg-gray-500/40 absolute top-0 left-0 w-full z-50"
-											>
-												<div class="text-center text-primary text-sm py-2 pt-20"
-													><span class="font-bold border p-2 bg-surface-secondary rounded-md"
-														>Run loaded from history</span
-													></div
+											{#if loadingJobs && loadingJobs !== 'done'}
+												<div
+													class="cursor-pointer h-full hover:bg-gray-500/20 dark:hover:bg-gray-500/20 dark:bg-gray-500/80 bg-gray-500/40 absolute top-0 left-0 w-full z-50"
 												>
-											</div>
+													<div class="text-center text-primary text-sm py-2 pt-20">
+														<span class="font-bold border p-2 bg-surface-secondary rounded-md">
+															Loading history...
+														</span>
+													</div>
+												</div>
+											{:else}
+												<!-- svelte-ignore a11y_no_static_element_interactions -->
+												<!-- svelte-ignore a11y_click_events_have_key_events -->
+												<div
+													onclick={() => {
+														$flowStateStore[flowModule.id]!.initial = false
+													}}
+													class="cursor-pointer h-full hover:bg-gray-500/20 dark:hover:bg-gray-500/20 dark:bg-gray-500/80 bg-gray-500/40 absolute top-0 left-0 w-full z-50"
+												>
+													<div class="text-center text-primary text-sm py-2 pt-20"
+														><span class="font-bold border p-2 bg-surface-secondary rounded-md"
+															>Run loaded from history</span
+														></div
+													>
+												</div>
+											{/if}
 										{/if}
 										<ModulePreviewResultViewer
 											lang={flowModule.value['language'] ?? 'deno'}
@@ -855,6 +869,7 @@
 											{testIsLoading}
 											disableMock={preprocessorModule || failureModule}
 											disableHistory={failureModule}
+											loadingHistory={loadingJobs !== undefined && loadingJobs !== 'done'}
 										/>
 									</Pane>
 								{/if}

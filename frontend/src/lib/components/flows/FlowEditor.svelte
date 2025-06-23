@@ -36,6 +36,7 @@
 		onEditInput?: ((moduleId: string, key: string) => void) | undefined
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
+		loadingJobs?: 'wait' | 'loading' | 'done'
 	}
 
 	let {
@@ -52,7 +53,8 @@
 		onTestUpTo = undefined,
 		onEditInput = undefined,
 		forceTestTab,
-		highlightArg
+		highlightArg,
+		loadingJobs
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -125,6 +127,7 @@
 					{onDeployTrigger}
 					{forceTestTab}
 					{highlightArg}
+					{loadingJobs}
 				/>
 			{/if}
 		</Pane>

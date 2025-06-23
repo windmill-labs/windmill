@@ -319,7 +319,11 @@
 		loadingDraft = false
 	}
 
+	let loadingJobs: 'wait' | 'loading' | 'done' = $state('wait')
 	onMount(() => {
+		setTimeout(() => {
+			loadingJobs = 'loading'
+		}, 2000)
 		setSavedraftCb?.(() => saveDraft())
 	})
 
@@ -987,6 +991,7 @@
 						}}
 						bind:this={flowPreviewButtons}
 						{loading}
+						bind:loadingJobs
 					/>
 					<Button
 						loading={loadingDraft}
@@ -1050,6 +1055,7 @@
 					}}
 					{forceTestTab}
 					{highlightArg}
+					{loadingJobs}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

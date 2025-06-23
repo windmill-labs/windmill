@@ -41,6 +41,7 @@
 
 	export let localModuleStates: Writable<Record<string, GraphModuleState>> = writable({})
 	export let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
+	export let onJobsLoaded: (() => void) | undefined = undefined
 
 	let restartBranchNames: [number, string][] = []
 
@@ -552,6 +553,7 @@
 					on:jobsLoaded={() => {
 						if (initial) {
 							loadIndividualStepsStates()
+							onJobsLoaded?.()
 						}
 					}}
 					bind:selectedJobStep
