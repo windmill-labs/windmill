@@ -20,6 +20,8 @@
 		bottomBarOpen?: boolean
 		loopStatus?: { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' } | undefined
 		onEditInput?: (moduleId: string, key: string) => void
+		initial?: boolean
+		onResetInitial?: () => void
 	}
 
 	let {
@@ -33,7 +35,9 @@
 		id,
 		bottomBarOpen = $bindable(false),
 		loopStatus,
-		onEditInput
+		onEditInput,
+		initial,
+		onResetInitial
 	}: Props = $props()
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
@@ -184,7 +188,7 @@
 				}}
 				bind:this={popover}
 				allowFullScreen
-				contentClasses="overflow-hidden resize"
+				contentClasses="overflow-hidden resize relative"
 				contentStyle={`width: calc(${MIN_WIDTH}px); min-width: calc(${MIN_WIDTH}px); height: calc(${MIN_HEIGHT}px); min-height: calc(${MIN_HEIGHT}px); `}
 				extraProps={{ 'data-prop-picker': true }}
 				closeOnOtherPopoverOpen
@@ -219,6 +223,22 @@
 					</AnimatedButton>
 				{/snippet}
 				{#snippet content()}
+					{#if initial}
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<div
+							onclick={() => {
+								onResetInitial?.()
+							}}
+							class="cursor-pointer h-full hover:bg-gray-500/20 dark:hover:bg-gray-500/20 dark:bg-gray-500/80 bg-gray-500/40 absolute top-0 left-0 w-full z-50"
+						>
+							<div class="text-center text-primary text-sm py-2 pt-20"
+								><span class="font-bold border p-2 bg-surface-secondary rounded-md"
+									>Run loaded from history</span
+								></div
+							>
+						</div>
+					{/if}
 					{@render children?.({
 						allowCopy: !$flowPropPickerConfig,
 						isConnecting: showConnecting,

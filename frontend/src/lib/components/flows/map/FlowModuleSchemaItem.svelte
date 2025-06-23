@@ -413,6 +413,12 @@
 				bind:bottomBarOpen={outputPickerBarOpen}
 				{loopStatus}
 				{onEditInput}
+				initial={id ? $flowStateStore[id]?.initial : undefined}
+				onResetInitial={() => {
+					if (id) {
+						$flowStateStore[id]!.initial = false
+					}
+				}}
 			>
 				{#snippet children({ allowCopy, isConnecting, selectConnection })}
 					<OutputPickerInner

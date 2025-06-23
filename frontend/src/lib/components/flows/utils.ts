@@ -178,7 +178,8 @@ export function codeToStaticTemplate(code?: string): string | undefined {
 export function emptyFlowModuleState(): FlowModuleState {
 	return {
 		schema: emptySchema(),
-		previewResult: NEVER_TESTED_THIS_FAR
+		previewResult: NEVER_TESTED_THIS_FAR,
+		initial: false
 	}
 }
 

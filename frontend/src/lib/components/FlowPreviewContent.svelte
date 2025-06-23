@@ -69,6 +69,22 @@
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
+	// Set all modules as initial when flow-level initial becomes true
+	function setAllModulesInitial(isInitial: boolean) {
+		if (isInitial) {
+			// Set all existing modules in flowStateStore to initial: true
+			for (const moduleId in $flowStateStore) {
+				if ($flowStateStore[moduleId] && $flowStateStore[moduleId].initial === undefined) {
+					$flowStateStore[moduleId] = {
+						...$flowStateStore[moduleId],
+						initial: true
+					}
+				}
+			}
+			$flowStateStore = $flowStateStore
+		}
+	}
+
 	let renderCount: number = 0
 	let schemaFormWithArgPicker: SchemaFormWithArgPicker | undefined = undefined
 	let currentJobId: string | undefined = undefined
@@ -183,6 +199,9 @@
 
 	$: selectedJobStep !== undefined && onSelectedJobStepChange()
 
+	// When initial becomes true, mark all modules as initial
+	$: setAllModulesInitial(initial)
+
 	async function loadIndividualStepsStates() {
 		// console.log('loadIndividualStepsStates')
 		dfs(flowStore.val.value.modules, async (module) => {
@@ -214,7 +233,8 @@
 						previewResult: getJobResult.result,
 						previewJobId: previousJobId[0].id,
 						previewWorkspaceId: previousJobId[0].workspace_id,
-						previewSuccess: getJobResult.success
+						previewSuccess: getJobResult.success,
+						initial: true
 					}
 				}
 			}
@@ -531,7 +551,6 @@
 					}}
 					on:jobsLoaded={() => {
 						if (initial) {
-							console.log('loading initial steps after initial job loaded')
 							loadIndividualStepsStates()
 						}
 					}}

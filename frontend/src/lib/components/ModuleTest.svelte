@@ -90,6 +90,7 @@
 				$flowStateStore[mod.id].previewSuccess = testJob.success
 				$flowStateStore[mod.id].previewJobId = testJob.id
 				$flowStateStore[mod.id].previewWorkspaceId = testJob.workspace_id
+				$flowStateStore[mod.id].initial = false
 				$flowStateStore = $flowStateStore
 			}
 		}

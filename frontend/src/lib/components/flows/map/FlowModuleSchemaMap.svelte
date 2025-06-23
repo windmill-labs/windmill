@@ -275,7 +275,8 @@
 					previewResult: getJobResult.result,
 					previewJobId: previousJobId[0].id,
 					previewWorkspaceId: previousJobId[0].workspace_id,
-					previewSuccess: getJobResult.success
+					previewSuccess: getJobResult.success,
+					initial: true
 				}
 			}
 			$flowStateStore = $flowStateStore
