@@ -38,7 +38,7 @@ export function triggerableByAI(element: HTMLElement, options: TriggerableByAIOp
 
 		// Remove after animation
 		setTimeout(() => {
-			if (pulse.parentNode) {
+			if (pulse && pulse.parentNode) {
 				pulse.parentNode.removeChild(pulse)
 			}
 		}, 2000)
