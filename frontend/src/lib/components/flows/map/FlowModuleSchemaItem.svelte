@@ -436,7 +436,7 @@
 						bind:derivedHistoryOpen={historyOpen}
 						historyOffset={{ mainAxis: 12, crossAxis: -9 }}
 						clazz="p-1"
-						isLoading={testIsLoading}
+						isLoading={testIsLoading || (!!id && !!$flowStateStore[id]?.loadingJobs)}
 					/>
 				{/snippet}
 			</OutputPicker>

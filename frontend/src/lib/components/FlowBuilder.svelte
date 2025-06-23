@@ -320,7 +320,7 @@
 		loadingDraft = false
 	}
 
-	let loadingJobs: 'wait' | 'loading' | 'done' = $state('wait')
+	let loadingJobs: boolean = $state(false)
 	onMount(() => {
 		setSavedraftCb?.(() => saveDraft())
 	})
@@ -813,8 +813,8 @@
 	})
 
 	async function loadFlowState() {
-		if (loadingJobs == 'loading') return
-		loadingJobs = 'loading'
+		if (loadingJobs) return
+		loadingJobs = true
 		await loadIndividualStepsStates(
 			flowStore.val as Flow,
 			flowStateStore,
@@ -822,7 +822,7 @@
 			$initialPathStore,
 			$pathStore
 		)
-		loadingJobs = 'done'
+		loadingJobs = false
 	}
 </script>
 

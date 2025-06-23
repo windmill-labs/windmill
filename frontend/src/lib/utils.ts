@@ -1451,6 +1451,13 @@ export async function loadIndividualStepsStates(
 	// Load all modules in parallel and wait for completion
 	const loadPromises = modulesToLoad.map(async (module) => {
 		try {
+			flowStateStore.update((state) => ({
+				...state,
+				[module.id]: {
+					...(state[module.id] ?? {}),
+					loadingJobs: true
+				}
+			}))
 			const previousJobId = await JobService.listJobs({
 				workspace: workspaceId,
 				scriptPathExact:
@@ -1476,13 +1483,21 @@ export async function loadIndividualStepsStates(
 							previewJobId: previousJobId[0].id,
 							previewWorkspaceId: previousJobId[0].workspace_id,
 							previewSuccess: getJobResult.success,
-							initial: true
+							initial: true,
+							loadingJobs: false
 						}
 					}))
 				}
 			}
 		} catch (error) {
 			console.warn(`Failed to load history for module ${module.id}:`, error)
+			flowStateStore.update((state) => ({
+				...state,
+				[module.id]: {
+					...(state[module.id] ?? {}),
+					loadingJobs: false
+				}
+			}))
 		}
 	})
 
