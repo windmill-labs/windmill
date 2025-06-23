@@ -11,7 +11,7 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Job, Script, ScriptLang } from './gen'
+import { JobService, type Flow, type Job, type Script, type ScriptLang } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
@@ -20,6 +20,7 @@ import type { RunsSelectionMode } from './components/runs/RunsBatchActionsDropdo
 import type { TriggerKind } from './components/triggers'
 import { stateSnapshot } from './svelte5Utils.svelte'
 import { validate, dereference } from '@scalar/openapi-parser'
+import { NEVER_TESTED_THIS_FAR } from './components/flows/models'
 
 export namespace OpenApi {
 	export enum OpenApiVersion {
@@ -1369,6 +1370,9 @@ import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import type { Snippet } from 'svelte'
 import { OpenAPIV2, type OpenAPI, type OpenAPIV3, type OpenAPIV3_1 } from 'openapi-types'
+import { dfs } from './components/flows/dfs'
+import { get, type Writable } from 'svelte/store'
+import type { FlowState } from './components/flows/flowState'
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))
@@ -1426,4 +1430,62 @@ export function scroll_into_view_if_needed_polyfill(elem: Element, centerIfNeede
 	observer.observe(elem)
 
 	return observer // return for testing
+}
+
+export async function loadIndividualStepsStates(
+	flow: Flow,
+	flowStateStore: Writable<FlowState>,
+	workspaceId: string,
+	initialPath: string,
+	path: string
+): Promise<void> {
+	// Collect all modules that need loading
+	const modulesToLoad: any[] = []
+	dfs(flow.value.modules, (module) => {
+		const prev = get(flowStateStore)[module.id]?.previewResult
+		if (!prev || prev === NEVER_TESTED_THIS_FAR) {
+			modulesToLoad.push(module)
+		}
+	})
+
+	// Load all modules in parallel and wait for completion
+	const loadPromises = modulesToLoad.map(async (module) => {
+		try {
+			const previousJobId = await JobService.listJobs({
+				workspace: workspaceId,
+				scriptPathExact:
+					`path` in module.value
+						? module.value.path
+						: (initialPath == '' ? path : initialPath) + '/' + module.id,
+				jobKinds: ['preview', 'script', 'flowpreview', 'flow', 'flowscript'].join(','),
+				page: 1,
+				perPage: 1
+			})
+
+			if (previousJobId.length > 0) {
+				const getJobResult = await JobService.getCompletedJobResultMaybe({
+					workspace: workspaceId,
+					id: previousJobId[0].id
+				})
+				if ('result' in getJobResult) {
+					flowStateStore.update((state) => ({
+						...state,
+						[module.id]: {
+							...(state[module.id] ?? {}),
+							previewResult: getJobResult.result,
+							previewJobId: previousJobId[0].id,
+							previewWorkspaceId: previousJobId[0].workspace_id,
+							previewSuccess: getJobResult.success,
+							initial: true
+						}
+					}))
+				}
+			}
+		} catch (error) {
+			console.warn(`Failed to load history for module ${module.id}:`, error)
+		}
+	})
+
+	// Wait for all loading operations to complete
+	await Promise.all(loadPromises)
 }

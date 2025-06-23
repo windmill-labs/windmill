@@ -23,6 +23,7 @@
 		cleanValueProperties,
 		encodeState,
 		generateRandomString,
+		loadIndividualStepsStates,
 		orderedJsonStringify,
 		readFieldsRecursively,
 		replaceFalseWithUndefined,
@@ -33,7 +34,7 @@
 	import { Drawer } from '$lib/components/common'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
-	import { onMount, setContext, untrack, type ComponentType } from 'svelte'
+	import { onMount, onDestroy, setContext, untrack, type ComponentType } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Badge, Button, UndoRedo } from './common'
@@ -321,9 +322,6 @@
 
 	let loadingJobs: 'wait' | 'loading' | 'done' = $state('wait')
 	onMount(() => {
-		setTimeout(() => {
-			loadingJobs = 'loading'
-		}, 2000)
 		setSavedraftCb?.(() => saveDraft())
 	})
 
@@ -798,6 +796,34 @@
 	run(() => {
 		customUi && untrack(() => onCustomUiChange(customUi))
 	})
+
+	// Debounced effect to avoid running loadFlowState too often
+	let loadFlowStateTimeout: ReturnType<typeof setTimeout> | undefined
+
+	$effect(() => {
+		if (!flowStore.val) return
+		clearTimeout(loadFlowStateTimeout)
+		loadFlowStateTimeout = setTimeout(() => {
+			loadFlowState()
+		}, 500)
+	})
+
+	onDestroy(() => {
+		loadFlowStateTimeout && clearTimeout(loadFlowStateTimeout)
+	})
+
+	async function loadFlowState() {
+		if (loadingJobs == 'loading') return
+		loadingJobs = 'loading'
+		await loadIndividualStepsStates(
+			flowStore.val as Flow,
+			flowStateStore,
+			$workspaceStore!,
+			$initialPathStore,
+			$pathStore
+		)
+		loadingJobs = 'done'
+	}
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -991,7 +1017,6 @@
 						}}
 						bind:this={flowPreviewButtons}
 						{loading}
-						bind:loadingJobs
 					/>
 					<Button
 						loading={loadingDraft}
