@@ -1519,6 +1519,7 @@
 		sqlTypeCompletor && sqlTypeCompletor.dispose()
 		timeoutModel && clearTimeout(timeoutModel)
 		loadTimeout && clearTimeout(loadTimeout)
+		aiChatEditorHandler?.clear()
 	})
 
 	async function genRoot(hostname: string) {

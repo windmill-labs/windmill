@@ -335,8 +335,8 @@
 			untrack(() => updatePropertyType())
 	})
 	$effect(() => {
-		arg.value
-		arg.expr
+		arg?.value
+		arg?.expr
 		inputCat && propertyType && arg && untrack(() => onArgChange())
 	})
 	$effect(() => {
