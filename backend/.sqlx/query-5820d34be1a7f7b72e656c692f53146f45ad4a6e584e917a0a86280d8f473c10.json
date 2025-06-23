@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM v2_job_completed c\n                    WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval\n                    RETURNING c.id",
+  "query": "DELETE FROM v2_job_completed c\n                    WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval \n                    RETURNING c.id",
   "describe": {
     "columns": [
       {
@@ -18,5 +18,5 @@
       false
     ]
   },
-  "hash": "c9a752195e571181168f51088e2e3d75507a3cb78bd9d37c28d1b4089a0a87f3"
+  "hash": "5820d34be1a7f7b72e656c692f53146f45ad4a6e584e917a0a86280d8f473c10"
 }
