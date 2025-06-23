@@ -64,7 +64,6 @@
 		const firstTrueIndex = slicedArray.findIndex((c) => c)
 
 		outputs.conditions.set(slicedArray, true)
-
 		setSelectedIndex(firstTrueIndex)
 	}
 
@@ -80,6 +79,7 @@
 	}
 
 	$effect.pre(() => {
+		resolvedConditions && resolvedConditions.forEach((c) => c)
 		resolvedConditions && untrack(() => handleResolvedConditions())
 	})
 
