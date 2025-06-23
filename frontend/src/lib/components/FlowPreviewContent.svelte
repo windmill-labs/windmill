@@ -70,10 +70,9 @@
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
-	// Set all modules as initial when flow-level initial becomes true
 	function setAllModulesInitial(isInitial: boolean) {
+		// Set all existing modules in flowStateStore to initial value
 		if (isInitial) {
-			// Set all existing modules in flowStateStore to initial: true
 			for (const moduleId in $flowStateStore) {
 				if ($flowStateStore[moduleId] && $flowStateStore[moduleId].initial === undefined) {
 					$flowStateStore[moduleId] = {
@@ -82,8 +81,17 @@
 					}
 				}
 			}
-			$flowStateStore = $flowStateStore
+		} else {
+			for (const moduleId in $flowStateStore) {
+				if ($flowStateStore[moduleId] && $flowStateStore[moduleId].initial) {
+					$flowStateStore[moduleId] = {
+						...$flowStateStore[moduleId],
+						initial: false
+					}
+				}
+			}
 		}
+		$flowStateStore = $flowStateStore
 	}
 
 	let renderCount: number = 0
