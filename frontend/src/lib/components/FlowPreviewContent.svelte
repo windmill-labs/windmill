@@ -571,16 +571,9 @@
 						$executionCount = $executionCount + 1
 					}}
 					on:jobsLoaded={async () => {
+						// on:jobsLoaded is not the right event, it can be triggered before all jobs are loaded
 						if (initial) {
-							try {
-								await loadIndividualStepsStates()
-								// All individual step states have been loaded
-							} catch (error) {
-								console.warn('Failed to load individual step states:', error)
-								// Still call the callback even if some loading failed
-							} finally {
-								onJobsLoaded?.()
-							}
+							onJobsLoaded?.()
 						}
 					}}
 					bind:selectedJobStep
