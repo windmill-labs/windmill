@@ -28,7 +28,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::auth::JobPerms;
-`[cfg(feature = "benchmark")]
+#[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::cache::{self, RawData};
 use windmill_common::client::AuthedClient;
