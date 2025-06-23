@@ -258,6 +258,23 @@ pub async fn add_webhook_allowed_origin(
     next.run(req).await
 }
 
+// Middleware to add Content-Security-Policy headers when ENABLE_CSP_HEADERS is set
+pub async fn add_csp_headers(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let mut response = next.run(req).await;
+    
+    if std::env::var("ENABLE_CSP_HEADERS").is_ok() {
+        let csp_policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+        response
+            .headers_mut()
+            .insert("Content-Security-Policy", HeaderValue::from_static(csp_policy));
+    }
+    
+    response
+}
+
 #[cfg(not(feature = "tantivy"))]
 type IndexReader = ();
 
@@ -318,7 +335,8 @@ pub async fn run_server(
         )))
         .layer(DefaultBodyLimit::max(
             REQUEST_SIZE_LIMIT.read().await.clone(),
-        ));
+        ))
+        .layer(axum::middleware::from_fn(add_csp_headers));
 
     let cors = CorsLayer::new()
         .allow_methods([http::Method::GET, http::Method::POST])
