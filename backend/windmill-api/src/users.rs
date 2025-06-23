@@ -157,6 +157,17 @@ pub fn check_scopes<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
 where
     F: FnOnce() -> String,
 {
+    // Use enhanced scope checking with backward compatibility
+    let required_scope = required();
+    crate::scope_middleware::check_enhanced_scopes(authed, &required_scope, None)
+}
+
+/// Legacy scope checking function for exact backward compatibility
+/// Use check_scopes() for new code
+pub fn check_scopes_legacy<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
+where
+    F: FnOnce() -> String,
+{
     if authed.scopes.as_ref().is_some_and(|scopes| {
         scopes
             .iter()
@@ -168,6 +179,17 @@ where
         }
     }
     Ok(())
+}
+
+/// Enhanced scope checking with resource path support
+pub fn check_scopes_with_resource<F, R>(authed: &ApiAuthed, required: F, resource: R) -> error::Result<()>
+where
+    F: FnOnce() -> String,
+    R: FnOnce() -> Option<String>,
+{
+    let required_scope = required();
+    let resource_path = resource();
+    crate::scope_middleware::check_enhanced_scopes(authed, &required_scope, resource_path.as_deref())
 }
 
 pub fn get_scope_tags(authed: &ApiAuthed) -> Option<Vec<&str>> {

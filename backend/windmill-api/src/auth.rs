@@ -544,18 +544,29 @@ where
                 let workspace_id = maybe_get_workspace_id_from_path(&path_vec);
 
                 if let Some(authed) = cache.get_authed(workspace_id.clone(), &token).await {
-                    if authed.scopes.as_ref().is_some_and(|scopes| {
-                        scopes
-                            .iter()
-                            .any(|s| s.starts_with("jobs:") || s.starts_with("run:"))
-                    }) && (path_vec.len() < 3
-                        || (path_vec[4] != "jobs" && path_vec[4] != "jobs_u"))
-                    {
-                        BRUTE_FORCE_COUNTER.increment().await;
-                        return Err((
-                            StatusCode::UNAUTHORIZED,
-                            format!("Unauthorized scoped token: {:?}", authed.scopes),
-                        ));
+                    // New comprehensive scope checking
+                    if authed.scopes.is_some() && !authed.is_admin {
+                        // Use the new scope system for route-based access control
+                        let path = original_uri.path();
+                        let method = parts.method.as_str();
+                        
+                        // Check scopes using the new system
+                        if let Err(_) = crate::scopes::check_scopes_for_route(
+                            authed.scopes.as_deref(), 
+                            path, 
+                            method
+                        ) {
+                            // Fallback to legacy scope checking for backward compatibility
+                            if authed.scopes.as_ref().is_some_and(|scopes| {
+                                scopes.iter().any(|s| s.starts_with("jobs:") || s.starts_with("run:"))
+                            }) && (path_vec.len() < 5 || (path_vec[4] != "jobs" && path_vec[4] != "jobs_u")) {
+                                BRUTE_FORCE_COUNTER.increment().await;
+                                return Err((
+                                    StatusCode::UNAUTHORIZED,
+                                    format!("Access denied by scope rules. Path: {}, Scopes: {:?}", path, authed.scopes),
+                                ));
+                            }
+                        }
                     }
 
                     parts.extensions.insert(authed.clone());

@@ -150,6 +150,8 @@ mod schedule;
 #[cfg(feature = "private")]
 pub mod scim_ee;
 mod scim_oss;
+mod scopes;
+mod scope_middleware;
 mod scripts;
 mod service_logs;
 mod settings;
@@ -605,7 +607,7 @@ pub async fn run_server(
                         .nest("/mqtt_triggers", mqtt_triggers_service)
                         .nest("/sqs_triggers", sqs_triggers_service)
                         .nest("/gcp_triggers", gcp_triggers_service)
-                        .nest("/postgres_triggers", postgres_triggers_service),
+                        .nest("/postgres_triggers", postgres_triggers_service)
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
