@@ -739,11 +739,14 @@ export function isObject(obj: any): obj is Record<string, any> {
 
 export function debounce(func: (...args: any[]) => any, wait: number) {
 	let timeout: any
-	return function (...args: any[]) {
-		// @ts-ignore
-		const context = this
-		clearTimeout(timeout)
-		timeout = setTimeout(() => func.apply(context, args), wait)
+	return {
+		debounced: function (...args: any[]) {
+			// @ts-ignore
+			const context = this
+			clearTimeout(timeout)
+			timeout = setTimeout(() => func.apply(context, args), wait)
+		},
+		clearDebounce: () => clearTimeout(timeout)
 	}
 }
 

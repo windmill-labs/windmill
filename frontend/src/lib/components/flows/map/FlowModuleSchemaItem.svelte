@@ -406,7 +406,6 @@
 	<div
 		class={twMerge('flex flex-col w-full', deletable && action === 'removed' ? 'opacity-50' : '')}
 	>
-		{deletable}
 		<FlowModuleSchemaItemViewer
 			{label}
 			{path}
