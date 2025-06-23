@@ -9,17 +9,10 @@ jobs:
     if: github.event.pull_request.draft == false
     runs-on: ubicloud-standard-2
     steps:
-      - name: Generate an installation token
-        id: app
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ vars.INTERNAL_APP_ID }}
-          private-key: ${{ secrets.INTERNAL_APP_KEY }}
-
       - name: Add review comment
         uses: actions/github-script@v7
         with:
-          github-token: ${{ steps.app.outputs.token }}
+          github-token: ${{ secrets.PUBLIC_REPO_TOKEN }}
           script: |
             await github.rest.issues.createComment({
               owner: context.repo.owner,
