@@ -30,8 +30,6 @@ use windmill_common::{
     worker::PythonAnnotations,
 };
 
-const DEF_MAIN: &str = "def main(";
-
 fn replace_import(x: String) -> String {
     SHORT_IMPORTS_MAP
         .get(&x)
@@ -48,6 +46,9 @@ lazy_static! {
     static ref RE: Regex = Regex::new(r"^\#\s?(\S+)\s*$").unwrap();
     static ref PIN_RE: Regex = Regex::new(r"(?:\s*#\s*(pin|repin):\s*)(\S*)").unwrap();
     static ref PKG_RE: Regex = Regex::new(r"^([^!=<>]+)(?:[!=<>]|$)").unwrap();
+    // Regex to properly match main function definition at line start,
+    // capturing both sync and async variants
+    static ref DEF_MAIN_RE: Regex = Regex::new(r"(?m)^(async\s+)?def\s+main\s*\(").unwrap();
 }
 
 fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<NImport> {
@@ -143,7 +144,12 @@ struct ImportPin {
 }
 
 fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<NImport>> {
-    let mut code = code.split(DEF_MAIN).next().unwrap_or("").to_string();
+    // Use regex to safely find the main function definition
+    let mut code = DEF_MAIN_RE
+        .split(code)
+        .next()
+        .unwrap_or_default()
+        .to_string();
 
     // remove main function decorator from end of file if it exists
     if code
@@ -385,7 +391,7 @@ async fn parse_python_imports_inner(
                 })
                 .join("\n")
                 .parse::<toml::Table>()
-            .map_err(to_anyhow)?;
+                .map_err(to_anyhow)?;
 
             {
                 if let Some(v) = metadata.get("requires-python").and_then(|v| v.as_str()) {
