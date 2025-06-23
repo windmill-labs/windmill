@@ -137,7 +137,7 @@
 								onSelectValue(item)
 							}}
 						>
-							{item.label}
+							{item.label || '\xa0'}
 						</button>
 					</li>
 				{/each}

@@ -92,6 +92,12 @@ mod test {
     fn test_snake_case() {
         assert_eq!("s3", to_snake_case("S3"));
         assert_eq!("s3", to_snake_case("s3"));
+        assert_eq!("s3_object", to_snake_case("S3Object"));
+        assert_eq!("s3_object", to_snake_case("S3object"));
+        assert_eq!("s3_object", to_snake_case("s3object"));
+        assert_eq!("abc", to_snake_case("ABC"));
+        assert_eq!("aa_bc", to_snake_case("AaBC"));
+        assert_eq!("a_b_c", to_snake_case("A_B_C"));
         assert_eq!("s_3", to_snake_case("S_3"));
         assert_eq!("type_name_here", to_snake_case("typeNameHere"));
     }

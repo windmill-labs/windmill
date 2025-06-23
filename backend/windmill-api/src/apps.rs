@@ -2011,7 +2011,7 @@ async fn upload_s3_file_from_app(
 
             if !has_unnamed_policy {
                 return Err(Error::BadRequest(
-                    "no policy found for unnamed s3 file uplooad".to_string(),
+                    "no policy found for unnamed s3 file upload".to_string(),
                 ));
             }
 

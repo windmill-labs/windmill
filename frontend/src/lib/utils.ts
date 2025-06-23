@@ -1378,7 +1378,11 @@ export type StateStore<T> = {
 	val: T
 }
 
-export function readFieldsRecursively(obj: any): void {
+export type ReadFieldsRecursivelyOptions = {
+	excludeField?: string[]
+}
+
+export function readFieldsRecursively(obj: any, options: ReadFieldsRecursivelyOptions = {}): void {
 	if (Array.isArray(obj)) {
 		// <= in case a new object is added. should read as undefined
 		for (let i = 0; i <= obj.length; i++) {
@@ -1387,7 +1391,9 @@ export function readFieldsRecursively(obj: any): void {
 			}
 		}
 	} else if (obj !== null && typeof obj === 'object') {
-		Object.keys(obj).forEach((key) => readFieldsRecursively(obj[key]))
+		Object.keys(obj).forEach((key) => {
+			if (!options.excludeField?.includes(key)) readFieldsRecursively(obj[key], options)
+		})
 	}
 }
 

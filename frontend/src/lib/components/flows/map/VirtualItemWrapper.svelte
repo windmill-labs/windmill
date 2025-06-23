@@ -2,6 +2,7 @@
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		label: string | undefined
@@ -12,6 +13,7 @@
 		bgColor: string
 		bgHoverColor?: string
 		children?: import('svelte').Snippet<[any]>
+		outputPickerVisible?: boolean
 	}
 
 	let {
@@ -22,7 +24,8 @@
 		onTop = false,
 		bgColor,
 		bgHoverColor = '',
-		children
+		children,
+		outputPickerVisible = false
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher<{
@@ -41,14 +44,8 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class={classNames(
-		'w-full flex relative rounded-sm',
-		selectable ? 'cursor-pointer active:outline active:outline-2' : '',
-		selected ? 'outline outline-2' : '',
-		onTop ? 'z-[901]' : '',
-		'outline-offset-1 outline-gray-600 dark:outline-gray-400'
-	)}
-	style="width: 275px; max-height: 38px; background-color: {hover && bgHoverColor && selectable
+	class={classNames('w-full flex relative rounded-sm', onTop ? 'z-[901]' : '')}
+	style="width: 275px; max-height: 34px; background-color: {hover && bgHoverColor && selectable
 		? bgHoverColor
 		: bgColor};"
 	onpointerdown={() => {
@@ -64,5 +61,15 @@
 	}}
 	title={label ? label + ' ' : ''}
 	id={`flow-editor-virtual-${encodeURIComponent(label || label || '')}`}
-	>{@render children?.({ hover })}</div
 >
+	<div
+		class={twMerge(
+			'absolute  outline-gray-600 dark:outline-gray-400 rounded-sm',
+			selected ? 'outline outline-2' : '',
+			selectable ? 'cursor-pointer active:outline active:outline-2' : ''
+		)}
+		style={`width: 275px; height: ${outputPickerVisible ? '50px' : '34px'};`}
+	>
+	</div>
+	{@render children?.({ hover })}
+</div>

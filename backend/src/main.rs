@@ -1102,6 +1102,9 @@ Windmill Community Edition {GIT_VERSION}
                         _ = tokio::time::sleep(Duration::from_secs(12 * 60 * 60)) => {
                             tracing::info!("Reloading config after 12 hours");
                             initial_load(&conn, tx.clone(), worker_mode, server_mode, #[cfg(feature = "parquet")] disable_s3_store).await;
+                            if let Err(e) = reload_license_key(&conn).await {
+                                tracing::error!("Failed to reload license key on agent: {e:#}");
+                            }
                             #[cfg(feature = "enterprise")]
                             ee_oss::verify_license_key().await;
                         }

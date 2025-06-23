@@ -40,6 +40,8 @@
 		parentModule?: FlowModule | undefined
 		// Pointer to previous module, for easy access to testing results
 		previousModule?: FlowModule | undefined
+		forceTestTab?: Record<string, boolean>
+		highlightArg?: Record<string, string | undefined>
 	}
 
 	let {
@@ -48,7 +50,9 @@
 		enableAi = false,
 		savedModule = undefined,
 		parentModule = $bindable(),
-		previousModule = undefined
+		previousModule = undefined,
+		forceTestTab,
+		highlightArg
 	}: Props = $props()
 
 	function initializePrimaryScheduleForTriggerScript(module: FlowModule) {
@@ -196,6 +200,8 @@
 			{scriptTemplate}
 			{enableAi}
 			{savedModule}
+			forceTestTab={forceTestTab?.[flowModule.id]}
+			highlightArg={highlightArg?.[flowModule.id]}
 		/>
 	{/if}
 {:else if flowModule.value.type === 'forloopflow' || flowModule.value.type == 'whileloopflow'}
@@ -210,6 +216,8 @@
 				? savedModule.value.modules[index]
 				: undefined}
 			{enableAi}
+			{forceTestTab}
+			{highlightArg}
 		/>
 	{/each}
 {:else if flowModule.value.type === 'branchone'}
@@ -229,6 +237,8 @@
 					? savedModule.value.default[index]
 					: undefined}
 				{enableAi}
+				{forceTestTab}
+				{highlightArg}
 			/>
 		{/each}
 	{/if}
@@ -252,6 +262,8 @@
 						? savedModule.value.branches[branchIndex]?.modules[index]
 						: undefined}
 					{enableAi}
+					{forceTestTab}
+					{highlightArg}
 				/>
 			{/each}
 		{/if}
@@ -271,6 +283,8 @@
 					savedModule={savedModule?.value.type === 'branchall'
 						? savedModule.value.branches[branchIndex]?.modules[index]
 						: undefined}
+					{forceTestTab}
+					{highlightArg}
 				/>
 			{/each}
 		{/if}
