@@ -347,7 +347,7 @@ fn eval_type_ann(
 ) -> (Typ, bool) {
     return type_ann
         .as_ref()
-        .map(|x| tstype_to_typ(symbol_table, type_resolver, &*x.type_ann, Some(())))
+        .map(|x| tstype_to_typ(symbol_table, type_resolver, &*x.type_ann, true))
         .unwrap_or((Typ::Unknown, false));
 }
 fn binding_ident_to_arg(
@@ -444,7 +444,7 @@ fn resolve_interface(
                     .type_ann
                     .as_ref()
                     .map(|ta| {
-                        Box::new(tstype_to_typ(symbol_table, type_resolver, &ta.type_ann, None).0)
+                        Box::new(tstype_to_typ(symbol_table, type_resolver, &ta.type_ann, false).0)
                     })
                     .unwrap_or(Box::new(Typ::Unknown));
 
@@ -460,7 +460,7 @@ fn resolve_type_alias(
     alias: &TsTypeAliasDecl,
     symbol_table: &HashMap<String, TypeDecl>,
     type_resolver: &mut HashMap<String, (Typ, bool)>,
-    top_level_call: Option<()>,
+    top_level_call: bool,
 ) -> (Typ, bool) {
     tstype_to_typ(symbol_table, type_resolver, &alias.type_ann, top_level_call)
 }
@@ -469,7 +469,7 @@ fn resolve_ts_interface_and_type_alias(
     type_name: &str,
     symbol_table: &HashMap<String, TypeDecl>,
     type_resolver: &mut HashMap<String, (Typ, bool)>,
-    top_level_call: Option<()>,
+    top_level_call: bool,
 ) -> Option<(Typ, bool)> {
     if let Some(resolved_type) = type_resolver.get(type_name) {
         return Some(resolved_type.to_owned());
@@ -496,10 +496,16 @@ fn resolve_ts_interface_and_type_alias(
 
     type_resolver.insert(type_name.to_owned(), resolved_type.clone());
 
-    // If `top_level_call` is some, we are at the root of the object.
-    // This is the point where we can attempt to resolve any interfaces or types
-    // that have not yet been resolved.
-    if let Some(_) = top_level_call {
+    let Typ::Object(properties) = &resolved_type.0 else {
+        unreachable!()
+    };
+
+    // `top_level_call` indicates whether the current invocation of the function
+    // is at the topmost level (e.g., the immediate parameters of the main function).
+    // When true:
+    // - Type references within object properties (e.g., nested interfaces) are recursively resolved
+    //   up to a default depth to inline and fully materialize their structure.
+    if top_level_call {
         resolve_type_ref(type_resolver, &mut resolved_type.0, DEFAULT_DEPTH_LEVEL);
     }
 
@@ -510,7 +516,7 @@ fn tstype_to_typ(
     symbol_table: &HashMap<String, TypeDecl>,
     type_resolver: &mut HashMap<String, (Typ, bool)>,
     ts_type: &TsType,
-    top_level_call: Option<()>,
+    top_level_call: bool,
 ) -> (Typ, bool) {
     match ts_type {
         TsType::TsKeywordType(t) => (
@@ -690,7 +696,7 @@ fn parse_one_of_type(
     symbol_table: &HashMap<String, TypeDecl>,
     type_resolver: &mut HashMap<String, (Typ, bool)>,
     x: &Box<TsType>,
-    top_level_call: Option<()>,
+    top_level_call: bool,
 ) -> Option<OneOfVariant> {
     match &**x {
         TsType::TsTypeLit(TsTypeLit { members, .. }) => {
@@ -763,7 +769,7 @@ fn one_of_properties(
     symbol_table: &HashMap<String, TypeDecl>,
     type_resolver: &mut HashMap<String, (Typ, bool)>,
     members: &Vec<TsTypeElement>,
-    top_level_call: Option<()>,
+    top_level_call: bool,
 ) -> Vec<ObjectProperty> {
     members
         .iter()
