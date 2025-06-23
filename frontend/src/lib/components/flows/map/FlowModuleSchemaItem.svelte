@@ -257,7 +257,7 @@
 {#if deletable && id && flowEditorContext?.flowStore && outputPickerVisible}
 	{@const flowStore = flowEditorContext?.flowStore.val}
 	{@const mod = flowStore?.value ? dfsPreviousResults(id, flowStore, false)[0] : undefined}
-	{#if mod && $flowStateStore[id]}
+	{#if mod && $flowStateStore?.[id]}
 		<ModuleTest bind:this={moduleTest} {mod} bind:testIsLoading bind:testJob />
 	{/if}
 {/if}
@@ -403,7 +403,10 @@
 		{/if}
 	</div>
 
-	<div class={twMerge('flex flex-col w-full', action === 'removed' ? 'opacity-50' : '')}>
+	<div
+		class={twMerge('flex flex-col w-full', deletable && action === 'removed' ? 'opacity-50' : '')}
+	>
+		{deletable}
 		<FlowModuleSchemaItemViewer
 			{label}
 			{path}

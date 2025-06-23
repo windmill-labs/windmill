@@ -278,7 +278,7 @@
 			</div>
 		{:else}
 			<div class="grow justify-center flex flex-row gap-4">
-				{#if jobId !== undefined && selectedJobStep !== undefined && selectedJobStepIsTopLevel}
+				{#if jobId !== undefined && selectedJobStep !== undefined && selectedJobStepIsTopLevel && aiChatManager.flowAiChatHelpers?.getModuleAction(selectedJobStep) !== 'removed'}
 					{#if selectedJobStepType == 'single'}
 						<Button
 							size="xs"
