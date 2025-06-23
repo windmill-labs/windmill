@@ -211,43 +211,55 @@
 	// When initial becomes true, mark all modules as initial
 	$: setAllModulesInitial(initial)
 
-	async function loadIndividualStepsStates() {
+	async function loadIndividualStepsStates(): Promise<void> {
 		// console.log('loadIndividualStepsStates')
-		dfs(flowStore.val.value.modules, async (module) => {
-			// console.log('module', $flowStateStore[module.id], module.id)
-			const prev = $flowStateStore[module.id]?.previewResult
-			if (prev && prev != NEVER_TESTED_THIS_FAR) {
-				return
-			}
-			const previousJobId = await JobService.listJobs({
-				workspace: $workspaceStore!,
-				scriptPathExact:
-					`path` in module.value
-						? module.value.path
-						: ($initialPathStore == '' ? $pathStore : $initialPathStore) + '/' + module.id,
-				jobKinds: ['preview', 'script', 'flowpreview', 'flow', 'flowscript'].join(','),
-				page: 1,
-				perPage: 1
-			})
-			// console.log('previousJobId', previousJobId, module.id)
 
-			if (previousJobId.length > 0) {
-				const getJobResult = await JobService.getCompletedJobResultMaybe({
-					workspace: $workspaceStore!,
-					id: previousJobId[0].id
-				})
-				if ('result' in getJobResult) {
-					$flowStateStore[module.id] = {
-						...($flowStateStore[module.id] ?? {}),
-						previewResult: getJobResult.result,
-						previewJobId: previousJobId[0].id,
-						previewWorkspaceId: previousJobId[0].workspace_id,
-						previewSuccess: getJobResult.success,
-						initial: true
-					}
-				}
+		// Collect all modules that need loading
+		const modulesToLoad: any[] = []
+		dfs(flowStore.val.value.modules, (module) => {
+			const prev = $flowStateStore[module.id]?.previewResult
+			if (!prev || prev === NEVER_TESTED_THIS_FAR) {
+				modulesToLoad.push(module)
 			}
 		})
+
+		// Load all modules in parallel and wait for completion
+		const loadPromises = modulesToLoad.map(async (module) => {
+			try {
+				const previousJobId = await JobService.listJobs({
+					workspace: $workspaceStore!,
+					scriptPathExact:
+						`path` in module.value
+							? module.value.path
+							: ($initialPathStore == '' ? $pathStore : $initialPathStore) + '/' + module.id,
+					jobKinds: ['preview', 'script', 'flowpreview', 'flow', 'flowscript'].join(','),
+					page: 1,
+					perPage: 1
+				})
+
+				if (previousJobId.length > 0) {
+					const getJobResult = await JobService.getCompletedJobResultMaybe({
+						workspace: $workspaceStore!,
+						id: previousJobId[0].id
+					})
+					if ('result' in getJobResult) {
+						$flowStateStore[module.id] = {
+							...($flowStateStore[module.id] ?? {}),
+							previewResult: getJobResult.result,
+							previewJobId: previousJobId[0].id,
+							previewWorkspaceId: previousJobId[0].workspace_id,
+							previewSuccess: getJobResult.success,
+							initial: true
+						}
+					}
+				}
+			} catch (error) {
+				console.warn(`Failed to load history for module ${module.id}:`, error)
+			}
+		})
+
+		// Wait for all loading operations to complete
+		await Promise.all(loadPromises)
 	}
 
 	let scrollableDiv: HTMLDivElement | undefined = undefined
@@ -558,10 +570,17 @@
 					on:done={() => {
 						$executionCount = $executionCount + 1
 					}}
-					on:jobsLoaded={() => {
+					on:jobsLoaded={async () => {
 						if (initial) {
-							loadIndividualStepsStates()
-							onJobsLoaded?.()
+							try {
+								await loadIndividualStepsStates()
+								// All individual step states have been loaded
+							} catch (error) {
+								console.warn('Failed to load individual step states:', error)
+								// Still call the callback even if some loading failed
+							} finally {
+								onJobsLoaded?.()
+							}
 						}
 					}}
 					bind:selectedJobStep
