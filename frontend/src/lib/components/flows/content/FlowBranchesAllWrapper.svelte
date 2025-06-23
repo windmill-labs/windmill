@@ -83,7 +83,7 @@
 				</Pane>
 				{#if flowModule}
 					<Pane size={40}>
-						<TabsV2 bind:selected>
+						<TabsV2 bind:selected id={`flow-editor-branch-all-${flowModule.id}`}>
 							<Tab value="early-stop">Early Stop/Break</Tab>
 							<Tab value="skip">Skip</Tab>
 							<Tab value="suspend">Suspend/Approval/Prompt</Tab>

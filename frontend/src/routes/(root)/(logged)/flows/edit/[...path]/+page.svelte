@@ -21,6 +21,7 @@
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
+	import type { PanesLayout } from '$lib/components/splitPanes/types'
 	import { untrack } from 'svelte'
 
 	let version: undefined | number = $state(undefined)
@@ -71,6 +72,8 @@
 		stateLoadedFromUrl?.primarySchedule
 	)
 
+	let splitPanesLayoutFromUrl: Record<string, PanesLayout> | undefined = $state(undefined)
+	let tabsStateFromUrl: Record<string, string> | undefined = $state(undefined)
 	let draftTriggersFromUrl: Trigger[] | undefined = $state(undefined)
 	let selectedTriggerIndexFromUrl: number | undefined = $state(undefined)
 
@@ -106,8 +109,12 @@
 			flow = stateLoadedFromUrl.flow
 			draftTriggersFromUrl = stateLoadedFromUrl.draft_triggers
 			selectedTriggerIndexFromUrl = stateLoadedFromUrl.selected_trigger
+			splitPanesLayoutFromUrl = stateLoadedFromUrl.split_panes_layout
+			tabsStateFromUrl = stateLoadedFromUrl.tabs_state
+			flowBuilder?.setSplitPanesLayout(splitPanesLayoutFromUrl)
 			flowBuilder?.setDraftTriggers(draftTriggersFromUrl)
 			flowBuilder?.setSelectedTriggerIndex(selectedTriggerIndexFromUrl)
+			flowBuilder?.setTabsState(stateLoadedFromUrl.tabs_state)
 			const selectedId = stateLoadedFromUrl?.selectedId ?? 'settings-metadata'
 			const reloadAction = () => {
 				stateLoadedFromUrl = undefined
@@ -274,6 +281,7 @@
 	initialPath={$page.params.path}
 	newFlow={false}
 	{selectedId}
+	savedSplitPanesLayout={splitPanesLayoutFromUrl}
 	{initialArgs}
 	{loading}
 	bind:this={flowBuilder}
@@ -282,6 +290,7 @@
 	{savedPrimarySchedule}
 	{draftTriggersFromUrl}
 	{selectedTriggerIndexFromUrl}
+	{tabsStateFromUrl}
 	{version}
 >
 	<UnsavedConfirmationModal

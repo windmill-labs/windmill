@@ -3,7 +3,7 @@
 	import FlowCard from '../flows/common/FlowCard.svelte'
 	import { getContext, onDestroy, createEventDispatcher } from 'svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { Pane, Splitpanes } from '$lib/components/splitPanes'
 	import TriggersTable from './TriggersTable.svelte'
 	import CaptureWrapper from './CaptureWrapper.svelte'
 	import { fade } from 'svelte/transition'
@@ -214,8 +214,8 @@
 
 <div bind:clientWidth={width} class="h-full w-full">
 	<FlowCard {noEditor} noHeader>
-		<Splitpanes horizontal>
-			<Pane>
+		<Splitpanes id="triggers-editor" defaultSizes={[60, 40]} horizontal>
+			<Pane index={0}>
 				<div class="flex flex-row h-full">
 					<!-- Left Pane - Triggers List -->
 					{#if !useVerticalTriggerBar}
@@ -323,7 +323,7 @@
 					: undefined}
 				{#if captureKind}
 					{#key captureKind}
-						<Pane minSize={20} size={40}>
+						<Pane minSize={20} index={1}>
 							<CaptureWrapper
 								path={initialPath || fakeInitialPath}
 								{isFlow}

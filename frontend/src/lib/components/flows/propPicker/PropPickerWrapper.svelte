@@ -26,7 +26,7 @@
 	import PropPickerResult from '$lib/components/propertyPicker/PropPickerResult.svelte'
 	import { clickOutside } from '$lib/utils'
 	import { createEventDispatcher, getContext, setContext } from 'svelte'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { Pane, Splitpanes } from '$lib/components/splitPanes/index'
 	import { writable, type Writable } from 'svelte/store'
 	import type { PickableProperties } from '../previousResults'
 	import { twMerge } from 'tailwind-merge'
@@ -44,6 +44,7 @@
 	export let alwaysOn: boolean = false
 	export let paneClass: string = ''
 	export let noFlowPlugConnect = false
+	export let moduleId: string = ''
 
 	const propPickerConfig: Writable<PropPickerConfig | undefined> = writable<
 		PropPickerConfig | undefined
@@ -100,17 +101,21 @@
 		flowPropPickerConfig.set(undefined)
 	}}
 >
-	<Splitpanes class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}>
+	<Splitpanes
+		class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}
+		id={`prop-picker-wrapper-${moduleId}`}
+		defaultSizes={[60, 40]}
+	>
 		<Pane
+			index={0}
 			minSize={20}
-			size={60}
 			class={twMerge('relative !transition-none ', noPadding ? '' : 'p-2')}
 		>
 			<slot />
 		</Pane>
 		<Pane
+			index={1}
 			minSize={20}
-			size={40}
 			class="!transition-none z-1000 {$propPickerConfig ? 'ml-[-1px]' : ''} {paneClass}"
 		>
 			<AnimatedButton

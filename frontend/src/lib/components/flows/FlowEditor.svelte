@@ -1,17 +1,16 @@
 <script lang="ts">
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import FlowEditorPanel from './content/FlowEditorPanel.svelte'
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
 	import { Skeleton } from '../common'
 	import { getContext, onDestroy, onMount, setContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
-
 	import { writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
 	import type { Flow } from '$lib/gen'
 	import type { Trigger } from '$lib/components/triggers/utils'
+	import { Splitpanes, Pane } from '$lib/components/splitPanes/index'
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import TriggerableByAI from '../TriggerableByAI.svelte'
@@ -76,8 +75,8 @@
 	class={'h-full overflow-hidden transition-colors duration-[400ms] ease-linear border-t'}
 >
 	<TriggerableByAI id="flow-editor" description="Component to edit a flow" />
-	<Splitpanes>
-		<Pane size={50} minSize={15} class="h-full relative z-0">
+	<Splitpanes id="flow-editor" defaultSizes={[60, 40]}>
+		<Pane minSize={15} class="h-full relative z-0" index={0}>
 			<div class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative">
 				{#if loading}
 					<div class="p-2 pt-10">
@@ -107,7 +106,7 @@
 				{/if}
 			</div>
 		</Pane>
-		<Pane class="relative z-10" size={50} minSize={20}>
+		<Pane class="relative z-10" index={1} minSize={20}>
 			{#if loading}
 				<div class="w-full h-full">
 					<div class="block m-auto pt-40 w-10">

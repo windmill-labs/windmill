@@ -1,8 +1,8 @@
 <script lang="ts">
+	import { Splitpanes, Pane } from '$lib/components/splitPanes/index'
 	import { createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Editor from '$lib/components/Editor.svelte'
@@ -184,8 +184,6 @@
 	}
 
 	let forceReload = $state(0)
-	let editorPanelSize = $state(noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50)
-	let editorSettingsPanelSize = $state(100 - untrack(() => editorPanelSize))
 
 	function onSelectedIdChange() {
 		if (!$flowStateStore?.[$selectedId]?.schema && flowModule) {
@@ -212,8 +210,6 @@
 		}
 	}
 
-	let leftPanelSize = $state(0)
-
 	function showDiffMode() {
 		diffMode = true
 		diffEditor?.setOriginal((savedModule?.value as RawScript).content ?? '')
@@ -227,6 +223,11 @@
 		diffEditor?.hide()
 		editor?.show()
 	}
+
+	let panesSizes = $derived([
+		noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50,
+		100 - (noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50)
+	])
 	let lastDeployedCode = $derived(onModulesChange(savedModule, flowModule))
 
 	let stepPropPicker = $derived(
@@ -254,13 +255,6 @@
 	let parentLoop = $derived(
 		flowStore.val && flowModule ? checkIfParentLoop(flowStore.val, flowModule.id) : undefined
 	)
-	$effect(() => {
-		if (selected === 'test') {
-			leftPanelSize = 50
-		} else {
-			leftPanelSize = 100
-		}
-	})
 
 	$effect(() => {
 		editor &&
@@ -393,8 +387,12 @@
 				{/if}
 
 				<div class="min-h-0 flex-grow" id="flow-editor-editor">
-					<Splitpanes horizontal>
-						<Pane bind:size={editorPanelSize} minSize={10} class="relative">
+					<Splitpanes
+						id={`flow-editor-split-${flowModule.id}`}
+						horizontal
+						defaultSizes={panesSizes}
+					>
+						<Pane minSize={10} class="relative" index={0}>
 							{#if flowModule.value.type === 'rawscript'}
 								{#if !noEditor}
 									{#key flowModule.id}
@@ -477,10 +475,10 @@
 								{/key}
 							{/if}
 						</Pane>
-						<Pane bind:size={editorSettingsPanelSize} minSize={20}>
-							<Splitpanes>
-								<Pane minSize={36} bind:size={leftPanelSize}>
-									<Tabs bind:selected>
+						<Pane minSize={20} index={1}>
+							<Splitpanes id={`flow-editor-step-input-${flowModule.id}`} defaultSizes={[50, 50]}>
+								<Pane minSize={36} index={0}>
+									<Tabs bind:selected id={`flow-editor-step-input-${flowModule.id}`}>
 										{#if !preprocessorModule}
 											<Tab value="inputs">Step Input</Tab>
 										{/if}
@@ -500,6 +498,7 @@
 													pickableProperties={stepPropPicker.pickableProperties}
 													error={failureModule}
 													noPadding
+													moduleId={flowModule.id}
 												>
 													{#if reloadError}
 														<div
@@ -546,7 +545,10 @@
 												focusArg={highlightArg}
 											/>
 										{:else if selected === 'advanced'}
-											<Tabs bind:selected={advancedSelected}>
+											<Tabs
+												bind:selected={advancedSelected}
+												id={`flow-editor-step-advanced-${flowModule.id}`}
+											>
 												<Tab value="retries" active={flowModule.retry !== undefined}>Retries</Tab>
 												{#if !$selectedId.includes('failure')}
 													<Tab value="runtime">Runtime</Tab>
@@ -570,7 +572,10 @@
 												{/if}
 											</Tabs>
 											{#if advancedSelected === 'runtime'}
-												<Tabs bind:selected={advancedRuntimeSelected}>
+												<Tabs
+													bind:selected={advancedRuntimeSelected}
+													id={`flow-editor-step-advanced-runtime-${flowModule.id}`}
+												>
 													<Tab value="concurrency">Concurrency</Tab>
 													<Tab value="timeout">Timeout</Tab>
 													<Tab value="priority">Priority</Tab>
@@ -819,7 +824,7 @@
 									</div>
 								</Pane>
 								{#if selected === 'test'}
-									<Pane minSize={20}>
+									<Pane minSize={20} index={1}>
 										<ModulePreviewResultViewer
 											lang={flowModule.value['language'] ?? 'deno'}
 											{editor}

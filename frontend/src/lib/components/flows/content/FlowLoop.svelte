@@ -264,7 +264,7 @@
 			{/if}
 		</Pane>
 		<Pane size={40} minSize={20} class="flex flex-col flex-1">
-			<TabsV2 bind:selected>
+			<TabsV2 bind:selected id={`flow-editor-loop-${mod.id}`}>
 				<!-- <Tab value="retries">Retries</Tab> -->
 				<Tab value="early-stop">Early Stop/Break</Tab>
 				<Tab value="skip">Skip</Tab>
