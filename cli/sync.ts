@@ -1201,7 +1201,7 @@ export async function pull(
             opts.workspace,
             opts.repository,
         );
-
+        
         if (workspaceProfile) {
             // Use workspace profile to create workspace object with proper token resolution
             workspace = await createWorkspaceWithToken(
@@ -1237,6 +1237,21 @@ export async function pull(
                 opts.workspace,
                 repositoryPath,
             );
+        } else if (Object.keys(legacyConfig).length === 0) {
+            try {
+                log.info(colors.blue("No local config found, fetching backend settings..."));
+                
+                // Set up authentication using the workspace object we already have
+                const { setClient } = await import("./deps.ts");
+                setClient(workspace.token, workspace.remote.substring(0, workspace.remote.length - 1));
+                
+                const { fetchBackendSettings } = await import("./settings.ts");
+                const backendSettings = await fetchBackendSettings(workspace, repositoryPath);
+                log.info(colors.green(`Backend settings fetched: includes=${JSON.stringify(backendSettings.includes)}, excludes=${JSON.stringify(backendSettings.excludes)}`));
+                extractedConfig = backendSettings;
+            } catch (backendError) {
+                log.warn(colors.yellow(`Could not fetch backend settings: ${backendError}`));
+            }
         }
 
         opts = { ...extractedConfig, ...opts };

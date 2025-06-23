@@ -1814,3 +1814,166 @@ Deno.test("Init: Mock test for workspace with no git-sync settings (demonstrates
   // This test passes to show the fix is in place
   assert(true, 'Init fix for workspaces with no git-sync settings is implemented');
 });
+
+Deno.test("Sync Pull: uses backend settings when no wmill.yaml exists", async () => {
+  await withContainerizedBackend(async (backend, tempDir) => {
+    console.log('🧪 Testing sync pull with backend settings when no wmill.yaml exists...');
+    
+    // Step 1: Push custom git sync settings to backend with non-default includes/excludes
+    console.log('📤 Setting up backend with custom git-sync settings...');
+    await backend.updateGitSyncConfig({
+      git_sync_settings: {
+        repositories: [{
+          settings: {
+            include_path: ["f/test/**", "u/alex/**"],  // Non-default includes
+            include_type: ["script", "flow", "app", "folder"],
+            exclude_path: ["**/exclude-pattern.*"],  // Custom exclude pattern
+            extra_include_path: []
+          },
+          script_path: "f/**",
+          group_by_folder: false,
+          use_individual_branch: false,
+          git_repo_resource_path: "u/test/test_repo"
+        }]
+      }
+    });
+    
+    // Step 2: Create test scripts on backend via sync push
+    console.log('📝 Creating test scripts on backend...');
+    
+    // Create a temporary directory for pushing scripts to backend
+    const setupDir = await Deno.makeTempDir({ prefix: 'wmill_setup_' });
+    
+    try {
+      // Create directories
+      await Deno.mkdir(`${setupDir}/f/test`, { recursive: true });
+      await Deno.mkdir(`${setupDir}/u/alex`, { recursive: true });
+      await Deno.mkdir(`${setupDir}/f/other`, { recursive: true });
+      
+      // Script 1: Should be included (matches f/test/**)
+      await Deno.writeTextFile(`${setupDir}/f/test/test1.ts`, `export async function main() {
+  console.log('Test script 1 in f/test');
+  return 'test1 result';
+}`);
+      await Deno.writeTextFile(`${setupDir}/f/test/test1.script.yaml`, `summary: Test script 1`);
+      
+      // Script 2: Should be included (matches u/alex/**)
+      await Deno.writeTextFile(`${setupDir}/u/alex/test2.ts`, `export async function main() {
+  console.log('Test script 2 in u/alex');
+  return 'test2 result';
+}`);
+      await Deno.writeTextFile(`${setupDir}/u/alex/test2.script.yaml`, `summary: Test script 2`);
+      
+      // Script 3: Should be excluded (matches exclude pattern)
+      await Deno.writeTextFile(`${setupDir}/f/test/exclude-pattern.ts`, `export async function main() {
+  console.log('This should be excluded');
+  return 'excluded result';
+}`);
+      await Deno.writeTextFile(`${setupDir}/f/test/exclude-pattern.script.yaml`, `summary: Exclude pattern script`);
+      
+      // Script 4: Should NOT be included (doesn't match include patterns - outside the specified paths)
+      await Deno.writeTextFile(`${setupDir}/f/other/script.ts`, `export async function main() {
+  console.log('This should not be included');
+  return 'other result';
+}`);
+      await Deno.writeTextFile(`${setupDir}/f/other/script.script.yaml`, `summary: Other script`);
+      
+      // Create temporary wmill.yaml for pushing (use default includes to push all scripts)
+      await Deno.writeTextFile(`${setupDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - f/**
+  - u/**`);
+      
+      // Push all scripts to backend
+      console.log('📤 Pushing test scripts to backend...');
+      const pushResult = await backend.runCLICommand(['sync', 'push', '--yes'], setupDir);
+      assertEquals(pushResult.code, 0, 'Failed to push test scripts to backend');
+      
+    } finally {
+      // Clean up setup directory
+      try {
+        await Deno.remove(setupDir, { recursive: true });
+      } catch (error) {
+        console.warn('Failed to clean up setup directory:', error);
+      }
+    }
+    
+    console.log('✅ Backend setup complete with custom settings and test scripts');
+    
+    // Step 3: Create a new empty directory (simulating new project)
+    const emptyDir = await Deno.makeTempDir({ prefix: 'wmill_empty_test_' });
+    console.log(`📁 Created empty test directory: ${emptyDir}`);
+    
+    try {
+      // Step 4: Verify no wmill.yaml exists
+      const wmillExists = await Deno.stat(`${emptyDir}/wmill.yaml`).then(() => true).catch(() => false);
+      assertEquals(wmillExists, false, 'wmill.yaml should not exist in empty directory');
+      
+      // Step 5: Run sync pull dry-run to see what would be pulled
+      console.log('🔍 Running sync pull --dry-run to test backend settings usage...');
+      const dryRunResult = await backend.runCLICommand([
+        'sync', 'pull', '--dry-run'
+      ], emptyDir);
+      
+      console.log('Dry run stdout:', dryRunResult.stdout);
+      console.log('Dry run stderr:', dryRunResult.stderr);
+      console.log('Dry run exit code:', dryRunResult.code);
+      
+      assertEquals(dryRunResult.code, 0, 'Sync pull dry-run should succeed');
+      
+      // Step 6: Verify that the filtering works according to backend settings
+      console.log('🔍 Verifying sync pull uses backend git-sync settings...');
+      
+      // Should include scripts matching include patterns
+      assertStringIncludes(dryRunResult.stdout, 'f/test/test1.', 'Should include f/test/test1 (matches include pattern)');
+      assertStringIncludes(dryRunResult.stdout, 'u/alex/test2.', 'Should include u/alex/test2 (matches include pattern)');
+      
+      // Should exclude scripts matching exclude pattern
+      const excludedFound = dryRunResult.stdout.includes('exclude-pattern');
+      assertEquals(excludedFound, false, 'Should exclude files matching exclude pattern');
+      
+      // Should not include scripts outside include patterns (f/other/ doesn't match f/test/** or u/alex/**)
+      const otherFound = dryRunResult.stdout.includes('f/other/script');
+      assertEquals(otherFound, false, 'Should not include files outside include patterns');
+      
+      // Step 7: Run actual sync pull to verify it works
+      console.log('📥 Running actual sync pull...');
+      const actualResult = await backend.runCLICommand([
+        'sync', 'pull', '--yes'
+      ], emptyDir);
+      
+      console.log('Actual pull stdout:', actualResult.stdout);
+      console.log('Actual pull stderr:', actualResult.stderr);
+      console.log('Actual pull exit code:', actualResult.code);
+      
+      assertEquals(actualResult.code, 0, 'Actual sync pull should succeed');
+      
+      // Step 8: Verify files were actually pulled according to backend settings
+      console.log('📂 Verifying pulled files match backend settings...');
+      
+      // Should have pulled included files
+      const test1Exists = await Deno.stat(`${emptyDir}/f/test/test1.ts`).then(() => true).catch(() => false);
+      const test2Exists = await Deno.stat(`${emptyDir}/u/alex/test2.ts`).then(() => true).catch(() => false);
+      
+      assertEquals(test1Exists, true, 'f/test/test1.ts should be pulled (matches include)');
+      assertEquals(test2Exists, true, 'u/alex/test2.ts should be pulled (matches include)');
+      
+      // Should NOT have pulled excluded files
+      const excludeExists = await Deno.stat(`${emptyDir}/f/test/exclude-pattern.ts`).then(() => true).catch(() => false);
+      const otherExists = await Deno.stat(`${emptyDir}/f/other/script.ts`).then(() => true).catch(() => false);
+      
+      assertEquals(excludeExists, false, 'exclude-pattern file should not be pulled (matches exclude)');
+      assertEquals(otherExists, false, 'f/other/script should not be pulled (outside include patterns)');
+      
+      console.log('✅ Sync pull correctly used backend git-sync settings when no wmill.yaml existed!');
+      
+    } finally {
+      // Clean up
+      try {
+        await Deno.remove(emptyDir, { recursive: true });
+      } catch (error) {
+        console.warn('Failed to clean up temp directory:', error);
+      }
+    }
+  });
+});
