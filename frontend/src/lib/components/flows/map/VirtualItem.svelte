@@ -31,6 +31,7 @@
 		editMode?: boolean
 		icon?: import('svelte').Snippet
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
+		onEditInput?: (moduleId: string, key: string) => void
 	}
 
 	let {
@@ -51,8 +52,13 @@
 		earlyStop = false,
 		editMode = false,
 		icon,
-		onUpdateMock
+		onUpdateMock,
+		onEditInput
 	}: Props = $props()
+
+	const outputPickerVisible = $derived(
+		(alwaysPluggable || (inputJson && Object.keys(inputJson).length > 0)) && editMode
+	)
 
 	let action = $derived(label === 'Input' ? getAiModuleAction(label) : undefined)
 </script>
@@ -64,8 +70,9 @@
 	{selected}
 	{selectable}
 	{id}
-	on:select
+	outputPickerVisible={outputPickerVisible ?? false}
 	className={editMode ? aiModuleActionToBgColor(action) : ''}
+	on:select
 >
 	{#snippet children({ hover })}
 		{#if editMode}
@@ -98,8 +105,14 @@
 					</div>
 				{/if}
 			</div>
-			{#if (alwaysPluggable || (inputJson && Object.keys(inputJson).length > 0)) && editMode}
-				<OutputPicker {selected} {hover} isConnectingCandidate={true} variant="virtual">
+			{#if outputPickerVisible}
+				<OutputPicker
+					{selected}
+					{hover}
+					id={id ?? ''}
+					isConnectingCandidate={true}
+					variant="virtual"
+				>
 					{#snippet children({ allowCopy, isConnecting, selectConnection })}
 						<OutputPickerInner
 							{allowCopy}
@@ -113,6 +126,8 @@
 							rightMargin
 							historyOffset={{ mainAxis: 12, crossAxis: -9 }}
 							clazz="p-1"
+							{onEditInput}
+							selectionId={id ?? label ?? ''}
 						/>
 					{/snippet}
 				</OutputPicker>

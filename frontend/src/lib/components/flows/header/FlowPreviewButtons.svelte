@@ -70,6 +70,12 @@
 			'triggers'
 		].includes($selectedId) ||
 		$selectedId?.includes('branch')
+
+	export function testUpTo() {
+		if (upToDisabled) return
+		previewMode = 'upTo'
+		previewOpen = true
+	}
 </script>
 
 {#if !upToDisabled}
@@ -78,10 +84,7 @@
 		disabled={upToDisabled}
 		color="light"
 		variant="border"
-		on:click={() => {
-			previewMode = 'upTo'
-			previewOpen = !previewOpen
-		}}
+		on:click={testUpTo}
 		startIcon={{ icon: Play }}
 	>
 		Test up to&nbsp;
