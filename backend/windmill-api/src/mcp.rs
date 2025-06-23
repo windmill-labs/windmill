@@ -388,7 +388,11 @@ impl Runner {
         item_type: &str,
     ) -> Result<Vec<T>, Error> {
         let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
-        sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema", "o.no_main_func"]);
+        let mut fields = vec!["o.path", "o.summary", "o.description", "o.schema"];
+        if item_type == "script" {
+            fields.push("o.no_main_func");
+        }
+        sqlb.fields(&fields);
         if scope_type == "favorites" {
             sqlb.join("favorite")
                 .on("favorite.favorite_kind = ? AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?".bind(&item_type)
@@ -397,21 +401,20 @@ impl Runner {
         sqlb.and_where("o.workspace_id = ?".bind(&workspace_id))
             .and_where("o.archived = false")
             .and_where("o.draft_only IS NOT TRUE");
-        
-        // Filter out scripts without main function at the database level
+
         if item_type == "script" {
             sqlb.and_where("(o.no_main_func IS NOT TRUE OR o.no_main_func IS NULL)");
         }
-        
+
         sqlb.order_by(
-                if item_type == "flow" {
-                    "o.edited_at"
-                } else {
-                    "o.created_at"
-                },
-                false,
-            )
-            .limit(100);
+            if item_type == "flow" {
+                "o.edited_at"
+            } else {
+                "o.created_at"
+            },
+            false,
+        )
+        .limit(100);
         let sql = sqlb.sql().map_err(|_e| {
             tracing::error!("failed to build sql: {}", _e);
             Error::internal_error("failed to build sql", None)
