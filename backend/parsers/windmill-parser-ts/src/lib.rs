@@ -501,11 +501,7 @@ fn resolve_ts_interface_and_type_alias(
     // When true:
     // - Type references within object properties (e.g., nested interfaces) are recursively resolved
     //   up to a default depth to inline and fully materialize their structure.
-    if top_level_call
-        && type_resolver
-            .iter()
-            .any(|(_, (typ, _))| matches!(typ, Typ::TypeRef(_)))
-    {
+    if top_level_call {
         resolve_type_ref(type_resolver, &mut resolved_type.0, DEFAULT_DEPTH_LEVEL);
     }
 
