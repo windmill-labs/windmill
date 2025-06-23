@@ -86,43 +86,7 @@
 
 	export let localModuleStates: Writable<Record<string, GraphModuleState>> = writable({})
 	export let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
-	export let onAllChildrenLoaded: (() => void) | undefined = undefined
 	let recursiveRefresh: Record<string, (clear, root) => Promise<void>> = {}
-
-	// Add child tracking system
-	let expectedChildrenCount = 0
-	let receivedChildrenCount = 0
-	let childrenLoadedPromise: Promise<void> | undefined = undefined
-	let childrenLoadedResolve: (() => void) | undefined = undefined
-
-	// Track when all children have loaded
-	function trackChildrenLoaded() {
-		if (childrenLoadedPromise) {
-			return childrenLoadedPromise
-		}
-
-		childrenLoadedPromise = new Promise<void>((resolve) => {
-			childrenLoadedResolve = resolve
-		})
-
-		return childrenLoadedPromise
-	}
-
-	function onChildLoaded() {
-		receivedChildrenCount++
-		if (receivedChildrenCount >= expectedChildrenCount && childrenLoadedResolve) {
-			childrenLoadedResolve()
-			childrenLoadedResolve = undefined
-			onAllChildrenLoaded?.()
-		}
-	}
-
-	function resetChildrenTracking() {
-		expectedChildrenCount = 0
-		receivedChildrenCount = 0
-		childrenLoadedPromise = undefined
-		childrenLoadedResolve = undefined
-	}
 
 	let jobResults: any[] =
 		flowJobIds?.flowJobs?.map((x, id) => `iter #${id + 1} not loaded by frontend yet`) ?? []
@@ -375,21 +339,9 @@
 
 	function updateInnerModules() {
 		if ($localModuleStates) {
-			// Reset tracking for new module set
-			resetChildrenTracking()
-
-			// Count expected children (modules that will emit jobsLoaded)
-			expectedChildrenCount = innerModules.filter(
-				(mod) =>
-					mod.type === 'WaitingForEvents' ||
-					mod.type === 'WaitingForExecutor' ||
-					(mod.flow_jobs && (mod.type == 'Success' || mod.type == 'Failure'))
-			).length
-
 			innerModules.forEach((mod, i) => {
 				if (mod.type === 'WaitingForEvents' && innerModules?.[i - 1]?.type === 'Success') {
 					setModuleState(mod.id ?? '', { type: mod.type, args: job?.args, tag: job?.tag })
-					onChildLoaded() // This module is immediately loaded
 				} else if (
 					mod.type === 'WaitingForExecutor' &&
 					$localModuleStates[mod.id ?? '']?.scheduled_for == undefined
@@ -410,11 +362,9 @@
 							}
 
 							setModuleState(mod.id ?? '', newState)
-							onChildLoaded() // Child loaded via API call
 						})
 						.catch((e) => {
 							console.error(`Could not load inner module for job ${mod.job}`, e)
-							onChildLoaded() // Count as loaded even if failed
 						})
 				} else if (
 					mod.flow_jobs &&
@@ -428,10 +378,8 @@
 						},
 						true
 					)
-					onChildLoaded() // This module is immediately loaded
 				} else if (isForloopSelected) {
 					setModuleState(mod.id ?? '', {}, true)
-					onChildLoaded() // Count as loaded
 				}
 
 				// if (isForloopSelected && mod?.flow_jobs) {
@@ -635,7 +583,8 @@
 						previewArgs: job.args,
 						previewJobId: job.id,
 						previewWorkspaceId: job.workspace_id,
-						previewSuccess: job['success']
+						previewSuccess: job['success'],
+						initial: false
 					}
 				}
 			}
@@ -693,9 +642,6 @@
 					duration_ms: job['duration_ms']
 				})
 			}
-
-			// Track that this child has loaded
-			onChildLoaded()
 		}
 	}
 
@@ -919,9 +865,6 @@
 	}
 
 	let subflowsSize = 500
-
-	// Expose the tracking function for parent components
-	export { trackChildrenLoaded }
 </script>
 
 {#if notAnonynmous}
@@ -1127,7 +1070,6 @@
 										storedListJobs[j] = job
 										innerJobLoaded(job, j, false, force)
 									}}
-									onAllChildrenLoaded={onChildLoaded}
 								/>
 							</div>
 						{/if}
@@ -1203,10 +1145,6 @@
 											{reducedPolling}
 											{workspaceId}
 											jobId={failedRetry}
-											onAllChildrenLoaded={() => {
-												// Track that this child's children have all loaded
-												onChildLoaded()
-											}}
 										/>
 									</div>
 								{/each}
@@ -1239,7 +1177,6 @@
 											let { force, job } = e.detail
 											onJobsLoaded(mod, job, force)
 										}}
-										onAllChildrenLoaded={onChildLoaded}
 									/>
 								{:else if mod.flow_jobs?.length == 0 && mod.job == '00000000-0000-0000-0000-000000000000'}
 									<div class="text-secondary">no subflow (empty loop?)</div>
@@ -1271,7 +1208,6 @@
 											let { job, force } = e.detail
 											onJobsLoaded(mod, job, force)
 										}}
-										onAllChildrenLoaded={onChildLoaded}
 									/>
 								{/if}
 							{:else}

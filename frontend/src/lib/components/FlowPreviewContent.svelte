@@ -570,11 +570,11 @@
 					on:done={() => {
 						$executionCount = $executionCount + 1
 					}}
-					onAllChildrenLoaded={async () => {
+					on:jobsLoaded={async () => {
 						if (initial) {
 							try {
-								// If loaded from history, load the other steps states
 								await loadIndividualStepsStates()
+								// All individual step states have been loaded
 							} catch (error) {
 								console.warn('Failed to load individual step states:', error)
 								// Still call the callback even if some loading failed
