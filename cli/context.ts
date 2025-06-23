@@ -95,13 +95,19 @@ export async function requireLogin(
 
   try {
     return await wmill.globalWhoami();
-  } catch {
+  } catch (error) {
+    // Check if this is a network connectivity issue
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    if (errorMsg.includes('fetch') || errorMsg.includes('connection') || errorMsg.includes('ECONNREFUSED') || errorMsg.includes('refused')) {
+      throw new Error(`Network error: Could not connect to Windmill server at ${workspace.remote}`);
+    }
+    
     log.info(
       "! Could not reach API given existing credentials. Attempting to reauth..."
     );
     const newToken = await loginInteractive(workspace.remote);
     if (!newToken) {
-      throw new Error("Could not reauth");
+      throw new Error("Unauthorized: Could not authenticate with the provided credentials");
     }
     removeWorkspace(workspace.name, false, opts);
     workspace.token = newToken;

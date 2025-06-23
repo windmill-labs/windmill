@@ -133,6 +133,8 @@ async function createWorkspaceProfile(workspace: any, opts: { repository?: strin
 
     if (repositories.length === 0) {
       log.warn(colors.yellow(`No git repositories found in workspace '${workspace.workspaceId}'`));
+      // When no repositories exist, include default sync settings in the workspace profile
+      Object.assign(workspaceProfile, filterUndefined(DEFAULT_SYNC_OPTIONS));
       return workspaceProfile;
     }
 
@@ -160,12 +162,18 @@ async function createWorkspaceProfile(workspace: any, opts: { repository?: strin
       const repoNames = Object.keys(repoSettings);
       if (repoNames.length > 0) {
         workspaceProfile.currentRepository = repoNames[0];
+      } else {
+        // If repositories exist but no settings could be fetched, include default sync settings
+        log.warn(colors.yellow(`Could not fetch settings for any repository in workspace '${workspace.workspaceId}'`));
+        Object.assign(workspaceProfile, filterUndefined(DEFAULT_SYNC_OPTIONS));
       }
     }
 
     workspaceProfile.repositories = repoSettings;
   } catch (error) {
     log.warn(colors.yellow(`Could not fetch repository settings: ${error}`));
+    // If repository fetching fails entirely, include default sync settings
+    Object.assign(workspaceProfile, filterUndefined(DEFAULT_SYNC_OPTIONS));
   }
 
   return workspaceProfile;

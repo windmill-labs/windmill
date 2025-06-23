@@ -30,6 +30,27 @@ export class ContainerizedBackend {
   }
 
   /**
+   * Get the base URL of the backend
+   */
+  get baseUrl(): string {
+    return this.config.baseUrl;
+  }
+
+  /**
+   * Get the workspace ID
+   */
+  get workspace(): string {
+    return this.config.workspace;
+  }
+
+  /**
+   * Get the authentication token
+   */
+  get token(): string {
+    return this.config.token;
+  }
+
+  /**
    * Start the containerized backend (database + server + worker)
    */
   async start(): Promise<void> {
@@ -46,7 +67,7 @@ export class ContainerizedBackend {
       stderr: 'piped',
       env: {
         ...Deno.env.toObject(),
-        EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY')
+        ...(Deno.env.get('EE_LICENSE_KEY') && { EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY')! })
       }
     });
 
@@ -87,7 +108,7 @@ export class ContainerizedBackend {
       stderr: 'piped',
       env: {
         ...Deno.env.toObject(),
-        EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY')
+        ...(Deno.env.get('EE_LICENSE_KEY') && { EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY')! })
       }
     });
 
@@ -129,24 +150,115 @@ export class ContainerizedBackend {
         headers: { 'Authorization': `Bearer ${this.config.token}` }
       });
       
-      if (!response.ok) return; // Skip if can't list
+      if (!response.ok) {
+        console.warn(`Failed to list scripts for deletion: ${response.status} ${response.statusText}`);
+        return;
+      }
       
       const scripts = await response.json();
+      console.log(`Deleting ${scripts.length} scripts...`);
+      
+      const deletionResults = [];
       
       for (const script of scripts) {
         try {
-          const deleteResponse = await fetch(`${this.config.baseUrl}/api/w/${this.config.workspace}/scripts/delete/${script.path}`, {
-            method: 'DELETE',
+          const deleteResponse = await fetch(`${this.config.baseUrl}/api/w/${this.config.workspace}/scripts/delete/p/${encodeURIComponent(script.path)}`, {
+            method: 'POST',
             headers: { 'Authorization': `Bearer ${this.config.token}` }
           });
-          await deleteResponse.text(); // Consume response
-        } catch {
-          // Ignore individual deletion failures
+          
+          const responseText = await deleteResponse.text();
+          
+          if (!deleteResponse.ok) {
+            console.warn(`Failed to delete script ${script.path}: ${deleteResponse.status} ${deleteResponse.statusText} - ${responseText}`);
+            deletionResults.push({ path: script.path, success: false, error: `${deleteResponse.status}: ${responseText}` });
+          } else {
+            console.log(`Successfully deleted script: ${script.path}`);
+            deletionResults.push({ path: script.path, success: true });
+          }
+        } catch (error) {
+          console.warn(`Error deleting script ${script.path}:`, error instanceof Error ? error.message : String(error));
+          deletionResults.push({ path: script.path, success: false, error: error instanceof Error ? error.message : String(error) });
         }
       }
-    } catch {
-      // Ignore listing failures
+      
+      const successCount = deletionResults.filter(r => r.success).length;
+      const failureCount = deletionResults.filter(r => !r.success).length;
+      
+      console.log(`Script deletion summary: ${successCount} successful, ${failureCount} failed`);
+      
+      if (failureCount > 0) {
+        console.warn('Failed script deletions:', deletionResults.filter(r => !r.success));
+      }
+      
+      // Verify deletion by checking if scripts still exist
+      await this.verifyScriptDeletion();
+      
+    } catch (error) {
+      console.error('Failed to delete scripts:', error instanceof Error ? error.message : String(error));
+      throw error; // Don't silently ignore major failures
     }
+  }
+
+  /**
+   * Verify that scripts were actually deleted
+   */
+  private async verifyScriptDeletion(): Promise<void> {
+    try {
+      const response = await fetch(`${this.config.baseUrl}/api/w/${this.config.workspace}/scripts/list`, {
+        headers: { 'Authorization': `Bearer ${this.config.token}` }
+      });
+      
+      if (response.ok) {
+        const remainingScripts = await response.json();
+        if (remainingScripts.length > 0) {
+          console.warn(`Warning: ${remainingScripts.length} scripts still exist after deletion attempt:`, 
+            remainingScripts.map((s: any) => s.path));
+          
+          // Attempt to delete remaining scripts with retry
+          for (const script of remainingScripts) {
+            await this.retryScriptDeletion(script.path);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Could not verify script deletion:', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /**
+   * Retry script deletion with exponential backoff
+   */
+  private async retryScriptDeletion(scriptPath: string, maxRetries: number = 3): Promise<void> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const deleteResponse = await fetch(`${this.config.baseUrl}/api/w/${this.config.workspace}/scripts/delete/${encodeURIComponent(scriptPath)}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${this.config.token}` }
+        });
+        
+        const responseText = await deleteResponse.text();
+        
+        if (deleteResponse.ok) {
+          console.log(`Successfully deleted script on retry ${attempt}: ${scriptPath}`);
+          return;
+        } else if (deleteResponse.status === 404) {
+          console.log(`Script already deleted: ${scriptPath}`);
+          return;
+        } else {
+          console.warn(`Retry ${attempt} failed for script ${scriptPath}: ${deleteResponse.status} - ${responseText}`);
+        }
+      } catch (error) {
+        console.warn(`Retry ${attempt} error for script ${scriptPath}:`, error instanceof Error ? error.message : String(error));
+      }
+      
+      if (attempt < maxRetries) {
+        const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+    
+    console.error(`Failed to delete script after ${maxRetries} retries: ${scriptPath}`);
   }
 
   /**
@@ -948,7 +1060,7 @@ export async function main(
       stderr: 'piped',
       env: {
         ...Deno.env.toObject(),
-        EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY')
+        ...(Deno.env.get('EE_LICENSE_KEY') && { EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY')! })
       }
     });
 
@@ -995,7 +1107,7 @@ export async function main(
         stderr: 'piped',
         env: {
           ...Deno.env.toObject(),
-          EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY')
+          ...(Deno.env.get('EE_LICENSE_KEY') && { EE_LICENSE_KEY: Deno.env.get('EE_LICENSE_KEY')! })
         }
       });
       

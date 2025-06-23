@@ -1097,7 +1097,7 @@ export async function ignoreF(wmillconf: {
                         wmillconf.excludes!.every(
                             (i) => !minimatch(file, i),
                         )) &&
-                    (!wmillconf.extraIncludes ||
+                    (!wmillconf.extraIncludes || wmillconf.extraIncludes.length === 0 ||
                         wmillconf.extraIncludes.some((i) => minimatch(file, i)))
                 );
             },
