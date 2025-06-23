@@ -496,16 +496,16 @@ fn resolve_ts_interface_and_type_alias(
 
     type_resolver.insert(type_name.to_owned(), resolved_type.clone());
 
-    let Typ::Object(properties) = &resolved_type.0 else {
-        unreachable!()
-    };
-
     // `top_level_call` indicates whether the current invocation of the function
     // is at the topmost level (e.g., the immediate parameters of the main function).
     // When true:
     // - Type references within object properties (e.g., nested interfaces) are recursively resolved
     //   up to a default depth to inline and fully materialize their structure.
-    if top_level_call {
+    if top_level_call
+        && type_resolver
+            .iter()
+            .any(|(_, (typ, _))| matches!(typ, Typ::TypeRef(_)))
+    {
         resolve_type_ref(type_resolver, &mut resolved_type.0, DEFAULT_DEPTH_LEVEL);
     }
 
