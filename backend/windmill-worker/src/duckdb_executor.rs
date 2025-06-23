@@ -15,6 +15,7 @@ use windmill_common::s3_helpers::{
     DuckdbConnectionSettingsQueryV2, DuckdbConnectionSettingsResponse, S3Object,
 };
 use windmill_common::worker::{to_raw_value, Connection};
+use windmill_common::{get_database_url, parse_postgres_url};
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
@@ -167,7 +168,10 @@ pub async fn do_duckdb(
                     Some(parsed) => v.extend(
                         transform_attach_db_resource_query(&parsed, &job.id, client).await?,
                     ),
-                    None => v.push(query_block.to_string()),
+                    None => match transform_attach_ducklake(&query_block).await? {
+                        Some(ducklake_query) => v.push(ducklake_query),
+                        None => v.push(query_block.to_string()),
+                    },
                 };
             }
             v
@@ -187,6 +191,7 @@ pub async fn do_duckdb(
 
             let mut result: Option<Box<RawValue>> = None;
             let mut column_order = None;
+
             for (query_block_index, query_block) in query_block_list.iter().enumerate() {
                 result = Some(
                     do_duckdb_inner(
@@ -571,6 +576,40 @@ async fn transform_attach_db_resource_query(
             "Unsupported db type in DuckDB ATTACH: {}",
             parsed.db_type
         ))),
+    }
+}
+
+async fn transform_attach_ducklake(query: &str) -> Result<Option<String>> {
+    lazy_static::lazy_static! {
+        static ref RE: regex::Regex = regex::Regex::new(r"ATTACH 'ducklake:([^']+)'").unwrap();
+    }
+    let Some(cap) = RE.captures(query) else {
+        return Ok(None);
+    };
+    let catalog_path = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+    if catalog_path == "windmill" {
+        let o = parse_postgres_url(&get_database_url().await?)
+            .map_err(|e| Error::ExecutionErr(format!("Failed to parse database URL: {}", e)))?;
+
+        let attach_str = format!(
+            "ATTACH 'ducklake:postgres:dbname={} user={} host={} password={} port={} {}'",
+            o.database,
+            o.username.as_ref().map(String::as_str).unwrap_or("NO_USER"),
+            o.host,
+            o.password.as_ref().map(String::as_str).unwrap_or("NO_PWD"),
+            o.port.unwrap_or(5432),
+            o.query_params.as_ref().map(String::as_str).unwrap_or("")
+        );
+
+        return Ok(Some(query.replacen(
+            "ATTACH 'ducklake:windmill'",
+            &attach_str,
+            1,
+        )));
+    } else {
+        return Err(Error::ExecutionErr(
+            "Unsupported ducklake catalog db".to_string(),
+        ));
     }
 }
 
