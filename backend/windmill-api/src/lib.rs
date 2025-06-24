@@ -236,6 +236,13 @@ lazy_static::lazy_static! {
 
 }
 
+// Content Security Policy configuration
+lazy_static::lazy_static! {
+    pub static ref CSP_ENABLED: bool = std::env::var("ENABLE_CSP_HEADERS").is_ok();
+    pub static ref CSP_POLICY: String = std::env::var("CSP_POLICY")
+        .unwrap_or_else(|_| "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'".to_string());
+}
+
 // Compliance with cloud events spec.
 pub async fn add_webhook_allowed_origin(
     req: axum::extract::Request,
@@ -258,18 +265,25 @@ pub async fn add_webhook_allowed_origin(
     next.run(req).await
 }
 
-// Middleware to add Content-Security-Policy headers when ENABLE_CSP_HEADERS is set
+/// Middleware to conditionally add Content-Security-Policy headers
+/// when ENABLE_CSP_HEADERS environment variable is set.
+/// 
+/// This middleware adds a CSP header to all HTTP responses to enhance security
+/// by controlling which resources the browser is allowed to load. The CSP policy
+/// can be customized via the CSP_POLICY environment variable, or will use a
+/// secure default policy suitable for web applications.
 pub async fn add_csp_headers(
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     let mut response = next.run(req).await;
     
-    if std::env::var("ENABLE_CSP_HEADERS").is_ok() {
-        let csp_policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
-        response
-            .headers_mut()
-            .insert("Content-Security-Policy", HeaderValue::from_static(csp_policy));
+    if *CSP_ENABLED {
+        if let Ok(header_value) = HeaderValue::try_from(CSP_POLICY.as_str()) {
+            response
+                .headers_mut()
+                .insert("Content-Security-Policy", header_value);
+        }
     }
     
     response
