@@ -180,6 +180,26 @@
 			componentSettings.item.data.componentInput = appInput
 		}
 	}
+
+	let templateChangeTimeout: NodeJS.Timeout | undefined = undefined
+	function onTemplateChange(e: CustomEvent<{ code: string }>) {
+		if (componentSettings?.item.data.componentInput?.type === 'templatev2') {
+			if (templateChangeTimeout) {
+				clearTimeout(templateChangeTimeout)
+			}
+			templateChangeTimeout = setTimeout(() => {
+				if (componentSettings?.item.data.componentInput?.type === 'templatev2') {
+					inferDeps(
+						'`' + e.detail.code + '`',
+						$worldStore.outputsById,
+						componentSettings?.item.data.componentInput,
+						app
+					)
+					console.log('inferred deps for', componentSettings?.item.data.id)
+				}
+			}, 200)
+		}
+	}
 </script>
 
 <svelte:window onkeydown={keydown} />
@@ -284,16 +304,7 @@
 										fontSize={12}
 										bind:code={componentSettings.item.data.componentInput.eval}
 										{extraLib}
-										on:change={(e) => {
-											if (componentSettings?.item.data.componentInput?.type === 'templatev2') {
-												inferDeps(
-													'`' + e.detail.code + '`',
-													$worldStore.outputsById,
-													componentSettings?.item.data.componentInput,
-													app
-												)
-											}
-										}}
+										on:change={onTemplateChange}
 									/>
 								</div>
 								{#if componentSettings.item.data?.componentInput?.type === 'templatev2'}
