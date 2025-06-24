@@ -7,7 +7,7 @@
 	import AddTriggersButton from './AddTriggersButton.svelte'
 	import TriggerLabel from './TriggerLabel.svelte'
 	import DeleteTriggerButton from './DeleteTriggerButton.svelte'
-	import TriggerableByAI from '../TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI'
 
 	interface Props {
 		// Props
@@ -64,61 +64,60 @@
 						selectedTrigger === index ? 'bg-surface-hover ' : ''
 					)}
 					onclick={() => onSelect?.(index)}
+					use:triggerableByAI={{
+						id: `trigger-${trigger.id}`,
+						description: `See ${trigger.type} triggers`,
+						callback: () => onSelect?.(index)
+					}}
 				>
-					<TriggerableByAI
-						id={`trigger-${trigger.id}`}
-						description={`See ${trigger.type} triggers`}
-						onTrigger={() => onSelect?.(index)}
-					>
-						<td class="w-12 text-center py-2 px-2">
-							<div class="relative flex justify-center items-center">
-								<SvelteComponent
-									size={16}
-									class={trigger.isDraft ? 'text-frost-400' : 'text-tertiary'}
-								/>
+					<td class="w-12 text-center py-2 px-2">
+						<div class="relative flex justify-center items-center">
+							<SvelteComponent
+								size={16}
+								class={trigger.isDraft ? 'text-frost-400' : 'text-tertiary'}
+							/>
 
-								{#if trigger.isPrimary}
-									<Star size={10} class="absolute -mt-3 ml-3 text-blue-400" />
+							{#if trigger.isPrimary}
+								<Star size={10} class="absolute -mt-3 ml-3 text-blue-400" />
+							{/if}
+						</div>
+					</td>
+					<td class="py-2 px-2 text-xs">
+						<div class="flex items-center justify-between gap-1">
+							<div class="flex items-center grow min-w-0">
+								<TriggerLabel {trigger} />
+								{#if trigger.type === 'webhook' && webhookToken}
+									<span
+										class="ml-2 px-1.5 text-xs rounded-md bg-tertiary/50 group-hover:bg-primary text-primary-inverse py-0.5"
+									>
+										{`${webhookToken} token${webhookToken > 1 ? 's' : ''}`}
+									</span>
+								{:else if trigger.type === 'email' && emailToken}
+									<span
+										class="ml-2 text-xs rounded-md bg-tertiary/50 group-hover:bg-primary text-primary-inverse px-1.5 py-0.5"
+									>
+										{`${emailToken} token${emailToken > 1 ? 's' : ''}`}
+									</span>
 								{/if}
 							</div>
-						</td>
-						<td class="py-2 px-2 text-xs">
-							<div class="flex items-center justify-between gap-1">
-								<div class="flex items-center grow min-w-0">
-									<TriggerLabel {trigger} />
-									{#if trigger.type === 'webhook' && webhookToken}
-										<span
-											class="ml-2 px-1.5 text-xs rounded-md bg-tertiary/50 group-hover:bg-primary text-primary-inverse py-0.5"
-										>
-											{`${webhookToken} token${webhookToken > 1 ? 's' : ''}`}
-										</span>
-									{:else if trigger.type === 'email' && emailToken}
-										<span
-											class="ml-2 text-xs rounded-md bg-tertiary/50 group-hover:bg-primary text-primary-inverse px-1.5 py-0.5"
-										>
-											{`${emailToken} token${emailToken > 1 ? 's' : ''}`}
-										</span>
-									{/if}
-								</div>
 
-								{#if !['email', 'webhook', 'cli'].includes(trigger.type)}
-									{#if trigger.isDraft}
-										<DeleteTriggerButton {trigger} onDelete={() => onDeleteDraft?.(index)} small />
-									{:else if !!trigger.draftConfig && !trigger.isDraft}
-										<Button
-											size="xs"
-											color="light"
-											btnClasses="transition-all duration-200 text-transparent hover:bg-surface group-hover:text-primary bg-transparent px-1 py-1"
-											startIcon={{ icon: RotateCcw }}
-											iconOnly
-											title="Reset to deployed version"
-											on:click={() => onReset?.(index)}
-										/>
-									{/if}
+							{#if !['email', 'webhook', 'cli'].includes(trigger.type)}
+								{#if trigger.isDraft}
+									<DeleteTriggerButton {trigger} onDelete={() => onDeleteDraft?.(index)} small />
+								{:else if !!trigger.draftConfig && !trigger.isDraft}
+									<Button
+										size="xs"
+										color="light"
+										btnClasses="transition-all duration-200 text-transparent hover:bg-surface group-hover:text-primary bg-transparent px-1 py-1"
+										startIcon={{ icon: RotateCcw }}
+										iconOnly
+										title="Reset to deployed version"
+										on:click={() => onReset?.(index)}
+									/>
 								{/if}
-							</div>
-						</td>
-					</TriggerableByAI>
+							{/if}
+						</div>
+					</td>
 				</tr>
 			{/each}
 

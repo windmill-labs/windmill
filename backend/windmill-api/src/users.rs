@@ -1875,6 +1875,18 @@ async fn create_token(
     .fetch_optional(&mut *tx)
     .await?
     .unwrap_or(false);
+    if *CLOUD_HOSTED {
+        let nb_tokens =
+            sqlx::query_scalar!("SELECT COUNT(*) FROM token WHERE email = $1", &authed.email)
+                .fetch_one(&db)
+                .await?;
+        if nb_tokens.unwrap_or(0) >= 10000 {
+            return Err(Error::BadRequest(
+                "You have reached the maximum number of tokens (10000) on cloud. Contact support@windmill.dev to increase the limit"
+                    .to_string(),
+            ));
+        }
+    }
     sqlx::query!(
         "INSERT INTO token
             (token, email, label, expiration, super_admin, scopes, workspace_id)

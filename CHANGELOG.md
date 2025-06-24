@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.501.2](https://github.com/windmill-labs/windmill/compare/v1.501.1...v1.501.2) (2025-06-24)
+
+
+### Bug Fixes
+
+* improve schema form handling of inconsistent order and properties ([3daf79f](https://github.com/windmill-labs/windmill/commit/3daf79ffbc45ca32ff443e5521a67d62528665db))
+
+## [1.501.1](https://github.com/windmill-labs/windmill/compare/v1.501.0...v1.501.1) (2025-06-24)
+
+
+### Bug Fixes
+
+* optimize jobs list run incremental refresh performance ([1bdd00a](https://github.com/windmill-labs/windmill/commit/1bdd00a3e4a94ecb23efb9614c341c64a67ac389))
+* pwsh skip already installed modules outside of cache ([#6037](https://github.com/windmill-labs/windmill/issues/6037)) ([29f6fab](https://github.com/windmill-labs/windmill/commit/29f6fab60c6f8cf251182a56c09bac7692868bae))
+
+## [1.501.0](https://github.com/windmill-labs/windmill/compare/v1.500.3...v1.501.0) (2025-06-24)
+
+
+### Features
+
+* ai flow chat prompt and UX improvements ([#5942](https://github.com/windmill-labs/windmill/issues/5942)) ([5722014](https://github.com/windmill-labs/windmill/commit/57220146513444436faff95f58c1b36481d1fa1d))
+
+
+### Bug Fixes
+
+* improve reactivity of apps ([27e12a1](https://github.com/windmill-labs/windmill/commit/27e12a1527c41ac801042038b707a94897e718f8))
+
+## [1.500.3](https://github.com/windmill-labs/windmill/compare/v1.500.2...v1.500.3) (2025-06-23)
+
+
+### Bug Fixes
+
+* fix conditional wrappre ([6f3cb5e](https://github.com/windmill-labs/windmill/commit/6f3cb5eabb7b2224d04ec10f151f67c0955a5cfd))
+
 ## [1.500.2](https://github.com/windmill-labs/windmill/compare/v1.500.1...v1.500.2) (2025-06-20)
 
 

@@ -739,11 +739,14 @@ export function isObject(obj: any): obj is Record<string, any> {
 
 export function debounce(func: (...args: any[]) => any, wait: number) {
 	let timeout: any
-	return function (...args: any[]) {
-		// @ts-ignore
-		const context = this
-		clearTimeout(timeout)
-		timeout = setTimeout(() => func.apply(context, args), wait)
+	return {
+		debounced: function (...args: any[]) {
+			// @ts-ignore
+			const context = this
+			clearTimeout(timeout)
+			timeout = setTimeout(() => func.apply(context, args), wait)
+		},
+		clearDebounce: () => clearTimeout(timeout)
 	}
 }
 
@@ -1369,6 +1372,7 @@ import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import type { Snippet } from 'svelte'
 import { OpenAPIV2, type OpenAPI, type OpenAPIV3, type OpenAPIV3_1 } from 'openapi-types'
+import type { IPosition } from 'monaco-editor'
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))
@@ -1427,3 +1431,5 @@ export function scroll_into_view_if_needed_polyfill(elem: Element, centerIfNeede
 
 	return observer // return for testing
 }
+
+export const editorPositionMap: Record<string, IPosition> = {}

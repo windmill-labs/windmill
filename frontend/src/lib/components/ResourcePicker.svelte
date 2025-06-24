@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { createEventDispatcher, onMount } from 'svelte'
+	import { createEventDispatcher, onMount, untrack } from 'svelte'
 	import AppConnect from './AppConnectDrawer.svelte'
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 
@@ -87,7 +87,11 @@
 	}
 
 	let loading = $state(true)
-	async function loadResources(resourceType: string | undefined) {
+	async function loadResources(
+		resourceType: string | undefined,
+		initialValue: string | undefined,
+		value: string | undefined
+	) {
 		loading = true
 		try {
 			const resourceTypesToQuery =
@@ -128,7 +132,12 @@
 	}
 
 	$effect(() => {
-		$workspaceStore && loadResources(resourceType)
+		$workspaceStore &&
+			loadResources(
+				resourceType,
+				untrack(() => initialValue),
+				untrack(() => value)
+			)
 	})
 
 	$effect(() => {
@@ -141,7 +150,7 @@
 
 <AppConnect
 	on:refresh={async (e) => {
-		await loadResources(resourceType)
+		await loadResources(resourceType, initialValue, value)
 		value = e.detail
 		valueType = collection.find((x) => x?.value == value)?.type
 	}}
@@ -151,7 +160,7 @@
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
 	on:refresh={async (e) => {
-		await loadResources(resourceType)
+		await loadResources(resourceType, initialValue, value)
 		if (e.detail) {
 			value = e.detail
 			valueType = collection.find((x) => x?.value == value)?.type
@@ -237,7 +246,7 @@
 			btnClasses="w-8 px-0.5 py-1.5"
 			size="sm"
 			on:click={() => {
-				loadResources(resourceType)
+				loadResources(resourceType, initialValue, value)
 			}}
 			startIcon={{ icon: RotateCw }}
 			iconOnly
