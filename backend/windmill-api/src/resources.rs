@@ -33,6 +33,7 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
+    worker::CLOUD_HOSTED,
 };
 
 pub fn workspaced_service() -> Router {
@@ -656,6 +657,20 @@ async fn create_resource(
     Query(q): Query<CreateResourceQuery>,
     Json(resource): Json<CreateResource>,
 ) -> Result<(StatusCode, String)> {
+    if *CLOUD_HOSTED {
+        let nb_resources = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM resource WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_one(&db)
+        .await?;
+        if nb_resources.unwrap_or(0) >= 10000 {
+            return Err(Error::BadRequest(
+                    "You have reached the maximum number of resources (10000) on cloud. Contact support@windmill.dev to increase the limit"
+                        .to_string(),
+                ));
+        }
+    }
     let authed = maybe_refresh_folders(&resource.path, &w_id, authed, &db).await;
 
     let mut tx = user_db.begin(&authed).await?;

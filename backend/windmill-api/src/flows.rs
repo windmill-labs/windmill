@@ -34,7 +34,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::utils::query_elems_from_hub;
-use windmill_common::worker::to_raw_value;
+use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
@@ -358,6 +358,32 @@ async fn create_flow(
     Path(w_id): Path<String>,
     Json(nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
+    if *CLOUD_HOSTED {
+        let nb_flows =
+            sqlx::query_scalar!("SELECT COUNT(*) FROM flow WHERE workspace_id = $1", &w_id)
+                .fetch_one(&db)
+                .await?;
+        if nb_flows.unwrap_or(0) >= 1000 {
+            return Err(Error::BadRequest(
+                    "You have reached the maximum number of flows (1000) on cloud. Contact support@windmill.dev to increase the limit"
+                        .to_string(),
+                ));
+        }
+        if nf.summary.len() > 300 {
+            return Err(Error::BadRequest(
+                "Summary must be less than 300 characters on cloud".to_string(),
+            ));
+        }
+        if nf
+            .description
+            .as_ref()
+            .is_some_and(|desc| desc.len() > 3000)
+        {
+            return Err(Error::BadRequest(
+                "Description must be less than 3000 characters on cloud".to_string(),
+            ));
+        }
+    }
     #[cfg(not(feature = "enterprise"))]
     if nf
         .value

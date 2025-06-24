@@ -29,6 +29,7 @@ use windmill_common::{
     variables::{
         build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
     },
+    worker::CLOUD_HOSTED,
 };
 
 use lazy_static::lazy_static;
@@ -313,6 +314,20 @@ async fn create_variable(
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(variable): Json<CreateVariable>,
 ) -> Result<(StatusCode, String)> {
+    if *CLOUD_HOSTED {
+        let nb_variables = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM variable WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_one(&db)
+        .await?;
+        if nb_variables.unwrap_or(0) >= 10000 {
+            return Err(Error::BadRequest(
+                    "You have reached the maximum number of variables (10000) on cloud. Contact support@windmill.dev to increase the limit"
+                        .to_string(),
+                ));
+        }
+    }
     let authed = maybe_refresh_folders(&variable.path, &w_id, authed, &db).await;
 
     check_path_conflict(&db, &w_id, &variable.path).await?;
