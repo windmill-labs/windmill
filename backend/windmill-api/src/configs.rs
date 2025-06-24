@@ -21,7 +21,7 @@ use windmill_common::{
     DB,
 };
 
-use crate::{db::ApiAuthed, utils::{require_devops_role}};
+use crate::{db::ApiAuthed, utils::require_devops_role};
 
 pub fn global_service() -> Router {
     Router::new()
@@ -37,6 +37,8 @@ pub fn global_service() -> Router {
             "/list_available_python_versions",
             get(list_available_python_versions),
         )
+        .route("/ducklake_catalog_exists", get(ducklake_catalog_exists))
+        .route("/init_ducklake_catalog_db", post(init_ducklake_catalog_db))
 }
 
 #[derive(Serialize, Deserialize, FromRow)]
@@ -244,4 +246,26 @@ async fn list_configs() -> error::JsonResult<String> {
     Err(error::Error::BadRequest(
         "Config listing available only in the enterprise version".to_string(),
     ))
+}
+
+async fn ducklake_catalog_exists(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> error::JsonResult<bool> {
+    let exists: Option<i32> = sqlx::query_scalar!(
+        r#"SELECT 1 AS "x!:_" FROM pg_database WHERE datname = 'ducklake_catalog'"#
+    )
+    .fetch_optional(&db)
+    .await?;
+    Ok(Json(exists.is_some()))
+}
+
+async fn init_ducklake_catalog_db(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> error::Result<()> {
+    sqlx::query!("CREATE DATABASE ducklake_catalog")
+        .execute(&db)
+        .await?;
+    Ok(())
 }

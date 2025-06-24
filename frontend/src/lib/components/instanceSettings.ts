@@ -404,7 +404,8 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'boolean',
 			storage: 'setting'
 		}
-	]
+	],
+	Ducklake: []
 }
 
 export const settingsKeys = Object.keys(settings)

@@ -15,6 +15,7 @@
 	import AuthSettings from './AuthSettings.svelte'
 	import InstanceSetting from './InstanceSetting.svelte'
 	import { writable, type Writable } from 'svelte/store'
+	import DucklakeSettings from './settings/DucklakeSettings.svelte'
 
 	interface Props {
 		tab?: string
@@ -355,6 +356,8 @@
 								</div>
 							{/snippet}
 						</AuthSettings>
+					{:else if category == 'Ducklake'}
+						<DucklakeSettings />
 					{/if}
 					<div>
 						<div class="flex-col flex gap-4 pb-4">

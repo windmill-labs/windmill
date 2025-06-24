@@ -605,8 +605,7 @@ async fn transform_attach_ducklake(
         let o = parse_postgres_url(&get_database_url().await?)?;
 
         let attach_str = format!(
-            "ATTACH 'ducklake:postgres:dbname={} user={} host={} password={} port={} {}'",
-            o.database,
+            "ATTACH 'ducklake:postgres:dbname=ducklake_catalog user={} host={} password={} port={} {}'",
             o.username.as_ref().map(String::as_str).unwrap_or("NO_USER"),
             o.host,
             o.password.as_ref().map(String::as_str).unwrap_or("NO_PWD"),
