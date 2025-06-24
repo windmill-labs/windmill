@@ -433,7 +433,7 @@
 	let initialized = false
 
 	let jsLoader: NodeJS.Timeout | undefined = undefined
-
+	let timeoutModel: NodeJS.Timeout | undefined = undefined
 	async function loadMonaco() {
 		console.log('init template')
 		await initializeVscode('templateEditor')
@@ -486,7 +486,6 @@
 			dispatch('change', { code: ncode })
 		}
 
-		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
@@ -612,11 +611,12 @@
 	}
 
 	let mounted = false
+	let loadTimeout: NodeJS.Timeout | undefined = undefined
 	onMount(async () => {
 		try {
 			if (BROWSER) {
 				if (loadAsync) {
-					setTimeout(async () => {
+					loadTimeout = setTimeout(async () => {
 						await loadMonaco()
 						mounted = true
 					}, 0)
@@ -648,6 +648,8 @@
 		try {
 			valueAfterDispose = getCode()
 			jsLoader && clearTimeout(jsLoader)
+			timeoutModel && clearTimeout(timeoutModel)
+			loadTimeout && clearTimeout(loadTimeout)
 			model && model.dispose()
 			editor && editor.dispose()
 			cip && cip.dispose()

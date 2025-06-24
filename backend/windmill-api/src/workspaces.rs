@@ -36,7 +36,7 @@ use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{build_crypt, decrypt, encrypt};
-use windmill_common::worker::to_raw_value;
+use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 #[cfg(feature = "enterprise")]
@@ -1453,6 +1453,21 @@ async fn create_workspace(
 
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
+
+    if *CLOUD_HOSTED {
+        let nb_workspaces = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM workspace WHERE owner = $1",
+            authed.email
+        )
+        .fetch_one(&db)
+        .await?;
+        if nb_workspaces.unwrap_or(0) >= 10 {
+            return Err(Error::BadRequest(
+                "You have reached the maximum number of workspaces (10) on cloud. Contact support@windmill.dev to increase the limit"
+                    .to_string(),
+            ));
+        }
+    }
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 

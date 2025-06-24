@@ -77,6 +77,8 @@
 		noEditor: boolean
 		enableAi: boolean
 		savedModule?: FlowModule | undefined
+		forceTestTab?: boolean
+		highlightArg?: string
 	}
 
 	let {
@@ -89,7 +91,9 @@
 		scriptTemplate = 'script',
 		noEditor,
 		enableAi,
-		savedModule = undefined
+		savedModule = undefined,
+		forceTestTab = false,
+		highlightArg = undefined
 	}: Props = $props()
 
 	let tag: string | undefined = $state(undefined)
@@ -273,6 +277,20 @@
 
 	onDestroy(() => {
 		$currentEditor = undefined
+	})
+
+	// Handle force test tab prop with animation
+	$effect(() => {
+		if (forceTestTab) {
+			selected = 'test'
+			// Add a smooth transition to the test tab
+			setTimeout(() => {
+				const testTab = document.querySelector('[value="test"]')
+				if (testTab) {
+					testTab.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+				}
+			}, 100)
+		}
 	})
 </script>
 
@@ -525,6 +543,7 @@
 												bind:testJob
 												bind:testIsLoading
 												bind:scriptProgress
+												focusArg={highlightArg}
 											/>
 										{:else if selected === 'advanced'}
 											<Tabs bind:selected={advancedSelected}>

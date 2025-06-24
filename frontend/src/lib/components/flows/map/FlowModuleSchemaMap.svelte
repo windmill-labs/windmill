@@ -48,6 +48,8 @@
 		newFlow?: boolean
 		smallErrorHandler?: boolean
 		workspace?: string | undefined
+		onTestUpTo?: ((id: string) => void) | undefined
+		onEditInput?: (moduleId: string, key: string) => void
 	}
 
 	let {
@@ -58,21 +60,15 @@
 		disableSettings = false,
 		newFlow = false,
 		smallErrorHandler = false,
-		workspace = $workspaceStore
+		workspace = $workspaceStore,
+		onTestUpTo,
+		onEditInput
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
 
-	const {
-		customUi,
-		selectedId,
-		moving,
-		history,
-		flowStateStore,
-		flowStore,
-		flowInputsStore,
-		pathStore
-	} = getContext<FlowEditorContext>('FlowEditorContext')
+	const { customUi, selectedId, moving, history, flowStateStore, flowStore, pathStore } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
@@ -85,8 +81,8 @@
 		inlineScript?: InlineScript
 	): Promise<FlowModule[]> {
 		push(history, flowStore.val)
-		var module = emptyModule($flowStateStore, flowStore.val, kind == 'flow')
-		var state = emptyFlowModuleState()
+		let module = emptyModule($flowStateStore, flowStore.val, kind == 'flow')
+		let state = emptyFlowModuleState()
 		$flowStateStore[module.id] = state
 		if (wsFlow) {
 			;[module, state] = await pickFlow(wsFlow.path, wsFlow.summary, module.id)
@@ -107,14 +103,8 @@
 		} else if (kind == 'branchall') {
 			;[module, state] = await createBranchAll(module.id)
 		} else if (inlineScript) {
-			const { language, kind, subkind } = inlineScript
-			;[module, state] = await createInlineScriptModule(
-				language,
-				kind,
-				subkind,
-				module.id,
-				module.summary
-			)
+			const { language, kind, subkind, summary } = inlineScript
+			;[module, state] = await createInlineScriptModule(language, kind, subkind, module.id, summary)
 			$flowStateStore[module.id] = state
 			if (kind == 'trigger') {
 				module.summary = 'Trigger'
@@ -188,7 +178,7 @@
 		return dfsByModule(id, flowStore.val.value.modules)[0]
 	}
 
-	async function addBranch(id: string) {
+	export async function addBranch(id: string) {
 		push(history, flowStore.val)
 		let module = findModuleById(id)
 
@@ -205,7 +195,7 @@
 		}
 	}
 
-	function removeBranch(id: string, index: number) {
+	export function removeBranch(id: string, index: number) {
 		push(history, flowStore.val)
 		let module = findModuleById(id)
 
@@ -340,9 +330,10 @@
 			modules={flowStore.val.value.modules}
 			preprocessorModule={flowStore.val.value?.preprocessor_module}
 			{selectedId}
-			{flowInputsStore}
 			{workspace}
 			editMode
+			{onTestUpTo}
+			{onEditInput}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)
 				const cb = () => {

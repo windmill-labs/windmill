@@ -14,15 +14,17 @@
 		Square,
 		SkipForward,
 		Pin,
-		X
+		X,
+		Play,
+		Loader2
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import type { FlowEditorContext, FlowInput } from '../types'
-	import { type Writable } from 'svelte/store'
+	import type { FlowEditorContext } from '../types'
 	import { twMerge } from 'tailwind-merge'
 	import IdEditorInput from '$lib/components/IdEditorInput.svelte'
 	import { dfs } from '../dfs'
+	import { dfs as dfsPreviousResults } from '../previousResults'
 	import { Drawer } from '$lib/components/common'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { getDependeeAndDependentComponents } from '../flowExplorer'
@@ -32,6 +34,12 @@
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
+	import ModuleAcceptReject, {
+		aiModuleActionToBgColor,
+		getAiModuleAction
+	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
+	import { Button } from '$lib/components/common'
+	import ModuleTest from '$lib/components/ModuleTest.svelte'
 
 	interface Props {
 		selected?: boolean
@@ -63,7 +71,10 @@
 		alwaysShowOutputPicker?: boolean
 		loopStatus?: { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' } | undefined
 		icon?: import('svelte').Snippet
+		onTestUpTo?: ((id: string) => void) | undefined
+		inputTransform?: Record<string, any> | undefined
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
+		onEditInput?: (moduleId: string, key: string) => void
 	}
 
 	let {
@@ -91,16 +102,16 @@
 		alwaysShowOutputPicker = false,
 		loopStatus = undefined,
 		icon,
-		onUpdateMock
+		onTestUpTo,
+		inputTransform,
+		onUpdateMock,
+		onEditInput
 	}: Props = $props()
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
 
-	const { flowInputsStore } = getContext<{ flowInputsStore: Writable<FlowInput | undefined> }>(
-		'FlowGraphContext'
-	)
-
-	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
+	const flowInputsStore = flowEditorContext?.flowInputsStore
 
 	const dispatch = createEventDispatcher()
 
@@ -116,11 +127,15 @@
 
 	let newId: string = $state(id ?? '')
 
+	let moduleTest: ModuleTest | undefined = $state(undefined)
+	let testIsLoading = $state(false)
 	let hover = $state(false)
 	let connectingData: any | undefined = $state(undefined)
 	let lastJob: any | undefined = $state(undefined)
 	let outputPicker: OutputPicker | undefined = $state(undefined)
 	let historyOpen = $state(false)
+	let testJob: any | undefined = $state(undefined)
+	let outputPickerBarOpen = $state(false)
 
 	let flowStateStore = $derived(flowEditorContext?.flowStateStore)
 
@@ -158,11 +173,27 @@
 		flowStateStore && $flowStateStore && untrack(() => updateLastJob($flowStateStore))
 	})
 
+	let nlastJob = $derived.by(() => {
+		if (testJob) {
+			return { ...testJob, preview: true }
+		}
+		if (lastJob) {
+			return { ...lastJob, preview: false }
+		}
+		return undefined
+	})
+
 	let isConnectingCandidate = $derived(
 		!!id && !!$flowPropPickerConfig && !!pickableIds && Object.keys(pickableIds).includes(id)
 	)
 
+	const outputPickerVisible = $derived(
+		editMode && (isConnectingCandidate || alwaysShowOutputPicker) && !!id
+	)
+
 	const icon_render = $derived(icon)
+
+	const action = $derived(getAiModuleAction(id))
 </script>
 
 {#if deletable && id && editId}
@@ -223,22 +254,43 @@
 	</Drawer>
 {/if}
 
+{#if deletable && id && flowEditorContext?.flowStore && outputPickerVisible}
+	{@const flowStore = flowEditorContext?.flowStore.val}
+	{@const mod = flowStore?.value ? dfsPreviousResults(id, flowStore, false)[0] : undefined}
+	{#if mod && $flowStateStore?.[id]}
+		<ModuleTest bind:this={moduleTest} {mod} bind:testIsLoading bind:testJob />
+	{/if}
+{/if}
+
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class={classNames(
-		'w-full module flex rounded-sm cursor-pointer max-w-full outline-offset-0 outline-slate-500 dark:outline-gray-400',
-		selected ? 'outline outline-2' : 'active:outline active:outline-2',
-		'flex relative'
+		'w-full module flex rounded-sm cursor-pointer max-w-full ',
+		'flex relative',
+		deletable ? aiModuleActionToBgColor(action) : ''
 	)}
-	style="width: 275px; height: 38px; background-color: {hover && bgHoverColor
+	style="width: 275px; height: 34px; background-color: {hover && bgHoverColor
 		? bgHoverColor
 		: bgColor};"
 	onmouseenter={() => (hover = true)}
 	onmouseleave={() => (hover = false)}
 	onpointerdown={stopPropagation(preventDefault(() => dispatch('pointerdown')))}
 >
-	<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
+	{#if deletable}
+		<ModuleAcceptReject {action} {id} />
+	{/if}
+	<div
+		class={classNames(
+			'absolute rounded-sm outline-offset-0 outline-slate-500 dark:outline-gray-400',
+			selected ? 'outline outline-2' : 'active:outline active:outline-2'
+		)}
+		style={`width: 275px; height: ${outputPickerVisible ? '51px' : '34px'};`}
+	></div>
+	<div
+		class="absolute text-sm right-2 flex flex-row gap-1 z-10 transition-all duration-100"
+		style={`bottom: ${outputPickerBarOpen ? '-38px' : '-12px'}`}
+	>
 		{#if retry}
 			<Popover notClickable>
 				<div
@@ -351,20 +403,35 @@
 		{/if}
 	</div>
 
-	<div class="flex flex-col w-full">
-		<FlowModuleSchemaItemViewer {label} {path} {id} {deletable} {bold} bind:editId {hover}>
+	<div
+		class={twMerge('flex flex-col w-full', deletable && action === 'removed' ? 'opacity-50' : '')}
+	>
+		<FlowModuleSchemaItemViewer
+			{label}
+			{path}
+			{id}
+			deletable={deletable && !action}
+			{bold}
+			bind:editId
+			{hover}
+		>
 			{#snippet icon()}
 				{@render icon_render?.()}
 			{/snippet}
 		</FlowModuleSchemaItemViewer>
 
-		{#if editMode && (isConnectingCandidate || alwaysShowOutputPicker)}
+		{#if outputPickerVisible}
 			<OutputPicker
 				bind:this={outputPicker}
 				{selected}
 				{hover}
 				{isConnectingCandidate}
 				{historyOpen}
+				{inputTransform}
+				id={id ?? ''}
+				bind:bottomBarOpen={outputPickerBarOpen}
+				{loopStatus}
+				{onEditInput}
 			>
 				{#snippet children({ allowCopy, isConnecting, selectConnection })}
 					<OutputPickerInner
@@ -372,9 +439,9 @@
 						prefix={'results'}
 						connectingData={isConnecting ? connectingData : undefined}
 						{mock}
-						{lastJob}
-						onSelect={selectConnection}
+						lastJob={nlastJob}
 						moduleId={id}
+						onSelect={selectConnection}
 						{onUpdateMock}
 						{path}
 						{loopStatus}
@@ -382,17 +449,68 @@
 						bind:derivedHistoryOpen={historyOpen}
 						historyOffset={{ mainAxis: 12, crossAxis: -9 }}
 						clazz="p-1"
+						isLoading={testIsLoading}
 					/>
 				{/snippet}
 			</OutputPicker>
 		{/if}
 	</div>
 
-	{#if deletable}
+	{#if deletable && !action}
+		<div
+			class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-2 h-9 min-w-14"
+		>
+			{#if (hover || selected) && outputPickerVisible}
+				<div transition:fade={{ duration: 100 }}>
+					{#if !testIsLoading}
+						<Button
+							size="sm"
+							color="dark"
+							title="Run"
+							btnClasses="p-1.5"
+							on:click={() => {
+								outputPicker?.toggleOpen(true)
+								moduleTest?.loadArgsAndRunTest()
+							}}
+							dropdownItems={[
+								{
+									label: 'Test up to here',
+									onClick: () => {
+										if (id) {
+											onTestUpTo?.(id)
+										}
+									}
+								}
+							]}
+							dropdownBtnClasses="!w-4 px-1"
+						>
+							{#if testIsLoading}
+								<Loader2 size={12} class="animate-spin" />
+							{:else}
+								<Play size={12} />
+							{/if}
+						</Button>
+					{:else}
+						<Button
+							size="xs"
+							color="red"
+							variant="contained"
+							btnClasses="!h-[25.5px] !w-[44.5px] !p-1.5 gap-0.5"
+							on:click={async () => {
+								moduleTest?.cancelJob()
+							}}
+						>
+							<Loader2 size={10} class="animate-spin mr-0.5" />
+							<X size={14} />
+						</Button>
+					{/if}
+				</div>
+			{/if}
+		</div>
 		<button
 			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
-	outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-red-400 hover:text-white
-	 {hover || selected ? '' : '!hidden'}"
+outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-red-400 hover:text-white
+ {hover || selected ? '' : '!hidden'}"
 			title="Delete"
 			onclick={stopPropagation(
 				preventDefault((event) => dispatch('delete', { id, type: modType }))

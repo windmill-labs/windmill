@@ -104,6 +104,9 @@
 <AlignWrapper {render} {verticalAlignment}>
 	{#if inputType === 'date'}
 		<input
+			on:keydown={(e) => {
+				e.stopPropagation()
+			}}
 			on:focus={() => ($selectedComponent = [id])}
 			on:pointerdown|stopPropagation
 			type="date"

@@ -5,7 +5,7 @@
 	import { BellOff } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { goto } from '$lib/navigation'
-	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI'
 
 	export let marked: string | undefined
 	export let starred: boolean
@@ -26,13 +26,7 @@
 	let displayPath: string = (depth === 0 ? path : path?.split('/')?.slice(-1)?.[0]) ?? ''
 </script>
 
-<TriggerableByAI
-	id={aiId}
-	description={aiDescription}
-	onTrigger={() => {
-		goto(href)
-	}}
-/>
+<div style="display: none" use:triggerableByAI={{id: aiId, description: aiDescription, callback: () => { goto(href) }}}></div>
 <div
 	class={twMerge(
 		'hover:bg-surface-hover w-full inline-flex items-center gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-2.5 border-b last:border-b-0',

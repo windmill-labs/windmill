@@ -7,6 +7,10 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { fade } from 'svelte/transition'
 	import { Database, Square } from 'lucide-svelte'
+	import ModuleAcceptReject, {
+		aiModuleActionToBgColor,
+		getAiModuleAction
+	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 
 	interface Props {
 		label?: string | undefined
@@ -27,6 +31,7 @@
 		editMode?: boolean
 		icon?: import('svelte').Snippet
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
+		onEditInput?: (moduleId: string, key: string) => void
 	}
 
 	let {
@@ -47,12 +52,32 @@
 		earlyStop = false,
 		editMode = false,
 		icon,
-		onUpdateMock
+		onUpdateMock,
+		onEditInput
 	}: Props = $props()
+
+	const outputPickerVisible = $derived(
+		(alwaysPluggable || (inputJson && Object.keys(inputJson).length > 0)) && editMode
+	)
+
+	let action = $derived(label === 'Input' ? getAiModuleAction(label) : undefined)
 </script>
 
-<VirtualItemWrapper {label} {bgColor} {bgHoverColor} {selected} {selectable} {id} on:select>
+<VirtualItemWrapper
+	{label}
+	{bgColor}
+	{bgHoverColor}
+	{selected}
+	{selectable}
+	{id}
+	outputPickerVisible={outputPickerVisible ?? false}
+	className={editMode ? aiModuleActionToBgColor(action) : ''}
+	on:select
+>
 	{#snippet children({ hover })}
+		{#if editMode}
+			<ModuleAcceptReject id="Input" {action} />
+		{/if}
 		<div class="flex flex-col w-full">
 			<div
 				style={borderColor ? `border-color: ${borderColor};` : 'border: 0'}
@@ -80,8 +105,14 @@
 					</div>
 				{/if}
 			</div>
-			{#if (alwaysPluggable || (inputJson && Object.keys(inputJson).length > 0)) && editMode}
-				<OutputPicker {selected} {hover} isConnectingCandidate={true} variant="virtual">
+			{#if outputPickerVisible}
+				<OutputPicker
+					{selected}
+					{hover}
+					id={id ?? ''}
+					isConnectingCandidate={true}
+					variant="virtual"
+				>
 					{#snippet children({ allowCopy, isConnecting, selectConnection })}
 						<OutputPickerInner
 							{allowCopy}
@@ -95,6 +126,8 @@
 							rightMargin
 							historyOffset={{ mainAxis: 12, crossAxis: -9 }}
 							clazz="p-1"
+							{onEditInput}
+							selectionId={id ?? label ?? ''}
 						/>
 					{/snippet}
 				</OutputPicker>
