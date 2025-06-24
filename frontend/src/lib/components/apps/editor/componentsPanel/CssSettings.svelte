@@ -13,7 +13,7 @@
 	import { resolveTheme } from './themeUtils'
 	import ThemeCodePreview from './ThemeCodePreview.svelte'
 	import { sendUserToast } from '$lib/toast'
-	const { app } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, appPath } = getContext<AppViewerContext>('AppViewerContext')
 
 	let cssEditor: SimpleEditor | undefined = $state(undefined)
 	let alertHeight: number | undefined = $state(undefined)
@@ -79,7 +79,7 @@
 									small
 									automaticLayout
 									bind:this={cssEditor}
-									key="app-global-css-editor"
+									key={`app-global-css-editor-${$appPath}`}
 								/>
 							{:else}
 								<ThemeCodePreview theme={$app.theme}>

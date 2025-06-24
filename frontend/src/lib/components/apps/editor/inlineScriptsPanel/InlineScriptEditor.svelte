@@ -387,7 +387,7 @@
 							}
 							$app = $app
 						}}
-						key={`inline-${id}`}
+						key={`app-inline-${$appPath}-${id}`}
 						args={Object.entries(fields).reduce((acc, [key, obj]) => {
 							acc[key] = obj.type === 'static' ? obj.value : undefined
 							return acc
@@ -416,7 +416,7 @@
 							inferSuggestions(e.detail.code)
 							$app = $app
 						}}
-						key={`inline-${id}`}
+						key={`app-inline-${$appPath}-${id}`}
 					/>
 				{/if}
 
