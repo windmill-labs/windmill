@@ -27,7 +27,6 @@ import type {
 } from './inputType'
 import type { World } from './rx'
 import type { FilledItem } from './svelte-grid/types'
-import type { Position } from 'monaco-editor'
 
 export type HorizontalAlignment = 'left' | 'center' | 'right'
 export type VerticalAlignment = 'top' | 'center' | 'bottom'
