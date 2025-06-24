@@ -42,17 +42,15 @@
 	let ownerKind: 'user' | 'group' = $state('user')
 	let owner: string = $state('')
 
-	let newOwner: string = $state('')
+	let newOwner: string = $derived.by(
+		() => owner && [ownerKind === 'group' ? 'g' : 'u', owner].join('/')
+	)
 	let write: boolean = false
 	let acls: [string, boolean][] = $state([])
 	let groups: String[] = $state([])
 	let usernames: string[] = $state([])
 
 	let drawer: Drawer | undefined = $state()
-
-	run(() => {
-		newOwner = [ownerKind === 'group' ? 'g' : 'u', owner].join('/')
-	})
 
 	let own = $state(false)
 	export async function openDrawer(newPath: string, kind_l: Kind) {
@@ -145,7 +143,9 @@
 								bind:value={owner}
 							/>
 						{/key}
-						<Button size="sm" on:click={() => addAcl(newOwner, write)}>Add permission</Button>
+						<Button size="sm" disabled={!newOwner} on:click={() => addAcl(newOwner, write)}
+							>Add permission</Button
+						>
 					</div>
 				{/if}
 				<TableCustom>
