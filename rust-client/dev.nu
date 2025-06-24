@@ -14,7 +14,7 @@ def main [ --publish(-p) --check(-c) --test(-t) ] {
   openapi-generator-cli generate -i api/openapi.yaml -g rust -o ./windmill_api --strict-spec true --additional-properties=packageName="windmill-api"
 
   # Patch Cargo.toml
-  open Cargo.toml
+  open Cargo.proto.toml
   | update package.version $version
   | save -f Cargo.toml
 
