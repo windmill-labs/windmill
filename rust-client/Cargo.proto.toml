@@ -1,8 +1,6 @@
 [package]
 name = "wmill"
-version = """
-1.496.3
-"""
+version = "<VERSION>"
 edition = "2024"
 description = "A client library for accessing Windmill server wrapping the Windmill client API"
 license = "Apache-2.0"
