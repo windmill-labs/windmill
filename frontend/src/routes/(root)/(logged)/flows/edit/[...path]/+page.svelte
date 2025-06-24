@@ -75,7 +75,7 @@
 	let draftTriggersFromUrl: Trigger[] | undefined = $state(undefined)
 	let selectedTriggerIndexFromUrl: number | undefined = $state(undefined)
 	let loadedFromHistoryFromUrl:
-		| { flowInitial: boolean | undefined; moduleInitial: Record<string, stepState> }
+		| { flowJobInitial: boolean | undefined; stepsState: Record<string, stepState> }
 		| undefined = $state(undefined)
 
 	let flowBuilder: FlowBuilder | undefined = $state(undefined)

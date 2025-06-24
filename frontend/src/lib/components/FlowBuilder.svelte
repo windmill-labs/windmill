@@ -101,8 +101,8 @@
 		selectedTriggerIndexFromUrl?: number | undefined
 		children?: import('svelte').Snippet
 		loadedFromHistoryFromUrl?: {
-			flowInitial: boolean | undefined
-			moduleInitial: Record<string, stepState>
+			flowJobInitial: boolean | undefined
+			stepsState: Record<string, stepState>
 		}
 		noInitial?: boolean
 	}
@@ -514,8 +514,8 @@
 						draft_triggers: triggersState.getDraftTriggersSnapshot(),
 						selected_trigger: triggersState.getSelectedTriggerSnapshot(),
 						loadedFromHistory: {
-							flowInitial: stepHistoryLoader.flowJobInitial,
-							moduleInitial: stepHistoryLoader.stepStates
+							flowJobInitial: stepHistoryLoader.flowJobInitial,
+							stepsState: stepHistoryLoader.stepStates
 						}
 					})
 				)
@@ -823,8 +823,8 @@
 	}
 
 	let stepHistoryLoader = new StepHistoryLoader(
-		loadedFromHistoryFromUrl?.moduleInitial ?? {},
-		loadedFromHistoryFromUrl?.flowInitial,
+		loadedFromHistoryFromUrl?.stepsState ?? {},
+		loadedFromHistoryFromUrl?.flowJobInitial,
 		saveSessionDraft,
 		noInitial
 	)
@@ -833,8 +833,8 @@
 	export function setLoadedFromHistory(
 		loadedFromHistoryUrl:
 			| {
-					flowInitial: boolean | undefined
-					moduleInitial: Record<string, stepState>
+					flowJobInitial: boolean | undefined
+					stepsState: Record<string, stepState>
 			  }
 			| undefined
 	) {
@@ -842,8 +842,8 @@
 			return
 		}
 
-		stepHistoryLoader.setFlowJobInitial(loadedFromHistoryUrl.flowInitial)
-		stepHistoryLoader.stepStates = loadedFromHistoryUrl.moduleInitial
+		stepHistoryLoader.setFlowJobInitial(loadedFromHistoryUrl.flowJobInitial)
+		stepHistoryLoader.stepStates = loadedFromHistoryUrl.stepsState
 	}
 </script>
 
