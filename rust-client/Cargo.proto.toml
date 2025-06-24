@@ -20,7 +20,7 @@ uuid = "1"
 
 [dependencies.windmill-api]
 path = "./windmill_api"
-version = "1.496.3"
+version = "<VERSION>"
 
 [dependencies.futures]
 version = "0.3"
