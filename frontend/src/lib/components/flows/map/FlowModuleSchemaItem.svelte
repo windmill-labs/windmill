@@ -435,10 +435,6 @@
 				bind:bottomBarOpen={outputPickerBarOpen}
 				{loopStatus}
 				{onEditInput}
-				initial={id ? stepHistoryLoader?.stepStates[id]?.initial : undefined}
-				onResetInitial={() => {
-					stepHistoryLoader?.resetInitial(id)
-				}}
 			>
 				{#snippet children({ allowCopy, isConnecting, selectConnection })}
 					<OutputPickerInner
@@ -458,6 +454,10 @@
 						clazz="p-1"
 						isLoading={testIsLoading ||
 							(id ? stepHistoryLoader?.stepStates[id]?.loadingJobs : false)}
+						initial={id ? stepHistoryLoader?.stepStates[id]?.initial : undefined}
+						onResetInitial={() => {
+							stepHistoryLoader?.resetInitial(id)
+						}}
 					/>
 				{/snippet}
 			</OutputPicker>
