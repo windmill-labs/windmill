@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onDestroy, setContext } from 'svelte'
+	import { getContext, onDestroy, setContext, untrack } from 'svelte'
 	import { get, writable, type Writable } from 'svelte/store'
 	import { buildWorld } from '../rx'
 	import type {
@@ -24,24 +24,39 @@
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 
-	export let app: App
-	export let appPath: string = ''
-	export let breakpoint: Writable<EditorBreakpoint> = writable('lg')
-	export let policy: Policy = {}
-	export let summary: string = ''
-	export let workspace: string = $workspaceStore!
-	export let isEditor: boolean = false
-	export let context: Record<string, any>
-	export let noBackend: boolean = false
-	export let isLocked = false
-	export let hideRefreshBar = false
+	interface Props {
+		app: App
+		appPath?: string
+		breakpoint?: Writable<EditorBreakpoint>
+		policy?: Policy
+		summary?: string
+		workspace?: string
+		isEditor?: boolean
+		context: Record<string, any>
+		noBackend?: boolean
+		isLocked?: boolean
+		hideRefreshBar?: boolean
+		class?: string
+		replaceStateFn?: (path: string) => void
+		gotoFn?: (path: string, opt?: Record<string, any> | undefined) => void
+	}
 
-	export let replaceStateFn: (path: string) => void = (path: string) =>
-		window.history.replaceState(null, '', path)
-	export let gotoFn: (path: string, opt?: Record<string, any> | undefined) => void = (
-		path: string,
-		opt?: Record<string, any>
-	) => window.history.pushState(null, '', path)
+	let {
+		app,
+		appPath = '',
+		breakpoint = writable('lg'),
+		policy = {},
+		summary = '',
+		workspace = $workspaceStore!,
+		isEditor = false,
+		context,
+		noBackend = false,
+		isLocked = $bindable(false),
+		hideRefreshBar = false,
+		class: classNames = '',
+		replaceStateFn = (path: string) => window.history.replaceState(null, '', path),
+		gotoFn = (path: string, opt?: Record<string, any>) => window.history.pushState(null, '', path)
+	}: Props = $props()
 
 	migrateApp(app)
 
@@ -93,12 +108,11 @@
 
 	setTheme($darkMode)
 
-	const state = writable({})
+	const appState = writable({})
 
 	let parentContext = getContext<AppViewerContext>('AppViewerContext')
 
 	let worldStore = buildWorld(ncontext)
-	$: onContextChange(context)
 
 	function onContextChange(context: any) {
 		Object.assign(ncontext, context)
@@ -118,7 +132,6 @@
 	}
 
 	let writablePath = writable(appPath)
-	$: appPath && onPathChange()
 
 	function onPathChange() {
 		writablePath.set(appPath)
@@ -152,7 +165,7 @@
 		focusedGrid: writable(undefined),
 		stateId: writable(0),
 		parentWidth,
-		state: state,
+		state: appState,
 		componentControl: writable({}),
 		hoverStore: writable(undefined),
 		allIdsInPath,
@@ -172,19 +185,7 @@
 		panzoomActive: writable(false)
 	})
 
-	let previousSelectedIds: string[] | undefined = undefined
-	$: if (!deepEqual(previousSelectedIds, $selectedComponent)) {
-		previousSelectedIds = $selectedComponent
-		$allIdsInPath = ($selectedComponent ?? [])
-			.flatMap((id) => dfs(app.grid, id, app.subgrids ?? {}))
-			.filter((x) => x != undefined) as string[]
-	}
-
-	$: width =
-		$breakpoint === 'sm' && $appStore?.mobileViewOnSmallerScreens !== false
-			? 'max-w-[640px]'
-			: 'w-full min-w-[768px]'
-	$: lockedClasses = isLocked ? '!max-h-[400px] overflow-hidden pointer-events-none' : ''
+	let previousSelectedIds: string[] | undefined = $state(undefined)
 
 	function onThemeChange() {
 		$darkMode = app?.darkMode ?? document.documentElement.classList.contains('dark')
@@ -192,7 +193,7 @@
 
 	const cssId = 'wm-global-style'
 
-	let css: string | undefined = undefined
+	let css: string | undefined = $state(undefined)
 
 	appStore.subscribe(loadTheme)
 
@@ -210,8 +211,6 @@
 			}
 		}
 	}
-
-	$: addOrRemoveCss($enterpriseLicense !== undefined || isEditor, css)
 
 	function addOrRemoveCss(isPremium: boolean, cssString: string | undefined) {
 		const existingElement = document.getElementById(cssId)
@@ -237,24 +236,50 @@
 		}
 	}
 
-	let appHeight: number = 0
+	let appHeight: number = $state(0)
 
-	$: maxRow = maxHeight($appStore.grid, appHeight, $breakpoint)
+	$effect(() => {
+		context && untrack(() => onContextChange(context))
+	})
+	$effect(() => {
+		appPath && untrack(() => onPathChange())
+	})
+	$effect(() => {
+		;[previousSelectedIds, $selectedComponent]
+		untrack(() => {
+			if (!deepEqual(previousSelectedIds, $selectedComponent)) {
+				previousSelectedIds = $selectedComponent
+				$allIdsInPath = ($selectedComponent ?? [])
+					.flatMap((id) => dfs(app.grid, id, app.subgrids ?? {}))
+					.filter((x) => x != undefined) as string[]
+			}
+		})
+	})
+	let width = $derived(
+		$breakpoint === 'sm' && $appStore?.mobileViewOnSmallerScreens !== false
+			? 'max-w-[640px]'
+			: 'w-full min-w-[768px]'
+	)
+	let lockedClasses = $derived(isLocked ? '!max-h-[400px] overflow-hidden pointer-events-none' : '')
+	$effect(() => {
+		;[$enterpriseLicense, isEditor, css]
+		untrack(() => addOrRemoveCss($enterpriseLicense !== undefined || isEditor, css))
+	})
+	let maxRow = $derived(maxHeight($appStore.grid, appHeight, $breakpoint))
 </script>
 
-<svelte:head>
-</svelte:head>
+<svelte:head></svelte:head>
 
 <DarkModeObserver on:change={onThemeChange} />
 
-<svelte:window on:hashchange={hashchange} on:resize={resizeWindow} />
+<svelte:window onhashchange={hashchange} onresize={resizeWindow} />
 
 <div class="relative min-h-full grow" bind:clientHeight={appHeight}>
 	<div id="app-editor-top-level-drawer"></div>
 	<div id="app-editor-select"></div>
 
 	<div
-		class="{$$props.class} {lockedClasses} {width} h-full bg-surface {app.fullscreen
+		class="{classNames} {lockedClasses} {width} h-full bg-surface {app.fullscreen
 			? ''
 			: 'max-w-7xl'} mx-auto"
 		id="app-content"
@@ -290,36 +315,32 @@
 			bind:clientWidth={$parentWidth}
 		>
 			<div>
-				<GridViewer
-					allIdsInPath={$allIdsInPath}
-					items={app.grid}
-					let:dataItem
-					{maxRow}
-					breakpoint={$breakpoint}
-				>
-					<!-- svelte-ignore a11y-click-events-have-key-events -->
-					<div
-						class={'h-full w-full center-center'}
-						on:pointerdown={() => ($selectedComponent = [dataItem.id])}
-					>
-						<Component
-							render={true}
-							component={dataItem.data}
-							selected={false}
-							locked={true}
-							fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
-						/>
-					</div>
+				<GridViewer allIdsInPath={$allIdsInPath} items={app.grid} {maxRow} breakpoint={$breakpoint}>
+					{#snippet children({ dataItem })}
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<div
+							class={'h-full w-full center-center'}
+							onpointerdown={() => ($selectedComponent = [dataItem.id])}
+						>
+							<Component
+								render={true}
+								component={dataItem.data}
+								selected={false}
+								locked={true}
+								fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
+							/>
+						</div>
+					{/snippet}
 				</GridViewer>
 			</div>
 		</div>
 	</div>
 
 	{#if isLocked}
-		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			on:click={() => (isLocked = false)}
+			onclick={() => (isLocked = false)}
 			class="absolute inset-0 center-center bg-black/20 z-50 backdrop-blur-[1px] cursor-pointer"
 		>
 			<Button on:click={() => (isLocked = false)}>

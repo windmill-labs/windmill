@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext, tick, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, tick, untrack } from 'svelte'
 	import { get } from 'svelte/store'
 	import type {
 		AppInput,
@@ -80,7 +80,15 @@
 		return await evalExpr(input as EvalAppInput, args)
 	}
 
+	let destroyed = false
+	onDestroy(() => {
+		destroyed = true
+		clearTimeout(timeout)
+		timeout = undefined
+	})
+
 	function debounce(cb: () => Promise<void>) {
+		if (destroyed) return
 		if (firstDebounce) {
 			firstDebounce = false
 			cb()
@@ -93,6 +101,7 @@
 	}
 
 	function debounce2(cb: () => Promise<void>) {
+		if (destroyed) return
 		if (firstDebounce) {
 			firstDebounce = false
 			cb()
@@ -136,7 +145,7 @@
 	}
 
 	async function handleConnection() {
-		// console.log('handleCon')
+		if (destroyed) return
 		if (input?.type === 'connected') {
 			if (input.connection) {
 				const { path, componentId } = input.connection
@@ -213,6 +222,7 @@
 
 	function onTemplateChange(previousValueKey: string) {
 		return (newValue) => {
+			console.log('onTemplateChange', previousValueKey, newValue, id)
 			previousConnectedValues[previousValueKey] = newValue
 			debounceTemplate()
 		}
@@ -338,7 +348,7 @@
 			untrack(() => debounceTemplate())
 	})
 	let stateId = $derived($worldStore?.stateId)
-	$effect.pre(() => {
+	$effect(() => {
 		input?.type == 'static' && input.value
 		input && $worldStore && untrack(() => debounce(handleConnection))
 	})
@@ -366,3 +376,4 @@
 </script>
 
 <!-- {JSON.stringify(input)} -->
+<!-- 3{value} -->
