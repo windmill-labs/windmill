@@ -11,13 +11,7 @@
 	import { inferArgs, parseOutputs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
 	import Editor from '$lib/components/Editor.svelte'
-	import {
-		defaultIfEmptyString,
-		EDITOR_POSITION_MAP_CONTEXT_KEY,
-		emptySchema,
-		itemsExists,
-		type EditorPositionMap
-	} from '$lib/utils'
+	import { defaultIfEmptyString, editorPositionMap, emptySchema, itemsExists } from '$lib/utils'
 	import { computeFields } from './utils'
 	import { deepEqual } from 'fast-equals'
 	import type { AppInput } from '../../inputType'
@@ -67,8 +61,6 @@
 	let simpleEditor: SimpleEditor | undefined = $state()
 	let validCode = $state(true)
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer | undefined = $state()
-
-	let editorPositionMap = getContext<EditorPositionMap>(EDITOR_POSITION_MAP_CONTEXT_KEY) ?? {}
 
 	async function inferInlineScriptSchema(
 		language: Preview['language'],

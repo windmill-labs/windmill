@@ -15,7 +15,6 @@
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI'
-	import { EDITOR_POSITION_MAP_CONTEXT_KEY, type EditorPositionMap } from '$lib/utils'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	interface Props {
@@ -62,8 +61,6 @@
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
 	})
-
-	setContext<EditorPositionMap>(EDITOR_POSITION_MAP_CONTEXT_KEY, {})
 
 	onMount(() => {
 		aiChatManager.changeMode(AIMode.FLOW)

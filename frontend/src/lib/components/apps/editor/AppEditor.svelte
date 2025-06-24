@@ -26,14 +26,7 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/TabsV2.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import {
-		classNames,
-		EDITOR_POSITION_MAP_CONTEXT_KEY,
-		type EditorPositionMap,
-		encodeState,
-		getModifierKey,
-		sendUserToast
-	} from '$lib/utils'
+	import { classNames, encodeState, getModifierKey, sendUserToast } from '$lib/utils'
 	import AppPreview from './AppPreview.svelte'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
@@ -220,8 +213,6 @@
 		}),
 		panzoomActive
 	})
-
-	setContext<EditorPositionMap>(EDITOR_POSITION_MAP_CONTEXT_KEY, {})
 
 	let scale = writable(100)
 

@@ -1432,5 +1432,4 @@ export function scroll_into_view_if_needed_polyfill(elem: Element, centerIfNeede
 	return observer // return for testing
 }
 
-export type EditorPositionMap = Record<string, IPosition>
-export const EDITOR_POSITION_MAP_CONTEXT_KEY = 'editor-position-map'
+export const editorPositionMap: Record<string, IPosition> = {}

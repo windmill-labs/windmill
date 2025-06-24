@@ -53,7 +53,7 @@
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
-	import { EDITOR_POSITION_MAP_CONTEXT_KEY, type EditorPositionMap } from '$lib/utils'
+	import { editorPositionMap } from '$lib/utils'
 
 	const {
 		selectedId,
@@ -120,8 +120,6 @@
 	let testJob: Job | undefined = $state(undefined)
 	let testIsLoading = $state(false)
 	let scriptProgress = $state(undefined)
-
-	let editorPositionMap = getContext<EditorPositionMap>(EDITOR_POSITION_MAP_CONTEXT_KEY) ?? {}
 
 	function onModulesChange(savedModule: FlowModule | undefined, flowModule: FlowModule) {
 		// console.log('onModulesChange', savedModule, flowModule)

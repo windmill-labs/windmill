@@ -13,16 +13,13 @@
 	import { resolveTheme } from './themeUtils'
 	import ThemeCodePreview from './ThemeCodePreview.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { EDITOR_POSITION_MAP_CONTEXT_KEY, type EditorPositionMap } from '$lib/utils'
-
+	import { editorPositionMap } from '$lib/utils'
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let cssEditor: SimpleEditor | undefined = $state(undefined)
 	let alertHeight: number | undefined = $state(undefined)
 	let themeViewer: any = $state(undefined)
 	let selectedTab: 'css' | 'theme' = $state('css')
-
-	let editorPositionMap = getContext<EditorPositionMap>(EDITOR_POSITION_MAP_CONTEXT_KEY) ?? {}
 
 	function insertSelector(selector: string) {
 		if ($app?.theme?.type === 'path') {
