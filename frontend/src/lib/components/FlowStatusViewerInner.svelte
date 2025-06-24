@@ -583,8 +583,7 @@
 						previewArgs: job.args,
 						previewJobId: job.id,
 						previewWorkspaceId: job.workspace_id,
-						previewSuccess: job['success'],
-						initial: false
+						previewSuccess: job['success']
 					}
 				}
 			}

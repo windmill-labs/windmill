@@ -38,6 +38,7 @@
 	import { dfsByModule } from '../previousResults'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -253,9 +254,17 @@
 		}
 	}
 
+	let stepHistoryLoader = getStepHistoryLoaderContext()
+
 	async function loadLastJob(path: string, moduleId: string) {
 		if (!path) {
 			return
+		}
+		if (stepHistoryLoader) {
+			stepHistoryLoader.stepStates[moduleId] = {
+				initial: true,
+				loadingJobs: true
+			}
 		}
 		const previousJobId = await JobService.listJobs({
 			workspace: $workspaceStore!,
@@ -275,8 +284,10 @@
 					previewResult: getJobResult.result,
 					previewJobId: previousJobId[0].id,
 					previewWorkspaceId: previousJobId[0].workspace_id,
-					previewSuccess: getJobResult.success,
-					initial: true
+					previewSuccess: getJobResult.success
+				}
+				if (stepHistoryLoader) {
+					stepHistoryLoader.stepStates[moduleId].loadingJobs = false
 				}
 			}
 			$flowStateStore = $flowStateStore

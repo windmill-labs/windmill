@@ -34,7 +34,6 @@
 	let jobId: string | undefined = undefined
 	let job: Job | undefined = undefined
 	let preventEscape = false
-	let initial = false
 	let selectedJobStep: string | undefined = undefined
 	let selectedJobStepIsTopLevel: boolean | undefined = undefined
 	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = 'single'
@@ -121,7 +120,6 @@
 			bind:previewMode
 			bind:job
 			bind:jobId
-			bind:initial
 			bind:selectedJobStep
 			bind:selectedJobStepIsTopLevel
 			bind:selectedJobStepType

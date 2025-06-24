@@ -22,6 +22,7 @@
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { untrack } from 'svelte'
+	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 
 	let version: undefined | number = $state(undefined)
 	let nodraft = $page.url.searchParams.get('nodraft')
@@ -73,6 +74,9 @@
 
 	let draftTriggersFromUrl: Trigger[] | undefined = $state(undefined)
 	let selectedTriggerIndexFromUrl: number | undefined = $state(undefined)
+	let loadedFromHistoryFromUrl:
+		| { flowInitial: boolean | undefined; moduleInitial: Record<string, stepState> }
+		| undefined = $state(undefined)
 
 	let flowBuilder: FlowBuilder | undefined = $state(undefined)
 
@@ -106,8 +110,10 @@
 			flow = stateLoadedFromUrl.flow
 			draftTriggersFromUrl = stateLoadedFromUrl.draft_triggers
 			selectedTriggerIndexFromUrl = stateLoadedFromUrl.selected_trigger
+			loadedFromHistoryFromUrl = stateLoadedFromUrl.loadedFromHistory
 			flowBuilder?.setDraftTriggers(draftTriggersFromUrl)
 			flowBuilder?.setSelectedTriggerIndex(selectedTriggerIndexFromUrl)
+			flowBuilder?.setLoadedFromHistory(loadedFromHistoryFromUrl)
 			const selectedId = stateLoadedFromUrl?.selectedId ?? 'settings-metadata'
 			const reloadAction = () => {
 				stateLoadedFromUrl = undefined
@@ -212,6 +218,7 @@
 		await initFlow(flow, flowStore, flowStateStore)
 		loading = false
 		selectedId = stateLoadedFromUrl?.selectedId ?? $page.url.searchParams.get('selected')
+		flowBuilder?.loadFlowState()
 	}
 
 	$effect(() => {
@@ -283,6 +290,7 @@
 	{draftTriggersFromUrl}
 	{selectedTriggerIndexFromUrl}
 	{version}
+	{loadedFromHistoryFromUrl}
 >
 	<UnsavedConfirmationModal
 		{diffDrawer}

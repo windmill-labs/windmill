@@ -20,6 +20,7 @@
 	import FlowHistoryJobPicker from './FlowHistoryJobPicker.svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import type { DurationStatus, GraphModuleState } from './graph'
+	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
 
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
@@ -27,7 +28,6 @@
 
 	export let jobId: string | undefined = undefined
 	export let job: Job | undefined = undefined
-	export let initial: boolean = false
 
 	export let selectedJobStep: string | undefined = undefined
 	export let selectedJobStepIsTopLevel: boolean | undefined = undefined
@@ -68,29 +68,7 @@
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
-	function setAllModulesInitial(isInitial: boolean) {
-		// Set all existing modules in flowStateStore to initial value
-		if (isInitial) {
-			for (const moduleId in $flowStateStore) {
-				if ($flowStateStore[moduleId] && $flowStateStore[moduleId].initial === undefined) {
-					$flowStateStore[moduleId] = {
-						...$flowStateStore[moduleId],
-						initial: true
-					}
-				}
-			}
-		} else {
-			for (const moduleId in $flowStateStore) {
-				if ($flowStateStore[moduleId] && $flowStateStore[moduleId].initial) {
-					$flowStateStore[moduleId] = {
-						...$flowStateStore[moduleId],
-						initial: false
-					}
-				}
-			}
-		}
-		$flowStateStore = $flowStateStore
-	}
+	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	let renderCount: number = 0
 	let schemaFormWithArgPicker: SchemaFormWithArgPicker | undefined = undefined
@@ -116,8 +94,8 @@
 		args: Record<string, any>,
 		restartedFrom: RestartedFrom | undefined
 	) {
-		if (initial) {
-			initial = false
+		if (stepHistoryLoader?.flowJobInitial) {
+			stepHistoryLoader?.setFlowJobInitial(false)
 		}
 		try {
 			lastPreviewFlow = JSON.stringify(flowStore.val)
@@ -205,9 +183,6 @@
 	}
 
 	$: selectedJobStep !== undefined && onSelectedJobStepChange()
-
-	// When initial becomes true, mark all modules as initial
-	$: setAllModulesInitial(initial)
 
 	let scrollableDiv: HTMLDivElement | undefined = undefined
 	function handleScroll() {
@@ -476,8 +451,10 @@
 							currentJobId = jobId
 						}
 						const detail = e.detail
-						initial = detail.initial
 						jobId = detail.jobId
+						if (detail.initial && stepHistoryLoader?.flowJobInitial === undefined) {
+							stepHistoryLoader?.setFlowJobInitial(detail.initial)
+						}
 					}}
 					on:unselect={() => {
 						jobId = currentJobId
@@ -487,12 +464,12 @@
 				/>
 			</div>
 			{#if jobId}
-				{#if initial}
+				{#if stepHistoryLoader?.flowJobInitial}
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<!-- svelte-ignore a11y-no-static-element-interactions -->
 					<div
 						on:click={() => {
-							initial = false
+							stepHistoryLoader?.setFlowJobInitial(false)
 						}}
 						class="cursor-pointer h-full hover:bg-gray-500/20 dark:hover:bg-gray-500/20 dark:bg-gray-500/80 rounded bg-gray-500/40 absolute top-0 left-0 w-full z-50"
 					>

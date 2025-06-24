@@ -53,6 +53,7 @@
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 
 	const {
 		selectedId,
@@ -186,6 +187,7 @@
 	let forceReload = $state(0)
 	let editorPanelSize = $state(noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50)
 	let editorSettingsPanelSize = $state(100 - untrack(() => editorPanelSize))
+	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	function onSelectedIdChange() {
 		if (!$flowStateStore?.[$selectedId]?.schema && flowModule) {
@@ -820,12 +822,12 @@
 								</Pane>
 								{#if selected === 'test'}
 									<Pane minSize={20} class="relative">
-										{#if $flowStateStore[flowModule.id]?.initial}
+										{#if stepHistoryLoader?.stepStates[flowModule.id]?.initial}
 											<!-- svelte-ignore a11y_no_static_element_interactions -->
 											<!-- svelte-ignore a11y_click_events_have_key_events -->
 											<div
 												onclick={() => {
-													$flowStateStore[flowModule.id]!.initial = false
+													stepHistoryLoader?.resetInitial(flowModule.id)
 												}}
 												class="cursor-pointer h-full hover:bg-gray-500/20 dark:hover:bg-gray-500/20 dark:bg-gray-500/80 bg-gray-500/40 absolute top-0 left-0 w-full z-50"
 											>
@@ -855,7 +857,7 @@
 											{testIsLoading}
 											disableMock={preprocessorModule || failureModule}
 											disableHistory={failureModule}
-											loadingHistory={$flowStateStore[flowModule.id]?.loadingJobs}
+											loadingHistory={stepHistoryLoader?.stepStates[flowModule.id]?.loadingJobs}
 										/>
 									</Pane>
 								{/if}

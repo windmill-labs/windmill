@@ -37,6 +37,7 @@
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import { Button } from '$lib/components/common'
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
+	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 
 	interface Props {
 		selected?: boolean
@@ -138,6 +139,8 @@
 	let outputPickerBarOpen = $state(false)
 
 	let flowStateStore = $derived(flowEditorContext?.flowStateStore)
+
+	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	function updateConnectingData(
 		id: string | undefined,
@@ -413,11 +416,9 @@
 				bind:bottomBarOpen={outputPickerBarOpen}
 				{loopStatus}
 				{onEditInput}
-				initial={id ? $flowStateStore[id]?.initial : undefined}
+				initial={id ? stepHistoryLoader?.stepStates[id]?.initial : undefined}
 				onResetInitial={() => {
-					if (id) {
-						$flowStateStore[id]!.initial = false
-					}
+					stepHistoryLoader?.resetInitial(id)
 				}}
 			>
 				{#snippet children({ allowCopy, isConnecting, selectConnection })}
@@ -436,7 +437,8 @@
 						bind:derivedHistoryOpen={historyOpen}
 						historyOffset={{ mainAxis: 12, crossAxis: -9 }}
 						clazz="p-1"
-						isLoading={testIsLoading || (!!id && !!$flowStateStore[id]?.loadingJobs)}
+						isLoading={testIsLoading ||
+							(id ? stepHistoryLoader?.stepStates[id]?.loadingJobs : false)}
 					/>
 				{/snippet}
 			</OutputPicker>

@@ -23,7 +23,6 @@
 		cleanValueProperties,
 		encodeState,
 		generateRandomString,
-		loadIndividualStepsStates,
 		orderedJsonStringify,
 		readFieldsRecursively,
 		replaceFalseWithUndefined,
@@ -34,7 +33,7 @@
 	import { Drawer } from '$lib/components/common'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
-	import { onMount, onDestroy, setContext, untrack, type ComponentType } from 'svelte'
+	import { onMount, setContext, untrack, type ComponentType } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Badge, Button, UndoRedo } from './common'
@@ -75,6 +74,11 @@
 	import { Triggers } from './triggers/triggers.svelte'
 	import { TestSteps } from './flows/testSteps.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
+	import {
+		setStepHistoryLoaderContext,
+		StepHistoryLoader,
+		type stepState
+	} from './stepHistoryLoader.svelte'
 
 	interface Props {
 		initialPath?: string
@@ -96,6 +100,10 @@
 		draftTriggersFromUrl?: Trigger[] | undefined
 		selectedTriggerIndexFromUrl?: number | undefined
 		children?: import('svelte').Snippet
+		loadedFromHistoryFromUrl?: {
+			flowInitial: boolean | undefined
+			moduleInitial: Record<string, stepState>
+		}
 	}
 
 	let {
@@ -117,7 +125,8 @@
 		setSavedraftCb = undefined,
 		draftTriggersFromUrl = undefined,
 		selectedTriggerIndexFromUrl = undefined,
-		children
+		children,
+		loadedFromHistoryFromUrl
 	}: Props = $props()
 
 	let initialPathStore = writable(initialPath)
@@ -501,7 +510,11 @@
 						path: $pathStore,
 						selectedId: $selectedIdStore,
 						draft_triggers: triggersState.getDraftTriggersSnapshot(),
-						selected_trigger: triggersState.getSelectedTriggerSnapshot()
+						selected_trigger: triggersState.getSelectedTriggerSnapshot(),
+						loadedFromHistory: {
+							flowInitial: stepHistoryLoader.flowJobInitial,
+							moduleInitial: stepHistoryLoader.stepStates
+						}
 					})
 				)
 			} catch (err) {
@@ -797,32 +810,37 @@
 		customUi && untrack(() => onCustomUiChange(customUi))
 	})
 
-	// Debounced effect to avoid running loadFlowState too often
-	let loadFlowStateTimeout: ReturnType<typeof setTimeout> | undefined
-
-	$effect(() => {
-		if (!flowStore.val) return
-		clearTimeout(loadFlowStateTimeout)
-		loadFlowStateTimeout = setTimeout(() => {
-			loadFlowState()
-		}, 500)
-	})
-
-	onDestroy(() => {
-		loadFlowStateTimeout && clearTimeout(loadFlowStateTimeout)
-	})
-
-	async function loadFlowState() {
-		if (loadingJobs) return
-		loadingJobs = true
-		await loadIndividualStepsStates(
+	export async function loadFlowState() {
+		await stepHistoryLoader.loadIndividualStepsStates(
 			flowStore.val as Flow,
 			flowStateStore,
 			$workspaceStore!,
 			$initialPathStore,
 			$pathStore
 		)
-		loadingJobs = false
+	}
+
+	let stepHistoryLoader = new StepHistoryLoader(
+		loadedFromHistoryFromUrl?.moduleInitial ?? {},
+		loadedFromHistoryFromUrl?.flowInitial,
+		saveSessionDraft
+	)
+	setStepHistoryLoaderContext(stepHistoryLoader)
+
+	export function setLoadedFromHistory(
+		loadedFromHistoryUrl:
+			| {
+					flowInitial: boolean | undefined
+					moduleInitial: Record<string, stepState>
+			  }
+			| undefined
+	) {
+		if (!loadedFromHistoryUrl) {
+			return
+		}
+
+		stepHistoryLoader.setFlowJobInitial(loadedFromHistoryUrl.flowInitial)
+		stepHistoryLoader.stepStates = loadedFromHistoryUrl.moduleInitial
 	}
 </script>
 
