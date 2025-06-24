@@ -238,9 +238,7 @@ lazy_static::lazy_static! {
 
 // Content Security Policy configuration
 lazy_static::lazy_static! {
-    pub static ref CSP_ENABLED: bool = std::env::var("ENABLE_CSP_HEADERS").is_ok();
-    pub static ref CSP_POLICY: String = std::env::var("CSP_POLICY")
-        .unwrap_or_else(|_| "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'".to_string());
+    pub static ref CSP_POLICY: String = std::env::var("CSP_POLICY").unwrap_or_default();
 }
 
 // Compliance with cloud events spec.
@@ -269,11 +267,10 @@ pub async fn add_webhook_allowed_origin(
 /// 
 /// This middleware adds a CSP header to all HTTP responses to enhance security
 /// by controlling which resources the browser is allowed to load. The CSP policy
-/// can be customized via the CSP_POLICY environment variable, or will use a
-/// secure default policy suitable for web applications.
+/// is specified via the CSP_POLICY environment variable.
 /// 
-/// Note: This middleware is only added to the middleware stack when CSP is enabled
-/// via the ENABLE_CSP_HEADERS environment variable.
+/// Note: This middleware is only added to the middleware stack when CSP_POLICY
+/// environment variable is set to a non-empty value.
 pub async fn add_csp_headers(
     req: axum::extract::Request,
     next: axum::middleware::Next,
@@ -350,8 +347,8 @@ pub async fn run_server(
         .layer(DefaultBodyLimit::max(
             REQUEST_SIZE_LIMIT.read().await.clone(),
         ))
-        // Conditionally add CSP headers middleware only when enabled
-        .option_layer(if *CSP_ENABLED {
+        // Conditionally add CSP headers middleware when policy is explicitly set
+        .option_layer(if !CSP_POLICY.is_empty() {
             Some(axum::middleware::from_fn(add_csp_headers))
         } else {
             None
