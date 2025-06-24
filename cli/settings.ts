@@ -632,42 +632,39 @@ async function resolveWorkspaceForSettings(
   let repositoryPath: string | undefined;
   let workspaceName: string | undefined;
 
-  if (opts.workspace && opts.repository) {
-    workspace = await resolveWorkspace(opts);
-    workspaceName = opts.workspace;
-    repositoryPath = opts.repository;
-    const mergedOpts = { ...(config || {}), ...opts };
-    return { workspace, repositoryPath, workspaceName, mergedOpts };
-  }
+  // IMPORTANT: Use same workspace resolution priority as sync.ts:
+  // 1. CLI args (--workspace, --base-url, --token) take highest priority
+  // 2. Current active workspace (from wmilldev workspace whoami) if no CLI args
+  // 3. Config file workspace as fallback
+  
+  // First, always resolve the actual workspace we'll be using
+  workspace = await resolveWorkspace(opts);
+  workspaceName = workspace.workspaceId;
 
   try {
-    // Try to resolve using workspace-aware method
-    const { workspaceName: resolvedWorkspace, workspaceProfile, repositoryPath: resolvedRepo, syncOptions } =
-      await resolveWorkspaceAndRepositoryForSync(opts.workspace, opts.repository, config);
+    // Now try to resolve repository using workspace-aware method
+    // Pass the resolved workspace ID to ensure consistency
+    const effectiveWorkspaceName = opts.workspace || workspace.workspaceId;
+    
+    const { workspaceName: configWorkspaceName, workspaceProfile, repositoryPath: resolvedRepo, syncOptions } =
+      await resolveWorkspaceAndRepositoryForSync(effectiveWorkspaceName, opts.repository, config);
 
-    if (workspaceProfile) {
-      // Use workspace profile to create workspace object
-      workspace = {
-        workspaceId: workspaceProfile.workspaceId,
-        name: resolvedWorkspace || '',
-        remote: workspaceProfile.baseUrl,
-        token: opts.token || '' // Keep existing token resolution
-      };
-      workspaceName = resolvedWorkspace;
-    } else {
-      // Fallback to normal workspace resolution
-      workspace = await resolveWorkspace(opts);
+    // If we found a workspace profile from config but it doesn't match our resolved workspace,
+    // we need to reconcile this. The resolved workspace takes priority.
+    if (workspaceProfile && configWorkspaceName !== workspace.workspaceId) {
+      log.info(colors.yellow(`Config workspace (${configWorkspaceName}) differs from active workspace (${workspace.workspaceId}). Using active workspace.`));
     }
 
     repositoryPath = resolvedRepo;
+    // Clean up our special backend fetch marker before merging
+    const cleanSyncOptions = { ...syncOptions };
+    delete (cleanSyncOptions as any).__needsBackendFetch;
     // Merge resolved repository options with command line options
-    const mergedOpts = { ...syncOptions, ...opts };
+    const mergedOpts = { ...cleanSyncOptions, ...opts };
 
     return { workspace, repositoryPath, workspaceName, mergedOpts };
   } catch (error) {
     // Fall back to legacy resolution
-    workspace = await resolveWorkspace(opts);
-    workspaceName = workspace.name;
     repositoryPath = opts.repository; // Legacy: just use specified repository
 
     // If no explicit repository but we have a workspace, try to resolve from backend
@@ -748,6 +745,10 @@ async function runDiffCommand(args: string[]): Promise<{ stdout: string; stderr:
 export async function fetchBackendSettings(workspace: { workspaceId: string }, repositoryPath?: string): Promise<SyncOptions> {
   const backendSettings = await wmill.getSettings({ workspace: workspace.workspaceId });
 
+  if (!backendSettings.git_sync?.repositories || backendSettings.git_sync.repositories.length === 0) {
+    throw new Error(`No git-sync repositories configured for workspace '${workspace.workspaceId}'. Configure git-sync in the Windmill workspace settings first.`);
+  }
+
   if (backendSettings.git_sync?.repositories && backendSettings.git_sync.repositories.length > 0) {
     let targetRepo;
 
@@ -803,7 +804,7 @@ export async function fetchBackendSettings(workspace: { workspaceId: string }, r
     syncOptions.extraIncludes = repoSettings.extra_include_path || [];
     return syncOptions;
   } else {
-    return { ...DEFAULT_SYNC_OPTIONS };
+    throw new Error(`No git-sync repositories configured for workspace '${workspace.workspaceId}'. Configure git-sync in the Windmill workspace settings first.`);
   }
 }
 

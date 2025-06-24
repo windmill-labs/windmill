@@ -240,6 +240,11 @@ export async function resolveWorkspaceAndRepositoryForSync(
       syncOptions = baseConfig;
     }
 
+    // If we have empty sync options (no local config), mark for backend fetch
+    if (Object.keys(syncOptions).length === 0 && workspaceName) {
+      syncOptions = { __needsBackendFetch: true } as any;
+    }
+
     // If we don't have either workspace or repository from config, throw to trigger fallback
     if (!workspaceName && !repositoryPath) {
       throw new Error("No workspace or repository found in multi-workspace config");
@@ -274,7 +279,7 @@ export async function resolveWorkspaceAndRepositoryForSync(
         workspaceName: undefined,
         workspaceProfile: undefined,
         repositoryPath: specifiedRepository,
-        syncOptions: {}
+        syncOptions: { __needsBackendFetch: true } as any  // Special marker to indicate backend fetch needed
       };
     }
   }

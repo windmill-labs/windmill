@@ -936,12 +936,22 @@ includeGroups: false
 includeSettings: false
 includeKey: false`);
 
-    // Update backend to have different settings
+    // Update backend to have different settings but preserve repository config
     await backend.updateGitSyncConfig({
-      include_path: ["f/**"],
-      include_type: ["script", "flow", "app", "folder", "variable", "resource", "resourcetype", "secret"],
-      exclude_path: [],
-      extra_include_path: []
+      git_sync_settings: {
+        repositories: [{
+          git_repo_resource_path: "u/test/test_repo",
+          script_path: "f/**",
+          group_by_folder: false,
+          use_individual_branch: false,
+          settings: {
+            include_path: ["g/**"],  // Changed from f/** to g/** to test diff detection
+            include_type: ["script", "flow", "app", "folder", "variable", "resource", "resourcetype", "secret"],
+            exclude_path: [],
+            extra_include_path: []
+          }
+        }]
+      }
     });
 
     const result = await backend.runCLICommand([
@@ -1041,10 +1051,20 @@ includeSettings: false`);
 
     // Update backend to have different settings (includeSettings: true)
     await backend.updateGitSyncConfig({
-      include_path: ["f/**"],
-      include_type: ["script", "flow", "app", "folder", "variable", "resource", "resourcetype", "secret", "settings"],
-      exclude_path: [],
-      extra_include_path: []
+      git_sync_settings: {
+        repositories: [{
+          git_repo_resource_path: "u/test/test_repo",
+          script_path: "f/**",
+          group_by_folder: false,
+          use_individual_branch: false,
+          settings: {
+            include_path: ["f/**"],
+            include_type: ["script", "flow", "app", "folder", "variable", "resource", "resourcetype", "secret", "settings"],
+            exclude_path: [],
+            extra_include_path: []
+          }
+        }]
+      }
     });
 
     const result = await backend.runCLICommand([
@@ -1079,10 +1099,20 @@ includeSettings: false`);
 
     // Update backend to have different includeSettings
     await backend.updateGitSyncConfig({
-      include_path: ["f/**"],
-      include_type: ["script", "flow", "app", "folder", "variable", "resource", "resourcetype", "secret", "settings"],
-      exclude_path: [],
-      extra_include_path: []
+      git_sync_settings: {
+        repositories: [{
+          git_repo_resource_path: "u/test/test_repo",
+          script_path: "f/**",
+          group_by_folder: false,
+          use_individual_branch: false,
+          settings: {
+            include_path: ["f/**"],
+            include_type: ["script", "flow", "app", "folder", "variable", "resource", "resourcetype", "secret", "settings"],
+            exclude_path: [],
+            extra_include_path: []
+          }
+        }]
+      }
     });
 
     const result = await backend.runCLICommand([
@@ -1140,10 +1170,20 @@ includeSettings: false`);
 
     // Set backend to different settings first
     await backend.updateGitSyncConfig({
-      include_path: ["f/**"],
-      include_type: ["script", "flow", "app", "folder", "variable", "resource", "resourcetype", "secret", "settings"],
-      exclude_path: [],
-      extra_include_path: []
+      git_sync_settings: {
+        repositories: [{
+          git_repo_resource_path: "u/test/test_repo",
+          script_path: "f/**",
+          group_by_folder: false,
+          use_individual_branch: false,
+          settings: {
+            include_path: ["f/**"],
+            include_type: ["script", "flow", "app", "folder", "variable", "resource", "resourcetype", "secret", "settings"],
+            exclude_path: [],
+            extra_include_path: []
+          }
+        }]
+      }
     });
 
     // Run actual push with --include-wmill-yaml
@@ -1178,10 +1218,20 @@ includeSettings: false`);
 
     // Set backend to different settings
     await backend.updateGitSyncConfig({
-      include_path: ["f/**"],
-      include_type: ["script", "flow", "app", "folder", "variable", "resource", "resourcetype", "secret", "settings"],
-      exclude_path: [],
-      extra_include_path: []
+      git_sync_settings: {
+        repositories: [{
+          git_repo_resource_path: "u/test/test_repo",
+          script_path: "f/**",
+          group_by_folder: false,
+          use_individual_branch: false,
+          settings: {
+            include_path: ["f/**"],
+            include_type: ["script", "flow", "app", "folder", "variable", "resource", "resourcetype", "secret", "settings"],
+            exclude_path: [],
+            extra_include_path: []
+          }
+        }]
+      }
     });
 
     const result = await backend.runCLICommand([
@@ -1364,10 +1414,20 @@ Deno.test("Integration: Pull with --include-wmill-yaml then verify settings cons
   await withContainerizedBackend(async (backend, tempDir) => {
     // Set up backend with specific settings
     await backend.updateGitSyncConfig({
-      include_path: ["integration/**"],
-      include_type: ["script", "flow"],
-      exclude_path: ["*.test.ts"],
-      extra_include_path: ["extra/**"]
+      git_sync_settings: {
+        repositories: [{
+          git_repo_resource_path: "u/test/test_repo",
+          script_path: "f/**",
+          group_by_folder: false,
+          use_individual_branch: false,
+          settings: {
+            include_path: ["integration/**"],
+            include_type: ["script", "flow"],
+            exclude_path: ["*.test.ts"],
+            extra_include_path: ["extra/**"]
+          }
+        }]
+      }
     });
 
     // Create local wmill.yaml with different settings
@@ -1441,10 +1501,20 @@ includeSettings: false`);
 
     // Update backend to different settings
     await backend.updateGitSyncConfig({
-      include_path: ["f/**"],
-      include_type: ["script", "flow", "app", "folder", "variable", "resource", "resourcetype", "secret", "settings"],
-      exclude_path: [],
-      extra_include_path: []
+      git_sync_settings: {
+        repositories: [{
+          git_repo_resource_path: "u/test/test_repo",
+          script_path: "f/**",
+          group_by_folder: false,
+          use_individual_branch: false,
+          settings: {
+            include_path: ["f/**"],
+            include_type: ["script", "flow", "app", "folder", "variable", "resource", "resourcetype", "secret", "settings"],
+            exclude_path: [],
+            extra_include_path: []
+          }
+        }]
+      }
     });
 
     // Create local file change

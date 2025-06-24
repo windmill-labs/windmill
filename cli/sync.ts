@@ -1190,36 +1190,63 @@ export async function pull(
     let workspace: any;
     let repositoryPath: string | undefined;
 
+    // IMPORTANT: Resolve workspace first with proper priority:
+    // 1. CLI args (--workspace, --base-url, --token) take highest priority
+    // 2. Current active workspace (from wmilldev workspace whoami) if no CLI args
+    // 3. Config file workspace as fallback
+    
+    // First, always resolve the actual workspace we'll be using
+    workspace = await resolveWorkspace(opts);
+
     try {
-        // Try to resolve using workspace-aware method
+        // Now try to resolve repository using workspace-aware method
+        // Pass the resolved workspace ID to ensure consistency
+        const effectiveWorkspaceName = opts.workspace || workspace.workspaceId;
+        
         const {
             workspaceName,
             workspaceProfile,
             repositoryPath: resolvedRepo,
             syncOptions,
         } = await resolveWorkspaceAndRepositoryForSync(
-            opts.workspace,
+            effectiveWorkspaceName,
             opts.repository,
         );
         
-        if (workspaceProfile) {
-            // Use workspace profile to create workspace object with proper token resolution
-            workspace = await createWorkspaceWithToken(
-                workspaceProfile,
-                workspaceName,
-                opts,
-            );
-        } else {
-            // Fallback to normal workspace resolution
-            workspace = await resolveWorkspace(opts);
+        // If we found a workspace profile from config but it doesn't match our resolved workspace,
+        // we need to reconcile this. The resolved workspace takes priority.
+        if (workspaceProfile && workspaceName !== workspace.workspaceId) {
+            log.info(colors.yellow(`Config workspace (${workspaceName}) differs from active workspace (${workspace.workspaceId}). Using active workspace.`));
         }
 
         repositoryPath = resolvedRepo;
-        // Merge resolved repository options with command line options
-        opts = { ...syncOptions, ...opts };
+        
+        // Check if backend settings need to be fetched
+        if ((syncOptions as any).__needsBackendFetch) {
+            try {
+                log.info(colors.blue("No local config found, fetching backend settings..."));
+                
+                // Set up authentication using the workspace object we already have
+                const { setClient } = await import("./deps.ts");
+                setClient(workspace.token, workspace.remote.substring(0, workspace.remote.length - 1));
+                
+                const { fetchBackendSettings } = await import("./settings.ts");
+                const backendSettings = await fetchBackendSettings(workspace, repositoryPath);
+                log.info(colors.green(`Backend settings fetched successfully`));
+                
+                // Use backend settings instead of empty sync options
+                opts = { ...backendSettings, ...opts };
+            } catch (backendError) {
+                log.warn(colors.yellow(`Could not fetch backend settings: ${backendError}`));
+                // Fall back to empty options
+                opts = { ...opts };
+            }
+        } else {
+            // Merge resolved repository options with command line options
+            opts = { ...syncOptions, ...opts };
+        }
     } catch (error) {
         // Fall back to legacy resolution
-        workspace = await resolveWorkspace(opts);
         repositoryPath = opts.repository; // Legacy: just use specified repository
         const { mergeConfigWithConfigFile, getWorkspaceRepositorySettings } =
             await import("./conf.ts");
@@ -1227,14 +1254,16 @@ export async function pull(
 
         // Extract repository-specific settings if available
         let extractedConfig = legacyConfig;
+        const effectiveWorkspaceName = opts.workspace || workspace.workspaceId;
+        
         if (
-            opts.workspace &&
+            effectiveWorkspaceName &&
             repositoryPath &&
-            legacyConfig.workspaces?.[opts.workspace]
+            legacyConfig.workspaces?.[effectiveWorkspaceName]
         ) {
             extractedConfig = getWorkspaceRepositorySettings(
                 legacyConfig,
-                opts.workspace,
+                effectiveWorkspaceName,
                 repositoryPath,
             );
         } else if (Object.keys(legacyConfig).length === 0) {
@@ -1262,6 +1291,9 @@ export async function pull(
     // Override sync configuration with JSON settings if provided
     overrideSyncOptionsFromJson(opts, opts.settingsFromJson);
 
+    // Track whether wmill.yaml changes were applied in pre-sync step
+    let preAppliedWmillYamlChanges = 0;
+    
     // CRITICAL FIX: Apply wmill.yaml settings BEFORE main sync operation if requested
     // This ensures that sync uses the updated backend settings rather than old local settings
     if (opts.includeWmillYaml && !opts.dryRun && !opts.diff) {
@@ -1290,6 +1322,9 @@ export async function pull(
                         "wmill.yaml updated - sync will use new settings",
                     ),
                 );
+
+                // Track that we applied wmill.yaml changes
+                preAppliedWmillYamlChanges = 1;
 
                 // Re-resolve workspace and repository settings using the same method as initial sync
                 const { syncOptions: updatedSyncOptions } =
@@ -1420,7 +1455,7 @@ export async function pull(
         }
     }
 
-    // Add wmill.yaml change detection if requested - reuse settings.ts logic
+    // Add wmill.yaml change detection if requested - use proper git-sync API
     let wmillYamlSettingsResult = null;
     if (opts.includeWmillYaml) {
         try {
@@ -1429,10 +1464,10 @@ export async function pull(
                 ...opts,
                 diff: true,
                 workspace: opts.workspace,
-                repository: repositoryPath,
+                repository: undefined,  // Let fetchBackendSettings handle repo selection
             });
         } catch (error) {
-            console.warn("Failed to check wmill.yaml changes:", error);
+            console.error("Failed to check wmill.yaml changes:", error);
         }
     }
 
@@ -1666,6 +1701,7 @@ export async function pull(
 
         const totalAppliedChanges =
             changes.length +
+            preAppliedWmillYamlChanges +
             (opts.includeWmillYaml &&
             wmillYamlSettingsResult?.success &&
             wmillYamlSettingsResult?.diff?.trim()
