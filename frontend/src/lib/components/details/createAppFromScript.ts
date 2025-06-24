@@ -145,8 +145,14 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 								value: false
 							},
 							disabled: {
-								type: 'eval',
-								expr: '!c.valid'
+								type: 'evalv2',
+								expr: '!c.valid',
+								connections: [
+									{
+										componentId: 'c',
+										id: 'valid'
+									}
+								]
 							},
 							beforeIcon: {
 								type: 'static',
@@ -705,8 +711,14 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 								value: false
 							},
 							disabled: {
-								type: 'eval',
-								expr: '!c.valid'
+								type: 'evalv2',
+								expr: '!c.valid',
+								connections: [
+									{
+										componentId: 'c',
+										id: 'valid'
+									}
+								]
 							},
 							beforeIcon: {
 								type: 'static',
