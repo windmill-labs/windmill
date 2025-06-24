@@ -2792,6 +2792,22 @@ paths:
               schema:
                 type: string
 
+  /tokens/list/scopes:
+    get:
+      summary: get all available scopes 
+      operationId: ListTokenScopes
+      tags:
+        - token
+      responses:
+        "200":
+          description: token scopes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ScopeDefinition"
+
   /users/tokens/create:
     post:
       summary: create token
@@ -16401,6 +16417,17 @@ components:
         - extra_perms
         - edited_at
         - execution_mode
+
+    ScopeDefinition:
+      type: object
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+      required:
+        - value
+        - label
 
     ListableRawApp:
       type: object

@@ -5,11 +5,12 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import TriggerableByAI from '../TriggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
-	import { UserService, type NewToken } from '$lib/gen'
+	import { TokenService, UserService, type NewToken, type ScopeDefinition } from '$lib/gen'
 	import { copyToClipboard } from '$lib/utils'
 	import { Clipboard } from 'lucide-svelte'
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 	import { createEventDispatcher } from 'svelte'
+	import MultiSelect from '../select/MultiSelect.svelte'
 
 	interface Props {
 		showMcpMode?: boolean
@@ -39,11 +40,31 @@
 	let loadingApps = $state(false)
 	let errorFetchApps = $state(false)
 	// let allApps = $state<string[]>([])
+	
+	// Custom scope selection
+	let customScopes = $state<string[]>([])
+	let availableScopes = $state<ScopeDefinition[]>([])
+	let loadingScopes = $state(false)
+	let showCustomScopes = $state(false)
 
 	function handleCopyClick() {
 		copyToClipboard(newToken ?? '')
 	}
 	const dispatch = createEventDispatcher()
+	
+	// Fetch available scopes from API
+	async function fetchAvailableScopes(): Promise<void> {
+		if (availableScopes.length > 0) return // Already loaded
+		
+		loadingScopes = true
+		try {
+			availableScopes = await TokenService.listTokenScopes()
+		} catch (error) {
+			console.error('Error fetching scopes:', error)
+		} finally {
+			loadingScopes = false
+		}
+	}
 	function ensureCurrentWorkspaceIncluded(
 		workspacesList: UserWorkspace[],
 		currentWorkspace: string | undefined
@@ -71,6 +92,8 @@
 				if (newMcpApps.length > 0) {
 					tokenScopes.push(`mcp:hub:${newMcpApps.join(',')}`)
 				}
+			} else if (showCustomScopes && customScopes.length > 0) {
+				tokenScopes = customScopes
 			}
 
 			const createdToken = await UserService.createToken({
@@ -172,6 +195,36 @@
 				{#each scopes as scope}
 					<input disabled type="text" value={scope} class="mb-2 w-full" />
 				{/each}
+			</div>
+		{:else if !mcpCreationMode}
+			<div class="mb-4">
+				<div class="flex items-center gap-2 mb-2">
+					<span class="block">Custom Scopes</span>
+					<Toggle
+						checked={showCustomScopes}
+						on:change={(e) => {
+							showCustomScopes = e.detail
+							if (e.detail) {
+								fetchAvailableScopes()
+							}
+						}}
+						options={{ right: 'Use custom scopes' }}
+						size="xs"
+					/>
+				</div>
+				{#if showCustomScopes}
+					<MultiSelect
+						items={availableScopes}
+						bind:value={customScopes}
+						placeholder={loadingScopes ? "Loading scopes..." : "Select scopes for this token"}
+						class="w-full"
+						disabled={loadingScopes}
+						noItemsMsg={loadingScopes ? "Loading scopes..." : "No scopes available"}
+					/>
+					<div class="text-xs text-tertiary mt-1">
+						Select specific scopes to limit this token's access. Leave empty for full access.
+					</div>
+				{/if}
 			</div>
 		{/if}
 

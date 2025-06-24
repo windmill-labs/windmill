@@ -6,12 +6,12 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use windmill_common::error::{Error, Result};
 
 /// Comprehensive scope system for JWT token authorization
-/// 
+///
 /// Scopes follow the format: {domain}:{action}[:{resource}]
 /// Examples:
 /// - "jobs:read" - Read access to jobs
@@ -43,11 +43,14 @@ impl ScopeDefinition {
 
     pub fn from_scope_string(scope: &str) -> Result<Self> {
         let parts: Vec<&str> = scope.split(':').collect();
-        
+
         match parts.len() {
             2 => Ok(Self::new(parts[0], parts[1], None)),
             3 => Ok(Self::new(parts[0], parts[1], Some(parts[2]))),
-            _ => Err(Error::BadRequest(format!("Invalid scope format: {}", scope))),
+            _ => Err(Error::BadRequest(format!(
+                "Invalid scope format: {}",
+                scope
+            ))),
         }
     }
 }
@@ -67,7 +70,7 @@ pub enum ScopeDomain {
     Users,
     Groups,
     Workspaces,
-    
+
     // Trigger domains
     HttpTriggers,
     WebsocketTriggers,
@@ -77,7 +80,7 @@ pub enum ScopeDomain {
     SqsTriggers,
     GcpTriggers,
     PostgresTriggers,
-    
+
     // System domains
     Audit,
     Settings,
@@ -88,25 +91,25 @@ pub enum ScopeDomain {
     OAuth,
     AI,
     Embeddings,
-    
+
     // Special domains
-    Admin,      // Administrative functions
-    Capture,    // Webhook capture
-    Drafts,     // Draft resources
-    Favorites,  // User favorites
-    Inputs,     // Input templates
-    JobMetrics, // Job metrics and statistics
-    JobHelpers, // Job helper functions
+    Admin,       // Administrative functions
+    Capture,     // Webhook capture
+    Drafts,      // Draft resources
+    Favorites,   // User favorites
+    Inputs,      // Input templates
+    JobMetrics,  // Job metrics and statistics
+    JobHelpers,  // Job helper functions
     Concurrency, // Concurrency groups
-    Oidc,       // OpenID Connect
-    Openapi,    // OpenAPI documentation
+    Oidc,        // OpenID Connect
+    Openapi,     // OpenAPI documentation
 }
 
 impl ScopeDomain {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Jobs => "jobs",
-            Self::Scripts => "scripts", 
+            Self::Scripts => "scripts",
             Self::Flows => "flows",
             Self::Apps => "apps",
             Self::Variables => "variables",
@@ -194,18 +197,18 @@ impl ScopeDomain {
 /// Available scope actions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ScopeAction {
-    Read,       // GET operations, list, view
-    Write,      // POST, PUT, PATCH operations, create, update
-    Delete,     // DELETE operations
-    Execute,    // Special action for running/executing (scripts, flows, etc.)
-    Admin,      // Administrative operations within the domain
+    Read,    // GET operations, list, view
+    Write,   // POST, PUT, PATCH operations, create, update
+    Delete,  // DELETE operations
+    Execute, // Special action for running/executing (scripts, flows, etc.)
+    Admin,   // Administrative operations within the domain
 }
 
 impl ScopeAction {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Read => "read",
-            Self::Write => "write", 
+            Self::Write => "write",
             Self::Delete => "delete",
             Self::Execute => "execute",
             Self::Admin => "admin",
@@ -241,9 +244,7 @@ pub struct ScopeMatcher {
 
 impl ScopeMatcher {
     pub fn new() -> Self {
-        let mut matcher = Self {
-            route_mappings: HashMap::new(),
-        };
+        let mut matcher = Self { route_mappings: HashMap::new() };
         matcher.initialize_route_mappings();
         matcher
     }
@@ -252,23 +253,36 @@ impl ScopeMatcher {
     fn initialize_route_mappings(&mut self) {
         // This is now simplified - we'll use a more dynamic approach in extract_domain_from_route
         // Just store a few key special cases here
-        
+
         // Special execution routes that map to different actions
-        self.add_route_mapping("/api/w/:workspace_id/jobs/run", ScopeDomain::Jobs, ScopeAction::Execute);
-        self.add_route_mapping("/api/w/:workspace_id/scripts/run", ScopeDomain::Scripts, ScopeAction::Execute);
-        self.add_route_mapping("/api/w/:workspace_id/flows/run", ScopeDomain::Flows, ScopeAction::Execute);
+        self.add_route_mapping(
+            "/api/w/:workspace_id/jobs/run",
+            ScopeDomain::Jobs,
+            ScopeAction::Execute,
+        );
+        self.add_route_mapping(
+            "/api/w/:workspace_id/scripts/run",
+            ScopeDomain::Scripts,
+            ScopeAction::Execute,
+        );
+        self.add_route_mapping(
+            "/api/w/:workspace_id/flows/run",
+            ScopeDomain::Flows,
+            ScopeAction::Execute,
+        );
     }
 
     fn add_route_mapping(&mut self, route: &str, domain: ScopeDomain, action: ScopeAction) {
-        self.route_mappings.insert(route.to_string(), (domain, action));
+        self.route_mappings
+            .insert(route.to_string(), (domain, action));
     }
 
     /// Check if token scopes allow access to a specific route
     pub fn check_route_access(
-        &self, 
-        token_scopes: &[String], 
-        route_path: &str, 
-        http_method: &str
+        &self,
+        token_scopes: &[String],
+        route_path: &str,
+        http_method: &str,
     ) -> Result<()> {
         // Special case: "*" scope grants all access
         if token_scopes.contains(&"*".to_string()) {
@@ -291,8 +305,8 @@ impl ScopeMatcher {
         }
 
         Err(Error::BadRequest(format!(
-            "Access denied. Required scope: {}:{}", 
-            required_domain.as_str(), 
+            "Access denied. Required scope: {}:{}",
+            required_domain.as_str(),
             required_action.as_str()
         )))
     }
@@ -302,12 +316,12 @@ impl ScopeMatcher {
         if route_path.contains("/run") || route_path.contains("/execute") {
             return ScopeAction::Execute;
         }
-        
+
         // Special cases for cancellation, resumption, etc.
         if route_path.contains("/cancel") || route_path.contains("/resume") {
             return ScopeAction::Write;
         }
-        
+
         // Map HTTP methods to actions
         match method.to_uppercase().as_str() {
             "GET" | "HEAD" | "OPTIONS" => ScopeAction::Read,
@@ -318,10 +332,10 @@ impl ScopeMatcher {
                 } else {
                     ScopeAction::Write
                 }
-            },
+            }
             "PUT" | "PATCH" => ScopeAction::Write,
             "DELETE" => ScopeAction::Delete,
-            _ => ScopeAction::Read,  // Default to read for unknown methods
+            _ => ScopeAction::Read, // Default to read for unknown methods
         }
     }
 
@@ -329,16 +343,19 @@ impl ScopeMatcher {
         // Extract the domain from the route path
         // Example: /api/w/workspace/jobs/123 -> jobs domain
         let parts: Vec<&str> = route_path.split('/').collect();
-        
+
         if parts.len() >= 5 && parts[1] == "api" && parts[2] == "w" {
             let domain_part = parts[4];
-            
+
             if let Some(domain) = ScopeDomain::from_str(domain_part) {
                 return Ok(domain);
             }
         }
 
-        Err(Error::BadRequest(format!("Could not extract domain from route: {}", route_path)))
+        Err(Error::BadRequest(format!(
+            "Could not extract domain from route: {}",
+            route_path
+        )))
     }
 
     fn scope_grants_access(
@@ -381,13 +398,13 @@ impl ScopeMatcher {
 
         // Handle folder paths (f/folder_name/*)
         if scope_resource.starts_with("f/") && scope_resource.ends_with("/*") {
-            let folder_path = &scope_resource[2..scope_resource.len()-2];
+            let folder_path = &scope_resource[2..scope_resource.len() - 2];
             return route_path.contains(&format!("f/{}", folder_path));
         }
 
         // Handle specific resource paths
         if scope_resource.ends_with("*") {
-            let prefix = &scope_resource[..scope_resource.len()-1];
+            let prefix = &scope_resource[..scope_resource.len() - 1];
             return route_path.contains(prefix);
         }
 
@@ -398,9 +415,9 @@ impl ScopeMatcher {
 
 /// Helper function to check if scopes allow access to a route
 pub fn check_scopes_for_route(
-    token_scopes: Option<&[String]>, 
-    route_path: &str, 
-    http_method: &str
+    token_scopes: Option<&[String]>,
+    route_path: &str,
+    http_method: &str,
 ) -> Result<()> {
     // If no scopes defined, allow access (backward compatibility)
     let scopes = match token_scopes {
@@ -415,57 +432,52 @@ pub fn check_scopes_for_route(
 /// Create standard scopes for common operations
 pub fn create_standard_scopes() -> Vec<String> {
     let mut scopes = Vec::new();
-    
+
     // Core resource scopes
     for domain in [
-        ScopeDomain::Jobs, ScopeDomain::Scripts, ScopeDomain::Flows, 
-        ScopeDomain::Apps, ScopeDomain::Variables, ScopeDomain::Resources,
-        ScopeDomain::Schedules, ScopeDomain::Folders, ScopeDomain::Users,
-        ScopeDomain::Groups
+        ScopeDomain::Jobs,
+        ScopeDomain::Scripts,
+        ScopeDomain::Flows,
+        ScopeDomain::Apps,
+        ScopeDomain::Variables,
+        ScopeDomain::Resources,
+        ScopeDomain::Schedules,
+        ScopeDomain::Folders,
+        ScopeDomain::Users,
+        ScopeDomain::Groups,
     ] {
-        for action in [ScopeAction::Read, ScopeAction::Write, ScopeAction::Delete, ScopeAction::Execute] {
+        for action in [
+            ScopeAction::Read,
+            ScopeAction::Write,
+            ScopeAction::Delete,
+            ScopeAction::Execute,
+        ] {
             scopes.push(format!("{}:{}", domain.as_str(), action.as_str()));
         }
     }
-    
+
     // Admin scopes
     for domain in [
-        ScopeDomain::Jobs, ScopeDomain::Scripts, ScopeDomain::Flows,
-        ScopeDomain::Apps, ScopeDomain::Variables, ScopeDomain::Resources,
-        ScopeDomain::Schedules, ScopeDomain::Folders, ScopeDomain::Users,
-        ScopeDomain::Groups, ScopeDomain::Workspaces
+        ScopeDomain::Jobs,
+        ScopeDomain::Scripts,
+        ScopeDomain::Flows,
+        ScopeDomain::Apps,
+        ScopeDomain::Variables,
+        ScopeDomain::Resources,
+        ScopeDomain::Schedules,
+        ScopeDomain::Folders,
+        ScopeDomain::Users,
+        ScopeDomain::Groups,
+        ScopeDomain::Workspaces,
     ] {
         scopes.push(format!("{}:admin", domain.as_str()));
     }
-    
+
     scopes
 }
 
-/// Get scope suggestions based on common patterns
-pub fn get_scope_suggestions() -> Vec<(String, String)> {
-    vec![
-        ("*".to_string(), "Full access to all resources".to_string()),
-        ("jobs:read".to_string(), "Read access to jobs".to_string()),
-        ("jobs:execute".to_string(), "Execute jobs".to_string()),
-        ("scripts:read".to_string(), "Read access to scripts".to_string()),
-        ("scripts:execute".to_string(), "Execute scripts".to_string()),
-        ("scripts:execute:f/folder/*".to_string(), "Execute scripts in specific folder".to_string()),
-        ("flows:read".to_string(), "Read access to flows".to_string()),
-        ("flows:execute".to_string(), "Execute flows".to_string()),
-        ("apps:read".to_string(), "Read access to apps".to_string()),
-        ("variables:read".to_string(), "Read access to variables".to_string()),
-        ("resources:read".to_string(), "Read access to resources".to_string()),
-        ("schedules:read".to_string(), "Read access to schedules".to_string()),
-        ("users:read".to_string(), "Read access to user information".to_string()),
-        ("groups:read".to_string(), "Read access to groups".to_string()),
-    ]
-}
-
 /// Legacy scope checking function for backward compatibility
-pub fn check_legacy_scopes(
-    token_scopes: Option<&[String]>, 
-    required_scope: &str
-) -> Result<()> {
+pub fn check_legacy_scopes(token_scopes: Option<&[String]>, required_scope: &str) -> Result<()> {
     let scopes = match token_scopes {
         Some(s) if !s.is_empty() => s,
         _ => return Ok(()),
@@ -476,7 +488,10 @@ pub fn check_legacy_scopes(
         return Ok(());
     }
 
-    Err(Error::BadRequest(format!("Missing required scope: {}", required_scope)))
+    Err(Error::BadRequest(format!(
+        "Missing required scope: {}",
+        required_scope
+    )))
 }
 
 #[cfg(test)]
@@ -508,10 +523,14 @@ mod tests {
     #[test]
     fn test_route_domain_extraction() {
         let matcher = ScopeMatcher::new();
-        let domain = matcher.extract_domain_from_route("/api/w/test_workspace/jobs/123").unwrap();
+        let domain = matcher
+            .extract_domain_from_route("/api/w/test_workspace/jobs/123")
+            .unwrap();
         assert_eq!(domain, ScopeDomain::Jobs);
 
-        let domain = matcher.extract_domain_from_route("/api/w/test_workspace/scripts/test_script").unwrap();
+        let domain = matcher
+            .extract_domain_from_route("/api/w/test_workspace/scripts/test_script")
+            .unwrap();
         assert_eq!(domain, ScopeDomain::Scripts);
     }
 
@@ -519,29 +538,23 @@ mod tests {
     fn test_wildcard_scope_access() {
         let matcher = ScopeMatcher::new();
         let scopes = vec!["*".to_string()];
-        
-        assert!(matcher.check_route_access(
-            &scopes, 
-            "/api/w/test_workspace/jobs/123", 
-            "GET"
-        ).is_ok());
+
+        assert!(matcher
+            .check_route_access(&scopes, "/api/w/test_workspace/jobs/123", "GET")
+            .is_ok());
     }
 
     #[test]
     fn test_specific_scope_access() {
         let matcher = ScopeMatcher::new();
         let scopes = vec!["jobs:read".to_string()];
-        
-        assert!(matcher.check_route_access(
-            &scopes, 
-            "/api/w/test_workspace/jobs/123", 
-            "GET"
-        ).is_ok());
-        
-        assert!(matcher.check_route_access(
-            &scopes, 
-            "/api/w/test_workspace/jobs/123", 
-            "DELETE"
-        ).is_err());
+
+        assert!(matcher
+            .check_route_access(&scopes, "/api/w/test_workspace/jobs/123", "GET")
+            .is_ok());
+
+        assert!(matcher
+            .check_route_access(&scopes, "/api/w/test_workspace/jobs/123", "DELETE")
+            .is_err());
     }
 }

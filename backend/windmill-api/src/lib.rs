@@ -189,6 +189,7 @@ pub mod webhook_util;
 #[cfg(feature = "websocket")]
 mod websocket_triggers;
 mod workers;
+mod token;
 mod workspaces;
 #[cfg(feature = "private")]
 pub mod workspaces_ee;
@@ -609,6 +610,7 @@ pub async fn run_server(
                         .nest("/gcp_triggers", gcp_triggers_service)
                         .nest("/postgres_triggers", postgres_triggers_service)
                 )
+                .nest("/tokens", token::global_service())
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
                     "/users",
