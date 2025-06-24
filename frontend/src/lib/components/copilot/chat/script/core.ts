@@ -527,13 +527,13 @@ export interface ScriptChatHelpers {
 export const resourceTypeTool: Tool<ScriptChatHelpers> = {
 	def: RESOURCE_TYPE_FUNCTION_DEF,
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
-		toolCallbacks.onToolCall(toolId, 'Searching resource types for "' + args.query + '"...')
+		toolCallbacks.setToolStatus(toolId, 'Searching resource types for "' + args.query + '"...')
 		const formattedResourceTypes = await getFormattedResourceTypes(
 			helpers.getLang(),
 			args.query,
 			workspace
 		)
-		toolCallbacks.onFinishToolCall(toolId, 'Retrieved resource types for "' + args.query + '"')
+		toolCallbacks.setToolStatus(toolId, 'Retrieved resource types for "' + args.query + '"')
 		return formattedResourceTypes
 	}
 }
@@ -544,7 +544,7 @@ export const dbSchemaTool: Tool<ScriptChatHelpers> = {
 		if (!args.resourcePath) {
 			throw new Error('Database path not provided')
 		}
-		toolCallbacks.onToolCall(toolId, 'Getting database schema for ' + args.resourcePath + '...')
+		toolCallbacks.setToolStatus(toolId, 'Getting database schema for ' + args.resourcePath + '...')
 		const resource = await ResourceService.getResource({
 			workspace: workspace,
 			path: args.resourcePath
@@ -566,7 +566,7 @@ export const dbSchemaTool: Tool<ScriptChatHelpers> = {
 			throw new Error('Database not found')
 		}
 		const stringSchema = await formatDBSchema(db)
-		toolCallbacks.onFinishToolCall(toolId, 'Retrieved database schema for ' + args.resourcePath)
+		toolCallbacks.setToolStatus(toolId, 'Retrieved database schema for ' + args.resourcePath)
 		return stringSchema
 	}
 }

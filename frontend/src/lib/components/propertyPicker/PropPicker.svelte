@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ResourceService, VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import { Badge, Button } from '../common'
 	import type { PropPickerWrapperContext } from '../flows/propPicker/PropPickerWrapper.svelte'
 
@@ -194,6 +194,10 @@
 	}
 
 	$: search, $inputMatches, $propPickerConfig, pickableProperties, updateState()
+
+	onDestroy(() => {
+		clearTimeout(timeout)
+	})
 </script>
 
 <div class="flex flex-col h-full rounded">

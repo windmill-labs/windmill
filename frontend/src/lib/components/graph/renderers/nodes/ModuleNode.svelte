@@ -84,7 +84,7 @@
 				data.eventHandlers.newBranch(data.id)
 			}}
 			onSelect={(e) => {
-				setTimeout(() => data.eventHandlers.select(e))
+				setTimeout(() => e && data.eventHandlers.select(e))
 			}}
 			onSelectedIteration={(e) => {
 				data.eventHandlers.selectedIteration(e)

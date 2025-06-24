@@ -14,6 +14,7 @@
 		bgHoverColor?: string
 		children?: import('svelte').Snippet<[any]>
 		outputPickerVisible?: boolean
+		className?: string
 	}
 
 	let {
@@ -25,7 +26,8 @@
 		bgColor,
 		bgHoverColor = '',
 		children,
-		outputPickerVisible = false
+		outputPickerVisible = false,
+		className
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher<{
@@ -44,7 +46,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class={classNames('w-full flex relative rounded-sm', onTop ? 'z-[901]' : '')}
+	class={classNames('w-full flex relative rounded-sm', onTop ? 'z-[901]' : '', className)}
 	style="width: 275px; max-height: 34px; background-color: {hover && bgHoverColor && selectable
 		? bgHoverColor
 		: bgColor};"

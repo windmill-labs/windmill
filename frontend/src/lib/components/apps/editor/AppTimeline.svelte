@@ -12,7 +12,7 @@
 	let max: undefined | number = undefined
 	let total: number | undefined = undefined
 
-	let debounced = debounce(() => computeItems(jobs), 30)
+	let { debounced, clearDebounce } = debounce(() => computeItems(jobs), 30)
 	$: jobs && jobsById && debounced()
 
 	let items: Record<
@@ -101,6 +101,7 @@
 
 	onDestroy(() => {
 		interval && clearInterval(interval)
+		clearDebounce()
 	})
 </script>
 
@@ -132,8 +133,8 @@
 								? b.started_at
 									? b.started_at - b?.created_at
 									: b.duration_ms
-									? 0
-									: now - b?.created_at
+										? 0
+										: now - b?.created_at
 								: 0}
 							<div class="flex w-full">
 								<TimelineBar
@@ -154,7 +155,7 @@
 										{min}
 										concat
 										started_at={b.started_at}
-										len={b.started_at ? b?.duration_ms ?? now - b?.started_at : 0}
+										len={b.started_at ? (b?.duration_ms ?? now - b?.started_at) : 0}
 										running={b?.duration_ms == undefined}
 									/>
 								{/if}

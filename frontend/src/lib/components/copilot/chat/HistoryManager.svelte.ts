@@ -71,9 +71,13 @@ export default class HistoryManager {
 
 	async saveChat(displayMessages: DisplayMessage[], messages: ChatCompletionMessageParam[]) {
 		if (displayMessages.length > 0) {
+			// we don't want to save the snapshot in the history
 			const updatedChat = {
 				actualMessages: $state.snapshot(messages),
-				displayMessages: $state.snapshot(displayMessages),
+				displayMessages: $state.snapshot(displayMessages).map((m) => ({
+					...m,
+					snapshot: undefined
+				})),
 				title: displayMessages[0].content.slice(0, 50),
 				id: this.currentChatId,
 				lastModified: Date.now()

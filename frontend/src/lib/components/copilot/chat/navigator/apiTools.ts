@@ -193,7 +193,7 @@ export function createApiTools(
 				const toolName = chatTool.function.name
 				let endpoint = endpointMap[toolName] || ''
 				endpoint = endpoint.replace('{workspace}', get(workspaceStore) as string)
-				toolCallbacks.onToolCall(toolId, `Calling API endpoint (${endpoint})...`)
+				toolCallbacks.setToolStatus(toolId, `Calling API endpoint (${endpoint})...`)
 
 				try {
 					// Extract method and path from endpoint
@@ -238,13 +238,13 @@ export function createApiTools(
 
 					// For now, return a placeholder response
 					// In a real implementation, we would make the actual API call here
-					toolCallbacks.onFinishToolCall(toolId, `API call to ${endpoint} completed`)
+					toolCallbacks.setToolStatus(toolId, `API call to ${endpoint} completed`)
 					return JSON.stringify({
 						success: true,
 						data: data
 					})
 				} catch (error) {
-					toolCallbacks.onFinishToolCall(toolId, `API call to ${endpoint} failed`)
+					toolCallbacks.setToolStatus(toolId, `API call to ${endpoint} failed`)
 					console.error(`Error calling API to ${endpoint}:`, error)
 					return `Error calling API: ${error instanceof Error ? error.message : String(error)}`
 				}

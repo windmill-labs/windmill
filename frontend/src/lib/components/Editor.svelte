@@ -1496,10 +1496,11 @@
 		})
 	}
 
+	let loadTimeout: NodeJS.Timeout | undefined = undefined
 	onMount(async () => {
 		if (BROWSER) {
 			if (loadAsync) {
-				setTimeout(() => loadMonaco().then((x) => (disposeMethod = x)), 0)
+				loadTimeout = setTimeout(() => loadMonaco().then((x) => (disposeMethod = x)), 0)
 			} else {
 				let m = await loadMonaco()
 				disposeMethod = m
@@ -1517,6 +1518,8 @@
 		completorDisposable && completorDisposable.dispose()
 		sqlTypeCompletor && sqlTypeCompletor.dispose()
 		timeoutModel && clearTimeout(timeoutModel)
+		loadTimeout && clearTimeout(loadTimeout)
+		aiChatEditorHandler?.clear()
 	})
 
 	async function genRoot(hostname: string) {
