@@ -127,8 +127,7 @@
 		KeyMod,
 		Uri as mUri,
 		type IRange,
-		type IDisposable,
-		type IPosition
+		type IDisposable
 	} from 'monaco-editor'
 
 	import EditorTheme from './EditorTheme.svelte'
@@ -156,6 +155,7 @@
 	import { writable } from 'svelte/store'
 	import { formatResourceTypes } from './copilot/chat/script/core'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
+	import { editorPositionMap } from '$lib/utils'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
@@ -189,7 +189,7 @@
 	export let extraLib: string | undefined = undefined
 	export let changeTimeout: number = 500
 	export let loadAsync = false
-	export let initialCursorPos: IPosition | undefined = undefined
+	export let key: string | undefined = undefined
 
 	let lang = scriptLangToEditorLang(scriptLang)
 	$: lang = scriptLangToEditorLang(scriptLang)
@@ -1279,9 +1279,9 @@
 				tabSize: lang == 'python' ? 4 : 2,
 				folding
 			})
-			if (initialCursorPos) {
-				editor.setPosition(initialCursorPos)
-				editor.revealPositionInCenterIfOutsideViewport(initialCursorPos)
+			if (key && editorPositionMap?.[key]) {
+				editor.setPosition(editorPositionMap[key])
+				editor.revealPositionInCenterIfOutsideViewport(editorPositionMap[key])
 			}
 		} catch (e) {
 			console.error('Error loading monaco:', e)
@@ -1313,7 +1313,7 @@
 		})
 
 		editor?.onDidChangeCursorPosition((event) => {
-			dispatch('cursorPositionChange', { position: event.position })
+			if (key) editorPositionMap[key] = event.position
 		})
 
 		editor?.onDidFocusEditorText(() => {

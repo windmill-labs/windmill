@@ -11,7 +11,7 @@
 	import { inferArgs, parseOutputs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
 	import Editor from '$lib/components/Editor.svelte'
-	import { defaultIfEmptyString, editorPositionMap, emptySchema, itemsExists } from '$lib/utils'
+	import { defaultIfEmptyString, emptySchema, itemsExists } from '$lib/utils'
 	import { computeFields } from './utils'
 	import { deepEqual } from 'fast-equals'
 	import type { AppInput } from '../../inputType'
@@ -387,8 +387,7 @@
 							}
 							$app = $app
 						}}
-						initialCursorPos={editorPositionMap[`inline-${id}`]}
-						on:cursorPositionChange={(e) => (editorPositionMap[`inline-${id}`] = e.detail.position)}
+						key={`inline-${id}`}
 						args={Object.entries(fields).reduce((acc, [key, obj]) => {
 							acc[key] = obj.type === 'static' ? obj.value : undefined
 							return acc
@@ -417,8 +416,7 @@
 							inferSuggestions(e.detail.code)
 							$app = $app
 						}}
-						initialCursorPos={editorPositionMap[`inline-${id}`]}
-						on:cursorPositionChange={(e) => (editorPositionMap[`inline-${id}`] = e.detail.position)}
+						key={`inline-${id}`}
 					/>
 				{/if}
 

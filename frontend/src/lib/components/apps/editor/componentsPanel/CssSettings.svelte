@@ -13,7 +13,6 @@
 	import { resolveTheme } from './themeUtils'
 	import ThemeCodePreview from './ThemeCodePreview.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { editorPositionMap } from '$lib/utils'
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let cssEditor: SimpleEditor | undefined = $state(undefined)
@@ -80,9 +79,7 @@
 									small
 									automaticLayout
 									bind:this={cssEditor}
-									initialCursorPos={editorPositionMap['app-global-css-editor']}
-									on:cursorPositionChange={(e) =>
-										(editorPositionMap['app-global-css-editor'] = e.detail.position)}
+									key="app-global-css-editor"
 								/>
 							{:else}
 								<ThemeCodePreview theme={$app.theme}>

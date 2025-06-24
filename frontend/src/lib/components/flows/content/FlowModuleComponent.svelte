@@ -53,7 +53,6 @@
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
-	import { editorPositionMap } from '$lib/utils'
 
 	const {
 		selectedId,
@@ -448,9 +447,7 @@
 												},
 												{}
 											)}
-											initialCursorPos={editorPositionMap[`flow-${flowModule.id}`]}
-											on:cursorPositionChange={(e) =>
-												(editorPositionMap[`flow-${flowModule.id}`] = e.detail.position)}
+											key={`flow-${flowModule.id}`}
 										/>
 										<DiffEditor
 											open={false}

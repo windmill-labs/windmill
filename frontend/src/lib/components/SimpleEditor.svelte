@@ -79,6 +79,7 @@
 	import { vimMode } from '$lib/stores'
 	import { initVim } from './monaco_keybindings'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
+	import { editorPositionMap } from '$lib/utils'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
@@ -116,7 +117,7 @@
 		tailwindClasses = [],
 		class: className = '',
 		loadAsync = false,
-		initialCursorPos = undefined
+		key
 	}: {
 		lang: string
 		code?: string
@@ -140,6 +141,7 @@
 		class?: string
 		loadAsync?: boolean
 		initialCursorPos?: IPosition
+		key?: string
 	} = $props()
 
 	const dispatch = createEventDispatcher()
@@ -383,9 +385,9 @@
 					snippetsPreventQuickSuggestions: disableSuggestions
 				}
 			})
-			if (initialCursorPos) {
-				editor.setPosition(initialCursorPos)
-				editor.revealPositionInCenterIfOutsideViewport(initialCursorPos)
+			if (key && editorPositionMap?.[key]) {
+				editor.setPosition(editorPositionMap[key])
+				editor.revealPositionInCenterIfOutsideViewport(editorPositionMap[key])
 			}
 		} catch (e) {
 			console.error('Error loading monaco:', e)
@@ -402,7 +404,7 @@
 			}, 200)
 		})
 		editor.onDidChangeCursorPosition((event) => {
-			dispatch('cursorPositionChange', { position: event.position })
+			if (key) editorPositionMap[key] = event.position
 		})
 
 		editor.onDidFocusEditorText(() => {
