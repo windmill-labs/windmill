@@ -14,12 +14,20 @@
 	import ThemeCodePreview from './ThemeCodePreview.svelte'
 	import { sendUserToast } from '$lib/toast'
 
-	const { app } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, globalCssEditorSavedPosition } = getContext<AppViewerContext>('AppViewerContext')
 
-	let cssEditor: SimpleEditor | undefined = undefined
-	let alertHeight: number | undefined = undefined
-	let themeViewer: any = undefined
-	let selectedTab: 'css' | 'theme' = 'css'
+	let cssEditor: SimpleEditor | undefined = $state(undefined)
+	let alertHeight: number | undefined = $state(undefined)
+	let themeViewer: any = $state(undefined)
+	let selectedTab: 'css' | 'theme' = $state('css')
+
+	$effect(() => {
+		if (!cssEditor) return
+		setTimeout(() => {
+			if (globalCssEditorSavedPosition.val)
+				cssEditor?.setCursorPosition(globalCssEditorSavedPosition.val)
+		}, 0)
+	})
 
 	function insertSelector(selector: string) {
 		if ($app?.theme?.type === 'path') {
@@ -80,6 +88,9 @@
 									small
 									automaticLayout
 									bind:this={cssEditor}
+									on:cursorPositionChange={(e) => {
+										globalCssEditorSavedPosition.val = e.detail.position
+									}}
 								/>
 							{:else}
 								<ThemeCodePreview theme={$app.theme}>

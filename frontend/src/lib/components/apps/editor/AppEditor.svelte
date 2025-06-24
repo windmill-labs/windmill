@@ -201,6 +201,7 @@
 		allIdsInPath: writable([]),
 		darkMode,
 		cssEditorOpen,
+		globalCssEditorSavedPosition: { val: undefined },
 		previewTheme,
 		debuggingComponents: writable({}),
 		replaceStateFn: replaceStateFn,

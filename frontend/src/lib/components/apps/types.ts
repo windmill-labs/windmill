@@ -23,10 +23,11 @@ import type {
 	TemplateV2AppInput,
 	UploadAppInput,
 	UploadS3AppInput,
-	UserAppInput,
+	UserAppInput
 } from './inputType'
 import type { World } from './rx'
 import type { FilledItem } from './svelte-grid/types'
+import type { Position } from 'monaco-editor'
 
 export type HorizontalAlignment = 'left' | 'center' | 'right'
 export type VerticalAlignment = 'top' | 'center' | 'bottom'
@@ -141,13 +142,13 @@ export type HiddenRunnable = {
 
 export type AppTheme =
 	| {
-		type: 'path'
-		path: string
-	}
+			type: 'path'
+			path: string
+	  }
 	| {
-		type: 'inlined'
-		css: string
-	}
+			type: 'inlined'
+			css: string
+	  }
 
 export type App = {
 	grid: GridItem[]
@@ -277,6 +278,7 @@ export type AppViewerContext = {
 	allIdsInPath: Writable<string[]>
 	darkMode: Writable<boolean>
 	cssEditorOpen: Writable<boolean>
+	globalCssEditorSavedPosition: { val: Position | undefined } // Not reactive
 	previewTheme: Writable<string | undefined>
 	debuggingComponents: Writable<Record<string, number>>
 	replaceStateFn?: ((url: string) => void) | undefined

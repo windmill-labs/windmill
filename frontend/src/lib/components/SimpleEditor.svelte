@@ -14,7 +14,8 @@
 		Uri as mUri,
 		languages,
 		type IRange,
-		type IDisposable
+		type IDisposable,
+		Position
 	} from 'monaco-editor'
 
 	languages.typescript.javascriptDefaults.setCompilerOptions({
@@ -235,6 +236,13 @@
 		suggestion = value
 	}
 
+	export function setCursorPosition(position: Position): void {
+		if (editor) {
+			editor.setPosition(position)
+			editor.revealPositionInCenterIfOutsideViewport(position)
+		}
+	}
+
 	let disableTabCond: meditor.IContextKey<boolean> | undefined
 
 	$effect(() => {
@@ -393,6 +401,9 @@
 			timeoutModel = setTimeout(() => {
 				updateCode()
 			}, 200)
+		})
+		editor.onDidChangeCursorPosition((event) => {
+			dispatch('cursorPositionChange', { position: event.position })
 		})
 
 		editor.onDidFocusEditorText(() => {
