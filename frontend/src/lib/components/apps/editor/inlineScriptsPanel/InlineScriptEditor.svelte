@@ -23,7 +23,7 @@
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import CacheTtlPopup from './CacheTtlPopup.svelte'
 	import EditorSettings from '$lib/components/EditorSettings.svelte'
-	import { userStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 
 	const {
 		runnableComponents,
@@ -387,6 +387,7 @@
 							}
 							$app = $app
 						}}
+						key={`app-inline-${$workspaceStore}-${$appPath}-${id}`}
 						args={Object.entries(fields).reduce((acc, [key, obj]) => {
 							acc[key] = obj.type === 'static' ? obj.value : undefined
 							return acc
@@ -415,6 +416,7 @@
 							inferSuggestions(e.detail.code)
 							$app = $app
 						}}
+						key={`app-inline-${$workspaceStore}-${$appPath}-${id}`}
 					/>
 				{/if}
 
