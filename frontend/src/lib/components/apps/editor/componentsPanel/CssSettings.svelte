@@ -79,7 +79,7 @@
 									small
 									automaticLayout
 									bind:this={cssEditor}
-									key={`app-global-css-editor-${$appPath}`}
+									key={`app-global-css-editor-${$workspaceStore}-${$appPath}`}
 								/>
 							{:else}
 								<ThemeCodePreview theme={$app.theme}>

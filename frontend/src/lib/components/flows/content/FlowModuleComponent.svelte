@@ -447,7 +447,7 @@
 												},
 												{}
 											)}
-											key={`flow-inline-${$pathStore}-${flowModule.id}`}
+											key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
 										/>
 										<DiffEditor
 											open={false}
