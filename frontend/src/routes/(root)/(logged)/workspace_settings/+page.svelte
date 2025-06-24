@@ -60,6 +60,7 @@
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
 	import AISettings from '$lib/components/workspaceSettings/AISettings.svelte'
 	import StorageSettings from '$lib/components/workspaceSettings/StorageSettings.svelte'
+	import DucklakeSettings from '$lib/components/settings/DucklakeSettings.svelte'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -724,6 +725,14 @@
 				</Tab>
 				<Tab
 					size="xs"
+					value="ducklake"
+					aiId="workspace-settings-ducklake"
+					aiDescription="Ducklake workspace settings"
+				>
+					<div class="flex gap-2 items-center my-1">Ducklake</div>
+				</Tab>
+				<Tab
+					size="xs"
 					value="default_app"
 					aiId="workspace-settings-default-app"
 					aiDescription="Default app workspace settings"
@@ -1064,6 +1073,8 @@
 			/>
 		{:else if tab == 'windmill_lfs'}
 			<StorageSettings bind:s3ResourceSettings />
+		{:else if tab == 'ducklake'}
+			<DucklakeSettings />
 		{:else if tab == 'git_sync'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">

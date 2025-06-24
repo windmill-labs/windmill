@@ -28,6 +28,7 @@
 		expressOAuthSetup?: boolean
 		defaultValues?: Record<string, any> | undefined
 		placeholder?: string | undefined
+		keepSelectWhenEmpty?: boolean
 	}
 
 	let {
@@ -41,7 +42,8 @@
 		selectFirst = false,
 		expressOAuthSetup = false,
 		defaultValues = undefined,
-		placeholder = undefined
+		placeholder = undefined,
+		keepSelectWhenEmpty = false
 	}: Props = $props()
 
 	if (initialValue && value == undefined) {
@@ -171,7 +173,7 @@
 <!-- {JSON.stringify({ value, collection })} -->
 <div class="flex flex-col w-full items-start min-h-9">
 	<div class="flex flex-row w-full items-center">
-		{#if collection?.length > 0}
+		{#if collection?.length > 0 || keepSelectWhenEmpty}
 			<Select
 				{disabled}
 				{disablePortal}
@@ -232,7 +234,7 @@
 					on:click={() => appConnect?.open?.(resourceType)}
 					startIcon={{ icon: Plus }}
 					iconOnly={collection?.length > 0}
-					>{#if collection?.length == 0}
+					>{#if collection?.length == 0 && !keepSelectWhenEmpty}
 						Add a {resourceType} resource
 					{/if}</Button
 				>
