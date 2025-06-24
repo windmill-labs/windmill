@@ -178,7 +178,9 @@ export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
 	'snowflake',
 	'mssql',
 	'graphql',
-	'powershell'
+	'powershell',
+	'csharp',
+	'java'
 ]
 
 export function getLangContext(
@@ -283,6 +285,10 @@ If you want to handle async functions (e.g., using tokio), you need to keep the 
 			return 'The user is coding in GraphQL. If needed, add the needed arguments as query parameters.'
 		case 'powershell':
 			return 'The user is coding in PowerShell. On Windmill, arguments can be obtained by calling the param function on the first line of the script like that: `param($ParamName1, $ParamName2 = "default value", [{type}]$ParamName3, ...)`'
+		case 'csharp':
+			return 'The user is coding in C#. On Windmill, it is expected the script contains a public static Main method inside a class. The class name is irrelevant. NuGet packages can be added using the format: #r "nuget: PackageName, Version" at the top of the script. The Main method signature should be: public static ReturnType Main(parameter types...)'
+		case 'java':
+			return 'The user is coding in Java. On Windmill, it is expected the script contains a Main public class and a public static main() method. The return type can be Object or void. Dependencies can be added using the format: //requirements://groupId:artifactId:version at the top of the script. The method signature should be: public static Object main(parameter types...)'
 		default:
 			return ''
 	}
@@ -521,13 +527,13 @@ export interface ScriptChatHelpers {
 export const resourceTypeTool: Tool<ScriptChatHelpers> = {
 	def: RESOURCE_TYPE_FUNCTION_DEF,
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
-		toolCallbacks.onToolCall(toolId, 'Searching resource types for "' + args.query + '"...')
+		toolCallbacks.setToolStatus(toolId, 'Searching resource types for "' + args.query + '"...')
 		const formattedResourceTypes = await getFormattedResourceTypes(
 			helpers.getLang(),
 			args.query,
 			workspace
 		)
-		toolCallbacks.onFinishToolCall(toolId, 'Retrieved resource types for "' + args.query + '"')
+		toolCallbacks.setToolStatus(toolId, 'Retrieved resource types for "' + args.query + '"')
 		return formattedResourceTypes
 	}
 }
@@ -538,7 +544,7 @@ export const dbSchemaTool: Tool<ScriptChatHelpers> = {
 		if (!args.resourcePath) {
 			throw new Error('Database path not provided')
 		}
-		toolCallbacks.onToolCall(toolId, 'Getting database schema for ' + args.resourcePath + '...')
+		toolCallbacks.setToolStatus(toolId, 'Getting database schema for ' + args.resourcePath + '...')
 		const resource = await ResourceService.getResource({
 			workspace: workspace,
 			path: args.resourcePath
@@ -560,7 +566,7 @@ export const dbSchemaTool: Tool<ScriptChatHelpers> = {
 			throw new Error('Database not found')
 		}
 		const stringSchema = await formatDBSchema(db)
-		toolCallbacks.onFinishToolCall(toolId, 'Retrieved database schema for ' + args.resourcePath)
+		toolCallbacks.setToolStatus(toolId, 'Retrieved database schema for ' + args.resourcePath)
 		return stringSchema
 	}
 }

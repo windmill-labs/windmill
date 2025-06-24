@@ -6,8 +6,12 @@
 
 	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
-	export let item: GridItem
-	export let ownId: string
+	interface Props {
+		item: GridItem
+		ownId: string
+	}
+
+	let { item = $bindable(), ownId }: Props = $props()
 
 	const componentsWithEventHandler = [
 		'modalcomponent',

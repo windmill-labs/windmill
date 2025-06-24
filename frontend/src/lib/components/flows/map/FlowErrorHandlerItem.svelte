@@ -8,8 +8,15 @@
 	import type { RawScript, ScriptLang } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
-
-	export let small: boolean
+	import ModuleAcceptReject, {
+		aiModuleActionToBgColor,
+		getAiModuleAction
+	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
+	let {
+		small
+	}: {
+		small: boolean
+	} = $props()
 
 	const dispatch = createEventDispatcher<{
 		generateStep: { moduleId: string; instructions: string; lang: ScriptLang }
@@ -39,27 +46,30 @@
 		$selectedId = 'failure'
 		refreshStateStore(flowStore)
 	}
+
+	const action = $derived(getAiModuleAction('failure'))
 </script>
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<!-- svelte-ignore a11y-no-static-element-interactions -->
-
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	id="flow-editor-error-handler"
 	class={classNames(
 		'z-10',
-		'cursor-pointer border transition-colors duration-[400ms] ease-linear rounded-sm px-2 py-1 gap-2 bg-surface text-sm flex items-center flex-row',
+		'relative cursor-pointer border transition-colors duration-[400ms] ease-linear rounded-sm px-2 py-1 gap-2 bg-surface text-sm flex items-center flex-row',
 		$selectedId?.includes('failure')
 			? 'outline outline-offset-1 outline-2 outline-slate-900 dark:outline-slate-900/0 dark:bg-surface-secondary dark:border-gray-400'
-			: ''
+			: '',
+		aiModuleActionToBgColor(action)
 	)}
 	style="min-width: {small ? '200px' : '230px'}; max-width: 275px;"
-	on:click={() => {
+	onclick={() => {
 		if (flowStore.val?.value?.failure_module) {
 			$selectedId = 'failure'
 		}
 	}}
 >
+	<ModuleAcceptReject id="failure" {action} />
 	<div class="flex items-center grow-0 min-w-0 gap-2">
 		<Bug size={16} color={flowStore.val?.value?.failure_module ? '#3b82f6' : '#9CA3AF'} />
 	</div>
@@ -87,7 +97,7 @@
 			}}
 			kind="failure"
 		/>
-	{:else}
+	{:else if !action}
 		<button
 			title="Delete failure script"
 			type="button"
@@ -97,7 +107,7 @@
 				'text-secondary',
 				'bg-surface focus:outline-none hover:bg-surface-hover rounded '
 			)}
-			on:click={() => {
+			onclick={() => {
 				flowStore.val.value.failure_module = undefined
 				$selectedId = 'settings-metadata'
 			}}
