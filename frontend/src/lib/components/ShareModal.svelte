@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import TableCustom from './TableCustom.svelte'
 
 	import { GroupService, UserService, GranularAclService } from '$lib/gen'
