@@ -11,7 +11,13 @@
 	import { inferArgs, parseOutputs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
 	import Editor from '$lib/components/Editor.svelte'
-	import { defaultIfEmptyString, emptySchema, itemsExists } from '$lib/utils'
+	import {
+		defaultIfEmptyString,
+		EDITOR_POSITION_MAP_CONTEXT_KEY,
+		emptySchema,
+		itemsExists,
+		type EditorPositionMap
+	} from '$lib/utils'
 	import { computeFields } from './utils'
 	import { deepEqual } from 'fast-equals'
 	import type { AppInput } from '../../inputType'
@@ -61,6 +67,16 @@
 	let simpleEditor: SimpleEditor | undefined = $state()
 	let validCode = $state(true)
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer | undefined = $state()
+
+	let editorPositionMap = getContext<EditorPositionMap>(EDITOR_POSITION_MAP_CONTEXT_KEY) ?? {}
+	$effect(() => {
+		setTimeout(() => {
+			if (editorPositionMap[`inline-${id}`]) {
+				simpleEditor?.setCursorPosition(editorPositionMap[`inline-${id}`])
+				editor?.setCursorPosition(editorPositionMap[`inline-${id}`])
+			}
+		}, 0)
+	})
 
 	async function inferInlineScriptSchema(
 		language: Preview['language'],
@@ -387,6 +403,7 @@
 							}
 							$app = $app
 						}}
+						on:cursorPositionChange={(e) => (editorPositionMap[`inline-${id}`] = e.detail.position)}
 						args={Object.entries(fields).reduce((acc, [key, obj]) => {
 							acc[key] = obj.type === 'static' ? obj.value : undefined
 							return acc
@@ -415,6 +432,7 @@
 							inferSuggestions(e.detail.code)
 							$app = $app
 						}}
+						on:cursorPositionChange={(e) => (editorPositionMap[`inline-${id}`] = e.detail.position)}
 					/>
 				{/if}
 

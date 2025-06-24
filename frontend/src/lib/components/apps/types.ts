@@ -278,7 +278,6 @@ export type AppViewerContext = {
 	allIdsInPath: Writable<string[]>
 	darkMode: Writable<boolean>
 	cssEditorOpen: Writable<boolean>
-	globalCssEditorSavedPosition: { val: Position | undefined } // Not reactive
 	previewTheme: Writable<string | undefined>
 	debuggingComponents: Writable<Record<string, number>>
 	replaceStateFn?: ((url: string) => void) | undefined

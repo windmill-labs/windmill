@@ -127,7 +127,8 @@
 		KeyMod,
 		Uri as mUri,
 		type IRange,
-		type IDisposable
+		type IDisposable,
+		type IPosition
 	} from 'monaco-editor'
 
 	import EditorTheme from './EditorTheme.svelte'
@@ -363,6 +364,13 @@
 
 				editor.pushUndoStop()
 			}
+		}
+	}
+
+	export function setCursorPosition(position: IPosition): void {
+		if (editor) {
+			editor.setPosition(position)
+			editor.revealPositionInCenterIfOutsideViewport(position)
 		}
 	}
 
@@ -1304,6 +1312,10 @@
 
 		editor?.onDidBlurEditorText(() => {
 			dispatch('blur')
+		})
+
+		editor?.onDidChangeCursorPosition((event) => {
+			dispatch('cursorPositionChange', { position: event.position })
 		})
 
 		editor?.onDidFocusEditorText(() => {

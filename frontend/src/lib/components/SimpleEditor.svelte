@@ -15,7 +15,7 @@
 		languages,
 		type IRange,
 		type IDisposable,
-		Position
+		type IPosition
 	} from 'monaco-editor'
 
 	languages.typescript.javascriptDefaults.setCompilerOptions({
@@ -236,7 +236,7 @@
 		suggestion = value
 	}
 
-	export function setCursorPosition(position: Position): void {
+	export function setCursorPosition(position: IPosition): void {
 		if (editor) {
 			editor.setPosition(position)
 			editor.revealPositionInCenterIfOutsideViewport(position)

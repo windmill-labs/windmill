@@ -13,19 +13,21 @@
 	import { resolveTheme } from './themeUtils'
 	import ThemeCodePreview from './ThemeCodePreview.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { EDITOR_POSITION_MAP_CONTEXT_KEY, type EditorPositionMap } from '$lib/utils'
 
-	const { app, globalCssEditorSavedPosition } = getContext<AppViewerContext>('AppViewerContext')
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let cssEditor: SimpleEditor | undefined = $state(undefined)
 	let alertHeight: number | undefined = $state(undefined)
 	let themeViewer: any = $state(undefined)
 	let selectedTab: 'css' | 'theme' = $state('css')
 
+	let editorPositionMap = getContext<EditorPositionMap>(EDITOR_POSITION_MAP_CONTEXT_KEY) ?? {}
+
 	$effect(() => {
-		if (!cssEditor) return
 		setTimeout(() => {
-			if (globalCssEditorSavedPosition.val)
-				cssEditor?.setCursorPosition(globalCssEditorSavedPosition.val)
+			if (editorPositionMap['app-global-css-editor'])
+				cssEditor?.setCursorPosition(editorPositionMap['app-global-css-editor'])
 		}, 0)
 	})
 
@@ -88,9 +90,8 @@
 									small
 									automaticLayout
 									bind:this={cssEditor}
-									on:cursorPositionChange={(e) => {
-										globalCssEditorSavedPosition.val = e.detail.position
-									}}
+									on:cursorPositionChange={(e) =>
+										(editorPositionMap['app-global-css-editor'] = e.detail.position)}
 								/>
 							{:else}
 								<ThemeCodePreview theme={$app.theme}>
