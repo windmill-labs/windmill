@@ -197,7 +197,6 @@ struct ScriptInfo {
     summary: Option<String>,
     description: Option<String>,
     schema: Option<Schema>,
-    no_main_func: Option<bool>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -388,10 +387,7 @@ impl Runner {
         item_type: &str,
     ) -> Result<Vec<T>, Error> {
         let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
-        let mut fields = vec!["o.path", "o.summary", "o.description", "o.schema"];
-        if item_type == "script" {
-            fields.push("o.no_main_func");
-        }
+        let fields = vec!["o.path", "o.summary", "o.description", "o.schema"];
         sqlb.fields(&fields);
         if scope_type == "favorites" {
             sqlb.join("favorite")
