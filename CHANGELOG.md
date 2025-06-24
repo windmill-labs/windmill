@@ -1,5 +1,55 @@
 # Changelog
 
+## [1.501.0](https://github.com/windmill-labs/windmill/compare/v1.500.3...v1.501.0) (2025-06-24)
+
+
+### Features
+
+* ai flow chat prompt and UX improvements ([#5942](https://github.com/windmill-labs/windmill/issues/5942)) ([5722014](https://github.com/windmill-labs/windmill/commit/57220146513444436faff95f58c1b36481d1fa1d))
+
+
+### Bug Fixes
+
+* improve reactivity of apps ([27e12a1](https://github.com/windmill-labs/windmill/commit/27e12a1527c41ac801042038b707a94897e718f8))
+
+## [1.500.3](https://github.com/windmill-labs/windmill/compare/v1.500.2...v1.500.3) (2025-06-23)
+
+
+### Bug Fixes
+
+* fix conditional wrappre ([6f3cb5e](https://github.com/windmill-labs/windmill/commit/6f3cb5eabb7b2224d04ec10f151f67c0955a5cfd))
+
+## [1.500.2](https://github.com/windmill-labs/windmill/compare/v1.500.1...v1.500.2) (2025-06-20)
+
+
+### Bug Fixes
+
+* consistency of root job propagation fixing cases where runFlow in scripts would fail ([9c2f6a7](https://github.com/windmill-labs/windmill/commit/9c2f6a757fb168c7305c991c9fdbf78acd856a1c))
+
+## [1.500.1](https://github.com/windmill-labs/windmill/compare/v1.500.0...v1.500.1) (2025-06-20)
+
+
+### Bug Fixes
+
+* git repository resource picker effect loop ([#6017](https://github.com/windmill-labs/windmill/issues/6017)) ([1b1bee5](https://github.com/windmill-labs/windmill/commit/1b1bee5b53d78e4407b684b567d0fddd2b5283f3))
+
+## [1.500.0](https://github.com/windmill-labs/windmill/compare/v1.499.0...v1.500.0) (2025-06-20)
+
+
+### Features
+
+* add typescript client context to ai chat system prompt ([#6004](https://github.com/windmill-labs/windmill/issues/6004)) ([3e82282](https://github.com/windmill-labs/windmill/commit/3e822823519d1d5c22e422e4bd1ad4d37b6428b6))
+* blacklist remote agent worker token ([#5985](https://github.com/windmill-labs/windmill/issues/5985)) ([86eb907](https://github.com/windmill-labs/windmill/commit/86eb9074cc94f309f17ea72e9cecd0d502ffd2be))
+* **frontend:** run steps from graph ([#5915](https://github.com/windmill-labs/windmill/issues/5915)) ([67e6bce](https://github.com/windmill-labs/windmill/commit/67e6bce9b2eba1653450921afab3eabbd41fc715))
+
+
+### Bug Fixes
+
+* ai button in inline script editor to open AI chat in flow builder ([#5989](https://github.com/windmill-labs/windmill/issues/5989)) ([4ae5928](https://github.com/windmill-labs/windmill/commit/4ae5928788831196672e212b32ca410afab640e0))
+* improve piptar upload - sequential uploads via background task queue ([#5994](https://github.com/windmill-labs/windmill/issues/5994)) ([c4adaee](https://github.com/windmill-labs/windmill/commit/c4adaeeabd287ca1c4f3522bcd8bcea30b00fe6d))
+* new MultiSelect component ([#5979](https://github.com/windmill-labs/windmill/issues/5979)) ([fa8d1b4](https://github.com/windmill-labs/windmill/commit/fa8d1b47db19e15fe854e01f9987c8f97cb45b44))
+* replace worker tags to listen multiselect ([#5997](https://github.com/windmill-labs/windmill/issues/5997)) ([e4255e6](https://github.com/windmill-labs/windmill/commit/e4255e6276565c4a45b1f45a5d627bcfb5369270))
+
 ## [1.499.0](https://github.com/windmill-labs/windmill/compare/v1.498.0...v1.499.0) (2025-06-18)
 
 

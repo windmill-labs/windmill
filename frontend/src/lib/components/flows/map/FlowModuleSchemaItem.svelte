@@ -20,8 +20,7 @@
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import type { FlowEditorContext, FlowInput } from '../types'
-	import { type Writable } from 'svelte/store'
+	import type { FlowEditorContext } from '../types'
 	import { twMerge } from 'tailwind-merge'
 	import IdEditorInput from '$lib/components/IdEditorInput.svelte'
 	import { dfs } from '../dfs'
@@ -35,6 +34,10 @@
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
+	import ModuleAcceptReject, {
+		aiModuleActionToBgColor,
+		getAiModuleAction
+	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 	import { Button } from '$lib/components/common'
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
@@ -108,11 +111,8 @@
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
 
-	const { flowInputsStore } = getContext<{ flowInputsStore: Writable<FlowInput | undefined> }>(
-		'FlowGraphContext'
-	)
-
-	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
+	const flowInputsStore = flowEditorContext?.flowInputsStore
 
 	const dispatch = createEventDispatcher()
 
@@ -195,6 +195,8 @@
 	)
 
 	const icon_render = $derived(icon)
+
+	const action = $derived(getAiModuleAction(id))
 </script>
 
 {#if deletable && id && editId}
@@ -258,7 +260,7 @@
 {#if deletable && id && flowEditorContext?.flowStore && outputPickerVisible}
 	{@const flowStore = flowEditorContext?.flowStore.val}
 	{@const mod = flowStore?.value ? dfsPreviousResults(id, flowStore, false)[0] : undefined}
-	{#if mod && $flowStateStore[id]}
+	{#if mod && $flowStateStore?.[id]}
 		<ModuleTest bind:this={moduleTest} {mod} bind:testIsLoading bind:testJob />
 	{/if}
 {/if}
@@ -266,7 +268,11 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class={classNames('w-full module flex rounded-sm cursor-pointer max-w-full ', 'flex relative')}
+	class={classNames(
+		'w-full module flex rounded-sm cursor-pointer max-w-full ',
+		'flex relative',
+		deletable ? aiModuleActionToBgColor(action) : ''
+	)}
 	style="width: 275px; height: 34px; background-color: {hover && bgHoverColor
 		? bgHoverColor
 		: bgColor};"
@@ -274,6 +280,9 @@
 	onmouseleave={() => (hover = false)}
 	onpointerdown={stopPropagation(preventDefault(() => dispatch('pointerdown')))}
 >
+	{#if deletable}
+		<ModuleAcceptReject {action} {id} />
+	{/if}
 	<div
 		class={classNames(
 			'absolute rounded-sm outline-offset-0 outline-slate-500 dark:outline-gray-400',
@@ -397,8 +406,18 @@
 		{/if}
 	</div>
 
-	<div class="flex flex-col w-full">
-		<FlowModuleSchemaItemViewer {label} {path} {id} {deletable} {bold} bind:editId {hover}>
+	<div
+		class={twMerge('flex flex-col w-full', deletable && action === 'removed' ? 'opacity-50' : '')}
+	>
+		<FlowModuleSchemaItemViewer
+			{label}
+			{path}
+			{id}
+			deletable={deletable && !action}
+			{bold}
+			bind:editId
+			{hover}
+		>
 			{#snippet icon()}
 				{@render icon_render?.()}
 			{/snippet}
@@ -445,7 +464,7 @@
 		{/if}
 	</div>
 
-	{#if deletable}
+	{#if deletable && !action}
 		<div
 			class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-2 h-9 min-w-14"
 		>

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { type AnyMeltElement } from '@melt-ui/svelte'
 	import { conditionalMelt } from '$lib/utils'
-	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI'
 
 	export let aiId: string | undefined = undefined
 	export let aiDescription: string | undefined = undefined
@@ -13,23 +13,22 @@
 	let buttonRef: HTMLButtonElement | undefined = undefined
 </script>
 
-<TriggerableByAI
-	id={aiId}
-	description={aiDescription}
-	onTrigger={() => {
-		buttonRef?.click()
+<button
+	bind:this={buttonRef}
+	use:conditionalMelt={meltElement}
+	use:triggerableByAI={{
+		id: aiId,
+		description: aiDescription,
+		callback: () => {
+			buttonRef?.click()
+		}
 	}}
+	class={$$props.class}
+	{type}
+	{title}
+	{id}
+	{...$meltElement}
+	on:click
 >
-	<button
-		bind:this={buttonRef}
-		use:conditionalMelt={meltElement}
-		class={$$props.class}
-		{type}
-		{title}
-		{id}
-		{...$meltElement}
-		on:click
-	>
-		<slot />
-	</button>
-</TriggerableByAI>
+	<slot />
+</button>

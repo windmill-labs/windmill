@@ -108,15 +108,16 @@
 	})
 
 	onMount(() => {
-		testModulesState[mod.id] = {
-			...(testModulesState[mod.id] ?? { loading: false, instances: 0 }),
+		const modId = mod.id
+		testModulesState[modId] = {
+			...(testModulesState[modId] ?? { loading: false, instances: 0 }),
 			loading: testIsLoading,
-			instances: testModulesState[mod.id]!.instances + 1
+			instances: testModulesState[modId]!.instances + 1
 		}
 		return () => {
-			testModulesState[mod.id]!.instances -= 1
-			if (testModulesState[mod.id]!.instances < 1) {
-				delete testModulesState[mod.id]
+			testModulesState[modId].instances -= 1
+			if (testModulesState[modId].instances < 1) {
+				delete testModulesState[modId]
 			}
 		}
 	})

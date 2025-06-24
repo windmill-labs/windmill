@@ -18,7 +18,7 @@
 	import { page } from '$app/stores'
 	import { replaceState } from '$app/navigation'
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
-	import TriggerableByAI from './TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import { untrack } from 'svelte'
 
@@ -131,19 +131,23 @@
 	})
 </script>
 
-<TriggerableByAI
-	id={`run-form-${runnable?.path ?? ''}`}
-	description={`Form to fill the inputs to run ${runnable?.summary && runnable?.summary.length > 0 ? runnable?.summary : runnable?.path}.
+<!-- Standalone triggerable registration for the run form -->
+<div
+	style="display: none"
+	use:triggerableByAI={{
+		id: `run-form-${runnable?.path ?? ''}`,
+		description: `Form to fill the inputs to run ${runnable?.summary && runnable?.summary.length > 0 ? runnable?.summary : runnable?.path}.
 	## Script description: ${runnable?.description ?? ''}.
 	## Schema used: ${JSON.stringify(runnable?.schema)}.
-	## Current args: ${JSON.stringify(args)}}`}
-	onTrigger={(value) => {
-		savedPreviousArgs = args
-		setArgs(JSON.parse(value ?? '{}'))
-		showInputSelectedBadge = true
+	## Current args: ${JSON.stringify(args)}}`,
+		callback: (value) => {
+			savedPreviousArgs = args
+			setArgs(JSON.parse(value ?? '{}'))
+			showInputSelectedBadge = true
+		},
+		showAnimation: false
 	}}
-	showAnimation={false}
-/>
+></div>
 
 {#snippet acceptButton()}
 	<Button
@@ -214,11 +218,12 @@
 				</div>
 			</div>
 		{:else}
-			<TriggerableByAI
-				id="run-form-loading"
-				description="Run form is loading, should scan the page until this is gone"
-			/>
-			<h1>Loading...</h1>
+			<h1
+				use:triggerableByAI={{
+					id: 'run-form-loading',
+					description: 'Run form is loading, should scan the page until this is gone'
+				}}>Loading...</h1
+			>
 		{/if}
 	{/if}
 	{#if topButton}

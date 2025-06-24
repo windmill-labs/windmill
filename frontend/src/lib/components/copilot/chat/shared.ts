@@ -6,12 +6,14 @@ import type {
 import { get } from 'svelte/store'
 import type { ContextElement } from './context'
 import { workspaceStore } from '$lib/stores'
+import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 
 export type DisplayMessage =
 	| {
 			role: 'user' | 'assistant'
 			content: string
 			contextElements?: ContextElement[]
+			snapshot?: ExtendedOpenFlow
 	  }
 	| {
 			role: 'tool'
@@ -93,9 +95,9 @@ export interface Tool<T> {
 		toolCallbacks: ToolCallbacks
 		toolId: string
 	}) => Promise<string>
+	preAction?: (p: { toolCallbacks: ToolCallbacks; toolId: string }) => void
 }
 
 export interface ToolCallbacks {
-	onToolCall: (id: string, content: string) => void
-	onFinishToolCall: (id: string, content: string) => void
+	setToolStatus: (id: string, content: string) => void
 }

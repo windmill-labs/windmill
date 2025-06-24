@@ -24,7 +24,7 @@ jobs:
       DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_AI_BOT_TOKEN }}
 
   merge_success_emoji:
-    if: github.event.pull_request.merged == true
+    if: github.event.action == 'closed'
     uses: ./.github/workflows/shareable-discord-notification.yml
     with:
       PR_STATUS: "merged"
