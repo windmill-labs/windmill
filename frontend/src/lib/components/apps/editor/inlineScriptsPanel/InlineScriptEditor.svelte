@@ -69,14 +69,6 @@
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer | undefined = $state()
 
 	let editorPositionMap = getContext<EditorPositionMap>(EDITOR_POSITION_MAP_CONTEXT_KEY) ?? {}
-	$effect(() => {
-		setTimeout(() => {
-			if (editorPositionMap[`inline-${id}`]) {
-				simpleEditor?.setCursorPosition(editorPositionMap[`inline-${id}`])
-				editor?.setCursorPosition(editorPositionMap[`inline-${id}`])
-			}
-		}, 0)
-	})
 
 	async function inferInlineScriptSchema(
 		language: Preview['language'],
@@ -403,6 +395,7 @@
 							}
 							$app = $app
 						}}
+						initialCursorPos={editorPositionMap[`inline-${id}`]}
 						on:cursorPositionChange={(e) => (editorPositionMap[`inline-${id}`] = e.detail.position)}
 						args={Object.entries(fields).reduce((acc, [key, obj]) => {
 							acc[key] = obj.type === 'static' ? obj.value : undefined
@@ -432,6 +425,7 @@
 							inferSuggestions(e.detail.code)
 							$app = $app
 						}}
+						initialCursorPos={editorPositionMap[`inline-${id}`]}
 						on:cursorPositionChange={(e) => (editorPositionMap[`inline-${id}`] = e.detail.position)}
 					/>
 				{/if}

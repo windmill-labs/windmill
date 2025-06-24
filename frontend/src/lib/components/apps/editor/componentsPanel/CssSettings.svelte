@@ -24,13 +24,6 @@
 
 	let editorPositionMap = getContext<EditorPositionMap>(EDITOR_POSITION_MAP_CONTEXT_KEY) ?? {}
 
-	$effect(() => {
-		setTimeout(() => {
-			if (editorPositionMap['app-global-css-editor'])
-				cssEditor?.setCursorPosition(editorPositionMap['app-global-css-editor'])
-		}, 0)
-	})
-
 	function insertSelector(selector: string) {
 		if ($app?.theme?.type === 'path') {
 			sendUserToast(
@@ -90,6 +83,7 @@
 									small
 									automaticLayout
 									bind:this={cssEditor}
+									initialCursorPos={editorPositionMap['app-global-css-editor']}
 									on:cursorPositionChange={(e) =>
 										(editorPositionMap['app-global-css-editor'] = e.detail.position)}
 								/>

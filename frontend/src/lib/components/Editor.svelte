@@ -189,6 +189,7 @@
 	export let extraLib: string | undefined = undefined
 	export let changeTimeout: number = 500
 	export let loadAsync = false
+	export let initialCursorPos: IPosition | undefined = undefined
 
 	let lang = scriptLangToEditorLang(scriptLang)
 	$: lang = scriptLangToEditorLang(scriptLang)
@@ -364,13 +365,6 @@
 
 				editor.pushUndoStop()
 			}
-		}
-	}
-
-	export function setCursorPosition(position: IPosition): void {
-		if (editor) {
-			editor.setPosition(position)
-			editor.revealPositionInCenterIfOutsideViewport(position)
 		}
 	}
 
@@ -1285,6 +1279,10 @@
 				tabSize: lang == 'python' ? 4 : 2,
 				folding
 			})
+			if (initialCursorPos) {
+				editor.setPosition(initialCursorPos)
+				editor.revealPositionInCenterIfOutsideViewport(initialCursorPos)
+			}
 		} catch (e) {
 			console.error('Error loading monaco:', e)
 			return

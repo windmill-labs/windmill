@@ -122,13 +122,6 @@
 	let scriptProgress = $state(undefined)
 
 	let editorPositionMap = getContext<EditorPositionMap>(EDITOR_POSITION_MAP_CONTEXT_KEY) ?? {}
-	$effect(() => {
-		setTimeout(() => {
-			if (editorPositionMap[`flow-${flowModule.id}`]) {
-				editor?.setCursorPosition(editorPositionMap[`flow-${flowModule.id}`])
-			}
-		}, 0)
-	})
 
 	function onModulesChange(savedModule: FlowModule | undefined, flowModule: FlowModule) {
 		// console.log('onModulesChange', savedModule, flowModule)
@@ -457,6 +450,7 @@
 												},
 												{}
 											)}
+											initialCursorPos={editorPositionMap[`flow-${flowModule.id}`]}
 											on:cursorPositionChange={(e) =>
 												(editorPositionMap[`flow-${flowModule.id}`] = e.detail.position)}
 										/>

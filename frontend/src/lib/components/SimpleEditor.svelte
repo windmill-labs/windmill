@@ -115,7 +115,8 @@
 		allowVim = false,
 		tailwindClasses = [],
 		class: className = '',
-		loadAsync = false
+		loadAsync = false,
+		initialCursorPos = undefined
 	}: {
 		lang: string
 		code?: string
@@ -138,6 +139,7 @@
 		tailwindClasses?: string[]
 		class?: string
 		loadAsync?: boolean
+		initialCursorPos?: IPosition
 	} = $props()
 
 	const dispatch = createEventDispatcher()
@@ -234,13 +236,6 @@
 
 	export function setSuggestion(value: string): void {
 		suggestion = value
-	}
-
-	export function setCursorPosition(position: IPosition): void {
-		if (editor) {
-			editor.setPosition(position)
-			editor.revealPositionInCenterIfOutsideViewport(position)
-		}
 	}
 
 	let disableTabCond: meditor.IContextKey<boolean> | undefined
@@ -388,6 +383,10 @@
 					snippetsPreventQuickSuggestions: disableSuggestions
 				}
 			})
+			if (initialCursorPos) {
+				editor.setPosition(initialCursorPos)
+				editor.revealPositionInCenterIfOutsideViewport(initialCursorPos)
+			}
 		} catch (e) {
 			console.error('Error loading monaco:', e)
 			return
