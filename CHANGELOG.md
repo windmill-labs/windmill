@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.501.2](https://github.com/windmill-labs/windmill/compare/v1.501.1...v1.501.2) (2025-06-24)
+
+
+### Bug Fixes
+
+* improve schema form handling of inconsistent order and properties ([3daf79f](https://github.com/windmill-labs/windmill/commit/3daf79ffbc45ca32ff443e5521a67d62528665db))
+
 ## [1.501.1](https://github.com/windmill-labs/windmill/compare/v1.501.0...v1.501.1) (2025-06-24)
 
 
