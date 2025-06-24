@@ -104,6 +104,7 @@
 			flowInitial: boolean | undefined
 			moduleInitial: Record<string, stepState>
 		}
+		noInitial?: boolean
 	}
 
 	let {
@@ -126,7 +127,8 @@
 		draftTriggersFromUrl = undefined,
 		selectedTriggerIndexFromUrl = undefined,
 		children,
-		loadedFromHistoryFromUrl
+		loadedFromHistoryFromUrl,
+		noInitial = false
 	}: Props = $props()
 
 	let initialPathStore = writable(initialPath)
@@ -823,7 +825,8 @@
 	let stepHistoryLoader = new StepHistoryLoader(
 		loadedFromHistoryFromUrl?.moduleInitial ?? {},
 		loadedFromHistoryFromUrl?.flowInitial,
-		saveSessionDraft
+		saveSessionDraft,
+		noInitial
 	)
 	setStepHistoryLoaderContext(stepHistoryLoader)
 

@@ -16,6 +16,7 @@ export class StepHistoryLoader {
 	#stepStates = $state<Record<string, stepState>>({})
 	#flowJobInitial = $state<boolean | undefined>(undefined)
 	#saveCb = $state<(() => void) | undefined>(undefined)
+	#noInitial = $state<boolean>(false)
 
 	get stepStates() {
 		return this.#stepStates
@@ -30,6 +31,9 @@ export class StepHistoryLoader {
 	}
 
 	setFlowJobInitial(value: boolean | undefined) {
+		if (this.#noInitial) {
+			return
+		}
 		this.#flowJobInitial = value
 		if (value === false) {
 			// Set all step initials to false
@@ -43,11 +47,13 @@ export class StepHistoryLoader {
 	constructor(
 		stepStates: Record<string, stepState>,
 		flowJobInitial?: boolean,
-		saveCb?: () => void
+		saveCb?: () => void,
+		noInitial?: boolean
 	) {
 		this.#stepStates = stepStates
 		this.#flowJobInitial = flowJobInitial
 		this.#saveCb = saveCb
+		this.#noInitial = noInitial ?? false
 	}
 
 	resetInitial(stepId: string | undefined) {
@@ -83,7 +89,7 @@ export class StepHistoryLoader {
 				// Initialize step state if it doesn't exist
 				if (!this.#stepStates[module.id]) {
 					this.#stepStates[module.id] = {
-						initial: undefined,
+						initial: this.#noInitial ? false : undefined,
 						loadingJobs: undefined
 					}
 				}
