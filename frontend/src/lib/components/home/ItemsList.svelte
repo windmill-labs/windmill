@@ -41,7 +41,7 @@
 	import TreeViewRoot from './TreeViewRoot.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { getContext, untrack } from 'svelte'
-	import TriggerableByAI from '../TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI'
 	interface Props {
 		filter?: string
 		subtab?: 'flow' | 'script' | 'app'
@@ -350,9 +350,8 @@
 	</DrawerContent>
 </Drawer>
 
-<TriggerableByAI id="home-items-list" description="Lists of scripts, flows, and apps">
-	<CenteredPage>
-		<div class="flex flex-wrap gap-2 items-center justify-between w-full mt-2">
+<CenteredPage>
+		<div class="flex flex-wrap gap-2 items-center justify-between w-full mt-2" use:triggerableByAI={{id: "home-items-list", description: "Lists of scripts, flows, and apps"}}>
 			<div class="flex justify-start">
 				<ToggleButtonGroup
 					bind:selected={itemKind}
@@ -565,5 +564,4 @@
 				{/if}
 			{/if}
 		</div>
-	</CenteredPage>
-</TriggerableByAI>
+</CenteredPage>

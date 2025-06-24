@@ -16,7 +16,7 @@
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import TriggerableByAI from './TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI'
 
 	export let aiId: string | undefined = undefined
 	export let aiDescription: string | undefined = undefined
@@ -81,9 +81,13 @@
 
 <ResolveOpen {open} on:open on:close />
 
-<TriggerableByAI id={aiId} description={aiDescription} onTrigger={() => buttonEl?.click()} />
 <button
 	bind:this={buttonEl}
+	use:triggerableByAI={{
+		id: aiId,
+		description: aiDescription,
+		callback: () => buttonEl?.click()
+	}}
 	class={twMerge('w-full flex items-center justify-end', fixedHeight && 'h-8', $$props.class)}
 	use:melt={$trigger}
 	{disabled}

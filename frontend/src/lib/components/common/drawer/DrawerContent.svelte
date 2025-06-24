@@ -2,7 +2,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { classNames } from '$lib/utils'
 	import CloseButton from '../CloseButton.svelte'
-	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI'
 	import { createEventDispatcher } from 'svelte'
 
 	interface Props {
@@ -41,15 +41,15 @@
 <div class={classNames('flex flex-col divide-y', fullScreen ? 'h-screen max-h-screen' : 'h-full')}>
 	<div class="flex justify-between w-full items-center px-4 py-2 gap-2">
 		<div class="flex items-center gap-2 w-full truncate">
-			<TriggerableByAI
-				id={`close-${aiId}`}
-				description={`Close ${aiDescription}`}
-				onTrigger={() => {
+			<div use:triggerableByAI={{
+				id: `close-${aiId}`,
+				description: `Close ${aiDescription}`,
+				callback: () => {
 					dispatch('close')
-				}}
-			>
+				}
+			}}>
 				<CloseButton on:close Icon={CloseIcon} />
-			</TriggerableByAI>
+			</div>
 			<span class="font-semibold truncate text-primary !text-lg max-w-sm"
 				>{title ?? ''}
 				{#if tooltip != '' || documentationLink}

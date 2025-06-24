@@ -12,7 +12,6 @@
 	import Toggle from '../Toggle.svelte'
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import TriggerableByAI from '../TriggerableByAI.svelte'
 	import MultiSelect from '../select/MultiSelect.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
 
@@ -239,33 +238,30 @@
 
 			{#if showMcpMode}
 				<div class="mb-4 flex flex-row flex-shrink-0">
-					<TriggerableByAI
-						id="account-settings-create-mcp-token"
-						description="Create a new MCP token to authenticate to the Windmill API"
-					>
-						<Toggle
-							on:change={(e) => {
-								mcpCreationMode = e.detail
-								if (e.detail) {
-									newTokenLabel = 'MCP token'
-									newTokenExpiration = undefined
-									newTokenWorkspace = $workspaceStore
-								} else {
-									newTokenLabel = undefined
-									newTokenExpiration = undefined
-									newTokenWorkspace = defaultNewTokenWorkspace
-								}
-							}}
-							checked={mcpCreationMode}
-							options={{
-								right: 'Generate MCP URL',
-								rightTooltip:
-									'Generate a new MCP URL to make your scripts and flows available as tools through your LLM clients.',
-								rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mcp'
-							}}
-							size="xs"
-						/>
-					</TriggerableByAI>
+					<Toggle
+						on:change={(e) => {
+							mcpCreationMode = e.detail
+							if (e.detail) {
+								newTokenLabel = 'MCP token'
+								newTokenExpiration = undefined
+								newTokenWorkspace = $workspaceStore
+							} else {
+								newTokenLabel = undefined
+								newTokenExpiration = undefined
+								newTokenWorkspace = defaultNewTokenWorkspace
+							}
+						}}
+						checked={mcpCreationMode}
+						options={{
+							right: 'Generate MCP URL',
+							rightTooltip:
+								'Generate a new MCP URL to make your scripts and flows available as tools through your LLM clients.',
+							rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mcp'
+						}}
+						size="xs"
+						aiId="account-settings-create-mcp-token"
+						aiDescription="Create a new MCP token to authenticate to the Windmill API"
+					/>
 				</div>
 			{/if}
 

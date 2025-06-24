@@ -6,7 +6,7 @@
 	import { goto } from '$app/navigation'
 	import { conditionalMelt } from '$lib/utils'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
-	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI'
 
 	export let aiId: string | undefined = undefined
 	export let aiDescription: string | undefined = undefined
@@ -37,17 +37,17 @@
 		disablePopup={!isCollapsed}
 		placement="right"
 	>
-		<TriggerableByAI
-			id={aiId}
-			description={aiDescription}
-			onTrigger={() => {
-				if (buttonRef) {
-					buttonRef.click()
+		<button
+			bind:this={buttonRef}
+			use:triggerableByAI={{
+				id: aiId,
+				description: aiDescription,
+				callback: () => {
+					if (buttonRef) {
+						buttonRef.click()
+					}
 				}
 			}}
-		>
-			<button
-				bind:this={buttonRef}
 				on:click={(e) => {
 					if (stopPropagationOnClick) e.preventDefault()
 					if (href) {
@@ -112,8 +112,7 @@
 						<SideBarNotification notificationCount={notificationsCount} small={false} />
 					</div>
 				{/if}
-			</button>
-		</TriggerableByAI>
+		</button>
 
 		<svelte:fragment slot="text">
 			{#if label}
