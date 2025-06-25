@@ -43,6 +43,7 @@ export type ProcessedItem<T> = {
 	__is_create?: true
 	label: string
 	value: T
+	subtitle?: string
 }
 
 export function getLabel<T>(item: { label?: string; value: T } | undefined): string {

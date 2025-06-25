@@ -39,7 +39,6 @@
 	let jobId: string | undefined = $state(undefined)
 	let job: Job | undefined = $state(undefined)
 	let preventEscape = $state(false)
-	let initial = $state(false)
 	let selectedJobStep: string | undefined = $state(undefined)
 	let selectedJobStepIsTopLevel: boolean | undefined = $state(undefined)
 	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = $state('single')
@@ -121,7 +120,6 @@
 			bind:previewMode
 			bind:job
 			bind:jobId
-			bind:initial
 			bind:selectedJobStep
 			bind:selectedJobStepIsTopLevel
 			bind:selectedJobStepType
