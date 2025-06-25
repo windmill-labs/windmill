@@ -367,7 +367,6 @@
 		loadingDraft = false
 	}
 
-	let loadingJobs: boolean = $state(false)
 	onMount(() => {
 		setSavedraftCb?.(() => saveDraft())
 	})
@@ -1160,11 +1159,13 @@
 					}}
 					{forceTestTab}
 					{highlightArg}
-					{loadingJobs}
 					showFlowAiButton={!disableAi &&
 						customUi?.topBar?.aiBuilder != false &&
 						!aiChatManager.open}
 					onOpenAiChat={() => aiChatManager.openChat()}
+					onRunPreview={() => {
+						flowPreviewButtons?.openPreview(true)
+					}}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>
