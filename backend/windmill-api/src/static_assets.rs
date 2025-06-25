@@ -10,6 +10,8 @@ use axum::{body::Body, extract::OriginalUri, http::Response, response::IntoRespo
 
 #[cfg(feature = "static_frontend")]
 use axum::http::header;
+use http::HeaderValue;
+use crate::CSP_POLICY;
 
 use hyper::Uri;
 #[cfg(feature = "static_frontend")]
@@ -51,6 +53,13 @@ fn serve_path(path: &str) -> Response<Body> {
             let mut res = Response::builder()
                 .header(header::CONTENT_TYPE, mime.as_ref())
                 .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+            
+            // Add Content-Security-Policy header for static assets when policy is set
+            if !CSP_POLICY.is_empty() {
+                if let Ok(header_value) = HeaderValue::try_from(CSP_POLICY.as_str()) {
+                    res = res.header("Content-Security-Policy", header_value);
+                }
+            }
             if mime.as_ref() == mime::APPLICATION_JAVASCRIPT
                 || mime.as_ref() == mime::TEXT_JAVASCRIPT
                 || path.ends_with(".wasm")

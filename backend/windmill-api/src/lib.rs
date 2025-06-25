@@ -263,28 +263,6 @@ pub async fn add_webhook_allowed_origin(
     next.run(req).await
 }
 
-/// Middleware to add Content-Security-Policy headers to HTTP responses.
-/// 
-/// This middleware adds a CSP header to all HTTP responses to enhance security
-/// by controlling which resources the browser is allowed to load. The CSP policy
-/// is specified via the CSP_POLICY environment variable.
-/// 
-/// Note: This middleware is only added to the middleware stack when CSP_POLICY
-/// environment variable is set to a non-empty value.
-pub async fn add_csp_headers(
-    req: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> axum::response::Response {
-    let mut response = next.run(req).await;
-    
-    if let Ok(header_value) = HeaderValue::try_from(CSP_POLICY.as_str()) {
-        response
-            .headers_mut()
-            .insert("Content-Security-Policy", header_value);
-    }
-    
-    response
-}
 
 #[cfg(not(feature = "tantivy"))]
 type IndexReader = ();
@@ -346,13 +324,7 @@ pub async fn run_server(
         )))
         .layer(DefaultBodyLimit::max(
             REQUEST_SIZE_LIMIT.read().await.clone(),
-        ))
-        // Conditionally add CSP headers middleware when policy is explicitly set
-        .option_layer(if !CSP_POLICY.is_empty() {
-            Some(axum::middleware::from_fn(add_csp_headers))
-        } else {
-            None
-        });
+        ));
 
     let cors = CorsLayer::new()
         .allow_methods([http::Method::GET, http::Method::POST])
