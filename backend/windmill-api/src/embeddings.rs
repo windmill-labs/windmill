@@ -24,7 +24,7 @@ use candle_nn::VarBuilder;
 #[cfg(feature = "embedding")]
 use candle_transformers::models::bert::{BertModel, Config, DTYPE};
 #[cfg(feature = "embedding")]
-use hf_hub::{api::sync::Api, Cache, Repo};
+use hf_hub::api::tokio::Api;
 #[cfg(feature = "embedding")]
 use serde::Deserialize;
 #[cfg(feature = "embedding")]
@@ -158,63 +158,22 @@ pub struct ModelInstance {
 #[cfg(feature = "embedding")]
 impl ModelInstance {
     pub async fn load_model_files() -> Result<(PathBuf, PathBuf, PathBuf)> {
-        let repo = Repo::model("thenlper/gte-small".to_string());
-
-        let cache = Cache::default().repo(repo.clone());
-
         let api = Api::new()?;
-        let api = api.repo(repo);
+        let repo_api = api.model("thenlper/gte-small".to_string());
 
-        let (config_filename, tokenizer_filename, weights_filename) = (
-            cache
-                .get("config.json")
-                .or_else(|| {
-                    api.get("config.json")
-                        .or_else(|e| {
-                            tracing::error!("Failed to get config.json from hugging face: {}", e);
-                            return Err(e);
-                        })
-                        .ok()
-                })
-                .ok_or(Error::msg("could not get config.json"))?,
-            cache
-                .get("tokenizer.json")
-                .or_else(|| {
-                    api.get("tokenizer.json")
-                        .or_else(|e| {
-                            tracing::error!(
-                                "Failed to get tokenizer.json from hugging face: {}",
-                                e
-                            );
-                            return Err(e);
-                        })
-                        .ok()
-                })
-                .ok_or(Error::msg("could not get tokenizer.json"))?,
-            cache
-                .get("model.safetensors")
-                .and_then(|p| {
-                    tracing::info!("Found embedding model in cache");
-                    Some(p)
-                })
-                .or_else(|| {
-                    tracing::info!("Downloading embedding model...");
-                    api.get("model.safetensors")
-                        .or_else(|e| {
-                            tracing::error!(
-                                "Failed to get model.safetensors from hugging face: {}",
-                                e
-                            );
-                            return Err(e);
-                        })
-                        .ok()
-                        .and_then(|p| {
-                            tracing::info!("Downloaded embedding model");
-                            Some(p)
-                        })
-                })
-                .ok_or(Error::msg("could not get model.safetensors"))?,
-        );
+        let (config_filename, tokenizer_filename, weights_filename) =
+            (
+                repo_api
+                    .get("config.json")
+                    .await
+                    .map_err(|e| anyhow!("Failed to get config.json from hugging face: {}", e))?,
+                repo_api.get("tokenizer.json").await.map_err(|e| {
+                    anyhow!("Failed to get tokenizer.json from hugging face: {}", e)
+                })?,
+                repo_api.get("model.safetensors").await.map_err(|e| {
+                    anyhow!("Failed to get model.safetensors from hugging face: {}", e)
+                })?,
+            );
 
         Ok((config_filename, tokenizer_filename, weights_filename))
     }
