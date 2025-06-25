@@ -13,6 +13,7 @@
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 
 	import type { AuditLog } from '$lib/gen'
+	import { AuditService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
 	import AuditLogsTimeline from '$lib/components/auditLogs/AuditLogsTimeline.svelte'
@@ -37,6 +38,53 @@
 
 	let selectedId: number | undefined = $state(undefined)
 	let auditLogDrawer: Drawer | undefined = $state()
+
+	// Function to fetch missing job execution audit logs
+	async function fetchMissingJobSpan(jobId: string, jobLogs: AuditLog[]): Promise<AuditLog[]> {
+		if (jobLogs.length === 0) return []
+
+		const firstJobLog = jobLogs[0]
+		const timeBuffer = 10000 // 10 seconds buffer for safety
+
+		// Create time range around the job execution
+		const jobTime = new Date(firstJobLog.timestamp).getTime()
+		const beforeTime = new Date(jobTime + timeBuffer).toISOString()
+		const afterTime = new Date(jobTime - timeBuffer).toISOString()
+
+		console.log(
+			`Fetching missing job span for ${jobId} from ${firstJobLog.username} around ${firstJobLog.timestamp}`
+		)
+
+		try {
+			// Try multiple operation patterns to find the job execution
+			const operationPatterns = ['jobs.run', 'jobs.run.script', 'jobs.run.flow', 'jobs.run.preview']
+
+			for (const operation of operationPatterns) {
+				const additionalLogs = await AuditService.listAuditLogs({
+					workspace: scope === 'instance' ? 'global' : $workspaceStore!,
+					username: firstJobLog.username,
+					operation: operation,
+					before: beforeTime,
+					after: afterTime,
+					perPage: 100,
+					allWorkspaces: scope === 'all_workspaces'
+				})
+
+				// Check if we found the job execution log
+				const jobExecutionLog = additionalLogs.find((log) => log.parameters?.uuid === jobId)
+				if (jobExecutionLog) {
+					console.log(`Found job execution log with operation ${operation} for job ${jobId}`)
+					return additionalLogs
+				}
+			}
+
+			console.log(`No matching job execution found for job ${jobId}`)
+			return []
+		} catch (error) {
+			console.error(`Failed to fetch missing job span for ${jobId}:`, error)
+			return []
+		}
+	}
 </script>
 
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.audit_logs}
@@ -46,7 +94,21 @@
 	</div>
 {:else}
 	<div class="w-full h-screen">
-		<AuditLogsTimeline {logs} />
+		<AuditLogsTimeline
+			{logs}
+			minTimeSet={after}
+			maxTimeSet={before}
+			onMissingJobSpan={fetchMissingJobSpan}
+			onZoom={({ min, max }) => {
+				before = max.toISOString()
+				after = min.toISOString()
+				console.log('zoom!')
+			}}
+			onLogSelected={(log) => {
+				console.log('selected log ')
+				selectedId = log.id
+			}}
+		/>
 		<div class="px-2">
 			<div class="flex items-center space-x-2 flex-row justify-between">
 				<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1 items-center">

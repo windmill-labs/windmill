@@ -321,11 +321,15 @@
 		<span class="text-xs absolute -top-4">After</span>
 		<input type="text" value={after ?? 'After'} disabled />
 		<CalendarPicker
+			clearable
 			date={after}
 			placement="bottom-end"
 			label="After"
-			on:change={async ({ detail }) => {
+			on:change={({ detail }) => {
 				after = new Date(detail).toISOString()
+			}}
+			on:clear={() => {
+				after = undefined
 			}}
 		/>
 	</div>
@@ -333,11 +337,15 @@
 		<span class="text-xs absolute -top-4">Before</span>
 		<input type="text" value={before ?? 'Before'} disabled />
 		<CalendarPicker
+			clearable
 			bind:date={before}
 			label="Before"
 			placement="bottom-end"
-			on:change={async ({ detail }) => {
+			on:change={({ detail }) => {
 				before = new Date(detail).toISOString()
+			}}
+			on:clear={() => {
+				before = undefined
 			}}
 		/>
 	</div>
