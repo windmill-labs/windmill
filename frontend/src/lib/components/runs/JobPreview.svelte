@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { base } from '$lib/base'
-	import { ConcurrencyGroupsService, type Job, type WorkflowStatus } from '../../gen'
+	import { AssetService, ConcurrencyGroupsService, type Job, type WorkflowStatus } from '../../gen'
 	import TestJobLoader from '../TestJobLoader.svelte'
 	import DisplayResult from '../DisplayResult.svelte'
 	import JobArgs from '../JobArgs.svelte'
@@ -17,6 +17,8 @@
 	import { isFlowPreview, isScriptPreview, truncateRev } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { ListFilter } from 'lucide-svelte'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
+	import { formatAsset } from '../assets/lib'
 
 	export let id: string
 	export let blankLink = false
@@ -52,6 +54,17 @@
 	}
 
 	let viewTab = 'result'
+
+	let assets = usePromise(async () =>
+		(job?.job_kind === 'flow' || job?.job_kind === 'script') && job?.script_path
+			? AssetService.listAssetsForUsage({
+					workspace: workspace ?? $workspaceStore ?? '',
+					usageKind: job.job_kind,
+					usagePath: job.script_path
+				})
+			: undefined
+	)
+	$: job?.job_kind && job.script_path && assets.refresh()
 
 	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
 		return x as Record<string, WorkflowStatus>
@@ -160,6 +173,17 @@
 				args={job?.args}
 			/>
 		</div>
+
+		{#if assets.value}
+			<span class="font-semibold text-xs leading-6">Assets</span>
+			<ul class="w-full">
+				{#each assets.value as asset}
+					<li class="!list-disc ml-6 text-sm">
+						<p class="truncate">{formatAsset(asset)}</p>
+					</li>
+				{/each}
+			</ul>
+		{/if}
 
 		{#if job?.type === 'CompletedJob'}
 			<span class="font-semibold text-xs leading-6">Results</span>

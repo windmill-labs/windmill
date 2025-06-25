@@ -12981,7 +12981,7 @@ paths:
       - $ref: '#/components/parameters/WorkspaceId'
       responses:
         '200':
-          description: assets linked
+          description: all assets in the workspace
           content:
             application/json:
               schema:
@@ -13004,6 +13004,32 @@ paths:
                             type: string
                           usage_kind:
                             $ref: '#/components/schemas/AssetUsageKind'
+
+  /w/{workspace}/assets/list_for_usage:
+    get:
+      summary: List all assets used by a given usage path
+      operationId: listAssetsForUsage
+      tags:
+      - asset
+      parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+      - $ref: '#/components/parameters/AssetUsageKind'
+      - $ref: '#/components/parameters/AssetUsagePath'
+      responses:
+        '200':
+          description: all assets used by the given usage path
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [path, kind]
+                  properties:
+                    path:
+                      type: string
+                    kind:
+                      $ref: '#/components/schemas/AssetKind'
 
 components:
   securitySchemes:
@@ -13031,6 +13057,18 @@ components:
     WorkspaceId:
       name: workspace
       in: path
+      required: true
+      schema:
+        type: string
+    AssetUsageKind:
+      name: usage_kind
+      in: query
+      required: true
+      schema:
+        $ref: "#/components/schemas/AssetUsageKind"
+    AssetUsagePath:
+      name: usage_path
+      in: query
       required: true
       schema:
         type: string
