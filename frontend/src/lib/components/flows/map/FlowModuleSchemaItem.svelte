@@ -455,9 +455,6 @@
 						isLoading={testIsLoading ||
 							(id ? stepHistoryLoader?.stepStates[id]?.loadingJobs : false)}
 						initial={id ? stepHistoryLoader?.stepStates[id]?.initial : undefined}
-						onResetInitial={() => {
-							stepHistoryLoader?.resetInitial(id)
-						}}
 					/>
 				{/snippet}
 			</OutputPicker>
