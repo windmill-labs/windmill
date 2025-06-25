@@ -4,13 +4,14 @@
 	import { Button, DrawerContent } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
+	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { Cell, DataTable } from '$lib/components/table'
 	import Head from '$lib/components/table/Head.svelte'
 	import { AssetService } from '$lib/gen'
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { usePaginated } from '$lib/svelte5Utils.svelte'
-	import { pluralize } from '$lib/utils'
-	import { RefreshCw } from 'lucide-svelte'
+	import { isS3Uri, pluralize } from '$lib/utils'
+	import { File, RefreshCw } from 'lucide-svelte'
 
 	let assets = usePaginated(async (page) => {
 		return {
@@ -23,6 +24,7 @@
 	})
 
 	let viewOccurences: (typeof assets)['items'][number] | undefined = $state()
+	let s3FilePicker: S3FilePicker | undefined = $state()
 </script>
 
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.resources}
@@ -42,6 +44,7 @@
 				<tr>
 					<Cell head first>Asset name</Cell>
 					<Cell head></Cell>
+					<Cell head></Cell>
 				</tr>
 			</Head>
 			<tbody class="divide-y bg-surface">
@@ -53,6 +56,19 @@
 							<a href={`#${assetUri}`} onclick={() => (viewOccurences = item)}>
 								{pluralize(item.usages.length, 'occurrence')}
 							</a>
+						</Cell>
+						<Cell>
+							{#if item.kind === 's3object'}
+								<Button
+									size="xs"
+									variant="border"
+									spacingSize="xs2"
+									btnClasses="mt-1 w-24"
+									on:click={async () => isS3Uri(assetUri) && s3FilePicker?.open(assetUri)}
+								>
+									<File size={18} /> View
+								</Button>
+							{/if}
 						</Cell>
 					</tr>
 				{/each}
@@ -81,10 +97,10 @@
 >
 	<DrawerContent title="Asset occurrences" on:close={() => (viewOccurences = undefined)}>
 		{#each viewOccurences?.usages ?? [] as u}
-			<div class="p-4">
-				<h3 class="text-lg font-semibold mb-2">{u.usage_kind}</h3>
-				<p class="text-sm text-gray-600 mb-2">{u.usage_path}</p>
-			</div>
+			<ul class="px-6">
+				<li class="text-sm list-disc">{u.usage_kind}/{u.usage_path}</li>
+			</ul>
 		{/each}
 	</DrawerContent>
 </Drawer>
+<S3FilePicker bind:this={s3FilePicker} readOnlyMode />

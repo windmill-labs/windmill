@@ -1433,3 +1433,22 @@ export function scroll_into_view_if_needed_polyfill(elem: Element, centerIfNeede
 }
 
 export const editorPositionMap: Record<string, IPosition> = {}
+
+export type S3Uri = `s3://${string}/${string}`
+export type S3Object =
+	| S3Uri
+	| {
+			s3: string
+			storage?: string
+	  }
+
+export function parseS3Object(s3Object: S3Object): { s3: string; storage?: string } {
+	if (typeof s3Object === 'object') return s3Object
+	const match = s3Object.match(/^s3:\/\/([^/]*)\/(.*)$/)
+	return { storage: match?.[1] || undefined, s3: match?.[2] ?? '' }
+}
+
+export function isS3Uri(uri: string): uri is S3Uri {
+	const match = uri.match(/^s3:\/\/([^/]*)\/(.*)$/)
+	return !!match && match.length === 3
+}

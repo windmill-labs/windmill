@@ -16,7 +16,14 @@
 	import { workspaceStore } from '$lib/stores'
 	import { HelpersService } from '$lib/gen'
 	import { base } from '$lib/base'
-	import { displayDate, displaySize, emptyString, sendUserToast } from '$lib/utils'
+	import {
+		displayDate,
+		displaySize,
+		emptyString,
+		parseS3Object,
+		sendUserToast,
+		type S3Object
+	} from '$lib/utils'
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Section from './Section.svelte'
@@ -377,9 +384,8 @@
 	}
 
 	let storage: string | undefined = $state(undefined)
-	export async function open(
-		preSelectedFileKey: { s3: string; storage?: string } | undefined = undefined
-	) {
+	export async function open(_preSelectedFileKey: S3Object | undefined = undefined) {
+		const preSelectedFileKey = _preSelectedFileKey && parseS3Object(_preSelectedFileKey)
 		storage = preSelectedFileKey?.storage
 		if (preSelectedFileKey !== undefined) {
 			initialFileKey = { ...preSelectedFileKey }
