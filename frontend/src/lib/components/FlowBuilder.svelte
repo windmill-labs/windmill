@@ -359,7 +359,6 @@
 		loadingDraft = false
 	}
 
-	let loadingJobs: boolean = $state(false)
 	onMount(() => {
 		setSavedraftCb?.(() => saveDraft())
 	})
@@ -1144,7 +1143,9 @@
 					}}
 					{forceTestTab}
 					{highlightArg}
-					{loadingJobs}
+					onRunPreview={() => {
+						flowPreviewButtons?.openPreview(true)
+					}}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

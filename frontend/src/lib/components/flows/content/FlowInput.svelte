@@ -4,7 +4,6 @@
 	import { getContext, tick, untrack } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import type { FlowEditorContext } from '../types'
-	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
 	import { convert } from '@redocly/json-to-json-schema'
 	import { sendUserToast } from '$lib/toast'
@@ -27,7 +26,6 @@
 		Check
 	} from 'lucide-svelte'
 	import CaptureIcon from '$lib/components/triggers/CaptureIcon.svelte'
-	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
 	import FlowInputEditor from './FlowInputEditor.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
@@ -48,9 +46,10 @@
 	interface Props {
 		noEditor: boolean
 		disabled: boolean
+		onRunPreview?: () => void
 	}
 
-	let { noEditor, disabled }: Props = $props()
+	let { noEditor, disabled, onRunPreview }: Props = $props()
 
 	const {
 		flowStore,
@@ -76,7 +75,6 @@
 	let runDisabled: boolean = $state(false)
 	let editableSchemaForm: EditableSchemaForm | undefined = $state(undefined)
 	let savedPreviewArgs: Record<string, any> | undefined = $state(undefined)
-	let preventEscape = $state(false)
 	let isValid = $state(true)
 
 	function updateEditPanelSize(size: number | undefined) {
@@ -193,9 +191,6 @@
 		return { required: [], properties: {}, ...convert(parsed) }
 	}
 
-	let flowPreviewContent: FlowPreviewContent | undefined = $state()
-	let previewOpen = $state(false)
-
 	function handleKeydown(event: KeyboardEvent) {
 		if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
 			runPreview()
@@ -211,8 +206,7 @@
 		if (previewArguments) {
 			previewArgs.val = structuredClone($state.snapshot(previewArguments))
 		}
-		previewOpen = true
-		flowPreviewContent?.test()
+		onRunPreview?.()
 	}
 
 	function updatePreviewSchemaAndArgs(payload: any) {
@@ -358,18 +352,6 @@
 
 <!-- Add svelte:window to listen for keyboard events -->
 <svelte:window onkeydown={handleKeydown} />
-
-<Drawer bind:open={previewOpen} alwaysOpen size="75%" {preventEscape}>
-	<FlowPreviewContent
-		bind:this={flowPreviewContent}
-		open={previewOpen}
-		previewMode="whole"
-		on:close={() => {
-			previewOpen = false
-		}}
-		bind:preventEscape
-	/>
-</Drawer>
 
 <FlowCard {noEditor} title="Flow Input">
 	{#if !disabled}
