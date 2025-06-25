@@ -4,6 +4,7 @@ import { NEVER_TESTED_THIS_FAR } from './flows/models'
 import { JobService, type Flow, type FlowModule } from '$lib/gen'
 import { dfs } from './flows/dfs'
 import { getContext, setContext } from 'svelte'
+import pLimit from 'p-limit'
 
 export type stepState = {
 	initial?: boolean
@@ -97,60 +98,63 @@ export class StepHistoryLoader {
 		})
 
 		// Load all modules in parallel and wait for completion
-		const loadPromises = modulesToLoad.map(async (module) => {
-			try {
-				this.#stepStates[module.id].loadingJobs = true
+		const limit = pLimit(5)
+		const loadPromises = modulesToLoad.map((module) =>
+			limit(async () => {
+				try {
+					this.#stepStates[module.id].loadingJobs = true
 
-				const scriptPath =
-					`path` in module.value
-						? module.value.path
-						: (initialPath === '' ? path : initialPath) + '/' + module.id
+					const scriptPath =
+						`path` in module.value
+							? module.value.path
+							: (initialPath === '' ? path : initialPath) + '/' + module.id
 
-				const previousJobId = await JobService.listJobs({
-					workspace: workspaceId,
-					scriptPathExact: scriptPath,
-					jobKinds: ['preview', 'script', 'flowpreview', 'flow', 'flowscript'].join(','),
-					page: 1,
-					perPage: 1
-				})
+					const previousJobId = await JobService.listJobs({
+						workspace: workspaceId,
+						scriptPathExact: scriptPath,
+						jobKinds: ['preview', 'script', 'flowpreview', 'flow', 'flowscript'].join(','),
+						page: 1,
+						perPage: 1
+					})
 
-				if (previousJobId.length === 0) {
+					if (previousJobId.length === 0) {
+						this.#stepStates[module.id].loadingJobs = false
+						return
+					}
+
+					const getJobResult = await JobService.getCompletedJobResultMaybe({
+						workspace: workspaceId,
+						id: previousJobId[0].id
+					})
+
+					if ('result' in getJobResult) {
+						flowStateStore.update((state) => ({
+							...state,
+							[module.id]: {
+								...(state[module.id] ?? {}),
+								previewResult: getJobResult.result,
+								previewJobId: previousJobId[0].id,
+								previewWorkspaceId: previousJobId[0].workspace_id,
+								previewSuccess: getJobResult.success
+							}
+						}))
+						this.#stepStates[module.id].initial =
+							this.#stepStates[module.id].initial !== undefined
+								? this.#stepStates[module.id].initial
+								: true
+					}
+				} catch (error) {
+					console.error(`Failed to load history for module ${module.id}:`, error)
+					this.#stepStates[module.id] = {
+						initial: false,
+						loadingJobs: false
+					}
+				} finally {
+					// Ensure loading state is always cleaned up
 					this.#stepStates[module.id].loadingJobs = false
-					return
 				}
-
-				const getJobResult = await JobService.getCompletedJobResultMaybe({
-					workspace: workspaceId,
-					id: previousJobId[0].id
-				})
-
-				if ('result' in getJobResult) {
-					flowStateStore.update((state) => ({
-						...state,
-						[module.id]: {
-							...(state[module.id] ?? {}),
-							previewResult: getJobResult.result,
-							previewJobId: previousJobId[0].id,
-							previewWorkspaceId: previousJobId[0].workspace_id,
-							previewSuccess: getJobResult.success
-						}
-					}))
-					this.#stepStates[module.id].initial =
-						this.#stepStates[module.id].initial !== undefined
-							? this.#stepStates[module.id].initial
-							: true
-				}
-			} catch (error) {
-				console.error(`Failed to load history for module ${module.id}:`, error)
-				this.#stepStates[module.id] = {
-					initial: false,
-					loadingJobs: false
-				}
-			} finally {
-				// Ensure loading state is always cleaned up
-				this.#stepStates[module.id].loadingJobs = false
-			}
-		})
+			})
+		)
 
 		// Wait for all loading operations to complete
 		await Promise.all(loadPromises)
