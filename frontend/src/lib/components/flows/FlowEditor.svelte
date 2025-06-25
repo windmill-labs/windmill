@@ -36,6 +36,7 @@
 		onEditInput?: ((moduleId: string, key: string) => void) | undefined
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
+		loadingJobs?: boolean
 	}
 
 	let {

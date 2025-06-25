@@ -24,6 +24,7 @@
 		disableMock?: boolean
 		disableHistory?: boolean
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
+		loadingHistory?: boolean
 	}
 
 	let {
@@ -38,7 +39,8 @@
 		testIsLoading = false,
 		disableMock = false,
 		disableHistory = false,
-		onUpdateMock
+		onUpdateMock,
+		loadingHistory = false
 	}: Props = $props()
 
 	const { testSteps } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -82,7 +84,7 @@
 			mock={mod.mock}
 			bind:forceJson
 			bind:selectedJob
-			isLoading={(testIsLoading && !scriptProgress) || fetchingLastJob}
+			isLoading={(testIsLoading && !scriptProgress) || fetchingLastJob || loadingHistory}
 			bind:preview
 			path={`path` in mod.value ? mod.value.path : ''}
 			{loopStatus}
@@ -112,7 +114,9 @@
 				duration={selectedJob?.['duration_ms']}
 				mem={selectedJob?.['mem_peak']}
 				content={selectedJob?.logs}
-				isLoading={(testIsLoading && selectedJob?.['running'] == false) || fetchingLastJob}
+				isLoading={(testIsLoading && selectedJob?.['running'] == false) ||
+					fetchingLastJob ||
+					loadingHistory}
 				tag={selectedJob?.tag}
 			/>
 		{/if}

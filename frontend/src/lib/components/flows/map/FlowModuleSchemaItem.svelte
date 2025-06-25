@@ -40,6 +40,7 @@
 	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 	import { Button } from '$lib/components/common'
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
+	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 
 	interface Props {
 		selected?: boolean
@@ -138,6 +139,8 @@
 	let outputPickerBarOpen = $state(false)
 
 	let flowStateStore = $derived(flowEditorContext?.flowStateStore)
+
+	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	function updateConnectingData(
 		id: string | undefined,
@@ -449,7 +452,9 @@
 						bind:derivedHistoryOpen={historyOpen}
 						historyOffset={{ mainAxis: 12, crossAxis: -9 }}
 						clazz="p-1"
-						isLoading={testIsLoading}
+						isLoading={testIsLoading ||
+							(id ? stepHistoryLoader?.stepStates[id]?.loadingJobs : false)}
+						initial={id ? stepHistoryLoader?.stepStates[id]?.initial : undefined}
 					/>
 				{/snippet}
 			</OutputPicker>

@@ -153,6 +153,7 @@
 			}
 		}
 		await initFlow(flow, flowStore, flowStateStore)
+		flowBuilder?.loadFlowState()
 		loading = false
 	}
 
@@ -182,6 +183,7 @@
 	{loading}
 	{draftTriggersFromUrl}
 	{selectedTriggerIndexFromUrl}
+	noInitial
 >
 	<UnsavedConfirmationModal
 		getInitialAndModifiedValues={flowBuilder?.getInitialAndModifiedValues}

@@ -15,6 +15,7 @@
 	import { getContext, onMount } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import TestJobLoader from './TestJobLoader.svelte'
+	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
 
 	interface Props {
 		mod: FlowModule
@@ -37,6 +38,7 @@
 
 	let testJobLoader: TestJobLoader | undefined = $state(undefined)
 	let jobProgressReset: () => void = () => {}
+	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	export function runTestWithStepArgs() {
 		runTest(testSteps.getStepArgs(mod.id)?.value)
@@ -92,6 +94,7 @@
 				$flowStateStore[mod.id].previewWorkspaceId = testJob.workspace_id
 				$flowStateStore = $flowStateStore
 			}
+			stepHistoryLoader?.resetInitial(mod.id)
 		}
 		testJob = undefined
 	}
