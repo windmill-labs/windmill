@@ -15,9 +15,10 @@
 
 	interface Props {
 		loading?: boolean
+		localModuleStates: Writable<Record<string, GraphModuleState>>
 	}
 
-	let { loading = false }: Props = $props()
+	let { loading = false, localModuleStates = $bindable(writable({})) }: Props = $props()
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 	let previewOpen = $state(false)
@@ -53,7 +54,6 @@
 	let rightColumnSelect: 'timeline' | 'node_status' | 'node_definition' | 'user_states' =
 		$state('timeline')
 
-	let localModuleStates: Writable<Record<string, GraphModuleState>> = $state(writable({}))
 	let localDurationStatuses: Writable<Record<string, DurationStatus>> = $state(writable({}))
 
 	let upToDisabled = $derived(
@@ -86,7 +86,9 @@
 	export function testUpTo() {
 		if (upToDisabled) return
 		previewMode = 'upTo'
-		previewOpen = true
+		//previewOpen = false
+		flowPreviewContent?.refresh()
+		flowPreviewContent?.test()
 	}
 </script>
 

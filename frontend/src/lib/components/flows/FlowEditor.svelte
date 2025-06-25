@@ -7,7 +7,7 @@
 	import { getContext, onDestroy, onMount, setContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
 
-	import { writable } from 'svelte/store'
+	import { writable, type Writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
 	import type { Flow } from '$lib/gen'
@@ -15,6 +15,7 @@
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI'
+	import type { GraphModuleState } from '../graph'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	interface Props {
@@ -37,6 +38,7 @@
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
 		onRunPreview?: () => void
+		localModuleStates: Writable<Record<string, GraphModuleState>>
 	}
 
 	let {
@@ -54,7 +56,8 @@
 		onEditInput = undefined,
 		forceTestTab,
 		highlightArg,
-		onRunPreview = () => {}
+		onRunPreview = () => {},
+		localModuleStates = $bindable(writable({}))
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -108,6 +111,7 @@
 						}}
 						{onTestUpTo}
 						{onEditInput}
+						{localModuleStates}
 					/>
 				{/if}
 			</div>

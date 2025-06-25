@@ -75,6 +75,7 @@
 	import { Triggers } from './triggers/triggers.svelte'
 	import { TestSteps } from './flows/testSteps.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
+	import type { GraphModuleState } from './graph'
 
 	interface Props {
 		initialPath?: string
@@ -833,6 +834,8 @@
 		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasDiff() ?? false
 		customUi && untrack(() => onCustomUiChange(customUi, hasAiDiff))
 	})
+
+	let localModuleStates: Writable<Record<string, GraphModuleState>> = $state(writable({}))
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -1022,6 +1025,7 @@
 						<FlowAIButton openPanel={() => aiChatManager.openChat()} />
 					{/if}
 					<FlowPreviewButtons
+						bind:localModuleStates
 						on:openTriggers={(e) => {
 							select('triggers')
 							handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)
@@ -1096,6 +1100,7 @@
 					onRunPreview={() => {
 						flowPreviewButtons?.runPreview()
 					}}
+					{localModuleStates}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

@@ -38,6 +38,8 @@
 	import { dfsByModule } from '../previousResults'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import type { GraphModuleState } from '$lib/components/graph'
+	import { writable, type Writable } from 'svelte/store'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -50,6 +52,7 @@
 		workspace?: string | undefined
 		onTestUpTo?: ((id: string) => void) | undefined
 		onEditInput?: (moduleId: string, key: string) => void
+		localModuleStates: Writable<Record<string, GraphModuleState>>
 	}
 
 	let {
@@ -62,7 +65,8 @@
 		smallErrorHandler = false,
 		workspace = $workspaceStore,
 		onTestUpTo,
-		onEditInput
+		onEditInput,
+		localModuleStates = $bindable(writable({}))
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -334,6 +338,7 @@
 			editMode
 			{onTestUpTo}
 			{onEditInput}
+			flowModuleStates={$localModuleStates}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)
 				const cb = () => {
