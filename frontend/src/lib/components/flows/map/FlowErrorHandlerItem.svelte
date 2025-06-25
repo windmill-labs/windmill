@@ -62,21 +62,24 @@
 			: '',
 		aiModuleActionToBgColor(action)
 	)}
-	style="min-width: {small ? '200px' : '230px'}; max-width: 275px;"
+	style="min-width: {flowStore.val?.value?.failure_module
+		? small
+			? '200px'
+			: '230px'
+		: ''}; max-width: 275px;"
 	onclick={() => {
 		if (flowStore.val?.value?.failure_module) {
 			$selectedId = 'failure'
 		}
 	}}
+	title={'Error Handler'}
 >
 	<ModuleAcceptReject id="failure" {action} />
 	<div class="flex items-center grow-0 min-w-0 gap-2">
 		<Bug size={16} color={flowStore.val?.value?.failure_module ? '#3b82f6' : '#9CA3AF'} />
 	</div>
 
-	{#if !flowStore.val?.value?.failure_module}
-		<div class="grow text-center font-bold text-xs">Error Handler</div>
-	{:else}
+	{#if flowStore.val?.value?.failure_module}
 		<div class="truncate grow min-w-0 text-center text-xs">
 			{flowStore.val.value.failure_module?.summary ||
 				(flowStore.val.value.failure_module?.value.type === 'rawscript'

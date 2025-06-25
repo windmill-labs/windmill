@@ -4,13 +4,15 @@
 	import { Badge } from '$lib/components/common'
 	import { DollarSign, Settings } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 
 	interface Props {
 		disableSettings?: boolean
 		disableStaticInputs?: boolean
+		smallErrorHandler: boolean
 	}
 
-	let { disableSettings, disableStaticInputs }: Props = $props()
+	let { disableSettings, disableStaticInputs, smallErrorHandler }: Props = $props()
 
 	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -49,4 +51,6 @@
 			<DollarSign size={16} />
 		</button>
 	{/if}
+
+	<FlowErrorHandlerItem small={smallErrorHandler} on:generateStep />
 </div>

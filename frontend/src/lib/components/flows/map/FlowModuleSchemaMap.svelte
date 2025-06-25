@@ -17,7 +17,6 @@
 	import { emptyFlowModuleState } from '../utils'
 
 	import { dfs } from '../dfs'
-	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import { push } from '$lib/history'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
@@ -305,7 +304,7 @@
 	<div
 		class={`z-50 absolute inline-flex flex-col gap-2 top-3 left-1/2 -translate-x-1/2 flex-initial  items-center transition-colors duration-[400ms] ease-linear bg-surface-100`}
 	>
-		<FlowStickyNode {disableSettings} {disableStaticInputs} />
+		<FlowStickyNode {disableSettings} {disableStaticInputs} {smallErrorHandler} on:generateStep />
 	</div>
 
 	<div class="z-10 flex-auto grow bg-surface-secondary" bind:clientHeight={minHeight}>
@@ -523,13 +522,6 @@
 				refreshStateStore(flowStore)
 			}}
 		/>
-	</div>
-	<div
-		class="z-10 absolute inline-flex w-full text-sm gap-2 bottom-0 left-0 p-2 {smallErrorHandler
-			? 'flex-row-reverse'
-			: 'justify-center'} border-b"
-	>
-		<FlowErrorHandlerItem small={smallErrorHandler} on:generateStep />
 	</div>
 </div>
 
