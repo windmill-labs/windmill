@@ -36,8 +36,10 @@ use anyhow::Context;
 use argon2::Argon2;
 use axum::extract::DefaultBodyLimit;
 use axum::{middleware::from_extractor, routing::get, routing::post, Extension, Router};
+use axum::response::Response;
+use axum::http::HeaderValue;
+use axum::body::Body;
 use db::DB;
-use http::HeaderValue;
 use reqwest::Client;
 #[cfg(feature = "oauth2")]
 use std::collections::HashMap;
@@ -890,12 +892,18 @@ async fn ee_license() -> String {
     }
 }
 
-async fn openapi() -> &'static str {
-    include_str!("../openapi-deref.yaml")
+async fn openapi() -> Response {
+    Response::builder()
+        .header("content-type", "application/yaml")
+        .body(Body::from(include_str!("../openapi-deref.yaml")))
+        .unwrap()
 }
 
-async fn openapi_json() -> &'static str {
-    include_str!("../openapi-deref.json")
+async fn openapi_json() -> Response {
+    Response::builder()
+        .header("content-type", "application/json")
+        .body(Body::from(include_str!("../openapi-deref.json")))
+        .unwrap()
 }
 
 pub async fn migrate_db(db: &DB) -> anyhow::Result<Option<JoinHandle<()>>> {
