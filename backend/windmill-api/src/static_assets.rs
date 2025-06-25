@@ -10,7 +10,9 @@ use axum::{body::Body, extract::OriginalUri, http::Response, response::IntoRespo
 
 #[cfg(feature = "static_frontend")]
 use axum::http::header;
+#[cfg(feature = "static_frontend")]
 use http::HeaderValue;
+#[cfg(feature = "static_frontend")]
 use crate::CSP_POLICY;
 
 use hyper::Uri;
