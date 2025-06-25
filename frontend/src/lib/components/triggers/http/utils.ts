@@ -51,6 +51,7 @@ export async function saveHttpRouteFromCfg(
 		route_path: isAdmin || !edit ? routeCfg.route_path : undefined,
 		http_method: routeCfg.http_method,
 		is_static_website: routeCfg.is_static_website,
+		static_asset_config: routeCfg.static_asset_config,
 		workspaced_route: routeCfg.workspaced_route,
 		authentication_resource_path: routeCfg.authentication_resource_path,
 		wrap_body: routeCfg.wrap_body,
