@@ -21,8 +21,8 @@ export function formatAsset(asset: Asset): string {
 
 export function getAssetUsagePageUri(usage: ListAssetsResponse[number]['usages'][number]) {
 	if (usage.usage_kind === 'script') {
-		return `/scripts/edit/${usage.usage_path}`
+		return `/scripts/get/${usage.usage_path}`
 	} else if (usage.usage_kind === 'flow') {
-		return `/flows/edit/${usage.usage_path}`
+		return `/flows/get/${usage.usage_path}`
 	}
 }

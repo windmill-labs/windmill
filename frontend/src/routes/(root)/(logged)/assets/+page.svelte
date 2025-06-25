@@ -51,7 +51,7 @@
 			<tbody class="divide-y bg-surface">
 				{#each filteredAssets as asset}
 					{@const assetUri = formatAsset(asset)}
-					<tr>
+					<tr class="h-14">
 						<Cell first>{truncate(assetUri, 92)}</Cell>
 						<Cell>
 							<a href={`#${assetUri}`} onclick={() => (viewOccurences = asset)}>
@@ -64,7 +64,7 @@
 									size="xs"
 									variant="border"
 									spacingSize="xs2"
-									btnClasses="mt-1 w-24"
+									btnClasses="w-24"
 									on:click={async () => isS3Uri(assetUri) && s3FilePicker?.open(assetUri)}
 								>
 									<File size={18} /> View
