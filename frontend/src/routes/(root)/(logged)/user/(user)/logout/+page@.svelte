@@ -18,8 +18,11 @@
 			return
 		}
 
-		console.log('logout 4', rd)
-		goto(rd ?? '/user/login')
+		if (rd?.startsWith('https://') || rd?.startsWith('http://')) {
+			window.location.href = rd
+		} else {
+			goto(rd ?? '/user/login')
+		}
 	})
 </script>
 
