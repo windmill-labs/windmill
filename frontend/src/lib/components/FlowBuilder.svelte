@@ -860,19 +860,6 @@
 
 <AIChangesWarningModal bind:open={aiChangesWarningOpen} onConfirm={aiChangesConfirmCallback} />
 
-{#snippet testFlowButton()}
-	<FlowPreviewButtons
-		on:openTriggers={(e) => {
-			select('triggers')
-			handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)
-			captureOn.set(true)
-			showCaptureHint.set(true)
-		}}
-		bind:this={flowPreviewButtons}
-		{loading}
-	/>
-{/snippet}
-
 {#key renderCount}
 	{#if !$userStore?.operator}
 		{#if $pathStore}
@@ -1034,7 +1021,16 @@
 					{#if !disableAi && customUi?.topBar?.aiBuilder != false && !aiChatManager.open}
 						<FlowAIButton openPanel={() => aiChatManager.openChat()} />
 					{/if}
-
+					<FlowPreviewButtons
+						on:openTriggers={(e) => {
+							select('triggers')
+							handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)
+							captureOn.set(true)
+							showCaptureHint.set(true)
+						}}
+						bind:this={flowPreviewButtons}
+						{loading}
+					/>
 					<Button
 						loading={loadingDraft}
 						size="xs"
@@ -1097,7 +1093,6 @@
 					}}
 					{forceTestTab}
 					{highlightArg}
-					{testFlowButton}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

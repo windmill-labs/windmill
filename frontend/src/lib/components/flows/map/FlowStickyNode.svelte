@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
-	import { getContext, type Snippet } from 'svelte'
+	import { getContext } from 'svelte'
 	import { Badge } from '$lib/components/common'
 	import { DollarSign, Settings } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -8,10 +8,9 @@
 	interface Props {
 		disableSettings?: boolean
 		disableStaticInputs?: boolean
-		testFlowButton?: Snippet
 	}
 
-	let { disableSettings, disableStaticInputs, testFlowButton }: Props = $props()
+	let { disableSettings, disableStaticInputs }: Props = $props()
 
 	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -21,10 +20,7 @@
 		'outline outline-offset-1 outline-2 outline-slate-800 dark:bg-white/5 dark:outline-slate-400/60 dark:outline-gray-400'
 </script>
 
-<div class="flex flex-row gap-2 items-center">
-	{#if testFlowButton}
-		{@render testFlowButton()}
-	{/if}
+<div class="flex flex-row gap-2">
 	{#if !disableSettings}
 		<button
 			onclick={() => ($selectedId = 'settings-metadata')}

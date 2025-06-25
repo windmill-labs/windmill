@@ -4,7 +4,7 @@
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
 	import { Skeleton } from '../common'
-	import { getContext, onDestroy, onMount, setContext, type Snippet } from 'svelte'
+	import { getContext, onDestroy, onMount, setContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
 
 	import { writable } from 'svelte/store'
@@ -36,7 +36,6 @@
 		onEditInput?: ((moduleId: string, key: string) => void) | undefined
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
-		testFlowButton?: Snippet
 	}
 
 	let {
@@ -53,8 +52,7 @@
 		onTestUpTo = undefined,
 		onEditInput = undefined,
 		forceTestTab,
-		highlightArg,
-		testFlowButton
+		highlightArg
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -108,7 +106,6 @@
 						}}
 						{onTestUpTo}
 						{onEditInput}
-						{testFlowButton}
 					/>
 				{/if}
 			</div>
