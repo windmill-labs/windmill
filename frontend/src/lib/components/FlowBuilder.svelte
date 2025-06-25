@@ -1093,6 +1093,9 @@
 					}}
 					{forceTestTab}
 					{highlightArg}
+					onRunPreview={() => {
+						flowPreviewButtons?.openPreview(true)
+					}}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>
