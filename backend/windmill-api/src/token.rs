@@ -17,8 +17,7 @@ fn trigger_scope_options() -> Vec<ScopeOption> {
 
     const ACTIONS: &[(&str, &str)] = &[
         ("read", "Read"),
-        ("write", "Create or update"),
-        ("execute", "Invoke"),
+        ("write", "Create, update or run"),
         ("delete", "Delete"),
         ("admin", "Full admin access to"),
     ];
@@ -158,6 +157,27 @@ fn get_all_scopes() -> Vec<ScopeOption> {
         ScopeOption { value: "favorites:read".into(), label: "Read favorites".into() },
         ScopeOption { value: "favorites:write".into(), label: "Add or remove favorites".into() },
         ScopeOption { value: "inputs:read".into(), label: "Read input templates".into() },
+        ScopeOption { value: "acls:read".into(), label: "Read access control lists".into() },
+        ScopeOption { value: "acls:write".into(), label: "Manage access control lists".into() },
+        ScopeOption { value: "acls:admin".into(), label: "Full admin access to ACLs".into() },
+        ScopeOption { value: "raw_apps:read".into(), label: "Read raw application data".into() },
+        ScopeOption { value: "raw_apps:write".into(), label: "Manage raw applications".into() },
+        ScopeOption { value: "raw_apps:admin".into(), label: "Full admin access to raw apps".into() },
+        ScopeOption { value: "tokens:read".into(), label: "Read API tokens".into() },
+        ScopeOption { value: "tokens:write".into(), label: "Create and manage API tokens".into() },
+        ScopeOption { value: "tokens:delete".into(), label: "Delete API tokens".into() },
+        ScopeOption { value: "tokens:admin".into(), label: "Full admin access to tokens".into() },
+        ScopeOption { value: "inkeep:read".into(), label: "Read Inkeep integration".into() },
+        ScopeOption { value: "inkeep:write".into(), label: "Manage Inkeep integration".into() },
+        ScopeOption { value: "saml:read".into(), label: "Read SAML configuration".into() },
+        ScopeOption { value: "saml:write".into(), label: "Manage SAML authentication".into() },
+        ScopeOption { value: "scim:read".into(), label: "Read SCIM configuration".into() },
+        ScopeOption { value: "scim:write".into(), label: "Manage SCIM user provisioning".into() },
+        ScopeOption { value: "agent_workers:read".into(), label: "Read agent workers status".into() },
+        ScopeOption { value: "agent_workers:write".into(), label: "Manage agent workers".into() },
+        ScopeOption { value: "agent_workers:admin".into(), label: "Full admin access to agent workers".into() },
+        ScopeOption { value: "search:read".into(), label: "Access search and indexing".into() },
+        ScopeOption { value: "search:write".into(), label: "Manage search indices".into() },
     ];
 
     scopes.extend(trigger_scope_options());

@@ -7,6 +7,7 @@ use axum::{
 };
 use chrono::TimeZone;
 use http::{request::Parts, StatusCode};
+use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde::Deserialize;
 use tower_cookies::Cookies;
@@ -22,6 +23,7 @@ use tokio::sync::RwLock;
 
 use windmill_common::{
     auth::{get_folders_for_user, get_groups_for_user, JWTAuthClaims},
+    error::{Error, Result as WindmillResult},
     jwt,
     users::{COOKIE_NAME, SUPERADMIN_SECRET_EMAIL},
 };
@@ -483,6 +485,34 @@ where
     }
 }
 
+fn transform_old_scope_to_new_scope(scopes: Option<&mut Vec<String>>) -> WindmillResult<()> {
+    if let Some(scopes) = scopes {
+        for scope in scopes.iter_mut() {
+            if scope.starts_with("run:") {
+                let run_scope = scope.split(":").collect_vec();
+
+                if run_scope.len() != 3 {
+                    continue;
+                }
+                //appending a 's' as runnable kind is singular while new scope format expect it to be plural
+                *scope = format!("{}s:execute:{}", run_scope[1], run_scope[2]);
+            } else if scope.starts_with("jobs:") {
+                // Map old jobs scopes to new format
+                match scope.as_str() {
+                    "jobs:listjobs" => *scope = "jobs:read".to_string(),
+                    "jobs:runscript" => *scope = "scripts:execute".to_string(),
+                    "jobs:runflow" => *scope = "flows:execute".to_string(),
+                    "jobs:resumeflow" => *scope = "flows:execute".to_string(),
+                    "jobs:deletejob" => *scope = "jobs:delete".to_string(),
+                    _ => continue,
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn maybe_get_workspace_id_from_path(path_vec: &[&str]) -> Option<String> {
     let workspace_id = if path_vec.len() >= 4 && path_vec[0] == "" && path_vec[2] == "w" {
         Some(path_vec[3].to_owned())
@@ -509,7 +539,7 @@ impl<S> FromRequestParts<S> for ApiAuthed
 where
     S: Send + Sync,
 {
-    type Rejection = (StatusCode, String);
+    type Rejection = Error;
 
     async fn from_request_parts(
         parts: &mut Parts,
@@ -543,29 +573,20 @@ where
                 let path_vec: Vec<&str> = original_uri.path().split("/").collect();
                 let workspace_id = maybe_get_workspace_id_from_path(&path_vec);
 
-                if let Some(authed) = cache.get_authed(workspace_id.clone(), &token).await {
-                    // New comprehensive scope checking
+                if let Some(mut authed) = cache.get_authed(workspace_id.clone(), &token).await {
                     if authed.scopes.is_some() && !authed.is_admin {
-                        // Use the new scope system for route-based access control
+                        transform_old_scope_to_new_scope(authed.scopes.as_mut())?;
+
                         let path = original_uri.path();
                         let method = parts.method.as_str();
-                        
-                        // Check scopes using the new system
-                        if let Err(_) = crate::scopes::check_scopes_for_route(
-                            authed.scopes.as_deref(), 
-                            path, 
-                            method
+
+                        if let Err(err) = crate::scopes::check_scopes_for_route(
+                            authed.scopes.as_deref(),
+                            path,
+                            method,
                         ) {
-                            // Fallback to legacy scope checking for backward compatibility
-                            if authed.scopes.as_ref().is_some_and(|scopes| {
-                                scopes.iter().any(|s| s.starts_with("jobs:") || s.starts_with("run:"))
-                            }) && (path_vec.len() < 5 || (path_vec[4] != "jobs" && path_vec[4] != "jobs_u")) {
-                                BRUTE_FORCE_COUNTER.increment().await;
-                                return Err((
-                                    StatusCode::UNAUTHORIZED,
-                                    format!("Access denied by scope rules. Path: {}, Scopes: {:?}", path, authed.scopes),
-                                ));
-                            }
+                            BRUTE_FORCE_COUNTER.increment().await;
+                            return Err(err);
                         }
                     }
 
@@ -582,7 +603,7 @@ where
             }
         }
         BRUTE_FORCE_COUNTER.increment().await;
-        Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
+        Err(Error::NotAuthorized("Token not found".to_string()))
     }
 }
 

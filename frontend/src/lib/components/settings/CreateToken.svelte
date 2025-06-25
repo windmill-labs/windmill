@@ -5,12 +5,17 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI'
 	import Toggle from '../Toggle.svelte'
-	import { TokenService, UserService, type NewToken, type ScopeDefinition } from '$lib/gen'
-	import { copyToClipboard } from '$lib/utils'
-	import { Clipboard } from 'lucide-svelte'
-	import ClipboardPanel from '../details/ClipboardPanel.svelte'
+	import {
+		TokenService,
+		UserService,
+		IntegrationService,
+		type NewToken,
+		type ScopeDefinition
+	} from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
 	import MultiSelect from '../select/MultiSelect.svelte'
+	import { safeSelectItems } from '../select/utils.svelte'
+	import TokenDisplay from './TokenDisplay.svelte'
 
 	interface Props {
 		showMcpMode?: boolean
@@ -18,7 +23,7 @@
 		newTokenLabel?: string
 		defaultNewTokenWorkspace?: string
 		scopes?: string[]
-		actions?: () => void
+		onTokenCreated?: (token: string) => void
 		displayCreateToken?: boolean
 	}
 
@@ -26,7 +31,7 @@
 		showMcpMode = false,
 		defaultNewTokenWorkspace,
 		scopes,
-		actions,
+		onTokenCreated,
 		newTokenLabel = $bindable(undefined)
 	}: Props = $props()
 
@@ -39,23 +44,20 @@
 	let newMcpScope = $state('favorites')
 	let loadingApps = $state(false)
 	let errorFetchApps = $state(false)
-	// let allApps = $state<string[]>([])
-	
+	let allApps = $state<string[]>([])
+
 	// Custom scope selection
 	let customScopes = $state<string[]>([])
 	let availableScopes = $state<ScopeDefinition[]>([])
 	let loadingScopes = $state(false)
 	let showCustomScopes = $state(false)
 
-	function handleCopyClick() {
-		copyToClipboard(newToken ?? '')
-	}
 	const dispatch = createEventDispatcher()
-	
+
 	// Fetch available scopes from API
 	async function fetchAvailableScopes(): Promise<void> {
 		if (availableScopes.length > 0) return // Already loaded
-		
+
 		loadingScopes = true
 		try {
 			availableScopes = await TokenService.listTokenScopes()
@@ -112,8 +114,8 @@
 			}
 
 			dispatch('tokenCreated', newToken ?? newMcpToken)
-			if (actions) {
-				actions()
+			if (onTokenCreated) {
+				onTokenCreated(newToken ?? newMcpToken ?? '')
 			}
 			mcpCreationMode = false
 		} catch (err) {
@@ -123,45 +125,48 @@
 
 	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $workspaceStore))
 	const mcpBaseUrl = $derived(`${window.location.origin}/api/mcp/w/${newTokenWorkspace}/sse?token=`)
+
+	$effect(() => {
+		if (mcpCreationMode) {
+			getAllApps()
+		} else {
+			newMcpApps = []
+		}
+	})
+
+	async function getAllApps() {
+		if (allApps.length > 0) {
+			return
+		}
+		try {
+			loadingApps = true
+			allApps = (
+				await IntegrationService.listHubIntegrations({
+					kind: 'script'
+				})
+			).map((x) => x.name)
+		} catch (err) {
+			console.error('Hub is not available')
+			allApps = []
+			errorFetchApps = true
+		} finally {
+			loadingApps = false
+		}
+	}
 </script>
 
 <div>
-	{#if newToken}
-		<div
-			class="border rounded-md mb-6 px-2 py-2 bg-green-50 dark:bg-green-200 dark:text-green-800 flex flex-row flex-wrap"
-		>
-			<div>
-				Added token: <button onclick={handleCopyClick} class="inline-flex gap-2 items-center">
-					{newToken}
-					<Clipboard size={12} />
-				</button>
-			</div>
-			<div class="pt-1 text-xs ml-2">
-				Make sure to copy your personal access token now. You won't be able to see it again!
-			</div>
-		</div>
-	{/if}
-
-	{#if newMcpToken}
-		<div
-			class="border rounded-md mb-6 px-2 py-2 bg-green-50 dark:bg-green-200 dark:text-green-800 flex flex-row flex-wrap"
-		>
-			<p class="text-sm mb-2">New MCP URL:</p>
-			<ClipboardPanel content={`${mcpBaseUrl}${newMcpToken}`} />
-			<p class="pt-1 text-xs">
-				Make sure to copy this URL now. You won't be able to see it again!
-			</p>
-		</div>
-	{/if}
-
 	<div class="py-3 px-3 border rounded-md mb-6 bg-surface-secondary min-w-min">
 		<h3 class="pb-3 font-semibold">Add a new token</h3>
 
 		{#if showMcpMode}
-			<div class="mb-4 flex flex-row flex-shrink-0" use:triggerableByAI={{
-				id: 'account-settings-create-mcp-token',
-				description: 'Create a new MCP token to authenticate to the Windmill API'
-			}}>
+			<div
+				class="mb-4 flex flex-row flex-shrink-0"
+				use:triggerableByAI={{
+					id: 'account-settings-create-mcp-token',
+					description: 'Create a new MCP token to authenticate to the Windmill API'
+				}}
+			>
 				<Toggle
 					on:change={(e) => {
 						mcpCreationMode = e.detail
@@ -214,10 +219,10 @@
 					<MultiSelect
 						items={availableScopes}
 						bind:value={customScopes}
-						placeholder={loadingScopes ? "Loading scopes..." : "Select scopes for this token"}
+						placeholder={loadingScopes ? 'Loading scopes...' : 'Select scopes for this token'}
 						class="w-full"
 						disabled={loadingScopes}
-						noItemsMsg={loadingScopes ? "Loading scopes..." : "No scopes available"}
+						noItemsMsg={loadingScopes ? 'Loading scopes...' : 'No scopes available'}
 					/>
 					<div class="text-xs text-tertiary mt-1">
 						Select specific scopes to limit this token's access. Leave empty for full access.
@@ -255,7 +260,12 @@
 					{:else if errorFetchApps}
 						<div>Error fetching apps</div>
 					{:else}
-						<!-- MultiSelectWrapper was confirmed not to be necessary : deleted -->
+						<MultiSelect
+							items={safeSelectItems(allApps)}
+							placeholder="Select apps"
+							bind:value={newMcpApps}
+							class="!bg-surface"
+						/>
 					{/if}
 				</div>
 
@@ -309,4 +319,12 @@
 			</Button>
 		</div>
 	</div>
+
+	{#if newToken}
+		<TokenDisplay token={newToken} type="token" />
+	{/if}
+
+	{#if newMcpToken}
+		<TokenDisplay token={newMcpToken} type="mcp" mcpUrl={`${mcpBaseUrl}${newMcpToken}`} />
+	{/if}
 </div>

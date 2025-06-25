@@ -144,7 +144,7 @@ async fn get_concurrent_intervals(
     Query(iq): Query<ExtendedJobsParams>,
     Query(lq): Query<ListCompletedQuery>,
 ) -> JsonResult<ExtendedJobs> {
-    check_scopes(&authed, || format!("jobs:listjobs"))?;
+    check_scopes(&authed, || format!("jobs:read"))?;
 
     if lq.success.is_some() && lq.running.is_some_and(|x| x) {
         return Err(error::Error::BadRequest(
