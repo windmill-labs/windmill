@@ -106,8 +106,8 @@
 						bind:usernameFilter={username}
 						bind:resourceFilter={resource}
 						bind:hasMore
-						on:select={(e) => {
-							selectedId = e.detail
+						onselect={(id) => {
+							selectedId = id
 						}}
 					/>
 				</Pane>
@@ -129,9 +129,8 @@
 				bind:operation
 				bind:usernameFilter={username}
 				bind:resourceFilter={resource}
-				on:select={(e) => {
-					selectedId = e.detail
-
+				onselect={(id) => {
+					selectedId = id
 					auditLogDrawer?.openDrawer()
 				}}
 			/>
