@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
-	import { createEventDispatcher, getContext, tick } from 'svelte'
+	import { createEventDispatcher, getContext, tick, type Snippet } from 'svelte'
 	import {
 		createInlineScriptModule,
 		createBranchAll,
@@ -49,6 +49,7 @@
 		workspace?: string | undefined
 		onTestUpTo?: ((id: string) => void) | undefined
 		onEditInput?: (moduleId: string, key: string) => void
+		testFlowButton?: Snippet
 	}
 
 	let {
@@ -61,7 +62,8 @@
 		smallErrorHandler = false,
 		workspace = $workspaceStore,
 		onTestUpTo,
-		onEditInput
+		onEditInput,
+		testFlowButton
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -305,7 +307,7 @@
 	<div
 		class={`z-50 absolute inline-flex flex-col gap-2 top-3 left-1/2 -translate-x-1/2 flex-initial  items-center transition-colors duration-[400ms] ease-linear bg-surface-100`}
 	>
-		<FlowStickyNode {disableSettings} {disableStaticInputs} />
+		<FlowStickyNode {disableSettings} {disableStaticInputs} {testFlowButton} />
 	</div>
 
 	<div class="z-10 flex-auto grow bg-surface-secondary" bind:clientHeight={minHeight}>
