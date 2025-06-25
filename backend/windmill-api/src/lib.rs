@@ -236,10 +236,6 @@ lazy_static::lazy_static! {
 
 }
 
-// Content Security Policy configuration
-lazy_static::lazy_static! {
-    pub static ref CSP_POLICY: String = std::env::var("CSP_POLICY").unwrap_or_default();
-}
 
 // Compliance with cloud events spec.
 pub async fn add_webhook_allowed_origin(

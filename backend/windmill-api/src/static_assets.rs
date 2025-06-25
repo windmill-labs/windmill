@@ -12,14 +12,18 @@ use axum::{body::Body, extract::OriginalUri, http::Response, response::IntoRespo
 use axum::http::header;
 #[cfg(feature = "static_frontend")]
 use http::HeaderValue;
-#[cfg(feature = "static_frontend")]
-use crate::CSP_POLICY;
 
 use hyper::Uri;
 #[cfg(feature = "static_frontend")]
 use mime_guess::mime;
 #[cfg(feature = "static_frontend")]
 use rust_embed::RustEmbed;
+
+// Content Security Policy configuration  
+#[cfg(feature = "static_frontend")]
+lazy_static::lazy_static! {
+    static ref CSP_POLICY: String = std::env::var("CSP_POLICY").unwrap_or_default();
+}
 
 // static_handler is a handler that serves static files from the
 pub async fn static_handler(OriginalUri(original_uri): OriginalUri) -> StaticFile {
