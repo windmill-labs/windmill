@@ -12942,6 +12942,71 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/assets/link:
+    post:
+      summary: Deletes all current assets of the corresponding entity and updates them to the new ones
+      operationId: link
+      tags:
+      - asset
+      parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        description: link assets
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                assets:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Asset'
+                usage_path:
+                  type: string
+                usage_kind:
+                  $ref: '#/components/schemas/AssetUsageKind'
+              required: [assets, usage_path, usage_kind]
+      responses:
+        '201':
+          description: assets linked
+  
+  /w/{workspace}/assets/list:
+    get:
+      summary: List all assets in the workspace
+      operationId: list
+      tags:
+      - asset
+      parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+      - $ref: "#/components/parameters/Page"
+      - $ref: "#/components/parameters/PerPage"
+      responses:
+        '200':
+          description: assets linked
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [path, kind, usages]
+                  properties:
+                    path:
+                      type: string
+                    kind:
+                      $ref: '#/components/schemas/AssetKind'
+                    usages:
+                      type: array
+                      items:
+                        type: object
+                        required: [usage_path, usage_kind]
+                        properties:
+                          usage_path:
+                            type: string
+                          usage_kind:
+                            $ref: '#/components/schemas/AssetUsageKind'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -17164,3 +17229,21 @@ components:
           type: string
           description: Microsoft Teams channel name
           minLength: 1
+    AssetUsageKind:
+      type: string
+      enum:
+      - script
+      - flow
+    AssetKind:
+      type: string
+      enum:
+      - s3object
+      - resource
+    Asset:
+      type: object
+      properties:
+        path:
+          type: string
+        kind:
+          $ref: '#/components/schemas/AssetKind'
+      required: [path, kind]

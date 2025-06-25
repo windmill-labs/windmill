@@ -1,7 +1,8 @@
-CREATE TYPE ASSET_USAGE_KIND AS ENUM ('script', 'flow', 'flow_step');
-CREATE TYPE ASSET_KIND AS ENUM ('s3_object', 'resource');
+CREATE TYPE ASSET_USAGE_KIND AS ENUM ('script', 'flow');
+CREATE TYPE ASSET_KIND AS ENUM ('s3object', 'resource');
 
-CREATE TABLE assets (
+CREATE TABLE asset (
+  workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id) ON DELETE CASCADE ON UPDATE CASCADE,
   path VARCHAR(255) NOT NULL,
   kind ASSET_KIND NOT NULL,
   usage_path VARCHAR(255) NOT NULL,

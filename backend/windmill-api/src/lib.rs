@@ -70,6 +70,7 @@ mod agent_workers_oss;
 mod ai;
 mod apps;
 pub mod args;
+mod assets;
 mod audit;
 pub mod auth;
 mod capture;
@@ -560,6 +561,7 @@ pub async fn run_server(
                         // Reordered alphabetically
                         .nest("/acls", granular_acls::workspaced_service())
                         .nest("/apps", apps::workspaced_service())
+                        .nest("/assets", assets::workspaced_service())
                         .nest("/audit", audit::workspaced_service())
                         .nest("/capture", capture::workspaced_service())
                         .nest(
