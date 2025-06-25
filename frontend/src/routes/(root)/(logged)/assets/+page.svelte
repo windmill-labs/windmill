@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { formatAsset } from '$lib/components/assets/lib'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Button, DrawerContent } from '$lib/components/common'
+	import { Button, ClearableInput, DrawerContent } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
@@ -10,10 +10,17 @@
 	import { AssetService, type ListAssetsResponse } from '$lib/gen'
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
-	import { isS3Uri, pluralize } from '$lib/utils'
+	import { isS3Uri, pluralize, truncate } from '$lib/utils'
 	import { File } from 'lucide-svelte'
 
 	let assets = usePromise(() => AssetService.listAssets({ workspace: $workspaceStore ?? '' }))
+
+	let filterText: string = $state('')
+	let filteredAssets = $derived(
+		assets.value?.filter((asset) =>
+			formatAsset(asset).toLowerCase().includes(filterText.toLowerCase())
+		) ?? []
+	)
 
 	let viewOccurences: ListAssetsResponse[number] | undefined = $state()
 	let s3FilePicker: S3FilePicker | undefined = $state()
@@ -31,6 +38,7 @@
 			tooltip="Track where your assets are used in Windmill."
 			documentationLink="https://www.windmill.dev/docs/core_concepts/assets"
 		/>
+		<ClearableInput bind:value={filterText} placeholder="Search assets" class="mb-4" />
 		<DataTable>
 			<Head>
 				<tr>
@@ -40,17 +48,17 @@
 				</tr>
 			</Head>
 			<tbody class="divide-y bg-surface">
-				{#each assets.value ?? [] as item}
-					{@const assetUri = formatAsset(item)}
+				{#each filteredAssets as asset}
+					{@const assetUri = formatAsset(asset)}
 					<tr>
-						<Cell first>{assetUri}</Cell>
+						<Cell first>{truncate(assetUri, 92)}</Cell>
 						<Cell>
-							<a href={`#${assetUri}`} onclick={() => (viewOccurences = item)}>
-								{pluralize(item.usages.length, 'occurrence')}
+							<a href={`#${assetUri}`} onclick={() => (viewOccurences = asset)}>
+								{pluralize(asset.usages.length, 'occurrence')}
 							</a>
 						</Cell>
 						<Cell>
-							{#if item.kind === 's3object'}
+							{#if asset.kind === 's3object'}
 								<Button
 									size="xs"
 									variant="border"
