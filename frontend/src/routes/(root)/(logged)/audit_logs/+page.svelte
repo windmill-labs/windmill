@@ -1,5 +1,4 @@
 <script lang="ts">
-	// import { page } from '$app/stores'
 	import { page } from '$app/state'
 	import type { ActionKind } from '$lib/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -18,23 +17,23 @@
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
 	import AuditLogsTimeline from '$lib/components/auditLogs/AuditLogsTimeline.svelte'
 
-	let username: string = $derived(page.url.searchParams.get('username') ?? 'all')
-	let pageIndex: number | undefined = $derived(Number(page.url.searchParams.get('page')) || 0)
-	let before: string | undefined = $derived(page.url.searchParams.get('before') ?? undefined)
+	let username: string = $state(page.url.searchParams.get('username') ?? 'all')
+	let pageIndex: number | undefined = $state(Number(page.url.searchParams.get('page')) || 0)
+	let before: string | undefined = $state(page.url.searchParams.get('before') ?? undefined)
 	let hasMore: boolean = $state(false)
-	let after: string | undefined = $derived(page.url.searchParams.get('after') ?? undefined)
-	let perPage: number | undefined = $derived(Number(page.url.searchParams.get('perPage')) || 100)
-	let operation: string = $derived(page.url.searchParams.get('operation') ?? 'all')
-	let resource: string | undefined = $derived(page.url.searchParams.get('resource') ?? undefined)
-	let scope: undefined | 'all_workspaces' | 'instance' = $derived(
+	let after: string | undefined = $state(page.url.searchParams.get('after') ?? undefined)
+	let perPage: number | undefined = $state(Number(page.url.searchParams.get('perPage')) || 100)
+	let operation: string = $state(page.url.searchParams.get('operation') ?? 'all')
+	let resource: string | undefined = $state(page.url.searchParams.get('resource') ?? undefined)
+	let scope: undefined | 'all_workspaces' | 'instance' = $state(
 		(page.url.searchParams.get('scope') ?? undefined) as undefined | 'all_workspaces' | 'instance'
 	)
 
-	let actionKind: ActionKind | 'all' = $derived(
+	let actionKind: ActionKind | 'all' = $state(
 		(page.url.searchParams.get('actionKind') as ActionKind) ?? 'all'
 	)
 
-	let logs: AuditLog[] = $state([])
+	let logs: AuditLog[] | undefined = $state()
 
 	let selectedId: number | undefined = $state(undefined)
 	let auditLogDrawer: Drawer | undefined = $state()
@@ -94,21 +93,23 @@
 	</div>
 {:else}
 	<div class="w-full h-screen">
-		<AuditLogsTimeline
-			{logs}
-			minTimeSet={after}
-			maxTimeSet={before}
-			onMissingJobSpan={fetchMissingJobSpan}
-			onZoom={({ min, max }) => {
-				before = max.toISOString()
-				after = min.toISOString()
-				console.log('zoom!')
-			}}
-			onLogSelected={(log) => {
-				console.log('selected log ')
-				selectedId = log.id
-			}}
-		/>
+		{#if logs}
+			<AuditLogsTimeline
+				{logs}
+				minTimeSet={after}
+				maxTimeSet={before}
+				onMissingJobSpan={fetchMissingJobSpan}
+				onZoom={({ min, max }) => {
+					before = max.toISOString()
+					after = min.toISOString()
+					console.log('zoom!')
+				}}
+				onLogSelected={(log) => {
+					console.log('selected log ')
+					selectedId = log.id
+				}}
+			/>
+		{/if}
 		<div class="px-2">
 			<div class="flex items-center space-x-2 flex-row justify-between">
 				<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1 items-center">

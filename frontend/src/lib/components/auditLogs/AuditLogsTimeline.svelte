@@ -310,6 +310,7 @@
 	// Reactive grouping that handles async operations
 	$effect(async () => {
 		if (logs.length === 0) {
+			await sleep(1)
 			groupedData = { grouped: {}, jobGrouped: new Map() }
 			return
 		}
