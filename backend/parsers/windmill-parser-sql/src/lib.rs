@@ -19,6 +19,25 @@ pub use windmill_parser::{Arg, MainArgSignature, Typ};
 pub const SANITIZED_ENUM_STR: &str = "__sanitized_enum__";
 pub const SANITIZED_RAW_STRING_STR: &str = "__sanitized_raw_string__";
 
+pub fn parse_assets(code: &str) -> anyhow::Result<Vec<String>> {
+    let mut assets = vec![];
+
+    lazy_static::lazy_static! {
+        static ref RE_S3_PATH: Regex = Regex::new(r#"['"]s3://([^\s'"]+)['"]"#).unwrap();
+        static ref RE_RESOURCE_PATH: Regex = Regex::new(r#"ATTACH +['"]\$res:([^\s'"]+)['"]"#).unwrap();
+    }
+
+    for cap in RE_S3_PATH.captures_iter(code) {
+        assets.push(format!("s3://{}", cap.get(1).unwrap().as_str()));
+    }
+
+    for cap in RE_RESOURCE_PATH.captures_iter(code) {
+        assets.push(format!("$res:{}", cap.get(1).unwrap().as_str()));
+    }
+
+    Ok(assets)
+}
+
 pub fn parse_mysql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_mysql_file(&code)?;
     if let Some(x) = parsed {

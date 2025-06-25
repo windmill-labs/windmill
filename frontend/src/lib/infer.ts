@@ -16,7 +16,8 @@ import initRegexParsers, {
 	parse_mssql,
 	parse_db_resource,
 	parse_bash,
-	parse_powershell
+	parse_powershell,
+	parse_assets_sql
 } from 'windmill-parser-wasm-regex'
 import initPythonParser, { parse_python } from 'windmill-parser-wasm-py'
 import initGoParser, { parse_go } from 'windmill-parser-wasm-go'
@@ -78,6 +79,32 @@ async function initWasmJava() {
 	await initJavaParser(wasmUrlJava)
 }
 
+export async function inferAssets(
+	language: SupportedLanguage | undefined,
+	code: string
+): Promise<string[]> {
+	async function parseAssets(): Promise<string[]> {
+		if (language === 'duckdb') {
+			await initWasmRegex()
+			return JSON.parse(parse_assets_sql(code))
+		}
+		return []
+	}
+	const assets = new Array(...new Set(await parseAssets()))
+	assets.sort()
+	return assets
+}
+
+const SQL_LANGUAGES = [
+	'postgresql',
+	'mysql',
+	'bigquery',
+	'snowflake',
+	'mssql',
+	'oracledb',
+	'duckdb'
+]
+
 export async function inferArgs(
 	language: SupportedLanguage | 'bunnative' | undefined,
 	code: string,
@@ -97,12 +124,17 @@ export async function inferArgs(
 		}
 
 		let inlineDBResource: string | undefined = undefined
+
+		if (language && SQL_LANGUAGES.includes(language)) {
+			await initWasmRegex()
+		}
+
 		if (
 			['postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'oracledb'].includes(language ?? '')
 		) {
-			await initWasmRegex()
 			inlineDBResource = parse_db_resource(code)
 		}
+
 		if (language == 'python3') {
 			await initWasmPython()
 			inferedSchema = JSON.parse(parse_python(code, mainOverride))
@@ -151,7 +183,6 @@ export async function inferArgs(
 				]
 			}
 		} else if (language == 'duckdb') {
-			await initWasmRegex()
 			inferedSchema = JSON.parse(parse_duckdb(code))
 		} else if (language == 'snowflake') {
 			inferedSchema = JSON.parse(parse_snowflake(code))
