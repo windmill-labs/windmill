@@ -1,7 +1,7 @@
 import { type Writable, get } from 'svelte/store'
 import type { FlowState } from './flows/flowState'
 import { NEVER_TESTED_THIS_FAR } from './flows/models'
-import { JobService, type Flow } from '$lib/gen'
+import { JobService, type Flow, type FlowModule } from '$lib/gen'
 import { dfs } from './flows/dfs'
 import { getContext, setContext } from 'svelte'
 
@@ -64,11 +64,11 @@ export class StepHistoryLoader {
 			this.#stepStates[stepId].initial = false
 		}
 
-		/* // Check if all initial states are false
+		// Check if all initial states are false
 		const allInitialFalse = Object.values(this.#stepStates).every((state) => !state.initial)
 		if (allInitialFalse) {
 			this.#flowJobInitial = false
-		} */
+		}
 
 		this.#saveCb?.()
 	}
@@ -81,7 +81,7 @@ export class StepHistoryLoader {
 		path: string
 	): Promise<void> {
 		// Collect all modules that need loading
-		const modulesToLoad: any[] = []
+		const modulesToLoad: FlowModule[] = []
 		dfs(flow.value.modules, (module) => {
 			const prev = get(flowStateStore)[module.id]?.previewResult
 			if (!prev || prev === NEVER_TESTED_THIS_FAR) {
