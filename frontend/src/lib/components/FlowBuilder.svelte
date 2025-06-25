@@ -75,6 +75,11 @@
 	import { Triggers } from './triggers/triggers.svelte'
 	import { TestSteps } from './flows/testSteps.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
+	import {
+		setStepHistoryLoaderContext,
+		StepHistoryLoader,
+		type stepState
+	} from './stepHistoryLoader.svelte'
 
 	interface Props {
 		initialPath?: string
@@ -96,6 +101,11 @@
 		draftTriggersFromUrl?: Trigger[] | undefined
 		selectedTriggerIndexFromUrl?: number | undefined
 		children?: import('svelte').Snippet
+		loadedFromHistoryFromUrl?: {
+			flowJobInitial: boolean | undefined
+			stepsState: Record<string, stepState>
+		}
+		noInitial?: boolean
 	}
 
 	let {
@@ -117,7 +127,9 @@
 		setSavedraftCb = undefined,
 		draftTriggersFromUrl = undefined,
 		selectedTriggerIndexFromUrl = undefined,
-		children
+		children,
+		loadedFromHistoryFromUrl,
+		noInitial = false
 	}: Props = $props()
 
 	let initialPathStore = writable(initialPath)
@@ -347,6 +359,7 @@
 		loadingDraft = false
 	}
 
+	let loadingJobs: boolean = $state(false)
 	onMount(() => {
 		setSavedraftCb?.(() => saveDraft())
 	})
@@ -533,7 +546,11 @@
 						path: $pathStore,
 						selectedId: $selectedIdStore,
 						draft_triggers: triggersState.getDraftTriggersSnapshot(),
-						selected_trigger: triggersState.getSelectedTriggerSnapshot()
+						selected_trigger: triggersState.getSelectedTriggerSnapshot(),
+						loadedFromHistory: {
+							flowJobInitial: stepHistoryLoader.flowJobInitial,
+							stepsState: stepHistoryLoader.stepStates
+						}
 					})
 				)
 			} catch (err) {
@@ -833,6 +850,40 @@
 		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasDiff() ?? false
 		customUi && untrack(() => onCustomUiChange(customUi, hasAiDiff))
 	})
+
+	export async function loadFlowState() {
+		await stepHistoryLoader.loadIndividualStepsStates(
+			flowStore.val as Flow,
+			flowStateStore,
+			$workspaceStore!,
+			$initialPathStore,
+			$pathStore
+		)
+	}
+
+	let stepHistoryLoader = new StepHistoryLoader(
+		loadedFromHistoryFromUrl?.stepsState ?? {},
+		loadedFromHistoryFromUrl?.flowJobInitial,
+		saveSessionDraft,
+		noInitial
+	)
+	setStepHistoryLoaderContext(stepHistoryLoader)
+
+	export function setLoadedFromHistory(
+		loadedFromHistoryUrl:
+			| {
+					flowJobInitial: boolean | undefined
+					stepsState: Record<string, stepState>
+			  }
+			| undefined
+	) {
+		if (!loadedFromHistoryUrl) {
+			return
+		}
+
+		stepHistoryLoader.setFlowJobInitial(loadedFromHistoryUrl.flowJobInitial)
+		stepHistoryLoader.stepStates = loadedFromHistoryUrl.stepsState
+	}
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -1093,6 +1144,7 @@
 					}}
 					{forceTestTab}
 					{highlightArg}
+					{loadingJobs}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>
