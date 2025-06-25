@@ -175,9 +175,11 @@
 					.forEach((x) => {
 						n[x] = schema.properties[x]
 					})
-				schema.properties = n
+				if (!deepEqual(schema.properties, n)) {
+					schema.properties = n
+				}
 			}
-			let nkeys = Object.keys(schema.properties ?? {})
+			let nkeys = [...new Set(Object.keys(schema.properties ?? {}))]
 
 			if (!deepEqual(keys, nkeys)) {
 				keys = nkeys
@@ -221,20 +223,10 @@
 			args = {}
 		}
 	})
-	$effect.pre(() => {
-		const newKeys = [
-			...new Set(
-				(Array.isArray(schema?.order)
-					? schema?.order
-					: Object.keys(schema?.properties ?? {})) as string[]
-			)
-		]
 
-		if (!deepEqual(keys, newKeys)) {
-			keys = newKeys
-		}
-	})
 	$effect.pre(() => {
+		schema.order
+		Object.keys(schema.properties ?? {})
 		schema && (untrack(() => reorder()), (hidden = {}))
 	})
 	$effect.pre(() => {
