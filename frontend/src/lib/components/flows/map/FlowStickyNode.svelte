@@ -22,7 +22,7 @@
 		'outline outline-offset-1 outline-2 outline-slate-800 dark:bg-white/5 dark:outline-slate-400/60 dark:outline-gray-400'
 </script>
 
-<div class="flex flex-row gap-2">
+<div class="flex flex-row gap-2 p-1.5 rounded shadow-md bg-surface">
 	{#if !disableSettings}
 		<button
 			onclick={() => ($selectedId = 'settings-metadata')}
@@ -30,16 +30,11 @@
 			title="Settings"
 		>
 			<Settings size={16} />
-			<span
-				class="text-xs font-bold flex flex-row justify-between w-fit gap-2 items-center truncate ml-1"
-				title="Settings"
-			>
-				<span class="h-[18px] flex items-center">
-					{#if flowStore.val.value.same_worker}
-						<Badge color="blue" baseClass="truncate">./shared</Badge>
-					{/if}
+			{#if flowStore.val.value.same_worker}
+				<span class="ml-2 h-[18px] flex items-center">
+					<Badge color="blue" baseClass="truncate">./shared</Badge>
 				</span>
-			</span>
+			{/if}
 		</button>
 	{/if}
 	{#if !disableStaticInputs}
