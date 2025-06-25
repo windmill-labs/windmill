@@ -15,8 +15,6 @@
 	} from '$lib/components/flows/flowStateUtils.svelte'
 	import type { FlowModule, ScriptLang } from '$lib/gen'
 	import { emptyFlowModuleState } from '../utils'
-	import FlowSettingsItem from './FlowSettingsItem.svelte'
-	import FlowConstantsItem from './FlowConstantsItem.svelte'
 
 	import { dfs } from '../dfs'
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
@@ -38,6 +36,7 @@
 	import { dfsByModule } from '../previousResults'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import FlowStickyNode from './FlowStickyNode.svelte'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -304,14 +303,9 @@
 </Portal>
 <div class="flex flex-col h-full relative -pt-1">
 	<div
-		class={`z-10 sticky inline-flex flex-col gap-2 top-0 bg-surface-secondary flex-initial p-2 items-center transition-colors duration-[400ms] ease-linear border-b`}
+		class={`z-50 absolute inline-flex flex-col gap-2 top-3 left-1/2 -translate-x-1/2 flex-initial  items-center transition-colors duration-[400ms] ease-linear bg-surface-100`}
 	>
-		{#if !disableSettings}
-			<FlowSettingsItem />
-		{/if}
-		{#if !disableStaticInputs}
-			<FlowConstantsItem />
-		{/if}
+		<FlowStickyNode {disableSettings} {disableStaticInputs} />
 	</div>
 
 	<div class="z-10 flex-auto grow bg-surface-secondary" bind:clientHeight={minHeight}>
