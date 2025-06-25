@@ -10,12 +10,20 @@ use axum::{body::Body, extract::OriginalUri, http::Response, response::IntoRespo
 
 #[cfg(feature = "static_frontend")]
 use axum::http::header;
+#[cfg(feature = "static_frontend")]
+use http::HeaderValue;
 
 use hyper::Uri;
 #[cfg(feature = "static_frontend")]
 use mime_guess::mime;
 #[cfg(feature = "static_frontend")]
 use rust_embed::RustEmbed;
+
+// Content Security Policy configuration  
+#[cfg(feature = "static_frontend")]
+lazy_static::lazy_static! {
+    static ref CSP_POLICY: String = std::env::var("CSP_POLICY").unwrap_or_default();
+}
 
 // static_handler is a handler that serves static files from the
 pub async fn static_handler(OriginalUri(original_uri): OriginalUri) -> StaticFile {
@@ -51,6 +59,13 @@ fn serve_path(path: &str) -> Response<Body> {
             let mut res = Response::builder()
                 .header(header::CONTENT_TYPE, mime.as_ref())
                 .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+            
+            // Add Content-Security-Policy header for static assets when policy is set
+            if !CSP_POLICY.is_empty() {
+                if let Ok(header_value) = HeaderValue::try_from(CSP_POLICY.as_str()) {
+                    res = res.header("Content-Security-Policy", header_value);
+                }
+            }
             if mime.as_ref() == mime::APPLICATION_JAVASCRIPT
                 || mime.as_ref() == mime::TEXT_JAVASCRIPT
                 || path.ends_with(".wasm")

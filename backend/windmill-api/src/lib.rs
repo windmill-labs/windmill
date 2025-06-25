@@ -238,6 +238,7 @@ lazy_static::lazy_static! {
 
 }
 
+
 // Compliance with cloud events spec.
 pub async fn add_webhook_allowed_origin(
     req: axum::extract::Request,
@@ -259,6 +260,7 @@ pub async fn add_webhook_allowed_origin(
     }
     next.run(req).await
 }
+
 
 #[cfg(not(feature = "tantivy"))]
 type IndexReader = ();
