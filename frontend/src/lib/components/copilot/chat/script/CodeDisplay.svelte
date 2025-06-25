@@ -175,12 +175,12 @@
 			language &&
 			codeContext &&
 			getSmartLang(codeContext.lang) === getSmartLang(language) &&
-			setDiffEditor(diffEl)
+			untrack(() => diffEl && setDiffEditor(diffEl))
 	})
 </script>
 
 <div class="flex flex-col gap-0.5 rounded-lg relative not-prose">
-	{#if aiChatManager.canApplyCode}
+	{#if aiChatManager.canApplyCode && code !== aiChatManager.scriptEditorOptions?.code}
 		<div class="flex justify-end items-end">
 			<Button
 				color="dark"
@@ -189,7 +189,7 @@
 					aiChatManager.scriptEditorApplyCode?.(code ?? '')
 				}}
 			>
-				Apply
+				{aiChatManager.pendingNewCode ? 'Accept all' : 'Apply'}
 			</Button>
 		</div>
 	{/if}
@@ -197,7 +197,7 @@
 	<div
 		class="relative w-full border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden"
 	>
-		{#if aiChatManager.mode !== 'navigator' && ((loading && !code) || !language)}
+		{#if aiChatManager.mode !== 'navigator' && loading && !code}
 			<div class="flex flex-row gap-1 p-2 items-center justify-center">
 				<Loader2 class="w-4 h-4 animate-spin" /> Generating code...
 			</div>

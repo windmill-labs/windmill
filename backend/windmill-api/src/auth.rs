@@ -34,10 +34,11 @@ lazy_static::lazy_static! {
 // Global function to invalidate a specific token from cache
 pub fn invalidate_token_from_cache(token: &str) {
     // Remove all cache entries for this token (across all workspaces)
-    AUTH_CACHE.retain(|(_workspace_id, cached_token), _cached_value| {
-        cached_token != token
-    });
-    tracing::info!("Invalidated token from auth cache: {}...", &token[..token.len().min(8)]);
+    AUTH_CACHE.retain(|(_workspace_id, cached_token), _cached_value| cached_token != token);
+    tracing::info!(
+        "Invalidated token from auth cache: {}...",
+        &token[..token.len().min(8)]
+    );
 }
 
 #[derive(Clone)]
@@ -490,6 +491,27 @@ where
     }
 }
 
+fn maybe_get_workspace_id_from_path(path_vec: &[&str]) -> Option<String> {
+    let workspace_id = if path_vec.len() >= 4 && path_vec[0] == "" && path_vec[2] == "w" {
+        Some(path_vec[3].to_owned())
+    } else if path_vec.len() >= 5
+        && path_vec[0] == ""
+        && path_vec[1] == "api"
+        && path_vec[2] == "mcp"
+        && path_vec[3] == "w"
+    {
+        Some(path_vec[4].to_owned())
+    } else {
+        if path_vec.len() >= 5 && path_vec[0] == "" && path_vec[2] == "srch" && path_vec[3] == "w" {
+            Some(path_vec[4].to_owned())
+        } else {
+            None
+        }
+    };
+
+    workspace_id
+}
+
 #[async_trait]
 impl<S> FromRequestParts<S> for ApiAuthed
 where
@@ -502,86 +524,62 @@ where
         state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
         if parts.method == http::Method::OPTIONS {
-            return Ok(ApiAuthed {
-                email: "".to_owned(),
-                username: "".to_owned(),
-                is_admin: false,
-                is_operator: false,
-                groups: Vec::new(),
-                folders: Vec::new(),
-                scopes: None,
-                username_override: None,
-                token_prefix: None,
-            });
+            return Ok(ApiAuthed::default());
         };
         let already_authed = parts.extensions.get::<ApiAuthed>();
-        if let Some(authed) = already_authed {
-            Ok(authed.clone())
-        } else {
-            let already_tokened = parts.extensions.get::<Tokened>();
-            let token_o = if let Some(token) = already_tokened {
-                Some(token.token.clone())
-            } else {
-                extract_token(parts, state).await
-            };
-            let original_uri = OriginalUri::from_request_parts(parts, state)
-                .await
-                .ok()
-                .map(|x| x.0)
-                .unwrap_or_default();
-            let path_vec: Vec<&str> = original_uri.path().split("/").collect();
-            let workspace_id = if path_vec.len() >= 4 && path_vec[0] == "" && path_vec[2] == "w" {
-                Some(path_vec[3].to_owned())
-            } else if path_vec.len() >= 5
-                && path_vec[0] == ""
-                && path_vec[1] == "api"
-                && path_vec[2] == "mcp"
-                && path_vec[3] == "w"
-            {
-                Some(path_vec[4].to_string())
-            } else {
-                if path_vec.len() >= 5
-                    && path_vec[0] == ""
-                    && path_vec[2] == "srch"
-                    && path_vec[3] == "w"
-                {
-                    Some(path_vec[4].to_string())
-                } else {
-                    None
-                }
-            };
-            if let Some(token) = token_o {
-                if let Ok(Extension(cache)) =
-                    Extension::<Arc<AuthCache>>::from_request_parts(parts, state).await
-                {
-                    if let Some(authed) = cache.get_authed(workspace_id.clone(), &token).await {
-                        parts.extensions.insert(authed.clone());
-                        if authed.scopes.as_ref().is_some_and(|scopes| {
-                            scopes
-                                .iter()
-                                .any(|s| s.starts_with("jobs:") || s.starts_with("run:"))
-                        }) && (path_vec.len() < 3
-                            || (path_vec[4] != "jobs" && path_vec[4] != "jobs_u"))
-                        {
-                            BRUTE_FORCE_COUNTER.increment().await;
-                            return Err((
-                                StatusCode::UNAUTHORIZED,
-                                format!("Unauthorized scoped token: {:?}", authed.scopes),
-                            ));
-                        }
-                        Span::current().record("username", &authed.username.as_str());
-                        Span::current().record("email", &authed.email);
 
-                        if let Some(workspace_id) = workspace_id {
-                            Span::current().record("workspace_id", &workspace_id);
-                        }
-                        return Ok(authed);
+        if let Some(authed) = already_authed {
+            return Ok(authed.clone());
+        }
+
+        let already_tokened = parts.extensions.get::<Tokened>();
+        let token_o = if let Some(token) = already_tokened {
+            Some(token.token.clone())
+        } else {
+            extract_token(parts, state).await
+        };
+
+        if let Some(token) = token_o {
+            if let Ok(Extension(cache)) =
+                Extension::<Arc<AuthCache>>::from_request_parts(parts, state).await
+            {
+                let original_uri = OriginalUri::from_request_parts(parts, state)
+                    .await
+                    .ok()
+                    .map(|x| x.0)
+                    .unwrap_or_default();
+                let path_vec: Vec<&str> = original_uri.path().split("/").collect();
+                let workspace_id = maybe_get_workspace_id_from_path(&path_vec);
+
+                if let Some(authed) = cache.get_authed(workspace_id.clone(), &token).await {
+                    if authed.scopes.as_ref().is_some_and(|scopes| {
+                        scopes
+                            .iter()
+                            .any(|s| s.starts_with("jobs:") || s.starts_with("run:"))
+                    }) && (path_vec.len() < 3
+                        || (path_vec[4] != "jobs" && path_vec[4] != "jobs_u"))
+                    {
+                        BRUTE_FORCE_COUNTER.increment().await;
+                        return Err((
+                            StatusCode::UNAUTHORIZED,
+                            format!("Unauthorized scoped token: {:?}", authed.scopes),
+                        ));
                     }
+
+                    parts.extensions.insert(authed.clone());
+
+                    Span::current().record("username", &authed.username.as_str());
+                    Span::current().record("email", &authed.email);
+
+                    if let Some(workspace_id) = workspace_id {
+                        Span::current().record("workspace_id", &workspace_id);
+                    }
+                    return Ok(authed);
                 }
             }
-            BRUTE_FORCE_COUNTER.increment().await;
-            Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
         }
+        BRUTE_FORCE_COUNTER.increment().await;
+        Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
     }
 }
 

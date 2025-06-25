@@ -11,5 +11,7 @@
   "remote.autoForwardPorts": true,
   "conventionalCommits.scopes": [
     "restructring triggers, decoding trigger message on work"
-  ]
+  ],
+  "files.exclude": { "**/*ee.rs": false },
+  "search.exclude": { "**/*ee.rs": false }
 }

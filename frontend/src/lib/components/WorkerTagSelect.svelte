@@ -3,19 +3,20 @@
 	import { WorkerService } from '$lib/gen'
 
 	import { createEventDispatcher } from 'svelte'
-	import Select from './Select.svelte'
+	import Select from './select/Select.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 
 	let {
 		tag = $bindable(),
 		noLabel = false,
 		nullTag = undefined,
 		disabled = false
-	} = $props<{
+	}: {
 		tag: string | undefined
 		noLabel?: boolean
 		nullTag?: string | undefined
 		disabled?: boolean
-	}>()
+	} = $props()
 
 	loadWorkerGroups()
 
@@ -41,7 +42,7 @@
 		class="w-full"
 		{disabled}
 		placeholder={nullTag ? `default: ${nullTag}` : 'lang default'}
-		items={items.map((value) => ({ value }))}
+		items={safeSelectItems(items)}
 		bind:value={() => tag, (value) => ((tag = value), dispatch('change', value))}
 	/>
 </div>

@@ -188,7 +188,7 @@ fn try_normalize(path: &Path) -> Option<PathBuf> {
 
 fn parse_ts_relative_imports(raw_code: &str, script_path: &str) -> error::Result<Vec<String>> {
     let mut relative_imports = vec![];
-    let r = parse_expr_for_imports(raw_code)?;
+    let r = parse_expr_for_imports(raw_code, true)?;
     for import in r {
         let import = import.trim_end_matches(".ts");
         if import.starts_with("/") {
@@ -1966,11 +1966,10 @@ async fn ansible_dep(
     use windmill_parser_yaml::add_versions_to_requirements_yaml;
 
     use crate::ansible_executor::{
-            create_ansible_cfg, get_collection_locks, get_git_ssh_cmd, get_role_locks,
-            install_galaxy_collections,
-        };
+        create_ansible_cfg, get_collection_locks, get_git_ssh_cmd, get_role_locks,
+        install_galaxy_collections,
+    };
     use windmill_common::client::AuthedClient;
-
 
     let python_lockfile = python_dep(
         reqs.python_reqs.join("\n").to_string(),
@@ -2103,7 +2102,12 @@ async fn capture_dependency_job(
 
                     (
                         job_raw_code.to_owned(),
-                        crate::PyV::parse_from_requirements(&split_requirements(job_raw_code)),
+                        match crate::PyV::try_parse_from_requirements(&split_requirements(
+                            job_raw_code,
+                        )) {
+                            Some(pyv) => pyv,
+                            None => crate::PyV::gravitational_version(job_id, w_id, None).await,
+                        },
                     )
                 } else {
                     let mut version_specifiers = vec![];
@@ -2190,11 +2194,6 @@ async fn capture_dependency_job(
             }
         }
         ScriptLang::Go => {
-            if raw_deps {
-                return Err(Error::ExecutionErr(
-                    "Raw dependencies not supported for go".to_string(),
-                ));
-            }
             install_go_dependencies(
                 job_id,
                 job_raw_code,
@@ -2205,6 +2204,7 @@ async fn capture_dependency_job(
                 false,
                 false,
                 false,
+                raw_deps,
                 worker_name,
                 w_id,
                 occupancy_metrics,

@@ -4,7 +4,7 @@
 	import { navigating, page } from '$app/stores'
 	import Popover from '../Popover.svelte'
 	import { base } from '$app/paths'
-	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI'
 	import { goto } from '$app/navigation'
 
 	export let aiId: string | undefined = undefined
@@ -29,16 +29,16 @@
 </script>
 
 {#if !disabled}
-	<TriggerableByAI
-		id={aiId}
-		description={aiDescription}
-		onTrigger={() => {
-			goto(href)
-		}}
-	>
-		<Popover appearTimeout={0} disappearTimeout={0} class="w-full" disablePopup={!isCollapsed}>
-			<a
-				{href}
+	<Popover appearTimeout={0} disappearTimeout={0} class="w-full" disablePopup={!isCollapsed}>
+		<a
+			{href}
+			use:triggerableByAI={{
+				id: aiId,
+				description: aiDescription,
+				callback: () => {
+					goto(href)
+				}
+			}}
 				class={classNames(
 					'group flex items-center px-2 py-2 text-sm font-light rounded-md h-8 gap-3',
 					isSelected
@@ -92,10 +92,9 @@
 						{label}
 					</span>
 				{/if}
-			</a>
-			<svelte:fragment slot="text">
-				{label}
-			</svelte:fragment>
-		</Popover>
-	</TriggerableByAI>
+		</a>
+		<svelte:fragment slot="text">
+			{label}
+		</svelte:fragment>
+	</Popover>
 {/if}

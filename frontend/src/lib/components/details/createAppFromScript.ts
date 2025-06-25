@@ -54,7 +54,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 							style: ''
 						}
 					},
-					actions: [],
+					actions: undefined,
 					numberOfSubgrids: 1,
 					id: 'topbar'
 				},
@@ -145,8 +145,14 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 								value: false
 							},
 							disabled: {
-								type: 'eval',
-								expr: '!c.valid'
+								type: 'evalv2',
+								expr: '!c.valid',
+								connections: [
+									{
+										componentId: 'c',
+										id: 'valid'
+									}
+								]
 							},
 							beforeIcon: {
 								type: 'static',
@@ -478,7 +484,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 								style: ''
 							}
 						},
-						actions: [],
+						actions: undefined,
 						horizontalAlignment: 'left',
 						verticalAlignment: 'center',
 						id: 'title'
@@ -511,7 +517,6 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 								class: ''
 							}
 						},
-						actions: [],
 						menuItems: [],
 						horizontalAlignment: 'right',
 						verticalAlignment: 'center',
@@ -616,7 +621,6 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 							style: ''
 						}
 					},
-					actions: [],
 					numberOfSubgrids: 1,
 					id: 'topbar'
 				},
@@ -707,8 +711,14 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 								value: false
 							},
 							disabled: {
-								type: 'eval',
-								expr: '!c.valid'
+								type: 'evalv2',
+								expr: '!c.valid',
+								connections: [
+									{
+										componentId: 'c',
+										id: 'valid'
+									}
+								]
 							},
 							beforeIcon: {
 								type: 'static',
@@ -1041,7 +1051,6 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 								style: ''
 							}
 						},
-						actions: [],
 						horizontalAlignment: 'left',
 						verticalAlignment: 'center',
 						id: 'title'
@@ -1074,7 +1083,6 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 								class: ''
 							}
 						},
-						actions: [],
 						menuItems: [],
 						horizontalAlignment: 'right',
 						verticalAlignment: 'center',

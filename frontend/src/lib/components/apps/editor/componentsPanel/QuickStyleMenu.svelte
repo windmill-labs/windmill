@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onMount, setContext } from 'svelte'
+	import { getContext, onMount, setContext, untrack } from 'svelte'
 	import parse from 'style-to-object'
 	import { isValidHexColor } from '../../../../utils'
 	import type { AppViewerContext } from '../../types'
@@ -16,21 +16,26 @@
 	import ListItem from './ListItem.svelte'
 	import type { TypedComponent } from '../component'
 
-	export let value = ''
-	export let properties: PropertyGroup[]
-	export let componentType: TypedComponent['type'] | undefined = undefined
-	export let componentProperty: string | undefined = undefined
+	interface Props {
+		value?: string
+		properties: PropertyGroup[]
+		componentType?: TypedComponent['type'] | undefined
+		componentProperty?: string | undefined
+	}
+
+	let {
+		value = $bindable(''),
+		properties,
+		componentType = undefined,
+		componentProperty = undefined
+	}: Props = $props()
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 	const styleStore = createStyleStore(properties)
 	setContext(STYLE_STORE_KEY, styleStore)
 
-	let multiValues: Record<number, string[]> = initiateMultiValues()
-	let mounted = false
-	let isOpen: Record<string, boolean> = {}
-
-	$: mounted && $styleStore && writeStyle()
-	$: mounted && (!value || value) && parseStyle()
-	$: $app && setTopColors()
+	let multiValues: Record<number, string[]> = $state(initiateMultiValues())
+	let mounted = $state(false)
+	let isOpen: Record<string, boolean> = $state({})
 
 	function parseStyle() {
 		styleStore.resetStyle()
@@ -181,6 +186,15 @@
 		parseStyle()
 		mounted = true
 	})
+	$effect(() => {
+		mounted && $styleStore && untrack(() => writeStyle())
+	})
+	$effect(() => {
+		mounted && (!value || value) && untrack(() => parseStyle())
+	})
+	$effect(() => {
+		$app && untrack(() => setTopColors())
+	})
 </script>
 
 <div class="flex flex-col !divide-y">
@@ -196,6 +210,7 @@
 				toggleClasses=" !rounded-b-none !py-0
 				{isOpen[prefix] ? '!bg-surface-secondary hover:!bg-surface-hover' : ''}"
 			>
+				<!-- @migration-task: migrate this slot by hand, `title` would shadow a prop on the parent component -->
 				<svelte:fragment slot="title">
 					<span class="font-normal text-xs">
 						{group}
@@ -220,7 +235,7 @@
 													prop={{ ...prop, value }}
 													inline
 													bind:value={multiValues[index][i]}
-													on:change={() => setMultiValueProperty(index)}
+													onChange={() => setMultiValueProperty(index)}
 												/>
 											{/each}
 										</div>

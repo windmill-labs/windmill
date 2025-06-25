@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { Copy, Plus, RefreshCcwIcon, Settings, Trash, X } from 'lucide-svelte'
 	import { Alert, Badge, Button, Drawer } from './common'
-	import Multiselect from 'svelte-multiselect'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { ConfigService, WorkspaceService, type WorkerPing, type Workspace } from '$lib/gen'
@@ -9,38 +8,20 @@
 	import { createEventDispatcher } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString, pluralize } from '$lib/utils'
-	import { enterpriseLicense, superadmin } from '$lib/stores'
+	import { enterpriseLicense, superadmin, devopsRole } from '$lib/stores'
 	import Tooltip from './Tooltip.svelte'
 	import Editor from './Editor.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
-	import AutoComplete from 'simple-svelte-autocomplete'
 	import YAML from 'yaml'
 	import Toggle from './Toggle.svelte'
 	import { defaultTags, nativeTags, type AutoscalingConfig } from './worker_group'
 	import AutoscalingConfigEditor from './AutoscalingConfigEditor.svelte'
 	import TagsToListenTo from './TagsToListenTo.svelte'
-
-	export let name: string
-	export let config:
-		| undefined
-		| {
-				dedicated_worker?: string
-				worker_tags?: string[]
-				priority_tags?: Map<string, number>
-				cache_clear?: number
-				init_bash?: string
-				additional_python_paths?: string[]
-				pip_local_dependencies?: string[]
-				min_alive_workers_alert_threshold?: number
-				autoscaling?: AutoscalingConfig
-		  }
-	export let activeWorkers: number
-	export let customTags: string[] | undefined
-	export let workers: [string, WorkerPing[]][]
-
-	$: vcpus_memory = computeVCpuAndMemory(workers)
+	import Select from './select/Select.svelte'
+	import MultiSelect from './select/MultiSelect.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 
 	function computeVCpuAndMemory(workers: [string, WorkerPing[]][]) {
 		let vcpus = 0
@@ -70,7 +51,7 @@
 		pip_local_dependencies?: string[]
 		min_alive_workers_alert_threshold?: number
 		autoscaling?: AutoscalingConfig
-	} = {}
+	} = $state({})
 
 	function loadNConfig() {
 		nconfig = config
@@ -103,12 +84,11 @@
 		customEnvVars.sort((a, b) => (a.key < b.key ? -1 : 1))
 	}
 
-	let selectedPriorityTags: string[] = []
 	let customEnvVars: {
 		key: string
 		type: 'static' | 'dynamic'
 		value: string | undefined
-	}[] = []
+	}[] = $state([])
 
 	const aws_env_vars_preset = [
 		'AWS_REGION',
@@ -125,24 +105,41 @@
 		'SSL_CERT_DIR'
 	]
 
-	$: selected = nconfig?.dedicated_worker != undefined ? 'dedicated' : 'normal'
-	$: {
-		selectedPriorityTags = []
-		if (nconfig?.priority_tags !== undefined) {
-			for (const [tag, _] of Object.entries(nconfig?.priority_tags)) {
-				selectedPriorityTags.push(tag)
-			}
-		}
+	let workspaceTag = $state('')
+	interface Props {
+		name: string
+		config:
+			| undefined
+			| {
+					dedicated_worker?: string
+					worker_tags?: string[]
+					priority_tags?: Map<string, number>
+					cache_clear?: number
+					init_bash?: string
+					additional_python_paths?: string[]
+					pip_local_dependencies?: string[]
+					min_alive_workers_alert_threshold?: number
+					autoscaling?: AutoscalingConfig
+			  }
+		activeWorkers: number
+		customTags: string[] | undefined
+		workers: [string, WorkerPing[]][]
+		defaultTagPerWorkspace?: boolean | undefined
 	}
 
-	let workspaceTag = ''
-	export let defaultTagPerWorkspace: boolean | undefined = undefined
+	let {
+		name,
+		config = $bindable(),
+		activeWorkers,
+		customTags,
+		workers,
+		defaultTagPerWorkspace = undefined
+	}: Props = $props()
 
-	let workspaces: Workspace[] = []
+	let workspaces: Workspace[] = $state([])
 	async function listWorkspaces() {
 		workspaces = await WorkspaceService.listWorkspacesAsSuperAdmin()
 	}
-	$: $superadmin && listWorkspaces()
 
 	const dispatch = createEventDispatcher()
 
@@ -150,12 +147,17 @@
 		await ConfigService.deleteConfig({ name: 'worker__' + name })
 		dispatch('reload')
 	}
-	let dirty = false
-	let dirtyCode = false
-	let openDelete = false
-	let openClean = false
+	let dirty = $state(false)
+	let dirtyCode = $state(false)
+	let openDelete = $state(false)
+	let openClean = $state(false)
 
-	let drawer: Drawer
+	let drawer: Drawer | undefined = $state()
+	let vcpus_memory = $derived(computeVCpuAndMemory(workers))
+	let selected = $derived(nconfig?.dedicated_worker != undefined ? 'dedicated' : 'normal')
+	$effect(() => {
+		($superadmin || $devopsRole) && listWorkspaces()
+	})
 </script>
 
 <ConfirmationModal
@@ -207,8 +209,8 @@
 
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent
-		on:close={() => drawer.closeDrawer()}
-		title={$superadmin ? `Edit worker config '${name}'` : `Worker config '${name}'`}
+		on:close={() => drawer?.closeDrawer()}
+		title={($superadmin || $devopsRole) ? `Edit worker config '${name}'` : `Worker config '${name}'`}
 	>
 		{#if !$enterpriseLicense}
 			<Alert type="warning" title="Worker management UI is EE only">
@@ -235,22 +237,23 @@
 				}
 			}}
 			class="mb-4"
-			let:item
 		>
-			<ToggleButton
-				position="left"
-				value="normal"
-				size="sm"
-				label="Any jobs within worker tags"
-				{item}
-			/>
-			<ToggleButton
-				position="dedicated"
-				value="dedicated"
-				size="sm"
-				label="Dedicated to a script/flow"
-				{item}
-			/>
+			{#snippet children({ item })}
+				<ToggleButton
+					position="left"
+					value="normal"
+					size="sm"
+					label="Any jobs within worker tags"
+					{item}
+				/>
+				<ToggleButton
+					position="dedicated"
+					value="dedicated"
+					size="sm"
+					label="Dedicated to a script/flow"
+					{item}
+				/>
+			{/snippet}
 		</ToggleButtonGroup>
 		{#if selected == 'normal'}
 			<Section label="Tags to listen to">
@@ -264,7 +267,6 @@
 							if (nconfig.priority_tags) {
 								delete nconfig.priority_tags[tag]
 							}
-							selectedPriorityTags = selectedPriorityTags.filter((t) => t != tag) ?? []
 						}}
 						bind:worker_tags={nconfig.worker_tags}
 						{customTags}
@@ -337,16 +339,10 @@
 						</Button>
 
 						{#if defaultTagPerWorkspace}
-							<AutoComplete
-								bind:selectedItem={workspaceTag}
-								noInputStyles
-								hideArrow={true}
-								items={workspaces.map((w) => w.id)}
-								inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary'}
-								dropdownClassName="!text-sm !py-2 !rounded-sm  !border-gray-200 !border !shadow-md"
-								className="!font-gray-600 !font-primary !bg-surface-primary"
-								create
-								onCreate={(c) => c}
+							<Select
+								bind:value={workspaceTag}
+								items={workspaces.map((w) => ({ value: w.id }))}
+								onCreateItem={(c) => (workspaceTag = c)}
 								placeholder="Workspace ID"
 							/>
 						{/if}
@@ -354,7 +350,7 @@
 					<div class="max-w mt-2 items-center gap-1 pt-2">
 						{#if nconfig?.worker_tags !== undefined && nconfig?.worker_tags.length > 0}
 							<Label label="High-priority tags">
-								<svelte:fragment slot="header">
+								{#snippet header()}
 									<Tooltip>
 										Jobs with the following high-priority tags will be picked up in priority by this
 										worker.
@@ -362,37 +358,17 @@
 											This is a feature only available in enterprise edition.
 										{/if}
 									</Tooltip>
-								</svelte:fragment>
-								<Multiselect
-									outerDivClass="text-secondary !bg-surface-disabled !border-0"
+								{/snippet}
+								<MultiSelect
 									disabled={!$enterpriseLicense}
-									bind:selected={selectedPriorityTags}
-									onchange={(e) => {
-										if (e.type === 'add') {
-											if (nconfig.priority_tags) {
-												if (e.option && typeof e.option !== 'object') {
-													nconfig.priority_tags[e.option] = 100
-												}
-											}
+									bind:value={
+										() => new Array(...(nconfig?.priority_tags?.keys?.() ?? [])),
+										(v) => {
+											nconfig.priority_tags = new Map<string, number>(v.map((k) => [k, 100]))
 											dirty = true
-										} else if (e.type === 'remove') {
-											if (nconfig.priority_tags) {
-												if (e.option && typeof e.option !== 'object') {
-													delete nconfig.priority_tags[e.option]
-												}
-											}
-											dirty = true
-										} else if (e.type === 'removeAll') {
-											nconfig.priority_tags = new Map<string, number>()
-											dirty = true
-										} else {
-											console.error(`Priority tags multiselect - unknown event type: '${e.type}'`)
 										}
-									}}
-									options={nconfig?.worker_tags}
-									selectedOptionsDraggable={false}
-									ulOptionsClass={'!bg-surface-secondary'}
-									placeholder="High priority tags"
+									}
+									items={safeSelectItems(nconfig?.worker_tags)}
 								/>
 							</Label>
 						{/if}
@@ -426,7 +402,7 @@
 									disabled={!$enterpriseLicense}
 									min="1"
 									bind:value={nconfig.min_alive_workers_alert_threshold}
-									on:change={(ev) => {
+									onchange={(ev) => {
 										dirty = true
 									}}
 								/>
@@ -438,16 +414,16 @@
 		{:else if selected == 'dedicated'}
 			{#if nconfig?.dedicated_worker != undefined}
 				<input
-					disabled={!$superadmin}
+					disabled={!($superadmin || $devopsRole)}
 					placeholder="<workspace>:<script path>"
 					type="text"
-					on:change={() => {
+					onchange={() => {
 						dirtyCode = true
 						dirty = true
 					}}
 					bind:value={nconfig.dedicated_worker}
 				/>
-				{#if $superadmin}
+				{#if $superadmin || $devopsRole}
 					<div class="py-2"
 						><Alert
 							type="info"
@@ -471,36 +447,38 @@
 		>
 			<div class="flex flex-col gap-3 gap-y-2 pb-2 max-w">
 				<span class="text-sm text-primary">Additional Python Paths</span>
-				{#each nconfig.additional_python_paths ?? [] as additional_python_path, i}
-					<div class="flex gap-1 items-center">
-						<input
-							type="text"
-							disabled={!$superadmin}
-							placeholder="/path/to/python3.X/site-packages"
-							bind:value={additional_python_path}
-						/>
-						{#if $superadmin}
-							<button
-								class="rounded-full bg-surface/60 hover:bg-gray-200"
-								aria-label="Clear"
-								on:click={() => {
-									if (
-										nconfig.additional_python_paths === undefined ||
-										nconfig.additional_python_paths.length == 0
-									) {
-										return
-									}
-									nconfig.additional_python_paths.splice(i, 1)
-									nconfig.additional_python_paths = [...nconfig.additional_python_paths]
-									dirty = true
-								}}
-							>
-								<X size={14} />
-							</button>
-						{/if}
-					</div>
-				{/each}
-				{#if $superadmin}
+				{#if nconfig.additional_python_paths}
+					{#each nconfig.additional_python_paths as _, i}
+						<div class="flex gap-1 items-center">
+							<input
+								type="text"
+								disabled={!($superadmin || $devopsRole)}
+								placeholder="/path/to/python3.X/site-packages"
+								bind:value={nconfig.additional_python_paths![i]}
+							/>
+							{#if $superadmin || $devopsRole}
+								<button
+									class="rounded-full bg-surface/60 hover:bg-gray-200"
+									aria-label="Clear"
+									onclick={() => {
+										if (
+											nconfig.additional_python_paths === undefined ||
+											nconfig.additional_python_paths.length == 0
+										) {
+											return
+										}
+										nconfig.additional_python_paths.splice(i, 1)
+										nconfig.additional_python_paths = [...nconfig.additional_python_paths]
+										dirty = true
+									}}
+								>
+									<X size={14} />
+								</button>
+							{/if}
+						</div>
+					{/each}
+				{/if}
+				{#if $superadmin || $devopsRole}
 					<div class="flex">
 						<Button
 							variant="contained"
@@ -522,36 +500,38 @@
 				{/if}
 
 				<span class="text-sm text-primary">PIP local dependencies</span>
-				{#each nconfig.pip_local_dependencies ?? [] as pip_local_dependency, i}
-					<div class="flex gap-1 items-center">
-						<input
-							disabled={!$superadmin}
-							type="text"
-							placeholder="httpx"
-							bind:value={pip_local_dependency}
-						/>
-						{#if $superadmin}
-							<button
-								class="rounded-full bg-surface/60 hover:bg-gray-200"
-								aria-label="Clear"
-								on:click={() => {
-									if (
-										nconfig.pip_local_dependencies === undefined ||
-										nconfig.pip_local_dependencies.length == 0
-									) {
-										return
-									}
-									nconfig.pip_local_dependencies.splice(i, 1)
-									nconfig.pip_local_dependencies = [...nconfig.pip_local_dependencies]
-									dirty = true
-								}}
-							>
-								<X size={14} />
-							</button>
-						{/if}
-					</div>
-				{/each}
-				{#if $superadmin}
+				{#if nconfig.pip_local_dependencies}
+					{#each nconfig.pip_local_dependencies as _, i}
+						<div class="flex gap-1 items-center">
+							<input
+								disabled={!($superadmin || $devopsRole)}
+								type="text"
+								placeholder="httpx"
+								bind:value={nconfig.pip_local_dependencies[i]}
+							/>
+							{#if $superadmin || $devopsRole}
+								<button
+									class="rounded-full bg-surface/60 hover:bg-gray-200"
+									aria-label="Clear"
+									onclick={() => {
+										if (
+											nconfig.pip_local_dependencies === undefined ||
+											nconfig.pip_local_dependencies.length == 0
+										) {
+											return
+										}
+										nconfig.pip_local_dependencies.splice(i, 1)
+										nconfig.pip_local_dependencies = [...nconfig.pip_local_dependencies]
+										dirty = true
+									}}
+								>
+									<X size={14} />
+								</button>
+							{/if}
+						</div>
+					{/each}
+				{/if}
+				{#if $superadmin || $devopsRole}
 					<div class="flex">
 						<Button
 							variant="contained"
@@ -585,16 +565,16 @@
 				{#each customEnvVars as envvar, i}
 					<div class="flex gap-1 items-center">
 						<input
-							disabled={!$superadmin}
+							disabled={!($superadmin || $devopsRole)}
 							type="text"
 							placeholder="ENV_VAR_NAME"
 							bind:value={envvar.key}
-							on:keypress={(e) => {
+							onkeypress={(e) => {
 								dirty = true
 							}}
 						/>
 						<ToggleButtonGroup
-							disabled={!$superadmin}
+							disabled={!($superadmin || $devopsRole)}
 							class="w-128"
 							bind:selected={envvar.type}
 							on:selected={(e) => {
@@ -603,24 +583,25 @@
 									envvar.value = undefined
 								}
 							}}
-							let:item
 						>
-							<ToggleButton value="dynamic" label="Dynamic" {item} />
-							<ToggleButton value="static" label="Static" {item} />
+							{#snippet children({ item })}
+								<ToggleButton value="dynamic" label="Dynamic" {item} />
+								<ToggleButton value="static" label="Static" {item} />
+							{/snippet}
 						</ToggleButtonGroup>
 						<input
 							type="text"
-							disabled={!$superadmin || envvar.type === 'dynamic'}
+							disabled={!($superadmin || $devopsRole) || envvar.type === 'dynamic'}
 							placeholder={envvar.type === 'dynamic'
 								? 'value read from worker env var'
 								: 'static value'}
 							bind:value={envvar.value}
 						/>
-						{#if $superadmin}
+						{#if $superadmin || $devopsRole}
 							<button
 								class="rounded-full bg-surface/60 hover:bg-gray-200"
 								aria-label="Clear"
-								on:click={() => {
+								onclick={() => {
 									if (nconfig.env_vars_static?.[envvar.key] !== undefined) {
 										delete nconfig.env_vars_static[envvar.key]
 									}
@@ -639,7 +620,7 @@
 						{/if}
 					</div>
 				{/each}
-				{#if $superadmin}
+				{#if $superadmin || $devopsRole}
 					<div class="flex">
 						<Button
 							variant="contained"
@@ -657,7 +638,7 @@
 					</div>
 				{/if}
 			</div>
-			{#if !superadmin}
+			{#if !($superadmin || $devopsRole)}
 				<div class="flex flex-wrap items-center gap-1 pt-2">
 					<Button
 						variant="contained"
@@ -717,12 +698,14 @@
 		<div class="mt-8"></div>
 
 		<Section label="Autoscaling" collapsable>
-			<div slot="header" class="ml-4 flex flex-row gap-2 items-center">
-				<Badge>Beta</Badge>
-				{#if nconfig.autoscaling?.enabled}
-					<Badge color="green">Enabled</Badge>
-				{/if}
-			</div>
+			{#snippet header()}
+				<div class="ml-4 flex flex-row gap-2 items-center">
+					<Badge>Beta</Badge>
+					{#if nconfig.autoscaling?.enabled}
+						<Badge color="green">Enabled</Badge>
+					{/if}
+				</div>
+			{/snippet}
 			<AutoscalingConfigEditor
 				on:dirty={() => (dirty = true)}
 				worker_tags={config?.worker_tags}
@@ -743,7 +726,7 @@
 						>
 					{/if}
 					<Editor
-						disabled={!$superadmin}
+						disabled={!($superadmin || $devopsRole)}
 						class="flex flex-1 grow h-full w-full"
 						automaticLayout
 						scriptLang={'bash'}
@@ -766,7 +749,7 @@
 				</div>
 			</div>
 		</Section>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<div class="flex gap-4 items-center">
 				<div class="flex gap-2 items-center">
 					{#if dirty}
@@ -822,13 +805,13 @@
 						}}
 						disabled={(!dirty && nconfig?.dedicated_worker == undefined) ||
 							!$enterpriseLicense ||
-							!$superadmin}
+							!($superadmin || $devopsRole)}
 					>
 						Apply changes
 					</Button>
 				</div>
 			</div>
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>
 
@@ -848,7 +831,7 @@
 				on:click={() => {
 					dirty = false
 					loadNConfig()
-					drawer.openDrawer()
+					drawer?.openDrawer()
 				}}
 				startIcon={{ icon: config == undefined ? Plus : Settings }}
 			>
@@ -911,7 +894,7 @@
 				size="xs"
 				on:click={() => {
 					loadNConfig()
-					drawer.openDrawer()
+					drawer?.openDrawer()
 				}}
 			>
 				<div class="flex flex-row gap-1 items-center"> config </div>

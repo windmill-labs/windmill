@@ -68,6 +68,7 @@
 	}
 
 	function inferDepsFromCode(code: string) {
+		console.log('inferDepsFromCode', id)
 		if (componentInput) {
 			inferDeps(code, $worldStore.outputsById, componentInput, app)
 		}

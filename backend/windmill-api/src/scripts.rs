@@ -42,7 +42,7 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_worker::process_relative_imports;
 
-use windmill_common::error::to_anyhow;
+use windmill_common::{error::to_anyhow, worker::CLOUD_HOSTED};
 
 use windmill_common::{
     db::UserDB,
@@ -519,6 +519,29 @@ async fn create_script_internal<'c>(
             "Muting the error handler for certain script is only available in enterprise version"
                 .to_string(),
         ));
+    }
+    if *CLOUD_HOSTED {
+        let nb_scripts =
+            sqlx::query_scalar!("SELECT COUNT(*) FROM script WHERE workspace_id = $1", &w_id)
+                .fetch_one(&db)
+                .await?;
+        if nb_scripts.unwrap_or(0) >= 5000 {
+            return Err(Error::BadRequest(
+                    "You have reached the maximum number of scripts (5000) on cloud. Contact support@windmill.dev to increase the limit"
+                        .to_string(),
+                ));
+        }
+
+        if ns.summary.len() > 300 {
+            return Err(Error::BadRequest(
+                "Summary must be less than 300 characters on cloud".to_string(),
+            ));
+        }
+        if ns.description.len() > 3000 {
+            return Err(Error::BadRequest(
+                "Description must be less than 3000 characters on cloud".to_string(),
+            ));
+        }
     }
     let script_path = ns.path.clone();
     let hash = ScriptHash(hash_script(&ns));
@@ -1290,6 +1313,11 @@ async fn raw_script_by_path_unpinned(
     raw_script_by_path_internal(path, user_db, db, authed, w_id, true).await
 }
 
+lazy_static::lazy_static! {
+    static ref DEBUG_RAW_SCRIPT_ENDPOINTS: bool =
+        std::env::var("DEBUG_RAW_SCRIPT_ENDPOINTS").is_ok();
+}
+
 async fn raw_script_by_path_internal(
     path: StripPath,
     user_db: UserDB,
@@ -1342,6 +1370,26 @@ async fn raw_script_by_path_internal(
                 "Script {path} exists but {} does not have permissions to access it",
                 authed.username
             )));
+        } else {
+            if *DEBUG_RAW_SCRIPT_ENDPOINTS {
+                let other_script_o = sqlx::query_scalar!(
+                    "SELECT path FROM script WHERE workspace_id = $1 AND archived = false",
+                    w_id
+                )
+                .fetch_all(&db)
+                .await?;
+                let other_script_archived = sqlx::query_scalar!(
+                    "SELECT distinct(path) FROM script WHERE workspace_id = $1 AND archived = true",
+                    w_id
+                )
+                .fetch_all(&db)
+                .await?;
+                tracing::warn!(
+                    "Script {path} does not exist in workspace {w_id} but these paths do, non-archived: {:?} | archived: {:?}",
+                    other_script_o.join(", "),
+                    other_script_archived.join(", ")
+                )
+            }
         }
     }
 

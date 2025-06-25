@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { tick } from 'svelte'
 	import RouteEditorInner from './RouteEditorInner.svelte'
+	import type { EditHttpTrigger, HttpTrigger } from '$lib/gen'
 
 	interface Props {
 		onUpdate?: (cfg?: Record<string, any>) => void
+		customSaveBehavior?: (cfg: HttpTrigger | EditHttpTrigger) => void
 	}
 
-	let { onUpdate = undefined }: Props = $props()
+	let { onUpdate = undefined, customSaveBehavior }: Props = $props()
 
 	let open = $state(false)
 	export async function openEdit(ePath: string, isFlow: boolean) {
@@ -29,5 +31,5 @@
 </script>
 
 {#if open}
-	<RouteEditorInner {onUpdate} bind:this={drawer} />
+	<RouteEditorInner {customSaveBehavior} {onUpdate} bind:this={drawer} />
 {/if}

@@ -21,7 +21,7 @@ use crate::{
 
 pub struct RawHttpTriggerArgs(pub RawWebhookArgs);
 
-#[derive(Serialize, Deserialize, sqlx::Type, Debug, Clone, Hash, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, sqlx::Type, Debug, Clone, Copy, Hash, Eq, PartialEq)]
 #[sqlx(type_name = "HTTP_METHOD", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum HttpMethod {

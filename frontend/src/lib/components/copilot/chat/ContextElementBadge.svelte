@@ -27,7 +27,7 @@
 	<svelte:fragment slot="trigger">
 		<div
 			class={twMerge(
-				'border rounded-md px-1 py-0.5 flex flex-row items-center gap-1 text-tertiary text-xs cursor-default hover:bg-surface-hover hover:cursor-pointer'
+				'border rounded-md px-1 py-0.5 flex flex-row items-center gap-1 text-tertiary text-xs cursor-default hover:bg-surface-hover hover:cursor-pointer max-w-48'
 			)}
 			on:mouseenter={() => (showDelete = true)}
 			on:mouseleave={() => (showDelete = false)}
@@ -42,7 +42,11 @@
 					<svelte:component this={icon} size={16} />
 				{/if}
 			</button>
-			{contextElement.title}
+			<span class="truncate">
+				{contextElement.type === 'diff'
+					? contextElement.title.replace(/_/g, ' ')
+					: contextElement.title}
+			</span>
 		</div>
 	</svelte:fragment>
 	<svelte:fragment slot="content">

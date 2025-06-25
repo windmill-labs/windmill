@@ -9,7 +9,7 @@
 	import type { Placement } from '@floating-ui/core'
 	import { conditionalMelt } from '$lib/utils'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
-	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI'
 
 	export let id: string = ''
 	export let aiId: string | undefined = undefined
@@ -49,6 +49,7 @@
 				portal?: string
 		  }
 		| undefined = undefined
+	export let dropdownBtnClasses: string = ''
 
 	type MenuItem = {
 		label: string
@@ -162,25 +163,25 @@
 	$: $open !== undefined && dispatchIfMounted('tooltipOpen', $open)
 </script>
 
-<TriggerableByAI
-	id={aiId}
-	description={aiDescription}
-	onTrigger={() => {
-		element?.click()
+<div
+	class={twMerge(
+		dropdownItems && dropdownItems.length > 0 && variant === 'contained'
+			? ButtonType.ColorVariants[color].divider
+			: '',
+		wrapperClasses,
+		'flex flex-row',
+		disabled ? 'divide-text-disabled' : ''
+	)}
+	style={wrapperStyle}
+	data-interactive
+	use:triggerableByAI={{
+		id: aiId,
+		description: aiDescription,
+		callback: () => {
+			element?.click()
+		}
 	}}
 >
-	<div
-		class={twMerge(
-			dropdownItems && dropdownItems.length > 0 && variant === 'contained'
-				? ButtonType.ColorVariants[color].divider
-				: '',
-			wrapperClasses,
-			'flex flex-row',
-			disabled ? 'divide-text-disabled' : ''
-		)}
-		style={wrapperStyle}
-		data-interactive
-	>
 		{#if href && !disabled}
 			<a
 				bind:this={element}
@@ -309,7 +310,8 @@
 							'rounded-md m-0 p-0 center-center h-full',
 							variant === 'border' ? 'border-0 border-r border-y ' : 'border-0',
 							'rounded-r-md !rounded-l-none',
-							size === 'xs2' ? '!w-8' : '!w-10'
+							size === 'xs2' || size === 'xs' ? '!w-8' : '!w-10',
+							dropdownBtnClasses
 						)}
 					>
 						<ChevronDown size={lucideIconSize} />
@@ -317,5 +319,4 @@
 				</svelte:fragment>
 			</Dropdown>
 		{/if}
-	</div>
-</TriggerableByAI>
+</div>

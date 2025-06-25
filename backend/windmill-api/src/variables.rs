@@ -23,7 +23,8 @@ use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB, error::{Error, JsonResult, Result}, utils::{not_found_if_none, paginate, Pagination, StripPath}, variables::{
         build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
-    }
+    },
+    worker::CLOUD_HOSTED,
 };
 
 use lazy_static::lazy_static;
@@ -69,8 +70,7 @@ async fn list_contextual_variables(
             Some("u/user/triggering_flow_path".to_string()),
             Some("c".to_string()),
             Some("017e0ad5-f499-73b6-5488-92a61c5196dd".to_string()),
-            Some("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c".to_string()),
-            Some(chrono::offset::Utc::now())
+            Some(chrono::offset::Utc::now()),
         )
         .await
         .to_vec(),
@@ -309,6 +309,20 @@ async fn create_variable(
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(variable): Json<CreateVariable>,
 ) -> Result<(StatusCode, String)> {
+    if *CLOUD_HOSTED {
+        let nb_variables = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM variable WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_one(&db)
+        .await?;
+        if nb_variables.unwrap_or(0) >= 10000 {
+            return Err(Error::BadRequest(
+                    "You have reached the maximum number of variables (10000) on cloud. Contact support@windmill.dev to increase the limit"
+                        .to_string(),
+                ));
+        }
+    }
     let authed = maybe_refresh_folders(&variable.path, &w_id, authed, &db).await;
 
     check_path_conflict(&db, &w_id, &variable.path).await?;
@@ -445,6 +459,7 @@ struct EditVariable {
     value: Option<String>,
     is_secret: Option<bool>,
     description: Option<String>,
+    account: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -501,6 +516,10 @@ async fn update_variable(
         sqlb.set_str("description", &desc);
     }
 
+    if let Some(account_id) = ns.account {
+        sqlb.set_str("account", account_id);
+    }
+
     if let Some(nbool) = ns.is_secret {
         let old_secret = sqlx::query_scalar!(
             "SELECT is_secret from variable WHERE path = $1 AND workspace_id = $2",
@@ -518,6 +537,21 @@ async fn update_variable(
         sqlb.set_str("is_secret", nbool);
     }
     sqlb.returning("path");
+
+    // Get old account_id if we're updating the account field
+    let old_account_id = if ns.account.is_some() {
+        sqlx::query_scalar!(
+            "SELECT account FROM variable WHERE path = $1 AND workspace_id = $2",
+            &path,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten()
+    } else {
+        None
+    };
+
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     if let Some(npath) = ns.path {
@@ -570,6 +604,33 @@ async fn update_variable(
         None,
     )
     .await?;
+
+    // Clean up old account if it's no longer referenced and different from new account
+    if let Some(old_acc_id) = old_account_id {
+        if ns.account.is_some() && ns.account != Some(old_acc_id) {
+            // Check if old account is still referenced by other variables or resources
+            let account_still_used = sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM variable WHERE account = $1 AND workspace_id = $2)",
+                old_acc_id,
+                &w_id
+            )
+            .fetch_one(&mut *tx)
+            .await?
+            .unwrap_or(true);
+
+            if !account_still_used {
+                // Delete the orphaned account
+                sqlx::query!(
+                    "DELETE FROM account WHERE id = $1 AND workspace_id = $2",
+                    old_acc_id,
+                    &w_id
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+    }
+
     tx.commit().await?;
 
     handle_deployment_metadata(

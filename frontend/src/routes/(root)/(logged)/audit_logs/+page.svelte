@@ -177,7 +177,9 @@
 					/>
 				</Pane>
 				<Pane size={30} minSize={15}>
-					<AuditLogDetails {logs} {selectedId} />
+					{#if logs}
+						<AuditLogDetails {logs} {selectedId} />
+					{/if}
 				</Pane>
 			</Splitpanes>
 		</SplitPanesWrapper>
@@ -204,6 +206,8 @@
 
 <Drawer bind:this={auditLogDrawer}>
 	<DrawerContent title="Log details" on:close={auditLogDrawer.closeDrawer}>
-		<AuditLogDetails {logs} {selectedId} />
+		{#if logs}
+			<AuditLogDetails {logs} {selectedId} />
+		{/if}
 	</DrawerContent>
 </Drawer>

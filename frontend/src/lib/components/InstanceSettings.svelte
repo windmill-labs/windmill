@@ -16,20 +16,29 @@
 	import InstanceSetting from './InstanceSetting.svelte'
 	import { writable, type Writable } from 'svelte/store'
 
-	export let tab: string = 'Core'
-	export let hideTabs: boolean = false
-	export let hideSave: boolean = false
-	export let closeDrawer: (() => void) | undefined = () => {}
+	interface Props {
+		tab?: string
+		hideTabs?: boolean
+		hideSave?: boolean
+		closeDrawer?: (() => void) | undefined
+	}
+
+	let {
+		tab = $bindable('Core'),
+		hideTabs = false,
+		hideSave = false,
+		closeDrawer = () => {}
+	}: Props = $props()
 
 	let values: Writable<Record<string, any>> = writable({})
 	let initialOauths: Record<string, any> = {}
 	let initialRequirePreexistingUserForOauth: boolean = false
-	let requirePreexistingUserForOauth: boolean = false
+	let requirePreexistingUserForOauth: boolean = $state(false)
 
 	let initialValues: Record<string, any> = {}
-	let snowflakeAccountIdentifier = ''
-	let version: string = ''
-	let loading = true
+	let snowflakeAccountIdentifier = $state('')
+	let version: string = $state('')
+	let loading = $state(true)
 
 	loadSettings()
 	loadVersion()
@@ -39,7 +48,7 @@
 	async function loadVersion() {
 		version = await SettingsService.backendVersion()
 	}
-	let oauths: Record<string, any> = {}
+	let oauths: Record<string, any> = $state({})
 
 	async function loadSettings() {
 		loading = true
@@ -240,13 +249,13 @@
 </script>
 
 <div class="pb-8">
-	<!-- svelte-ignore a11y-label-has-associated-control -->
+	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<Tabs {hideTabs} bind:selected={tab}>
 		{#each settingsKeys as category}
 			<Tab value={category}>{category}</Tab>
 		{/each}
 
-		<svelte:fragment slot="content">
+		{#snippet content()}
 			{#each Object.keys(settings) as category}
 				<TabContent value={category}>
 					{#if category == 'SMTP'}
@@ -332,7 +341,7 @@
 							bind:snowflakeAccountIdentifier
 							bind:requirePreexistingUserForOauth
 						>
-							<svelte:fragment slot="scim">
+							{#snippet scim()}
 								<div class="flex-col flex gap-2 pb-4">
 									{#each scimSamlSetting as setting}
 										<InstanceSetting
@@ -344,7 +353,7 @@
 										/>
 									{/each}
 								</div>
-							</svelte:fragment>
+							{/snippet}
 						</AuthSettings>
 					{/if}
 					<div>
@@ -362,7 +371,7 @@
 					</div>
 				</TabContent>
 			{/each}
-		</svelte:fragment>
+		{/snippet}
 	</Tabs>
 </div>
 

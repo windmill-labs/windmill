@@ -23,9 +23,6 @@
 		UnfoldVertical
 	} from 'lucide-svelte'
 
-	export let filter = ''
-	export let subtab: 'flow' | 'script' | 'app' = 'script'
-
 	import { HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
 
 	import SearchItems from '../SearchItems.svelte'
@@ -43,8 +40,14 @@
 	import Item from './Item.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { getContext } from 'svelte'
-	import TriggerableByAI from '../TriggerableByAI.svelte'
+	import { getContext, untrack } from 'svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI'
+	interface Props {
+		filter?: string
+		subtab?: 'flow' | 'script' | 'app'
+	}
+
+	let { filter = $bindable(''), subtab = $bindable('script') }: Props = $props()
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
@@ -60,18 +63,20 @@
 	type TableApp = TableItem<ListableApp, 'app'>
 	type TableRawApp = TableItem<ListableRawApp, 'raw_app'>
 
-	let scripts: TableScript[] | undefined
-	let flows: TableFlow[] | undefined
-	let apps: TableApp[] | undefined
-	let raw_apps: TableRawApp[] | undefined
+	let scripts: TableScript[] | undefined = $state()
+	let flows: TableFlow[] | undefined = $state()
+	let apps: TableApp[] | undefined = $state()
+	let raw_apps: TableRawApp[] | undefined = $state()
 
-	let filteredItems: (TableScript | TableFlow | TableApp | TableRawApp)[] = []
+	let filteredItems: (TableScript | TableFlow | TableApp | TableRawApp)[] = $state([])
 
-	let itemKind = ($page.url.searchParams.get('kind') as 'script' | 'flow' | 'app' | 'all') ?? 'all'
+	let itemKind = $state(
+		($page.url.searchParams.get('kind') as 'script' | 'flow' | 'app' | 'all') ?? 'all'
+	)
 
-	let loading = true
+	let loading = $state(true)
 
-	let nbDisplayed = 15
+	let nbDisplayed = $state(15)
 
 	async function loadScripts(includeWithoutMain: boolean): Promise<void> {
 		const loadedScripts = await ScriptService.listScripts({
@@ -139,40 +144,6 @@
 		loading = false
 	}
 
-	$: owners = Array.from(
-		new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-	).sort()
-
-	let combinedItems: (TableScript | TableFlow | TableApp | TableRawApp)[] | undefined = undefined
-
-	$: combinedItems =
-		flows == undefined || scripts == undefined || apps == undefined || raw_apps == undefined
-			? undefined
-			: [
-					...flows.map((x) => ({
-						...x,
-						type: 'flow' as 'flow',
-						time: new Date(x.edited_at).getTime()
-					})),
-					...scripts.map((x) => ({
-						...x,
-						type: 'script' as 'script',
-						time: new Date(x.created_at).getTime()
-					})),
-					...apps.map((x) => ({
-						...x,
-						type: 'app' as 'app',
-						time: new Date(x.edited_at).getTime()
-					})),
-					...raw_apps.map((x) => ({
-						...x,
-						type: 'raw_app' as 'raw_app',
-						time: new Date(x.edited_at).getTime()
-					}))
-				].sort((a, b) =>
-					a.starred != b.starred ? (a.starred ? -1 : 1) : a.time - b.time > 0 ? -1 : 1
-				)
-
 	function filterItemsPathsBaseOnUserFilters(
 		item: TableScript | TableFlow | TableApp | TableRawApp,
 		filterUserFolders: boolean
@@ -184,39 +155,8 @@
 			return true
 		}
 	}
-	$: preFilteredItems =
-		ownerFilter != undefined
-			? combinedItems?.filter(
-					(x) =>
-						x.path.startsWith(ownerFilter + '/') &&
-						(x.type == itemKind || itemKind == 'all') &&
-						filterItemsPathsBaseOnUserFilters(x, filterUserFolders)
-				)
-			: combinedItems?.filter(
-					(x) =>
-						(x.type == itemKind || itemKind == 'all') &&
-						filterItemsPathsBaseOnUserFilters(x, filterUserFolders)
-				)
 
-	let ownerFilter: string | undefined = undefined
-
-	$: if ($workspaceStore) {
-		ownerFilter = undefined
-	}
-
-	$: {
-		if ($userStore && $workspaceStore) {
-			loadScripts(includeWithoutMain)
-			loadFlows()
-			if (!archived) {
-				loadApps()
-				loadRawApps()
-			} else {
-				apps = []
-				raw_apps = []
-			}
-		}
-	}
+	let ownerFilter: string | undefined = $state(undefined)
 
 	const cmp = new Intl.Collator('en').compare
 
@@ -263,8 +203,6 @@
 		}
 	}
 
-	$: items = filter !== '' ? filteredItems : preFilteredItems
-
 	function resetScroll() {
 		const element = document.getElementsByTagName('svelte-virtual-list-viewport')
 		const firstElement = element.item(0)
@@ -273,40 +211,117 @@
 		}
 	}
 
-	$: items && resetScroll()
-
-	let archived = false
+	let archived = $state(false)
 
 	const TREE_VIEW_SETTING_NAME = 'treeView'
 	const FILTER_USER_FOLDER_SETTING_NAME = 'filterUserFolders'
 	const INCLUDE_WITHOUT_MAIN_SETTING_NAME = 'includeWithoutMain'
-	let treeView = getLocalSetting(TREE_VIEW_SETTING_NAME) == 'true'
-	let filterUserFolders = getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true'
-	let includeWithoutMain = getLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME)
-		? getLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME) == 'true'
-		: true
-
-	$: storeLocalSetting(TREE_VIEW_SETTING_NAME, treeView ? 'true' : undefined)
-	$: storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
-	$: storeLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME, includeWithoutMain ? 'true' : undefined)
+	let treeView = $state(getLocalSetting(TREE_VIEW_SETTING_NAME) == 'true')
+	let filterUserFolders = $state(getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true')
+	let includeWithoutMain = $state(
+		getLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME)
+			? getLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME) == 'true'
+			: true
+	)
 
 	const openSearchWithPrefilledText: (t?: string) => void = getContext(
 		'openSearchWithPrefilledText'
 	)
 
-	let viewCodeDrawer: Drawer
-	let viewCodeTitle: string | undefined
-	let script: Script | undefined
+	let viewCodeDrawer: Drawer | undefined = $state()
+	let viewCodeTitle: string | undefined = $state()
+	let script: Script | undefined = $state()
 	async function showCode(path: string, summary: string) {
 		viewCodeTitle = summary || path
-		await viewCodeDrawer.openDrawer()
+		await viewCodeDrawer?.openDrawer()
 		script = await ScriptService.getScriptByPath({
 			workspace: $workspaceStore!,
 			path
 		})
 	}
 
-	let collapseAll = true
+	let collapseAll = $state(true)
+	let owners = $derived(
+		Array.from(
+			new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+		).sort()
+	)
+	$effect(() => {
+		if ($userStore && $workspaceStore) {
+			untrack(() => {
+				loadScripts(includeWithoutMain)
+				loadFlows()
+				if (!archived) {
+					loadApps()
+					loadRawApps()
+				} else {
+					apps = []
+					raw_apps = []
+				}
+			})
+		}
+	})
+
+	let combinedItems = $derived(
+		flows == undefined || scripts == undefined || apps == undefined || raw_apps == undefined
+			? undefined
+			: [
+					...flows.map((x) => ({
+						...x,
+						type: 'flow' as 'flow',
+						time: new Date(x.edited_at).getTime()
+					})),
+					...scripts.map((x) => ({
+						...x,
+						type: 'script' as 'script',
+						time: new Date(x.created_at).getTime()
+					})),
+					...apps.map((x) => ({
+						...x,
+						type: 'app' as 'app',
+						time: new Date(x.edited_at).getTime()
+					})),
+					...raw_apps.map((x) => ({
+						...x,
+						type: 'raw_app' as 'raw_app',
+						time: new Date(x.edited_at).getTime()
+					}))
+				].sort((a, b) =>
+					a.starred != b.starred ? (a.starred ? -1 : 1) : a.time - b.time > 0 ? -1 : 1
+				)
+	)
+	$effect(() => {
+		if ($workspaceStore) {
+			ownerFilter = undefined
+		}
+	})
+	let preFilteredItems = $derived(
+		ownerFilter != undefined
+			? combinedItems?.filter(
+					(x) =>
+						x.path.startsWith(ownerFilter + '/') &&
+						(x.type == itemKind || itemKind == 'all') &&
+						filterItemsPathsBaseOnUserFilters(x, filterUserFolders)
+				)
+			: combinedItems?.filter(
+					(x) =>
+						(x.type == itemKind || itemKind == 'all') &&
+						filterItemsPathsBaseOnUserFilters(x, filterUserFolders)
+				)
+	)
+	let items = $derived(filter !== '' ? filteredItems : preFilteredItems)
+	$effect(() => {
+		items && resetScroll()
+	})
+	$effect(() => {
+		storeLocalSetting(TREE_VIEW_SETTING_NAME, treeView ? 'true' : undefined)
+	})
+	$effect(() => {
+		storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
+	})
+	$effect(() => {
+		storeLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME, includeWithoutMain ? 'true' : undefined)
+	})
 </script>
 
 <SearchItems
@@ -335,9 +350,8 @@
 	</DrawerContent>
 </Drawer>
 
-<TriggerableByAI id="home-items-list" description="Lists of scripts, flows, and apps">
-	<CenteredPage>
-		<div class="flex flex-wrap gap-2 items-center justify-between w-full mt-2">
+<CenteredPage>
+		<div class="flex flex-wrap gap-2 items-center justify-between w-full mt-2" use:triggerableByAI={{id: "home-items-list", description: "Lists of scripts, flows, and apps"}}>
 			<div class="flex justify-start">
 				<ToggleButtonGroup
 					bind:selected={itemKind}
@@ -348,39 +362,40 @@
 						setQuery($page.url, 'kind', itemKind)
 					}}
 					class="h-10"
-					let:item
 				>
-					<ToggleButton value="all" label="All" class="text-sm px-4 py-2" {item} />
-					<ToggleButton
-						value="script"
-						icon={Code2}
-						label="Scripts"
-						class="text-sm px-4 py-2"
-						{item}
-					/>
-					{#if HOME_SEARCH_SHOW_FLOW}
+					{#snippet children({ item })}
+						<ToggleButton value="all" label="All" class="text-sm px-4 py-2" {item} />
 						<ToggleButton
-							value="flow"
-							label="Flows"
-							icon={FlowIcon}
+							value="script"
+							icon={Code2}
+							label="Scripts"
 							class="text-sm px-4 py-2"
-							selectedColor="#14b8a6"
 							{item}
 						/>
-					{/if}
-					<ToggleButton
-						value="app"
-						label="Apps"
-						icon={LayoutDashboard}
-						class="text-sm px-4 py-2"
-						selectedColor="#fb923c"
-						{item}
-					/>
+						{#if HOME_SEARCH_SHOW_FLOW}
+							<ToggleButton
+								value="flow"
+								label="Flows"
+								icon={FlowIcon}
+								class="text-sm px-4 py-2"
+								selectedColor="#14b8a6"
+								{item}
+							/>
+						{/if}
+						<ToggleButton
+							value="app"
+							label="Apps"
+							icon={LayoutDashboard}
+							class="text-sm px-4 py-2"
+							selectedColor="#fb923c"
+							{item}
+						/>
+					{/snippet}
 				</ToggleButtonGroup>
 			</div>
 
 			<div class="relative text-tertiary grow min-w-[100px]">
-				<!-- svelte-ignore a11y-autofocus -->
+				<!-- svelte-ignore a11y_autofocus -->
 				<input
 					autofocus
 					placeholder={HOME_SEARCH_PLACEHOLDER}
@@ -435,7 +450,7 @@
 			{#if !loading}
 				<div class="flex w-full flex-row-reverse gap-2 mt-4 mb-1 items-center h-6">
 					<Popover floatingConfig={{ placement: 'bottom-end' }}>
-						<svelte:fragment slot="trigger">
+						{#snippet trigger()}
 							<Button
 								startIcon={{
 									icon: SlidersHorizontal
@@ -447,8 +462,8 @@
 								variant="border"
 								spacingSize="xs2"
 							/>
-						</svelte:fragment>
-						<svelte:fragment slot="content">
+						{/snippet}
+						{#snippet content()}
 							<div class="p-4">
 								<span class="text-sm font-semibold">Filters</span>
 								<div class="flex flex-col gap-2 mt-2">
@@ -462,7 +477,7 @@
 									{/if}
 								</div>
 							</div>
-						</svelte:fragment>
+						{/snippet}
 					</Popover>
 					{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
 						<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
@@ -544,10 +559,9 @@
 				{#if items && items?.length > 15 && nbDisplayed < items.length}
 					<span class="text-xs"
 						>{nbDisplayed} items out of {items.length}
-						<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
+						<button class="ml-4" onclick={() => (nbDisplayed += 30)}>load 30 more</button></span
 					>
 				{/if}
 			{/if}
 		</div>
-	</CenteredPage>
-</TriggerableByAI>
+</CenteredPage>

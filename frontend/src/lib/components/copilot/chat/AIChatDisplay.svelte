@@ -2,7 +2,17 @@
 	import { twMerge } from 'tailwind-merge'
 	import AssistantMessage from './AssistantMessage.svelte'
 	import { type Snippet } from 'svelte'
-	import { HistoryIcon, Loader2, Plus, StopCircleIcon, X } from 'lucide-svelte'
+	import {
+		CheckIcon,
+		HistoryIcon,
+		Loader2,
+		Plus,
+		RefreshCwIcon,
+		StopCircleIcon,
+		Undo2Icon,
+		X,
+		XIcon
+	} from 'lucide-svelte'
 	import autosize from '$lib/autosize'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -15,10 +25,9 @@
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import Markdown from 'svelte-exmarkdown'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 
 	let {
-		allowedModes,
 		messages,
 		pastChats,
 		hasDiff,
@@ -36,11 +45,6 @@
 		disabledMessage = '',
 		suggestions = []
 	}: {
-		allowedModes: {
-			script: boolean
-			flow: boolean
-			navigator: boolean
-		}
 		messages: DisplayMessage[]
 		pastChats: { id: string; title: string }[]
 		hasDiff?: boolean
@@ -98,21 +102,24 @@
 		}
 	}
 
-	function findLastIndex<T>(array: T[], predicate: (item: T) => boolean): number {
-		for (let i = array.length - 1; i >= 0; i--) {
-			if (predicate(array[i])) {
-				return i
-			}
-		}
-		return -1
-	}
-
 	function submitSuggestion(suggestion: string) {
 		aiChatManager.instructions = suggestion
 		aiChatManager.sendRequest()
 	}
 
-	const lastUserMessageIndex = $derived(findLastIndex(messages, (m) => m.role === 'user'))
+	function isLastUserMessage(messageIndex: number): boolean {
+		// Find the last user message index
+		for (let i = messages.length - 1; i >= 0; i--) {
+			if (messages[i].role === 'user') {
+				return i === messageIndex
+			}
+		}
+		return false
+	}
+
+	function restartGeneration(messageIndex: number) {
+		aiChatManager.restartLastGeneration(messageIndex)
+	}
 </script>
 
 <div class="flex flex-col h-full">
@@ -193,10 +200,10 @@
 	</div>
 	{#if messages.length > 0}
 		<div
-			class="h-full overflow-y-scroll pt-2"
+			class="h-full overflow-y-scroll pt-2 pb-12"
 			bind:this={scrollEl}
-			onwheel={(e) => {
-				aiChatManager.automaticScroll = false
+			onwheel={() => {
+				aiChatManager.disableAutomaticScroll()
 			}}
 		>
 			<div class="flex flex-col" bind:clientHeight={height}>
@@ -212,12 +219,8 @@
 						class={twMerge(
 							'text-sm py-1 mx-2',
 							message.role === 'user' &&
-								'px-2 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 rounded-lg',
-							message.role === 'user'
-								? aiChatManager.loading && lastUserMessageIndex === messageIndex
-									? 'mb-1'
-									: 'mb-2'
-								: '',
+								'px-2 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 rounded-lg mb-2 relative group',
+							message.role === 'user' && messageIndex > 0 && 'mt-6',
 							(message.role === 'assistant' || message.role === 'tool') && 'px-[1px]',
 							message.role === 'tool' && 'text-tertiary'
 						)}
@@ -227,20 +230,42 @@
 						{:else}
 							{message.content}
 						{/if}
+
+						{#if message.role === 'user' && isLastUserMessage(messageIndex) && !aiChatManager.loading}
+							<div
+								class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity"
+							>
+								<Button
+									size="xs2"
+									variant="border"
+									color="light"
+									iconOnly
+									title="Restart generation"
+									startIcon={{ icon: RefreshCwIcon }}
+									btnClasses="!p-1 !h-6 !w-6"
+									on:click={() => restartGeneration(messageIndex)}
+								/>
+							</div>
+						{/if}
 					</div>
-					{#if message.role === 'user' && aiChatManager.loading && lastUserMessageIndex === messageIndex}
-						<div class="flex flex-row px-2 mb-2">
+					{#if message.role === 'user' && message.snapshot}
+						<div
+							class="mx-2 text-sm text-tertiary flex flex-row items-center justify-between gap-2 mb-2"
+						>
+							Saved a flow snapshot
 							<Button
-								startIcon={{ icon: StopCircleIcon }}
-								size="xs3"
+								size="xs2"
 								variant="border"
-								btnClasses="px-1.5"
 								color="light"
 								on:click={() => {
-									cancel()
+									if (message.snapshot) {
+										aiChatManager.flowAiChatHelpers?.revertToSnapshot(message.snapshot)
+									}
 								}}
+								title="Revert to snapshot"
+								startIcon={{ icon: Undo2Icon }}
 							>
-								Stop
+								Revert
 							</Button>
 						</div>
 					{/if}
@@ -254,7 +279,49 @@
 		</div>
 	{/if}
 
-	<div class:border-t={messages.length > 0}>
+	<div class:border-t={messages.length > 0} class="relative">
+		{#if aiChatManager.loading}
+			<div class="absolute -top-10 w-full flex flex-row justify-center">
+				<Button
+					startIcon={{ icon: StopCircleIcon }}
+					size="xs"
+					variant="border"
+					color="light"
+					on:click={() => {
+						cancel()
+					}}
+				>
+					Stop
+				</Button>
+			</div>
+		{:else if aiChatManager.flowAiChatHelpers?.hasDiff()}
+			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
+				<Button
+					startIcon={{ icon: CheckIcon }}
+					size="xs"
+					variant="border"
+					color="light"
+					btnClasses="bg-green-500 hover:bg-green-600 text-white hover:text-white"
+					on:click={() => {
+						aiChatManager.flowAiChatHelpers?.acceptAllModuleActions()
+					}}
+				>
+					Accept all
+				</Button>
+				<Button
+					startIcon={{ icon: XIcon }}
+					size="xs"
+					variant="border"
+					color="light"
+					btnClasses="dark:opacity-50 opacity-60 hover:opacity-100"
+					on:click={() => {
+						aiChatManager.flowAiChatHelpers?.rejectAllModuleActions()
+					}}
+				>
+					Reject all
+				</Button>
+			</div>
+		{/if}
 		{#if aiChatManager.mode === 'script'}
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 px-2 no-scrollbar">
 				<Popover>
@@ -289,17 +356,16 @@
 			</div>
 			<ContextTextarea
 				bind:this={contextTextareaComponent}
-				instructions={aiChatManager.instructions}
 				{availableContext}
 				{selectedContext}
 				isFirstMessage={messages.length === 0}
-				on:addContext={(e) => addContextToSelection(e.detail.contextElement)}
-				on:sendRequest={() => {
+				onAddContext={(contextElement) => addContextToSelection(contextElement)}
+				onSendRequest={() => {
 					if (!aiChatManager.loading) {
 						aiChatManager.sendRequest()
 					}
 				}}
-				on:updateInstructions={(e) => (aiChatManager.instructions = e.detail.value)}
+				onUpdateInstructions={(value) => (aiChatManager.instructions = value)}
 				{disabled}
 			/>
 		{:else}
@@ -330,17 +396,17 @@
 				<ChatQuickActions {askAi} {diffMode} />
 			{/if}
 			{#if disabled}
-				<div class="text-tertiary text-xs mt-2 px-2">
+				<div class="text-tertiary text-xs my-2 px-2">
 					<Markdown md={disabledMessage} />
 				</div>
 			{:else}
 				<div class="flex flex-row gap-2 min-w-0">
-					<ChatMode {allowedModes} />
+					<ChatMode />
 					<ProviderModelSelector />
 				</div>
 			{/if}
 		</div>
-		{#if aiChatManager.mode === 'navigator' && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
+		{#if (aiChatManager.mode === AIMode.NAVIGATOR || aiChatManager.mode === AIMode.ASK) && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
 			<div class="px-2 mt-4">
 				<div class="flex flex-col gap-2">
 					{#each suggestions as suggestion}

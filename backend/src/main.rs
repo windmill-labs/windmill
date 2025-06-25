@@ -80,8 +80,7 @@ use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR,
     DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR,
     JAVA_CACHE_DIR, NU_CACHE_DIR, POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR,
-    PY312_CACHE_DIR, PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR, TAR_PY310_CACHE_DIR,
-    TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR, TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
+    PY312_CACHE_DIR, PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -160,6 +159,7 @@ lazy_static::lazy_static! {
         .ok()
         .and_then(|x| x.parse::<u64>().ok())
         .unwrap_or(3600 * 12);
+
 }
 
 pub fn main() -> anyhow::Result<()> {
@@ -1066,7 +1066,9 @@ Windmill Community Edition {GIT_VERSION}
                                     }
 
                                     if server_mode {
-                                        tracing::info!("monitor task started");
+                                        if !*windmill_common::QUIET_LOGS {
+                                            tracing::info!("monitor task started");
+                                        }
                                     }
                                     monitor_db(
                                         &conn,
@@ -1078,7 +1080,9 @@ Windmill Community Edition {GIT_VERSION}
                                     )
                                     .await;
                                     if server_mode {
-                                        tracing::info!("monitor task finished");
+                                        if !*windmill_common::QUIET_LOGS {
+                                            tracing::info!("monitor task finished");
+                                        }
                                     }
                                 },
                             }
@@ -1098,6 +1102,9 @@ Windmill Community Edition {GIT_VERSION}
                         _ = tokio::time::sleep(Duration::from_secs(12 * 60 * 60)) => {
                             tracing::info!("Reloading config after 12 hours");
                             initial_load(&conn, tx.clone(), worker_mode, server_mode, #[cfg(feature = "parquet")] disable_s3_store).await;
+                            if let Err(e) = reload_license_key(&conn).await {
+                                tracing::error!("Failed to reload license key on agent: {e:#}");
+                            }
                             #[cfg(feature = "enterprise")]
                             ee_oss::verify_license_key().await;
                         }
@@ -1281,10 +1288,6 @@ pub async fn run_workers(
         PY311_CACHE_DIR,
         PY312_CACHE_DIR,
         PY313_CACHE_DIR,
-        TAR_PY310_CACHE_DIR,
-        TAR_PY311_CACHE_DIR,
-        TAR_PY312_CACHE_DIR,
-        TAR_PY313_CACHE_DIR,
         BUN_BUNDLE_CACHE_DIR,
         GO_CACHE_DIR,
         GO_BIN_CACHE_DIR,

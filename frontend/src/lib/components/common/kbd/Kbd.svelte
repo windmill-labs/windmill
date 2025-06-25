@@ -2,9 +2,21 @@
 	import { isMac } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 
-	export let kbdClass = ''
-	export let small = false
-	export let isModifier: boolean = false
+	interface Props {
+		kbdClass?: string
+		small?: boolean
+		isModifier?: boolean
+		class?: string
+		children?: import('svelte').Snippet
+	}
+
+	let {
+		kbdClass = $bindable(''),
+		small = false,
+		isModifier = false,
+		class: classNames = '',
+		children
+	}: Props = $props()
 
 	if (small) {
 		kbdClass = twMerge(
@@ -20,12 +32,12 @@
 
 <span
 	class={twMerge(
-		$$props.class,
+		classNames,
 		small ? 'h-4  center-center' : '',
 		'ml-0.5 rounded border bg-surface-secondary text-primary shadow-sm font-light transition-all group-hover:border-primary-500 group-hover:text-primary-inverse'
 	)}
 >
 	<kbd class={kbdClass}>
-		<slot />
+		{@render children?.()}
 	</kbd>
 </span>

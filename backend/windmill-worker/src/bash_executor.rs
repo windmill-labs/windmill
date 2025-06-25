@@ -43,11 +43,10 @@ use crate::{
         OccupancyMetrics,
     },
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    POWERSHELL_CACHE_DIR, POWERSHELL_PATH, PROXY_ENVS, TZ_ENV,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, POWERSHELL_CACHE_DIR,
+    POWERSHELL_PATH, PROXY_ENVS, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
-
 
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
@@ -276,6 +275,19 @@ exit $exit_status
 }
 
 #[cfg(feature = "dind")]
+async fn rm_container(client: &bollard::Docker, container_id: &str) {
+    if let Err(e) = client
+        .remove_container(
+            container_id,
+            Some(RemoveContainerOptions { force: true, ..Default::default() }),
+        )
+        .await
+    {
+        tracing::error!("Error removing container: {:?}", e);
+    }
+}
+
+#[cfg(feature = "dind")]
 async fn handle_docker_job(
     job_id: Uuid,
     workspace_id: &str,
@@ -446,19 +458,12 @@ async fn handle_docker_job(
                 }
             }
         }
+        rm_container(&client, &container_id).await;
 
         return Err(e);
     }
 
-    if let Err(e) = client
-        .remove_container(
-            &container_id,
-            Some(RemoveContainerOptions { force: true, ..Default::default() }),
-        )
-        .await
-    {
-        tracing::error!("Error removing container: {:?}", e);
-    }
+    rm_container(&client, &container_id).await;
 
     let result = result.unwrap();
 
@@ -505,6 +510,23 @@ fn raw_to_string(x: &str) -> String {
         _ => String::new(),
     }
 }
+
+const POWERSHELL_INSTALL_CODE: &str = r#"
+$availableModules = Get-Module -ListAvailable
+$path = '{path}'
+
+$moduleNames = @({modules})
+
+foreach ($module in $moduleNames) {
+    if (-not ($availableModules | Where-Object { $_.Name -eq $module })) {
+        Write-Host "Installing module $module..."
+        Save-Module -Name $module -Path $path -Force
+    } else {
+        Write-Host "Module $module already installed"
+    }
+}
+"#;
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_powershell_job(
     mem_peak: &mut i32,
@@ -568,27 +590,34 @@ pub async fn handle_powershell_job(
         })
         .collect::<Vec<String>>();
 
-    let mut install_string: String = String::new();
+    let mut modules_to_install: Vec<String> = Vec::new();
     let mut logs1 = String::new();
     for line in content.lines() {
         for cap in RE_POWERSHELL_IMPORTS.captures_iter(line) {
             let module = cap.get(1).unwrap().as_str();
             if !installed_modules.contains(&module.to_lowercase()) {
-                logs1.push_str(&format!("\n{} not found in cache", module.to_string()));
-                // instead of using Install-Module, we use Save-Module so that we can specify the installation path
-                install_string.push_str(&format!(
-                    "Save-Module -Path {} -Force {};",
-                    POWERSHELL_CACHE_DIR, module
-                ));
+                modules_to_install.push(module.to_string());
             } else {
                 logs1.push_str(&format!("\n{} found in cache", module.to_string()));
             }
         }
     }
 
-    if !install_string.is_empty() {
-        logs1.push_str("\n\nInstalling modules...");
+    if !logs1.is_empty() {
         append_logs(&job.id, &job.workspace_id, logs1, db).await;
+    }
+
+    if !modules_to_install.is_empty() {
+        let install_string = POWERSHELL_INSTALL_CODE
+            .replace("{path}", POWERSHELL_CACHE_DIR)
+            .replace(
+                "{modules}",
+                &modules_to_install
+                    .iter()
+                    .map(|x| format!("'{x}'"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
         let child = Command::new(POWERSHELL_PATH.as_str())
             .args(&["-Command", &install_string])
             .stdout(Stdio::piped())

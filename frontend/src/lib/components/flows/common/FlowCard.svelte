@@ -2,23 +2,37 @@
 	import type { FlowModuleValue } from '$lib/gen'
 	import FlowCardHeader from './FlowCardHeader.svelte'
 
-	export let title: string | undefined = undefined
-	export let summary: string | undefined = undefined
-	export let noEditor: boolean
-	export let noHeader = false
-	export let flowModuleValue: FlowModuleValue | undefined = undefined
+	interface Props {
+		title?: string | undefined
+		summary?: string | undefined
+		noEditor: boolean
+		noHeader?: boolean
+		flowModuleValue?: FlowModuleValue | undefined
+		header?: import('svelte').Snippet
+		children?: import('svelte').Snippet
+	}
+
+	let {
+		title = undefined,
+		summary = $bindable(undefined),
+		noEditor,
+		noHeader = false,
+		flowModuleValue = undefined,
+		header,
+		children
+	}: Props = $props()
 </script>
 
 <div class="flex flex-col h-full">
 	{#if !noEditor && !noHeader}
 		<div>
 			<FlowCardHeader on:setHash on:reload {title} bind:summary {flowModuleValue}>
-				<slot name="header" />
+				{@render header?.()}
 			</FlowCardHeader>
 		</div>
 	{/if}
 
 	<div class="min-h-0 flex-grow">
-		<slot />
+		{@render children?.()}
 	</div>
 </div>

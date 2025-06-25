@@ -804,10 +804,28 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
             .execute(db)
             .await?;
     });
+
+    run_windmill_migration!("v2_job_queue_suspend", db, |tx| {
+        sqlx::query!(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS v2_job_queue_suspend ON v2_job_queue (workspace_id, suspend) WHERE suspend > 0;"
+        )
+        .execute(db)
+        .await?;
+    });
+
+    run_windmill_migration!("audit_recent_login_activities", db, |tx| {
+        sqlx::query!(
+            "CREATE INDEX CONCURRENTLY idx_audit_recent_login_activities 
+ON audit (timestamp, username) 
+WHERE operation IN ('users.login', 'oauth.login', 'users.token.refresh');"
+        )
+        .execute(db)
+        .await?;
+    });
     Ok(())
 }
 
-#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Hash, Eq, PartialEq)]
 pub struct ApiAuthed {
     pub email: String,
     pub username: String,

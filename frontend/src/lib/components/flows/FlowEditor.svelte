@@ -13,54 +13,73 @@
 	import type { Flow } from '$lib/gen'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
-	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
-	import TriggerableByAI from '../TriggerableByAI.svelte'
+	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	export let loading: boolean
-	export let disableStaticInputs = false
-	export let disableTutorials = false
-	export let disableAi = false
-	export let disableSettings = false
-	export let disabledFlowInputs = false
-	export let smallErrorHandler = false
-	export let newFlow: boolean = false
-	export let savedFlow:
-		| (Flow & {
-				draft?: Flow | undefined
-		  })
-		| undefined = undefined
-	export let onDeployTrigger: (trigger: Trigger) => void = () => {}
+	interface Props {
+		loading: boolean
+		disableStaticInputs?: boolean
+		disableTutorials?: boolean
+		disableAi?: boolean
+		disableSettings?: boolean
+		disabledFlowInputs?: boolean
+		smallErrorHandler?: boolean
+		newFlow?: boolean
+		savedFlow?:
+			| (Flow & {
+					draft?: Flow | undefined
+			  })
+			| undefined
+		onDeployTrigger?: (trigger: Trigger) => void
+		onTestUpTo?: ((id: string) => void) | undefined
+		onEditInput?: ((moduleId: string, key: string) => void) | undefined
+		forceTestTab?: Record<string, boolean>
+		highlightArg?: Record<string, string | undefined>
+		loadingJobs?: boolean
+	}
 
-	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined
+	let {
+		loading,
+		disableStaticInputs = false,
+		disableTutorials = false,
+		disableAi = false,
+		disableSettings = false,
+		disabledFlowInputs = false,
+		smallErrorHandler = false,
+		newFlow = false,
+		savedFlow = undefined,
+		onDeployTrigger = () => {},
+		onTestUpTo = undefined,
+		onEditInput = undefined,
+		forceTestTab,
+		highlightArg
+	}: Props = $props()
+
+	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
 
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
 	})
 
-	export function addSelectedLinesToAiChat(lines: string, startLine: number, endLine: number) {
-		aiChatManager.addSelectedLinesToContext(lines, startLine, endLine)
-		if (!aiChatManager.open) {
-			aiChatManager.openChat()
-			aiChatManager.changeMode('script')
-		}
-	}
-
 	onMount(() => {
-		aiChatManager.changeMode('flow')
+		aiChatManager.changeMode(AIMode.FLOW)
 	})
 
 	onDestroy(() => {
-		aiChatManager.changeMode('navigator')
+		aiChatManager.changeMode(AIMode.NAVIGATOR)
 	})
 </script>
 
 <div
 	id="flow-editor"
 	class={'h-full overflow-hidden transition-colors duration-[400ms] ease-linear border-t'}
+	use:triggerableByAI={{
+		id: 'flow-editor',
+		description: 'Component to edit a flow'
+	}}
 >
-	<TriggerableByAI id="flow-editor" description="Component to edit a flow" />
 	<Splitpanes>
 		<Pane size={50} minSize={15} class="h-full relative z-0">
 			<div class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative">
@@ -70,7 +89,7 @@
 							<Skeleton layout={[[2], 1.5]} />
 						{/each}
 					</div>
-				{:else if $flowStore.value.modules}
+				{:else if flowStore.val.value.modules}
 					<FlowModuleSchemaMap
 						bind:this={flowModuleSchemaMap}
 						{disableStaticInputs}
@@ -79,7 +98,6 @@
 						{disableSettings}
 						{smallErrorHandler}
 						{newFlow}
-						bind:modules={$flowStore.value.modules}
 						on:reload
 						on:generateStep={({ detail }) => {
 							if (!aiChatManager.open) {
@@ -87,6 +105,8 @@
 							}
 							aiChatManager.generateStep(detail.moduleId, detail.lang, detail.instructions)
 						}}
+						{onTestUpTo}
+						{onEditInput}
 					/>
 				{/if}
 			</div>
@@ -107,6 +127,8 @@
 					on:applyArgs
 					on:testWithArgs
 					{onDeployTrigger}
+					{forceTestTab}
+					{highlightArg}
 				/>
 			{/if}
 		</Pane>

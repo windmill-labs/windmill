@@ -19,12 +19,25 @@
 		metadata: string
 	}
 
-	let contentType: 'content' | 'metadata' | undefined = undefined
-	let diffType: 'draft' | 'deployed' | 'custom' | undefined = undefined
-	let diffViewer: Drawer
+	let diffType: 'draft' | 'deployed' | 'custom' | undefined = $state(undefined)
 
-	export let restoreDeployed: () => Promise<void> = async () => {}
-	export let restoreDraft: () => Promise<void> = async () => {}
+	let contentType = $derived.by(() => {
+		if (!data || !diffType) return undefined
+		const dataType = diffType === 'custom' ? 'original' : diffType
+		return data[dataType]?.content !== data.current.content
+			? 'content'
+			: data[dataType]?.metadata !== data.current.metadata
+				? 'metadata'
+				: undefined
+	})
+	let diffViewer: Drawer | undefined = $state(undefined)
+
+	interface Props {
+		restoreDeployed?: () => Promise<void>
+		restoreDraft?: () => Promise<void>
+	}
+
+	let { restoreDeployed = async () => {}, restoreDraft = async () => {} }: Props = $props()
 
 	let data:
 		| {
@@ -42,19 +55,17 @@
 				current: DiffData
 				button?: { text: string; onClick: () => void }
 		  }
-		| undefined = undefined
+		| undefined = $state(undefined)
 
 	export function openDrawer() {
 		data = undefined
-		contentType = undefined
 		diffType = undefined
-		diffViewer.openDrawer()
+		diffViewer?.openDrawer()
 	}
 
 	export function closeDrawer() {
-		diffViewer.closeDrawer()
+		diffViewer?.closeDrawer()
 	}
-
 
 	function prepareDiff(data: Value) {
 		const metadata = structuredClone(cleanValueProperties(replaceFalseWithUndefined(data)))
@@ -117,20 +128,6 @@
 			diffType = 'custom'
 		}
 	}
-
-	function updateContentType(data_: typeof data, diffType_: typeof diffType) {
-		if (!data_) return
-		if (!diffType_) return
-		const dataType = diffType_ === 'custom' ? 'original' : diffType_
-		contentType =
-			data_[dataType]?.content !== data_.current.content
-				? 'content'
-				: data_[dataType]?.metadata !== data_.current.metadata
-				? 'metadata'
-				: undefined
-	}
-
-	$: updateContentType(data, diffType)
 </script>
 
 <Drawer bind:this={diffViewer} size="1200px" on:close>
@@ -256,18 +253,18 @@
 				<Loader2 class="animate-spin" />
 			{/if}
 		</div>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			{#if data?.button}
 				<Button
 					color="light"
 					on:click={() => {
 						if (data?.button) {
 							data.button.onClick()
-							diffViewer.closeDrawer()
+							diffViewer?.closeDrawer()
 						}
 					}}>{data.button.text}</Button
 				>
 			{/if}
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

@@ -3589,7 +3589,7 @@ pub async fn run_flow_by_path_inner(
         scheduled_for,
         None,
         run_query.parent_job,
-        run_query.root_job.or(run_query.parent_job),
+        run_query.root_job,
         run_query.job_id,
         false,
         false,
@@ -3683,7 +3683,7 @@ pub async fn restart_flow(
         scheduled_for,
         None,
         run_query.parent_job,
-        run_query.root_job.or(run_query.parent_job),
+        run_query.root_job,
         run_query.job_id,
         false,
         false,
@@ -3776,7 +3776,7 @@ pub async fn run_script_by_path_inner(
         scheduled_for,
         None,
         run_query.parent_job,
-        run_query.root_job.or(run_query.parent_job),
+        run_query.root_job,
         run_query.job_id,
         false,
         false,
@@ -4448,7 +4448,7 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         None,
         run_query.parent_job,
-        run_query.root_job.or(run_query.parent_job),
+        run_query.root_job,
         run_query.job_id,
         false,
         false,
@@ -4589,7 +4589,7 @@ pub async fn run_wait_result_script_by_path_internal(
         None,
         None,
         run_query.parent_job,
-        run_query.root_job.or(run_query.parent_job),
+        run_query.root_job,
         run_query.job_id,
         false,
         false,
@@ -4703,7 +4703,7 @@ pub async fn run_wait_result_script_by_hash(
         None,
         None,
         run_query.parent_job,
-        run_query.root_job.or(run_query.parent_job),
+        run_query.root_job,
         run_query.job_id,
         false,
         false,
@@ -4818,7 +4818,7 @@ pub async fn run_wait_result_flow_by_path_internal(
         scheduled_for,
         None,
         run_query.parent_job,
-        run_query.root_job.or(run_query.parent_job),
+        run_query.root_job,
         run_query.job_id,
         false,
         false,
@@ -5665,7 +5665,7 @@ pub async fn run_job_by_hash_inner(
         scheduled_for,
         None,
         run_query.parent_job,
-        run_query.root_job.or(run_query.parent_job),
+        run_query.root_job,
         run_query.job_id,
         false,
         false,
@@ -5916,6 +5916,7 @@ pub fn filter_list_completed_query(
         sqlb.and_where_le("started_at", "?".bind(&dt.to_rfc3339()));
     }
     if let Some(dt) = &lq.created_or_started_after {
+        sqlb.and_where_ge("created_at", "?".bind(&dt.to_rfc3339()));
         sqlb.and_where_ge("started_at", "?".bind(&dt.to_rfc3339()));
     }
 

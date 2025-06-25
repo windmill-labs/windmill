@@ -1,4 +1,18 @@
-./substitute_ee_code.sh --dir ../windmill-ee-private
+#!/bin/bash
+
+# Default directory
+EE_DIR="../windmill-ee-private"
+
+# Parse arguments
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --dir) EE_DIR="$2"; shift ;;
+        *) echo "Unknown parameter: $1"; exit 1 ;;
+    esac
+    shift
+done
+
+./substitute_ee_code.sh --dir "$EE_DIR"
 
 # Check if running on macOS
 if [[ "$(uname)" == "Darwin" ]]; then
@@ -9,8 +23,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
     sed -i '' 's/^# \(samael = { git="https:\/\/github.com\/njaremko\/samael", rev="464d015e3ae393e4b5dd00b4d6baa1b617de0dd6", features = \["xmlsec"\] }\)/\1/' Cargo.toml
 fi
 
-cargo sqlx prepare --workspace -- --all-targets --features $(./all_features_oss.sh)
-./substitute_ee_code.sh -r --dir ../windmill-ee-private
+cargo sqlx prepare --workspace -- --all-targets --all-features
 
 # Undo the samael changes on macOS
 if [[ "$(uname)" == "Darwin" ]]; then

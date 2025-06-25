@@ -278,14 +278,24 @@ impl PyV {
             .into())
         }
     }
-    /// e.g.: `/tmp/windmill/cache/python_3xy`
-    pub(crate) fn to_cache_dir(&self) -> String {
+    /// e.g.: `/tmp/windmill/cache/python_3_x_y`
+    pub(crate) fn to_cache_dir(&self, ignore_patch: bool) -> String {
         use windmill_common::worker::ROOT_CACHE_DIR;
-        format!("{ROOT_CACHE_DIR}{}", self.to_cache_dir_top_level())
+        format!(
+            "{ROOT_CACHE_DIR}{}",
+            self.to_cache_dir_top_level(ignore_patch)
+        )
     }
 
     /// e.g.: `python_3_x_y`
-    pub fn to_cache_dir_top_level(&self) -> String {
+    pub fn to_cache_dir_top_level(&self, ignore_patch: bool) -> String {
+        if ignore_patch {
+            if let [major, minor, ..] = self.release() {
+                return format!("python_{major}_{minor}");
+            }
+
+            tracing::warn!("failed to parse python's ({}) top level directory with no patch digit, fallback to full version.", self.to_string());
+        }
         format!("python_{}", self.to_string().replace(".", "_"))
     }
 
@@ -296,6 +306,7 @@ impl PyV {
     ) -> Self {
         let mut err = None;
         let pyv = match INSTANCE_PYTHON_VERSION.read().await.clone() {
+            Some(v) if &v == "default" => PyVAlias::default().into(),
             Some(v) => pep440_rs::Version::from_str(&v).unwrap_or_else(|_| {
                 let v = PyVAlias::default().into();
                 err = Some(format!("\nCannot parse INSTANCE_PYTHON_VERSION ({:?}), fallback to latest_stable ({v:?})", *INSTANCE_PYTHON_VERSION));
@@ -588,7 +599,7 @@ impl PyV {
         // For the default version directory created during startup (main.rs)
         DirBuilder::new()
             .recursive(true)
-            .create(self.to_cache_dir())
+            .create(self.to_cache_dir(false))
             .await
             .expect("could not create initial worker dir");
 

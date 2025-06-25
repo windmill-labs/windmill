@@ -433,7 +433,7 @@
 	let initialized = false
 
 	let jsLoader: NodeJS.Timeout | undefined = undefined
-
+	let timeoutModel: NodeJS.Timeout | undefined = undefined
 	async function loadMonaco() {
 		console.log('init template')
 		await initializeVscode('templateEditor')
@@ -453,16 +453,21 @@
 
 		model.updateOptions(updateOptions)
 
-		editor = meditor.create(divEl as HTMLDivElement, {
-			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
-			model,
-			// overflowWidgetsDomNode: widgets,
-			// lineNumbers: 'on',
-			lineDecorationsWidth: 6,
-			lineNumbersMinChars: 2,
-			fontSize,
-			suggestOnTriggerCharacters: true
-		})
+		try {
+			editor = meditor.create(divEl as HTMLDivElement, {
+				...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
+				model,
+				// overflowWidgetsDomNode: widgets,
+				// lineNumbers: 'on',
+				lineDecorationsWidth: 6,
+				lineNumbersMinChars: 2,
+				fontSize,
+				suggestOnTriggerCharacters: true
+			})
+		} catch (e) {
+			console.error('Error loading monaco:', e)
+			return
+		}
 
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
@@ -478,10 +483,9 @@
 				return
 			}
 			code = ncode
-			dispatch('change', code)
+			dispatch('change', { code: ncode })
 		}
 
-		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
@@ -607,17 +611,22 @@
 	}
 
 	let mounted = false
+	let loadTimeout: NodeJS.Timeout | undefined = undefined
 	onMount(async () => {
-		if (BROWSER) {
-			if (loadAsync) {
-				setTimeout(async () => {
+		try {
+			if (BROWSER) {
+				if (loadAsync) {
+					loadTimeout = setTimeout(async () => {
+						await loadMonaco()
+						mounted = true
+					}, 0)
+				} else {
 					await loadMonaco()
 					mounted = true
-				}, 0)
-			} else {
-				await loadMonaco()
-				mounted = true
+				}
 			}
+		} catch (e) {
+			console.error('Error loading monaco:', e)
 		}
 	})
 
@@ -639,6 +648,8 @@
 		try {
 			valueAfterDispose = getCode()
 			jsLoader && clearTimeout(jsLoader)
+			timeoutModel && clearTimeout(timeoutModel)
+			loadTimeout && clearTimeout(loadTimeout)
 			model && model.dispose()
 			editor && editor.dispose()
 			cip && cip.dispose()

@@ -9,18 +9,29 @@
 		userStore,
 		workspaceStore
 	} from '$lib/stores'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import { base } from '$lib/base'
 	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
+	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './script/core'
 
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const hasCopilot = $derived($copilotInfo.enabled)
+	const disabled = $derived(
+		!hasCopilot ||
+			(aiChatManager.mode === AIMode.SCRIPT &&
+				aiChatManager.scriptEditorOptions?.lang &&
+				!SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(aiChatManager.scriptEditorOptions.lang))
+	)
 	const disabledMessage = $derived(
-		hasCopilot
-			? ''
-			: isAdmin
+		!hasCopilot
+			? isAdmin
 				? `Enable Windmill AI in your [workspace settings](${base}/workspace_settings?tab=ai) to use this chat`
 				: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
+			: aiChatManager.mode === AIMode.SCRIPT &&
+				  aiChatManager.scriptEditorOptions?.lang &&
+				  !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(aiChatManager.scriptEditorOptions.lang)
+				? `Windmill AI does not support the ${aiChatManager.scriptEditorOptions.lang} language yet.`
+				: ''
 	)
 
 	const suggestions = [
@@ -39,7 +50,7 @@
 			removeDiff?: boolean
 			addBackCode?: boolean
 			instructions?: string
-			mode?: 'script' | 'flow' | 'navigator'
+			mode?: AIMode
 			lang?: ScriptLang | 'bunnative'
 			isPreprocessor?: boolean
 		} = {}
@@ -84,6 +95,10 @@
 	$effect(() => {
 		aiChatManager.updateMode(untrack(() => aiChatManager.mode))
 	})
+
+	$effect(() => {
+		aiChatManager.loadApiTools()
+	})
 </script>
 
 <svelte:window
@@ -109,7 +124,6 @@
 
 <AIChatDisplay
 	bind:this={aiChatDisplay}
-	allowedModes={aiChatManager.allowedModes}
 	pastChats={historyManager.getPastChats()}
 	bind:selectedContext={
 		() => aiChatManager.contextManager.getSelectedContext(),
@@ -144,7 +158,7 @@
 		!!aiChatManager.scriptEditorOptions.lastDeployedCode &&
 		aiChatManager.scriptEditorOptions.lastDeployedCode !== aiChatManager.scriptEditorOptions.code}
 	diffMode={aiChatManager.scriptEditorOptions?.diffMode ?? false}
-	disabled={!hasCopilot}
+	{disabled}
 	{disabledMessage}
 	{suggestions}
 ></AIChatDisplay>

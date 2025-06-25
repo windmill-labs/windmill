@@ -62,9 +62,92 @@
 	import MenuButton from './MenuButton.svelte'
 	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 
-	export let numUnacknowledgedCriticalAlerts = 0
+	async function leaveWorkspace() {
+		await WorkspaceService.leaveWorkspace({ workspace: $workspaceStore ?? '' })
+		sendUserToast('You left the workspace')
+		clearStores()
+		goto('/user/workspaces')
+	}
 
-	$: mainMenuLinks = [
+	let hasNewChangelogs = $state(false)
+	let recentChangelogs: Changelog[] = $state([])
+	let lastOpened = localStorage.getItem('changelogsLastOpened')
+
+	onMount(() => {
+		if (lastOpened) {
+			// @ts-ignore
+			recentChangelogs = changelogs.filter((changelog) => changelog.date > lastOpened)
+			hasNewChangelogs =
+				recentChangelogs.length > 0 && lastOpened !== new Date().toISOString().split('T')[0]
+		} else {
+			recentChangelogs = changelogs.slice(0, 3)
+		}
+	})
+
+	function openChangelogs() {
+		const today = new Date().toISOString().split('T')[0]
+		localStorage.setItem('changelogsLastOpened', today)
+		hasNewChangelogs = false
+	}
+
+	const thirdMenuLinks = [
+		{
+			label: 'Help',
+			icon: HelpCircle,
+			subItems: [
+				{
+					label: 'Docs',
+					href: 'https://www.windmill.dev/docs/intro/',
+					icon: BookOpen,
+					aiId: 'sidebar-menu-link-docs',
+					aiDescription: 'Button to navigate to docs'
+				},
+				{
+					label: 'Feedbacks',
+					href: 'https://discord.gg/V7PM2YHsPB',
+					icon: DiscordIcon,
+					aiId: 'sidebar-menu-link-feedbacks',
+					aiDescription: 'Button to navigate to feedbacks'
+				},
+				{
+					label: 'Issues',
+					href: 'https://github.com/windmill-labs/windmill/issues/new',
+					icon: Github,
+					aiId: 'sidebar-menu-link-issues',
+					aiDescription: 'Button to navigate to issues'
+				},
+				{
+					label: 'Changelog',
+					href: 'https://www.windmill.dev/changelog/',
+					icon: Newspaper,
+					aiId: 'sidebar-menu-link-changelog',
+					aiDescription: 'Button to navigate to changelog'
+				}
+			]
+		}
+	]
+
+	interface Props {
+		numUnacknowledgedCriticalAlerts?: number
+		isCollapsed?: boolean
+	}
+
+	let { numUnacknowledgedCriticalAlerts = 0, isCollapsed = false }: Props = $props()
+
+	let leaveWorkspaceModal = $state(false)
+
+	function computeAllNotificationsCount(menuItems: any[]) {
+		let count = 0
+		for (const menuItem of menuItems) {
+			count += menuItem?.['notificationCount'] ?? 0
+		}
+		return count
+	}
+
+	const itemClass = twMerge(
+		'text-secondary font-normal w-full block px-4 py-2 text-2xs data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+	)
+	let mainMenuLinks = $derived([
 		{
 			label: 'Home',
 			href: `${base}/`,
@@ -96,29 +179,8 @@
 			aiId: 'sidebar-menu-link-resources',
 			aiDescription: 'Button to navigate to resources'
 		}
-	]
-
-	$: triggerMenuLinks = [
-		{
-			label: 'Schedules',
-			href: `${base}/schedules`,
-			icon: Calendar,
-			disabled: !SIDEBAR_SHOW_SCHEDULES || $userStore?.operator,
-			aiId: 'sidebar-menu-link-schedules',
-			aiDescription: 'Button to navigate to schedules'
-		},
-		...defaultExtraTriggerLinks.filter(
-			(link) => $usedTriggerKinds.includes(link.kind) || $page.url.pathname.includes(link.href)
-		)
-	]
-	async function leaveWorkspace() {
-		await WorkspaceService.leaveWorkspace({ workspace: $workspaceStore ?? '' })
-		sendUserToast('You left the workspace')
-		clearStores()
-		goto('/user/workspaces')
-	}
-
-	$: defaultExtraTriggerLinks = [
+	])
+	let defaultExtraTriggerLinks = $derived([
 		{
 			label: 'HTTP',
 			href: '/routes',
@@ -191,12 +253,26 @@
 			aiId: 'sidebar-menu-link-mqtt',
 			aiDescription: 'Button to navigate to MQTT triggers'
 		}
-	]
-
-	$: extraTriggerLinks = defaultExtraTriggerLinks.filter((link) => {
-		return !$page.url.pathname.includes(link.href) && !$usedTriggerKinds.includes(link.kind)
-	})
-	$: secondaryMenuLinks = [
+	])
+	let triggerMenuLinks = $derived([
+		{
+			label: 'Schedules',
+			href: `${base}/schedules`,
+			icon: Calendar,
+			disabled: !SIDEBAR_SHOW_SCHEDULES || $userStore?.operator,
+			aiId: 'sidebar-menu-link-schedules',
+			aiDescription: 'Button to navigate to schedules'
+		},
+		...defaultExtraTriggerLinks.filter(
+			(link) => $usedTriggerKinds.includes(link.kind) || $page.url.pathname.includes(link.href)
+		)
+	])
+	let extraTriggerLinks = $derived(
+		defaultExtraTriggerLinks.filter((link) => {
+			return !$page.url.pathname.includes(link.href) && !$usedTriggerKinds.includes(link.kind)
+		})
+	)
+	let secondaryMenuLinks = $derived([
 		// {
 		// 	label: 'Workspace',
 		// 	href: '/workspace_settings',
@@ -342,81 +418,7 @@
 					aiId: 'sidebar-menu-link-audit-logs',
 					aiDescription: 'Button to navigate to audit logs'
 				}
-	]
-
-	let hasNewChangelogs = false
-	let recentChangelogs: Changelog[] = []
-	let lastOpened = localStorage.getItem('changelogsLastOpened')
-
-	onMount(() => {
-		if (lastOpened) {
-			// @ts-ignore
-			recentChangelogs = changelogs.filter((changelog) => changelog.date > lastOpened)
-			hasNewChangelogs =
-				recentChangelogs.length > 0 && lastOpened !== new Date().toISOString().split('T')[0]
-		} else {
-			recentChangelogs = changelogs.slice(0, 3)
-		}
-	})
-
-	function openChangelogs() {
-		const today = new Date().toISOString().split('T')[0]
-		localStorage.setItem('changelogsLastOpened', today)
-		hasNewChangelogs = false
-	}
-
-	const thirdMenuLinks = [
-		{
-			label: 'Help',
-			icon: HelpCircle,
-			subItems: [
-				{
-					label: 'Docs',
-					href: 'https://www.windmill.dev/docs/intro/',
-					icon: BookOpen,
-					aiId: 'sidebar-menu-link-docs',
-					aiDescription: 'Button to navigate to docs'
-				},
-				{
-					label: 'Feedbacks',
-					href: 'https://discord.gg/V7PM2YHsPB',
-					icon: DiscordIcon,
-					aiId: 'sidebar-menu-link-feedbacks',
-					aiDescription: 'Button to navigate to feedbacks'
-				},
-				{
-					label: 'Issues',
-					href: 'https://github.com/windmill-labs/windmill/issues/new',
-					icon: Github,
-					aiId: 'sidebar-menu-link-issues',
-					aiDescription: 'Button to navigate to issues'
-				},
-				{
-					label: 'Changelog',
-					href: 'https://www.windmill.dev/changelog/',
-					icon: Newspaper,
-					aiId: 'sidebar-menu-link-changelog',
-					aiDescription: 'Button to navigate to changelog'
-				}
-			]
-		}
-	]
-
-	export let isCollapsed: boolean = false
-
-	let leaveWorkspaceModal = false
-
-	function computeAllNotificationsCount(menuItems: any[]) {
-		let count = 0
-		for (const menuItem of menuItems) {
-			count += menuItem?.['notificationCount'] ?? 0
-		}
-		return count
-	}
-
-	const itemClass = twMerge(
-		'text-secondary font-normal w-full block px-4 py-2 text-2xs data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
-	)
+	])
 </script>
 
 <nav
@@ -435,155 +437,174 @@
 				class="text-gray-400 text-[0.5rem] uppercase transition-opacity"
 				class:opacity-0={isCollapsed}>Triggers</div
 			>
-			<Menubar let:createMenu class="flex flex-col gap-1">
-				{#each triggerMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
-					<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
-				{/each}
-				{#if extraTriggerLinks.length > 0 && !$userStore?.operator}
-					<Menu {createMenu} let:item usePointerDownOutside>
-						<svelte:fragment slot="trigger" let:trigger>
-							<MeltButton
-								class={twMerge(
-									'w-full text-gray-400 text-2xs flex flex-row gap-1 py-1 items-center px-2 hover:bg-[#2A3648] dark:hover:bg-[#30404e] rounded',
-									'data-[highlighted]:bg-[#2A3648] dark:data-[highlighted]:bg-[#30404e]'
-								)}
-								meltElement={trigger}
-							>
-								<Plus size={14} />
-							</MeltButton>
-						</svelte:fragment>
-						{#each extraTriggerLinks as subItem (subItem.href ?? subItem.label)}
-							<MenuItem
-								aiId={subItem.aiId}
-								aiDescription={subItem.aiDescription}
-								href={subItem.disabled ? '' : subItem.href}
-								class={twMerge(itemClass, subItem.disabled ? 'pointer-events-none opacity-50' : '')}
-								{item}
-								disabled={subItem.disabled}
-							>
-								<div class="flex flex-row items-center gap-2">
-									{#if subItem.icon}
-										<svelte:component this={subItem.icon} size={16} />
-									{/if}
-									{subItem.label}
-								</div>
-							</MenuItem>
-						{/each}
-					</Menu>
-				{/if}
+			<Menubar class="flex flex-col gap-1">
+				{#snippet children({ createMenu })}
+					{#each triggerMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
+						<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
+					{/each}
+					{#if extraTriggerLinks.length > 0 && !$userStore?.operator}
+						<Menu {createMenu} usePointerDownOutside>
+							{#snippet triggr({ trigger })}
+								<MeltButton
+									aiId="sidebar-menu-link-add-trigger"
+									aiDescription="Button to add a new trigger. Can be HTTP, WebSocket, Postgres, Kafka, NATS, SQS, GCP Pub/Sub, or MQTT"
+									class={twMerge(
+										'w-full text-gray-400 text-2xs flex flex-row gap-1 py-1 items-center px-2 hover:bg-[#2A3648] dark:hover:bg-[#30404e] rounded',
+										'data-[highlighted]:bg-[#2A3648] dark:data-[highlighted]:bg-[#30404e]'
+									)}
+									meltElement={trigger}
+								>
+									<Plus size={14} />
+								</MeltButton>
+							{/snippet}
+							{#snippet children({ item })}
+								{#each extraTriggerLinks as subItem (subItem.href ?? subItem.label)}
+									<MenuItem
+										aiId={subItem.aiId}
+										aiDescription={subItem.aiDescription}
+										href={subItem.disabled ? '' : subItem.href}
+										class={twMerge(
+											itemClass,
+											subItem.disabled ? 'pointer-events-none opacity-50' : ''
+										)}
+										{item}
+										disabled={subItem.disabled}
+									>
+										<div class="flex flex-row items-center gap-2">
+											{#if subItem.icon}
+												<subItem.icon size={16} />
+											{/if}
+											{subItem.label}
+										</div>
+									</MenuItem>
+								{/each}
+							{/snippet}
+						</Menu>
+					{/if}
+				{/snippet}
 			</Menubar>
 		</div>
 	</div>
 	<div class="flex flex-col h-full justify-end">
-		<Menubar let:createMenu class="flex flex-col gap-1 mb-6 md:mb-10">
-			<UserMenu {isCollapsed} {createMenu} />
+		<Menubar class="flex flex-col gap-1 mb-6 md:mb-10">
+			{#snippet children({ createMenu })}
+				<UserMenu {isCollapsed} {createMenu} />
 
-			{#each secondaryMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
-				{#if menuLink.subItems}
-					{@const notificationsCount = computeAllNotificationsCount(menuLink.subItems)}
-					<Menu {createMenu} let:item usePointerDownOutside>
-						<svelte:fragment slot="trigger" let:trigger>
-							<MenuButton
-								class="!text-2xs"
-								{...menuLink}
-								{isCollapsed}
-								{notificationsCount}
-								{trigger}
-							/>
-						</svelte:fragment>
+				{#each secondaryMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
+					{#if menuLink.subItems}
+						{@const notificationsCount = computeAllNotificationsCount(menuLink.subItems)}
+						<Menu {createMenu} usePointerDownOutside>
+							{#snippet triggr({ trigger })}
+								<MenuButton
+									class="!text-2xs"
+									{...menuLink}
+									{isCollapsed}
+									{notificationsCount}
+									{trigger}
+								/>
+							{/snippet}
 
-						{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
-							<MenuItem
-								class={itemClass}
-								href={subItem.href}
-								{item}
-								on:click={() => {
-									subItem?.['action']?.()
-								}}
-								aiId={subItem.aiId}
-								aiDescription={subItem.aiDescription}
-							>
-								<div class="flex flex-row items-center gap-2">
-									{#if subItem.icon}
-										<svelte:component this={subItem.icon} size={16} />
-									{/if}
-									{subItem.label}
-									{#if subItem?.['notificationCount']}
-										<div class="ml-auto">
-											<SideBarNotification notificationCount={subItem['notificationCount']} />
+							{#snippet children({ item })}
+								{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
+									<MenuItem
+										class={itemClass}
+										href={subItem.href}
+										{item}
+										on:click={() => {
+											subItem?.['action']?.()
+										}}
+										aiId={subItem.aiId}
+										aiDescription={subItem.aiDescription}
+									>
+										<div class="flex flex-row items-center gap-2">
+											{#if subItem.icon}
+												<subItem.icon size={16} />
+											{/if}
+											{subItem.label}
+											{#if subItem?.['notificationCount']}
+												<div class="ml-auto">
+													<SideBarNotification notificationCount={subItem['notificationCount']} />
+												</div>
+											{/if}
 										</div>
-									{/if}
+									</MenuItem>
+								{/each}
+							{/snippet}
+						</Menu>
+					{:else}
+						<MenuSingleItem {createMenu}>
+							{#snippet triggr({ trigger })}
+								<div class="w-full">
+									<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} {trigger} />
 								</div>
-							</MenuItem>
-						{/each}
-					</Menu>
-				{:else}
-					<MenuSingleItem {createMenu} let:item>
-						<svelte:fragment slot="trigger" let:trigger>
-							<div class="w-full">
-								<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} {trigger} />
-							</div>
-						</svelte:fragment>
-						<MenuLink class="!text-2xs" {...menuLink} {isCollapsed} {item} />
-					</MenuSingleItem>
-				{/if}
-			{/each}
+							{/snippet}
+							{#snippet children({ item })}
+								<MenuLink class="!text-2xs" {...menuLink} {isCollapsed} {item} />
+							{/snippet}
+						</MenuSingleItem>
+					{/if}
+				{/each}
+			{/snippet}
 		</Menubar>
 
-		<Menubar let:createMenu class="flex flex-col gap-1">
-			{#each thirdMenuLinks as menuLink (menuLink)}
-				{#if menuLink.subItems}
-					<Menu {createMenu} let:item usePointerDownOutside>
-						<svelte:fragment slot="trigger" let:trigger>
-							<button
-								class="relative w-full"
-								on:click={() => {
-									if (menuLink.label === 'Help') {
-										openChangelogs()
-									}
-								}}
-							>
-								<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} {trigger} />
-								{#if menuLink.label === 'Help' && hasNewChangelogs}
-									<span
-										class={twMerge(
-											'flex h-2 w-2 absolute',
-											isCollapsed ? 'top-1 right-1' : 'right-2 top-1/2 -translate-y-1/2'
-										)}
-									>
+		<Menubar class="flex flex-col gap-1">
+			{#snippet children({ createMenu })}
+				{#each thirdMenuLinks as menuLink (menuLink)}
+					{#if menuLink.subItems}
+						<Menu {createMenu} usePointerDownOutside>
+							{#snippet triggr({ trigger })}
+								<button
+									class="relative w-full"
+									onclick={() => {
+										if (menuLink.label === 'Help') {
+											openChangelogs()
+										}
+									}}
+								>
+									<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} {trigger} />
+									{#if menuLink.label === 'Help' && hasNewChangelogs}
 										<span
-											class="animate-ping absolute inline-flex h-full w-full rounded-full bg-frost-400 opacity-75"
-										></span>
-										<span class="relative inline-flex rounded-full h-2 w-2 bg-frost-500"></span>
-									</span>
-								{/if}
-							</button>
-						</svelte:fragment>
-						{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
-							<MenuItem href={subItem.href} class={itemClass} target="_blank" {item}>
-								<div class="flex flex-row items-center gap-2">
-									{#if subItem.icon}
-										<svelte:component this={subItem.icon} size={16} />
+											class={twMerge(
+												'flex h-2 w-2 absolute',
+												isCollapsed ? 'top-1 right-1' : 'right-2 top-1/2 -translate-y-1/2'
+											)}
+										>
+											<span
+												class="animate-ping absolute inline-flex h-full w-full rounded-full bg-frost-400 opacity-75"
+											></span>
+											<span class="relative inline-flex rounded-full h-2 w-2 bg-frost-500"></span>
+										</span>
 									{/if}
+								</button>
+							{/snippet}
+							{#snippet children({ item })}
+								{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
+									<MenuItem href={subItem.href} class={itemClass} target="_blank" {item}>
+										<div class="flex flex-row items-center gap-2">
+											{#if subItem.icon}
+												<subItem.icon size={16} />
+											{/if}
 
-									{subItem.label}
-								</div>
-							</MenuItem>
-						{/each}
-						{#if recentChangelogs.length > 0}
-							<div class="w-full h-1 border-t"></div>
-							<span class="text-xs px-4 font-bold"> Latest changelogs </span>
-							{#each recentChangelogs as changelog}
-								<MenuItem href={changelog.href} class={itemClass} target="_blank" {item}>
-									<div class="flex flex-row items-center gap-2">
-										{changelog.label}
-									</div>
-								</MenuItem>
-							{/each}
-						{/if}
-					</Menu>
-				{/if}
-			{/each}
+											{subItem.label}
+										</div>
+									</MenuItem>
+								{/each}
+								{#if recentChangelogs.length > 0}
+									<div class="w-full h-1 border-t"></div>
+									<span class="text-xs px-4 font-bold"> Latest changelogs </span>
+									{#each recentChangelogs as changelog}
+										<MenuItem href={changelog.href} class={itemClass} target="_blank" {item}>
+											<div class="flex flex-row items-center gap-2">
+												{changelog.label}
+											</div>
+										</MenuItem>
+									{/each}
+								{/if}
+							{/snippet}
+						</Menu>
+					{/if}
+				{/each}
+			{/snippet}
 		</Menubar>
 	</div>
 </nav>

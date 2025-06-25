@@ -2,20 +2,38 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { classNames } from '$lib/utils'
 	import CloseButton from '../CloseButton.svelte'
-	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI'
 	import { createEventDispatcher } from 'svelte'
 
-	export let aiId: string | undefined = undefined
-	export let aiDescription: string | undefined = undefined
-	export let title: string | undefined = undefined
-	export let overflow_y = true
-	export let noPadding = false
-	export let forceOverflowVisible = false
-	export let tooltip: string = ''
-	export let documentationLink: string | undefined = undefined
-	export let CloseIcon: any | undefined = undefined
+	interface Props {
+		aiId?: string | undefined
+		aiDescription?: string | undefined
+		title?: string | undefined
+		overflow_y?: boolean
+		noPadding?: boolean
+		forceOverflowVisible?: boolean
+		tooltip?: string
+		documentationLink?: string | undefined
+		CloseIcon?: any | undefined
+		fullScreen?: boolean
+		actions?: import('svelte').Snippet
+		children?: import('svelte').Snippet
+	}
 
-	export let fullScreen: boolean = true
+	let {
+		aiId,
+		aiDescription,
+		title = undefined,
+		overflow_y = true,
+		noPadding = false,
+		forceOverflowVisible = false,
+		tooltip = '',
+		documentationLink = undefined,
+		CloseIcon = undefined,
+		fullScreen = true,
+		actions,
+		children
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -23,15 +41,15 @@
 <div class={classNames('flex flex-col divide-y', fullScreen ? 'h-screen max-h-screen' : 'h-full')}>
 	<div class="flex justify-between w-full items-center px-4 py-2 gap-2">
 		<div class="flex items-center gap-2 w-full truncate">
-			<TriggerableByAI
-				id={`close-${aiId}`}
-				description={`Close ${aiDescription}`}
-				onTrigger={() => {
+			<div use:triggerableByAI={{
+				id: `close-${aiId}`,
+				description: `Close ${aiDescription}`,
+				callback: () => {
 					dispatch('close')
-				}}
-			>
+				}
+			}}>
 				<CloseButton on:close Icon={CloseIcon} />
-			</TriggerableByAI>
+			</div>
 			<span class="font-semibold truncate text-primary !text-lg max-w-sm"
 				>{title ?? ''}
 				{#if tooltip != '' || documentationLink}
@@ -39,9 +57,9 @@
 				{/if}</span
 			>
 		</div>
-		{#if $$slots.actions}
+		{#if actions}
 			<div class="flex gap-2 items-center justify-end">
-				<slot name="actions" />
+				{@render actions?.()}
 			</div>
 		{/if}
 	</div>
@@ -54,6 +72,6 @@
 		)}
 		class:overflow-y-auto={overflow_y}
 	>
-		<slot />
+		{@render children?.()}
 	</div>
 </div>

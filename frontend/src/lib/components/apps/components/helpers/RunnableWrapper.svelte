@@ -10,13 +10,6 @@
 	import InitializeComponent from './InitializeComponent.svelte'
 	import type { CancelablePromise } from '$lib/gen'
 
-	export let componentInput: AppInput | undefined
-	export let noInitialize = false
-	export let hideRefreshButton: boolean | undefined = undefined
-	export let overrideCallback: (() => CancelablePromise<void>) | undefined = undefined
-	export let overrideAutoRefresh: boolean = false
-	export let replaceCallback: boolean = false
-
 	type SideEffectAction =
 		| {
 				selected:
@@ -65,32 +58,77 @@
 		  }
 		| undefined
 
-	export let id: string
-	export let result: any = undefined
-	export let initializing: boolean | undefined = true
-	export let loading: boolean = false
-	export let extraQueryParams: Record<string, any> = {}
-	export let autoRefresh: boolean = true
-	export let runnableComponent: RunnableComponent | undefined = undefined
-	export let forceSchemaDisplay: boolean = false
-	export let runnableClass = ''
-	export let runnableStyle = ''
-	export let doOnSuccess: SideEffectAction = undefined
-	export let doOnError: SideEffectAction = undefined
-
-	export let render: boolean
-	export let recomputeIds: string[] = []
-	export let outputs: {
-		result: Output<any>
-		loading: Output<boolean>
-		jobId?: Output<any> | undefined
+	interface Props {
+		componentInput: AppInput | undefined
+		noInitialize?: boolean
+		hideRefreshButton?: boolean | undefined
+		overrideCallback?: (() => CancelablePromise<void>) | undefined
+		overrideAutoRefresh?: boolean
+		replaceCallback?: boolean
+		id: string
+		result?: any
+		initializing?: boolean | undefined
+		loading?: boolean
+		extraQueryParams?: Record<string, any>
+		autoRefresh?: boolean
+		runnableComponent?: RunnableComponent | undefined
+		forceSchemaDisplay?: boolean
+		runnableClass?: string
+		runnableStyle?: string
+		doOnSuccess?: SideEffectAction
+		doOnError?: SideEffectAction
+		render: boolean
+		recomputeIds?: string[]
+		outputs: {
+			result: Output<any>
+			loading: Output<boolean>
+			jobId?: Output<any> | undefined
+		}
+		extraKey?: string | undefined
+		refreshOnStart?: boolean
+		errorHandledByComponent?: boolean
+		hasChildrens?: boolean
+		allowConcurentRequests?: boolean
+		onSuccess?: (result: any) => void
+		children?: import('svelte').Snippet
 	}
-	export let extraKey: string | undefined = undefined
-	export let refreshOnStart: boolean = false
-	export let errorHandledByComponent: boolean = false
-	export let hasChildrens: boolean = false
-	export let allowConcurentRequests = false
-	export let onSuccess: (result: any) => void = () => {}
+
+	let {
+		componentInput = $bindable(),
+		noInitialize = false,
+		hideRefreshButton = undefined,
+		overrideCallback = undefined,
+		overrideAutoRefresh = false,
+		replaceCallback = false,
+		id,
+		result = $bindable(undefined),
+		initializing = $bindable(undefined),
+		loading = $bindable(false),
+		extraQueryParams = {},
+		autoRefresh = true,
+		runnableComponent = $bindable(undefined),
+		forceSchemaDisplay = false,
+		runnableClass = '',
+		runnableStyle = '',
+		doOnSuccess = undefined,
+		doOnError = undefined,
+		render,
+		recomputeIds = [],
+		outputs,
+		extraKey = undefined,
+		refreshOnStart = false,
+		errorHandledByComponent = false,
+		hasChildrens = false,
+		allowConcurentRequests = false,
+		onSuccess = () => {},
+		children
+	}: Props = $props()
+
+	$effect.pre(() => {
+		if (initializing == undefined) {
+			initializing = true
+		}
+	})
 
 	export function setArgs(value: any) {
 		runnableComponent?.setArgs(value)
@@ -137,10 +175,12 @@
 	}
 
 	// We need to make sure that old apps have correct values. Triggerable (button, form, etc) have both autoRefresh and recomputeOnInputChanged set to false
-	$: if (!autoRefresh && componentInput?.type === 'runnable' && componentInput.autoRefresh) {
-		componentInput.autoRefresh = false
-		componentInput.recomputeOnInputChanged = false
-	}
+	$effect.pre(() => {
+		if (!autoRefresh && componentInput?.type === 'runnable' && componentInput.autoRefresh) {
+			componentInput.autoRefresh = false
+			componentInput.recomputeOnInputChanged = false
+		}
+	})
 
 	function isRunnableDefined(componentInput) {
 		return (
@@ -265,7 +305,7 @@
 		<InitializeComponent {id} />
 	{/if}
 	{#if render}
-		<slot />
+		{@render children?.()}
 	{/if}
 {:else if componentInput.type === 'runnable' && isRunnableDefined(componentInput)}
 	<RunnableComponent
@@ -280,13 +320,13 @@
 		fields={componentInput.fields}
 		bind:result
 		runnable={componentInput.runnable}
-		hideRefreshButton={componentInput.hideRefreshButton ?? hideRefreshButton}
+		hideRefreshButton={hideRefreshButton ?? componentInput.hideRefreshButton}
 		transformer={componentInput.transformer}
 		{autoRefresh}
 		{overrideCallback}
 		{overrideAutoRefresh}
 		recomputableByRefreshButton={componentInput.autoRefresh ?? true}
-		bind:recomputeOnInputChanged={componentInput.recomputeOnInputChanged}
+		recomputeOnInputChanged={componentInput.recomputeOnInputChanged}
 		{id}
 		{extraQueryParams}
 		{forceSchemaDisplay}
@@ -303,7 +343,6 @@
 		on:resultSet={(e) => {
 			const res = e.detail
 			if ($initialized?.runnableInitialized?.[fullId] === undefined) {
-				console.log('resultSet', id)
 				$initialized.runnableInitialized = {
 					...($initialized.runnableInitialized ?? {}),
 					[fullId]: res
@@ -320,10 +359,10 @@
 		{outputs}
 		{errorHandledByComponent}
 	>
-		<slot />
+		{@render children?.()}
 	</RunnableComponent>
 {:else}
 	<NonRunnableComponent {noInitialize} {hasChildrens} {render} bind:result {id} {componentInput}>
-		<slot />
+		{@render children?.()}
 	</NonRunnableComponent>
 {/if}

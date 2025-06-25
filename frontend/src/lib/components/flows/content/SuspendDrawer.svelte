@@ -39,7 +39,7 @@
 					<Tab value="deno">TypeScript (Deno)</Tab>
 					<Tab value="python">Python</Tab>
 
-					<svelte:fragment slot="content">
+					{#snippet content()}
 						<TabContent value="deno" class="p-2">
 							<HighlightCode
 								language={'deno'}
@@ -90,7 +90,7 @@ def main():
                                     `}
 							/>
 						</TabContent>
-					</svelte:fragment>
+					{/snippet}
 				</Tabs>
 			</Section>
 			<Section label="Default args">

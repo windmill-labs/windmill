@@ -50,27 +50,29 @@
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
-	import { setContext } from 'svelte'
+	import { setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import AiChat from '$lib/components/copilot/chat/AIChat.svelte'
+	import { zIndexes } from '$lib/zIndexes'
+	interface Props {
+		children?: import('svelte').Snippet
+	}
+
+	let { children }: Props = $props()
 	OpenAPI.WITH_CREDENTIALS = true
-	let menuOpen = false
-	let globalSearchModal: GlobalSearchModal | undefined = undefined
-	let isCollapsed = false
-	let userSettings: UserSettings
-	let superadminSettings: SuperadminSettings
-	let menuHidden = false
+	let menuOpen = $state(false)
+	let globalSearchModal: GlobalSearchModal | undefined = $state(undefined)
+	let isCollapsed = $state(false)
+	let userSettings: UserSettings | undefined = $state()
+	let superadminSettings: SuperadminSettings | undefined = $state()
+	let menuHidden = $state(false)
 
 	if ($page.status == 404) {
 		goto('/user/login')
 	}
-
-	$: $page.url && userSettings != undefined && onQueryChangeUserSettings()
-	$: $page.url && superadminSettings != undefined && onQueryChangeAdminSettings()
-	$: $page.url && onQueryChange()
 
 	function onQueryChangeUserSettings() {
 		if (userSettings && $page.url.hash.startsWith(USER_SETTINGS_HASH)) {
@@ -96,8 +98,6 @@
 			$page.url.pathname.startsWith('/oauth/callback/')
 	}
 
-	$: updateUserStore($workspaceStore)
-
 	async function updateUserStore(workspace: string | undefined) {
 		if (workspace) {
 			try {
@@ -119,14 +119,15 @@
 		menuOpen = false
 	})
 
-	let innerWidth = BROWSER ? window.innerWidth : 2000
+	let innerWidth = $state(BROWSER ? window.innerWidth : 2000)
 
-	let favoriteLinks = [] as {
-		label: string
-		href: string
-		kind: 'app' | 'script' | 'flow' | 'raw_app'
-	}[]
-	$: $workspaceStore && $starStore && onLoad()
+	let favoriteLinks = $state(
+		[] as {
+			label: string
+			href: string
+			kind: 'app' | 'script' | 'flow' | 'raw_app'
+		}[]
+	)
 
 	function onLoad() {
 		loadFavorites()
@@ -251,8 +252,6 @@
 		}
 	})
 
-	$: innerWidth && changeCollapsed()
-
 	function changeCollapsed() {
 		if (innerWidth < 1248 && innerWidth >= 768 && !isCollapsed) {
 			isCollapsed = true
@@ -278,8 +277,6 @@
 		}
 	})
 
-	$: onUserStore($userStore)
-	$: $workspaceStore && $userStore && loadDefaultScripts($workspaceStore, $userStore)
 	async function loadDefaultScripts(workspace: string, user: UserExt | undefined) {
 		if (!user?.operator) {
 			$defaultScripts = await WorkspaceService.getDefaultScripts({ workspace })
@@ -299,38 +296,19 @@
 		}
 	}
 
-	$: if (isCollapsed && $userStore?.operator) {
-		isCollapsed = false
-	}
-
 	function openSearchModal(text?: string): void {
 		globalSearchModal?.openSearchWithPrefilledText(text)
 	}
 
 	setContext('openSearchWithPrefilledText', openSearchModal)
 
-	$: {
-		if (
-			$enterpriseLicense &&
-			$workspaceStore &&
-			$userStore &&
-			$devopsRole !== undefined &&
-			($devopsRole || $userStore.is_admin)
-		) {
-			mountModal = true
-			loadCriticalAlertsMuted()
-		} else {
-			mountModal = false
-		}
-	}
-
-	let numUnacknowledgedCriticalAlerts = 0
-	let mountModal = false
-	let isCriticalAlertsUiMuted = true
-	let muteSettings = {
+	let numUnacknowledgedCriticalAlerts = $state(0)
+	let mountModal = $state(false)
+	let isCriticalAlertsUiMuted = $state(true)
+	let muteSettings = $state({
 		global: true,
 		workspace: true
-	}
+	})
 	async function loadCriticalAlertsMuted() {
 		let g_muted = true
 		const ws_muted =
@@ -348,6 +326,51 @@
 
 		muteSettings = { global: g_muted, workspace: ws_muted }
 	}
+	$effect(() => {
+		$page.url && userSettings != undefined && untrack(() => onQueryChangeUserSettings())
+	})
+	$effect(() => {
+		$page.url && superadminSettings != undefined && untrack(() => onQueryChangeAdminSettings())
+	})
+	$effect(() => {
+		$page.url && untrack(() => onQueryChange())
+	})
+	$effect(() => {
+		$workspaceStore
+		untrack(() => updateUserStore($workspaceStore))
+	})
+	$effect(() => {
+		$workspaceStore && $starStore && untrack(() => onLoad())
+	})
+	$effect(() => {
+		innerWidth && untrack(() => changeCollapsed())
+	})
+	$effect(() => {
+		$userStore
+		untrack(() => onUserStore($userStore))
+	})
+	$effect(() => {
+		$workspaceStore && $userStore && untrack(() => loadDefaultScripts($workspaceStore!, $userStore))
+	})
+	$effect(() => {
+		if (isCollapsed && $userStore?.operator) {
+			isCollapsed = false
+		}
+	})
+	$effect(() => {
+		if (
+			$enterpriseLicense &&
+			$workspaceStore &&
+			$userStore &&
+			$devopsRole !== undefined &&
+			($devopsRole || $userStore.is_admin)
+		) {
+			mountModal = true
+			untrack(() => loadCriticalAlertsMuted())
+		} else {
+			mountModal = false
+		}
+	})
 </script>
 
 <svelte:window bind:innerWidth />
@@ -405,7 +428,7 @@
 								>
 									<button
 										type="button"
-										on:click={() => {
+										onclick={() => {
 											menuOpen = !menuOpen
 										}}
 										class="ml-1 flex items-center justify-center h-6 w-6 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
@@ -438,9 +461,11 @@
 										{/if}
 									</div>
 									<div class="px-2 py-4 border-y border-gray-500">
-										<Menubar let:createMenu>
-											<WorkspaceMenu {createMenu} />
-											<FavoriteMenu {createMenu} {favoriteLinks} />
+										<Menubar>
+											{#snippet children({ createMenu })}
+												<WorkspaceMenu {createMenu} />
+												<FavoriteMenu {createMenu} {favoriteLinks} />
+											{/snippet}
 										</Menubar>
 										<MenuButton
 											stopPropagationOnClick={true}
@@ -462,6 +487,7 @@
 											label="Ask AI"
 											class="!text-xs"
 											iconClasses="!text-violet-400 dark:!text-violet-400"
+											shortcut={`${getModifierKey()}L`}
 										/>
 									</div>
 
@@ -488,7 +514,7 @@
 							class="flex-1 flex flex-col min-h-0 h-screen shadow-lg dark:bg-[#1e232e] bg-[#202125] !dark"
 						>
 							<button
-								on:click={() => {
+								onclick={() => {
 									goto('/')
 								}}
 							>
@@ -509,9 +535,11 @@
 								</div>
 							</button>
 							<div class="px-2 py-4 border-y border-gray-700 flex flex-col gap-1">
-								<Menubar let:createMenu class="flex flex-col gap-1">
-									<WorkspaceMenu {createMenu} {isCollapsed} />
-									<FavoriteMenu {createMenu} {favoriteLinks} {isCollapsed} />
+								<Menubar class="flex flex-col gap-1">
+									{#snippet children({ createMenu })}
+										<WorkspaceMenu {createMenu} {isCollapsed} />
+										<FavoriteMenu {createMenu} {favoriteLinks} {isCollapsed} />
+									{/snippet}
 								</Menubar>
 								<MenuButton
 									stopPropagationOnClick={true}
@@ -533,6 +561,7 @@
 									label="Ask AI"
 									class="!text-xs"
 									iconClasses="!text-violet-400 dark:!text-violet-400"
+									shortcut={`${getModifierKey()}L`}
 								/>
 							</div>
 
@@ -545,7 +574,7 @@
 
 							<div class="flex-shrink-0 flex px-4 pb-3.5">
 								<button
-									on:click={() => {
+									onclick={() => {
 										isCollapsed = !isCollapsed
 									}}
 								>
@@ -589,7 +618,7 @@
 						>
 							<button
 								type="button"
-								on:click={() => {
+								onclick={() => {
 									// menuSlide = !menuSlide
 								}}
 								aria-label="Close"
@@ -620,9 +649,11 @@
 							</div>
 
 							<div class="px-2 py-4 space-y-2 border-y border-gray-500">
-								<Menubar let:createMenu>
-									<WorkspaceMenu {createMenu} />
-									<FavoriteMenu {createMenu} {favoriteLinks} />
+								<Menubar>
+									{#snippet children({ createMenu })}
+										<WorkspaceMenu {createMenu} />
+										<FavoriteMenu {createMenu} {favoriteLinks} />
+									{/snippet}
 								</Menubar>
 								<MenuButton
 									stopPropagationOnClick={true}
@@ -644,6 +675,7 @@
 									label="Ask AI"
 									class="!text-xs"
 									iconClasses="!text-violet-400 dark:!text-violet-400"
+									shortcut={`${getModifierKey()}L`}
 								/>
 							</div>
 
@@ -672,14 +704,14 @@
 						<div class="relative w-full flex-1 flex flex-col">
 							<div
 								class={classNames(
-									'py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-7xl mx-auto md:hidden',
+									'pt-2 px-4 sm:px-4 flex flex-row justify-between items-center shadow-sm max-w-7xl md:hidden',
 									devOnly || $userStore?.operator ? 'hidden' : ''
 								)}
 							>
 								<button
 									aria-label="Menu"
 									type="button"
-									on:click={() => {
+									onclick={() => {
 										menuOpen = true
 									}}
 									class="h-8 w-8 inline-flex items-center justify-center rounded-md text-tertiary hover:text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
@@ -702,13 +734,17 @@
 								</button>
 							</div>
 							<div class="flex-1">
-								<slot />
+								{@render children?.()}
 							</div>
 						</div>
 					</main>
 				</div>
 			</Pane>
-			<Pane bind:size={aiChatManager.size} minSize={15} class="flex flex-col min-h-0">
+			<Pane
+				bind:size={aiChatManager.size}
+				minSize={15}
+				class={`flex flex-col min-h-0 z-[${zIndexes.aiChat}]`}
+			>
 				<AiChat />
 			</Pane>
 		</Splitpanes>

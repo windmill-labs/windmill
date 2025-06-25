@@ -26,6 +26,11 @@
 
 	const selectedNodeId = writable<string | undefined>(undefined)
 
+	const { debounced: debouncedNodes } = debounce(() => {
+		nodes = nodes
+		renderCount++
+	}, 300)
+
 	$: selectedNode = nodes?.find((node) => node.id == $selectedNodeId)
 
 	setContext('DecisionTreeEditor', { selectedNodeId })
@@ -42,6 +47,7 @@
 	>
 		<Splitpanes>
 			<Pane size={60}>
+				{renderCount}
 				<div class="w-full h-full" bind:clientWidth={paneWidth} bind:clientHeight={paneHeight}>
 					{#if paneWidth && paneHeight}
 						<DecisionTreePreview
@@ -49,7 +55,7 @@
 							bind:component
 							{paneHeight}
 							{paneWidth}
-							on:render={() => {
+							onrender={() => {
 								renderCount++
 							}}
 						/>
@@ -57,7 +63,14 @@
 				</div>
 			</Pane>
 			<Pane size={40}>
-				<div class="h-full w-full bg-surface p-4 flex flex-col gap-6">
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="h-full w-full bg-surface p-4 flex flex-col gap-6"
+					on:keydown={(e) => {
+						// Prevent keyboard events from bubbling to SvelteFlow
+						e.stopPropagation()
+					}}
+				>
 					{#if selectedNode}
 						<Section label="Conditions" class="w-full flex flex-col gap-2">
 							<svelte:fragment slot="action">
@@ -87,10 +100,11 @@
 									class="input input-primary input-bordered"
 									bind:value={selectedNode.label}
 									on:input={() => {
-										debounce(() => {
-											nodes = nodes
-											renderCount++
-										}, 300)()
+										debouncedNodes()
+									}}
+									on:keydown={(e) => {
+										// Prevent keyboard events from bubbling to SvelteFlow
+										e.stopPropagation()
 									}}
 								/>
 							</Label>

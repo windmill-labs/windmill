@@ -4,7 +4,7 @@
 	const bubble = createBubbler()
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview } from '$lib/gen'
-	import { createEventDispatcher, getContext, onMount } from 'svelte'
+	import { createEventDispatcher, getContext, onMount, untrack } from 'svelte'
 	import type { AppViewerContext, InlineScript } from '../../types'
 	import { Maximize2, Trash2 } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
@@ -23,7 +23,7 @@
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import CacheTtlPopup from './CacheTtlPopup.svelte'
 	import EditorSettings from '$lib/components/EditorSettings.svelte'
-	import { userStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 
 	const {
 		runnableComponents,
@@ -196,6 +196,7 @@
 					$stateId++
 				}
 			}
+			$app = $app
 		}
 	}
 
@@ -231,7 +232,7 @@
 	$effect(() => {
 		if (name && name !== lastName) {
 			lastName = name
-			onNameChange()
+			untrack(() => onNameChange())
 		}
 	})
 
@@ -386,6 +387,7 @@
 							}
 							$app = $app
 						}}
+						key={`app-inline-${$workspaceStore}-${$appPath}-${id}`}
 						args={Object.entries(fields).reduce((acc, [key, obj]) => {
 							acc[key] = obj.type === 'static' ? obj.value : undefined
 							return acc
@@ -414,6 +416,7 @@
 							inferSuggestions(e.detail.code)
 							$app = $app
 						}}
+						key={`app-inline-${$workspaceStore}-${$appPath}-${id}`}
 					/>
 				{/if}
 

@@ -8,7 +8,7 @@ import {
 } from './matrix'
 import { getRowsCount } from './other'
 
-export function getItemById(id, items) {
+export function getItemById<T>(id: string, items: FilledItem<T>[]) {
 	return items.find((value) => value.id === id)
 }
 
@@ -25,7 +25,7 @@ export function isEmpty(matrix: any[][], x: number, y: number, w: number, h: num
 	return true
 }
 
-function distance(a, b): number {
+function distance(a: { x: number; y: number }, b: { x: number; y: number }): number {
 	return Math.abs(a.x - b.x + 0.25) + Math.abs(a.y - b.y + 0.25)
 }
 
@@ -65,11 +65,12 @@ export function findFreeSpaceForItem<T>(matrix: FilledItem<T>[][], item: ItemLay
 	}
 }
 
-const getItem = (item, col) => {
-	return { ...item[col] }
-}
-
-const updateItem = (elements, active, position, col) => {
+const updateItem = <T>(
+	elements: FilledItem<T>[],
+	active: FilledItem<T>,
+	position: { x: number; y: number },
+	col: number
+) => {
 	return elements.map((value) => {
 		if (value.id === active.id) {
 			return { ...value, [col]: { ...value[col], ...position } }
@@ -119,9 +120,9 @@ const updateItem = (elements, active, position, col) => {
 // 	return tempItems
 // }
 
-export function moveItem(active, items, cols) {
+export function moveItem<T>(active: FilledItem<T>, items: FilledItem<T>[], cols: number) {
 	// Get current item from the breakpoint
-	const item = getItem(active, cols)
+	const item = { ...active[cols] }
 	// console.log(JSON.stringify(item), JSON.stringify(active), JSON.stringify(cols), 3, cols)
 
 	// Create matrix from the items expect the active
@@ -141,13 +142,13 @@ export function moveItem(active, items, cols) {
 	}
 
 	// Update items
-	items = updateItem(items, active, item, cols)
+	const nitems = updateItem(items, active, item, cols)
 
 	// Create matrix of items expect close elements
-	matrix = makeMatrixFromItemsIgnore(items, closeBlocks, getRowsCount(items, cols), cols)
+	matrix = makeMatrixFromItemsIgnore(nitems, closeBlocks, getRowsCount(nitems, cols), cols)
 
 	// Create temp vars
-	let tempItems = items
+	let tempItems = nitems
 	let tempCloseBlocks = closeBlocks
 
 	// Exclude resolved elements ids in array
@@ -219,7 +220,7 @@ export function adjust<T>(items: FilledItem<T>[], col) {
 	return res
 }
 
-export function getUndefinedItems(items, col, breakpoints) {
+export function getUndefinedItems<T>(items: FilledItem<T>[], col: number) {
 	return items
 		.map((value) => {
 			if (!value[col]) {
@@ -229,7 +230,11 @@ export function getUndefinedItems(items, col, breakpoints) {
 		.filter(Boolean)
 }
 
-export function getClosestColumn(items, item, col, breakpoints) {
+export function getClosestColumn<T>(
+	item: FilledItem<T>,
+	col: number,
+	breakpoints: [number, number][]
+) {
 	return breakpoints
 		.map(([_, column]) => item[column] && column)
 		.filter(Boolean)
@@ -240,31 +245,36 @@ export function getClosestColumn(items, item, col, breakpoints) {
 		})
 }
 
-export function specifyUndefinedColumns(items, col, breakpoints) {
+export function specifyUndefinedColumns<T>(
+	items: FilledItem<T>[],
+	col: number,
+	breakpoints: [number, number][]
+) {
 	let matrix = makeMatrixFromItems(items, getRowsCount(items, col), col)
 
-	const getUndefinedElements = getUndefinedItems(items, col, breakpoints)
+	const getUndefinedElements = getUndefinedItems(items, col)
 
 	let newItems = [...items]
 
 	getUndefinedElements.forEach((elementId) => {
 		const getElement = items.find((item) => item.id === elementId)
+		if (getElement) {
+			const closestColumn = getClosestColumn(getElement, col, breakpoints)
 
-		const closestColumn = getClosestColumn(items, getElement, col, breakpoints)
+			const position = findFreeSpaceForItem(matrix, getElement[closestColumn])
 
-		const position = findFreeSpaceForItem(matrix, getElement[closestColumn])
-
-		const newItem = {
-			...getElement,
-			[col]: {
-				...getElement[closestColumn],
-				...position
+			const newItem = {
+				...getElement,
+				[col]: {
+					...getElement[closestColumn],
+					...position
+				}
 			}
+
+			newItems = newItems.map((value) => (value.id === elementId ? newItem : value))
+
+			matrix = makeMatrixFromItems(newItems, getRowsCount(newItems, col), col)
 		}
-
-		newItems = newItems.map((value) => (value.id === elementId ? newItem : value))
-
-		matrix = makeMatrixFromItems(newItems, getRowsCount(newItems, col), col)
 	})
 	return newItems
 }

@@ -18,6 +18,65 @@ export { sendUserToast }
 import type { AnyMeltElement } from '@melt-ui/svelte'
 import type { RunsSelectionMode } from './components/runs/RunsBatchActionsDropdown.svelte'
 import type { TriggerKind } from './components/triggers'
+import { stateSnapshot } from './svelte5Utils.svelte'
+import { validate, dereference } from '@scalar/openapi-parser'
+
+export namespace OpenApi {
+	export enum OpenApiVersion {
+		V2,
+		V3,
+		V3_1
+	}
+
+	export function isV2(doc: OpenAPI.Document): doc is OpenAPIV2.Document {
+		return 'swagger' in doc && doc.swagger === '2.0'
+	}
+
+	export function isV3(doc: OpenAPI.Document): doc is OpenAPIV3.Document {
+		return 'openapi' in doc && typeof doc.openapi === 'string' && doc.openapi.startsWith('3.0')
+	}
+
+	export function isV3_1(doc: OpenAPI.Document): doc is OpenAPIV3_1.Document {
+		return 'openapi' in doc && typeof doc.openapi === 'string' && doc.openapi.startsWith('3.1')
+	}
+
+	export function getOpenApiVersion(version: string): OpenApiVersion {
+		if (version.startsWith('2.0')) {
+			return OpenApiVersion.V2
+		} else if (version.startsWith('3.0')) {
+			return OpenApiVersion.V3
+		} else {
+			return OpenApiVersion.V3_1
+		}
+	}
+
+	/**
+	 * Parses and validates an OpenAPI specification provided as a string in either JSON or YAML format.
+	 *
+	 * @param api - A string containing a valid OpenAPI specification in JSON or YAML format.
+	 * @returns A promise that resolves to a tuple:
+	 *   - The first element is the validated OpenAPI document.
+	 *   - The second element is the detected OpenAPI version (2, 3.0, or 3.1).
+	 *
+	 * @throws Will throw an error if the specification is invalid or cannot be parsed.
+	 */
+	export async function parse(api: string): Promise<[OpenAPI.Document, OpenApiVersion]> {
+		const { valid, errors } = await validate(api)
+
+		if (!valid) {
+			const errorMessage = errors
+				? errors.map((error) => error.message).join('\n')
+				: 'Invalid OpenAPI document'
+			throw new Error(errorMessage)
+		}
+
+		const document = await dereference(api)
+
+		const version = getOpenApiVersion(document.version!)
+
+		return [document.schema, version]
+	}
+}
 
 export function isJobCancelable(j: Job): boolean {
 	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
@@ -32,7 +91,9 @@ export const AGENT_WORKER_NAME_PREFIX = 'ag'
 const SSH_AGENT_WORKER_SUFFIX = '/ssh'
 
 export function isAgentWorkerShell(workerName: string) {
-	return workerName.startsWith(AGENT_WORKER_NAME_PREFIX) && workerName.endsWith(SSH_AGENT_WORKER_SUFFIX)
+	return (
+		workerName.startsWith(AGENT_WORKER_NAME_PREFIX) && workerName.endsWith(SSH_AGENT_WORKER_SUFFIX)
+	)
 }
 
 export function isJobSelectable(selectionType: RunsSelectionMode) {
@@ -213,7 +274,7 @@ export function validatePassword(password: string): boolean {
 	return re.test(password)
 }
 
-const portalDivs = ['app-editor-select']
+const portalDivs = ['#app-editor-select', '.select-dropdown-portal']
 
 interface ClickOutsideOptions {
 	capture?: boolean
@@ -248,7 +309,7 @@ export function clickOutside(
 		})
 
 		if (node && !node.contains(target) && !event.defaultPrevented && !isExcluded) {
-			const portalDivsSelector = portalDivs.map((id) => `#${id}`).join(', ')
+			const portalDivsSelector = portalDivs.join(', ')
 			const parent = target.closest(portalDivsSelector)
 
 			if (!parent) {
@@ -311,7 +372,7 @@ export function pointerDownOutside(
 		})
 
 		if (node && !node.contains(target) && !event.defaultPrevented && !isExcluded) {
-			const portalDivsSelector = portalDivs.map((id) => `#${id}`).join(', ')
+			const portalDivsSelector = portalDivs.join(', ')
 			const parent = target.closest(portalDivsSelector)
 
 			if (!parent) {
@@ -600,6 +661,18 @@ export function classNames(...classes: Array<string | undefined>): string {
 	return classes.filter(Boolean).join(' ')
 }
 
+export function download(filename: string, fileContent: string, mimeType?: string) {
+	const blob = new Blob([fileContent], {
+		type: mimeType
+	})
+	const url = window.URL.createObjectURL(blob)
+	const a = document.createElement('a')
+	a.href = url
+	a.download = filename
+	a.click()
+	setTimeout(() => URL.revokeObjectURL(url), 100)
+}
+
 export async function copyToClipboard(value?: string, sendToast = true): Promise<boolean> {
 	if (!value) {
 		return false
@@ -666,11 +739,14 @@ export function isObject(obj: any): obj is Record<string, any> {
 
 export function debounce(func: (...args: any[]) => any, wait: number) {
 	let timeout: any
-	return function (...args: any[]) {
-		// @ts-ignore
-		const context = this
-		clearTimeout(timeout)
-		timeout = setTimeout(() => func.apply(context, args), wait)
+	return {
+		debounced: function (...args: any[]) {
+			// @ts-ignore
+			const context = this
+			clearTimeout(timeout)
+			timeout = setTimeout(() => func.apply(context, args), wait)
+		},
+		clearDebounce: () => clearTimeout(timeout)
 	}
 }
 
@@ -947,7 +1023,7 @@ export type Value = {
 }
 
 export function replaceFalseWithUndefined(obj: any) {
-	return replaceFalseWithUndefinedRec(structuredClone(obj))
+	return replaceFalseWithUndefinedRec(structuredClone(stateSnapshot(obj)))
 }
 
 function replaceFalseWithUndefinedRec(obj: any) {
@@ -976,7 +1052,7 @@ export function cleanValueProperties(obj: Value) {
 		let newObj: any = {}
 		for (const key of Object.keys(obj)) {
 			if (key !== 'parent_hash' && key !== 'draft' && key !== 'draft_only') {
-				newObj[key] = structuredClone(obj[key])
+				newObj[key] = structuredClone(stateSnapshot(obj[key]))
 			}
 		}
 		return newObj
@@ -1295,7 +1371,65 @@ export function getOS() {
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import type { Snippet } from 'svelte'
+import { OpenAPIV2, type OpenAPI, type OpenAPIV3, type OpenAPIV3_1 } from 'openapi-types'
+import type { IPosition } from 'monaco-editor'
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))
 }
+
+export type StateStore<T> = {
+	val: T
+}
+
+export type ReadFieldsRecursivelyOptions = {
+	excludeField?: string[]
+}
+
+export function readFieldsRecursively(obj: any, options: ReadFieldsRecursivelyOptions = {}): void {
+	if (Array.isArray(obj)) {
+		// <= in case a new object is added. should read as undefined
+		for (let i = 0; i <= obj.length; i++) {
+			if (obj[i] && typeof obj[i] === 'object') {
+				readFieldsRecursively(obj[i])
+			}
+		}
+	} else if (obj !== null && typeof obj === 'object') {
+		Object.keys(obj).forEach((key) => {
+			if (!options.excludeField?.includes(key)) readFieldsRecursively(obj[key], options)
+		})
+	}
+}
+
+export function reorder<T>(items: T[], oldIndex: number, newIndex: number): T[] {
+	const updatedItems = [...items]
+	const [removedItem] = updatedItems.splice(oldIndex, 1)
+	updatedItems.splice(newIndex, 0, removedItem)
+	return updatedItems
+}
+
+export function scroll_into_view_if_needed_polyfill(elem: Element, centerIfNeeded: boolean = true) {
+	const observer = new IntersectionObserver(
+		function ([entry]) {
+			const ratio = entry.intersectionRatio
+			if (ratio < 1) {
+				const place = ratio <= 0 && centerIfNeeded ? `center` : `nearest`
+				elem.scrollIntoView({
+					block: place,
+					inline: place
+				})
+			}
+			observer.disconnect()
+		},
+		{
+			root: null, // or specify a scrolling parent if needed
+			rootMargin: '0px 1000px', // Essentially making horizontal checks irrelevant
+			threshold: 0.1 // Adjust threshold to control when observer should trigger
+		}
+	)
+	observer.observe(elem)
+
+	return observer // return for testing
+}
+
+export const editorPositionMap: Record<string, IPosition> = {}

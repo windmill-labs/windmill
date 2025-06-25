@@ -12,8 +12,8 @@
 	import Toggle from '../Toggle.svelte'
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import MultiSelectWrapper from '../multiselect/MultiSelectWrapper.svelte'
-	import TriggerableByAI from '../TriggerableByAI.svelte'
+	import MultiSelect from '../select/MultiSelect.svelte'
+	import { safeSelectItems } from '../select/utils.svelte'
 
 	// --- Props ---
 	interface Props {
@@ -238,33 +238,30 @@
 
 			{#if showMcpMode}
 				<div class="mb-4 flex flex-row flex-shrink-0">
-					<TriggerableByAI
-						id="account-settings-create-mcp-token"
-						description="Create a new MCP token to authenticate to the Windmill API"
-					>
-						<Toggle
-							on:change={(e) => {
-								mcpCreationMode = e.detail
-								if (e.detail) {
-									newTokenLabel = 'MCP token'
-									newTokenExpiration = undefined
-									newTokenWorkspace = $workspaceStore
-								} else {
-									newTokenLabel = undefined
-									newTokenExpiration = undefined
-									newTokenWorkspace = defaultNewTokenWorkspace
-								}
-							}}
-							checked={mcpCreationMode}
-							options={{
-								right: 'Generate MCP URL',
-								rightTooltip:
-									'Generate a new MCP URL to make your scripts and flows available as tools through your LLM clients.',
-								rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mcp'
-							}}
-							size="xs"
-						/>
-					</TriggerableByAI>
+					<Toggle
+						on:change={(e) => {
+							mcpCreationMode = e.detail
+							if (e.detail) {
+								newTokenLabel = 'MCP token'
+								newTokenExpiration = undefined
+								newTokenWorkspace = $workspaceStore
+							} else {
+								newTokenLabel = undefined
+								newTokenExpiration = undefined
+								newTokenWorkspace = defaultNewTokenWorkspace
+							}
+						}}
+						checked={mcpCreationMode}
+						options={{
+							right: 'Generate MCP URL',
+							rightTooltip:
+								'Generate a new MCP URL to make your scripts and flows available as tools through your LLM clients.',
+							rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mcp'
+						}}
+						size="xs"
+						aiId="account-settings-create-mcp-token"
+						aiDescription="Create a new MCP token to authenticate to the Windmill API"
+					/>
 				</div>
 			{/if}
 
@@ -281,19 +278,21 @@
 				{#if mcpCreationMode}
 					<div>
 						<span class="block mb-1">Scope</span>
-						<ToggleButtonGroup bind:selected={newMcpScope} allowEmpty={false} let:item>
-							<ToggleButton
-								{item}
-								value="favorites"
-								label="Favorites only"
-								tooltip="Make only your favorite scripts and flows available as tools"
-							/>
-							<ToggleButton
-								{item}
-								value="all"
-								label="All scripts/flows"
-								tooltip="Make all your scripts and flows available as tools"
-							/>
+						<ToggleButtonGroup bind:selected={newMcpScope} allowEmpty={false}>
+							{#snippet children({ item })}
+								<ToggleButton
+									{item}
+									value="favorites"
+									label="Favorites only"
+									tooltip="Make only your favorite scripts and flows available as tools"
+								/>
+								<ToggleButton
+									{item}
+									value="all"
+									label="All scripts/flows"
+									tooltip="Make all your scripts and flows available as tools"
+								/>
+							{/snippet}
 						</ToggleButtonGroup>
 					</div>
 
@@ -304,10 +303,11 @@
 						{:else if errorFetchApps}
 							<div>Error fetching apps</div>
 						{:else}
-							<MultiSelectWrapper
-								items={allApps}
+							<MultiSelect
+								items={safeSelectItems(allApps)}
 								placeholder="Select apps"
 								bind:value={newMcpApps}
+								class="!bg-surface"
 							/>
 						{/if}
 					</div>
@@ -317,7 +317,7 @@
 						<select
 							bind:value={newTokenWorkspace}
 							disabled={workspaces.length === 1}
-							class="w-full"
+							class="w-full !bg-surface"
 						>
 							{#each workspaces as workspace}
 								<option value={workspace.id}>{workspace.name}</option>
@@ -329,24 +329,26 @@
 				<div>
 					<span class="block mb-1">Label <span class="text-xs text-tertiary">(optional)</span></span
 					>
-					<input type="text" bind:value={newTokenLabel} class="w-full" />
+					<input type="text" bind:value={newTokenLabel} class="w-full !bg-surface" />
 				</div>
 
-				<div>
-					<span class="block mb-1"
-						>Expires In <span class="text-xs text-tertiary">(optional)</span></span
-					>
-					<select bind:value={newTokenExpiration} disabled={mcpCreationMode} class="w-full">
-						<option value={undefined}>No expiration</option>
-						<option value={15 * 60}>15m</option>
-						<option value={30 * 60}>30m</option>
-						<option value={1 * 60 * 60}>1h</option>
-						<option value={1 * 24 * 60 * 60}>1d</option>
-						<option value={7 * 24 * 60 * 60}>7d</option>
-						<option value={30 * 24 * 60 * 60}>30d</option>
-						<option value={90 * 24 * 60 * 60}>90d</option>
-					</select>
-				</div>
+				{#if !mcpCreationMode}
+					<div>
+						<span class="block mb-1"
+							>Expires In <span class="text-xs text-tertiary">(optional)</span></span
+						>
+						<select bind:value={newTokenExpiration} class="w-full !bg-surface">
+							<option value={undefined}>No expiration</option>
+							<option value={15 * 60}>15m</option>
+							<option value={30 * 60}>30m</option>
+							<option value={1 * 60 * 60}>1h</option>
+							<option value={1 * 24 * 60 * 60}>1d</option>
+							<option value={7 * 24 * 60 * 60}>7d</option>
+							<option value={30 * 24 * 60 * 60}>30d</option>
+							<option value={90 * 24 * 60 * 60}>90d</option>
+						</select>
+					</div>
+				{/if}
 			</div>
 
 			<div class="mt-4 flex justify-end gap-2 flex-row">
@@ -371,6 +373,7 @@
 
 <div class="overflow-auto">
 	<TableCustom>
+		<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
 		<tr slot="header-row">
 			<th>prefix</th>
 			<th>label</th>
@@ -378,32 +381,34 @@
 			<th>scopes</th>
 			<th></th>
 		</tr>
-		<tbody slot="body">
-			{#if tokens && tokens.length > 0}
-				{#each tokens as { token_prefix, expiration, label, scopes }}
-					<tr>
-						<td class="grow">{token_prefix}****</td>
-						<td class="grow">{label ?? ''}</td>
-						<td class="grow">{displayDate(expiration ?? '')}</td>
-						<td class="grow">{scopes?.join(', ') ?? ''}</td>
-						<td class="grow">
-							<button
-								class="text-red-500 text-xs underline"
-								onclick={() => handleDeleteClick(token_prefix)}
-							>
-								Delete
-							</button>
-						</td>
+		{#snippet body()}
+			<tbody>
+				{#if tokens && tokens.length > 0}
+					{#each tokens as { token_prefix, expiration, label, scopes }}
+						<tr>
+							<td class="grow">{token_prefix}****</td>
+							<td class="grow">{label ?? ''}</td>
+							<td class="grow">{displayDate(expiration ?? '')}</td>
+							<td class="grow">{scopes?.join(', ') ?? ''}</td>
+							<td class="grow">
+								<button
+									class="text-red-500 text-xs underline"
+									onclick={() => handleDeleteClick(token_prefix)}
+								>
+									Delete
+								</button>
+							</td>
+						</tr>
+					{/each}
+				{:else if tokens && tokens.length === 0}
+					<tr class="px-6">
+						<td class="text-secondary italic text-xs"> There are no tokens yet</td>
 					</tr>
-				{/each}
-			{:else if tokens && tokens.length === 0}
-				<tr class="px-6">
-					<td class="text-secondary italic text-xs"> There are no tokens yet</td>
-				</tr>
-			{:else}
-				<tr><td>Loading...</td></tr>
-			{/if}
-		</tbody>
+				{:else}
+					<tr><td>Loading...</td></tr>
+				{/if}
+			</tbody>
+		{/snippet}
 	</TableCustom>
 	<div class="flex flex-row-reverse gap-2 w-full">
 		{#if tokens?.length == 100}
