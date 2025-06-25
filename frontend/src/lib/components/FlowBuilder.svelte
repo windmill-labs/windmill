@@ -852,14 +852,7 @@
 	})
 
 	export async function loadFlowState() {
-		/* await stepHistoryLoader.loadIndividualStepsStates(
-			flowStore.val as Flow,
-			flowStateStore,
-			$workspaceStore!,
-			$initialPathStore,
-			$pathStore
-		) */
-		await stepHistoryLoader.loadLastFlowExecution(
+		await stepHistoryLoader.loadIndividualStepsStates(
 			flowStore.val as Flow,
 			flowStateStore,
 			$workspaceStore!,
