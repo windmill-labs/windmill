@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run, stopPropagation } from 'svelte/legacy'
+
 	import { type Job, JobService, type RestartedFrom, type OpenFlow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Badge, Button } from './common'
@@ -24,34 +26,48 @@
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 
-	export let previewMode: 'upTo' | 'whole'
-	export let open: boolean
-	export let preventEscape = false
+	interface Props {
+		previewMode: 'upTo' | 'whole'
+		open: boolean
+		preventEscape?: boolean
+		jobId?: string | undefined
+		job?: Job | undefined
+		initial?: boolean
+		selectedJobStep?: string | undefined
+		selectedJobStepIsTopLevel?: boolean | undefined
+		selectedJobStepType?: 'single' | 'forloop' | 'branchall'
+		rightColumnSelect?: 'timeline' | 'node_status' | 'node_definition' | 'user_states'
+		branchOrIterationN?: number
+		scrollTop?: number
+		localModuleStates?: Writable<Record<string, GraphModuleState>>
+		localDurationStatuses?: Writable<Record<string, DurationStatus>>
+	}
 
-	export let jobId: string | undefined = undefined
-	export let job: Job | undefined = undefined
-	export let initial: boolean = false
-
-	export let selectedJobStep: string | undefined = undefined
-	export let selectedJobStepIsTopLevel: boolean | undefined = undefined
-	export let selectedJobStepType: 'single' | 'forloop' | 'branchall' = 'single'
-	export let rightColumnSelect: 'timeline' | 'node_status' | 'node_definition' | 'user_states' =
-		'timeline'
-
-	export let branchOrIterationN: number = 0
-	export let scrollTop: number = 0
-
-	export let localModuleStates: Writable<Record<string, GraphModuleState>> = writable({})
-	export let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
+	let {
+		previewMode = $bindable(),
+		open,
+		preventEscape = $bindable(false),
+		jobId = $bindable(undefined),
+		job = $bindable(undefined),
+		initial = $bindable(false),
+		selectedJobStep = $bindable(undefined),
+		selectedJobStepIsTopLevel = $bindable(undefined),
+		selectedJobStepType = $bindable('single'),
+		rightColumnSelect = $bindable('timeline'),
+		branchOrIterationN = $bindable(0),
+		scrollTop = $bindable(0),
+		localModuleStates = $bindable(writable({})),
+		localDurationStatuses = $bindable(writable({}))
+	}: Props = $props()
 
 	let restartBranchNames: [number, string][] = []
 
-	let isRunning: boolean = false
-	let jobProgressReset: () => void
-	let jsonView: boolean = false
-	let jsonEditor: JsonInputs
-	let schemaHeight = 0
-	let isValid: boolean = true
+	let isRunning: boolean = $state(false)
+	let jobProgressReset: () => void = $state(() => {})
+	let jsonView: boolean = $state(false)
+	let jsonEditor: JsonInputs | undefined = $state(undefined)
+	let schemaHeight = $state(0)
+	let isValid: boolean = $state(true)
 
 	export function test() {
 		renderCount++
@@ -68,12 +84,12 @@
 		fakeInitialPath,
 		customUi,
 		executionCount
-	} = getContext<FlowEditorContext>('FlowEditorContext')
+	} = $state(getContext<FlowEditorContext>('FlowEditorContext'))
 	const dispatch = createEventDispatcher()
 
-	let renderCount: number = 0
-	let schemaFormWithArgPicker: SchemaFormWithArgPicker | undefined = undefined
-	let currentJobId: string | undefined = undefined
+	let renderCount: number = $state(0)
+	let schemaFormWithArgPicker: SchemaFormWithArgPicker | undefined = $state(undefined)
+	let currentJobId: string | undefined = $state(undefined)
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
 		const previewFlow = aiChatManager.flowAiChatHelpers?.getPreviewFlow()
@@ -91,7 +107,7 @@
 		}
 	}
 
-	let lastPreviewFlow: undefined | string = undefined
+	let lastPreviewFlow: undefined | string = $state(undefined)
 	export async function runPreview(
 		args: Record<string, any>,
 		restartedFrom: RestartedFrom | undefined
@@ -159,8 +175,8 @@
 		}
 	}
 
-	let savedArgs = previewArgs.val
-	let inputSelected: 'captures' | 'history' | 'saved' | undefined = undefined
+	let savedArgs = $state(previewArgs.val)
+	let inputSelected: 'captures' | 'history' | 'saved' | undefined = $state(undefined)
 	async function selectInput(input, type?: 'captures' | 'history' | 'saved' | undefined) {
 		if (!input) {
 			previewArgs.val = savedArgs
@@ -179,12 +195,6 @@
 	export function refresh() {
 		renderCount++
 	}
-
-	$: if (job?.type === 'CompletedJob') {
-		isRunning = false
-	}
-
-	$: selectedJobStep !== undefined && onSelectedJobStepChange()
 
 	async function loadIndividualStepsStates() {
 		// console.log('loadIndividualStepsStates')
@@ -224,21 +234,30 @@
 		})
 	}
 
-	let scrollableDiv: HTMLDivElement | undefined = undefined
+	let scrollableDiv: HTMLDivElement | undefined = $state(undefined)
 	function handleScroll() {
 		scrollTop = scrollableDiv?.scrollTop ?? 0
 	}
-
-	$: scrollableDiv && onScrollableDivChange()
 
 	function onScrollableDivChange() {
 		if (scrollTop != 0 && scrollableDiv) {
 			scrollableDiv.scrollTop = scrollTop
 		}
 	}
+	run(() => {
+		if (job?.type === 'CompletedJob') {
+			isRunning = false
+		}
+	})
+	run(() => {
+		selectedJobStep !== undefined && onSelectedJobStepChange()
+	})
+	run(() => {
+		scrollableDiv && onScrollableDivChange()
+	})
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} />
 
 <div class="flex flex-col space-y-2 h-screen bg-surface px-4 py-2 w-full" id="flow-preview-content">
 	<div class="flex flex-row w-full items-center gap-x-2">
@@ -304,7 +323,7 @@
 							floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
 							contentClasses="p-4"
 						>
-							<svelte:fragment slot="button">
+							{#snippet button()}
 								<Button
 									title={`Re-start this flow from step ${selectedJobStep} (included).`}
 									variant="border"
@@ -324,8 +343,8 @@
 										{selectedJobStep}
 									</Badge>
 								</Button>
-							</svelte:fragment>
-							<svelte:fragment slot="content">
+							{/snippet}
+							{#snippet content()}
 								<label class="block text-primary p-4">
 									<div class="pb-1 text-sm text-secondary"
 										>{selectedJobStepType == 'forloop' ? 'From iteration #:' : 'From branch:'}</div
@@ -337,13 +356,13 @@
 												min="0"
 												bind:value={branchOrIterationN}
 												class="!w-32 grow"
-												on:click|stopPropagation={() => {}}
+												onclick={stopPropagation(() => {})}
 											/>
 										{:else}
 											<select
 												bind:value={branchOrIterationN}
 												class="!w-32 grow"
-												on:click|stopPropagation={() => {}}
+												onclick={stopPropagation(() => {})}
 											>
 												{#each restartBranchNames as [branchIdx, branchName]}
 													<option value={branchIdx}>{branchName}</option>
@@ -368,7 +387,7 @@
 										</Button>
 									</div>
 								</label>
-							</svelte:fragment>
+							{/snippet}
 						</Popover>
 					{/if}
 				{/if}
@@ -411,7 +430,7 @@
 	<div
 		bind:this={scrollableDiv}
 		class="overflow-y-auto grow flex flex-col pt-4"
-		on:scroll={(e) => handleScroll()}
+		onscroll={(e) => handleScroll()}
 	>
 		<div class="border-b">
 			<SchemaFormWithArgPicker
@@ -506,10 +525,10 @@
 			</div>
 			{#if jobId}
 				{#if initial}
-					<!-- svelte-ignore a11y-click-events-have-key-events -->
-					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						on:click={() => {
+						onclick={() => {
 							initial = false
 						}}
 						class="cursor-pointer h-full hover:bg-gray-500/20 dark:hover:bg-gray-500/20 dark:bg-gray-500/80 rounded bg-gray-500/40 absolute top-0 left-0 w-full z-50"
