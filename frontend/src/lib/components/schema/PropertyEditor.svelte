@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import autosize from '$lib/autosize'
 	import { shouldDisplayPlaceholder } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
@@ -160,10 +158,10 @@
 		;[oneOf]
 		untrack(() => updateOneOfSchemas(oneOf))
 	})
-	run(() => {
+	$effect(() => {
 		extra && mounted && untrack(() => onContentChange())
 	})
-	run(() => {
+	$effect(() => {
 		;(properties || order) && untrack(() => updateSchema())
 	})
 </script>
