@@ -1,8 +1,8 @@
-use axum::{extract::{Path, Query}, routing::{post, get}, Extension, Json, Router};
+use axum::{extract::{Path}, routing::{post, get}, Extension, Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{Postgres, Transaction};
-use windmill_common::{db::UserDB, error::{JsonResult, Result}, utils::Pagination};
+use windmill_common::{db::UserDB, error::{JsonResult, Result}};
 
 use crate::db::ApiAuthed;
 
@@ -86,9 +86,7 @@ async fn list_assets(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
-    Query(pagination): Query<Pagination>
 ) -> JsonResult<Vec<Value>> {
-    let limit = pagination.per_page.unwrap_or(50).min(100);
     let assets = sqlx::query_scalar!(
         r#"SELECT
             jsonb_build_object(
@@ -101,11 +99,8 @@ async fn list_assets(
             ) as "list!: _"
         FROM asset
         WHERE workspace_id = $1
-        GROUP BY path, kind
-        LIMIT $2 OFFSET $3"#,
+        GROUP BY path, kind"#,
         w_id,
-        limit as i64,
-        (pagination.page.unwrap_or(1).saturating_sub(1) * limit) as i64
     )
     .fetch_all(&mut *user_db.begin(&authed).await?)
     .await?;

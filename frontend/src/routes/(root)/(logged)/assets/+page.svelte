@@ -7,23 +7,15 @@
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { Cell, DataTable } from '$lib/components/table'
 	import Head from '$lib/components/table/Head.svelte'
-	import { AssetService } from '$lib/gen'
+	import { AssetService, type ListAssetsResponse } from '$lib/gen'
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
-	import { usePaginated } from '$lib/svelte5Utils.svelte'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { isS3Uri, pluralize } from '$lib/utils'
-	import { File, RefreshCw } from 'lucide-svelte'
+	import { File } from 'lucide-svelte'
 
-	let assets = usePaginated(async (page) => {
-		return {
-			items: await AssetService.list({
-				workspace: $workspaceStore ?? '',
-				page,
-				perPage: 50
-			})
-		}
-	})
+	let assets = usePromise(() => AssetService.listAssets({ workspace: $workspaceStore ?? '' }))
 
-	let viewOccurences: (typeof assets)['items'][number] | undefined = $state()
+	let viewOccurences: ListAssetsResponse[number] | undefined = $state()
 	let s3FilePicker: S3FilePicker | undefined = $state()
 </script>
 
@@ -48,7 +40,7 @@
 				</tr>
 			</Head>
 			<tbody class="divide-y bg-surface">
-				{#each assets.items as item}
+				{#each assets.value ?? [] as item}
 					{@const assetUri = formatAsset(item)}
 					<tr>
 						<Cell first>{assetUri}</Cell>
@@ -72,19 +64,6 @@
 						</Cell>
 					</tr>
 				{/each}
-				<tr class="w-full">
-					<td colspan={99} class="p-1">
-						<Button
-							wrapperClasses="mx-auto"
-							size="xs"
-							startIcon={{ icon: RefreshCw }}
-							color="light"
-							on:click={() => assets.loadMore()}
-						>
-							Load more
-						</Button>
-					</td>
-				</tr>
 			</tbody>
 		</DataTable>
 	</CenteredPage>

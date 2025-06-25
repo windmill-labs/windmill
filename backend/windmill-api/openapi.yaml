@@ -12945,7 +12945,7 @@ paths:
   /w/{workspace}/assets/link:
     post:
       summary: Deletes all current assets of the corresponding entity and updates them to the new ones
-      operationId: link
+      operationId: linkAssets
       tags:
       - asset
       parameters:
@@ -12974,13 +12974,11 @@ paths:
   /w/{workspace}/assets/list:
     get:
       summary: List all assets in the workspace
-      operationId: list
+      operationId: listAssets
       tags:
       - asset
       parameters:
       - $ref: '#/components/parameters/WorkspaceId'
-      - $ref: "#/components/parameters/Page"
-      - $ref: "#/components/parameters/PerPage"
       responses:
         '200':
           description: assets linked
