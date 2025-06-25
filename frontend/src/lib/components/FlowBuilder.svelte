@@ -798,7 +798,7 @@
 						}
 					]
 				: []),
-			...(customUi?.topBar?.history != false
+			...(customUi?.topBar?.export != false
 				? [
 						{
 							displayName: 'Export',
@@ -810,6 +810,17 @@
 							icon: FileJson,
 							action: () => yamlEditorDrawer?.openDrawer(),
 							disabled: hasAiDiff
+						}
+					]
+				: []),
+			...(customUi?.topBar?.settings != false
+				? [
+						{
+							displayName: 'Flow settings',
+							icon: Settings,
+							action: () => {
+								select('settings-metadata')
+							}
 						}
 					]
 				: [])
