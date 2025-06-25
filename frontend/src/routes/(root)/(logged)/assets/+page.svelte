@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { formatAsset } from '$lib/components/assets/lib'
+	import { formatAsset, getAssetUsagePageUri } from '$lib/components/assets/lib'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Button, ClearableInput, DrawerContent } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
+	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { Cell, DataTable } from '$lib/components/table'
@@ -35,7 +36,7 @@
 	<CenteredPage>
 		<PageHeader
 			title="Assets"
-			tooltip="Track where your assets are used in Windmill."
+			tooltip="Assets show up here whenever you use them in Windmill."
 			documentationLink="https://www.windmill.dev/docs/core_concepts/assets"
 		/>
 		<ClearableInput bind:value={filterText} placeholder="Search assets" class="mb-4" />
@@ -83,11 +84,28 @@
 	on:close={() => (viewOccurences = undefined)}
 >
 	<DrawerContent title="Asset occurrences" on:close={() => (viewOccurences = undefined)}>
-		{#each viewOccurences?.usages ?? [] as u}
-			<ul class="px-6">
-				<li class="text-sm list-disc">{u.usage_kind}/{u.usage_path}</li>
-			</ul>
-		{/each}
+		<ul class="flex flex-col border rounded-md divide-y">
+			{#each viewOccurences?.usages ?? [] as u}
+				<li>
+					<a
+						href={getAssetUsagePageUri(u)}
+						aria-label={`${u.usage_kind}/${u.usage_path}`}
+						class="text-sm text-primary flex items-center py-3 px-4 gap-3 hover:bg-surface-hover cursor-pointer"
+					>
+						<RowIcon kind={u.usage_kind} />
+						<div class="flex flex-col justify-center flex-1">
+							<span class="font-semibold">{u.usage_path}</span>
+							<span class="text-xs text-tertiary">{u.usage_kind}</span>
+						</div>
+						<div class="flex gap-2">
+							<div class="text-xs border text-tertiary max-w-fit p-1 rounded-md">Read</div>
+							<div class="text-xs border text-tertiary max-w-fit p-1 rounded-md">Write</div>
+							<div class="text-xs border text-tertiary max-w-fit p-1 rounded-md">Todo</div>
+						</div>
+					</a>
+				</li>
+			{/each}
+		</ul>
 	</DrawerContent>
 </Drawer>
 <S3FilePicker bind:this={s3FilePicker} readOnlyMode />

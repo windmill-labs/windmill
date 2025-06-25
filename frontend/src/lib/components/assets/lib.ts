@@ -1,4 +1,4 @@
-import type { AssetKind } from '$lib/gen'
+import type { AssetKind, ListAssetsResponse } from '$lib/gen'
 
 export type Asset = {
 	path: string
@@ -16,5 +16,13 @@ export function formatAsset(asset: Asset): string {
 			return `$res:${asset.path}`
 		case 's3object':
 			return `s3://${asset.path}`
+	}
+}
+
+export function getAssetUsagePageUri(usage: ListAssetsResponse[number]['usages'][number]) {
+	if (usage.usage_kind === 'script') {
+		return `/scripts/edit/${usage.usage_path}`
+	} else if (usage.usage_kind === 'flow') {
+		return `/flows/edit/${usage.usage_path}`
 	}
 }
