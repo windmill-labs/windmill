@@ -32,6 +32,11 @@
 		flowPreviewContent?.test()
 	}
 
+	export function runPreview() {
+		flowPreviewContent?.refresh
+		flowPreviewContent?.test()
+	}
+
 	const dispatch = createEventDispatcher()
 
 	let flowPreviewContent: FlowPreviewContent | undefined = $state(undefined)
@@ -110,7 +115,7 @@
 </Button>
 
 {#if !loading}
-	<Drawer bind:open={previewOpen} size="75%" {preventEscape}>
+	<Drawer bind:open={previewOpen} size="75%" {preventEscape} alwaysOpen>
 		<FlowPreviewContent
 			bind:this={flowPreviewContent}
 			bind:localModuleStates

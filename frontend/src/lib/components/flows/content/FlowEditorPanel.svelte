@@ -27,6 +27,7 @@
 		onDeployTrigger?: (trigger: Trigger) => void
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
+		onRunPreview?: () => void
 	}
 
 	let {
@@ -37,7 +38,8 @@
 		savedFlow = undefined,
 		onDeployTrigger = () => {},
 		forceTestTab,
-		highlightArg
+		highlightArg,
+		onRunPreview = () => {}
 	}: Props = $props()
 
 	const {
@@ -82,6 +84,7 @@
 			showCaptureHint.set(true)
 		}}
 		on:applyArgs
+		{onRunPreview}
 	/>
 {:else if $selectedId === 'Result'}
 	<p class="p-4 text-secondary">The result of the flow will be the result of the last node.</p>
