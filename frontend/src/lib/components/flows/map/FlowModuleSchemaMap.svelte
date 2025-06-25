@@ -49,6 +49,8 @@
 		workspace?: string | undefined
 		onTestUpTo?: ((id: string) => void) | undefined
 		onEditInput?: (moduleId: string, key: string) => void
+		showFlowAiButton?: boolean
+		onOpenAiChat?: () => void
 	}
 
 	let {
@@ -61,7 +63,9 @@
 		smallErrorHandler = false,
 		workspace = $workspaceStore,
 		onTestUpTo,
-		onEditInput
+		onEditInput,
+		showFlowAiButton,
+		onOpenAiChat
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -316,7 +320,14 @@
 	<div
 		class={`z-50 absolute inline-flex flex-col gap-2 top-3 left-1/2 -translate-x-1/2 flex-initial  items-center transition-colors duration-[400ms] ease-linear bg-surface-100`}
 	>
-		<FlowStickyNode {disableSettings} {disableStaticInputs} {smallErrorHandler} on:generateStep />
+		<FlowStickyNode
+			{disableSettings}
+			{disableStaticInputs}
+			{smallErrorHandler}
+			on:generateStep
+			{showFlowAiButton}
+			{onOpenAiChat}
+		/>
 	</div>
 
 	<div class="z-10 flex-auto grow bg-surface-secondary" bind:clientHeight={minHeight}>

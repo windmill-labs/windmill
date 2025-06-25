@@ -46,12 +46,20 @@
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
 	import { cleanInputs } from './flows/utils'
-	import { Calendar, Pen, Save, DiffIcon, HistoryIcon, FileJson, type Icon } from 'lucide-svelte'
+	import {
+		Calendar,
+		Pen,
+		Save,
+		DiffIcon,
+		HistoryIcon,
+		FileJson,
+		type Icon,
+		Settings
+	} from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import { type FlowCopilotContext } from './copilot/flow'
-	import FlowAIButton from './copilot/chat/flow/FlowAIButton.svelte'
 	import { loadFlowModuleState } from './flows/flowStateUtils.svelte'
 	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -1069,9 +1077,6 @@
 							</div>
 						</Button>
 					{/if}
-					{#if !disableAi && customUi?.topBar?.aiBuilder != false && !aiChatManager.open}
-						<FlowAIButton openPanel={() => aiChatManager.openChat()} />
-					{/if}
 					<FlowPreviewButtons
 						on:openTriggers={(e) => {
 							select('triggers')
@@ -1145,6 +1150,10 @@
 					{forceTestTab}
 					{highlightArg}
 					{loadingJobs}
+					showFlowAiButton={!disableAi &&
+						customUi?.topBar?.aiBuilder != false &&
+						!aiChatManager.open}
+					onOpenAiChat={() => aiChatManager.openChat()}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

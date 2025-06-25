@@ -37,6 +37,8 @@
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
 		loadingJobs?: boolean
+		showFlowAiButton?: boolean
+		onOpenAiChat?: () => void
 	}
 
 	let {
@@ -53,7 +55,9 @@
 		onTestUpTo = undefined,
 		onEditInput = undefined,
 		forceTestTab,
-		highlightArg
+		highlightArg,
+		showFlowAiButton,
+		onOpenAiChat
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -107,6 +111,8 @@
 						}}
 						{onTestUpTo}
 						{onEditInput}
+						{showFlowAiButton}
+						{onOpenAiChat}
 					/>
 				{/if}
 			</div>

@@ -15,11 +15,11 @@
 	<Button
 		color="light"
 		variant="border"
-		size="xs"
+		size="xs2"
 		on:click={onClick}
 		startIcon={{ icon: WandSparkles }}
 		iconOnly
-		btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface"
+		btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface h-[28px] w-[34px] rounded-sm py-1 px-2"
 	>
 		AI Panel
 	</Button>
