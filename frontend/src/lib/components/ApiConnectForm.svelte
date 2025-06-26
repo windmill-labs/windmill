@@ -1,17 +1,17 @@
 <script lang="ts">
 	import { OauthService, type ResourceType } from '$lib/gen'
-	import { workspaceStore, enterpriseLicense, userStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { emptySchema, emptyString } from '$lib/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import type SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
 	import TestConnection from './TestConnection.svelte'
 	import SupabaseIcon from './icons/SupabaseIcon.svelte'
-	import { sendUserToast } from '$lib/toast'
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { untrack } from 'svelte'
+	import { base } from '$lib/base'
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
 
 	interface Props {

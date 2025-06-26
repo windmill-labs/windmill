@@ -17,7 +17,7 @@
 		applyRepositoryURL,
 		handleInstallClick,
 		type GitHubAppState
-	} from '$lib/githubApp.ts'
+	} from '$lib/githubApp'
 
 	interface Props {
 		resourceType: string
@@ -364,11 +364,14 @@
 																	color="blue"
 																	title="Add installation to workspace"
 																	startIcon={{ icon: Plus }}
-																	on:click={() =>
-																		handleAddInstallation(
-																			installation.installation_id,
-																			installation.workspace_id
-																		)}
+																	on:click={() => {
+																		if (installation.workspace_id) {
+																			handleAddInstallation(
+																				installation.installation_id,
+																				installation.workspace_id
+																			)
+																		}
+																	}}
 																>
 																	Add to workspace
 																</Button>

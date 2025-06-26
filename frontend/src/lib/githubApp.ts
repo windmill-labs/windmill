@@ -309,9 +309,11 @@ export async function exportInstallation(
 			throw createGitHubAppError('No JWT token received from server', 'UNKNOWN_ERROR')
 		}
 
+		const jwtToken = response.jwt_token
+
 		// Copy to clipboard with fallback for unsecure contexts
 		if (navigator.clipboard && navigator.clipboard.writeText) {
-			await navigator.clipboard.writeText(response.jwt_token)
+			await navigator.clipboard.writeText(jwtToken)
 			sendUserToast(
 				'JWT token copied to clipboard. This token is sensitive and should be kept secret!',
 				false,
@@ -322,7 +324,7 @@ export async function exportInstallation(
 		} else {
 			// Fallback: show the token in the toast for manual copying
 			sendUserToast(
-				`JWT token (copy manually): ${response.jwt_token}`,
+				`JWT token (copy manually): ${jwtToken}`,
 				false,
 				[
 					{
@@ -330,7 +332,7 @@ export async function exportInstallation(
 						callback: () => {
 							// Try to copy using the older execCommand method as fallback
 							const textArea = document.createElement('textarea')
-							textArea.value = response.jwt_token
+							textArea.value = jwtToken
 							document.body.appendChild(textArea)
 							textArea.select()
 							try {
