@@ -6,7 +6,7 @@
 	import { copilotInfo, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
-	import { inferArgs } from '$lib/infer'
+	import { inferArgs, inferAssets } from '$lib/infer'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SchemaForm from './SchemaForm.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
@@ -46,6 +46,7 @@
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI'
+	import AssetsDetectedBadge from './assets/AssetsDetectedBadge.svelte'
 
 	interface Props {
 		// Exported
@@ -131,6 +132,11 @@
 		watchChanges &&
 			(code != undefined || schema != undefined) &&
 			dispatch('change', { code, schema })
+	})
+
+	let assets: string[] = $state([])
+	$effect(() => {
+		inferAssets(lang, code).then((a) => (assets = a))
 	})
 
 	let width = $state(1200)
@@ -418,10 +424,13 @@
 <svelte:window onkeydown={onKeyDown} />
 
 <!-- Standalone triggerable registration for the script editor -->
-<div style="display: none" use:triggerableByAI={{
-	id: "script-editor", 
-	description: "Component to edit a script"
-}}></div>
+<div
+	style="display: none"
+	use:triggerableByAI={{
+		id: 'script-editor',
+		description: 'Component to edit a script'
+	}}
+></div>
 
 <Modal title="Invite others" bind:open={showCollabPopup}>
 	<div>Have others join by sharing the following url:</div>
@@ -501,6 +510,7 @@
 		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
 			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
 				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
+					<AssetsDetectedBadge {assets} />
 					{#if testPanelSize === 0}
 						<HideButton
 							hidden={true}
@@ -550,6 +560,7 @@
 						{/if}
 					{/if}
 				</div>
+
 				{#key lang}
 					<Editor
 						lineNumbersMinChars={4}
