@@ -615,6 +615,38 @@ function handleError(error: unknown): SettingsResult {
   };
 }
 
+// Helper function to find the appropriate workspace alias for a backend workspace ID
+async function findWorkspaceAlias(
+  backendWorkspaceId: string,
+  userSpecifiedWorkspace: string | undefined,
+  config?: SyncOptions
+): Promise<string> {
+  // If config has workspaces, check for existing alias
+  if (config?.workspaces) {
+    // First, check if user specified workspace matches an existing alias
+    if (userSpecifiedWorkspace && config.workspaces[userSpecifiedWorkspace]) {
+      // User specified an existing alias directly
+      return userSpecifiedWorkspace;
+    }
+
+    // Look for an alias that maps to this backend workspace ID
+    for (const [alias, profile] of Object.entries(config.workspaces)) {
+      if (profile.workspaceId === backendWorkspaceId) {
+        return alias;
+      }
+    }
+  }
+
+  // No existing alias found
+  // If user specified --workspace, use that as the new alias
+  if (userSpecifiedWorkspace) {
+    return userSpecifiedWorkspace;
+  }
+
+  // Default to using the backend workspace ID as the alias
+  return backendWorkspaceId;
+}
+
 // Shared workspace resolution function to eliminate duplication
 async function resolveWorkspaceForSettings(
   opts: GlobalOptions & SyncOptions & {
@@ -626,33 +658,42 @@ async function resolveWorkspaceForSettings(
   workspace: Workspace;
   repositoryPath: string | undefined;
   workspaceName: string | undefined;
+  workspaceAlias: string | undefined;
   mergedOpts: GlobalOptions & SyncOptions;
 }> {
   let workspace: Workspace;
   let repositoryPath: string | undefined;
   let workspaceName: string | undefined;
+  let workspaceAlias: string | undefined;
 
   // IMPORTANT: Use same workspace resolution priority as sync.ts:
   // 1. CLI args (--workspace, --base-url, --token) take highest priority
   // 2. Current active workspace (from wmilldev workspace whoami) if no CLI args
   // 3. Config file workspace as fallback
-  
+
   // First, always resolve the actual workspace we'll be using
   workspace = await resolveWorkspace(opts);
   workspaceName = workspace.workspaceId;
 
+  // Use workspace.name (the alias from workspace add) if available, otherwise find alias
+  if (workspace.name && workspace.name !== workspace.workspaceId) {
+    workspaceAlias = workspace.name;
+  } else {
+    workspaceAlias = await findWorkspaceAlias(workspace.workspaceId, opts.workspace, config);
+  }
+
   try {
     // Now try to resolve repository using workspace-aware method
-    // Pass the resolved workspace ID to ensure consistency
-    const effectiveWorkspaceName = opts.workspace || workspace.workspaceId;
-    
+    // Use the workspace alias if available, otherwise the workspace ID
+    const effectiveWorkspaceName = workspaceAlias || workspace.workspaceId;
+
     const { workspaceName: configWorkspaceName, workspaceProfile, repositoryPath: resolvedRepo, syncOptions } =
       await resolveWorkspaceAndRepositoryForSync(effectiveWorkspaceName, opts.repository, config);
 
     // If we found a workspace profile from config but it doesn't match our resolved workspace,
     // we need to reconcile this. The resolved workspace takes priority.
-    if (workspaceProfile && configWorkspaceName !== workspace.workspaceId) {
-      log.info(colors.yellow(`Config workspace (${configWorkspaceName}) differs from active workspace (${workspace.workspaceId}). Using active workspace.`));
+    if (workspaceProfile && configWorkspaceName !== workspace.name) {
+      log.info(colors.yellow(`Config workspace (${configWorkspaceName}) differs from active workspace (${workspace.name}). Using active workspace.`));
     }
 
     repositoryPath = resolvedRepo;
@@ -662,7 +703,7 @@ async function resolveWorkspaceForSettings(
     // Merge resolved repository options with command line options
     const mergedOpts = { ...cleanSyncOptions, ...opts };
 
-    return { workspace, repositoryPath, workspaceName, mergedOpts };
+    return { workspace, repositoryPath, workspaceName, workspaceAlias, mergedOpts };
   } catch (error) {
     // Fall back to legacy resolution
     repositoryPath = opts.repository; // Legacy: just use specified repository
@@ -686,7 +727,7 @@ async function resolveWorkspaceForSettings(
 
     const mergedOpts = { ...(config || {}), ...opts };
 
-    return { workspace, repositoryPath, workspaceName, mergedOpts };
+    return { workspace, repositoryPath, workspaceName, workspaceAlias, mergedOpts };
   }
 }
 
@@ -742,7 +783,7 @@ async function runDiffCommand(args: string[]): Promise<{ stdout: string; stderr:
 }
 
 // Helper function to fetch backend settings
-export async function fetchBackendSettings(workspace: { workspaceId: string }, repositoryPath?: string): Promise<SyncOptions> {
+export async function fetchBackendSettings(workspace: { workspaceId: string }, repositoryPath?: string): Promise<{ settings: SyncOptions; repositoryPath: string }> {
   const backendSettings = await wmill.getSettings({ workspace: workspace.workspaceId });
 
   if (!backendSettings.git_sync?.repositories || backendSettings.git_sync.repositories.length === 0) {
@@ -802,7 +843,12 @@ export async function fetchBackendSettings(workspace: { workspaceId: string }, r
     const syncOptions = uiStateToSyncOptions(uiState);
     syncOptions.excludes = repoSettings.exclude_path || [];
     syncOptions.extraIncludes = repoSettings.extra_include_path || [];
-    return syncOptions;
+
+    // Return both settings and the actual repository path that was selected
+    return {
+      settings: syncOptions,
+      repositoryPath: displayRepositoryPath(targetRepo.git_repo_resource_path)
+    };
   } else {
     throw new Error(`No git-sync repositories configured for workspace '${workspace.workspaceId}'. Configure git-sync in the Windmill workspace settings first.`);
   }
@@ -865,7 +911,8 @@ async function createTempDiffFiles(content1: string, content2: string): Promise<
 
 // Helper function to write settings to a specific workspace repository
 async function writeWorkspaceRepositorySettings(
-  workspaceName: string,
+  workspaceAlias: string,
+  backendWorkspaceId: string,
   repositoryPath: string,
   newSettings: SyncOptions,
   filePath: string = 'wmill.yaml',
@@ -893,23 +940,34 @@ async function writeWorkspaceRepositorySettings(
     currentConfig.workspaces = {};
   }
 
+  // Check if another alias already exists for this backend workspace
+  const existingAlias = Object.entries(currentConfig.workspaces || {})
+    .find(([_, profile]) => profile.workspaceId === backendWorkspaceId)?.[0];
+
+  if (existingAlias && existingAlias !== workspaceAlias) {
+    console.warn(`Note: Workspace '${backendWorkspaceId}' already exists under alias '${existingAlias}'. ` +
+                 `Updating existing entry instead of creating duplicate.`);
+    // Use the existing alias instead of creating a duplicate
+    workspaceAlias = existingAlias;
+  }
+
   // Create workspace if it doesn't exist
-  if (!currentConfig.workspaces[workspaceName]) {
-    currentConfig.workspaces[workspaceName] = {
+  if (!currentConfig.workspaces[workspaceAlias]) {
+    currentConfig.workspaces[workspaceAlias] = {
       baseUrl: workspace?.remote || "", // Use actual base URL if available
-      workspaceId: workspaceName,
+      workspaceId: backendWorkspaceId,  // Use the backend workspace ID, not the alias
       repositories: {}
     };
   }
 
   // Set default workspace if not set
   if (!currentConfig.defaultWorkspace) {
-    currentConfig.defaultWorkspace = workspaceName;
+    currentConfig.defaultWorkspace = workspaceAlias;
   }
 
   // Ensure repositories object exists for this workspace
-  if (!currentConfig.workspaces[workspaceName].repositories) {
-    currentConfig.workspaces[workspaceName].repositories = {};
+  if (!currentConfig.workspaces[workspaceAlias].repositories) {
+    currentConfig.workspaces[workspaceAlias].repositories = {};
   }
 
   // Use all settings including local-only fields (defaultTs, codebases) for local config
@@ -923,7 +981,7 @@ async function writeWorkspaceRepositorySettings(
   });
 
   // Update the specific repository settings
-  currentConfig.workspaces[workspaceName].repositories![repositoryPath] = repositorySettings;
+  currentConfig.workspaces[workspaceAlias].repositories![repositoryPath] = repositorySettings;
 
   let existingObj: any = undefined;
   try {
@@ -1027,6 +1085,7 @@ async function handleFromJsonProcessing(
   opts: { fromJson?: string; diff?: boolean; dryRun?: boolean },
   operationType: 'pull' | 'push',
   workspaceName?: string,
+  workspaceAlias?: string,
   repositoryPath?: string,
   workspace?: Workspace,
   config?: SyncOptions
@@ -1138,8 +1197,8 @@ async function handleFromJsonProcessing(
   // For actual operations
   if (operationType === 'pull') {
     // Use multi-workspace format if we have workspace and repository info
-    if (workspaceName && repositoryPath) {
-      await writeWorkspaceRepositorySettings(workspaceName, repositoryPath, jsonSyncOptions, 'wmill.yaml', workspace, config);
+    if (workspaceAlias && workspaceName && repositoryPath) {
+      await writeWorkspaceRepositorySettings(workspaceAlias, workspaceName, repositoryPath, jsonSyncOptions, 'wmill.yaml', workspace, config);
       return {
         success: true,
         yaml: yamlContent,
@@ -1195,14 +1254,18 @@ export async function pullSettings(opts: GlobalOptions & SyncOptions & {
     // Ensure authentication before workspace resolution (which may need to call APIs)
     await requireLogin(opts);
 
-    const { workspace, repositoryPath, workspaceName, mergedOpts } = await resolveWorkspaceForSettings(opts, config);
+    const { workspace, repositoryPath: initialRepositoryPath, workspaceName, workspaceAlias, mergedOpts } = await resolveWorkspaceForSettings(opts, config);
     opts = mergedOpts;
+
+
+    // Use a mutable variable for repository path that can be updated if auto-selected
+    let repositoryPath = initialRepositoryPath;
 
     let currentSettings: SyncOptions;
     let yamlContent: string;
 
     if (opts.fromJson) {
-      const result = await handleFromJsonProcessing(opts, 'pull', workspaceName, repositoryPath, workspace, config);
+      const result = await handleFromJsonProcessing(opts, 'pull', workspaceName, workspaceAlias, repositoryPath, workspace, config);
       if (result) {
         if (!result.success) {
           return result;
@@ -1219,9 +1282,15 @@ export async function pullSettings(opts: GlobalOptions & SyncOptions & {
       }
     } else {
       // Original backend pulling logic
-      currentSettings = await fetchBackendSettings(workspace, repositoryPath);
+      const backendResult = await fetchBackendSettings(workspace, repositoryPath);
+      currentSettings = backendResult.settings;
+      // If repositoryPath was undefined, use the one that was actually selected
+      if (!repositoryPath) {
+        repositoryPath = backendResult.repositoryPath;
+      }
       yamlContent = yamlSafe(currentSettings as Record<string, unknown>);
     }
+
 
     if (opts.diff) {
       // Compare backend with local repository-specific settings within workspace scope
@@ -1229,10 +1298,10 @@ export async function pullSettings(opts: GlobalOptions & SyncOptions & {
       let hasLocalSettings = true;
 
       try {
-        if (workspaceName && repositoryPath) {
-          // Get repository-specific settings from workspace profile
+        if (workspaceAlias && workspaceName && repositoryPath) {
+          // Get repository-specific settings from workspace profile using the alias
           const { getWorkspaceRepositorySettings } = await import("./conf.ts");
-          const fullSettings = getWorkspaceRepositorySettings(config || {}, workspaceName, repositoryPath);
+          const fullSettings = getWorkspaceRepositorySettings(config || {}, workspaceAlias, repositoryPath);
           currentLocalSettings = extractSyncOptions(fullSettings);
           // Preserve original local settings including local-only fields for comparison
           currentLocalSettings.codebases = fullSettings.codebases;
@@ -1283,9 +1352,9 @@ export async function pullSettings(opts: GlobalOptions & SyncOptions & {
         const cleanedLocalSettings = createSettingsForComparison(currentLocalSettings);
         const cleanedBackendSettings = createSettingsForComparison(currentSettings);
 
-                // Use consistent field ordering for semantic comparison
-        const localComparisonYaml = yamlSafeForComparison(cleanedLocalSettings);
-        const backendComparisonYaml = yamlSafeForComparison(cleanedBackendSettings);
+        // Use consistent field ordering for semantic comparison
+        const localComparisonYaml = yamlSafeForComparison(cleanedLocalSettings as Record<string, unknown>);
+        const backendComparisonYaml = yamlSafeForComparison(cleanedBackendSettings as Record<string, unknown>);
 
         const { file1: tmpLocalFile, file2: tmpBackendFile } = await createTempDiffFiles(localComparisonYaml, backendComparisonYaml);
         const diffResult = await runDiffCommand([tmpLocalFile, tmpBackendFile]);
@@ -1387,9 +1456,9 @@ export async function pullSettings(opts: GlobalOptions & SyncOptions & {
     // Get existing local settings to preserve codebases
     try {
       let existingLocalSettings: SyncOptions;
-      if (workspaceName && repositoryPath) {
+      if (workspaceAlias && workspaceName && repositoryPath) {
         const { getWorkspaceRepositorySettings } = await import("./conf.ts");
-        existingLocalSettings = getWorkspaceRepositorySettings(config || {}, workspaceName, repositoryPath);
+        existingLocalSettings = getWorkspaceRepositorySettings(config || {}, workspaceAlias, repositoryPath);
       } else {
         const { settings } = await readLocalSettingsFile('wmill.yaml');
         existingLocalSettings = settings;
@@ -1402,9 +1471,9 @@ export async function pullSettings(opts: GlobalOptions & SyncOptions & {
       settingsToWrite = currentSettings;
     }
 
-    if (workspaceName && repositoryPath) {
+    if (workspaceAlias && workspaceName && repositoryPath) {
       // Multi-workspace format: Update workspace profile
-      await writeWorkspaceRepositorySettings(workspaceName, repositoryPath, settingsToWrite, 'wmill.yaml', workspace, config);
+      await writeWorkspaceRepositorySettings(workspaceAlias, workspaceName, repositoryPath, settingsToWrite, 'wmill.yaml', workspace, config);
     } else {
       // Legacy format - write directly to wmill.yaml
       await writeSettings(settingsToWrite);
@@ -1432,6 +1501,7 @@ export async function pushSettings(opts: GlobalOptions & SyncOptions & {
   fromJson?: string;
   repository?: string;
   workspace?: string;
+  isPushOperation?: boolean; // Flag to indicate if this is called from sync push
 }): Promise<SettingsResult> {
   try {
     // Load config once at the beginning
@@ -1441,13 +1511,14 @@ export async function pushSettings(opts: GlobalOptions & SyncOptions & {
     // Ensure authentication before workspace resolution (which may need to call APIs)
     await requireLogin(opts);
 
-    const { workspace, repositoryPath, workspaceName, mergedOpts } = await resolveWorkspaceForSettings(opts, config);
+    const { workspace, repositoryPath: initialRepositoryPath, workspaceName, workspaceAlias, mergedOpts } = await resolveWorkspaceForSettings(opts, config);
     opts = mergedOpts;
 
+    let repositoryPath = initialRepositoryPath;
     let localSettings: SyncOptions;
 
     if (opts.fromJson) {
-      const result = await handleFromJsonProcessing(opts, 'push', workspaceName, repositoryPath, workspace, config);
+      const result = await handleFromJsonProcessing(opts, 'push', workspaceName, workspaceAlias, repositoryPath, workspace, config);
       if (result) {
         if (!result.success) {
           return result;
@@ -1492,20 +1563,48 @@ export async function pushSettings(opts: GlobalOptions & SyncOptions & {
       }
     } else {
       try {
-        // Get repository-specific settings from workspace scope if applicable
-        if (workspaceName && repositoryPath) {
-          const { getWorkspaceRepositorySettings } = await import("./conf.ts");
-          const fullSettings = getWorkspaceRepositorySettings(config || {}, workspaceName, repositoryPath);
-          localSettings = extractSyncOptions(fullSettings);
-          // Preserve original local settings including codebases for display/writing
-          localSettings.codebases = fullSettings.codebases;
-        } else {
-          // Legacy format - check if file exists first
+        // Check if wmill.yaml file exists first
+        try {
           await Deno.stat('wmill.yaml');
           const { settings } = await readLocalSettingsFile();
-          localSettings = extractSyncOptions(settings);
-          // Preserve original local settings including codebases for display/writing
-          localSettings.codebases = settings.codebases;
+          // If repositoryPath is not provided but we have workspace info and new format, try to resolve it
+          if (!repositoryPath && settings.workspaces && workspaceAlias && settings.workspaces[workspaceAlias]?.repositories) {
+            const repositories = Object.keys(settings.workspaces[workspaceAlias].repositories);
+            if (repositories.length === 1) {
+              // If there's only one repository, use it
+              repositoryPath = repositories[0];
+            } else if (repositories.length > 1) {
+              // Multiple repositories - need user to specify
+              return {
+                success: false,
+                error: `Multiple repositories found in workspace '${workspaceAlias}'. Please specify --repository with one of: ${repositories.join(', ')}`
+              };
+            }
+          }
+
+          // Check if this is new format (has workspaces) or legacy format
+          if (settings.workspaces && workspaceAlias && workspaceName && repositoryPath) {
+            // New format - extract repository-specific settings
+            const { getWorkspaceRepositorySettings } = await import("./conf.ts");
+            const fullSettings = getWorkspaceRepositorySettings(settings as any, workspaceAlias, repositoryPath);
+            localSettings = extractSyncOptions(fullSettings);
+            localSettings.codebases = fullSettings.codebases;
+          } else {
+            // Legacy format - use top-level settings
+            localSettings = extractSyncOptions(settings);
+            localSettings.codebases = settings.codebases;
+          }
+        } catch (fileError) {
+          if (fileError instanceof Deno.errors.NotFound && workspaceAlias && workspaceName && repositoryPath && !opts.isPushOperation) {
+            // No local file, and this is a pull operation, try workspace repository settings from config
+            const { getWorkspaceRepositorySettings } = await import("./conf.ts");
+            const fullSettings = getWorkspaceRepositorySettings(config || {}, workspaceAlias, repositoryPath);
+            localSettings = extractSyncOptions(fullSettings);
+            localSettings.codebases = fullSettings.codebases;
+          } else {
+            // Re-throw the original error
+            throw fileError;
+          }
         }
       } catch (error) {
         if (error instanceof Deno.errors.NotFound) {
@@ -1526,10 +1625,13 @@ export async function pushSettings(opts: GlobalOptions & SyncOptions & {
 
     if (opts.diff) {
       // Compare local settings with backend settings (excluding codebases since they are local-only)
-      const backendSyncOptions = await fetchBackendSettings(workspace, repositoryPath);
+      const fetchResult = await fetchBackendSettings(workspace, repositoryPath);
+      const backendSyncOptions = fetchResult.settings;
 
       // Create comparison versions without codebases (since codebases are local-only)
-      const localForComparison = createSettingsForComparison(localSettings);
+      // Use createSettingsForDiff to preserve false values that represent changes
+      const { createSettingsForDiff } = await import("./settings_utils.ts");
+      const localForComparison = createSettingsForDiff(backendSyncOptions, localSettings);
       const backendForComparison = createSettingsForComparison(backendSyncOptions);
 
       const localComparisonYaml = yamlSafeForComparison(localForComparison as Record<string, unknown>);

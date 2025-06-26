@@ -36,6 +36,14 @@ export async function selectRepositoryInteractively(
     return availableRepositories[0].display_path;
   }
 
+  // Check if we're in a non-interactive environment (e.g., tests, CI/CD)
+  const isInteractive = Deno.stdin.isTerminal() && Deno.stdout.isTerminal();
+  
+  if (!isInteractive) {
+    // In non-interactive environments, require explicit repository specification
+    throw new Error(`Multiple repositories found: ${availableRepositories.map(r => r.display_path).join(', ')}. Use --repository to specify which one to ${operation}.`);
+  }
+
   // Import Select dynamically to avoid dependency issues
   const { Select } = await import("./deps.ts");
 

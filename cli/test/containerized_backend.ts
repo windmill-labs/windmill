@@ -704,6 +704,7 @@ export async function main(
    * Create test resources
    */
   private async createTestResources(): Promise<void> {
+    // Create PostgreSQL test database
     const testDb = {
       path: 'u/admin/test_database',
       description: 'Test PostgreSQL database for CLI sync testing',
@@ -719,7 +720,7 @@ export async function main(
       }
     };
 
-    const response = await fetch(`${this.config.baseUrl}/api/w/${this.config.workspace}/resources/create`, {
+    const dbResponse = await fetch(`${this.config.baseUrl}/api/w/${this.config.workspace}/resources/create`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${this.config.token}`,
@@ -728,12 +729,75 @@ export async function main(
       body: JSON.stringify(testDb)
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.warn(`Failed to create test resource: ${response.status} - ${errorText}`);
+    if (!dbResponse.ok) {
+      const errorText = await dbResponse.text();
+      console.warn(`Failed to create test resource: ${dbResponse.status} - ${errorText}`);
     } else {
-      await response.text(); // Consume response to avoid leak
+      await dbResponse.text(); // Consume response to avoid leak
       console.log('  ✅ Created test resource: u/admin/test_database');
+    }
+
+    // Create only the primary git repository resource (u/test/test_repo)
+    // Multi-repo tests will create additional repositories as needed
+    const primaryGitRepo = {
+      path: 'u/test/test_repo',
+      description: 'Primary test git repository for backend code',
+      resource_type: 'git',
+      value: {
+        url: 'https://github.com/windmill-labs/windmill-test-repo.git',
+        branch: 'main',
+        token: ''
+      }
+    };
+
+    const gitResponse = await fetch(`${this.config.baseUrl}/api/w/${this.config.workspace}/resources/create`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.config.token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(primaryGitRepo)
+    });
+
+    if (!gitResponse.ok) {
+      const errorText = await gitResponse.text();
+      console.warn(`Failed to create git resource ${primaryGitRepo.path}: ${gitResponse.status} - ${errorText}`);
+    } else {
+      await gitResponse.text(); // Consume response to avoid leak
+      console.log(`  ✅ Created git resource: ${primaryGitRepo.path}`);
+    }
+  }
+
+  /**
+   * Create additional git repository resource for multi-repo tests
+   */
+  async createAdditionalGitRepo(repoPath: string, description: string): Promise<void> {
+    const gitRepo = {
+      path: repoPath,
+      description: description,
+      resource_type: 'git',
+      value: {
+        url: 'https://github.com/windmill-labs/windmill-frontend-test.git',
+        branch: 'main',
+        token: ''
+      }
+    };
+
+    const gitResponse = await fetch(`${this.config.baseUrl}/api/w/${this.config.workspace}/resources/create`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.config.token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(gitRepo)
+    });
+
+    if (!gitResponse.ok) {
+      const errorText = await gitResponse.text();
+      console.warn(`Failed to create git resource ${gitRepo.path}: ${gitResponse.status} - ${errorText}`);
+    } else {
+      await gitResponse.text(); // Consume response to avoid leak
+      console.log(`  ✅ Created additional git resource: ${gitRepo.path}`);
     }
   }
 

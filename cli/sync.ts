@@ -1194,7 +1194,7 @@ export async function pull(
     // 1. CLI args (--workspace, --base-url, --token) take highest priority
     // 2. Current active workspace (from wmilldev workspace whoami) if no CLI args
     // 3. Config file workspace as fallback
-    
+
     // First, always resolve the actual workspace we'll be using
     workspace = await resolveWorkspace(opts);
 
@@ -1202,7 +1202,7 @@ export async function pull(
         // Now try to resolve repository using workspace-aware method
         // Pass the resolved workspace ID to ensure consistency
         const effectiveWorkspaceName = opts.workspace || workspace.workspaceId;
-        
+
         const {
             workspaceName,
             workspaceProfile,
@@ -1212,28 +1212,28 @@ export async function pull(
             effectiveWorkspaceName,
             opts.repository,
         );
-        
+
         // If we found a workspace profile from config but it doesn't match our resolved workspace,
         // we need to reconcile this. The resolved workspace takes priority.
-        if (workspaceProfile && workspaceName !== workspace.workspaceId) {
-            log.info(colors.yellow(`Config workspace (${workspaceName}) differs from active workspace (${workspace.workspaceId}). Using active workspace.`));
+        if (workspaceProfile && workspaceName !== workspace.name) {
+            log.info(colors.yellow(`Config workspace (${workspaceName}) differs from active workspace (${workspace.name}). Using active workspace.`));
         }
 
         repositoryPath = resolvedRepo;
-        
+
         // Check if backend settings need to be fetched
         if ((syncOptions as any).__needsBackendFetch) {
             try {
                 log.info(colors.blue("No local config found, fetching backend settings..."));
-                
+
                 // Set up authentication using the workspace object we already have
                 const { setClient } = await import("./deps.ts");
                 setClient(workspace.token, workspace.remote.substring(0, workspace.remote.length - 1));
-                
+
                 const { fetchBackendSettings } = await import("./settings.ts");
                 const backendSettings = await fetchBackendSettings(workspace, repositoryPath);
                 log.info(colors.green(`Backend settings fetched successfully`));
-                
+
                 // Use backend settings instead of empty sync options
                 opts = { ...backendSettings, ...opts };
             } catch (backendError) {
@@ -1255,7 +1255,7 @@ export async function pull(
         // Extract repository-specific settings if available
         let extractedConfig = legacyConfig;
         const effectiveWorkspaceName = opts.workspace || workspace.workspaceId;
-        
+
         if (
             effectiveWorkspaceName &&
             repositoryPath &&
@@ -1269,13 +1269,18 @@ export async function pull(
         } else if (Object.keys(legacyConfig).length === 0) {
             try {
                 log.info(colors.blue("No local config found, fetching backend settings..."));
-                
+
                 // Set up authentication using the workspace object we already have
                 const { setClient } = await import("./deps.ts");
                 setClient(workspace.token, workspace.remote.substring(0, workspace.remote.length - 1));
-                
+
                 const { fetchBackendSettings } = await import("./settings.ts");
-                const backendSettings = await fetchBackendSettings(workspace, repositoryPath);
+                const backendResult = await fetchBackendSettings(workspace, repositoryPath);
+                const backendSettings = backendResult.settings;
+                // If repositoryPath was undefined, use the one that was actually selected
+                if (!repositoryPath) {
+                    repositoryPath = backendResult.repositoryPath;
+                }
                 log.info(colors.green(`Backend settings fetched: includes=${JSON.stringify(backendSettings.includes)}, excludes=${JSON.stringify(backendSettings.excludes)}`));
                 extractedConfig = backendSettings;
             } catch (backendError) {
@@ -1293,7 +1298,7 @@ export async function pull(
 
     // Track whether wmill.yaml changes were applied in pre-sync step
     let preAppliedWmillYamlChanges = 0;
-    
+
     // CRITICAL FIX: Apply wmill.yaml settings BEFORE main sync operation if requested
     // This ensures that sync uses the updated backend settings rather than old local settings
     if (opts.includeWmillYaml && !opts.dryRun && !opts.diff) {
@@ -1464,7 +1469,7 @@ export async function pull(
                 ...opts,
                 diff: true,
                 workspace: opts.workspace,
-                repository: undefined,  // Let fetchBackendSettings handle repo selection
+                repository: repositoryPath,  // Pass the resolved repository path
             });
         } catch (error) {
             console.error("Failed to check wmill.yaml changes:", error);
@@ -1920,8 +1925,10 @@ export async function push(
                 diff: true,
                 workspace: opts.workspace,
                 repository: repositoryPath,
+                isPushOperation: true, // Flag to indicate this is called from sync push
             });
         } catch (error) {
+            console.error("DEBUG: pushSettings failed with error:", error);
             console.warn("Failed to check wmill.yaml changes:", error);
         }
     }
@@ -2581,6 +2588,7 @@ export async function push(
                     diff: false,
                     workspace: opts.workspace,
                     repository: repositoryPath,
+                    isPushOperation: true, // Flag to indicate this is called from sync push
                 });
                 log.info(
                     colors.green(

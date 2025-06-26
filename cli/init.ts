@@ -142,16 +142,16 @@ async function createWorkspaceProfile(workspace: any, opts: { repository?: strin
 
     if (opts.repository) {
       // Fetch settings for specified repository
-      const settings = await fetchBackendSettings(workspace, opts.repository);
-      const { workspaces, defaultWorkspace, ...syncOptions } = settings;
+      const backendResult = await fetchBackendSettings(workspace, opts.repository);
+      const { workspaces, defaultWorkspace, ...syncOptions } = backendResult.settings;
       repoSettings[opts.repository] = filterUndefined(syncOptions);
       workspaceProfile.currentRepository = opts.repository;
     } else {
       // Fetch settings for all repositories
       for (const repo of repositories) {
         try {
-          const settings = await fetchBackendSettings(workspace, repo.display_path);
-          const { workspaces, defaultWorkspace, ...syncOptions } = settings;
+          const backendResult = await fetchBackendSettings(workspace, repo.display_path);
+          const { workspaces, defaultWorkspace, ...syncOptions } = backendResult.settings;
           repoSettings[repo.display_path] = filterUndefined(syncOptions);
         } catch (error) {
           log.warn(colors.yellow(`Could not fetch settings for repository '${repo.display_path}': ${error}`));
