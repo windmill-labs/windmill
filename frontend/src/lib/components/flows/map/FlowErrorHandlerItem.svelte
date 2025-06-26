@@ -75,7 +75,6 @@
 				$selectedId = 'failure'
 			}
 		}}
-		title={'Error Handler'}
 	>
 		<ModuleAcceptReject id="failure" {action} placement="bottom" />
 

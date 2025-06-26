@@ -1159,9 +1159,8 @@
 					}}
 					{forceTestTab}
 					{highlightArg}
-					showFlowAiButton={!disableAi &&
-						customUi?.topBar?.aiBuilder != false &&
-						!aiChatManager.open}
+					aiChatOpen={!aiChatManager.open}
+					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					onOpenAiChat={() => aiChatManager.openChat()}
 					onRunPreview={() => {
 						flowPreviewButtons?.openPreview(true)

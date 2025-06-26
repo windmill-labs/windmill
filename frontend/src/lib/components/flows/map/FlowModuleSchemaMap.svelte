@@ -49,6 +49,7 @@
 		workspace?: string | undefined
 		onTestUpTo?: ((id: string) => void) | undefined
 		onEditInput?: (moduleId: string, key: string) => void
+		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		onOpenAiChat?: () => void
 	}
@@ -64,6 +65,7 @@
 		workspace = $workspaceStore,
 		onTestUpTo,
 		onEditInput,
+		aiChatOpen,
 		showFlowAiButton,
 		onOpenAiChat
 	}: Props = $props()
@@ -321,11 +323,12 @@
 		class={`z-50 absolute inline-flex flex-col gap-2 top-3 left-1/2 -translate-x-1/2 flex-initial  items-center transition-colors duration-[400ms] ease-linear bg-surface-100`}
 	>
 		<FlowStickyNode
+			{showFlowAiButton}
 			{disableSettings}
 			{disableStaticInputs}
 			{smallErrorHandler}
 			on:generateStep
-			{showFlowAiButton}
+			{aiChatOpen}
 			{onOpenAiChat}
 		/>
 	</div>

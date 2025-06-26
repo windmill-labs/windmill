@@ -289,13 +289,13 @@
 					/>
 					<div class="absolute top-1 right-1">
 						<AgGridWizard bind:value={componentInput.value}>
-							<svelte:fragment slot="trigger">
+							{#snippet trigger()}
 								<Button color="light" size="xs2" nonCaptureEvent={true}>
 									<div class="flex flex-row items-center gap-2 text-xs font-normal">
 										<Settings size={16} />
 									</div>
 								</Button>
-							</svelte:fragment>
+							{/snippet}
 						</AgGridWizard>
 					</div>
 				</div>
@@ -311,13 +311,13 @@
 					/>
 					<div class="absolute top-1 right-1">
 						<DBExplorerWizard bind:value={componentInput.value}>
-							<svelte:fragment slot="trigger">
+							{#snippet trigger()}
 								<Button color="light" size="xs2" nonCaptureEvent={true}>
 									<div class="flex flex-row items-center gap-2 text-xs font-normal">
 										<Settings size={16} />
 									</div>
 								</Button>
-							</svelte:fragment>
+							{/snippet}
 						</DBExplorerWizard>
 					</div>
 				</div>
@@ -332,13 +332,13 @@
 					/>
 					<div class="absolute top-1 right-1">
 						<TableColumnWizard bind:column={componentInput.value}>
-							<svelte:fragment slot="trigger">
+							{#snippet trigger()}
 								<Button color="light" size="xs2" nonCaptureEvent={true}>
 									<div class="flex flex-row items-center gap-2 text-xs font-normal">
 										<Settings size={16} />
 									</div>
 								</Button>
-							</svelte:fragment>
+							{/snippet}
 						</TableColumnWizard>
 					</div>
 				</div>
@@ -353,13 +353,13 @@
 					/>
 					<div class="absolute top-1 right-1">
 						<PlotlyWizard bind:value={componentInput.value} on:remove>
-							<svelte:fragment slot="trigger">
+							{#snippet trigger()}
 								<Button color="light" size="xs2" nonCaptureEvent={true}>
 									<div class="flex flex-row items-center gap-2 text-xs font-normal">
 										<Settings size={16} />
 									</div>
 								</Button>
-							</svelte:fragment>
+							{/snippet}
 						</PlotlyWizard>
 					</div>
 				</div>
@@ -374,13 +374,13 @@
 					/>
 					<div class="absolute top-1 right-1">
 						<ChartJSWizard bind:value={componentInput.value} on:remove>
-							<svelte:fragment slot="trigger">
+							{#snippet trigger()}
 								<Button color="light" size="xs2" nonCaptureEvent={true}>
 									<div class="flex flex-row items-center gap-2 text-xs font-normal">
 										<Settings size={16} />
 									</div>
 								</Button>
-							</svelte:fragment>
+							{/snippet}
 						</ChartJSWizard>
 					</div>
 				</div>
@@ -396,13 +396,13 @@
 
 					<div class="absolute top-1 right-1">
 						<AgChartWizard bind:value={componentInput.value} on:remove>
-							<svelte:fragment slot="trigger">
+							{#snippet trigger()}
 								<Button color="light" size="xs2" nonCaptureEvent={true}>
 									<div class="flex flex-row items-center gap-2 text-xs font-normal">
 										<Settings size={16} />
 									</div>
 								</Button>
-							</svelte:fragment>
+							{/snippet}
 						</AgChartWizard>
 					</div>
 				</div>

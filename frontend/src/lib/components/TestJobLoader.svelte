@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { type Job, JobService, type FlowStatus, type Preview } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { onDestroy, tick } from 'svelte'
@@ -7,16 +9,32 @@
 	import { sendUserToast } from '$lib/toast'
 	import { isScriptPreview } from '$lib/utils'
 
-	export let isLoading = false
-	export let job: Job | undefined = undefined
-	export let workspaceOverride: string | undefined = undefined
-	export let notfound = false
-	export let jobUpdateLastFetch: Date | undefined = undefined
-	export let toastError = false
-	export let lazyLogs = false
 	// Will be set to number if job is not a flow
-	// If you want to find out progress of subjobs of a flow, check job.flow_status.progress
-	export let scriptProgress: number | undefined = undefined
+
+	interface Props {
+		isLoading?: boolean
+		job?: Job | undefined
+		workspaceOverride?: string | undefined
+		notfound?: boolean
+		jobUpdateLastFetch?: Date | undefined
+		toastError?: boolean
+		lazyLogs?: boolean
+		// If you want to find out progress of subjobs of a flow, check job.flow_status.progress
+		scriptProgress?: number | undefined
+		children?: import('svelte').Snippet<[any]>
+	}
+
+	let {
+		isLoading = $bindable(false),
+		job = $bindable(undefined),
+		workspaceOverride = undefined,
+		notfound = $bindable(false),
+		jobUpdateLastFetch = $bindable(undefined),
+		toastError = false,
+		lazyLogs = false,
+		scriptProgress = $bindable(undefined),
+		children
+	}: Props = $props()
 
 	/// Last time asked for job progress
 	let lastTimeCheckedProgress: number | undefined = undefined
@@ -29,7 +47,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	$: workspace = workspaceOverride ?? $workspaceStore
+	let workspace = $derived(workspaceOverride ?? $workspaceStore)
 
 	let syncIteration: number = 0
 	let errorIteration = 0
@@ -40,9 +58,11 @@
 	let ITERATIONS_BEFORE_SUPER_SLOW_REFRESH = 100
 
 	let lastStartedAt: number = Date.now()
-	let currentId: string | undefined = undefined
+	let currentId: string | undefined = $state(undefined)
 
-	$: isLoading = currentId !== undefined
+	run(() => {
+		isLoading = currentId !== undefined
+	})
 
 	export async function abstractRun(fn: () => Promise<string>) {
 		try {
@@ -306,18 +326,18 @@
 	})
 </script>
 
-<slot
-	{job}
-	{isLoading}
-	{workspaceOverride}
-	{notfound}
-	{abstractRun}
-	{runScriptByPath}
-	{runFlowByPath}
-	{runPreview}
-	{cancelJob}
-	{clearCurrentJob}
-	{watchJob}
-	{loadTestJob}
-	{syncer}
-/>
+{@render children?.({
+	job,
+	isLoading,
+	workspaceOverride,
+	notfound,
+	abstractRun,
+	runScriptByPath,
+	runFlowByPath,
+	runPreview,
+	cancelJob,
+	clearCurrentJob,
+	watchJob,
+	loadTestJob,
+	syncer
+})}

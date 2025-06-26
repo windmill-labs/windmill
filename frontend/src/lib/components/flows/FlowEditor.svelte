@@ -36,6 +36,7 @@
 		onEditInput?: ((moduleId: string, key: string) => void) | undefined
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
+		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		onOpenAiChat?: () => void
 		onRunPreview?: () => void
@@ -56,6 +57,7 @@
 		onEditInput = undefined,
 		forceTestTab,
 		highlightArg,
+		aiChatOpen,
 		showFlowAiButton,
 		onOpenAiChat,
 		onRunPreview = () => {}
@@ -112,6 +114,7 @@
 						}}
 						{onTestUpTo}
 						{onEditInput}
+						{aiChatOpen}
 						{showFlowAiButton}
 						{onOpenAiChat}
 					/>

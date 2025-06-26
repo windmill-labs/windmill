@@ -6,11 +6,13 @@
 	import { twMerge } from 'tailwind-merge'
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import FlowAIButton from '$lib/components/copilot/chat/flow/FlowAIButton.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 
 	interface Props {
 		disableSettings?: boolean
 		disableStaticInputs?: boolean
 		smallErrorHandler: boolean
+		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		onOpenAiChat?: () => void
 	}
@@ -19,6 +21,7 @@
 		disableSettings,
 		disableStaticInputs,
 		smallErrorHandler,
+		aiChatOpen,
 		showFlowAiButton,
 		onOpenAiChat
 	}: Props = $props()
@@ -40,9 +43,9 @@
 		>
 			<Settings size={14} />
 			<span
-				class="text-xs font-bold flex flex-row justify-between w-fit gap-2 items-center truncate ml-1.5"
+				class="font-bold flex flex-row justify-between w-fit gap-2 items-center truncate ml-1.5"
 			>
-				<span class="text-2xs">Settings</span>
+				<span class="text-xs">Settings</span>
 				<span class="h-[18px] flex items-center">
 					{#if flowStore.val.value.same_worker}
 						<Badge color="blue" baseClass="truncate">./shared</Badge>
@@ -52,18 +55,30 @@
 		</button>
 	{/if}
 	{#if !disableStaticInputs}
-		<button
-			onclick={() => ($selectedId = 'constants')}
-			class={twMerge(nodeClass, $selectedId == 'constants' ? nodeSelectedClass : '')}
-			title="All Static Inputs"
-		>
-			<DollarSign size={14} />
-		</button>
+		<Popover>
+			<button
+				onclick={() => ($selectedId = 'constants')}
+				class={twMerge(nodeClass, $selectedId == 'constants' ? nodeSelectedClass : '')}
+			>
+				<DollarSign size={14} />
+			</button>
+			{#snippet text()}
+				Static Inputs
+			{/snippet}
+		</Popover>
 	{/if}
-
-	<FlowErrorHandlerItem small={smallErrorHandler} on:generateStep clazz={nodeClass} />
-
+	<Popover>
+		<FlowErrorHandlerItem small={smallErrorHandler} on:generateStep clazz={nodeClass} />
+		{#snippet text()}
+			Error Handler
+		{/snippet}
+	</Popover>
 	{#if showFlowAiButton}
-		<FlowAIButton openPanel={() => onOpenAiChat?.()} />
+		<Popover>
+			<FlowAIButton openPanel={() => onOpenAiChat?.()} opened={aiChatOpen} />
+			{#snippet text()}
+				Flow AI Chat
+			{/snippet}
+		</Popover>
 	{/if}
 </div>

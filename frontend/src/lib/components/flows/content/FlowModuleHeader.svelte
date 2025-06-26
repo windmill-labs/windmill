@@ -23,8 +23,12 @@
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import FlowModuleWorkerTagSelect from './FlowModuleWorkerTagSelect.svelte'
 
-	export let module: FlowModule
-	export let tag: string | undefined
+	interface Props {
+		module: FlowModule
+		tag: string | undefined
+	}
+
+	let { module, tag }: Props = $props()
 	const { scriptEditorDrawer } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
@@ -40,7 +44,9 @@
 				on:click={() => dispatch('toggleRetry')}
 			>
 				<Repeat size={14} />
-				<svelte:fragment slot="text">Retries</svelte:fragment>
+				{#snippet text()}
+					Retries
+				{/snippet}
 			</Popover>
 		{/if}
 		{#if module?.value?.['concurrent_limit'] != undefined}
@@ -50,7 +56,9 @@
 				on:click={() => dispatch('toggleConcurrency')}
 			>
 				<Gauge size={14} />
-				<svelte:fragment slot="text">Concurrency Limits</svelte:fragment>
+				{#snippet text()}
+					Concurrency Limits
+				{/snippet}
 			</Popover>
 		{/if}
 		{#if module.cache_ttl != undefined}
@@ -60,7 +68,9 @@
 				on:click={() => dispatch('toggleCache')}
 			>
 				<Database size={14} />
-				<svelte:fragment slot="text">Cache</svelte:fragment>
+				{#snippet text()}
+					Cache
+				{/snippet}
 			</Popover>
 		{/if}
 		{#if module.stop_after_if || module.stop_after_all_iters_if}
@@ -70,7 +80,9 @@
 				on:click={() => dispatch('toggleStopAfterIf')}
 			>
 				<Square size={14} />
-				<svelte:fragment slot="text">Early stop/break</svelte:fragment>
+				{#snippet text()}
+					Early stop/break
+				{/snippet}
 			</Popover>
 		{/if}
 		{#if module.suspend}
@@ -80,7 +92,9 @@
 				on:click={() => dispatch('toggleSuspend')}
 			>
 				<PhoneIncoming size={14} />
-				<svelte:fragment slot="text">Suspend</svelte:fragment>
+				{#snippet text()}
+					Suspend
+				{/snippet}
 			</Popover>
 		{/if}
 		{#if module.sleep}
@@ -90,7 +104,9 @@
 				on:click={() => dispatch('toggleSleep')}
 			>
 				<Bed size={14} />
-				<svelte:fragment slot="text">Sleep</svelte:fragment>
+				{#snippet text()}
+					Sleep
+				{/snippet}
 			</Popover>
 		{/if}
 		{#if module.mock?.enabled}
@@ -100,7 +116,9 @@
 				on:click={() => dispatch('togglePin')}
 			>
 				<Pin size={14} />
-				<svelte:fragment slot="text">This step is pinned</svelte:fragment>
+				{#snippet text()}
+					This step is pinned
+				{/snippet}
 			</Popover>
 		{/if}
 	{/if}

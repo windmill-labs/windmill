@@ -8,7 +8,7 @@
 	import { getModifierKey } from '$lib/utils'
 	import { WandSparkles } from 'lucide-svelte'
 
-	let { openPanel }: { openPanel: () => void } = $props()
+	let { openPanel, opened }: { openPanel: () => void; opened?: boolean } = $props()
 </script>
 
 {#snippet button(onClick: () => void)}
@@ -19,7 +19,9 @@
 		on:click={onClick}
 		startIcon={{ icon: WandSparkles }}
 		iconOnly
-		btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface h-[28px] w-[34px] rounded-sm py-1 px-2"
+		btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface h-[28px] w-[34px] rounded-sm py-1 px-2 {opened
+			? 'bg-surface-100'
+			: ''}"
 	>
 		AI Panel
 	</Button>
@@ -27,7 +29,7 @@
 
 {#if $copilotInfo.enabled}
 	<DarkPopover>
-		<svelte:fragment slot="text">
+		{#snippet text()}
 			<div class="flex flex-row gap-1">
 				Show the AI Panel.
 
@@ -35,15 +37,15 @@
 					{getModifierKey()}L
 				</div>
 			</div>
-		</svelte:fragment>
+		{/snippet}
 		{@render button(openPanel)}
 	</DarkPopover>
 {:else}
 	<Popover placement="bottom">
-		<svelte:fragment slot="trigger">
+		{#snippet trigger()}
 			{@render button(() => {})}
-		</svelte:fragment>
-		<svelte:fragment slot="content">
+		{/snippet}
+		{#snippet content()}
 			<div class="block text-primary p-4">
 				<p class="text-sm"
 					>Enable Windmill AI in the <a
@@ -54,6 +56,6 @@
 					></p
 				>
 			</div>
-		</svelte:fragment>
+		{/snippet}
 	</Popover>
 {/if}
