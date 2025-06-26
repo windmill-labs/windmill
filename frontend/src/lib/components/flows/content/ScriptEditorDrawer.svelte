@@ -11,7 +11,8 @@
 		cleanValueProperties,
 		emptySchema,
 		orderedJsonStringify,
-		sendUserToast
+		sendUserToast,
+		clone
 	} from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
@@ -28,7 +29,7 @@
 			workspace: $workspaceStore!,
 			hash
 		})
-		savedScript = structuredClone($state.snapshot(script))
+		savedScript = clone(script)
 		callback = cb
 	}
 
@@ -100,7 +101,7 @@
 						lock: undefined
 					}
 				})
-				savedScript = structuredClone($state.snapshot(script))
+				savedScript = clone(script)
 				callback?.()
 			} catch (error) {
 				sendUserToast(`Impossible to save the script: ${error.body}`, true)
@@ -246,7 +247,7 @@
 						button: {
 							text: 'Restore to saved',
 							onClick: () => {
-								script = structuredClone($state.snapshot(savedScript))
+								script = clone(savedScript)
 								diffDrawer?.closeDrawer()
 							}
 						}

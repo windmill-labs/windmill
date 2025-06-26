@@ -7,7 +7,8 @@
 		setInputCat as computeInputCat,
 		debounce,
 		emptyString,
-		getSchemaFromProperties
+		getSchemaFromProperties,
+		clone
 	} from '$lib/utils'
 	import { DollarSign, Pipette, Plus, X, Check, Loader2 } from 'lucide-svelte'
 	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
@@ -244,7 +245,7 @@
 			nvalue = undefined
 		}
 		if ((value == undefined || value == null) && !ignoreValueUndefined) {
-			nvalue = structuredClone($state.snapshot(defaultValue))
+			nvalue = clone(defaultValue)
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
 					nvalue = nullable ? null : ''
@@ -296,7 +297,7 @@
 		lastValue = value
 	}
 
-	let oldDefaultValue = structuredClone($state.snapshot(defaultValue))
+	let oldDefaultValue = clone(defaultValue)
 	function handleDefaultValueChange() {
 		if (
 			deepEqual(value, oldDefaultValue) &&
@@ -305,7 +306,7 @@
 		) {
 			value = defaultValue
 		}
-		oldDefaultValue = structuredClone($state.snapshot(defaultValue))
+		oldDefaultValue = clone(defaultValue)
 	}
 
 	function isObjectCat(inputCat?: string) {

@@ -31,7 +31,8 @@
 		generateRandomString,
 		orderedJsonStringify,
 		replaceFalseWithUndefined,
-		type Value
+		type Value,
+		clone
 	} from '$lib/utils'
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
@@ -143,7 +144,7 @@
 			savedValue: savedScript,
 			modifiedValue: {
 				...script,
-				draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
+				draft_triggers: clone(triggersState.getDraftTriggersSnapshot())
 			}
 		}
 	}
@@ -336,7 +337,7 @@
 			'#' +
 				encodeState({
 					...script,
-					draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
+					draft_triggers: clone(triggersState.getDraftTriggersSnapshot())
 				})
 		)
 	}
@@ -562,8 +563,8 @@
 				)
 			}
 
-			const { draft_triggers: _, ...newScript } = structuredClone($state.snapshot(script))
-			savedScript = structuredClone($state.snapshot(newScript)) as NewScriptWithDraft
+			const { draft_triggers: _, ...newScript } = clone(script)
+			savedScript = clone(newScript) as NewScriptWithDraft
 			setDraftTriggers([])
 
 			if (!disableHistoryChange) {
@@ -589,7 +590,7 @@
 
 		if (savedScript) {
 			const draftOrDeployed = cleanValueProperties(savedScript.draft || savedScript)
-			const currentTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
+			const currentTriggers = clone(triggersState.getDraftTriggersSnapshot())
 			const current = cleanValueProperties({ ...script, draft_triggers: currentTriggers })
 			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 				sendUserToast('No changes detected, ignoring', false, [
@@ -694,7 +695,7 @@
 				}
 			})
 
-			const clonedScript = structuredClone($state.snapshot(script))
+			const clonedScript = clone(script)
 			savedScript = {
 				...(initialPath == '' || savedScript?.draft_only
 					? { ...clonedScript, draft_only: true }
@@ -754,7 +755,7 @@
 											}
 											await syncWithDeployed()
 
-											const currentDraftTriggers = structuredClone(
+											const currentDraftTriggers = clone(
 												triggersState.getDraftTriggersSnapshot()
 											)
 

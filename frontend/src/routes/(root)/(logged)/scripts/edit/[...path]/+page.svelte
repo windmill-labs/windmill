@@ -4,7 +4,7 @@
 	import { page } from '$app/stores'
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
-	import { decodeState, cleanValueProperties, orderedJsonStringify } from '$lib/utils'
+	import { decodeState, cleanValueProperties, orderedJsonStringify, clone} from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { replaceState } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -87,14 +87,14 @@
 					workspace: $workspaceStore!,
 					hash
 				})
-				savedScript = structuredClone($state.snapshot(scriptByHash)) as NewScriptWithDraft
+				savedScript = clone(scriptByHash) as NewScriptWithDraft
 				script = { ...scriptByHash, parent_hash: hash, lock: undefined }
 			} else {
 				const scriptWithDraft = await ScriptService.getScriptByPathWithDraft({
 					workspace: $workspaceStore!,
 					path: $page.params.path
 				})
-				savedScript = structuredClone($state.snapshot(scriptWithDraft))
+				savedScript = clone(scriptWithDraft)
 				if (scriptWithDraft.draft != undefined) {
 					script = scriptWithDraft.draft
 					scriptBuilder?.setDraftTriggers(script.draft_triggers)

@@ -35,7 +35,8 @@
 		cleanValueProperties,
 		orderedJsonStringify,
 		type Value,
-		replaceFalseWithUndefined
+		replaceFalseWithUndefined,
+		clone
 	} from '../../../utils'
 	import type { AppInput, Runnable } from '../inputType'
 	import type { App, AppEditorContext, AppViewerContext } from '../types'
@@ -392,7 +393,7 @@
 			})
 			savedApp = {
 				summary: $summary,
-				value: structuredClone($state.snapshot($app)),
+				value: clone($app),
 				path: path,
 				policy: policy,
 				custom_path: customPath
@@ -488,7 +489,7 @@
 		})
 		savedApp = {
 			summary: $summary,
-			value: structuredClone($state.snapshot($app)),
+			value: clone($app),
 			path: npath,
 			policy,
 			custom_path: customPath
@@ -572,13 +573,13 @@
 			})
 			savedApp = {
 				summary: $summary,
-				value: structuredClone($state.snapshot($app)),
+				value: clone($app),
 				path: newEditedPath,
 				policy,
 				draft_only: true,
 				draft: {
 					summary: $summary,
-					value: structuredClone($state.snapshot($app)),
+					value: clone($app),
 					path: newEditedPath,
 					policy,
 					custom_path: customPath
@@ -660,7 +661,7 @@
 				...(savedApp?.draft_only
 					? {
 							summary: $summary,
-							value: structuredClone($state.snapshot($app)),
+							value: clone($app),
 							path: savedApp.draft_only ? newEditedPath || path : path,
 							policy,
 							draft_only: true,
@@ -669,7 +670,7 @@
 					: savedApp),
 				draft: {
 					summary: $summary,
-					value: structuredClone($state.snapshot($app)),
+					value: clone($app),
 					path: newEditedPath || path,
 					policy,
 					custom_path: customPath

@@ -7,7 +7,7 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { PostgresTriggerService, type Language, type Relations } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
+	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast, clone} from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -210,7 +210,7 @@
 			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)
 		} finally {
 			if (!defaultConfig) {
-				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
+				initialConfig = clone(getSaveCfg())
 			}
 			clearTimeout(loadingTimeout)
 			drawerLoading = false

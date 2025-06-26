@@ -24,7 +24,7 @@ export async function copyFirstStepSchema(
 	const firstModuleId = flowStore.val.value.modules[0]?.id
 
 	if (flowState[firstModuleId] && firstModuleId) {
-		flowStore.val.schema = structuredClone($state.snapshot(flowState[firstModuleId].schema))
+		flowStore.val.schema = clone(flowState[firstModuleId].schema)
 		const v = flowStore.val.value.modules[0].value
 		if (v.type == 'rawscript' || v.type == 'script') {
 			Object.keys(v.input_transforms ?? {}).forEach((key) => {
@@ -47,7 +47,7 @@ export async function getFirstStepSchema(flowState: FlowState, flow: OpenFlow) {
 		throw new Error('no first step found')
 	}
 
-	const schema = structuredClone(flowState[firstModuleId].schema)
+	const schema = clone(flowState[firstModuleId].schema)
 	const v = flow.value.modules[0].value
 
 	if (v.type !== 'rawscript' && v.type !== 'script') {

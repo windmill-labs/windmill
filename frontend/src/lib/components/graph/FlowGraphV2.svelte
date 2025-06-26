@@ -36,7 +36,7 @@
 	import { Expand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
-	import { encodeState } from '$lib/utils'
+	import { encodeState, clone} from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
 	import HiddenBaseEdge from './renderers/edges/HiddenBaseEdge.svelte'
@@ -310,12 +310,12 @@
 		}
 	}
 
-	let lastModules = structuredClone($state.snapshot(modules))
+	let lastModules = clone(modules)
 	let moduleCounter = $state(0)
 	function onModulesChange2(modules) {
 		if (!deepEqual(modules, lastModules)) {
 			console.log('modules changed', modules)
-			lastModules = structuredClone($state.snapshot(modules))
+			lastModules = clone(modules)
 			moduleCounter++
 		}
 	}

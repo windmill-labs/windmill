@@ -21,7 +21,7 @@
 		type Schedule
 	} from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
+	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2, clone } from '$lib/utils'
 	import { base } from '$lib/base'
 	import Section from '$lib/components/Section.svelte'
 	import { List, Loader2, Save, AlertTriangle } from 'lucide-svelte'
@@ -132,7 +132,7 @@
 			edit = true
 		} finally {
 			if (!defaultCfg) {
-				initialConfig = structuredClone($state.snapshot(getScheduleCfg()))
+				initialConfig = clone(getScheduleCfg())
 			}
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -608,21 +608,21 @@
 	}
 
 	function getScheduleCfg(): Record<string, any> {
-		let errorHadlerExtraArgsDerived = structuredClone($state.snapshot(errorHandlerExtraArgs))
+		let errorHadlerExtraArgsDerived = clone(errorHandlerExtraArgs)
 		if (errorHandlerPath !== undefined && isSlackHandler('error', errorHandlerPath)) {
 			errorHadlerExtraArgsDerived['slack'] = '$res:f/slack_bot/bot_token'
 		} else {
 			errorHadlerExtraArgsDerived['slack'] = undefined
 		}
 
-		let recoveryHandlerExtraArgsDerived = structuredClone($state.snapshot(recoveryHandlerExtraArgs))
+		let recoveryHandlerExtraArgsDerived = clone(recoveryHandlerExtraArgs)
 		if (recoveryHandlerPath !== undefined && isSlackHandler('recovery', recoveryHandlerPath)) {
 			recoveryHandlerExtraArgsDerived['slack'] = '$res:f/slack_bot/bot_token'
 		} else {
 			recoveryHandlerExtraArgsDerived['slack'] = undefined
 		}
 
-		let successHandlerExtraArgsDerived = structuredClone($state.snapshot(successHandlerExtraArgs))
+		let successHandlerExtraArgsDerived = clone(successHandlerExtraArgs)
 		if (successHandlerPath !== undefined && isSlackHandler('success', successHandlerPath)) {
 			successHandlerExtraArgsDerived['slack'] = '$res:f/slack_bot/bot_token'
 		} else {

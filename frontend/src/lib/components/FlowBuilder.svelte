@@ -27,7 +27,8 @@
 		readFieldsRecursively,
 		replaceFalseWithUndefined,
 		type StateStore,
-		type Value
+		type Value,
+		clone
 	} from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { Drawer } from '$lib/components/common'
@@ -185,7 +186,7 @@
 			savedValue: savedFlow,
 			modifiedValue: {
 				...flowStore.val,
-				draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
+				draft_triggers: clone(triggersState.getDraftTriggersSnapshot())
 			}
 		}
 	}
@@ -250,7 +251,7 @@
 
 		if (savedFlow) {
 			const draftOrDeployed = cleanValueProperties(savedFlow.draft || savedFlow)
-			const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
+			const currentDraftTriggers = clone(triggersState.getDraftTriggersSnapshot())
 			const current = cleanValueProperties(
 				$state.snapshot({
 					...flowStore.val,
@@ -329,15 +330,15 @@
 			savedFlow = {
 				...(newFlow || savedFlow?.draft_only
 					? {
-							...structuredClone($state.snapshot(flowStore.val)),
+							...clone(flowStore.val),
 							path: $pathStore,
 							draft_only: true
 						}
 					: savedFlow),
 				draft: {
-					...structuredClone($state.snapshot(flowStore.val)),
+					...clone(flowStore.val),
 					path: $pathStore,
-					draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
+					draft_triggers: clone(triggersState.getDraftTriggersSnapshot())
 				}
 			} as FlowWithDraftAndDraftTriggers
 
@@ -519,7 +520,7 @@
 				draft_triggers: Trigger[]
 			}
 			savedFlow = {
-				...structuredClone($state.snapshot(newSavedFlow)),
+				...clone(newSavedFlow),
 				path: $pathStore
 			} as Flow
 			setDraftTriggers([])
@@ -1042,7 +1043,7 @@
 
 								await syncWithDeployed()
 
-								const currentDraftTriggers = structuredClone(
+								const currentDraftTriggers = clone(
 									triggersState.getDraftTriggersSnapshot()
 								)
 

@@ -9,7 +9,8 @@
 		orderedJsonStringify,
 		orderedYamlStringify,
 		replaceFalseWithUndefined,
-		type Value
+		type Value,
+		clone
 	} from '$lib/utils'
 	import type { Script } from '$lib/gen'
 
@@ -68,7 +69,7 @@
 	}
 
 	function prepareDiff(data: Value) {
-		const metadata = structuredClone(cleanValueProperties(replaceFalseWithUndefined(data)))
+		const metadata = clone(cleanValueProperties(replaceFalseWithUndefined(data)))
 		const content = metadata['content']
 		if (metadata['content'] !== undefined) {
 			metadata['content'] = 'check content diff'

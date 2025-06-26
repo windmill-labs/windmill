@@ -9,7 +9,8 @@
 		decodeState,
 		emptySchema,
 		orderedJsonStringify,
-		type StateStore
+		type StateStore,
+		clone
 	} from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore.svelte'
 	import { goto } from '$lib/navigation'
@@ -158,10 +159,10 @@
 				path: $page.params.path
 			})
 			savedFlow = {
-				...structuredClone($state.snapshot(flowWithDraft)),
+				...clone(flowWithDraft),
 				draft: flowWithDraft.draft
 					? {
-							...structuredClone($state.snapshot(flowWithDraft.draft)),
+							...clone(flowWithDraft.draft),
 							path: flowWithDraft.draft.path ?? flowWithDraft.path // backward compatibility for old drafts missing path
 						}
 					: undefined

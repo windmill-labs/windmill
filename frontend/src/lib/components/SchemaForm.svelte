@@ -5,7 +5,7 @@
 	import type { Schema } from '$lib/common'
 	import { VariableService, type Script } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { allTrue, computeShow } from '$lib/utils'
+	import { allTrue, computeShow, clone } from '$lib/utils'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
@@ -119,12 +119,12 @@
 	let inputCheck: { [id: string]: boolean } = $state({})
 
 	export function setDefaults() {
-		const nargs = structuredClone($state.snapshot(defaultValues))
+		const nargs = clone(defaultValues)
 
 		Object.keys(schema?.properties ?? {}).forEach((key) => {
 			if (schema?.properties[key].default != undefined && args && args[key] == undefined) {
 				let value = schema?.properties[key].default
-				nargs[key] = value === 'object' ? structuredClone($state.snapshot(value)) : value
+				nargs[key] = value === 'object' ? clone(value) : value
 			}
 		})
 		args = nargs
@@ -294,7 +294,7 @@
 								pattern={formerProperty?.pattern}
 								valid={inputCheck[argName]}
 								defaultValue={defaultValues?.[argName] ??
-									structuredClone($state.snapshot(formerProperty?.default))}
+									clone(formerProperty?.default)}
 								enum_={dynamicEnums?.[argName] ?? formerProperty?.enum}
 								format={formerProperty?.format}
 								contentEncoding={formerProperty?.contentEncoding}
@@ -365,7 +365,7 @@
 									pattern={schema.properties[argName].pattern}
 									bind:valid={inputCheck[argName]}
 									defaultValue={defaultValues?.[argName] ??
-										structuredClone($state.snapshot(schema.properties[argName].default))}
+										clone(schema.properties[argName].default)}
 									enum_={dynamicEnums?.[argName] ?? schema.properties[argName].enum}
 									format={schema.properties[argName].format}
 									contentEncoding={schema.properties[argName].contentEncoding}

@@ -7,7 +7,7 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { HttpTriggerService, VariableService, type AuthenticationMethod } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import { canWrite, emptyString, sendUserToast, clone} from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Pipette, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -183,7 +183,7 @@
 		} finally {
 			if (!defaultConfig) {
 				// If the route is loaded from the backend, we to set the initial config
-				initialConfig = structuredClone($state.snapshot(getRouteConfig()))
+				initialConfig = clone(getRouteConfig())
 			}
 			clearTimeout(loader)
 			drawerLoading = false

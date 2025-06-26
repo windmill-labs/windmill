@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { clone } from '$lib/utils'
 	import { Code, Copy, MoveLeft, MoveRight, Paintbrush2 } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { slide } from 'svelte/transition'
@@ -53,10 +54,10 @@
 	const dispatch = createEventDispatcher()
 	let isQuickMenuOpen = $state(false)
 
-	let prevValue = structuredClone($state.snapshot(value))
+	let prevValue = clone(value)
 	$effect(() => {
 		if (deepEqual(prevValue, value)) return
-		prevValue = structuredClone($state.snapshot(value))
+		prevValue = clone(value)
 		dispatch('change', value)
 	})
 

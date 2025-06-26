@@ -7,6 +7,7 @@ import {
 	type PickableProperties
 } from './previousResults'
 import { evalValue, type ModuleArgs } from './utils'
+import { clone } from '$lib/utils'
 
 export class TestSteps {
 	#stepsEvaluated = $state<Record<string, ModuleArgs>>({})
@@ -102,7 +103,7 @@ export class TestSteps {
 
 		const argSnapshot = $state.snapshot(evalValue(argName, modules[0], pickableProperties, false))
 		this.#stepsEvaluated[moduleId].value[argName] = argSnapshot
-		this.#steps[moduleId].value[argName] = structuredClone(argSnapshot)
+		this.#steps[moduleId].value[argName] = clone(argSnapshot)
 	}
 
 	initializeFromSchema(

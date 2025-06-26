@@ -20,7 +20,7 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { computeWorkspaceS3FileInputPolicy } from '../../editor/appUtilsS3'
-	import { defaultIfEmptyString } from '$lib/utils'
+	import { defaultIfEmptyString, clone} from '$lib/utils'
 	import { userStore } from '$lib/stores'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 
@@ -112,7 +112,7 @@
 	let previousDefault = $state(resolvedConfig.defaultValues)
 
 	function onDefaultChange() {
-		previousDefault = structuredClone($state.snapshot(resolvedConfig.defaultValues))
+		previousDefault = clone(resolvedConfig.defaultValues)
 		args = previousDefault ?? {}
 	}
 

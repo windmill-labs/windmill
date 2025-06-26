@@ -3,8 +3,7 @@ import type { ScheduleTrigger } from '../triggers'
 import type { Writable } from 'svelte/store'
 import { writable } from 'svelte/store'
 import { get } from 'svelte/store'
-import { sendUserToast } from '$lib/utils'
-import { stateSnapshot } from '$lib/svelte5Utils.svelte'
+import { sendUserToast, clone} from '$lib/utils'
 
 // Load the schedule of a flow given its path and the workspace
 export async function loadSchedule(path: string, workspace: string): Promise<ScheduleTrigger> {
@@ -46,7 +45,7 @@ export async function loadSchedules(
 	if (!path || path == '') {
 		schedules.set([])
 		primarySchedule.update((ps) => (ps === undefined ? false : ps))
-		initialPrimarySchedule.set(structuredClone(stateSnapshot(get(primarySchedule))))
+		initialPrimarySchedule.set(clone(get(primarySchedule)))
 		return
 	}
 	try {
@@ -74,7 +73,7 @@ export async function loadSchedules(
 				: false
 		}
 		primarySchedule.update((ps) => (ps === undefined || forceRefresh ? remotePrimarySchedule : ps))
-		initialPrimarySchedule.set(structuredClone(stateSnapshot(remotePrimarySchedule)))
+		initialPrimarySchedule.set(clone(remotePrimarySchedule))
 
 		triggersCount.update((tc) => {
 			const primary = get(primarySchedule)

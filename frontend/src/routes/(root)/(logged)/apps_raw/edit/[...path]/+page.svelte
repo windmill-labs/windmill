@@ -2,14 +2,13 @@
 	import { AppService, DraftService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { page } from '$app/stores'
-	import { cleanValueProperties, decodeState, type Value } from '$lib/utils'
+	import { cleanValueProperties, decodeState, type Value, clone} from '$lib/utils'
 	import { afterNavigate, replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast, type ToastAction } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { HiddenRunnable } from '$lib/components/apps/types'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
-	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 
 	let files: Record<string, string> | undefined = undefined
 	let runnables = {}
@@ -63,7 +62,7 @@
 			path,
 			workspace: $workspaceStore!
 		})
-		const app_w_draft_ = structuredClone(stateSnapshot(app_w_draft))
+		const app_w_draft_ = clone(app_w_draft)
 		savedApp = {
 			summary: app_w_draft_.summary,
 			value: app_w_draft_.value as any,
@@ -191,9 +190,9 @@
 		extractRawApp(prev)
 		savedApp = {
 			summary: prev.summary,
-			value: structuredClone(stateSnapshot(prev.value)),
+			value: clone(prev.value),
 			path: prev.path,
-			policy: structuredClone(stateSnapshot(policy)),
+			policy: clone(policy),
 			custom_path: prev.custom_path
 		}
 		redraw++

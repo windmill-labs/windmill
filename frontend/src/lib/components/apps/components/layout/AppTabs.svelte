@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { clone } from '$lib/utils'
 	import { createBubbler, stopPropagation } from 'svelte/legacy'
 
 	const bubble = createBubbler()
@@ -133,7 +134,7 @@
 				tabs
 			)
 		) {
-			lastTabs = structuredClone($state.snapshot(tabs))
+			lastTabs = clone(tabs)
 		} else {
 			return
 		}

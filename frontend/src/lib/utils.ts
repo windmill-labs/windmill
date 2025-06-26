@@ -1023,7 +1023,7 @@ export type Value = {
 }
 
 export function replaceFalseWithUndefined(obj: any) {
-	return replaceFalseWithUndefinedRec(structuredClone(stateSnapshot(obj)))
+	return replaceFalseWithUndefinedRec(clone(obj))
 }
 
 function replaceFalseWithUndefinedRec(obj: any) {
@@ -1052,7 +1052,7 @@ export function cleanValueProperties(obj: Value) {
 		let newObj: any = {}
 		for (const key of Object.keys(obj)) {
 			if (key !== 'parent_hash' && key !== 'draft' && key !== 'draft_only') {
-				newObj[key] = structuredClone(stateSnapshot(obj[key]))
+				newObj[key] = clone(obj[key])
 			}
 		}
 		return newObj

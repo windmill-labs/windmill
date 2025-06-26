@@ -20,7 +20,7 @@
 	import Label from './Label.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from './Toggle.svelte'
-	import { emptyString } from '$lib/utils'
+	import { emptyString, clone} from '$lib/utils'
 	import Popover from './meltComponents/Popover.svelte'
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 	import { deepEqual } from 'fast-equals'
@@ -114,7 +114,7 @@
 		Object.keys(schema?.properties ?? {}).forEach((key) => {
 			if (schema?.properties[key].default != undefined && args?.[key] == undefined) {
 				let value = schema?.properties[key].default
-				nargs[key] = value === 'object' ? structuredClone($state.snapshot(value)) : value
+				nargs[key] = value === 'object' ? clone(value) : value
 			}
 		})
 		args = nargs
