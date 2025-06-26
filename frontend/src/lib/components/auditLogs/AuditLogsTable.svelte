@@ -2,7 +2,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import type { AuditLog } from '$lib/gen'
 	import { displayDate } from '$lib/utils'
-	import { onMount } from 'svelte'
+	import { onMount, tick } from 'svelte'
 	import Button from '../common/button/Button.svelte'
 	import { ListFilter, ChevronLeft, ChevronRight } from 'lucide-svelte'
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
@@ -81,13 +81,15 @@
 
 	let tableHeight: number = $state(0)
 	let headerHeight: number = $state(0)
+	let footerHeight: number = $state(48)
 
 	function computeHeight() {
-		tableHeight = document.querySelector('#audit-logs-table-wrapper')!.parentElement?.clientHeight ?? 0
+		tableHeight =
+			document.querySelector('#audit-logs-table-wrapper')!.parentElement?.clientHeight ?? 0
 	}
 
 	onMount(() => {
-		computeHeight()
+		tick().then(computeHeight)
 	})
 
 	let groupedLogs = $derived(groupLogsByDay(logs))
@@ -120,60 +122,33 @@
 
 <svelte:window onresize={() => computeHeight()} />
 
-<div class="divide-y min-w-[640px] h-full" id="audit-logs-table-wrapper">
+<div
+	class="divide-y min-w-[640px] h-full"
+	id="audit-logs-table-wrapper"
+>
+
 	<div bind:clientHeight={headerHeight}>
-		<div class="flex flex-row bg-surface-secondary sticky top-0 w-full p-2 pr-4 text-xs font-semibold">
+		<div
+			class="flex flex-row bg-surface-secondary sticky top-0 w-full p-2 pr-4 text-xs font-semibold"
+		>
 			<div class="w-1/12">ID</div>
 			<div class="w-3/12">Timestamp</div>
 			<div class="w-3/12">Username</div>
 			<div class="w-3/12">Operation</div>
 			<div class="w-2/12">Resource</div>
 		</div>
-		{#if pageIndex && pageIndex > 1}
-			<div class="flex flex-row justify-between items-center p-2 bg-surface-primary border-b">
-				<div class="flex flex-row gap-2 items-center">
-					<Button
-						color="light"
-						size="xs2"
-						startIcon={{ icon: ChevronLeft }}
-						on:click={() => {
-							pageIndex = (pageIndex ?? 1) - 1
-						}}
-						disabled={pageIndex <= 1}
-					>
-						Previous
-					</Button>
-					<span class="text-xs text-secondary px-2">Page {pageIndex}</span>
-					<Button
-						color="light"
-						size="xs2"
-						endIcon={{ icon: ChevronRight }}
-						on:click={() => {
-							pageIndex = (pageIndex ?? 1) + 1
-						}}
-						disabled={!hasMore}
-					>
-						Next
-					</Button>
-				</div>
-				<div class="text-xs text-secondary">
-					{perPage} logs per page
-				</div>
-			</div>
-		{/if}
 	</div>
 	{#if logs?.length == 0}
 		<div class="text-xs text-secondary p-8"> No logs found for the selected filters. </div>
 	{:else}
 		<VirtualList
 			width="100%"
-			height={tableHeight - headerHeight}
+			height={tableHeight - headerHeight - footerHeight}
 			itemCount={flatLogs?.length ?? 0}
 			itemSize={42}
 			overscanCount={20}
 			{stickyIndices}
-			scrollToAlignment="start"
-			scrollToBehaviour="smooth"
+			scrollToAlignment="center"
 		>
 			{#snippet header()}{/snippet}
 			{#snippet children({ index, style })}
@@ -183,7 +158,7 @@
 
 						{#if logOrDate}
 							{#if logOrDate?.type === 'date'}
-								<div class="bg-surface-secondary/30 py-2 border-b font-semibold text-xs pl-5">
+								<div class="bg-surface-secondary py-2 border-b font-semibold text-xs pl-5">
 									{logOrDate.date}
 								</div>
 							{:else}
@@ -274,23 +249,48 @@
 					{/if}
 				</div>
 			{/snippet}
-			{#snippet footer()}
-				{#if hasMore}
-					<div class="flex justify-center py-2">
-						<Button
-							color="light"
-							size="xs2"
-							on:click={() => {
-								pageIndex = (pageIndex ?? 1) + 1
-							}}
-						>
-							Load More
-						</Button>
-					</div>
-				{/if}
-			{/snippet}
+			{#snippet footer()}{/snippet}
 		</VirtualList>
 	{/if}
+	<!-- Pagination footer - always visible -->
+	<div class="flex flex-row justify-between items-center p-2 bg-surface-primary border-t">
+		<div class="flex flex-row gap-2 items-center">
+			<Button
+				color="light"
+				size="xs2"
+				startIcon={{ icon: ChevronLeft }}
+				on:click={() => {
+					pageIndex = (pageIndex ?? 1) - 1
+				}}
+				disabled={pageIndex <= 1}
+			>
+				Previous
+			</Button>
+			<span class="text-xs text-secondary px-2">Page {pageIndex}</span>
+			<Button
+				color="light"
+				size="xs2"
+				endIcon={{ icon: ChevronRight }}
+				on:click={() => {
+					pageIndex = (pageIndex ?? 1) + 1
+				}}
+				disabled={!hasMore}
+			>
+				Next
+			</Button>
+		</div>
+		<div class="flex flex-row gap-2 items-center">
+			<span class="text-xs text-secondary">Per page:</span>
+			<select
+				bind:value={perPage}
+				class="text-xs bg-transparent border border-gray-300 dark:border-gray-600 rounded px-2 py-1"
+			>
+				<option value={25}>25</option>
+				<option value={100}>100</option>
+				<option value={1000}>1000</option>
+			</select>
+		</div>
+	</div>
 </div>
 
 <style lang="postcss">
