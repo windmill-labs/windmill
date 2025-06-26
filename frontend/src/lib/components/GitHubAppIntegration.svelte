@@ -206,7 +206,7 @@
 								<p class="text-sm font-semibold text-secondary">Select Repository</p>
 								<div class="flex flex-row gap-2 w-full">
 									<div class="flex flex-col gap-1 flex-1">
-										<p class="text-sm font-semibold text-secondary">Github Account ID</p>
+										<p class="text-sm font-semibold text-secondary">GitHub Account ID</p>
 										<select bind:value={githubState.selectedGHAppAccountId}>
 											<option value="" disabled>Select GitHub Account ID</option>
 											{#each githubState.workspaceGithubInstallations as installation (`select-${installation.installation_id}-${installation.workspace_id}`)}
