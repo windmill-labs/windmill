@@ -442,7 +442,7 @@
 			return o
 		})
 
-		state = undefined
+		componentState = undefined
 
 		// If in the mean time the table has changed, we don't want to update the columnDefs
 		if (lastTable !== table) {
@@ -529,7 +529,7 @@
 	}
 
 	let runnableComponent: RunnableComponent
-	let state: any = undefined
+	let componentState: any = undefined
 	let insertRowRunnable: InsertRowRunnable
 	let deleteRow: DeleteRow
 	let dbExplorerCount: DbExplorerCount | undefined = undefined
@@ -652,7 +652,7 @@
 				<!-- {JSON.stringify(resolvedConfig.columnDefs)} -->
 				<AppAggridExplorerTable
 					bind:this={aggrid}
-					bind:state
+					bind:componentState={componentState}
 					{id}
 					{datasource}
 					{resolvedConfig}
