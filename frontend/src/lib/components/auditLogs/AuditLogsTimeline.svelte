@@ -455,25 +455,16 @@
 					callbacks: {
 						title: function (context: any) {
 							const log = context[0].raw.log
-							const point = context[0].raw
 							let title = `${log.operation} - ${log.action_kind}`
-							// if (point.isCluster) {
-							// 	title += ` (${point.clusterIndex + 1} of ${point.clusterSize})`
-							// }
 							return title
 						},
 						label: function (context: any) {
 							const log = context.raw.log
-							const point = context.raw
 							const labels = [
 								`User: ${log.username}`,
 								`Resource: ${log.resource}`,
 								`Time: ${new Date(log.timestamp).toLocaleString()}`
-								// `Span: ${log.span || log.span || 'untraced'}`
 							]
-							// if (point.isCluster) {
-							// 	labels.push(`Clustered with ${point.clusterSize - 1} other logs`)
-							// }
 							return labels
 						}
 					}

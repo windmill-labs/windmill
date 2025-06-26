@@ -71,6 +71,8 @@
 		scope = $bindable(undefined)
 	}: Props = $props()
 
+	;hasMore
+
 	$effect.pre(() => {
 		if (logs == undefined) {
 			logs = []
