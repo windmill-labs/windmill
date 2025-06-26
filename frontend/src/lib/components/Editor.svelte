@@ -155,6 +155,7 @@
 	import { writable } from 'svelte/store'
 	import { formatResourceTypes } from './copilot/chat/script/core'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
+	import { editorPositionMap } from '$lib/utils'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
@@ -188,6 +189,7 @@
 	export let extraLib: string | undefined = undefined
 	export let changeTimeout: number = 500
 	export let loadAsync = false
+	export let key: string | undefined = undefined
 
 	let lang = scriptLangToEditorLang(scriptLang)
 	$: lang = scriptLangToEditorLang(scriptLang)
@@ -1277,6 +1279,10 @@
 				tabSize: lang == 'python' ? 4 : 2,
 				folding
 			})
+			if (key && editorPositionMap?.[key]) {
+				editor.setPosition(editorPositionMap[key])
+				editor.revealPositionInCenterIfOutsideViewport(editorPositionMap[key])
+			}
 		} catch (e) {
 			console.error('Error loading monaco:', e)
 			return
@@ -1304,6 +1310,10 @@
 
 		editor?.onDidBlurEditorText(() => {
 			dispatch('blur')
+		})
+
+		editor?.onDidChangeCursorPosition((event) => {
+			if (key) editorPositionMap[key] = event.position
 		})
 
 		editor?.onDidFocusEditorText(() => {

@@ -526,6 +526,7 @@
 							bind:scriptPath={script_path}
 							allowRefresh={can_write}
 							allowEdit={!$userStore?.operator}
+							clearable
 						/>
 
 						{#if emptyString(script_path) && is_flow === false}

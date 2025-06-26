@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.501.4](https://github.com/windmill-labs/windmill/compare/v1.501.3...v1.501.4) (2025-06-26)
+
+
+### Bug Fixes
+
+* add windows paths to uv install to find git/ssh ([#6063](https://github.com/windmill-labs/windmill/issues/6063)) ([835f1d2](https://github.com/windmill-labs/windmill/commit/835f1d2ec945145942deaa41cb3bd176ed276279))
+* optionally enable CSP headers ([#6033](https://github.com/windmill-labs/windmill/issues/6033)) ([d933648](https://github.com/windmill-labs/windmill/commit/d933648d3666b2ca9d813e04b9f19ddc3c7efda3))
+* schemaform reorder ([#6069](https://github.com/windmill-labs/windmill/issues/6069)) ([1a4b096](https://github.com/windmill-labs/windmill/commit/1a4b096f3ce40e238f1724aa4fd26649d70cb62a))
+
+## [1.501.3](https://github.com/windmill-labs/windmill/compare/v1.501.2...v1.501.3) (2025-06-25)
+
+
+### Bug Fixes
+
+* **backend:** return correct content-type for openapi spec ([#6045](https://github.com/windmill-labs/windmill/issues/6045)) ([44457c7](https://github.com/windmill-labs/windmill/commit/44457c72cf75c969de97c39bb23f57acad268e10))
+* **frontend:** load all flow jobs on page load ([#6029](https://github.com/windmill-labs/windmill/issues/6029)) ([dc5e764](https://github.com/windmill-labs/windmill/commit/dc5e764d9db9251dc356094d6ac47c45fdf72c74))
+* ignore type only imports when computing ts lockfiles ([900c8ed](https://github.com/windmill-labs/windmill/commit/900c8edd7b35802e23a1359029da8ddbfb783753))
+* improve ordering of forms for non complete ordering + array schema fix ([18ee03a](https://github.com/windmill-labs/windmill/commit/18ee03a32371885f5e608cb306b5ccbccc31dac5))
+* missing static_asset_config from api call ([#6058](https://github.com/windmill-labs/windmill/issues/6058)) ([395f1ff](https://github.com/windmill-labs/windmill/commit/395f1ff8ba05020d72d1d8b34bd6bb32517b7aec))
+
+## [1.501.2](https://github.com/windmill-labs/windmill/compare/v1.501.1...v1.501.2) (2025-06-24)
+
+
+### Bug Fixes
+
+* improve schema form handling of inconsistent order and properties ([3daf79f](https://github.com/windmill-labs/windmill/commit/3daf79ffbc45ca32ff443e5521a67d62528665db))
+
+## [1.501.1](https://github.com/windmill-labs/windmill/compare/v1.501.0...v1.501.1) (2025-06-24)
+
+
+### Bug Fixes
+
+* optimize jobs list run incremental refresh performance ([1bdd00a](https://github.com/windmill-labs/windmill/commit/1bdd00a3e4a94ecb23efb9614c341c64a67ac389))
+* pwsh skip already installed modules outside of cache ([#6037](https://github.com/windmill-labs/windmill/issues/6037)) ([29f6fab](https://github.com/windmill-labs/windmill/commit/29f6fab60c6f8cf251182a56c09bac7692868bae))
+
 ## [1.501.0](https://github.com/windmill-labs/windmill/compare/v1.500.3...v1.501.0) (2025-06-24)
 
 

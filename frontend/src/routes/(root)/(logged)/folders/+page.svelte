@@ -197,6 +197,7 @@
 															workspace: $workspaceStore ?? '',
 															name
 														})
+														folders = folders?.filter((f) => f.name !== name)
 													} catch (e) {
 														sendUserToast(e.body, true)
 														loadFolders()

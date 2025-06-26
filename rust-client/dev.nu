@@ -1,6 +1,6 @@
 #! /usr/bin/env nu
 
-let version = open ../version.txt;
+let version = open ../version.txt | str trim;
 
 def main [ --publish(-p) --check(-c) --test(-t) ] {
   mkdir api/a/
@@ -16,6 +16,7 @@ def main [ --publish(-p) --check(-c) --test(-t) ] {
   # Patch Cargo.toml
   open Cargo.proto.toml
   | update package.version $version
+  | update dependencies.windmill-api.version $version
   | save -f Cargo.toml
 
   # Patch windmill_api/Cargo.toml

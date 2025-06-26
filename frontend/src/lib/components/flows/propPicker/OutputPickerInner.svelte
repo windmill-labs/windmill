@@ -28,6 +28,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import DisplayResultControlBar from '$lib/components/DisplayResultControlBar.svelte'
 	import { base } from '$lib/base'
+	import { fade } from 'svelte/transition'
 
 	interface Props {
 		prefix?: string
@@ -64,6 +65,8 @@
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		onEditInput?: (moduleId: string, key: string) => void
 		selectionId?: string
+		initial?: boolean
+		onResetInitial?: () => void
 	}
 
 	let {
@@ -95,7 +98,8 @@
 		onSelect,
 		onUpdateMock,
 		onEditInput,
-		selectionId
+		selectionId,
+		initial
 	}: Props = $props()
 
 	type SelectedJob =
@@ -252,6 +256,8 @@
 
 	let popoverHeight = $derived(customHeight ?? (clientHeight > 0 ? clientHeight : 0))
 
+	const isLoadingAndNotMock = $derived(isLoading && !mock?.enabled)
+
 	const copilot_fix_render = $derived(copilot_fix)
 </script>
 
@@ -353,7 +359,7 @@
 						{/snippet}
 					</Popover>
 				{/if}
-				{#if !isLoading}
+				{#if !isLoadingAndNotMock || mock?.enabled}
 					<div
 						class={twMerge(
 							'w-grow min-w-0 flex gap-1 items-center h-[27px] rounded-md  group',
@@ -413,7 +419,7 @@
 					</div>
 				{/if}
 
-				{#if !disableMock && !isLoading}
+				{#if !disableMock && !isLoadingAndNotMock}
 					<Tooltip disablePopup={mock?.enabled}>
 						<Button
 							color="light"
@@ -578,7 +584,7 @@
 				hoveringResult = false
 			}}
 		>
-			{#if isLoading}
+			{#if isLoadingAndNotMock}
 				<div class="flex flex-col items-center justify-center">
 					<Loader2 class="animate-spin" />
 				</div>
@@ -700,6 +706,13 @@
 			{/if}
 		</div>
 	</div>
+	{#if initial && !mock?.enabled}
+		<span
+			in:fade
+			class="-mb-1 -mt-0.5 w-full text-right pr-4 dark:text-gray-500 text-gray-400 font-normal text-2xs py-0"
+			>Run loaded from history</span
+		>
+	{/if}
 </div>
 
 {#snippet editKey(key: string)}

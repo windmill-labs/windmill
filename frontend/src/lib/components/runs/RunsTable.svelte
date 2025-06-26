@@ -285,7 +285,6 @@
 			{stickyIndices}
 			{scrollToIndex}
 			scrollToAlignment="center"
-			scrollToBehaviour="smooth"
 		>
 			{#snippet header()}{/snippet}
 			{#snippet children({ index, style })}

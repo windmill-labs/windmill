@@ -53,6 +53,7 @@
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 
 	const {
 		selectedId,
@@ -186,6 +187,7 @@
 	let forceReload = $state(0)
 	let editorPanelSize = $state(noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50)
 	let editorSettingsPanelSize = $state(100 - untrack(() => editorPanelSize))
+	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	function onSelectedIdChange() {
 		if (!$flowStateStore?.[$selectedId]?.schema && flowModule) {
@@ -447,6 +449,7 @@
 												},
 												{}
 											)}
+											key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
 										/>
 										<DiffEditor
 											open={false}
@@ -819,7 +822,23 @@
 									</div>
 								</Pane>
 								{#if selected === 'test'}
-									<Pane minSize={20}>
+									<Pane minSize={20} class="relative">
+										{#if stepHistoryLoader?.stepStates[flowModule.id]?.initial && !flowModule.mock?.enabled}
+											<!-- svelte-ignore a11y_no_static_element_interactions -->
+											<!-- svelte-ignore a11y_click_events_have_key_events -->
+											<div
+												onclick={() => {
+													stepHistoryLoader?.resetInitial(flowModule.id)
+												}}
+												class="cursor-pointer h-full hover:bg-gray-500/20 dark:hover:bg-gray-500/20 dark:bg-gray-500/80 bg-gray-500/40 absolute top-0 left-0 w-full z-50"
+											>
+												<div class="text-center text-primary text-sm py-2 pt-20"
+													><span class="font-bold border p-2 bg-surface-secondary rounded-md"
+														>Run loaded from history</span
+													></div
+												>
+											</div>
+										{/if}
 										<ModulePreviewResultViewer
 											lang={flowModule.value['language'] ?? 'deno'}
 											{editor}
@@ -839,6 +858,7 @@
 											{testIsLoading}
 											disableMock={preprocessorModule || failureModule}
 											disableHistory={failureModule}
+											loadingHistory={stepHistoryLoader?.stepStates[flowModule.id]?.loadingJobs}
 										/>
 									</Pane>
 								{/if}
