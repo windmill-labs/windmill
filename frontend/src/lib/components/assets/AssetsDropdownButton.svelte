@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { clone, pluralize, truncate } from '$lib/utils'
+	import { clone, pluralize } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
-	import { Pyramid } from 'lucide-svelte'
+	import { Edit2, Pyramid } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { Popover } from '../meltComponents'
 	import S3FilePicker from '../S3FilePicker.svelte'
@@ -13,6 +13,9 @@
 	import { untrack } from 'svelte'
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import Button from '../common/button/Button.svelte'
+	import Tooltip from '../meltComponents/Tooltip.svelte'
+	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 
 	let { assets: assetsUris }: { assets: string[] } = $props()
 	const assets = $derived(assetsUris.map(parseAsset).filter((x) => !!x) ?? [])
@@ -22,6 +25,7 @@
 
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
+	let resourceEditorDrawer: ResourceEditorDrawer | undefined = $state()
 	let isOpen = $state(false)
 
 	let resourceTypesCache: Record<string, string | undefined> = $state({})
@@ -69,18 +73,36 @@
 		<ul class="divide-y rounded-md">
 			{#each assets as asset}
 				{#if asset}
-					<li class="text-sm px-4 h-12 flex gap-4 items-center select-none justify-between">
-						{truncate(formatAsset(asset), 40)}
-						{#if assetCanBeExplored(asset, { resourceType: resourceTypesCache[asset.path] })}
-							<ExploreAssetButton
-								{asset}
-								{s3FilePicker}
-								{dbManagerDrawer}
-								onClick={() => (isOpen = false)}
-								noText
-								_resourceMetadata={{ resourceType: resourceTypesCache[asset.path] }}
-							/>
-						{/if}
+					<li class="text-sm px-4 h-12 flex gap-4 items-center justify-between">
+						<Tooltip class="select-none max-w-48 truncate">
+							{formatAsset(asset)}
+							<svelte:fragment slot="text">
+								{formatAsset(asset)}
+							</svelte:fragment>
+						</Tooltip>
+
+						<div class="flex gap-2">
+							{#if asset.kind === 'resource'}
+								<Button
+									startIcon={{ icon: Edit2 }}
+									size="xs"
+									variant="border"
+									spacingSize="xs2"
+									iconOnly
+									on:click={() => (resourceEditorDrawer?.initEdit(asset.path), (isOpen = false))}
+								/>
+							{/if}
+							{#if assetCanBeExplored(asset, { resourceType: resourceTypesCache[asset.path] })}
+								<ExploreAssetButton
+									{asset}
+									{s3FilePicker}
+									{dbManagerDrawer}
+									onClick={() => (isOpen = false)}
+									noText
+									_resourceMetadata={{ resourceType: resourceTypesCache[asset.path] }}
+								/>
+							{/if}
+						</div>
 					</li>
 				{/if}
 			{/each}
@@ -89,3 +111,4 @@
 </Popover>
 <S3FilePicker bind:this={s3FilePicker} readOnlyMode />
 <DbManagerDrawer bind:this={dbManagerDrawer} />
+<ResourceEditorDrawer bind:this={resourceEditorDrawer} />
