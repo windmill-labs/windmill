@@ -1,3 +1,7 @@
+<script module lang="ts">
+	export let openedBottomBars: Record<string, true> = $state({})
+</script>
+
 <script lang="ts">
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -37,6 +41,11 @@
 		loopStatus,
 		onEditInput
 	}: Props = $props()
+
+	$effect(() => {
+		if (bottomBarOpen) openedBottomBars[id] = true
+		else delete openedBottomBars[id]
+	})
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
 	const flowPropPickerConfig = context?.flowPropPickerConfig
