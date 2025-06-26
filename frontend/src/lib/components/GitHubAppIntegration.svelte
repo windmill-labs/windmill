@@ -42,20 +42,22 @@
 	// Filter and deduplicate installations not in current workspace
 	let githubInstallationsNotInWorkspace = $derived(
 		githubState.githubInstallations
-			.filter(installation => 
-				!githubState.workspaceGithubInstallations.some(
-					workspaceInstallation => workspaceInstallation.installation_id === installation.installation_id
-				)
+			.filter(
+				(installation) =>
+					!githubState.workspaceGithubInstallations.some(
+						(workspaceInstallation) =>
+							workspaceInstallation.installation_id === installation.installation_id
+					)
 			)
-			.filter((installation, index, array) => 
-				array.findIndex(item => item.installation_id === installation.installation_id) === index
+			.filter(
+				(installation, index, array) =>
+					array.findIndex((item) => item.installation_id === installation.installation_id) === index
 			)
 	)
 
 	let showGitHubApp = $derived(
 		resourceType === 'git_repository' && $workspaceStore && $userStore?.is_admin
 	)
-
 
 	// Load GitHub installations when conditions are met
 	$effect(() => {
@@ -65,7 +67,6 @@
 			})
 		}
 	})
-
 
 	// Clean up interval when component is destroyed
 	onDestroy(() => {
@@ -98,9 +99,9 @@
 
 	async function handleDeleteInstallation(installationId: number) {
 		if (!$workspaceStore) return
-		
+
 		try {
-			await deleteInstallation($workspaceStore, installationId, () => 
+			await deleteInstallation($workspaceStore, installationId, () =>
 				loadGithubInstallations(githubState, $workspaceStore!)
 			)
 		} catch (error) {
@@ -110,7 +111,7 @@
 
 	async function handleAddInstallation(installationId: number, workspaceId: string) {
 		if (!$workspaceStore) return
-		
+
 		try {
 			await addInstallationToWorkspace($workspaceStore, installationId, workspaceId, () =>
 				loadGithubInstallations(githubState, $workspaceStore!)
@@ -122,7 +123,7 @@
 
 	async function handleExportInstallation(installationId: number) {
 		if (!$workspaceStore) return
-		
+
 		try {
 			await exportInstallation($workspaceStore, installationId)
 		} catch (error) {
@@ -132,7 +133,7 @@
 
 	async function handleImportInstallation() {
 		if (!$workspaceStore) return
-		
+
 		try {
 			await importInstallation($workspaceStore, githubState.importJwt, () => {
 				githubState.importJwt = ''
@@ -145,7 +146,7 @@
 
 	function handleRefreshInstallations() {
 		if (!$workspaceStore) return
-		
+
 		loadGithubInstallations(githubState, $workspaceStore).catch((error) => {
 			console.error('Failed to refresh installations:', error)
 		})
@@ -153,7 +154,7 @@
 
 	function handleInstallClickWithPopover() {
 		if (!$workspaceStore) return
-		
+
 		handleInstallClick(githubState, $workspaceStore, () => {
 			githubAppPopover?.open()
 		})
@@ -209,9 +210,7 @@
 										<select bind:value={githubState.selectedGHAppAccountId}>
 											<option value="" disabled>Select GitHub Account ID</option>
 											{#each githubState.workspaceGithubInstallations as installation (`select-${installation.installation_id}-${installation.workspace_id}`)}
-												<option value={installation.account_id}
-													>{installation.account_id}</option
-												>
+												<option value={installation.account_id}>{installation.account_id}</option>
 											{/each}
 										</select>
 									</div>
@@ -257,7 +256,7 @@
 										variant="border"
 										size="xs"
 										href={githubState.githubInstallationUrl}
-										startIcon={{ 
+										startIcon={{
 											icon: githubState.isCheckingInstallation ? Loader2 : Plus,
 											classes: githubState.isCheckingInstallation ? 'animate-spin' : ''
 										}}
@@ -265,13 +264,15 @@
 										disabled={githubState.isCheckingInstallation}
 										on:click={() => {
 											if ($workspaceStore) {
-												startInstallationCheck(githubState, $workspaceStore, () => 
+												startInstallationCheck(githubState, $workspaceStore, () =>
 													loadGithubInstallations(githubState, $workspaceStore!)
 												)
 											}
 										}}
 									>
-										{githubState.isCheckingInstallation ? 'Checking for new installations...' : 'Add new installation'}
+										{githubState.isCheckingInstallation
+											? 'Checking for new installations...'
+											: 'Add new installation'}
 									</Button>
 								</div>
 								{#if githubState.workspaceGithubInstallations.length > 0}
@@ -306,7 +307,8 @@
 																		color="blue"
 																		title="Export installation to other instance"
 																		startIcon={{ icon: Download }}
-																		on:click={() => handleExportInstallation(installation.installation_id)}
+																		on:click={() =>
+																			handleExportInstallation(installation.installation_id)}
 																	>
 																		Export
 																	</Button>
@@ -315,7 +317,8 @@
 																		color="red"
 																		title="Remove installation from workspace"
 																		startIcon={{ icon: Minus }}
-																		on:click={() => handleDeleteInstallation(installation.installation_id)}
+																		on:click={() =>
+																			handleDeleteInstallation(installation.installation_id)}
 																	>
 																		Remove
 																	</Button>
@@ -361,10 +364,11 @@
 																	color="blue"
 																	title="Add installation to workspace"
 																	startIcon={{ icon: Plus }}
-																	on:click={() => handleAddInstallation(
-																		installation.installation_id,
-																		installation.workspace_id
-																	)}
+																	on:click={() =>
+																		handleAddInstallation(
+																			installation.installation_id,
+																			installation.workspace_id
+																		)}
 																>
 																	Add to workspace
 																</Button>
@@ -410,8 +414,14 @@
 			size="xs"
 			disabled={!$enterpriseLicense || githubState.loadingGithubInstallations}
 			startIcon={{
-				icon: githubState.loadingGithubInstallations || githubState.isCheckingInstallation ? Loader2 : Github,
-				classes: githubState.loadingGithubInstallations || githubState.isCheckingInstallation ? 'animate-spin' : ''
+				icon:
+					githubState.loadingGithubInstallations || githubState.isCheckingInstallation
+						? Loader2
+						: Github,
+				classes:
+					githubState.loadingGithubInstallations || githubState.isCheckingInstallation
+						? 'animate-spin'
+						: ''
 			}}
 			href={githubState.githubInstallationUrl}
 			target="_blank"

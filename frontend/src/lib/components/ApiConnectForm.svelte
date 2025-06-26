@@ -1,13 +1,6 @@
 <script lang="ts">
-	import {
-		OauthService,
-		type ResourceType
-	} from '$lib/gen'
-	import {
-		workspaceStore,
-		enterpriseLicense,
-		userStore
-	} from '$lib/stores'
+	import { OauthService, type ResourceType } from '$lib/gen'
+	import { workspaceStore, enterpriseLicense, userStore } from '$lib/stores'
 	import { emptySchema, emptyString } from '$lib/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import type SimpleEditor from './SimpleEditor.svelte'
@@ -45,8 +38,6 @@
 	let notFound = $state(false)
 
 	let supabaseWizard = $state(false)
-
-
 
 	async function isSupabaseAvailable() {
 		try {
