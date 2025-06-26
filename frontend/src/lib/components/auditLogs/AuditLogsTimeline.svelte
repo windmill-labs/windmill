@@ -17,9 +17,9 @@
 	import type { AuditLog } from '$lib/gen'
 	import { Scatter } from '../chartjs-wrappers/chartJs'
 	import { Loader2 } from 'lucide-svelte'
-	import { getDbClockNow } from '$lib/forLater'
 	import { untrack } from 'svelte'
 	import { sleep } from '$lib/utils'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
 
 	interface Props {
 		logs: AuditLog[]
@@ -78,7 +78,7 @@
 			scaleMode: 'y',
 			onZoom: ({ chart }) => {
 				chartInstance = chart
-				zoomTrigger++ // Trigger recalculation of jittering
+				// zoomTrigger++ // Trigger recalculation of jittering
 				onZoom?.({
 					min: addSeconds(new Date(chart.scales.x.min), -1),
 					max: addSeconds(new Date(chart.scales.x.max), 1)
@@ -250,13 +250,28 @@
 	ChartJS.defaults.color = isDark() ? '#ccc' : '#666'
 	ChartJS.defaults.borderColor = isDark() ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
 
-	// State for async grouping
-	let groupedData = $state<{
+	async function getGroupedData(): Promise<{
 		grouped: Record<string, AuditLog[]>
 		jobGrouped: Map<string, AuditLog[]>
-	} | null>(null)
-	let isGrouping = $state(false)
-	let chartInstance: any = $state(null)
+	}> {
+	console.log("Getting grouped data")
+		if (logs.length === 0) {
+			await sleep(1)
+			return { grouped: {}, jobGrouped: new Map() }
+		}
+
+		try {
+			return await groupLogsBySpan(logs, onMissingJobSpan)
+		} catch (error) {
+			console.error('Error grouping logs:', error)
+			// Fallback to sync grouping without missing job span resolution
+			return await groupLogsBySpan(logs)
+		}
+	}
+
+	let groupedData = usePromise(getGroupedData)
+	// let isGrouping = $state(false)
+	let chartInstance: any = null
 	let zoomTrigger = $state(0)
 
 	let { minTime, maxTime } = $derived(computeMinMaxTime(logs, minTimeSet, maxTimeSet))
@@ -307,28 +322,32 @@
 		return { minTime, maxTime }
 	}
 
-	// Reactive grouping that handles async operations
-	$effect(async () => {
-		if (logs.length === 0) {
-			await sleep(1)
-			groupedData = { grouped: {}, jobGrouped: new Map() }
-			return
-		}
-
-		isGrouping = true
-		try {
-			groupedData = await groupLogsBySpan(logs, onMissingJobSpan)
-		} catch (error) {
-			console.error('Error grouping logs:', error)
-			// Fallback to sync grouping without missing job span resolution
-			groupedData = await groupLogsBySpan(logs)
-		} finally {
-			isGrouping = false
-		}
+	$effect(() => {
+		logs && untrack(() => groupedData.refresh())
 	})
 
-	const groupedLogs = $derived(groupedData?.grouped ?? {})
-	const jobGrouped = $derived(groupedData?.jobGrouped ?? new Map())
+	// Reactive grouping that handles async operations
+	// $effect(async () => {
+	// 	if (logs.length === 0) {
+	// 		await sleep(1)
+	// 		groupedData = { grouped: {}, jobGrouped: new Map() }
+	// 		return
+	// 	}
+	//
+	// 	isGrouping = true
+	// 	try {
+	// 		groupedData = await groupLogsBySpan(logs, onMissingJobSpan)
+	// 	} catch (error) {
+	// 		console.error('Error grouping logs:', error)
+	// 		// Fallback to sync grouping without missing job span resolution
+	// 		groupedData = await groupLogsBySpan(logs)
+	// 	} finally {
+	// 		isGrouping = false
+	// 	}
+	// })
+
+	const groupedLogs = $derived(groupedData.value?.grouped ?? {})
+	const jobGrouped = $derived(groupedData.value?.jobGrouped ?? new Map())
 	const spanIds = $derived(Object.keys(groupedLogs).sort())
 	// const spanAuthors = $derived(
 	// 	spanIds.map((span) => {
@@ -340,12 +359,12 @@
 
 	// Transform data for ChartJS scatter plot
 	const chartData = $derived((): ChartData<'scatter'> => {
-		if (logs.length === 0) {
+		if (untrack(() => logs.length) === 0) {
 			return { datasets: [] }
 		}
 
 		// Include zoomTrigger in dependencies to recalculate on zoom
-		const _ = zoomTrigger
+		// const _ = zoomTrigger
 
 		const datasets: any[] = []
 
@@ -362,6 +381,7 @@
 
 			// Apply zoom-aware jittering to spread out overlapping points
 			const jitteredPoints = applyJittering(dataPoints, index, chartInstance)
+			// const jitteredPoints = dataPoints
 
 			datasets.push({
 				label: spanId === 'untraced' ? 'Untraced' : spanId,
@@ -446,6 +466,7 @@
 				})
 			}
 		})
+		console.log("Completed data!")
 		return { datasets }
 	})
 
@@ -565,16 +586,12 @@
 				}
 			}) as any
 	)
-
-	function unifySpanForSameJobLogs(logs: AuditLog[]): AuditLog[] {
-		return logs
-	}
 </script>
 
 <div class="timeline-container p-4 bg-surface mb-4">
 	<div class="flex items-center gap-2 mb-4">
 		<h3 class="text-lg font-semibold">Audit Logs Timeline</h3>
-		{#if isGrouping}
+		{#if groupedData.status === 'loading'}
 			<Loader2 size={16} class="animate-spin text-secondary" />
 			<span class="text-sm text-secondary">Resolving job connections...</span>
 		{/if}

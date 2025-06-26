@@ -97,6 +97,7 @@
 		actionKind: ActionKind | undefined | 'all',
 		scope: undefined | 'all_workspaces' | 'instance'
 	): Promise<void> {
+	console.log("loading logs")
 		loading = true
 
 		if (username == 'all') {
@@ -130,6 +131,7 @@
 		hasMore = logs.length > 0 && logs.length === perPage
 
 		loading = false
+	console.log("loadede logs")
 	}
 
 	async function loadUsers() {

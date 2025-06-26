@@ -94,21 +94,21 @@
 {:else}
 	<div class="w-full h-screen">
 		{#if logs}
-			<AuditLogsTimeline
-				{logs}
-				minTimeSet={after}
-				maxTimeSet={before}
-				onMissingJobSpan={fetchMissingJobSpan}
-				onZoom={({ min, max }) => {
-					before = max.toISOString()
-					after = min.toISOString()
-					console.log('zoom!')
-				}}
-				onLogSelected={(log) => {
-					console.log('selected log ')
-					selectedId = log.id
-				}}
-			/>
+				<!-- onMissingJobSpan={fetchMissingJobSpan} -->
+			<!-- <AuditLogsTimeline -->
+			<!-- 	{logs} -->
+			<!-- 	minTimeSet={after} -->
+			<!-- 	maxTimeSet={before} -->
+			<!-- 	onZoom={({ min, max }) => { -->
+			<!-- 		before = max.toISOString() -->
+			<!-- 		after = min.toISOString() -->
+			<!-- 		console.log('zoom!') -->
+			<!-- 	}} -->
+			<!-- 	onLogSelected={(log) => { -->
+			<!-- 		console.log('selected log ') -->
+			<!-- 		selectedId = log.id -->
+			<!-- 	}} -->
+			<!-- /> -->
 		{/if}
 		<div class="px-2">
 			<div class="flex items-center space-x-2 flex-row justify-between">
