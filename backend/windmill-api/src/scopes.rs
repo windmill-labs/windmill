@@ -7,7 +7,6 @@
  */
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use windmill_common::error::{Error, Result};
 
 /// Comprehensive scope system for JWT token authorization
@@ -33,13 +32,6 @@ impl ScopeDefinition {
             domain: domain.to_string(),
             action: action.to_string(),
             resource: resource.map(|s| s.to_string()),
-        }
-    }
-
-    pub fn to_scope_string(&self) -> String {
-        match &self.resource {
-            Some(resource) => format!("{}:{}:{}", self.domain, self.action, resource),
-            None => format!("{}:{}", self.domain, self.action),
         }
     }
 
@@ -268,217 +260,168 @@ impl ScopeAction {
     }
 }
 
-/// Scope matcher for validating token scopes against required scopes
-pub struct ScopeMatcher {
-    route_mappings: HashMap<String, (ScopeDomain, ScopeAction)>,
-}
-
-impl ScopeMatcher {
-    pub fn new() -> Self {
-        let mut matcher = Self { route_mappings: HashMap::new() };
-        matcher.initialize_route_mappings();
-        matcher
+pub fn check_route_access(
+    token_scopes: &[String],
+    route_path: &str,
+    http_method: &str,
+) -> Result<()> {
+    // Special case: "*" scope grants all access
+    if token_scopes.contains(&"*".to_string()) {
+        return Ok(());
     }
 
-    /// Initialize route to scope mappings based on Windmill's API structure
-    fn initialize_route_mappings(&mut self) {
-        // Script execution routes
-        self.add_route_mapping(
-            "/api/w/:workspace_id/jobs/run/p",
-            ScopeDomain::Scripts,
-            ScopeAction::Execute,
-        );
+    // Map HTTP method to scope action (considering route context)
+    let required_action = map_http_method_to_action(http_method, route_path);
 
-        self.add_route_mapping(
-            "/api/w/:workspace_id/jobs/run/h",
-            ScopeDomain::Scripts,
-            ScopeAction::Execute,
-        );
-
-        self.add_route_mapping(
-            "/api/w/:workspace_id/jobs/run_wait_result/p",
-            ScopeDomain::Scripts,
-            ScopeAction::Execute,
-        );
-
-        self.add_route_mapping(
-            "/api/w/:workspace_id/jobs/run_wait_result/h",
-            ScopeDomain::Scripts,
-            ScopeAction::Execute,
-        );
-
-        self.add_route_mapping(
-            "/api/w/:workspace_id/jobs/run/preview",
-            ScopeDomain::Scripts,
-            ScopeAction::Execute,
-        );
-
-        // Flow execution routes
-        self.add_route_mapping(
-            "/api/w/:workspace_id/jobs/run/f",
-            ScopeDomain::Flows,
-            ScopeAction::Execute,
-        );
-
-        self.add_route_mapping(
-            "/api/w/:workspace_id/jobs/run_wait_result/f",
-            ScopeDomain::Flows,
-            ScopeAction::Execute,
-        );
-
-        self.add_route_mapping(
-            "/api/w/:workspace_id/jobs/run/preview_flow",
-            ScopeDomain::Flows,
-            ScopeAction::Execute,
-        );
-
-        self.add_route_mapping(
-            "/api/w/:workspace_id/jobs/restart/f",
-            ScopeDomain::Flows,
-            ScopeAction::Execute,
-        );
-
-        self.add_route_mapping(
-            "/api/w/:workspace_id/jobs/flow/resume",
-            ScopeDomain::Flows,
-            ScopeAction::Execute,
-        );
-
-        self.add_route_mapping(
-            "/api/w/:workspace_id/jobs/flow/user_states",
-            ScopeDomain::Flows,
-            ScopeAction::Read,
-        );
-    }
-
-    fn add_route_mapping(&mut self, route: &str, domain: ScopeDomain, action: ScopeAction) {
-        self.route_mappings
-            .insert(route.to_string(), (domain, action));
-    }
-
-    /// Check if token scopes allow access to a specific route
-    pub fn check_route_access(
-        &self,
-        token_scopes: &[String],
-        route_path: &str,
-        http_method: &str,
-    ) -> Result<()> {
-        // Special case: "*" scope grants all access
-        if token_scopes.contains(&"*".to_string()) {
-            return Ok(());
-        }
-
-        // Map HTTP method to scope action (considering route context)
-        let required_action = self.map_http_method_to_action(http_method, route_path);
-
-        // Find the domain for this route
-        let required_domain = self.extract_domain_from_route(route_path)?;
-
-        // Check if any token scope grants the required access
-        for scope_str in token_scopes {
+    // Find the domain for this route
+    let required_domain = extract_domain_from_route(route_path)?;
+    let mut filter_tags = false;
+    let mut restricted_scopes = false;
+    // Check if any token scope grants the required access
+    for scope_str in token_scopes {
+        if scope_str.starts_with("if_jobs:filter_tags:") && !filter_tags {
+            filter_tags = true
+        } else {
             if let Ok(scope) = ScopeDefinition::from_scope_string(scope_str) {
-                if self.scope_grants_access(&scope, required_domain, required_action, route_path)? {
+                if scope_grants_access(&scope, required_domain, required_action, route_path)? {
                     return Ok(());
                 }
             }
-        }
-
-        Err(Error::NotAuthorized(format!(
-            "Access denied. Required scope: {}:{}",
-            required_domain.as_str(),
-            required_action.as_str()
-        )))
-    }
-
-    fn map_http_method_to_action(&self, method: &str, route_path: &str) -> ScopeAction {
-        match method.to_uppercase().as_str() {
-            "GET" | "HEAD" | "OPTIONS" => ScopeAction::Read,
-            "POST" => {
-                // POST can be create (write) or execute depending on the endpoint
-                if EXECUTE_KEYWORD.contains(&route_path) {
-                    ScopeAction::Execute
-                } else {
-                    ScopeAction::Write
-                }
-            }
-            "PUT" | "PATCH" => ScopeAction::Write,
-            "DELETE" => ScopeAction::Delete,
-            _ => ScopeAction::Read,
-        }
-    }
-
-    fn extract_domain_from_route(&self, route_path: &str) -> Result<ScopeDomain> {
-        // Extract the domain from the route path
-        // Example: /api/w/workspace/jobs/123 -> jobs domain
-        let parts: Vec<&str> = route_path.split('/').collect();
-
-        if parts.len() >= 5 && parts[1] == "api" && parts[2] == "w" {
-            let domain_part = parts[4];
-
-            if let Some(domain) = ScopeDomain::from_str(domain_part) {
-                return Ok(domain);
+            if !restricted_scopes {
+                restricted_scopes = true;
             }
         }
-
-        Err(Error::BadRequest(format!(
-            "Could not extract domain from route: {}",
-            route_path
-        )))
     }
 
-    fn scope_grants_access(
-        &self,
-        scope: &ScopeDefinition,
-        required_domain: ScopeDomain,
-        required_action: ScopeAction,
-        route_path: &str,
-    ) -> Result<bool> {
-        // Check domain match
-        let scope_domain = ScopeDomain::from_str(&scope.domain)
-            .ok_or_else(|| Error::BadRequest(format!("Invalid scope domain: {}", scope.domain)))?;
-
-        if scope_domain != required_domain {
-            return Ok(false);
-        }
-
-        // Check action match (with hierarchical permissions)
-        let scope_action = ScopeAction::from_str(&scope.action)
-            .ok_or_else(|| Error::BadRequest(format!("Invalid scope action: {}", scope.action)))?;
-
-        if !scope_action.includes(&required_action) {
-            return Ok(false);
-        }
-
-        // Check resource path match if specified
-        if let Some(scope_resource) = &scope.resource {
-            return Ok(self.resource_path_matches(scope_resource, route_path));
-        }
-
-        // No resource specified means access to entire domain
-        Ok(true)
+    //Edge case for backward compatibility, if only scopes defined was filter tag then don't treat this we don't treat the token
+    //as a restricted token 
+    if filter_tags && !restricted_scopes {
+        return Ok(())
     }
 
-    fn resource_path_matches(&self, scope_resource: &str, route_path: &str) -> bool {
-        // Handle wildcard patterns
-        if scope_resource == "*" {
-            return true;
-        }
+    Err(Error::NotAuthorized(format!(
+        "Access denied. Required scope: {}:{}",
+        required_domain.as_str(),
+        required_action.as_str()
+    )))
+}
 
-        // Handle folder paths (f/folder_name/*)
-        if scope_resource.starts_with("f/") && scope_resource.ends_with("/*") {
-            let folder_path = &scope_resource[2..scope_resource.len() - 2];
-            return route_path.contains(&format!("f/{}", folder_path));
+fn map_http_method_to_action(method: &str, route_path: &str) -> ScopeAction {
+    match method.to_uppercase().as_str() {
+        "GET" | "HEAD" | "OPTIONS" => ScopeAction::Read,
+        "POST" => {
+            // POST can be create (write) or execute depending on the endpoint
+            if EXECUTE_KEYWORD.iter().any(|path| route_path.contains(path)) {
+                ScopeAction::Execute
+            } else {
+                ScopeAction::Write
+            }
         }
-
-        // Handle specific resource paths
-        if scope_resource.ends_with("*") {
-            let prefix = &scope_resource[..scope_resource.len() - 1];
-            return route_path.contains(prefix);
-        }
-
-        // Exact match
-        route_path.contains(scope_resource)
+        "PUT" | "PATCH" => ScopeAction::Write,
+        "DELETE" => ScopeAction::Delete,
+        _ => ScopeAction::Read,
     }
+}
+
+const SCRIPT_JOBS: [&'static str; 5] = [
+    "jobs/run/p",
+    "jobs/run/h",
+    "jobs/run_wait_result/p",
+    "jobs/run_wait_result/h",
+    "jobs/run/preview",
+];
+
+const FLOW_JOBS: [&'static str; 6] = [
+    "jobs/run/f",
+    "jobs/run_wait_result/f",
+    "jobs/run/preview_flow",
+    "jobs/restart/f",
+    "jobs/flow/resume",
+    "jobs/flow/user_states",
+];
+
+fn is_script_or_flow_domain(route_path: &str) -> Option<ScopeDomain> {
+    if route_path.starts_with("jobs") {
+        if SCRIPT_JOBS.iter().any(|path| route_path.starts_with(path)) {
+            return Some(ScopeDomain::Scripts);
+        } else if FLOW_JOBS.iter().any(|path| route_path.starts_with(path)) {
+            return Some(ScopeDomain::Flows);
+        }
+    }
+
+    return None;
+}
+
+fn extract_domain_from_route(route_path: &str) -> Result<ScopeDomain> {
+    // Extract the domain from the route path
+    // Example: /api/w/workspace/jobs/123 -> jobs domain
+    let parts: Vec<&str> = route_path.split('/').collect();
+
+    let domain = if parts.len() >= 5 && parts[1] == "api" && parts[2] == "w" {
+        let domain_part = parts[4];
+
+        let domain = match is_script_or_flow_domain(&parts[4..].join("/")) {
+            None => ScopeDomain::from_str(domain_part),
+            domain => domain,
+        };
+
+        domain
+    } else {
+        None
+    };
+
+    if let Some(domain) = domain {
+        return Ok(domain);
+    }
+
+    Err(Error::BadRequest(format!(
+        "Could not extract domain from route: {}",
+        route_path
+    )))
+}
+
+fn scope_grants_access(
+    scope: &ScopeDefinition,
+    required_domain: ScopeDomain,
+    required_action: ScopeAction,
+    route_path: &str,
+) -> Result<bool> {
+    // Check domain match
+    let scope_domain = ScopeDomain::from_str(&scope.domain)
+        .ok_or_else(|| Error::BadRequest(format!("Invalid scope domain: {}", scope.domain)))?;
+
+    if scope_domain != required_domain {
+        return Ok(false);
+    }
+
+    // Check action match (with hierarchical permissions)
+    let scope_action = ScopeAction::from_str(&scope.action)
+        .ok_or_else(|| Error::BadRequest(format!("Invalid scope action: {}", scope.action)))?;
+
+    if !scope_action.includes(&required_action) {
+        return Ok(false);
+    }
+
+    // Check resource path match if specified
+    if let Some(scope_resource) = &scope.resource {
+        return Ok(resource_path_matches(scope_resource, route_path));
+    }
+
+    // No resource specified means access to entire domain
+    Ok(true)
+}
+
+fn resource_path_matches(scope_resource: &str, route_path: &str) -> bool {
+    if scope_resource == "*" {
+        return true;
+    }
+
+    if scope_resource.ends_with("*") {
+        let prefix = &scope_resource[..scope_resource.len() - 1];
+        return route_path.contains(prefix);
+    }
+
+    route_path.contains(scope_resource)
 }
 
 /// Helper function to check if scopes allow access to a route
@@ -493,8 +436,7 @@ pub fn check_scopes_for_route(
         _ => return Ok(()),
     };
 
-    let matcher = ScopeMatcher::new();
-    matcher.check_route_access(scopes, route_path, http_method)
+    check_route_access(scopes, route_path, http_method)
 }
 
 #[cfg(test)]
@@ -525,40 +467,28 @@ mod tests {
 
     #[test]
     fn test_route_domain_extraction() {
-        let matcher = ScopeMatcher::new();
-        let domain = matcher
-            .extract_domain_from_route("/api/w/test_workspace/jobs/123")
-            .unwrap();
+        let domain = extract_domain_from_route("/api/w/test_workspace/jobs/123").unwrap();
         assert_eq!(domain, ScopeDomain::Jobs);
 
-        let domain = matcher
-            .extract_domain_from_route("/api/w/test_workspace/scripts/test_script")
-            .unwrap();
+        let domain =
+            extract_domain_from_route("/api/w/test_workspace/scripts/test_script").unwrap();
         assert_eq!(domain, ScopeDomain::Scripts);
     }
 
     #[test]
     fn test_wildcard_scope_access() {
-        let matcher = ScopeMatcher::new();
         let scopes = vec!["*".to_string()];
 
-        assert!(matcher
-            .check_route_access(&scopes, "/api/w/test_workspace/jobs/123", "GET")
-            .is_ok());
+        assert!(check_route_access(&scopes, "/api/w/test_workspace/jobs/123", "GET").is_ok());
     }
 
     #[test]
     fn test_specific_scope_access() {
-        let matcher = ScopeMatcher::new();
         let scopes = vec!["jobs:read".to_string()];
 
-        assert!(matcher
-            .check_route_access(&scopes, "/api/w/test_workspace/jobs/123", "GET")
-            .is_ok());
+        assert!(check_route_access(&scopes, "/api/w/test_workspace/jobs/123", "GET").is_ok());
 
-        assert!(matcher
-            .check_route_access(&scopes, "/api/w/test_workspace/jobs/123", "DELETE")
-            .is_err());
+        assert!(check_route_access(&scopes, "/api/w/test_workspace/jobs/123", "DELETE").is_err());
     }
 
     #[test]

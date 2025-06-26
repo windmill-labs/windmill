@@ -64,7 +64,10 @@
 		}
 
 		token = undefined
-		scopes = [`run:${itemKind}/${scriptPath}`]
+
+
+
+		scopes = [`${itemKind}s:execute:${scriptPath}`]
 	}
 </script>
 

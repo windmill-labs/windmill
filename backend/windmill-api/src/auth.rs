@@ -574,7 +574,7 @@ where
                 let workspace_id = maybe_get_workspace_id_from_path(&path_vec);
 
                 if let Some(mut authed) = cache.get_authed(workspace_id.clone(), &token).await {
-                    if authed.scopes.is_some() && !authed.is_admin {
+                    if authed.scopes.is_some() {
                         transform_old_scope_to_new_scope(authed.scopes.as_mut())?;
 
                         let path = original_uri.path();
