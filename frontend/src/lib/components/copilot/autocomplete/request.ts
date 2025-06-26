@@ -31,9 +31,7 @@ export async function autocompleteRequest(
 	}
 
 	try {
-		const completion = await getFimCompletion(context.prefix, context.suffix, abortController, {
-			forceModelProvider: providerModel
-		})
+		const completion = await getFimCompletion(context.prefix, context.suffix, providerModel, abortController)
 
 		return completion
 	} catch (err) {

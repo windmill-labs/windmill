@@ -542,41 +542,16 @@ export const FIM_MAX_TOKENS = 256
 export async function getFimCompletion(
 	prompt: string,
 	suffix: string,
-	abortController: AbortController,
-	testOptions?: {
-		apiKey?: string // testing API KEY using the global ai proxy
-		resourcePath?: string // testing resource path passed as a header to the backend proxy
-		forceModelProvider: AIProviderModel
-	}
+	providerModel: AIProviderModel,
+	abortController: AbortController
 ): Promise<string | undefined> {
-	const { provider, config } = getProviderAndCompletionConfig({
-		messages: [],
-		stream: false,
-		forceModelProvider: testOptions?.forceModelProvider
-	})
-
 	const fetchOptions: {
 		signal: AbortSignal
 		headers: Record<string, string>
 	} = {
 		signal: abortController.signal,
 		headers: {
-			'X-Provider': provider
-		}
-	}
-	if (testOptions?.resourcePath) {
-		fetchOptions.headers = {
-			...fetchOptions.headers,
-			'X-Resource-Path': testOptions.resourcePath
-		}
-	} else if (testOptions?.apiKey) {
-		if (provider === 'customai') {
-			throw new Error('Cannot test API key for Custom AI, only resource path is supported')
-		}
-
-		fetchOptions.headers = {
-			...fetchOptions.headers,
-			'X-API-Key': testOptions.apiKey
+			'X-Provider': providerModel.provider
 		}
 	}
 
@@ -587,7 +562,7 @@ export async function getFimCompletion(
 		{
 			method: 'POST',
 			body: JSON.stringify({
-				model: config.model,
+				model: providerModel.model,
 				temperature: 0,
 				prompt,
 				suffix,
