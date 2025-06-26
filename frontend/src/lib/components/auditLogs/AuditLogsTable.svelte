@@ -1,24 +1,38 @@
 <script lang="ts">
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import Cell from '$lib/components/table/Cell.svelte'
-	import DataTable from '$lib/components/table/DataTable.svelte'
-	import Head from '$lib/components/table/Head.svelte'
-	import Row from '$lib/components/table/Row.svelte'
 	import type { AuditLog } from '$lib/gen'
 	import { displayDate } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
+	import { onMount, tick } from 'svelte'
 	import Button from '../common/button/Button.svelte'
-	import { ListFilter } from 'lucide-svelte'
+	import { ListFilter, ChevronLeft, ChevronRight } from 'lucide-svelte'
+	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
+	import { twMerge } from 'tailwind-merge'
 
-	export let logs: AuditLog[] = []
-	export let pageIndex: number | undefined = 1
-	export let perPage: number | undefined = 100
-	export let hasMore: boolean = true
-	export let actionKind: string | undefined = undefined
-	export let operation: string | undefined = undefined
-	export let selectedId: number | undefined = undefined
-	export let usernameFilter: string | undefined = undefined
-	export let resourceFilter: string | undefined = undefined
+	interface Props {
+		logs?: AuditLog[]
+		pageIndex?: number | undefined
+		perPage?: number | undefined
+		hasMore?: boolean
+		actionKind?: string | undefined
+		operation?: string | undefined
+		selectedId?: number | undefined
+		usernameFilter?: string | undefined
+		resourceFilter?: string | undefined
+		onselect?: (id: number) => void
+	}
+
+	let {
+		logs = [],
+		pageIndex = $bindable(1),
+		perPage = $bindable(100),
+		hasMore = $bindable(true),
+		actionKind = $bindable(),
+		operation = $bindable(),
+		selectedId = undefined,
+		usernameFilter = $bindable(),
+		resourceFilter = $bindable(),
+		onselect
+	}: Props = $props()
 
 	function groupLogsByDay(logs: AuditLog[]): Record<string, AuditLog[]> {
 		const groupedLogs = {}
@@ -42,8 +56,55 @@
 		return groupedLogs
 	}
 
-	const dispatch = createEventDispatcher()
-	$: groupedLogs = groupLogsByDay(logs)
+	type FlatLogs =
+		| {
+				type: 'date'
+				date: string
+		  }
+		| {
+				type: 'log'
+				log: AuditLog
+		  }
+
+	function flattenLogs(groupedLogs: Record<string, AuditLog[]>): Array<FlatLogs> {
+		const flatLogs: Array<FlatLogs> = []
+
+		for (const [date, logsByDay] of Object.entries(groupedLogs)) {
+			flatLogs.push({ type: 'date', date })
+			for (const log of logsByDay) {
+				flatLogs.push({ type: 'log', log })
+			}
+		}
+
+		return flatLogs
+	}
+
+	let tableHeight: number = $state(0)
+	let headerHeight: number = $state(0)
+	let footerHeight: number = $state(48)
+
+	function computeHeight() {
+		tableHeight =
+			document.querySelector('#audit-logs-table-wrapper')!.parentElement?.clientHeight ?? 0
+	}
+
+	onMount(() => {
+		tick().then(computeHeight)
+	})
+
+	let groupedLogs = $derived(groupLogsByDay(logs))
+	let flatLogs = $derived(groupedLogs ? flattenLogs(groupedLogs) : undefined)
+	let stickyIndices = $derived.by(() => {
+		const nstickyIndices: number[] = []
+		let index = 0
+		for (const entry of flatLogs ?? []) {
+			if (entry.type === 'date') {
+				nstickyIndices.push(index)
+			}
+			index++
+		}
+		return nstickyIndices
+	})
 
 	function kindToBadgeColor(kind: string) {
 		if (kind == 'Execute') {
@@ -59,130 +120,178 @@
 	}
 </script>
 
-<!-- <VirtualList -->
-<!-- 	width="100%" -->
-<!-- 	height={tableHeight - headerHeight} -->
-<!-- 	itemCount={flatJobs?.length ?? 3} -->
-<!-- 	itemSize={42} -->
-<!-- 	overscanCount={20} -->
-<!-- 	{stickyIndices} -->
-<!-- 	{scrollToIndex} -->
-<!-- 	scrollToAlignment="center" -->
-<!-- 	scrollToBehaviour="smooth" -->
-<!-- ></VirtualList> -->
+<svelte:window onresize={() => computeHeight()} />
 
-<DataTable
-	on:next={() => {
-		pageIndex = (pageIndex ?? 1) + 1
-	}}
-	on:previous={() => {
-		pageIndex = (pageIndex ?? 1) - 1
-	}}
-	currentPage={pageIndex}
-	paginated
-	rounded={false}
-	size="sm"
-	{hasMore}
-	bind:perPage
+<div
+	class="divide-y min-w-[640px] h-full"
+	id="audit-logs-table-wrapper"
 >
-	<Head>
-		<Cell first head>ID</Cell>
-		<Cell head>Timestamp</Cell>
-		<Cell head>Username</Cell>
-		<Cell head>Operation</Cell>
-		<Cell head last>Resource</Cell>
-	</Head>
-	{#if logs?.length > 0}
-		<tbody class="divide-y">
-			{#each Object.entries(groupedLogs) as [date, logsByDay]}
-				<tr class="border-t">
-					<Cell
-						first
-						colspan="6"
-						scope="colgroup"
-						class="bg-surface-secondary/30 py-2 border-b font-semibold"
-					>
-						{date}
-					</Cell>
-				</tr>
-				{#each logsByDay as { id, timestamp, username, operation: op, action_kind, resource, parameters }}
-					<Row
-						hoverable
-						selected={id === selectedId}
-						on:click={() => {
-							dispatch('select', id)
-						}}
-					>
-						<Cell first>
-							{id}
-						</Cell>
-						<Cell>
-							{displayDate(timestamp)}
-						</Cell>
-						<Cell>
-							<div class="flex flex-row gap-2 items-center">
-								<div class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-52">
-									{username}
-									{#if parameters && 'end_user' in parameters}
-										<span> ({parameters.end_user})</span>
-									{/if}
-								</div>
-								<Button
-									color="light"
-									size="xs2"
-									iconOnly
-									startIcon={{ icon: ListFilter }}
-									on:click={() => {
-										usernameFilter = username
-									}}
-								/>
-							</div>
-						</Cell>
-						<Cell>
-							<div class="flex flex-row gap-1">
-								<Badge
-									on:click={() => {
-										actionKind = action_kind.toLocaleLowerCase()
-									}}
-									color={kindToBadgeColor(action_kind)}>{action_kind}</Badge
-								>
-								<Badge
-									on:click={() => {
-										operation = op
-									}}
-								>
-									{op}
-								</Badge>
-							</div>
-						</Cell>
-						<Cell last>
-							<div class="flex flex-row gap-2 items-center">
-								<div class="whitespace-nowrap overflow-x-auto no-scrollbar w-48">
-									{resource}
-								</div>
-								<Button
-									color="light"
-									size="xs2"
-									iconOnly
-									startIcon={{ icon: ListFilter }}
-									on:click={() => {
-										resourceFilter = resource
-									}}
-								/>
-							</div>
-						</Cell>
-					</Row>
-				{/each}
-			{/each}
-		</tbody>
+
+	<div bind:clientHeight={headerHeight}>
+		<div
+			class="flex flex-row bg-surface-secondary sticky top-0 w-full p-2 pr-4 text-xs font-semibold"
+		>
+			<div class="w-1/12">ID</div>
+			<div class="w-3/12">Timestamp</div>
+			<div class="w-3/12">Username</div>
+			<div class="w-3/12">Operation</div>
+			<div class="w-2/12">Resource</div>
+		</div>
+	</div>
+	{#if logs?.length == 0}
+		<div class="text-xs text-secondary p-8"> No logs found for the selected filters. </div>
 	{:else}
-		<tr>
-			<td colspan="4" class="text-center py-8">
-				<div class="text-xs text-secondary"> No logs found for the selected filters. </div>
-			</td>
-		</tr>
+		<VirtualList
+			width="100%"
+			height={tableHeight - headerHeight - footerHeight}
+			itemCount={flatLogs?.length ?? 0}
+			itemSize={42}
+			overscanCount={20}
+			{stickyIndices}
+			scrollToAlignment="center"
+		>
+			{#snippet header()}{/snippet}
+			{#snippet children({ index, style })}
+				<div {style} class="w-full">
+					{#if flatLogs}
+						{@const logOrDate = flatLogs[index]}
+
+						{#if logOrDate}
+							{#if logOrDate?.type === 'date'}
+								<div class="bg-surface-secondary py-2 border-b font-semibold text-xs pl-5">
+									{logOrDate.date}
+								</div>
+							{:else}
+								<!-- svelte-ignore a11y_click_events_have_key_events -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<div
+									class={twMerge(
+										'flex flex-row items-center h-full w-full px-2 py-1 hover:bg-surface-hover cursor-pointer',
+										logOrDate.log.id === selectedId ? 'bg-blue-50 dark:bg-blue-900/50' : ''
+									)}
+									role="button"
+									tabindex="0"
+									onclick={() => {
+										onselect?.(logOrDate.log.id)
+									}}
+								>
+									<div class="w-1/12 text-xs truncate">
+										{logOrDate.log.id}
+									</div>
+									<div class="w-3/12 text-xs">
+										{displayDate(logOrDate.log.timestamp)}
+									</div>
+									<div class="w-3/12 text-xs">
+										<div class="flex flex-row gap-2 items-center">
+											<div class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-40">
+												{logOrDate.log.username}
+												{#if logOrDate.log.parameters && 'end_user' in logOrDate.log.parameters}
+													<span> ({logOrDate.log.parameters.end_user})</span>
+												{/if}
+											</div>
+											<Button
+												color="light"
+												size="xs2"
+												iconOnly
+												startIcon={{ icon: ListFilter }}
+												on:click={() => {
+													usernameFilter = logOrDate.log.username
+												}}
+											/>
+										</div>
+									</div>
+									<div class="w-3/12 text-xs">
+										<div class="flex flex-row gap-1">
+											<Badge
+												on:click={() => {
+													actionKind = logOrDate.log.action_kind.toLocaleLowerCase()
+												}}
+												color={kindToBadgeColor(logOrDate.log.action_kind)}
+											>
+												{logOrDate.log.action_kind}
+											</Badge>
+											<Badge
+												on:click={() => {
+													operation = logOrDate.log.operation
+												}}
+											>
+												{logOrDate.log.operation}
+											</Badge>
+										</div>
+									</div>
+									<div class="w-2/12 text-xs">
+										<div class="flex flex-row gap-2 items-center">
+											<div class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-32">
+												{logOrDate.log.resource}
+											</div>
+											<Button
+												color="light"
+												size="xs2"
+												iconOnly
+												startIcon={{ icon: ListFilter }}
+												on:click={() => {
+													resourceFilter = logOrDate.log.resource
+												}}
+											/>
+										</div>
+									</div>
+								</div>
+							{/if}
+						{:else}
+							<div class="flex flex-row items-center h-full w-full px-2">
+								<div class="text-xs text-secondary">Loading...</div>
+							</div>
+						{/if}
+					{:else}
+						<div class="flex flex-row items-center h-full w-full px-2">
+							<div class="text-xs text-secondary">Loading...</div>
+						</div>
+					{/if}
+				</div>
+			{/snippet}
+			{#snippet footer()}{/snippet}
+		</VirtualList>
 	{/if}
-</DataTable>
+	<!-- Pagination footer - always visible -->
+	<div class="flex flex-row justify-between items-center p-2 bg-surface-primary border-t">
+		<div class="flex flex-row gap-2 items-center">
+			<Button
+				color="light"
+				size="xs2"
+				startIcon={{ icon: ChevronLeft }}
+				on:click={() => {
+					pageIndex = (pageIndex ?? 1) - 1
+				}}
+				disabled={pageIndex <= 1}
+			>
+				Previous
+			</Button>
+			<span class="text-xs text-secondary px-2">Page {pageIndex}</span>
+			<Button
+				color="light"
+				size="xs2"
+				endIcon={{ icon: ChevronRight }}
+				on:click={() => {
+					pageIndex = (pageIndex ?? 1) + 1
+				}}
+				disabled={!hasMore}
+			>
+				Next
+			</Button>
+		</div>
+		<div class="flex flex-row gap-2 items-center">
+			<span class="text-xs text-secondary">Per page:</span>
+			<select
+				bind:value={perPage}
+				class="text-xs bg-transparent border border-gray-300 dark:border-gray-600 rounded px-2 py-1"
+			>
+				<option value={25}>25</option>
+				<option value={100}>100</option>
+				<option value={1000}>1000</option>
+			</select>
+		</div>
+	</div>
+</div>
 
 <style lang="postcss">
 	/* Hide scrollbar for Chrome, Safari and Opera */
@@ -194,5 +303,11 @@
 	.no-scrollbar {
 		-ms-overflow-style: none; /* IE and Edge */
 		scrollbar-width: none; /* Firefox */
+	}
+
+	/* VirtualList scrollbar styling */
+	:global(.virtual-list-wrapper:hover::-webkit-scrollbar) {
+		width: 8px !important;
+		height: 8px !important;
 	}
 </style>

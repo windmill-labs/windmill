@@ -4,7 +4,7 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
 	import type { Job } from '$lib/gen'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, tick } from 'svelte'
 
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
@@ -26,6 +26,7 @@
 	export async function openPreview(test: boolean = false) {
 		if (!previewOpen) {
 			previewOpen = true
+			await tick()
 			flowPreviewContent?.refresh()
 			if (!test) return
 		}

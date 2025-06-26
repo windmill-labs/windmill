@@ -6,7 +6,7 @@
 	import AuditLogsFilters from '$lib/components/auditLogs/AuditLogsFilters.svelte'
 	import AuditLogsTable from '$lib/components/auditLogs/AuditLogsTable.svelte'
 	import AuditLogMobileFilters from '$lib/components/auditLogs/AuditLogMobileFilters.svelte'
-	import { Alert, DrawerContent } from '$lib/components/common'
+	import { Alert, DrawerContent, Skeleton } from '$lib/components/common'
 
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
@@ -159,23 +159,31 @@
 				<div class="py-2"></div>
 			{/if}
 		</div>
-		<SplitPanesWrapper class="hidden md:block">
+		<SplitPanesWrapper>
 			<Splitpanes>
 				<Pane size={70} minSize={50}>
-					<AuditLogsTable
-						{logs}
-						{selectedId}
-						bind:pageIndex
-						bind:perPage
-						bind:actionKind
-						bind:operation
-						bind:usernameFilter={username}
-						bind:resourceFilter={resource}
-						bind:hasMore
-						on:select={(e) => {
-							selectedId = e.detail
-						}}
-					/>
+					{#if logs}
+						<AuditLogsTable
+							{logs}
+							{selectedId}
+							bind:pageIndex
+							bind:perPage
+							bind:actionKind
+							bind:operation
+							bind:usernameFilter={username}
+							bind:resourceFilter={resource}
+							bind:hasMore
+							onselect={(id) => {
+								selectedId = id
+							}}
+						/>
+					{:else}
+						<div class="gap-1 flex flex-col">
+							{#each new Array(8) as _}
+								<Skeleton layout={[[3]]} />
+							{/each}
+						</div>
+					{/if}
 				</Pane>
 				<Pane size={30} minSize={15}>
 					{#if logs}
@@ -195,9 +203,8 @@
 				bind:operation
 				bind:usernameFilter={username}
 				bind:resourceFilter={resource}
-				on:select={(e) => {
-					selectedId = e.detail
-
+				onselect={(id) => {
+					selectedId = id
 					auditLogDrawer?.openDrawer()
 				}}
 			/>
