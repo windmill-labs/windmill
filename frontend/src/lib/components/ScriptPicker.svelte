@@ -122,7 +122,7 @@
 	{:else}
 		<Select
 			bind:value={
-				() => scriptPath ?? initialPath,
+				() => (scriptPath ?? initialPath) || undefined,
 				(path) => {
 					scriptPath = path
 					dispatch('select', { path, itemKind })
