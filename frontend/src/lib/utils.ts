@@ -1432,6 +1432,12 @@ export function scroll_into_view_if_needed_polyfill(elem: Element, centerIfNeede
 	return observer // return for testing
 }
 
+export function clone<T>(t: T): T {
+	if (typeof t === 'function') throw new Error('Cannot clone a function')
+	if (typeof t === 'object') return stateSnapshot(t) as T
+	return t
+}
+
 export const editorPositionMap: Record<string, IPosition> = {}
 
 export type S3Uri = `s3://${string}/${string}`
