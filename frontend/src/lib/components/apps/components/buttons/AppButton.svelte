@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { getContext, onDestroy, onMount, untrack } from 'svelte'
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type {
 		AppViewerContext,
@@ -190,15 +190,6 @@
 			.filter((x) => x != '')
 			.join('\n')
 	)
-
-	// $inspect(result)
-	const rid = Math.random()
-	onMount(() => {
-		console.log('onMount', rid, id)
-	})
-	onDestroy(() => {
-		console.log('onDestroy', rid, id)
-	})
 </script>
 
 {#each Object.entries(components['buttoncomponent'].initialData.configuration) as [key, initialConfig] (key)}

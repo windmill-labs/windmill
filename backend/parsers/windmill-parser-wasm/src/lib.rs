@@ -41,7 +41,7 @@ pub fn parse_outputs(code: &str) -> String {
 #[cfg(feature = "ts-parser")]
 #[wasm_bindgen]
 pub fn parse_ts_imports(code: &str) -> String {
-    let parsed = parse_expr_for_imports(code);
+    let parsed = parse_expr_for_imports(code, false);
     let r = if let Ok(parsed) = parsed {
         json!({ "imports": parsed })
     } else {

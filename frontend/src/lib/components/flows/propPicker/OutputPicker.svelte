@@ -20,6 +20,8 @@
 		bottomBarOpen?: boolean
 		loopStatus?: { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' } | undefined
 		onEditInput?: (moduleId: string, key: string) => void
+		initial?: boolean
+		onResetInitial?: () => void
 	}
 
 	let {
@@ -184,7 +186,7 @@
 				}}
 				bind:this={popover}
 				allowFullScreen
-				contentClasses="overflow-hidden resize"
+				contentClasses="overflow-hidden resize relative"
 				contentStyle={`width: calc(${MIN_WIDTH}px); min-width: calc(${MIN_WIDTH}px); height: calc(${MIN_HEIGHT}px); min-height: calc(${MIN_HEIGHT}px); `}
 				extraProps={{ 'data-prop-picker': true }}
 				closeOnOtherPopoverOpen
