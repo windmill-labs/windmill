@@ -420,7 +420,7 @@ export function applyRepositoryURL(
 		'with permissions fetched using Windmill Github App'
 	)
 		? existingDescription.replace(
-				/Repository .+ with permissions fetched using Windmill Github App\. ?/,
+				/Repository [^ ]+ with permissions fetched using Windmill Github App\. ?/,
 				githubAppText + ' '
 			)
 		: `${githubAppText} ${existingDescription}`.trim()
