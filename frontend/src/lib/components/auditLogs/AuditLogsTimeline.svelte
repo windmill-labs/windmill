@@ -59,9 +59,9 @@
 
 	const zoomOptions = {
 		pan: {
-			mode: 'x',
+			mode: 'x' as 'x',
 			enabled: true,
-			modifierKey: 'ctrl',
+			modifierKey: 'ctrl' as 'ctrl',
 			onPanComplete: ({ chart }) => {
 				chartInstance = chart
 				onZoom?.({
@@ -74,11 +74,10 @@
 			drag: {
 				enabled: true
 			},
-			mode: 'x',
-			scaleMode: 'y',
+			mode: 'x' as 'x',
+			scaleMode: 'y' as 'y',
 			onZoom: ({ chart }) => {
 				chartInstance = chart
-				// zoomTrigger++ // Trigger recalculation of jittering
 				onZoom?.({
 					min: addSeconds(new Date(chart.scales.x.min), -1),
 					max: addSeconds(new Date(chart.scales.x.max), 1)
@@ -200,10 +199,7 @@
 				const currPixel = chartInstance.scales.x.getPixelForValue(currTime)
 				pixelDistance = Math.abs(currPixel - prevPixel)
 			} else {
-				// Fallback: estimate based on time difference and typical zoom level
-				const timeDiff = currTime - prevTime
-				// Assume roughly 1 pixel per 100ms at default zoom
-				pixelDistance = timeDiff / 100
+				pixelDistance = 20000
 			}
 
 			if (pixelDistance < overlapThreshold) {
@@ -254,7 +250,6 @@
 		grouped: Record<string, AuditLog[]>
 		jobGrouped: Map<string, AuditLog[]>
 	}> {
-	console.log("Getting grouped data")
 		if (logs.length === 0) {
 			await sleep(1)
 			return { grouped: {}, jobGrouped: new Map() }
@@ -264,15 +259,13 @@
 			return await groupLogsBySpan(logs, onMissingJobSpan)
 		} catch (error) {
 			console.error('Error grouping logs:', error)
-			// Fallback to sync grouping without missing job span resolution
 			return await groupLogsBySpan(logs)
 		}
 	}
 
 	let groupedData = usePromise(getGroupedData)
 	// let isGrouping = $state(false)
-	let chartInstance: any = null
-	let zoomTrigger = $state(0)
+	let chartInstance: any = $state(null)
 
 	let { minTime, maxTime } = $derived(computeMinMaxTime(logs, minTimeSet, maxTimeSet))
 
@@ -326,45 +319,25 @@
 		logs && untrack(() => groupedData.refresh())
 	})
 
-	// Reactive grouping that handles async operations
-	// $effect(async () => {
-	// 	if (logs.length === 0) {
-	// 		await sleep(1)
-	// 		groupedData = { grouped: {}, jobGrouped: new Map() }
-	// 		return
-	// 	}
-	//
-	// 	isGrouping = true
-	// 	try {
-	// 		groupedData = await groupLogsBySpan(logs, onMissingJobSpan)
-	// 	} catch (error) {
-	// 		console.error('Error grouping logs:', error)
-	// 		// Fallback to sync grouping without missing job span resolution
-	// 		groupedData = await groupLogsBySpan(logs)
-	// 	} finally {
-	// 		isGrouping = false
-	// 	}
-	// })
-
 	const groupedLogs = $derived(groupedData.value?.grouped ?? {})
 	const jobGrouped = $derived(groupedData.value?.jobGrouped ?? new Map())
 	const spanIds = $derived(Object.keys(groupedLogs).sort())
-	// const spanAuthors = $derived(
-	// 	spanIds.map((span) => {
-	// 		const endUser = groupedLogs[span][0]?.parameters?.end_user
-	// 		const endUserText = endUser ? ` (${endUser})` : ''
-	// 		return groupedLogs[span]?.length > 0 ? `${groupedLogs[span][0].username}${endUserText}` : ''
-	// 	})
-	// )
+	const spanAuthors = $derived(
+		spanIds.map((span) => {
+			if (span == 'untraced') {
+				return 'untraced'
+			}
+			const endUser = groupedLogs[span][0]?.parameters?.end_user
+			const endUserText = endUser ? ` (${endUser})` : ''
+			return groupedLogs[span]?.length > 0 ? `${groupedLogs[span][0].username}${endUserText}` : ''
+		})
+	)
 
 	// Transform data for ChartJS scatter plot
 	const chartData = $derived((): ChartData<'scatter'> => {
 		if (untrack(() => logs.length) === 0) {
 			return { datasets: [] }
 		}
-
-		// Include zoomTrigger in dependencies to recalculate on zoom
-		// const _ = zoomTrigger
 
 		const datasets: any[] = []
 
@@ -466,189 +439,135 @@
 				})
 			}
 		})
-		console.log("Completed data!")
 		return { datasets }
 	})
 
 	const chartOptions = $derived(
-		(): ChartOptions<'scatter'> =>
-			({
-				responsive: true,
-				maintainAspectRatio: false,
-				plugins: {
-					zoom: zoomOptions,
-					legend: {
-						display: false // We'll create our own legend
-					},
-					tooltip: {
-						callbacks: {
-							title: function (context: any) {
-								const log = context[0].raw.log
-								const point = context[0].raw
-								let title = `${log.operation} - ${log.action_kind}`
-								// if (point.isCluster) {
-								// 	title += ` (${point.clusterIndex + 1} of ${point.clusterSize})`
-								// }
-								return title
-							},
-							label: function (context: any) {
-								const log = context.raw.log
-								const point = context.raw
-								const labels = [
-									`User: ${log.username}`,
-									`Resource: ${log.resource}`,
-									`Time: ${new Date(log.timestamp).toLocaleString()}`
-									// `Span: ${log.span || log.span || 'untraced'}`
-								]
-								// if (point.isCluster) {
-								// 	labels.push(`Clustered with ${point.clusterSize - 1} other logs`)
-								// }
-								return labels
-							}
+		(): ChartOptions<'scatter'> => ({
+			responsive: true,
+			maintainAspectRatio: false,
+			plugins: {
+				zoom: zoomOptions,
+				legend: {
+					display: false // We'll create our own legend
+				},
+				tooltip: {
+					callbacks: {
+						title: function (context: any) {
+							const log = context[0].raw.log
+							const point = context[0].raw
+							let title = `${log.operation} - ${log.action_kind}`
+							// if (point.isCluster) {
+							// 	title += ` (${point.clusterIndex + 1} of ${point.clusterSize})`
+							// }
+							return title
+						},
+						label: function (context: any) {
+							const log = context.raw.log
+							const point = context.raw
+							const labels = [
+								`User: ${log.username}`,
+								`Resource: ${log.resource}`,
+								`Time: ${new Date(log.timestamp).toLocaleString()}`
+								// `Span: ${log.span || log.span || 'untraced'}`
+							]
+							// if (point.isCluster) {
+							// 	labels.push(`Clustered with ${point.clusterSize - 1} other logs`)
+							// }
+							return labels
 						}
 					}
-				},
-				scales: {
-					x: {
-						type: 'time',
-						time: {
-							displayFormats: {
-								millisecond: 'HH:mm:ss.SSS',
-								second: 'HH:mm:ss',
-								minute: 'HH:mm',
-								hour: 'MMM dd HH:mm',
-								day: 'MMM dd',
-								week: 'MMM dd',
-								month: 'MMM yyyy',
-								quarter: 'MMM yyyy',
-								year: 'yyyy'
-							}
-						},
-						title: {
-							display: true,
-							text: 'Time'
-						},
-						grid: {
-							display: false,
-							color: isDark() ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
-						},
-						ticks: {
-							stepSize: 1
-						},
-						min: minTime,
-						max: maxTime
+				}
+			},
+			scales: {
+				x: {
+					type: 'time',
+					time: {
+						displayFormats: {
+							millisecond: 'HH:mm:ss.SSS',
+							second: 'HH:mm:ss',
+							minute: 'HH:mm',
+							hour: 'MMM dd HH:mm',
+							day: 'MMM dd',
+							week: 'MMM dd',
+							month: 'MMM yyyy',
+							quarter: 'MMM yyyy',
+							year: 'yyyy'
+						}
 					},
-					y: {
-						type: 'linear',
-						// min: spanIds.length > 0 ? 0 : 0,
-						// max: spanIds.length > 0 ? spanIds.length : 1,
-						ticks: {
-							stepSize: 1,
-							callback: function (value: any) {
-								const index = Math.round(value)
-								// console.log(index, value)
-								if (index >= 0 && index < spanIds.length) {
-									const spanId = spanIds[index]
-									return spanId === 'untraced' ? 'Untraced' : spanId.slice(0, 30)
-								}
+					title: {
+						display: true,
+						text: 'Time'
+					},
+					grid: {
+						display: false
+					},
+					ticks: {
+						maxTicksLimit: 15
+					},
+					min: minTime.getTime(),
+					max: maxTime.getTime()
+				},
+				y: {
+					type: 'linear',
+					min: -1,
+					max: spanIds.length,
+					grid: {
+						display: true,
+						color: isDark() ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+					},
+					ticks: {
+						autoSkip: false,
+						maxTicksLimit: 22,
+						stepSize: 1,
+						callback: function (value: any) {
+							if (spanIds.length > 20) {
 								return ''
 							}
-						},
-						title: {
-							display: true,
-							text: 'Span ID'
-						},
-						grid: {
-							display: true,
-							color: isDark() ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+							const index = Math.round(value)
+							if (index >= 0 && index < spanIds.length) {
+								// const spanId = `${spanAuthors[index]} - ${index}`
+								const spanId = spanAuthors[index]
+								return spanId === 'untraced' ? 'Untraced' : spanId.slice(0, 30)
+							}
+							return ''
 						}
 					}
-				},
-				onClick: (event: any, elements: any, chart: any) => {
-					// Capture chart instance for jittering calculations
-					if (!chartInstance) {
-						chartInstance = chart
-					}
-					if (elements.length > 0) {
-						const element = elements[0]
-						const log = (chartData().datasets[element.datasetIndex].data[element.index] as any).log
-						onLogSelected?.(log)
-					}
-				},
-				onHover: (event: any, elements: any, chart: any) => {
-					// Capture chart instance for jittering calculations
-					if (!chartInstance) {
-						chartInstance = chart
-					}
-				},
-				animation: {
-					duration: 300
 				}
-			}) as any
+			},
+			onClick: (event: any, elements: any, chart: any) => {
+				// Capture chart instance for jittering calculations
+				if (!chartInstance) {
+					chartInstance = chart
+				}
+				if (elements.length > 0) {
+					const element = elements[0]
+					const log = (chartData().datasets[element.datasetIndex].data[element.index] as any).log
+					onLogSelected?.(log)
+				}
+			},
+			onHover: (event: any, elements: any, chart: any) => {
+				// Capture chart instance for jittering calculations
+				if (!chartInstance) {
+					chartInstance = chart
+				}
+			},
+			animation: {
+				duration: 300
+			}
+		})
 	)
 </script>
 
-<div class="timeline-container p-4 bg-surface mb-4">
-	<div class="flex items-center gap-2 mb-4">
-		<h3 class="text-lg font-semibold">Audit Logs Timeline</h3>
-		{#if groupedData.status === 'loading'}
-			<Loader2 size={16} class="animate-spin text-secondary" />
-			<span class="text-sm text-secondary">Resolving job connections...</span>
-		{/if}
-	</div>
-
+<div class="p-4 bg-surface mb-4 h-full">
 	{#if logs.length === 0}
 		<div class="text-center py-8 text-secondary"> No audit logs to display </div>
-	{:else if !groupedData}
+	{:else if !groupedData || groupedData.status === 'loading'}
 		<div class="text-center py-8 text-secondary">
 			<Loader2 size={24} class="animate-spin mx-auto mb-2" />
 			Processing audit logs...
 		</div>
 	{:else}
-		<!-- Chart container -->
-		<div class="h-80">
-			<Scatter data={chartData()} options={chartOptions()} />
-		</div>
-
-		<!-- Legend -->
-		<!-- <div class="flex items-center gap-4 mt-4 pt-4 border-t"> -->
-		<!-- 	<span class="text-sm text-secondary">Actions:</span> -->
-		<!-- 	<div class="flex gap-3 flex-wrap"> -->
-		<!-- 		<div class="flex items-center gap-1"> -->
-		<!-- 			<div class="w-3 h-3 rounded-full" style="background-color: {actionColors.Create}"></div> -->
-		<!-- 			<span class="text-xs">Create</span> -->
-		<!-- 		</div> -->
-		<!-- 		<div class="flex items-center gap-1"> -->
-		<!-- 			<div class="w-3 h-3 rounded-full" style="background-color: {actionColors.Update}"></div> -->
-		<!-- 			<span class="text-xs">Update</span> -->
-		<!-- 		</div> -->
-		<!-- 		<div class="flex items-center gap-1"> -->
-		<!-- 			<div class="w-3 h-3 rounded-full" style="background-color: {actionColors.Execute}"></div> -->
-		<!-- 			<span class="text-xs">Execute</span> -->
-		<!-- 		</div> -->
-		<!-- 		<div class="flex items-center gap-1"> -->
-		<!-- 			<div class="w-3 h-3 rounded-full" style="background-color: {actionColors.Delete}"></div> -->
-		<!-- 			<span class="text-xs">Delete</span> -->
-		<!-- 		</div> -->
-		<!-- 		<div class="flex items-center gap-1"> -->
-		<!-- 			<div class="w-6 h-0.5" style="background-color: #8b5cf6"></div> -->
-		<!-- 			<span class="text-xs">Job Connection</span> -->
-		<!-- 		</div> -->
-		<!-- 		<div class="flex items-center gap-1"> -->
-		<!-- 			<div -->
-		<!-- 				class="w-3 h-3 rounded-full border-2 border-white" -->
-		<!-- 				style="background-color: {actionColors.Execute}" -->
-		<!-- 			></div> -->
-		<!-- 			<span class="text-xs">Clustered Points</span> -->
-		<!-- 		</div> -->
-		<!-- 	</div> -->
-		<!-- </div> -->
+		<Scatter data={chartData()} options={chartOptions()} />
 	{/if}
 </div>
-
-<style>
-	.timeline-container {
-		max-height: 500px;
-		overflow-y: auto;
-	}
-</style>

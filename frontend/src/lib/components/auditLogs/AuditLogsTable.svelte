@@ -183,7 +183,7 @@
 									</div>
 									<div class="w-3/12 text-xs">
 										<div class="flex flex-row gap-2 items-center">
-											<div class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-40">
+											<div class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-60">
 												{logOrDate.log.username}
 												{#if logOrDate.log.parameters && 'end_user' in logOrDate.log.parameters}
 													<span> ({logOrDate.log.parameters.end_user})</span>
@@ -221,7 +221,7 @@
 									</div>
 									<div class="w-2/12 text-xs">
 										<div class="flex flex-row gap-2 items-center">
-											<div class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-32">
+											<div class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-60">
 												{logOrDate.log.resource}
 											</div>
 											<Button
