@@ -875,6 +875,7 @@
 							on:select={(e) => {
 								loadScript(e.detail.path)
 							}}
+							clearable
 						/>
 					{:else}
 						<Alert type="info" title="Runnable path cannot be edited" collapsible>
