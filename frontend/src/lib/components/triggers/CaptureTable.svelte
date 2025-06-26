@@ -14,7 +14,7 @@
 	import { type CaptureTriggerKind } from '$lib/gen'
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
 	import InfiniteList from '../InfiniteList.svelte'
-	import { isObject, sendUserToast } from '$lib/utils'
+	import { isObject, sendUserToast, clone} from '$lib/utils'
 	import SchemaPickerRow from '$lib/components/schema/SchemaPickerRow.svelte'
 	import type { Capture } from '$lib/gen'
 	import { AwsIcon, MqttIcon } from '../icons'
@@ -161,7 +161,7 @@
 		} else {
 			const payloadData = await getPayload(capture)
 			selected = capture.id
-			dispatch('select', structuredClone($state.snapshot(payloadData)))
+			dispatch('select', clone(payloadData))
 			dispatch('selectCapture', capture)
 		}
 	}
@@ -188,7 +188,7 @@
 					testKind === 'preprocessor' ? fullCapture.preprocessor_args : fullCapture.main_args
 			}
 		} else {
-			payloadData = structuredClone($state.snapshot(capture.payloadData))
+			payloadData = clone(capture.payloadData)
 		}
 		return payloadData
 	}

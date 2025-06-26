@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { clone } from '$lib/utils'
 	import SavedInputsPicker from '$lib/components/SavedInputsPicker.svelte'
 	import { createEventDispatcher, tick } from 'svelte'
 	import HistoricInputs from '$lib/components/HistoricInputs.svelte'
@@ -162,7 +163,7 @@
 											{/if}
 											<Button
 												on:click={async () => {
-													appliedSearchArgs = structuredClone($state.snapshot(searchArgs))
+													appliedSearchArgs = clone(searchArgs)
 													await tick()
 													historicInputs?.refresh(true)
 												}}

@@ -15,6 +15,7 @@
 </script>
 
 <script lang="ts">
+	import { clone } from '$lib/utils'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Pin, History, Pen, Check, X, Loader2, Pencil } from 'lucide-svelte'
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
@@ -195,7 +196,7 @@
 			})
 		} else if (selectedJob && 'result' in selectedJob) {
 			// Pin the job
-			let mockValue: any = structuredClone($state.snapshot(selectedJob.result))
+			let mockValue: any = clone(selectedJob.result)
 			if (selectedJob.result === 'never tested this far') {
 				mockValue = { example: 'value' }
 			}
@@ -615,7 +616,7 @@
 							if (mock?.enabled) {
 								const newMock = {
 									enabled: true,
-									return_value: structuredClone($state.snapshot(detail))
+									return_value: clone(detail)
 								}
 								tmpMock = newMock
 							}

@@ -4,7 +4,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import { canWrite, emptyString, sendUserToast, clone} from '$lib/utils'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { SqsTriggerService, type AwsAuthResourceType } from '$lib/gen'
@@ -136,7 +136,7 @@
 			dirtyPath = false
 			enabled = defaultValues?.enabled ?? false
 		} finally {
-			initialConfig = structuredClone($state.snapshot(getSaveCfg()))
+			initialConfig = clone(getSaveCfg())
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false

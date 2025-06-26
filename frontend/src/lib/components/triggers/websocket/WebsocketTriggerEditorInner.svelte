@@ -15,7 +15,7 @@
 		type WebsocketTriggerInitialMessage
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptySchema, emptyString, sendUserToast } from '$lib/utils'
+	import { canWrite, emptySchema, emptyString, sendUserToast, clone} from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, X, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -139,7 +139,7 @@
 			sendUserToast(`Could not load websocket trigger: ${err}`, true)
 		} finally {
 			if (!defaultConfig) {
-				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
+				initialConfig = clone(getSaveCfg())
 			}
 			clearTimeout(loadingTimeout)
 			drawerLoading = false

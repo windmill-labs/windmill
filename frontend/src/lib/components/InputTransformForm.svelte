@@ -28,7 +28,7 @@
 	import type ItemPicker from './ItemPicker.svelte'
 	import type { InputTransform } from '$lib/gen'
 	import TemplateEditor from './TemplateEditor.svelte'
-	import { setInputCat as computeInputCat, isCodeInjection } from '$lib/utils'
+	import { setInputCat as computeInputCat, isCodeInjection, clone} from '$lib/utils'
 	import { FunctionSquare, InfoIcon } from 'lucide-svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 	import type { FlowCopilotContext } from './copilot/flow'
@@ -280,7 +280,7 @@
 	function onArgChange() {
 		const newArg = { arg, propertyType, inputCat }
 		if (!deepEqual(newArg, prevArg)) {
-			prevArg = structuredClone($state.snapshot(newArg))
+			prevArg = clone(newArg)
 			updateStaticInput(inputCat, propertyType, arg)
 		}
 	}

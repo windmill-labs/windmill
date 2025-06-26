@@ -23,7 +23,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { untrack } from 'svelte'
-	import { readFieldsRecursively } from '$lib/utils'
+	import { readFieldsRecursively, clone} from '$lib/utils'
 
 	interface Props {
 		value?: any
@@ -37,7 +37,7 @@
 
 	let { value = $bindable(), helperScript, entrypoint, args: _args, name }: Props = $props()
 
-	let args = $state(structuredClone($state.snapshot(_args)))
+	let args = $state(clone(_args))
 	$effect(() => {
 		readFieldsRecursively(_args, { excludeField: [name] })
 		untrack(() => !deepEqual(args, _args) && (args = $state.snapshot(_args)))

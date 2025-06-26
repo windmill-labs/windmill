@@ -8,14 +8,13 @@
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { page } from '$app/stores'
-	import { cleanValueProperties, decodeState, type Value } from '$lib/utils'
+	import { cleanValueProperties, decodeState, type Value, clone} from '$lib/utils'
 	import { afterNavigate, replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast, type ToastAction } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
-	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { untrack } from 'svelte'
 
 	let app = $state(
@@ -53,7 +52,7 @@
 			path,
 			workspace: $workspaceStore!
 		})
-		const app_w_draft_: AppWithLastVersionWDraft = structuredClone(stateSnapshot(app_w_draft))
+		const app_w_draft_: AppWithLastVersionWDraft = clone(app_w_draft)
 		savedApp = {
 			summary: app_w_draft_.summary,
 			value: app_w_draft_.value as App,
@@ -201,7 +200,7 @@
 	function onRestore(ev: any) {
 		sendUserToast('App restored from previous deployment')
 		app = ev.detail
-		const app_ = structuredClone(stateSnapshot(app!))
+		const app_ = clone(app!)
 		savedApp = {
 			summary: app_.summary,
 			value: app_.value as App,

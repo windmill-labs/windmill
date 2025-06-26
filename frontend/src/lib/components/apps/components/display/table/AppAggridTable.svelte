@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { GridApi, createGrid } from 'ag-grid-community'
-	import { isObject, sendUserToast } from '$lib/utils'
+	import { isObject, sendUserToast, clone} from '$lib/utils'
 	import { getContext, mount, onDestroy, unmount } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type {
@@ -206,7 +206,7 @@
 
 	function refreshActions(actions: TableAction[]) {
 		if (!deepEqual(actions, lastActions)) {
-			lastActions = structuredClone(stateSnapshot(actions))
+			lastActions = clone(actions)
 			updateOptions()
 		}
 	}

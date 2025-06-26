@@ -16,7 +16,7 @@
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
-	import { emptyString, formatCron, sendUserToast, tryEvery } from '$lib/utils'
+	import { emptyString, formatCron, sendUserToast, tryEvery, clone} from '$lib/utils'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -127,7 +127,7 @@
 					)
 				: {}
 			setTimeout(() => {
-				args = structuredClone($state.snapshot(nargs))
+				args = clone(nargs)
 			})
 
 			customPath =

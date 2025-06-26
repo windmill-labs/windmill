@@ -1,6 +1,6 @@
 <script lang="ts">
 	import autosize from '$lib/autosize'
-	import { shouldDisplayPlaceholder } from '$lib/utils'
+	import { shouldDisplayPlaceholder, clone} from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import ArrayTypeNarrowing from '../ArrayTypeNarrowing.svelte'
 	import Label from '../Label.svelte'
@@ -118,7 +118,7 @@
 		order
 	})
 
-	let initialExtra: any = structuredClone({
+	let initialExtra: any = clone({
 		order: undefined,
 		properties: undefined,
 		...$state.snapshot(extra)
@@ -138,7 +138,7 @@
 			return
 		}
 		if (!deepEqual(extra, initialExtra)) {
-			initialExtra = structuredClone($state.snapshot(extra))
+			initialExtra = clone(extra)
 			console.debug('property content updated')
 			dispatchIfMounted('change')
 		}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { clone } from '$lib/utils'
 	import { Button } from '$lib/components/common'
 	import { InputService, type Input, type RunnableType } from '$lib/gen/index.js'
 	import { userStore, workspaceStore } from '$lib/stores.js'
@@ -137,7 +138,7 @@
 				const fullPayload = await input.getFullPayload?.()
 				dispatch('select', fullPayload)
 			} else {
-				selectedArgs = structuredClone($state.snapshot(input.payloadData) ?? {})
+				selectedArgs = clone($state.snapshot(input.payloadData) ?? {})
 				dispatch('select', selectedArgs)
 			}
 		}

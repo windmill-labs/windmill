@@ -27,9 +27,8 @@
 	import { Popover } from '$lib/components/meltComponents'
 	import { CaptureService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { isObject, sendUserToast } from '$lib/utils'
+	import { isObject, sendUserToast, clone, formatDateShort } from '$lib/utils'
 	import { triggerIconMap } from './utils'
-	import { formatDateShort } from '$lib/utils'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import DisplayResultControlBar from '$lib/components/DisplayResultControlBar.svelte'
 	import { base } from '$lib/base'
@@ -432,7 +431,7 @@
 
 								dispatch('applyArgs', {
 									kind: testKind,
-									args: { ...structuredClone($state.snapshot(payloadData)), ...trigger_extra }
+									args: { ...clone(payloadData), ...trigger_extra }
 								})
 							}
 						}}

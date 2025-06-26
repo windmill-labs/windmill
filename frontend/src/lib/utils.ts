@@ -1023,7 +1023,7 @@ export type Value = {
 }
 
 export function replaceFalseWithUndefined(obj: any) {
-	return replaceFalseWithUndefinedRec(structuredClone(stateSnapshot(obj)))
+	return replaceFalseWithUndefinedRec(clone(obj))
 }
 
 function replaceFalseWithUndefinedRec(obj: any) {
@@ -1052,7 +1052,7 @@ export function cleanValueProperties(obj: Value) {
 		let newObj: any = {}
 		for (const key of Object.keys(obj)) {
 			if (key !== 'parent_hash' && key !== 'draft' && key !== 'draft_only') {
-				newObj[key] = structuredClone(stateSnapshot(obj[key]))
+				newObj[key] = clone(obj[key])
 			}
 		}
 		return newObj
@@ -1430,6 +1430,12 @@ export function scroll_into_view_if_needed_polyfill(elem: Element, centerIfNeede
 	observer.observe(elem)
 
 	return observer // return for testing
+}
+
+export function clone<T>(t: T): T {
+	if (typeof t === 'function') throw new Error('Cannot clone a function')
+	if (typeof t === 'object') return stateSnapshot(t) as T
+	return t
 }
 
 export const editorPositionMap: Record<string, IPosition> = {}

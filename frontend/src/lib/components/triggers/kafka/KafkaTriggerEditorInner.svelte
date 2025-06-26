@@ -7,7 +7,7 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { KafkaTriggerService } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import { canWrite, emptyString, sendUserToast, clone} from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -119,7 +119,7 @@
 			sendUserToast(`Could not load Kafka trigger: ${err}`, true)
 		} finally {
 			if (!defaultConfig) {
-				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
+				initialConfig = clone(getSaveCfg())
 			}
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -221,7 +221,7 @@
 		return {
 			kafka_resource_path: kafkaResourcePath,
 			group_id: kafkaCfg.group_id,
-			topics: structuredClone($state.snapshot(kafkaCfg.topics)),
+			topics: clone(kafkaCfg.topics),
 			path
 		}
 	}

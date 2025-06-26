@@ -7,7 +7,7 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { NatsTriggerService } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import { canWrite, emptyString, sendUserToast, clone} from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -112,7 +112,7 @@
 			drawerLoading = false
 			showLoading = false
 			if (!defaultConfig) {
-				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
+				initialConfig = clone(getSaveCfg())
 			}
 		}
 	}

@@ -7,7 +7,7 @@
 	import AddProperty from './AddProperty.svelte'
 	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
 	import { flip } from 'svelte/animate'
-	import { emptyString } from '$lib/utils'
+	import { emptyString, clone} from '$lib/utils'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { createEventDispatcher, tick } from 'svelte'
 	import Label from '../Label.svelte'
@@ -56,7 +56,7 @@
 
 	let { schema = $bindable(), parentId = undefined, jsonView = $bindable(false) }: Props = $props()
 
-	// let schema = $state(structuredClone($state.snapshot(schema)))
+	// let schema = $state(clone(schema))
 
 	let schemaString: string = $state(JSON.stringify(schema, null, '\t'))
 	let editor: SimpleEditor | undefined = $state(undefined)

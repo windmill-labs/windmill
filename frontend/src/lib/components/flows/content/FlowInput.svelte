@@ -40,7 +40,7 @@
 	} from '$lib/components/schema/schemaUtils.svelte'
 	import SideBarTab from '$lib/components/meltComponents/SideBarTab.svelte'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
-	import { isObjectTooBig } from '$lib/utils'
+	import { isObjectTooBig, clone } from '$lib/utils'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 
 	interface Props {
@@ -170,7 +170,7 @@
 	}
 
 	function schemaFromPayload(payloadData: any) {
-		const payload = structuredClone($state.snapshot(payloadData))
+		const payload = clone(payloadData)
 		const parsed = JSON.parse(JSON.stringify(payload))
 
 		if (!parsed) {
@@ -204,7 +204,7 @@
 
 	function runPreview() {
 		if (previewArguments) {
-			previewArgs.val = structuredClone($state.snapshot(previewArguments))
+			previewArgs.val = clone(previewArguments)
 		}
 		onRunPreview?.()
 	}
@@ -221,7 +221,7 @@
 			updatePreviewSchema(undefined)
 			return
 		}
-		payloadData = structuredClone($state.snapshot(payload))
+		payloadData = clone(payload)
 		selectedSchema = schemaFromPayload(payloadData)
 		updatePreviewSchema(selectedSchema)
 		updatePreviewArguments(payloadData)
@@ -247,7 +247,7 @@
 	async function applySchemaAndArgs() {
 		flowStore.val.schema = applyDiff(flowStore.val.schema, diff)
 		if (previewArguments) {
-			savedPreviewArgs = structuredClone($state.snapshot(previewArguments))
+			savedPreviewArgs = clone(previewArguments)
 		}
 		updatePreviewSchemaAndArgs(undefined)
 		if ($flowInputEditorState) {
@@ -260,8 +260,8 @@
 			previewArguments = savedPreviewArgs
 			return
 		}
-		savedPreviewArgs = structuredClone($state.snapshot(previewArguments))
-		previewArguments = structuredClone($state.snapshot(payloadData))
+		savedPreviewArgs = clone(previewArguments)
+		previewArguments = clone(payloadData)
 	}
 
 	let tabButtonWidth = 0
@@ -398,7 +398,7 @@
 				on:change={() => {
 					previewArguments = previewArguments
 					if (!previewSchema) {
-						savedPreviewArgs = structuredClone($state.snapshot(previewArguments))
+						savedPreviewArgs = clone(previewArguments)
 					}
 					refreshStateStore(flowStore)
 				}}

@@ -1,3 +1,4 @@
+import { clone } from '$lib/utils'
 export type SchemaDiff = {
 	diff: 'same' | 'added' | 'removed' | 'modified' | Record<string, SchemaDiff>
 	fullSchema: { [key: string]: any } | undefined
@@ -133,7 +134,7 @@ export function schemaFromDiff(
 	if (!schema) {
 		return undefined
 	}
-	const newSchema = structuredClone($state.snapshot(schema))
+	const newSchema = clone(schema)
 	Object.keys(diff).forEach((key) => {
 		const diffValue = diff[key].diff
 		if (diffValue === 'added' || diffValue === 'modified') {
@@ -179,7 +180,7 @@ export function setNestedProperty(
 		return curr[field][key]
 	}, obj)
 	if (lastKey && value) {
-		const newValue = structuredClone($state.snapshot(value))
+		const newValue = clone(value)
 		target[field][lastKey] = newValue
 		return
 	} else if (lastKey && !value) {
@@ -199,7 +200,7 @@ export function applyDiff(
 		return
 	}
 
-	let newSchema = structuredClone($state.snapshot(schema))
+	let newSchema = clone(schema)
 
 	Object.keys(diff).forEach((key) => {
 		const diffValue = diff[key].diff

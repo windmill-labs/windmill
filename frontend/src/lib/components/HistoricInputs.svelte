@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { clone } from '$lib/utils'
 	import { type RunnableType, type Job } from '$lib/gen/index.js'
 	import { sendUserToast } from '$lib/utils.js'
 	import RunningJobSchemaPicker from '$lib/components/schema/RunningJobSchemaPicker.svelte'
@@ -48,7 +49,7 @@
 			dispatch('select', { args: fullPayload, jobId: data.id })
 		} else {
 			dispatch('select', {
-				args: structuredClone($state.snapshot(data.payloadData)),
+				args: clone(data.payloadData),
 				jobId: data.id
 			})
 		}
