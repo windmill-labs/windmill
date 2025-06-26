@@ -1,18 +1,20 @@
 <script lang="ts">
 	import { formatAsset, getAssetUsagePageUri } from '$lib/components/assets/lib'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Button, ClearableInput, DrawerContent } from '$lib/components/common'
+	import { ClearableInput, DrawerContent } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
+	import DbManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { Cell, DataTable } from '$lib/components/table'
 	import Head from '$lib/components/table/Head.svelte'
-	import { AssetService, type ListAssetsResponse } from '$lib/gen'
+	import { AssetService, ResourceService, type ListAssetsResponse } from '$lib/gen'
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
-	import { isS3Uri, pluralize, truncate } from '$lib/utils'
-	import { File } from 'lucide-svelte'
+	import { pluralize, truncate } from '$lib/utils'
+	import { untrack } from 'svelte'
+	import ExploreAssetButton from './ExploreAssetButton.svelte'
 
 	let assets = usePromise(() => AssetService.listAssets({ workspace: $workspaceStore ?? '' }))
 
@@ -23,8 +25,22 @@
 		) ?? []
 	)
 
+	let resourceTypesCache: Record<string, string | undefined> = $state({})
+	$effect(() => {
+		if (!assets.value) return
+		untrack(() => {
+			for (const asset of assets.value) {
+				if (asset.kind !== 'resource' || asset.path in resourceTypesCache) continue
+				ResourceService.getResource({ path: asset.path, workspace: $workspaceStore! })
+					.then((resource) => (resourceTypesCache[asset.path] = resource.resource_type))
+					.catch((err) => (resourceTypesCache[asset.path] = undefined))
+			}
+		})
+	})
+
 	let viewOccurences: ListAssetsResponse[number] | undefined = $state()
 	let s3FilePicker: S3FilePicker | undefined = $state()
+	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
 </script>
 
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.resources}
@@ -59,17 +75,13 @@
 							</a>
 						</Cell>
 						<Cell>
-							{#if asset.kind === 's3object'}
-								<Button
-									size="xs"
-									variant="border"
-									spacingSize="xs2"
-									btnClasses="w-24"
-									on:click={async () => isS3Uri(assetUri) && s3FilePicker?.open(assetUri)}
-								>
-									<File size={18} /> View
-								</Button>
-							{/if}
+							<ExploreAssetButton
+								{asset}
+								{s3FilePicker}
+								{dbManagerDrawer}
+								_resourceMetadata={{ resourceType: resourceTypesCache[asset.path] }}
+								class="w-24"
+							/>
 						</Cell>
 					</tr>
 				{/each}
@@ -109,3 +121,4 @@
 	</DrawerContent>
 </Drawer>
 <S3FilePicker bind:this={s3FilePicker} readOnlyMode />
+<DbManagerDrawer bind:this={dbManagerDrawer} />

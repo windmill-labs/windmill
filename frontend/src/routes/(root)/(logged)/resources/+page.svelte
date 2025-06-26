@@ -60,8 +60,9 @@
 	import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
-	import DbManagerDrawerButton from '$lib/components/DBManagerDrawerButton.svelte'
 	import { isDbType } from '$lib/components/apps/components/display/dbtable/utils'
+	import ExploreAssetButton from '../assets/ExploreAssetButton.svelte'
+	import DbManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -414,6 +415,8 @@
 			})
 		}
 	})
+
+	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
 </script>
 
 <ConfirmationModal
@@ -901,10 +904,11 @@
 										</Cell>
 										<Cell class="flex justify-end">
 											{#if path && isDbType(resource_type)}
-												<DbManagerDrawerButton
-													resourcePath={path}
-													resourceType={resource_type}
-													class="mr-8"
+												<ExploreAssetButton
+													asset={{ kind: 'resource', path: path }}
+													{dbManagerDrawer}
+													_resourceMetadata={{ resourceType: resource_type }}
+													class="w-24"
 												/>
 											{/if}
 											<Dropdown
@@ -1083,6 +1087,7 @@
 <SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResources} />
 <AppConnect bind:this={appConnect} on:refresh={loadResources} />
 <ResourceEditorDrawer bind:this={resourceEditor} on:refresh={loadResources} />
+<DbManagerDrawer bind:this={dbManagerDrawer} />
 
 <ShareModal
 	bind:this={shareModal}

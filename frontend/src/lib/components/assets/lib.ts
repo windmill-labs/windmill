@@ -1,9 +1,7 @@
-import type { AssetKind, ListAssetsResponse } from '$lib/gen'
+import type { AssetKind as _AssetKind, Asset as _Asset, ListAssetsResponse } from '$lib/gen'
 
-export type Asset = {
-	path: string
-	kind: AssetKind
-}
+export type Asset = _Asset
+export type AssetKind = _AssetKind
 
 export function parseAsset(asset: string): Asset | undefined {
 	if (asset.startsWith('$res:')) return { path: asset.substring(5), kind: 'resource' }

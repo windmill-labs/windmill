@@ -46,7 +46,7 @@
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI'
-	import AssetsDetectedBadge from './assets/AssetsDetectedBadge.svelte'
+	import AssetsDetectedBadge from './assets/AssetsDropdownButton.svelte'
 
 	interface Props {
 		// Exported
@@ -510,7 +510,9 @@
 		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
 			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
 				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
-					<AssetsDetectedBadge {assets} />
+					{#if assets.length}
+						<AssetsDetectedBadge {assets} />
+					{/if}
 					{#if testPanelSize === 0}
 						<HideButton
 							hidden={true}
