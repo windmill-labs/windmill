@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { clone, pluralize } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
-	import { Edit2, Pyramid } from 'lucide-svelte'
+	import { AlertTriangle, Edit2, Pyramid } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { Popover } from '../meltComponents'
 	import S3FilePicker from '../S3FilePicker.svelte'
@@ -28,7 +28,7 @@
 	let resourceEditorDrawer: ResourceEditorDrawer | undefined = $state()
 	let isOpen = $state(false)
 
-	let resourceTypesCache: Record<string, string | undefined> = $state({})
+	let resourceDataCache: Record<string, string | undefined> = $state({})
 
 	$effect(() => {
 		if (!assetsUris) return
@@ -42,10 +42,10 @@
 				blueBgDiv.style.animation = ''
 			}
 			for (const asset of assets) {
-				if (asset.kind !== 'resource' || asset.path in resourceTypesCache) continue
+				if (asset.kind !== 'resource' || asset.path in resourceDataCache) continue
 				ResourceService.getResource({ path: asset.path, workspace: $workspaceStore! })
-					.then((resource) => (resourceTypesCache[asset.path] = resource.resource_type))
-					.catch((err) => (resourceTypesCache[asset.path] = undefined))
+					.then((resource) => (resourceDataCache[asset.path] = resource.resource_type))
+					.catch((err) => (resourceDataCache[asset.path] = undefined))
 			}
 		})
 	})
@@ -82,7 +82,7 @@
 						</Tooltip>
 
 						<div class="flex gap-2">
-							{#if asset.kind === 'resource'}
+							{#if asset.kind === 'resource' && resourceDataCache[asset.path] !== undefined}
 								<Button
 									startIcon={{ icon: Edit2 }}
 									size="xs"
@@ -92,14 +92,20 @@
 									on:click={() => (resourceEditorDrawer?.initEdit(asset.path), (isOpen = false))}
 								/>
 							{/if}
-							{#if assetCanBeExplored(asset, { resourceType: resourceTypesCache[asset.path] })}
+							{#if asset.kind === 'resource' && resourceDataCache[asset.path] === undefined}
+								<Tooltip class="mr-2.5">
+									<AlertTriangle size={16} class="text-orange-500" />
+									<svelte:fragment slot="text">Could not fetch resource</svelte:fragment>
+								</Tooltip>
+							{/if}
+							{#if assetCanBeExplored(asset, { resourceType: resourceDataCache[asset.path] })}
 								<ExploreAssetButton
 									{asset}
 									{s3FilePicker}
 									{dbManagerDrawer}
 									onClick={() => (isOpen = false)}
 									noText
-									_resourceMetadata={{ resourceType: resourceTypesCache[asset.path] }}
+									_resourceMetadata={{ resourceType: resourceDataCache[asset.path] }}
 								/>
 							{/if}
 						</div>
