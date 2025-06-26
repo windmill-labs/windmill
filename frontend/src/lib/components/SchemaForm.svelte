@@ -173,7 +173,10 @@
 					.forEach((x) => {
 						n[x] = schema.properties[x]
 					})
-				if (!deepEqual(schema.properties, n) || !deepEqual(schema.properties, Object.keys(n))) {
+				if (
+					!deepEqual(schema.properties, n) ||
+					!deepEqual(Object.keys(schema.properties), Object.keys(n))
+				) {
 					schema.properties = n
 				}
 			}
