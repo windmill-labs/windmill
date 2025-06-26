@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.501.4](https://github.com/windmill-labs/windmill/compare/v1.501.3...v1.501.4) (2025-06-26)
+
+
+### Bug Fixes
+
+* add windows paths to uv install to find git/ssh ([#6063](https://github.com/windmill-labs/windmill/issues/6063)) ([835f1d2](https://github.com/windmill-labs/windmill/commit/835f1d2ec945145942deaa41cb3bd176ed276279))
+* optionally enable CSP headers ([#6033](https://github.com/windmill-labs/windmill/issues/6033)) ([d933648](https://github.com/windmill-labs/windmill/commit/d933648d3666b2ca9d813e04b9f19ddc3c7efda3))
+* schemaform reorder ([#6069](https://github.com/windmill-labs/windmill/issues/6069)) ([1a4b096](https://github.com/windmill-labs/windmill/commit/1a4b096f3ce40e238f1724aa4fd26649d70cb62a))
+
 ## [1.501.3](https://github.com/windmill-labs/windmill/compare/v1.501.2...v1.501.3) (2025-06-25)
 
 
