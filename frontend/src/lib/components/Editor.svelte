@@ -113,7 +113,7 @@
 		extToLang
 	} from '$lib/editorUtils'
 	import { workspaceStore } from '$lib/stores'
-	import { type Preview, ResourceService, UserService } from '$lib/gen'
+	import { type Preview, ResourceService, type ScriptLang, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
 	import { initializeVscode, keepModelAroundToAvoidDisposalOfWorkers } from '$lib/components/vscode'
 
@@ -149,7 +149,7 @@
 	import * as htmllang from '$lib/svelteMonarch'
 	import { conf, language } from '$lib/vueMonarch'
 
-	import { Autocompletor } from './copilot/autocomplete/monaco-adapter'
+	import { Autocompletor } from './copilot/autocomplete/Autocompletor'
 	import { AIChatEditorHandler } from './copilot/chat/monaco-adapter'
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
 	import { writable } from 'svelte/store'
@@ -648,79 +648,29 @@
 		}
 	}
 
-	$: $reviewingChanges && autocompletor?.reject()
-
-	let completorDisposable: IDisposable | undefined = undefined
 	let autocompletor: Autocompletor | undefined = undefined
-	function addSuperCompletor(editor: meditor.IStandaloneCodeEditor) {
-		try {
-			if (completorDisposable) {
-				completorDisposable.dispose()
-			}
-			if (!scriptLang) {
-				throw new Error('No script lang')
-			}
-			autocompletor = new Autocompletor(editor, lang, scriptLang)
 
-			// last user events (currently disabled):
-			// let lastTs = Date.now()
-			// editor.onDidChangeModelContent((e) => {
-			// 	const thisTs = Date.now()
-			// 	lastTs = thisTs
-			// 	setTimeout(() => {
-			// 		if (thisTs === lastTs) {
-			// 			autocompletor?.savePatch()
-			// 		}
-			// 	}, 150)
-			// })
-
-			completorDisposable = editor.onDidChangeCursorPosition((e) => {
-				autocompletor?.reject()
-				if ($reviewingChanges) {
-					return
-				}
-				const position = editor.getPosition()
-				if (!position) {
-					return
-				}
-				const upToText = editor.getModel()?.getValueInRange({
-					startLineNumber: position.lineNumber,
-					startColumn: 0,
-					endLineNumber: position.lineNumber,
-					endColumn: position.column
-				})
-				const lastChar = upToText ? upToText[upToText.length - 1] : ''
-				if (lastChar && lastChar.match(/[\(\{\s:="',]/)) {
-					autocompletor?.predict()
-				}
-			})
-
-			editor.onKeyDown((e) => {
-				if (e.keyCode === KeyCode.Escape) {
-					autocompletor?.reject()
-				} else if (e.keyCode === KeyCode.Tab && autocompletor?.hasChanges()) {
-					e.preventDefault()
-					e.stopPropagation()
-					autocompletor?.accept()
-					autocompletor?.predict()
-				}
-			})
-		} catch (err) {
-			console.error('Could not add supercompletor', err)
+	function addAutoCompletor(
+		editor: meditor.IStandaloneCodeEditor,
+		scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json'
+	) {
+		if (autocompletor) {
+			autocompletor.dispose()
 		}
+		autocompletor = new Autocompletor(editor, scriptLang)
 	}
 
 	$: $copilotInfo.enabled &&
-		$copilotInfo.codeCompletionModel &&
 		$codeCompletionSessionEnabled &&
+		Autocompletor.isProviderModelSupported($copilotInfo.codeCompletionModel) &&
 		initialized &&
 		editor &&
 		scriptLang &&
-		addSuperCompletor(editor)
+		addAutoCompletor(editor, scriptLang)
 
 	$: $copilotInfo.enabled && initialized && editor && addChatHandler(editor)
 
-	$: !$codeCompletionSessionEnabled && (completorDisposable?.dispose(), autocompletor?.reject())
+	$: !$codeCompletionSessionEnabled && autocompletor?.dispose()
 
 	const outputChannel = {
 		name: 'Language Server Client',
@@ -1515,7 +1465,7 @@
 		disposeMethod && disposeMethod()
 		websocketInterval && clearInterval(websocketInterval)
 		sqlSchemaCompletor && sqlSchemaCompletor.dispose()
-		completorDisposable && completorDisposable.dispose()
+		autocompletor && autocompletor.dispose()
 		sqlTypeCompletor && sqlTypeCompletor.dispose()
 		timeoutModel && clearTimeout(timeoutModel)
 		loadTimeout && clearTimeout(loadTimeout)
