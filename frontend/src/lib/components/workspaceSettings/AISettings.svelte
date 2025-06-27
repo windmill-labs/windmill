@@ -111,6 +111,30 @@
 		}
 		sendUserToast(`Copilot settings updated`)
 	}
+
+	async function onAiProviderChange(provider: AIProvider) {
+		if (aiProviders[provider].resource_path) {
+			try {
+				const models = await fetchAvailableModels(
+					aiProviders[provider].resource_path,
+					$workspaceStore!,
+					provider as AIProvider
+				)
+				availableAiModels[provider] = models
+			} catch (e) {
+				console.error('failed to fetch models for provider', provider, e)
+				availableAiModels[provider] = AI_DEFAULT_MODELS[provider]
+			}
+		}
+
+		if (
+			aiProviders[provider]?.resource_path &&
+			aiProviders[provider]?.models.length === 0 &&
+			availableAiModels[provider].length > 0
+		) {
+			aiProviders[provider].models = availableAiModels[provider].slice(0, 1)
+		}
+	}
 </script>
 
 <div class="flex flex-col gap-4 my-8">
@@ -180,30 +204,13 @@
 										? 'openai_client_credentials_oauth'
 										: provider}
 									initialValue={aiProviders[provider].resource_path}
-									bind:value={aiProviders[provider].resource_path}
-									on:change={async () => {
-										if (aiProviders[provider].resource_path) {
-											try {
-												const models = await fetchAvailableModels(
-													aiProviders[provider].resource_path,
-													$workspaceStore!,
-													provider as AIProvider
-												)
-												availableAiModels[provider] = models
-											} catch (e) {
-												console.error('failed to fetch models for provider', provider, e)
-												availableAiModels[provider] = AI_DEFAULT_MODELS[provider]
-											}
+									bind:value={
+										() => aiProviders[provider].resource_path,
+										(v) => {
+											aiProviders[provider].resource_path = v
+											onAiProviderChange(provider)
 										}
-
-										if (
-											aiProviders[provider]?.resource_path &&
-											aiProviders[provider]?.models.length === 0 &&
-											availableAiModels[provider].length > 0
-										) {
-											aiProviders[provider].models = availableAiModels[provider].slice(0, 1)
-										}
-									}}
+									}
 								/>
 								<TestAiKey
 									aiProvider={provider}
