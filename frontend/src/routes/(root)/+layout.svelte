@@ -135,7 +135,7 @@
 		if ($page.url.pathname != '/user/login') {
 			setUserWorkspaceStore()
 			loadUser()
-			UserService.refreshUserToken({ ifExpiringInLessThanS: 60 * 60 * 24 })
+			UserService.refreshUserToken({ ifExpiringInLessThanS: 30 * 60 })
 		}
 
 		let i = 0
@@ -143,10 +143,11 @@
 			if ($page.url.pathname != '/user/login') {
 				i += 1
 
-				// every 1 hour
-				if (i % 12 == 0) {
+				// every 15 mins
+				if (i % 3 == 0) {
 					console.debug('Refreshing user token')
-					await UserService.refreshUserToken({ ifExpiringInLessThanS: 60 * 60 * 24 })
+					// every 15 minutes check if session token is expiring in less than 30min
+					await UserService.refreshUserToken({ ifExpiringInLessThanS: 30 * 60 })
 				}
 
 				try {

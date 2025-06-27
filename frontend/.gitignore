@@ -4,6 +4,7 @@ node_modules
 /.svelte-kit
 /package
 /src/lib/gen
+.vite.temp.*.js
 CaddyfileRemoteRuben
 tests-out/
 storageState.json
