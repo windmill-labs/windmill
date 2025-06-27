@@ -351,13 +351,7 @@
 			{render}
 		/>
 	{:else if component.type === 'multiselectcomponent'}
-		<AppMultiSelect
-			id={component.id}
-			configuration={component.configuration}
-			customCss={component.customCss}
-			verticalAlignment={component.verticalAlignment}
-			{render}
-		/>
+		<AppMultiSelect id={component.id} verticalAlignment={component.verticalAlignment} {render} />
 	{:else if component.type === 'multiselectcomponentv2'}
 		<AppMultiSelectV2
 			id={component.id}

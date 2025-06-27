@@ -36,6 +36,9 @@
 		onEditInput?: ((moduleId: string, key: string) => void) | undefined
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
+		aiChatOpen?: boolean
+		showFlowAiButton?: boolean
+		toggleAiChat?: () => void
 		onRunPreview?: () => void
 	}
 
@@ -54,6 +57,9 @@
 		onEditInput = undefined,
 		forceTestTab,
 		highlightArg,
+		aiChatOpen,
+		showFlowAiButton,
+		toggleAiChat,
 		onRunPreview = () => {}
 	}: Props = $props()
 
@@ -108,6 +114,9 @@
 						}}
 						{onTestUpTo}
 						{onEditInput}
+						{aiChatOpen}
+						{showFlowAiButton}
+						{toggleAiChat}
 					/>
 				{/if}
 			</div>

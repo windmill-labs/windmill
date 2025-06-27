@@ -2,7 +2,7 @@
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 
 	import { createEventDispatcher } from 'svelte'
-	import { Cross } from 'lucide-svelte'
+	import { Bug, Cross } from 'lucide-svelte'
 	import InsertModuleInner from './InsertModuleInner.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { ComputeConfig } from 'svelte-floating-ui'
@@ -87,6 +87,8 @@ shouldUsePortal={true} -->
 		>
 			{#if kind === 'trigger'}
 				<SchedulePollIcon size={14} />
+			{:else if kind === 'failure'}
+				<Bug size={14} />
 			{:else}
 				<Cross size={iconSize} />
 			{/if}
