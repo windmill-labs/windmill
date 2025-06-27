@@ -72,6 +72,7 @@
 
 	let dispatch = createEventDispatcher<{
 		close: { s3: string; storage: string | undefined } | undefined
+		selectAndClose: { s3: string; storage: string | undefined }
 	}>()
 
 	let drawer: Drawer | undefined = $state()
@@ -423,6 +424,9 @@
 	}
 
 	async function selectAndClose() {
+		if (selectedFileKey?.s3) {
+			dispatch('selectAndClose', { s3: selectedFileKey.s3, storage })
+		}
 		drawer?.closeDrawer?.()
 	}
 

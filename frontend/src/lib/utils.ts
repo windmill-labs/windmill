@@ -1454,6 +1454,11 @@ export function parseS3Object(s3Object: S3Object): { s3: string; storage?: strin
 	return { storage: match?.[1] || undefined, s3: match?.[2] ?? '' }
 }
 
+export function formatS3Object(s3Object: S3Object): S3Uri {
+	if (typeof s3Object === 'object') return `s3://${s3Object.storage ?? ''}/${s3Object.s3}`
+	return s3Object
+}
+
 export function isS3Uri(uri: string): uri is S3Uri {
 	const match = uri.match(/^s3:\/\/([^/]*)\/(.*)$/)
 	return !!match && match.length === 3

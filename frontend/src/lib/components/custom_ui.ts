@@ -65,6 +65,7 @@ export type EditorBarUi = {
 	library?: boolean
 	useVsCode?: boolean
 	diffMode?: boolean
+	s3object?: boolean
 }
 
 export type EditableSchemaFormUi = {

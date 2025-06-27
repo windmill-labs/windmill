@@ -29,6 +29,7 @@
 	import {
 		DiffIcon,
 		DollarSign,
+		File,
 		History,
 		Library,
 		Link,
@@ -38,7 +39,7 @@
 		Save,
 		Users
 	} from 'lucide-svelte'
-	import { capitalize, toCamel } from '$lib/utils'
+	import { capitalize, formatS3Object, toCamel } from '$lib/utils'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
 	import ScriptGen from './copilot/ScriptGen.svelte'
@@ -48,6 +49,7 @@
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 	import type { EditorBarUi } from './custom_ui'
 	import EditorSettings from './EditorSettings.svelte'
+	import S3FilePicker from './S3FilePicker.svelte'
 
 	interface Props {
 		lang: SupportedLanguage | 'bunnative' | undefined
@@ -109,6 +111,7 @@
 	let resourceTypePicker: ItemPicker | undefined = $state()
 	let variableEditor: VariableEditor | undefined = $state()
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
+	let s3FilePicker: S3FilePicker | undefined = $state()
 
 	let showContextVarPicker = $derived(
 		[
@@ -167,6 +170,8 @@
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
 	)
+
+	let showS3Picker = $derived(['duckdb'].includes(lang ?? ''))
 
 	let showResourceTypePicker = $derived(
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
@@ -582,8 +587,14 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			editor.insertAtCursor(`(Wmill.getResource("${path}"))`)
 			// for related places search: ADD_NEW_LANG
 		} else if (lang == 'duckdb') {
-			let t = resType == 'postgresql' ? 'postgres' : resType
-			editor.insertAtCursor(`ATTACH '$res:${path}' AS db (TYPE ${t});`)
+			let t = { postgresql: 'postgres', mysql: 'mysql', bigquery: 'bigquery' }[resType]
+			if (!t) {
+				sendUserToast(`Resource type ${resType} is not supported in DuckDB`, true)
+				editor.insertAtCursor(`'$res:${path}'`)
+				return
+			} else {
+				editor.insertAtCursor(`ATTACH '$res:${path}' AS db (TYPE ${t});`)
+			}
 		}
 
 		sendUserToast(`${path} inserted at cursor`)
@@ -629,6 +640,20 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 {/if}
 <ResourceEditorDrawer bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
+
+<S3FilePicker
+	bind:this={s3FilePicker}
+	readOnlyMode={false}
+	on:selectAndClose={(s3obj) => {
+		if (lang === 'duckdb') {
+			let s = `'${formatS3Object(s3obj.detail)}'`
+			if (s3obj.detail?.s3.endsWith('.json')) s = `read_json(${s})`
+			if (s3obj.detail?.s3.endsWith('.csv')) s = `read_csv(${s})`
+			if (s3obj.detail?.s3.endsWith('.parquet')) s = `read_parquet(${s})`
+			editor?.insertAtCursor(s)
+		}
+	}}
+/>
 
 <div class="flex justify-between items-center overflow-y-auto w-full p-0.5">
 	<div class="flex items-center">
@@ -683,6 +708,22 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					startIcon={{ icon: Package }}
 				>
 					+Resource
+				</Button>
+			{/if}
+
+			{#if showS3Picker && customUi?.s3object != false}
+				<Button
+					aiId="editor-bar-add-s3-object"
+					aiDescription="Add S3 Object"
+					title="Add S3 object"
+					color="light"
+					on:click={() => s3FilePicker?.open()}
+					size="xs"
+					btnClasses="!font-medium text-tertiary"
+					spacingSize="md"
+					startIcon={{ icon: File }}
+					{iconOnly}
+					>+S3 Object
 				</Button>
 			{/if}
 
