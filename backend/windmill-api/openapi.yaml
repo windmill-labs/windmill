@@ -11075,6 +11075,30 @@ paths:
                 type: object
                 additionalProperties:
                   type: integer
+  
+  /configs/ducklake_catalog_exists:
+    get:
+      summary: check if ducklake catalog exists
+      operationId: ducklakeCatalogExists
+      tags:
+        - config
+      responses:
+        "200":
+          description: whether the ducklake catalog exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+  
+  /configs/init_ducklake_catalog_db:
+    post:
+      summary: initialize ducklake catalog database
+      operationId: initDucklakeCatalogDb
+      tags:
+        - config
+      responses:
+        "200":
+          description: ok
 
   /configs/list_worker_groups:
     get:

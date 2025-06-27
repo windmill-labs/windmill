@@ -15,6 +15,7 @@ use windmill_common::s3_helpers::{
     DuckdbConnectionSettingsQueryV2, DuckdbConnectionSettingsResponse, S3Object,
 };
 use windmill_common::worker::{to_raw_value, Connection};
+use windmill_common::{get_database_url, parse_postgres_url};
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
@@ -167,7 +168,10 @@ pub async fn do_duckdb(
                     Some(parsed) => v.extend(
                         transform_attach_db_resource_query(&parsed, &job.id, client).await?,
                     ),
-                    None => v.push(query_block.to_string()),
+                    None => match transform_attach_ducklake(&query_block, &job.id, client).await? {
+                        Some(ducklake_query) => v.extend(ducklake_query),
+                        None => v.push(query_block.to_string()),
+                    },
                 };
             }
             v
@@ -187,6 +191,7 @@ pub async fn do_duckdb(
 
             let mut result: Option<Box<RawValue>> = None;
             let mut column_order = None;
+
             for (query_block_index, query_block) in query_block_list.iter().enumerate() {
                 result = Some(
                     do_duckdb_inner(
@@ -450,42 +455,27 @@ fn parse_attach_db_resource<'a>(query: &'a str) -> Option<ParsedAttachDbResource
     None
 }
 
-async fn transform_attach_db_resource_query(
+async fn get_attach_db_conn_str(
     parsed: &ParsedAttachDbResource<'_>,
     job_id: &Uuid,
     client: &AuthedClient,
-) -> Result<Vec<String>> {
-    match parsed.db_type.to_lowercase().as_str() {
+) -> Result<String> {
+    let s = match parsed.db_type.to_lowercase().as_str() {
         "postgres" => {
-            let resource: PgDatabase = client
+            let res: PgDatabase = client
                 .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
                 .await?;
 
-            let attach_str = format!(
-                "ATTACH 'dbname={} {} host={} {} {}' AS {} (TYPE postgres{});",
-                resource.dbname,
-                resource
-                    .user
-                    .map(|u| format!("user={}", u))
-                    .unwrap_or_default(),
-                resource.host,
-                resource
-                    .password
+            format!(
+                "dbname={} {} host={} {} {}",
+                res.dbname,
+                res.user.map(|u| format!("user={}", u)).unwrap_or_default(),
+                res.host,
+                res.password
                     .map(|p| format!("password={}", p))
                     .unwrap_or_default(),
-                resource
-                    .port
-                    .map(|p| format!("port={}", p))
-                    .unwrap_or_default(),
-                parsed.name,
-                parsed.extra_args.unwrap_or("")
-            );
-
-            Ok(vec![
-                "INSTALL postgres;".to_string(),
-                "LOAD postgres;".to_string(),
-                attach_str,
-            ])
+                res.port.map(|p| format!("port={}", p)).unwrap_or_default(),
+            )
         }
         "mysql" => {
             #[cfg(not(feature = "mysql"))]
@@ -499,8 +489,8 @@ async fn transform_attach_db_resource_query(
                     .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
                     .await?;
 
-                let attach_str = format!(
-                    "ATTACH 'database={} host={} ssl_mode={} {} {} {}' AS {} (TYPE mysql{});",
+                format!(
+                    "database={} host={} ssl_mode={} {} {} {}",
                     resource.database,
                     resource.host,
                     resource
@@ -519,15 +509,7 @@ async fn transform_attach_db_resource_query(
                         .user
                         .map(|u| format!("user={}", u))
                         .unwrap_or_default(),
-                    parsed.name,
-                    parsed.extra_args.unwrap_or("")
-                );
-
-                Ok(vec![
-                    "INSTALL mysql;".to_string(),
-                    "LOAD mysql;".to_string(),
-                    attach_str,
-                ])
+                )
             }
         }
         "bigquery" => {
@@ -554,24 +536,118 @@ async fn transform_attach_db_resource_query(
                     .to_owned(),
             )
             .map_err(|_e| Error::ExecutionErr("failed project_id deserialize".to_string()))?;
-            let attach_str = format!(
-                "ATTACH 'project={}' as {} (TYPE bigquery{});",
-                project_id,
-                parsed.name,
-                parsed.extra_args.unwrap_or("")
-            )
-            .to_string();
-            Ok(vec![
-                "INSTALL bigquery FROM community;".to_string(),
-                "LOAD bigquery;".to_string(),
-                attach_str,
-            ])
+            format!("project={}", project_id,)
         }
+        _ => {
+            return Err(Error::ExecutionErr(format!(
+                "Unsupported db type in DuckDB ATTACH: {}",
+                parsed.db_type
+            )))
+        }
+    };
+    Ok(s)
+}
+
+fn get_attach_db_install_str(db_type: &str) -> Result<&str> {
+    match db_type.to_lowercase().as_str() {
+        "postgres" => Ok("INSTALL postgres;"),
+        "mysql" => {
+            #[cfg(not(feature = "mysql"))]
+            return Err(Error::ExecutionErr(
+                "MySQL feature is not enabled".to_string(),
+            ));
+            #[cfg(feature = "mysql")]
+            Ok("INSTALL mysql;")
+        }
+        "bigquery" => Ok("INSTALL bigquery FROM community;"),
         _ => Err(Error::ExecutionErr(format!(
             "Unsupported db type in DuckDB ATTACH: {}",
-            parsed.db_type
+            db_type
         ))),
     }
+}
+
+async fn transform_attach_db_resource_query(
+    parsed: &ParsedAttachDbResource<'_>,
+    job_id: &Uuid,
+    client: &AuthedClient,
+) -> Result<Vec<String>> {
+    let attach_str = format!(
+        "ATTACH '{}' as {} (TYPE {}{});",
+        get_attach_db_conn_str(&parsed, &job_id, &client).await?,
+        parsed.name,
+        parsed.db_type,
+        parsed.extra_args.unwrap_or("")
+    )
+    .to_string();
+
+    Ok(vec![
+        get_attach_db_install_str(parsed.db_type)?.to_string(),
+        format!("LOAD {};", parsed.db_type),
+        attach_str,
+    ])
+}
+
+async fn transform_attach_ducklake(
+    query: &str,
+    job_id: &Uuid,
+    client: &AuthedClient,
+) -> Result<Option<Vec<String>>> {
+    lazy_static::lazy_static! {
+        static ref RE: regex::Regex = regex::Regex::new(r"ATTACH 'ducklake:([^':]+):?([^']*)'").unwrap();
+    }
+    let Some(cap) = RE.captures(query) else {
+        return Ok(None);
+    };
+    let db_type = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+    let resource_path = cap.get(2).map(|m| m.as_str());
+    let attach_str = if db_type == "windmill" {
+        let o = parse_postgres_url(&get_database_url().await?)?;
+
+        let attach_str = format!(
+            "ATTACH 'ducklake:postgres:dbname=ducklake_catalog user={} host={} password={} port={} {}'",
+            o.username.as_ref().map(String::as_str).unwrap_or("NO_USER"),
+            o.host,
+            o.password.as_ref().map(String::as_str).unwrap_or("NO_PWD"),
+            o.port.unwrap_or(5432),
+            o.query_params.as_ref().map(String::as_str).unwrap_or("")
+        );
+
+        query.replacen("ATTACH 'ducklake:windmill'", &attach_str, 1)
+    } else if let Some(resource_path) = resource_path {
+        if !resource_path.starts_with("$res:") {
+            return Err(Error::ExecutionErr(
+                "DuckDB ATTACH resource path must start with $res:".to_string(),
+            ));
+        }
+        let resource_path = &resource_path[5..]; // Remove $res:
+        let conn_str = get_attach_db_conn_str(
+            &ParsedAttachDbResource { resource_path, name: "", db_type, extra_args: None },
+            &job_id,
+            &client,
+        )
+        .await?;
+        let attach_str = format!("ATTACH 'ducklake:{}:{}'", db_type, conn_str);
+        query.replacen(
+            &format!("ATTACH 'ducklake:{}:$res:{}'", db_type, resource_path),
+            &attach_str,
+            1,
+        )
+    } else {
+        return Err(Error::ExecutionErr(
+            "Unsupported ducklake catalog db".to_string(),
+        ));
+    };
+
+    let install_db_ext_str = get_attach_db_install_str(match db_type {
+        "windmill" => "postgres",
+        _ => db_type,
+    })?;
+    Ok(Some(vec![
+        "INSTALL ducklake;".to_string(),
+        install_db_ext_str.to_string(),
+        attach_str,
+    ]))
 }
 
 // Returns the transformed query and the set of storages used
