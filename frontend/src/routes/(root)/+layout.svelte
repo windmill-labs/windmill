@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
 	import { page } from '$app/stores'
-	import { UserService, WorkspaceService, SettingsService } from '$lib/gen'
+	import { UserService, WorkspaceService } from '$lib/gen'
 	import { logoutWithRedirect } from '$lib/logout'
 	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
@@ -73,27 +73,6 @@
 		}
 	}
 
-	async function getRefreshThresholdSeconds(): Promise<number> {
-		try {
-			const envSettings = await SettingsService.getLocal()
-			const sessionValiditySeconds = envSettings.MAX_SESSION_VALIDITY_SECONDS
-				? parseInt(envSettings.MAX_SESSION_VALIDITY_SECONDS)
-				: 3 * 24 * 60 * 60 // 3 days default
-
-			// We check every 5 minutes (300 seconds), so request refresh when token expires
-			// within the next check interval plus some buffer (e.g., 600 seconds = 10 minutes)
-			const bufferSeconds = 600 // 10 minutes buffer
-			return Math.min(sessionValiditySeconds - bufferSeconds, 24 * 60 * 60) // Cap at 24 hours max
-		} catch (e) {
-			console.debug(
-				'Could not fetch session validity from env settings, using default refresh threshold:',
-				e
-			)
-			// Default: 24 hours (existing behavior as fallback)
-			return 24 * 60 * 60
-		}
-	}
-
 	let interval: NodeJS.Timeout | undefined = undefined
 	onMount(async () => {
 		window.onunhandledrejection = (event: PromiseRejectionEvent) => {
@@ -153,13 +132,10 @@
 		setLicense()
 		computeDrift()
 
-		// Get the refresh threshold once at startup
-		const refreshThresholdSeconds = await getRefreshThresholdSeconds()
-
 		if ($page.url.pathname != '/user/login') {
 			setUserWorkspaceStore()
 			loadUser()
-			UserService.refreshUserToken({ ifExpiringInLessThanS: refreshThresholdSeconds })
+			UserService.refreshUserToken({ ifExpiringInLessThanS: 1800 })
 		}
 
 		let i = 0
@@ -170,7 +146,8 @@
 				// every 1 hour
 				if (i % 12 == 0) {
 					console.debug('Refreshing user token')
-					await UserService.refreshUserToken({ ifExpiringInLessThanS: refreshThresholdSeconds })
+					// every 5 minutes check if session token is expiring in less than 30min
+					await UserService.refreshUserToken({ ifExpiringInLessThanS: 30 * 60 })
 				}
 
 				try {
