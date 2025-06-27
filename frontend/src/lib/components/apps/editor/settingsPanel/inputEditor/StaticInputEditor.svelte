@@ -112,34 +112,36 @@
 			<TabSelectInput bind:componentInput />
 		{:else if fieldType === 'resource' && subFieldType && ['mysql', 'postgres', 'ms_sql_server', 'snowflake', 'snowflake_oauth', 'bigquery', 'oracledb'].includes(subFieldType)}
 			<ResourcePicker
-				initialValue={componentInput.value?.split('$res:')?.[1] || ''}
-				on:change={(e) => {
-					let path = e.detail
-					if (componentInput) {
-						if (path) {
-							componentInput.value = `$res:${path}`
-						} else {
-							componentInput.value = undefined
+				bind:value={
+					() => (componentInput?.value ? componentInput?.value?.split('$res:')?.[1] : undefined),
+					(v) => {
+						if (componentInput) {
+							if (v) {
+								componentInput.value = `$res:${v}`
+							} else {
+								componentInput.value = undefined
+							}
 						}
 					}
-				}}
+				}
 				showSchemaExplorer
 				resourceType={subFieldType === 'postgres' ? 'postgresql' : subFieldType}
 			/>
 		{:else if fieldType === 'resource' && subFieldType === 's3'}
 			<ResourcePicker
 				placeholder="S3 resource (workspace s3 if empty)"
-				initialValue={componentInput.value?.split('$res:')?.[1] || ''}
-				on:change={(e) => {
-					let path = e.detail
-					if (componentInput) {
-						if (path) {
-							componentInput.value = `$res:${path}`
-						} else {
-							componentInput.value = undefined
+				bind:value={
+					() => (componentInput?.value ? componentInput?.value?.split('$res:')?.[1] : undefined),
+					(v) => {
+						if (componentInput) {
+							if (v) {
+								componentInput.value = `$res:${v}`
+							} else {
+								componentInput.value = undefined
+							}
 						}
 					}
-				}}
+				}
 				resourceType="s3"
 			/>
 		{:else if fieldType === 'labeledresource'}
@@ -149,20 +151,33 @@
 						onkeydown={stopPropagation(bubble('keydown'))}
 						placeholder="Label"
 						type="text"
-						bind:value={componentInput.value['label']}
+						bind:value={
+							() => componentInput?.value?.['label'],
+							(v) => {
+								if (componentInput) {
+									componentInput.value['label'] = v
+								}
+								componentInput = $state.snapshot(componentInput)
+							}
+						}
 					/>
 					<ResourcePicker
-						initialValue={componentInput.value?.['value']?.split('$res:')?.[1] || ''}
-						on:change={(e) => {
-							let path = e.detail
-							if (componentInput) {
-								if (path) {
-									componentInput.value['value'] = `$res:${path}`
-								} else {
-									componentInput.value['value'] = undefined
+						bind:value={
+							() =>
+								componentInput?.value
+									? componentInput?.value?.['value']?.split('$res:')?.[1]
+									: undefined,
+							(v) => {
+								if (componentInput) {
+									if (v) {
+										componentInput.value['value'] = `$res:${v}`
+									} else {
+										componentInput.value['value'] = undefined
+									}
+									componentInput = $state.snapshot(componentInput)
 								}
 							}
-						}}
+						}
 						showSchemaExplorer
 					/>
 				</div>
@@ -241,17 +256,18 @@
 				/>
 			{:else if format?.startsWith('resource-') && (componentInput.value == undefined || typeof componentInput.value == 'string')}
 				<ResourcePicker
-					initialValue={componentInput.value?.split('$res:')?.[1] || ''}
-					on:change={(e) => {
-						let path = e.detail
-						if (componentInput) {
-							if (path) {
-								componentInput.value = `$res:${path}`
-							} else {
-								componentInput.value = undefined
+					bind:value={
+						() => (componentInput?.value ? componentInput?.value?.split('$res:')?.[1] : undefined),
+						(v) => {
+							if (componentInput) {
+								if (v) {
+									componentInput.value = `$res:${v}`
+								} else {
+									componentInput.value = undefined
+								}
 							}
 						}
-					}}
+					}
 					resourceType={format && format?.split('-').length > 1
 						? format.substring('resource-'.length)
 						: undefined}
@@ -289,13 +305,13 @@
 					/>
 					<div class="absolute top-1 right-1">
 						<AgGridWizard bind:value={componentInput.value}>
-							<svelte:fragment slot="trigger">
+							{#snippet trigger()}
 								<Button color="light" size="xs2" nonCaptureEvent={true}>
 									<div class="flex flex-row items-center gap-2 text-xs font-normal">
 										<Settings size={16} />
 									</div>
 								</Button>
-							</svelte:fragment>
+							{/snippet}
 						</AgGridWizard>
 					</div>
 				</div>
@@ -311,13 +327,13 @@
 					/>
 					<div class="absolute top-1 right-1">
 						<DBExplorerWizard bind:value={componentInput.value}>
-							<svelte:fragment slot="trigger">
+							{#snippet trigger()}
 								<Button color="light" size="xs2" nonCaptureEvent={true}>
 									<div class="flex flex-row items-center gap-2 text-xs font-normal">
 										<Settings size={16} />
 									</div>
 								</Button>
-							</svelte:fragment>
+							{/snippet}
 						</DBExplorerWizard>
 					</div>
 				</div>
@@ -332,13 +348,13 @@
 					/>
 					<div class="absolute top-1 right-1">
 						<TableColumnWizard bind:column={componentInput.value}>
-							<svelte:fragment slot="trigger">
+							{#snippet trigger()}
 								<Button color="light" size="xs2" nonCaptureEvent={true}>
 									<div class="flex flex-row items-center gap-2 text-xs font-normal">
 										<Settings size={16} />
 									</div>
 								</Button>
-							</svelte:fragment>
+							{/snippet}
 						</TableColumnWizard>
 					</div>
 				</div>
@@ -353,13 +369,13 @@
 					/>
 					<div class="absolute top-1 right-1">
 						<PlotlyWizard bind:value={componentInput.value} on:remove>
-							<svelte:fragment slot="trigger">
+							{#snippet trigger()}
 								<Button color="light" size="xs2" nonCaptureEvent={true}>
 									<div class="flex flex-row items-center gap-2 text-xs font-normal">
 										<Settings size={16} />
 									</div>
 								</Button>
-							</svelte:fragment>
+							{/snippet}
 						</PlotlyWizard>
 					</div>
 				</div>
@@ -374,13 +390,13 @@
 					/>
 					<div class="absolute top-1 right-1">
 						<ChartJSWizard bind:value={componentInput.value} on:remove>
-							<svelte:fragment slot="trigger">
+							{#snippet trigger()}
 								<Button color="light" size="xs2" nonCaptureEvent={true}>
 									<div class="flex flex-row items-center gap-2 text-xs font-normal">
 										<Settings size={16} />
 									</div>
 								</Button>
-							</svelte:fragment>
+							{/snippet}
 						</ChartJSWizard>
 					</div>
 				</div>
@@ -396,13 +412,13 @@
 
 					<div class="absolute top-1 right-1">
 						<AgChartWizard bind:value={componentInput.value} on:remove>
-							<svelte:fragment slot="trigger">
+							{#snippet trigger()}
 								<Button color="light" size="xs2" nonCaptureEvent={true}>
 									<div class="flex flex-row items-center gap-2 text-xs font-normal">
 										<Settings size={16} />
 									</div>
 								</Button>
-							</svelte:fragment>
+							{/snippet}
 						</AgChartWizard>
 					</div>
 				</div>

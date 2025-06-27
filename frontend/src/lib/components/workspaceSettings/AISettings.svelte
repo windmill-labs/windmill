@@ -111,6 +111,30 @@
 		}
 		sendUserToast(`Copilot settings updated`)
 	}
+
+	async function onAiProviderChange(provider: AIProvider) {
+		if (aiProviders[provider].resource_path) {
+			try {
+				const models = await fetchAvailableModels(
+					aiProviders[provider].resource_path,
+					$workspaceStore!,
+					provider as AIProvider
+				)
+				availableAiModels[provider] = models
+			} catch (e) {
+				console.error('failed to fetch models for provider', provider, e)
+				availableAiModels[provider] = AI_DEFAULT_MODELS[provider]
+			}
+		}
+
+		if (
+			aiProviders[provider]?.resource_path &&
+			aiProviders[provider]?.models.length === 0 &&
+			availableAiModels[provider].length > 0
+		) {
+			aiProviders[provider].models = availableAiModels[provider].slice(0, 1)
+		}
+	}
 </script>
 
 <div class="flex flex-col gap-4 my-8">
@@ -180,30 +204,13 @@
 										? 'openai_client_credentials_oauth'
 										: provider}
 									initialValue={aiProviders[provider].resource_path}
-									bind:value={aiProviders[provider].resource_path}
-									on:change={async () => {
-										if (aiProviders[provider].resource_path) {
-											try {
-												const models = await fetchAvailableModels(
-													aiProviders[provider].resource_path,
-													$workspaceStore!,
-													provider as AIProvider
-												)
-												availableAiModels[provider] = models
-											} catch (e) {
-												console.error('failed to fetch models for provider', provider, e)
-												availableAiModels[provider] = AI_DEFAULT_MODELS[provider]
-											}
+									bind:value={
+										() => aiProviders[provider].resource_path,
+										(v) => {
+											aiProviders[provider].resource_path = v
+											onAiProviderChange(provider)
 										}
-
-										if (
-											aiProviders[provider]?.resource_path &&
-											aiProviders[provider]?.models.length === 0 &&
-											availableAiModels[provider].length > 0
-										) {
-											aiProviders[provider].models = availableAiModels[provider].slice(0, 1)
-										}
-									}}
+									}
 								/>
 								<TestAiKey
 									aiProvider={provider}
@@ -235,6 +242,9 @@
 	</div>
 
 	{#if Object.keys(aiProviders).length > 0}
+		{@const autocompleteModels = selectedAiModels.filter(
+			(m) => m.startsWith('codestral-') && !m.startsWith('codestral-embed')
+		)}
 		<div class="flex flex-col gap-2">
 			<p class="font-semibold">Settings</p>
 			<div class="flex flex-col gap-4">
@@ -256,21 +266,24 @@
 					<Toggle
 						on:change={(e) => {
 							if (e.detail) {
-								codeCompletionModel = ''
+								codeCompletionModel = autocompleteModels[0] ?? ''
 							} else {
 								codeCompletionModel = undefined
 							}
 						}}
 						checked={codeCompletionModel != undefined}
+						disabled={autocompleteModels.length == 0}
 						options={{
-							right: 'Code completion'
+							right: 'Code completion (Codestral only)',
+							rightTooltip:
+								'We currently only support Mistral Codestral models for code completion.'
 						}}
 					/>
 
 					{#if codeCompletionModel != undefined}
 						<Label label="Code completion model">
 							<ArgEnum
-								enum_={selectedAiModels}
+								enum_={autocompleteModels}
 								bind:value={codeCompletionModel}
 								disabled={false}
 								autofocus={false}
@@ -278,9 +291,6 @@
 								valid={true}
 								create={false}
 							/>
-							<p class="text-xs mt-2">
-								We highly recommend using Mistral's Codestral model for code completion.
-							</p>
 						</Label>
 					{/if}
 				</div>
