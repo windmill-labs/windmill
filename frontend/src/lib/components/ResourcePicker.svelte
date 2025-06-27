@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { run } from 'svelte/legacy'
 	import { createEventDispatcher, onMount, untrack } from 'svelte'
 	import AppConnect from './AppConnectDrawer.svelte'
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
@@ -140,7 +141,7 @@
 			)
 	})
 
-	$effect(() => {
+	run(() => {
 		dispatchIfMounted('change', value)
 	})
 
