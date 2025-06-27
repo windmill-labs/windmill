@@ -74,7 +74,7 @@
 	}
 
 	let interval: NodeJS.Timeout | undefined = undefined
-	onMount(async () => {
+	onMount(() => {
 		window.onunhandledrejection = (event: PromiseRejectionEvent) => {
 			event.preventDefault()
 
