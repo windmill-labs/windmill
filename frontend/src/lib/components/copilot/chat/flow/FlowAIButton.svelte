@@ -8,7 +8,7 @@
 	import { getModifierKey } from '$lib/utils'
 	import { WandSparkles } from 'lucide-svelte'
 
-	let { openPanel, opened }: { openPanel: () => void; opened?: boolean } = $props()
+	let { togglePanel, opened }: { togglePanel: () => void; opened?: boolean } = $props()
 </script>
 
 {#snippet button(onClick: () => void)}
@@ -19,8 +19,8 @@
 		on:click={onClick}
 		startIcon={{ icon: WandSparkles }}
 		iconOnly
-		btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface h-[28px] w-[34px] rounded-sm py-1 px-2 {opened
-			? 'bg-surface-100'
+		btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600  bg-surface h-[28px] w-[34px] rounded-sm py-1 px-2 {opened
+			? 'bg-surface-selected'
 			: ''}"
 	>
 		AI Panel
@@ -38,12 +38,14 @@
 				</div>
 			</div>
 		{/snippet}
-		{@render button(openPanel)}
+		{@render button(togglePanel)}
 	</DarkPopover>
 {:else}
 	<Popover placement="bottom">
 		{#snippet trigger()}
-			{@render button(() => {})}
+			{@render button(() => {
+				togglePanel()
+			})}
 		{/snippet}
 		{#snippet content()}
 			<div class="block text-primary p-4">

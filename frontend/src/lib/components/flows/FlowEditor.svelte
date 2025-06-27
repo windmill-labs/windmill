@@ -38,7 +38,7 @@
 		highlightArg?: Record<string, string | undefined>
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
-		onOpenAiChat?: () => void
+		toggleAiChat?: () => void
 		onRunPreview?: () => void
 	}
 
@@ -59,7 +59,7 @@
 		highlightArg,
 		aiChatOpen,
 		showFlowAiButton,
-		onOpenAiChat,
+		toggleAiChat,
 		onRunPreview = () => {}
 	}: Props = $props()
 
@@ -116,7 +116,7 @@
 						{onEditInput}
 						{aiChatOpen}
 						{showFlowAiButton}
-						{onOpenAiChat}
+						{toggleAiChat}
 					/>
 				{/if}
 			</div>

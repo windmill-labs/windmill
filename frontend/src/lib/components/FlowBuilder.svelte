@@ -1119,7 +1119,6 @@
 					/>
 				</div>
 			</div>
-
 			<!-- metadata -->
 			{#if $flowStateStore}
 				<FlowEditor
@@ -1159,9 +1158,9 @@
 					}}
 					{forceTestTab}
 					{highlightArg}
-					aiChatOpen={!aiChatManager.open}
+					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
-					onOpenAiChat={() => aiChatManager.openChat()}
+					toggleAiChat={() => aiChatManager.toggleOpen()}
 					onRunPreview={() => {
 						flowPreviewButtons?.openPreview(true)
 					}}

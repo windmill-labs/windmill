@@ -51,7 +51,7 @@
 		onEditInput?: (moduleId: string, key: string) => void
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
-		onOpenAiChat?: () => void
+		toggleAiChat?: () => void
 	}
 
 	let {
@@ -67,7 +67,7 @@
 		onEditInput,
 		aiChatOpen,
 		showFlowAiButton,
-		onOpenAiChat
+		toggleAiChat
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -329,7 +329,7 @@
 			{smallErrorHandler}
 			on:generateStep
 			{aiChatOpen}
-			{onOpenAiChat}
+			{toggleAiChat}
 		/>
 	</div>
 
