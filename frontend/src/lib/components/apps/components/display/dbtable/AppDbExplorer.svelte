@@ -18,7 +18,7 @@
 		type DbType,
 		getTablesByResource
 	} from './utils'
-	import { getContext, tick } from 'svelte'
+	import { getContext, tick, untrack } from 'svelte'
 	import UpdateCell from './UpdateCell.svelte'
 	import { workspaceStore, type DBSchemas } from '$lib/stores'
 	import { Drawer } from '$lib/components/common'
@@ -39,18 +39,23 @@
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import InsertRowDrawerButton from '../InsertRowDrawerButton.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'dbexplorercomponent'> | undefined = undefined
-	export let render: boolean
-	export let initializing: boolean = true
-	export let actions: TableAction[] = []
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'dbexplorercomponent'> | undefined
+		render: boolean
+		initializing?: boolean
+		actions?: TableAction[]
+	}
 
-	$: table = resolvedConfig.type.configuration?.[resolvedConfig.type?.selected]?.table as
-		| string
-		| undefined
-
-	$: table !== null && render && clearColumns()
+	let {
+		id,
+		configuration,
+		customCss = undefined,
+		render,
+		initializing = $bindable(true),
+		actions = []
+	}: Props = $props()
 
 	function clearColumns() {
 		// We only want to clear the columns if the table has changed
@@ -78,18 +83,9 @@
 		$app = $app
 	}
 
-	const resolvedConfig = initConfig(
-		components['dbexplorercomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['dbexplorercomponent'].initialData.configuration, configuration)
 	)
-
-	$: resolvedConfig.type.selected &&
-		render &&
-		computeInput(
-			resolvedConfig.columnDefs,
-			resolvedConfig.whereClause,
-			resolvedConfig.type.configuration[resolvedConfig.type.selected].resource
-		)
 
 	let timeoutInput: NodeJS.Timeout | undefined = undefined
 
@@ -115,34 +111,20 @@
 		getContext<AppViewerContext>('AppViewerContext')
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
-	let input: AppInput | undefined = undefined
-	let quicksearch = ''
-	let aggrid: AppAggridExplorerTable
+	let input: AppInput | undefined = $state(undefined)
+	let quicksearch = $state('')
+	let aggrid: AppAggridExplorerTable | undefined = $state()
 
-	$: editorContext != undefined && $mode == 'dnd' && resolvedConfig.type && listTables()
-
-	$: editorContext != undefined &&
-		$mode == 'dnd' &&
-		resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table &&
-		listColumnsIfAvailable()
-
-	let firstQuicksearch = true
-	$: if (quicksearch !== undefined) {
-		if (firstQuicksearch) {
-			firstQuicksearch = false
-		} else {
-			aggrid?.clearRows()
-		}
-	}
+	let firstQuicksearch = $state(true)
 
 	initializing = false
 
-	let updateCell: UpdateCell
+	let updateCell: UpdateCell | undefined = $state()
 
-	let renderCount = 0
+	let renderCount = $state(0)
 	let insertDrawer: Drawer | undefined = undefined
-	let componentContainerHeight: number | undefined = undefined
-	let buttonContainerHeight: number | undefined = undefined
+	let componentContainerHeight: number | undefined = $state(undefined)
+	let buttonContainerHeight: number | undefined = $state(undefined)
 
 	function onUpdate(
 		e: CustomEvent<{
@@ -265,7 +247,7 @@
 		} catch (e) {}
 	}
 
-	let datasource: IDatasource = {
+	let datasource: IDatasource = $state({
 		rowCount: 0,
 		getRows: async function (params) {
 			const currentParams = {
@@ -326,9 +308,9 @@
 				}
 			})
 		}
-	}
+	})
 
-	let lastTable: string | undefined = undefined
+	let lastTable: string | undefined = $state(undefined)
 	let timeout: NodeJS.Timeout | undefined = undefined
 
 	function isSubset(subset: Record<string, any>, superset: Record<string, any>) {
@@ -468,8 +450,6 @@
 		}, 1500)
 	}
 
-	$: $worldStore && render && connectToComponents()
-
 	function connectToComponents() {
 		if ($worldStore && datasource !== undefined) {
 			const outputs = $worldStore.outputsById[`${id}_count`]
@@ -528,11 +508,11 @@
 		}
 	}
 
-	let runnableComponent: RunnableComponent
-	let componentState: any = undefined
-	let insertRowRunnable: InsertRowRunnable
-	let deleteRow: DeleteRow
-	let dbExplorerCount: DbExplorerCount | undefined = undefined
+	let runnableComponent: RunnableComponent | undefined = $state()
+	let componentState: any = $state(undefined)
+	let insertRowRunnable: InsertRowRunnable | undefined = $state()
+	let deleteRow: DeleteRow | undefined = $state()
+	let dbExplorerCount: DbExplorerCount | undefined = $state(undefined)
 
 	function onDelete(e) {
 		const data = { ...e.detail }
@@ -549,12 +529,53 @@
 		)
 	}
 
-	let refreshCount = 0
+	let refreshCount = $state(0)
 
-	$: hideSearch = resolvedConfig.hideSearch as boolean
-	$: hideInsert = resolvedConfig.hideInsert as boolean
-
-	let loading: boolean = false
+	let loading: boolean = $state(false)
+	let table = $derived(
+		resolvedConfig.type.configuration?.[resolvedConfig.type?.selected]?.table as string | undefined
+	)
+	$effect(() => {
+		table !== null && render && untrack(() => clearColumns())
+	})
+	$effect(() => {
+		;[resolvedConfig.columnDefs, resolvedConfig.whereClause, resolvedConfig.type.selected]
+		resolvedConfig.type.selected &&
+			render &&
+			untrack(() => {
+				computeInput(
+					resolvedConfig.columnDefs,
+					resolvedConfig.whereClause,
+					resolvedConfig.type.configuration[resolvedConfig.type.selected].resource
+				)
+			})
+	})
+	$effect(() => {
+		editorContext != undefined &&
+			$mode == 'dnd' &&
+			resolvedConfig.type &&
+			untrack(() => listTables())
+	})
+	$effect(() => {
+		editorContext != undefined &&
+			$mode == 'dnd' &&
+			resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table &&
+			untrack(() => listColumnsIfAvailable())
+	})
+	$effect(() => {
+		if (quicksearch !== undefined) {
+			if (firstQuicksearch) {
+				firstQuicksearch = false
+			} else if (aggrid) {
+				untrack(() => aggrid?.clearRows())
+			}
+		}
+	})
+	$effect(() => {
+		$worldStore && render && untrack(() => connectToComponents())
+	})
+	let hideSearch = $derived(resolvedConfig.hideSearch as boolean)
+	let hideInsert = $derived(resolvedConfig.hideInsert as boolean)
 </script>
 
 {#each Object.keys(components['dbexplorercomponent'].initialData.configuration) as key (key)}
@@ -652,7 +673,7 @@
 				<!-- {JSON.stringify(resolvedConfig.columnDefs)} -->
 				<AppAggridExplorerTable
 					bind:this={aggrid}
-					bind:componentState={componentState}
+					bind:componentState
 					{id}
 					{datasource}
 					{resolvedConfig}
