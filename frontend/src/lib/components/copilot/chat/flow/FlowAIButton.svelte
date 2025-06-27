@@ -7,8 +7,13 @@
 	import { Button } from '$lib/components/common'
 	import { getModifierKey } from '$lib/utils'
 	import { WandSparkles } from 'lucide-svelte'
+	import { twMerge } from 'tailwind-merge'
 
-	let { togglePanel, opened }: { togglePanel: () => void; opened?: boolean } = $props()
+	let {
+		togglePanel,
+		opened,
+		class: className
+	}: { togglePanel: () => void; opened?: boolean; class?: string } = $props()
 </script>
 
 {#snippet button(onClick: () => void)}
@@ -19,9 +24,11 @@
 		on:click={onClick}
 		startIcon={{ icon: WandSparkles }}
 		iconOnly
-		btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600  bg-surface h-[28px] w-[34px] rounded-sm py-1 px-2 {opened
-			? 'bg-surface-selected'
-			: ''}"
+		btnClasses={twMerge(
+			'!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface h-[28px] w-[32px] rounded-md py-1 px-1',
+			opened ? 'bg-surface-selected' : '',
+			className
+		)}
 	>
 		AI Panel
 	</Button>
