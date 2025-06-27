@@ -415,3 +415,9 @@ pub struct ExpiringCacheEntry<T> {
     pub value: T,
     pub expiry: std::time::Instant,
 }
+
+#[cfg(all(feature = "kafka", feature = "enterprise", feature = "private"))]
+pub async fn update_rw_lock<T>(lock: std::sync::Arc<tokio::sync::RwLock<T>>, value: T) -> () {
+    let mut w = lock.write().await;
+    *w = value;
+}
