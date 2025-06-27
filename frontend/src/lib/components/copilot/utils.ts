@@ -1,9 +1,43 @@
 import type { Schema, SchemaProperty } from '../../common'
 
-import type { ResourceType } from '../../gen'
+import type { ResourceType, ScriptLang } from '../../gen'
 
 import { capitalize, toCamel } from '$lib/utils'
 import YAML from 'yaml'
+
+export const getCommentSymbol = (
+	lang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json'
+): string => {
+	switch (lang) {
+		case 'python3':
+		case 'go':
+		case 'bash':
+		case 'powershell':
+		case 'graphql':
+		case 'ansible':
+		case 'nu':
+			return '#'
+		case 'nativets':
+		case 'bun':
+		case 'deno':
+		case 'php':
+		case 'csharp':
+		case 'java':
+		case 'bunnative':
+			return '//'
+		case 'rust':
+		case 'postgresql':
+		case 'mysql':
+		case 'bigquery':
+		case 'snowflake':
+		case 'mssql':
+		case 'oracledb':
+		case 'duckdb':
+			return '--'
+		default:
+			return '//'
+	}
+}
 
 export function compile(schema: Schema) {
 	function rec(x: { [name: string]: SchemaProperty }, root = false) {

@@ -2,6 +2,7 @@ import type { AIProvider, AIProviderModel } from '$lib/gen'
 import {
 	copilotInfo,
 	copilotSessionModel,
+	workspaceStore,
 	type DBSchema,
 	type GraphqlSchema,
 	type SQLSchema
@@ -18,6 +19,7 @@ import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import { formatResourceTypes } from './utils'
+import { z } from 'zod'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
@@ -519,9 +521,75 @@ export async function getNonStreamingCompletion(
 				dangerouslyAllowBrowser: true
 			})
 		: workspaceAIClients.getOpenaiClient()
+
 	const completion = await openaiClient.chat.completions.create(config, fetchOptions)
 	response = completion.choices?.[0]?.message.content || ''
 	return response
+}
+
+const mistralFimResponseSchema = z.object({
+	choices: z.array(
+		z.object({
+			message: z.object({
+				content: z.string().optional()
+			}),
+			finish_reason: z.string()
+		})
+	)
+})
+
+export const FIM_MAX_TOKENS = 256
+export async function getFimCompletion(
+	prompt: string,
+	suffix: string,
+	providerModel: AIProviderModel,
+	abortController: AbortController
+): Promise<string | undefined> {
+	const fetchOptions: {
+		signal: AbortSignal
+		headers: Record<string, string>
+	} = {
+		signal: abortController.signal,
+		headers: {
+			'X-Provider': providerModel.provider
+		}
+	}
+
+	const workspace = get(workspaceStore)
+
+	const response = await fetch(
+		`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/fim/completions`,
+		{
+			method: 'POST',
+			body: JSON.stringify({
+				model: providerModel.model,
+				temperature: 0,
+				prompt,
+				suffix,
+				stop: ['\n\n'],
+				max_tokens: FIM_MAX_TOKENS
+			}),
+			...fetchOptions
+		}
+	)
+
+	const body = await response.json()
+	const parsedBody = mistralFimResponseSchema.parse(body)
+
+	const choice = parsedBody.choices[0]
+
+	if (choice) {
+		if (choice.finish_reason === 'length' && choice.message.content) {
+			// take all the lines before the last
+			const lines = choice.message.content.split('\n')
+			const joined = lines.slice(0, -1).join('\n')
+			return joined
+		} else {
+			return choice.message.content || ''
+		}
+	} else {
+		return undefined
+	}
 }
 
 export async function getCompletion(
