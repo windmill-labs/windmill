@@ -143,10 +143,10 @@
 			if ($page.url.pathname != '/user/login') {
 				i += 1
 
-				// every 1 hour
-				if (i % 12 == 0) {
+				// every 15 mins
+				if (i % 3 == 0) {
 					console.debug('Refreshing user token')
-					// every 5 minutes check if session token is expiring in less than 30min
+					// every 15 minutes check if session token is expiring in less than 30min
 					await UserService.refreshUserToken({ ifExpiringInLessThanS: 30 * 60 })
 				}
 
