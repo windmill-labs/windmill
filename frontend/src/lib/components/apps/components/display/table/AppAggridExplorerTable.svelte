@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { stopPropagation } from 'svelte/legacy';
+	import { stopPropagation } from 'svelte/legacy'
 
 	import { GridApi, createGrid, type IDatasource } from 'ag-grid-community'
 	import { sendUserToast } from '$lib/utils'
@@ -25,21 +25,21 @@
 	import { stateSnapshot, withProps } from '$lib/svelte5Utils.svelte'
 
 	interface Props {
-		id: string;
-		customCss?: ComponentCustomCSS<'aggridcomponent'> | undefined;
-		containerHeight?: number | undefined;
+		id: string
+		customCss?: ComponentCustomCSS<'aggridcomponent'> | undefined
+		containerHeight?: number | undefined
 		resolvedConfig: InitConfig<
-		| (typeof components)['dbexplorercomponent']['initialData']['configuration']
-		| (typeof components)['aggridinfinitecomponent']['initialData']['configuration']
-		| (typeof components)['aggridinfinitecomponentee']['initialData']['configuration']
-	>;
-		datasource: IDatasource;
-		componentState?: any;
-		outputs: Record<string, Output<any>>;
-		allowDelete: boolean;
-		actions?: TableAction[];
-		result?: any[] | undefined;
-		allowColumnDefsActions?: boolean;
+			| (typeof components)['dbexplorercomponent']['initialData']['configuration']
+			| (typeof components)['aggridinfinitecomponent']['initialData']['configuration']
+			| (typeof components)['aggridinfinitecomponentee']['initialData']['configuration']
+		>
+		datasource: IDatasource
+		componentState?: any
+		outputs: Record<string, Output<any>>
+		allowDelete: boolean
+		actions?: TableAction[]
+		result?: any[] | undefined
+		allowColumnDefsActions?: boolean
 	}
 
 	let {
@@ -54,7 +54,7 @@
 		actions = [],
 		result = undefined,
 		allowColumnDefsActions = true
-	}: Props = $props();
+	}: Props = $props()
 	let inputs = {}
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
@@ -124,7 +124,6 @@
 
 	let api: GridApi<any> | undefined = $state(undefined)
 	let eGui: HTMLDivElement | undefined = $state()
-
 
 	function refreshActions(actions: TableAction[]) {
 		if (!deepEqual(actions, lastActions)) {
@@ -387,7 +386,6 @@
 		}
 	}
 
-
 	let oldDatasource = $state(datasource)
 
 	let extraConfig = $state(resolvedConfig.extraConfig)
@@ -441,32 +439,31 @@
 	}
 	$effect(() => {
 		eGui && untrack(() => mountGrid())
-	});
+	})
 	$effect(() => {
 		actions && untrack(() => refreshActions(actions))
-	});
+	})
 	$effect(() => {
-		api && resolvedConfig && untrack(() => updateOptions())
-	});
+		api && resolvedConfig && updateOptions()
+	})
 	$effect(() => {
 		if (api && datasource && datasource != oldDatasource) {
 			oldDatasource = datasource
 			untrack(() => {
-			api?.updateGridOptions({ datasource })
+				api?.updateGridOptions({ datasource })
 			})
 		}
-	});
+	})
 	$effect(() => {
-
 		if (!deepEqual(extraConfig, resolvedConfig.extraConfig)) {
 			extraConfig = resolvedConfig.extraConfig
 			if (extraConfig && api) {
 				untrack(() => {
-				extraConfig && api?.updateGridOptions(extraConfig)
+					extraConfig && api?.updateGridOptions(extraConfig)
 				})
 			}
 		}
-	});
+	})
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -523,8 +520,8 @@
 				<div>
 					<Popover>
 						{#snippet text()}
-												Download
-											{/snippet}
+							Download
+						{/snippet}
 						<Button
 							startIcon={{ icon: Download }}
 							color="light"

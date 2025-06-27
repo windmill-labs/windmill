@@ -53,9 +53,15 @@
 		configuration,
 		customCss = undefined,
 		render,
-		initializing = $bindable(true),
+		initializing = $bindable(undefined),
 		actions = []
 	}: Props = $props()
+
+	$effect.pre(() => {
+		if (initializing === undefined) {
+			initializing = true
+		}
+	})
 
 	function clearColumns() {
 		// We only want to clear the columns if the table has changed
@@ -554,6 +560,7 @@
 		editorContext != undefined &&
 			$mode == 'dnd' &&
 			resolvedConfig.type &&
+			resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource &&
 			untrack(() => listTables())
 	})
 	$effect(() => {
