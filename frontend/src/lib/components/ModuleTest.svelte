@@ -1,7 +1,6 @@
 <script lang="ts" module>
 	type testModuleState = {
 		loading: boolean
-		instances: number
 		cancel?: () => void
 	}
 
@@ -111,14 +110,7 @@
 		const modId = mod.id
 		testModulesState[modId] = {
 			...(testModulesState[modId] ?? { loading: false, instances: 0 }),
-			loading: testIsLoading,
-			instances: testModulesState[modId]!.instances + 1
-		}
-		return () => {
-			testModulesState[modId].instances -= 1
-			if (testModulesState[modId].instances < 1) {
-				delete testModulesState[modId]
-			}
+			loading: testIsLoading
 		}
 	})
 </script>
@@ -130,12 +122,15 @@
 	bind:this={testJobLoader}
 	bind:isLoading={
 		() => testModulesState[mod.id]?.loading ?? false,
-		(v) =>
-			(testModulesState[mod.id] = {
-				...testModulesState[mod.id],
-				loading: v ?? false,
-				instances: testModulesState[mod.id]?.instances ?? 0
-			})
+		(v) => {
+			let newLoading = v ?? false
+			if (testModulesState[mod.id]?.loading !== newLoading) {
+				testModulesState[mod.id] = {
+					...(testModulesState[mod.id] ?? {}),
+					loading: newLoading
+				}
+			}
+		}
 	}
 	bind:job={testJob}
 />

@@ -1,9 +1,7 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import { type Job, JobService, type FlowStatus, type Preview } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { onDestroy, tick } from 'svelte'
+	import { onDestroy, tick, untrack } from 'svelte'
 	import { createEventDispatcher } from 'svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
@@ -60,8 +58,13 @@
 	let lastStartedAt: number = Date.now()
 	let currentId: string | undefined = $state(undefined)
 
-	run(() => {
-		isLoading = currentId !== undefined
+	$effect(() => {
+		let newIsLoading = currentId !== undefined
+		untrack(() => {
+			if (isLoading !== newIsLoading) {
+				isLoading = newIsLoading
+			}
+		})
 	})
 
 	export async function abstractRun(fn: () => Promise<string>) {
