@@ -135,7 +135,7 @@
 		if ($page.url.pathname != '/user/login') {
 			setUserWorkspaceStore()
 			loadUser()
-			UserService.refreshUserToken({ ifExpiringInLessThanS: 1800 })
+			UserService.refreshUserToken({ ifExpiringInLessThanS: 30 * 60 })
 		}
 
 		let i = 0
