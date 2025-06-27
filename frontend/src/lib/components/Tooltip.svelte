@@ -5,13 +5,29 @@
 	import { ExternalLink, InfoIcon } from 'lucide-svelte'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import { getContext, hasContext } from 'svelte'
-	export let light = false
-	export let wrapperClass = ''
-	export let placement: PopoverPlacement | undefined = undefined
-	export let documentationLink: string | undefined = undefined
-	export let small = false
-	export let markdownTooltip: string | undefined = undefined
-	export let customSize: string = '100%'
+	interface Props {
+		light?: boolean
+		wrapperClass?: string
+		placement?: PopoverPlacement | undefined
+		documentationLink?: string | undefined
+		small?: boolean
+		markdownTooltip?: string | undefined
+		customSize?: string
+		class?: string
+		children?: import('svelte').Snippet
+	}
+
+	let {
+		light = false,
+		wrapperClass = '',
+		placement = undefined,
+		documentationLink = undefined,
+		small = false,
+		markdownTooltip = undefined,
+		customSize = '100%',
+		class: classNames = '',
+		children
+	}: Props = $props()
 	const plugins = [gfmPlugin()]
 
 	const disableTooltips = hasContext('disableTooltips')
@@ -29,17 +45,17 @@
 		<div
 			class="inline-flex w-3 mx-0.5 h-3 {light
 				? 'text-tertiary-inverse'
-				: 'text-tertiary'} {$$props.class} relative"
+				: 'text-tertiary'} {classNames} relative"
 		>
 			<InfoIcon class="{small ? 'bottom-0' : '-bottom-0.5'} absolute" size={small ? 12 : 14} />
 		</div>
-		<svelte:fragment slot="text">
+		{#snippet text()}
 			{#if markdownTooltip}
 				<div class="prose-sm">
 					<Markdown md={markdownTooltip} {plugins} />
 				</div>
 			{:else}
-				<slot />
+				{@render children?.()}
 			{/if}
 
 			{#if documentationLink}
@@ -50,6 +66,6 @@
 					</div>
 				</a>
 			{/if}
-		</svelte:fragment>
+		{/snippet}
 	</Popover>
 {/if}

@@ -3,9 +3,13 @@
 	import { AlertTriangle } from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
 	import { onDestroy } from 'svelte'
-	export let tag: string
+	interface Props {
+		tag: string
+	}
 
-	let noWorkerWithTag = false
+	let { tag }: Props = $props()
+
+	let noWorkerWithTag = $state(false)
 
 	let timeout: NodeJS.Timeout | undefined = undefined
 
@@ -39,8 +43,8 @@
 {#if noWorkerWithTag}
 	<Popover notClickable placement="top">
 		<AlertTriangle size={16} class="text-yellow-500" />
-		<svelte:fragment slot="text">
+		{#snippet text()}
 			No worker with tag <b>{tag}</b> is currently running.
-		</svelte:fragment>
+		{/snippet}
 	</Popover>
 {/if}

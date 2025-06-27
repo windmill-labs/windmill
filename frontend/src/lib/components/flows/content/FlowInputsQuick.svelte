@@ -6,7 +6,7 @@
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import { defaultScripts, enterpriseLicense, userStore } from '$lib/stores'
 	import type { SupportedLanguage } from '$lib/common'
-	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import PickHubScriptQuick from '../pickers/PickHubScriptQuick.svelte'
 	import { type Script, type ScriptLang, type HubScriptKind } from '$lib/gen'
@@ -26,18 +26,33 @@
 
 	const dispatch = createEventDispatcher()
 
-	export let summary: string | undefined = undefined
-	export let filter = ''
-	export let disableAi = false
-	export let preFilter: 'all' | 'workspace' | 'hub' = 'hub'
-	export let funcDesc: string
-	export let owners: string[] = []
-	export let loading = false
-	export let small = false
-	export let kind: 'trigger' | 'script' | 'preprocessor' | 'failure' | 'approval'
-	export let selectedKind: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure' =
-		kind
-	export let displayPath = false
+	interface Props {
+		summary?: string | undefined
+		filter?: string
+		disableAi?: boolean
+		preFilter?: 'all' | 'workspace' | 'hub'
+		funcDesc: string
+		owners?: string[]
+		loading?: boolean
+		small?: boolean
+		kind: 'trigger' | 'script' | 'preprocessor' | 'failure' | 'approval'
+		selectedKind?: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
+		displayPath?: boolean
+	}
+
+	let {
+		summary = undefined,
+		filter = $bindable(''),
+		disableAi = false,
+		preFilter = 'hub',
+		funcDesc,
+		owners = $bindable([]),
+		loading = $bindable(false),
+		small = false,
+		kind,
+		selectedKind = kind,
+		displayPath = false
+	}: Props = $props()
 
 	type HubCompletion = {
 		path: string
@@ -49,25 +64,20 @@
 		kind: HubScriptKind
 	}
 
-	let lang: ScriptLang | undefined = undefined
+	let lang: ScriptLang | undefined = $state(undefined)
 
-	let filteredWorkspaceItems: (Script & { marked?: string })[] = []
+	let filteredWorkspaceItems: (Script & { marked?: string })[] = $state([])
 
-	let hubCompletions: HubCompletion[] = []
+	let hubCompletions: HubCompletion[] = $state([])
 
 	const { insertButtonOpen } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	let selected: { kind: 'owner' | 'integrations'; name: string | undefined } | undefined = undefined
+	let selected: { kind: 'owner' | 'integrations'; name: string | undefined } | undefined =
+		$state(undefined)
 
-	let integrations: string[] = []
+	let integrations: string[] = $state([])
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
-
-	$: langs = processLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
-		.map((l) => [defaultScriptLanguages[l], l])
-		.filter(
-			(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1])
-		) as [string, SupportedLanguage | 'docker'][]
 
 	function displayLang(
 		lang: SupportedLanguage | 'docker',
@@ -109,11 +119,9 @@
 		})
 	}
 
-	let openScriptSettings = false
+	let openScriptSettings = $state(false)
 
-	let selectedByKeyboard = 0
-
-	$: onSelectedKindChange(selectedKind)
+	let selectedByKeyboard = $state(0)
 
 	function onSelectedKindChange(
 		_selectedKind: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
@@ -121,7 +129,7 @@
 		selectedByKeyboard = 0
 	}
 
-	let inlineScripts: [string, SupportedLanguage | 'docker'][] = []
+	let inlineScripts: [string, SupportedLanguage | 'docker'][] = $state([])
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql', 'oracledb']
 
@@ -153,7 +161,7 @@
 		['Branch to one', 'branchone'],
 		['Branch to all', 'branchall']
 	]
-	let topLevelNodes: [string, string][] = []
+	let topLevelNodes: [string, string][] = $state([])
 	function computeToplevelNodeChoices(funcDesc: string, preFilter: 'all' | 'workspace' | 'hub') {
 		if (funcDesc.length > 0 && preFilter == 'all' && kind == 'script') {
 			topLevelNodes = allToplevelNodes.filter((node) =>
@@ -164,10 +172,6 @@
 		}
 	}
 
-	$: computeToplevelNodeChoices(funcDesc, preFilter)
-	$: computeInlineScriptChoices(funcDesc, selected, preFilter, selectedKind)
-	$: onPrefilterChange(preFilter)
-
 	function onPrefilterChange(preFilter: 'all' | 'workspace' | 'hub') {
 		if (preFilter == 'workspace') {
 			hubCompletions = []
@@ -177,10 +181,7 @@
 		selectedByKeyboard = 0
 	}
 
-	$: aiLength =
-		funcDesc?.length > 0 && !disableAi && selectedKind != 'flow' && preFilter == 'all' ? 2 : 0
-
-	let scrollable: Scrollable | undefined
+	let scrollable: Scrollable | undefined = $state()
 	function onKeyDown(e: KeyboardEvent) {
 		let length =
 			topLevelNodes?.length +
@@ -206,9 +207,35 @@
 	onDestroy(() => {
 		$insertButtonOpen = false
 	})
+	let langs = $derived(
+		processLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
+			.map((l) => [defaultScriptLanguages[l], l])
+			.filter(
+				(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1])
+			) as [string, SupportedLanguage | 'docker'][]
+	)
+	$effect(() => {
+		selectedKind
+		untrack(() => onSelectedKindChange(selectedKind))
+	})
+	$effect(() => {
+		;[funcDesc, preFilter]
+		untrack(() => computeToplevelNodeChoices(funcDesc, preFilter))
+	})
+	$effect(() => {
+		;[funcDesc, selected, preFilter, selectedKind]
+		untrack(() => computeInlineScriptChoices(funcDesc, selected, preFilter, selectedKind))
+	})
+	$effect(() => {
+		preFilter
+		untrack(() => onPrefilterChange(preFilter))
+	})
+	let aiLength = $derived(
+		funcDesc?.length > 0 && !disableAi && selectedKind != 'flow' && preFilter == 'all' ? 2 : 0
+	)
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} />
 <div class="flex flex-row grow min-w-0 divide-x relative {!small ? 'shadow-inset' : ''}">
 	{#if selectedKind != 'preprocessor'}
 		<Scrollable shiftedShadow scrollableClass="w-32 grow-0 shrink-0 ">
@@ -230,7 +257,7 @@
 										'w-full text-left text-2xs text-primary font-normal py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 										owner === selected?.name ? 'bg-surface-hover' : ''
 									)}
-									on:click={() => {
+									onclick={() => {
 										selected = selected?.name == owner ? undefined : { kind: 'owner', name: owner }
 									}}
 								>
@@ -274,7 +301,7 @@
 									'w-full text-left text-2xs text-primary font-normal py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 									owner === selected?.name ? 'bg-surface-hover' : ''
 								)}
-								on:click={() => {
+								onclick={() => {
 									selected = selected?.name == owner ? undefined : { kind: 'owner', name: owner }
 								}}
 							>

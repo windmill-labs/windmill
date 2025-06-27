@@ -7,8 +7,8 @@
 	import { devopsRole } from '$lib/stores'
 	import { Search, AlertTriangle } from 'lucide-svelte'
 
-	let searchTerm = $page.url.searchParams.get('query') ?? ''
-	let queryParseErrors: string[] | undefined = undefined
+	let searchTerm = $state($page.url.searchParams.get('query') ?? '')
+	let queryParseErrors: string[] | undefined = $state(undefined)
 </script>
 
 <div class="flex flex-col w-full h-screen max-h-screen max-w-screen px-2">
@@ -40,15 +40,17 @@
 			{#if searchTerm !== '' && queryParseErrors && queryParseErrors.length > 0}
 				<Popover notClickable placement="bottom-start">
 					<AlertTriangle size={16} class="text-yellow-500" />
-					<svelte:fragment slot="text">
+					{#snippet text()}
 						Some of your search terms have been ignored because one or more parse errors:<br /><br
 						/>
-						<ul>
-							{#each queryParseErrors as msg}
-								<li>- {msg}</li>
-							{/each}
-						</ul>
-					</svelte:fragment>
+						{#if queryParseErrors}
+							<ul>
+								{#each queryParseErrors as msg}
+									<li>- {msg}</li>
+								{/each}
+							</ul>
+						{/if}
+					{/snippet}
 				</Popover>
 			{/if}
 		</div>

@@ -1,7 +1,11 @@
 <script lang="ts">
 	import Popover from './Popover.svelte'
 
-	export let members: string[]
+	interface Props {
+		members: string[]
+	}
+
+	let { members }: Props = $props()
 </script>
 
 <Popover>
@@ -11,5 +15,7 @@
 			<span class="text-tertiary text-xs">{members?.join(', ')} </span>
 		</div>
 	</div>
-	<span slot="text">{members?.join(', ')} </span>
+	{#snippet text()}
+		<span>{members?.join(', ')} </span>
+	{/snippet}
 </Popover>

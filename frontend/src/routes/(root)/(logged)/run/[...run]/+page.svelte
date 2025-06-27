@@ -111,7 +111,6 @@
 	let testJobLoader: TestJobLoader | undefined = $state(undefined)
 
 	let persistentScriptDrawer: PersistentScriptDrawer | undefined = $state(undefined)
-	let getLogs: (() => Promise<void>) | undefined = $state(undefined)
 
 	let showExplicitProgressTip: boolean = $state(
 		(localStorage.getItem('hideExplicitProgressTip') ?? 'false') == 'false'
@@ -352,7 +351,11 @@
 		}
 	}
 	$effect(() => {
-		job?.logs == undefined && job && viewTab == 'logs' && isNotFlow(job?.job_kind) && getLogs?.()
+		job?.logs == undefined &&
+			job &&
+			viewTab == 'logs' &&
+			isNotFlow(job?.job_kind) &&
+			testJobLoader?.getLogs()
 	})
 	$effect(() => {
 		job?.id && lastJobId !== job.id && untrack(() => getConcurrencyKey(job))
@@ -415,7 +418,6 @@
 		bind:scriptProgress
 		on:done={() => job?.['result'] != undefined && (viewTab = 'result')}
 		bind:this={testJobLoader}
-		bind:getLogs
 		bind:isLoading={testIsLoading}
 		bind:job
 		bind:jobUpdateLastFetch

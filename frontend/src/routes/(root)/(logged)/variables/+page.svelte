@@ -37,37 +37,43 @@
 		EyeOff,
 		Circle
 	} from 'lucide-svelte'
+	import { untrack } from 'svelte'
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
 
-	let filter = ''
-	let variables: ListableVariableW[] | undefined = undefined
-	let filteredItems: (ListableVariableW & { marked?: string })[] | undefined = undefined
-	let contextualVariables: ContextualVariable[] = []
-	let shareModal: ShareModal
-	let variableEditor: VariableEditor
-	let contextualVariableEditor: ContextualVariableEditor
-	let loading = {
+	let filter = $state('')
+	let variables = $state(undefined) as ListableVariableW[] | undefined
+	let filteredItems = $state(undefined) as (ListableVariableW & { marked?: string })[] | undefined
+	let contextualVariables: ContextualVariable[] = $state([])
+	let shareModal: ShareModal | undefined = $state()
+	let variableEditor: VariableEditor | undefined = $state()
+	let contextualVariableEditor: ContextualVariableEditor | undefined = $state()
+	let loading = $state({
 		contextual: true
-	}
+	})
 
-	let deleteConfirmedCallback: (() => void) | undefined = undefined
-	$: open = Boolean(deleteConfirmedCallback)
+	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
+	let open = $derived(Boolean(deleteConfirmedCallback))
 
-	$: owners = Array.from(
-		new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-	).sort()
+	let owners = $derived(
+		Array.from(
+			new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+		).sort()
+	)
 
-	let ownerFilter: string | undefined = undefined
+	let ownerFilter: string | undefined = $state(undefined)
 
-	$: if ($workspaceStore) {
-		ownerFilter = undefined
-	}
+	$effect(() => {
+		if ($workspaceStore) {
+			ownerFilter = undefined
+		}
+	})
 
-	$: preFilteredItems =
+	let preFilteredItems = $derived(
 		ownerFilter == undefined
 			? variables
 			: variables?.filter((x) => x.path.startsWith(ownerFilter ?? ''))
+	)
 
 	// If relative, the dropdown is positioned relative to its button
 	async function loadVariables(): Promise<void> {
@@ -79,7 +85,7 @@
 		})
 	}
 
-	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
 
 	async function getDeployUiSettings() {
 		if (!$enterpriseLicense) {
@@ -107,15 +113,17 @@
 		sendUserToast(`Variable ${path} was deleted`)
 	}
 
-	$: {
+	$effect(() => {
 		if ($workspaceStore && $userStore) {
-			loadVariables()
-			loadContextualVariables()
+			untrack(() => {
+				loadVariables()
+				loadContextualVariables()
+			})
 		}
-	}
-	let tab: 'workspace' | 'contextual' = 'workspace'
+	})
+	let tab: 'workspace' | 'contextual' = $state('workspace')
 
-	let deploymentDrawer: DeployWorkspaceDrawer
+	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 
 	async function deleteContextualVariable(row: { name: string }) {
 		await WorkspaceService.setEnvironmentVariable({
@@ -161,12 +169,12 @@
 					<Button
 						size="md"
 						startIcon={{ icon: Plus }}
-						on:click={() => contextualVariableEditor.initNew()}
+						on:click={() => contextualVariableEditor?.initNew()}
 					>
 						New&nbsp;contextual&nbsp;variable
 					</Button>
 				{:else}
-					<Button size="md" startIcon={{ icon: Plus }} on:click={() => variableEditor.initNew()}>
+					<Button size="md" startIcon={{ icon: Plus }} on:click={() => variableEditor?.initNew()}>
 						New&nbsp;variable
 					</Button>
 				{/if}
@@ -247,7 +255,7 @@
 										<a
 											class="break-all"
 											id="edit-{path}"
-											on:click={() => variableEditor.editVariable(path)}
+											onclick={() => variableEditor?.editVariable(path)}
 											href="#{path}"
 										>
 											{#if marked}
@@ -269,7 +277,9 @@
 											{#if is_secret}
 												<Popover notClickable>
 													<EyeOff size={12} />
-													<span slot="text">This item is secret</span>
+													{#snippet text()}
+														<span>This item is secret</span>
+													{/snippet}
 												</Popover>
 											{/if}
 										</span>
@@ -283,19 +293,23 @@
 											{#if is_linked}
 												<Popover notClickable>
 													<Link size={16} />
-													<div slot="text">
-														This variable is linked with a resource of the same path. They are
-														deleted and renamed together.
-													</div>
+													{#snippet text()}
+														<div>
+															This variable is linked with a resource of the same path. They are
+															deleted and renamed together.
+														</div>
+													{/snippet}
 												</Popover>
 											{/if}
 											{#if account}
 												<Popover notClickable>
 													<RefreshCw size={16} />
-													<div slot="text">
-														This OAuth token will be kept up-to-date in the background by Windmill
-														using its refresh token
-													</div>
+													{#snippet text()}
+														<div>
+															This OAuth token will be kept up-to-date in the background by Windmill
+															using its refresh token
+														</div>
+													{/snippet}
 												</Popover>
 											{/if}
 
@@ -314,9 +328,11 @@
 																/>
 															</div>
 
-															<div slot="text">
-																Latest exchange of the refresh token did not succeed. Error: {refresh_error}
-															</div>
+															{#snippet text()}
+																<div>
+																	Latest exchange of the refresh token did not succeed. Error: {refresh_error}
+																</div>
+															{/snippet}
 														</Popover>
 													{:else if is_expired}
 														<Popover notClickable>
@@ -324,11 +340,13 @@
 																class="text-yellow-600 animate-[pulse_5s_linear_infinite] fill-current"
 																size={12}
 															/>
-															<div slot="text">
-																The access_token is expired, it will get renewed the next time this
-																variable is fetched or you can request is to be refreshed in the
-																dropdown on the right.
-															</div>
+															{#snippet text()}
+																<div>
+																	The access_token is expired, it will get renewed the next time
+																	this variable is fetched or you can request is to be refreshed in
+																	the dropdown on the right.
+																</div>
+															{/snippet}
 														</Popover>
 													{:else}
 														<Popover notClickable>
@@ -336,10 +354,12 @@
 																class="text-green-600 animate-[pulse_5s_linear_infinite] fill-current"
 																size={12}
 															/>
-															<div slot="text">
-																The variable was connected through OAuth and the token is not
-																expired.
-															</div>
+															{#snippet text()}
+																<div>
+																	The variable was connected through OAuth and the token is not
+																	expired.
+																</div>
+															{/snippet}
 														</Popover>
 													{/if}
 												</div>
@@ -354,7 +374,7 @@
 													{
 														displayName: 'Edit',
 														icon: Pen,
-														action: () => variableEditor.editVariable(path),
+														action: () => variableEditor?.editVariable(path),
 														disabled: !canWrite
 													},
 													{
@@ -382,15 +402,15 @@
 																	displayName: 'Deploy to prod/staging',
 																	icon: FileUp,
 																	action: () => {
-																		deploymentDrawer.openDrawer(path, 'variable')
+																		deploymentDrawer?.openDrawer(path, 'variable')
 																	}
 																}
-														  ]
+															]
 														: []),
 													{
 														displayName: owner ? 'Share' : 'See Permissions',
 														action: () => {
-															shareModal.openDrawer(path, 'variable')
+															shareModal?.openDrawer(path, 'variable')
 														},
 														icon: Share
 													},
@@ -411,7 +431,7 @@
 																		loadVariables()
 																	}
 																}
-														  ]
+															]
 														: [])
 												]
 											}}
@@ -446,7 +466,7 @@
 										return [
 											{
 												displayName: 'Edit',
-												action: () => contextualVariableEditor.editVariable(row.name, row.value)
+												action: () => contextualVariableEditor?.editVariable(row.name, row.value)
 											},
 											{
 												displayName: 'Delete',
@@ -456,7 +476,7 @@
 												}
 											}
 										]
-								  }
+									}
 								: undefined}
 						/>
 					{/if}

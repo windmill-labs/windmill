@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { ArrowDown, ArrowUp, Download, MoreVertical, MoveVertical, Columns } from 'lucide-svelte'
 	import Dropdown from '../DropdownV2.svelte'
 	import Cell from './Cell.svelte'
@@ -17,19 +19,21 @@
 	import Popover from '../Popover.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import DownloadCsv from './DownloadCsv.svelte'
-	export let objects: Array<Record<string, any>> = []
+	interface Props {
+		objects?: Array<Record<string, any>>
+	}
 
-	let currentPage = 1
-	let perPage = 25
-	let search: string = ''
+	let { objects = [] }: Props = $props()
+
+	let currentPage = $state(1)
+	let perPage = $state(25)
+	let search: string = $state('')
 
 	let structuredObjects: {
 		_id: number
 		rowData: Record<string, any>
-	}[] = []
-	let headers: string[] = []
-
-	$: recomputeObjectsAndHeaders(objects)
+	}[] = $state([])
+	let headers: string[] = $state([])
 
 	function recomputeObjectsAndHeaders(objects: Array<Record<string, any>>) {
 		;[headers, structuredObjects] = computeStructuredObjectsAndHeaders(objects)
@@ -43,16 +47,12 @@
 		}
 	}
 
-	$: perPage && adjustCurrentPage()
-
-	$: data = computeData(structuredObjects, activeSorting, search)
-
 	type ActiveSorting = {
 		column: string
 		direction: 'asc' | 'desc'
 	}
 
-	let activeSorting: ActiveSorting | undefined = undefined
+	let activeSorting: ActiveSorting | undefined = $state(undefined)
 
 	function sortObjects(
 		activeSorting: ActiveSorting | undefined,
@@ -99,10 +99,8 @@
 		return sortObjects(activeSorting, objects, true)
 	}
 
-	$: slicedData = data.slice((currentPage - 1) * perPage, currentPage * perPage)
-
-	let selection = [] as Array<number>
-	let colSelection = [] as Array<string>
+	let selection = $state([] as Array<number>)
+	let colSelection = $state([] as Array<string>)
 
 	// Function to handle individual row checkbox change
 	function handleCheckboxChange(rowId: number) {
@@ -132,7 +130,7 @@
 		}
 	}
 
-	let renderCount = 0
+	let renderCount = $state(0)
 
 	const badgeColors: BadgeColor[] = ['gray', 'blue', 'green', 'yellow', 'indigo']
 	const darkBadgeColors: BadgeColor[] = [
@@ -142,8 +140,8 @@
 		'dark-yellow',
 		'dark-indigo'
 	]
-	let darkMode = false
-	let wrapperWidth = 0
+	let darkMode = $state(false)
+	let wrapperWidth = $state(0)
 
 	// function isSortable(key: string) {
 	// 	let value = objects?.[0]?.[key]
@@ -160,6 +158,14 @@
 			colSelection = [...colSelection, key]
 		}
 	}
+	run(() => {
+		recomputeObjectsAndHeaders(objects)
+	})
+	run(() => {
+		perPage && adjustCurrentPage()
+	})
+	let data = $derived(computeData(structuredObjects, activeSorting, search))
+	let slicedData = $derived(data.slice((currentPage - 1) * perPage, currentPage * perPage))
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -242,12 +248,12 @@
 						return actions
 					}}
 				>
-					<svelte:fragment slot="buttonReplacement">
+					{#snippet buttonReplacement()}
 						<MoreVertical
 							size={8}
 							class="w-8 h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
 						/>
-					</svelte:fragment>
+					{/snippet}
 				</Dropdown>
 			</div>
 		</div>
@@ -281,7 +287,7 @@
 					<Head>
 						<tr>
 							<Cell head first={true} last={false}>
-								<input type="checkbox" class="!w-4 !h-4" on:change={handleSelectAllChange} />
+								<input type="checkbox" class="!w-4 !h-4" onchange={handleSelectAllChange} />
 							</Cell>
 							{#each headers ?? [] as key, index}
 								<Cell head last={index == headers.length - 1}>
@@ -290,7 +296,7 @@
 										{#if activeSorting?.column === key}
 											<button
 												class="p-1 w-6 h-6 flex justify-center items-center"
-												on:click={() => {
+												onclick={() => {
 													activeSorting = {
 														column: key,
 														direction: activeSorting?.direction == 'asc' ? 'desc' : 'asc'
@@ -306,7 +312,7 @@
 										{:else}
 											<button
 												class="p-1 w-6 h-6 flex justify-center items-center"
-												on:click={() => {
+												onclick={() => {
 													activeSorting = {
 														column: key,
 														direction: activeSorting?.direction == 'asc' ? 'desc' : 'asc'
@@ -320,7 +326,7 @@
 											type="checkbox"
 											class="!w-4 !h-4"
 											checked={colSelection.includes(key)}
-											on:change={() => handleColumnSelected(key)}
+											onchange={() => handleColumnSelected(key)}
 										/>
 									</div>
 								</Cell>
@@ -335,7 +341,7 @@
 										type="checkbox"
 										class="!w-4 !h-4"
 										checked={selection.includes(_id)}
-										on:change={() => handleCheckboxChange(_id)}
+										onchange={() => handleCheckboxChange(_id)}
 									/>
 								</Cell>
 								{#each headers as key, index}
@@ -404,7 +410,9 @@
 												>
 													{txt?.length > 100 ? txt.slice(0, 100) + '...' : txt}
 												</div>
-												<svelte:fragment slot="text">{txt}</svelte:fragment>
+												{#snippet text()}
+													{txt}
+												{/snippet}
 											</Popover>
 										{/if}
 									</Cell>

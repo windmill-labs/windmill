@@ -478,7 +478,7 @@
 					>{teams_team_name}</Badge
 				>
 			</p>
-			<Tooltip text={teams_team_name}>
+			<Tooltip>
 				Each workspace can only be connected to one Microsoft Teams team. You can configure it under <a
 					target="_blank"
 					href="{base}/workspace_settings?tab=teams">workspace settings</a

@@ -13,9 +13,11 @@
 		getAiModuleAction
 	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 	let {
-		small
+		small,
+		clazz
 	}: {
 		small: boolean
+		clazz: string
 	} = $props()
 
 	const dispatch = createEventDispatcher<{
@@ -50,69 +52,73 @@
 	const action = $derived(getAiModuleAction('failure'))
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-	id="flow-editor-error-handler"
-	class={classNames(
-		'z-10',
-		'relative cursor-pointer border transition-colors duration-[400ms] ease-linear rounded-sm px-2 py-1 gap-2 bg-surface text-sm flex items-center flex-row',
-		$selectedId?.includes('failure')
-			? 'outline outline-offset-1 outline-2 outline-slate-900 dark:outline-slate-900/0 dark:bg-surface-secondary dark:border-gray-400'
-			: '',
-		aiModuleActionToBgColor(action)
-	)}
-	style="min-width: {small ? '200px' : '230px'}; max-width: 275px;"
-	onclick={() => {
-		if (flowStore.val?.value?.failure_module) {
-			$selectedId = 'failure'
-		}
-	}}
->
-	<ModuleAcceptReject id="failure" {action} />
-	<div class="flex items-center grow-0 min-w-0 gap-2">
-		<Bug size={16} color={flowStore.val?.value?.failure_module ? '#3b82f6' : '#9CA3AF'} />
-	</div>
+{#if flowStore.val?.value?.failure_module}
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		id="flow-editor-error-handler"
+		class={classNames(
+			'z-10',
+			'relative cursor-pointer border transition-colors duration-[400ms] ease-linear rounded-sm px-2 py-1 gap-2 bg-surface text-sm flex items-center flex-row',
+			$selectedId?.includes('failure')
+				? 'outline outline-offset-1 outline-2 outline-slate-900 dark:outline-slate-900/0 dark:bg-surface-secondary dark:border-gray-400'
+				: '',
+			aiModuleActionToBgColor(action)
+		)}
+		style="min-width: {flowStore.val?.value?.failure_module
+			? small
+				? '200px'
+				: '230px'
+			: ''}; max-width: 275px;"
+		onclick={() => {
+			if (flowStore.val?.value?.failure_module) {
+				$selectedId = 'failure'
+			}
+		}}
+	>
+		<ModuleAcceptReject id="failure" {action} placement="bottom" />
 
-	{#if !flowStore.val?.value?.failure_module}
-		<div class="grow text-center font-bold text-xs">Error Handler</div>
-	{:else}
+		<div class="flex items-center grow-0 min-w-0 gap-2">
+			<Bug size={16} color={'#3b82f6'} />
+		</div>
+
 		<div class="truncate grow min-w-0 text-center text-xs">
 			{flowStore.val.value.failure_module?.summary ||
 				(flowStore.val.value.failure_module?.value.type === 'rawscript'
 					? `${flowStore.val.value.failure_module?.value.language}`
 					: 'TBD')}
 		</div>
-	{/if}
 
-	{#if !flowStore.val?.value?.failure_module}
-		<InsertModuleButton
-			index={0}
-			placement={'top-center'}
-			on:new={(e) => {
-				insertFailureModule(e.detail.inlineScript)
-			}}
-			on:pickScript={(e) => {
-				insertFailureModule(undefined, e.detail)
-			}}
-			kind="failure"
-		/>
-	{:else if !action}
-		<button
-			title="Delete failure script"
-			type="button"
-			class={twMerge(
-				'w-5 h-5 flex items-center justify-center grow-0 shrink-0',
-				'outline-[1px] outline dark:outline-gray-500 outline-gray-300',
-				'text-secondary',
-				'bg-surface focus:outline-none hover:bg-surface-hover rounded '
-			)}
-			onclick={() => {
-				flowStore.val.value.failure_module = undefined
-				$selectedId = 'settings-metadata'
-			}}
-		>
-			<X size={12} />
-		</button>
-	{/if}
-</div>
+		{#if !action}
+			<button
+				title="Delete failure script"
+				type="button"
+				class={twMerge(
+					'w-5 h-4 flex items-center justify-center grow-0 shrink-0',
+					'outline-[1px] outline dark:outline-gray-500 outline-gray-300',
+					'text-secondary',
+					'bg-surface focus:outline-none hover:bg-surface-hover rounded '
+				)}
+				onclick={() => {
+					flowStore.val.value.failure_module = undefined
+					$selectedId = 'settings-metadata'
+				}}
+			>
+				<X size={12} />
+			</button>
+		{/if}
+	</div>
+{:else}
+	<InsertModuleButton
+		index={0}
+		placement={'bottom-center'}
+		on:new={(e) => {
+			insertFailureModule(e.detail.inlineScript)
+		}}
+		on:pickScript={(e) => {
+			insertFailureModule(undefined, e.detail)
+		}}
+		kind="failure"
+		clazz={twMerge(clazz, '!outline-none px-2 py-1.5')}
+	/>
+{/if}

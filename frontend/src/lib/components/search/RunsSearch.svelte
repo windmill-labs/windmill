@@ -225,10 +225,10 @@
 				{#if indexMetadata?.lost_lock_ownership}
 					<Popover notClickable placement="top">
 						<AlertTriangle size={16} class="text-gray-500" />
-						<svelte:fragment slot="text">
+						{#snippet text()}
 							The current indexer is no longer indexing new jobs. This is most likely because of an
 							ongoing deployment and indexing will resume once it's complete.
-						</svelte:fragment>
+						{/snippet}
 					</Popover>
 				{/if}
 			</div>
@@ -266,10 +266,10 @@
 				{#if indexMetadata?.lost_lock_ownership}
 					<Popover notClickable placement="top">
 						<AlertTriangle size={16} class="text-gray-500" />
-						<svelte:fragment slot="text">
+						{#snippet text()}
 							The current indexer is no longer indexing new jobs. This is most likely because of an
 							ongoing deployment and indexing will resume once it's complete.
-						</svelte:fragment>
+						{/snippet}
 					</Popover>
 				{/if}
 			</div>

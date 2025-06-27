@@ -4,9 +4,13 @@
 
 	import Popover from '$lib/components/Popover.svelte'
 
-	export let loading: boolean
+	interface Props {
+		loading: boolean
+	}
 
-	let buttonHover = false
+	let { loading }: Props = $props()
+
+	let buttonHover = $state(false)
 </script>
 
 <Popover>
@@ -20,7 +24,7 @@
 	>
 		<RefreshCw class={loading ? 'animate-spin ' : ''} size="14" />
 	</Button>
-	<svelte:fragment slot="text">
+	{#snippet text()}
 		{#if loading}
 			{#if buttonHover}
 				Stop Refreshing
@@ -30,5 +34,5 @@
 		{:else}
 			Refresh
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 </Popover>

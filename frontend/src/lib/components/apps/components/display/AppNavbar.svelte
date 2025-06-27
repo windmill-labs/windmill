@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler, preventDefault } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { getContext } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -11,26 +14,31 @@
 	import { twMerge } from 'tailwind-merge'
 	import AppNavbarItem from './AppNavbarItem.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'navbarcomponent'> | undefined = undefined
-	export let render: boolean
-	export let navbarItems: NavbarItem[] = []
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'navbarcomponent'> | undefined
+		render: boolean
+		navbarItems?: NavbarItem[]
+	}
+
+	let { id, configuration, customCss = undefined, render, navbarItems = [] }: Props = $props()
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	let resolvedConfig = initConfig(
-		components['navbarcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['navbarcomponent'].initialData.configuration, configuration)
 	)
 
-	let output = initOutput($worldStore, id, {
-		result: {
-			currentPath: undefined as string | undefined
-		}
-	})
+	let output = $state(
+		initOutput($worldStore, id, {
+			result: {
+				currentPath: undefined as string | undefined
+			}
+		})
+	)
 
-	let css = initCss($app.css?.navbarcomponent, customCss)
+	let css = $state(initCss($app.css?.navbarcomponent, customCss))
 </script>
 
 {#each Object.keys(components['navbarcomponent'].initialData.configuration) as key (key)}
@@ -63,14 +71,14 @@
 	>
 		{#if resolvedConfig.logo?.selected === 'yes'}
 			<img
-				on:pointerdown|preventDefault
+				onpointerdown={preventDefault(bubble('pointerdown'))}
 				src={resolvedConfig.logo?.configuration?.yes?.sourceKind == 'png encoded as base64'
 					? 'data:image/png;base64,' + resolvedConfig.logo?.configuration?.yes?.source
 					: resolvedConfig.logo?.configuration?.yes?.sourceKind == 'jpeg encoded as base64'
-					? 'data:image/jpeg;base64,' + resolvedConfig.logo?.configuration?.yes?.source
-					: resolvedConfig.logo?.configuration?.yes?.sourceKind == 'svg encoded as base64'
-					? 'data:image/svg+xml;base64,' + resolvedConfig.logo?.configuration?.yes?.source
-					: resolvedConfig.logo?.configuration?.yes?.source}
+						? 'data:image/jpeg;base64,' + resolvedConfig.logo?.configuration?.yes?.source
+						: resolvedConfig.logo?.configuration?.yes?.sourceKind == 'svg encoded as base64'
+							? 'data:image/svg+xml;base64,' + resolvedConfig.logo?.configuration?.yes?.source
+							: resolvedConfig.logo?.configuration?.yes?.source}
 				alt={resolvedConfig.logo?.configuration?.yes?.altText}
 				style={css?.image?.style ?? ''}
 				class={twMerge(`w-auto h-8`, css?.image?.class, 'wm-image')}
@@ -88,7 +96,9 @@
 		>
 			{#each navbarItems ?? [] as navbarItem, index (index)}
 				<Popover notClickable disablePopup={!Boolean(navbarItem.caption)}>
-					<svelte:fragment slot="text">{navbarItem.caption}</svelte:fragment>
+					{#snippet text()}
+						{navbarItem.caption}
+					{/snippet}
 					<AppNavbarItem
 						{navbarItem}
 						{id}

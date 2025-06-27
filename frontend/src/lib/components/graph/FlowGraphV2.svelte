@@ -234,6 +234,7 @@
 			boxSize = layout(dag as any)
 		}
 
+		const yOffset = insertable ? 100 : 0
 		const newNodes = dag.descendants().map((des) => ({
 			...des.data,
 			id: des.data.id,
@@ -248,7 +249,7 @@
 						NODE.width / 2 -
 						(width - fullWidth) / 2
 					: 0,
-				y: des.y || 0
+				y: (des.y || 0) + yOffset
 			}
 		}))
 

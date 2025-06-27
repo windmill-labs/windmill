@@ -187,7 +187,9 @@
 		<div class="flex gap-1 w-full justify-between items-center text-xs text-primary p-2">
 			<div>
 				<Popover>
-					<svelte:fragment slot="text">Download</svelte:fragment>
+					{#snippet text()}
+						Download
+					{/snippet}
 					<Button
 						startIcon={{ icon: Download }}
 						color="light"

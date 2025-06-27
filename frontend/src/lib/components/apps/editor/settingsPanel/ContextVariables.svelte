@@ -5,8 +5,12 @@
 	import type { AppViewerContext, GridItem } from '../../types'
 	import { dfs, findGridItem } from '../appUtils'
 
-	export let type: string
-	export let id: string
+	interface Props {
+		type: string
+		id: string
+	}
+
+	let { type, id }: Props = $props()
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -103,9 +107,9 @@
 		<div class="flex flex-row gap-1">
 			{#each contextVariables as contextVariable}
 				<Popover>
-					<svelte:fragment slot="text">
+					{#snippet text()}
 						{contextVariable.description}
-					</svelte:fragment>
+					{/snippet}
 
 					<span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border">
 						{contextVariable.label}

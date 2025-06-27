@@ -1207,7 +1207,6 @@
 					<Tooltip
 						light
 						documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
-						scale={0.9}
 						wrapperClass="flex items-center"
 					>
 						All past and schedule executions of scripts and flows, including previews. You only see

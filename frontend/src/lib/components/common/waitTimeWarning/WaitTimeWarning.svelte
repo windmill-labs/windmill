@@ -4,11 +4,19 @@
 	import { AlertTriangle, Hourglass } from 'lucide-svelte'
 	import Badge from '../badge/Badge.svelte'
 
-	export let self_wait_time_ms: number | undefined = undefined
-	export let aggregate_wait_time_ms: number | undefined = undefined
-	export let variant: 'icon' | 'alert' | 'badge' | 'badge-self-wait' = 'icon'
+	interface Props {
+		self_wait_time_ms?: number | undefined
+		aggregate_wait_time_ms?: number | undefined
+		variant?: 'icon' | 'alert' | 'badge' | 'badge-self-wait'
+	}
 
-	$: total_wait = (self_wait_time_ms ?? 0) + (aggregate_wait_time_ms ?? 0)
+	let {
+		self_wait_time_ms = undefined,
+		aggregate_wait_time_ms = undefined,
+		variant = 'icon'
+	}: Props = $props()
+
+	let total_wait = $derived((self_wait_time_ms ?? 0) + (aggregate_wait_time_ms ?? 0))
 
 	function classFromColorName(color: string): string | undefined {
 		const colors: Record<string, string> = {
@@ -36,7 +44,7 @@
 </script>
 
 <Popover notClickable>
-	<svelte:fragment slot="text">
+	{#snippet text()}
 		<div class="mb-5">
 			{#if self_wait_time_ms != undefined}
 				<div>
@@ -66,7 +74,7 @@
 			</div>
 		{/if}
 		<div> In a healthy queue, jobs are expected to start in under 50ms. </div>
-	</svelte:fragment>
+	{/snippet}
 	{#if variant === 'icon'}
 		<Hourglass class={classFromColorName(waitColorTresholds(total_wait))} size={14} />
 	{:else if variant === 'badge'}
@@ -75,9 +83,7 @@
 		>
 	{:else if variant === 'badge-self-wait'}
 		{#if self_wait_time_ms}
-			<Badge
-				color={waitColorTresholds(self_wait_time_ms)}>+{msToSec(self_wait_time_ms)}s</Badge
-			>
+			<Badge color={waitColorTresholds(self_wait_time_ms)}>+{msToSec(self_wait_time_ms)}s</Badge>
 		{/if}
 	{:else if variant === 'alert'}
 		<AlertTriangle class={classFromColorName(waitColorTresholds(total_wait))} size={14} />

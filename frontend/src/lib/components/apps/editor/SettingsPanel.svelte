@@ -13,17 +13,7 @@
 	const { selectedComponent, app, stateId, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let firstComponent = $selectedComponent?.[0]
-
-	$: $selectedComponent?.[0] != firstComponent && (firstComponent = $selectedComponent?.[0])
-
-	$: hiddenInlineScript = $app?.hiddenInlineScripts
-		?.map((x, i) => ({ script: x, index: i }))
-		.find(({ script, index }) => $selectedComponent?.includes(BG_PREFIX + index))
-
-	$: gridItemWithLocation = findGridItemWithLocation($app, firstComponent)
-	$: tableActionSettings = findTableActionSettings($app, firstComponent)
-	$: menuItemsSettings = findMenuItemsSettings($app, firstComponent)
+	let firstComponent = $derived($selectedComponent?.[0])
 
 	function findTableActionSettings(app: App, id: string | undefined) {
 		return allItemsWithLocation(app.grid, app.subgrids)
@@ -107,6 +97,15 @@
 	}
 
 	const dispatch = createEventDispatcher()
+
+	let hiddenInlineScript = $derived(
+		$app?.hiddenInlineScripts
+			?.map((x, i) => ({ script: x, index: i }))
+			.find(({ script, index }) => $selectedComponent?.includes(BG_PREFIX + index))
+	)
+	let gridItemWithLocation = $derived(findGridItemWithLocation($app, firstComponent))
+	let tableActionSettings = $derived(findTableActionSettings($app, firstComponent))
+	let menuItemsSettings = $derived(findMenuItemsSettings($app, firstComponent))
 </script>
 
 {#if gridItemWithLocation}

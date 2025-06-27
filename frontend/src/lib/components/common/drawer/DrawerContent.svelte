@@ -41,19 +41,21 @@
 <div class={classNames('flex flex-col divide-y', fullScreen ? 'h-screen max-h-screen' : 'h-full')}>
 	<div class="flex justify-between w-full items-center px-4 py-2 gap-2">
 		<div class="flex items-center gap-2 w-full truncate">
-			<div use:triggerableByAI={{
-				id: `close-${aiId}`,
-				description: `Close ${aiDescription}`,
-				callback: () => {
-					dispatch('close')
-				}
-			}}>
+			<div
+				use:triggerableByAI={{
+					id: `close-${aiId}`,
+					description: `Close ${aiDescription}`,
+					callback: () => {
+						dispatch('close')
+					}
+				}}
+			>
 				<CloseButton on:close Icon={CloseIcon} />
 			</div>
 			<span class="font-semibold truncate text-primary !text-lg max-w-sm"
 				>{title ?? ''}
 				{#if tooltip != '' || documentationLink}
-					<Tooltip {documentationLink} scale={0.9}>{tooltip}</Tooltip>
+					<Tooltip {documentationLink}>{tooltip}</Tooltip>
 				{/if}</span
 			>
 		</div>
