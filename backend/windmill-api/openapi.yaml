@@ -2794,19 +2794,17 @@ paths:
 
   /tokens/list/scopes:
     get:
-      summary: get all available scopes 
-      operationId: ListTokenScopes
+      summary: get all available scopes grouped by category
+      operationId: ListGroupedTokenScopes
       tags:
         - token
       responses:
         "200":
-          description: token scopes
+          description: grouped token scopes
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/ScopeDefinition"
+                $ref: "#/components/schemas/GroupedScopesResponse"
 
   /users/tokens/create:
     post:
@@ -16425,9 +16423,41 @@ components:
           type: string
         label:
           type: string
+        description:
+          type: string
+          nullable: true
+        requires_resource_path:
+          type: boolean
       required:
         - value
         - label
+        - requires_resource_path
+
+    ScopeGroup:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScopeDefinition"
+      required:
+        - name
+        - scopes
+
+    GroupedScopesResponse:
+      type: object
+      properties:
+        groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScopeGroup"
+      required:
+        - groups
 
     ListableRawApp:
       type: object

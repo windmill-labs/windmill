@@ -17,7 +17,7 @@ use windmill_common::error::{Error, Result};
 /// - "scripts:write:f/folder/*" - Write access to scripts in a folder
 /// - "*" - Full access (superuser)
 
-const EXECUTE_KEYWORD: [&'static str; 4] = ["/run", "/execute", "/restart", "/resume"];
+const RUN_KEYWORD: [&'static str; 4] = ["/run", "/execute", "/restart", "/resume"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScopeDefinition {
@@ -81,32 +81,23 @@ pub enum ScopeDomain {
     Workers,
     ServiceLogs,
     Configs,
-    Integrations,
     OAuth,
     AI,
-    Embeddings,
 
     // Special domains
-    Admin,       // Administrative functions
     Capture,     // Webhook capture
     Drafts,      // Draft resources
     Favorites,   // User favorites
     Inputs,      // Input templates
-    JobMetrics,  // Job metrics and statistics
     JobHelpers,  // Job helper functions
     Concurrency, // Concurrency groups
     Oidc,        // OpenID Connect
-    Openapi,     // OpenAPI documentation
+    Openapi,     // OpenAPI generation
 
     // Additional domains
     Acls,         // Granular access control lists
     RawApps,      // Raw application data
-    Tokens,       // API token management
-    Inkeep,       // Inkeep integration
-    Saml,         // SAML authentication
-    Scim,         // SCIM user provisioning
     AgentWorkers, // Agent workers management
-    Search,       // Search and indexing
     JobsU,
 }
 
@@ -138,28 +129,19 @@ impl ScopeDomain {
             Self::Workers => "workers",
             Self::ServiceLogs => "service_logs",
             Self::Configs => "configs",
-            Self::Integrations => "integrations",
             Self::OAuth => "oauth",
             Self::AI => "ai",
-            Self::Embeddings => "embeddings",
-            Self::Admin => "admin",
             Self::Capture => "capture",
             Self::Drafts => "drafts",
             Self::Favorites => "favorites",
             Self::Inputs => "inputs",
-            Self::JobMetrics => "job_metrics",
             Self::JobHelpers => "job_helpers",
             Self::Concurrency => "concurrency",
             Self::Oidc => "oidc",
             Self::Openapi => "openapi",
             Self::Acls => "acls",
             Self::RawApps => "raw_apps",
-            Self::Tokens => "tokens",
-            Self::Inkeep => "inkeep",
-            Self::Saml => "saml",
-            Self::Scim => "scim",
             Self::AgentWorkers => "agent_workers",
-            Self::Search => "search",
         }
     }
 
@@ -190,28 +172,19 @@ impl ScopeDomain {
             "workers" => Some(Self::Workers),
             "service_logs" => Some(Self::ServiceLogs),
             "configs" => Some(Self::Configs),
-            "integrations" => Some(Self::Integrations),
             "oauth" => Some(Self::OAuth),
             "ai" => Some(Self::AI),
-            "embeddings" => Some(Self::Embeddings),
-            "admin" => Some(Self::Admin),
             "capture" => Some(Self::Capture),
             "drafts" => Some(Self::Drafts),
             "favorites" => Some(Self::Favorites),
             "inputs" => Some(Self::Inputs),
-            "job_metrics" => Some(Self::JobMetrics),
             "job_helpers" => Some(Self::JobHelpers),
             "concurrency" => Some(Self::Concurrency),
             "oidc" => Some(Self::Oidc),
             "openapi" => Some(Self::Openapi),
             "acls" => Some(Self::Acls),
             "raw_apps" => Some(Self::RawApps),
-            "tokens" => Some(Self::Tokens),
-            "inkeep" => Some(Self::Inkeep),
-            "saml" => Some(Self::Saml),
-            "scim" => Some(Self::Scim),
             "agent_workers" => Some(Self::AgentWorkers),
-            "search" => Some(Self::Search),
             _ => None,
         }
     }
@@ -223,7 +196,7 @@ pub enum ScopeAction {
     Read,    // GET operations, list, view
     Write,   // POST, PUT, PATCH operations, create, update
     Delete,  // DELETE operations
-    Execute, // Special action for running/executing (scripts, flows, etc.)
+    Run, // Special action for running (scripts, flows, etc.)
     Admin,   // Administrative operations within the domain
 }
 
@@ -233,7 +206,7 @@ impl ScopeAction {
             Self::Read => "read",
             Self::Write => "write",
             Self::Delete => "delete",
-            Self::Execute => "execute",
+            Self::Run => "run",
             Self::Admin => "admin",
         }
     }
@@ -243,7 +216,7 @@ impl ScopeAction {
             "read" => Some(Self::Read),
             "write" => Some(Self::Write),
             "delete" => Some(Self::Delete),
-            "execute" => Some(Self::Execute),
+            "run" => Some(Self::Run),
             "admin" => Some(Self::Admin),
             _ => None,
         }
@@ -310,9 +283,9 @@ fn map_http_method_to_action(method: &str, route_path: &str) -> ScopeAction {
     match method.to_uppercase().as_str() {
         "GET" | "HEAD" | "OPTIONS" => ScopeAction::Read,
         "POST" => {
-            // POST can be create (write) or execute depending on the endpoint
-            if EXECUTE_KEYWORD.iter().any(|path| route_path.contains(path)) {
-                ScopeAction::Execute
+            // POST can be create (write) or run depending on the endpoint
+            if RUN_KEYWORD.iter().any(|path| route_path.contains(path)) {
+                ScopeAction::Run
             } else {
                 ScopeAction::Write
             }
@@ -450,9 +423,9 @@ mod tests {
         assert_eq!(scope.action, "read");
         assert_eq!(scope.resource, None);
 
-        let scope = ScopeDefinition::from_scope_string("scripts:execute:f/folder/*").unwrap();
+        let scope = ScopeDefinition::from_scope_string("scripts:run:f/folder/*").unwrap();
         assert_eq!(scope.domain, "scripts");
-        assert_eq!(scope.action, "execute");
+        assert_eq!(scope.action, "run");
         assert_eq!(scope.resource, Some("f/folder/*".to_string()));
     }
 
@@ -499,20 +472,14 @@ mod tests {
             ScopeDomain::from_str("raw_apps"),
             Some(ScopeDomain::RawApps)
         );
-        assert_eq!(ScopeDomain::from_str("tokens"), Some(ScopeDomain::Tokens));
-        assert_eq!(ScopeDomain::from_str("inkeep"), Some(ScopeDomain::Inkeep));
-        assert_eq!(ScopeDomain::from_str("saml"), Some(ScopeDomain::Saml));
-        assert_eq!(ScopeDomain::from_str("scim"), Some(ScopeDomain::Scim));
         assert_eq!(
             ScopeDomain::from_str("agent_workers"),
             Some(ScopeDomain::AgentWorkers)
         );
-        assert_eq!(ScopeDomain::from_str("search"), Some(ScopeDomain::Search));
 
         // Test that string conversion works both ways
         assert_eq!(ScopeDomain::Acls.as_str(), "acls");
         assert_eq!(ScopeDomain::RawApps.as_str(), "raw_apps");
-        assert_eq!(ScopeDomain::Tokens.as_str(), "tokens");
         assert_eq!(ScopeDomain::AgentWorkers.as_str(), "agent_workers");
     }
 }
