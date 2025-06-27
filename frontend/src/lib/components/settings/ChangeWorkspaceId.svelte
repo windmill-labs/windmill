@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
+	import { workspaceStore, superadmin } from '$lib/stores'
 	import Alert from '../common/alert/Alert.svelte'
 	import Button from '../common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -60,7 +60,7 @@
 	<p class="font-semibold text-sm">Workspace ID</p>
 	<div class="flex flex-row gap-0.5 items-center">
 		<p class="text-sm text-secondary">{$workspaceStore ?? ''}</p>
-		{#if !isCloudHosted()}
+		{#if !isCloudHosted() || $superadmin}
 			<Button
 				on:click={() => {
 					open = true

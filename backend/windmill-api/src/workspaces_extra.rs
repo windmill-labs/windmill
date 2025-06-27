@@ -14,6 +14,7 @@ use windmill_audit::ActionKind;
 use windmill_common::worker::CLOUD_HOSTED;
 
 use windmill_common::{
+    auth::is_super_admin_email,
     error::{Error, Result},
     utils::require_admin,
 };
@@ -32,7 +33,7 @@ pub(crate) async fn change_workspace_id(
     Extension(db): Extension<DB>,
     Json(rw): Json<ChangeWorkspaceId>,
 ) -> Result<String> {
-    if *CLOUD_HOSTED {
+    if *CLOUD_HOSTED && !is_super_admin_email(&db, &authed.email).await? {
         return Err(Error::BadRequest(
             "This feature is not available on the cloud".to_string(),
         ));
