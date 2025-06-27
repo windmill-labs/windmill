@@ -140,10 +140,6 @@
 			)
 	})
 
-	$effect(() => {
-		dispatchIfMounted('change', value)
-	})
-
 	let appConnect: AppConnect | undefined = $state()
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
 </script>
