@@ -105,6 +105,7 @@ pub const ENV_SETTINGS: &[&str] = &[
     "DISABLE_S3_STORE",
     "PG_SCHEMA",
     "PG_LISTENER_REFRESH_PERIOD_SECS",
+    "MAX_SESSION_VALIDITY_SECONDS",
 ];
 
 use crate::error;
