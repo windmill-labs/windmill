@@ -10,6 +10,8 @@ use object_store::aws::AwsCredential;
 #[cfg(feature = "parquet")]
 use object_store::azure::MicrosoftAzureBuilder;
 #[cfg(feature = "parquet")]
+use object_store::gcp::GoogleCloudStorageBuilder;
+#[cfg(feature = "parquet")]
 use object_store::ObjectStore;
 #[cfg(feature = "parquet")]
 use object_store::{aws::AmazonS3Builder, ClientOptions};
@@ -221,6 +223,8 @@ pub enum LargeFileStorage {
     AzureBlobStorage(AzureBlobStorage),
     S3AwsOidc(S3Storage),
     AzureWorkloadIdentity(AzureBlobStorage),
+    GcsStorage(GcsStorage),
+    GcsServiceAccount(GcsStorage),
     // TODO: Add a filesystem type here in the future if needed
 }
 
@@ -238,16 +242,25 @@ pub struct AzureBlobStorage {
     pub public_resource: Option<bool>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GcsStorage {
+    pub gcs_resource_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_resource: Option<bool>,
+}
+
 #[derive(Clone, Debug)]
 pub enum ObjectStoreResource {
     S3(S3Resource),
     Azure(AzureBlobResource),
+    Gcs(GcsResource),
 }
 
 impl ObjectStoreResource {
     pub fn expiration(&self) -> Option<DateTime<Utc>> {
         match self {
             ObjectStoreResource::S3(s3_resource) => s3_resource.expiration,
+            ObjectStoreResource::Gcs(gcs_resource) => gcs_resource.expiration,
             _ => None,
         }
     }
@@ -259,6 +272,8 @@ pub enum StorageResourceType {
     AzureBlob,
     S3AwsOidc,
     AzureWorkloadIdentity,
+    Gcs,
+    GcsServiceAccount,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -298,6 +313,21 @@ pub struct AzureBlobResource {
     pub access_key: Option<String>,
     #[serde(rename = "federatedTokenFile")]
     pub federated_token_file: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct GcsResource {
+    pub bucket: String,
+    pub region: Option<String>,
+    pub endpoint: Option<String>,
+    #[serde(rename = "useSSL")]
+    pub use_ssl: Option<bool>,
+    #[serde(rename = "serviceAccountKey")]
+    pub service_account_key: Option<String>,
+    #[serde(rename = "serviceAccountKeyPath")]
+    pub service_account_key_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expiration: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Hash)]
@@ -379,6 +409,9 @@ pub async fn build_object_store_client(
         ObjectStoreResource::S3(s3_resource_ref) => build_s3_client(&s3_resource_ref).await,
         ObjectStoreResource::Azure(azure_blob_resource_ref) => {
             build_azure_blob_client(&azure_blob_resource_ref)
+        }
+        ObjectStoreResource::Gcs(gcs_resource_ref) => {
+            build_gcs_client(&gcs_resource_ref).await
         }
     }
 }
@@ -575,6 +608,46 @@ fn build_azure_blob_client(
     return Ok(Arc::new(store));
 }
 
+#[cfg(feature = "parquet")]
+async fn build_gcs_client(
+    gcs_resource_ref: &GcsResource,
+) -> error::Result<Arc<dyn ObjectStore>> {
+    let gcs_resource = gcs_resource_ref.clone();
+
+    let mut store_builder = GoogleCloudStorageBuilder::new()
+        .with_client_options(
+            ClientOptions::new()
+                .with_timeout_disabled()
+                .with_default_headers(HeaderMap::from_iter(vec![(
+                    "Accept-Encoding".parse().unwrap(),
+                    "".parse().unwrap(),
+                )])),
+        )
+        .with_bucket_name(gcs_resource.bucket);
+
+    if let Some(service_account_key) = gcs_resource.service_account_key {
+        if !service_account_key.is_empty() {
+            store_builder = store_builder.with_service_account_key(service_account_key);
+        }
+    }
+
+    if let Some(service_account_key_path) = gcs_resource.service_account_key_path {
+        if !service_account_key_path.is_empty() {
+            store_builder = store_builder.with_service_account_path(service_account_key_path);
+        }
+    }
+
+    let store = store_builder.build().map_err(|err| {
+        tracing::error!("Error building GCS object store client: {:?}", err);
+        error::Error::internal_err(format!(
+            "Error building GCS object store client: {}",
+            err.to_string()
+        ))
+    })?;
+
+    return Ok(Arc::new(store));
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "typ", content = "value")]
 pub enum ObjectStoreSettings {
@@ -587,6 +660,7 @@ pub enum ObjectSettings {
     S3(S3Settings),
     Azure(AzureBlobResource),
     AwsOidc(S3AwsOidcResource),
+    Gcs(GcsResource),
 }
 
 impl ObjectSettings {
@@ -595,6 +669,7 @@ impl ObjectSettings {
             ObjectSettings::S3(s3_settings) => s3_settings.bucket.as_ref(),
             ObjectSettings::Azure(azure_settings) => Some(&azure_settings.container_name),
             ObjectSettings::AwsOidc(s3_aws_oidc_settings) => Some(&s3_aws_oidc_settings.bucket),
+            ObjectSettings::Gcs(gcs_settings) => Some(&gcs_settings.bucket),
         }
     }
 }
@@ -627,6 +702,10 @@ pub async fn build_object_store_from_settings(
                     store: x,
                     refresh: Some(ObjectStoreRefresh::new(settings.clone(), res.expiration())),
                 })
+        }
+        ObjectSettings::Gcs(gcs_settings) => {
+            let gcs_resource = gcs_settings;
+            build_gcs_client(&gcs_resource).await.map(|x| ExpirableObjectStore::from(x))
         }
     }
 }
