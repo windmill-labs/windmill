@@ -567,7 +567,7 @@
 			const assets = (await inferAssets(script.language, script.content))
 				.map(parseAsset)
 				.filter((a) => !!a)
-			await AssetService.link({
+			await AssetService.linkAssets({
 				workspace: $workspaceStore!,
 				requestBody: {
 					assets,
