@@ -109,13 +109,9 @@
 	let resourceTypePicker: ItemPicker | undefined = $state()
 	let variableEditor: VariableEditor | undefined = $state()
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
-	let showContextVarPicker = $state(false)
-	let showVarPicker = $state(false)
-	let showResourcePicker = $state(false)
-	let showResourceTypePicker = $state(false)
 
-	run(() => {
-		showContextVarPicker = [
+	let showContextVarPicker = $derived(
+		[
 			'python3',
 			'bash',
 			'powershell',
@@ -131,9 +127,10 @@
 			'java'
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
-	})
-	run(() => {
-		showVarPicker = [
+	)
+
+	let showVarPicker = $derived(
+		[
 			'python3',
 			'bash',
 			'powershell',
@@ -149,9 +146,10 @@
 			'java'
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
-	})
-	run(() => {
-		showResourcePicker = [
+	)
+
+	let showResourcePicker = $derived(
+		[
 			'python3',
 			'bash',
 			'powershell',
@@ -164,16 +162,17 @@
 			'rust',
 			'csharp',
 			'nu',
-			'java'
+			'java',
+			'duckdb'
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
-	})
-	run(() => {
-		showResourceTypePicker =
-			['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
+	)
+
+	let showResourceTypePicker = $derived(
+		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
 			lang === 'python3' ||
 			lang === 'php'
-	})
+	)
 
 	let codeViewer: Drawer | undefined = $state()
 	let codeObj: { language: SupportedLanguage; content: string } | undefined = $state(undefined)
@@ -522,7 +521,7 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 
 <ItemPicker
 	bind:this={resourcePicker}
-	pickCallback={(path, _) => {
+	pickCallback={(path, _, resType) => {
 		if (!editor) return
 		if (lang == 'deno') {
 			if (!editor.getCode().includes('import * as wmill from')) {
@@ -582,6 +581,9 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		} else if (lang == 'java') {
 			editor.insertAtCursor(`(Wmill.getResource("${path}"))`)
 			// for related places search: ADD_NEW_LANG
+		} else if (lang == 'duckdb') {
+			let t = resType == 'postgresql' ? 'postgres' : resType
+			editor.insertAtCursor(`ATTACH '$res:${path}' AS db (TYPE ${t});`)
 		}
 
 		sendUserToast(`${path} inserted at cursor`)
