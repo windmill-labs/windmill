@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!-- <script src="https://cdn.tailwindcss.com"></script> -->
+  <!-- <script src="http://localhost:8097"></script> -->
+</head>
+<body>
+  <script>
+    // Listen for messages from the parent window
+    window.addEventListener("message", (event) => {
+      // Get the CSS and JS content from the event
+      const { type, css, js } = event.data;
+
+      if (type == 'preview') {
+
+        document.head.querySelectorAll("style").forEach(style => style.remove());
+        // Inject CSS into the document
+        const styleElement = document.createElement("style");
+        styleElement.textContent = css;
+        document.head.appendChild(styleElement);
+
+        document.body.innerHTML = `
+            <div id="root">
+            </div>
+        `;
+        // const addProxy = document.createElement("script");
+        // addProxy.textContent = `if (window.parent !== window) { window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = window.parent.__REACT_DEVTOOLS_GLOBAL_HOOK__ }`;
+        // document.body.appendChild(addProxy);
+
+        // Inject and execute JavaScript in the document
+        const scriptElement = document.createElement("script");
+        scriptElement.textContent = js;
+        document.body.appendChild(scriptElement);
+
+
+    }
+    });
+  </script>
+</body>
+</html>

@@ -113,14 +113,13 @@ jobs:
           build-args: ${{ inputs.build_args }}
           cache-from: type=gha,scope=ubicloud-${{ matrix.runner }}-${{ inputs.name }}
           cache-to: type=gha,mode=max,scope=ubicloud-${{ matrix.runner }}-${{ inputs.name }}
-          outputs:
-            type=image,name=${{ inputs.registry }}/${{ inputs.image_name
+          outputs: type=image,name=${{ inputs.registry }}/${{ inputs.image_name
             }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Print cache proxy logs
         run: sudo cat /var/log/cacheproxy.log
         if: always()
-        
+
       - name: Export digest
         run: |
           mkdir -p /tmp/digests
