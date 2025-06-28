@@ -140,9 +140,6 @@
 				}}
 				startIcon={{ icon: Pen }}
 				iconOnly={false}
-				tooltip={module.value.hash != undefined
-					? 'Script is locked with a specific hash'
-					: undefined}
 				disabled={module.value.hash != undefined}
 			>
 				Edit
