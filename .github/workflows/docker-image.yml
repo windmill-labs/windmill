@@ -37,7 +37,7 @@ permissions: write-all
 
 jobs:
   build:
-    runs-on: ubicloud
+    runs-on: [self-hosted, new]
     if: (github.event_name != 'workflow_dispatch') || (github.event.inputs &&
       !github.event.inputs.ee)
     steps:
