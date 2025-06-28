@@ -20,8 +20,8 @@ RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
 FROM ghcr.io/windmill-labs/windmill-ee:dev
 
 # Rust
-COPY --from=rust:1.86.0 /usr/local/cargo /usr/local/cargo
-COPY --from=rust:1.86.0 /usr/local/rustup /usr/local/rustup
+COPY --from=rust:1.88.0 /usr/local/cargo /usr/local/cargo
+COPY --from=rust:1.88.0 /usr/local/rustup /usr/local/rustup
 RUN /usr/local/cargo/bin/cargo install cargo-sweep --version ^0.7
 
 # Ansible
