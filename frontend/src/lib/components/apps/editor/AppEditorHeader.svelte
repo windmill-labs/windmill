@@ -801,7 +801,8 @@
 			displayName: 'Public URL',
 			icon: Globe,
 			disabled: !secretUrlHref,
-			href: secretUrlHref
+			href: secretUrlHref,
+			hrefTarget: '_blank'
 		},
 		// {
 		// 	displayName: 'Publish to Hub',
@@ -876,7 +877,7 @@
 				appExport?.open(toStatic($app, $staticExporter, $summary).app)
 			}
 		}
-	])
+	]) as Item[]
 
 	let appEditorTutorial: AppEditorTutorial | undefined = $state(undefined)
 
