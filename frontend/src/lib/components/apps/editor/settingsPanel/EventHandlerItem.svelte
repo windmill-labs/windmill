@@ -1,15 +1,23 @@
 <script lang="ts">
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
-	import MultiSelect from '$lib/components/multiselect/MultiSelectWrapper.svelte'
+	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
+	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	export let items: string[]
-	export let value: string[] | undefined = undefined
-	export let title: string
-	export let tooltip: string
+	let {
+		items,
+		value = $bindable(),
+		title,
+		tooltip
+	}: {
+		items: string[]
+		value: string[] | undefined
+		title: string
+		tooltip: string
+	} = $props()
 
-	$: width = 0
+	let width = $state(0)
 	const inputWidth = 280
 </script>
 
@@ -31,7 +39,10 @@
 				No components to recompute.
 			</div>
 		{:else}
-			<MultiSelect {items} bind:value />
+			<MultiSelect
+				items={safeSelectItems(items)}
+				bind:value={() => value ?? [], (v) => (value = v?.length ? v : undefined)}
+			/>
 		{/if}
 	</div>
 </div>

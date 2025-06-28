@@ -3,108 +3,118 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Tooltip from '../Tooltip.svelte'
-	import AutoComplete from 'simple-svelte-autocomplete'
-	import {
-		AlertCircle,
-		CheckCircle2,
-		ChevronDown,
-		Filter,
-		Hourglass,
-		PlayCircle,
-		X
-	} from 'lucide-svelte'
+	import { AlertCircle, CheckCircle2, Filter, Hourglass, PlayCircle, X } from 'lucide-svelte'
 	import JsonEditor from '../JsonEditor.svelte'
 	import Toggle from '../Toggle.svelte'
 	import Label from '../Label.svelte'
 	import Section from '../Section.svelte'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import ToggleButtonMore from '../common/toggleButton-v2/ToggleButtonMore.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import Select from '../select/Select.svelte'
+	import { safeSelectItems } from '../select/utils.svelte'
 
-	// Filters
-	export let path: string | null = null
-	export let label: string | null = null
-	export let concurrencyKey: string | null = null
-	export let tag: string | null = null
-	export let success:
-		| 'running'
-		| 'waiting'
-		| 'suspended'
-		| 'queued'
-		| 'success'
-		| 'failure'
-		| undefined = undefined
-	export let isSkipped: boolean | undefined = undefined
-	export let argFilter: string
-	export let argError: string
-	export let resultFilter: string
-	export let resultError: string
-	export let jobKindsCat: string
-	export let user: string | null = null
-	export let folder: string | null = null
-	export let mobile: boolean = false
-	export let schedulePath: string | undefined
+	interface Props {
+		// Filters
+		path?: string | null
+		label?: string | null
+		concurrencyKey?: string | null
+		worker?: string | null
+		tag?: string | null
+		success?: 'running' | 'waiting' | 'suspended' | 'queued' | 'success' | 'failure' | undefined
+		isSkipped?: boolean | undefined
+		argFilter: string
+		argError: string
+		resultFilter: string
+		resultError: string
+		jobKindsCat: string
+		user?: string | null
+		folder?: string | null
+		mobile?: boolean
+		schedulePath: string | undefined
+		allowWildcards?: boolean
+		// Autocomplete data
+		paths?: string[]
+		usernames?: string[]
+		folders?: string[]
+		allWorkspaces?: boolean
+		filterBy?:
+			| 'path'
+			| 'user'
+			| 'folder'
+			| 'label'
+			| 'concurrencyKey'
+			| 'worker'
+			| 'tag'
+			| 'schedulePath'
+	}
 
-	// Autocomplete data
-	export let paths: string[] = []
-	export let usernames: string[] = []
-	export let folders: string[] = []
-	export let allWorkspaces = false
+	let {
+		path = $bindable(null),
+		label = $bindable(null),
+		concurrencyKey = $bindable(null),
+		worker = $bindable(null),
+		tag = $bindable(null),
+		success = $bindable(undefined),
+		isSkipped = $bindable(undefined),
+		argFilter = $bindable(),
+		argError = $bindable(),
+		resultFilter = $bindable(),
+		resultError = $bindable(),
+		jobKindsCat = $bindable(),
+		user = $bindable(null),
+		folder = $bindable(null),
+		mobile = false,
+		schedulePath = $bindable(),
+		allowWildcards = $bindable(false),
+		paths = [],
+		usernames = [],
+		folders = [],
+		allWorkspaces = $bindable(false),
+		filterBy = $bindable('path')
+	}: Props = $props()
 
-	$: displayedLabel = label
-	$: displayedConcurrencyKey = concurrencyKey
-	$: displayedTag = tag
-	$: displayedSchedule = schedulePath
-
-	let copyArgFilter = argFilter
-	let copyResultFilter = resultFilter
-
-	export let filterBy:
-		| 'path'
-		| 'user'
-		| 'folder'
-		| 'label'
-		| 'concurrencyKey'
-		| 'tag'
-		| 'schedulePath' = 'path'
+	let copyArgFilter = $state(argFilter)
+	let copyResultFilter = $state(resultFilter)
 
 	const dispatch = createEventDispatcher()
 
-	let autoSet = false
-
-	$: (path || user || folder || label || concurrencyKey || tag || schedulePath) && autosetFilter()
-
 	function autosetFilter() {
 		if (path !== null && path !== '' && filterBy !== 'path') {
-			autoSet = true
 			filterBy = 'path'
 		} else if (user !== null && user !== '' && filterBy !== 'user') {
-			autoSet = true
 			filterBy = 'user'
 		} else if (folder !== null && folder !== '' && filterBy !== 'folder') {
-			autoSet = true
 			filterBy = 'folder'
 		} else if (label !== null && label !== '' && filterBy !== 'label') {
-			autoSet = true
 			filterBy = 'label'
 		} else if (concurrencyKey !== null && concurrencyKey !== '' && filterBy !== 'concurrencyKey') {
-			autoSet = true
 			filterBy = 'concurrencyKey'
 		} else if (tag !== null && tag !== '' && filterBy !== 'tag') {
-			autoSet = true
 			filterBy = 'tag'
 		} else if (schedulePath !== undefined && schedulePath !== '' && filterBy !== 'schedulePath') {
-			autoSet = true
 			filterBy = 'schedulePath'
+		} else if (worker !== null && worker !== '' && filterBy !== 'worker') {
+			filterBy = 'worker'
 		}
 	}
 
-	let labelTimeout: NodeJS.Timeout | undefined = undefined
-	let concurrencyKeyTimeout: NodeJS.Timeout | undefined = undefined
-	let tagTimeout: NodeJS.Timeout | undefined = undefined
+	let labelTimeout: NodeJS.Timeout | undefined = $state(undefined)
+	let concurrencyKeyTimeout: NodeJS.Timeout | undefined = $state(undefined)
+	let tagTimeout: NodeJS.Timeout | undefined = $state(undefined)
+	let workerTimeout: NodeJS.Timeout | undefined = $state(undefined)
 
-	let allWorkspacesValue = allWorkspaces ? 'all' : 'admins'
+	let allWorkspacesValue = $state(allWorkspaces ? 'all' : 'admins')
+	let displayedLabel = $derived(label)
+	let displayedConcurrencyKey = $derived(concurrencyKey)
+	let displayedTag = $derived(tag)
+	let displayedSchedule = $derived(schedulePath)
+	let displayedWorker = $derived(worker)
+	$effect(() => {
+		;(path || user || folder || label || worker || concurrencyKey || tag || schedulePath) &&
+			untrack(() => autosetFilter())
+	})
 </script>
 
 <div class="flex gap-4">
@@ -116,10 +126,11 @@
 					<ToggleButtonGroup
 						bind:selected={allWorkspacesValue}
 						on:selected={({ detail }) => (allWorkspaces = detail === 'all')}
-						let:item
 					>
-						<ToggleButton value={'admins'} label="Admins" {item} />
-						<ToggleButton value={'all'} label="All" {item} />
+						{#snippet children({ item })}
+							<ToggleButton value={'admins'} label="Admins" {item} />
+							<ToggleButton value={'all'} label="All" {item} />
+						{/snippet}
 					</ToggleButtonGroup>
 				</div>
 			{/if}
@@ -128,8 +139,8 @@
 				<span class="text-xs absolute -top-4">Filter by</span>
 				<ToggleButtonGroup
 					bind:selected={filterBy}
-					on:selected={() => {
-						if (!autoSet) {
+					on:selected={(e) => {
+						if (e.detail != filterBy) {
 							path = null
 							user = null
 							folder = null
@@ -137,129 +148,69 @@
 							concurrencyKey = null
 							tag = null
 							schedulePath = undefined
-						} else {
-							autoSet = false
 						}
 					}}
-					let:item
 				>
-					<ToggleButton value="path" label="Path" {item} />
-					<ToggleButton value="user" label="User" {item} />
-					<ToggleButton value="folder" label="Folder" {item} />
-					<ToggleButtonMore
-						togglableItems={[
-							{ label: 'Schedule path', value: 'schedulePath' },
-							{ label: 'Concurrency key', value: 'concurrencyKey' },
-							{ label: 'Label', value: 'label' },
-							{ label: 'Tag', value: 'tag' }
-						]}
-						{item}
-						bind:selected={filterBy}
-					/>
+					{#snippet children({ item })}
+						<ToggleButton value="path" label="Path" {item} />
+						<ToggleButton value="user" label="User" {item} />
+						<ToggleButton value="folder" label="Folder" {item} />
+						<ToggleButtonMore
+							togglableItems={[
+								{ label: 'Schedule path', value: 'schedulePath' },
+								{ label: 'Concurrency key', value: 'concurrencyKey' },
+								{ label: 'Label', value: 'label' },
+								{ label: 'Tag', value: 'tag' },
+								{ label: 'Worker', value: 'worker' }
+							]}
+							{item}
+							bind:selected={filterBy}
+						/>
+					{/snippet}
 				</ToggleButtonGroup>
 			</div>
 
 			{#if filterBy == 'user'}
 				{#key user}
 					<div class="relative">
-						{#if user}
-							<button
-								class="absolute top-2 right-2 z-50"
-								on:click={() => {
-									user = null
-									dispatch('reset')
-								}}
-							>
-								<X size={14} />
-							</button>
-						{:else}
-							<ChevronDown class="absolute top-2 right-2" size={14} />
-						{/if}
-
 						<span class="text-xs absolute -top-4">User</span>
-						<AutoComplete
-							create
-							onCreate={(user) => {
-								usernames.push(user)
-								return user
-							}}
+						<Select
+							items={safeSelectItems(usernames)}
+							bind:value={() => user ?? undefined, (v) => (user = v ?? null)}
+							clearable
+							onClear={() => ((user = null), dispatch('reset'))}
+							inputClass="!h-[32px]"
+							onCreateItem={(item) => (usernames.push(item), (user = item))}
 							createText="Press enter to use this value"
-							noInputStyles
-							items={usernames}
-							value={user}
-							bind:selectedItem={user}
-							inputClassName="!h-[32px] py-1 !text-xs !w-64"
-							hideArrow
-							className={user ? '!font-bold' : ''}
-							dropdownClassName="!font-normal !w-64 !max-w-64"
 						/>
 					</div>
 				{/key}
 			{:else if filterBy == 'folder'}
 				{#key folder}
 					<div class="relative">
-						{#if folder}
-							<button
-								class="absolute top-2 right-2 z-50"
-								on:click={() => {
-									folder = null
-									dispatch('reset')
-								}}
-							>
-								<X size={14} />
-							</button>
-						{:else}
-							<ChevronDown class="absolute top-2 right-2" size={14} />
-						{/if}
-
 						<span class="text-xs absolute -top-4">Folder</span>
 
-						<AutoComplete
-							noInputStyles
-							items={folders}
-							value={folder}
-							bind:selectedItem={folder}
-							inputClassName="!h-[32px] py-1 !text-xs !w-64"
-							hideArrow
-							className={folder ? '!font-bold' : ''}
-							dropdownClassName="!font-normal !w-64 !max-w-64"
+						<Select
+							items={safeSelectItems(folders)}
+							bind:value={() => folder ?? undefined, (v) => (folder = v ?? null)}
+							clearable
+							onClear={() => ((folder = null), dispatch('reset'))}
+							inputClass="!h-[32px]"
 						/>
 					</div>
 				{/key}
 			{:else if filterBy === 'path'}
 				{#key path}
 					<div class="relative">
-						{#if path}
-							<button
-								class="absolute top-2 right-2 z-50"
-								on:click={() => {
-									path = null
-									dispatch('reset')
-								}}
-							>
-								<X size={14} />
-							</button>
-						{:else}
-							<ChevronDown class="absolute top-2 right-2" size={14} />
-						{/if}
-
 						<span class="text-xs absolute -top-4">Path</span>
-
-						<AutoComplete
-							create
-							onCreate={(path) => {
-								paths.push(path)
-								return path
-							}}
+						<Select
+							items={safeSelectItems(paths)}
+							bind:value={() => path ?? undefined, (v) => (path = v ?? null)}
+							clearable
+							onClear={() => ((path = null), dispatch('reset'))}
+							inputClass="!h-[32px]"
+							onCreateItem={(item) => (paths.push(item), (path = item))}
 							createText="Press enter to use this value"
-							noInputStyles
-							items={paths}
-							value={path}
-							bind:selectedItem={path}
-							inputClassName="!h-[32px] py-1 !text-xs !w-64"
-							hideArrow
-							className={path ? '!font-bold' : ''}
-							dropdownClassName="!font-normal !w-64 !max-w-64"
 						/>
 					</div>
 				{/key}
@@ -269,7 +220,7 @@
 						{#if label}
 							<button
 								class="absolute top-2 right-2 z-50"
-								on:click={() => {
+								onclick={() => {
 									label = null
 									dispatch('reset')
 								}}
@@ -287,13 +238,13 @@
 							></span
 						>
 
-						<!-- svelte-ignore a11y-autofocus -->
+						<!-- svelte-ignore a11y_autofocus -->
 						<input
 							autofocus
 							type="text"
 							class="!h-[32px] py-1 !text-xs !w-64"
 							bind:value={displayedLabel}
-							on:keydown={(e) => {
+							onkeydown={(e) => {
 								if (labelTimeout) {
 									clearTimeout(labelTimeout)
 								}
@@ -303,6 +254,13 @@
 								}, 1000)
 							}}
 						/>
+						<div class="absolute top-10">
+							<Toggle
+								bind:checked={allowWildcards}
+								size="xs"
+								options={{ right: 'allow wildcards (*)' }}
+							></Toggle>
+						</div>
 					</div>
 				{/key}
 			{:else if filterBy === 'concurrencyKey'}
@@ -311,7 +269,7 @@
 						{#if concurrencyKey}
 							<button
 								class="absolute top-2 right-2 z-50"
-								on:click={() => {
+								onclick={() => {
 									concurrencyKey = null
 									dispatch('reset')
 								}}
@@ -329,13 +287,13 @@
 							</Tooltip></span
 						>
 
-						<!-- svelte-ignore a11y-autofocus -->
+						<!-- svelte-ignore a11y_autofocus -->
 						<input
 							autofocus
 							type="text"
 							class="!h-[32px] py-1 !text-xs !w-64"
 							bind:value={displayedConcurrencyKey}
-							on:keydown={(e) => {
+							onkeydown={(e) => {
 								if (concurrencyKeyTimeout) {
 									clearTimeout(concurrencyKeyTimeout)
 								}
@@ -353,7 +311,7 @@
 						{#if tag}
 							<button
 								class="absolute top-2 right-2 z-50"
-								on:click={() => {
+								onclick={() => {
 									tag = null
 									dispatch('reset')
 								}}
@@ -363,13 +321,13 @@
 						{/if}
 						<span class="text-xs absolute -top-4"> Tag </span>
 
-						<!-- svelte-ignore a11y-autofocus -->
+						<!-- svelte-ignore a11y_autofocus -->
 						<input
 							autofocus
 							type="text"
 							class="!h-[32px] py-1 !text-xs !w-64"
 							bind:value={displayedTag}
-							on:keydown={(e) => {
+							onkeydown={(e) => {
 								if (tagTimeout) {
 									clearTimeout(tagTimeout)
 								}
@@ -379,6 +337,13 @@
 								}, 1000)
 							}}
 						/>
+						<div class="absolute top-10">
+							<Toggle
+								bind:checked={allowWildcards}
+								size="xs"
+								options={{ right: 'allow wildcards (*)' }}
+							></Toggle>
+						</div>
 					</div>
 				{/key}
 			{:else if filterBy === 'schedulePath'}
@@ -387,7 +352,7 @@
 						{#if tag}
 							<button
 								class="absolute top-2 right-2 z-50"
-								on:click={() => {
+								onclick={() => {
 									schedulePath = undefined
 									dispatch('reset')
 								}}
@@ -397,13 +362,13 @@
 						{/if}
 						<span class="text-xs absolute -top-4"> Schedule Path </span>
 
-						<!-- svelte-ignore a11y-autofocus -->
+						<!-- svelte-ignore a11y_autofocus -->
 						<input
 							autofocus
 							type="text"
 							class="!h-[32px] py-1 !text-xs !w-64"
 							bind:value={displayedSchedule}
-							on:keydown={(e) => {
+							onkeydown={(e) => {
 								if (tagTimeout) {
 									clearTimeout(tagTimeout)
 								}
@@ -415,40 +380,83 @@
 						/>
 					</div>
 				{/key}
+			{:else if filterBy === 'worker'}
+				{#key worker}
+					<div class="relative">
+						{#if worker}
+							<button
+								class="absolute top-2 right-2 z-50"
+								onclick={() => {
+									worker = null
+									dispatch('reset')
+								}}
+							>
+								<X size={14} />
+							</button>
+						{/if}
+						<span class="text-xs absolute -top-4"> Worker </span>
+
+						<!-- svelte-ignore a11y_autofocus -->
+						<input
+							autofocus
+							type="text"
+							class="!h-[32px] py-1 !text-xs !w-64"
+							bind:value={displayedWorker}
+							onkeydown={(e) => {
+								if (workerTimeout) {
+									clearTimeout(workerTimeout)
+								}
+
+								workerTimeout = setTimeout(() => {
+									worker = displayedWorker
+								}, 1000)
+							}}
+						/>
+						<div class="absolute top-10">
+							<Toggle
+								bind:checked={allowWildcards}
+								size="xs"
+								options={{ right: 'allow wildcards (*)' }}
+							></Toggle>
+						</div>
+					</div>
+				{/key}
 			{/if}
 		</div>
 		<div class="relative">
 			<span class="text-xs absolute -top-4">Kind</span>
-			<ToggleButtonGroup bind:selected={jobKindsCat} let:item>
-				<ToggleButton value="all" label="All" {item} />
-				<ToggleButton
-					value="runs"
-					label="Runs"
-					showTooltipIcon
-					tooltip="Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook"
-					{item}
-				/>
-				<ToggleButton
-					value="previews"
-					label="Previews"
-					showTooltipIcon
-					tooltip="Previews are jobs that have been started in the editor as 'Tests'"
-					{item}
-				/>
-				<ToggleButton
-					value="dependencies"
-					label="Deps"
-					showTooltipIcon
-					tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
-					{item}
-				/>
-				<ToggleButton
-					value="deploymentcallbacks"
-					label="Sync"
-					showTooltipIcon
-					tooltip="Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings"
-					{item}
-				/>
+			<ToggleButtonGroup bind:selected={jobKindsCat}>
+				{#snippet children({ item })}
+					<ToggleButton value="all" label="All" {item} />
+					<ToggleButton
+						value="runs"
+						label="Runs"
+						showTooltipIcon
+						tooltip="Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook"
+						{item}
+					/>
+					<ToggleButton
+						value="previews"
+						label="Previews"
+						showTooltipIcon
+						tooltip="Previews are jobs that have been started in the editor as 'Tests'"
+						{item}
+					/>
+					<ToggleButton
+						value="dependencies"
+						label="Deps"
+						showTooltipIcon
+						tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
+						{item}
+					/>
+					<ToggleButton
+						value="deploymentcallbacks"
+						label="Sync"
+						showTooltipIcon
+						tooltip="Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings"
+						{item}
+					/>
+				{/snippet}
 			</ToggleButtonGroup>
 		</div>
 		<div class="relative">
@@ -459,52 +467,53 @@
 					success = detail === 'all' ? undefined : detail
 					dispatch('successChange', success)
 				}}
-				let:item
 			>
-				<ToggleButton value={'all'} label="All" {item} />
-				<ToggleButton
-					value={'running'}
-					tooltip="Running"
-					class="whitespace-nowrap"
-					icon={PlayCircle}
-					iconProps={{ color: success === 'running' ? 'blue' : 'gray' }}
-					{item}
-				/>
-				<ToggleButton
-					value={'success'}
-					tooltip="Success"
-					class="whitespace-nowrap"
-					icon={CheckCircle2}
-					iconProps={{ color: success === 'success' ? 'green' : 'gray' }}
-					{item}
-				/>
-				<ToggleButton
-					value={'failure'}
-					tooltip="Failure"
-					class="whitespace-nowrap"
-					icon={AlertCircle}
-					iconProps={{ color: success === 'failure' ? 'red' : 'gray' }}
-					{item}
-				/>
-				{#if success == 'waiting'}
+				{#snippet children({ item })}
+					<ToggleButton value={'all'} label="All" {item} />
 					<ToggleButton
-						value={'waiting'}
-						tooltip="Waiting"
+						value={'running'}
+						tooltip="Running"
 						class="whitespace-nowrap"
-						icon={Hourglass}
-						iconProps={{ color: 'blue' }}
+						icon={PlayCircle}
+						iconProps={{ color: success === 'running' ? 'blue' : 'gray' }}
 						{item}
 					/>
-				{:else if success == 'suspended'}
 					<ToggleButton
-						value={'suspended'}
-						tooltip="Suspended"
+						value={'success'}
+						tooltip="Success"
 						class="whitespace-nowrap"
-						icon={Hourglass}
-						iconProps={{ color: 'blue' }}
+						icon={CheckCircle2}
+						iconProps={{ color: success === 'success' ? 'green' : 'gray' }}
 						{item}
 					/>
-				{/if}
+					<ToggleButton
+						value={'failure'}
+						tooltip="Failure"
+						class="whitespace-nowrap"
+						icon={AlertCircle}
+						iconProps={{ color: success === 'failure' ? 'red' : 'gray' }}
+						{item}
+					/>
+					{#if success == 'waiting'}
+						<ToggleButton
+							value={'waiting'}
+							tooltip="Waiting"
+							class="whitespace-nowrap"
+							icon={Hourglass}
+							iconProps={{ color: 'blue' }}
+							{item}
+						/>
+					{:else if success == 'suspended'}
+						<ToggleButton
+							value={'suspended'}
+							tooltip="Suspended"
+							class="whitespace-nowrap"
+							icon={Hourglass}
+							iconProps={{ color: 'blue' }}
+							{item}
+						/>
+					{/if}
+				{/snippet}
 			</ToggleButtonGroup>
 		</div>
 	{/if}
@@ -513,23 +522,23 @@
 		floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 		contentClasses="p-4"
 		closeButton
+		usePointerDownOutside
 	>
-		<svelte:fragment slot="trigger">
+		{#snippet trigger()}
 			<Button color="dark" size="xs" nonCaptureEvent={true} startIcon={{ icon: Filter }}>
 				More filters
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 
-		<svelte:fragment slot="content">
+		{#snippet content()}
 			<Section label="Filters">
 				<div class="w-102 flex flex-col gap-4">
 					{#if mobile || true}
 						<Label label="Filter by">
 							<ToggleButtonGroup
-								let:item
 								bind:selected={filterBy}
-								on:selected={() => {
-									if (!autoSet) {
+								on:selected={(e) => {
+									if (e.detail != filterBy) {
 										path = null
 										user = null
 										folder = null
@@ -537,110 +546,55 @@
 										concurrencyKey = null
 										tag = null
 										schedulePath = undefined
-									} else {
-										autoSet = false
 									}
 								}}
 							>
-								<ToggleButton value="path" label="Path" {item} />
-								<ToggleButton value="user" label="User" {item} />
-								<ToggleButton value="folder" label="Folder" {item} />
-								<ToggleButton value="schedulePath" label="Schedule" {item} />
-								<ToggleButton value="concurrencyKey" label="Concurrency" {item} />
-								<ToggleButton value="tag" label="Tag" {item} />
-								<ToggleButton value="label" label="Label" {item} />
+								{#snippet children({ item })}
+									<ToggleButton value="path" label="Path" {item} />
+									<ToggleButton value="user" label="User" {item} />
+									<ToggleButton value="folder" label="Folder" {item} />
+									<ToggleButton value="schedulePath" label="Schedule" {item} />
+									<ToggleButton value="concurrencyKey" label="Concurrency" {item} />
+									<ToggleButton value="tag" label="Tag" {item} />
+									<ToggleButton value="label" label="Label" {item} />
+									<ToggleButton value="worker" label="Worker" {item} />
+								{/snippet}
 							</ToggleButtonGroup>
 						</Label>
 
 						{#if filterBy == 'user'}
-							{#key user}
-								<Label label="User">
-									<div class="relative w-full">
-										{#if user}
-											<button
-												class="absolute top-2 right-2 z-50"
-												on:click={() => {
-													user = null
-												}}
-											>
-												<X size={14} />
-											</button>
-										{:else}
-											<ChevronDown class="absolute top-2 right-2" size={14} />
-										{/if}
-
-										<AutoComplete
-											items={usernames}
-											value={user}
-											bind:selectedItem={user}
-											inputClassName="!h-[32px] py-1 !text-xs !w-80"
-											hideArrow
-											className={user ? '!font-bold' : ''}
-											dropdownClassName="!font-normal !w-80 !max-w-80"
-										/>
-									</div>
-								</Label>
-							{/key}
+							<Label label="User">
+								<Select
+									disablePortal
+									items={safeSelectItems(usernames)}
+									bind:value={() => user ?? undefined, (v) => (user = v ?? null)}
+									clearable
+									onClear={() => ((user = null), dispatch('reset'))}
+									inputClass="!h-[32px]"
+								/>
+							</Label>
 						{:else if filterBy == 'folder'}
-							{#key folder}
-								<Label label="Folder">
-									<div class="relative w-full">
-										{#if folder}
-											<button
-												class="absolute top-2 right-2 z-50"
-												on:click={() => {
-													folder = null
-												}}
-											>
-												<X size={14} />
-											</button>
-										{:else}
-											<ChevronDown class="absolute top-2 right-2" size={14} />
-										{/if}
-
-										<AutoComplete
-											noInputStyles
-											items={folders}
-											value={folder}
-											bind:selectedItem={folder}
-											inputClassName="!h-[32px] py-1 !text-xs !w-80"
-											hideArrow
-											className={folder ? '!font-bold' : ''}
-											dropdownClassName="!font-normal !w-80 !max-w-80"
-										/>
-									</div>
-								</Label>
-							{/key}
+							<Label label="Folder">
+								<Select
+									disablePortal
+									items={safeSelectItems(folders)}
+									bind:value={() => folder ?? undefined, (v) => (folder = v ?? null)}
+									clearable
+									onClear={() => ((folder = null), dispatch('reset'))}
+									inputClass="!h-[32px]"
+								/>
+							</Label>
 						{:else if filterBy === 'path'}
-							{#key path}
-								<Label label="Path">
-									<div class="relative w-full">
-										{#if path}
-											<button
-												class="absolute top-2 right-2 z-50"
-												on:click={() => {
-													path = null
-												}}
-											>
-												<X size={14} />
-											</button>
-										{:else}
-											<ChevronDown class="absolute top-2 right-2" size={14} />
-										{/if}
-
-										<AutoComplete
-											noInputStyles
-											items={paths}
-											value={path}
-											bind:selectedItem={path}
-											inputClassName="!h-[32px] py-1 !text-xs !w-80"
-											hideArrow
-											className={path ? '!font-bold' : ''}
-											dropdownClassName="!font-normal !w-80 !max-w-80"
-										/>
-									</div>
-								</Label>
-							{/key}
+							<Label label="Path">
+								<Select
+									disablePortal
+									items={safeSelectItems(paths)}
+									bind:value={() => path ?? undefined, (v) => (path = v ?? null)}
+									clearable
+									onClear={() => ((path = null), dispatch('reset'))}
+									inputClass="!h-[32px]"
+								/>
+							</Label>
 						{:else if filterBy === 'tag'}
 							{#key tag}
 								<Label label="Tag">
@@ -648,7 +602,7 @@
 										{#if tag}
 											<button
 												class="absolute top-2 right-2 z-50"
-												on:click={() => {
+												onclick={() => {
 													tag = null
 												}}
 											>
@@ -656,13 +610,13 @@
 											</button>
 										{/if}
 
-										<!-- svelte-ignore a11y-autofocus -->
+										<!-- svelte-ignore a11y_autofocus -->
 										<input
 											autofocus
 											type="text"
 											class="!h-[32px] py-1 !text-xs !w-80"
 											bind:value={displayedTag}
-											on:keydown={(e) => {
+											onkeydown={(e) => {
 												if (tagTimeout) {
 													clearTimeout(tagTimeout)
 												}
@@ -683,7 +637,7 @@
 										{#if label}
 											<button
 												class="absolute top-2 right-2 z-50"
-												on:click={() => {
+												onclick={() => {
 													label = null
 												}}
 											>
@@ -691,13 +645,13 @@
 											</button>
 										{/if}
 
-										<!-- svelte-ignore a11y-autofocus -->
+										<!-- svelte-ignore a11y_autofocus -->
 										<input
 											autofocus
 											type="text"
 											class="!h-[32px] py-1 !text-xs !w-80"
 											bind:value={displayedLabel}
-											on:keydown={(e) => {
+											onkeydown={(e) => {
 												if (labelTimeout) {
 													clearTimeout(labelTimeout)
 												}
@@ -717,7 +671,7 @@
 										{#if concurrencyKey}
 											<button
 												class="absolute top-2 right-2 z-50"
-												on:click={() => {
+												onclick={() => {
 													concurrencyKey = null
 													// dispatch('reset')
 												}}
@@ -726,13 +680,13 @@
 											</button>
 										{/if}
 
-										<!-- svelte-ignore a11y-autofocus -->
+										<!-- svelte-ignore a11y_autofocus -->
 										<input
 											autofocus
 											type="text"
 											class="!h-[32px] py-1 !text-xs !w-80"
 											bind:value={displayedConcurrencyKey}
-											on:keydown={(e) => {
+											onkeydown={(e) => {
 												if (concurrencyKeyTimeout) {
 													clearTimeout(concurrencyKeyTimeout)
 												}
@@ -745,39 +699,83 @@
 									</div>
 								</Label>
 							{/key}
+						{:else if filterBy === 'worker'}
+							{#key worker}
+								<Label label="worker">
+									<div class="relative w-full">
+										{#if concurrencyKey}
+											<button
+												class="absolute top-2 right-2 z-50"
+												onclick={() => {
+													worker = null
+													// dispatch('reset')
+												}}
+											>
+												<X size={14} />
+											</button>
+										{/if}
+
+										<!-- svelte-ignore a11y_autofocus -->
+										<input
+											autofocus
+											type="text"
+											class="!h-[32px] py-1 !text-xs !w-80"
+											bind:value={displayedWorker}
+											onkeydown={(e) => {
+												if (workerTimeout) {
+													clearTimeout(workerTimeout)
+												}
+
+												workerTimeout = setTimeout(() => {
+													worker = displayedWorker
+												}, 1000)
+											}}
+										/>
+									</div>
+								</Label>
+							{/key}
 						{/if}
 
+						{#if filterBy === 'tag' || filterBy === 'label' || filterBy === 'worker'}
+							<Toggle
+								bind:checked={allowWildcards}
+								size="xs"
+								options={{ right: 'allow wildcards (*)' }}
+							></Toggle>
+						{/if}
 						<Label label="Kind">
-							<ToggleButtonGroup bind:selected={jobKindsCat} let:item>
-								<ToggleButton value="all" label="All" {item} />
-								<ToggleButton
-									value="runs"
-									label="Runs"
-									showTooltipIcon
-									tooltip="Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook"
-									{item}
-								/>
-								<ToggleButton
-									value="previews"
-									label="Previews"
-									showTooltipIcon
-									tooltip="Previews are jobs that have been started in the editor as 'Tests'"
-									{item}
-								/>
-								<ToggleButton
-									value="dependencies"
-									label="Deps"
-									showTooltipIcon
-									tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
-									{item}
-								/>
-								<ToggleButton
-									value="deploymentcallbacks"
-									label="Sync"
-									showTooltipIcon
-									tooltip="Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings"
-									{item}
-								/>
+							<ToggleButtonGroup bind:selected={jobKindsCat}>
+								{#snippet children({ item })}
+									<ToggleButton value="all" label="All" {item} />
+									<ToggleButton
+										value="runs"
+										label="Runs"
+										showTooltipIcon
+										tooltip="Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook"
+										{item}
+									/>
+									<ToggleButton
+										value="previews"
+										label="Previews"
+										showTooltipIcon
+										tooltip="Previews are jobs that have been started in the editor as 'Tests'"
+										{item}
+									/>
+									<ToggleButton
+										value="dependencies"
+										label="Deps"
+										showTooltipIcon
+										tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
+										{item}
+									/>
+									<ToggleButton
+										value="deploymentcallbacks"
+										label="Sync"
+										showTooltipIcon
+										tooltip="Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings"
+										{item}
+									/>
+								{/snippet}
 							</ToggleButtonGroup>
 						</Label>
 
@@ -785,12 +783,28 @@
 							<ToggleButtonGroup
 								selected={success ?? 'all'}
 								on:selected={({ detail }) => (success = detail === 'all' ? undefined : detail)}
-								let:item
 							>
-								<ToggleButton value={'all'} label="All" {item} />
-								<ToggleButton value={'running'} label="Running" class="whitespace-nowrap" {item} />
-								<ToggleButton value={'success'} label="Success" class="whitespace-nowrap" {item} />
-								<ToggleButton value={'failure'} label="Failure" class="whitespace-nowrap" {item} />
+								{#snippet children({ item })}
+									<ToggleButton value={'all'} label="All" {item} />
+									<ToggleButton
+										value={'running'}
+										label="Running"
+										class="whitespace-nowrap"
+										{item}
+									/>
+									<ToggleButton
+										value={'success'}
+										label="Success"
+										class="whitespace-nowrap"
+										{item}
+									/>
+									<ToggleButton
+										value={'failure'}
+										label="Failure"
+										class="whitespace-nowrap"
+										{item}
+									/>
+								{/snippet}
 							</ToggleButtonGroup>
 						</Label>
 					{/if}
@@ -837,6 +851,6 @@
 					</div>
 				</div>
 			</Section>
-		</svelte:fragment>
+		{/snippet}
 	</Popover>
 </div>

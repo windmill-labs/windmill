@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -7,18 +10,24 @@
 	import { isDebugging } from './settingsPanel/decisionTree/utils'
 	import { X, Bug } from 'lucide-svelte'
 
-	export let nodes: DecisionTreeNode[] = []
-	export let id: string
-	export let isSmall = false
-	export let componentIsDebugging = false
+	interface Props {
+		nodes?: DecisionTreeNode[]
+		id: string
+		isSmall?: boolean
+		componentIsDebugging?: boolean
+	}
 
-	$: componentIsDebugging = isDebugging($debuggingComponents, id)
+	let { nodes = [], id, isSmall = false, componentIsDebugging = $bindable(false) }: Props = $props()
+
+	$effect(() => {
+		componentIsDebugging = isDebugging($debuggingComponents, id)
+	})
 
 	const { componentControl, debuggingComponents, worldStore } =
 		getContext<AppViewerContext>('AppViewerContext')
 	const dispatch = createEventDispatcher()
 
-	let currentNodeId: string = $worldStore.outputsById[id]?.currentNodeId?.peak() ?? 'a'
+	let currentNodeId: string = $state($worldStore.outputsById[id]?.currentNodeId?.peak() ?? 'a')
 
 	function subscribeToCurrentNode(id: string) {
 		return $worldStore.outputsById[id]?.currentNodeId?.subscribe(
@@ -49,9 +58,11 @@
 		}
 	}
 
-	$: onDebugNode($debuggingComponents[id])
+	$effect(() => {
+		onDebugNode($debuggingComponents[id])
+	})
 
-	let renderCount: number = 0
+	let renderCount: number = $state(0)
 	let lastNodes: DecisionTreeNode[] = nodes
 
 	function onNodesChange(newNodes: DecisionTreeNode[]) {
@@ -67,7 +78,9 @@
 		}
 	}
 
-	$: onNodesChange(nodes)
+	$effect(() => {
+		onNodesChange(nodes)
+	})
 
 	async function getDropdownItems() {
 		return [
@@ -97,7 +110,7 @@
 
 {#key renderCount}
 	<Dropdown items={getDropdownItems} class="w-fit h-auto" usePointerDownOutside={true}>
-		<svelte:fragment slot="buttonReplacement">
+		{#snippet buttonReplacement()}
 			<button
 				title={'Debug tabs'}
 				class={classNames(
@@ -106,14 +119,15 @@
 						? ' hover:bg-red-300 hover:text-red-800'
 						: 'text-blue-600 hover:bg-blue-300 hover:text-blue-800'
 				)}
-				on:click={() => dispatch('triggerInlineEditor')}
-				on:pointerdown|stopPropagation
+				onclick={() => dispatch('triggerInlineEditor')}
+				onpointerdown={stopPropagation(bubble('pointerdown'))}
 			>
 				{#if componentIsDebugging}
 					<div class="flex flex-row items-center gap-2">
 						{`${isSmall ? '' : 'Debugging node'} ${nodes[$debuggingComponents[id] ?? 0]?.id}`}
+						<!-- svelte-ignore node_invalid_placement_ssr -->
 						<button
-							on:click={() => {
+							onclick={() => {
 								$componentControl?.[id]?.setTab?.(0)
 
 								$debuggingComponents = Object.fromEntries(
@@ -130,6 +144,6 @@
 						>{`Debug nodes (current node: ${currentNodeId})`}</div
 					>{/if}
 			</button>
-		</svelte:fragment>
+		{/snippet}
 	</Dropdown>
 {/key}

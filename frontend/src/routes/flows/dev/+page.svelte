@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { onDestroy, onMount, setContext } from 'svelte'
+	import { onDestroy, onMount, setContext, untrack } from 'svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import FlowPreviewButtons from '$lib/components/flows/header/FlowPreviewButtons.svelte'
 	import type {
@@ -10,7 +10,7 @@
 		FlowInputEditorState
 	} from '$lib/components/flows/types'
 	import { writable } from 'svelte/store'
-	import { OpenAPI, type FlowModule, type OpenFlow, type TriggersCount } from '$lib/gen'
+	import { OpenAPI, type OpenFlow, type TriggersCount } from '$lib/gen'
 	import { initHistory } from '$lib/history'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
@@ -20,9 +20,11 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
-	import type { ScheduleTrigger, TriggerContext } from '$lib/components/triggers'
+	import type { TriggerContext } from '$lib/components/triggers'
 	import type { FlowPropPickerConfig, PropPickerContext } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
+	import { Triggers } from '$lib/components/triggers/triggers.svelte'
+	import { TestSteps } from '$lib/components/flows/testSteps.svelte'
 
 	let token = $page.url.searchParams.get('wm_token') ?? undefined
 	let workspace = $page.url.searchParams.get('workspace') ?? undefined
@@ -47,49 +49,39 @@
 		userStore.set(user)
 	}
 
-	let darkModeToggle: DarkModeToggle
-	let darkMode: boolean | undefined = undefined
-	let modeInitialized = false
+	let darkModeToggle: DarkModeToggle | undefined = $state()
+	let darkMode: boolean | undefined = $state(undefined)
+	let modeInitialized = $state(false)
 	function initializeMode() {
 		modeInitialized = true
-		darkModeToggle.toggle()
+		darkModeToggle?.toggle()
 	}
-	$: darkModeToggle &&
-		themeDark != darkMode &&
-		darkMode != undefined &&
-		!modeInitialized &&
-		initializeMode()
 
-	const flowStore = writable({
-		summary: '',
-		value: { modules: [] },
-		extra_perms: {},
-		schema: emptySchema()
-	} as OpenFlow)
+	const flowStore = $state({
+		val: {
+			summary: '',
+			value: { modules: [] },
+			extra_perms: {},
+			schema: emptySchema()
+		} as OpenFlow
+	})
 
-	let initialCode = JSON.stringify($flowStore, null, 4)
+	let initialCode = JSON.stringify(flowStore, null, 4)
 	const flowStateStore = writable({} as FlowState)
 
-	const previewArgsStore = writable<Record<string, any>>({})
+	const previewArgsStore = $state({ val: {} })
 	const scriptEditorDrawer = writable(undefined)
-	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
-	const history = initHistory($flowStore)
+	const moving = writable<{ id: string } | undefined>(undefined)
+	const history = initHistory(flowStore.val)
 
-	const testStepStore = writable<Record<string, any>>({})
+	const testSteps = new TestSteps()
 	const selectedIdStore = writable('settings-metadata')
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
-	const selectedTriggerStore = writable<
-		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll'
-	>('webhooks')
 	setContext<TriggerContext>('TriggerContext', {
-		primarySchedule: primaryScheduleStore,
-		selectedTrigger: selectedTriggerStore,
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),
-		defaultValues: writable(undefined),
-		captureOn: writable(undefined),
-		showCaptureHint: writable(undefined)
+		showCaptureHint: writable(undefined),
+		triggersState: new Triggers()
 	})
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
@@ -101,9 +93,10 @@
 		pathStore: writable(''),
 		flowStateStore,
 		flowStore,
-		testStepStore,
+		testSteps,
 		saveDraft: () => {},
-		initialPath: '',
+		initialPathStore: writable(''),
+		fakeInitialPath: '',
 		flowInputsStore: writable<FlowInput>({}),
 		customUi: {},
 		insertButtonOpen: writable(false),
@@ -112,7 +105,8 @@
 			selectedTab: undefined,
 			editPanelSize: undefined,
 			payloadData: undefined
-		})
+		}),
+		currentEditor: writable(undefined)
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
@@ -220,11 +214,9 @@
 		// 	validCode = false
 		// }
 	}
-	let editor: SimpleEditor
+	let editor: SimpleEditor | undefined = $state()
 
-	$: updateCode(editor, $flowStore)
-
-	function updateCode(editor: SimpleEditor, flow: OpenFlow) {
+	function updateCode(editor: SimpleEditor | undefined, flow: OpenFlow) {
 		if (editor && !deepEqual(flow, JSON.parse(editor.getCode()))) {
 			editor.setCode(JSON.stringify(flow, null, 4))
 		}
@@ -232,18 +224,29 @@
 
 	function updateFromCode(code: string) {
 		try {
-			if (!deepEqual(JSON.parse(code), $flowStore)) {
-				$flowStore = JSON.parse(code)
+			if (!deepEqual(JSON.parse(code), flowStore)) {
+				flowStore.val = JSON.parse(code)
 			}
 		} catch (e) {
 			console.error('issue parsing new change:', code, e)
 		}
 	}
 
-	let flowPreviewButtons: FlowPreviewButtons
+	let flowPreviewButtons: FlowPreviewButtons | undefined = $state()
+	$effect(() => {
+		darkModeToggle &&
+			themeDark != darkMode &&
+			darkMode != undefined &&
+			!modeInitialized &&
+			untrack(() => initializeMode())
+	})
+	$effect(() => {
+		const args = [editor, flowStore.val] as const
+		untrack(() => updateCode(...args))
+	})
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} />
 
 <main class="h-screen w-full">
 	<div class="h-full w-full grid grid-cols-2">
@@ -270,9 +273,8 @@
 			</div>
 			<Splitpanes horizontal class="h-full max-h-screen grow">
 				<Pane size={33}>
-					{#if $flowStore?.value?.modules}
+					{#if flowStore.val?.value?.modules}
 						<FlowModuleSchemaMap
-							bind:modules={$flowStore.value.modules}
 							disableAi
 							disableTutorials
 							smallErrorHandler={true}
@@ -287,10 +289,10 @@
 						noEditor
 						on:applyArgs={(ev) => {
 							if (ev.detail.kind === 'preprocessor') {
-								$testStepStore['preprocessor'] = ev.detail.args ?? {}
+								testSteps.setStepArgs('preprocessor', ev.detail.args ?? {})
 								$selectedIdStore = 'preprocessor'
 							} else {
-								$previewArgsStore = ev.detail.args ?? {}
+								previewArgsStore.val = ev.detail.args ?? {}
 								flowPreviewButtons?.openPreview()
 							}
 						}}

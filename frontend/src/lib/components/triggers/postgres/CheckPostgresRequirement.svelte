@@ -50,8 +50,6 @@
 	export let can_write: boolean
 	export let postgres_resource_path: string
 	export let checkConnection: any | undefined = undefined
-
-	console.log('dbg check connection', checkConnection)
 </script>
 
 {#if postgres_resource_path}

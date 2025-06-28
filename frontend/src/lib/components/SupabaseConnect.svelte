@@ -114,12 +114,12 @@
 					></div
 				>
 			</h2>
-			<div class="mt-6" />
+			<div class="mt-6"></div>
 
 			{#if databases == undefined}
 				<Loader2 class="animate-spin" />
 			{:else}
-				<div class=" flex flex-col gap-y-2" />
+				<div class=" flex flex-col gap-y-2"></div>
 				{#each databases as database}
 					<button
 						class="btn btn-outline-primary mt-2 border p-2 w-full border-secondary-inverse hover:border-secondary rounded"
@@ -166,21 +166,23 @@
 			<Password required bind:password />
 
 			<h3 class="mt-6 mb-2">Description</h3>
-			<textarea autocomplete="off" use:autosize bind:value={description} />
+			<textarea autocomplete="off" use:autosize bind:value={description}></textarea>
 
-			<div class="mt-12" />
+			<div class="mt-12"></div>
 			<p class="my-1 text-sm text-secondary"
 				>A resource and a variable will be created at path: {path}. The content of the resource will
 				be:</p
 			>
 			<Highlight language={json} code={JSON.stringify(resourceValue, null, 4)} />
 		{/if}
-		<div slot="actions" class="flex gap-1">
-			{#if step == 'resource' && selectedDatabase != undefined}
-				<Button variant="border" on:click={() => (step = 'init')}>Back</Button>
+		{#snippet actions()}
+			<div class="flex gap-1">
+				{#if step == 'resource' && selectedDatabase != undefined}
+					<Button variant="border" on:click={() => (step = 'init')}>Back</Button>
 
-				<Button {disabled} on:click={save}>Save</Button>
-			{/if}
-		</div>
+					<Button {disabled} on:click={save}>Save</Button>
+				{/if}
+			</div>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

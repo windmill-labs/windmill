@@ -17,7 +17,7 @@ fn wrap_sig(r: anyhow::Result<MainArgSignature>) -> String {
 
 #[cfg(feature = "ts-parser")]
 #[wasm_bindgen]
-pub fn parse_deno(code: &str, main_override: Option<String>, skip_params: Option<bool>) -> String {
+pub fn parse_deno(code: &str, main_override: Option<String>) -> String {
     wrap_sig(windmill_parser_ts::parse_deno_signature(
         code,
         false,
@@ -41,7 +41,7 @@ pub fn parse_outputs(code: &str) -> String {
 #[cfg(feature = "ts-parser")]
 #[wasm_bindgen]
 pub fn parse_ts_imports(code: &str) -> String {
-    let parsed = parse_expr_for_imports(code);
+    let parsed = parse_expr_for_imports(code, false);
     let r = if let Ok(parsed) = parsed {
         json!({ "imports": parsed })
     } else {
@@ -98,6 +98,12 @@ pub fn parse_oracledb(code: &str) -> String {
 
 #[cfg(feature = "sql-parser")]
 #[wasm_bindgen]
+pub fn parse_duckdb(code: &str) -> String {
+    wrap_sig(windmill_parser_sql::parse_duckdb_sig(code))
+}
+
+#[cfg(feature = "sql-parser")]
+#[wasm_bindgen]
 pub fn parse_bigquery(code: &str) -> String {
     wrap_sig(windmill_parser_sql::parse_bigquery_sig(code))
 }
@@ -149,3 +155,17 @@ pub fn parse_ansible(code: &str) -> String {
 pub fn parse_csharp(code: &str) -> String {
     wrap_sig(windmill_parser_csharp::parse_csharp_signature(code))
 }
+
+#[cfg(feature = "nu-parser")]
+#[wasm_bindgen]
+pub fn parse_nu(code: &str) -> String {
+    wrap_sig(windmill_parser_nu::parse_nu_signature(code))
+}
+
+#[cfg(feature = "java-parser")]
+#[wasm_bindgen]
+pub fn parse_java(code: &str) -> String {
+    wrap_sig(windmill_parser_java::parse_java_signature(code))
+}
+
+// for related places search: ADD_NEW_LANG

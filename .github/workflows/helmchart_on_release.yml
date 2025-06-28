@@ -1,0 +1,91 @@
+name: Publish Helm Chart on Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  bump-helm-version:
+    runs-on: ubicloud-standard-2
+
+    steps:
+      - name: Generate an installation token
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.INTERNAL_APP_ID }}
+          private-key: ${{ secrets.INTERNAL_APP_KEY }}
+          owner: windmill-labs
+
+      - name: Checkout on helm repository
+        uses: actions/checkout@v3
+        with:
+          repository: windmill-labs/windmill-helm-charts
+          token: ${{ steps.app.outputs.token }}
+
+      - name: Get version
+        id: get_version
+        run: |
+          echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+
+      - name: Create new branch
+        run: |
+          # Check if branch already exists remotely
+          if git ls-remote --heads origin bump-helm-version-${{ env.VERSION }} | grep -q bump-helm-version-${{ env.VERSION }}; then
+            # Branch exists, check it out
+            git fetch origin bump-helm-version-${{ env.VERSION }}
+            git checkout bump-helm-version-${{ env.VERSION }}
+          else
+            # Create new branch
+            git checkout -b bump-helm-version-${{ env.VERSION }}
+          fi
+
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+      - name: Bump helm version
+        run: |
+          # Get current version and increment it by 1
+          CURRENT_VERSION=$(grep "version:" ./charts/windmill/Chart.yaml | awk '{print $2}' | head -n 1)
+          NEW_VERSION=$(echo "$CURRENT_VERSION" | awk -F. '{$NF = $NF + 1;} 1' | sed 's/ /./g')
+          sed -i "s/^version: .*/version: $NEW_VERSION/" ./charts/windmill/Chart.yaml
+
+          # Get the app version from the version
+          VERSION=${{ env.VERSION }}
+          APP_VERSION=${VERSION#refs/tag/}
+          APP_VERSION=${APP_VERSION#v}
+          APP_VERSION=${APP_VERSION%/}
+          sed -i "s/appVersion: .*/appVersion: $APP_VERSION/" ./charts/windmill/Chart.yaml
+
+      - name: Close existing bump-helm PRs
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          # List open PR numbers whose title starts with the prefix
+          prs=$(gh pr list \
+                  --state open \
+                  --search '"helm: bump version to" in:title' \
+                  --json number \
+                  -q '.[].number')
+
+          for pr in $prs; do
+            echo "Closing outdated bump PR #$pr"
+            gh pr close "$pr" \
+              --comment "Closed automatically – superseded by a newer Helm-chart bump PR."
+          done
+
+      - name: Commit and push
+        run: |
+          git add .
+          git commit -m "Bump helm version to ${{ env.VERSION }}"
+          git push origin bump-helm-version-${{ env.VERSION }}
+
+      - name: Create PR
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          gh pr create \
+            --title "helm: bump version to ${{ env.VERSION }}" \
+            --body "This PR was auto-generated to bring the helm chart up to date for [release ${{ env.VERSION }}](https://github.com/windmill-labs/windmill/releases/tag/v${{ env.VERSION }}) in the main repo." \
+            --head bump-helm-version-${{ env.VERSION }} \
+            --base main

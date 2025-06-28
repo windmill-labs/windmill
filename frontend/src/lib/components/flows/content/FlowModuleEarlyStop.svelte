@@ -4,7 +4,7 @@
 	import PropPickerWrapper from '$lib/components/flows/propPicker/PropPickerWrapper.svelte'
 	import type { Flow, FlowModule } from '$lib/gen'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import type { FlowEditorContext } from '../types'
+	import type { ExtendedOpenFlow, FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
 	import { NEVER_TESTED_THIS_FAR } from '../models'
 	import Section from '$lib/components/Section.svelte'
@@ -14,21 +14,27 @@
 	const { flowStateStore, flowStore, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	export let flowModule: FlowModule
+	interface Props {
+		flowModule: FlowModule
+	}
 
-	let editor: SimpleEditor | undefined = undefined
-	$: stepPropPicker = getStepPropPicker(
-		$flowStateStore,
-		undefined,
-		undefined,
-		flowModule.id,
-		$flowStore,
-		$previewArgs,
-		false
+	let { flowModule = $bindable() }: Props = $props()
+
+	let editor: SimpleEditor | undefined = $state(undefined)
+	let stepPropPicker = $derived(
+		getStepPropPicker(
+			$flowStateStore,
+			undefined,
+			undefined,
+			flowModule.id,
+			flowStore.val,
+			previewArgs.val,
+			false
+		)
 	)
 
-	function checkIfParentLoop(flowStore: typeof $flowStore): string | null {
-		const flow: Flow = JSON.parse(JSON.stringify(flowStore))
+	function checkIfParentLoop(flowStoreValue: ExtendedOpenFlow): string | null {
+		const flow: Flow = JSON.parse(JSON.stringify(flowStoreValue))
 		const parents = dfs(flowModule.id, flow, true)
 		for (const parent of parents.slice(1)) {
 			if (parent.value.type === 'forloopflow' || parent.value.type === 'whileloopflow') {
@@ -37,31 +43,38 @@
 		}
 		return null
 	}
-
-	$: isLoop = flowModule.value.type === 'forloopflow' || flowModule.value.type === 'whileloopflow'
-	$: isBranchAll = flowModule.value.type === 'branchall'
-	$: isStopAfterIfEnabled = Boolean(flowModule.stop_after_if)
-	$: isStopAfterAllIterationsEnabled = Boolean(flowModule.stop_after_all_iters_if)
-	$: result = $flowStateStore[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR
-	$: parentLoopId = checkIfParentLoop($flowStore)
+	let raise_error_message_stop_after_all_if = $state(
+		flowModule.stop_after_all_iters_if?.error_message !== undefined
+	)
+	let raise_error_message_stop_after_if = $state(
+		flowModule.stop_after_if?.error_message !== undefined
+	)
+	let isLoop = $derived(
+		flowModule.value.type === 'forloopflow' || flowModule.value.type === 'whileloopflow'
+	)
+	let isBranchAll = $derived(flowModule.value.type === 'branchall')
+	let isStopAfterIfEnabled = $derived(Boolean(flowModule.stop_after_if))
+	let isStopAfterAllIterationsEnabled = $derived(Boolean(flowModule.stop_after_all_iters_if))
+	let result = $derived($flowStateStore[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR)
+	let parentLoopId = $derived(checkIfParentLoop(flowStore.val))
 </script>
 
-<div class="flex flex-col items-start space-y-2 {$$props.class}">
+<div class="flex flex-col items-start space-y-2">
 	{#if !isBranchAll}
 		<Section
 			label={(isLoop
 				? 'Break loop'
 				: parentLoopId
-				? 'Break parent loop module ' + parentLoopId
-				: 'Stop flow early') + (isLoop ? ' (evaluated after each iteration)' : '')}
+					? 'Break parent loop module ' + parentLoopId
+					: 'Stop flow early') + (isLoop ? ' (evaluated after each iteration)' : '')}
 			class="w-full"
 		>
-			<svelte:fragment slot="header">
+			{#snippet header()}
 				<Tooltip documentationLink="https://www.windmill.dev/docs/flows/early_stop">
 					If defined, at the end of the step, the predicate expression will be evaluated to decide
 					if the flow should stop early or break if inside a for/while loop.
 				</Tooltip>
-			</svelte:fragment>
+			{/snippet}
 
 			<Toggle
 				checked={isStopAfterIfEnabled}
@@ -71,7 +84,8 @@
 					} else {
 						flowModule.stop_after_if = {
 							expr: 'result == undefined',
-							skip_if_stopped: false
+							skip_if_stopped: false,
+							error_message: undefined
 						}
 					}
 				}}
@@ -79,13 +93,13 @@
 					right: isLoop
 						? 'Break loop'
 						: parentLoopId
-						? 'Break parent loop module'
-						: 'Stop flow' + ' if condition met'
+							? 'Break parent loop module'
+							: 'Stop flow if condition met'
 				}}
 			/>
 
 			<div
-				class="w-full mt-1 border p-2 flex flex-col {flowModule.stop_after_if
+				class="w-full mt-2 border p-2 flex flex-col gap-2 {flowModule.stop_after_if
 					? ''
 					: 'bg-surface-secondary'}"
 			>
@@ -94,16 +108,39 @@
 						? Array.isArray(result) && result.length > 0
 							? result[result.length - 1]
 							: result === NEVER_TESTED_THIS_FAR
-							? result
-							: undefined
+								? result
+								: undefined
 						: result}
 					{#if !parentLoopId && !isLoop}
-						<Toggle
-							size="xs"
-							bind:checked={flowModule.stop_after_if.skip_if_stopped}
-							options={{
-								right: 'Label flow as "skipped" if stopped'
-							}}
+						<div class="flex flex-col gap-2">
+							<Toggle
+								size="xs"
+								bind:checked={flowModule.stop_after_if.skip_if_stopped}
+								options={{
+									right: 'Label flow as "skipped" if stopped'
+								}}
+							/>
+							<Toggle
+								size="xs"
+								bind:checked={raise_error_message_stop_after_if}
+								on:change={(event) => {
+									if (flowModule.stop_after_if) {
+										flowModule.stop_after_if.error_message = event.detail === false ? undefined : ''
+									}
+								}}
+								options={{
+									right: 'Raise an error message if stopped',
+									rightTooltip:
+										'If enabled and the stop condition is met, an error message will be raised. A custom message can be provided; otherwise, a default message will be used.'
+								}}
+							/>
+						</div>
+					{/if}
+					{#if raise_error_message_stop_after_if}
+						<input
+							type="text"
+							bind:value={flowModule.stop_after_if.error_message}
+							placeholder="Enter custom error message (optional)"
 						/>
 					{/if}
 					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
@@ -125,22 +162,30 @@
 								bind:code={flowModule.stop_after_if.expr}
 								class="few-lines-editor"
 								extraLib={`declare const result = ${JSON.stringify(earlyStopResult)};` +
+									`\n declare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input)};` +
 									(isLoop ? `\ndeclare const all_iters = ${JSON.stringify(result)};` : '')}
 							/>
 						</PropPickerWrapper>
 					</div>
 				{:else}
 					{#if !parentLoopId && !isLoop}
-						<Toggle
-							disabled
-							size="xs"
-							options={{
-								right: 'Label flow as "skipped" if stopped'
-							}}
-						/>
+						<div class="flex flex-col gap-2">
+							<Toggle
+								size="xs"
+								options={{
+									right: 'Label flow as "skipped" if stopped'
+								}}
+							/>
+							<Toggle
+								size="xs"
+								options={{
+									right: 'Raise an error message if stopped'
+								}}
+							/>
+						</div>
 					{/if}
 					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
-					<textarea disabled rows="3" class="min-h-[80px]" />
+					<textarea disabled rows="3" class="min-h-[80px]"></textarea>
 				{/if}
 			</div>
 		</Section>
@@ -154,12 +199,12 @@
 					: ' (evaluated after all iterations)')}
 			class="w-full"
 		>
-			<svelte:fragment slot="header">
+			{#snippet header()}
 				<Tooltip documentationLink="https://www.windmill.dev/docs/flows/early_stop">
 					If defined, at the end of the step, the predicate expression will be evaluated to decide
 					if the flow should stop early or break if inside a for/while loop.
 				</Tooltip>
-			</svelte:fragment>
+			{/snippet}
 
 			<Toggle
 				checked={isStopAfterAllIterationsEnabled}
@@ -169,7 +214,8 @@
 					} else {
 						flowModule.stop_after_all_iters_if = {
 							expr: 'result == undefined',
-							skip_if_stopped: false
+							skip_if_stopped: false,
+							error_message: undefined
 						}
 					}
 				}}
@@ -179,18 +225,42 @@
 			/>
 
 			<div
-				class="w-full border mt-1 p-2 flex flex-col {flowModule.stop_after_all_iters_if
+				class="w-full border mt-2 p-2 flex flex-col gap-2 {flowModule.stop_after_all_iters_if
 					? ''
 					: 'bg-surface-secondary'}"
 			>
 				{#if flowModule.stop_after_all_iters_if}
 					{#if !parentLoopId}
-						<Toggle
-							size="xs"
-							bind:checked={flowModule.stop_after_all_iters_if.skip_if_stopped}
-							options={{
-								right: 'Label flow as "skipped" if stopped'
-							}}
+						<div class="flex flex-col gap-2">
+							<Toggle
+								size="xs"
+								bind:checked={flowModule.stop_after_all_iters_if.skip_if_stopped}
+								options={{
+									right: 'Label flow as "skipped" if stopped'
+								}}
+							/>
+							<Toggle
+								size="xs"
+								bind:checked={raise_error_message_stop_after_all_if}
+								on:change={(event) => {
+									if (flowModule.stop_after_all_iters_if) {
+										flowModule.stop_after_all_iters_if.error_message =
+											event.detail === false ? undefined : ''
+									}
+								}}
+								options={{
+									right: 'Raise an error message if stopped',
+									rightTooltip:
+										'If enabled and the stop condition is met, an error message will be raised. A custom message can be provided; otherwise, a default message will be used.'
+								}}
+							/>
+						</div>
+					{/if}
+					{#if raise_error_message_stop_after_all_if}
+						<input
+							type="text"
+							bind:value={flowModule.stop_after_all_iters_if.error_message}
+							placeholder="Enter custom error message (optional)"
 						/>
 					{/if}
 					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
@@ -210,22 +280,32 @@
 								lang="javascript"
 								bind:code={flowModule.stop_after_all_iters_if.expr}
 								class="few-lines-editor"
-								extraLib={`declare const result = ${JSON.stringify(result)};`}
+								extraLib={`declare const result = ${JSON.stringify(result)};` +
+									`\ndeclare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input)};`}
 							/>
 						</PropPickerWrapper>
 					</div>
 				{:else}
 					{#if !parentLoopId}
-						<Toggle
-							disabled
-							size="xs"
-							options={{
-								right: 'Label flow as "skipped" if stopped'
-							}}
-						/>
+						<div class="flex flex-col gap-2">
+							<Toggle
+								disabled
+								size="xs"
+								options={{
+									right: 'Label flow as "skipped" if stopped'
+								}}
+							/>
+							<Toggle
+								disabled
+								size="xs"
+								options={{
+									right: 'Raise an error message if stopped'
+								}}
+							/>
+						</div>
 					{/if}
 					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
-					<textarea disabled rows="3" class="min-h-[80px]" />
+					<textarea disabled rows="3" class="min-h-[80px]"></textarea>
 				{/if}
 			</div>
 		</Section>

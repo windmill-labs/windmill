@@ -10,6 +10,7 @@ export type FlowBuilderWhitelabelCustomUi = {
 		diff?: boolean
 		extraDeployOptions?: boolean
 		editableSummary?: boolean
+		settings?: boolean
 	}
 	settingsPanel?: boolean
 	settingsTabs?: {
@@ -64,6 +65,7 @@ export type EditorBarUi = {
 	aiCompletion?: boolean
 	library?: boolean
 	useVsCode?: boolean
+	diffMode?: boolean
 }
 
 export type EditableSchemaFormUi = {

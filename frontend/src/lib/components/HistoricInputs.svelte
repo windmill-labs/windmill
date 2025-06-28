@@ -6,21 +6,36 @@
 	import JobLoader from './runs/JobLoader.svelte'
 	import { DataTable } from '$lib/components/table'
 	import HistoricList from './HistoricList.svelte'
+	import { Loader2 } from 'lucide-svelte'
 
-	export let runnableId: string | undefined = undefined
-	export let runnableType: RunnableType | undefined = undefined
-	export let loading: boolean = false
-	export let selected: string | undefined = undefined
-	export let showAuthor = false
-	export let placement: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end' = 'top-end'
-	export let limitPayloadSize = false
+	interface Props {
+		runnableId?: string | undefined
+		runnableType?: RunnableType | undefined
+		loading?: boolean
+		selected?: string | undefined
+		showAuthor?: boolean
+		placement?: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end'
+		limitPayloadSize?: boolean
+		searchArgs?: Record<string, any> | undefined
+	}
 
-	let historicList: HistoricList | undefined = undefined
+	let {
+		runnableId = undefined,
+		runnableType = undefined,
+		loading = $bindable(false),
+		selected = $bindable(undefined),
+		showAuthor = false,
+		placement = 'top-end',
+		limitPayloadSize = false,
+		searchArgs = undefined
+	}: Props = $props()
+
+	let historicList: HistoricList | undefined = $state(undefined)
 	const dispatch = createEventDispatcher()
 
-	let jobs: Job[] = []
+	let jobs: Job[] = $state([])
 	let hasMoreCurrentRuns = false
-	let page = 1
+	let page = $state(1)
 
 	async function handleSelected(data: any) {
 		if (selected === data.id) {
@@ -32,12 +47,15 @@
 			const fullPayload = await data.getFullPayload?.()
 			dispatch('select', { args: fullPayload, jobId: data.id })
 		} else {
-			dispatch('select', { args: structuredClone(data.payloadData), jobId: data.id })
+			dispatch('select', {
+				args: structuredClone($state.snapshot(data.payloadData)),
+				jobId: data.id
+			})
 		}
 	}
 
 	onDestroy(() => {
-		resetSelected(true)
+		resetSelected(false)
 	})
 
 	function handleKeydown(event: KeyboardEvent) {
@@ -56,8 +74,8 @@
 
 	let jobHovered: string | undefined = undefined
 
-	export function refresh() {
-		historicList?.refresh()
+	export function refresh(clearCurrentRuns: boolean = false) {
+		historicList?.refresh(clearCurrentRuns)
 	}
 
 	export function resetSelected(dispatchEvent?: boolean) {
@@ -75,11 +93,11 @@
 		} else if (runnableType === 'ScriptHash') {
 			return 'script,preview'
 		}
-		return 'all'
+		return ''
 	}
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} />
 
 {#if runnableId}
 	<JobLoader
@@ -93,7 +111,7 @@
 		concurrencyKey={null}
 		tag={null}
 		success="running"
-		argFilter={undefined}
+		argFilter={searchArgs ? JSON.stringify(searchArgs) : undefined}
 		bind:loading
 		syncQueuedRunsCount={false}
 		refreshRate={10000}
@@ -102,12 +120,15 @@
 	/>
 {/if}
 
-<div class="h-full max-h-full min-h-0 w-full flex flex-col gap-4">
+<div class="h-full max-h-full min-h-0 w-full flex flex-col gap-4 relative">
 	<div class="grow-0" data-schema-picker>
 		<DataTable size="xs" bind:currentPage={page} hasMore={hasMoreCurrentRuns} tableFixed={true}>
-			{#if loading && (jobs == undefined || jobs?.length == 0)}
-				<div class="text-center text-tertiary text-xs py-2">Loading current runs...</div>
-			{:else if jobs?.length > 0}
+			{#if loading}
+				<div class="text-tertiary absolute top-2 right-2">
+					<Loader2 class="animate-spin" size={14} />
+				</div>
+			{/if}
+			{#if jobs?.length > 0}
 				<colgroup>
 					<col class="w-8" />
 					<col class="w-16" />
@@ -146,6 +167,7 @@
 			{showAuthor}
 			{placement}
 			{limitPayloadSize}
+			{searchArgs}
 		/>
 	</div>
 </div>

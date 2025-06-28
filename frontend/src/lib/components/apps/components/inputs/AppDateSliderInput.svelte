@@ -58,7 +58,7 @@
 	let slider: HTMLElement
 
 	const outputs = initOutput($worldStore, id, {
-		result: ('' as string) || null
+		result: null as string | null
 	})
 
 	$componentControl[id] = {

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -10,33 +12,8 @@
 	import ClipboardPanel from './ClipboardPanel.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { base32 } from 'rfc4648'
-	import CaptureSection, { type CaptureInfo } from '../triggers/CaptureSection.svelte'
-	import CaptureTable from '../triggers/CaptureTable.svelte'
 
-	export let token: string = ''
-	export let isFlow: boolean = false
-	export let hash: string | undefined = undefined
-	export let path: string
-	export let userSettings: any
-	export let emailDomain: string | null = null
-	export let showCapture: boolean = false
-	export let captureInfo: CaptureInfo | undefined = undefined
-	export let captureTable: CaptureTable | undefined = undefined
-
-	let requestType: 'hash' | 'path' = 'path'
-
-	function getCaptureEmail() {
-		const cleanedPath = path.replaceAll('/', '.')
-		const plainPrefix = `capture+${$workspaceStore}+${(isFlow ? 'flow.' : '') + cleanedPath}`
-		const encodedPrefix = base32
-			.stringify(new TextEncoder().encode(plainPrefix), {
-				pad: false
-			})
-			.toLowerCase()
-		return `${encodedPrefix}@${emailDomain}`
-	}
-
-	$: captureEmail = getCaptureEmail()
+	let requestType: 'hash' | 'path' = $state('path')
 
 	function emailAddress(
 		requestType: 'hash' | 'path',
@@ -57,29 +34,32 @@
 		return `${pathOrHash}+${encodedPrefix}@${emailDomain}`
 	}
 
-	export let email: string = ''
+	interface Props {
+		token?: string
+		isFlow?: boolean
+		hash?: string | undefined
+		path: string
+		userSettings: any
+		emailDomain?: string | null
+		email?: string
+	}
 
-	$: email = emailAddress(requestType, path, hash, isFlow, token)
+	let {
+		token = $bindable(''),
+		isFlow = false,
+		hash = undefined,
+		path,
+		userSettings,
+		emailDomain = null,
+		email = $bindable('')
+	}: Props = $props()
+
+	run(() => {
+		email = emailAddress(requestType, path, hash, isFlow, token)
+	})
 </script>
 
 <div>
-	{#if showCapture && captureInfo}
-		<CaptureSection
-			bind:captureTable
-			captureType="email"
-			disabled={false}
-			{captureInfo}
-			on:captureToggle
-			on:applyArgs
-			on:updateSchema
-			on:addPreprocessor
-			on:testWithArgs
-		>
-			<Label label="Email address">
-				<ClipboardPanel content={captureEmail} disabled={!captureInfo.active} />
-			</Label>
-		</CaptureSection>
-	{/if}
 	<div class="flex flex-col gap-4">
 		{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
 			<Label label="Token">
@@ -89,7 +69,12 @@
 						placeholder="paste your token here once created to alter examples below"
 						class="!text-xs"
 					/>
-					<Button size="xs" color="light" variant="border" on:click={userSettings.openDrawer}>
+					<Button
+						size="xs"
+						color="light"
+						variant="border"
+						on:click={() => userSettings.openDrawer()}
+					>
 						Create an Email-specific Token
 						<Tooltip light>
 							The token will have a scope such that it can only be used to trigger this script. It
@@ -110,9 +95,11 @@
 			<div class="flex flex-col gap-2">
 				<div class="flex flex-row justify-between">
 					<div class="text-xs font-semibold flex flex-row items-center">Call method</div>
-					<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType} let:item>
-						<ToggleButton label="By path" value="path" {item} />
-						<ToggleButton label="By hash" value="hash" {item} />
+					<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType}>
+						{#snippet children({ item })}
+							<ToggleButton label="By path" value="path" {item} />
+							<ToggleButton label="By hash" value="hash" {item} />
+						{/snippet}
 					</ToggleButtonGroup>
 				</div>
 			</div>

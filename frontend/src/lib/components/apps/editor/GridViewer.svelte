@@ -48,6 +48,7 @@
 	$: containerHeight = getContainerHeight(items, yPerPx, getComputedCols)
 
 	const onResize = throttle(() => {
+		if (!getComputedCols) return
 		items = specifyUndefinedColumns(items, getComputedCols, cols)
 		dispatch('resize', {
 			cols: getComputedCols,
@@ -64,7 +65,9 @@
 		const sizeObserver = new ResizeObserver((entries) => {
 			requestAnimationFrame(() => {
 				let width = entries[0].contentRect.width
-
+				if (width === 0) {
+					width = 1
+				}
 				if (width === containerWidth) return
 				if ($app.mobileViewOnSmallerScreens != false || !getComputedCols) {
 					getComputedCols = getColumn(parentWidth ?? width, cols)
@@ -73,6 +76,7 @@
 				xPerPx = width / getComputedCols!
 
 				if (!containerWidth) {
+					if (!getComputedCols) return
 					items = specifyUndefinedColumns(items, getComputedCols, cols)
 
 					dispatch('mount', {
@@ -124,7 +128,7 @@
 	{:else if showSkeleton}
 		<div
 			class="h-full w-full flex-col animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms]"
-		/>
+		></div>
 	{/if}
 </div>
 

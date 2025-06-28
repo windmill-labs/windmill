@@ -33,7 +33,7 @@
 {#if args !== undefined && argsStr !== undefined}
 	<Drawer bind:this={jsonViewer} size="900px">
 		<DrawerContent title="Original args" on:close={jsonViewer.closeDrawer}>
-			<svelte:fragment slot="actions">
+			{#snippet actions()}
 				<Button
 					download="windmill-args.json"
 					href={`data:text/json;charset=utf-8,${encodeURIComponent(argsStr)}`}
@@ -51,7 +51,7 @@
 				>
 					Copy to clipboard
 				</Button>
-			</svelte:fragment>
+			{/snippet}
 			{#if args.length > 100000 || (args && typeof args === 'object' && deepEqual( Object.keys(args), ['reason'] ) && args['reason'] == 'WINDMILL_TOO_BIG')}
 				<div class="text-sm mb-2 text-tertiary">
 					<a

@@ -15,22 +15,21 @@ use tokio::{
 use windmill_common::error::Error;
 use windmill_common::flows::FlowValue;
 use windmill_common::worker::WORKER_CONFIG;
+use windmill_common::KillpillSender;
 use windmill_common::{
     cache, error,
     flows::{FlowModule, FlowModuleValue},
-    jobs::QueuedJob,
     scripts::{ScriptHash, ScriptLang},
     variables,
     worker::to_raw_value,
     DB,
 };
 use windmill_queue::append_logs;
+use windmill_queue::MiniPulledJob;
 
 use anyhow::Context;
 
-use crate::{
-    common::start_child_process, JobCompleted, JobCompletedSender, MAX_BUFFERED_DEDICATED_JOBS,
-};
+use crate::{common::start_child_process, JobCompletedSender, MAX_BUFFERED_DEDICATED_JOBS};
 
 use futures::{future, Future};
 use std::{collections::HashMap, task::Poll};
@@ -69,13 +68,15 @@ pub async fn handle_dedicated_process(
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
     job_completed_tx: JobCompletedSender,
     token: &str,
-    mut jobs_rx: Receiver<std::sync::Arc<QueuedJob>>,
+    mut jobs_rx: Receiver<std::sync::Arc<MiniPulledJob>>,
     worker_name: &str,
     db: &DB,
     script_path: &str,
     mode: &str,
 ) -> std::result::Result<(), error::Error> {
     //do not cache local dependencies
+
+    use windmill_queue::{JobCompleted, MiniPulledJob};
 
     use crate::{handle_child::process_status, PROXY_ENVS};
     let cmd_name = format!("dedicated {command_path}");
@@ -133,7 +134,8 @@ pub async fn handle_dedicated_process(
         }
     });
 
-    let mut jobs: VecDeque<Arc<QueuedJob>> = VecDeque::with_capacity(MAX_BUFFERED_DEDICATED_JOBS);
+    let mut jobs: VecDeque<Arc<MiniPulledJob>> =
+        VecDeque::with_capacity(MAX_BUFFERED_DEDICATED_JOBS);
     // let mut i = 0;
     // let mut j = 0;
     let mut alive = true;
@@ -178,21 +180,21 @@ pub async fn handle_dedicated_process(
                     }
                     tracing::debug!("processed job: |{line}|");
                     if line.starts_with("wm_res[") {
-                        let job: Arc<QueuedJob> = jobs.pop_front().expect("pop");
+                        let job: Arc<MiniPulledJob> = jobs.pop_front().expect("pop");
                         tracing::info!("job completed on dedicated worker {script_path}: {}", job.id);
                         match serde_json::from_str::<Box<serde_json::value::RawValue>>(&line.replace("wm_res[success]:", "").replace("wm_res[error]:", "")) {
                             Ok(result) => {
                                 let result = Arc::new(result);
-                                append_logs(&job.id, &job.workspace_id,  logs.clone(), db).await;
+                                append_logs(&job.id, &job.workspace_id,  logs.clone(), &db.into()).await;
                                 if line.starts_with("wm_res[success]:") {
-                                    job_completed_tx.send(JobCompleted { job , result, result_columns: None, mem_peak: 0, canceled_by: None, success: true, cached_res_path: None, token: token.to_string(), duration: None }).await.unwrap()
+                                    job_completed_tx.send_job(JobCompleted { job , result, result_columns: None, mem_peak: 0, canceled_by: None, success: true, cached_res_path: None, token: token.to_string(), duration: None, preprocessed_args: None }, true).await.unwrap()
                                 } else {
-                                    job_completed_tx.send(JobCompleted { job , result, result_columns: None, mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string(), duration: None }).await.unwrap()
+                                    job_completed_tx.send_job(JobCompleted { job , result, result_columns: None, mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string(), duration: None, preprocessed_args: None }, true).await.unwrap()
                                 }
                             },
                             Err(e) => {
                                 tracing::error!("Could not deserialize job result `{line}`: {e:?}");
-                                job_completed_tx.send(JobCompleted { job , result: Arc::new(to_raw_value(&serde_json::json!({"error": format!("Could not deserialize job result `{line}`: {e:?}")}))), result_columns: None, mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string(), duration: None }).await.unwrap();
+                                job_completed_tx.send_job(JobCompleted { job , result: Arc::new(to_raw_value(&serde_json::json!({"error": format!("Could not deserialize job result `{line}`: {e:?}")}))), result_columns: None, mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string(), duration: None, preprocessed_args: None }, true).await.unwrap();
                             },
                         };
                         logs = init_log.clone();
@@ -241,7 +243,7 @@ pub async fn handle_dedicated_process(
 
 type DedicatedWorker = (
     String,
-    Sender<std::sync::Arc<QueuedJob>>,
+    Sender<std::sync::Arc<MiniPulledJob>>,
     Option<JoinHandle<()>>,
 );
 
@@ -252,7 +254,7 @@ async fn spawn_dedicated_workers_for_flow(
     modules: &Vec<FlowModule>,
     w_id: &str,
     path: &str,
-    killpill_tx: tokio::sync::broadcast::Sender<()>,
+    killpill_tx: KillpillSender,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     db: &DB,
     worker_dir: &str,
@@ -261,7 +263,7 @@ async fn spawn_dedicated_workers_for_flow(
     job_completed_tx: &JobCompletedSender,
 ) -> Vec<DedicatedWorker> {
     let mut workers = vec![];
-    let mut script_path_to_worker: HashMap<String, Sender<std::sync::Arc<QueuedJob>>> =
+    let mut script_path_to_worker: HashMap<String, Sender<std::sync::Arc<MiniPulledJob>>> =
         HashMap::new();
     for module in modules.iter() {
         let value = module.get_value();
@@ -393,13 +395,16 @@ async fn spawn_dedicated_workers_for_flow(
                     }
                 }
                 FlowModuleValue::FlowScript { id, language, .. } => {
-                    let spawn = cache::flow::fetch_script(db, *id).await.map(|data| {
-                        SpawnWorker::RawScript {
-                            path: "".to_string(),
-                            content: data.code.clone(),
-                            lock: data.lock.clone(),
-                            lang: *language,
-                        }
+                    let spawn = cache::flow::fetch_script(
+                        &windmill_common::worker::Connection::Sql(db.clone()),
+                        *id,
+                    )
+                    .await
+                    .map(|data| SpawnWorker::RawScript {
+                        path: "".to_string(),
+                        content: data.code.clone(),
+                        lock: data.lock.clone(),
+                        lang: *language,
                     });
                     match spawn {
                         Ok(spawn) => {
@@ -438,7 +443,7 @@ async fn spawn_dedicated_workers_for_flow(
 }
 
 pub async fn create_dedicated_worker_map(
-    killpill_tx: &tokio::sync::broadcast::Sender<()>,
+    killpill_tx: &KillpillSender,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     db: &DB,
     worker_dir: &str,
@@ -446,7 +451,7 @@ pub async fn create_dedicated_worker_map(
     worker_name: &str,
     job_completed_tx: &JobCompletedSender,
 ) -> (
-    HashMap<String, Sender<std::sync::Arc<QueuedJob>>>,
+    HashMap<String, Sender<std::sync::Arc<MiniPulledJob>>>,
     bool,
     Vec<JoinHandle<()>>,
 ) {
@@ -551,7 +556,7 @@ pub enum SpawnWorker {
 async fn spawn_dedicated_worker(
     sw: SpawnWorker,
     w_id: &str,
-    killpill_tx: tokio::sync::broadcast::Sender<()>,
+    killpill_tx: KillpillSender,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     db: &DB,
     worker_dir: &str,
@@ -565,8 +570,9 @@ async fn spawn_dedicated_worker(
         scripts::{ScriptHash, ScriptLang},
         utils::rd_string,
     };
+    use windmill_queue::MiniPulledJob;
 
-    use crate::{build_envs, get_script_content_by_hash, ContentReqLangEnvs, JOB_TOKEN};
+    use crate::{build_envs, get_script_content_by_hash, ContentReqLangEnvs};
 
     #[cfg(not(feature = "enterprise"))]
     {
@@ -577,10 +583,11 @@ async fn spawn_dedicated_worker(
 
     #[cfg(feature = "enterprise")]
     {
-        let (dedicated_worker_tx, dedicated_worker_rx) =
-            tokio::sync::mpsc::channel::<std::sync::Arc<QueuedJob>>(MAX_BUFFERED_DEDICATED_JOBS);
+        let (dedicated_worker_tx, dedicated_worker_rx) = tokio::sync::mpsc::channel::<
+            std::sync::Arc<MiniPulledJob>,
+        >(MAX_BUFFERED_DEDICATED_JOBS);
         let killpill_rx = killpill_rx.resubscribe();
-        let db = db.clone();
+        let db2 = db.clone();
         let base_internal_url = base_internal_url.to_string();
         let worker_name = worker_name.to_string();
         let job_completed_tx = job_completed_tx.clone();
@@ -607,11 +614,11 @@ async fn spawn_dedicated_worker(
         let (content, lock, language, envs, codebase) = match sw.clone() {
             SpawnWorker::Script { path, hash } => {
                 let q = if let Some(hash) = hash {
-                    get_script_content_by_hash(&hash, &w_id, &db).await.map(
-                        |r: ContentReqLangEnvs| {
+                    get_script_content_by_hash(&hash, &w_id, &db2.into())
+                        .await
+                        .map(|r: ContentReqLangEnvs| {
                             Some((r.content, r.lockfile, r.language, r.envs, r.codebase))
-                        },
-                    )
+                        })
                 } else {
                     sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>, bool, Option<ScriptHash>)>(
                         "SELECT content, lock, language, envs, codebase IS NOT NULL, hash FROM script WHERE path = $1 AND workspace_id = $2 AND
@@ -620,7 +627,7 @@ async fn spawn_dedicated_worker(
                     )
                     .bind(&path)
                     .bind(&w_id)
-                    .fetch_optional(&db)
+                    .fetch_optional(&db2)
                     .await
                     .map_err(|e| Error::internal_err(format!("expected content and lock: {e:#}")))
                     .map(|x| x.map(|y| (y.0, y.1, y.2, y.3, if y.4 { y.5.map(|z| z.to_string()) } else { None })))
@@ -638,7 +645,7 @@ async fn spawn_dedicated_worker(
                     }
                 } else {
                     tracing::error!("Failed to fetch script for dedicated worker");
-                    killpill_tx.send(()).expect("send");
+                    killpill_tx.send();
                     return None;
                 }
             }
@@ -652,10 +659,9 @@ async fn spawn_dedicated_worker(
             _ => return None,
         }
 
+        let db = db.clone();
         let handle = tokio::spawn(async move {
-            let token = if let Some(token) = JOB_TOKEN.as_ref() {
-                token.clone()
-            } else {
+            let token = {
                 let token = rd_string(32);
                 if let Err(e) = sqlx::query_scalar!(
                     "INSERT INTO token
@@ -670,7 +676,7 @@ async fn spawn_dedicated_worker(
                 .await
                 {
                     tracing::error!("failed to create token for dedicated worker: {:?}", e);
-                    killpill_tx.clone().send(()).expect("send");
+                    killpill_tx.clone().send();
                 };
                 token
             };
@@ -682,7 +688,7 @@ async fn spawn_dedicated_worker(
                     #[cfg(not(feature = "python"))]
                     {
                         tracing::error!("Python requires the python feature to be enabled");
-                        killpill_tx.send(()).expect("send");
+                        killpill_tx.send();
                         return;
                     }
 
@@ -744,9 +750,7 @@ async fn spawn_dedicated_worker(
             } {
                 tracing::error!("error in dedicated worker for {sw:#?}: {:?}", e);
             };
-            if let Err(e) = killpill_tx.clone().send(()) {
-                tracing::error!("failed to send final killpill to dedicated worker: {:?}", e);
-            }
+            killpill_tx.clone().send();
         });
         return Some((node_id.unwrap_or(path2), dedicated_worker_tx, Some(handle)));
         // (Some(dedi_path), Some(dedicated_worker_tx), Some(handle))

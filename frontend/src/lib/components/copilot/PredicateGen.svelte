@@ -7,7 +7,7 @@
 	import type { FlowEditorContext } from '../flows/types'
 	import type { PickableProperties } from '../flows/previousResults'
 	import YAML from 'yaml'
-	import { sliceModules } from '../flows/flowStateUtils'
+	import { sliceModules } from '../flows/flowStateUtils.svelte'
 	import { dfs } from '../flows/dfs'
 	import { yamlStringifyExceptKeys } from './utils'
 	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
@@ -29,7 +29,7 @@
 	async function generatePredicate() {
 		abortController = new AbortController()
 		loading = true
-		const flow: Flow = JSON.parse(JSON.stringify($flowStore))
+		const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
 		const idOrders = dfs(flow.value.modules, (x) => x.id)
 		const upToIndex = idOrders.indexOf($selectedId)
 		if (upToIndex === -1) {
@@ -59,7 +59,6 @@ Here's a summary of the available data:
 ${YAML.stringify(availableData)}</available>
 If the branching is made inside a for-loop, the iterator value is accessible as flow_input.iter.value
 Only return the expression without any wrapper. Do not explain or discuss.`
-			const aiProvider = $copilotInfo.ai_provider
 			const result = await getNonStreamingCompletion(
 				[
 					{
@@ -67,15 +66,14 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 						content: user
 					}
 				],
-				abortController,
-				aiProvider
+				abortController
 			)
 
 			dispatch('setExpr', result)
 			dispatch('updateSummary', instructions)
 		} catch (err) {
 			if (!abortController.signal.aborted) {
-				sendUserToast('Could not generate summary: ' + err, true)
+				sendUserToast('Could not generate predicate: ' + err, true)
 			}
 		} finally {
 			loading = false
@@ -83,7 +81,7 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 	}
 </script>
 
-{#if $copilotInfo.exists_ai_resource && $stepInputCompletionEnabled}
+{#if $copilotInfo.enabled && $stepInputCompletionEnabled}
 	<Popover
 		floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 		contentClasses="p-4 flex w-96"
@@ -99,7 +97,7 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 				btnClasses="min-h-[30px] text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
 				{loading}
 				clickableWhileLoading
-				on:click={loading ? () => abortController?.abort() : undefined}
+				on:click={loading ? () => abortController?.abort() : () => {}}
 			/>
 		</svelte:fragment>
 		<svelte:fragment slot="content" let:close>

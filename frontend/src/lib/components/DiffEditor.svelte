@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
-	import { onMount } from 'svelte'
+	import { createEventDispatcher, onMount } from 'svelte'
 
 	import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-json-language-features'
@@ -9,9 +9,7 @@
 
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
-	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
-
-	buildWorkerDefinition()
+	import Button from '$lib/components/common/button/Button.svelte'
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
 
@@ -22,6 +20,7 @@
 	export let defaultOriginal: string | undefined = undefined
 	export let defaultModified: string | undefined = undefined
 	export let readOnly = false
+	export let showButtons = false
 
 	let diffEditor: meditor.IStandaloneDiffEditor | undefined
 	let diffDivEl: HTMLDivElement | null = null
@@ -116,6 +115,11 @@
 			}
 		}
 	})
+
+	const dispatch = createEventDispatcher<{
+		hideDiffMode: void
+		seeHistory: void
+	}>()
 </script>
 
 {#if open}
@@ -124,5 +128,17 @@
 		bind:this={diffDivEl}
 		class="{$$props.class} editor nonmain-editor"
 		bind:clientWidth={editorWidth}
-	/>
+	></div>
+	{#if showButtons}
+		<div
+			class="absolute flex flex-row gap-2 bottom-10 left-1/2 z-10 -translate-x-1/2 rounded-md p-1 w-full justify-center"
+		>
+			<Button on:click={() => dispatch('seeHistory')} variant="contained" size="sm"
+				>See changes history</Button
+			>
+			<Button on:click={() => dispatch('hideDiffMode')} variant="contained" size="sm" color="red"
+				>Quit diff mode</Button
+			>
+		</div>
+	{/if}
 {/if}

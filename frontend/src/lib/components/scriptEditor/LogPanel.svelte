@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { preventDefault } from 'svelte/legacy'
+
 	import {
 		type CompletedJob,
 		type Job,
@@ -29,33 +31,53 @@
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { PreviewPanelUi } from '../custom_ui'
+	import { getStringError } from '../copilot/chat/utils'
 
-	export let lang: Preview['language'] | undefined
-	export let previewIsLoading = false
-	export let previewJob: Job | undefined
-	export let pastPreviews: CompletedJob[] = []
-	export let editor: Editor | undefined = undefined
-	export let diffEditor: DiffEditor | undefined = undefined
-	export let args: Record<string, any> | undefined = undefined
-	export let workspace: string | undefined = undefined
-	export let showCaptures: boolean = false
-	export let customUi: PreviewPanelUi | undefined = undefined
+	interface Props {
+		lang: Preview['language'] | undefined
+		previewIsLoading?: boolean
+		previewJob: Job | undefined
+		pastPreviews?: CompletedJob[]
+		editor?: Editor | undefined
+		diffEditor?: DiffEditor | undefined
+		args?: Record<string, any> | undefined
+		workspace?: string | undefined
+		showCaptures?: boolean
+		customUi?: PreviewPanelUi | undefined
+		children?: import('svelte').Snippet
+		capturesTab?: import('svelte').Snippet
+	}
 
-	type DrawerContent = {
+	let {
+		lang,
+		previewIsLoading = false,
+		previewJob,
+		pastPreviews = [],
+		editor = undefined,
+		diffEditor = undefined,
+		args = undefined,
+		workspace = undefined,
+		showCaptures = false,
+		customUi = undefined,
+		children,
+		capturesTab
+	}: Props = $props()
+
+	type DContent = {
 		mode: 'json' | Preview['language'] | 'plain'
 		title: string
 		content: any
 	}
 
-	let selectedTab = 'logs'
-	let drawerOpen: boolean = false
-	let drawerContent: DrawerContent | undefined = undefined
+	let selectedTab = $state('logs')
+	let drawerOpen: boolean = $state(false)
+	let drawerContent: DContent | undefined = $state(undefined)
 
 	export function setFocusToLogs() {
 		selectedTab = 'logs'
 	}
 
-	function openDrawer(newContent: DrawerContent) {
+	function openDrawer(newContent: DContent) {
 		drawerContent = newContent
 		drawerOpen = true
 	}
@@ -68,7 +90,7 @@
 		return x as Record<string, WorkflowStatus>
 	}
 
-	let forceJson = false
+	let forceJson = $state(false)
 </script>
 
 <Drawer bind:open={drawerOpen} size="800px">
@@ -79,6 +101,7 @@
 				jobId={previewJob?.id}
 				result={drawerContent.content}
 				customUi={customUi?.displayResult}
+				language={lang}
 			/>
 		{:else if drawerContent?.mode === 'plain'}
 			<pre
@@ -101,7 +124,7 @@
 			<Tab value="captures" size="xs">Trigger captures</Tab>
 		{/if}
 
-		<svelte:fragment slot="content">
+		{#snippet content()}
 			<div class="grow min-h-0">
 				{#if selectedTab === 'logs'}
 					<SplitPanesWrapper>
@@ -126,7 +149,7 @@
 								/>
 							</Pane>
 							<Pane>
-								<slot />
+								{@render children?.()}
 								{#if previewJob != undefined && 'result' in previewJob}
 									<div class="relative w-full h-full p-2">
 										<div class="relative">
@@ -136,18 +159,13 @@
 												jobId={previewJob?.id}
 												result={previewJob.result}
 												customUi={customUi?.displayResult}
+												language={lang}
 											>
-												<svelte:fragment slot="copilot-fix">
-													{#if lang && editor && diffEditor && args && previewJob?.result && typeof previewJob?.result == 'object' && `error` in previewJob?.result && previewJob?.result.error}
-														<ScriptFix
-															error={JSON.stringify(previewJob.result.error)}
-															{lang}
-															{editor}
-															{diffEditor}
-															{args}
-														/>
+												{#snippet copilot_fix()}
+													{#if lang && editor && diffEditor && args && previewJob && !previewJob.success && getStringError(previewJob.result)}
+														<ScriptFix {lang} />
 													{/if}
-												</svelte:fragment>
+												{/snippet}
 											</DisplayResult>
 										</div>
 									</div>
@@ -206,7 +224,7 @@
 										<Cell>
 											<button
 												class="text-xs"
-												on:click|preventDefault={() => {
+												onclick={preventDefault(() => {
 													openDrawer({ mode: 'json', content: undefined, title: 'Result' })
 													JobService.getCompletedJobResult({
 														workspace: workspace ?? $workspaceStore ?? 'NO_W',
@@ -214,7 +232,7 @@
 													}).then((res) => {
 														drawerContent && (drawerContent.content = res)
 													})
-												}}
+												})}
 											>
 												See Result
 											</button>
@@ -222,7 +240,7 @@
 										<Cell>
 											<button
 												class="text-xs"
-												on:click|preventDefault={async () => {
+												onclick={preventDefault(async () => {
 													const code = (
 														await JobService.getCompletedJob({
 															workspace: workspace ?? $workspaceStore ?? 'NO_W',
@@ -234,7 +252,7 @@
 														content: String(code),
 														title: `Code ${lang}`
 													})
-												}}
+												})}
 											>
 												View code
 											</button>
@@ -242,7 +260,7 @@
 										<Cell last>
 											<button
 												class="text-xs"
-												on:click|preventDefault={async () => {
+												onclick={preventDefault(async () => {
 													const logs = await (
 														await fetch(
 															OpenAPI.BASE +
@@ -255,7 +273,7 @@
 														content: String(logs),
 														title: `Logs for ${id}`
 													})
-												}}
+												})}
 											>
 												View logs
 											</button>
@@ -267,9 +285,9 @@
 					</div>
 				{/if}
 				{#if selectedTab === 'captures'}
-					<slot name="capturesTab" />
+					{@render capturesTab?.()}
 				{/if}
 			</div>
-		</svelte:fragment>
+		{/snippet}
 	</Tabs>
 </div>

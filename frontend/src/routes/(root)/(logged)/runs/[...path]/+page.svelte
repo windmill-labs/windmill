@@ -7,12 +7,13 @@
 		FolderService,
 		ScriptService,
 		FlowService,
-		type ExtendedJobs
+		type ExtendedJobs,
+		OpenAPI
 	} from '$lib/gen'
 
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { superadmin, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
+	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
 	import RunChart from '$lib/components/RunChart.svelte'
 
@@ -31,66 +32,85 @@
 	import { twMerge } from 'tailwind-merge'
 	import ManuelDatePicker from '$lib/components/runs/ManuelDatePicker.svelte'
 	import JobLoader from '$lib/components/runs/JobLoader.svelte'
-	import { AlertTriangle, Calendar, Check, ChevronDown, Clock, X } from 'lucide-svelte'
+	import { AlertTriangle, Calendar, ChevronDown, Clock } from 'lucide-svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { goto } from '$app/navigation'
 	import { base } from '$app/paths'
-	import { isJobCancelable } from '$lib/utils'
+	import type { RunsSelectionMode } from '$lib/components/runs/RunsBatchActionsDropdown.svelte'
+	import RunsBatchActionsDropdown from '$lib/components/runs/RunsBatchActionsDropdown.svelte'
+	import { isJobSelectable } from '$lib/utils'
+	import BatchReRunOptionsPane, {
+		type BatchReRunOptions
+	} from '$lib/components/runs/BatchReRunOptionsPane.svelte'
+	import { untrack } from 'svelte'
 
-	let jobs: Job[] | undefined
-	let selectedIds: string[] = []
-	let selectedWorkspace: string | undefined = undefined
+	let jobs: Job[] | undefined = $state()
+	let selectedIds: string[] = $state([])
+	let loadingSelectedIds = $state(false)
+	let selectedWorkspace: string | undefined = $state(undefined)
+
+	let batchReRunOptions: BatchReRunOptions = $state({ flow: {}, script: {} })
 
 	// All Filters
 	// Filter by
-	let path: string | null = $page.params.path
-	let user: string | null = $page.url.searchParams.get('user')
-	let folder: string | null = $page.url.searchParams.get('folder')
-	let label: string | null = $page.url.searchParams.get('label')
-	let concurrencyKey: string | null = $page.url.searchParams.get('concurrency_key')
-	let tag: string | null = $page.url.searchParams.get('tag')
+	let path: string | null = $state($page.params.path)
+	let worker: string | null = $state($page.url.searchParams.get('worker'))
+	let user: string | null = $state($page.url.searchParams.get('user'))
+	let folder: string | null = $state($page.url.searchParams.get('folder'))
+	let label: string | null = $state($page.url.searchParams.get('label'))
+	let allowWildcards: boolean = $state($page.url.searchParams.get('allow_wildcards') == 'true')
+	let concurrencyKey: string | null = $state($page.url.searchParams.get('concurrency_key'))
+	let tag: string | null = $state($page.url.searchParams.get('tag'))
 	// Rest of filters handled by RunsFilter
-	let success: 'running' | 'suspended' | 'waiting' | 'success' | 'failure' | undefined =
+	let success: 'running' | 'suspended' | 'waiting' | 'success' | 'failure' | undefined = $state(
 		($page.url.searchParams.get('success') ?? undefined) as
 			| 'running'
 			| 'success'
 			| 'failure'
 			| undefined
-	let isSkipped: boolean | undefined =
+	)
+	let isSkipped: boolean | undefined = $state(
 		$page.url.searchParams.get('is_skipped') != undefined
 			? $page.url.searchParams.get('is_skipped') == 'true'
 			: false
+	)
 
-	let showSchedules: boolean =
+	let showSchedules: boolean = $state(
 		$page.url.searchParams.get('show_schedules') != undefined
 			? $page.url.searchParams.get('show_schedules') == 'true'
 			: localStorage.getItem('show_schedules_in_run') == 'false'
-			? false
-			: true
-	let showFutureJobs: boolean =
+				? false
+				: true
+	)
+	let showFutureJobs: boolean = $state(
 		$page.url.searchParams.get('show_future_jobs') != undefined
 			? $page.url.searchParams.get('show_future_jobs') == 'true'
 			: localStorage.getItem('show_future_jobs') == 'false'
-			? false
-			: true
+				? false
+				: true
+	)
 
-	let argFilter: any = $page.url.searchParams.get('arg')
-		? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
-		: undefined
-	let resultFilter: any = $page.url.searchParams.get('result')
-		? JSON.parse(decodeURIComponent($page.url.searchParams.get('result') ?? '{}'))
-		: undefined
+	let argFilter: any = $state(
+		$page.url.searchParams.get('arg')
+			? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
+			: undefined
+	)
+	let resultFilter: any = $state(
+		$page.url.searchParams.get('result')
+			? JSON.parse(decodeURIComponent($page.url.searchParams.get('result') ?? '{}'))
+			: undefined
+	)
 
 	// Handled on the main page
-	let minTs = $page.url.searchParams.get('min_ts') ?? undefined
-	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
-	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
-	let jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
-	let allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true'
-	let lastFetchWentToEnd = false
+	let minTs = $state($page.url.searchParams.get('min_ts') ?? undefined)
+	let maxTs = $state($page.url.searchParams.get('max_ts') ?? undefined)
+	let schedulePath = $state($page.url.searchParams.get('schedule_path') ?? undefined)
+	let jobKindsCat = $state($page.url.searchParams.get('job_kinds') ?? 'runs')
+	let allWorkspaces = $state($page.url.searchParams.get('all_workspaces') == 'true')
+	let lastFetchWentToEnd = $state(false)
 
 	function loadFromQuery() {
 		path = $page.params.path
@@ -99,6 +119,8 @@
 		label = $page.url.searchParams.get('label')
 		concurrencyKey = $page.url.searchParams.get('concurrency_key')
 		tag = $page.url.searchParams.get('tag')
+		worker = $page.url.searchParams.get('worker')
+		allowWildcards = $page.url.searchParams.get('allow_wildcards') == 'true'
 		// Rest of filters handled by RunsFilter
 		success = ($page.url.searchParams.get('success') ?? undefined) as
 			| 'running'
@@ -114,14 +136,14 @@
 			$page.url.searchParams.get('show_schedules') != undefined
 				? $page.url.searchParams.get('show_schedules') == 'true'
 				: localStorage.getItem('show_schedules_in_run') == 'false'
-				? false
-				: true
+					? false
+					: true
 		showFutureJobs =
 			$page.url.searchParams.get('show_future_jobs') != undefined
 				? $page.url.searchParams.get('show_future_jobs') == 'true'
 				: localStorage.getItem('show_future_jobs') == 'false'
-				? false
-				: true
+					? false
+					: true
 
 		argFilter = $page.url.searchParams.get('arg')
 			? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
@@ -138,25 +160,33 @@
 		allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true'
 	}
 
-	let queue_count: Tweened<number> | undefined = undefined
-	let suspended_count: Tweened<number> | undefined = undefined
+	let queue_count: Tweened<number> | undefined = $state(undefined)
+	let suspended_count: Tweened<number> | undefined = $state(undefined)
 
 	let jobKinds: string | undefined = undefined
-	let loading: boolean = false
-	let paths: string[] = []
-	let usernames: string[] = []
-	let folders: string[] = []
-	let completedJobs: CompletedJob[] | undefined = undefined
-	let extendedJobs: ExtendedJobs | undefined = undefined
-	let argError = ''
-	let resultError = ''
+	let loading: boolean = $state(false)
+	let paths: string[] = $state([])
+	let usernames: string[] = $state([])
+	let folders: string[] = $state([])
+	let completedJobs: CompletedJob[] | undefined = $state(undefined)
+	let extendedJobs: ExtendedJobs | undefined = $state(undefined)
+	let argError = $state('')
+	let resultError = $state('')
 	let filterTimeout: NodeJS.Timeout | undefined = undefined
-	let selectedManualDate = 0
-	let autoRefresh: boolean = getAutoRefresh()
-	let runDrawer: Drawer
-	let isCancelingVisibleJobs = false
-	let isCancelingFilteredJobs = false
-	let lookback: number = 1
+	let selectedManualDate = $state(0)
+	let autoRefresh: boolean = $state(getAutoRefresh())
+	let runDrawer: Drawer | undefined = $state(undefined)
+	let lookback: number = $state(1)
+	let askingForConfirmation:
+		| undefined
+		| {
+				title: string
+				confirmBtnText: string
+				loading?: boolean
+				preContent?: string
+				onConfirm?: () => void
+				type?: ConfirmationModal['$$prop_def']['type']
+		  } = $state(undefined)
 
 	function getAutoRefresh() {
 		try {
@@ -167,38 +197,18 @@
 		}
 	}
 
-	let innerWidth = window.innerWidth
-	let jobLoader: JobLoader | undefined = undefined
-	let externalJobs: Job[] | undefined = undefined
+	let innerWidth = $state(window.innerWidth)
+	let jobLoader: JobLoader | undefined = $state(undefined)
+	let externalJobs: Job[] | undefined = $state(undefined)
 
-	let graph: 'RunChart' | 'ConcurrencyChart' = typeOfChart($page.url.searchParams.get('graph'))
-	let graphIsRunsChart: boolean = graph === 'RunChart'
+	let graph: 'RunChart' | 'ConcurrencyChart' = $state(
+		typeOfChart($page.url.searchParams.get('graph'))
+	)
+	let graphIsRunsChart: boolean = $state(untrack(() => graph) === 'RunChart')
 
-	let manualDatePicker: ManuelDatePicker
+	let manualDatePicker: ManuelDatePicker | undefined = $state(undefined)
 
-	let runsTable: RunsTable
-
-	$: (user ||
-		label ||
-		folder ||
-		path ||
-		success !== undefined ||
-		isSkipped ||
-		showSchedules ||
-		showFutureJobs ||
-		argFilter ||
-		resultFilter ||
-		schedulePath ||
-		jobKindsCat ||
-		concurrencyKey ||
-		tag ||
-		graph ||
-		maxTs ||
-		allWorkspaces ||
-		$workspaceStore) &&
-		setQuery(false)
-
-	$: minTs || setQuery(true)
+	let runsTable: RunsTable | undefined = $state(undefined)
 
 	function setQuery(replaceState: boolean) {
 		let searchParams = new URLSearchParams()
@@ -207,6 +217,12 @@
 			searchParams.set('user', user)
 		} else {
 			searchParams.delete('user')
+		}
+
+		if (worker) {
+			searchParams.set('worker', worker)
+		} else {
+			searchParams.delete('worker')
 		}
 
 		if (folder) {
@@ -298,6 +314,12 @@
 			searchParams.delete('label')
 		}
 
+		if (allowWildcards) {
+			searchParams.set('allow_wildcards', allowWildcards.toString())
+		} else {
+			searchParams.delete('allow_wildcards')
+		}
+
 		if (graph != 'RunChart') {
 			searchParams.set('graph', graph)
 		} else {
@@ -312,7 +334,7 @@
 			$page.url.pathname != newUrl.split('?')[0]
 		) {
 			// replaceState(newUrl.toString(), $page.state)
-			goto(newUrl.toString(), { replaceState: replaceState })
+			goto(newUrl.toString(), { replaceState: replaceState, keepFocus: true })
 		}
 	}
 
@@ -333,8 +355,9 @@
 		lastFetchWentToEnd = false
 		selectedManualDate = 0
 		selectedIds = []
-		jobIdsToCancel = []
-		isSelectingJobsToCancel = false
+		schedulePath = undefined
+		batchReRunOptions = { flow: {}, script: {} }
+		selectionMode = false
 		selectedWorkspace = undefined
 		jobLoader?.loadJobs(minTs, maxTs, true)
 	}
@@ -355,12 +378,6 @@
 		paths = npaths_scripts.concat(npaths_flows).sort()
 	}
 
-	$: if ($workspaceStore) {
-		loadUsernames()
-		loadFolders()
-		loadPaths()
-	}
-
 	function filterByPath(e: CustomEvent<string>) {
 		path = e.detail
 		user = null
@@ -369,6 +386,7 @@
 		concurrencyKey = null
 		tag = null
 		schedulePath = undefined
+		worker = null
 	}
 
 	function filterByUser(e: CustomEvent<string>) {
@@ -389,6 +407,7 @@
 		concurrencyKey = null
 		tag = null
 		schedulePath = undefined
+		worker = null
 	}
 
 	function filterByLabel(e: CustomEvent<string>) {
@@ -399,6 +418,8 @@
 		concurrencyKey = null
 		tag = null
 		schedulePath = undefined
+		worker = null
+		allowWildcards = false
 	}
 
 	function filterByConcurrencyKey(e: CustomEvent<string>) {
@@ -409,6 +430,7 @@
 		concurrencyKey = e.detail
 		tag = null
 		schedulePath = undefined
+		worker = null
 	}
 
 	function filterByTag(e: CustomEvent<string>) {
@@ -419,6 +441,8 @@
 		concurrencyKey = null
 		tag = e.detail
 		schedulePath = undefined
+		worker = null
+		allowWildcards = false
 	}
 
 	function filterBySchedule(e: CustomEvent<string>) {
@@ -429,9 +453,22 @@
 		concurrencyKey = null
 		tag = null
 		schedulePath = e.detail
+		worker = null
 	}
 
-	let calendarChangeTimeout: NodeJS.Timeout | undefined = undefined
+	function filterByWorker(e: CustomEvent<string>) {
+		path = null
+		user = null
+		folder = null
+		label = null
+		concurrencyKey = null
+		tag = null
+		schedulePath = undefined
+		worker = e.detail
+		allowWildcards = false
+	}
+
+	let calendarChangeTimeout: NodeJS.Timeout | undefined = $state(undefined)
 
 	function typeOfChart(s: string | null): 'RunChart' | 'ConcurrencyChart' {
 		switch (s) {
@@ -444,22 +481,29 @@
 		}
 	}
 
-	let jobIdsToCancel: string[] = []
-	let isSelectingJobsToCancel = false
-	let fetchingFilteredJobs = false
-	let selectedFiltersString: string | undefined = undefined
+	let selectionMode: RunsSelectionMode | false = $state(false)
 
-	async function cancelVisibleJobs() {
-		isSelectingJobsToCancel = true
-		selectedIds = jobs?.filter(isJobCancelable).map((j) => j.id) ?? []
-		if (selectedIds.length === 0) {
-			sendUserToast('There are no visible jobs that can be canceled', true)
+	async function onSetSelectionMode(mode: RunsSelectionMode | false) {
+		selectionMode = mode
+		if (!mode) {
+			selectedIds = []
+			batchReRunOptions = { flow: {}, script: {} }
+			return
+		}
+		const selectableIds = jobs?.filter(isJobSelectable(mode)).map((j) => j.id) ?? []
+		selectedIds = []
+
+		if (!selectableIds?.length) {
+			sendUserToast(
+				'There are no visible jobs that can be ' +
+					{ cancel: 'cancelled', 're-run': 're-ran' }[mode],
+				true
+			)
 		}
 	}
-	async function cancelFilteredJobs() {
-		isCancelingFilteredJobs = true
-		fetchingFilteredJobs = true
-		const selectedFilters = {
+
+	function getSelectedFilters() {
+		return {
 			workspace: $workspaceStore ?? '',
 			startedBefore: maxTs,
 			startedAfter: minTs,
@@ -473,8 +517,8 @@
 				success == 'running' || success == 'suspended'
 					? true
 					: success == 'waiting'
-					? false
-					: undefined,
+						? false
+						: undefined,
 			isSkipped: isSkipped ? undefined : false,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent:
@@ -493,21 +537,151 @@
 				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
 					? resultFilter
 					: undefined,
-			allWorkspaces: allWorkspaces ? true : undefined
+			allWorkspaces: allWorkspaces ? true : undefined,
+			allowWildcards: allowWildcards ? true : undefined
+		}
+	}
+
+	async function cancelJobs(uuidsToCancel: string[]) {
+		const uuids = await JobService.cancelSelection({
+			workspace: $workspaceStore ?? '',
+			requestBody: uuidsToCancel
+		})
+		selectedIds = []
+		jobLoader?.loadJobs(minTs, maxTs, true, true)
+		sendUserToast(`Canceled ${uuids.length} jobs`)
+		selectionMode = false
+	}
+
+	async function onCancelFilteredJobs() {
+		askingForConfirmation = {
+			title: 'Confirm cancelling all jobs corresponding to the selected filters',
+			confirmBtnText: 'Loading...',
+			loading: true
 		}
 
-		selectedFiltersString = JSON.stringify(selectedFilters, null, 4)
-		jobIdsToCancel = await JobService.listFilteredUuids(selectedFilters)
-		fetchingFilteredJobs = false
+		const selectedFilters = getSelectedFilters()
+		const selectedFiltersString = JSON.stringify(selectedFilters, null, 4)
+		const jobIdsToCancel = await JobService.listFilteredQueueUuids(selectedFilters)
+
+		askingForConfirmation = {
+			title: `Confirm cancelling all jobs corresponding to the selected filters (${jobIdsToCancel.length} jobs)`,
+			confirmBtnText: `Cancel ${jobIdsToCancel.length} jobs that matched the filters`,
+			preContent: selectedFiltersString,
+			onConfirm: () => {
+				cancelJobs(jobIdsToCancel)
+			}
+		}
 	}
 
-	async function cancelSelectedJobs() {
-		jobIdsToCancel = selectedIds
-		isCancelingVisibleJobs = true
+	async function onCancelSelectedJobs() {
+		askingForConfirmation = {
+			confirmBtnText: `Cancel ${selectedIds.length} jobs`,
+			title: 'Confirm cancelling the selected jobs',
+			onConfirm: () => {
+				cancelJobs(selectedIds)
+			}
+		}
 	}
 
-	function jobCountString(count: number) {
-		return `${count} ${count == 1 ? 'job' : 'jobs'}`
+	async function reRunJobs(jobIdsToReRun: string[]) {
+		if (!$workspaceStore) return
+
+		if (askingForConfirmation) {
+			askingForConfirmation.loading = true
+		}
+
+		const body: Parameters<typeof JobService.batchReRunJobs>[0]['requestBody'] = {
+			job_ids: jobIdsToReRun,
+			script_options_by_path: batchReRunOptions.script,
+			flow_options_by_path: batchReRunOptions.flow
+		}
+
+		// workaround because EventSource does not support POST requests
+		// https://medium.com/@david.richards.tech/sse-server-sent-events-using-a-post-request-without-eventsource-1c0bd6f14425
+		const response = await fetch(`${OpenAPI.BASE}/w/${$workspaceStore}/jobs/run/batch_rerun_jobs`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body)
+		})
+		await new Promise(async (resolve) => {
+			const reader = response?.body?.pipeThrough(new TextDecoderStream()).getReader()
+			let reRanUuids: string[] = []
+			if (reader) {
+				while (true) {
+					const { value, done } = await reader.read()
+					if (value) {
+						// It is possible get multiple values at once in case of buffering
+						const receivedUuids: string[] = []
+						for (const line of value.split('\n')) {
+							if (!line) continue
+							else if (line.startsWith('Error:')) {
+								console.error(line)
+							} else {
+								receivedUuids.push(line)
+							}
+						}
+						if (receivedUuids.length) {
+							reRanUuids.push(...receivedUuids)
+							if (askingForConfirmation) {
+								askingForConfirmation.confirmBtnText = `${reRanUuids.length}/${jobIdsToReRun.length}`
+							}
+						}
+					}
+
+					if (done || !value) {
+						if (reRanUuids.length) {
+							sendUserToast(`Re-ran ${reRanUuids.length}/${jobIdsToReRun.length} jobs`)
+						}
+						if (reRanUuids.length !== jobIdsToReRun.length) {
+							sendUserToast(
+								`Failed to re-run ${jobIdsToReRun.length - reRanUuids.length} jobs. Check console for details`,
+								true
+							)
+							// We do not get explicit error from backend if the job script don't exist
+							for (const jobId of jobIdsToReRun) {
+								if (reRanUuids.includes(jobId)) continue
+								console.error('Could not re-run job ' + jobId)
+							}
+						}
+						break
+					}
+				}
+			}
+			resolve(undefined)
+		})
+
+		selectedIds = []
+		batchReRunOptions = { flow: {}, script: {} }
+		jobLoader?.loadJobs(minTs, maxTs, true, true)
+		selectionMode = false
+	}
+
+	async function onReRunFilteredJobs() {
+		const selectedFilters = getSelectedFilters()
+		selectedIds = []
+		loadingSelectedIds = true
+
+		if (jobKindsCat !== 'runs') {
+			sendUserToast('Batch re-run is only supported for scripts and flows', true)
+		}
+		selectedIds = await JobService.listFilteredJobsUuids({
+			...selectedFilters,
+			jobKinds: 'script,flow'
+		})
+		selectionMode = 're-run'
+	}
+
+	async function onReRunSelectedJobs() {
+		const jobIdsToReRun = selectedIds
+		askingForConfirmation = {
+			title: `Confirm re-running the selected jobs`,
+			confirmBtnText: `Re-run ${jobIdsToReRun.length} jobs`,
+			type: 'reload',
+			onConfirm: async () => {
+				await reRunJobs(jobIdsToReRun)
+			}
+		}
 	}
 
 	function setLookback(lookbackInDays: number) {
@@ -524,11 +698,6 @@
 	const warnJobLimitMsg =
 		'The exact number of concurrent jobs at the beginning of the time range may be incorrect as only the last 1000 jobs are taken into account: a job that was started earlier than this limit will not be taken into account'
 
-	$: warnJobLimit =
-		graph === 'ConcurrencyChart' &&
-		extendedJobs !== undefined &&
-		extendedJobs.jobs.length + extendedJobs.obscured_jobs.length >= 1000
-
 	function jobsFilter(f: 'waiting' | 'suspended') {
 		path = null
 		user = null
@@ -538,6 +707,7 @@
 		schedulePath = undefined
 		path = null
 		tag = null
+		worker = null
 		if (success == f) {
 			success = undefined
 		} else {
@@ -546,15 +716,70 @@
 		jobKindsCat = 'all'
 	}
 
-	let schedulesWidth = 0
+	let schedulesWidth = $state(0)
+	$effect(() => {
+		loadingSelectedIds && selectedIds.length && setTimeout(() => (loadingSelectedIds = false), 250)
+	})
+	$effect(() => {
+		;[
+			user,
+			worker,
+			label,
+			folder,
+			path,
+			success !== undefined,
+			isSkipped,
+			showSchedules,
+			showFutureJobs,
+			argFilter,
+			resultFilter,
+			schedulePath,
+			jobKindsCat,
+			concurrencyKey,
+			tag,
+			graph,
+			maxTs,
+			minTs,
+			allWorkspaces,
+			allowWildcards,
+			$workspaceStore
+		]
+
+		untrack(() => setQuery(false))
+	})
+	$effect(() => {
+		minTs || untrack(() => setQuery(true))
+	})
+	$effect(() => {
+		maxTs || untrack(() => setQuery(true))
+	})
+	$effect(() => {
+		if ($workspaceStore) {
+			untrack(() => {
+				loadUsernames()
+				loadFolders()
+				loadPaths()
+			})
+		}
+	})
+	let warnJobLimit = $derived.by(() => {
+		let extended = extendedJobs as ExtendedJobs | undefined
+		return (
+			graph === 'ConcurrencyChart' &&
+			extended !== undefined &&
+			extended.jobs.length + extended.obscured_jobs.length >= 1000
+		)
+	})
 </script>
 
 <JobLoader
+	{allowWildcards}
 	{allWorkspaces}
 	bind:jobs
 	{user}
 	{folder}
 	{path}
+	{worker}
 	{label}
 	{success}
 	{isSkipped}
@@ -584,49 +809,24 @@
 />
 
 <ConfirmationModal
-	title={`Confirm cancelling all jobs correspoding to the selected filters (${jobIdsToCancel.length} jobs)`}
-	confirmationText={`Cancel ${jobIdsToCancel.length} jobs that matched the filters`}
-	open={isCancelingFilteredJobs}
+	title={askingForConfirmation?.title ?? ''}
+	confirmationText={askingForConfirmation?.confirmBtnText ?? ''}
+	open={!!askingForConfirmation}
 	on:confirmed={async () => {
-		isCancelingFilteredJobs = false
-		let uuids = await JobService.cancelSelection({
-			workspace: $workspaceStore ?? '',
-			requestBody: jobIdsToCancel
-		})
-		jobIdsToCancel = []
-		selectedIds = []
-		jobLoader?.loadJobs(minTs, maxTs, true, true)
-		sendUserToast(`Canceled ${uuids.length} jobs`)
-		isSelectingJobsToCancel = false
+		const func = askingForConfirmation?.onConfirm
+		await func?.()
+		askingForConfirmation = undefined
 	}}
-	loading={fetchingFilteredJobs}
+	type={askingForConfirmation?.type}
+	loading={askingForConfirmation?.loading}
 	on:canceled={() => {
-		isCancelingFilteredJobs = false
+		askingForConfirmation = undefined
 	}}
 >
-	<pre>{selectedFiltersString}</pre>
+	{#if askingForConfirmation?.preContent}
+		<pre>{askingForConfirmation.preContent}</pre>
+	{/if}
 </ConfirmationModal>
-
-<ConfirmationModal
-	title={`Confirm cancelling the selected jobs`}
-	confirmationText={`Cancel ${jobIdsToCancel.length} jobs`}
-	open={isCancelingVisibleJobs}
-	on:confirmed={async () => {
-		isCancelingVisibleJobs = false
-		let uuids = await JobService.cancelSelection({
-			workspace: $workspaceStore ?? '',
-			requestBody: jobIdsToCancel
-		})
-		jobIdsToCancel = []
-		selectedIds = []
-		jobLoader?.loadJobs(minTs, maxTs, true, true)
-		sendUserToast(`Canceled ${uuids.length} jobs`)
-		isSelectingJobsToCancel = false
-	}}
-	on:canceled={() => {
-		isCancelingVisibleJobs = false
-	}}
-/>
 
 <Drawer bind:this={runDrawer}>
 	<DrawerContent title="Run details" on:close={runDrawer.closeDrawer}>
@@ -642,7 +842,7 @@
 
 <svelte:window
 	bind:innerWidth
-	on:popstate={() => {
+	onpopstate={() => {
 		reset()
 		loadFromQuery()
 	}}
@@ -677,12 +877,14 @@
 					</div>
 				</div>
 				<RunsFilter
+					bind:allowWildcards
 					bind:isSkipped
 					bind:user
 					bind:folder
 					bind:label
 					bind:concurrencyKey
 					bind:tag
+					bind:worker
 					bind:path
 					bind:success
 					bind:argFilter
@@ -715,16 +917,17 @@
 								graph = detail
 								graphIsRunsChart = graph === 'RunChart'
 							}}
-							let:item
 						>
-							<ToggleButton value="RunChart" label="Duration" {item} />
-							<ToggleButton
-								{item}
-								value="ConcurrencyChart"
-								label="Concurrency"
-								icon={warnJobLimit ? AlertTriangle : undefined}
-								tooltip={warnJobLimit ? warnJobLimitMsg : undefined}
-							/>
+							{#snippet children({ item })}
+								<ToggleButton value="RunChart" label="Duration" {item} />
+								<ToggleButton
+									{item}
+									value="ConcurrencyChart"
+									label="Concurrency"
+									icon={warnJobLimit ? AlertTriangle : undefined}
+									tooltip={warnJobLimit ? warnJobLimitMsg : undefined}
+								/>
+							{/snippet}
 						</ToggleButtonGroup>
 					</div>
 					{#if !graphIsRunsChart}
@@ -748,7 +951,7 @@
 								}
 							]}
 						>
-							<svelte:fragment slot="buttonReplacement">
+							{#snippet buttonReplacement()}
 								<div
 									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
 								>
@@ -760,7 +963,7 @@
 										the computation of the graph
 									</Tooltip>
 								</div>
-							</svelte:fragment>
+							{/snippet}
 						</DropdownV2>
 					{/if}
 				</div>
@@ -769,7 +972,7 @@
 				<RunChart
 					{lastFetchWentToEnd}
 					bind:selectedIds
-					canSelect={!isSelectingJobsToCancel}
+					canSelect={!selectionMode}
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
@@ -782,7 +985,7 @@
 						jobLoader?.loadJobs(minTs, maxTs, true)
 					}}
 					on:pointClicked={(e) => {
-						runsTable.scrollToRun(e.detail)
+						runsTable?.scrollToRun(e.detail)
 					}}
 				/>
 			{:else if graph === 'ConcurrencyChart'}
@@ -812,69 +1015,16 @@
 						jobsFilter('suspended')
 					}}
 				/>
-				<div class="flex flex-row">
-					{#if isSelectingJobsToCancel}
-						<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
-							<Button
-								startIcon={{ icon: X }}
-								size="xs"
-								color="gray"
-								variant="contained"
-								on:click={() => {
-									isSelectingJobsToCancel = false
-									selectedIds = []
-								}}
-							/>
-							<Button
-								disabled={selectedIds.length == 0}
-								startIcon={{ icon: Check }}
-								size="xs"
-								color="red"
-								variant="contained"
-								on:click={cancelSelectedJobs}
-							>
-								Cancel {jobCountString(selectedIds.length)}
-							</Button>
-						</div>
-					{:else if !$userStore?.is_admin && !$superadmin}
-						<DropdownV2
-							items={[
-								{
-									displayName: 'Select jobs to cancel',
-									action: cancelVisibleJobs
-								}
-							]}
-						>
-							<svelte:fragment slot="buttonReplacement">
-								<div
-									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
-								>
-									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
-									<ChevronDown class="w-5 h-5" />
-								</div>
-							</svelte:fragment>
-						</DropdownV2>
-					{:else}
-						<DropdownV2
-							items={[
-								{
-									displayName: 'Select jobs to cancel',
-									action: cancelVisibleJobs
-								},
-								{ displayName: 'Cancel all jobs matching filters', action: cancelFilteredJobs }
-							]}
-						>
-							<svelte:fragment slot="buttonReplacement">
-								<div
-									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
-								>
-									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
-									<ChevronDown class="w-5 h-5" />
-								</div>
-							</svelte:fragment>
-						</DropdownV2>
-					{/if}
-				</div>
+				<RunsBatchActionsDropdown
+					isLoading={loadingSelectedIds}
+					{selectionMode}
+					selectionCount={selectedIds.length}
+					{onSetSelectionMode}
+					{onCancelFilteredJobs}
+					{onCancelSelectedJobs}
+					{onReRunFilteredJobs}
+					{onReRunSelectedJobs}
+				/>
 			</div>
 			<div class="relative flex gap-2 items-center pr-8 w-40" bind:clientWidth={schedulesWidth}>
 				<Toggle
@@ -999,7 +1149,7 @@
 							omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
 							showExternalJobs={!graphIsRunsChart}
 							activeLabel={label}
-							{isSelectingJobsToCancel}
+							{selectionMode}
 							bind:selectedIds
 							bind:selectedWorkspace
 							bind:lastFetchWentToEnd
@@ -1011,6 +1161,7 @@
 							on:filterByConcurrencyKey={filterByConcurrencyKey}
 							on:filterByTag={filterByTag}
 							on:filterBySchedule={filterBySchedule}
+							on:filterByWorker={filterByWorker}
 							bind:this={runsTable}
 						/>
 					{:else}
@@ -1021,13 +1172,16 @@
 						</div>
 					{/if}
 				</Pane>
-				<Pane size={40} minSize={15} class="border-t">
-					{#if selectedIds.length === 1}
+				<Pane size={40} minSize={15} class="border-t flex flex-col">
+					{#if selectionMode === 're-run'}
+						<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
+					{:else if selectedIds.length === 1}
 						{#if selectedIds[0] === '-'}
 							<div class="p-4">There is no information available for this job</div>
 						{:else}
 							<JobPreview
 								on:filterByConcurrencyKey={filterByConcurrencyKey}
+								on:filterByWorker={filterByWorker}
 								id={selectedIds[0]}
 								workspace={selectedWorkspace}
 							/>
@@ -1053,7 +1207,6 @@
 					<Tooltip
 						light
 						documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
-						scale={0.9}
 						wrapperClass="flex items-center"
 					>
 						All past and schedule executions of scripts and flows, including previews. You only see
@@ -1061,6 +1214,7 @@
 					</Tooltip>
 				</div>
 				<RunsFilter
+					bind:allowWildcards
 					bind:isSkipped
 					{paths}
 					{usernames}
@@ -1070,6 +1224,7 @@
 					bind:path
 					bind:user
 					bind:label
+					bind:worker
 					bind:concurrencyKey
 					bind:tag
 					bind:success
@@ -1098,10 +1253,11 @@
 							graph = detail
 							graphIsRunsChart = graph == 'RunChart'
 						}}
-						let:item
 					>
-						<ToggleButton value="RunChart" label="Duration" {item} />
-						<ToggleButton value="ConcurrencyChart" label="Concurrency" {item} />
+						{#snippet children({ item })}
+							<ToggleButton value="RunChart" label="Duration" {item} />
+							<ToggleButton value="ConcurrencyChart" label="Concurrency" {item} />
+						{/snippet}
 					</ToggleButtonGroup>
 					{#if !graphIsRunsChart}
 						<DropdownV2
@@ -1124,7 +1280,7 @@
 								}
 							]}
 						>
-							<svelte:fragment slot="buttonReplacement">
+							{#snippet buttonReplacement()}
 								<div
 									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
 								>
@@ -1136,7 +1292,7 @@
 										the computation of the graph
 									</Tooltip>
 								</div>
-							</svelte:fragment>
+							{/snippet}
 						</DropdownV2>
 					{/if}
 				</div>
@@ -1145,7 +1301,7 @@
 				<RunChart
 					{lastFetchWentToEnd}
 					bind:selectedIds
-					canSelect={!isSelectingJobsToCancel}
+					canSelect={!selectionMode}
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
@@ -1158,7 +1314,7 @@
 						jobLoader?.loadJobs(minTs, maxTs, true)
 					}}
 					on:pointClicked={(e) => {
-						runsTable.scrollToRun(e.detail)
+						runsTable?.scrollToRun(e.detail)
 					}}
 				/>
 			{:else if graph === 'ConcurrencyChart'}
@@ -1191,67 +1347,15 @@
 					/>
 				{/if}
 				<div class="flex flex-row">
-					{#if isSelectingJobsToCancel}
-						<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
-							<Button
-								startIcon={{ icon: X }}
-								size="xs"
-								color="gray"
-								variant="contained"
-								on:click={() => {
-									isSelectingJobsToCancel = false
-									selectedIds = []
-								}}
-							/>
-							<Button
-								disabled={selectedIds.length == 0}
-								startIcon={{ icon: Check }}
-								size="xs"
-								color="red"
-								variant="contained"
-								on:click={cancelSelectedJobs}
-							>
-								Cancel {jobCountString(selectedIds.length)}
-							</Button>
-						</div>
-					{:else if !$userStore?.is_admin && !$superadmin}
-						<DropdownV2
-							items={[
-								{
-									displayName: 'Select jobs to cancel',
-									action: cancelVisibleJobs
-								}
-							]}
-						>
-							<svelte:fragment slot="buttonReplacement">
-								<div
-									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
-								>
-									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
-									<ChevronDown class="w-5 h-5" />
-								</div>
-							</svelte:fragment>
-						</DropdownV2>
-					{:else}
-						<DropdownV2
-							items={[
-								{
-									displayName: 'Select jobs to cancel',
-									action: cancelVisibleJobs
-								},
-								{ displayName: 'Cancel all jobs matching filters', action: cancelFilteredJobs }
-							]}
-						>
-							<svelte:fragment slot="buttonReplacement">
-								<div
-									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
-								>
-									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
-									<ChevronDown class="w-5 h-5" />
-								</div>
-							</svelte:fragment>
-						</DropdownV2>
-					{/if}
+					<RunsBatchActionsDropdown
+						{selectionMode}
+						selectionCount={selectedIds.length}
+						{onSetSelectionMode}
+						{onCancelFilteredJobs}
+						{onCancelSelectedJobs}
+						{onReRunFilteredJobs}
+						{onReRunSelectedJobs}
+					/>
 				</div>
 			</div>
 			<div class="flex gap-2 py-1">
@@ -1377,19 +1481,20 @@
 				externalJobs={externalJobs ?? []}
 				omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
 				showExternalJobs={!graphIsRunsChart}
-				{isSelectingJobsToCancel}
+				{selectionMode}
 				bind:selectedIds
 				bind:selectedWorkspace
 				bind:lastFetchWentToEnd
 				on:loadExtra={loadExtra}
 				on:select={() => {
-					if (!isSelectingJobsToCancel) runDrawer.openDrawer()
+					if (!selectionMode) runDrawer?.openDrawer()
 				}}
 				on:filterByPath={filterByPath}
 				on:filterByUser={filterByUser}
 				on:filterByFolder={filterByFolder}
 				on:filterByLabel={filterByLabel}
 				on:filterByConcurrencyKey={filterByConcurrencyKey}
+				on:filterByWorker={filterByWorker}
 				on:filterByTag={filterByTag}
 				bind:this={runsTable}
 			/>

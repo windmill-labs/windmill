@@ -25,7 +25,7 @@
 			{#each layout as row}
 				<div class="flex justify-between items-start gap-4">
 					{#if typeof row === 'number'}
-						<div style="height: {row * HEIGHT_UNIT}px;" />
+						<div style="height: {row * HEIGHT_UNIT}px;"></div>
 					{:else if Array.isArray(row)}
 						{#each row as el}
 							{@const element =

@@ -1,5 +1,5 @@
 {
   "tasks": {
-    "wasmbuild": "deno run -A jsr:@deno/wasmbuild@0.17.2"
+    "wasmbuild": "deno run -A jsr:@deno/wasmbuild@0.19.0"
   }
 }

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { stopPropagation } from 'svelte/legacy'
+
 	import { push } from '$lib/history'
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
@@ -21,18 +23,31 @@
 	import GridViewer from './GridViewer.svelte'
 	import GridEditorMenu from './GridEditorMenu.svelte'
 
-	export let containerHeight: number | undefined = undefined
-	export let containerWidth: number | undefined = undefined
-	let classes = ''
+	interface Props {
+		containerHeight?: number | undefined
+		containerWidth?: number | undefined
+		class?: string
+		style?: string
+		noPadding?: boolean
+		noYPadding?: boolean
+		subGridId: string
+		visible?: boolean
+		id: string
+		shouldHighlight?: boolean
+	}
 
-	export { classes as class }
-	export let style = ''
-	export let noPadding = false
-	export let noYPadding = false
-	export let subGridId: string
-	export let visible: boolean = true
-	export let id: string
-	export let shouldHighlight: boolean = true
+	let {
+		containerHeight = undefined,
+		containerWidth = undefined,
+		class: classes = '',
+		style = '',
+		noPadding = false,
+		noYPadding = false,
+		subGridId,
+		visible = true,
+		id,
+		shouldHighlight = true
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -50,17 +65,19 @@
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
-	let isActive = false
+	let isActive = $state(false)
 	let sber = editorContext?.componentActive?.subscribe((x) => (isActive = x))
 
-	let everVisible = visible
+	let everVisible = $state(visible)
 
-	$: visible && !everVisible && (everVisible = true)
+	$effect.pre(() => {
+		visible && !everVisible && (everVisible = true)
+	})
 
 	onDestroy(() => {
 		sber?.()
 	})
-	$: highlight = id === $focusedGrid?.parentComponentId && shouldHighlight
+	let highlight = $derived(id === $focusedGrid?.parentComponentId && shouldHighlight)
 
 	const onpointerdown = (e) => {
 		dispatch('focus')
@@ -80,9 +97,11 @@
 		$app = $app
 	}
 
-	let container: HTMLElement | undefined = undefined
+	let container: HTMLElement | undefined = $state(undefined)
 
-	$: maxRow = maxHeight($app.subgrids?.[subGridId] ?? [], containerHeight ?? 0, $breakpoint)
+	let maxRow = $derived(
+		maxHeight($app.subgrids?.[subGridId] ?? [], containerHeight ?? 0, $breakpoint)
+	)
 
 	export function moveComponentBetweenSubgrids(
 		componentId: string,
@@ -124,7 +143,7 @@
 		)
 
 		// Update the app state
-		$app = { ...$app }
+		$app = $app
 
 		if (parentGrid) {
 			$focusedGrid = {
@@ -173,17 +192,19 @@
 		)
 
 		// Update the app state
-		$app = { ...$app }
+		$app = $app
 	}
 </script>
 
-{#if everVisible}
+<!-- {visible}
+{everVisible} -->
+{#if everVisible || $app.eagerRendering}
 	<div
 		class="translate-x-0 translate-y-0 w-full subgrid {visible
 			? 'visible'
 			: 'invisible h-0 overflow-hidden'}"
 		bind:this={container}
-		on:pointerdown={onpointerdown}
+		{onpointerdown}
 	>
 		<div
 			class={twMerge(
@@ -201,9 +222,10 @@
 								isActive && !$selectedComponent?.includes(id)
 									? 'outline-orange-600'
 									: 'outline-gray-400 dark:outline-gray-600'
-						  }`
+							}`
 						: ''}
 				>
+					<!-- A{JSON.stringify($app.subgrids?.[subGridId]) ?? []}B -->
 					<Grid
 						allIdsInPath={$allIdsInPath}
 						items={$app.subgrids?.[subGridId] ?? []}
@@ -214,10 +236,6 @@
 							}
 						}}
 						selectedIds={$selectedComponent}
-						let:dataItem
-						let:overlapped
-						let:moveMode
-						let:componentDraggedId
 						scroller={container}
 						parentWidth={$parentWidth - 17}
 						{containerWidth}
@@ -250,81 +268,86 @@
 						}}
 						disableMove={!!$connectingInput.opened}
 					>
-						<ComponentWrapper
-							id={dataItem.id}
-							type={dataItem.data.type}
-							class={classNames(
-								'h-full w-full center-center',
-								$selectedComponent?.includes(dataItem.id) ? 'active-grid-item' : '',
-								'top-0'
-							)}
-						>
-							<GridEditorMenu id={dataItem.id}>
-								<Component
-									{overlapped}
-									fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
-									render={visible}
-									component={dataItem.data}
-									selected={Boolean($selectedComponent?.includes(dataItem.id))}
-									locked={isFixed(dataItem)}
-									on:lock={() => lock(dataItem)}
-									on:expand={() => {
-										const parentGridItem = findGridItem($app, id)
+						{#snippet children({ dataItem, overlapped, moveMode, componentDraggedId })}
+							<ComponentWrapper
+								id={dataItem.id}
+								type={dataItem.data.type}
+								class={classNames(
+									'h-full w-full center-center',
+									$selectedComponent?.includes(dataItem.id) ? 'active-grid-item' : '',
+									'top-0'
+								)}
+							>
+								<GridEditorMenu id={dataItem.id}>
+									<Component
+										{overlapped}
+										fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
+										render={visible}
+										component={dataItem.data}
+										selected={Boolean($selectedComponent?.includes(dataItem.id))}
+										locked={isFixed(dataItem)}
+										on:lock={() => lock(dataItem)}
+										on:expand={() => {
+											const parentGridItem = findGridItem($app, id)
 
-										if (!parentGridItem) {
-											return
-										}
+											if (!parentGridItem) {
+												return
+											}
 
-										$selectedComponent = [dataItem.id]
-										push(editorContext?.history, $app)
+											$selectedComponent = [dataItem.id]
+											push(editorContext?.history, $app)
 
-										expandGriditem(
-											$app.subgrids?.[subGridId] ?? [],
-											dataItem.id,
-											$breakpoint,
-											parentGridItem
-										)
-										$app = $app
-									}}
-									on:fillHeight={() => {
-										const gridItem = findGridItem($app, dataItem.id)
-										const b = $breakpoint === 'sm' ? 3 : 12
+											expandGriditem(
+												$app.subgrids?.[subGridId] ?? [],
+												dataItem.id,
+												$breakpoint,
+												parentGridItem
+											)
+											$app = $app
+										}}
+										on:fillHeight={() => {
+											const gridItem = findGridItem($app, dataItem.id)
+											const b = $breakpoint === 'sm' ? 3 : 12
 
-										if (gridItem?.[b]) {
-											gridItem[b].fullHeight = !gridItem[b].fullHeight
-										}
-										$app = $app
-									}}
-									{moveMode}
-									{componentDraggedId}
-								/>
-							</GridEditorMenu>
-						</ComponentWrapper>
+											if (gridItem?.[b]) {
+												gridItem[b].fullHeight = !gridItem[b].fullHeight
+											}
+											$app = $app
+										}}
+										{moveMode}
+										{componentDraggedId}
+									/>
+								</GridEditorMenu>
+							</ComponentWrapper>
+						{/snippet}
 					</Grid>
 				</div>
 			{:else}
 				<GridViewer
 					allIdsInPath={$allIdsInPath}
 					items={$app.subgrids?.[subGridId] ?? []}
-					let:dataItem
 					breakpoint={$breakpoint}
 					parentWidth={$parentWidth - 17}
 					{containerWidth}
 					{maxRow}
 				>
-					<!-- svelte-ignore a11y-click-events-have-key-events -->
-					<div
-						on:pointerdown|stopPropagation={(e) => selectComponent(e, dataItem.id)}
-						class={classNames('h-full w-full center-center', 'top-0')}
-					>
-						<Component
-							fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
-							render={visible}
-							component={dataItem.data}
-							selected={Boolean($selectedComponent?.includes(dataItem.id))}
-							locked={isFixed(dataItem)}
-						/>
-					</div>
+					{#snippet children({ dataItem })}
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<div
+							onpointerdown={stopPropagation((e) =>
+								selectComponent(e as PointerEvent, dataItem.id)
+							)}
+							class={classNames('h-full w-full center-center', 'top-0')}
+						>
+							<Component
+								fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
+								render={visible}
+								component={dataItem.data}
+								selected={Boolean($selectedComponent?.includes(dataItem.id))}
+								locked={isFixed(dataItem)}
+							/>
+						</div>
+					{/snippet}
 				</GridViewer>
 			{/if}
 		</div>

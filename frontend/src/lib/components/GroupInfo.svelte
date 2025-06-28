@@ -2,16 +2,22 @@
 	import { GroupService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import Popover from './Popover.svelte'
+	import { untrack } from 'svelte'
 
-	export let name: string
+	interface Props {
+		name: string
+	}
 
-	$: $workspaceStore && loadMembers()
+	let { name }: Props = $props()
 
-	let members: string[] | undefined = []
+	let members: string[] | undefined = $state([])
 
 	async function loadMembers() {
 		members = (await GroupService.getGroup({ workspace: $workspaceStore!, name })).members
 	}
+	$effect(() => {
+		$workspaceStore && untrack(() => loadMembers())
+	})
 </script>
 
 {#if members}
@@ -22,6 +28,8 @@
 				><span class="text-tertiary text-xs">{members?.join(', ')}</span></div
 			></div
 		>
-		<span slot="text">{members?.join(', ')}</span></Popover
+		{#snippet text()}
+			<span>{members?.join(', ')}</span>
+		{/snippet}</Popover
 	>
 {/if}

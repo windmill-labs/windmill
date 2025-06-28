@@ -13,9 +13,18 @@ await build({
     },
   ],
   outDir: "./npm",
-  shims: {
+    shims: {
     // see JS docs for overview and more options
     deno: true,
+    // shims to only use in the tests
+    customDev: [{
+      // this is what `timers: "dev"` does internally
+      package: {
+        name: "@deno/shim-timers",
+        version: "~0.1.0",
+      },
+      globalNames: ["setTimeout", "setInterval"],
+    }],
   },
   scriptModule: false,
   filterDiagnostic(diagnostic) {
@@ -50,12 +59,26 @@ await build({
   postBuild() {
     // steps to run after building and before running the tests
     // add shebang to npm/esm/main.js
+    const dirs = [
+      "nu",
+      "ts",
+      "regex",
+      "python",
+      "go",
+      "php",
+      "rust",
+      "yaml",
+      "csharp",
+      "java",
+    ];
 
+    for (const l of dirs) {
+      Deno.copyFileSync(
+        "wasm/" + l + "/windmill_parser_wasm_bg.wasm",
+        "npm/esm/wasm/" + l + "/windmill_parser_wasm_bg.wasm"
+      );
+    }
     Deno.copyFileSync("../LICENSE", "npm/LICENSE");
     Deno.copyFileSync("README.md", "npm/README.md");
-    Deno.copyFileSync(
-      "wasm/windmill_parser_wasm_bg.wasm",
-      "npm/esm/wasm/windmill_parser_wasm_bg.wasm"
-    );
   },
 });

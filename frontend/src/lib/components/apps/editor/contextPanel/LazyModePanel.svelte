@@ -3,12 +3,17 @@
 	import type { AppViewerContext } from '../../types'
 
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import Section from '$lib/components/Section.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
-	let code = JSON.stringify($app.lazyInitRequire)
+	let code = $state(JSON.stringify($app.lazyInitRequire))
+
+	let selectedRendering = $state(
+		$app.eagerRendering ? 'eager' : $app.lazyInitRequire ? 'lazy' : 'semi-lazy'
+	)
 </script>
 
 <div class="flex flex-col gap-8" style="all:none;">
@@ -19,32 +24,51 @@
 		When lazy mode is enabled, components are not rendered until they are needed. This can significantly
 		improve the performance of your app, especially on mobile devices.
 		<br />
-		You can enable lazy mode below, but you will need to declare the list of components whose initialization
-		is expected to see initialized before the initial refresh of the app happens.
+		Semi-Lazy mode is enabled by default, where components are initialized but are in a hidden state.
+		Lazy mode is when components are not initialized at all.
 	</Alert>
 
-	<Toggle
-		label="Lazy mode"
-		checked={Boolean($app.lazyInitRequire != undefined)}
-		on:change={(e) => {
-			$app.lazyInitRequire = e.detail ? [] : undefined
-			code = JSON.stringify($app.lazyInitRequire)
+	<ToggleButtonGroup
+		bind:selected={selectedRendering}
+		on:selected={(e) => {
+			if (e.detail == 'eager') {
+				$app.eagerRendering = true
+				$app.lazyInitRequire = undefined
+			} else if (e.detail == 'semi-lazy') {
+				$app.eagerRendering = undefined
+				$app.lazyInitRequire = undefined
+			} else {
+				$app.eagerRendering = undefined
+				$app.lazyInitRequire = []
+				code = JSON.stringify($app.lazyInitRequire)
+			}
 		}}
-		options={{
-			right: 'Lazy mode'
-		}}
-	/>
-
-	<Section label="Component ids to wait the initialization of before the initial refresh">
-		{#if $app.lazyInitRequire != undefined}
+	>
+		{#snippet children({ item })}
+			<ToggleButton value="eager" label="Eager" {item} />
+			<ToggleButton value="semi-lazy" label="Semi-Lazy" {item} />
+			<ToggleButton value="lazy" label="Lazy" {item} />
+		{/snippet}
+	</ToggleButtonGroup>
+	{#if selectedRendering == 'eager'}
+		<Section label="Eager mode">
+			<span class="text-tertiary"
+				>In eager mode, all components will be fully initialized, even when they are not visible.</span
+			>
+		</Section>
+	{:else if selectedRendering == 'semi-lazy'}
+		<Section label="Semi-Lazy mode">
+			<span class="text-tertiary"
+				>In semi-lazy mode, components will be semi-initialized when hidden. That is the default
+				mode.</span
+			>
+		</Section>
+	{:else if selectedRendering == 'lazy'}
+		<Section label="Component ids to wait the initialization of before the initial refresh">
 			<JsonEditor bind:value={$app.lazyInitRequire} {code} />
 			<span class="text-tertiary text-xs">
 				{'e.g: ["a", "b"]'}, no need to put background runnables ids
 			</span>
-		{:else}
-			<span class="text-tertiary"
-				>Without lazy mode, all components' initialization will be waited on the initial refresh.</span
-			>
-		{/if}
-	</Section>
+		</Section>
+	{/if}
 </div>

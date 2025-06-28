@@ -8,9 +8,9 @@
 
 use std::collections::HashMap;
 
-use crate::ai::{AIProvider, AIResource, AI_KEY_CACHE};
+use crate::ai::{AIConfig, AI_REQUEST_CACHE};
 use crate::db::ApiAuthed;
-use crate::users_ee::send_email_if_possible;
+use crate::users_oss::send_email_if_possible;
 use crate::utils::get_instance_username_or_create_pending;
 use crate::BASE_URL;
 use crate::{
@@ -30,13 +30,13 @@ use chrono::Utc;
 use regex::Regex;
 
 use uuid::Uuid;
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{build_crypt, decrypt, encrypt};
-use windmill_common::worker::to_raw_value;
+use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 #[cfg(feature = "enterprise")]
@@ -58,7 +58,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::utils::not_found_if_none;
 
-use crate::teams_ee::{
+use crate::teams_oss::{
     connect_teams, edit_teams_command, run_teams_message_test_job,
     workspaces_list_available_teams_channels, workspaces_list_available_teams_ids,
 };
@@ -143,9 +143,9 @@ pub fn workspaced_service() -> Router {
         .route("/critical_alerts/mute", post(mute_critical_alerts))
         .route("/operator_settings", post(update_operator_settings));
 
-    #[cfg(feature = "stripe")]
+    #[cfg(all(feature = "stripe", feature = "enterprise"))]
     {
-        crate::stripe_ee::add_stripe_routes(router)
+        crate::stripe_oss::add_stripe_routes(router)
     }
 
     #[cfg(not(feature = "stripe"))]
@@ -211,10 +211,7 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deploy_to: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ai_resource: Option<serde_json::Value>,
-    pub ai_models: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub code_completion_model: Option<String>,
+    pub ai_config: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_handler: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -229,7 +226,6 @@ pub struct WorkspaceSettings {
     pub deploy_ui: Option<serde_json::Value>, // effectively: WorkspaceDeploymentUISettings
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_app: Option<String>,
-    pub automatic_billing: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_scripts: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -238,6 +234,8 @@ pub struct WorkspaceSettings {
     pub color: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub operator_settings: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_app_installations: Option<serde_json::Value>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -289,13 +287,6 @@ pub struct EditAutoInvite {
 #[derive(Deserialize)]
 struct EditWebhook {
     webhook: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct EditCopilotConfig {
-    ai_resource: Option<serde_json::Value>,
-    code_completion_model: Option<String>,
-    ai_models: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -393,19 +384,15 @@ async fn list_pending_invites(
 
 async fn is_premium(
     authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
+    Extension(_db): Extension<DB>,
+    Path(_w_id): Path<String>,
 ) -> JsonResult<bool> {
     require_admin(authed.is_admin, &authed.username)?;
-    let mut tx = db.begin().await?;
-    let row = sqlx::query_scalar!(
-        "SELECT premium FROM workspace WHERE workspace.id = $1",
-        &w_id
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    Ok(Json(row))
+    #[cfg(feature = "cloud")]
+    let premium = windmill_common::workspaces::is_premium_workspace(&_db, &_w_id).await;
+    #[cfg(not(feature = "cloud"))]
+    let premium = false;
+    Ok(Json(premium))
 }
 
 async fn exists_workspace(
@@ -453,13 +440,15 @@ async fn get_settings(
     let mut tx = user_db.begin(&authed).await?;
     let settings = sqlx::query_as!(
         WorkspaceSettings,
-        "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_resource, ai_models, code_completion_model, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, automatic_billing, default_scripts, mute_critical_alerts, color, operator_settings FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, default_scripts, mute_critical_alerts, color, operator_settings, git_app_installations FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
-    .fetch_one(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
     tx.commit().await?;
+    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+
     Ok(Json(settings))
 }
 
@@ -499,11 +488,11 @@ async fn edit_slack_command(
     if es.slack_command_script.is_some() {
         let exists_slack_command_with_team_id = sqlx::query_scalar!(
             r#"
-                SELECT EXISTS (SELECT 1 
-                FROM workspace_settings 
-                WHERE workspace_id <> $1 
+                SELECT EXISTS (SELECT 1
+                FROM workspace_settings
+                WHERE workspace_id <> $1
                     AND slack_command_script IS NOT NULL
-                    AND slack_team_id IS NOT NULL 
+                    AND slack_team_id IS NOT NULL
                     AND slack_team_id = (SELECT slack_team_id FROM workspace_settings WHERE workspace_id = $1))
             "#,
             &w_id
@@ -651,7 +640,7 @@ async fn edit_auto_invite(
     Path(w_id): Path<String>,
     Json(ea): Json<EditAutoInvite>,
 ) -> Result<String> {
-    crate::workspaces_ee::edit_auto_invite(authed, db, w_id, ea).await
+    crate::workspaces_oss::edit_auto_invite(authed, db, w_id, ea).await
 }
 
 async fn edit_webhook(
@@ -701,51 +690,26 @@ async fn edit_copilot_config(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     ApiAuthed { is_admin, username, .. }: ApiAuthed,
-    Json(eo): Json<EditCopilotConfig>,
+    Json(ai_config): Json<AIConfig>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
     let mut tx = db.begin().await?;
 
-    if let Some(ai_resource) = &eo.ai_resource {
-        let parsed_ai_resource = serde_json::from_value::<AIResource>(ai_resource.clone())
-            .map_err(|e| Error::BadRequest(e.to_string()))?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET ai_config = $1 WHERE workspace_id = $2",
+        sqlx::types::Json(&ai_config) as sqlx::types::Json<&AIConfig>,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
 
-        #[cfg(not(feature = "enterprise"))]
-        {
-            if matches!(parsed_ai_resource.provider, AIProvider::CustomAI) {
-                return Err(Error::BadRequest(
-                    "Custom AI is only available on EE".to_string(),
-                ));
-            }
+    if let Some(ref providers) = ai_config.providers {
+        for provider in providers.keys() {
+            AI_REQUEST_CACHE.remove(&(w_id.clone(), provider.clone()));
         }
-
-        sqlx::query!(
-            "UPDATE workspace_settings SET ai_resource = $1, code_completion_model = $2, ai_models = $3 WHERE workspace_id = $4",
-            ai_resource,
-            eo.code_completion_model,
-            eo.ai_models.as_slice(),
-            &w_id
-        )
-        .execute(&mut *tx)
-        .await?;
-
-        if let Some(cached) = AI_KEY_CACHE.get(&w_id) {
-            if parsed_ai_resource.path.is_none() || parsed_ai_resource.path.unwrap() != cached.path
-            {
-                AI_KEY_CACHE.remove(&w_id);
-            }
-        }
-    } else {
-        sqlx::query!(
-            "UPDATE workspace_settings SET ai_resource = NULL, code_completion_model = $1, ai_models = '{}' WHERE workspace_id = $2",
-            eo.code_completion_model,
-            &w_id,
-        )
-        .execute(&mut *tx)
-        .await?;
-        AI_KEY_CACHE.remove(&w_id);
     }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -753,16 +717,7 @@ async fn edit_copilot_config(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        Some(
-            [
-                ("ai_resource", &format!("{:?}", eo.ai_resource)[..]),
-                (
-                    "code_completion_model",
-                    &format!("{:?}", eo.code_completion_model)[..],
-                ),
-            ]
-            .into(),
-        ),
+        Some([("ai_config", &format!("{:?}", ai_config)[..])].into()),
     )
     .await?;
     tx.commit().await?;
@@ -770,42 +725,33 @@ async fn edit_copilot_config(
     Ok(format!("Edit copilot config for workspace {}", &w_id))
 }
 
-#[derive(Serialize)]
-struct CopilotInfo {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ai_provider: Option<AIProvider>,
-    pub exists_ai_resource: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub code_completion_model: Option<String>,
-    pub ai_models: Vec<String>,
-}
 async fn get_copilot_info(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-) -> JsonResult<CopilotInfo> {
+) -> JsonResult<AIConfig> {
     let mut tx = db.begin().await?;
-    let record = sqlx::query!(
-        "SELECT ai_resource, code_completion_model, ai_models FROM workspace_settings WHERE workspace_id = $1",
+    let copilot_info = sqlx::query_scalar!(
+        "SELECT ai_config as \"ai_config: sqlx::types::Json<AIConfig>\" FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::internal_err(format!("getting ai_resource and code_completion_model: {e:#}")))?;
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "getting ai config: {e:#}"
+        ))
+    })?;
     tx.commit().await?;
 
-    let (ai_provider, exists_ai_resource) = if let Some(ai_resource) = record.ai_resource {
-        let ai_resource = serde_json::from_value::<AIResource>(ai_resource)?;
-        (Some(ai_resource.provider), ai_resource.path.is_some())
+    if let Some(sqlx::types::Json(copilot_info)) = copilot_info {
+        Ok(Json(copilot_info))
     } else {
-        (None, false)
-    };
-
-    Ok(Json(CopilotInfo {
-        ai_provider,
-        exists_ai_resource,
-        code_completion_model: record.code_completion_model,
-        ai_models: record.ai_models,
-    }))
+        Ok(Json(AIConfig {
+            providers: None,
+            default_model: None,
+            code_completion_model: None,
+        }))
+    }
 }
 
 async fn edit_large_file_storage_config(
@@ -1362,7 +1308,8 @@ struct UsedTriggers {
     pub nats_used: bool,
     pub postgres_used: bool,
     pub mqtt_used: bool,
-    pub sqs_used: bool
+    pub sqs_used: bool,
+    pub gcp_used: bool,
 }
 
 async fn get_used_triggers(
@@ -1374,15 +1321,15 @@ async fn get_used_triggers(
     let websocket_used = sqlx::query_as!(
         UsedTriggers,
         r#"
-        SELECT 
-            
-            EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) AS "websocket_used!", 
+        SELECT
+            EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) AS "websocket_used!",
             EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) AS "http_routes_used!",
             EXISTS(SELECT 1 FROM kafka_trigger WHERE workspace_id = $1) as "kafka_used!",
             EXISTS(SELECT 1 FROM nats_trigger WHERE workspace_id = $1) as "nats_used!",
             EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS "postgres_used!",
             EXISTS(SELECT 1 FROM mqtt_trigger WHERE workspace_id = $1) AS "mqtt_used!",
-            EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS "sqs_used!"
+            EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS "sqs_used!",
+            EXISTS(SELECT 1 FROM gcp_trigger WHERE workspace_id = $1) AS "gcp_used!"
         "#,
         w_id
     )
@@ -1506,6 +1453,21 @@ async fn create_workspace(
 
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
+
+    if *CLOUD_HOSTED {
+        let nb_workspaces = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM workspace WHERE owner = $1",
+            authed.email
+        )
+        .fetch_one(&db)
+        .await?;
+        if nb_workspaces.unwrap_or(0) >= 10 {
+            return Err(Error::BadRequest(
+                "You have reached the maximum number of workspaces (10) on cloud. Contact support@windmill.dev to increase the limit"
+                    .to_string(),
+            ));
+        }
+    }
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
@@ -2104,8 +2066,8 @@ async fn change_workspace_color(
 async fn get_usage(Extension(db): Extension<DB>, Path(w_id): Path<String>) -> Result<String> {
     let usage = sqlx::query_scalar!(
         "
-    SELECT usage.usage FROM usage 
-    WHERE is_workspace = true 
+    SELECT usage.usage FROM usage
+    WHERE is_workspace = true
     AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)
     AND id = $1",
         w_id

@@ -333,7 +333,7 @@ you to have it being synced automatically everyday.
 ## Environment Variables
 
 | Environment Variable name           | Default                | Description                                                                                                                                                                                        | Api Server/Worker/All |
-| ----------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | --- | ------ |
+| ----------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
 | DATABASE_URL                        |                        | The Postgres database url.                                                                                                                                                                         | All                   |
 | WORKER_GROUP                        | default                | The worker group the worker belongs to and get its configuration pulled from                                                                                                                       | Worker                |
 | MODE                                | standalone             | The mode if the binary. Possible values: standalone, worker, server, agent                                                                                                                         | All                   |
@@ -352,7 +352,7 @@ you to have it being synced automatically everyday.
 | GO_PATH                             | /usr/bin/go            | The path to the go binary.                                                                                                                                                                         | Worker                |
 | GOPRIVATE                           |                        | The GOPRIVATE env variable to use private go modules                                                                                                                                               | Worker                |
 | GOPROXY                             |                        | The GOPROXY env variable to use                                                                                                                                                                    | Worker                |
-| NETRC                               |                        | The netrc content to use a private go registry                                                                                                                                                     | Worker                |     | Worker |
+| NETRC                               |                        | The netrc content to use a private go registry                                                                                                                                                     | Worker                |
 | PY_CONCURRENT_DOWNLOADS             | 20                     | Sets the maximum number of in-flight concurrent python downloads that windmill will perform at any given time.                                                                                     | Worker                |
 | PATH                                | None                   | The path environment variable, usually inherited                                                                                                                                                   | Worker                |
 | HOME                                | None                   | The home directory to use for Go and Bash , usually inherited                                                                                                                                      | Worker                |
@@ -363,13 +363,15 @@ you to have it being synced automatically everyday.
 | DENO_AUTH_TOKENS                    | None                   | Custom DENO_AUTH_TOKENS to pass to worker to allow the use of private modules                                                                                                                      | Worker                |
 | DISABLE_RESPONSE_LOGS               | false                  | Disable response logs                                                                                                                                                                              | Server                |
 | CREATE_WORKSPACE_REQUIRE_SUPERADMIN | true                   | If true, only superadmins can create new workspaces                                                                                                                                                | Server                |
+| MIN_FREE_DISK_SPACE_MB              | 15000                  | Minimum amount of free space on worker. Sends critical alert if worker has less free space.                                                                                                        | Worker                |
 
 ## Run a local dev setup
+
+Using [Nix](./frontend/README_DEV.md#nix) (Recommended).
 
 See the [./frontend/README_DEV.md](./frontend/README_DEV.md) file for all
 running options.
 
-Using [Nix](./frontend/README_DEV.md#nix).
 
 ### only Frontend
 

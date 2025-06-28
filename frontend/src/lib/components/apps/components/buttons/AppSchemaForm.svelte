@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { getContext, onDestroy } from 'svelte'
+	import { stopPropagation } from 'svelte/legacy'
+
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import { initConfig, initOutput, selectId } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type {
@@ -22,12 +24,23 @@
 	import { userStore } from '$lib/stores'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let initializing: boolean | undefined = undefined
-	export let render: boolean
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		initializing?: boolean | undefined
+		render: boolean
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'schemaformcomponent'> | undefined
+	}
+
+	let {
+		id,
+		componentInput,
+		initializing = $bindable(undefined),
+		render,
+		configuration,
+		customCss = undefined
+	}: Props = $props()
 
 	const {
 		worldStore,
@@ -49,18 +62,17 @@
 		values: {}
 	})
 
-	let result: Schema | undefined = undefined
-	let args: Record<string, unknown> = {}
+	let result: Schema | undefined = $state(undefined)
+	let args: Record<string, unknown> = $state(!iterContext ? (outputs?.values?.peak() ?? {}) : {})
 
 	function handleArgsChange() {
 		const newArgs: Record<string, unknown> = {}
 
 		for (const key in args) {
-			if (result?.properties[key]) {
+			if (result?.properties?.[key]) {
 				newArgs[key] = args[key]
 			}
 		}
-
 		outputs.values.set(newArgs, true)
 		if (iterContext && listInputs) {
 			listInputs.set(id, newArgs)
@@ -71,11 +83,12 @@
 		listInputs?.remove(id)
 	})
 
-	let schemaForm: SchemaForm
+	let schemaForm: SchemaForm | undefined = $state()
 
 	$componentControl[id] = {
 		setValue(nvalue: any) {
 			args = nvalue
+			outputs.values.set(nvalue, false)
 		},
 		invalidate(key: string, error: string) {
 			schemaForm?.invalidate(key, error)
@@ -88,27 +101,18 @@
 		}
 	}
 
-	$: args && handleArgsChange()
+	let css = $state(initCss($app.css?.schemaformcomponent, customCss))
 
-	$: outputs.valid.set(valid)
-
-	let css = initCss($app.css?.schemaformcomponent, customCss)
-
-	const resolvedConfig = initConfig(
-		components['schemaformcomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['schemaformcomponent'].initialData.configuration, configuration)
 	)
 
-	let valid = true
+	let valid = $state(true)
 
-	let previousDefault = resolvedConfig.defaultValues
-
-	$: resolvedConfig.defaultValues &&
-		!deepEqual(previousDefault, resolvedConfig.defaultValues) &&
-		onDefaultChange()
+	let previousDefault = $state(resolvedConfig.defaultValues)
 
 	function onDefaultChange() {
-		previousDefault = structuredClone(resolvedConfig.defaultValues)
+		previousDefault = structuredClone($state.snapshot(resolvedConfig.defaultValues))
 		args = previousDefault ?? {}
 	}
 
@@ -119,6 +123,25 @@
 		const policy = computeWorkspaceS3FileInputPolicy()
 		return policy
 	}
+	$effect(() => {
+		if (!args) return
+		for (const key in args) {
+			args[key]
+		}
+		result
+		untrack(() => handleArgsChange())
+	})
+	$effect(() => {
+		outputs.valid.set(valid)
+	})
+	$effect(() => {
+		resolvedConfig.defaultValues &&
+			!deepEqual(
+				untrack(() => previousDefault),
+				resolvedConfig.defaultValues
+			) &&
+			untrack(() => onDefaultChange())
+	})
 </script>
 
 {#each Object.keys(components['schemaformcomponent'].initialData.configuration) as key (key)}
@@ -147,8 +170,10 @@
 			style={css?.container?.style}
 		>
 			<div
-				on:pointerdown|stopPropagation={(e) =>
-					!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
+				onpointerdown={stopPropagation(
+					(e) =>
+						!$connectingInput.opened && selectId(e as PointerEvent, id, selectedComponent, $app)
+				)}
 			>
 				<SchemaForm
 					noVariablePicker

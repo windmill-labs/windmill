@@ -1,11 +1,10 @@
 <script lang="ts">
 	import { FlowService, type FlowModule } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
-	import { createEventDispatcher, getContext, onDestroy, onMount, setContext, tick } from 'svelte'
+	import { getContext, onDestroy, setContext, tick, untrack } from 'svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
-	import '@xyflow/svelte/dist/style.css'
-	import type { FlowInput } from '../flows/types'
+	import '@xyflow/svelte/dist/base.css'
 	import {
 		SvelteFlow,
 		type Node,
@@ -13,19 +12,27 @@
 		ConnectionLineType,
 		Controls,
 		ControlButton,
-		type Viewport
+		SvelteFlowProvider
 	} from '@xyflow/svelte'
-	import { graphBuilder, isTriggerStep, type SimplifiableFlow } from './graphBuilder'
+	import {
+		graphBuilder,
+		isTriggerStep,
+		type InlineScript,
+		type InsertKind,
+		type NodeLayout,
+		type onSelectedIteration,
+		type SimplifiableFlow
+	} from './graphBuilder.svelte'
 	import ModuleNode from './renderers/nodes/ModuleNode.svelte'
 	import InputNode from './renderers/nodes/InputNode.svelte'
 	import BranchAllStart from './renderers/nodes/BranchAllStart.svelte'
-	import BranchAllEndNode from './renderers/nodes/branchAllEndNode.svelte'
+	import BranchAllEndNode from './renderers/nodes/BranchAllEndNode.svelte'
 	import ForLoopEndNode from './renderers/nodes/ForLoopEndNode.svelte'
 	import ForLoopStartNode from './renderers/nodes/ForLoopStartNode.svelte'
 	import ResultNode from './renderers/nodes/ResultNode.svelte'
 	import BaseEdge from './renderers/edges/BaseEdge.svelte'
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
-	import { sugiyama, dagStratify, decrossOpt, coordCenter } from 'd3-dag'
+	import { sugiyama, dagStratify, coordCenter, decrossTwoLayer, decrossOpt } from 'd3-dag'
 	import { Expand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
@@ -42,56 +49,110 @@
 	import { workspaceStore } from '$lib/stores'
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
 	import { deepEqual } from 'fast-equals'
-
-	export let success: boolean | undefined = undefined
-	export let modules: FlowModule[] | undefined = []
-	export let failureModule: FlowModule | undefined = undefined
-	export let preprocessorModule: FlowModule | undefined = undefined
-	export let minHeight: number = 0
-	export let maxHeight: number | undefined = undefined
-	export let notSelectable = false
-	export let flowModuleStates: Record<string, GraphModuleState> | undefined = undefined
-
-	export let selectedId: Writable<string | undefined> = writable<string | undefined>(undefined)
-	export let path: string | undefined = undefined
-	export let newFlow: boolean = false
-
-	export let insertable = false
-	export let earlyStop: boolean = false
-	export let cache: boolean = false
-	export let scroll = false
-	export let moving: string | undefined = undefined
-
-	// Download: display a top level button to open the graph in a new tab
-	export let download = false
-	export let fullSize = false
-	export let disableAi = false
-	export let flowInputsStore: Writable<FlowInput | undefined> = writable<FlowInput | undefined>(
-		undefined
-	)
-	export let triggerNode = false
-	export let workspace: string = $workspaceStore ?? 'NO_WORKSPACE'
+	import ViewportResizer from './ViewportResizer.svelte'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
-	setContext<{
-		selectedId: Writable<string | undefined>
-		flowInputsStore: Writable<FlowInput | undefined>
-		useDataflow: Writable<boolean | undefined>
-	}>('FlowGraphContext', { selectedId, flowInputsStore, useDataflow })
-
 	const triggerContext = getContext<TriggerContext>('TriggerContext')
 
-	const dispatch = createEventDispatcher()
-
 	let fullWidth = 0
-	let width = 0
+	let width = $state(0)
 
-	export let allowSimplifiedPoll: boolean = true
+	let simplifiableFlow: SimplifiableFlow | undefined = $state(undefined)
 
-	let simplifiableFlow: SimplifiableFlow | undefined = undefined
+	interface Props {
+		success?: boolean | undefined
+		modules?: FlowModule[] | undefined
+		failureModule?: FlowModule | undefined
+		preprocessorModule?: FlowModule | undefined
+		minHeight?: number
+		maxHeight?: number | undefined
+		notSelectable?: boolean
+		flowModuleStates?: Record<string, GraphModuleState> | undefined
+		selectedId?: Writable<string | undefined>
+		path?: string | undefined
+		newFlow?: boolean
+		insertable?: boolean
+		earlyStop?: boolean
+		cache?: boolean
+		scroll?: boolean
+		moving?: string | undefined
+		// Download: display a top level button to open the graph in a new tab
+		download?: boolean
+		fullSize?: boolean
+		disableAi?: boolean
+		triggerNode?: boolean
+		workspace?: string
+		editMode?: boolean
+		allowSimplifiedPoll?: boolean
+		expandedSubflows?: Record<string, FlowModule[]>
+		onDelete?: (id: string) => void
+		onInsert?: (detail: {
+			sourceId?: string
+			targetId?: string
+			branch?: { rootId: string; branch: number }
+			index: number
+			detail: string
+			isPreprocessor?: boolean
+			inlineScript?: InlineScript
+			script?: { path: string; summary: string; hash: string | undefined }
+			flow?: { path: string; summary: string }
+			kind: InsertKind
+		}) => Promise<void>
+		onNewBranch?: (id: string) => Promise<void>
+		onSelect?: (id: string | FlowModule) => void
+		onDeleteBranch?: (detail: { id: string; index: number }) => Promise<void>
+		onChangeId?: (detail: { id: string; newId: string; deps: Record<string, string[]> }) => void
+		onMove?: (id: string) => void
+		onUpdateMock?: (detail: { mock: FlowModule['mock']; id: string }) => void
+		onTestUpTo?: ((id: string) => void) | undefined
+		onSelectedIteration?: onSelectedIteration
+		onEditInput?: (moduleId: string, key: string) => void
+	}
 
-	export let expandedSubflows: Record<string, FlowModule[]> = {}
+	let {
+		onInsert = undefined,
+		onDelete = undefined,
+		onMove = undefined,
+		onDeleteBranch = undefined,
+		onNewBranch = undefined,
+		onSelect = undefined,
+		onChangeId = undefined,
+
+		onUpdateMock = undefined,
+		onSelectedIteration = undefined,
+		success = undefined,
+		modules = [],
+		failureModule = undefined,
+		preprocessorModule = undefined,
+		minHeight = 0,
+		maxHeight = undefined,
+		notSelectable = false,
+		flowModuleStates = undefined,
+		selectedId = writable<string | undefined>(undefined),
+		path = undefined,
+		newFlow = false,
+		insertable = false,
+		earlyStop = false,
+		cache = false,
+		scroll = false,
+		moving = undefined,
+		download = false,
+		fullSize = false,
+		disableAi = false,
+		triggerNode = false,
+		workspace = $workspaceStore ?? 'NO_WORKSPACE',
+		editMode = false,
+		allowSimplifiedPoll = true,
+		expandedSubflows = $bindable({}),
+		onTestUpTo = undefined,
+		onEditInput = undefined
+	}: Props = $props()
+
+	setContext<{
+		selectedId: Writable<string | undefined>
+		useDataflow: Writable<boolean | undefined>
+	}>('FlowGraphContext', { selectedId, useDataflow })
 
 	if (triggerContext && allowSimplifiedPoll) {
 		if (isSimplifiable(modules)) {
@@ -116,13 +177,16 @@
 	function onModulesChange(modules: FlowModule[]) {
 		computeSimplifiableFlow(
 			modules,
-			triggerContext?.simplifiedPoll ? get(triggerContext.simplifiedPoll) ?? false : false
+			triggerContext?.simplifiedPoll ? (get(triggerContext.simplifiedPoll) ?? false) : false
 		)
 	}
 
-	$: allowSimplifiedPoll && onModulesChange(modules ?? [])
-
-	function layoutNodes(nodes: Node[]): Node[] {
+	let lastNodes: [NodeLayout[], Node[]] | undefined = undefined
+	function layoutNodes(nodes: NodeLayout[]): Node[] {
+		let lastResult = lastNodes?.[1]
+		if (lastResult && deepEqual(nodes, lastNodes?.[0])) {
+			return lastResult
+		}
 		let seenId: string[] = []
 		for (const n of nodes) {
 			if (seenId.includes(n.id)) {
@@ -131,81 +195,98 @@
 			seenId.push(n.id)
 		}
 
-		const flattenParentIds = nodes.map((n) => ({
-			...n,
-			parentIds: n.data?.parentIds ?? []
-		})) as any
+		let nodeWidths: Record<string, number> = {}
+		const nodes2 = nodes.map((n) => {
+			return { ...n, position: { x: 0, y: 0 } }
+		})
+		for (const n of nodes.reverse()) {
+			const endId = n.id + '-end'
 
-		const stratify = dagStratify().id(({ id }: Node) => id)
-		const dag = stratify(flattenParentIds)
+			if (nodeWidths[endId] != undefined) {
+				nodeWidths[n.id] = Math.max(nodeWidths[n.id] ?? 0, nodeWidths[endId])
+			}
+			if (n.parentIds && n.parentIds?.length == 1) {
+				const parent = n.parentIds[0]
+				const nodeWidth = nodeWidths[n.id] ?? 1
+				nodeWidths[parent] = (nodeWidths[parent] ?? 0) + nodeWidth
+			}
+		}
+
+		const dag = dagStratify().id(({ id }: Node) => id)(nodes2)
 
 		let boxSize: any
 		try {
 			const layout = sugiyama()
-				.decross(decrossOpt())
+				.decross(nodes.length > 20 ? decrossTwoLayer() : decrossOpt())
 				.coord(coordCenter())
-				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
-			boxSize = layout(dag)
+				.nodeSize((d) => {
+					return [
+						(nodeWidths[d?.data?.['id'] ?? ''] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
+						NODE.height + NODE.gap.vertical
+					] as readonly [number, number]
+				})
+			boxSize = layout(dag as any)
 		} catch {
 			const layout = sugiyama()
+				.decross(decrossTwoLayer())
 				.coord(coordCenter())
 				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
-			boxSize = layout(dag)
+			boxSize = layout(dag as any)
 		}
 
+		const yOffset = insertable ? 100 : 0
 		const newNodes = dag.descendants().map((des) => ({
 			...des.data,
 			id: des.data.id,
 			position: {
 				x: des.x
 					? // @ts-ignore
-					  (des.data.data.offset ?? 0) +
-					  // @ts-ignore
-					  des.x +
-					  (fullSize ? fullWidth : width) / 2 -
-					  boxSize.width / 2 -
-					  NODE.width / 2 -
-					  (width - fullWidth) / 2
+						(des.data.data.offset ?? 0) +
+						// @ts-ignore
+						des.x +
+						(fullSize ? fullWidth : width) / 2 -
+						boxSize.width / 2 -
+						NODE.width / 2 -
+						(width - fullWidth) / 2
 					: 0,
-				y: des.y || 0
+				y: (des.y || 0) + yOffset
 			}
 		}))
 
+		lastNodes = [nodes, newNodes]
 		return newNodes
 	}
 
 	let eventHandler = {
 		deleteBranch: (detail, label) => {
 			$selectedId = label
-			dispatch('deleteBranch', detail)
+			onDeleteBranch?.(detail)
 		},
 		insert: (detail) => {
-			dispatch('insert', detail)
+			onInsert?.(detail)
 		},
 		select: (modId) => {
 			if (!notSelectable) {
 				if ($selectedId != modId) {
 					$selectedId = modId
 				}
-				dispatch('select', modId)
+				onSelect?.(modId)
 			}
 		},
 		changeId: (detail) => {
-			dispatch('changeId', detail)
+			onChangeId?.(detail)
 		},
-		delete: (detail, label) => {
-			$selectedId = label
-
-			dispatch('delete', detail)
+		delete: (detail) => {
+			onDelete?.(detail.id)
 		},
-		newBranch: (module) => {
-			dispatch('newBranch', { module })
+		newBranch: (id) => {
+			onNewBranch?.(id)
 		},
-		move: (module, modules) => {
-			dispatch('move', { module, modules })
+		move: (detail) => {
+			onMove?.(detail.id)
 		},
-		selectedIteration: (detail, moduleId) => {
-			dispatch('selectedIteration', { ...detail, moduleId: moduleId })
+		selectedIteration: (detail) => {
+			onSelectedIteration?.(detail)
 		},
 		simplifyFlow: (detail) => {
 			triggerContext?.simplifiedPoll.set(detail)
@@ -218,48 +299,32 @@
 		minimizeSubflow: (id: string) => {
 			delete expandedSubflows[id]
 			expandedSubflows = expandedSubflows
+		},
+		updateMock: (detail) => {
+			onUpdateMock?.(detail)
+		},
+		testUpTo: (id: string) => {
+			onTestUpTo?.(id)
+		},
+		editInput: (moduleId: string, key: string) => {
+			onEditInput?.(moduleId, key)
 		}
 	}
 
-	let lastModules = structuredClone(modules)
-	let newModules = modules
-	$: modules && onModulesChange2(modules)
-
+	let lastModules = structuredClone($state.snapshot(modules))
+	let moduleCounter = $state(0)
 	function onModulesChange2(modules) {
 		if (!deepEqual(modules, lastModules)) {
-			lastModules = structuredClone(modules)
-			newModules = modules
+			console.log('modules changed', modules)
+			lastModules = structuredClone($state.snapshot(modules))
+			moduleCounter++
 		}
 	}
 
-	$: graph = graphBuilder(
-		newModules,
-		{
-			disableAi,
-			insertable,
-			flowModuleStates,
-			selectedId: $selectedId,
-			path,
-			newFlow,
-			cache,
-			earlyStop
-		},
-		failureModule,
-		preprocessorModule,
-		eventHandler,
-		success,
-		$useDataflow,
-		$selectedId,
-		moving,
-		simplifiableFlow,
-		triggerNode ? path : undefined,
-		expandedSubflows
-	)
+	let nodes = $state.raw<Node[]>([])
+	let edges = $state.raw<Edge[]>([])
 
-	const nodes = writable<Node[]>([])
-	const edges = writable<Edge[]>([])
-
-	let height = 0
+	let height = $state(0)
 
 	function isSimplifiable(modules: FlowModule[] | undefined): boolean {
 		if (!modules || modules?.length !== 2) {
@@ -279,13 +344,11 @@
 		}
 		let newGraph = graph
 
-		$nodes = layoutNodes(newGraph.nodes)
-		$edges = newGraph.edges
+		nodes = layoutNodes(newGraph.nodes)
+		edges = newGraph.edges
 		await tick()
-		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
+		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
 	}
-
-	$: (graph || allowSimplifiedPoll) && updateStores()
 
 	const nodeTypes = {
 		input2: InputNode,
@@ -313,42 +376,82 @@
 
 	const proOptions = { hideAttribution: true }
 
-	$: showDataflow =
+	// onMount(() => {
+	// 	centerViewport(width)
+	// })
+	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
+
+	$effect(() => {
+		allowSimplifiedPoll && modules && untrack(() => onModulesChange(modules ?? []))
+	})
+	$effect(() => {
+		modules && untrack(() => onModulesChange2(modules))
+	})
+	let graph = $derived.by(() => {
+		moduleCounter
+		return graphBuilder(
+			untrack(() => modules),
+			{
+				disableAi,
+				insertable,
+				flowModuleStates,
+				selectedId: $selectedId,
+				path,
+				newFlow,
+				cache,
+				earlyStop,
+				editMode
+			},
+			failureModule,
+			preprocessorModule,
+			eventHandler,
+			success,
+			$useDataflow,
+			$selectedId,
+			moving,
+			simplifiableFlow,
+			triggerNode ? path : undefined,
+			expandedSubflows
+		)
+	})
+	$effect(() => {
+		;(graph || allowSimplifiedPoll) && untrack(() => updateStores())
+	})
+	let showDataflow = $derived(
 		$selectedId != undefined &&
-		!$selectedId.startsWith('constants') &&
-		!$selectedId.startsWith('settings') &&
-		$selectedId !== 'failure' &&
-		$selectedId !== 'preprocessor' &&
-		$selectedId !== 'Result' &&
-		$selectedId !== 'triggers'
-
-	const viewport = writable<Viewport>({
-		x: 0,
-		y: 35,
-		zoom: 1
+			!$selectedId.startsWith('constants') &&
+			!$selectedId.startsWith('settings') &&
+			$selectedId !== 'failure' &&
+			$selectedId !== 'preprocessor' &&
+			$selectedId !== 'Result' &&
+			$selectedId !== 'triggers'
+	)
+	let debouncedWidth: number | undefined = $state(undefined)
+	let timeout: NodeJS.Timeout | undefined = $state(undefined)
+	$effect(() => {
+		if (!debouncedWidth) {
+			return
+		}
+		if (untrack(() => width) == undefined) {
+			width = debouncedWidth
+			return
+		}
+		if (untrack(() => timeout)) {
+			clearTimeout(untrack(() => timeout))
+		}
+		timeout = setTimeout(() => {
+			if (debouncedWidth && untrack(() => width) != debouncedWidth) {
+				width = debouncedWidth
+			}
+		}, 10)
 	})
-
-	function centerViewport(width: number) {
-		viewport.update((vp) => ({
-			...vp,
-			x: (width - fullWidth) / 2,
-			y: vp.y
-		}))
-	}
-
-	$: width && centerViewport(width)
-
-	onMount(() => {
-		centerViewport(width)
-	})
-	let yamlEditorDrawer: Drawer | undefined = undefined
 </script>
 
 {#if insertable}
 	<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 {/if}
 
-<div style={`height: ${height}px; max-height: ${maxHeight}px;`} bind:clientWidth={width}>
+<div style={`height: ${height}px; max-height: ${maxHeight}px;`} bind:clientWidth={debouncedWidth}>
 	{#if graph?.error}
 		<div class="center-center p-2">
 			<Alert title="Error parsing the flow" type="error" class="max-w-1/2">
@@ -363,70 +466,74 @@
 			</Alert>
 		</div>
 	{:else}
-		<SvelteFlow
-			on:paneclick={(e) => {
-				document.dispatchEvent(new Event('focus'))
-			}}
-			{nodes}
-			{edges}
-			{edgeTypes}
-			{nodeTypes}
-			{viewport}
-			{height}
-			minZoom={0.5}
-			connectionLineType={ConnectionLineType.SmoothStep}
-			defaultEdgeOptions={{ type: 'smoothstep' }}
-			preventScrolling={scroll}
-			zoomOnDoubleClick={false}
-			elementsSelectable={false}
-			{proOptions}
-			nodesDraggable={false}
-			--background-color={false}
-		>
-			<div class="absolute inset-0 !bg-surface-secondary" />
-			<Controls position="top-right" orientation="horizontal" showLock={false}>
-				{#if download}
-					<ControlButton
-						on:click={() => {
-							try {
-								localStorage.setItem(
-									'svelvet',
-									encodeState({ modules, failureModule, preprocessorModule })
-								)
-							} catch (e) {
-								console.error('error interacting with local storage', e)
-							}
-							window.open('/view_graph', '_blank')
-						}}
-						class="!bg-surface"
-					>
-						<Expand size="14" />
-					</ControlButton>
-				{/if}
-			</Controls>
-
-			<Controls
-				position="top-left"
-				orientation="horizontal"
-				showLock={false}
-				showZoom={false}
-				showFitView={false}
-				class="!shadow-none"
+		<SvelteFlowProvider>
+			<ViewportResizer {width} />
+			<SvelteFlow
+				onpaneclick={(e) => {
+					document.dispatchEvent(new Event('focus'))
+				}}
+				{nodes}
+				{edges}
+				{edgeTypes}
+				{nodeTypes}
+				{height}
+				{width}
+				minZoom={0.2}
+				maxZoom={1.2}
+				connectionLineType={ConnectionLineType.SmoothStep}
+				defaultEdgeOptions={{ type: 'smoothstep' }}
+				preventScrolling={scroll}
+				zoomOnDoubleClick={false}
+				elementsSelectable={false}
+				{proOptions}
+				nodesDraggable={false}
+				--background-color={false}
 			>
-				{#if showDataflow}
-					<Toggle
-						value={$useDataflow}
-						on:change={() => {
-							$useDataflow = !$useDataflow
-						}}
-						size="xs"
-						options={{
-							right: 'Dataflow'
-						}}
-					/>
-				{/if}
-			</Controls>
-		</SvelteFlow>
+				<div class="absolute inset-0 !bg-surface-secondary"></div>
+				<Controls position="top-right" orientation="horizontal" showLock={false}>
+					{#if download}
+						<ControlButton
+							onclick={() => {
+								try {
+									localStorage.setItem(
+										'svelvet',
+										encodeState({ modules, failureModule, preprocessorModule })
+									)
+								} catch (e) {
+									console.error('error interacting with local storage', e)
+								}
+								window.open('/view_graph', '_blank')
+							}}
+							class="!bg-surface"
+						>
+							<Expand size="14" />
+						</ControlButton>
+					{/if}
+				</Controls>
+
+				<Controls
+					position="top-left"
+					orientation="horizontal"
+					showLock={false}
+					showZoom={false}
+					showFitView={false}
+					class="!shadow-none"
+				>
+					{#if showDataflow}
+						<Toggle
+							value={$useDataflow}
+							on:change={() => {
+								$useDataflow = !$useDataflow
+							}}
+							size="xs"
+							options={{
+								right: 'Dataflow'
+							}}
+						/>
+					{/if}
+				</Controls>
+			</SvelteFlow>
+		</SvelteFlowProvider>
 	{/if}
 </div>
 

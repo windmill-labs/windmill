@@ -1,8 +1,10 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import type { Schema } from '$lib/common'
 	import { ResourceService, type Resource, type ResourceType } from '$lib/gen'
 	import { canWrite, emptyString, isOwner, urlize } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { Alert, Skeleton } from './common'
 	import Path from './Path.svelte'
 	import Required from './Required.svelte'
@@ -18,44 +20,51 @@
 	import autosize from '$lib/autosize'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import TestTriggerConnection from './triggers/TestTriggerConnection.svelte'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
 
-	export let canSave = true
-	export let resource_type: string | undefined = undefined
-	export let path: string = ''
-	export let newResource: boolean = false
-	export let hidePath: boolean = false
-	export let watchChanges: boolean = false
-	export let defaultValues: Record<string, any> | undefined = undefined
-
-	$: if (defaultValues && Object.keys(defaultValues).length > 0) {
-		args = defaultValues
+	interface Props {
+		canSave?: boolean
+		resource_type?: string | undefined
+		path?: string
+		newResource?: boolean
+		hidePath?: boolean
+		watchChanges?: boolean
+		defaultValues?: Record<string, any> | undefined
 	}
 
-	let isValid = true
-	let jsonError = ''
-	let can_write = true
+	let {
+		canSave = $bindable(true),
+		resource_type = $bindable(undefined),
+		path = $bindable(''),
+		newResource = false,
+		hidePath = false,
+		watchChanges = false,
+		defaultValues = undefined
+	}: Props = $props()
 
-	$: canSave = can_write && isValid && jsonError == ''
+	let isValid = $state(true)
+	let jsonError = $state('')
+	let can_write = $state(true)
 
 	let initialPath = path
 
-	let resourceToEdit: Resource | undefined = undefined
+	let resourceToEdit: Resource | undefined = $state(undefined)
 
-	let description: string = ''
+	let description: string = $state('')
 	let DESCRIPTION_PLACEHOLDER = `Describe what this resource is for`
-	let resourceSchema: Schema | undefined = undefined
-	let args: Record<string, any> = {}
-	let loadingSchema = true
-	let linkedVars: string[] = []
-	let resourceTypeInfo: ResourceType | undefined = undefined
-	let editDescription = false
-	let viewJsonSchema = false
+	let resourceSchema: Schema | undefined = $state(undefined)
+	let args: Record<string, any> = $state({})
+	let loadingSchema = $state(true)
+	let linkedVars: string[] = $state([])
+	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
+	let editDescription = $state(false)
+	let viewJsonSchema = $state(false)
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
-	$: watchChanges && dispatch('change', { path, args, description })
-
-	let rawCode: string | undefined = undefined
+	let rawCode: string | undefined = $state(undefined)
 
 	async function initEdit() {
 		resourceToEdit = await ResourceService.getResource({ workspace: $workspaceStore!, path })
@@ -78,9 +87,6 @@
 	} else {
 		sendUserToast('Resource type cannot be undefined for new resource creation', true)
 	}
-
-	$: rawCode && parseJson()
-	$: linkedVars.length > 0 && path && updateArgsFromLinkedVars()
 
 	export async function editResource(): Promise<void> {
 		if (resourceToEdit) {
@@ -116,6 +122,8 @@
 				resourceTypeInfo = resourceType
 				if (resourceType.schema) {
 					resourceSchema = resourceType.schema as Schema
+					resourceSchema.order =
+						resourceSchema.order ?? Object.keys(resourceSchema.properties).sort()
 				}
 				if (resourceTypeInfo?.format_extension) {
 					textFileContent = args.content
@@ -146,8 +154,7 @@
 		})
 	}
 
-	let textFileContent: string = ''
-	$: textFileContent && parseTextFileContent()
+	let textFileContent: string = $state('')
 
 	function switchTab(asJson: boolean) {
 		viewJsonSchema = asJson
@@ -166,6 +173,26 @@
 			content: textFileContent
 		}
 	}
+	run(() => {
+		if (defaultValues && Object.keys(defaultValues).length > 0) {
+			args = defaultValues
+		}
+	})
+	run(() => {
+		canSave = can_write && isValid && jsonError == ''
+	})
+	run(() => {
+		watchChanges && dispatchIfMounted('change', { path, args, description })
+	})
+	run(() => {
+		rawCode && untrack(() => parseJson())
+	})
+	run(() => {
+		linkedVars.length > 0 && path && untrack(() => updateArgsFromLinkedVars())
+	})
+	run(() => {
+		textFileContent && untrack(() => parseTextFileContent())
+	})
 </script>
 
 <div>
@@ -212,30 +239,44 @@
 					use:autosize
 					bind:value={description}
 					placeholder={DESCRIPTION_PLACEHOLDER}
-				/>
+				></textarea>
 			</div>
 		{:else if description == undefined || description == ''}
 			<div class="text-sm text-tertiary">No description provided</div>
 		{:else}
-			<div class="mt-2" />
+			<div class="mt-2"></div>
 
 			<GfmMarkdown md={description} />
 		{/if}
-		<div class="flex w-full justify-between items-center mt-4">
-			<div />
-			{#if resourceToEdit?.resource_type === 'nats' || resourceToEdit?.resource_type === 'kafka'}
-				<TestTriggerConnection kind={resourceToEdit?.resource_type} args={{ connection: args }} />
-			{:else}
-				<TestConnection resourceType={resourceToEdit?.resource_type} {args} />
-			{/if}
+		<div class="w-full flex gap-4 flex-row-reverse items-center mt-4">
 			<Toggle
 				on:change={(e) => switchTab(e.detail)}
 				options={{
 					right: 'As JSON'
 				}}
 			/>
+			{#if resourceToEdit?.resource_type === 'nats' || resourceToEdit?.resource_type === 'kafka'}
+				<TestTriggerConnection kind={resourceToEdit?.resource_type} args={{ connection: args }} />
+			{:else}
+				<TestConnection resourceType={resourceToEdit?.resource_type} {args} />
+			{/if}
+			{#if resource_type === 'git_repository' && $workspaceStore && $userStore?.is_admin}
+				<GitHubAppIntegration
+					resourceType={resource_type}
+					{args}
+					{description}
+					onArgsUpdate={(newArgs) => {
+						args = newArgs
+						// Update rawCode if in JSON view mode
+						if (viewJsonSchema) {
+							rawCode = JSON.stringify(args, null, 2)
+						}
+					}}
+					onDescriptionUpdate={(newDescription) => (description = newDescription)}
+				/>
+			{/if}
 		</div>
-		<div class="text-sm">
+		<div>
 			{#if loadingSchema}
 				<Skeleton layout={[[4]]} />
 			{:else if !viewJsonSchema && resourceSchema && resourceSchema?.properties}
@@ -275,7 +316,7 @@
 
 				{#if !emptyString(jsonError)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
 						>{jsonError}</span
-					>{:else}<div class="py-2" />{/if}
+					>{:else}<div class="py-2"></div>{/if}
 				<div class="h-full w-full border p-1 rounded">
 					<SimpleEditor
 						autoHeight

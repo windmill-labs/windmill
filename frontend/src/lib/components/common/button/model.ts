@@ -10,6 +10,7 @@ export namespace ButtonType {
 		icon?: any | undefined
 		classes?: string
 		faIcon?: any | undefined
+		props?: any
 	}
 
 	export const FontSizeClasses: Record<ButtonType.Size, string> = {
@@ -90,7 +91,7 @@ export namespace ButtonType {
 			border:
 				'border-red-600/60 hover:border-red-600 bg-surface hover:bg-red-100 text-red-600 hover:text-red-700 focus-visible:ring-red-300 dark:border-red-400/90 dark:text-red-400 dark:hover:border-red-400 dark:hover:bg-red-500/60 dark:hover:text-red-100',
 			contained:
-				'bg-red-600 hover:bg-red-600 text-white focus-visible:ring-red-300  dark:border-red-400/70 dark:bg-red-700/90 dark:hover:bg-red-900 dark:hover:border-red-300 dark:text-primary',
+				'bg-red-600 hover:bg-red-800 text-white focus-visible:ring-red-300  dark:border-red-400/70 dark:bg-red-700/90 dark:hover:bg-red-900 dark:hover:border-red-300 dark:text-primary',
 			divider: 'divide-x divide-red-700'
 		},
 		green: {

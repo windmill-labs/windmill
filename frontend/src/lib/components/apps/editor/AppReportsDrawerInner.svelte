@@ -24,45 +24,54 @@
 	import { CUSTOM_TAGS_SETTING, WORKSPACE_SLACK_BOT_TOKEN_PATH } from '$lib/consts'
 	import { loadSchemaFromPath } from '$lib/infer'
 	import { hubPaths } from '$lib/hub'
-	export let appPath: string
-	export let open = false
+	import { untrack } from 'svelte'
+	interface Props {
+		appPath: string
+		open?: boolean
+	}
 
-	let appReportingEnabled = false
-	let appReportingStartupDuration = 5
+	let { appPath, open = $bindable(false) }: Props = $props()
+
+	let appReportingEnabled = $state(false)
+	let appReportingStartupDuration = $state(5)
 	let appReportingSchedule: {
 		cron: string
 		timezone: string
-	} = {
+	} = $state({
 		cron: '0 0 12 * *',
 		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-	}
-	let selectedTab: 'email' | 'slack' | 'discord' | 'custom' = $enterpriseLicense
-		? 'slack'
-		: 'custom'
+	})
+	let selectedTab: 'email' | 'slack' | 'discord' | 'custom' = $state(
+		$enterpriseLicense ? 'slack' : 'custom'
+	)
 
-	let screenshotKind: 'pdf' | 'png' = 'pdf'
+	let screenshotKind: 'pdf' | 'png' = $state('pdf')
 
-	let customPath: string | undefined = undefined
-	let customPathSchema: Record<string, any> = {}
-	let args: Record<string, any> = {}
-	let areArgsValid = true
+	let customPath: string | undefined = $state(undefined)
+	let customPathSchema: Record<string, any> = $state({})
+	let args: Record<string, any> = $state({})
+	let areArgsValid = $state(true)
+	let customWidth: null | number = $state(1200)
+	let customHeight: null | number = $state(null)
 
-	$: customPath
-		? loadSchemaFromPath(customPath).then((schema) => {
-				customPathSchema = schema
-					? {
-							...schema,
-							properties: Object.fromEntries(
-								Object.entries(schema.properties ?? {}).filter(
-									([key, _]) => key !== 'screenshot' && key !== 'app_path' && key !== 'kind'
+	$effect(() => {
+		customPath
+			? loadSchemaFromPath(customPath).then((schema) => {
+					customPathSchema = schema
+						? {
+								...schema,
+								properties: Object.fromEntries(
+									Object.entries(schema.properties ?? {}).filter(
+										([key, _]) => key !== 'screenshot' && key !== 'app_path' && key !== 'kind'
+									)
 								)
-							)
-					  }
-					: {}
-		  })
-		: (customPathSchema = {})
+							}
+						: {}
+				})
+			: (customPathSchema = {})
+	})
 
-	let isSlackConnectedWorkspace = false
+	let isSlackConnectedWorkspace = $state(false)
 	async function getWorspaceSlackSetting() {
 		const settings = await WorkspaceService.getSettings({
 			workspace: $workspaceStore!
@@ -101,21 +110,24 @@
 					? flow.value.modules[1].value.path === notificationScripts.email.path
 						? 'email'
 						: flow.value.modules[1].value.path === notificationScripts.slack.path
-						? 'slack'
-						: flow.value.modules[1].value.path === notificationScripts.discord.path
-						? 'discord'
-						: 'custom'
+							? 'slack'
+							: flow.value.modules[1].value.path === notificationScripts.discord.path
+								? 'discord'
+								: 'custom'
 					: 'custom'
+
+			if (schedule.args?.customWidth) customWidth = schedule.args?.customWidth as number
+			if (schedule.args?.customHeight) customHeight = schedule.args?.customHeight as number
 
 			const nargs = schedule.args
 				? Object.fromEntries(
 						Object.entries(schedule.args).filter(
 							([key, _]) => key !== 'app_path' && key !== 'startup_duration' && key !== 'kind'
 						)
-				  )
+					)
 				: {}
 			setTimeout(() => {
-				args = structuredClone(nargs)
+				args = structuredClone($state.snapshot(nargs))
 			})
 
 			customPath =
@@ -129,7 +141,9 @@
 		} catch (err) {}
 	}
 
-	$: appPath && getAppReportingInfo()
+	$effect(() => {
+		appPath && untrack(() => getAppReportingInfo())
+	})
 
 	async function disableAppReporting() {
 		const flowPath = appPath + '_reports'
@@ -147,7 +161,13 @@
 
 	const appPreviewScript = `import puppeteer from 'puppeteer-core';
 import dayjs from 'dayjs';
-export async function main(app_path: string, startup_duration = 5, kind: 'pdf' | 'png' = 'pdf') {
+export async function main(
+  app_path: string,
+  startup_duration = 5,
+  kind: 'pdf' | 'png' = 'pdf',
+  customWidth: null | number,
+  customHeight: null | number,
+) {
   let browser = null
   try {
   browser = await puppeteer.launch({ headless: true, executablePath: '/usr/bin/chromium', args: ['--no-sandbox',
@@ -168,27 +188,31 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
   await page.setViewport({ width: 1200, height: 2000 });
   await page.goto(Bun.env["BASE_URL"] + '/apps/get/' + app_path + '?workspace=' + Bun.env["WM_WORKSPACE"] + "&hideRefreshBar=true&hideEditBtn=true");
 	await page.waitForSelector("#app-content", { timeout: 20000 })
+  
+  const elem = await page.$('#app-content');
+  let width: null | number = customWidth || 1200
+  let height: null | number = customHeight || (await elem.boundingBox()).height
+  await page.setViewport({ width, height });
   await new Promise((resolve, _) => {
 		setTimeout(resolve, startup_duration * 1000)
   })
-  await page.$eval("#sidebar", el => el.remove())
+  try {
+    await page.$eval("#sidebar", el => el.remove())
+  } catch {}
   await page.$eval("#content", el => el.classList.remove("md:pl-12"))
-	await page.$$eval(".app-component-refresh-btn", els => els.forEach(el => el.remove()))
-	await page.$$eval(".app-table-footer-btn", els => els.forEach(el => el.remove()))
-  const elem = await page.$('#app-content');
-  const { height } = await elem.boundingBox();
-  await page.setViewport({ width: 1200, height });
-  await new Promise((resolve, _) => {
-		setTimeout(resolve, 500)
-  })
+  await page.$$eval(".app-component-refresh-btn", els => els.forEach(el => el.remove()))
+  await page.$$eval(".app-table-footer-btn", els => els.forEach(el => el.remove()))
+
+  await new Promise((resolve, _) => setTimeout(resolve, 500))
+  
   const screenshot = kind === "pdf" ? await page.pdf({
 		printBackground: true,
-		width: 1200,
+		width,
 		height
   }) : await page.screenshot({
 		fullPage: true,
 		type: "png",
-    captureBeyondViewport: false
+    	captureBeyondViewport: false
 	});
 	await browser.close();
 	return Buffer.from(screenshot).toString('base64');
@@ -261,11 +285,13 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 			app_path: appPath,
 			startup_duration: appReportingStartupDuration,
 			kind: screenshotKind,
+			customWidth,
+			customHeight,
 			...args,
 			...(selectedTab === 'slack'
 				? {
 						slack: '$res:' + WORKSPACE_SLACK_BOT_TOKEN_PATH
-				  }
+					}
 				: {})
 		}
 	}
@@ -289,6 +315,14 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 				type: 'javascript',
 				expr: 'flow_input.kind'
 			},
+			customWidth: {
+				type: 'javascript',
+				expr: 'flow_input.customWidth'
+			},
+			customHeight: {
+				type: 'javascript',
+				expr: 'flow_input.customHeight'
+			},
 			...Object.fromEntries(
 				Object.keys(args).map((key) => [
 					key,
@@ -304,7 +338,7 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 							type: 'javascript',
 							expr: 'flow_input.slack'
 						}
-				  }
+					}
 				: {})
 		}
 
@@ -328,6 +362,14 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 							},
 							kind: {
 								expr: 'flow_input.kind',
+								type: 'javascript' as const
+							},
+							customWidth: {
+								expr: 'flow_input.customWidth',
+								type: 'javascript' as const
+							},
+							customHeight: {
+								expr: 'flow_input.customHeight',
 								type: 'javascript' as const
 							}
 						}
@@ -399,6 +441,18 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 							default: 'pdf',
 							format: ''
 						},
+						customWidth: {
+							description: '',
+							type: 'integer',
+							format: '',
+							default: 1200
+						},
+						customHeight: {
+							description: '',
+							type: 'integer',
+							format: '',
+							default: 1200
+						},
 						...(selectedTab === 'custom'
 							? customPathSchema.properties
 							: notificationScripts[selectedTab].schema.properties),
@@ -411,7 +465,7 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 										properties: {},
 										required: []
 									}
-							  }
+								}
 							: {})
 					},
 					required: [
@@ -451,7 +505,7 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 		appReportingEnabled = true
 	}
 
-	let testLoading = false
+	let testLoading = $state(false)
 	async function testReport() {
 		try {
 			testLoading = true
@@ -500,12 +554,14 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 		}
 	}
 
-	let disabled = true
-	$: disabled =
-		emptyString(appReportingSchedule.cron) ||
-		(selectedTab === 'custom' && emptyString(customPath)) ||
-		(selectedTab === 'slack' && !isSlackConnectedWorkspace) ||
-		!areArgsValid
+	let disabled = $state(true)
+	$effect(() => {
+		disabled =
+			emptyString(appReportingSchedule.cron) ||
+			(selectedTab === 'custom' && emptyString(customPath)) ||
+			(selectedTab === 'slack' && !isSlackConnectedWorkspace) ||
+			!areArgsValid
+	})
 </script>
 
 <DrawerContent
@@ -513,7 +569,8 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 	title="Schedule Reports"
 	tooltip="Send a PDF or PNG preview of any app at a given schedule"
 	documentationLink="https://www.windmill.dev/docs/apps/schedule_reports"
-	><svelte:fragment slot="actions">
+>
+	{#snippet actions()}
 		<div class="mr-4 center-center">
 			<Toggle
 				checked={appReportingEnabled}
@@ -542,7 +599,7 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 		>
 			{appReportingEnabled ? 'Update' : 'Save and enable'}
 		</Button>
-	</svelte:fragment>
+	{/snippet}
 	<div class="flex flex-col gap-8">
 		<Alert type="info" title="Scheduled PDF/PNG reports"
 			>Send a PDF or PNG preview of the app at a given schedule. Enabling this feature will create a
@@ -579,8 +636,22 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 					<option value="pdf">PDF</option>
 					<option value="png">PNG</option>
 				</select>
-			</div></Section
-		>
+			</div>
+		</Section>
+
+		<Section label="Custom resolution" collapsable>
+			<div class="flex gap-4 w-52">
+				<input
+					type="number"
+					class="text-sm"
+					bind:value={customWidth}
+					placeholder="auto"
+					min="768"
+				/>
+				x
+				<input type="number" class="text-sm" bind:value={customHeight} placeholder="auto" min="0" />
+			</div>
+		</Section>
 
 		<Section label="Notification">
 			<Tabs bind:selected={selectedTab}>

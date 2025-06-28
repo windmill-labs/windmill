@@ -26,9 +26,16 @@
 
 	const selectedNodeId = writable<string | undefined>(undefined)
 
+	const { debounced: debouncedNodes } = debounce(() => {
+		nodes = nodes
+		renderCount++
+	}, 300)
+
 	$: selectedNode = nodes?.find((node) => node.id == $selectedNodeId)
 
 	setContext('DecisionTreeEditor', { selectedNodeId })
+
+	$: sortedSelectedNextNodes = selectedNode?.next.sort((n1, n2) => n1.id.localeCompare(n2.id))
 </script>
 
 <Drawer bind:this={drawer} on:close={() => {}} on:open={() => {}} size="1200px">
@@ -40,6 +47,7 @@
 	>
 		<Splitpanes>
 			<Pane size={60}>
+				{renderCount}
 				<div class="w-full h-full" bind:clientWidth={paneWidth} bind:clientHeight={paneHeight}>
 					{#if paneWidth && paneHeight}
 						<DecisionTreePreview
@@ -47,7 +55,7 @@
 							bind:component
 							{paneHeight}
 							{paneWidth}
-							on:render={() => {
+							onrender={() => {
 								renderCount++
 							}}
 						/>
@@ -55,7 +63,14 @@
 				</div>
 			</Pane>
 			<Pane size={40}>
-				<div class="h-full w-full bg-surface p-4 flex flex-col gap-6">
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="h-full w-full bg-surface p-4 flex flex-col gap-6"
+					on:keydown={(e) => {
+						// Prevent keyboard events from bubbling to SvelteFlow
+						e.stopPropagation()
+					}}
+				>
 					{#if selectedNode}
 						<Section label="Conditions" class="w-full flex flex-col gap-2">
 							<svelte:fragment slot="action">
@@ -85,17 +100,17 @@
 									class="input input-primary input-bordered"
 									bind:value={selectedNode.label}
 									on:input={() => {
-										debounce(() => {
-											renderCount++
-										}, 300)()
+										debouncedNodes()
+									}}
+									on:keydown={(e) => {
+										// Prevent keyboard events from bubbling to SvelteFlow
+										e.stopPropagation()
 									}}
 								/>
 							</Label>
 
-							{#if selectedNode.next.length > 1}
-								{#each selectedNode.next.sort((n1, n2) => {
-									return n1.id.localeCompare(n2.id)
-								}) as subNode, index (subNode.id)}
+							{#if selectedNode.next.length > 1 && sortedSelectedNextNodes}
+								{#each sortedSelectedNextNodes as subNode, index (subNode.id)}
 									{#if subNode.condition}
 										<div class="flex flex-row gap-4 items-center w-full justify-center">
 											<div class="grow relative">

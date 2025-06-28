@@ -10,7 +10,7 @@
 	export let runnable: HiddenRunnable
 	export let id: string
 
-	const { runnableComponents, app } = getContext<AppViewerContext>('AppViewerContext')
+	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
 	function updateAutoRefresh() {
 		const autoRefresh = runnable.autoRefresh
@@ -21,8 +21,6 @@
 			}
 		}
 	}
-
-	$: runnable && ($app = $app)
 </script>
 
 <div class={'border-y divide-y '}>

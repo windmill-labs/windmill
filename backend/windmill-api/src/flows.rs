@@ -12,7 +12,7 @@ use crate::db::ApiAuthed;
 use crate::triggers::{
     get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
 };
-use crate::utils::{RunnableKind, WithStarredInfoQuery};
+use crate::utils::WithStarredInfoQuery;
 use crate::{
     db::DB,
     schedule::clear_schedule,
@@ -31,10 +31,10 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::utils::query_elems_from_hub;
-use windmill_common::worker::to_raw_value;
+use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
@@ -43,7 +43,7 @@ use windmill_common::{
     jobs::JobPayload,
     schedule::Schedule,
     scripts::Schema,
-    utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, StripPath},
+    utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, RunnableKind, StripPath},
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, schedule::push_scheduled_job, PushIsolationLevel};
@@ -336,10 +336,10 @@ async fn list_paths_from_workspace_runnable(
     let mut tx = user_db.begin(&authed).await?;
     let runnables = sqlx::query_scalar!(
         r#"SELECT f.path
-            FROM flow_workspace_runnables fwr 
-            JOIN flow f 
-                ON fwr.flow_path = f.path AND fwr.workspace_id = f.workspace_id
-            WHERE fwr.runnable_path = $1 AND fwr.runnable_is_flow = $2 AND fwr.workspace_id = $3"#,
+            FROM workspace_runnable_dependencies wru 
+            JOIN flow f
+                ON wru.flow_path = f.path AND wru.workspace_id = f.workspace_id
+            WHERE wru.runnable_path = $1 AND wru.runnable_is_flow = $2 AND wru.workspace_id = $3"#,
         path.to_path(),
         matches!(runnable_kind, RunnableKind::Flow),
         w_id
@@ -358,6 +358,32 @@ async fn create_flow(
     Path(w_id): Path<String>,
     Json(nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
+    if *CLOUD_HOSTED {
+        let nb_flows =
+            sqlx::query_scalar!("SELECT COUNT(*) FROM flow WHERE workspace_id = $1", &w_id)
+                .fetch_one(&db)
+                .await?;
+        if nb_flows.unwrap_or(0) >= 1000 {
+            return Err(Error::BadRequest(
+                    "You have reached the maximum number of flows (1000) on cloud. Contact support@windmill.dev to increase the limit"
+                        .to_string(),
+                ));
+        }
+        if nf.summary.len() > 300 {
+            return Err(Error::BadRequest(
+                "Summary must be less than 300 characters on cloud".to_string(),
+            ));
+        }
+        if nf
+            .description
+            .as_ref()
+            .is_some_and(|desc| desc.len() > 3000)
+        {
+            return Err(Error::BadRequest(
+                "Description must be less than 3000 characters on cloud".to_string(),
+            ));
+        }
+    }
     #[cfg(not(feature = "enterprise"))]
     if nf
         .value
@@ -477,7 +503,7 @@ async fn create_flow(
         false,
         None,
         true,
-        nf.tag,
+        None,
         None,
         None,
         None,
@@ -1183,12 +1209,18 @@ async fn archive_flow_by_path(
     Ok(format!("Flow {path} archived"))
 }
 
+#[derive(Deserialize)]
+struct DeleteFlowQuery {
+    keep_captures: Option<bool>,
+}
+
 async fn delete_flow_by_path(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<DeleteFlowQuery>,
 ) -> Result<String> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
@@ -1209,21 +1241,23 @@ async fn delete_flow_by_path(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query!(
-        "DELETE FROM capture_config WHERE path = $1 AND workspace_id = $2 AND is_flow IS TRUE",
-        path,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
+    if !query.keep_captures.unwrap_or(false) {
+        sqlx::query!(
+            "DELETE FROM capture_config WHERE path = $1 AND workspace_id = $2 AND is_flow IS TRUE",
+            path,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
 
-    sqlx::query!(
-        "DELETE FROM capture WHERE path = $1 AND workspace_id = $2 AND is_flow IS TRUE",
-        path,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
+        sqlx::query!(
+            "DELETE FROM capture WHERE path = $1 AND workspace_id = $2 AND is_flow IS TRUE",
+            path,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,
@@ -1337,7 +1371,7 @@ mod tests {
                     }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "foo = 'bar'".to_string(),
-                        skip_if_stopped: false,
+                        ..Default::default()
                     }),
                     stop_after_all_iters_if: None,
                     summary: None,
@@ -1366,7 +1400,7 @@ mod tests {
                     }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "previous.isEmpty()".to_string(),
-                        skip_if_stopped: false,
+                        ..Default::default()
                     }),
                     stop_after_all_iters_if: None,
                     summary: None,
@@ -1394,7 +1428,7 @@ mod tests {
                 .into(),
                 stop_after_if: Some(StopAfterIf {
                     expr: "previous.isEmpty()".to_string(),
-                    skip_if_stopped: false,
+                    ..Default::default()
                 }),
                 stop_after_all_iters_if: None,
                 summary: None,
@@ -1444,7 +1478,8 @@ mod tests {
               },
               "stop_after_if": {
                   "expr": "foo = 'bar'",
-                  "skip_if_stopped": false
+                  "skip_if_stopped": false,
+                  "error_message": null
               }
             },
             {
@@ -1466,6 +1501,7 @@ mod tests {
               "stop_after_if": {
                   "expr": "previous.isEmpty()",
                   "skip_if_stopped": false,
+                  "error_message": null
               }
             }
           ],
@@ -1478,7 +1514,8 @@ mod tests {
             },
             "stop_after_if": {
                 "expr": "previous.isEmpty()",
-                "skip_if_stopped": false
+                "skip_if_stopped": false,
+                "error_message": null
             }
           },
         });

@@ -29,12 +29,36 @@ use wasm_bindgen::prelude::*;
 
 struct ImportsFinder {
     imports: HashSet<String>,
+    skip_type_only: bool,
 }
 
 impl Visit for ImportsFinder {
     noop_visit_type!();
 
     fn visit_import_decl(&mut self, n: &swc_ecma_ast::ImportDecl) {
+        if self.skip_type_only {
+            if n.type_only {
+                return;
+            }
+            if n.specifiers.len() > 0 {
+                let mut is_type_only = true;
+
+                for specifier in n.specifiers.iter() {
+                    match specifier {
+                        swc_ecma_ast::ImportSpecifier::Named(
+                            swc_ecma_ast::ImportNamedSpecifier { is_type_only, .. },
+                        ) if *is_type_only => (),
+                        _ => {
+                            is_type_only = false;
+                            break;
+                        }
+                    }
+                }
+                if is_type_only {
+                    return;
+                }
+            }
+        }
         if let Some(ref s) = n.src.raw {
             let s = s.to_string();
             if s.starts_with("'") && s.ends_with("'") {
@@ -46,11 +70,15 @@ impl Visit for ImportsFinder {
     }
 }
 
-pub fn parse_expr_for_imports(code: &str) -> anyhow::Result<Vec<String>> {
+pub fn parse_expr_for_imports(code: &str, skip_type_only: bool) -> anyhow::Result<Vec<String>> {
     let cm: Lrc<SourceMap> = Default::default();
     let fm = cm.new_source_file(FileName::Custom("main.d.ts".into()).into(), code.into());
+    let mut tss = TsSyntax::default();
+    tss.disallow_ambiguous_jsx_like;
+    tss.tsx = true;
+    tss.no_early_errors = true;
     let lexer = Lexer::new(
-        Syntax::Typescript(TsSyntax::default()),
+        Syntax::Typescript(tss),
         // EsVersion defaults to es5
         Default::default(),
         StringInput::from(&*fm),
@@ -68,7 +96,7 @@ pub fn parse_expr_for_imports(code: &str) -> anyhow::Result<Vec<String>> {
         anyhow::anyhow!("Error while parsing code, it is invalid TypeScript: {err_s}, {e:?}")
     })?;
 
-    let mut visitor = ImportsFinder { imports: HashSet::new() };
+    let mut visitor = ImportsFinder { imports: HashSet::new(), skip_type_only };
     visitor.visit_module(&expr);
 
     let mut imports: Vec<_> = visitor.imports.into_iter().collect();
@@ -131,6 +159,8 @@ pub fn parse_expr_for_ids(code: &str) -> anyhow::Result<Vec<(String, String)>> {
     Ok(visitor.idents.into_iter().collect())
 }
 
+/// skip_params is a micro optimization for when we just want to find the main
+/// function without parsing all the params.
 pub fn parse_deno_signature(
     code: &str,
     skip_dflt: bool,
@@ -312,7 +342,7 @@ lazy_static::lazy_static! {
 }
 
 pub fn remove_pinned_imports(code: &str) -> anyhow::Result<String> {
-    let mut imports = parse_expr_for_imports(code)?;
+    let mut imports = parse_expr_for_imports(code, false)?;
     imports.sort_by_key(|f| 0 - (f.len() as i32));
     let mut content = code.to_string();
     for import in imports {
@@ -500,7 +530,7 @@ fn one_of_label(members: &Vec<TsTypeElement>) -> Option<String> {
         let Expr::Ident(Ident { sym, .. }) = &**key else {
             return None;
         };
-        if sym != "label" {
+        if sym != "label" && sym != "kind" {
             return None;
         }
 

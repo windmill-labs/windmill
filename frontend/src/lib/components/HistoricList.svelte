@@ -1,35 +1,55 @@
 <script lang="ts">
 	import { InputService, type RunnableType } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import InfiniteList from './InfiniteList.svelte'
 	import JobSchemaPicker from './schema/JobSchemaPicker.svelte'
 
-	export let runnableId: string | undefined
-	export let runnableType: RunnableType | undefined
-	export let selected: string | undefined = undefined
-	export let showAuthor = false
-	export let placement: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end' = 'bottom-start'
-	export let limitPayloadSize = false
+	interface Props {
+		runnableId: string | undefined
+		runnableType: RunnableType | undefined
+		selected?: string | undefined
+		showAuthor?: boolean
+		placement?: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end'
+		limitPayloadSize?: boolean
+		searchArgs?: Record<string, any> | undefined
+	}
 
-	let infiniteList: InfiniteList | undefined = undefined
+	let {
+		runnableId,
+		runnableType,
+		selected = undefined,
+		showAuthor = false,
+		placement = 'bottom-start',
+		limitPayloadSize = false,
+		searchArgs = undefined
+	}: Props = $props()
+
+	let infiniteList: InfiniteList | undefined = $state(undefined)
 	let loadInputsPageFn: ((page: number, perPage: number) => Promise<any>) | undefined = undefined
-	let viewerOpen = false
+	let viewerOpen = $state(false)
 	let openStates: Record<string, boolean> = {} // Track open state for each item
 
-	export function refresh() {
+	export async function refresh(clearCurrentRuns: boolean = false) {
+		if (clearCurrentRuns) {
+			infiniteList?.reset()
+		}
 		if (infiniteList) {
-			infiniteList.loadData('refresh')
+			await infiniteList.loadData('refresh')
 		}
 	}
 	let cachedArgs: Record<string, any> = {}
 
-	let interval: NodeJS.Timeout | undefined = undefined
-	function initLoadInputs() {
-		interval && clearInterval(interval)
-		interval = setInterval(() => {
-			refresh()
+	let timeout: NodeJS.Timeout | undefined = undefined
+	function refreshInterval() {
+		timeout && clearTimeout(timeout)
+		timeout = setTimeout(async () => {
+			await refresh()
+			refreshInterval()
 		}, 10000)
+	}
+	function initLoadInputs() {
+		refreshInterval()
 		loadInputsPageFn = async (page: number, perPage: number) => {
 			const inputs = await InputService.getInputHistory({
 				workspace: $workspaceStore!,
@@ -37,7 +57,8 @@
 				runnableType,
 				page,
 				perPage,
-				includePreview: true
+				includePreview: true,
+				args: searchArgs ? JSON.stringify(searchArgs) : undefined
 			})
 
 			const inputsWithPayload = await Promise.all(
@@ -69,7 +90,7 @@
 	}
 
 	onDestroy(() => {
-		interval && clearInterval(interval)
+		timeout && clearTimeout(timeout)
 	})
 
 	async function loadArgsFromHistory(
@@ -92,18 +113,20 @@
 		viewerOpen = Object.values(openStates).some((state) => state)
 	}
 
-	$: $workspaceStore && runnableId && runnableType && infiniteList && initLoadInputs()
+	$effect(() => {
+		$workspaceStore && runnableId && runnableType && infiniteList && untrack(() => initLoadInputs())
+	})
 </script>
 
 <InfiniteList bind:this={infiniteList} selectedItemId={selected} on:error on:select>
-	<svelte:fragment slot="columns">
+	{#snippet columns()}
 		<colgroup>
 			<col class="w-8" />
 			<col class="w-16" />
 			<col />
 		</colgroup>
-	</svelte:fragment>
-	<svelte:fragment let:item let:hover>
+	{/snippet}
+	{#snippet children({ item, hover })}
 		<JobSchemaPicker
 			job={item}
 			hovering={hover}
@@ -116,10 +139,10 @@
 			}}
 			{limitPayloadSize}
 		/>
-	</svelte:fragment>
-	<svelte:fragment slot="empty">
+	{/snippet}
+	{#snippet empty()}
 		<div class="text-center text-tertiary text-xs py-2">
 			{runnableId ? 'No previous inputs' : 'Save draft to see previous runs'}
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </InfiniteList>

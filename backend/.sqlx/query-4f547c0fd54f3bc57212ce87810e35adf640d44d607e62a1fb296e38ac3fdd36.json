@@ -1,0 +1,87 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT \n            id, \n            created_at, \n            trigger_kind AS \"trigger_kind: _\",\n            CASE \n                WHEN pg_column_size(main_args) < 40000 THEN main_args \n                ELSE '\"WINDMILL_TOO_BIG\"'::jsonb \n            END AS \"main_args!: _\",\n            CASE\n                WHEN pg_column_size(preprocessor_args) < 40000 THEN preprocessor_args\n                ELSE '\"WINDMILL_TOO_BIG\"'::jsonb\n            END AS \"preprocessor_args: _\"\n        FROM \n            capture\n        WHERE \n            workspace_id = $1 \n            AND path = $2 \n            AND is_flow = $3 \n            AND ($4::trigger_kind IS NULL OR trigger_kind = $4)\n        ORDER BY \n            created_at DESC\n        OFFSET $5\n        LIMIT $6\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "trigger_kind: _",
+        "type_info": {
+          "Custom": {
+            "name": "trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email",
+                "nats",
+                "postgres",
+                "sqs",
+                "mqtt",
+                "gcp"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "main_args!: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "preprocessor_args: _",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Bool",
+        {
+          "Custom": {
+            "name": "trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email",
+                "nats",
+                "postgres",
+                "sqs",
+                "mqtt",
+                "gcp"
+              ]
+            }
+          }
+        },
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "4f547c0fd54f3bc57212ce87810e35adf640d44d607e62a1fb296e38ac3fdd36"
+}

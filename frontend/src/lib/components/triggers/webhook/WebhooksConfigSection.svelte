@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import Label from '../../Label.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -21,20 +23,26 @@
 	import { workspaceStore, userStore } from '$lib/stores'
 	import UserSettings from '../../UserSettings.svelte'
 	import { generateRandomString } from '$lib/utils'
-	import CopyableCodeBlock from '../../details/CopyableCodeBlock.svelte'
-	import CaptureSection, { type CaptureInfo } from '../CaptureSection.svelte'
-	import CaptureTable from '../CaptureTable.svelte'
 
-	export let isFlow: boolean = false
-	export let path: string = ''
-	export let hash: string | undefined = undefined
-	export let token: string = ''
-	export let runnableArgs: any
-	export let triggerTokens: TriggerTokens | undefined = undefined
-	export let scopes: string[] = []
-	export let showCapture: boolean = false
-	export let captureTable: CaptureTable | undefined = undefined
-	export let captureInfo: CaptureInfo | undefined = undefined
+	interface Props {
+		isFlow?: boolean
+		path?: string
+		hash?: string | undefined
+		token?: string
+		runnableArgs: any
+		triggerTokens?: TriggerTokens | undefined
+		scopes?: string[]
+	}
+
+	let {
+		isFlow = false,
+		path = '',
+		hash = undefined,
+		token = $bindable(''),
+		runnableArgs,
+		triggerTokens = $bindable(undefined),
+		scopes = []
+	}: Props = $props()
 
 	let webhooks: {
 		async: {
@@ -46,12 +54,10 @@
 			path: string
 			get_path?: string
 		}
-	}
-	let selectedTab: string = 'rest'
-	let userSettings: UserSettings
-	let url: string = ''
-
-	$: webhooks = isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path)
+	} = $derived(isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path))
+	let selectedTab: string = $state('rest')
+	let userSettings: UserSettings | undefined = $state()
+	let url: string = $state('')
 
 	function computeScriptWebhooks(hash: string | undefined, path: string) {
 		let webhookBase = `${location.origin}${base}/api/w/${$workspaceStore}/jobs`
@@ -84,13 +90,9 @@
 		}
 	}
 
-	let webhookType: 'async' | 'sync' = DEFAULT_WEBHOOK_TYPE
-	let requestType: 'hash' | 'path' | 'get_path' = isFlow ? 'path' : 'path'
-	let tokenType: 'query' | 'headers' = 'headers'
-
-	$: if (webhookType === 'async' && requestType === 'get_path') {
-		requestType = hash ? 'hash' : 'path'
-	}
+	let webhookType: 'async' | 'sync' = $state(DEFAULT_WEBHOOK_TYPE)
+	let requestType: 'hash' | 'path' | 'get_path' = $state(isFlow ? 'path' : 'path')
+	let tokenType: 'query' | 'headers' = $state('headers')
 
 	function headers() {
 		const headers = {}
@@ -103,11 +105,6 @@
 		}
 		return headers
 	}
-
-	$: cleanedRunnableArgs =
-		isObject(runnableArgs) && 'wm_trigger' in runnableArgs
-			? Object.fromEntries(Object.entries(runnableArgs).filter(([key]) => key !== 'wm_trigger'))
-			: runnableArgs
 
 	function fetchCode() {
 		if (webhookType === 'sync') {
@@ -126,15 +123,15 @@ async function triggerJob() {
 					cleanedRunnableArgs ?? {},
 					null,
 					2
-			  ).replaceAll('\n', '\n\t')});`
+				).replaceAll('\n', '\n\t')});`
 	}
   const endpoint = \`${url}\`;
 
   return await fetch(endpoint, {
     method: '${requestType === 'get_path' ? 'GET' : 'POST'}',
     headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t')}${
-				requestType === 'get_path' ? '' : `,\n\t\tbody`
-			}
+			requestType === 'get_path' ? '' : `,\n\t\tbody`
+		}
   });
 }`
 		}
@@ -198,17 +195,6 @@ function waitForJobCompletion(UUID) {
 		return `${mainFunction}\n\n${triggerJobFunction}\n\n${waitForJobCompletionFunction}`
 	}
 
-	let captureUrl = `${location.origin}/api/w/${$workspaceStore}/capture_u/webhook/${
-		isFlow ? 'flow' : 'script'
-	}/${path}`
-
-	function captureCurlCode() {
-		return `curl \\
--X POST ${captureUrl} \\
--H 'Content-Type: application/json' \\
--d '${JSON.stringify(cleanedRunnableArgs ?? {}, null, 2)}'`
-	}
-
 	function curlCode() {
 		return `TOKEN='${token}'
 ${requestType !== 'get_path' ? `BODY='${JSON.stringify(cleanedRunnableArgs ?? {})}'` : ''}
@@ -237,19 +223,31 @@ done`
 }`
 	}
 
-	$: url =
-		webhooks[webhookType][requestType] +
-		(tokenType === 'query'
-			? `?token=${token}${
-					requestType === 'get_path'
-						? `&payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
-						: ''
-			  }`
-			: `${
-					requestType === 'get_path'
-						? `?payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
-						: ''
-			  }`)
+	run(() => {
+		if (webhookType === 'async' && requestType === 'get_path') {
+			requestType = hash ? 'hash' : 'path'
+		}
+	})
+	let cleanedRunnableArgs = $derived(
+		isObject(runnableArgs) && 'wm_trigger' in runnableArgs
+			? Object.fromEntries(Object.entries(runnableArgs).filter(([key]) => key !== 'wm_trigger'))
+			: runnableArgs
+	)
+	run(() => {
+		url =
+			webhooks[webhookType][requestType] +
+			(tokenType === 'query'
+				? `?token=${token}${
+						requestType === 'get_path'
+							? `&payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
+							: ''
+					}`
+				: `${
+						requestType === 'get_path'
+							? `?payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
+							: ''
+					}`)
+	})
 </script>
 
 <UserSettings
@@ -263,58 +261,36 @@ done`
 	{scopes}
 />
 
-<div>
-	{#if showCapture && captureInfo}
-		<CaptureSection
-			{captureInfo}
-			disabled={false}
-			on:captureToggle
-			captureType="webhook"
-			bind:captureTable
-			on:applyArgs
-			on:updateSchema
-			on:addPreprocessor
-			on:testWithArgs
-		>
-			<Label label="URL">
-				<ClipboardPanel content={captureUrl} disabled={!captureInfo.active} />
-			</Label>
-
-			<Label label="Example cURL">
-				<CopyableCodeBlock
-					code={captureCurlCode()}
-					language={bash}
-					disabled={!captureInfo.active}
+<div class="flex flex-col gap-8">
+	{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
+		<Label label="Token">
+			<div class="flex flex-row justify-between gap-2">
+				<input
+					bind:value={token}
+					placeholder="paste your token here once created to alter examples below"
+					class="!text-xs !font-normal"
 				/>
-			</Label>
-		</CaptureSection>
+				<Button
+					size="xs"
+					color="light"
+					variant="border"
+					on:click={() => userSettings?.openDrawer()}
+				>
+					Create a Webhook-specific Token
+					<Tooltip light>
+						The token will have a scope such that it can only be used to trigger this script. It is
+						safe to share as it cannot be used to impersonate you.
+					</Tooltip>
+				</Button>
+			</div>
+		</Label>
 	{/if}
 
-	<div class="flex flex-col gap-8">
-		{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
-			<Label label="Token">
-				<div class="flex flex-row justify-between gap-2">
-					<input
-						bind:value={token}
-						placeholder="paste your token here once created to alter examples below"
-						class="!text-xs !font-normal"
-					/>
-					<Button size="xs" color="light" variant="border" on:click={userSettings.openDrawer}>
-						Create a Webhook-specific Token
-						<Tooltip light>
-							The token will have a scope such that it can only be used to trigger this script. It
-							is safe to share as it cannot be used to impersonate you.
-						</Tooltip>
-					</Button>
-				</div>
-			</Label>
-		{/if}
-
-		<div class="flex flex-col gap-2">
-			<div class="flex flex-row justify-between">
-				<div class="text-sm font-normal text-secondary flex flex-row items-center">Request type</div
-				>
-				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={webhookType} let:item>
+	<div class="flex flex-col gap-2">
+		<div class="flex flex-row justify-between">
+			<div class="text-sm font-normal text-secondary flex flex-row items-center">Request type</div>
+			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={webhookType}>
+				{#snippet children({ item })}
 					<ToggleButton
 						label="Async"
 						value="async"
@@ -327,11 +303,13 @@ done`
 						tooltip="Triggers the execution, wait for the job to complete and return it as a response."
 						{item}
 					/>
-				</ToggleButtonGroup>
-			</div>
-			<div class="flex flex-row justify-between">
-				<div class="text-sm font-normal text-secondary flex flex-row items-center">Call method</div>
-				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType} let:item>
+				{/snippet}
+			</ToggleButtonGroup>
+		</div>
+		<div class="flex flex-row justify-between">
+			<div class="text-sm font-normal text-secondary flex flex-row items-center">Call method</div>
+			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType}>
+				{#snippet children({ item })}
 					<ToggleButton
 						label="POST by path"
 						value="path"
@@ -358,95 +336,98 @@ done`
 						{item}
 						selectedColor="#14b8a6"
 					/>
-				</ToggleButtonGroup>
-			</div>
-			<div class="flex flex-row justify-between">
-				<div class="text-sm font-normal text-secondary flex flex-row items-center"
-					>Token configuration</div
-				>
-				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType} let:item>
+				{/snippet}
+			</ToggleButtonGroup>
+		</div>
+		<div class="flex flex-row justify-between">
+			<div class="text-sm font-normal text-secondary flex flex-row items-center"
+				>Token configuration</div
+			>
+			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType}>
+				{#snippet children({ item })}
 					<ToggleButton label="Token in Headers" value="headers" {item} />
 					<ToggleButton label="Token in Query" value="query" {item} />
-				</ToggleButtonGroup>
-			</div>
+				{/snippet}
+			</ToggleButtonGroup>
 		</div>
-		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<div>
-			<Tabs bind:selected={selectedTab}>
-				<Tab value="rest" size="xs">REST</Tab>
-				{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
-					<Tab value="curl" size="xs">Curl</Tab>
-				{/if}
-				<Tab value="fetch" size="xs">Fetch</Tab>
+	</div>
 
-				<svelte:fragment slot="content">
-					{#key token}
-						<TabContent value="rest" class="flex flex-col flex-1 h-full ">
-							<div class="flex flex-col gap-2">
-								<Label label="Url">
-									<ClipboardPanel content={url} />
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div>
+		<Tabs bind:selected={selectedTab}>
+			<Tab value="rest" size="xs">REST</Tab>
+			{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
+				<Tab value="curl" size="xs">Curl</Tab>
+			{/if}
+			<Tab value="fetch" size="xs">Fetch</Tab>
+
+			{#snippet content()}
+				{#key token}
+					<TabContent value="rest" class="flex flex-col flex-1 h-full ">
+						<div class="flex flex-col gap-2">
+							<Label label="Url">
+								<ClipboardPanel content={url} />
+							</Label>
+
+							{#if requestType !== 'get_path'}
+								<Label label="Body">
+									<ClipboardPanel content={JSON.stringify(cleanedRunnableArgs ?? {}, null, 2)} />
 								</Label>
-
-								{#if requestType !== 'get_path'}
-									<Label label="Body">
-										<ClipboardPanel content={JSON.stringify(cleanedRunnableArgs ?? {}, null, 2)} />
+							{/if}
+							{#key requestType}
+								{#key tokenType}
+									<Label label="Headers">
+										<ClipboardPanel content={JSON.stringify(headers(), null, 2)} />
 									</Label>
-								{/if}
-								{#key requestType}
-									{#key tokenType}
-										<Label label="Headers">
-											<ClipboardPanel content={JSON.stringify(headers(), null, 2)} />
-										</Label>
-									{/key}
 								{/key}
-							</div>
-						</TabContent>
-						<TabContent value="curl" class="flex flex-col flex-1 h-full">
-							<div class="relative">
-								{#key runnableArgs}
-									{#key requestType}
-										{#key webhookType}
-											{#key tokenType}
-												<div
-													class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
-													on:click={(e) => {
-														e.preventDefault()
-														copyToClipboard(curlCode())
-													}}
-												>
-													<Highlight language={bash} code={curlCode()} />
-													<Clipboard size={14} class="w-8 top-2 right-2 absolute" />
-												</div>
-											{/key}
-										{/key}
-									{/key}
-								{/key}
-							</div>
-						</TabContent>
-						<TabContent value="fetch">
+							{/key}
+						</div>
+					</TabContent>
+					<TabContent value="curl" class="flex flex-col flex-1 h-full">
+						<div class="relative">
 							{#key runnableArgs}
 								{#key requestType}
 									{#key webhookType}
 										{#key tokenType}
-											{#key token}
-												<div
-													class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
-													on:click={(e) => {
-														e.preventDefault()
-														copyToClipboard(fetchCode())
-													}}
-												>
-													<Highlight language={typescript} code={fetchCode()} />
-													<Clipboard size={14} class="w-8 top-2 right-2 absolute" />
-												</div>
-											{/key}{/key}{/key}{/key}
+											<div
+												class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
+												onclick={(e) => {
+													e.preventDefault()
+													copyToClipboard(curlCode())
+												}}
+											>
+												<Highlight language={bash} code={curlCode()} />
+												<Clipboard size={14} class="w-8 top-2 right-2 absolute" />
+											</div>
+										{/key}
+									{/key}
+								{/key}
 							{/key}
-						</TabContent>
-					{/key}
-				</svelte:fragment>
-			</Tabs>
-		</div>
-		<TriggerTokens bind:this={triggerTokens} {isFlow} {path} labelPrefix="webhook" />
+						</div>
+					</TabContent>
+					<TabContent value="fetch">
+						{#key runnableArgs}
+							{#key requestType}
+								{#key webhookType}
+									{#key tokenType}
+										{#key token}
+											<div
+												class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
+												onclick={(e) => {
+													e.preventDefault()
+													copyToClipboard(fetchCode())
+												}}
+											>
+												<Highlight language={typescript} code={fetchCode()} />
+												<Clipboard size={14} class="w-8 top-2 right-2 absolute" />
+											</div>
+										{/key}{/key}{/key}{/key}
+						{/key}
+					</TabContent>
+				{/key}
+			{/snippet}
+		</Tabs>
 	</div>
+	<TriggerTokens bind:this={triggerTokens} {isFlow} {path} labelPrefix="webhook" />
 </div>

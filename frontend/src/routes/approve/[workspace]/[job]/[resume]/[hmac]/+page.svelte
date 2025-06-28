@@ -7,7 +7,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
-	import { onDestroy, onMount } from 'svelte'
+	import { onDestroy, onMount, untrack } from 'svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
@@ -18,31 +18,25 @@
 	import { getUserExt } from '$lib/user'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
+	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
 
 	$workspaceStore = $page.params.workspace
 	let rd = $page.url.href.replace($page.url.origin, '')
 
-	let job: Job | undefined = undefined
-	let currentApprovers: { resume_id: number; approver: string }[] = []
+	let job: Job | undefined = $state(undefined)
+	let currentApprovers: { resume_id: number; approver: string }[] = $state([])
 	let approver = $page.url.searchParams.get('approver') ?? undefined
 
-	let completed: boolean = false
-	$: completed = job?.type == 'CompletedJob'
-	$: alreadyResumed = currentApprovers
-		.map((x) => x.resume_id)
-		.includes(new Number($page.params.resume).valueOf())
+	let completed: boolean = $state(false)
 
-	let dynamicSchema: any = {}
+	let dynamicSchema: any = $state({})
 
-	$: approvalStep = (job?.flow_status?.step ?? 1) - 1
-	$: schema = job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? dynamicSchema
 	let timeout: NodeJS.Timeout | undefined = undefined
-	let error: string | undefined = undefined
-	let default_payload: any = {}
-	let enum_payload: object = {}
-	let description: any = undefined
+	let error: string | undefined = $state(undefined)
+	let default_payload: any = $state({})
+	let enum_payload: object = $state({})
+	let description: any = $state(undefined)
 
 	setLicense()
 
@@ -72,10 +66,9 @@
 		timeout && clearInterval(timeout)
 	})
 
-	let argsFetched = false
-	$: job && !argsFetched && getDefaultArgs()
+	let argsFetched = $state(false)
 
-	let valid = true
+	let valid = $state(true)
 	async function getDefaultArgs() {
 		argsFetched = true
 		let jobId = job?.flow_status?.modules?.[approvalStep]?.job
@@ -106,7 +99,7 @@
 			signature: $page.params.hmac,
 			approver
 		})
-		job = suspendedJobFlow.job
+		job = suspendedJobFlow.job as Job
 		currentApprovers = suspendedJobFlow.approvers
 	}
 
@@ -140,11 +133,25 @@
 		userStore.set(await getUserExt($page.params.workspace))
 	}
 
-	$: if (job?.raw_flow?.modules?.[approvalStep]?.suspend?.user_auth_required && !$userStore) {
-		loadUser()
-	}
-
-	let scheduleEditor: ScheduleEditor
+	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
+	$effect(() => {
+		completed = job?.type == 'CompletedJob'
+	})
+	let alreadyResumed = $derived(
+		currentApprovers.map((x) => x.resume_id).includes(new Number($page.params.resume).valueOf())
+	)
+	let approvalStep = $derived.by(() => (job?.flow_status?.step ?? 1) - 1)
+	let schema = $derived.by(
+		() => job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? dynamicSchema
+	)
+	$effect(() => {
+		job && !argsFetched && untrack(() => getDefaultArgs())
+	})
+	$effect(() => {
+		if (job?.raw_flow?.modules?.[approvalStep]?.suspend?.user_auth_required && !$userStore) {
+			untrack(() => loadUser())
+		}
+	})
 </script>
 
 <ScheduleEditor bind:this={scheduleEditor} />
@@ -254,7 +261,7 @@
 						disabled={completed || alreadyResumed}>Deny</Button
 					>
 				{:else}
-					<div />
+					<div></div>
 				{/if}
 
 				<Button
@@ -266,7 +273,7 @@
 				>
 			</div>
 		{/if}
-		{#if !completed && !alreadyResumed && job?.raw_flow?.modules?.[approvalStep]?.suspend?.user_auth_required && job?.raw_flow?.modules?.[approvalStep]?.suspend?.self_approval_disabled && $userStore && $userStore.email === job.email && $userStore.is_admin}
+		{#if !completed && !alreadyResumed && job?.raw_flow?.modules?.[approvalStep]?.suspend?.user_auth_required && job?.raw_flow?.modules?.[approvalStep]?.suspend?.self_approval_disabled && $userStore && $userStore.email === job.email && ($userStore.is_admin || $userStore.is_super_admin)}
 			<div class="mt-2">
 				<Alert type="warning" title="Warning">
 					As an administrator, by resuming or cancelling this stage of the flow, you bypass the

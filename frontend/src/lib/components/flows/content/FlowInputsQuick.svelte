@@ -6,16 +6,14 @@
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import { defaultScripts, enterpriseLicense, userStore } from '$lib/stores'
 	import type { SupportedLanguage } from '$lib/common'
-	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import PickHubScriptQuick from '../pickers/PickHubScriptQuick.svelte'
-	import { type Script, type FlowModule } from '$lib/gen'
+	import { type Script, type ScriptLang, type HubScriptKind } from '$lib/gen'
 	import ListFiltersQuick from '$lib/components/home/ListFiltersQuick.svelte'
 	import { Folder, User } from 'lucide-svelte'
-	import type { FlowCopilotContext, FlowCopilotModule } from '../../copilot/flow'
 	import type { FlowEditorContext } from '../../flows/types'
 	import { copilotInfo } from '$lib/stores'
-	import { nextId } from '../../flows/flowModuleNextId'
 	import { twMerge } from 'tailwind-merge'
 	import { fade } from 'svelte/transition'
 	import { flip } from 'svelte/animate'
@@ -28,44 +26,58 @@
 
 	const dispatch = createEventDispatcher()
 
-	export let summary: string | undefined = undefined
-	export let filter = ''
-	export let disableAi = false
-	export let preFilter: 'all' | 'workspace' | 'hub' = 'hub'
-	export let funcDesc: string
-	export let index: number
-	export let modules: FlowModule[]
-	export let owners: string[] = []
-	export let loading = false
-	export let small = false
-	export let kind: 'trigger' | 'script' | 'preprocessor' | 'failure' | 'approval'
-	export let selectedKind: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure' =
-		kind
-	export let displayPath = false
+	interface Props {
+		summary?: string | undefined
+		filter?: string
+		disableAi?: boolean
+		preFilter?: 'all' | 'workspace' | 'hub'
+		funcDesc: string
+		owners?: string[]
+		loading?: boolean
+		small?: boolean
+		kind: 'trigger' | 'script' | 'preprocessor' | 'failure' | 'approval'
+		selectedKind?: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
+		displayPath?: boolean
+	}
 
-	let lang: FlowCopilotModule['lang'] = undefined
-	let selectedCompletion: FlowCopilotModule['selectedCompletion'] = undefined
+	let {
+		summary = undefined,
+		filter = $bindable(''),
+		disableAi = false,
+		preFilter = 'hub',
+		funcDesc,
+		owners = $bindable([]),
+		loading = $bindable(false),
+		small = false,
+		kind,
+		selectedKind = kind,
+		displayPath = false
+	}: Props = $props()
 
-	let filteredWorkspaceItems: (Script & { marked?: string })[] = []
+	type HubCompletion = {
+		path: string
+		summary: string
+		id: number
+		version_id: number
+		ask_id: number
+		app: string
+		kind: HubScriptKind
+	}
 
-	let hubCompletions: FlowCopilotModule['hubCompletions'] = []
+	let lang: ScriptLang | undefined = $state(undefined)
 
-	const { flowStore, flowStateStore, insertButtonOpen } =
-		getContext<FlowEditorContext>('FlowEditorContext')
-	const { modulesStore: copilotModulesStore, genFlow } =
-		getContext<FlowCopilotContext>('FlowCopilotContext')
+	let filteredWorkspaceItems: (Script & { marked?: string })[] = $state([])
 
-	let selected: { kind: 'owner' | 'integrations'; name: string | undefined } | undefined = undefined
+	let hubCompletions: HubCompletion[] = $state([])
 
-	let integrations: string[] = []
+	const { insertButtonOpen } = getContext<FlowEditorContext>('FlowEditorContext')
+
+	let selected: { kind: 'owner' | 'integrations'; name: string | undefined } | undefined =
+		$state(undefined)
+
+	let integrations: string[] = $state([])
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
-
-	$: langs = processLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
-		.map((l) => [defaultScriptLanguages[l], l])
-		.filter(
-			(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1])
-		) as [string, SupportedLanguage | 'docker'][]
 
 	function displayLang(
 		lang: SupportedLanguage | 'docker',
@@ -87,35 +99,29 @@
 	}
 
 	async function onGenerate() {
-		if (!selectedCompletion && !$copilotInfo.exists_ai_resource) {
+		if (!$copilotInfo.enabled) {
 			sendUserToast(
 				'Windmill AI is not enabled, you can activate it in the workspace settings',
 				true
 			)
 			return
 		}
-		$copilotModulesStore = [
-			{
-				id: nextId($flowStateStore, $flowStore),
-				type: selectedKind == 'trigger' ? 'trigger' : 'script',
-				description: funcDesc,
-				code: '',
-				source: selectedCompletion ? 'hub' : 'custom',
-				hubCompletions,
-				selectedCompletion,
-				editor: undefined,
-				lang
+		console.log('ongenerate', selectedKind, lang, funcDesc)
+		dispatch('new', {
+			kind: selectedKind,
+			inlineScript: {
+				language: lang,
+				kind: selectedKind,
+				subkind: 'flow',
+				summary,
+				instructions: funcDesc
 			}
-		]
-		genFlow?.(index, modules, true)
-		dispatch('close')
+		})
 	}
 
-	let openScriptSettings = false
+	let openScriptSettings = $state(false)
 
-	let selectedByKeyboard = 0
-
-	$: onSelectedKindChange(selectedKind)
+	let selectedByKeyboard = $state(0)
 
 	function onSelectedKindChange(
 		_selectedKind: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
@@ -123,7 +129,7 @@
 		selectedByKeyboard = 0
 	}
 
-	let inlineScripts: [string, SupportedLanguage | 'docker'][] = []
+	let inlineScripts: [string, SupportedLanguage | 'docker'][] = $state([])
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql', 'oracledb']
 
@@ -155,7 +161,7 @@
 		['Branch to one', 'branchone'],
 		['Branch to all', 'branchall']
 	]
-	let topLevelNodes: [string, string][] = []
+	let topLevelNodes: [string, string][] = $state([])
 	function computeToplevelNodeChoices(funcDesc: string, preFilter: 'all' | 'workspace' | 'hub') {
 		if (funcDesc.length > 0 && preFilter == 'all' && kind == 'script') {
 			topLevelNodes = allToplevelNodes.filter((node) =>
@@ -166,10 +172,6 @@
 		}
 	}
 
-	$: computeToplevelNodeChoices(funcDesc, preFilter)
-	$: computeInlineScriptChoices(funcDesc, selected, preFilter, selectedKind)
-	$: onPrefilterChange(preFilter)
-
 	function onPrefilterChange(preFilter: 'all' | 'workspace' | 'hub') {
 		if (preFilter == 'workspace') {
 			hubCompletions = []
@@ -179,10 +181,7 @@
 		selectedByKeyboard = 0
 	}
 
-	$: aiLength =
-		funcDesc?.length > 0 && !disableAi && selectedKind != 'flow' && preFilter == 'all' ? 2 : 0
-
-	let scrollable: Scrollable | undefined
+	let scrollable: Scrollable | undefined = $state()
 	function onKeyDown(e: KeyboardEvent) {
 		let length =
 			topLevelNodes?.length +
@@ -208,9 +207,35 @@
 	onDestroy(() => {
 		$insertButtonOpen = false
 	})
+	let langs = $derived(
+		processLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
+			.map((l) => [defaultScriptLanguages[l], l])
+			.filter(
+				(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1])
+			) as [string, SupportedLanguage | 'docker'][]
+	)
+	$effect(() => {
+		selectedKind
+		untrack(() => onSelectedKindChange(selectedKind))
+	})
+	$effect(() => {
+		;[funcDesc, preFilter]
+		untrack(() => computeToplevelNodeChoices(funcDesc, preFilter))
+	})
+	$effect(() => {
+		;[funcDesc, selected, preFilter, selectedKind]
+		untrack(() => computeInlineScriptChoices(funcDesc, selected, preFilter, selectedKind))
+	})
+	$effect(() => {
+		preFilter
+		untrack(() => onPrefilterChange(preFilter))
+	})
+	let aiLength = $derived(
+		funcDesc?.length > 0 && !disableAi && selectedKind != 'flow' && preFilter == 'all' ? 2 : 0
+	)
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} />
 <div class="flex flex-row grow min-w-0 divide-x relative {!small ? 'shadow-inset' : ''}">
 	{#if selectedKind != 'preprocessor'}
 		<Scrollable shiftedShadow scrollableClass="w-32 grow-0 shrink-0 ">
@@ -232,7 +257,7 @@
 										'w-full text-left text-2xs text-primary font-normal py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 										owner === selected?.name ? 'bg-surface-hover' : ''
 									)}
-									on:click={() => {
+									onclick={() => {
 										selected = selected?.name == owner ? undefined : { kind: 'owner', name: owner }
 									}}
 								>
@@ -245,7 +270,7 @@
 								</button>
 							</div>
 						{/each}
-						<div class="pb-1.5" />
+						<div class="pb-1.5"></div>
 					{:else}
 						<div class="text-2xs text-tertiary font-light text-center py-3 px-3 items-center">
 							No items found.
@@ -276,7 +301,7 @@
 									'w-full text-left text-2xs text-primary font-normal py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 									owner === selected?.name ? 'bg-surface-hover' : ''
 								)}
-								on:click={() => {
+								onclick={() => {
 									selected = selected?.name == owner ? undefined : { kind: 'owner', name: owner }
 								}}
 							>
@@ -375,8 +400,8 @@
 									lang == 'docker'
 										? 'docker'
 										: selectedKind == 'preprocessor'
-										? 'preprocessor'
-										: 'flow',
+											? 'preprocessor'
+											: 'flow',
 								summary
 							}
 						})

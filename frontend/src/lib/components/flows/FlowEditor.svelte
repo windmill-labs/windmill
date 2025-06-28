@@ -4,45 +4,91 @@
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
 	import { Skeleton } from '../common'
-	import { getContext, setContext } from 'svelte'
+	import { getContext, onDestroy, onMount, setContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
-	import type { FlowCopilotContext } from '../copilot/flow'
-	import { classNames } from '$lib/utils'
 
 	import { writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
+	import type { Flow } from '$lib/gen'
+	import type { Trigger } from '$lib/components/triggers/utils'
+	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
+	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	export let loading: boolean
-	export let disableStaticInputs = false
-	export let disableTutorials = false
-	export let disableAi = false
-	export let disableSettings = false
-	export let disabledFlowInputs = false
-	export let smallErrorHandler = false
-	export let newFlow: boolean = false
+	interface Props {
+		loading: boolean
+		disableStaticInputs?: boolean
+		disableTutorials?: boolean
+		disableAi?: boolean
+		disableSettings?: boolean
+		disabledFlowInputs?: boolean
+		smallErrorHandler?: boolean
+		newFlow?: boolean
+		savedFlow?:
+			| (Flow & {
+					draft?: Flow | undefined
+			  })
+			| undefined
+		onDeployTrigger?: (trigger: Trigger) => void
+		onTestUpTo?: ((id: string) => void) | undefined
+		onEditInput?: ((moduleId: string, key: string) => void) | undefined
+		forceTestTab?: Record<string, boolean>
+		highlightArg?: Record<string, string | undefined>
+		aiChatOpen?: boolean
+		showFlowAiButton?: boolean
+		toggleAiChat?: () => void
+		onRunPreview?: () => void
+	}
 
-	let size = 50
+	let {
+		loading,
+		disableStaticInputs = false,
+		disableTutorials = false,
+		disableAi = false,
+		disableSettings = false,
+		disabledFlowInputs = false,
+		smallErrorHandler = false,
+		newFlow = false,
+		savedFlow = undefined,
+		onDeployTrigger = () => {},
+		onTestUpTo = undefined,
+		onEditInput = undefined,
+		forceTestTab,
+		highlightArg,
+		aiChatOpen,
+		showFlowAiButton,
+		toggleAiChat,
+		onRunPreview = () => {}
+	}: Props = $props()
 
-	const { currentStepStore: copilotCurrentStepStore } =
-		getContext<FlowCopilotContext>('FlowCopilotContext')
+	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
 
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
 	})
+
+	onMount(() => {
+		aiChatManager.changeMode(AIMode.FLOW)
+	})
+
+	onDestroy(() => {
+		aiChatManager.changeMode(AIMode.NAVIGATOR)
+	})
 </script>
 
 <div
 	id="flow-editor"
-	class={classNames(
-		'h-full overflow-hidden transition-colors duration-[400ms] ease-linear border-t',
-		$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : ''
-	)}
+	class={'h-full overflow-hidden transition-colors duration-[400ms] ease-linear border-t'}
+	use:triggerableByAI={{
+		id: 'flow-editor',
+		description: 'Component to edit a flow'
+	}}
 >
 	<Splitpanes>
-		<Pane {size} minSize={15} class="h-full relative z-0">
+		<Pane size={50} minSize={15} class="h-full relative z-0">
 			<div class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative">
 				{#if loading}
 					<div class="p-2 pt-10">
@@ -50,21 +96,32 @@
 							<Skeleton layout={[[2], 1.5]} />
 						{/each}
 					</div>
-				{:else if $flowStore.value.modules}
+				{:else if flowStore.val.value.modules}
 					<FlowModuleSchemaMap
+						bind:this={flowModuleSchemaMap}
 						{disableStaticInputs}
 						{disableTutorials}
 						{disableAi}
 						{disableSettings}
 						{smallErrorHandler}
 						{newFlow}
-						bind:modules={$flowStore.value.modules}
 						on:reload
+						on:generateStep={({ detail }) => {
+							if (!aiChatManager.open) {
+								aiChatManager.openChat()
+							}
+							aiChatManager.generateStep(detail.moduleId, detail.lang, detail.instructions)
+						}}
+						{onTestUpTo}
+						{onEditInput}
+						{aiChatOpen}
+						{showFlowAiButton}
+						{toggleAiChat}
 					/>
 				{/if}
 			</div>
 		</Pane>
-		<Pane class="relative z-10" size={100 - size} minSize={40}>
+		<Pane class="relative z-10" size={50} minSize={20}>
 			{#if loading}
 				<div class="w-full h-full">
 					<div class="block m-auto pt-40 w-10">
@@ -75,11 +132,19 @@
 				<FlowEditorPanel
 					{disabledFlowInputs}
 					{newFlow}
+					{savedFlow}
 					enableAi={!disableAi}
 					on:applyArgs
 					on:testWithArgs
+					{onDeployTrigger}
+					{forceTestTab}
+					{highlightArg}
+					{onRunPreview}
 				/>
 			{/if}
 		</Pane>
+		{#if !disableAi}
+			<FlowAIChat {flowModuleSchemaMap} />
+		{/if}
 	</Splitpanes>
 </div>

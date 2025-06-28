@@ -2,16 +2,16 @@
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import Select from './apps/svelte-select/lib/index'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
-
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { Plus, Loader2, Link2Off } from 'lucide-svelte'
 	import type { AppViewerContext } from './apps/types'
 	import { sendUserToast } from '$lib/toast'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import Select from './select/Select.svelte'
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	export let initialValue: string | undefined = undefined
 	export let value: string | undefined = initialValue
@@ -29,10 +29,10 @@
 			? {
 					value: value ?? initialValue,
 					label: value ?? initialValue
-			  }
+				}
 			: undefined
 
-	let collection = [valueSelect]
+	let collection = valueSelect ? [valueSelect] : []
 
 	let loading = true
 	async function loadResources(resourceType: string | undefined) {
@@ -64,7 +64,7 @@
 
 	$: $workspaceStore && loadResources(resourceType)
 
-	$: dispatch('change', value)
+	$: dispatchIfMounted('change', value)
 
 	let darkMode: boolean = false
 
@@ -147,7 +147,7 @@
 				<div class="text-2xs text-primary pr-2">Connect {resourceType}</div>
 			{:else if collection.length == 1 && value == collection[0]?.value}
 				<div class="text-2xs text-primary pr-2 flex items-center gap-1">
-					{resourceType} <div class="rounded-full w-2 h-2 bg-green-600 animate-pulse" />
+					{resourceType} <div class="rounded-full w-2 h-2 bg-green-600 animate-pulse"></div>
 				</div>
 			{:else}
 				<Button
@@ -165,23 +165,22 @@
 		{:else}
 			<Select
 				{disabled}
-				portal={!disablePortal}
-				value={valueSelect}
-				on:change={(e) => {
-					value = e.detail.value
-					valueSelect = e.detail
-				}}
-				on:clear={() => {
+				{disablePortal}
+				bind:value={
+					() => valueSelect?.value,
+					(v) => {
+						value = v
+						valueSelect = collection.find((x) => x.value === v)
+					}
+				}
+				onClear={() => {
 					value = undefined
 					valueSelect = undefined
 				}}
+				clearable
 				items={collection}
 				class="text-clip grow min-w-0"
 				placeholder="{resourceType ?? 'any'} resource"
-				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-				containerStyles={darkMode
-					? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-					: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 			/>
 		{/if}
 		<div class="flex gap-1 items-center">

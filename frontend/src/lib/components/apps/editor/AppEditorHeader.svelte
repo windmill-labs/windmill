@@ -1,15 +1,13 @@
 <script lang="ts">
-	import { Alert, Badge, Drawer, DrawerContent, Tab, Tabs, UndoRedo } from '$lib/components/common'
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
+	import { Alert, Drawer, DrawerContent, UndoRedo } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
-	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
-	import JobArgs from '$lib/components/JobArgs.svelte'
-	import LogViewer from '$lib/components/LogViewer.svelte'
+
 	import Path from '$lib/components/Path.svelte'
-	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { AppService, DraftService, type Job, type Policy } from '$lib/gen'
+	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import {
@@ -24,7 +22,6 @@
 		History,
 		Laptop2,
 		Loader2,
-		RefreshCw,
 		Save,
 		Smartphone,
 		FileClock,
@@ -33,47 +30,33 @@
 		SunMoon,
 		Zap
 	} from 'lucide-svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import {
-		classNames,
 		cleanValueProperties,
-		truncateRev,
 		orderedJsonStringify,
 		type Value,
-		replaceFalseWithUndefined,
-		isFlowPreview
+		replaceFalseWithUndefined
 	} from '../../../utils'
-	import type {
-		AppInput,
-		ConnectedAppInput,
-		RowAppInput,
-		Runnable,
-		StaticAppInput,
-		UserAppInput
-	} from '../inputType'
+	import type { AppInput, Runnable } from '../inputType'
 	import type { App, AppEditorContext, AppViewerContext } from '../types'
 	import { BG_PREFIX, allItems, toStatic } from '../utils'
 	import AppExportButton from './AppExportButton.svelte'
 	import AppInputs from './AppInputs.svelte'
 	import type { AppComponent } from './component/components'
-	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 	import PreviewToggle from './PreviewToggle.svelte'
 
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { Sha256 } from '@aws-crypto/sha256-js'
 	import { sendUserToast } from '$lib/toast'
 	import DeploymentHistory from './DeploymentHistory.svelte'
 	import Awareness from '$lib/components/Awareness.svelte'
 	import { secondaryMenuLeftStore, secondaryMenuRightStore } from './settingsPanel/secondaryMenu'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import AppEditorTutorial from './AppEditorTutorial.svelte'
-	import AppTimeline from './AppTimeline.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import AppReportsDrawer from './AppReportsDrawer.svelte'
-	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { type ColumnDef, getPrimaryKeys } from '../components/display/dbtable/utils'
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 	import { getCountInput } from '../components/display/dbtable/queries/count'
@@ -93,7 +76,10 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { base } from '$lib/base'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
+	import AppJobsDrawer from './AppJobsDrawer.svelte'
+	import { collectStaticFields, type TriggerableV2 } from './commonAppUtils'
 	import LazyModePanel from './contextPanel/LazyModePanel.svelte'
+	import { Sha256 } from '@aws-crypto/sha256-js'
 
 	async function hash(message) {
 		try {
@@ -112,32 +98,49 @@
 		}
 	}
 
-	export let policy: Policy
-	export let fromHub: boolean = false
-	export let diffDrawer: DiffDrawer | undefined = undefined
-	export let savedApp:
-		| {
-				value: App
-				draft?: any
-				path: string
-				summary: string
-				policy: any
-				draft_only?: boolean
-				custom_path?: string
-		  }
-		| undefined = undefined
-	export let version: number | undefined = undefined
-	export let leftPanelHidden: boolean = false
-	export let rightPanelHidden: boolean = false
-	export let bottomPanelHidden: boolean = false
-	export let newApp: boolean
-	export let newPath: string = ''
+	interface Props {
+		policy: Policy
+		fromHub?: boolean
+		diffDrawer?: DiffDrawer | undefined
+		savedApp?:
+			| {
+					value: App
+					draft?: any
+					path: string
+					summary: string
+					policy: any
+					draft_only?: boolean
+					custom_path?: string
+			  }
+			| undefined
+		version?: number | undefined
+		leftPanelHidden?: boolean
+		rightPanelHidden?: boolean
+		bottomPanelHidden?: boolean
+		newApp: boolean
+		newPath?: string
+		unsavedConfirmationModal?: import('svelte').Snippet<[any]>
+	}
 
-	let newEditedPath = ''
-	let deployedValue: Value | undefined = undefined // Value to diff against
-	let deployedBy: string | undefined = undefined // Author
-	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
-	let open: boolean = false // Is confirmation modal open
+	let {
+		policy = $bindable(),
+		fromHub = false,
+		diffDrawer = undefined,
+		savedApp = $bindable(undefined),
+		version = $bindable(undefined),
+		leftPanelHidden = false,
+		rightPanelHidden = false,
+		bottomPanelHidden = false,
+		newApp,
+		newPath = '',
+		unsavedConfirmationModal
+	}: Props = $props()
+
+	let newEditedPath = $state('')
+	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
+	let deployedBy: string | undefined = $state(undefined) // Author
+	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
+	let open: boolean = $state(false) // Is confirmation modal open
 
 	const {
 		app,
@@ -156,29 +159,24 @@
 	const { history, jobsDrawerOpen, refreshComponents } =
 		getContext<AppEditorContext>('AppEditorContext')
 
-	const loading = {
+	const loading = $state({
 		publish: false,
 		save: false,
 		saveDraft: false
-	}
+	})
 
-	$: if ($openDebugRun == undefined) {
-		$openDebugRun = (jobId: string) => {
-			$jobsDrawerOpen = true
-			selectedJobId = jobId
-		}
-	}
+	let selectedJobId: string | undefined = $state(undefined)
 
-	let pathError: string | undefined = undefined
-	let appExport: AppExportButton
+	let pathError: string | undefined = $state(undefined)
+	let appExport: AppExportButton | undefined = $state()
 
-	let draftDrawerOpen = false
-	let saveDrawerOpen = false
-	let inputsDrawerOpen = fromHub
-	let historyBrowserDrawerOpen = false
-	let debugAppDrawerOpen = false
-	let lazyDrawerOpen = false
-	let deploymentMsg: string | undefined = undefined
+	let draftDrawerOpen = $state(false)
+	let saveDrawerOpen = $state(false)
+	let inputsDrawerOpen = $state(fromHub)
+	let historyBrowserDrawerOpen = $state(false)
+	let debugAppDrawerOpen = $state(false)
+	let lazyDrawerOpen = $state(false)
+	let deploymentMsg: string | undefined = $state(undefined)
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
@@ -186,24 +184,6 @@
 
 	function closeDraftDrawer() {
 		draftDrawerOpen = false
-	}
-
-	function collectStaticFields(
-		fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
-	) {
-		return Object.fromEntries(
-			Object.entries(fields ?? {})
-				.filter(([k, v]) => v.type == 'static')
-				.map(([k, v]) => {
-					return [k, v['value']]
-				})
-		)
-	}
-
-	type TriggerableV2 = {
-		static_inputs: Record<string, any>
-		one_of_inputs?: Record<string, any[] | undefined>
-		allow_user_resources?: string[]
 	}
 
 	async function computeTriggerables() {
@@ -351,10 +331,10 @@
 			.filter((x) => (x.data as AppComponent).type === 'imagecomponent')
 			.map((x) => {
 				const c = x.data as AppComponent
-				const config = c.configuration as any
-				return computeS3ImageViewerPolicy(config, $app)
+				const config = c.configuration
+				return computeS3ImageViewerPolicy(config)
 			})
-			.filter(Boolean) as { s3_path?: string | undefined; resource?: string | undefined }[]
+			.filter(Boolean) as { s3_path: string; storage?: string | undefined }[]
 
 		policy.allowed_s3_keys = s3FileKeys
 	}
@@ -412,7 +392,7 @@
 			})
 			savedApp = {
 				summary: $summary,
-				value: structuredClone($app),
+				value: structuredClone($state.snapshot($app)),
 				path: path,
 				policy: policy,
 				custom_path: customPath
@@ -503,12 +483,12 @@
 				// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
 				// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
 				custom_path:
-					$userStore?.is_admin || $userStore?.is_super_admin ? customPath ?? '' : undefined
+					$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined
 			}
 		})
 		savedApp = {
 			summary: $summary,
-			value: structuredClone($app),
+			value: structuredClone($state.snapshot($app)),
 			path: npath,
 			policy,
 			custom_path: customPath
@@ -531,9 +511,7 @@
 		}
 	}
 
-	let secretUrl: string | undefined = undefined
-
-	$: $appPath && $appPath != '' && secretUrl == undefined && getSecretUrl()
+	let secretUrl: string | undefined = $state(undefined)
 
 	async function getSecretUrl() {
 		secretUrl = await AppService.getPublicSecretOfApp({
@@ -594,13 +572,13 @@
 			})
 			savedApp = {
 				summary: $summary,
-				value: structuredClone($app),
+				value: structuredClone($state.snapshot($app)),
 				path: newEditedPath,
 				policy,
 				draft_only: true,
 				draft: {
 					summary: $summary,
-					value: structuredClone($app),
+					value: structuredClone($state.snapshot($app)),
 					path: newEditedPath,
 					policy,
 					custom_path: customPath
@@ -682,16 +660,16 @@
 				...(savedApp?.draft_only
 					? {
 							summary: $summary,
-							value: structuredClone($app),
+							value: structuredClone($state.snapshot($app)),
 							path: savedApp.draft_only ? newEditedPath || path : path,
 							policy,
 							draft_only: true,
 							custom_path: customPath
-					  }
+						}
 					: savedApp),
 				draft: {
 					summary: $summary,
-					value: structuredClone($app),
+					value: structuredClone($state.snapshot($app)),
 					path: newEditedPath || path,
 					policy,
 					custom_path: customPath
@@ -714,7 +692,7 @@
 		}
 	}
 
-	let onLatest = true
+	let onLatest = $state(true)
 	async function compareVersions() {
 		if (version === undefined) {
 			return
@@ -730,21 +708,6 @@
 			onLatest = true
 		}
 	}
-
-	$: saveDrawerOpen && compareVersions()
-
-	let selectedJobId: string | undefined = undefined
-	let testJobLoader: TestJobLoader
-	let job: Job | undefined = undefined
-	let testIsLoading = false
-
-	$: selectedJobId && !selectedJobId?.includes('Frontend') && testJobLoader?.watchJob(selectedJobId)
-
-	$: if (selectedJobId?.includes('Frontend') && selectedJobId) {
-		job = undefined
-	}
-
-	$: hasErrors = Object.keys($errorByComponent).length > 0
 
 	let lock = false
 	function onKeyDown(event: KeyboardEvent) {
@@ -763,14 +726,19 @@
 		switch (event.key) {
 			case 'Z':
 				if (event.ctrlKey || event.metaKey) {
-					$app = redo(history)
+					const napp = redo(history)
+					for (const key in napp) {
+						$app[key] = napp[key]
+					}
 					event.preventDefault()
 				}
 				break
 			case 'z':
 				if (event.ctrlKey || event.metaKey) {
-					$app = undo(history, $app)
-
+					const napp = undo(history, $app)
+					for (const key in napp) {
+						$app[key] = napp[key]
+					}
 					event.preventDefault()
 				}
 				break
@@ -802,8 +770,8 @@
 		lock = false
 	}
 
-	let dirtyPath = false
-	let path: Path | undefined = undefined
+	let dirtyPath = $state(false)
+	let path: Path | undefined = $state(undefined)
 
 	let moreItems = [
 		{
@@ -818,7 +786,7 @@
 			displayName: 'Export',
 			icon: FileJson,
 			action: () => {
-				appExport.open($app)
+				appExport?.open($app)
 			}
 		},
 		// {
@@ -833,7 +801,7 @@
 			displayName: 'Hub compatible JSON',
 			icon: FileUp,
 			action: () => {
-				appExport.open(toStatic($app, $staticExporter, $summary).app)
+				appExport?.open(toStatic($app, $staticExporter, $summary).app)
 			}
 		},
 		{
@@ -895,15 +863,13 @@
 		}
 	]
 
-	let appEditorTutorial: AppEditorTutorial | undefined = undefined
+	let appEditorTutorial: AppEditorTutorial | undefined = $state(undefined)
 
 	export function toggleTutorial() {
 		appEditorTutorial?.toggleTutorial()
 	}
 
-	let rightColumnSelect: 'timeline' | 'detail' = 'timeline'
-
-	let appReportingDrawerOpen = false
+	let appReportingDrawerOpen = $state(false)
 
 	export function openTroubleshootPanel() {
 		debugAppDrawerOpen = true
@@ -926,12 +892,9 @@
 	let priorDarkMode = document.documentElement.classList.contains('dark')
 	setTheme($app?.darkMode)
 
-	let customPath = savedApp?.custom_path
-	let dirtyCustomPath = false
-	let customPathError = ''
-	$: fullCustomUrl = `${window.location.origin}${base}/a/${
-		isCloudHosted() ? $workspaceStore + '/' : ''
-	}${customPath}`
+	let customPath = $state(savedApp?.custom_path)
+	let dirtyCustomPath = $state(false)
+	let customPathError = $state('')
 	async function appExists(customPath: string) {
 		return await AppService.customPathExists({
 			workspace: $workspaceStore!,
@@ -955,21 +918,41 @@
 			validateTimeout = undefined
 		}, 500)
 	}
-	$: customPath !== undefined && validateCustomPath(customPath)
+	$effect(() => {
+		if ($openDebugRun == undefined) {
+			$openDebugRun = (jobId: string) => {
+				$jobsDrawerOpen = true
+				selectedJobId = jobId
+			}
+		}
+	})
+	$effect(() => {
+		$appPath && $appPath != '' && secretUrl == undefined && untrack(() => getSecretUrl())
+	})
+	$effect(() => {
+		saveDrawerOpen && untrack(() => compareVersions())
+	})
+	let hasErrors = $derived(Object.keys($errorByComponent).length > 0)
+	let fullCustomUrl = $derived(
+		`${window.location.origin}${base}/a/${
+			isCloudHosted() ? $workspaceStore + '/' : ''
+		}${customPath}`
+	)
+	$effect(() => {
+		;[customPath]
+		untrack(() => customPath !== undefined && validateCustomPath(customPath))
+	})
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} />
 
-<TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
-
-{#if $$slots.unsavedConfirmationModal}
-	<slot
-		name="unsavedConfirmationModal"
-		{diffDrawer}
-		additionalExitAction={() => {
+{#if unsavedConfirmationModal}
+	{@render unsavedConfirmationModal?.({
+		diffDrawer,
+		additionalExitAction: () => {
 			setTheme(priorDarkMode)
-		}}
-		getInitialAndModifiedValues={() => ({
+		},
+		getInitialAndModifiedValues: () => ({
 			savedValue: savedApp,
 			modifiedValue: {
 				summary: $summary,
@@ -978,8 +961,8 @@
 				policy,
 				custom_path: customPath
 			}
-		})}
-	/>
+		})
+	})}
 {/if}
 <DeployOverrideConfirmationModal
 	bind:deployedBy
@@ -999,20 +982,20 @@
 {#if $appPath == ''}
 	<Drawer bind:open={draftDrawerOpen} size="800px">
 		<DrawerContent title="Initial draft save" on:close={() => closeDraftDrawer()}>
-			<Alert title="Require path" type="info">
+			<Alert bgClass="mb-4" title="Require path" type="info">
 				Choose a path to save the initial draft of the app.
 			</Alert>
 			<h3>Summary</h3>
 			<div class="w-full pt-2">
-				<!-- svelte-ignore a11y-autofocus -->
+				<!-- svelte-ignore a11y_autofocus -->
 				<input
 					autofocus
 					type="text"
 					placeholder="App summary"
 					class="text-sm w-full font-semibold"
-					on:keydown|stopPropagation
+					onkeydown={stopPropagation(bubble('keydown'))}
 					bind:value={$summary}
-					on:keyup={() => {
+					onkeyup={() => {
 						if ($appPath == '' && $summary?.length > 0 && !dirtyPath) {
 							path?.setName(
 								$summary
@@ -1025,7 +1008,7 @@
 					}}
 				/>
 			</div>
-			<div class="py-2" />
+			<div class="py-2"></div>
 			<Path
 				autofocus={false}
 				bind:this={path}
@@ -1036,39 +1019,58 @@
 				namePlaceholder="app"
 				kind="app"
 			/>
-			<div class="py-4" />
+			<div class="py-4"></div>
 
-			<div slot="actions">
-				<Button
-					startIcon={{ icon: Save }}
-					disabled={pathError != ''}
-					on:click={() => saveInitialDraft()}
-				>
-					Save initial draft
-				</Button>
-			</div>
+			{#snippet actions()}
+				<div>
+					<Button
+						startIcon={{ icon: Save }}
+						disabled={pathError != ''}
+						on:click={() => saveInitialDraft()}
+					>
+						Save initial draft
+					</Button>
+				</div>
+			{/snippet}
 		</DrawerContent>
 	</Drawer>
 {/if}
+
+<AppJobsDrawer
+	bind:open={$jobsDrawerOpen}
+	jobs={$jobs}
+	on:clear={() => {
+		$jobs = []
+		$errorByComponent = {}
+	}}
+	on:clearErrors={() => {
+		$errorByComponent = {}
+	}}
+	{hasErrors}
+	{selectedJobId}
+	refreshComponents={$refreshComponents}
+	jobsById={$jobsById}
+	errorByComponent={$errorByComponent}
+/>
 <Drawer bind:open={saveDrawerOpen} size="800px">
 	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
 		{#if !onLatest}
 			<Alert title="You're not on the latest app version. " type="warning">
 				By deploying, you may overwrite changes made by other users. Press 'Deploy' to see diff.
 			</Alert>
-			<div class="py-2" />
+			<div class="py-2"></div>
 		{/if}
 		<span class="text-secondary text-sm font-bold">Summary</span>
 		<div class="w-full pt-2">
-			<!-- svelte-ignore a11y-autofocus -->
+			<!-- svelte-ignore a11y_autofocus -->
 			<input
 				autofocus
 				type="text"
 				placeholder="App summary"
 				class="text-sm w-full"
 				bind:value={$summary}
-				on:keydown|stopPropagation
-				on:keyup={() => {
+				onkeydown={stopPropagation(bubble('keydown'))}
+				onkeyup={() => {
 					if ($appPath == '' && $summary?.length > 0 && !dirtyPath) {
 						path?.setName(
 							$summary
@@ -1081,10 +1083,10 @@
 				}}
 			/>
 		</div>
-		<div class="py-4" />
+		<div class="py-4"></div>
 		<span class="text-secondary text-sm font-bold">Deployment message</span>
 		<div class="w-full pt-2">
-			<!-- svelte-ignore a11y-autofocus -->
+			<!-- svelte-ignore a11y_autofocus -->
 			<input
 				type="text"
 				placeholder="Optional deployment message"
@@ -1092,7 +1094,7 @@
 				bind:value={deploymentMsg}
 			/>
 		</div>
-		<div class="py-4" />
+		<div class="py-4"></div>
 		<span class="text-secondary text-sm font-bold">Path</span>
 		<Path
 			bind:this={path}
@@ -1105,64 +1107,66 @@
 			autofocus={false}
 		/>
 
-		<div slot="actions" class="flex flex-row gap-4">
-			<Button
-				variant="border"
-				color="light"
-				disabled={!savedApp || savedApp.draft_only}
-				on:click={async () => {
-					if (!savedApp) {
-						return
-					}
-					// deployedValue should be syncronized when we open Diff
-					await syncWithDeployed()
+		{#snippet actions()}
+			<div class="flex flex-row gap-4">
+				<Button
+					variant="border"
+					color="light"
+					disabled={!savedApp || savedApp.draft_only}
+					on:click={async () => {
+						if (!savedApp) {
+							return
+						}
+						// deployedValue should be syncronized when we open Diff
+						await syncWithDeployed()
 
-					saveDrawerOpen = false
-					diffDrawer?.openDrawer()
-					diffDrawer?.setDiff({
-						mode: 'normal',
-						deployed: deployedValue ?? savedApp,
-						draft: savedApp.draft,
-						current: {
-							summary: $summary,
-							value: $app,
-							path: newEditedPath || savedApp.draft?.path || savedApp.path,
-							policy,
-							custom_path: customPath
-						},
-						button: {
-							text: 'Looks good, deploy',
-							onClick: () => {
-								if ($appPath == '') {
-									createApp(newEditedPath)
-								} else {
-									handleUpdateApp(newEditedPath)
+						saveDrawerOpen = false
+						diffDrawer?.openDrawer()
+						diffDrawer?.setDiff({
+							mode: 'normal',
+							deployed: deployedValue ?? savedApp,
+							draft: savedApp.draft,
+							current: {
+								summary: $summary,
+								value: $app,
+								path: newEditedPath || savedApp.draft?.path || savedApp.path,
+								policy,
+								custom_path: customPath
+							},
+							button: {
+								text: 'Looks good, deploy',
+								onClick: () => {
+									if ($appPath == '') {
+										createApp(newEditedPath)
+									} else {
+										handleUpdateApp(newEditedPath)
+									}
 								}
 							}
+						})
+					}}
+				>
+					<div class="flex flex-row gap-2 items-center">
+						<DiffIcon size={14} />
+						Diff
+					</div>
+				</Button>
+				<Button
+					startIcon={{ icon: Save }}
+					disabled={pathError != '' || customPathError != ''}
+					on:click={() => {
+						if ($appPath == '') {
+							createApp(newEditedPath)
+						} else {
+							handleUpdateApp(newEditedPath)
 						}
-					})
-				}}
-			>
-				<div class="flex flex-row gap-2 items-center">
-					<DiffIcon size={14} />
-					Diff
-				</div>
-			</Button>
-			<Button
-				startIcon={{ icon: Save }}
-				disabled={pathError != '' || customPathError != ''}
-				on:click={() => {
-					if ($appPath == '') {
-						createApp(newEditedPath)
-					} else {
-						handleUpdateApp(newEditedPath)
-					}
-				}}
-			>
-				Deploy
-			</Button>
-		</div>
-		<div class="py-2" />
+					}}
+				>
+					Deploy
+				</Button>
+			</div>
+		{/snippet}
+		<div class="py-2"></div>
 		{#if $appPath == ''}
 			<Alert title="Require saving" type="error">
 				Save this app once before you can publish it
@@ -1180,10 +1184,10 @@
 				</Tooltip>
 			</Alert>
 
-			<div class="mt-10" />
+			<div class="mt-10"></div>
 
 			<h2>Public URL</h2>
-			<div class="mt-4" />
+			<div class="mt-4"></div>
 
 			<div class="flex gap-2 items-center">
 				<Toggle
@@ -1218,12 +1222,12 @@
 						<Alert title="EE Only" type="warning" size="xs">
 							Custom path is an enterprise only feature.
 						</Alert>
-						<div class="mb-2" />
+						<div class="mb-2"></div>
 					{:else if !($userStore?.is_admin || $userStore?.is_super_admin)}
 						<Alert type="warning" title="Admin only" size="xs">
 							Custom path can only be set by workspace admins
 						</Alert>
-						<div class="mb-2" />
+						<div class="mb-2"></div>
 					{/if}
 					<Toggle
 						on:change={({ detail }) => {
@@ -1251,7 +1255,7 @@
 							class={customPathError === ''
 								? ''
 								: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
-							on:input={() => {
+							oninput={() => {
 								dirtyCustomPath = true
 							}}
 						/>
@@ -1301,251 +1305,6 @@
 		<LazyModePanel />
 	</DrawerContent>
 </Drawer>
-<Drawer bind:open={$jobsDrawerOpen} size="900px">
-	<DrawerContent
-		noPadding
-		title="Debug Runs"
-		on:close={() => {
-			$jobsDrawerOpen = false
-		}}
-		tooltip="Look at latests runs to spot potential bugs."
-		documentationLink="https://www.windmill.dev/docs/apps/app_debugging"
-	>
-		<Splitpanes class="!overflow-visible">
-			<Pane size={25}>
-				<PanelSection title="Past Runs">
-					<div class="flex flex-col gap-2 w-full">
-						{#if $jobs.length > 0}
-							<div class="flex gap-2 flex-col-reverse">
-								{#each $jobs ?? [] as id}
-									{@const selectedJob = $jobsById[id]}
-									{#if selectedJob}
-										<!-- svelte-ignore a11y-click-events-have-key-events -->
-										<!-- svelte-ignore a11y-no-static-element-interactions -->
-										<div
-											class={classNames(
-												'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-surface-secondary hover:text-blue-400',
-												selectedJob.error ? 'border border-red-500 text-primary' : '',
-												selectedJob.error && $errorByComponent[selectedJob.component]?.id == id
-													? selectedJobId == id
-														? 'bg-red-600 !border-blue-600'
-														: 'bg-red-400'
-													: selectedJobId == id
-													? 'text-blue-600'
-													: ''
-											)}
-											on:click={() => {
-												selectedJobId = id
-												rightColumnSelect = 'detail'
-											}}
-										>
-											<span class="text-xs truncate">{truncateRev(selectedJob.job, 20)}</span>
-											<Badge color="indigo">{selectedJob.component}</Badge>
-										</div>
-									{/if}
-								{/each}
-							</div>
-						{:else}
-							<div class="text-sm text-tertiary">No items</div>
-						{/if}
-					</div>
-				</PanelSection>
-			</Pane>
-			<Pane size={75}>
-				<div class="w-full h-full flex flex-col">
-					<div>
-						<Tabs bind:selected={rightColumnSelect}>
-							<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
-							<Tab value="detail"><span class="font-semibold">Details</span></Tab>
-						</Tabs>
-					</div>
-					{#if rightColumnSelect == 'timeline'}
-						<div class="p-2 grow overflow-auto">
-							<AppTimeline />
-						</div>
-					{:else if rightColumnSelect == 'detail'}
-						<div class="grow flex flex-col w-full overflow-auto">
-							{#if selectedJobId}
-								{#if selectedJobId?.includes('Frontend')}
-									{@const jobResult = $jobsById[selectedJobId]}
-									{#if jobResult?.error !== undefined}
-										<Splitpanes horizontal class="grow border w-full">
-											<Pane size={10} minSize={10}>
-												<LogViewer
-													content={`Logs are avaiable in the browser console directly`}
-													isLoading={false}
-													tag={undefined}
-												/>
-											</Pane>
-											<Pane size={90} minSize={10} class="text-sm text-secondary">
-												<div class="relative h-full px-2">
-													<DisplayResult
-														result={{
-															error: { name: 'Frontend execution error', message: jobResult.error }
-														}}
-													/>
-												</div>
-											</Pane>
-										</Splitpanes>
-									{:else if jobResult !== undefined}
-										<Splitpanes horizontal class="grow border w-full">
-											<Pane size={10} minSize={10}>
-												<LogViewer
-													content={`Logs are avaiable in the browser console directly`}
-													isLoading={false}
-													tag={undefined}
-												/>
-											</Pane>
-											<Pane size={90} minSize={10} class="text-sm text-secondary">
-												<div class="relative h-full px-2">
-													<DisplayResult
-														workspaceId={$workspaceStore}
-														jobId={selectedJobId}
-														result={jobResult.result}
-													/>
-												</div>
-											</Pane>
-										</Splitpanes>
-									{:else}
-										<Loader2 class="animate-spin" />
-									{/if}
-								{:else}
-									<div class="flex flex-col h-full w-full mb-4">
-										{#if job?.['running']}
-											<div class="flex flex-row-reverse w-full">
-												<Button
-													color="red"
-													variant="border"
-													on:click={() => testJobLoader?.cancelJob()}
-												>
-													<Loader2 size={14} class="animate-spin mr-2" />
-
-													Cancel
-												</Button>
-											</div>
-										{/if}
-										{#if job?.args}
-											<div class="p-2">
-												<JobArgs
-													id={job.id}
-													workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
-													args={job?.args}
-												/>
-											</div>
-										{/if}
-										{#if job?.raw_code}
-											<div class="pb-2 pl-2 pr-2 w-full overflow-auto h-full max-h-[80px]">
-												<HighlightCode language={job?.language} code={job?.raw_code} />
-											</div>
-										{/if}
-
-										{#if job?.job_kind !== 'flow' && !isFlowPreview(job?.job_kind)}
-											{@const jobResult = $jobsById[selectedJobId]}
-											<Splitpanes horizontal class="grow border w-full">
-												<Pane size={50} minSize={10}>
-													<LogViewer
-														duration={job?.['duration_ms']}
-														jobId={job?.id}
-														content={job?.logs}
-														isLoading={testIsLoading && job?.['running'] == false}
-														tag={job?.tag}
-													/>
-												</Pane>
-												<Pane size={50} minSize={10} class="text-sm text-secondary">
-													{#if job != undefined && 'result' in job && job.result != undefined}<div
-															class="relative h-full px-2"
-															><DisplayResult
-																workspaceId={$workspaceStore}
-																jobId={selectedJobId}
-																result={job.result}
-															/></div
-														>
-													{:else if testIsLoading}
-														<div class="p-2"><Loader2 class="animate-spin" /> </div>
-													{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
-														<div class="p-2 text-tertiary">Result is undefined</div>
-													{:else}
-														<div class="p-2 text-tertiary">
-															<Loader2 size={14} class="animate-spin mr-2" />
-														</div>
-													{/if}
-												</Pane>
-												{#if jobResult?.transformer}
-													<Pane size={50} minSize={10} class="text-sm text-secondary p-2">
-														<div class="font-bold">Transformer results</div>
-														{#if job != undefined && 'result' in job && job.result != undefined}
-															<div class="relative h-full px-2">
-																<DisplayResult
-																	workspaceId={$workspaceStore}
-																	jobId={selectedJobId}
-																	result={jobResult?.transformer}
-																/>
-															</div>
-														{:else if testIsLoading}
-															<div class="p-2"><Loader2 class="animate-spin" /> </div>
-														{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
-															<div class="p-2 text-tertiary">Result is undefined</div>
-														{:else}
-															<div class="p-2 text-tertiary">
-																<Loader2 size={14} class="animate-spin mr-2" />
-															</div>
-														{/if}
-													</Pane>
-												{/if}
-											</Splitpanes>
-										{:else}
-											<div class="mt-10" />
-											<FlowProgressBar {job} class="py-4" />
-											<div class="w-full mt-10 mb-20">
-												<FlowStatusViewer
-													jobId={job?.id ?? ''}
-													on:jobsLoaded={({ detail }) => {
-														job = detail
-													}}
-												/>
-											</div>
-										{/if}
-									</div>
-								{/if}
-							{:else}
-								<div class="text-sm p-2 text-tertiary">Select a job to see its details</div>
-							{/if}
-						</div>
-					{/if}
-				</div>
-			</Pane>
-		</Splitpanes>
-		<svelte:fragment slot="actions">
-			<Button
-				size="md"
-				color="light"
-				variant="border"
-				on:click={() => {
-					$refreshComponents?.()
-				}}
-				title="Refresh App"
-			>
-				Refresh app&nbsp;<RefreshCw size={16} />
-			</Button>
-
-			<Button
-				size="md"
-				color="light"
-				variant="border"
-				on:click={() => {
-					errorByComponent.set({})
-					jobs.set([])
-				}}
-				>Clear jobs
-			</Button>
-			{#if hasErrors}
-				<Button size="md" color="light" variant="border" on:click={() => errorByComponent.set({})}
-					>Clear Errors &nbsp;<BellOff size={14} />
-				</Button>
-			{/if}
-		</svelte:fragment>
-	</DrawerContent>
-</Drawer>
 
 <AppReportsDrawer bind:open={appReportingDrawerOpen} appPath={$appPath ?? ''} />
 
@@ -1559,10 +1318,16 @@
 				undoProps={{ disabled: $history?.index === 0 }}
 				redoProps={{ disabled: $history && $history?.index === $history.history.length - 1 }}
 				on:undo={() => {
-					$app = undo(history, $app)
+					const napp = undo(history, $app)
+					for (const key in napp) {
+						$app[key] = napp[key]
+					}
 				}}
 				on:redo={() => {
-					$app = redo(history)
+					const napp = redo(history)
+					for (const key in napp) {
+						$app[key] = napp[key]
+					}
 				}}
 			/>
 
@@ -1573,88 +1338,90 @@
 					on:selected={({ detail }) => {
 						$app.fullscreen = detail === 'true'
 					}}
-					let:item
 				>
-					<ToggleButton
-						icon={AlignHorizontalSpaceAround}
-						value={'false'}
-						tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
-						iconProps={{ size: 16 }}
-						{item}
-					/>
-					<ToggleButton
-						tooltip="The width is of the app if the full width of its container"
-						icon={Expand}
-						value={'true'}
-						iconProps={{ size: 16 }}
-						{item}
-					/>
+					{#snippet children({ item })}
+						<ToggleButton
+							icon={AlignHorizontalSpaceAround}
+							value={'false'}
+							tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
+							iconProps={{ size: 16 }}
+							{item}
+						/>
+						<ToggleButton
+							tooltip="The width is of the app if the full width of its container"
+							icon={Expand}
+							value={'true'}
+							iconProps={{ size: 16 }}
+							{item}
+						/>
+					{/snippet}
 				</ToggleButtonGroup>
 			{/if}
 			{#if $app}
 				<ToggleButtonGroup
 					class="h-[30px]"
 					on:selected={({ detail }) => {
-						console.log('dbg detail', detail)
 						const theme = detail === 'dark' ? true : detail === 'sun' ? false : undefined
-						console.log('dbg settheme', theme)
 						setTheme(theme)
 					}}
 					selected={$app.darkMode === undefined ? 'auto' : $app.darkMode ? 'dark' : 'sun'}
-					let:item
 				>
-					<ToggleButton
-						icon={SunMoon}
-						value={'auto'}
-						tooltip="The app mode between dark/light is automatic"
-						iconProps={{ size: 16 }}
-						{item}
-					/>
-					<ToggleButton
-						icon={Sun}
-						value={'sun'}
-						tooltip="Force light mode"
-						iconProps={{ size: 16 }}
-						{item}
-					/>
-					<ToggleButton
-						tooltip="Force dark mode"
-						icon={Moon}
-						value={'dark'}
-						iconProps={{ size: 16 }}
-						{item}
-					/>
+					{#snippet children({ item })}
+						<ToggleButton
+							icon={SunMoon}
+							value={'auto'}
+							tooltip="The app mode between dark/light is automatic"
+							iconProps={{ size: 16 }}
+							{item}
+						/>
+						<ToggleButton
+							icon={Sun}
+							value={'sun'}
+							tooltip="Force light mode"
+							iconProps={{ size: 16 }}
+							{item}
+						/>
+						<ToggleButton
+							tooltip="Force dark mode"
+							icon={Moon}
+							value={'dark'}
+							iconProps={{ size: 16 }}
+							{item}
+						/>
+					{/snippet}
 				</ToggleButtonGroup>
 			{/if}
 			<div class="flex flex-row gap-2">
-				<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint} let:item>
-					<ToggleButton
-						tooltip="Computer View"
-						icon={Laptop2}
-						value={'lg'}
-						iconProps={{ size: 16 }}
-						{item}
-					/>
-					<ToggleButton
-						tooltip="Mobile View"
-						icon={Smartphone}
-						value={'sm'}
-						iconProps={{ size: 16 }}
-						{item}
-					/>
-					{#if $breakpoint === 'sm'}
-						<Toggle
-							size="xs"
-							options={{
-								right: 'Enable mobile view for smaller screens',
-								rightTooltip:
-									'Desktop view is enabled by default. Enable this to customize the layout of the components for the mobile view'
-							}}
-							textClass="text-2xs whitespace-nowrap white !w-full"
-							bind:checked={$app.mobileViewOnSmallerScreens}
-							class="flex flex-row px-2 items-center"
+				<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint}>
+					{#snippet children({ item })}
+						<ToggleButton
+							tooltip="Computer View"
+							icon={Laptop2}
+							value={'lg'}
+							iconProps={{ size: 16 }}
+							{item}
 						/>
-					{/if}
+						<ToggleButton
+							tooltip="Mobile View"
+							icon={Smartphone}
+							value={'sm'}
+							iconProps={{ size: 16 }}
+							{item}
+						/>
+						{#if $breakpoint === 'sm'}
+							<Toggle
+								size="xs"
+								options={{
+									right: 'Enable mobile view for smaller screens',
+									rightTooltip:
+										'Desktop view is enabled by default. Enable this to customize the layout of the components for the mobile view'
+								}}
+								textClass="text-2xs whitespace-nowrap white !w-full"
+								bind:checked={$app.mobileViewOnSmallerScreens}
+								class="flex flex-row px-2 items-center"
+							/>
+						{/if}
+					{/snippet}
 				</ToggleButtonGroup>
 			</div>
 		</div>
@@ -1708,10 +1475,9 @@
 			{#if hasErrors}
 				<span
 					class="animate-ping absolute inline-flex rounded-full bg-red-600 h-2 w-2 z-50 -right-0.5 -top-0.5"
-				/>
-				<span
-					class=" absolute inline-flex rounded-full bg-red-600 h-2 w-2 z-50 -right-0.5 -top-0.5"
-				/>
+				></span>
+				<span class=" absolute inline-flex rounded-full bg-red-600 h-2 w-2 z-50 -right-0.5 -top-0.5"
+				></span>
 			{/if}
 			<Button
 				on:click={() => {
@@ -1729,7 +1495,7 @@
 					<Bug size={14} />
 					<div>Debug runs</div>
 					<div class="text-2xs text-tertiary"
-						>({$jobs?.length > 99 ? '99+' : $jobs?.length ?? 0})</div
+						>({$jobs?.length > 99 ? '99+' : ($jobs?.length ?? 0)})</div
 					>
 					{#if hasErrors}
 						<Button
@@ -1769,7 +1535,7 @@
 								window.open(`/apps/add?template=${appPath}`)
 							}
 						}
-				  ]
+					]
 				: undefined}
 		>
 			Deploy

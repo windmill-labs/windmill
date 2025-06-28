@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { Line } from 'svelte-chartjs'
 	import 'chartjs-adapter-date-fns'
 	import zoomPlugin from 'chartjs-plugin-zoom'
 	import {
@@ -16,6 +15,7 @@
 	import type { CompletedJob, ExtendedJobs } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
+	import { Line } from '$lib/components/chartjs-wrappers/chartJs'
 
 	export let extendedJobs: ExtendedJobs | undefined = undefined
 	export let maxIsNow: boolean = false

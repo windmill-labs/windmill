@@ -7,7 +7,6 @@
 	import { Highlight } from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
 	import { Button } from '../../common'
-	import type { App } from '../types'
 	import { Clipboard } from 'lucide-svelte'
 	import { yaml } from 'svelte-highlight/languages'
 	import YAML from 'yaml'
@@ -17,11 +16,11 @@
 
 	let jsonViewerDrawer: Drawer
 
-	let app: App | undefined = undefined
+	let app: any | undefined = undefined
 
 	let rawType: 'json' | 'yaml' = 'yaml'
 
-	export function open(app_l: App) {
+	export function open(app_l: any) {
 		app = app_l
 		jsonViewerDrawer?.toggleDrawer()
 	}
@@ -35,7 +34,7 @@
 			<Tabs bind:selected={rawType}>
 				<Tab value="yaml">YAML</Tab>
 				<Tab value="json">JSON</Tab>
-				<svelte:fragment slot="content">
+				{#snippet content()}
 					<div class="relative pt-2">
 						<Button
 							on:click={() =>
@@ -61,7 +60,7 @@
 							/>
 						{/key}
 					</div>
-				</svelte:fragment>
+				{/snippet}
 			</Tabs>
 		</div></DrawerContent
 	>

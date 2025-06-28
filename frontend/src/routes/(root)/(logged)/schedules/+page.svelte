@@ -1,7 +1,6 @@
 <script lang="ts">
 	import {
 		ScheduleService,
-		JobService,
 		type ScheduleWJobs,
 		type WorkspaceDeployUISettings,
 		WorkspaceService
@@ -13,7 +12,6 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
-	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -22,6 +20,7 @@
 		Calendar,
 		Circle,
 		Code,
+		Copy,
 		Eye,
 		FileUp,
 		List,
@@ -42,18 +41,20 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { setQuery } from '$lib/navigation'
-	import { onMount } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
+	import { runScheduleNow } from '$lib/components/triggers/scheduled/utils'
+	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 
 	type ScheduleW = ScheduleWJobs & { canWrite: boolean }
 
-	let schedules: ScheduleW[] = []
-	let shareModal: ShareModal
-	let loading = true
-	let loadingSchedulesWithJobStats = true
-	let deploymentDrawer: DeployWorkspaceDrawer
-	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
+	let schedules: ScheduleW[] = $state([])
+	let shareModal: ShareModal | undefined = $state()
+	let loading = $state(true)
+	let loadingSchedulesWithJobStats = $state(true)
+	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
 
 	async function getDeployUiSettings() {
 		if (!$enterpriseLicense) {
@@ -106,60 +107,36 @@
 		}
 	}
 
-	async function runScheduleNow(
-		path: string,
-		schedulePath: string,
-		isFlow: boolean
-	): Promise<void> {
-		try {
-			const runByPath = isFlow ? JobService.runFlowByPath : JobService.runScriptByPath
-			const args = (
-				await ScheduleService.getSchedule({
-					workspace: $workspaceStore!,
-					path: schedulePath
-				})
-			).args
-			const run = await runByPath({
-				path,
-				requestBody: args ?? {},
-				workspace: $workspaceStore!
-			})
-
-			sendUserToast(`Schedule ${path} will run now`, false, [
-				{
-					label: 'Go to the run page',
-					callback: () => goto('/run/' + run + '?workspace=' + $workspaceStore)
-				}
-			])
-		} catch (err) {
-			sendUserToast(`Cannot run schedule now: ${err.body}`, true)
-		}
-	}
-
-	$: {
+	$effect(() => {
 		if ($workspaceStore && $userStore) {
-			loadSchedules()
+			untrack(() => {
+				loadSchedules()
+			})
 		}
-	}
-	let scheduleEditor: ScheduleEditor
+	})
+	let scheduleEditor: ScheduleEditor | undefined = $state()
 
-	let filteredItems: (ScheduleW & { marked?: any })[] | undefined = []
-	let items: typeof filteredItems | undefined = []
-	let preFilteredItems: typeof filteredItems | undefined = []
-	let filter = ''
-	let ownerFilter: string | undefined = undefined
-	let nbDisplayed = 15
+	let filteredItems: (ScheduleW & { marked?: any })[] | undefined = $state([])
+	let items: typeof filteredItems | undefined = $state([])
+	let filter = $state('')
+	let ownerFilter: string | undefined = $state(undefined)
+	let nbDisplayed = $state(15)
 
-	let filterEnabledDisabled: 'all' | 'enabled' | 'disabled' = 'all'
+	let filterEnabledDisabled: 'all' | 'enabled' | 'disabled' = $state('all')
 
 	const SCHEDULE_PATH_KIND_FILTER_SETTING = 'schedulePathKindFilter'
 	const FILTER_USER_FOLDER_SETTING_NAME = 'user_and_folders_only'
-	let selectedFilterKind =
+	let selectedFilterKind = $state(
 		(getLocalSetting(SCHEDULE_PATH_KIND_FILTER_SETTING) as 'schedule' | 'script_flow') ?? 'schedule'
-	let filterUserFolders = getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true'
+	)
+	let filterUserFolders = $state(getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true')
 
-	$: storeLocalSetting(SCHEDULE_PATH_KIND_FILTER_SETTING, selectedFilterKind)
-	$: storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
+	$effect(() => {
+		storeLocalSetting(SCHEDULE_PATH_KIND_FILTER_SETTING, selectedFilterKind)
+	})
+	$effect(() => {
+		storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
+	})
 
 	function filterItemsPathsBaseOnUserFilters(
 		item: ScheduleW,
@@ -192,41 +169,47 @@
 		if (filterEnabledDisabled === 'disabled') return !item.enabled
 	}
 
-	$: preFilteredItems =
-		ownerFilter != undefined
+	let preFilteredItems = $derived.by(() => {
+		return ownerFilter != undefined
 			? selectedFilterKind === 'schedule'
 				? schedules?.filter(
 						(x) =>
 							x.path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders) &&
 							filterItemsBasedOnEnabledDisabled(x, filterEnabledDisabled)
-				  )
+					)
 				: schedules?.filter(
 						(x) =>
 							x.script_path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders) &&
 							filterItemsBasedOnEnabledDisabled(x, filterEnabledDisabled)
-				  )
+					)
 			: schedules?.filter(
 					(x) =>
 						filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders) &&
 						filterItemsBasedOnEnabledDisabled(x, filterEnabledDisabled)
-			  )
+				)
+	})
 
-	$: if ($workspaceStore) {
-		ownerFilter = undefined
-	}
+	$effect(() => {
+		if ($workspaceStore) {
+			ownerFilter = undefined
+		}
+	})
 
-	$: owners =
+	let owners = $derived(
 		selectedFilterKind === 'schedule'
 			? Array.from(
 					new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
+				).sort()
 			: Array.from(
 					new Set(filteredItems?.map((x) => x.script_path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
+				).sort()
+	)
 
-	$: items = filter !== '' ? filteredItems : preFilteredItems
+	$effect(() => {
+		items = filter !== '' ? filteredItems : preFilteredItems
+	})
 
 	function updateQueryFilters(selectedFilterKind, filterUserFolders, filterEnabledDisabled) {
 		setQuery(new URL(window.location.href), 'filter_kind', selectedFilterKind).then(() => {
@@ -260,11 +243,13 @@
 		loadQueryFilters()
 	})
 
-	$: updateQueryFilters(selectedFilterKind, filterUserFolders, filterEnabledDisabled)
+	$effect(() => {
+		updateQueryFilters(selectedFilterKind, filterUserFolders, filterEnabledDisabled)
+	})
 </script>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<ScheduleEditor on:update={loadSchedules} bind:this={scheduleEditor} />
+<ScheduleEditor onUpdate={loadSchedules} bind:this={scheduleEditor} />
 
 <SearchItems
 	{filter}
@@ -285,8 +270,14 @@
 			tooltip="Trigger Scripts and Flows according to a cron schedule"
 			documentationLink="https://www.windmill.dev/docs/core_concepts/scheduling"
 		>
-			<Button size="md" startIcon={{ icon: Plus }} on:click={() => scheduleEditor.openNew(false)}>
-				New&nbsp;schedule
+			<Button
+				size="md"
+				startIcon={{ icon: Plus }}
+				on:click={() => scheduleEditor?.openNew(false)}
+				aiId="schedules-add-schedule"
+				aiDescription="Add schedule"
+			>
+				New schedule
 			</Button>
 		</PageHeader>
 		<div class="w-full h-full flex flex-col">
@@ -294,18 +285,22 @@
 				<input type="text" placeholder="Search schedule" bind:value={filter} class="search-item" />
 				<div class="flex flex-row items-center gap-2 mt-6">
 					<div class="text-sm shrink-0"> Filter by path of </div>
-					<ToggleButtonGroup bind:selected={selectedFilterKind} let:item>
-						<ToggleButton small value="schedule" label="Schedule" icon={Calendar} {item} />
-						<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
+					<ToggleButtonGroup bind:selected={selectedFilterKind}>
+						{#snippet children({ item })}
+							<ToggleButton small value="schedule" label="Schedule" icon={Calendar} {item} />
+							<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
+						{/snippet}
 					</ToggleButtonGroup>
 				</div>
 				<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
 
 				<div class="flex flex-row items-center justify-end gap-4">
-					<ToggleButtonGroup class="h-6 w-auto" bind:selected={filterEnabledDisabled} let:item>
-						<ToggleButton small value="all" label="All" {item} />
-						<ToggleButton small value="enabled" label="Enabled" {item} />
-						<ToggleButton small value="disabled" label="Disabled" {item} />
+					<ToggleButtonGroup class="h-6 w-auto" bind:selected={filterEnabledDisabled}>
+						{#snippet children({ item })}
+							<ToggleButton small value="all" label="All" {item} />
+							<ToggleButton small value="enabled" label="Enabled" {item} />
+							<ToggleButton small value="disabled" label="Disabled" {item} />
+						{/snippet}
 					</ToggleButtonGroup>
 					{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
 						<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
@@ -341,7 +336,7 @@
 
 								<a
 									href="#{path}"
-									on:click={() => scheduleEditor?.openEdit(path, is_flow)}
+									onclick={() => scheduleEditor?.openEdit(path, is_flow)}
 									class="min-w-0 grow hover:underline decoration-gray-400"
 								>
 									<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
@@ -385,10 +380,12 @@
 												/>
 												<Circle class="text-red-600 relative inline-flex fill-current" size={12} />
 											</span>
-											<div slot="text">
-												The schedule disabled itself because there was an error scheduling the next
-												job: {error}
-											</div>
+											{#snippet text()}
+												<div>
+													The schedule disabled itself because there was an error scheduling the
+													next job: {error}
+												</div>
+											{/snippet}
 										</Popover>
 									{/if}
 								</div>
@@ -431,6 +428,13 @@
 												}
 											},
 											{
+												displayName: `Duplicate schedule`,
+												icon: Copy,
+												action: () => {
+													scheduleEditor?.openNew(is_flow, script_path, path)
+												}
+											},
+											{
 												displayName: 'Delete',
 												type: 'delete',
 												icon: Trash,
@@ -456,14 +460,14 @@
 															displayName: 'Deploy to prod/staging',
 															icon: FileUp,
 															action: () => {
-																deploymentDrawer.openDrawer(path, 'trigger', {
+																deploymentDrawer?.openDrawer(path, 'trigger', {
 																	triggers: {
 																		kind: 'schedules'
 																	}
 																})
 															}
 														}
-												  ]
+													]
 												: []),
 											{
 												displayName: 'View runs',
@@ -483,14 +487,14 @@
 												displayName: 'Run now',
 												icon: Play,
 												action: () => {
-													runScheduleNow(script_path, path, is_flow)
+													runScheduleNow(script_path, path, is_flow, $workspaceStore!)
 												}
 											},
 											{
 												displayName: canWrite ? 'Share' : 'See Permissions',
 												icon: Share,
 												action: () => {
-													shareModal.openDrawer(path, 'schedule')
+													shareModal?.openDrawer(path, 'schedule')
 												}
 											}
 										]}
@@ -518,7 +522,7 @@
 														<div
 															class="{job.success ? 'bg-green-300' : 'bg-red-300'} mx-auto w-1.5"
 															style="height: {h}px"
-														/>
+														></div>
 														<!-- <div class="text-[0.6em] mt-0.5 text-center text-tertiary"
 														>{(job.duration_ms / 1000).toFixed(2)}s</div
 													> -->
@@ -545,7 +549,7 @@
 		{#if items && items?.length > 15 && nbDisplayed < items.length}
 			<span class="text-xs"
 				>{nbDisplayed} items out of {items.length}
-				<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
+				<button class="ml-4" onclick={() => (nbDisplayed += 30)}>load 30 more</button></span
 			>
 		{/if}
 	</CenteredPage>

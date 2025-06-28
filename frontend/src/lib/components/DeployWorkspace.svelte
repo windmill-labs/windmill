@@ -230,7 +230,8 @@
 				'routes',
 				'schedules',
 				'sqs',
-				'websockets'
+				'websockets',
+				'gcp'
 			]
 			if (
 				additionalInformation?.triggers &&
@@ -579,7 +580,7 @@
 	}
 </script>
 
-<div class="mt-6" />
+<div class="mt-6"></div>
 
 {#if !$enterpriseLicense}
 	<Alert type="error" title="Enterprise license required"
@@ -603,7 +604,7 @@
 	<input class="max-w-xs" type="text" disabled value={workspaceToDeployTo} />
 
 	{#if seeTarget == undefined}
-		<div class="mt-6" />
+		<div class="mt-6"></div>
 		<Loader2 class="animate-spin" />
 	{:else if seeTarget == true}
 		<h3 class="mb-6 mt-16">All related deployable items</h3>
@@ -673,7 +674,7 @@
 			>
 		{/if}
 	{:else}
-		<div class="my-2" />
+		<div class="my-2"></div>
 		<Alert type="error" title="User not allowed to deploy to this workspace"
 			>Ask a permissioned user to deploy this item using the shareable link or get the proper
 			permissions on the target workspace</Alert

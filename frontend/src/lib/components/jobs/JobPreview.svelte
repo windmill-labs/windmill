@@ -1,4 +1,4 @@
-<script context="module" lang="ts">
+<script module lang="ts">
 	export const openStore = writable('')
 </script>
 
@@ -19,26 +19,31 @@
 
 	const POPUP_HEIGHT = 320 as const
 
-	export let id: string
-	let job: Job | undefined = undefined
-	let hovered = false
-	let timeout: NodeJS.Timeout | undefined
-	let watchJob: (id: string) => Promise<void>
-	let result: any
-	let loaded = false
-	let wrapper: HTMLElement
-	let popupOnTop = true
+	interface Props {
+		id: string
+		children?: import('svelte').Snippet<[any]>
+	}
 
-	$: open = $openStore === id
+	let { id, children }: Props = $props()
+	let job: Job | undefined = $state(undefined)
+	let hovered = $state(false)
+	let timeout: NodeJS.Timeout | undefined
+	let result: any = $state()
+	let testJobLoader: TestJobLoader | undefined = $state()
+	let loaded = false
+	let wrapper: HTMLElement | undefined = $state()
+	let popupOnTop = $state(true)
+
+	let open = $derived($openStore === id)
 
 	async function instantOpen() {
 		if (!open) {
 			hovered = true
-			popupOnTop = wrapper.getBoundingClientRect().top > POPUP_HEIGHT
+			popupOnTop = (wrapper?.getBoundingClientRect()?.top ?? 0) > POPUP_HEIGHT
 			openStore.set(id)
 			if (!loaded) {
 				await tick()
-				watchJob && watchJob(id)
+				testJobLoader?.watchJob(id)
 			}
 		} else {
 			timeout && clearTimeout(timeout)
@@ -81,19 +86,14 @@
 	})
 </script>
 
-<svelte:window on:keydown={({ key }) => ['Escape', 'Esc'].includes(key) && close()} />
+<svelte:window onkeydown={({ key }) => ['Escape', 'Esc'].includes(key) && close()} />
 {#if hovered}
-	<TestJobLoader bind:job bind:watchJob on:done={onDone} />
+	<TestJobLoader bind:job bind:this={testJobLoader} on:done={onDone} />
 {/if}
 
-<!-- svelte-ignore a11y-no-static-element-interactions -->
-<div
-	on:mouseenter={instantOpen}
-	on:mouseleave={staggeredClose}
-	bind:this={wrapper}
-	class="relative"
->
-	<slot {open} />
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div onmouseenter={instantOpen} onmouseleave={staggeredClose} bind:this={wrapper} class="relative">
+	{@render children?.({ open })}
 	{#if open}
 		<div
 			transition:fade|local={{ duration: 50 }}
@@ -136,7 +136,13 @@
 					</div>
 				{/if}
 				{#if job?.type === 'CompletedJob'}
-					<DisplayResult workspaceId={job?.workspace_id} jobId={job?.id} {result} disableExpand />
+					<DisplayResult
+						workspaceId={job?.workspace_id}
+						jobId={job?.id}
+						{result}
+						disableExpand
+						language={job?.language}
+					/>
 				{:else if job && `running` in job ? job.running : false}
 					<div class="text-sm font-semibold text-tertiary mb-1"> Job is still running </div>
 					<LogViewer

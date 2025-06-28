@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { stopPropagation } from 'svelte/legacy'
+
 	import { GridApi, createGrid } from 'ag-grid-community'
 	import { isObject, sendUserToast } from '$lib/utils'
-	import { getContext, onDestroy } from 'svelte'
+	import { getContext, mount, onDestroy, unmount, untrack } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type {
 		AppViewerContext,
@@ -33,7 +35,7 @@
 		SkipForward
 	} from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { initCss } from '$lib/components/apps/utils'
+	import { deepCloneWithFunctions, initCss } from '$lib/components/apps/utils'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 
 	import AppAggridTableActions from './AppAggridTableActions.svelte'
@@ -41,17 +43,30 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { Button } from '$lib/components/common'
 	import InputValue from '../../helpers/InputValue.svelte'
+	import { stateSnapshot, withProps } from '$lib/svelte5Utils.svelte'
 
-	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
+	interface Props {
+		// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		initializing?: boolean | undefined
+		render: boolean
+		customCss?: ComponentCustomCSS<'aggridcomponent'> | undefined
+		actions?: TableAction[] | undefined
+		actionsOrder?: RichConfiguration | undefined
+	}
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let initializing: boolean | undefined = undefined
-	export let render: boolean
-	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
-	export let actions: TableAction[] | undefined = undefined
-	export let actionsOrder: RichConfiguration | undefined = undefined
+	let {
+		id,
+		componentInput,
+		configuration,
+		initializing = $bindable(undefined),
+		render,
+		customCss = undefined,
+		actions = undefined,
+		actionsOrder = undefined
+	}: Props = $props()
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
 	const contextPanel = getContext<ContextPanelContext>('ContextPanel')
@@ -67,12 +82,9 @@
 		comfortable: 50
 	}
 
-	let css = initCss($app.css?.aggridcomponent, customCss)
+	let css = $state(initCss($app.css?.aggridcomponent, customCss))
 
-	let result: any[] | undefined = undefined
-
-	$: resolvedConfig?.rowIdCol && resetValues()
-	$: result && setValues()
+	let result: any[] | undefined = $state(undefined)
 
 	function resetValues() {
 		api?.setGridOption('rowData', value)
@@ -81,11 +93,13 @@
 	let uid = Math.random().toString(36).substring(7)
 	let prevUid: string | undefined = undefined
 
-	let value: any[] = Array.isArray(result)
-		? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() + '-' + uid }))
-		: [{ error: 'input was not an array' }]
+	let value: any[] = $state(
+		Array.isArray(result)
+			? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() + '-' + uid }))
+			: [{ error: 'input was not an array' }]
+	)
 
-	let loaded = false
+	let loaded = $state(false)
 
 	async function setValues() {
 		value = Array.isArray(result)
@@ -107,9 +121,8 @@
 		}
 	}
 
-	let resolvedConfig = initConfig(
-		components['aggridcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['aggridcomponent'].initialData.configuration, configuration)
 	)
 
 	let outputs = initOutput($worldStore, id, {
@@ -157,19 +170,20 @@
 			outputs?.selectedRows.set([])
 		}
 		toggleRow(rows[0])
-		outputs?.selectedRows.set(
-			rows.map((x) => {
-				let data = { ...x.data }
-				delete data['__index']
-				return data
-			})
-		)
+		const selectedRows = rows.map((x) => {
+			let data = { ...x.data }
+			delete data['__index']
+			return data
+		})
+		outputs?.selectedRows.set(selectedRows)
+
+		if (iterContext && listInputs) {
+			listInputs.set(id, { selectedRows })
+		}
 	}
 
-	$: outputs?.result?.set(result ?? [])
-
-	let clientHeight
-	let clientWidth
+	let clientHeight: number = $state(0)
+	let clientWidth: number = $state(0)
 
 	function onCellValueChanged(event) {
 		if (result) {
@@ -189,36 +203,30 @@
 
 			let data = { ...result[event.node.rowIndex] }
 			outputs?.selectedRow?.set(data)
+			resolvedConfig?.extraConfig?.['defaultColDef']?.['onCellValueChanged']?.(event)
 		}
 	}
 
-	let extraConfig = resolvedConfig.extraConfig
-	let api: GridApi<any> | undefined = undefined
-	let eGui: HTMLDivElement
-	let state: any = undefined
-
-	$: loaded && eGui && mountGrid()
+	let extraConfig = $state(deepCloneWithFunctions(resolvedConfig.extraConfig))
+	let api: GridApi<any> | undefined = $state(undefined)
+	let eGui: HTMLDivElement | undefined = $state(undefined)
+	let componentState: any = undefined
 
 	function refreshActions(actions: TableAction[]) {
 		if (!deepEqual(actions, lastActions)) {
-			lastActions = structuredClone(actions)
+			lastActions = structuredClone(stateSnapshot(actions))
 			updateOptions()
 		}
 	}
 
 	let lastActions: TableAction[] | undefined = undefined
-	$: actions && refreshActions(actions)
 
 	let lastActionsOrder: string[] | undefined = undefined
-
-	$: computedOrder && refreshActionsOrder(computedOrder)
 
 	function clearActionOrder() {
 		computedOrder = undefined
 		updateOptions()
 	}
-
-	$: computedOrder && computedOrder.length > 0 && actionsOrder === undefined && clearActionOrder()
 
 	function refreshActionsOrder(actionsOrder: string[] | undefined) {
 		if (Array.isArray(actionsOrder) && !deepEqual(actionsOrder, lastActionsOrder)) {
@@ -246,61 +254,64 @@
 					.filter(Boolean) as TableAction[])
 			: actions
 
-		let ta = new AppAggridTableActions({
-			target: c.eGui,
-			props: {
-				p,
-				id: id,
-				actions: sortedActions,
-				rowIndex,
-				row,
-				render,
-				wrapActions: resolvedConfig.wrapActions,
-				selectRow: (p) => {
-					toggleRow(p)
-					p.node.setSelected(true)
-				},
-				onSet: (id, value, rowIndex) => {
-					if (!inputs[id]) {
-						inputs[id] = { [rowIndex]: value }
-					} else {
-						inputs[id] = { ...inputs[id], [rowIndex]: value }
-					}
-
-					outputs?.inputs.set(inputs, true)
-				},
-				onRemove: (id, rowIndex) => {
-					if (inputs?.[id] == undefined) {
-						return
-					}
-					delete inputs[id][rowIndex]
-					inputs[id] = { ...inputs[id] }
-					if (Object.keys(inputs?.[id] ?? {}).length == 0) {
-						delete inputs[id]
-						inputs = { ...inputs }
-					}
-					outputs?.inputs.set(inputs, true)
-				}
+		const taComponent = withProps(AppAggridTableActions, {
+			p,
+			id: id,
+			actions: sortedActions,
+			rowIndex,
+			row,
+			render,
+			wrapActions: resolvedConfig.wrapActions,
+			selectRow: (p) => {
+				toggleRow(p)
+				p.node.setSelected(true)
 			},
+			onSet: (id, value, rowIndex) => {
+				if (!inputs[id]) {
+					inputs[id] = { [rowIndex]: value }
+				} else {
+					inputs[id] = { ...inputs[id], [rowIndex]: value }
+				}
+
+				outputs?.inputs.set(inputs, true)
+			},
+			onRemove: (id, rowIndex) => {
+				if (inputs?.[id] == undefined) {
+					return
+				}
+				delete inputs[id][rowIndex]
+				inputs[id] = { ...inputs[id] }
+				if (Object.keys(inputs?.[id] ?? {}).length == 0) {
+					delete inputs[id]
+					inputs = { ...inputs }
+				}
+				outputs?.inputs.set(inputs, true)
+			}
+		})
+		let ta = mount(taComponent.component, {
+			target: c.eGui,
+			props: taComponent.props,
 			context: componentContext
 		})
 
 		return {
-			destroy: () => {
-				ta.$destroy()
-			},
+			destroy: () => unmount(ta),
 			refresh(params) {
-				ta.$set({ rowIndex: params.node.rowIndex ?? 0, row: params.data, p: params })
+				taComponent.props.rowIndex = params.node.rowIndex ?? 0
+				taComponent.props.row = params.data
+				taComponent.props.p = params
 			}
 		}
 	})
 
 	function getIdFromData(data: any): string {
 		return resolvedConfig?.rowIdCol && resolvedConfig?.rowIdCol != ''
-			? data?.[resolvedConfig?.rowIdCol] ?? data['__index']
-			: data['__index']
+			? (data?.[resolvedConfig?.rowIdCol] ?? data?.['__index'])
+			: data?.['__index']
 	}
+
 	function mountGrid() {
+		// console.log(resolvedConfig?.extraConfig)
 		if (eGui) {
 			try {
 				let columnDefs =
@@ -336,11 +347,6 @@
 						pagination: resolvedConfig?.pagination,
 						paginationAutoPageSize: resolvedConfig?.pagination,
 						suppressPaginationPanel: true,
-						defaultColDef: {
-							flex: resolvedConfig.flex ? 1 : 0,
-							editable: resolvedConfig?.allEditable,
-							onCellValueChanged
-						},
 						rowHeight: resolvedConfig.compactness
 							? rowHeights[resolvedConfig.compactness]
 							: rowHeights['normal'],
@@ -352,13 +358,19 @@
 							outputs?.page.set(event.api.paginationGetCurrentPage())
 							footerRenderCount++
 						},
-						initialState: state,
+						initialState: componentState,
 						suppressRowDeselection: true,
 						suppressDragLeaveHidesColumns: true,
 						enableCellTextSelection: true,
-						...(resolvedConfig?.extraConfig ?? {}),
+						...deepCloneWithFunctions(resolvedConfig?.extraConfig ?? {}),
+						defaultColDef: {
+							flex: resolvedConfig.flex ? 1 : 0,
+							editable: resolvedConfig?.allEditable,
+							onCellValueChanged,
+							...resolvedConfig?.extraConfig?.['defaultColDef']
+						},
 						onStateUpdated: (e) => {
-							state = e?.api?.getState()
+							componentState = e?.api?.getState()
 							resolvedConfig?.extraConfig?.['onStateUpdated']?.(e)
 						},
 
@@ -380,8 +392,29 @@
 										e.api.deselectAll()
 										outputs?.selectedRow?.set({})
 										outputs?.selectedRowIndex.set(0)
-									} else {
-										e.api.getRowNode(index.toString())?.setSelected(true)
+									} else if (Array.isArray(index)) {
+										// select all rows matching the indixes
+										e.api.deselectAll()
+										index.forEach((i) => {
+											let rowId = getIdFromData(value[i])
+											if (rowId) {
+												e.api.getRowNode(rowId)?.setSelected(true, false)
+											}
+										})
+									} else if (typeof index === 'number') {
+										let rowId = getIdFromData(value[index])
+										if (rowId) {
+											e.api.getRowNode(rowId)?.setSelected(true, true)
+											outputs?.selectedRowIndex.set(index)
+											const row = { ...value[index] }
+											delete row['__index']
+											outputs?.selectedRow?.set(row)
+										}
+									}
+								},
+								setValue(nvalue) {
+									if (Array.isArray(nvalue)) {
+										value = nvalue
 									}
 								}
 							}
@@ -408,16 +441,6 @@
 				console.error(e)
 				sendUserToast("Couldn't mount the grid:" + e, true)
 			}
-		}
-	}
-
-	$: api && resolvedConfig && updateOptions()
-	$: value && updateValue()
-
-	$: if (!deepEqual(extraConfig, resolvedConfig.extraConfig)) {
-		extraConfig = resolvedConfig.extraConfig
-		if (extraConfig) {
-			api?.updateGridOptions(extraConfig)
 		}
 	}
 
@@ -482,11 +505,6 @@
 				paginationAutoPageSize: resolvedConfig?.pagination,
 				suppressPaginationPanel: true,
 				suppressDragLeaveHidesColumns: true,
-				defaultColDef: {
-					flex: resolvedConfig.flex ? 1 : 0,
-					editable: resolvedConfig?.allEditable,
-					onCellValueChanged
-				},
 				rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
 				rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
 					? resolvedConfig.rowMultiselectWithClick
@@ -494,19 +512,65 @@
 				rowHeight: resolvedConfig.compactness
 					? rowHeights[resolvedConfig.compactness]
 					: rowHeights['normal'],
-				...(resolvedConfig?.extraConfig ?? {})
+				...deepCloneWithFunctions(resolvedConfig?.extraConfig ?? {}),
+				defaultColDef: {
+					flex: resolvedConfig.flex ? 1 : 0,
+					editable: resolvedConfig?.allEditable,
+					onCellValueChanged,
+					...resolvedConfig?.extraConfig?.['defaultColDef']
+				}
 			})
 		} catch (e) {
 			console.error(e)
 			sendUserToast("Couldn't update the grid:" + e, true)
 		}
 	}
-	let loading = false
-	let refreshCount: number = 0
-	let footerRenderCount: number = 0
-	let computedOrder: string[] | undefined = undefined
+	let loading = $state(false)
+	let refreshCount: number = $state(0)
+	let footerRenderCount: number = $state(0)
+	let computedOrder: string[] | undefined = $state(undefined)
 
-	let footerHeight: number = 0
+	let footerHeight: number = $state(0)
+	$effect(() => {
+		resolvedConfig?.rowIdCol && untrack(() => resetValues())
+	})
+	$effect(() => {
+		result && untrack(() => setValues())
+	})
+	$effect(() => {
+		outputs?.result?.set(result ?? [])
+	})
+	$effect(() => {
+		loaded && eGui && untrack(() => mountGrid())
+	})
+	$effect(() => {
+		actions && refreshActions(actions)
+	})
+	$effect(() => {
+		computedOrder && untrack(() => refreshActionsOrder(computedOrder))
+	})
+	$effect(() => {
+		computedOrder &&
+			computedOrder.length > 0 &&
+			actionsOrder === undefined &&
+			untrack(() => clearActionOrder())
+	})
+	$effect(() => {
+		api && resolvedConfig && untrack(() => updateOptions())
+	})
+	$effect(() => {
+		value && untrack(() => updateValue())
+	})
+	$effect(() => {
+		if (!deepEqual(extraConfig, resolvedConfig.extraConfig)) {
+			extraConfig = deepCloneWithFunctions(resolvedConfig.extraConfig)
+			if (api && extraConfig) {
+				untrack(() => {
+					api?.updateGridOptions(extraConfig)
+				})
+			}
+		}
+	})
 </script>
 
 {#if actionsOrder}
@@ -560,9 +624,9 @@
 			{/if}
 
 			<div
-				on:pointerdown|stopPropagation={() => {
+				onpointerdown={stopPropagation(() => {
 					$selectedComponent = [id]
-				}}
+				})}
 				style:height="{clientHeight - (resolvedConfig.footer ? footerHeight : 0)}px"
 				style:width="{clientWidth}px"
 				class="ag-theme-alpine relative"
@@ -570,11 +634,11 @@
 			>
 				{#key resolvedConfig?.pagination}
 					{#if loaded}
-						<!-- svelte-ignore a11y-no-static-element-interactions -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
 							bind:this={eGui}
 							style:height="100%"
-							on:keydown={(e) => {
+							onkeydown={(e) => {
 								if ((e.ctrlKey || e.metaKey) && e.key === 'c' && $mode !== 'dnd') {
 									const selectedCell = api?.getFocusedCell()
 									if (selectedCell) {
@@ -587,7 +651,7 @@
 									}
 								}
 							}}
-						/>
+						></div>
 					{:else}
 						<Loader2 class="animate-spin" />
 					{/if}
@@ -601,7 +665,9 @@
 					>
 						<div>
 							<Popover>
-								<svelte:fragment slot="text">Download</svelte:fragment>
+								{#snippet text()}
+									Download
+								{/snippet}
 								<Button
 									startIcon={{ icon: Download }}
 									color="light"

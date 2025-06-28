@@ -40,7 +40,7 @@
 				'fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity',
 				open ? 'ease-out duration-300 opacity-100' : 'ease-in duration-200 opacity-0'
 			)}
-		/>
+		></div>
 
 		<div class="fixed inset-0 z-10 overflow-y-auto">
 			<div class="flex min-h-full items-center justify-center p-4">

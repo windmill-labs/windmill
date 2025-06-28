@@ -1,8 +1,7 @@
 import { sveltekit } from '@sveltejs/kit/vite'
 import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
-import circleDependency from 'vite-plugin-circular-dependency'
-// import mkcert from 'vite-plugin-mkcert'
+import mkcert from 'vite-plugin-mkcert'
 import importMetaUrlPlugin from '@windmill-labs/esbuild-import-meta-url-plugin'
 
 const file = fileURLToPath(new URL('package.json', import.meta.url))
@@ -12,7 +11,8 @@ const version = JSON.parse(json)
 /** @type {import('vite').UserConfig} */
 const config = {
 	server: {
-		https: false,
+		https: process.env.HTTPS === 'true',
+		allowedHosts: ['localhost', '127.0.0.1', '0.0.0.0', 'rubendev.wimill.xyz'],
 		port: 3000,
 		proxy: {
 			'^/api/.*': {
@@ -29,18 +29,27 @@ const config = {
 				target: process.env.REMOTE_MP ?? 'https://app.windmill.dev',
 				changeOrigin: true,
 				ws: true
+			},
+			'^/ui_builder/.*': {
+				target: 'http://localhost:4000',
+				changeOrigin: true,
+				headers: {
+					'Cross-Origin-Opener-Policy': 'same-origin',
+					'Cross-Origin-Embedder-Policy': 'require-corp',
+					'Cross-Origin-Resource-Policy': 'cross-origin'
+				}
 			}
 		}
 	},
 	preview: {
 		port: 3000
 	},
-	plugins: [sveltekit(), circleDependency({ circleImportThrowErr: false })],
+	plugins: [sveltekit(), ...(process.env.HTTPS === 'true' ? [mkcert()] : [])],
 	define: {
 		__pkg__: version
 	},
 	optimizeDeps: {
-		include: ['highlight.js', 'highlight.js/lib/core', 'monaco-vim'],
+		include: ['highlight.js', 'highlight.js/lib/core', 'monaco-vim', 'monaco-editor-wrapper'],
 		exclude: [
 			'@codingame/monaco-vscode-standalone-typescript-language-features',
 			'@codingame/monaco-vscode-standalone-languages'
@@ -49,16 +58,16 @@ const config = {
 			plugins: [importMetaUrlPlugin]
 		}
 	},
+	worker: {
+		format: 'es'
+	},
 	resolve: {
 		alias: {
 			path: 'path-browserify',
 			'monaco-editor/esm/vs/editor/contrib/hover/browser/hover':
-				'vscode/vscode/vs/editor/contrib/hover/browser/hoverContribution'
+				'monaco-editor/esm/vs/editor/contrib/hover/browser/hoverContribution'
 		},
 		dedupe: ['vscode', 'monaco-editor']
-	},
-	worker: {
-		format: 'es'
 	},
 	assetsInclude: ['**/*.wasm']
 }

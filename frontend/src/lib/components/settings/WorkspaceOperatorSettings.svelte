@@ -10,8 +10,9 @@
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { SaveIcon, EyeIcon, EyeOffIcon } from 'lucide-svelte'
+	import { untrack } from 'svelte'
 
-	let operatorWorkspaceSettings = {
+	let operatorWorkspaceSettings = $state({
 		runs: true,
 		schedules: true,
 		resources: true,
@@ -21,11 +22,11 @@
 		groups: true,
 		folders: true,
 		workers: true
-	}
+	})
 
-	let originalSettings = { ...operatorWorkspaceSettings }
-	let isChanged = false
-	let currentWorkspace: string | null = null
+	let originalSettings = $state({ ...untrack(() => operatorWorkspaceSettings) })
+	let isChanged = $state(false)
+	let currentWorkspace: string | null = $state(null)
 
 	async function saveSettings() {
 		try {
@@ -54,27 +55,33 @@
 		workers: { title: 'Workers', description: 'View workers and worker groups' }
 	}
 
-	$: if ($workspaceStore && $workspaceStore !== currentWorkspace) {
-		;(async () => {
-			currentWorkspace = $workspaceStore
-			const settings = await WorkspaceService.getSettings({
-				workspace: $workspaceStore
-			})
-			if (settings.operator_settings !== null) {
-				operatorWorkspaceSettings = settings.operator_settings ?? operatorWorkspaceSettings
-				originalSettings = { ...operatorWorkspaceSettings }
-			}
+	$effect(() => {
+		if ($workspaceStore && $workspaceStore !== currentWorkspace) {
+			;(async () => {
+				currentWorkspace = $workspaceStore
+				const settings = await WorkspaceService.getSettings({
+					workspace: $workspaceStore
+				})
+				if (settings.operator_settings !== null) {
+					operatorWorkspaceSettings = settings.operator_settings ?? operatorWorkspaceSettings
+					originalSettings = { ...operatorWorkspaceSettings }
+				}
+			})()
+		}
+	})
+
+	$effect(() => {
+		isChanged = JSON.stringify(operatorWorkspaceSettings) !== JSON.stringify(originalSettings)
+	})
+
+	let enableAllState = $derived(
+		(() => {
+			const values = Object.values(operatorWorkspaceSettings)
+			if (values.every((v) => v === true)) return 'true'
+			if (values.every((v) => v === false)) return 'false'
+			return undefined
 		})()
-	}
-
-	$: isChanged = JSON.stringify(operatorWorkspaceSettings) !== JSON.stringify(originalSettings)
-
-	$: enableAllState = (() => {
-		const values = Object.values(operatorWorkspaceSettings)
-		if (values.every((v) => v === true)) return 'true'
-		if (values.every((v) => v === false)) return 'false'
-		return undefined
-	})()
+	)
 
 	function toggleAllSettings(event) {
 		const newValue = event.detail === true
@@ -101,7 +108,7 @@
 		</div>
 
 		<div class="flex justify-end mb-2">
-			<div class="flex justify-end" />
+			<div class="flex justify-end"></div>
 		</div>
 
 		<div class="flex flex-col">
@@ -111,25 +118,23 @@
 						<Cell head first>Section</Cell>
 						<Cell head>Description</Cell>
 						<Cell head last>
-							<ToggleButtonGroup
-								bind:selected={enableAllState}
-								on:selected={toggleAllSettings}
-								let:item
-							>
-								<ToggleButton
-									icon={EyeIcon}
-									small={true}
-									value={'true'}
-									label="Enable All"
-									{item}
-								/>
-								<ToggleButton
-									icon={EyeOffIcon}
-									small={true}
-									value={'false'}
-									label="Disable All"
-									{item}
-								/>
+							<ToggleButtonGroup bind:selected={enableAllState} on:selected={toggleAllSettings}>
+								{#snippet children({ item })}
+									<ToggleButton
+										icon={EyeIcon}
+										small={true}
+										value={'true'}
+										label="Enable All"
+										{item}
+									/>
+									<ToggleButton
+										icon={EyeOffIcon}
+										small={true}
+										value={'false'}
+										label="Disable All"
+										{item}
+									/>
+								{/snippet}
 							</ToggleButtonGroup>
 						</Cell>
 					</tr>
@@ -143,10 +148,11 @@
 								<ToggleButtonGroup
 									selected={operatorWorkspaceSettings[key] ? 'on' : 'off'}
 									on:selected={({ detail }) => (operatorWorkspaceSettings[key] = detail === 'on')}
-									let:item
 								>
-									<ToggleButton icon={EyeIcon} small={true} value={'on'} label="On" {item} />
-									<ToggleButton icon={EyeOffIcon} small={true} value={'off'} label="Off" {item} />
+									{#snippet children({ item })}
+										<ToggleButton icon={EyeIcon} small={true} value={'on'} label="On" {item} />
+										<ToggleButton icon={EyeOffIcon} small={true} value={'off'} label="Off" {item} />
+									{/snippet}
 								</ToggleButtonGroup>
 							</Cell>
 						</tr>

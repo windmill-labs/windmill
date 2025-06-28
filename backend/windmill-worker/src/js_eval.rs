@@ -45,10 +45,11 @@ use windmill_common::error::Error;
 #[cfg(feature = "deno_core")]
 use windmill_common::worker::{write_file, TMP_DIR};
 
-use windmill_common::{flow_status::JobResult, DB};
+use windmill_common::flow_status::JobResult;
 use windmill_queue::CanceledBy;
 
-use crate::{common::OccupancyMetrics, AuthedClient};
+use crate::common::OccupancyMetrics;
+use windmill_common::client::AuthedClient;
 
 #[cfg(feature = "deno_core")]
 use crate::{common::unsafe_raw, handle_child::run_future_with_polling_update_job_poller};
@@ -749,15 +750,19 @@ fn capture_proxy(s: &str) -> Option<(String, Option<(String, String)>)> {
         )
     })
 }
+
+use windmill_common::worker::Connection;
+
 #[cfg(not(feature = "deno_core"))]
 pub async fn eval_fetch_timeout(
     _env_code: String,
     _ts_expr: String,
     _js_expr: String,
     _args: Option<&Json<HashMap<String, Box<RawValue>>>>,
+    _script_entrypoint_override: Option<String>,
     _job_id: Uuid,
     _job_timeout: Option<i32>,
-    _db: &DB,
+    _conn: &Connection,
     _mem_peak: &mut i32,
     _canceled_by: &mut Option<CanceledBy>,
     _worker_name: &str,
@@ -775,21 +780,28 @@ pub async fn eval_fetch_timeout(
     ts_expr: String,
     js_expr: String,
     args: Option<&Json<HashMap<String, Box<RawValue>>>>,
+    script_entrypoint_override: Option<String>,
     job_id: Uuid,
     job_timeout: Option<i32>,
-    db: &DB,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     w_id: &str,
     load_client: bool,
     occupation_metrics: &mut OccupancyMetrics,
-) -> anyhow::Result<Box<RawValue>> {
+) -> windmill_common::error::Result<Box<RawValue>> {
     use windmill_queue::append_logs;
 
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
 
-    let parsed_args = windmill_parser_ts::parse_deno_signature(&ts_expr, true, false, None)?.args;
+    let parsed_args = windmill_parser_ts::parse_deno_signature(
+        &ts_expr,
+        true,
+        false,
+        script_entrypoint_override.clone(),
+    )?
+    .args;
     let spread = parsed_args
         .into_iter()
         .map(|x| {
@@ -817,7 +829,7 @@ pub async fn eval_fetch_timeout(
         ));
     }
 
-    let db_ = db.clone();
+    let conn_ = conn.clone();
     let w_id_ = w_id.to_string();
     let result_f = tokio::task::spawn_blocking(move || {
         let ops = vec![op_get_static_args(), op_log()];
@@ -902,7 +914,7 @@ pub async fn eval_fetch_timeout(
 
         let future = async {
             let r = tokio::select! {
-                r = eval_fetch(&mut js_runtime, &js_expr, Some(env_code), load_client, &job_id) => Ok(r),
+                r = eval_fetch(&mut js_runtime, &js_expr, Some(env_code), script_entrypoint_override, load_client, &job_id) => Ok(r),
                 _ = memory_limit_rx.recv() => Err(Error::ExecutionErr("Memory limit reached, killing isolate".to_string()))
             };
 
@@ -913,7 +925,7 @@ pub async fn eval_fetch_timeout(
                     "{extra_logs}{}",
                     js_runtime.op_state().borrow().borrow::<LogString>().s
                 ),
-                db_,
+                &conn_,
             )
             .await;
 
@@ -922,16 +934,16 @@ pub async fn eval_fetch_timeout(
         let r = runtime.block_on(future)?;
         // tracing::info!("total: {:?}", instant.elapsed());
 
-        r
+        r as windmill_common::error::Result<Box<RawValue>>
     });
 
     let res = run_future_with_polling_update_job_poller(
         job_id,
         job_timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
-        async { result_f.await? },
+        async { result_f.await.map_err(windmill_common::error::to_anyhow)? },
         worker_name,
         w_id,
         &mut Some(occupation_metrics),
@@ -990,24 +1002,29 @@ async fn eval_fetch(
     js_runtime: &mut JsRuntime,
     expr: &str,
     env_code: Option<String>,
+    script_entrypoint_override: Option<String>,
     load_client: bool,
     job_id: &Uuid,
-) -> anyhow::Result<Box<RawValue>> {
+) -> windmill_common::error::Result<Box<RawValue>> {
     if load_client {
         if let Some(env_code) = env_code.as_ref() {
             let _ = js_runtime
                 .load_side_es_module_from_code(
-                    &deno_core::resolve_url("file:///windmill.ts")?,
+                    &deno_core::resolve_url("file:///windmill.ts").map_err(error::to_anyhow)?,
                     format!("{env_code}\n{}", WINDMILL_CLIENT.to_string()),
                 )
-                .await?;
+                .await
+                .map_err(error::to_anyhow)?;
         }
     }
     use anyhow::Context;
+    use deno_core::error::CoreError;
+    use windmill_common::{error, worker::to_raw_value};
+    let source = format!("{}\n{expr}", env_code.unwrap_or_default());
     let _ = js_runtime
         .load_side_es_module_from_code(
-            &deno_core::resolve_url("file:///eval.ts")?,
-            format!("{}\n{expr}", env_code.unwrap_or_default()),
+            &deno_core::resolve_url("file:///eval.ts").map_err(error::to_anyhow)?,
+            source.to_string(),
         )
         .await
         .map_err(|e| {
@@ -1016,13 +1033,16 @@ async fn eval_fetch(
         })
         .context("failed to load module")?;
 
+    let main_override = script_entrypoint_override.unwrap_or("main".to_string());
     let script = js_runtime
         .execute_script(
             "<anon>",
-            r#"
+            format!(
+                r#"
 let args = Deno.core.ops.op_get_static_args().map(JSON.parse)
-import("file:///eval.ts").then((module) => module.main(...args)).then(JSON.stringify)
-"#,
+import("file:///eval.ts").then((module) => module.{main_override}(...args)).then(JSON.stringify)
+"#
+            ),
         )
         .map_err(|e| {
             write_error_expr(expr, &job_id);
@@ -1037,15 +1057,50 @@ import("file:///eval.ts").then((module) => module.main(...args)).then(JSON.strin
         .map_err(|e| {
             write_error_expr(expr, &job_id);
             e
-        })
-        .context("native script event loop")?;
+        });
 
-    let scope = &mut js_runtime.handle_scope();
-    let local = v8::Local::new(scope, global);
-    // Deserialize a `v8` object into a Rust type using `serde_v8`,
-    // in this case deserialize to a JSON `Value`.
-    let r = serde_v8::from_v8::<Option<String>>(scope, local)?;
-    Ok(unsafe_raw(r.unwrap_or_else(|| "null".to_string())))
+    match global {
+        Ok(global) => {
+            let scope = &mut js_runtime.handle_scope();
+            let local = v8::Local::new(scope, global);
+            // Deserialize a `v8` object into a Rust type using `serde_v8`,
+            // in this case deserialize to a JSON `Value`.
+            let r = serde_v8::from_v8::<Option<String>>(scope, local).map_err(error::to_anyhow)?;
+            Ok(unsafe_raw(r.unwrap_or_else(|| "null".to_string())))
+        }
+        Err(CoreError::Js(e)) => {
+            let stack_head = e.frames.first().and_then(|f| {
+                if f.file_name.as_ref().is_some_and(|x| x == "file:///eval.ts") {
+                    Some(format!(
+                        "{}\n",
+                        source
+                            .lines()
+                            .nth((f.line_number.unwrap_or(1)) as usize - 1)
+                            .unwrap_or("")
+                            .to_string()
+                    ))
+                } else {
+                    None
+                }
+            });
+            let stack_s = format!(
+                "{}{}",
+                stack_head.unwrap_or("".to_string()),
+                e.stack.unwrap_or("".to_string())
+            );
+            let stack = if stack_s.is_empty() {
+                None
+            } else {
+                Some(stack_s)
+            };
+            Err(Error::ExecutionRawError(to_raw_value(&serde_json::json!({
+                "message": e.message,
+                "stack": stack,
+                "name": e.name,
+            }))))
+        }
+        Err(e) => Err(Error::ExecutionErr(e.print_with_cause())),
+    }
 }
 
 #[cfg(feature = "deno_core")]

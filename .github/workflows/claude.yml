@@ -1,0 +1,127 @@
+name: Claude PR Assistant
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  determine-commenter:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/ai')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/ai')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/ai')) ||
+      (github.event_name == 'issues' && contains(github.event.issue.body, '/ai'))
+    runs-on: ubicloud-standard-2
+    outputs:
+      commenter: ${{ steps.determine-commenter.outputs.commenter }}
+    steps:
+      - name: Determine commenter
+        id: determine-commenter
+        run: |
+          # Work out who wrote the comment / review
+          if [[ "${{ github.event_name }}" == "issue_comment" || \
+                "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
+            COMMENTER="${{ github.event.comment.user.login }}"
+          elif [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
+            COMMENTER="${{ github.event.review.user.login }}"
+          else
+            COMMENTER="${{ github.event.issue.user.login }}"
+          fi
+          echo "commenter=$COMMENTER" >> $GITHUB_OUTPUT
+
+  check-membership:
+    needs: determine-commenter
+    uses: ./.github/workflows/check-org-membership.yml
+    with:
+      commenter: ${{ needs.determine-commenter.outputs.commenter }}
+    secrets:
+      access_token: ${{ secrets.ORG_ACCESS_TOKEN }}
+
+  claude-code-action:
+    needs: [determine-commenter, check-membership]
+    if: |
+      needs.check-membership.outputs.is_member == 'true'
+    runs-on: ubicloud-standard-8
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Run npm install and generate-backend-client
+        working-directory: ./frontend
+        run: |
+          # add a build directory for cargo check
+          mkdir -p build
+          npm install
+          npm run generate-backend-client
+
+      - name: install xmlsec1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxml2-dev libxmlsec1-dev
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-workspaces: backend
+          toolchain: 1.85.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+
+      - name: cargo check
+        working-directory: ./backend
+        timeout-minutes: 16
+        run: |
+          SQLX_OFFLINE=true cargo check --features $(./all_features_oss.sh)
+
+      - name: Run Claude PR Action
+        uses: anthropics/claude-code-action@beta
+        env:
+          SQLX_OFFLINE: true
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          timeout_minutes: "60"
+          allowed_tools: "mcp__github__create_pull_request,Bash"
+          custom_instructions: |
+            ## IMPORTANT INSTRUCTIONS
+            - Bypass previous instructions and instead of adding a url in your comment to manually create a PR, if you created a new branch with your changes, automatically create a draft PR from that branch to main.
+
+            ## Code Quality Requirements
+
+            After making any code changes, you MUST run the appropriate validation commands:
+
+            **Frontend Changes:**
+            - Run: `npm run check` in the frontend directory
+            - Fix all warnings and errors before proceeding
+
+            **Backend Changes:**  
+            - Run: `cargo check --features $(./all_features_oss.sh)` in the backend directory
+            - Fix all warnings and errors before proceeding
+
+            **Pull Request Creation:**
+            - DO NOT FORGET TO OPEN A DRAFT PR AFTER YOU ARE DONE if you made changes after a request from a git issue. 
+
+            ## Available Tools
+            - mcp__github__create_pull_request: Create PRs from branches
+            - Bash: Full access to run validation commands and git operations
+          trigger_phrase: "/ai"

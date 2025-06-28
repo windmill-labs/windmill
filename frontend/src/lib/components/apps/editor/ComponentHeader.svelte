@@ -59,9 +59,6 @@
 		return Object.values(componentOptions).some((value) => value)
 	}
 
-	let connectingPopupHover = false
-	$: connectingPopupHover && dispatch('mouseover')
-
 	let hoverHeader = false
 </script>
 
@@ -126,8 +123,8 @@
 				selected
 					? 'bg-blue-600/90 text-white'
 					: $connectingInput.opened
-					? 'bg-[#f8aa4b]/90  text-white'
-					: 'bg-blue-400/90 text-white'
+						? 'bg-[#f8aa4b]/90  text-white'
+						: 'bg-blue-400/90 text-white'
 			)}
 		>
 			<div

@@ -1,4 +1,4 @@
-<script context="module">
+<script module>
 	const dynamicTemplateRegexPairs = buildPrefixRegex([
 		'flow_input',
 		'results',
@@ -10,7 +10,7 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import type { InputCat } from '$lib/utils'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 
 	import ArgInput from './ArgInput.svelte'
 	import FieldHeader from './FieldHeader.svelte'
@@ -29,49 +29,88 @@
 	import type { InputTransform } from '$lib/gen'
 	import TemplateEditor from './TemplateEditor.svelte'
 	import { setInputCat as computeInputCat, isCodeInjection } from '$lib/utils'
-	import { FunctionSquare } from 'lucide-svelte'
+	import { FunctionSquare, InfoIcon } from 'lucide-svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 	import type { FlowCopilotContext } from './copilot/flow'
 	import StepInputGen from './copilot/StepInputGen.svelte'
 	import type { PickableProperties } from './flows/previousResults'
 	import { twMerge } from 'tailwind-merge'
 	import FlowPlugConnect from './FlowPlugConnect.svelte'
-	export let schema: Schema | { properties?: Record<string, any>; required?: string[] }
-	export let arg: InputTransform | any
-	export let argName: string
-	export let extraLib: string = 'missing extraLib'
-	export let inputCheck: boolean = true
-	export let previousModuleId: string | undefined
-	export let pickForField: string | undefined = undefined
-	export let variableEditor: VariableEditor | undefined = undefined
-	export let itemPicker: ItemPicker | undefined = undefined
-	export let noDynamicToggle = false
-	export let argExtra: Record<string, any> = {}
-	export let pickableProperties: PickableProperties | undefined = undefined
-	export let enableAi = false
+	import { deepEqual } from 'fast-equals'
 
-	let monaco: SimpleEditor | undefined = undefined
-	let monacoTemplate: TemplateEditor | undefined = undefined
-	let argInput: ArgInput | undefined = undefined
+	interface Props {
+		schema: Schema | { properties?: Record<string, any>; required?: string[] }
+		arg: InputTransform | any
+		argName: string
+		headerTooltip?: string | undefined
+		headerTooltipIconClass?: string
+		HeaderTooltipIcon?: any
+		extraLib?: string
+		inputCheck?: boolean
+		previousModuleId: string | undefined
+		pickForField?: string | undefined
+		variableEditor?: VariableEditor | undefined
+		itemPicker?: ItemPicker | undefined
+		noDynamicToggle?: boolean
+		argExtra?: Record<string, any>
+		pickableProperties?: PickableProperties | undefined
+		enableAi?: boolean
+		hideHelpButton?: boolean
+		class?: string
+		editor?: SimpleEditor | undefined
+	}
+
+	let {
+		schema = $bindable(),
+		arg = $bindable(),
+		argName = $bindable(),
+		headerTooltip = undefined,
+		headerTooltipIconClass = '',
+		HeaderTooltipIcon = InfoIcon,
+		extraLib = $bindable('missing extraLib'),
+		inputCheck = $bindable(true),
+		previousModuleId,
+		pickForField = $bindable(undefined),
+		variableEditor = undefined,
+		itemPicker = undefined,
+		noDynamicToggle = false,
+		argExtra = {},
+		pickableProperties = undefined,
+		enableAi = false,
+		hideHelpButton = false,
+		class: className = '',
+		editor = $bindable(undefined)
+	}: Props = $props()
+
+	let monaco: SimpleEditor | undefined = $state(undefined)
+	let monacoTemplate: TemplateEditor | undefined = $state(undefined)
+	let argInput: ArgInput | undefined = $state(undefined)
 	let focusedPrev = false
 
 	const dispatch = createEventDispatcher()
 
-	$: inputCat = computeInputCat(
-		schema?.properties?.[argName].type,
-		schema?.properties?.[argName].format,
-		schema?.properties?.[argName].items?.type,
-		schema?.properties?.[argName].enum,
-		schema?.properties?.[argName].contentEncoding
-	)
-
-	let propertyType = getPropertyType(arg)
+	$effect(() => {
+		editor = monaco
+	})
 
 	const { shouldUpdatePropertyType, exprsToSet } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 
-	const { inputMatches, focusProp, propPickerConfig } =
+	const propPickerWrapperContext: PropPickerWrapperContext | undefined =
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
+	const { inputMatches, focusProp, propPickerConfig, clearFocus } = propPickerWrapperContext ?? {}
+
+	let inputCat = $derived(
+		computeInputCat(
+			schema?.properties?.[argName]?.type,
+			schema?.properties?.[argName]?.format,
+			schema?.properties?.[argName]?.items?.type,
+			schema?.properties?.[argName]?.enum,
+			schema?.properties?.[argName]?.contentEncoding
+		)
+	)
+
+	let propertyType = $state(getPropertyType(arg))
 
 	function setExpr() {
 		const newArg = $exprsToSet?.[argName]
@@ -92,8 +131,6 @@
 		})
 	}
 
-	$: $exprsToSet?.[argName] && setExpr()
-
 	function updatePropertyType() {
 		propertyType = $shouldUpdatePropertyType?.[argName] || 'static'
 		shouldUpdatePropertyType?.set({
@@ -101,10 +138,6 @@
 			[argName]: undefined
 		})
 	}
-
-	$: $shouldUpdatePropertyType?.[argName] &&
-		arg?.type === $shouldUpdatePropertyType?.[argName] &&
-		updatePropertyType()
 
 	function getPropertyType(arg: InputTransform | any): 'static' | 'javascript' {
 		let type: 'static' | 'javascript' = arg?.type ?? 'static'
@@ -144,10 +177,13 @@
 			if (arg.type) {
 				propertyType = arg.type
 			}
+			if (arg.expr != undefined) {
+				arg.expr = undefined
+			}
 		}
 	}
 
-	let codeInjectionDetected = false
+	let codeInjectionDetected = $state(false)
 
 	function checkCodeInjection(rawValue: string) {
 		if (!arg || !rawValue || rawValue.length < 3 || !dynamicTemplateRegexPairs) {
@@ -221,7 +257,7 @@
 	function onFocus() {
 		focused = true
 		if (isStaticTemplate(inputCat)) {
-			focusProp(argName, 'append', (path) => {
+			focusProp?.(argName, 'append', (path) => {
 				const toAppend = `\$\{${path}}`
 				arg.value = `${arg.value ?? ''}${toAppend}`
 				monacoTemplate?.setCode(arg.value)
@@ -230,7 +266,7 @@
 				return false
 			})
 		} else {
-			focusProp(argName, 'insert', (path) => {
+			focusProp?.(argName, 'insert', (path) => {
 				arg.expr = path
 				arg.type = 'javascript'
 				propertyType = 'javascript'
@@ -240,7 +276,14 @@
 		}
 	}
 
-	$: updateStaticInput(inputCat, propertyType, arg)
+	let prevArg: any = undefined
+	function onArgChange() {
+		const newArg = { arg, propertyType, inputCat }
+		if (!deepEqual(newArg, prevArg)) {
+			prevArg = structuredClone($state.snapshot(newArg))
+			updateStaticInput(inputCat, propertyType, arg)
+		}
+	}
 
 	function updateStaticInput(
 		inputCat: InputCat,
@@ -253,7 +296,7 @@
 		if (propertyType == 'static') {
 			setPropertyType(arg?.value)
 			codeInjectionDetected = checkCodeInjection(arg?.value) != undefined
-		} else if (propertyType == 'javascript' && focused) {
+		} else if (propertyType == 'javascript' && focused && inputMatches) {
 			// setPropertyType(arg?.expr)
 			$inputMatches = checkCodeInjection(arg?.expr)
 		}
@@ -261,33 +304,51 @@
 
 	function setDefaultCode() {
 		if (!arg?.value) {
-			monacoTemplate?.setCode(schema.properties?.[argName].default)
+			monacoTemplate?.setCode(schema.properties?.[argName]?.default)
 		}
 	}
 
 	function updateFocused(newFocused: boolean) {
-		if (focusedPrev && !newFocused) {
+		if (focusedPrev && !newFocused && inputMatches) {
 			$inputMatches = undefined
 		}
 		focusedPrev = focused
 	}
-	$: updateFocused(focused)
 
-	$: schema?.properties?.[argName].default && setDefaultCode()
-
-	let resourceTypes: string[] | undefined = undefined
+	let resourceTypes: string[] | undefined = $state(undefined)
 
 	async function loadResourceTypes() {
 		resourceTypes = await getResourceTypes()
 	}
 
-	let focused = false
-	let stepInputGen: StepInputGen | undefined = undefined
+	let focused = $state(false)
+	let stepInputGen: StepInputGen | undefined = $state(undefined)
 
 	loadResourceTypes()
 
-	$: connecting =
+	$effect(() => {
+		$exprsToSet?.[argName] && untrack(() => setExpr())
+	})
+	$effect(() => {
+		$shouldUpdatePropertyType?.[argName] &&
+			arg?.type === $shouldUpdatePropertyType?.[argName] &&
+			untrack(() => updatePropertyType())
+	})
+	$effect(() => {
+		arg?.value
+		arg?.expr
+		inputCat && propertyType && arg && untrack(() => onArgChange())
+	})
+	$effect(() => {
+		;[focused]
+		untrack(() => updateFocused(focused))
+	})
+	$effect(() => {
+		schema?.properties?.[argName]?.default && untrack(() => setDefaultCode())
+	})
+	let connecting = $derived(
 		$propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'
+	)
 </script>
 
 {#if arg != undefined}
@@ -297,17 +358,20 @@
 			$propPickerConfig?.propName == argName
 				? 'bg-surface border-l-4 border-blue-500 shadow-md rounded-l-md z-50 '
 				: 'hover:rounded-md',
-			$$props.class
+			className
 		)}
 	>
 		<div class="flex flex-row justify-between gap-1 pb-1 px-2">
 			<div class="flex flex-wrap grow">
 				<FieldHeader
 					label={argName}
-					format={schema?.properties?.[argName].format}
-					contentEncoding={schema?.properties?.[argName].contentEncoding}
+					simpleTooltip={headerTooltip}
+					simpleTooltipIconClass={headerTooltipIconClass}
+					SimpleTooltipIcon={HeaderTooltipIcon}
+					format={schema?.properties?.[argName]?.format}
+					contentEncoding={schema?.properties?.[argName]?.contentEncoding}
 					required={schema.required?.includes(argName)}
-					type={schema.properties?.[argName].type}
+					type={schema.properties?.[argName]?.type}
 				/>
 
 				{#if isStaticTemplate(inputCat)}
@@ -358,7 +422,6 @@
 					<div>
 						<ToggleButtonGroup
 							selected={propertyType}
-							let:item
 							on:selected={(e) => {
 								if (e.detail == propertyType) return
 								const staticTemplate = isStaticTemplate(inputCat)
@@ -370,8 +433,8 @@
 											staticTemplate
 												? `\`${arg?.value?.toString().replaceAll('`', '\\`') ?? ''}\``
 												: arg.value
-												? '(' + JSON.stringify(arg?.value, null, 4) + ')'
-												: ''
+													? '(' + JSON.stringify(arg?.value, null, 4) + ')'
+													: ''
 										)
 									}
 									if (arg) {
@@ -411,61 +474,73 @@
 								}
 							}}
 						>
-							{#if isStaticTemplate(inputCat)}
-								<ToggleButton
-									tooltip={`Write text or surround javascript with \`\$\{\` and \`\}\`. Use \`results\` to connect to another node\'s output.`}
-									light
-									value="static"
-									size="xs2"
-									label={'${}'}
-									{item}
-								/>
-							{:else}
-								<ToggleButton small label="Static" value="static" {item} />
-							{/if}
+							{#snippet children({ item })}
+								{#if isStaticTemplate(inputCat)}
+									<ToggleButton
+										tooltip={`Write text or surround javascript with \`\$\{\` and \`\}\`. Use \`results\` to connect to another node\'s output.`}
+										light
+										value="static"
+										size="xs2"
+										label={'${}'}
+										{item}
+									/>
+								{:else}
+									<ToggleButton small label="Static" value="static" {item} />
+								{/if}
 
-							{#if codeInjectionDetected && propertyType == 'static'}
-								<Button
-									size="xs2"
-									color="light"
-									btnClasses="font-normal text-xs w-fit bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-300 dark:bg-green-700 dark:hover:bg-green-600"
-									on:click={() => setJavaScriptExpr(arg.value)}
-								>
-									<span class="font-normal whitespace-nowrap flex gap-2 items-center"
-										><FunctionSquare size={14} /> detected -
-										<span class="font-bold">TAB</span>
-									</span>
-								</Button>
-							{:else}
-								<ToggleButton
-									small
-									light
-									tooltip="JavaScript expression ('flow_input' or 'results')."
-									value="javascript"
-									icon={FunctionSquare}
-									{item}
-								/>
-							{/if}
+								{#if codeInjectionDetected && propertyType == 'static'}
+									<Button
+										size="xs2"
+										color="light"
+										btnClasses="font-normal text-xs w-fit bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-300 dark:bg-green-700 dark:hover:bg-green-600"
+										on:click={() => setJavaScriptExpr(arg.value)}
+									>
+										<span class="font-normal whitespace-nowrap flex gap-2 items-center"
+											><FunctionSquare size={14} /> detected -
+											<span class="font-bold">TAB</span>
+										</span>
+									</Button>
+								{:else}
+									<ToggleButton
+										small
+										light
+										tooltip="JavaScript expression ('flow_input' or 'results')."
+										value="javascript"
+										icon={FunctionSquare}
+										{item}
+									/>
+								{/if}
+							{/snippet}
 						</ToggleButtonGroup>
 					</div>
 
-					<FlowPlugConnect
-						{connecting}
-						on:click={() => {
-							focusProp(argName, 'connect', (path) => {
-								connectProperty(path)
-								dispatch('change', { argName })
-								return true
-							})
-						}}
-					/>
+					{#if propPickerWrapperContext}
+						<FlowPlugConnect
+							id="flow-editor-plug"
+							{connecting}
+							on:click={() => {
+								if (
+									$propPickerConfig?.propName == argName &&
+									$propPickerConfig?.insertionMode == 'connect'
+								) {
+									clearFocus()
+								} else {
+									focusProp?.(argName, 'connect', (path) => {
+										connectProperty(path)
+										dispatch('change', { argName })
+										return true
+									})
+								}
+							}}
+						/>
+					{/if}
 				</div>
 			{/if}
 		</div>
 
-		<div class="max-w-xs" />
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<div class="relative" on:keyup={handleKeyUp}>
+		<div class="max-w-xs"></div>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="relative" onkeyup={handleKeyUp}>
 			<!-- {#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'}
 				<span
 					class={'text-white  z-50 px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute top-0 right-0 bg-blue-500'}
@@ -495,8 +570,9 @@
 									bind:code={arg.value}
 									fontSize={14}
 									on:change={() => {
-										dispatch('change', { argName })
+										dispatch('change', { argName, arg })
 									}}
+									loadAsync
 								/>
 							{/if}
 						</div>
@@ -512,7 +588,7 @@
 							}}
 							shouldDispatchChanges
 							on:change={() => {
-								dispatch('change', { argName })
+								dispatch('change', { argName, arg })
 							}}
 							label={argName}
 							bind:editor={monaco}
@@ -545,30 +621,31 @@
 							<SimpleEditor
 								bind:this={monaco}
 								bind:code={arg.expr}
-								on:change={() => {
-									dispatch('change', { argName })
-								}}
 								{extraLib}
 								lang="javascript"
 								shouldBindKey={false}
 								on:focus={() => {
 									focused = true
-									focusProp(argName, 'insert', (path) => {
+									focusProp?.(argName, 'insert', (path) => {
 										monaco?.insertAtCursor(path)
 										return false
 									})
 								}}
 								on:change={() => {
-									dispatch('change', { argName })
+									dispatch('change', { argName, arg })
 								}}
 								on:blur={() => {
 									focused = false
 								}}
 								autoHeight
+								loadAsync
 							/>
+							<!-- <input type="text" bind:value={arg.expr} /> -->
 						</div>
-						<DynamicInputHelpBox />
-						<div class="mb-2" />
+						{#if !hideHelpButton}
+							<DynamicInputHelpBox />
+						{/if}
+						<div class="mb-2"></div>
 					{:else}
 						Not recognized input type {argName} ({arg.expr}, {propertyType})
 						<div class="flex mt-2">
@@ -603,7 +680,7 @@
 						</svg>
 					</div>
 				{:else}
-					<div class="w-0" />
+					<div class="w-0"></div>
 				{/if}
 			</div>
 		</div>

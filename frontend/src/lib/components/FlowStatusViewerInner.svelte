@@ -13,7 +13,7 @@
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
 	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import { onDestroy } from 'svelte'
-	import { Badge, Button, Tab } from './common'
+	import { Badge, Button, Skeleton, Tab } from './common'
 	import DisplayResult from './DisplayResult.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { type DurationStatus, type FlowStatusViewerContext, type GraphModuleState } from './graph'
@@ -29,7 +29,7 @@
 	import Alert from './common/alert/Alert.svelte'
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
-	import { buildPrefix } from './graph/graphBuilder'
+	import { buildPrefix } from './graph/graphBuilder.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -81,7 +81,11 @@
 	export let isForloopSelected = false
 	export let parentRecursiveRefresh: Record<string, (clear, root) => Promise<void>> = {}
 	export let job: Job | undefined = undefined
+	export let rightColumnSelect: 'timeline' | 'node_status' | 'node_definition' | 'user_states' =
+		'timeline'
 
+	export let localModuleStates: Writable<Record<string, GraphModuleState>> = writable({})
+	export let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
 	let recursiveRefresh: Record<string, (clear, root) => Promise<void>> = {}
 
 	let jobResults: any[] =
@@ -90,11 +94,11 @@
 	let retry_selected = ''
 	let timeout: NodeJS.Timeout | undefined = undefined
 
-	let localModuleStates: Writable<Record<string, GraphModuleState>> = writable({})
-	let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
 	let expandedSubflows: Record<string, FlowModule[]> = {}
 
 	$: flowJobIds?.moduleId && onFlowModuleId()
+
+	let selectedId: Writable<string | undefined> = writable(selectedNode)
 
 	function onFlowModuleId() {
 		if (globalRefreshes) {
@@ -576,7 +580,10 @@
 					$flowStateStore[mod.id] = {
 						...$flowStateStore[mod.id],
 						previewResult: job['result'],
-						previewArgs: job.args
+						previewArgs: job.args,
+						previewJobId: job.id,
+						previewWorkspaceId: job.workspace_id,
+						previewSuccess: job['success']
 					}
 				}
 			}
@@ -790,8 +797,6 @@
 
 	let flowTimeline: FlowTimeline
 
-	let rightColumnSelect: 'timeline' | 'node_status' | 'node_definition' | 'user_states' = 'timeline'
-
 	function loadPreviousIters(lenToAdd: number) {
 		let r = $localDurationStatuses[flowJobIds?.moduleId ?? '']
 		if (r.iteration_from) {
@@ -849,7 +854,7 @@
 									x.id.startsWith('subflow:') ? x.id : buildSubflowKey(x.id, nprefix)
 								),
 								nprefix
-						  )
+							)
 						: []
 				})
 			)
@@ -900,7 +905,12 @@
 			{/if}
 			{#if render}
 				<div class="w-full h-full border rounded-sm bg-surface p-1 overflow-auto">
-					<DisplayResult workspaceId={job?.workspace_id} {jobId} result={jobResults} />
+					<DisplayResult
+						workspaceId={job?.workspace_id}
+						{jobId}
+						result={jobResults}
+						language={job?.language}
+					/>
 				</div>
 			{/if}
 		{:else if render}
@@ -979,7 +989,7 @@
 					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
 				</Tabs>
 			{:else}
-				<div class="h-[30px]" />
+				<div class="h-[30px]"></div>
 			{/if}
 		{/if}
 		<div class="{selected != 'sequence' ? 'hidden' : ''} max-w-7xl mx-auto">
@@ -1001,8 +1011,8 @@
 								color={flowJobIds?.flowJobsSuccess?.[j] === false
 									? 'red'
 									: forloop_selected === loopJobId
-									? 'dark'
-									: 'light'}
+										? 'dark'
+										: 'light'}
 								btnClasses="w-full flex justify-start"
 								on:click={async () => {
 									let storedJob = storedListJobs[j]
@@ -1073,10 +1083,10 @@
 
 					{#each innerModules as mod, i}
 						{#if render}
-							<div class="line w-8 h-10" />
+							<div class="line w-8 h-10"></div>
 							<h3 class="text-tertiary mb-2 w-full">
 								{#if mod.id === 'preprocessor'}
-									<h3>Preprocessor module</h3>
+									Preprocessor module
 								{:else if job?.raw_flow?.modules && i < job?.raw_flow?.modules.length + hasPreprocessor}
 									Step
 									<span class="font-medium text-primary">
@@ -1090,10 +1100,10 @@
 										</span>
 									{/if}
 								{:else}
-									<h3>Failure module</h3>
+									Failure module
 								{/if}
 							</h3>
-							<div class="line w-8 h-10" />
+							<div class="line w-8 h-10"></div>
 						{/if}
 						<li class="w-full border p-6 space-y-2 bg-blue-50/50 dark:bg-frost-900/50">
 							{#if render && Array.isArray(mod.failed_retries)}
@@ -1191,7 +1201,7 @@
 													flowJobsSuccess: mod.flow_jobs_success,
 													length: mod.iterator?.itered?.length ?? mod.flow_jobs.length,
 													branchall: job?.raw_flow?.modules?.[i]?.value?.type == 'branchall'
-											  }
+												}
 											: undefined}
 										on:jobsLoaded={(e) => {
 											let { job, force } = e.detail
@@ -1236,37 +1246,36 @@
 						</div>
 
 						<FlowGraphV2
+							{selectedId}
 							triggerNode={true}
 							download={!hideDownloadInGraph}
 							minHeight={wrapperHeight}
 							success={jobId != undefined && isSuccess(job?.['success'])}
 							flowModuleStates={$localModuleStates}
 							bind:expandedSubflows
-							on:select={(e) => {
+							onSelect={(e) => {
+								console.log('onSelect', e)
 								if (rightColumnSelect != 'node_definition') {
 									rightColumnSelect = 'node_status'
 								}
-								if (typeof e.detail == 'string') {
-									if (e.detail == 'Input') {
+								if (typeof e == 'string') {
+									if (e == 'Input') {
 										selectedNode = 'start'
 										stepDetail = undefined
-									} else if (e.detail == 'Result') {
+									} else if (e == 'Result') {
 										selectedNode = 'end'
 										stepDetail = 'end'
 									} else {
-										const mod = dfs(job?.raw_flow?.modules ?? [], (m) => m).find(
-											(m) => m?.id === e?.detail
-										)
+										const mod = dfs(job?.raw_flow?.modules ?? [], (m) => m).find((m) => m?.id === e)
 										stepDetail = mod
-										selectedNode = e?.detail
+										selectedNode = e
 									}
 								} else {
-									stepDetail = e.detail
-									selectedNode = e.detail.id
+									stepDetail = e
+									selectedNode = e.id
 								}
 							}}
-							on:selectedIteration={async (e) => {
-								let detail = e.detail
+							onSelectedIteration={async (detail) => {
 								if (detail.manuallySet) {
 									let rootJobId = detail.id
 									await tick()
@@ -1372,6 +1381,7 @@
 													result={node.flow_jobs_results}
 													nodeId={selectedNode}
 													jobId={job?.id}
+													language={job?.language}
 												/>
 											</div>
 											<span class="pl-1 text-tertiary text-lg pt-4">Selected subflow</span>
@@ -1446,7 +1456,7 @@
 		{/if}
 	{/if}
 {:else}
-	<Loader2 class="animate-spin" />
+	<Skeleton layout={[[15], 1, [70]]}></Skeleton>
 {/if}
 
 <style>

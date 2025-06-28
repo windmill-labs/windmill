@@ -26,13 +26,14 @@ use serde_json::{value::RawValue, Value};
 use sql_builder::{bind::Bind, quote, SqlBuilder};
 use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
-use windmill_audit::audit_ee::{audit_log, AuditAuthor};
+use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
+    worker::CLOUD_HOSTED,
 };
 
 pub fn workspaced_service() -> Router {
@@ -570,7 +571,7 @@ pub async fn transform_json_value<'c>(
             };
 
             let variables = variables::get_reserved_variables(
-                db,
+                &db.into(),
                 workspace,
                 token,
                 &job.email,
@@ -583,7 +584,6 @@ pub async fn transform_json_value<'c>(
                 job.schedule_path.clone(),
                 job.flow_step_id.clone(),
                 job.root_job.map(|x| x.to_string()),
-                None,
                 Some(job.scheduled_for.clone()),
             )
             .await;
@@ -599,11 +599,10 @@ pub async fn transform_json_value<'c>(
         }
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
-                m.insert(
-                    a.clone(),
+                let v =
                     transform_json_value(authed, user_db.clone(), db, workspace, b, job_id, token)
-                        .await?,
-                );
+                        .await?;
+                m.insert(a.clone(), v);
             }
             Ok(Value::Object(m))
         }
@@ -658,6 +657,20 @@ async fn create_resource(
     Query(q): Query<CreateResourceQuery>,
     Json(resource): Json<CreateResource>,
 ) -> Result<(StatusCode, String)> {
+    if *CLOUD_HOSTED {
+        let nb_resources = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM resource WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_one(&db)
+        .await?;
+        if nb_resources.unwrap_or(0) >= 10000 {
+            return Err(Error::BadRequest(
+                    "You have reached the maximum number of resources (10000) on cloud. Contact support@windmill.dev to increase the limit"
+                        .to_string(),
+                ));
+        }
+    }
     let authed = maybe_refresh_folders(&resource.path, &w_id, authed, &db).await;
 
     let mut tx = user_db.begin(&authed).await?;
@@ -1208,9 +1221,17 @@ async fn update_resource_type(
     Ok(format!("resource_type {} updated", name))
 }
 
-#[cfg(any(feature = "postgres_trigger", feature = "mqtt_trigger", all(feature = "sqs_trigger", feature = "enterprise")))]
+#[cfg(any(
+    feature = "http_trigger",
+    feature = "postgres_trigger",
+    feature = "mqtt_trigger",
+    all(
+        feature = "enterprise",
+        any(feature = "sqs_trigger", feature = "gcp_trigger")
+    )
+))]
 pub async fn try_get_resource_from_db_as<T>(
-    authed: ApiAuthed,
+    authed: &ApiAuthed,
     user_db: Option<UserDB>,
     db: &DB,
     resource_path: &str,

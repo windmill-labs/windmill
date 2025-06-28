@@ -1,3 +1,21 @@
+<script module>
+	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+
+	languages.typescript.javascriptDefaults.setCompilerOptions({
+		target: languages.typescript.ScriptTarget.Latest,
+		allowNonTsExtensions: true,
+		noSemanticValidation: false,
+		noLib: true,
+		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+	})
+	languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+		noSemanticValidation: false,
+		noSyntaxValidation: false,
+		noSuggestionDiagnostics: false,
+		diagnosticCodesToIgnore: [1108]
+	})
+</script>
+
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 	import {
@@ -13,12 +31,13 @@
 	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
 	import type { AppViewerContext } from './apps/types'
 	import { writable } from 'svelte/store'
-	import '@codingame/monaco-vscode-standalone-languages'
-	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+	// import '@codingame/monaco-vscode-standalone-languages'
+
+	// import '@codingame/monaco-vscode-standalone-typescript-language-features'
 
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
-	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
+	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 
 	export const conf = {
 		wordPattern:
@@ -361,7 +380,6 @@
 		$componentControl[$selectedComponent[0]] = {
 			...$componentControl[$selectedComponent[0]],
 			setCode: (value: string) => {
-				code = value
 				setCode(value)
 			}
 		}
@@ -374,6 +392,7 @@
 	export let autoHeight = true
 	export let fixedOverflowWidgets = true
 	export let fontSize = 16
+	export let loadAsync = false
 
 	if (typeof code != 'string') {
 		code = ''
@@ -384,8 +403,6 @@
 
 	const uri = `file:///${hash}.ts`
 
-	buildWorkerDefinition()
-
 	export function insertAtCursor(code: string): void {
 		if (editor) {
 			editor.trigger('keyboard', 'type', { text: code })
@@ -393,13 +410,17 @@
 	}
 
 	export function setCode(ncode: string): void {
-		code = ncode
-		if (editor) {
-			editor.setValue(ncode)
+		if (code != ncode) {
+			code = ncode
 		}
+		editor?.setValue(ncode)
 	}
 
+	let valueAfterDispose: string | undefined = undefined
 	export function getCode(): string {
+		if (valueAfterDispose != undefined) {
+			return valueAfterDispose
+		}
 		return editor?.getValue() ?? ''
 	}
 
@@ -412,26 +433,12 @@
 	let initialized = false
 
 	let jsLoader: NodeJS.Timeout | undefined = undefined
-
+	let timeoutModel: NodeJS.Timeout | undefined = undefined
 	async function loadMonaco() {
 		console.log('init template')
 		await initializeVscode('templateEditor')
 		console.log('initialized')
 		initialized = true
-		languages.typescript.javascriptDefaults.setCompilerOptions({
-			target: languages.typescript.ScriptTarget.Latest,
-			allowNonTsExtensions: true,
-			noSemanticValidation: false,
-			noLib: true,
-			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-		})
-
-		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-			noSemanticValidation: false,
-			noSyntaxValidation: false,
-			noSuggestionDiagnostics: false,
-			diagnosticCodesToIgnore: [1108]
-		})
 
 		languages.register({ id: 'template' })
 
@@ -446,16 +453,21 @@
 
 		model.updateOptions(updateOptions)
 
-		editor = meditor.create(divEl as HTMLDivElement, {
-			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
-			model,
-			// overflowWidgetsDomNode: widgets,
-			// lineNumbers: 'on',
-			lineDecorationsWidth: 6,
-			lineNumbersMinChars: 2,
-			fontSize,
-			suggestOnTriggerCharacters: true
-		})
+		try {
+			editor = meditor.create(divEl as HTMLDivElement, {
+				...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
+				model,
+				// overflowWidgetsDomNode: widgets,
+				// lineNumbers: 'on',
+				lineDecorationsWidth: 6,
+				lineNumbersMinChars: 2,
+				fontSize,
+				suggestOnTriggerCharacters: true
+			})
+		} catch (e) {
+			console.error('Error loading monaco:', e)
+			return
+		}
 
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
@@ -465,12 +477,19 @@
 			editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {})
 		})
 
-		let timeoutModel: NodeJS.Timeout | undefined = undefined
+		function updateCode() {
+			const ncode = getCode()
+			if (code == ncode) {
+				return
+			}
+			code = ncode
+			dispatch('change', { code: ncode })
+		}
+
 		editor.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
-				code = getCode()
-				dispatch('change', { code })
+				updateCode()
 			}, 200)
 		})
 
@@ -496,7 +515,7 @@
 
 		editor.onDidBlurEditorText(() => {
 			dispatch('blur')
-			code = getCode()
+			updateCode()
 		})
 
 		jsLoader = setTimeout(async () => {
@@ -592,10 +611,22 @@
 	}
 
 	let mounted = false
+	let loadTimeout: NodeJS.Timeout | undefined = undefined
 	onMount(async () => {
-		if (BROWSER) {
-			await loadMonaco()
-			mounted = true
+		try {
+			if (BROWSER) {
+				if (loadAsync) {
+					loadTimeout = setTimeout(async () => {
+						await loadMonaco()
+						mounted = true
+					}, 0)
+				} else {
+					await loadMonaco()
+					mounted = true
+				}
+			}
+		} catch (e) {
+			console.error('Error loading monaco:', e)
 		}
 	})
 
@@ -615,7 +646,10 @@
 
 	onDestroy(() => {
 		try {
+			valueAfterDispose = getCode()
 			jsLoader && clearTimeout(jsLoader)
+			timeoutModel && clearTimeout(timeoutModel)
+			loadTimeout && clearTimeout(loadTimeout)
 			model && model.dispose()
 			editor && editor.dispose()
 			cip && cip.dispose()
@@ -626,12 +660,24 @@
 
 <EditorTheme />
 
+{#if !editor}
+	<FakeMonacoPlaceHolder
+		autoheight
+		{code}
+		lineNumbersWidth={23}
+		lineNumbersOffset={-8}
+		class="border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip"
+	/>
+{/if}
 <div
 	bind:this={divEl}
 	style="height: 18px;"
-	class="{$$props.class ?? ''} border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip"
+	class="{$$props.class ??
+		''} border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip {!editor
+		? 'hidden'
+		: ''}"
 	bind:clientWidth={width}
-/>
+></div>
 
 <style>
 	:global(.template .mtk20) {

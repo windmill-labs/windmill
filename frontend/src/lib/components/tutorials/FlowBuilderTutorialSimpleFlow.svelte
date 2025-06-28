@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import { updateProgress } from '$lib/tutorialUtils'
 	import {
@@ -10,6 +10,7 @@
 		waitForElementLoading
 	} from './utils'
 	import Tutorial from './Tutorial.svelte'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
@@ -25,7 +26,7 @@
 	bind:this={tutorial}
 	index={0}
 	name="action"
-	tainted={isFlowTainted($flowStore)}
+	tainted={isFlowTainted(flowStore.val)}
 	on:error
 	on:skipAll
 	getSteps={(driver) => [
@@ -42,12 +43,17 @@
 				description: 'Flows have inputs that can be used in the flow',
 				onNextClick: () => {
 					clickButtonBySelector('#flow-editor-virtual-Input')
+					tick()
+						.then(() => clickButtonBySelector('#add-flow-input-btn'))
+						.then(tick)
+						.then(() => setInputBySelector('input[placeholder="Field name"]', 'firstname'))
+
 					setTimeout(() => {
 						driver.moveNext()
 					})
 				}
 			},
-			element: '#svelvet-Input'
+			element: '#flow-editor-virtual-Input'
 		},
 		{
 			element: 'input[placeholder="Field name"]',
@@ -55,7 +61,6 @@
 				title: 'Name your property',
 				description: 'Give a name to your property. Here we will call it firstname',
 				onNextClick: () => {
-					setInputBySelector('input[placeholder="Field name"]', 'firstname')
 					setTimeout(() => {
 						driver.moveNext()
 					})
@@ -130,9 +135,11 @@
 				description: "Let's write a script for your flow",
 				onNextClick: () => {
 					clickButtonBySelector('#flow-editor-new-bun')
-					waitForElementLoading('#flow-editor-editor', () => {
-						driver.moveNext()
-					})
+					tick().then(() =>
+						waitForElementLoading('#flow-editor-editor', () => {
+							driver.moveNext()
+						})
+					)
 				}
 			}
 		},
@@ -171,13 +178,13 @@
 			}
 		},
 		{
-			element: '.key',
+			element: '#flow-editor-step-input .prop-picker-inputs',
 			popover: {
 				title: 'Connection mode',
 				description: 'Once you pressed the connect button, you can choose what to connect to.',
 				onNextClick: () => {
-					if ($flowStore.value.modules[0].value.type === 'rawscript') {
-						$flowStore.value.modules[0].value.input_transforms = {
+					if (flowStore.val.value.modules[0].value.type === 'rawscript') {
+						flowStore.val.value.modules[0].value.input_transforms = {
 							x: {
 								type: 'javascript',
 								expr: 'flow_input.firstname'
@@ -185,7 +192,7 @@
 						}
 					}
 
-					$flowStore = $flowStore
+					refreshStateStore(flowStore)
 					dispatch('reload')
 
 					setTimeout(() => {

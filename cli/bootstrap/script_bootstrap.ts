@@ -76,6 +76,7 @@ func main() (interface{}, error) {
 
   bash: `echo "Hello world"
 `,
+  duckdb: `SELECT 'Hello world' AS message`,
 
   oracledb: `SELECT 'Hello world' AS message`,
   powershell: `Write-Output "Hello world"`,
@@ -92,6 +93,11 @@ function main() {
     {
         Console.WriteLine("Hello World");
     }
+}
+  `,
+  nu: `
+def main [] {
+  print "Hello World"
 }
   `,
 
@@ -114,4 +120,12 @@ inventory:
     debug:
       msg: "Hello, world!"
 `,
+  java: `
+public class Main {
+  public static void main() {
+    System.out.println("Hello World");
+  }
+}
+`,
+  // for related places search: ADD_NEW_LANG
 };

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import 'chartjs-adapter-date-fns'
-	import { Line } from 'svelte-chartjs'
+	import { Line } from '$lib/components/chartjs-wrappers/chartJs'
 
 	import {
 		Chart as ChartJS,

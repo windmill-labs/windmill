@@ -57,6 +57,8 @@ fn filter_non_main(code: &str, main_name: &str) -> String {
     return filtered_code;
 }
 
+/// skip_params is a micro optimization for when we just want to find the main
+/// function without parsing all the params.
 pub fn parse_python_signature(
     code: &str,
     override_main: Option<String>,
@@ -205,7 +207,7 @@ fn parse_expr(e: &Box<Expr>) -> (Typ, bool) {
                     };
                     (Typ::Str(values), false)
                 }
-                "List" => (Typ::List(Box::new(parse_expr(&x.slice).0)), false),
+                "List" | "list" => (Typ::List(Box::new(parse_expr(&x.slice).0)), false),
                 "Optional" => (parse_expr(&x.slice).0, true),
                 _ => (Typ::Unknown, false),
             },
@@ -230,7 +232,14 @@ fn parse_typ(id: &str) -> Typ {
         x @ _ if x.starts_with("DynSelect_") => {
             Typ::DynSelect(x.strip_prefix("DynSelect_").unwrap().to_string())
         }
-        _ => Typ::Resource(id.to_string()),
+        _ => Typ::Resource(map_resource_name(id)),
+    }
+}
+
+fn map_resource_name(x: &str) -> String {
+    match x {
+        "S3Object" => "s3_object".to_string(),
+        _ => x.to_string(),
     }
 }
 
@@ -466,7 +475,7 @@ def main(test1: str,
                     Arg {
                         otyp: None,
                         name: "s3o".to_string(),
-                        typ: Typ::Resource("S3Object".to_string()),
+                        typ: Typ::Resource("s3_object".to_string()),
                         default: None,
                         has_default: false,
                         oidx: None

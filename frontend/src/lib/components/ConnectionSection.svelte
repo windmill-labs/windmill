@@ -1,15 +1,21 @@
 <script lang="ts">
 	import { Badge, Button } from '$lib/components/common'
 	import Description from '$lib/components/Description.svelte'
-	import { Slack, Code2, RefreshCcw } from 'lucide-svelte'
+	import { Slack, Code2 } from 'lucide-svelte'
 	import MsTeamsIcon from '$lib/components/icons/MSTeamsIcon.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { hubBaseUrlStore, workspaceStore, enterpriseLicense } from '$lib/stores'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { WorkspaceService } from '$lib/gen'
-	import type { ListAvailableTeamsIdsResponse } from '$lib/gen/types.gen'
-	export let platform: 'slack' | 'teams'
 	import { sendUserToast } from '$lib/utils'
+	import TeamSelector from './TeamSelector.svelte'
+
+	interface TeamItem {
+		team_id: string
+		team_name: string
+	}
+
+	export let platform: 'slack' | 'teams'
 	export let teamName: string | undefined
 	export let display_name: string | undefined
 	export let scriptPath: string
@@ -23,34 +29,25 @@
 	export let onLoadSettings: () => void
 	export let itemKind: 'flow' | 'script' = 'script'
 
-	let isFetching = false
-
-	let teams: ListAvailableTeamsIdsResponse = []
-	let selected_teams_team: string | undefined = undefined
-
-	async function loadTeams() {
-		isFetching = true
-		selected_teams_team = undefined
-		teams = (await WorkspaceService.listAvailableTeamsIds({ workspace: $workspaceStore! })) ?? []
-		isFetching = false
-	}
-
-	$: workspaceStore && platform && $enterpriseLicense && loadTeams()
+	let selectedTeam: TeamItem | undefined = undefined
 
 	async function connectTeams() {
-		const selectedTeam = teams.find((team) => team.team_id === selected_teams_team)
-		const selectedTeamName = selectedTeam ? selectedTeam.team_name : undefined
+		if (!selectedTeam) return
 
-		await WorkspaceService.connectTeams({
-			workspace: $workspaceStore!,
-			requestBody: {
-				team_id: selected_teams_team,
-				team_name: selectedTeamName
-			}
-		})
-		sendUserToast('Connected to Teams to Workspace')
-		onLoadSettings()
-		loadTeams()
+		try {
+			await WorkspaceService.connectTeams({
+				workspace: $workspaceStore!,
+				requestBody: {
+					team_id: selectedTeam.team_id,
+					team_name: selectedTeam.team_name
+				}
+			})
+			sendUserToast('Connected to Teams successfully')
+			onLoadSettings()
+		} catch (error) {
+			sendUserToast('Failed to connect to Teams', true)
+			console.error('Error connecting to Teams:', error)
+		}
 	}
 </script>
 
@@ -92,49 +89,35 @@
 		{/if}
 	</div>
 {:else}
-	<div class="flex flex-row gap-2">
-		{#if platform === 'teams'}
-			<Button
-				size="xs"
-				color="dark"
-				on:click={connectTeams}
-				startIcon={{ icon: MsTeamsIcon }}
-				disabled={!selected_teams_team || !enterpriseLicense}
-			>
-				Connect to {platform.charAt(0).toUpperCase() + platform.slice(1)}
-				{$enterpriseLicense ? '' : '(EE only)'}
-			</Button>
-			{#if $enterpriseLicense}
-				<div class="w-64 flex flex-row gap-2">
-					<select bind:value={selected_teams_team}>
-						{#if !isFetching}
-							{#if teams.length === 0}
-								<option value="" disabled selected>No unassigned teams found</option>
-							{:else}
-								<option value="" disabled selected>Select team</option>
-								{#each teams as team}
-									<option value={team.team_id}>
-										{team.team_name}
-									</option>
-								{/each}
-							{/if}
-						{:else}
-							<option value="" disabled selected>Loading...</option>
-						{/if}
-					</select>
-				</div>
-				<div class="pt-1">
-					<button on:click={loadTeams} class="flex items-center gap-1 mt-2">
-						<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
-					</button>
-				</div>
+	<div class="flex flex-col gap-2">
+		<div class="flex flex-row gap-2 items-center">
+			{#if platform === 'teams'}
+				<Button
+					size="xs"
+					color="dark"
+					on:click={connectTeams}
+					startIcon={{ icon: MsTeamsIcon }}
+					disabled={!selectedTeam || !$enterpriseLicense}
+				>
+					Connect to {platform.charAt(0).toUpperCase() + platform.slice(1)}
+					{$enterpriseLicense ? '' : '(EE only)'}
+				</Button>
+
+				{#if $enterpriseLicense}
+					<TeamSelector
+						bind:selectedTeam
+						minWidth="180px"
+						disabled={!$enterpriseLicense}
+						onError={(e) => sendUserToast('Failed to load teams: ' + e.message, true)}
+					/>
+				{/if}
+			{:else}
+				<Button size="xs" color="dark" href={connectHref} startIcon={{ icon: Slack }}>
+					Connect to {platform.charAt(0).toUpperCase() + platform.slice(1)}
+				</Button>
 			{/if}
-		{:else}
-			<Button size="xs" color="dark" href={connectHref} startIcon={{ icon: Slack }}>
-				Connect to {platform.charAt(0).toUpperCase() + platform.slice(1)}
-			</Button>
-		{/if}
-		<Badge color="red">Not connected</Badge>
+			<Badge color="red">Not connected</Badge>
+		</div>
 	</div>
 {/if}
 
@@ -142,7 +125,7 @@
 	<div class="text-primary font-md font-semibold"> Script or flow to run on /windmill command </div>
 	<div class="relative">
 		{#if !teamName || (!$enterpriseLicense && platform === 'teams')}
-			<div class="absolute top-0 right-0 bottom-0 left-0 bg-surface-disabled/50 z-40" />
+			<div class="absolute top-0 right-0 bottom-0 left-0 bg-surface-disabled/50 z-40"></div>
 		{/if}
 		<ScriptPicker
 			kinds={['script']}

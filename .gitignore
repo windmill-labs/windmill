@@ -8,3 +8,8 @@ CaddyfileRemoteMalo
 **/.idea/
 .direnv
 .vscode
+.dev-docker-wrapper*
+backend/.minio-data
+.aider*
+!.aiderignore
+rust-client/Cargo.toml

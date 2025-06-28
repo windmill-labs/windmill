@@ -8,46 +8,55 @@
 	import Alert from './common/alert/Alert.svelte'
 	import EditableSchemaDrawer from './schema/EditableSchemaDrawer.svelte'
 	import type { SchemaProperty } from '$lib/common'
+	import Toggle from './Toggle.svelte'
+	import { tick } from 'svelte'
 
-	export let canEditResourceType: boolean = false
-	export let originalType: string | undefined = undefined
-	export let itemsType:
-		| {
-				type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
-				contentEncoding?: 'base64'
-				enum?: string[]
-				resourceType?: string
-				properties?: { [name: string]: SchemaProperty }
-		  }
-		| undefined
+	interface Props {
+		canEditResourceType?: boolean
+		originalType?: string | undefined
+		itemsType:
+			| {
+					type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
+					contentEncoding?: 'base64'
+					enum?: string[]
+					resourceType?: string
+					properties?: { [name: string]: SchemaProperty }
+			  }
+			| undefined
+	}
 
-	let selected: 'string' | 'number' | 'object' | 'bytes' | 'enum' | 'resource' | undefined =
+	let {
+		canEditResourceType = false,
+		originalType = undefined,
+		itemsType = $bindable()
+	}: Props = $props()
+
+	let selected:
+		| 'string'
+		| 'number'
+		| 'object'
+		| 'bytes'
+		| 'enum'
+		| 'resource'
+		| 's3object'
+		| undefined = $state(
 		itemsType?.type != 'string'
-			? itemsType?.type
+			? itemsType?.type == 'object' && itemsType?.resourceType == 's3object'
+				? 's3object'
+				: itemsType?.type
 			: Array.isArray(itemsType?.enum)
-			? 'enum'
-			: 'string'
-
-	let schema = {
-		properties: itemsType?.properties || {},
-		order: Object.keys(itemsType?.properties || {}),
-		required: Object.values(itemsType?.properties || {}).map((p) => p.required)
-	}
-
-	function updateItemsType() {
-		itemsType = {
-			...itemsType,
-			properties: schema.properties,
-			type: 'object'
-		}
-	}
+				? 'enum'
+				: itemsType?.contentEncoding == 'base64'
+					? 'bytes'
+					: 'string'
+	)
 </script>
 
 {#if canEditResourceType || originalType == 'string[]' || originalType == 'object[]'}
 	<Label label="Items type">
 		<select
 			bind:value={selected}
-			on:change={() => {
+			onchange={() => {
 				if (selected == 'enum') {
 					itemsType = { type: 'string', enum: [] }
 				} else if (selected == 'string') {
@@ -60,6 +69,8 @@
 					itemsType = { type: 'string', contentEncoding: 'base64' }
 				} else if (selected == 'resource') {
 					itemsType = { type: 'resource', resourceType: itemsType?.resourceType }
+				} else if (selected == 's3object') {
+					itemsType = { type: 'object', resourceType: 's3object' }
 				} else {
 					itemsType = undefined
 				}
@@ -69,6 +80,7 @@
 			<option value="string"> Items are strings</option>
 			<option value="enum">Items are strings from an enum</option>
 			{#if originalType != 'string[]'}
+				<option value="s3object">Items are S3 objects</option>
 				<option value="object"> Items are objects (JSON)</option>
 				<option value="resource"> Items are resources</option>
 				<option value="number">Items are numbers</option>
@@ -105,16 +117,17 @@
 	<label for="input" class="text-secondary text-xs">
 		Enums
 		<div class="flex flex-col gap-1">
-			{#each itemsType?.enum || [] as e}
+			{#each itemsType?.enum || [] as _, index}
 				<div class="flex flex-row max-w-md gap-1 items-center">
-					<input id="input" type="text" bind:value={e} />
+					<input id="input" type="text" bind:value={itemsType.enum[index]} />
 					<div>
 						<button
 							transition:fade|local={{ duration: 100 }}
 							class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
-							on:click={() => {
-								if (itemsType?.enum) {
-									itemsType.enum = (itemsType.enum || []).filter((el) => el !== e)
+							onclick={() => {
+								if (itemsType && itemsType.enum) {
+									const enumValue = itemsType.enum[index]
+									itemsType.enum = itemsType.enum.filter((el) => el !== enumValue)
 								}
 							}}
 						>
@@ -155,10 +168,40 @@
 {/if}
 
 {#if selected === 'object'}
-	<EditableSchemaDrawer
-		bind:schema
-		on:change={() => {
-			updateItemsType()
-		}}
+	<Toggle
+		bind:checked={
+			() => {
+				return itemsType?.properties != undefined
+			},
+			async (v) => {
+				await tick()
+				if (v) {
+					itemsType = { type: 'object', properties: {} }
+				} else {
+					itemsType = { type: 'object', properties: undefined }
+				}
+			}
+		}
+		options={{ left: 'JSON', right: 'Custom Object' }}
 	/>
+	{#if itemsType?.properties != undefined}
+		<EditableSchemaDrawer
+			bind:schema={
+				() => {
+					return {
+						properties: itemsType?.properties || {},
+						order: Object.keys(itemsType?.properties || {}),
+						required: Object.values(itemsType?.properties || {}).map((p) => p.required)
+					}
+				},
+				(schema) => {
+					itemsType = {
+						...itemsType,
+						properties: schema.properties,
+						type: 'object'
+					}
+				}
+			}
+		/>
+	{/if}
 {/if}

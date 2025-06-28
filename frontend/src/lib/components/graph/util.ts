@@ -38,3 +38,26 @@ export function getStateColor(
 			}
 	}
 }
+
+export function getStateHoverColor(
+	state: FlowStatusModule['type'] | undefined,
+	isDark: boolean,
+	nonVirtualItem?: boolean,
+	isSkipped?: boolean
+): string {
+	switch (state) {
+		case 'Success':
+		case 'Failure':
+		case 'InProgress':
+		case 'WaitingForEvents':
+		case 'WaitingForExecutor':
+			return getStateColor(state, isDark, nonVirtualItem, isSkipped)
+
+		default:
+			if (nonVirtualItem) {
+				return isDark ? '#343B46' : '#f6f6f6'
+			} else {
+				return isDark ? '#343B46' : '#d5dee8'
+			}
+	}
+}

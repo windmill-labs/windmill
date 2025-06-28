@@ -10,9 +10,11 @@ use sqlx::{Pool, Postgres};
 
 use windmill_common::scripts::ScriptHash;
 
+#[cfg(feature = "private")]
 pub mod git_sync_ee;
+pub mod git_sync_oss;
 
-pub use git_sync_ee::handle_deployment_metadata;
+pub use git_sync_oss::handle_deployment_metadata;
 pub type DB = Pool<Postgres>;
 
 #[derive(Clone, Debug)]
@@ -27,6 +29,14 @@ pub enum DeployedObject {
     ResourceType { path: String },
     User { email: String },
     Group { name: String },
+    HttpTrigger { path: String },
+    WebsocketTrigger { path: String },
+    KafkaTrigger { path: String },
+    NatsTrigger { path: String },
+    PostgresTrigger { path: String },
+    MqttTrigger { path: String },
+    SqsTrigger { path: String },
+    GcpTrigger { path: String },
 }
 
 impl DeployedObject {
@@ -42,6 +52,14 @@ impl DeployedObject {
             DeployedObject::ResourceType { path, .. } => path.to_owned(),
             DeployedObject::User { email } => format!("users/{email}"),
             DeployedObject::Group { name } => format!("groups/{name}"),
+            DeployedObject::HttpTrigger { path } => path.to_owned(),
+            DeployedObject::WebsocketTrigger { path } => path.to_owned(),
+            DeployedObject::KafkaTrigger { path } => path.to_owned(),
+            DeployedObject::NatsTrigger { path } => path.to_owned(),
+            DeployedObject::PostgresTrigger { path } => path.to_owned(),
+            DeployedObject::MqttTrigger { path } => path.to_owned(),
+            DeployedObject::SqsTrigger { path } => path.to_owned(),
+            DeployedObject::GcpTrigger { path } => path.to_owned(),
         }
     }
 
@@ -64,6 +82,14 @@ impl DeployedObject {
             DeployedObject::ResourceType { .. } => None,
             DeployedObject::User { .. } => None,
             DeployedObject::Group { .. } => None,
+            DeployedObject::HttpTrigger { .. } => None,
+            DeployedObject::WebsocketTrigger { .. } => None,
+            DeployedObject::KafkaTrigger { .. } => None,
+            DeployedObject::NatsTrigger { .. } => None,
+            DeployedObject::PostgresTrigger { .. } => None,
+            DeployedObject::MqttTrigger { .. } => None,
+            DeployedObject::SqsTrigger { .. } => None,
+            DeployedObject::GcpTrigger { .. } => None,
         }
     }
 }

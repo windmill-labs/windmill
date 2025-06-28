@@ -11,6 +11,8 @@ pub const LICENSE_KEY_SETTING: &str = "license_key";
 pub const NPM_CONFIG_REGISTRY_SETTING: &str = "npm_config_registry";
 pub const BUNFIG_INSTALL_SCOPES_SETTING: &str = "bunfig_install_scopes";
 pub const NUGET_CONFIG_SETTING: &str = "nuget_config";
+pub const MAVEN_REPOS_SETTING: &str = "maven_repos";
+pub const NO_DEFAULT_MAVEN_SETTING: &str = "no_default_maven";
 
 pub const EXTRA_PIP_INDEX_URL_SETTING: &str = "pip_extra_index_url";
 pub const PIP_INDEX_URL_SETTING: &str = "pip_index_url";
@@ -28,19 +30,20 @@ pub const EXPOSE_METRICS_SETTING: &str = "expose_metrics";
 pub const EXPOSE_DEBUG_METRICS_SETTING: &str = "expose_debug_metrics";
 pub const KEEP_JOB_DIR_SETTING: &str = "keep_job_dir";
 pub const REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING: &str = "require_preexisting_user_for_oauth";
-pub const OBJECT_STORE_CACHE_CONFIG_SETTING: &str = "object_store_cache_config";
+pub const OBJECT_STORE_CONFIG_SETTING: &str = "object_store_cache_config";
 
 pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation";
 pub const HUB_BASE_URL_SETTING: &str = "hub_base_url";
 pub const HUB_ACCESSIBLE_URL_SETTING: &str = "hub_accessible_url";
 pub const CRITICAL_ERROR_CHANNELS_SETTING: &str = "critical_error_channels";
 pub const CRITICAL_ALERT_MUTE_UI_SETTING: &str = "critical_alert_mute_ui";
+pub const CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING: &str = "critical_alerts_on_db_oversize";
 pub const DEV_INSTANCE_SETTING: &str = "dev_instance";
 pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
 pub const OTEL_SETTING: &str = "otel";
 
-pub const ENV_SETTINGS: [&str; 57] = [
+pub const ENV_SETTINGS: &[&str] = &[
     "DISABLE_NSJAIL",
     "MODE",
     "NUM_WORKERS",
@@ -58,8 +61,11 @@ pub const ENV_SETTINGS: [&str; 57] = [
     "S3_CACHE_BUCKET",
     "COOKIE_DOMAIN",
     "PYTHON_PATH",
+    "NU_PATH",
     "DENO_PATH",
     "GO_PATH",
+    "JAVA_PATH",
+    // for related places search: ADD_NEW_LANG
     "GOPRIVATE",
     "GOPROXY",
     "NETRC",
@@ -98,6 +104,7 @@ pub const ENV_SETTINGS: [&str; 57] = [
     "OTEL_LOGS",
     "DISABLE_S3_STORE",
     "PG_SCHEMA",
+    "PG_LISTENER_REFRESH_PERIOD_SECS",
 ];
 
 use crate::error;

@@ -1,4 +1,6 @@
 const plugin = require('tailwindcss/plugin')
+const { tailwindClasses } = require('./src/lib/components/apps/editor/componentsPanel/tailwindUtils')
+const { zIndexes } = require('./src/lib/zIndexes')
 
 const lightTheme = {
 	surface: '#ffffff',
@@ -80,7 +82,9 @@ const config = {
 		'autocomplete-list-item',
 		'autocomplete-list-item-create',
 		'selected',
-		'wm-tab-selected'
+		'wm-tab-selected',
+		...Object.values(zIndexes).map((zIndex) => `z-[${zIndex}]`),
+		...tailwindClasses
 	],
 	theme: {
 		colors: {
@@ -472,11 +476,16 @@ const config = {
 				'4k': '3800px'
 			},
 			animation: {
-				'spin-counter-clockwise': 'spin-counter-clockwise 1s linear infinite'
+				'spin-counter-clockwise': 'spin-counter-clockwise 1s linear infinite',
+				'zoom-in': 'zoom-in 0.25s ease-in-out'
 			},
 			keyframes: {
 				'spin-counter-clockwise': {
 					to: { transform: 'rotate(-360deg)' }
+				},
+				'zoom-in': {
+					'0%': { transform: 'scale(0.95)' },
+					'100%': { transform: 'scale(1)' }
 				}
 			}
 		}

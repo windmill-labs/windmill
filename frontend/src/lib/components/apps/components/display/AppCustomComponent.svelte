@@ -116,6 +116,6 @@
 		{#if !loaded}
 			<Loader2 class="animate-spin" />
 		{/if}
-		<div id={divId} />
+		<div id={divId}></div>
 	</RunnableWrapper>
 </div>

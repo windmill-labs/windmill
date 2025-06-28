@@ -41,6 +41,7 @@ import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
 import {
   generateFlowLockInternal,
   generateScriptMetadataInternal,
+  readLockfile,
 } from "./metadata.ts";
 import { FlowModule, OpenFlow, RawScript } from "./gen/types.gen.ts";
 import { pushResource } from "./resource.ts";
@@ -94,7 +95,8 @@ export function findCodebase(
 async function addCodebaseDigestIfRelevant(
   path: string,
   content: string,
-  codebases: SyncCodebase[]
+  codebases: SyncCodebase[],
+  ignoreCodebaseChanges: boolean
 ): Promise<string> {
   const isScript = path.endsWith(".script.yaml");
   if (!isScript) {
@@ -115,7 +117,11 @@ async function addCodebaseDigestIfRelevant(
     if (c) {
       const parsed: any = yamlParseContent(path, content);
       if (parsed && typeof parsed == "object") {
-        parsed["codebase"] = c.digest;
+        if (ignoreCodebaseChanges) {
+          parsed["codebase"] = undefined;
+        } else {
+          parsed["codebase"] = await c.getDigest();
+        }
         parsed["lock"] = "";
         return yamlStringify(parsed, yamlOptions);
       } else {
@@ -130,7 +136,8 @@ async function addCodebaseDigestIfRelevant(
 
 export async function FSFSElement(
   p: string,
-  codebases: SyncCodebase[]
+  codebases: SyncCodebase[],
+  ignoreCodebaseChanges: boolean
 ): Promise<DynFSElement> {
   function _internal_element(
     localP: string,
@@ -163,7 +170,8 @@ export async function FSFSElement(
         const r = await addCodebaseDigestIfRelevant(
           itemPath,
           content,
-          codebases
+          codebases,
+          ignoreCodebaseChanges
         );
         return r;
       },
@@ -333,7 +341,11 @@ export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
     else if (language == "php") ext = "php";
     else if (language == "rust") ext = "rs";
     else if (language == "csharp") ext = "cs";
+    else if (language == "nu") ext = "nu";
     else if (language == "ansible") ext = "playbook.yml";
+    else if (language == "java") ext = "java";
+    else if (language == "duckdb") ext = "duckdb.sql";
+    // for related places search: ADD_NEW_LANG
     else ext = "no_ext";
 
     return [`${name}.inline_script.`, ext];
@@ -345,7 +357,8 @@ function ZipFSElement(
   zip: JSZip,
   useYaml: boolean,
   defaultTs: "bun" | "deno",
-  resourceTypeToFormatExtension: Record<string, string>
+  resourceTypeToFormatExtension: Record<string, string>,
+  ignoreCodebaseChanges: boolean
 ): DynFSElement {
   async function _internal_file(
     p: string,
@@ -456,6 +469,9 @@ function ZipFSElement(
               parsed["lock"] = "";
             } else {
               parsed["lock"] = undefined;
+            }
+            if (ignoreCodebaseChanges && parsed["codebase"]) {
+              parsed["codebase"] = undefined;
             }
             return useYaml
               ? yamlStringify(parsed, yamlOptions)
@@ -594,11 +610,16 @@ export async function* readDirRecursiveWithIgnore(
 
   while (stack.length > 0) {
     const e = stack.pop()!;
+    // console.log(e.path);
     yield e;
     for await (const e2 of e.c()) {
-      if (e2.path.startsWith(".git" + SEP)) {
-        continue;
+      if (e2.isDirectory) {
+        const dirName = e2.path.split(SEP).pop();
+        if (dirName == "node_modules" || dirName?.startsWith(".")) {
+          continue;
+        }
       }
+      // console.log(e2.path);
       stack.push({
         path: e2.path,
         ignored: e.ignored || ignore(e2.path, e2.isDirectory),
@@ -645,7 +666,8 @@ export async function elementsToMap(
         path.endsWith(".nats_trigger" + ext) ||
         path.endsWith(".postgres_trigger" + ext) ||
         path.endsWith(".mqtt_trigger" + ext) ||
-        path.endsWith(".sqs_trigger" + ext))
+        path.endsWith(".sqs_trigger" + ext) ||
+        path.endsWith(".gcp_trigger" + ext))
     )
       continue;
     if (!skips.includeUsers && path.endsWith(".user" + ext)) continue;
@@ -653,9 +675,11 @@ export async function elementsToMap(
     if (!skips.includeSettings && path === "settings" + ext) continue;
     if (!skips.includeKey && path === "encryption_key") continue;
     if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
+    if (skips.skipResourceTypes && path.endsWith(".resource-type" + ext))
+      continue;
+
     if (skips.skipVariables && path.endsWith(".variable" + ext)) continue;
 
-    if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
     if (skips.skipResources && isFileResource(path)) continue;
 
     if (
@@ -675,6 +699,9 @@ export async function elementsToMap(
         "rs",
         "cs",
         "yml",
+        "nu",
+        "java",
+        // for related places search: ADD_NEW_LANG
       ].includes(path.split(".").pop() ?? "") &&
       !isFileResource(path)
     )
@@ -704,6 +731,7 @@ export async function elementsToMap(
 export interface Skips {
   skipVariables?: boolean | undefined;
   skipResources?: boolean | undefined;
+  skipResourceTypes?: boolean | undefined;
   skipSecrets?: boolean | undefined;
   skipScriptsMetadata?: boolean | undefined;
   includeSchedules?: boolean | undefined;
@@ -721,7 +749,8 @@ async function compareDynFSElement(
   json: boolean,
   skips: Skips,
   ignoreMetadataDeletion: boolean,
-  codebases: SyncCodebase[]
+  codebases: SyncCodebase[],
+  ignoreCodebaseChanges: boolean
 ): Promise<Change[]> {
   const [m1, m2] = els2
     ? await Promise.all([
@@ -761,7 +790,9 @@ async function compareDynFSElement(
       return yamlParseContent(k, v);
     }
   }
+
   const codebaseChanges: Record<string, string> = {};
+
   for (let [k, v] of Object.entries(m1)) {
     const isScriptMetadata =
       k.endsWith(".script.yaml") || k.endsWith(".script.json");
@@ -785,16 +816,18 @@ async function compareDynFSElement(
         if (deepEqual(before, after)) {
           continue;
         }
-        if (before.codebase != undefined) {
-          delete before.codebase;
-          m2[k] = yamlStringify(before, yamlOptions);
-        }
-        if (after.codebase != undefined) {
-          if (before.codebase != after.codebase) {
-            codebaseChanges[k] = after.codebase;
+        if (!ignoreCodebaseChanges) {
+          if (before.codebase != undefined) {
+            delete before.codebase;
+            m2[k] = yamlStringify(before, yamlOptions);
           }
-          delete after.codebase;
-          v = yamlStringify(after, yamlOptions);
+          if (after.codebase != undefined) {
+            if (before.codebase != after.codebase) {
+              codebaseChanges[k] = after.codebase;
+            }
+            delete after.codebase;
+            v = yamlStringify(after, yamlOptions);
+          }
         }
         if (skipMetadata) {
           continue;
@@ -827,34 +860,38 @@ async function compareDynFSElement(
     }
   }
 
-  for (const [k, v] of Object.entries(remoteCodebase)) {
-    const tsFile = k.replace(".script.yaml", ".ts");
-    if (
-      changes.find(
-        (c) => c.path == tsFile && (c.name == "edited" || c.name == "deleted")
-      )
-    ) {
-      continue;
-    }
-    let c = findCodebase(tsFile, codebases);
-    if (c?.digest != v) {
-      changes.push({
-        name: "edited",
-        path: tsFile,
-        codebase: v,
-        before: m1[tsFile],
-        after: m2[tsFile],
-      });
+  if (!ignoreCodebaseChanges) {
+    for (const [k, v] of Object.entries(remoteCodebase)) {
+      const tsFile = k.replace(".script.yaml", ".ts");
+      if (
+        changes.find(
+          (c) => c.path == tsFile && (c.name == "edited" || c.name == "deleted")
+        )
+      ) {
+        continue;
+      }
+      const c = findCodebase(tsFile, codebases);
+      if ((await c?.getDigest()) != v) {
+        changes.push({
+          name: "edited",
+          path: tsFile,
+          codebase: v,
+          before: m1[tsFile],
+          after: m2[tsFile],
+        });
+      }
     }
   }
 
-  for (const change of changes) {
-    const codebase = codebaseChanges[change.path];
-    if (!codebase) continue;
+  if (!ignoreCodebaseChanges) {
+    for (const change of changes) {
+      const codebase = codebaseChanges[change.path];
+      if (!codebase) continue;
 
-    const tsFile = change.path.replace(".script.yaml", ".ts");
-    if (change.name == "edited" && change.path == tsFile) {
-      change.codebase = codebase;
+      const tsFile = change.path.replace(".script.yaml", ".ts");
+      if (change.name == "edited" && change.path == tsFile) {
+        change.codebase = codebase;
+      }
     }
   }
 
@@ -892,7 +929,8 @@ function getOrderFromPath(p: string) {
     typ == "nats_trigger" ||
     typ == "postgres_trigger" ||
     typ == "mqtt_trigger" ||
-    typ == "sqs_trigger"
+    typ == "sqs_trigger" ||
+    typ == "gcp_trigger"
   ) {
     return 8;
   } else if (typ == "variable") {
@@ -960,6 +998,8 @@ export async function ignoreF(wmillconf: {
   includes?: string[];
   excludes?: string[];
   extraIncludes?: string[];
+  skipResourceTypes?: boolean;
+  json?: boolean;
 }): Promise<(p: string, isDirectory: boolean) => boolean> {
   let whitelist: { approve(file: string): boolean } | undefined = undefined;
 
@@ -991,6 +1031,10 @@ export async function ignoreF(wmillconf: {
   // new Gitignore.default({ initialRules: ignoreContent.split("\n")}).ignoreContent).compile();
 
   return (p: string, isDirectory: boolean) => {
+    const ext = wmillconf.json ? ".json" : ".yaml";
+    if (!isDirectory && p.endsWith(".resource-type" + ext)) {
+      return wmillconf.skipResourceTypes ?? false;
+    }
     return (
       !isWhitelisted(p) &&
       (isNotWmillFile(p, isDirectory) ||
@@ -1082,6 +1126,7 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
       opts.plainSecrets,
       opts.skipVariables,
       opts.skipResources,
+      opts.skipResourceTypes,
       opts.skipSecrets,
       opts.includeSchedules,
       opts.includeTriggers,
@@ -1093,11 +1138,12 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
     ))!,
     !opts.json,
     opts.defaultTs ?? "bun",
-    resourceTypeToFormatExtension
+    resourceTypeToFormatExtension,
+    true
   );
   const local = !opts.stateful
-    ? await FSFSElement(Deno.cwd(), codebases)
-    : await FSFSElement(path.join(Deno.cwd(), ".wmill"), []);
+    ? await FSFSElement(Deno.cwd(), codebases, true)
+    : await FSFSElement(path.join(Deno.cwd(), ".wmill"), [], true);
   const changes = await compareDynFSElement(
     remote,
     local,
@@ -1105,7 +1151,8 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
     opts.json ?? false,
     opts,
     false,
-    codebases
+    codebases,
+    true
   );
 
   log.info(
@@ -1113,6 +1160,10 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
   );
   if (changes.length > 0) {
     prettyChanges(changes);
+    if (opts.dryRun) {
+      log.info(colors.gray(`Dry run complete.`));
+      return;
+    }
     if (
       !opts.yes &&
       !(await Confirm.prompt({
@@ -1228,7 +1279,7 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
       }
     }
     log.info("All local changes pulled, now updating wmill-lock.yaml");
-
+    await readLockfile(); // ensure wmill-lock.yaml exists
     const globalDeps = await findGlobalDeps();
 
     const tracker: ChangeTracker = await buildTracker(changes);
@@ -1354,6 +1405,7 @@ export async function push(opts: GlobalOptions & SyncOptions) {
       opts.plainSecrets,
       opts.skipVariables,
       opts.skipResources,
+      opts.skipResourceTypes,
       opts.skipSecrets,
       opts.includeSchedules,
       opts.includeTriggers,
@@ -1365,10 +1417,11 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     ))!,
     !opts.json,
     opts.defaultTs ?? "bun",
-    resourceTypeToFormatExtension
+    resourceTypeToFormatExtension,
+    false
   );
 
-  const local = await FSFSElement(path.join(Deno.cwd(), ""), codebases);
+  const local = await FSFSElement(path.join(Deno.cwd(), ""), codebases, false);
   const changes = await compareDynFSElement(
     local,
     remote,
@@ -1376,12 +1429,11 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     opts.json ?? false,
     opts,
     true,
-    codebases
+    codebases,
+    false
   );
 
   const globalDeps = await findGlobalDeps();
-
-  console.log("globalDeps", globalDeps);
 
   const tracker: ChangeTracker = await buildTracker(changes);
 
@@ -1448,6 +1500,10 @@ export async function push(opts: GlobalOptions & SyncOptions) {
 
   if (changes.length > 0) {
     prettyChanges(changes);
+    if (opts.dryRun) {
+      log.info(colors.gray(`Dry run complete.`));
+      return;
+    }
     if (
       !opts.yes &&
       !(await Confirm.prompt({
@@ -1729,15 +1785,21 @@ export async function push(opts: GlobalOptions & SyncOptions) {
                   });
                   break;
                 case "mqtt_trigger":
-                    await wmill.deleteMqttTrigger({
-                      workspace: workspaceId,
-                      path: removeSuffix(target, ".mqtt_trigger.json"),
-                    });
-                    break;
+                  await wmill.deleteMqttTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".mqtt_trigger.json"),
+                  });
+                  break;
                 case "sqs_trigger":
                   await wmill.deleteSqsTrigger({
                     workspace: workspaceId,
                     path: removeSuffix(target, ".sqs_trigger.json"),
+                  });
+                  break;
+                case "gcp_trigger":
+                  await wmill.deleteGcpTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".gcp_trigger.json"),
                   });
                   break;
                 case "variable":
@@ -1819,11 +1881,16 @@ const command = new Command()
   .command("pull")
   .description("Pull any remote changes and apply them locally.")
   .option("--yes", "Pull without needing confirmation")
+  .option(
+    "--dry-run",
+    "Show changes that would be pulled without actually pushing"
+  )
   .option("--plain-secrets", "Pull secrets as plain text")
   .option("--json", "Use JSON instead of YAML")
   .option("--skip-variables", "Skip syncing variables (including secrets)")
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
+  .option("--skip-resource-types", "Skip syncing  resource types")
   // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing  schedules")
   .option("--include-triggers", "Include syncing triggers")
@@ -1848,11 +1915,17 @@ const command = new Command()
   .command("push")
   .description("Push any local changes and apply them remotely.")
   .option("--yes", "Push without needing confirmation")
+  .option(
+    "--dry-run",
+    "Show changes that would be pushed without actually pushing"
+  )
   .option("--plain-secrets", "Push secrets as plain text")
   .option("--json", "Use JSON instead of YAML")
   .option("--skip-variables", "Skip syncing variables (including secrets)")
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
+  .option("--skip-resource-types", "Skip syncing  resource types")
+
   // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing schedules")
   .option("--include-triggers", "Include syncing triggers")

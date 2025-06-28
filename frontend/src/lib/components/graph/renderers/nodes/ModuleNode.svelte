@@ -1,115 +1,113 @@
 <script lang="ts">
+	import { preventDefault, stopPropagation } from 'svelte/legacy'
+
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
-	import type { FlowModule, FlowModuleValue } from '$lib/gen'
 	import { GitBranchPlus, Maximize2 } from 'lucide-svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
-	import type { GraphEventHandlers } from '../../graphBuilder'
-	import type { GraphModuleState } from '../../model'
-	import { getStateColor } from '../../util'
+	import { getStateColor, getStateHoverColor } from '../../util'
+	import type { ModuleN } from '../../graphBuilder.svelte'
 
-	export let data: {
-		offset: number
-		value: FlowModuleValue
-		module: FlowModule
-		insertable: boolean
-		insertableEnd: boolean
-		branchable: boolean
-		bgColor: string
-		modules: FlowModule[]
-		moving: string | undefined
-		disableAi: boolean
-		wrapperId: string | undefined
-		retries: number | undefined
-		flowJobs:
-			| { flowJobs: string[]; selected: number; flowJobsSuccess: (boolean | undefined)[] }
-			| undefined
-		eventHandlers: GraphEventHandlers
-		flowModuleStates: Record<string, GraphModuleState> | undefined
-		selected: boolean
+	interface Props {
+		data: ModuleN['data']
 	}
 
-	$: type = data.flowModuleStates?.[data.module.id]?.type
-	if (!type && data.flowJobs) {
-		type = 'InProgress'
-	}
+	let { data }: Props = $props()
 
-	$: state = data.flowModuleStates?.[data.module.id]
-	$: flowJobs = state?.flow_jobs
-		? {
-				flowJobs: state?.flow_jobs,
-				selected: state?.selectedForloopIndex ?? 0,
-				selectedManually: state?.selectedForLoopSetManually,
-				flowJobsSuccess: state?.flow_jobs_success
-		  }
-		: (undefined as any)
+	let moduleState = $derived(data.flowModuleStates?.[data.id])
+	let flowJobs = $derived(
+		moduleState?.flow_jobs
+			? {
+					flowJobs: moduleState?.flow_jobs,
+					selected: moduleState?.selectedForloopIndex ?? 0,
+					selectedManually: moduleState?.selectedForLoopSetManually,
+					flowJobsSuccess: moduleState?.flow_jobs_success
+				}
+			: (undefined as any)
+	)
 
+	let type = $derived.by(() => {
+		let typ = data.flowModuleStates?.[data.id]?.type
+		if (!typ && flowJobs) {
+			return 'InProgress'
+		}
+		return typ
+	})
 </script>
 
-
-
-<NodeWrapper offset={data.offset} let:darkMode>
-	{#if data.module.value.type == 'flow'}
-		<button
-			title="Unexpand subflow"
-			class="z-50 absolute -top-[10px] right-[25px] rounded-full h-[20px] w-[20px] center-center text-primary bg-surface duration-150 hover:bg-surface-hover"
-			on:click|preventDefault|stopPropagation={() => {
-				if (data.module.value.type == 'flow') {
-					data.eventHandlers.expandSubflow(data.module.id, data.module.value.path)
-				}
-			}}
-		>
-			<Maximize2 size={12} />
-		</button>
-	{/if}
-	<MapItem
-		mod={data.module}
-		insertable={data.insertable}
-		annotation={flowJobs &&
-		(data.module.value.type === 'forloopflow' || data.module.value.type === 'whileloopflow')
-			? 'Iteration: ' +
-			  ((state?.selectedForloopIndex ?? 0) >= 0 ? (state?.selectedForloopIndex ?? 0) + 1 : state?.flow_jobs?.length) +
-			  '/' +
-			  (state?.iteration_total ?? '?')
-			: ''}
-		bgColor={getStateColor(type, darkMode, true, state?.skipped)}
-		moving={data.moving}
-		duration_ms={state?.duration_ms}
-		retries={data.retries}
-		{flowJobs}
-		on:delete={(e) => {
-			data.eventHandlers.delete(e.detail, '')
-		}}
-		on:insert={(e) => {
-			data.eventHandlers.insert(e.detail)
-		}}
-		on:changeId={(e) => {
-			data.eventHandlers.changeId(e.detail)
-		}}
-		on:move={(e) => {
-			data.eventHandlers.move(data.module, data.modules)
-		}}
-		on:newBranch={(e) => {
-			data.eventHandlers.newBranch(data.module)
-		}}
-		on:select={(e) => {
-			data.eventHandlers.select(e.detail)
-		}}
-		on:selectedIteration={(e) => {
-			data.eventHandlers.selectedIteration(e.detail, data.module.id)
-		}}
-	/>
-
-	<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10">
-		{#if (data.value.type === 'branchall' || data.value.type === 'branchone') && data.insertable}
+<NodeWrapper offset={data.offset}>
+	{#snippet children({ darkMode })}
+		{#if data.module.value.type == 'flow'}
 			<button
-				title="Add branch"
-				class="rounded text-secondary border hover:bg-surface-hover bg-surface p-1"
-				on:click={() => {
-					data?.eventHandlers?.newBranch(data.module)
-				}}
+				title="Expand subflow"
+				class="z-50 absolute -top-[10px] right-[25px] rounded-full h-[20px] w-[20px] center-center text-primary bg-surface duration-0 hover:bg-surface-hover"
+				onclick={stopPropagation(
+					preventDefault(() => {
+						if (data.module.value.type == 'flow') {
+							data.eventHandlers.expandSubflow(data.id, data.module.value.path)
+						}
+					})
+				)}
 			>
-				<GitBranchPlus size={16} />
+				<Maximize2 size={12} />
 			</button>
 		{/if}
-	</div>
+		<MapItem
+			moduleId={data.id}
+			mod={data.module}
+			insertable={data.insertable}
+			editMode={data.editMode}
+			annotation={flowJobs &&
+			(data.module.value.type === 'forloopflow' || data.module.value.type === 'whileloopflow')
+				? 'Iteration: ' +
+					((moduleState?.selectedForloopIndex ?? 0) >= 0
+						? (moduleState?.selectedForloopIndex ?? 0) + 1
+						: moduleState?.flow_jobs?.length) +
+					'/' +
+					(moduleState?.iteration_total ?? '?')
+				: ''}
+			bgColor={getStateColor(type, darkMode, true, moduleState?.skipped)}
+			bgHoverColor={getStateHoverColor(type, darkMode, true, moduleState?.skipped)}
+			moving={data.moving}
+			duration_ms={moduleState?.duration_ms}
+			retries={moduleState?.retries}
+			{flowJobs}
+			on:delete={(e) => {
+				data.eventHandlers.delete(e.detail, '')
+			}}
+			on:changeId={(e) => {
+				data.eventHandlers.changeId(e.detail)
+			}}
+			on:move={(e) => {
+				data.eventHandlers.move({ id: data.id })
+			}}
+			on:newBranch={(e) => {
+				data.eventHandlers.newBranch(data.id)
+			}}
+			onSelect={(e) => {
+				setTimeout(() => e && data.eventHandlers.select(e))
+			}}
+			onSelectedIteration={(e) => {
+				data.eventHandlers.selectedIteration(e)
+			}}
+			onTestUpTo={data.eventHandlers.testUpTo}
+			onUpdateMock={(detail) => {
+				data.eventHandlers.updateMock(detail)
+			}}
+			onEditInput={data.eventHandlers.editInput}
+		/>
+
+		<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10">
+			{#if (data.module.value.type === 'branchall' || data.module.value.type === 'branchone') && data.insertable}
+				<button
+					title="Add branch"
+					class="rounded text-secondary border hover:bg-surface-hover bg-surface p-1"
+					onclick={() => {
+						data?.eventHandlers?.newBranch(data.id)
+					}}
+				>
+					<GitBranchPlus size={16} />
+				</button>
+			{/if}
+		</div>
+	{/snippet}
 </NodeWrapper>

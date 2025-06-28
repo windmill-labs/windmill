@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler, preventDefault, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
 	import { VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -11,7 +14,7 @@
 	import FlowPropertyEditor from './schema/FlowPropertyEditor.svelte'
 	import PropertyEditor from './schema/PropertyEditor.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, tick, untrack } from 'svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
@@ -22,70 +25,110 @@
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { tweened } from 'svelte/motion'
-	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
+	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { EditableSchemaFormUi } from '$lib/components/custom_ui'
 
-	export let schema: Schema | any
-	export let schemaSkippedValues: string[] = []
-	export let args: Record<string, any> = {}
-	export let shouldHideNoInputs: boolean = false
-	export let noVariablePicker = false
-	export let flexWrap = false
-	export let uiOnly: boolean = false
-	export let isFlowInput: boolean = false
-	export let noPreview: boolean = false
-	export let jsonEnabled: boolean = true
-	export let isAppInput: boolean = false
-	export let displayWebhookWarning: boolean = false
-	export let onlyMaskPassword: boolean = false
-	export let dndType: string | undefined = undefined
-	export let editTab:
-		| 'inputEditor'
-		| 'history'
-		| 'savedInputs'
-		| 'json'
-		| 'captures'
-		| 'firstStepInputs'
-		| undefined
-	export let previewSchema: Record<string, any> | undefined = undefined
-	export let editPanelInitialSize: number | undefined = undefined
-	export let editPanelSize = 0
-	export let diff: Record<string, SchemaDiff> = {}
-	export let disableDnd: boolean = false
-	export let shouldDispatchChanges: boolean = false
-	export let isValid: boolean = true
-	export let customUi: EditableSchemaFormUi | undefined = undefined
-
+	// export let openEditTab: () => void = () => {}
 	const dispatch = createEventDispatcher()
 
-	let clazz: string = ''
-	export { clazz as class }
-
-	$: if (args == undefined || typeof args !== 'object') {
-		args = {}
+	interface Props {
+		schema: Schema | any
+		hiddenArgs?: string[]
+		args?: Record<string, any>
+		shouldHideNoInputs?: boolean
+		noVariablePicker?: boolean
+		flexWrap?: boolean
+		uiOnly?: boolean
+		isFlowInput?: boolean
+		noPreview?: boolean
+		jsonEnabled?: boolean
+		isAppInput?: boolean
+		displayWebhookWarning?: boolean
+		onlyMaskPassword?: boolean
+		dndType?: string | undefined
+		editTab:
+			| 'inputEditor'
+			| 'history'
+			| 'savedInputs'
+			| 'json'
+			| 'captures'
+			| 'firstStepInputs'
+			| undefined
+		previewSchema?: Record<string, any> | undefined
+		editPanelInitialSize?: number | undefined
+		editPanelSize?: number
+		diff?: Record<string, SchemaDiff>
+		disableDnd?: boolean
+		shouldDispatchChanges?: boolean
+		isValid?: boolean
+		customUi?: EditableSchemaFormUi | undefined
+		pannelExtraButtonWidth?: number
+		class?: string
+		openEditTab?: import('svelte').Snippet
+		addProperty?: import('svelte').Snippet
+		runButton?: import('svelte').Snippet
+		extraTab?: import('svelte').Snippet
 	}
+
+	let {
+		schema = $bindable(),
+		hiddenArgs = [],
+		args = $bindable(undefined),
+		shouldHideNoInputs = false,
+		noVariablePicker = false,
+		flexWrap = false,
+		uiOnly = false,
+		isFlowInput = false,
+		noPreview = false,
+		jsonEnabled = true,
+		isAppInput = false,
+		displayWebhookWarning = false,
+		onlyMaskPassword = false,
+		dndType = undefined,
+		editTab,
+		previewSchema = undefined,
+		editPanelInitialSize = undefined,
+		editPanelSize = $bindable(0),
+		diff = {},
+		disableDnd = false,
+		shouldDispatchChanges = false,
+		isValid = $bindable(true),
+		customUi = undefined,
+		pannelExtraButtonWidth = 0,
+		class: clazz = '',
+		openEditTab,
+		addProperty,
+		runButton,
+		extraTab
+	}: Props = $props()
+
+	$effect.pre(() => {
+		if (args == undefined) {
+			args = {}
+		}
+	})
 
 	export function setDefaults() {
 		const nargs = {}
 
 		Object.keys(schema?.properties ?? {}).forEach((key) => {
-			if (schema?.properties[key].default != undefined && args[key] == undefined) {
+			if (schema?.properties[key].default != undefined && args?.[key] == undefined) {
 				let value = schema?.properties[key].default
-				nargs[key] = value === 'object' ? structuredClone(value) : value
+				nargs[key] = value === 'object' ? structuredClone($state.snapshot(value)) : value
 			}
 		})
 		args = nargs
 	}
 
 	let pickForField: string | undefined
-	let itemPicker: ItemPicker | undefined = undefined
-	let variableEditor: VariableEditor | undefined = undefined
+	let itemPicker: ItemPicker | undefined = $state(undefined)
+	let variableEditor: VariableEditor | undefined = $state(undefined)
 
-	let keys: string[] = Array.isArray(schema?.order)
-		? [...schema.order]
-		: Object.keys(schema?.properties ?? {}) ?? Object.keys(schema?.properties ?? {})
-
-	$: schema && onSchemaChange()
+	let keys: string[] = $state(
+		Array.isArray(schema?.order)
+			? [...schema.order]
+			: (Object.keys(schema?.properties ?? {}) ?? Object.keys(schema?.properties ?? {}))
+	)
 
 	function alignOrderWithProperties(schema: {
 		properties: Record<string, any>
@@ -132,15 +175,25 @@
 		}
 	}
 
-	let opened: string | undefined = keys[0]
-	let selected = ''
+	let opened: string | undefined = $state(untrack(() => keys[0]))
+
+	function computeSelected(property: any) {
+		if (!opened) return ''
+		return property.type !== 'object'
+			? property.type
+			: property.format === 'resource-s3_object'
+				? 'S3'
+				: property.oneOf && property.oneOf.length >= 2
+					? 'oneOf'
+					: 'object'
+	}
 
 	export function openField(key: string) {
 		opened = key
 	}
 
 	export function deleteField(key: string) {
-		delete args[key]
+		delete args?.[key]
 		delete schema.properties[key]
 		if (schema.required?.includes(key)) {
 			schema.required = schema.required?.filter((x) => x !== key)
@@ -148,20 +201,6 @@
 		if (schema.order) {
 			schema.order = schema.order.filter((x) => x !== key)
 		}
-	}
-
-	$: opened && updateSelected(schema.properties[opened])
-	function updateSelected(property: any) {
-		if (!property) return
-		selected = opened
-			? property.type !== 'object'
-				? property.type
-				: property.format === 'resource-s3_object'
-				? 'S3'
-				: property.oneOf && property.oneOf.length >= 2
-				? 'oneOf'
-				: 'object'
-			: ''
 	}
 
 	function renameProperty(oldName: string, key: string) {
@@ -177,8 +216,10 @@
 			// clear the input
 			el.value = oldName
 		} else {
-			args[newName] = args[oldName]
-			delete args[oldName]
+			if (args) {
+				args[newName] = args[oldName]
+				delete args[oldName]
+			}
 
 			schema.properties[newName] = schema.properties[oldName]
 			delete schema.properties[oldName]
@@ -197,26 +238,34 @@
 
 			opened = newName
 
-			schema = schema
+			schema = $state.snapshot(schema)
 			dispatch('change', schema)
-			sendUserToast('Argument renamed successfully')
+			sendUserToast('Argument renamed')
 		}
 	}
 
-	let jsonView: boolean = customUi?.jsonOnly == true
-	let schemaString: string = JSON.stringify(schema, null, '\t')
-	let error: string | undefined = undefined
-	let editor: SimpleEditor | undefined = undefined
+	let jsonView: boolean = $state(customUi?.jsonOnly == true)
+	let schemaString: string = $state(JSON.stringify(schema, null, '\t'))
+	let error: string | undefined = $state(undefined)
+	let editor: SimpleEditor | undefined = $state(undefined)
+
+	export function updateJson() {
+		schemaString = JSON.stringify(schema, null, '\t')
+		editor?.setCode(schemaString)
+	}
 
 	const editTabDefaultSize = noPreview ? 100 : 50
-	editPanelSize = editTab ? editPanelInitialSize ?? editTabDefaultSize : 0
-	let inputPanelSize = 100 - editPanelSize
+	editPanelSize = editTab ? (editPanelInitialSize ?? editTabDefaultSize) : 0
+	let inputPanelSize = $state(100 - editPanelSize)
 	let editPanelSizeSmooth = tweened(editPanelSize, {
 		duration: 150
 	})
-	let inputPanelSizeSmooth = tweened(inputPanelSize, { duration: 150 })
+	let inputPanelSizeSmooth = tweened(
+		untrack(() => inputPanelSize),
+		{ duration: 150 }
+	)
 
-	function openEditTab() {
+	function openEditTabFn() {
 		if (editPanelSize > 0) return
 		editPanelSizeSmooth.set(editTabDefaultSize)
 		inputPanelSizeSmooth.set(100 - editTabDefaultSize)
@@ -232,17 +281,22 @@
 		inputPanelSize = inputSize
 		dispatch('editPanelSizeChanged', editSize)
 	}
-	$: updatePanelSizes($editPanelSizeSmooth, $inputPanelSizeSmooth)
 
-	$: !!editTab ? openEditTab() : closeEditTab()
-
-	let panelButtonWidth: number = 0
-	export let pannelExtraButtonWidth: number = 0
-
-	export function updateJson() {
-		schemaString = JSON.stringify(schema, null, '\t')
-		editor?.setCode(schemaString)
-	}
+	let panelButtonWidth: number = $state(0)
+	$effect(() => {
+		if (args == undefined || typeof args !== 'object') {
+			args = {}
+		}
+	})
+	$effect(() => {
+		schema && untrack(() => onSchemaChange())
+	})
+	$effect(() => {
+		updatePanelSizes($editPanelSizeSmooth, $inputPanelSizeSmooth)
+	})
+	$effect(() => {
+		!!editTab ? openEditTabFn() : closeEditTab()
+	})
 </script>
 
 <div class="w-full h-full">
@@ -252,37 +306,41 @@
 			style="right: calc({editPanelSize}% - 1px - {pannelExtraButtonWidth}px); top: 0px;"
 			bind:clientWidth={panelButtonWidth}
 		>
-			<slot name="openEditTab" />
+			{@render openEditTab?.()}
 		</div>
 	</div>
 	<Splitpanes class="splitter-hidden w-full">
 		{#if !noPreview}
 			<Pane bind:size={inputPanelSize} minSize={20}>
 				<div
-					class="h-full flex flex-col gap-2 {$$slots.openEditTab && editPanelSize > 0
+					class="h-full flex flex-col gap-2 {openEditTab && editPanelSize > 0
 						? 'pr-[38px]'
 						: 'pr-2'}"
 				>
-					{#if $$slots.addProperty}
+					{#if addProperty}
 						<div class="w-full justify-left pr-2 grow-0">
 							<div
 								style={editPanelSize > 0
 									? `width: 100%;`
 									: `width: calc(100% - ${panelButtonWidth - pannelExtraButtonWidth}px);`}
 							>
-								<slot name="addProperty" />
+								{@render addProperty?.()}
 							</div>
 						</div>
 					{/if}
 
 					<div
-						class="min-h-0 overflow-y-auto grow rounded-md {$$slots.runButton
-							? 'flex flex-col gap-2'
-							: ''}"
+						class="min-h-0 overflow-y-auto grow rounded-md {runButton ? 'flex flex-col gap-2' : ''}"
 					>
 						<SchemaFormDnd
 							nestedClasses={'flex flex-col gap-1'}
-							schema={previewSchema ? previewSchema : schema}
+							bind:schema={
+								() => (previewSchema ? previewSchema : schema),
+								(newSchema) => {
+									schema = newSchema
+									tick().then(() => dispatch('change', schema))
+								}
+							}
 							{dndType}
 							{disableDnd}
 							{onlyMaskPassword}
@@ -291,13 +349,11 @@
 								opened = e.detail
 							}}
 							on:reorder={(e) => {
-								schema.order = e.detail
-								schema = schema
-								dispatch('change', schema)
-							}}
-							on:change={() => {
-								schema = schema
-								dispatch('change', schema)
+								schema = {
+									...schema,
+									order: e.detail
+								}
+								tick().then(() => dispatch('change', schema))
 							}}
 							prettifyHeader={isAppInput}
 							disabled={!!previewSchema}
@@ -312,7 +368,7 @@
 							noVariablePicker={noVariablePicker || customUi?.disableVariablePicker === true}
 						/>
 
-						<slot name="runButton" />
+						{@render runButton?.()}
 					</div>
 				</div>
 			</Pane>
@@ -325,7 +381,7 @@
 				class={twMerge('border rounded-md', panelButtonWidth > 0 ? 'rounded-tl-none' : '')}
 			>
 				{#if editTab !== 'inputEditor'}
-					<slot name="extraTab" />
+					{@render extraTab?.()}
 				{:else}
 					<!-- WIP -->
 					{#if jsonEnabled && customUi?.jsonOnly != true}
@@ -355,14 +411,14 @@
 							{#if keys.length > 0}
 								{#each keys as argName, i (argName)}
 									<div>
-										<!-- svelte-ignore a11y-click-events-have-key-events -->
-										<!-- svelte-ignore a11y-no-static-element-interactions -->
+										<!-- svelte-ignore a11y_click_events_have_key_events -->
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
 										<div
 											class={twMerge(
 												'w-full flex bg-gray-50 dark:bg-gray-800 px-4 py-1 justify-between items-center hover:bg-gray-100 cursor-pointer',
 												opened === argName ? 'bg-gray-100 hover:bg-gray-200' : ''
 											)}
-											on:click={() => {
+											onclick={() => {
 												if (opened === argName) {
 													opened = undefined
 												} else {
@@ -373,9 +429,9 @@
 											<div class="flex flex-row gap-2">
 												{argName}
 												{#if !uiOnly}
-													<div on:click|stopPropagation|preventDefault>
+													<div onclick={stopPropagation(preventDefault(bubble('click')))}>
 														<Popover placement="bottom-end" containerClasses="p-4" closeButton>
-															<svelte:fragment slot="trigger">
+															{#snippet trigger()}
 																<Button
 																	color="light"
 																	size="xs2"
@@ -383,8 +439,8 @@
 																	startIcon={{ icon: Pen }}
 																	iconOnly
 																/>
-															</svelte:fragment>
-															<svelte:fragment slot="content" let:close>
+															{/snippet}
+															{#snippet content({ close })}
 																<Label label="Name" class="p-4">
 																	<div class="flex flex-col gap-2">
 																		<input
@@ -392,7 +448,7 @@
 																			class="w-full !bg-surface"
 																			value={argName}
 																			id={argName + i}
-																			on:keydown={(event) => {
+																			onkeydown={(event) => {
 																				if (event.key === 'Enter') {
 																					renameProperty(argName, argName + i)
 																					close()
@@ -412,7 +468,7 @@
 																		</Button>
 																	</div>
 																</Label>
-															</svelte:fragment>
+															{/snippet}
 														</Popover>
 													</div>
 												{/if}
@@ -427,7 +483,7 @@
 													class="rounded-full p-1 text-gray-500 bg-white
 				duration-200 hover:bg-gray-600 focus:bg-gray-600 hover:text-white dark:bg-gray-700 dark:text-white dark:hover:bg-gray-800"
 													aria-label="Clear"
-													on:click={() => {
+													onclick={() => {
 														dispatch('delete', argName)
 													}}
 												>
@@ -437,7 +493,7 @@
 										</div>
 										{#if opened === argName}
 											<div class="p-4 border-t">
-												{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
+												{#if !hiddenArgs.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
 													{#if typeof args == 'object' && schema?.properties[argName]}
 														<PropertyEditor
 															bind:description={schema.properties[argName].description}
@@ -447,8 +503,9 @@
 															bind:enum_={schema.properties[argName].enum}
 															bind:format={schema.properties[argName].format}
 															bind:contentEncoding={schema.properties[argName].contentEncoding}
-															bind:customErrorMessage={schema.properties[argName]
-																.customErrorMessage}
+															bind:customErrorMessage={
+																schema.properties[argName].customErrorMessage
+															}
 															bind:itemsType={schema.properties[argName].items}
 															bind:extra={schema.properties[argName]}
 															bind:title={schema.properties[argName].title}
@@ -458,103 +515,103 @@
 															{isFlowInput}
 															{isAppInput}
 															on:change={() => {
-																schema = schema
+																schema = $state.snapshot(schema)
 																dispatch('change', schema)
 															}}
 														>
-															<svelte:fragment slot="typeeditor">
+															{#snippet typeeditor()}
 																{#if isFlowInput || isAppInput}
 																	<Label label="Type">
 																		<ToggleButtonGroup
 																			tabListClass="flex-wrap"
 																			class="h-auto"
-																			let:item
-																			bind:selected
+																			bind:selected={
+																				() => computeSelected(schema.properties[opened ?? '']),
+																				(v) => {
+																					const isS3 = v == 'S3'
+																					const isOneOf = v == 'oneOf'
+
+																					const emptyProperty = {
+																						contentEncoding: undefined,
+																						enum_: undefined,
+																						pattern: undefined,
+																						default: undefined,
+																						min: undefined,
+																						max: undefined,
+																						currency: undefined,
+																						currencyLocale: undefined,
+																						multiselect: undefined,
+																						password: undefined,
+																						dateFormat: undefined,
+																						...(v == 'array' ? { items: { type: 'string' } } : {}),
+																						showExpr: undefined,
+																						nullable: undefined,
+																						required: undefined
+																					}
+
+																					if (isS3) {
+																						schema.properties[argName] = {
+																							...emptyProperty,
+																							type: 'object',
+																							format: 'resource-s3_object'
+																						}
+																					} else if (isOneOf) {
+																						schema.properties[argName] = {
+																							...emptyProperty,
+																							type: 'object',
+																							oneOf: [
+																								{
+																									title: 'Option 1',
+																									type: 'object',
+																									properties: {
+																										label: {
+																											type: 'string',
+																											enum: ['Option 1']
+																										},
+																										property_1: {
+																											type: 'string'
+																										}
+																									}
+																								},
+																								{
+																									title: 'Option 2',
+																									type: 'object',
+																									properties: {
+																										label: {
+																											type: 'string',
+																											enum: ['Option 2']
+																										},
+																										property_2: {
+																											type: 'string'
+																										}
+																									}
+																								}
+																							]
+																						}
+																					} else {
+																						schema.properties[argName] = {
+																							...emptyProperty,
+																							format: undefined,
+																							type: v
+																						}
+																					}
+																				}
+																			}
 																			on:selected={(e) => {
-																				const isS3 = e.detail == 'S3'
-																				const isOneOf = e.detail == 'oneOf'
-
-																				const emptyProperty = {
-																					contentEncoding: undefined,
-																					enum_: undefined,
-																					pattern: undefined,
-																					default: undefined,
-																					min: undefined,
-																					max: undefined,
-																					currency: undefined,
-																					currencyLocale: undefined,
-																					multiselect: undefined,
-																					password: undefined,
-																					dateFormat: undefined,
-																					...(e.detail == 'array'
-																						? { items: { type: 'string' } }
-																						: {}),
-																					showExpr: undefined,
-																					nullable: undefined,
-																					required: undefined
-																				}
-
-																				if (isS3) {
-																					schema.properties[argName] = {
-																						...emptyProperty,
-																						type: 'object',
-																						format: 'resource-s3_object'
-																					}
-																				} else if (isOneOf) {
-																					schema.properties[argName] = {
-																						...emptyProperty,
-																						type: 'object',
-																						oneOf: [
-																							{
-																								title: 'Option 1',
-																								type: 'object',
-																								properties: {
-																									label: {
-																										type: 'string',
-																										enum: ['Option 1']
-																									},
-																									property_1: {
-																										type: 'string'
-																									}
-																								}
-																							},
-																							{
-																								title: 'Option 2',
-																								type: 'object',
-																								properties: {
-																									label: {
-																										type: 'string',
-																										enum: ['Option 2']
-																									},
-																									property_2: {
-																										type: 'string'
-																									}
-																								}
-																							}
-																						]
-																					}
-																				} else {
-																					schema.properties[argName] = {
-																						...emptyProperty,
-																						format: undefined,
-																						type: e.detail
-																					}
-																				}
-																				// No better solution than this, needs future rework
-																				setTimeout(() => {
-																					schema = schema
-																					dispatch('change', schema)
-																				}, 100)
+																				schema = schema
+																				dispatch('change', schema)
 																				dispatch('schemaChange')
 																			}}
 																		>
-																			{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['OneOf', 'oneOf'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3']] as x}
-																				<ToggleButton value={x[1]} label={x[0]} {item} />
-																			{/each}
+																			{#snippet children({ item })}
+																				{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['OneOf', 'oneOf'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3']] as x}
+																					<ToggleButton value={x[1]} label={x[0]} {item} />
+																				{/each}
+																			{/snippet}
 																		</ToggleButtonGroup>
 																	</Label>
 																{/if}
-															</svelte:fragment>
+															{/snippet}
 
 															{#if isFlowInput || isAppInput}
 																<FlowPropertyEditor
@@ -591,7 +648,7 @@
 																		dispatch('change', schema)
 																	}}
 																	on:schemaChange={(e) => {
-																		schema = schema
+																		schema = $state.snapshot(schema)
 																		dispatch('change', schema)
 																		dispatch('schemaChange')
 																	}}
@@ -648,7 +705,9 @@
 		bind:this={itemPicker}
 		pickCallback={(path, _) => {
 			if (pickForField) {
-				args[pickForField] = '$var:' + path
+				if (args) {
+					args[pickForField] = '$var:' + path
+				}
 			}
 		}}
 		itemName="Variable"
@@ -661,17 +720,19 @@
 				...x
 			}))}
 	>
-		<div slot="submission">
-			<Button
-				variant="border"
-				color="blue"
-				size="sm"
-				startIcon={{ icon: Plus }}
-				on:click={() => variableEditor?.initNew?.()}
-			>
-				New variable
-			</Button>
-		</div>
+		{#snippet submission()}
+			<div>
+				<Button
+					variant="border"
+					color="blue"
+					size="sm"
+					startIcon={{ icon: Plus }}
+					on:click={() => variableEditor?.initNew?.()}
+				>
+					New variable
+				</Button>
+			</div>
+		{/snippet}
 	</ItemPicker>
 
 	<VariableEditor bind:this={variableEditor} />

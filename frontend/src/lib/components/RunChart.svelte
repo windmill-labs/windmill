@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { Scatter } from 'svelte-chartjs'
 	import 'chartjs-adapter-date-fns'
 	import zoomPlugin from 'chartjs-plugin-zoom'
 	import Tooltip2 from '$lib/components/Tooltip.svelte'
@@ -19,6 +18,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
 	import Button from './common/button/Button.svelte'
+	import { Scatter } from '$lib/components/chartjs-wrappers/chartJs'
 
 	export let jobs: CompletedJob[] | undefined = []
 	export let maxIsNow: boolean = false
@@ -176,8 +176,11 @@
 	function minJobTime(jobs: CompletedJob[]): Date {
 		let min: Date = new Date(jobs[0].started_at)
 		for (const job of jobs) {
-			if (new Date(job.started_at) < min) {
-				min = new Date(job.started_at)
+			if (job.started_at != undefined) {
+				const date = new Date(job.started_at)
+				if (date < min) {
+					min = date
+				}
 			}
 		}
 		return min

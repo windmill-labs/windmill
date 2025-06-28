@@ -1,6 +1,10 @@
 <script lang="ts">
-	export let height = '24px'
-	export let width = '24px'
+	interface Props {
+		height?: string;
+		width?: string;
+	}
+
+	let { height = '24px', width = '24px' }: Props = $props();
 </script>
 
 <svg
@@ -15,7 +19,9 @@
 	style="fill:currentcolor;"
 	><metadata id="metadata25"
 		><rdf:RDF
-			><cc:Work><dc:format>image/svg+xml</dc:format><dc:type /><dc:title /></cc:Work></rdf:RDF
+			><cc:Work
+				><dc:format>image/svg+xml</dc:format><dc:type></dc:type><dc:title></dc:title></cc:Work
+			></rdf:RDF
 		></metadata
 	><defs id="defs23" /><sodipodi:namedview
 		pagecolor="#ffffff"
@@ -26,12 +32,8 @@
 		guidetolerance="10"
 		id="namedview21"
 		showgrid="true"
-		><inkscape:grid
-			type="xygrid"
-			id="grid4535"
-			originx="-1.1305091"
-			originy="-14.869552"
-		/></sodipodi:namedview
+		><inkscape:grid type="xygrid" id="grid4535" originx="-1.1305091" originy="-14.869552"
+		></inkscape:grid></sodipodi:namedview
 	>
 	<style type="text/css" id="style2">
 		.st0 {

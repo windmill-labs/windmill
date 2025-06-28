@@ -1,4 +1,4 @@
-include!(concat!(env!("OUT_DIR"), "/codegen.rs"));
+include!("./codegen.rs");
 
 pub fn create_client(base_url: &str, token: String) -> Client {
     let mut val = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))

@@ -47,7 +47,7 @@ impl RelationConverter {
             .ok_or(RelationConversionError::FailToFindMatchingTable)
     }
 
-    pub fn body_to_json(
+    pub fn row_to_json(
         &self,
         to_decode: (Oid, Vec<TupleData>),
     ) -> Result<Map<String, Value>, RelationConversionError> {

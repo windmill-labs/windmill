@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use crate::{
     db::{ApiAuthed, DB},
-    ee::validate_license_key,
+    ee_oss::validate_license_key,
     utils::{generate_instance_username_for_all_users, require_super_admin},
     HTTP_CLIENT,
 };
@@ -29,13 +29,13 @@ use crate::utils::require_devops_role;
 
 use serde::Deserialize;
 #[cfg(feature = "enterprise")]
-use windmill_common::ee::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
+use windmill_common::ee_oss::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
 use windmill_common::{
-    email_ee::send_email,
+    email_oss::send_email,
     error::{self, JsonResult, Result},
     global_settings::{
-        AUTOMATE_USERNAME_CREATION_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
-        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
+        AUTOMATE_USERNAME_CREATION_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING, EMAIL_DOMAIN_SETTING,
+        ENV_SETTINGS, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
     },
     server::Smtp,
 };
@@ -120,12 +120,15 @@ use windmill_common::s3_helpers::build_object_store_from_settings;
 #[cfg(feature = "parquet")]
 pub async fn test_s3_bucket(
     _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Json(test_s3_bucket): Json<ObjectSettings>,
 ) -> error::Result<String> {
     use bytes::Bytes;
     use futures::StreamExt;
 
-    let client = build_object_store_from_settings(test_s3_bucket).await?;
+    let client = build_object_store_from_settings(test_s3_bucket, Some(&db))
+        .await?
+        .store;
 
     let mut list = client.list(Some(&object_store::path::Path::from("".to_string())));
     let first_file = list.next().await;
@@ -239,6 +242,13 @@ pub async fn set_global_setting_internal(
                     })?;
             }
         }
+        CRITICAL_ALERT_MUTE_UI_SETTING => {
+            if value.clone().as_bool().unwrap_or(false) {
+                sqlx::query!("UPDATE alerts SET acknowledged = true")
+                    .execute(db)
+                    .await?;
+            }
+        }
         _ => {}
     }
 
@@ -316,10 +326,10 @@ async fn list_global_settings() -> JsonResult<String> {
 
 pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    windmill_common::stats_ee::send_stats(
+    windmill_common::stats_oss::send_stats(
         &HTTP_CLIENT,
         &db,
-        windmill_common::stats_ee::SendStatsReason::Manual,
+        windmill_common::stats_oss::SendStatsReason::Manual,
     )
     .await?;
 
@@ -380,11 +390,11 @@ pub async fn renew_license_key(
     authed: ApiAuthed,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    let result = windmill_common::ee::renew_license_key(
+    let result = windmill_common::ee_oss::renew_license_key(
         &HTTP_CLIENT,
         &db,
         license_key,
-        windmill_common::ee::RenewReason::Manual,
+        windmill_common::ee_oss::RenewReason::Manual,
     )
     .await;
 
@@ -414,7 +424,7 @@ pub async fn create_customer_portal_session(
     Query(LicenseQuery { license_key }): Query<LicenseQuery>,
 ) -> Result<String> {
     let url =
-        windmill_common::ee::create_customer_portal_session(&HTTP_CLIENT, license_key).await?;
+        windmill_common::ee_oss::create_customer_portal_session(&HTTP_CLIENT, license_key).await?;
 
     return Ok(url);
 }

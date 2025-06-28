@@ -2,7 +2,7 @@
 	import { base } from '$lib/base'
 	import YAML from 'yaml'
 	import { yamlStringifyExceptKeys } from './utils'
-	import { sliceModules } from '../flows/flowStateUtils'
+	import { sliceModules } from '../flows/flowStateUtils.svelte'
 	import { dfs } from '../flows/dfs'
 	import type { FlowEditorContext } from '../flows/types'
 	import type { PickableProperties } from '../flows/previousResults'
@@ -41,7 +41,7 @@
 		abortController = new AbortController()
 		loading = true
 		stepInputsLoading?.set(true)
-		const flow: Flow = JSON.parse(JSON.stringify($flowStore))
+		const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
 		const idOrders = dfs(flow.value.modules, (x) => x.id)
 		const upToIndex = idOrders.indexOf($selectedId)
 		if (upToIndex === -1) {
@@ -83,7 +83,6 @@ Your answer has to be in the following format (one line per input):
 input_name1: expression1
 input_name2: expression2
 ...`
-			const aiProvider = $copilotInfo.ai_provider
 			generatedContent = await getNonStreamingCompletion(
 				[
 					{
@@ -91,8 +90,7 @@ input_name2: expression2
 						content: user
 					}
 				],
-				abortController,
-				aiProvider
+				abortController
 			)
 
 			parsedInputs = generatedContent.split('\n').map((x) => x.split(': '))
@@ -115,7 +113,7 @@ input_name2: expression2
 			generatedExprs?.set(exprs)
 		} catch (err) {
 			if (!abortController.signal.aborted) {
-				sendUserToast('Could not generate summary: ' + err, true)
+				sendUserToast('Could not generate step inputs: ' + err, true)
 			}
 		} finally {
 			loading = false
@@ -129,17 +127,17 @@ input_name2: expression2
 			return
 		}
 		const properties = {
-			...($flowStore.schema?.properties as Record<string, SchemaProperty> | undefined),
+			...(flowStore.val.schema?.properties as Record<string, SchemaProperty> | undefined),
 			...newFlowInputs.reduce((acc, x) => {
 				acc[x] = (schema?.properties ?? {})[x]
 				return acc
 			}, {})
 		}
 		const required = [
-			...(($flowStore.schema?.required as string[] | undefined) ?? []),
+			...((flowStore.val.schema?.required as string[] | undefined) ?? []),
 			...newFlowInputs
 		]
-		$flowStore.schema = {
+		flowStore.val.schema = {
 			$schema: 'https://json-schema.org/draft/2020-12/schema',
 			properties,
 			required,
@@ -169,7 +167,7 @@ input_name2: expression2
 </script>
 
 <div class="flex flex-row justify-end">
-	{#if $copilotInfo.exists_ai_resource && $stepInputCompletionEnabled}
+	{#if $copilotInfo.enabled && $stepInputCompletionEnabled}
 		<FlowCopilotInputsModal
 			on:confirmed={async () => {
 				createFlowInputs()
@@ -238,7 +236,7 @@ input_name2: expression2
 			<svelte:fragment slot="content" let:close>
 				<div class="p-4">
 					<p class="text-sm">
-						{#if !$copilotInfo.exists_ai_resource}
+						{#if !$copilotInfo.enabled}
 							Enable Windmill AI in the{' '}
 							<a
 								href="{base}/workspace_settings?tab=ai"

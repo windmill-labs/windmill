@@ -70,7 +70,7 @@
 {#if render}
 	<div class="w-full h-full" bind:clientHeight={h} bind:clientWidth={w}>
 		<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
-			<div on:pointerdown bind:this={divEl} />
+			<div on:pointerdown bind:this={divEl}></div>
 		</RunnableWrapper>
 	</div>
 {:else}

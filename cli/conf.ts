@@ -4,12 +4,14 @@ export interface SyncOptions {
   stateful?: boolean;
   raw?: boolean;
   yes?: boolean;
+  dryRun?: boolean;
   skipPull?: boolean;
   failConflicts?: boolean;
   plainSecrets?: boolean;
   json?: boolean;
   skipVariables?: boolean;
   skipResources?: boolean;
+  skipResourceTypes?: boolean;
   skipSecrets?: boolean;
   includeSchedules?: boolean;
   includeTriggers?: boolean;
@@ -61,5 +63,5 @@ export async function mergeConfigWithConfigFile<T>(
   opts: T
 ): Promise<T & SyncOptions> {
   const configFile = await readConfigFile();
-  return Object.assign(configFile, opts);
+  return Object.assign(configFile ?? {}, opts);
 }

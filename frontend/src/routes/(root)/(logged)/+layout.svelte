@@ -11,13 +11,12 @@
 		UserService,
 		WorkspaceService
 	} from '$lib/gen'
-	import { classNames, getModifierKey } from '$lib/utils'
+	import { capitalize, classNames, getModifierKey } from '$lib/utils'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
 	import {
 		enterpriseLicense,
-		copilotInfo,
 		isPremiumStore,
 		starStore,
 		superadmin,
@@ -29,7 +28,9 @@
 		defaultScripts,
 		hubBaseUrlStore,
 		usedTriggerKinds,
-		devopsRole
+		devopsRole,
+		setCopilotInfo,
+		whitelabelNameStore
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
@@ -42,36 +43,41 @@
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
-	import { ArrowLeft, Search } from 'lucide-svelte'
+	import { ArrowLeft, Search, WandSparkles } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
 	import { workspaceAIClients } from '$lib/components/copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
-	import { setContext } from 'svelte'
+	import { setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
+	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import AiChat from '$lib/components/copilot/chat/AIChat.svelte'
+	import { zIndexes } from '$lib/zIndexes'
+	interface Props {
+		children?: import('svelte').Snippet
+	}
 
+	let { children }: Props = $props()
 	OpenAPI.WITH_CREDENTIALS = true
-	let menuOpen = false
-	let globalSearchModal: GlobalSearchModal | undefined = undefined
-	let isCollapsed = false
-	let userSettings: UserSettings
-	let superadminSettings: SuperadminSettings
-	let menuHidden = false
+	let menuOpen = $state(false)
+	let globalSearchModal: GlobalSearchModal | undefined = $state(undefined)
+	let isCollapsed = $state(false)
+	let userSettings: UserSettings | undefined = $state()
+	let superadminSettings: SuperadminSettings | undefined = $state()
+	let menuHidden = $state(false)
 
 	if ($page.status == 404) {
 		goto('/user/login')
 	}
 
-	$: $page.url && userSettings != undefined && onQueryChangeUserSettings()
-	$: $page.url && superadminSettings != undefined && onQueryChangeAdminSettings()
-	$: $page.url && onQueryChange()
-
 	function onQueryChangeUserSettings() {
-		if (userSettings && $page.url.hash === USER_SETTINGS_HASH) {
-			userSettings.openDrawer()
+		if (userSettings && $page.url.hash.startsWith(USER_SETTINGS_HASH)) {
+			const mcpMode = $page.url.hash.includes('-mcp')
+			userSettings.openDrawer(mcpMode)
 		}
 	}
 
@@ -91,8 +97,6 @@
 			$page.url.searchParams.get('nomenubar') === 'true' ||
 			$page.url.pathname.startsWith('/oauth/callback/')
 	}
-
-	$: updateUserStore($workspaceStore)
 
 	async function updateUserStore(workspace: string | undefined) {
 		if (workspace) {
@@ -115,14 +119,15 @@
 		menuOpen = false
 	})
 
-	let innerWidth = BROWSER ? window.innerWidth : 2000
+	let innerWidth = $state(BROWSER ? window.innerWidth : 2000)
 
-	let favoriteLinks = [] as {
-		label: string
-		href: string
-		kind: 'app' | 'script' | 'flow' | 'raw_app'
-	}[]
-	$: $workspaceStore && $starStore && onLoad()
+	let favoriteLinks = $state(
+		[] as {
+			label: string
+			href: string
+			kind: 'app' | 'script' | 'flow' | 'raw_app'
+		}[]
+	)
 
 	function onLoad() {
 		loadFavorites()
@@ -199,7 +204,8 @@
 			postgres_used,
 			nats_used,
 			sqs_used,
-			mqtt_used
+			mqtt_used,
+			gcp_used
 		} = await WorkspaceService.getUsedTriggers({
 			workspace: $workspaceStore ?? ''
 		})
@@ -224,6 +230,9 @@
 		if (sqs_used) {
 			usedKinds.push('sqs')
 		}
+		if (gcp_used) {
+			usedKinds.push('gcp')
+		}
 		$usedTriggerKinds = usedKinds
 	}
 
@@ -243,8 +252,6 @@
 		}
 	})
 
-	$: innerWidth && changeCollapsed()
-
 	function changeCollapsed() {
 		if (innerWidth < 1248 && innerWidth >= 768 && !isCollapsed) {
 			isCollapsed = true
@@ -257,18 +264,10 @@
 		workspaceAIClients.init(workspace)
 		try {
 			const info = await WorkspaceService.getCopilotInfo({ workspace })
-			copilotInfo.set({
-				...info,
-				ai_provider: info.ai_provider ?? 'openai'
-			})
+			setCopilotInfo(info)
 		} catch (err) {
-			copilotInfo.set({
-				ai_provider: 'openai',
-				exists_ai_resource: false,
-				code_completion_model: undefined,
-				ai_models: []
-			})
-			console.error('Could not get copilot info')
+			setCopilotInfo({})
+			console.error('Could not get copilot info', err)
 		}
 	}
 
@@ -278,8 +277,6 @@
 		}
 	})
 
-	$: onUserStore($userStore)
-	$: $workspaceStore && $userStore && loadDefaultScripts($workspaceStore, $userStore)
 	async function loadDefaultScripts(workspace: string, user: UserExt | undefined) {
 		if (!user?.operator) {
 			$defaultScripts = await WorkspaceService.getDefaultScripts({ workspace })
@@ -299,38 +296,19 @@
 		}
 	}
 
-	$: if (isCollapsed && $userStore?.operator) {
-		isCollapsed = false
-	}
-
 	function openSearchModal(text?: string): void {
 		globalSearchModal?.openSearchWithPrefilledText(text)
 	}
 
 	setContext('openSearchWithPrefilledText', openSearchModal)
 
-	$: {
-		if (
-			$enterpriseLicense &&
-			$workspaceStore &&
-			$userStore &&
-			$devopsRole !== undefined &&
-			($devopsRole || $userStore.is_admin)
-		) {
-			mountModal = true
-			loadCriticalAlertsMuted()
-		} else {
-			mountModal = false
-		}
-	}
-
-	let numUnacknowledgedCriticalAlerts = 0
-	let mountModal = false
-	let isCriticalAlertsUiMuted = true
-	let muteSettings = {
+	let numUnacknowledgedCriticalAlerts = $state(0)
+	let mountModal = $state(false)
+	let isCriticalAlertsUiMuted = $state(true)
+	let muteSettings = $state({
 		global: true,
 		workspace: true
-	}
+	})
 	async function loadCriticalAlertsMuted() {
 		let g_muted = true
 		const ws_muted =
@@ -348,11 +326,56 @@
 
 		muteSettings = { global: g_muted, workspace: ws_muted }
 	}
+	$effect(() => {
+		$page.url && userSettings != undefined && untrack(() => onQueryChangeUserSettings())
+	})
+	$effect(() => {
+		$page.url && superadminSettings != undefined && untrack(() => onQueryChangeAdminSettings())
+	})
+	$effect(() => {
+		$page.url && untrack(() => onQueryChange())
+	})
+	$effect(() => {
+		$workspaceStore
+		untrack(() => updateUserStore($workspaceStore))
+	})
+	$effect(() => {
+		$workspaceStore && $starStore && untrack(() => onLoad())
+	})
+	$effect(() => {
+		innerWidth && untrack(() => changeCollapsed())
+	})
+	$effect(() => {
+		$userStore
+		untrack(() => onUserStore($userStore))
+	})
+	$effect(() => {
+		$workspaceStore && $userStore && untrack(() => loadDefaultScripts($workspaceStore!, $userStore))
+	})
+	$effect(() => {
+		if (isCollapsed && $userStore?.operator) {
+			isCollapsed = false
+		}
+	})
+	$effect(() => {
+		if (
+			$enterpriseLicense &&
+			$workspaceStore &&
+			$userStore &&
+			$devopsRole !== undefined &&
+			($devopsRole || $userStore.is_admin)
+		) {
+			mountModal = true
+			untrack(() => loadCriticalAlertsMuted())
+		} else {
+			mountModal = false
+		}
+	})
 </script>
 
 <svelte:window bind:innerWidth />
 
-<UserSettings bind:this={userSettings} />
+<UserSettings bind:this={userSettings} showMcpMode={true} />
 {#if $page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login">
 		<div class="w-full">
@@ -369,7 +392,7 @@
 	{#if mountModal}
 		<CriticalAlertModal bind:muteSettings bind:numUnacknowledgedCriticalAlerts />
 	{/if}
-	<div>
+	<div class="h-screen flex flex-col">
 		{#if !menuHidden}
 			{#if !$userStore?.operator}
 				{#if innerWidth < 768}
@@ -388,7 +411,7 @@
 
 								menuOpen ? 'opacity-100' : 'opacity-0'
 							)}
-						/>
+						></div>
 
 						<div class="fixed inset-0 flex z-40">
 							<div
@@ -405,10 +428,11 @@
 								>
 									<button
 										type="button"
-										on:click={() => {
+										onclick={() => {
 											menuOpen = !menuOpen
 										}}
 										class="ml-1 flex items-center justify-center h-6 w-6 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
+										aria-label="Close"
 									>
 										<svg
 											class="h-4 w-4 text-white"
@@ -430,12 +454,18 @@
 								<div class="dark:bg-[#1e232e] bg-[#202125] h-full !dark flex flex-col">
 									<div class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-gray-200 w-40">
 										<WindmillIcon white={true} height="20px" width="20px" />
-										Windmill
+										{#if $whitelabelNameStore}
+											{$whitelabelNameStore}
+										{:else}
+											Windmill
+										{/if}
 									</div>
 									<div class="px-2 py-4 border-y border-gray-500">
-										<Menubar let:createMenu>
-											<WorkspaceMenu {createMenu} />
-											<FavoriteMenu {createMenu} {favoriteLinks} />
+										<Menubar>
+											{#snippet children({ createMenu })}
+												<WorkspaceMenu {createMenu} />
+												<FavoriteMenu {createMenu} {favoriteLinks} />
+											{/snippet}
 										</Menubar>
 										<MenuButton
 											stopPropagationOnClick={true}
@@ -445,6 +475,19 @@
 											label="Search"
 											class="!text-xs"
 											shortcut={`${getModifierKey()}k`}
+										/>
+										<MenuButton
+											stopPropagationOnClick={true}
+											on:click={() => aiChatManager.toggleOpen()}
+											isCollapsed={false}
+											icon={WandSparkles}
+											iconProps={{
+												forceDarkMode: true
+											}}
+											label="Ask AI"
+											class="!text-xs"
+											iconClasses="!text-violet-400 dark:!text-violet-400"
+											shortcut={`${getModifierKey()}L`}
 										/>
 									</div>
 
@@ -471,7 +514,7 @@
 							class="flex-1 flex flex-col min-h-0 h-screen shadow-lg dark:bg-[#1e232e] bg-[#202125] !dark"
 						>
 							<button
-								on:click={() => {
+								onclick={() => {
 									goto('/')
 								}}
 							>
@@ -483,14 +526,20 @@
 										<WindmillIcon white={true} height="20px" width="20px" />
 									</div>
 									{#if !isCollapsed}
-										<div class="text-sm mt-0.5 text-white"> Windmill </div>
+										<div class="text-sm mt-0.5 text-white">
+											{#if $whitelabelNameStore}{capitalize(
+													$whitelabelNameStore
+												)}{:else}Windmill{/if}
+										</div>
 									{/if}
 								</div>
 							</button>
 							<div class="px-2 py-4 border-y border-gray-700 flex flex-col gap-1">
-								<Menubar let:createMenu class="flex flex-col gap-1">
-									<WorkspaceMenu {createMenu} {isCollapsed} />
-									<FavoriteMenu {createMenu} {favoriteLinks} {isCollapsed} />
+								<Menubar class="flex flex-col gap-1">
+									{#snippet children({ createMenu })}
+										<WorkspaceMenu {createMenu} {isCollapsed} />
+										<FavoriteMenu {createMenu} {favoriteLinks} {isCollapsed} />
+									{/snippet}
 								</Menubar>
 								<MenuButton
 									stopPropagationOnClick={true}
@@ -500,6 +549,19 @@
 									label="Search"
 									class="!text-xs"
 									shortcut={`${getModifierKey()}k`}
+								/>
+								<MenuButton
+									stopPropagationOnClick={true}
+									on:click={() => aiChatManager.toggleOpen()}
+									{isCollapsed}
+									icon={WandSparkles}
+									iconProps={{
+										forceDarkMode: true
+									}}
+									label="Ask AI"
+									class="!text-xs"
+									iconClasses="!text-violet-400 dark:!text-violet-400"
+									shortcut={`${getModifierKey()}L`}
 								/>
 							</div>
 
@@ -512,7 +574,7 @@
 
 							<div class="flex-shrink-0 flex px-4 pb-3.5">
 								<button
-									on:click={() => {
+									onclick={() => {
 										isCollapsed = !isCollapsed
 									}}
 								>
@@ -538,7 +600,7 @@
 			<div
 				class={classNames(
 					'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300  !dark',
-					'opacity-0'
+					'opacity-0 pointer-events-none'
 				)}
 			>
 				<div class={twMerge('fixed inset-0 flex ', '-z-0')}>
@@ -556,9 +618,10 @@
 						>
 							<button
 								type="button"
-								on:click={() => {
+								onclick={() => {
 									// menuSlide = !menuSlide
 								}}
+								aria-label="Close"
 								class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
 							>
 								<svg
@@ -580,13 +643,17 @@
 								class:w-40={!isCollapsed}
 							>
 								<WindmillIcon white={true} height="20px" width="20px" />
-								{#if !isCollapsed}Windmill{/if}
+								{#if !isCollapsed}{#if $whitelabelNameStore}{capitalize(
+											$whitelabelNameStore
+										)}{:else}Windmill{/if}{/if}
 							</div>
 
 							<div class="px-2 py-4 space-y-2 border-y border-gray-500">
-								<Menubar let:createMenu>
-									<WorkspaceMenu {createMenu} />
-									<FavoriteMenu {createMenu} {favoriteLinks} />
+								<Menubar>
+									{#snippet children({ createMenu })}
+										<WorkspaceMenu {createMenu} />
+										<FavoriteMenu {createMenu} {favoriteLinks} />
+									{/snippet}
 								</Menubar>
 								<MenuButton
 									stopPropagationOnClick={true}
@@ -596,6 +663,19 @@
 									label="Search"
 									class="!text-xs"
 									shortcut={`${getModifierKey()}k`}
+								/>
+								<MenuButton
+									stopPropagationOnClick={true}
+									on:click={() => aiChatManager.toggleOpen()}
+									{isCollapsed}
+									icon={WandSparkles}
+									iconProps={{
+										forceDarkMode: true
+									}}
+									label="Ask AI"
+									class="!text-xs"
+									iconClasses="!text-violet-400 dark:!text-violet-400"
+									shortcut={`${getModifierKey()}L`}
 								/>
 							</div>
 
@@ -610,46 +690,64 @@
 				</div>
 			</div>
 		{/if}
-		<div
-			id="content"
-			class={classNames(
-				'w-full flex flex-col flex-1 h-full',
-				devOnly || $userStore?.operator ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
-				'transition-all ease-in-out duration-200'
-			)}
-		>
-			<main class="min-h-screen">
-				<div class="relative w-full h-full">
-					<div
-						class={classNames(
-							'py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-7xl mx-auto md:hidden',
-							devOnly || $userStore?.operator ? 'hidden' : ''
-						)}
-					>
-						<button
-							type="button"
-							on:click={() => {
-								menuOpen = true
-							}}
-							class="h-8 w-8 inline-flex items-center justify-center rounded-md text-tertiary hover:text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
-						>
-							<svg
-								class="h-6 w-6"
-								xmlns="http://www.w3.org/2000/svg"
-								fill="none"
-								viewBox="0 0 24 24"
-								stroke-width="2"
-								stroke="currentColor"
-								aria-hidden="true"
+		<Splitpanes horizontal={false} class="flex-1 min-h-0">
+			<Pane size={99.8 - aiChatManager.size} minSize={50} class="flex flex-col min-h-0">
+				<div
+					id="content"
+					class={classNames(
+						'w-full flex-1 flex flex-col overflow-y-auto',
+						devOnly || $userStore?.operator ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
+						'transition-all ease-in-out duration-200'
+					)}
+				>
+					<main class="flex-1 flex flex-col">
+						<div class="relative w-full flex-1 flex flex-col">
+							<div
+								class={classNames(
+									'pt-2 px-4 sm:px-4 flex flex-row justify-between items-center shadow-sm max-w-7xl md:hidden',
+									devOnly || $userStore?.operator ? 'hidden' : ''
+								)}
 							>
-								<path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-							</svg>
-						</button>
-					</div>
-					<slot />
+								<button
+									aria-label="Menu"
+									type="button"
+									onclick={() => {
+										menuOpen = true
+									}}
+									class="h-8 w-8 inline-flex items-center justify-center rounded-md text-tertiary hover:text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
+								>
+									<svg
+										class="h-6 w-6"
+										xmlns="http://www.w3.org/2000/svg"
+										fill="none"
+										viewBox="0 0 24 24"
+										stroke-width="2"
+										stroke="currentColor"
+										aria-hidden="true"
+									>
+										<path
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											d="M4 6h16M4 12h16M4 18h16"
+										/>
+									</svg>
+								</button>
+							</div>
+							<div class="flex-1">
+								{@render children?.()}
+							</div>
+						</div>
+					</main>
 				</div>
-			</main>
-		</div>
+			</Pane>
+			<Pane
+				bind:size={aiChatManager.size}
+				minSize={15}
+				class={`flex flex-col min-h-0 z-[${zIndexes.aiChat}]`}
+			>
+				<AiChat />
+			</Pane>
+		</Splitpanes>
 	</div>
 {:else}
 	<CenteredModal title="Loading user...">

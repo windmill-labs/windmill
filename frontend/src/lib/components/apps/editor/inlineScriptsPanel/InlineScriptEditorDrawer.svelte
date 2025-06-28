@@ -5,14 +5,28 @@
 	import type { InlineScript } from '../../types'
 	import { Save } from 'lucide-svelte'
 
-	let scriptEditorDrawer: Drawer
-	export let inlineScript: InlineScript
-	export let editor: Editor | undefined = undefined
-	export let isOpen: boolean | undefined = undefined
+	let scriptEditorDrawer: Drawer | undefined = $state(undefined)
+	interface Props {
+		appPath: string
+		inlineScript: InlineScript
+		editor?: Editor | undefined
+		isOpen?: boolean | undefined
+		id: string
+	}
+
+	let {
+		appPath,
+		inlineScript = $bindable(),
+		editor = undefined,
+		isOpen = $bindable(undefined),
+		id
+	}: Props = $props()
 
 	export function openDrawer() {
-		scriptEditorDrawer.openDrawer?.()
+		scriptEditorDrawer?.openDrawer?.()
 	}
+
+	let args = $state({})
 </script>
 
 <Drawer bind:open={isOpen} bind:this={scriptEditorDrawer} size="1200px">
@@ -21,26 +35,28 @@
 		noPadding
 		forceOverflowVisible
 		on:close={() => {
-			scriptEditorDrawer.closeDrawer()
+			scriptEditorDrawer?.closeDrawer()
 			editor?.setCode(inlineScript.content)
 		}}
 	>
 		{#if inlineScript && inlineScript.language != 'frontend'}
 			<ScriptEditor
+				showCaptures={false}
 				noHistory
 				noSyncFromGithub
 				lang={inlineScript.language}
-				path={inlineScript.path ? inlineScript.path + '_fullscreen' : undefined}
+				path={appPath + '/' + id + '_fullscreen'}
 				fixedOverflowWidgets={false}
 				bind:code={inlineScript.content}
 				bind:schema={inlineScript.schema}
 				on:createScriptFromInlineScript
 				tag={undefined}
 				saveToWorkspace
+				{args}
 			/>
 		{/if}
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button size="xs" startIcon={{ icon: Save }} disabled>Automatically synced</Button>
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

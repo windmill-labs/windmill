@@ -1,8 +1,10 @@
-<script context="module" lang="ts">
+<script module lang="ts">
 	export const EDITOR_BAR_WIDTH_THRESHOLD = 1044
 </script>
 
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { ResourceService, VariableService, type Script } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
@@ -19,12 +21,13 @@
 	import ToggleHubWorkspace from './ToggleHubWorkspace.svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import { SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS } from '$lib/consts'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
 	import Toggle from './Toggle.svelte'
 
 	import {
+		DiffIcon,
 		DollarSign,
 		History,
 		Library,
@@ -46,98 +49,147 @@
 	import type { EditorBarUi } from './custom_ui'
 	import EditorSettings from './EditorSettings.svelte'
 
-	export let lang: SupportedLanguage | 'bunnative' | undefined
-	export let editor: Editor | undefined
-	export let websocketAlive: {
-		pyright: boolean
-		ruff: boolean
-		deno: boolean
-		go: boolean
-		shellcheck: boolean
+	interface Props {
+		lang: SupportedLanguage | 'bunnative' | undefined
+		editor: Editor | undefined
+		websocketAlive: {
+			pyright: boolean
+			ruff: boolean
+			deno: boolean
+			go: boolean
+			shellcheck: boolean
+		}
+		iconOnly?: boolean
+		validCode?: boolean
+		kind?: 'script' | 'trigger' | 'approval'
+		template?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative'
+		collabMode?: boolean
+		collabLive?: boolean
+		collabUsers?: { name: string }[]
+		scriptPath?: string | undefined
+		diffEditor?: DiffEditor | undefined
+		args: Record<string, any>
+		noHistory?: boolean
+		saveToWorkspace?: boolean
+		customUi?: EditorBarUi
+		lastDeployedCode?: string | undefined
+		diffMode?: boolean
+		showHistoryDrawer?: boolean
+		right?: import('svelte').Snippet
+		openAiChat?: boolean
 	}
-	export let iconOnly: boolean = false
-	export let validCode: boolean = true
-	export let kind: 'script' | 'trigger' | 'approval' = 'script'
-	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' =
-		'script'
-	export let collabMode = false
-	export let collabLive = false
-	export let collabUsers: { name: string }[] = []
-	export let scriptPath: string | undefined = undefined
-	export let diffEditor: DiffEditor | undefined = undefined
-	export let args: Record<string, any>
-	export let noHistory = false
-	export let saveToWorkspace = false
-	export let customUi: EditorBarUi = {}
 
-	let contextualVariablePicker: ItemPicker
-	let variablePicker: ItemPicker
-	let resourcePicker: ItemPicker
-	let resourceTypePicker: ItemPicker
-	let variableEditor: VariableEditor
-	let resourceEditor: ResourceEditorDrawer
-	let showContextVarPicker = false
-	let showVarPicker = false
-	let showResourcePicker = false
-	let showResourceTypePicker = false
+	let {
+		lang,
+		editor,
+		websocketAlive,
+		iconOnly = false,
+		validCode = true,
+		kind = 'script',
+		template = 'script',
+		collabMode = false,
+		collabLive = false,
+		collabUsers = [],
+		scriptPath = undefined,
+		diffEditor = undefined,
+		args,
+		noHistory = false,
+		saveToWorkspace = false,
+		customUi = {},
+		lastDeployedCode = undefined,
+		diffMode = false,
+		showHistoryDrawer = $bindable(false),
+		right,
+		openAiChat = false
+	}: Props = $props()
 
-	$: showContextVarPicker = [
-		'python3',
-		'bash',
-		'powershell',
-		'go',
-		'deno',
-		'bun',
-		'bunnative',
-		'nativets',
-		'php',
-		'rust',
-		'csharp'
-	].includes(lang ?? '')
-	$: showVarPicker = [
-		'python3',
-		'bash',
-		'powershell',
-		'go',
-		'deno',
-		'bun',
-		'bunnative',
-		'nativets',
-		'php',
-		'rust',
-		'csharp'
-	].includes(lang ?? '')
-	$: showResourcePicker = [
-		'python3',
-		'bash',
-		'powershell',
-		'go',
-		'deno',
-		'bun',
-		'bunnative',
-		'nativets',
-		'php',
-		'rust',
-		'csharp'
-	].includes(lang ?? '')
-	$: showResourceTypePicker =
-		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
-		lang === 'python3' ||
-		lang === 'php'
+	let contextualVariablePicker: ItemPicker | undefined = $state()
+	let variablePicker: ItemPicker | undefined = $state()
+	let resourcePicker: ItemPicker | undefined = $state()
+	let resourceTypePicker: ItemPicker | undefined = $state()
+	let variableEditor: VariableEditor | undefined = $state()
+	let resourceEditor: ResourceEditorDrawer | undefined = $state()
+	let showContextVarPicker = $state(false)
+	let showVarPicker = $state(false)
+	let showResourcePicker = $state(false)
+	let showResourceTypePicker = $state(false)
 
-	let codeViewer: Drawer
-	let codeObj: { language: SupportedLanguage; content: string } | undefined = undefined
+	run(() => {
+		showContextVarPicker = [
+			'python3',
+			'bash',
+			'powershell',
+			'go',
+			'deno',
+			'bun',
+			'bunnative',
+			'nativets',
+			'php',
+			'rust',
+			'csharp',
+			'nu',
+			'java'
+			// for related places search: ADD_NEW_LANG
+		].includes(lang ?? '')
+	})
+	run(() => {
+		showVarPicker = [
+			'python3',
+			'bash',
+			'powershell',
+			'go',
+			'deno',
+			'bun',
+			'bunnative',
+			'nativets',
+			'php',
+			'rust',
+			'csharp',
+			'nu',
+			'java'
+			// for related places search: ADD_NEW_LANG
+		].includes(lang ?? '')
+	})
+	run(() => {
+		showResourcePicker = [
+			'python3',
+			'bash',
+			'powershell',
+			'go',
+			'deno',
+			'bun',
+			'bunnative',
+			'nativets',
+			'php',
+			'rust',
+			'csharp',
+			'nu',
+			'java'
+			// for related places search: ADD_NEW_LANG
+		].includes(lang ?? '')
+	})
+	run(() => {
+		showResourceTypePicker =
+			['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
+			lang === 'python3' ||
+			lang === 'php'
+	})
+
+	let codeViewer: Drawer | undefined = $state()
+	let codeObj: { language: SupportedLanguage; content: string } | undefined = $state(undefined)
 
 	function addEditorActions() {
 		editor?.addAction('insert-variable', 'Windmill: Insert variable', () => {
-			variablePicker.openDrawer()
+			variablePicker?.openDrawer()
 		})
 		editor?.addAction('insert-resource', 'Windmill: Insert resource', () => {
-			resourcePicker.openDrawer()
+			resourcePicker?.openDrawer()
 		})
 	}
 
-	$: editor && addEditorActions()
+	run(() => {
+		editor && untrack(() => addEditorActions())
+	})
 
 	async function loadVariables() {
 		return await VariableService.listVariable({ workspace: $workspaceStore ?? '' })
@@ -149,9 +201,9 @@
 		})
 	}
 
-	let scriptPicker: Drawer
-	let pick_existing: 'hub' | 'workspace' = 'hub'
-	let filter = ''
+	let scriptPicker: Drawer | undefined = $state()
+	let pick_existing: 'hub' | 'workspace' = $state('hub')
+	let filter = $state('')
 
 	async function onScriptPick(e: { detail: { path: string } }) {
 		codeObj = undefined
@@ -304,13 +356,11 @@
 			})
 			.join('')
 	}
-
-	let historyBrowserDrawerOpen = false
 </script>
 
 {#if scriptPath}
-	<Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
-		<DrawerContent title="Versions History" on:close={() => (historyBrowserDrawerOpen = false)}>
+	<Drawer bind:open={showHistoryDrawer} size="1200px">
+		<DrawerContent title="Versions History" on:close={() => (showHistoryDrawer = false)}>
 			<ScriptVersionHistory {scriptPath} />
 		</DrawerContent>
 	</Drawer>
@@ -368,6 +418,11 @@
 			editor.insertAtCursor(`std::env::var("${name}").unwrap();`)
 		} else if (lang == 'csharp') {
 			editor.insertAtCursor(`Environment.GetEnvironmentVariable("${name}");`)
+		} else if (lang == 'nu') {
+			editor.insertAtCursor(`$env.${name}`)
+		} else if (lang == 'java') {
+			editor.insertAtCursor(`System.getenv("${name}");`)
+			// for related places search: ADD_NEW_LANG
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -433,6 +488,11 @@ client.DefaultRequestHeaders.Add("Authorization", $"Bearer {Environment.GetEnvir
 
 string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 `)
+		} else if (lang == 'nu') {
+			editor.insertAtCursor(`get_variable ${path}`)
+		} else if (lang == 'java') {
+			editor.insertAtCursor(`(Wmill.getVariable("${path}"))`)
+			// for related places search: ADD_NEW_LANG
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -441,21 +501,23 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 	itemName="Variable"
 	extraField="path"
 	loadItems={loadVariables}
-	buttons={{ 'Edit/View': (x) => variableEditor.editVariable(x) }}
+	buttons={{ 'Edit/View': (x) => variableEditor?.editVariable(x) }}
 >
-	<div slot="submission" class="flex flex-row">
-		<Button
-			variant="border"
-			color="blue"
-			size="sm"
-			startIcon={{ icon: Plus }}
-			on:click={() => {
-				variableEditor.initNew()
-			}}
-		>
-			New variable
-		</Button>
-	</div>
+	{#snippet submission()}
+		<div class="flex flex-row">
+			<Button
+				variant="border"
+				color="blue"
+				size="sm"
+				startIcon={{ icon: Plus }}
+				on:click={() => {
+					variableEditor?.initNew()
+				}}
+			>
+				New variable
+			</Button>
+		</div>
+	{/snippet}
 </ItemPicker>
 
 <ItemPicker
@@ -515,30 +577,38 @@ client.DefaultRequestHeaders.Add("Authorization", $"Bearer {Environment.GetEnvir
 
 JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetStringAsync(uri));
 `)
+		} else if (lang == 'nu') {
+			editor.insertAtCursor(`get_resource ${path}`)
+		} else if (lang == 'java') {
+			editor.insertAtCursor(`(Wmill.getResource("${path}"))`)
+			// for related places search: ADD_NEW_LANG
 		}
+
 		sendUserToast(`${path} inserted at cursor`)
 	}}
 	tooltip="Resources represent connections to third party systems. Resources are a good way to define a connection to a frequently used third party system such as a database."
 	documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
 	itemName="Resource"
-	buttons={{ 'Edit/View': (x) => resourceEditor.initEdit(x) }}
+	buttons={{ 'Edit/View': (x) => resourceEditor?.initEdit(x) }}
 	extraField="description"
 	extraField2="resource_type"
 	loadItems={async () =>
 		await ResourceService.listResource({ workspace: $workspaceStore ?? 'NO_W' })}
 >
-	<div slot="submission" class="flex flex-row gap-x-1 mr-2">
-		<Button
-			startIcon={{ icon: Plus }}
-			target="_blank"
-			variant="border"
-			color="blue"
-			size="sm"
-			href="{base}/resources?connect_app=undefined"
-		>
-			Add resource
-		</Button>
-	</div>
+	{#snippet submission()}
+		<div class="flex flex-row gap-x-1 mr-2">
+			<Button
+				startIcon={{ icon: Plus }}
+				target="_blank"
+				variant="border"
+				color="blue"
+				size="sm"
+				href="{base}/resources?connect_app=undefined"
+			>
+				Add resource
+			</Button>
+		</div>
+	{/snippet}
 </ItemPicker>
 
 {#if showResourceTypePicker}
@@ -563,10 +633,12 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		<div
 			title={validCode ? 'Main function parsable' : 'Main function not parsable'}
 			class="rounded-full w-2 h-2 mx-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
-		/>
+		></div>
 		<div class="flex items-center gap-0.5">
 			{#if showContextVarPicker && customUi?.contextVar != false}
 				<Button
+					aiId="editor-bar-add-context-variable"
+					aiDescription="Add context variable"
 					title="Add context variable"
 					color="light"
 					on:click={contextualVariablePicker.openDrawer}
@@ -580,6 +652,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{/if}
 			{#if showVarPicker && customUi?.variable != false}
 				<Button
+					aiId="editor-bar-add-variable"
+					aiDescription="Add variable"
 					title="Add variable"
 					color="light"
 					btnClasses="!font-medium text-tertiary"
@@ -595,6 +669,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 
 			{#if showResourcePicker && customUi?.resource != false}
 				<Button
+					aiId="editor-bar-add-resource"
+					aiDescription="Add resource"
 					title="Add resource"
 					btnClasses="!font-medium text-tertiary"
 					size="xs"
@@ -610,12 +686,14 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 
 			{#if showResourceTypePicker && customUi?.type != false}
 				<Button
+					aiId="editor-bar-add-resource-type"
+					aiDescription="Add resource type"
 					title="Add resource type"
 					btnClasses="!font-medium text-tertiary"
 					size="xs"
 					spacingSize="md"
 					color="light"
-					on:click={resourceTypePicker.openDrawer}
+					on:click={() => resourceTypePicker?.openDrawer()}
 					{iconOnly}
 					startIcon={{ icon: Package }}
 				>
@@ -625,6 +703,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 
 			{#if customUi?.reset != false}
 				<Button
+					aiId="editor-bar-reset-content"
+					aiDescription="Reset content"
 					title="Reset Content"
 					btnClasses="!font-medium text-tertiary"
 					size="xs"
@@ -639,8 +719,10 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{/if}
 
 			{#if customUi?.assistants != false}
-				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash'}
+				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash' || lang == 'nu'}
 					<Button
+						aiId="editor-bar-reload-assistants"
+						aiDescription="Reload assistants"
 						btnClasses="!font-medium text-tertiary"
 						size="xs"
 						spacingSize="md"
@@ -672,6 +754,27 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				{/if}
 			{/if}
 
+			{#if customUi?.diffMode != false}
+				<div class="flex items-center px-3">
+					<Toggle
+						options={{ right: '' }}
+						size="xs"
+						checked={diffMode}
+						disabled={!lastDeployedCode}
+						on:change={(e) => {
+							const turnOn = e.detail
+							dispatch(turnOn ? 'showDiffMode' : 'hideDiffMode')
+						}}
+					/>
+					<Popover>
+						{#snippet text()}
+							Toggle diff mode
+						{/snippet}
+						<DiffIcon class="ml-1 text-tertiary" size={14} />
+					</Popover>
+				</div>
+			{/if}
+
 			{#if collabMode && customUi?.multiplayer != false}
 				<div class="flex items-center px-3">
 					<Toggle
@@ -681,14 +784,16 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						on:change={() => dispatch('toggleCollabMode')}
 					/>
 					<Popover>
-						<svelte:fragment slot="text">Multiplayer</svelte:fragment>
+						{#snippet text()}
+							Multiplayer
+						{/snippet}
 						<Users class="ml-1 text-tertiary" size={14} />
 					</Popover>
 					{#if collabLive}
 						<button
 							title="Show invite link"
 							class="p-1 rounded hover:bg-gray-400 mx-1 border"
-							on:click={() => dispatch('collabPopup')}><Link size={14} /></button
+							onclick={() => dispatch('collabPopup')}><Link size={14} /></button
 						>
 						<div class="isolate flex -space-x-2 pl-2">
 							{#each collabUsers as user}
@@ -707,7 +812,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{/if}
 
 			{#if customUi?.aiGen != false}
-				<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
+				<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} {openAiChat} />
 			{/if}
 
 			<EditorSettings {customUi} />
@@ -715,14 +820,14 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 	</div>
 
 	<div class="flex flex-row items-center gap-2">
-		<slot name="right" />
+		{@render right?.()}
 		{#if scriptPath && !noHistory}
 			<Button
 				btnClasses="!font-medium text-tertiary"
 				size="xs"
 				spacingSize="md"
 				color="light"
-				on:click={() => (historyBrowserDrawerOpen = true)}
+				on:click={() => (showHistoryDrawer = true)}
 				{iconOnly}
 				startIcon={{ icon: History }}
 				title="See history"

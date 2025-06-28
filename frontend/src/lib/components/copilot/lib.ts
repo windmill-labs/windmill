@@ -1,16 +1,17 @@
-import type { AIProvider } from '$lib/gen'
+import type { AIProvider, AIProviderModel } from '$lib/gen'
 import {
 	copilotInfo,
 	copilotSessionModel,
+	workspaceStore,
 	type DBSchema,
 	type GraphqlSchema,
 	type SQLSchema
 } from '$lib/stores'
-import { Anthropic } from '@anthropic-ai/sdk'
-import { Mistral } from '@mistralai/mistralai'
 import { buildClientSchema, printSchema } from 'graphql'
 import { OpenAI } from 'openai'
 import type {
+	ChatCompletionCreateParams,
+	ChatCompletionCreateParamsNonStreaming,
 	ChatCompletionCreateParamsStreaming,
 	ChatCompletionMessageParam
 } from 'openai/resources/index.mjs'
@@ -18,48 +19,127 @@ import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import { formatResourceTypes } from './utils'
-
-import type { MessageCreateParams, MessageParam } from '@anthropic-ai/sdk/resources/messages.mjs'
-import type {
-	AssistantMessage,
-	CompletionEvent,
-	ContentChunk,
-	SystemMessage,
-	ToolMessage,
-	UserMessage
-} from '@mistralai/mistralai/models/components'
-import type { ChatCompletionRequest } from '@mistralai/mistralai/models/components/chatcompletionrequest'
+import { z } from 'zod'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
+const OPENAI_MODELS = ['gpt-4o', 'gpt-4o-mini', 'o4-mini', 'o3', 'o3-mini']
+
 // need at least one model for each provider except customai
 export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
-	openai: ['gpt-4o', 'gpt-4o-mini'],
-	anthropic: [
-		'claude-3-7-sonnet-latest',
-		'claude-3-7-sonnet-latest/thinking',
-		'claude-3-5-haiku-latest',
-		'claude-3-5-sonnet-latest'
-	],
+	openai: OPENAI_MODELS,
+	azure_openai: OPENAI_MODELS,
+	anthropic: ['claude-sonnet-4-0', 'claude-sonnet-4-0/thinking', 'claude-3-5-haiku-latest'],
 	mistral: ['codestral-latest'],
 	deepseek: ['deepseek-chat', 'deepseek-reasoner'],
-	googleai: ['gemini-1.5-pro', 'gemini-2.0-flash', 'gemini-1.5-flash'],
+	googleai: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
 	groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
 	openrouter: ['meta-llama/llama-3.2-3b-instruct:free'],
+	togetherai: ['meta-llama/Llama-3.3-70B-Instruct-Turbo'],
 	customai: []
 }
 
-export const OPENAI_COMPATIBLE_BASE_URLS = {
-	groq: 'https://api.groq.com/openai/v1',
-	openrouter: 'https://openrouter.ai/api/v1',
-	deepseek: 'https://api.deepseek.com/v1',
-	googleai: 'https://generativelanguage.googleapis.com/v1beta/openai'
-} as const
+export interface ModelResponse {
+	id: string
+	object: string
+	created: number
+	owned_by: string
+	lifecycle_status: string
+	capabilities: {
+		completion: boolean
+		chat_completion: boolean
+	}
+}
 
-function prepareOpenaiCompatibleMessages(
-	aiProvider: AIProvider,
-	messages: ChatCompletionMessageParam[]
+export async function fetchAvailableModels(
+	resourcePath: string,
+	workspace: string,
+	provider: AIProvider
+): Promise<string[]> {
+	const models = await fetch(`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/models`, {
+		headers: {
+			'X-Resource-Path': resourcePath,
+			'X-Provider': provider,
+			...(provider === 'anthropic' ? { 'anthropic-version': '2023-06-01' } : {})
+		}
+	})
+	if (!models.ok) {
+		console.error('Failed to fetch models for provider', provider, models)
+		throw new Error(`Failed to fetch models for provider ${provider}`)
+	}
+	const data = (await models.json()) as { data: ModelResponse[] }
+	if (data.data.length > 0) {
+		switch (provider) {
+			case 'openai':
+				return data.data
+					.filter(
+						(m) => m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.startsWith('codex')
+					)
+					.map((m) => m.id)
+			case 'azure_openai':
+				return data.data
+					.filter(
+						(m) =>
+							(m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.startsWith('codex')) &&
+							m.lifecycle_status !== 'deprecated' &&
+							(m.capabilities.completion || m.capabilities.chat_completion)
+					)
+					.map((m) => m.id)
+			case 'googleai':
+				return data.data.map((m) => m.id.split('/')[1])
+			default:
+				return data.data.map((m) => m.id)
+		}
+	}
+
+	return data?.data.map((m) => m.id) ?? []
+}
+
+function getModelMaxTokens(model: string) {
+	if (model.startsWith('gpt-4.1')) {
+		return 32768
+	} else if (model.startsWith('gpt-4o') || model.startsWith('codestral')) {
+		return 16384
+	} else if (model.startsWith('gpt-4-turbo') || model.startsWith('gpt-3.5')) {
+		return 4096
+	}
+	return 8192
+}
+
+function getModelSpecificConfig(
+	modelProvider: AIProviderModel,
+	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
 ) {
+	if (
+		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
+		modelProvider.model.startsWith('o')
+	) {
+		return {
+			model: modelProvider.model,
+			...(tools && tools.length > 0 ? { tools } : {}),
+			max_completion_tokens: 100000
+		}
+	} else {
+		return {
+			...(modelProvider.model.endsWith('/thinking')
+				? {
+						thinking: {
+							type: 'enabled',
+							budget_tokens: 1024
+						},
+						model: modelProvider.model.slice(0, -9)
+					}
+				: {
+						model: modelProvider.model,
+						temperature: 0
+					}),
+			...(tools && tools.length > 0 ? { tools } : {}),
+			max_tokens: getModelMaxTokens(modelProvider.model)
+		}
+	}
+}
+
+function prepareMessages(aiProvider: AIProvider, messages: ChatCompletionMessageParam[]) {
 	switch (aiProvider) {
 		case 'googleai':
 			// system messages are not supported by gemini
@@ -84,35 +164,36 @@ function prepareOpenaiCompatibleMessages(
 	}
 }
 
-const DEFAULT_COMPLETION_CONFIG: ChatCompletionCreateParamsStreaming = {
+const DEFAULT_COMPLETION_CONFIG: ChatCompletionCreateParams = {
 	model: '',
-	max_tokens: 8192, //TODO: make this dynamic
-	temperature: 0,
 	seed: 42,
-	stream: true,
 	messages: []
 }
 
-export const OPENAI_COMPATIBLE_COMPLETION_CONFIG = {
+export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCreateParams> = {
+	openai: DEFAULT_COMPLETION_CONFIG,
+	azure_openai: DEFAULT_COMPLETION_CONFIG,
 	groq: DEFAULT_COMPLETION_CONFIG,
 	openrouter: DEFAULT_COMPLETION_CONFIG,
+	togetherai: DEFAULT_COMPLETION_CONFIG,
 	deepseek: DEFAULT_COMPLETION_CONFIG,
 	customai: DEFAULT_COMPLETION_CONFIG,
 	googleai: {
 		...DEFAULT_COMPLETION_CONFIG,
 		seed: undefined // not supported by gemini
-	} as ChatCompletionCreateParamsStreaming
+	} as ChatCompletionCreateParams,
+	mistral: {
+		...DEFAULT_COMPLETION_CONFIG,
+		seed: undefined
+	},
+	anthropic: DEFAULT_COMPLETION_CONFIG
 } as const
 
 class WorkspacedAIClients {
 	private openaiClient: OpenAI | undefined
-	private anthropicClient: Anthropic | undefined
-	private mistralClient: Mistral | undefined
 
 	init(workspace: string) {
 		this.initOpenai(workspace)
-		this.initAnthropic(workspace)
-		this.initMistral(workspace)
 	}
 
 	private getBaseURL(workspace: string) {
@@ -131,123 +212,15 @@ class WorkspacedAIClients {
 		})
 	}
 
-	private initAnthropic(workspace: string) {
-		const baseURL = this.getBaseURL(workspace)
-		this.anthropicClient = new Anthropic({
-			baseURL,
-			apiKey: 'fake-key',
-			dangerouslyAllowBrowser: true
-		})
-	}
-
-	private initMistral(workspace: string) {
-		const baseURL = this.getBaseURL(workspace)
-		this.mistralClient = new Mistral({
-			serverURL: baseURL
-		})
-	}
-
 	getOpenaiClient() {
 		if (!this.openaiClient) {
 			throw new Error('OpenAI not initialized')
 		}
 		return this.openaiClient
 	}
-
-	getAnthropicClient() {
-		if (!this.anthropicClient) {
-			throw new Error('Anthropic not initialized')
-		}
-		return this.anthropicClient
-	}
-
-	getMistralClient() {
-		if (!this.mistralClient) {
-			throw new Error('Mistral not initialized')
-		}
-		return this.mistralClient
-	}
 }
 
 export const workspaceAIClients = new WorkspacedAIClients()
-
-namespace MistralAI {
-	export const mistralConfig: ChatCompletionRequest = {
-		temperature: 0,
-		model: null,
-		maxTokens: 32000,
-		messages: []
-	}
-
-	export type MistralParamsMessage =
-		| (SystemMessage & { role: 'system' })
-		| (UserMessage & { role: 'user' })
-		| (AssistantMessage & { role: 'assistant' })
-		| (ToolMessage & { role: 'tool' })
-
-	export function retrieveTextValue(chunks: string | ContentChunk[] | null | undefined): string {
-		let response = ''
-		if (Array.isArray(chunks)) {
-			for (const chunk of chunks) {
-				if (chunk.type === 'text') {
-					response += chunk.text
-				}
-			}
-			return response
-		}
-		return chunks as string
-	}
-}
-
-export namespace AnthropicAI {
-	export const config: MessageCreateParams = {
-		max_tokens: 8192,
-		model: '',
-		messages: []
-	}
-
-	export function getSystemPromptAndArrayMessages(
-		messages: ChatCompletionMessageParam[]
-	): [string, MessageParam[]] {
-		let system: string | undefined = undefined
-		if (messages[0].role == 'system') {
-			system = messages[0].content as string
-			messages.shift()
-		}
-		const anthropicMessages: MessageParam[] = messages.map((message) => {
-			return {
-				role: message.role == 'user' ? 'user' : 'assistant',
-				content: message.content as string
-			}
-		})
-		return [system as string, anthropicMessages ?? []]
-	}
-
-	export function retrieveTextValue(part: Anthropic.Messages.RawMessageStreamEvent) {
-		let response = ''
-		if (part.type == 'content_block_delta') {
-			if (part.delta.type == 'text_delta') {
-				response = part.delta.text
-			}
-		}
-		return response
-	}
-}
-
-namespace OpenAi {
-	export const openaiConfig: ChatCompletionCreateParamsStreaming = {
-		temperature: 0,
-		max_tokens: 16384,
-		model: '',
-		seed: 42,
-		stream: true,
-		messages: []
-	}
-
-	export function retrieveTextValue(part: OpenAI.Chat.Completions.ChatCompletionChunk) {
-		return part.choices[0]?.delta?.content || ''
-	}
-}
 
 export async function testKey({
 	apiKey,
@@ -273,14 +246,14 @@ export async function testKey({
 		throw new Error('Missing a model to test')
 	}
 
-	await getNonStreamingCompletion(
-		messages,
-		abortController,
-		aiProvider,
+	await getNonStreamingCompletion(messages, abortController, {
 		apiKey,
 		resourcePath,
-		modelToTest
-	)
+		forceModelProvider: {
+			model: modelToTest,
+			provider: aiProvider
+		}
+	})
 }
 
 interface BaseOptions {
@@ -459,249 +432,190 @@ const PROMPTS_CONFIGS = {
 	gen: GEN_CONFIG
 }
 
+function getProviderAndCompletionConfig<K extends boolean>({
+	messages,
+	stream,
+	tools,
+	forceModelProvider
+}: {
+	messages: ChatCompletionMessageParam[]
+	stream: K
+	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
+	forceModelProvider?: AIProviderModel
+}): {
+	provider: AIProvider
+	config: K extends true
+		? ChatCompletionCreateParamsStreaming
+		: ChatCompletionCreateParamsNonStreaming
+} {
+	let info = get(copilotInfo)
+	const modelProvider =
+		forceModelProvider ?? get(copilotSessionModel) ?? info.defaultModel ?? info.aiModels[0]
+
+	if (!modelProvider) {
+		throw new Error('No model selected')
+	}
+
+	const providerConfig = PROVIDER_COMPLETION_CONFIG_MAP[modelProvider.provider]
+
+	const processedMessages = prepareMessages(modelProvider.provider, messages)
+
+	return {
+		provider: modelProvider.provider,
+		config: {
+			...providerConfig,
+			...getModelSpecificConfig(modelProvider, tools),
+			messages: processedMessages,
+			stream
+		} as any
+	}
+}
+
 export async function getNonStreamingCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	aiProvider: AIProvider,
-	apiKey?: string, // testing API KEY directly from the frontend
-	resourcePath?: string, // testing resource path passed as a header to the backend proxy
-	forceModel?: string
+	testOptions?: {
+		apiKey?: string // testing API KEY using the global ai proxy
+		resourcePath?: string // testing resource path passed as a header to the backend proxy
+		forceModelProvider: AIProviderModel
+	}
 ) {
 	let response: string | undefined = ''
-	let model = forceModel
-
-	if (!model) {
-		model = get(copilotSessionModel)
-		let info = get(copilotInfo)
-		const { ai_models: aiModels } = info
-
-		if (!model || !aiModels.includes(model)) {
-			console.warn('Invalid model, using default model:', aiModels[0])
-			model = aiModels[0]
-		}
-	}
-
-	if (!model) {
-		throw new Error('No model found')
-	}
+	const { provider, config } = getProviderAndCompletionConfig({
+		messages,
+		stream: false,
+		forceModelProvider: testOptions?.forceModelProvider
+	})
 
 	const fetchOptions: {
 		signal: AbortSignal
-		headers?: Record<string, string>
+		headers: Record<string, string>
 	} = {
-		signal: abortController.signal
+		signal: abortController.signal,
+		headers: {
+			'X-Provider': provider
+		}
 	}
-	if (resourcePath) {
+	if (testOptions?.resourcePath) {
 		fetchOptions.headers = {
-			'X-Resource-Path': resourcePath
+			...fetchOptions.headers,
+			'X-Resource-Path': testOptions.resourcePath
 		}
-	}
-	switch (aiProvider) {
-		case 'anthropic': {
-			const anthropicClient = apiKey
-				? new Anthropic({
-						apiKey,
-						dangerouslyAllowBrowser: true
-				  })
-				: workspaceAIClients.getAnthropicClient()
-			const [system, anthropicMessages] = AnthropicAI.getSystemPromptAndArrayMessages(messages)
-			const message = await anthropicClient.messages.create(
-				{
-					...AnthropicAI.config,
-					system,
-					...(model.endsWith('/thinking')
-						? {
-								thinking: {
-									type: 'enabled',
-									budget_tokens: 1024
-								},
-								model: model.slice(0, -9)
-						  }
-						: {
-								model,
-								temperature: 0
-						  }),
-					messages: anthropicMessages,
-					stream: false
-				},
-				fetchOptions
-			)
-			response = message.content[0].type === 'text' ? message.content[0].text : ''
-			break
+	} else if (testOptions?.apiKey) {
+		if (provider === 'customai') {
+			throw new Error('Cannot test API key for Custom AI, only resource path is supported')
 		}
-		case 'mistral': {
-			const mistralClient = apiKey
-				? new Mistral({
-						apiKey
-				  })
-				: workspaceAIClients.getMistralClient()
-			const message = await mistralClient.chat.complete(
-				{
-					...MistralAI.mistralConfig,
-					model,
-					stream: false,
-					messages: messages as MistralAI.MistralParamsMessage[]
-				},
-				{
-					fetchOptions: fetchOptions
-				}
-			)
-			response = MistralAI.retrieveTextValue(message.choices && message.choices[0].message.content)
-			break
-		}
-		default: {
-			if (aiProvider === 'customai' && apiKey) {
-				throw new Error('Cannot test API key for Custom AI, only resource path is supported')
-			}
-			const baseURL = OPENAI_COMPATIBLE_BASE_URLS[aiProvider]
 
-			if (apiKey && aiProvider !== 'openai' && !baseURL) {
-				throw new Error('No base URL for this provider: ' + aiProvider)
-			}
-			const openaiClient = apiKey
-				? new OpenAI({
-						apiKey,
-						baseURL,
-						dangerouslyAllowBrowser: true
-				  })
-				: workspaceAIClients.getOpenaiClient()
-			const config =
-				aiProvider === 'openai'
-					? OpenAi.openaiConfig
-					: OPENAI_COMPATIBLE_COMPLETION_CONFIG[aiProvider]
-			if (!config) {
-				throw new Error('No config for this provider: ' + aiProvider)
-			}
-			const processedMessages = prepareOpenaiCompatibleMessages(aiProvider, messages)
-			const completion = await openaiClient.chat.completions.create(
-				{
-					...config,
-					messages: processedMessages,
-					model,
-					stream: false
-				},
-				fetchOptions
-			)
-			response = completion.choices[0]?.message.content || ''
+		fetchOptions.headers = {
+			...fetchOptions.headers,
+			'X-API-Key': testOptions.apiKey
 		}
 	}
+	const openaiClient = testOptions?.apiKey
+		? new OpenAI({
+				baseURL: `${location.origin}${OpenAPI.BASE}/ai/proxy`,
+				apiKey: 'fake-key',
+				defaultHeaders: {
+					Authorization: '' // a non empty string will be unable to access Windmill backend proxy
+				},
+				dangerouslyAllowBrowser: true
+			})
+		: workspaceAIClients.getOpenaiClient()
+
+	const completion = await openaiClient.chat.completions.create(config, fetchOptions)
+	response = completion.choices?.[0]?.message.content || ''
 	return response
+}
+
+const mistralFimResponseSchema = z.object({
+	choices: z.array(
+		z.object({
+			message: z.object({
+				content: z.string().optional()
+			}),
+			finish_reason: z.string()
+		})
+	)
+})
+
+export const FIM_MAX_TOKENS = 256
+export async function getFimCompletion(
+	prompt: string,
+	suffix: string,
+	providerModel: AIProviderModel,
+	abortController: AbortController
+): Promise<string | undefined> {
+	const fetchOptions: {
+		signal: AbortSignal
+		headers: Record<string, string>
+	} = {
+		signal: abortController.signal,
+		headers: {
+			'X-Provider': providerModel.provider
+		}
+	}
+
+	const workspace = get(workspaceStore)
+
+	const response = await fetch(
+		`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/fim/completions`,
+		{
+			method: 'POST',
+			body: JSON.stringify({
+				model: providerModel.model,
+				temperature: 0,
+				prompt,
+				suffix,
+				stop: ['\n\n'],
+				max_tokens: FIM_MAX_TOKENS
+			}),
+			...fetchOptions
+		}
+	)
+
+	const body = await response.json()
+	const parsedBody = mistralFimResponseSchema.parse(body)
+
+	const choice = parsedBody.choices[0]
+
+	if (choice) {
+		if (choice.finish_reason === 'length' && choice.message.content) {
+			// take all the lines before the last
+			const lines = choice.message.content.split('\n')
+			const joined = lines.slice(0, -1).join('\n')
+			return joined
+		} else {
+			return choice.message.content || ''
+		}
+	} else {
+		return undefined
+	}
 }
 
 export async function getCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	aiProvider: AIProvider
+	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
 ) {
-	let model = get(copilotSessionModel)
-	let info = get(copilotInfo)
-	const { ai_models: aiModels } = info
-
-	if (!model || !aiModels.includes(model)) {
-		console.warn('Invalid model, using default model:', aiModels[0])
-		model = aiModels[0]
-	}
-
-	if (!model) {
-		throw new Error('No model found')
-	}
-
-	switch (aiProvider) {
-		case 'anthropic': {
-			const anthropicClient = workspaceAIClients.getAnthropicClient()
-			const [system, anthropicMessages] = AnthropicAI.getSystemPromptAndArrayMessages(messages)
-
-			const completion = await anthropicClient.messages.create(
-				{
-					...AnthropicAI.config,
-					...(model.endsWith('/thinking')
-						? {
-								thinking: {
-									type: 'enabled',
-									budget_tokens: 1024
-								},
-								model: model.slice(0, -9)
-						  }
-						: {
-								model,
-								temperature: 0
-						  }),
-					system,
-					messages: anthropicMessages,
-					stream: true
-				},
-				{ signal: abortController.signal }
-			)
-			return completion
+	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
+	const openaiClient = workspaceAIClients.getOpenaiClient()
+	const completion = await openaiClient.chat.completions.create(config, {
+		signal: abortController.signal,
+		headers: {
+			'X-Provider': provider
 		}
-		case 'mistral': {
-			const mistralClient = workspaceAIClients.getMistralClient()
-			const message = await mistralClient.chat.stream(
-				{
-					...MistralAI.mistralConfig,
-					model,
-					messages: messages as MistralAI.MistralParamsMessage[]
-				},
-				{
-					fetchOptions: {
-						signal: abortController.signal
-					}
-				}
-			)
-			return message
-		}
-		default: {
-			const openaiClient = workspaceAIClients.getOpenaiClient()
-			const config: ChatCompletionCreateParamsStreaming =
-				aiProvider === 'openai'
-					? OpenAi.openaiConfig
-					: OPENAI_COMPATIBLE_COMPLETION_CONFIG[aiProvider]
-			if (!config) {
-				throw new Error('No config for this provider: ' + aiProvider)
-			}
-			const processedMessages = prepareOpenaiCompatibleMessages(aiProvider, messages)
-			const completion = await openaiClient.chat.completions.create(
-				{
-					...config,
-					model,
-					messages: processedMessages
-				},
-				{
-					signal: abortController.signal
-				}
-			)
-			return completion
-		}
-	}
+	})
+	return completion
 }
 
-export function getResponseFromEvent(
-	part:
-		| Anthropic.Messages.RawMessageStreamEvent
-		| OpenAI.Chat.Completions.ChatCompletionChunk
-		| CompletionEvent,
-	aiProvider: AIProvider
-): string {
-	switch (aiProvider) {
-		case 'anthropic': {
-			const messages = part as Anthropic.Messages.RawMessageStreamEvent
-			return AnthropicAI.retrieveTextValue(messages)
-		}
-		case 'mistral': {
-			const messages = part as CompletionEvent
-			return MistralAI.retrieveTextValue(messages.data.choices[0].delta.content)
-		}
-		default:
-			const messages = part as OpenAI.Chat.Completions.ChatCompletionChunk
-			return OpenAi.retrieveTextValue(messages)
-	}
+export function getResponseFromEvent(part: OpenAI.Chat.Completions.ChatCompletionChunk): string {
+	return part.choices?.[0]?.delta?.content || ''
 }
 
 export async function copilot(
 	scriptOptions: CopilotOptions,
 	generatedCode: Writable<string>,
 	abortController: AbortController,
-	aiProvider: AIProvider,
 	generatedExplanation?: Writable<string>
 ) {
 	const { prompt, systemPrompt } = await getPrompts(scriptOptions)
@@ -717,14 +631,13 @@ export async function copilot(
 				content: prompt
 			}
 		],
-		abortController,
-		aiProvider
+		abortController
 	)
 
 	let response = ''
 	let code = ''
 	for await (const part of completion) {
-		response += getResponseFromEvent(part, aiProvider)
+		response += getResponseFromEvent(part)
 		let match = response.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
 
 		if (match) {
@@ -790,16 +703,15 @@ function getStringEndDelta(prev: string, now: string) {
 export async function deltaCodeCompletion(
 	messages: ChatCompletionMessageParam[],
 	generatedCodeDelta: Writable<string>,
-	abortController: AbortController,
-	aiProvider: AIProvider
+	abortController: AbortController
 ) {
-	const completion = await getCompletion(messages, abortController, aiProvider)
+	const completion = await getCompletion(messages, abortController)
 
 	let response = ''
 	let code = ''
 	let delta = ''
 	for await (const part of completion) {
-		response += getResponseFromEvent(part, aiProvider)
+		response += getResponseFromEvent(part)
 		let match = response.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
 
 		if (match) {

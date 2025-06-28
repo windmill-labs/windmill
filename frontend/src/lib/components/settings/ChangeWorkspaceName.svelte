@@ -5,15 +5,22 @@
 	import { WorkspaceService } from '$lib/gen'
 	import Modal from '../common/modal/Modal.svelte'
 	import { Pen } from 'lucide-svelte'
+	import { untrack } from 'svelte'
 
-	let newName = ''
-	let currentName = ''
+	let { open = false }: { open?: boolean } = $props()
+
+	let newName = $state('')
+	let currentName = $state('')
+
+	$effect(() => {
+		if ($workspaceStore) {
+			untrack(() => getWorkspaceName())
+		}
+	})
 
 	async function getWorkspaceName() {
 		currentName = await WorkspaceService.getWorkspaceName({ workspace: $workspaceStore! })
 	}
-
-	getWorkspaceName()
 
 	async function renameWorkspace() {
 		open = false
@@ -28,8 +35,6 @@
 		newName = ''
 		getWorkspaceName()
 	}
-
-	export let open = false
 </script>
 
 <div>
@@ -50,9 +55,7 @@
 		/>
 	</div>
 
-	<p class="italic text-xs">
-		Displayable name
-	</p>
+	<p class="italic text-xs"> Displayable name </p>
 </div>
 
 <Modal bind:open title="Change workspace name">

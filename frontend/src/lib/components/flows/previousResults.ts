@@ -88,7 +88,10 @@ function getFlowInput(
 			}
 		} else {
 			let parentFlowInput = getFlowInput(parentModules, flowState, args, schema)
-			if (parentModule.value.type === 'forloopflow' || parentModule.value.type === 'whileloopflow') {
+			if (
+				parentModule.value.type === 'forloopflow' ||
+				parentModule.value.type === 'whileloopflow'
+			) {
 				let parentFlowInputIter = { ...parentFlowInput }
 				if (parentFlowInputIter.hasOwnProperty('iter')) {
 					parentFlowInputIter['iter_parent'] = parentFlowInputIter['iter']
@@ -199,7 +202,17 @@ export function getStepPropPicker(
 	const previousIds = getPreviousIds(id, flow, include_node)
 
 	let priorIds = Object.fromEntries(
-		previousIds.map((id) => [id, flowState[id]?.previewResult ?? {}]).reverse()
+		previousIds
+			.map((id) => {
+				const module = flow.value.modules.find((m) => m.id === id)
+				return [
+					id,
+					module?.mock?.enabled
+						? (module.mock.return_value ?? {})
+						: (flowState[id]?.previewResult ?? {})
+				]
+			})
+			.reverse()
 	)
 
 	const pickableProperties = {
@@ -312,4 +325,47 @@ export function filterNestedObject(obj: any, nestedKeys: string[]) {
 		return result
 	}
 	return {}
+}
+
+/**
+ * Get the ID of the previous module within the same container (loop or branch)
+ * based on the same logic used in FlowModuleWrapper.svelte
+ */
+export function getPreviousModule(moduleId: string, flow: OpenFlow): FlowModule | undefined {
+	function searchInModules(modules: FlowModule[]): FlowModule | undefined | null {
+		for (let i = 0; i < modules.length; i++) {
+			const module = modules[i]
+
+			if (module.id === moduleId) {
+				// Found the module, return previous module ID if it exists
+				return i > 0 ? modules[i - 1] : undefined
+			}
+
+			// Search in submodules based on module type
+			if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
+				const result = searchInModules(module.value.modules)
+				if (result !== null) return result
+			} else if (module.value.type === 'branchone') {
+				// Search in default branch
+				const defaultResult = searchInModules(module.value.default)
+				if (defaultResult !== null) return defaultResult
+
+				// Search in each branch
+				for (const branch of module.value.branches) {
+					const branchResult = searchInModules(branch.modules)
+					if (branchResult !== null) return branchResult
+				}
+			} else if (module.value.type === 'branchall') {
+				// Search in each branch
+				for (const branch of module.value.branches) {
+					const branchResult = searchInModules(branch.modules)
+					if (branchResult !== null) return branchResult
+				}
+			}
+		}
+		return null // Continue searching (module not found in this branch)
+	}
+
+	const result = searchInModules(flow.value.modules)
+	return result === null ? undefined : result
 }

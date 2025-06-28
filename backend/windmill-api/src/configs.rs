@@ -14,14 +14,14 @@ use axum::{
 
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
     error::{self},
     DB,
 };
 
-use crate::{db::ApiAuthed, utils::require_super_admin};
+use crate::{db::ApiAuthed, utils::{require_devops_role}};
 
 pub fn global_service() -> Router {
     Router::new()
@@ -32,6 +32,10 @@ pub fn global_service() -> Router {
         .route(
             "/list_autoscaling_events/:worker_group",
             get(list_autoscaling_events),
+        )
+        .route(
+            "/list_available_python_versions",
+            get(list_available_python_versions),
         )
 }
 
@@ -99,7 +103,7 @@ async fn get_config(
     Path(name): Path<String>,
     Extension(db): Extension<DB>,
 ) -> error::JsonResult<Option<serde_json::Value>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_devops_role(&db, &authed.email).await?;
 
     let config = sqlx::query_as!(Config, "SELECT * FROM config WHERE name = $1", name)
         .fetch_optional(&db)
@@ -115,7 +119,7 @@ async fn update_config(
     authed: ApiAuthed,
     Json(config): Json<serde_json::Value>,
 ) -> error::Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_devops_role(&db, &authed.email).await?;
 
     #[cfg(not(feature = "enterprise"))]
     if name.starts_with("worker__") {
@@ -153,7 +157,7 @@ async fn delete_config(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
 ) -> error::Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_devops_role(&db, &authed.email).await?;
 
     let mut tx = db.begin().await?;
 
@@ -205,12 +209,30 @@ async fn list_autoscaling_events(
     Ok(Json(events))
 }
 
+async fn list_available_python_versions() -> error::JsonResult<Vec<String>> {
+    #[cfg(not(feature = "python"))]
+    return Err(error::Error::BadRequest(
+        "Python listing available only with 'python' feature enabled".to_string(),
+    ));
+
+    #[cfg(feature = "python")]
+    use itertools::Itertools;
+    #[cfg(feature = "python")]
+    return Ok(Json(
+        windmill_worker::PyV::list_available_python_versions()
+            .await
+            .iter()
+            .map(|v| v.to_string())
+            .collect_vec(),
+    ));
+}
+
 #[cfg(feature = "enterprise")]
 async fn list_configs(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> error::JsonResult<Vec<Config>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_devops_role(&db, &authed.email).await?;
     let configs = sqlx::query_as!(Config, "SELECT name, config FROM config")
         .fetch_all(&db)
         .await?;

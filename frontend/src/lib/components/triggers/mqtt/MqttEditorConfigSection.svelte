@@ -1,7 +1,7 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import Section from '$lib/components/Section.svelte'
-	import CaptureSection, { type CaptureInfo } from '../CaptureSection.svelte'
-	import CaptureTable from '../CaptureTable.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import { Plus, X } from 'lucide-svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
@@ -17,24 +17,38 @@
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import TestingBadge from '../testingBadge.svelte'
 
-	export let can_write: boolean = false
-	export let headless: boolean = false
-	export let showCapture: boolean = false
-	export let mqtt_resource_path: string = ''
-	export let subscribe_topics: MqttSubscribeTopic[] = []
-	export let captureTable: CaptureTable | undefined = undefined
-	export let captureInfo: CaptureInfo | undefined = undefined
-	export let v3_config: MqttV3Config = DEFAULT_V3_CONFIG
-	export let v5_config: MqttV5Config = DEFAULT_V5_CONFIG
-	export let client_version: MqttClientVersion = 'v5'
-	export let isValid: boolean = false
-	export let client_id: string = ''
+	interface Props {
+		can_write?: boolean
+		headless?: boolean
+		mqtt_resource_path?: string
+		subscribe_topics?: MqttSubscribeTopic[]
+		v3_config?: MqttV3Config
+		v5_config?: MqttV5Config
+		client_version?: MqttClientVersion
+		isValid?: boolean
+		client_id?: string
+		showTestingBadge?: boolean
+	}
 
-	const activateV5Options = {
+	let {
+		can_write = false,
+		headless = false,
+		mqtt_resource_path = $bindable(''),
+		subscribe_topics = $bindable([]),
+		v3_config = $bindable(DEFAULT_V3_CONFIG),
+		v5_config = $bindable(DEFAULT_V5_CONFIG),
+		client_version = $bindable('v5'),
+		isValid = $bindable(false),
+		client_id = $bindable(''),
+		showTestingBadge = false
+	}: Props = $props()
+
+	const activateV5Options = $state({
 		topic_alias: Boolean(v5_config.topic_alias),
 		session_expiry_interval: Boolean(v5_config.session_expiry_interval)
-	}
+	})
 
 	const isValidSubscribeTopics = (subscribe_topics: MqttSubscribeTopic[]): boolean => {
 		if (
@@ -46,24 +60,18 @@
 
 		return true
 	}
-	$: isValid = isValidSubscribeTopics(subscribe_topics) && !emptyStringTrimmed(mqtt_resource_path)
+	run(() => {
+		isValid = isValidSubscribeTopics(subscribe_topics) && !emptyStringTrimmed(mqtt_resource_path)
+	})
 </script>
 
 <div>
-	{#if showCapture && captureInfo}
-		<CaptureSection
-			captureType="mqtt"
-			disabled={!isValid}
-			{captureInfo}
-			on:captureToggle
-			on:applyArgs
-			on:updateSchema
-			on:addPreprocessor
-			on:testWithArgs
-			bind:captureTable
-		/>
-	{/if}
 	<Section label="MQTT" {headless}>
+		{#snippet header()}
+			{#if showTestingBadge}
+				<TestingBadge />
+			{/if}
+		{/snippet}
 		<div class="flex flex-col w-full gap-4">
 			<Subsection label="Connection setup">
 				<ResourcePicker resourceType="mqtt" disabled={!can_write} bind:value={mqtt_resource_path} />
@@ -81,7 +89,7 @@
 						<div class="flex w-full gap-2 items-center">
 							<div class="w-full flex flex-col gap-2 border p-2 rounded-md">
 								<div class="flex flex-row gap-2 w-full">
-									<!-- svelte-ignore a11y-label-has-associated-control -->
+									<!-- svelte-ignore a11y_label_has_associated_control -->
 									<label class="flex flex-col w-full gap-1">
 										<div class="flex gap-2 mb-1">
 											<span class="text-secondary text-sm">
@@ -124,10 +132,12 @@
 												>
 											</span>
 										</div>
-										<ToggleButtonGroup bind:selected={v.qos} let:item>
-											<ToggleButton value={'qos0'} label="At most once (QoS 0)" {item} />
-											<ToggleButton value={'qos1'} label="At least once (QoS 1)" {item} />
-											<ToggleButton value={'qos2'} label="Exactly once (QoS 2)" {item} />
+										<ToggleButtonGroup bind:selected={v.qos}>
+											{#snippet children({ item })}
+												<ToggleButton value={'qos0'} label="At most once (QoS 0)" {item} />
+												<ToggleButton value={'qos1'} label="At least once (QoS 1)" {item} />
+												<ToggleButton value={'qos2'} label="Exactly once (QoS 2)" {item} />
+											{/snippet}
 										</ToggleButtonGroup>
 									</label>
 								</div>
@@ -144,7 +154,7 @@
 									</div>
 									<input
 										type="text"
-										bind:value={v.topic}
+										bind:value={subscribe_topics[i].topic}
 										disabled={!can_write}
 										placeholder="topic"
 										autocomplete="off"
@@ -155,7 +165,7 @@
 								transition:fade|local={{ duration: 100 }}
 								class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
 								aria-label="Clear"
-								on:click={() => {
+								onclick={() => {
 									subscribe_topics = subscribe_topics.filter((_, index) => index !== i)
 								}}
 							>
@@ -189,9 +199,11 @@
 
 			<Subsection label="Advanced" collapsable={true}>
 				<div class="flex p-2 flex-col gap-2 mt-3">
-					<ToggleButtonGroup bind:selected={client_version} let:item>
-						<ToggleButton value="v5" label="Version 5" {item} />
-						<ToggleButton value="v3" label="Version 3" {item} />
+					<ToggleButtonGroup bind:selected={client_version}>
+						{#snippet children({ item })}
+							<ToggleButton value="v5" label="Version 5" {item} />
+							<ToggleButton value="v3" label="Version 3" {item} />
+						{/snippet}
 					</ToggleButtonGroup>
 
 					<input

@@ -1,7 +1,10 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview } from '$lib/gen'
-	import { createEventDispatcher, getContext, onMount } from 'svelte'
+	import { createEventDispatcher, getContext, onMount, untrack } from 'svelte'
 	import type { AppViewerContext, InlineScript } from '../../types'
 	import { Maximize2, Trash2 } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
@@ -14,32 +17,50 @@
 	import type { AppInput } from '../../inputType'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { buildExtraLib } from '../../utils'
-	import RunButton from './RunButton.svelte'
+	import RunButton from './AppRunButton.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import ScriptGen from '$lib/components/copilot/ScriptGen.svelte'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
-	import { userStore } from '$lib/stores'
 	import CacheTtlPopup from './CacheTtlPopup.svelte'
 	import EditorSettings from '$lib/components/EditorSettings.svelte'
+	import { userStore, workspaceStore } from '$lib/stores'
 
-	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
+	const {
+		runnableComponents,
+		stateId,
+		worldStore,
+		state: stateStore,
+		appPath,
+		app
+	} = getContext<AppViewerContext>('AppViewerContext')
 
-	export let inlineScript: InlineScript | undefined
-	export let name: string | undefined = undefined
-	export let id: string
-	export let defaultUserInput: boolean = false
-	export let fields: Record<string, AppInput> = {}
-	export let syncFields: boolean = false
-	export let transformer: boolean = false
-	export let componentType: string | undefined = undefined
+	interface Props {
+		inlineScript: InlineScript | undefined
+		name?: string | undefined
+		id: string
+		defaultUserInput?: boolean
+		fields?: Record<string, AppInput>
+		syncFields?: boolean
+		transformer?: boolean
+		componentType?: string | undefined
+		editor?: Editor | undefined
+	}
 
-	const { runnableComponents, stateId, worldStore, state, appPath, app } =
-		getContext<AppViewerContext>('AppViewerContext')
-
-	export let editor: Editor | undefined = undefined
-	let diffEditor: DiffEditor
-	let simpleEditor: SimpleEditor
-	let validCode = true
+	let {
+		inlineScript = $bindable(),
+		name = $bindable(undefined),
+		id,
+		defaultUserInput = false,
+		fields = $bindable({}),
+		syncFields = false,
+		transformer = false,
+		componentType = undefined,
+		editor = $bindable(undefined)
+	}: Props = $props()
+	let diffEditor: DiffEditor | undefined = $state()
+	let simpleEditor: SimpleEditor | undefined = $state()
+	let validCode = $state(true)
+	let inlineScriptEditorDrawer: InlineScriptEditorDrawer | undefined = $state()
 
 	async function inferInlineScriptSchema(
 		language: Preview['language'],
@@ -57,11 +78,14 @@
 		return schema
 	}
 
-	$: inlineScript &&
-		(inlineScript.path = `${defaultIfEmptyString(
-			$appPath,
-			`u/${$userStore?.username ?? 'unknown'}/newapp`
-		)}/${name?.replaceAll(' ', '_')}`)
+	function onNameChange() {
+		if (inlineScript) {
+			inlineScript.path = `${defaultIfEmptyString(
+				$appPath,
+				`u/${$userStore?.username ?? 'unknown'}/newapp`
+			)}/${name?.replaceAll(' ', '_')}`
+		}
+	}
 
 	onMount(async () => {
 		if (inlineScript && !inlineScript.schema) {
@@ -79,10 +103,13 @@
 		if (inlineScript?.language == 'frontend' && inlineScript.content) {
 			inferSuggestions(inlineScript.content)
 		}
+		if (!inlineScript?.path) {
+			onNameChange()
+		}
 	})
 
 	const dispatch = createEventDispatcher()
-	let runLoading = false
+	let runLoading = $state(false)
 
 	function preConnect(newFields) {
 		if (!componentType) {
@@ -165,21 +192,19 @@
 
 			if (!deepEqual(newFields, fields)) {
 				fields = newFields
-				$stateId++
+				if (stateId) {
+					$stateId++
+				}
 			}
+			$app = $app
 		}
 	}
-
-	$: extraLib =
-		inlineScript?.language == 'frontend' && worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {}, id, $state, true)
-			: undefined
 
 	// 	`
 	// /** The current's app state */
 	// const state: Record<string, any>;`
 
-	let drawerIsOpen: boolean | undefined = undefined
+	let drawerIsOpen: boolean | undefined = $state(undefined)
 
 	async function inferSuggestions(code: string) {
 		const outputs = await parseOutputs(code, true)
@@ -197,14 +222,34 @@
 					]
 				}
 			}
-			$stateId++
+			if (stateId) {
+				$stateId++
+			}
 		}
 	}
+
+	let lastName = $state(name)
+	$effect(() => {
+		if (name && name !== lastName) {
+			lastName = name
+			untrack(() => onNameChange())
+		}
+	})
+
+	let isFrontend = $derived(inlineScript?.language == 'frontend')
+	let extraLib = $derived(
+		isFrontend && worldStore
+			? buildExtraLib($worldStore?.outputsById ?? {}, id, $stateStore, true)
+			: undefined
+	)
 </script>
 
+<!-- <pre class="text-2xs">{JSON.stringify($worldStore?.outputsById, null, 2)}</pre> -->
 {#if inlineScript}
 	{#if inlineScript.language != 'frontend'}
 		<InlineScriptEditorDrawer
+			{id}
+			appPath={$appPath}
 			bind:isOpen={drawerIsOpen}
 			{editor}
 			bind:this={inlineScriptEditorDrawer}
@@ -221,19 +266,21 @@
 				{#if !transformer}
 					<div class="flex flex-row gap-2 w-full items-center">
 						<input
-							on:keydown|stopPropagation
+							onkeydown={stopPropagation(bubble('keydown'))}
 							bind:value={name}
 							placeholder="Inline script name"
 							class="!text-xs !rounded-sm !shadow-none"
-							on:keyup={() => {
+							onkeyup={() => {
 								$app = $app
-								$stateId++
+								if (stateId) {
+									$stateId++
+								}
 							}}
 						/>
 						<div
 							title={validCode ? 'Main function parsable' : 'Main function not parsable'}
 							class="rounded-full !w-2 !h-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
-						/>
+						></div>
 					</div>
 				{:else}
 					<span class="text-xs font-semibold truncate w-full">{name} of {id}</span>
@@ -304,11 +351,10 @@
 			{#if !drawerIsOpen}
 				{#if inlineScript.language != 'frontend'}
 					<Editor
-						path={inlineScript.path}
+						path={$appPath + '/' + id}
 						bind:this={editor}
 						small
 						class="flex flex-1 grow h-full"
-						lang={scriptLangToEditorLang(inlineScript?.language)}
 						scriptLang={inlineScript.language}
 						bind:code={inlineScript.content}
 						fixedOverflowWidgets={true}
@@ -341,6 +387,7 @@
 							}
 							$app = $app
 						}}
+						key={`app-inline-${$workspaceStore}-${$appPath}-${id}`}
 						args={Object.entries(fields).reduce((acc, [key, obj]) => {
 							acc[key] = obj.type === 'static' ? obj.value : undefined
 							return acc
@@ -369,6 +416,7 @@
 							inferSuggestions(e.detail.code)
 							$app = $app
 						}}
+						key={`app-inline-${$workspaceStore}-${$appPath}-${id}`}
 					/>
 				{/if}
 

@@ -8,7 +8,7 @@
 
 use axum::{body::Body, response::Response};
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use sqlx::{Postgres, Transaction};
 #[cfg(feature = "enterprise")]
 use windmill_common::worker::CLOUD_HOSTED;
@@ -27,13 +27,6 @@ use axum::Json;
 #[derive(Deserialize)]
 pub struct WithStarredInfoQuery {
     pub with_starred_info: Option<bool>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum RunnableKind {
-    Script,
-    Flow,
 }
 
 pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
@@ -188,6 +181,15 @@ pub fn content_plain(body: Body) -> Response {
         .header(header::CONTENT_TYPE, "text/plain")
         .body(body)
         .unwrap()
+}
+
+#[allow(unused)]
+pub fn non_empty_str<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let o: Option<String> = Option::deserialize(deserializer)?;
+    Ok(o.filter(|s| !s.trim().is_empty()))
 }
 
 use serde::Serialize;
@@ -405,4 +407,17 @@ pub async fn acknowledge_all_critical_alerts(
         workspace_id.map_or_else(|| "".to_string(), |w| format!(" for workspace_id: {}", w))
     );
     Ok("All unacknowledged critical alerts acknowledged".to_string())
+}
+
+#[cfg(feature = "http_trigger")]
+#[derive(Clone)]
+pub struct ExpiringCacheEntry<T> {
+    pub value: T,
+    pub expiry: std::time::Instant,
+}
+
+#[cfg(all(feature = "kafka", feature = "enterprise", feature = "private"))]
+pub async fn update_rw_lock<T>(lock: std::sync::Arc<tokio::sync::RwLock<T>>, value: T) -> () {
+    let mut w = lock.write().await;
+    *w = value;
 }

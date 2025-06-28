@@ -16,6 +16,9 @@ use std::{
 };
 pub use windmill_parser::{Arg, MainArgSignature, Typ};
 
+pub const SANITIZED_ENUM_STR: &str = "__sanitized_enum__";
+pub const SANITIZED_RAW_STRING_STR: &str = "__sanitized_raw_string__";
+
 pub fn parse_mysql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_mysql_file(&code)?;
     if let Some(x) = parsed {
@@ -80,6 +83,21 @@ pub fn parse_bigquery_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     }
 }
 
+pub fn parse_duckdb_sig(code: &str) -> anyhow::Result<MainArgSignature> {
+    let parsed = parse_duckdb_file(&code)?;
+    if let Some(args) = parsed {
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args,
+            no_main_func: None,
+            has_preprocessor: None,
+        })
+    } else {
+        Err(anyhow!("Error parsing sql".to_string()))
+    }
+}
+
 pub fn parse_snowflake_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_snowflake_file(&code)?;
     if let Some(x) = parsed {
@@ -117,6 +135,60 @@ pub fn parse_db_resource(code: &str) -> Option<String> {
     cap.map(|x| x.get(1).map(|x| x.as_str().to_string()).unwrap())
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum S3ModeFormat {
+    Json,
+    Csv,
+    Parquet,
+}
+pub fn s3_mode_extension(format: S3ModeFormat) -> &'static str {
+    match format {
+        S3ModeFormat::Json => "json",
+        S3ModeFormat::Csv => "csv",
+        S3ModeFormat::Parquet => "parquet",
+    }
+}
+pub struct S3ModeArgs {
+    pub prefix: Option<String>,
+    pub storage: Option<String>,
+    pub format: S3ModeFormat,
+}
+pub fn parse_s3_mode(code: &str) -> anyhow::Result<Option<S3ModeArgs>> {
+    let cap = match RE_S3_MODE.captures(code) {
+        Some(x) => x,
+        None => return Ok(None),
+    };
+    let args_str = cap
+        .get(1)
+        .map(|x| x.as_str().to_string())
+        .unwrap_or_default();
+
+    let mut prefix = None;
+    let mut storage = None;
+    let mut format = S3ModeFormat::Json;
+
+    for kv in args_str.split(' ').map(|kv| kv.trim()) {
+        if kv.is_empty() {
+            continue;
+        }
+        let mut it = kv.split('=');
+        let (Some(key), Some(value)) = (it.next(), it.next()) else {
+            return Err(anyhow!("Invalid S3 mode argument: {}", kv));
+        };
+        match (key.trim(), value.trim()) {
+            ("prefix", _) => prefix = Some(value.to_string()),
+            ("storage", _) => storage = Some(value.to_string()),
+            ("format", "json") => format = S3ModeFormat::Json,
+            ("format", "parquet") => format = S3ModeFormat::Parquet,
+            ("format", "csv") => format = S3ModeFormat::Csv,
+            ("format", format) => return Err(anyhow!("Invalid S3 mode format: {}", format)),
+            (_, _) => return Err(anyhow!("Invalid S3 mode argument: {}", kv)),
+        }
+    }
+
+    Ok(Some(S3ModeArgs { prefix, storage, format }))
+}
+
 pub fn parse_sql_blocks(code: &str) -> Vec<&str> {
     let mut blocks = vec![];
     let mut last_idx = 0;
@@ -144,21 +216,28 @@ lazy_static::lazy_static! {
     static ref RE_NONEMPTY_SQL_BLOCK: Regex = Regex::new(r#"(?m)^\s*[^\s](?:[^-]|$)"#).unwrap();
 
     static ref RE_DB: Regex = Regex::new(r#"(?m)^-- database (\S+) *(?:\r|\n|$)"#).unwrap();
+    static ref RE_S3_MODE: Regex = Regex::new(r#"(?m)^-- s3( (.+))? *(?:\r|\n|$)"#).unwrap();
 
     // -- $1 name (type) = default
     static ref RE_ARG_MYSQL: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
-    pub static ref RE_ARG_MYSQL_NAMED: Regex = Regex::new(r#"(?m)^-- :([a-z_][a-z0-9_]*) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
+    pub static ref RE_ARG_MYSQL_NAMED: Regex = Regex::new(r#"(?m)^-- :([a-z_][a-z0-9_]*) \((\w+(?:\([\w, ]+\))?)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
     static ref RE_ARG_PGSQL: Regex = Regex::new(r#"(?m)^-- \$(\d+) (\w+)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
     // -- @name (type) = default
     static ref RE_ARG_BIGQUERY: Regex = Regex::new(r#"(?m)^-- @(\w+) \((\w+(?:\[\])?)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
+    // -- $name (type) = default
+    static ref RE_ARG_DUCKDB: Regex = Regex::new(r#"(?m)^-- \$(\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
+
     static ref RE_ARG_SNOWFLAKE: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
 
     static ref RE_ARG_MSSQL: Regex = Regex::new(r#"(?m)^-- @(?:P|p)\d+ (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
+    // used for `unsafe` sql interpolation
+    // -- %%name%% (type) = default
+    static ref RE_ARG_SQL_INTERPOLATION: Regex = Regex::new(r#"(?m)^--\s*%%([a-z_][a-z0-9_]*)%%\s*([\s\w\/]+)?(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 }
 
 fn parsed_default(parsed_typ: &Typ, default: String) -> Option<serde_json::Value> {
@@ -225,7 +304,32 @@ fn parse_oracledb_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
         }
     }
 
+    args.append(&mut parse_sql_sanitized_interpolation(code));
     Ok(Some(args))
+}
+
+fn parse_sql_sanitized_interpolation(code: &str) -> Vec<Arg> {
+    let mut args: Vec<Arg> = vec![];
+
+    for cap in RE_ARG_SQL_INTERPOLATION.captures_iter(code) {
+        let name = cap.get(1).map(|x| x.as_str().to_string()).unwrap();
+        let typ = cap.get(2).map(|x| x.as_str());
+        let default = cap.get(3).map(|x| x.as_str().to_string());
+        let has_default = default.is_some();
+        let (parsed_typ, otyp) = parse_unsafe_typ(typ);
+
+        let parsed_default = default.and_then(|x| parsed_default(&parsed_typ, x));
+        args.push(Arg {
+            name,
+            typ: parsed_typ,
+            default: parsed_default,
+            otyp: Some(otyp.to_string()),
+            has_default,
+            oidx: None,
+        });
+    }
+
+    args
 }
 
 fn parse_mysql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
@@ -279,6 +383,7 @@ fn parse_mysql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
         }
     }
 
+    args.append(&mut parse_sql_sanitized_interpolation(code));
     Ok(Some(args))
 }
 
@@ -431,6 +536,7 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
         }
     }
 
+    args.append(&mut parse_sql_sanitized_interpolation(code));
     Ok(Some(args))
 }
 
@@ -485,6 +591,36 @@ fn parse_bigquery_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
         });
     }
 
+    args.append(&mut parse_sql_sanitized_interpolation(code));
+    Ok(Some(args))
+}
+
+fn parse_duckdb_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
+    let mut args: Vec<Arg> = vec![];
+
+    for cap in RE_ARG_DUCKDB.captures_iter(code) {
+        let name = cap.get(1).map(|x| x.as_str().to_string()).unwrap();
+        let typ = cap
+            .get(2)
+            .map(|x| x.as_str().to_string().to_lowercase())
+            .unwrap();
+        let default = cap.get(3).map(|x| x.as_str().to_string());
+        let has_default = default.is_some();
+        let parsed_typ = parse_duckdb_typ(typ.as_str());
+
+        let parsed_default = default.and_then(|x| parsed_default(&parsed_typ, x));
+
+        args.push(Arg {
+            name,
+            typ: parsed_typ,
+            default: parsed_default,
+            otyp: Some(typ),
+            has_default,
+            oidx: None,
+        });
+    }
+
+    args.append(&mut parse_sql_sanitized_interpolation(code));
     Ok(Some(args))
 }
 
@@ -513,6 +649,7 @@ fn parse_snowflake_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
         });
     }
 
+    args.append(&mut parse_sql_sanitized_interpolation(code));
     Ok(Some(args))
 }
 
@@ -541,7 +678,23 @@ fn parse_mssql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
         });
     }
 
+    args.append(&mut parse_sql_sanitized_interpolation(code));
     Ok(Some(args))
+}
+
+fn parse_unsafe_typ(typ: Option<&str>) -> (Typ, &'static str) {
+    match typ {
+        Some(s) => {
+            let variants = s
+                .split("/")
+                .map(|x| x.trim().to_string())
+                .filter(|x| !x.is_empty())
+                .collect();
+
+            (Typ::Str(Some(variants)), SANITIZED_ENUM_STR)
+        }
+        None => (Typ::Str(None), SANITIZED_RAW_STRING_STR),
+    }
 }
 
 pub fn parse_mysql_typ(typ: &str) -> Typ {
@@ -618,6 +771,33 @@ pub fn parse_bigquery_typ(typ: &str) -> Typ {
             "integer" | "int64" => Typ::Int,
             "float" | "float64" | "numeric" | "bignumeric" => Typ::Float,
             "boolean" | "bool" => Typ::Bool,
+            _ => Typ::Str(None),
+        }
+    }
+}
+
+pub fn parse_duckdb_typ(typ: &str) -> Typ {
+    if typ.ends_with("[]") {
+        let base_typ = parse_duckdb_typ(typ.strip_suffix("[]").unwrap());
+        Typ::List(Box::new(base_typ))
+    } else {
+        match typ {
+            "varchar" | "char" | "bpchar" | "text" | "string" => Typ::Str(None),
+            "blob" | "bytea" | "binary" | "varbinary" | "bitstring" => Typ::Bytes,
+            "boolean" | "bool" | "bit" | "logical" => Typ::Bool,
+            "bigint" | "int8" | "long" | "integer" | "int4" | "int" | "smallint" | "int2"
+            | "short" | "tinyint" | "int1" | "signed" | "ubigint" | "uhugeint" | "uinteger"
+            | "usmallint" | "utinyint" => Typ::Int,
+            "decimal" | "numeric" | "double" | "float8" | "float" | "float4" | "real" => Typ::Float,
+            "date"
+            | "time"
+            | "timestamp with time zone"
+            | "timestamptz"
+            | "timestamp"
+            | "datetime" => Typ::Datetime,
+            "uuid" | "json" => Typ::Str(None),
+            "interval" | "hugeint" => Typ::Str(None),
+            "s3object" => Typ::Resource("S3Object".to_string()),
             _ => Typ::Str(None),
         }
     }
@@ -1037,6 +1217,55 @@ SELECT @P2;
                     Arg {
                         otyp: Some("varchar".to_string()),
                         name: "param3".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: None,
+                    },
+                ],
+                no_main_func: None,
+                has_preprocessor: None
+            }
+        );
+
+        Ok(())
+    }
+    #[test]
+    fn test_parse_oracledb_sig() -> anyhow::Result<()> {
+        let code = r#"
+-- :name1 (int) = 3
+-- :name2 (text)
+-- :name4 (text)
+SELECT :name, :name2;
+SELECT * FROM table_name WHERE thing = :name4;
+"#;
+
+        println!("{:#?}", parse_oracledb_sig(code)?);
+        assert_eq!(
+            parse_oracledb_sig(code)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        otyp: Some("int".to_string()),
+                        name: "name1".to_string(),
+                        typ: Typ::Int,
+                        default: Some(json!(3)),
+                        has_default: true,
+                        oidx: None,
+                    },
+                    Arg {
+                        otyp: Some("text".to_string()),
+                        name: "name2".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: None,
+                    },
+                    Arg {
+                        otyp: Some("text".to_string()),
+                        name: "name4".to_string(),
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false,

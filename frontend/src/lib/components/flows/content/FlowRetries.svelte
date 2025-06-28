@@ -5,12 +5,17 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { AlertTriangle } from 'lucide-svelte'
+	import { untrack } from 'svelte'
 
-	export let flowModuleRetry: Retry | undefined
-	export let disabled: boolean = false
+	interface Props {
+		flowModuleRetry: Retry | undefined
+		disabled?: boolean
+	}
 
-	let delayType: 'disabled' | 'constant' | 'exponential'
-	let loaded = false
+	let { flowModuleRetry = $bindable(), disabled = false }: Props = $props()
+
+	let delayType = $state() as 'disabled' | 'constant' | 'exponential' | undefined
+	let loaded = $state(false)
 
 	function setConstantRetries() {
 		flowModuleRetry = {
@@ -39,8 +44,8 @@
 			(flowModuleRetry?.constant?.attempts ?? 0) > 0
 				? 'constant'
 				: (flowModuleRetry?.exponential?.attempts ?? 0) > 0
-				? 'exponential'
-				: 'disabled'
+					? 'exponential'
+					: 'disabled'
 		loaded = true
 	}
 
@@ -48,13 +53,17 @@
 		delayType = 'disabled'
 	}
 
-	$: flowModuleRetry === undefined && resetDelayType()
-	$: !loaded && initialLoad()
+	$effect(() => {
+		flowModuleRetry === undefined && resetDelayType()
+	})
+	$effect(() => {
+		!loaded && untrack(() => initialLoad())
+	})
 
 	const u32Max = 4294967295
 </script>
 
-<div class="h-full flex flex-col {$$props.class ?? ''}">
+<div class="h-full flex flex-col">
 	<ToggleButtonGroup
 		bind:selected={delayType}
 		class={`h-10 ${disabled ? 'disabled' : ''}`}
@@ -68,11 +77,12 @@
 				setExponentialRetries()
 			}
 		}}
-		let:item
 	>
-		<ToggleButton light value="disabled" label="Disabled" {item} />
-		<ToggleButton light value="constant" label="Constant" {item} />
-		<ToggleButton light value="exponential" label="Exponential" {item} />
+		{#snippet children({ item })}
+			<ToggleButton light value="disabled" label="Disabled" {item} />
+			<ToggleButton light value="constant" label="Constant" {item} />
+			<ToggleButton light value="exponential" label="Exponential" {item} />
+		{/snippet}
 	</ToggleButtonGroup>
 	<div class="flex h-[calc(100%-22px)]">
 		<div class="w-1/2 h-full overflow-auto pr-2">
@@ -87,7 +97,7 @@
 						/>
 						<button
 							class="text-xs"
-							on:click={() =>
+							onclick={() =>
 								flowModuleRetry?.constant && (flowModuleRetry.constant.attempts = u32Max)}
 							>max</button
 						>
@@ -102,7 +112,7 @@
 						<input max="100" bind:value={flowModuleRetry.exponential.attempts} type="number" />
 						<button
 							class="text-xs"
-							on:click={() =>
+							onclick={() =>
 								flowModuleRetry?.exponential && (flowModuleRetry.exponential.attempts = 100)}
 							>max</button
 						>
@@ -160,38 +170,43 @@
 					<div class="text-xs font-medium mb-2">Retry attempts</div>
 					{#if array.length > 0}
 						<table class="text-xs">
-							<tr>
-								<td class="font-semibold pr-1 pb-1">1:</td>
-								<td class="pb-1"
-									>After {array[0]} second{array[0] === 1 ? '' : 's'}
-									{#if (random_factor ?? 0) > 0}(+/- {((array[0] ?? 0) * (random_factor ?? 0)) /
-											100}
-										seconds){/if}</td
-								>
-							</tr>
-							{#each array.slice(1, 100) as delay, i}
-								{@const index = i + 2}
+							<thead>
 								<tr>
-									<td class="font-semibold pr-1 align-top">{index}:</td>
-									<td class="pb-1 whitespace-nowrap">
-										{delay} second{delay === 1 ? '' : 's'}
-										{#if (random_factor ?? 0) > 0}(+/- {((delay ?? 0) * (random_factor ?? 0)) / 100}
-											seconds){/if}
-										after attempt #{index - 1}
-										{#if i > cArray.length - 2}
-											<span class="text-gray-400 pl-2">
-												({multiplier} * {eSeconds}<sup>{index}</sup>)
-											</span>
-										{/if}
-									</td>
+									<td class="font-semibold pr-1 pb-1">1:</td>
+									<td class="pb-1"
+										>After {array[0]} second{array[0] === 1 ? '' : 's'}
+										{#if (random_factor ?? 0) > 0}(+/- {((array[0] ?? 0) * (random_factor ?? 0)) /
+												100}
+											seconds){/if}</td
+									>
 								</tr>
-							{/each}
-							{#if (cAttempts ?? 0) > 100 || (eAttempts ?? 0) > 100}
-								<tr>
-									<td class="font-semibold pr-1 align-top">...</td>
-									<td class="pb-1">...</td>
-								</tr>
-							{/if}
+							</thead>
+							<tbody>
+								{#each array.slice(1, 100) as delay, i}
+									{@const index = i + 2}
+									<tr>
+										<td class="font-semibold pr-1 align-top">{index}:</td>
+										<td class="pb-1 whitespace-nowrap">
+											{delay} second{delay === 1 ? '' : 's'}
+											{#if (random_factor ?? 0) > 0}(+/- {((delay ?? 0) * (random_factor ?? 0)) /
+													100}
+												seconds){/if}
+											after attempt #{index - 1}
+											{#if i > cArray.length - 2}
+												<span class="text-gray-400 pl-2">
+													({multiplier} * {eSeconds}<sup>{index}</sup>)
+												</span>
+											{/if}
+										</td>
+									</tr>
+								{/each}
+								{#if (cAttempts ?? 0) > 100 || (eAttempts ?? 0) > 100}
+									<tr>
+										<td class="font-semibold pr-1 align-top">...</td>
+										<td class="pb-1">...</td>
+									</tr>
+								{/if}
+							</tbody>
 						</table>
 					{:else}
 						<div class="text-xs">No retries</div>

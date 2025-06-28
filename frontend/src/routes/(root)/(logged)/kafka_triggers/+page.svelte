@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import {
 		KafkaTriggerService,
 		WorkspaceService,
@@ -10,7 +12,8 @@
 		displayDate,
 		getLocalSetting,
 		sendUserToast,
-		storeLocalSetting
+		storeLocalSetting,
+		removeTriggerKindIfUnused
 	} from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -20,7 +23,13 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore, userWorkspaces, enterpriseLicense } from '$lib/stores'
+	import {
+		userStore,
+		workspaceStore,
+		userWorkspaces,
+		enterpriseLicense,
+		usedTriggerKinds
+	} from '$lib/stores'
 	import { Code, Eye, Pen, Plus, Share, Trash, Circle, FileUp } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -40,11 +49,11 @@
 
 	type TriggerW = KafkaTrigger & { canWrite: boolean }
 
-	let triggers: TriggerW[] = []
-	let shareModal: ShareModal
-	let loading = true
-	let deploymentDrawer: DeployWorkspaceDrawer
-	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
+	let triggers: TriggerW[] = $state([])
+	let shareModal: ShareModal | undefined = $state()
+	let loading = $state(true)
+	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
 
 	async function getDeployUiSettings() {
 		if (!$enterpriseLicense) {
@@ -62,6 +71,7 @@
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			}
 		)
+		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'kafka', $usedTriggerKinds)
 		loading = false
 	}
 
@@ -108,28 +118,33 @@
 		}
 	}
 
-	$: {
+	run(() => {
 		if ($workspaceStore && $userStore) {
 			loadTriggers()
 		}
-	}
-	let kafkaTriggerEditor: KafkaTriggerEditor
+	})
+	let kafkaTriggerEditor: KafkaTriggerEditor | undefined = $state()
 
-	let filteredItems: (TriggerW & { marked?: any })[] | undefined = []
-	let items: typeof filteredItems | undefined = []
-	let preFilteredItems: typeof filteredItems | undefined = []
-	let filter = ''
-	let ownerFilter: string | undefined = undefined
-	let nbDisplayed = 15
+	let filteredItems: (TriggerW & { marked?: any })[] | undefined = $state([])
+	let items: typeof filteredItems | undefined = $state([])
+	let preFilteredItems: typeof filteredItems | undefined = $state([])
+	let filter = $state('')
+	let ownerFilter: string | undefined = $state(undefined)
+	let nbDisplayed = $state(15)
 
 	const TRIGGER_PATH_KIND_FILTER_SETTING = 'filter_path_of'
 	const FILTER_USER_FOLDER_SETTING_NAME = 'user_and_folders_only'
-	let selectedFilterKind =
+	let selectedFilterKind = $state(
 		(getLocalSetting(TRIGGER_PATH_KIND_FILTER_SETTING) as 'trigger' | 'script_flow') ?? 'trigger'
-	let filterUserFolders = getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true'
+	)
+	let filterUserFolders = $state(getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true')
 
-	$: storeLocalSetting(TRIGGER_PATH_KIND_FILTER_SETTING, selectedFilterKind)
-	$: storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
+	run(() => {
+		storeLocalSetting(TRIGGER_PATH_KIND_FILTER_SETTING, selectedFilterKind)
+	})
+	run(() => {
+		storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
+	})
 
 	function filterItemsPathsBaseOnUserFilters(
 		item: TriggerW,
@@ -153,37 +168,44 @@
 		}
 	}
 
-	$: preFilteredItems =
-		ownerFilter != undefined
-			? selectedFilterKind === 'trigger'
-				? triggers?.filter(
-						(x) =>
-							x.path.startsWith(ownerFilter + '/') &&
-							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-				  )
-				: triggers?.filter(
-						(x) =>
-							x.script_path.startsWith(ownerFilter + '/') &&
-							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-				  )
-			: triggers?.filter((x) =>
-					filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-			  )
+	run(() => {
+		preFilteredItems =
+			ownerFilter != undefined
+				? selectedFilterKind === 'trigger'
+					? triggers?.filter(
+							(x) =>
+								x.path.startsWith(ownerFilter + '/') &&
+								filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
+						)
+					: triggers?.filter(
+							(x) =>
+								x.script_path.startsWith(ownerFilter + '/') &&
+								filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
+						)
+				: triggers?.filter((x) =>
+						filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
+					)
+	})
 
-	$: if ($workspaceStore) {
-		ownerFilter = undefined
-	}
+	run(() => {
+		if ($workspaceStore) {
+			ownerFilter = undefined
+		}
+	})
 
-	$: owners =
+	let owners = $derived(
 		selectedFilterKind === 'trigger'
 			? Array.from(
 					new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
+				).sort()
 			: Array.from(
 					new Set(filteredItems?.map((x) => x.script_path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
+				).sort()
+	)
 
-	$: items = filter !== '' ? filteredItems : preFilteredItems
+	run(() => {
+		items = filter !== '' ? filteredItems : preFilteredItems
+	})
 
 	function updateQueryFilters(selectedFilterKind, filterUserFolders) {
 		setQuery(
@@ -215,11 +237,13 @@
 		loadQueryFilters()
 	})
 
-	$: updateQueryFilters(selectedFilterKind, filterUserFolders)
+	run(() => {
+		updateQueryFilters(selectedFilterKind, filterUserFolders)
+	})
 </script>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<KafkaTriggerEditor on:update={loadTriggers} bind:this={kafkaTriggerEditor} />
+<KafkaTriggerEditor onUpdate={loadTriggers} bind:this={kafkaTriggerEditor} />
 
 <SearchItems
 	{filter}
@@ -242,7 +266,7 @@
 			<Button
 				size="md"
 				startIcon={{ icon: Plus }}
-				on:click={() => kafkaTriggerEditor.openNew(false)}
+				on:click={() => kafkaTriggerEditor?.openNew(false)}
 			>
 				New&nbsp;Kafka trigger
 			</Button>
@@ -252,7 +276,7 @@
 			<Alert title="Not compatible with multi-tenant cloud" type="warning">
 				Kafka triggers are disabled in the multi-tenant cloud.
 			</Alert>
-			<div class="py-4" />
+			<div class="py-4"></div>
 		{/if}
 		<div class="w-full h-full flex flex-col">
 			<div class="w-full pb-4 pt-6">
@@ -264,9 +288,11 @@
 				/>
 				<div class="flex flex-row items-center gap-2 mt-6">
 					<div class="text-sm shrink-0"> Filter by path of </div>
-					<ToggleButtonGroup bind:selected={selectedFilterKind} let:item>
-						<ToggleButton small value="trigger" label="Kafka trigger" icon={KafkaIcon} {item} />
-						<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
+					<ToggleButtonGroup bind:selected={selectedFilterKind}>
+						{#snippet children({ item })}
+							<ToggleButton small value="trigger" label="Kafka trigger" icon={KafkaIcon} {item} />
+							<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
+						{/snippet}
 					</ToggleButtonGroup>
 				</div>
 				<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
@@ -305,7 +331,7 @@
 
 								<a
 									href="#{path}"
-									on:click={() => kafkaTriggerEditor?.openEdit(path, is_flow)}
+									onclick={() => kafkaTriggerEditor?.openEdit(path, is_flow)}
 									class="min-w-0 grow hover:underline decoration-gray-400"
 								>
 									<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
@@ -339,17 +365,19 @@
 												/>
 												<Circle class="text-red-600 relative inline-flex fill-current" size={12} />
 											</span>
-											<div slot="text">
-												{#if enabled}
-													{#if !server_id}
-														Consumer is starting...
+											{#snippet text()}
+												<div>
+													{#if enabled}
+														{#if !server_id}
+															Consumer is starting...
+														{:else}
+															Consumer is not connected{error ? ': ' + error : ''}
+														{/if}
 													{:else}
-														Consumer is not connected{error ? ': ' + error : ''}
+														Consumer was disabled because of an error: {error}
 													{/if}
-												{:else}
-													Consumer was disabled because of an error: {error}
-												{/if}
-											</div>
+												</div>
+											{/snippet}
 										</Popover>
 									{:else if enabled}
 										<Popover notClickable>
@@ -359,7 +387,9 @@
 													size={12}
 												/>
 											</span>
-											<div slot="text"> Consumer is connected </div>
+											{#snippet text()}
+												<div> Consumer is connected </div>
+											{/snippet}
 										</Popover>
 									{/if}
 								</div>
@@ -380,7 +410,7 @@
 											? { icon: Pen }
 											: {
 													icon: Eye
-											  }}
+												}}
 										color="dark"
 									>
 										{canWrite ? 'Edit' : 'View'}
@@ -420,14 +450,14 @@
 															displayName: 'Deploy to prod/staging',
 															icon: FileUp,
 															action: () => {
-																deploymentDrawer.openDrawer(path, 'trigger', {
+																deploymentDrawer?.openDrawer(path, 'trigger', {
 																	triggers: {
 																		kind: 'kafka'
 																	}
 																})
 															}
 														}
-												  ]
+													]
 												: []),
 											{
 												displayName: 'Audit logs',
@@ -438,7 +468,7 @@
 												displayName: canWrite ? 'Share' : 'See Permissions',
 												icon: Share,
 												action: () => {
-													shareModal.openDrawer(path, 'kafka_trigger')
+													shareModal?.openDrawer(path, 'kafka_trigger')
 												}
 											}
 										]}
@@ -463,7 +493,7 @@
 		{#if items && items?.length > 15 && nbDisplayed < items.length}
 			<span class="text-xs"
 				>{nbDisplayed} items out of {items.length}
-				<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
+				<button class="ml-4" onclick={() => (nbDisplayed += 30)}>load 30 more</button></span
 			>
 		{/if}
 	</CenteredPage>

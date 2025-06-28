@@ -84,7 +84,7 @@
 					<th>Name</th>
 					<th>Summary</th>
 					<th>Members</th>
-					<th />
+					<th></th>
 				</tr>
 				<tbody slot="body">
 					{#each instanceGroups as { name, summary, emails }}

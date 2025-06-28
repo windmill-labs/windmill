@@ -76,8 +76,8 @@
 			/>
 		{:else}
 			<EmptyInlineScript
+				unusedInlineScripts={$app?.unusedInlineScripts}
 				{componentType}
-				name={componentInput.runnable.name}
 				on:delete={clear}
 				on:new={(e) => {
 					if (

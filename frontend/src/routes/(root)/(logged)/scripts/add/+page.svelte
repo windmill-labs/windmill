@@ -9,8 +9,10 @@
 	import { goto } from '$lib/navigation'
 	import { replaceState } from '$app/navigation'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
-	import type { ScheduleTrigger } from '$lib/components/triggers'
-	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
+	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
+	import type { Trigger } from '$lib/components/triggers/utils'
+	import { get } from 'svelte/store'
+	import { untrack } from 'svelte'
 
 	// Default
 	let schema: Schema = emptySchema()
@@ -19,24 +21,18 @@
 	const hubPath = $page.url.searchParams.get('hub')
 	const showMeta = /true|1/i.test($page.url.searchParams.get('show_meta') ?? '0')
 
-	let initialArgs = {}
-
-	if ($initialArgsStore) {
-		initialArgs = $initialArgsStore
-		$initialArgsStore = undefined
-	}
+	let initialArgs = get(initialArgsStore) ?? {}
+	if (get(initialArgsStore)) $initialArgsStore = undefined
 
 	const path = $page.url.searchParams.get('path')
 
 	const initialState = $page.url.hash != '' ? $page.url.hash.slice(1) : undefined
 
-	let scriptBuilder: ScriptBuilder | undefined = undefined
-	let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
+	let scriptBuilder: ScriptBuilder | undefined = $state(undefined)
 
 	function decodeStateAndHandleError(state) {
 		try {
 			const decoded = decodeState(state)
-			savedPrimarySchedule = decoded.primarySchedule
 			return decoded
 		} catch (e) {
 			console.error('Error decoding state', e)
@@ -61,8 +57,9 @@
 		}
 	}
 
-	let script: NewScript =
+	let script: NewScript & { draft_triggers: Trigger[] } = $state(
 		!path && initialState != undefined ? decodeStateAndHandleError(initialState) : defaultScript()
+	)
 
 	async function loadTemplate(): Promise<void> {
 		if (templatePath) {
@@ -87,7 +84,7 @@
 				path: hubPath
 			})
 			script.description = `Fork of ${hubPath}`
-			script.content = content
+			script.content = replaceScriptPlaceholderWithItsValues(hubPath, content)
 			script.summary = summary ?? ''
 			script.language = language as Script['language']
 			scriptBuilder?.setCode(script.content)
@@ -96,13 +93,11 @@
 
 	loadHub()
 
-	$: {
+	$effect(() => {
 		if ($workspaceStore) {
-			loadTemplate()
+			untrack(() => loadTemplate())
 		}
-	}
-
-	let getInitialAndModifiedValues: GetInitialAndModifiedValues = undefined
+	})
 </script>
 
 <ScriptBuilder
@@ -117,12 +112,12 @@
 		let path = e.detail
 		goto(`/scripts/edit/${path}`)
 	}}
-	bind:getInitialAndModifiedValues
 	searchParams={$page.url.searchParams}
 	{script}
 	{showMeta}
-	{savedPrimarySchedule}
 	replaceStateFn={(path) => replaceState(path, $page.state)}
 >
-	<UnsavedConfirmationModal {getInitialAndModifiedValues} />
+	<UnsavedConfirmationModal
+		getInitialAndModifiedValues={scriptBuilder?.getInitialAndModifiedValues}
+	/>
 </ScriptBuilder>

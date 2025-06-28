@@ -4,13 +4,25 @@
 	import { ExternalLink } from 'lucide-svelte'
 	import { base } from '$lib/base'
 
-	export let job: any
-	export let payloadData: any | undefined = undefined
-	export let hovering = false
-	export let showAuthor = false
-	export let placement: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end' = 'bottom-start'
-	export let viewerOpen = false
-	export let limitPayloadSize = false
+	interface Props {
+		job: any
+		payloadData?: any | undefined
+		hovering?: boolean
+		showAuthor?: boolean
+		placement?: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end'
+		viewerOpen?: boolean
+		limitPayloadSize?: boolean
+	}
+
+	let {
+		job,
+		payloadData = undefined,
+		hovering = false,
+		showAuthor = false,
+		placement = 'bottom-start',
+		viewerOpen = false,
+		limitPayloadSize = false
+	}: Props = $props()
 </script>
 
 <SchemaPickerRow
@@ -22,15 +34,15 @@
 	on:openChange
 	{limitPayloadSize}
 >
-	<svelte:fragment slot="start">
+	{#snippet start()}
 		<div class="center-center">
 			<div
 				class="rounded-full w-2 h-2 {job.success ? 'bg-green-400' : 'bg-red-400'}"
 				title={job.success ? 'Success' : 'Failed'}
-			/>
+			></div>
 		</div>
-	</svelte:fragment>
-	<svelte:fragment slot="extra">
+	{/snippet}
+	{#snippet extra()}
 		<div class="flex flex-row gap-2">
 			{#if showAuthor}
 				<span class="text-secondary px-2 w-28 truncate" title={job.created_by}>
@@ -48,5 +60,5 @@
 				</a>
 			</div>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </SchemaPickerRow>

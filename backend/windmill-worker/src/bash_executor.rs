@@ -15,17 +15,13 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error::Error,
-    jobs::QueuedJob,
-    worker::{to_raw_value, write_file},
+    worker::{to_raw_value, write_file, Connection},
 };
-
-#[cfg(feature = "dind")]
-use windmill_common::DB;
 
 #[cfg(feature = "dind")]
 use windmill_common::error::to_anyhow;
 
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 lazy_static::lazy_static! {
     pub static ref BIN_BASH: String = std::env::var("BASH_PATH").unwrap_or_else(|_| "/bin/bash".to_string());
@@ -47,9 +43,10 @@ use crate::{
         OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    POWERSHELL_CACHE_DIR, POWERSHELL_PATH, PROXY_ENVS, TZ_ENV,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, POWERSHELL_CACHE_DIR,
+    POWERSHELL_PATH, PROXY_ENVS, TZ_ENV,
 };
+use windmill_common::client::AuthedClient;
 
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
@@ -63,9 +60,10 @@ lazy_static::lazy_static! {
 pub async fn handle_bash_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    job: &MiniPulledJob,
+    conn: &Connection,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     content: &str,
     job_dir: &str,
     shared_mount: &str,
@@ -81,7 +79,7 @@ pub async fn handle_bash_job(
     if annotation.docker {
         logs1.push_str("docker mode\n");
     }
-    append_logs(&job.id, &job.workspace_id, logs1, db).await;
+    append_logs(&job.id, &job.workspace_id, logs1, &conn).await;
 
     write_file(job_dir, "main.sh", &format!("set -e\n{content}"))?;
     let script = format!(
@@ -136,11 +134,11 @@ exit $exit_status
     );
     write_file(job_dir, "wrapper.sh", &script)?;
 
-    let token = client.get_token().await;
-    let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
+    let mut reserved_variables =
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
-    let args = build_args_map(job, client, db).await?.map(Json);
+    let args = build_args_map(job, client, conn).await?.map(Json);
     let job_args = if args.is_some() {
         args.as_ref()
     } else {
@@ -163,7 +161,7 @@ exit $exit_status
 
     let nsjail = !*DISABLE_NSJAIL
         && job
-            .script_path
+            .runnable_path
             .as_ref()
             .map(|x| !x.starts_with("init_script_"))
             .unwrap_or(true);
@@ -215,7 +213,7 @@ exit $exit_status
     };
     handle_child(
         &job.id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         child,
@@ -226,6 +224,7 @@ exit $exit_status
         job.timeout,
         true,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 
@@ -234,7 +233,7 @@ exit $exit_status
         return handle_docker_job(
             job.id,
             &job.workspace_id,
-            db,
+            conn,
             job.timeout,
             mem_peak,
             canceled_by,
@@ -276,10 +275,23 @@ exit $exit_status
 }
 
 #[cfg(feature = "dind")]
+async fn rm_container(client: &bollard::Docker, container_id: &str) {
+    if let Err(e) = client
+        .remove_container(
+            container_id,
+            Some(RemoveContainerOptions { force: true, ..Default::default() }),
+        )
+        .await
+    {
+        tracing::error!("Error removing container: {:?}", e);
+    }
+}
+
+#[cfg(feature = "dind")]
 async fn handle_docker_job(
     job_id: Uuid,
     workspace_id: &str,
-    db: &DB,
+    conn: &Connection,
     job_timeout: Option<i32>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -287,6 +299,8 @@ async fn handle_docker_job(
     occupancy_metrics: &mut OccupancyMetrics,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
 ) -> Result<Box<RawValue>, Error> {
+    use crate::job_logger::append_logs_with_compaction;
+
     let client = bollard::Docker::connect_with_unix_defaults().map_err(to_anyhow)?;
 
     let container_id = job_id.to_string();
@@ -299,24 +313,37 @@ async fn handle_docker_job(
     }
 
     let wait_f = async {
-        let wait = client
+        let waited = client
             .wait_container::<String>(&container_id, None)
             .try_collect::<Vec<_>>()
-            .await
-            .map_err(|e| {
+            .await;
+        match waited {
+            Ok(wait) => Ok(wait.first().map(|x| x.status_code)),
+            Err(bollard::errors::Error::DockerResponseServerError { status_code, message }) => {
+                append_logs(&job_id, &workspace_id, &format!(": {message}"), conn).await;
+                Ok(Some(status_code as i64))
+            }
+            Err(bollard::errors::Error::DockerContainerWaitError { error, code }) => {
+                append_logs(&job_id, &workspace_id, &format!("{error}"), conn).await;
+                Ok(Some(code as i64))
+            }
+            Err(e) => {
                 tracing::error!("Error waiting for container: {:?}", e);
-                anyhow::anyhow!("Error waiting for container")
-            })?;
-        let waited = wait.first().map(|x| x.status_code);
-        Ok(waited)
+                Err(Error::ExecutionErr(format!(
+                    "Error waiting for container: {:?}",
+                    e
+                )))
+            }
+        }
     };
 
     let ncontainer_id = container_id.to_string();
     let w_id = workspace_id.to_string();
     let j_id = job_id.clone();
-    let db2 = db.clone();
+    let conn2 = conn.clone();
+    let worker_name2 = worker_name.to_string();
     let (tx, mut rx) = tokio::sync::broadcast::channel::<()>(1);
-
+    let workspace_id2 = workspace_id.to_string();
     let mut killpill_rx = killpill_rx.resubscribe();
     let logs = tokio::spawn(async move {
         let client = bollard::Docker::connect_with_unix_defaults().map_err(to_anyhow);
@@ -331,18 +358,39 @@ async fn handle_docker_job(
                     ..Default::default()
                 }),
             );
+            append_logs(
+                &job_id,
+                &workspace_id2,
+                "\ndocker logs stream started\n",
+                &conn2,
+            )
+            .await;
             loop {
                 tokio::select! {
                     log = log_stream.next() => {
                         match log {
                             Some(Ok(log)) => {
-                                append_logs(&j_id, w_id.clone(), log.to_string(), db2.clone()).await;
+                                match &conn2 {
+                                    Connection::Sql(db) => {
+                                        append_logs_with_compaction(
+                                            &j_id,
+                                            &w_id,
+                                            &log.to_string(),
+                                            &db,
+                                            &worker_name2,
+                                        )
+                                        .await;
+                                    }
+                                    c @ Connection::Http(_) => {
+                                        append_logs(&j_id, &w_id, &log.to_string(), &c).await;
+                                    }
+                                }
                             }
                             Some(Err(e)) => {
                                 tracing::error!("Error getting logs: {:?}", e);
                             }
                             _ => {
-                                tracing::error!("End of stream");
+                                tracing::info!("End of docker logs stream");
                                 return
                             }
                         };
@@ -370,7 +418,7 @@ async fn handle_docker_job(
     let result = run_future_with_polling_update_job_poller(
         job_id,
         job_timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         wait_f,
@@ -410,27 +458,23 @@ async fn handle_docker_job(
                 }
             }
         }
+        rm_container(&client, &container_id).await;
 
         return Err(e);
     }
 
-    if let Err(e) = client
-        .remove_container(
-            &container_id,
-            Some(RemoveContainerOptions { force: true, ..Default::default() }),
-        )
-        .await
-    {
-        tracing::error!("Error removing container: {:?}", e);
-    }
+    rm_container(&client, &container_id).await;
 
     let result = result.unwrap();
 
+    if result.is_some_and(|x| x > 0) {
+        return Err(Error::ExecutionErr(format!(
+            "Docker job completed with unsuccessful exit status: {}",
+            result.unwrap()
+        )));
+    }
     return Ok(to_raw_value(&json!(format!(
-        "Docker exit status: {}",
-        result
-            .map(|x| x.to_string())
-            .unwrap_or_else(|| "none".to_string())
+        "Docker job completed with success exit status"
     ))));
 }
 
@@ -466,13 +510,31 @@ fn raw_to_string(x: &str) -> String {
         _ => String::new(),
     }
 }
+
+const POWERSHELL_INSTALL_CODE: &str = r#"
+$availableModules = Get-Module -ListAvailable
+$path = '{path}'
+
+$moduleNames = @({modules})
+
+foreach ($module in $moduleNames) {
+    if (-not ($availableModules | Where-Object { $_.Name -eq $module })) {
+        Write-Host "Installing module $module..."
+        Save-Module -Name $module -Path $path -Force
+    } else {
+        Write-Host "Module $module already installed"
+    }
+}
+"#;
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_powershell_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    job: &MiniPulledJob,
+    db: &Connection,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     content: &str,
     job_dir: &str,
     shared_mount: &str,
@@ -482,7 +544,7 @@ pub async fn handle_powershell_job(
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
     let pwsh_args = {
-        let args = build_args_map(job, client, db).await?.map(Json);
+        let args = build_args_map(job, client, &db).await?.map(Json);
         let job_args = if args.is_some() {
             args.as_ref()
         } else {
@@ -528,27 +590,34 @@ pub async fn handle_powershell_job(
         })
         .collect::<Vec<String>>();
 
-    let mut install_string: String = String::new();
+    let mut modules_to_install: Vec<String> = Vec::new();
     let mut logs1 = String::new();
     for line in content.lines() {
         for cap in RE_POWERSHELL_IMPORTS.captures_iter(line) {
             let module = cap.get(1).unwrap().as_str();
             if !installed_modules.contains(&module.to_lowercase()) {
-                logs1.push_str(&format!("\n{} not found in cache", module.to_string()));
-                // instead of using Install-Module, we use Save-Module so that we can specify the installation path
-                install_string.push_str(&format!(
-                    "Save-Module -Path {} -Force {};",
-                    POWERSHELL_CACHE_DIR, module
-                ));
+                modules_to_install.push(module.to_string());
             } else {
                 logs1.push_str(&format!("\n{} found in cache", module.to_string()));
             }
         }
     }
 
-    if !install_string.is_empty() {
-        logs1.push_str("\n\nInstalling modules...");
+    if !logs1.is_empty() {
         append_logs(&job.id, &job.workspace_id, logs1, db).await;
+    }
+
+    if !modules_to_install.is_empty() {
+        let install_string = POWERSHELL_INSTALL_CODE
+            .replace("{path}", POWERSHELL_CACHE_DIR)
+            .replace(
+                "{modules}",
+                &modules_to_install
+                    .iter()
+                    .map(|x| format!("'{x}'"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
         let child = Command::new(POWERSHELL_PATH.as_str())
             .args(&["-Command", &install_string])
             .stdout(Stdio::piped())
@@ -568,6 +637,7 @@ pub async fn handle_powershell_job(
             job.timeout,
             false,
             &mut Some(occupancy_metrics),
+            None,
         )
         .await?;
     }
@@ -654,8 +724,8 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         ),
     )?;
 
-    let token = client.get_token().await;
-    let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
+    let mut reserved_variables =
+        get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
     let _ = write_file(job_dir, "result.json", "")?;
@@ -779,6 +849,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 

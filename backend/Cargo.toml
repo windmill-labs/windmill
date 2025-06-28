@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.475.0"
+version = "1.501.4"
 authors.workspace = true
 edition.workspace = true
 
@@ -22,15 +22,17 @@ members = [
     "./parsers/windmill-parser-go",
     "./parsers/windmill-parser-rust",
     "./parsers/windmill-parser-csharp",
+    "./parsers/windmill-parser-nu",
+    "./parsers/windmill-parser-java",
     "./parsers/windmill-parser-bash",
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
     "./parsers/windmill-sql-datatype-parser-wasm",
-    "./parsers/windmill-parser-yaml", "windmill-macros",
+    "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu",
 ]
 
 [workspace.package]
-version = "1.475.0"
+version = "1.501.4"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -47,49 +49,64 @@ lto = "thin"
 
 [features]
 default = []
+private = ["windmill-api/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-queue/private", "windmill-worker/private"]
+agent_worker_server = ["windmill-api/agent_worker_server"]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise"]
 enterprise_saml = ["windmill-api/enterprise_saml", "oauth2"]
-stripe = ["windmill-api/stripe", "enterprise"]
+stripe = ["windmill-api/stripe"]
 benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark", "windmill-common/benchmark"]
 loki = ["windmill-common/loki"]
 embedding = ["windmill-api/embedding"]
 parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/parquet", "dep:object_store"]
 prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus", "dep:prometheus"]
 flow_testing = ["windmill-worker/flow_testing"]
-openidconnect = ["windmill-api/openidconnect"]
-cloud = ["windmill-queue/cloud", "windmill-worker/cloud"]
+openidconnect = ["windmill-api/openidconnect", "windmill-common/openidconnect"]
+cloud = ["windmill-queue/cloud", "windmill-worker/cloud", "windmill-common/cloud", "windmill-api/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "windmill-common/tantivy", "enterprise", "parquet"]
 sqlx = ["windmill-worker/sqlx"]
-deno_core = ["windmill-worker/deno_core", "dep:deno_core", "dep:v8"]
+deno_core = ["windmill-worker/deno_core", "windmill-api/deno_core", "dep:deno_core", "dep:v8"]
 kafka = ["windmill-api/kafka"]
 nats = ["windmill-api/nats"]
 otel = ["windmill-common/otel", "windmill-worker/otel"]
 dind = ["windmill-worker/dind"]
-php = ["windmill-worker/php"]
-rust = ["windmill-worker/rust"]
-mysql = ["windmill-worker/mysql"]
-oracledb = ["windmill-worker/oracledb"]
-mssql = ["windmill-worker/mssql"]
-bigquery = ["windmill-worker/bigquery"]
 websocket = ["windmill-api/websocket"]
+http_trigger = ["windmill-api/http_trigger"]
 postgres_trigger = ["windmill-api/postgres_trigger"]
+mcp = ["windmill-api/mcp"]
 mqtt_trigger = ["windmill-api/mqtt_trigger"]
-sqs_trigger = ["windmill-api/sqs_trigger"]
-python = ["windmill-worker/python"]
+sqs_trigger = ["windmill-api/sqs_trigger", "windmill-common/aws_auth", "windmill-api/openidconnect"]
+gcp_trigger = ["windmill-api/gcp_trigger"]
 smtp = ["windmill-api/smtp", "windmill-common/smtp"]
-csharp = ["windmill-worker/csharp"]
 license = ["windmill-api/license"]
 oauth2 = ["windmill-api/oauth2"]
-http_trigger = ["windmill-api/http_trigger"]
 zip = ["windmill-api/zip"]
 static_frontend = ["windmill-api/static_frontend"]
 scoped_cache = ["windmill-common/scoped_cache"]
+# Languages
+python = ["windmill-worker/python", "windmill-api/python"]
+rust = ["windmill-worker/rust"]
+mysql = ["windmill-worker/mysql"]
+oracledb = ["windmill-worker/oracledb"]
+duckdb = ["windmill-worker/duckdb"]
+mssql = ["windmill-worker/mssql"]
+bigquery = ["windmill-worker/bigquery"]
+php = ["windmill-worker/php"]
+csharp = ["windmill-worker/csharp"]
+nu = ["windmill-worker/nu"]
+java = ["windmill-worker/java"]
+all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql", "bigquery", "csharp", "nu", "php", "java"]
+# For windows we have another set of languages enabled
+# NOTE: DuckDB is ignored because of compilation problems
+all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "mssql", "bigquery", "csharp", "nu", "php", "java"]
 
+[patch.crates-io]
+object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7" } 
 
 [dependencies]
 anyhow.workspace = true
 tokio.workspace = true
+tokio-stream.workspace = true
 dotenv.workspace = true
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
@@ -113,12 +130,20 @@ prometheus = { workspace = true, optional = true }
 uuid.workspace = true
 gethostname.workspace = true
 serde_json.workspace = true
+serde_yml.workspace = true
 serde.workspace = true
 deno_core = { workspace = true, optional = true }
 object_store = { workspace = true, optional = true }
+sha1 = { workspace = true, optional = true }
+constant_time_eq = { workspace = true, optional = true }
 quote.workspace = true
 memchr.workspace = true
 v8 = { workspace = true, optional = true }
+rustls.workspace = true
+pep440_rs.workspace = true
+systemstat.workspace = true
+size.workspace = true
+strum.workspace = true
 
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
@@ -134,7 +159,6 @@ axum.workspace = true
 serde.workspace = true
 windmill-api-client.workspace = true
 deno_core = { workspace = true, features = ["include_js_files_for_snapshotting", "unsafe_use_unprotected_platform"] }
-
 
 
 [workspace.dependencies]
@@ -155,26 +179,34 @@ windmill-parser-go = { path = "./parsers/windmill-parser-go" }
 windmill-parser-rust = { path = "./parsers/windmill-parser-rust" }
 windmill-parser-yaml = { path = "./parsers/windmill-parser-yaml" }
 windmill-parser-csharp = { path = "./parsers/windmill-parser-csharp" }
+windmill-parser-java = { path = "./parsers/windmill-parser-java" }
+windmill-parser-nu = { path = "./parsers/windmill-parser-nu" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
 windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-parser-php = { path = "./parsers/windmill-parser-php" }
 windmill-api-client = { path = "./windmill-api-client" }
 
+reqwest-retry = "^0"
+reqwest-middleware = { version = "^0", features = ["json"] }
+
+rustls = "0.23.0"
 memchr = "2.7.4"
 axum = { version = "^0.7", features = ["multipart"] }
 headers = "^0"
 hyper = { version = "^1", features = ["full"] }
 tokio = { version = "^1.42.0", features = ["full", "tracing", "time"] }
+tokio-stream = { version = "0.1.17" }
 tower = "^0"
 tower-http = { version = "^0.6", features = ["trace", "cors"] }
 tower-cookies = "^0.10"
 serde = "^1"
 serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
+serde_yml = "0.0.12"
 uuid = { version = "^1", features = ["serde", "v4"] }
 thiserror = "^2"
 anyhow = "^1"
-chrono = { version = "=0.4.39", features = ["serde"] }
+chrono = { version = "^0.4", features = ["serde"] }
 chrono-tz = "^0.10.1"
 tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"] }
@@ -195,11 +227,12 @@ git-version = "^0"
 malachite = "=0.4.18"
 malachite-bigint = "=0.2.0"
 rustpython-parser = "^0"
+pep440_rs = "0.7.3"
 php-parser-rs = { git = "https://github.com/php-rust-tools/parser", rev = "ec4cb411dec09450946ef57920b7ffced7f6495d" }
 cron = "^0"
 mail-send = { version = "0.4.0", features = ["builder"], default-features=false }
 urlencoding = "^2"
-url = "^2"
+url = { version = "^2" , features = ["serde"]}
 async-oauth2 = "^0"
 reqwest = { version = "^0.12", features = ["json", "stream", "gzip"] }
 time = "^0"
@@ -211,8 +244,9 @@ json-pointer = "^0"
 itertools = "^0"
 regex = "^1"
 semver = "^1"
+duckdb = { version = "1.2.2", features = ["bundled"] }
 
-v8 = "=130.0.7"  # Exact version
+v8 = "=130.0.7"  # Exact version NOTE: Do not forget to update version and hash in flake.nix
 deno_fetch = "0.214.0"
 deno_tls = "0.177.0"
 deno_console = "0.190.0"
@@ -228,6 +262,12 @@ deno_runtime = { version = "0.198.0", features = ["transpile"] }
 deno_telemetry = "0.12.0"
 deno_error = "=0.5.5"
 
+google-cloud-pubsub = "0.30.0"
+google-cloud-googleapis = {version = "0.16.1", features = ["pubsub"]}
+# TODO: remove once deno fixes the issue on their end
+# https://github.com/denoland/deno/issues/28557
+winapi = { version = "0.3.9", features = ["sysinfoapi"] }
+
 swc_common = "=0.37.5"
 swc_ecma_parser = "=0.149.1"
 swc_ecma_ast = "=0.118.2"
@@ -235,11 +275,11 @@ swc_ecma_visit = "=0.104.8"
 
 
 async-recursion = "^1"
-
 base64 = "^0"
 base32 = "^0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
+sha1 = "0.10.6"
 sqlx = { version = "0.8.0", features = [
     "macros",
     "migrate",
@@ -258,13 +298,9 @@ futures-core = "^0"
 lazy_static = "1.4.0"
 serde_derive = "1.0.147"
 const_format = { version = "0.2", features = ["rust_1_64", "rust_1_51"] }
+constant_time_eq = "0.3.1"
 dyn-iter = "0.2.0"
 rsa = "^0"
-async-stripe = { version = "0.39.1", features = [
-    "runtime-tokio-hyper",
-    "checkout",
-    "billing",
-] }
 async_zip = { version = "0.0.17", features = ["tokio", "tokio-fs", "deflate", "chrono"] }
 once_cell = "1.17.1"
 gosyn = "0.2.6"
@@ -285,6 +321,7 @@ postgres-native-tls = "^0"
 native-tls = "^0"
 # samael will break compilation on MacOS. Use this fork instead to make it work
 # samael = { git="https://github.com/njaremko/samael", rev="464d015e3ae393e4b5dd00b4d6baa1b617de0dd6", features = ["xmlsec"] }
+libxml = { version = "=0.3.3" }
 samael = { version="0.0.14", features = ["xmlsec"] }
 gcp_auth = "0.9.0"
 rust_decimal = { version = "^1", features = ["db-postgres", "serde-float"]}
@@ -292,11 +329,11 @@ jsonwebtoken = "8.3.0"
 pem = "3.0.1"
 nix = { version = "0.27.1", features = ["process", "signal"] }
 tinyvector = { git = "https://github.com/windmill-labs/tinyvector", rev = "20823b94c20f2b9093f318badd24026cf54dcc85" }
-hf-hub = "0.3.2"
+hf-hub = "0.4.3"
 tokenizers = "0.14.1"
-candle-core = "0.3.0"
-candle-transformers = "0.3.0"
-candle-nn = "0.3.0"
+candle-core = "0.9.1"
+candle-transformers = "0.9.1"
+candle-nn = "0.9.1"
 tiberius = { version = "0.12.3", default-features = false, features = ["rustls", "tds73", "chrono", "sql-browser-tokio"]}
 pin-project = "1"
 indexmap = { version = "2.2.5", features = ["serde"]}
@@ -308,14 +345,15 @@ rdkafka = { version = "0.36.2", features = ["cmake-build", "ssl-vendored"] }
 pg_escape = "0.1.1"
 async-nats = "0.38.0"
 nkeys = "0.4.4"
+nu-parser = { version = "0.101.0", default-features = false }
 
-datafusion = "39.0.0"
-object_store = { version = "0.10.0", features = ["aws", "azure"] }
+datafusion = "47.0.0"
+object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7", features = ["aws", "azure"] } 
 openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
 aws-sdk-sqs = "1.57.0"
 aws-sdk-sts = "^1"
-
+aws-smithy-types-convert = { version = "^0", features = ["convert-chrono"] }
 crc = "^3"
 tar = "^0"
 http = "^1"
@@ -330,7 +368,7 @@ opentelemetry-semantic-conventions = { version = "0.27.0", features = ["semconv_
 
 bollard = "0.18.1"
 
-tonic = { version = "^0", features = ["tls-native-roots"] }
+tonic = { version = "=0.12.3", features = ["tls-native-roots"] }
 byteorder = "1.5.0"
 
 tikv-jemallocator = { version = "0.5" }
@@ -343,6 +381,10 @@ pin-project-lite = "^0"
 tantivy = "0.22.0"
 
 backon = "1.3.0"
+systemstat = "0.2.4"
+size = "0.5.0"
+
+flume = { version = "0.11.1", features = ["async"] }
 
 # Macro-related
 proc-macro2 = "1.0"
@@ -353,7 +395,10 @@ quote = "1.0.36"
 regex-lite = "0.1.6"
 yaml-rust = "0.4.5"
 tokio-tungstenite = { version = "0.24.0", features = ["native-tls"] }
-tree-sitter = {version = "0.23.0", features = []}
+tree-sitter = { version = "0.23.0", features = [] }
 tree-sitter-c-sharp = "0.23.0"
+tree-sitter-java = "0.23.0"
 oracle = { version = "0.6.3", features = ["chrono"] }
 rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
+strum = { version = "0.27", features = ["derive"] }
+strum_macros = "^0"

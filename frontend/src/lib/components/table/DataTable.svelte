@@ -1,50 +1,79 @@
-<script context="module" lang="ts">
+<script module lang="ts">
 	export type DatatableContext = {
 		size: 'xs' | 'sm' | 'md' | 'lg'
 	}
 </script>
 
 <script lang="ts">
-	import { createEventDispatcher, setContext } from 'svelte'
+	import { createEventDispatcher, setContext, untrack } from 'svelte'
 	import Button from '../common/button/Button.svelte'
-	import { ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon } from 'lucide-svelte'
+	import { ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import List from '$lib/components/common/layout/List.svelte'
 
-	export let paginated: boolean = false
-	export let currentPage: number = 1
-	export let showNext: boolean = true
-	export let loadMore: number = 0
-	export let shouldLoadMore: boolean = false
-	export let rounded: boolean = true
-	export let size: 'xs' | 'sm' | 'md' | 'lg' = 'md'
-	export let perPage: number | undefined = undefined
-	export let shouldHidePagination: boolean = false
-	export let noBorder: boolean = false
-	export let rowCount: number | undefined = undefined
-	export let hasMore: boolean = true
-	export let contentHeight: number = 0
-	export let tableFixed: boolean = false
-	export let infiniteScroll: boolean | undefined = undefined
-
-	let footerHeight: number = 0
-	let tableHeight: number = 0
+	let footerHeight: number = $state(0)
+	let tableHeight: number = $state(0)
 	const dispatch = createEventDispatcher()
-	let tableContainer: HTMLDivElement
-	export let loading = false
+	let tableContainer: HTMLDivElement | undefined = $state()
+	interface Props {
+		paginated?: boolean
+		currentPage?: number
+		showNext?: boolean
+		loadMore?: number
+		shouldLoadMore?: boolean
+		rounded?: boolean
+		size?: 'xs' | 'sm' | 'md' | 'lg'
+		perPage?: number | undefined
+		shouldHidePagination?: boolean
+		noBorder?: boolean
+		rowCount?: number | undefined
+		hasMore?: boolean
+		contentHeight?: number
+		tableFixed?: boolean
+		infiniteScroll?: boolean | undefined
+		neverShowLoader?: boolean
+		loading?: boolean
+		loadingMore?: boolean
+		children?: import('svelte').Snippet
+		emptyMessage?: import('svelte').Snippet
+	}
 
+	let {
+		paginated = false,
+		currentPage = $bindable(1),
+		showNext = true,
+		loadMore = 0,
+		shouldLoadMore = false,
+		rounded = true,
+		size = 'md',
+		perPage = $bindable(undefined),
+		shouldHidePagination = false,
+		noBorder = false,
+		rowCount = undefined,
+		hasMore = true,
+		contentHeight = $bindable(0),
+		tableFixed = false,
+		infiniteScroll = undefined,
+		neverShowLoader = false,
+		loading = false,
+		loadingMore = false,
+		children,
+		emptyMessage
+	}: Props = $props()
 	setContext<DatatableContext>('datatable', {
 		size
 	})
 
-	$: contentHeight = tableHeight - footerHeight
+	$effect(() => {
+		contentHeight = tableHeight - footerHeight
+	})
 
 	function checkScrollStatus() {
-		if (!infiniteScroll || loading) return
+		if (!infiniteScroll || loading || !tableContainer) return
 
 		const hasScrollbar = tableContainer.scrollHeight > tableContainer.clientHeight
 		if (!hasScrollbar && hasMore) {
-			dispatch('loadMore')
+			triggerLoadMore()
 		}
 	}
 
@@ -61,26 +90,43 @@
 			return
 		}
 
+		if (!tableContainer) return
 		const { scrollTop, scrollHeight, clientHeight } = tableContainer
-		if (scrollHeight - (scrollTop + clientHeight) < 50) {
-			dispatch('loadMore')
+		if (scrollHeight - (scrollTop + clientHeight) === 0) {
+			triggerLoadMore()
 		}
 	}
 
-	$: if (tableContainer && hasMore && !loading) {
-		checkScrollStatus()
+	let lastLoadMoreDispatch: number | undefined = $state(undefined)
+	function triggerLoadMore() {
+		if (lastLoadMoreDispatch && Date.now() - lastLoadMoreDispatch < 1000) {
+			return
+		}
+		dispatch('loadMore')
+		lastLoadMoreDispatch = Date.now()
 	}
+
+	$effect(() => {
+		if (tableContainer && hasMore && !loading) {
+			untrack(() => checkScrollStatus())
+		}
+	})
 </script>
 
 <div
-	class={twMerge('h-full', rounded ? 'rounded-md' : '', noBorder ? 'border-0' : 'border')}
+	class={twMerge(
+		'h-full',
+		rounded ? 'rounded-md overflow-hidden' : '',
+		noBorder ? 'border-0' : 'border'
+	)}
 	bind:clientHeight={tableHeight}
 >
 	<List justify="between" gap="none" hFull={true}>
-		<div class="w-full overflow-auto h-fit" bind:this={tableContainer} on:scroll={handleScroll}>
+		<div class="w-full overflow-auto h-fit" bind:this={tableContainer} onscroll={handleScroll}>
 			<table class={tableFixed ? 'table-fixed w-full' : 'min-w-full'}>
-				<slot />
+				{@render children?.()}
 			</table>
+			{@render emptyMessage?.()}
 		</div>
 		{#if paginated && !shouldHidePagination}
 			<div
@@ -133,11 +179,21 @@
 				<Button
 					color="light"
 					size="xs2"
-					on:click={() => dispatch('loadMore')}
+					on:click={() => triggerLoadMore()}
 					endIcon={{ icon: ArrowDownIcon }}
 				>
 					Load {loadMore} more
 				</Button>
+			</div>
+		{/if}
+		{#if (loading || loadingMore) && !neverShowLoader}
+			<div
+				class="text-tertiary bg-surface border-t flex flex-row justify-center py-2 items-center gap-2"
+			>
+				<Loader2 class="animate-spin" size={14} />
+				{#if loadingMore}
+					<span class="text-xs">Loading more...</span>
+				{/if}
 			</div>
 		{/if}
 	</List>

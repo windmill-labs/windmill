@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte'
+	import { onDestroy, onMount, untrack } from 'svelte'
 	import {
 		JobService,
 		type Job,
@@ -15,79 +15,87 @@
 	import { tweened, type Tweened } from 'svelte/motion'
 	import { subtractDaysFromDateString } from '$lib/utils'
 
-	export let jobs: Job[] | undefined
-	export let user: string | null
-	export let label: string | null = null
-	export let folder: string | null
-	export let path: string | null
-	export let success: 'success' | 'suspended' | 'waiting' | 'failure' | 'running' | undefined =
-		undefined
-	export let isSkipped: boolean = false
-	export let showSchedules: boolean = true
-	export let showFutureJobs: boolean = true
-	export let argFilter: string | undefined
-	export let resultFilter: string | undefined = undefined
-	export let schedulePath: string | undefined = undefined
-	export let jobKindsCat: string | undefined = undefined
-	export let minTs: string | undefined = undefined
-	export let maxTs: string | undefined = undefined
-	export let jobKinds: string = ''
-	export let queue_count: Tweened<number> | undefined = undefined
-	export let suspended_count: Tweened<number> | undefined = undefined
+	interface Props {
+		jobs: Job[] | undefined
+		user: string | null
+		label?: string | null
+		worker?: string | null
+		folder: string | null
+		path: string | null
+		success?: 'success' | 'suspended' | 'waiting' | 'failure' | 'running' | undefined
+		isSkipped?: boolean
+		showSchedules?: boolean
+		showFutureJobs?: boolean
+		argFilter: string | undefined
+		resultFilter?: string | undefined
+		schedulePath?: string | undefined
+		jobKindsCat?: string | undefined
+		minTs?: string | undefined
+		maxTs?: string | undefined
+		jobKinds?: string
+		queue_count?: Tweened<number> | undefined
+		suspended_count?: Tweened<number> | undefined
+		autoRefresh?: boolean
+		completedJobs?: CompletedJob[] | undefined
+		externalJobs?: Job[] | undefined
+		concurrencyKey: string | null
+		tag: string | null
+		extendedJobs?: ExtendedJobs | undefined
+		argError?: string
+		resultError?: string
+		loading?: boolean
+		refreshRate?: number
+		syncQueuedRunsCount?: boolean
+		allWorkspaces?: boolean
+		computeMinAndMax: (() => { minTs: string; maxTs: string | undefined } | undefined) | undefined
+		lookback?: number
+		perPage?: number | undefined
+		allowWildcards?: boolean
+	}
 
-	export let autoRefresh: boolean = true
-	export let completedJobs: CompletedJob[] | undefined = undefined
-	export let externalJobs: Job[] | undefined = undefined
-	export let concurrencyKey: string | null
-	export let tag: string | null
-	export let extendedJobs: ExtendedJobs | undefined = undefined
-	export let argError = ''
-	export let resultError = ''
-	export let loading: boolean = false
-	export let refreshRate = 5000
-	export let syncQueuedRunsCount: boolean = true
-	export let allWorkspaces: boolean = false
-	export let computeMinAndMax:
-		| (() => { minTs: string; maxTs: string | undefined } | undefined)
-		| undefined
-	export let lookback: number = 0
-	export let perPage: number | undefined = undefined
-
-	let intervalId: NodeJS.Timeout | undefined
+	let {
+		jobs = $bindable(),
+		user,
+		label = null,
+		worker = null,
+		folder,
+		path,
+		success = undefined,
+		isSkipped = false,
+		showSchedules = true,
+		showFutureJobs = true,
+		argFilter,
+		resultFilter = undefined,
+		schedulePath = undefined,
+		jobKindsCat = undefined,
+		minTs = $bindable(undefined),
+		maxTs = $bindable(undefined),
+		jobKinds = $bindable(''),
+		queue_count = $bindable(undefined),
+		suspended_count = $bindable(undefined),
+		autoRefresh = true,
+		completedJobs = $bindable(undefined),
+		externalJobs = $bindable(undefined),
+		concurrencyKey,
+		tag,
+		extendedJobs = $bindable(undefined),
+		argError = '',
+		resultError = '',
+		loading = $bindable(false),
+		refreshRate = 5000,
+		syncQueuedRunsCount = true,
+		allWorkspaces = false,
+		computeMinAndMax,
+		lookback = 0,
+		perPage = undefined,
+		allowWildcards = false
+	}: Props = $props()
+	let intervalId: NodeJS.Timeout | undefined = $state()
 	let sync = true
-
-	$: jobKinds = computeJobKinds(jobKindsCat)
-	$: ($workspaceStore ||
-		(path &&
-			label &&
-			success &&
-			isSkipped != undefined &&
-			jobKinds &&
-			concurrencyKey &&
-			tag &&
-			lookback &&
-			user &&
-			folder &&
-			schedulePath != undefined &&
-			showFutureJobs != undefined &&
-			showSchedules != undefined &&
-			allWorkspaces != undefined &&
-			argFilter != undefined &&
-			resultFilter != undefined)) &&
-		onParamChanges()
 
 	function onParamChanges() {
 		resetJobs()
 		loadJobsIntern(true)
-	}
-
-	$: if (!intervalId && autoRefresh) {
-		intervalId = setInterval(syncer, refreshRate)
-	}
-
-	$: if (intervalId && !autoRefresh) {
-		clearInterval(intervalId)
-		intervalId = undefined
 	}
 
 	function computeJobKinds(jobKindsCat: string | undefined): string {
@@ -166,13 +174,14 @@
 					success == 'running' || success == 'suspended'
 						? true
 						: success == 'waiting'
-						? false
-						: undefined,
+							? false
+							: undefined,
 				isSkipped: isSkipped ? undefined : false,
 				// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 				hasNullParent: jobKindsCat != 'all' ? true : undefined,
 				label: label === null || label === '' ? undefined : label,
 				tag: tag === null || tag === '' ? undefined : tag,
+				worker: worker === null || worker === '' ? undefined : worker,
 				isNotSchedule: showSchedules == false ? true : undefined,
 				suspended: success == 'waiting' ? false : success == 'suspended' ? true : undefined,
 				scheduledForBeforeNow:
@@ -188,7 +197,8 @@
 						? resultFilter
 						: undefined,
 				allWorkspaces: allWorkspaces ? true : undefined,
-				perPage
+				perPage,
+				allowWildcards
 			})
 		} catch (e) {
 			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
@@ -236,7 +246,8 @@
 						? resultFilter
 						: undefined,
 				allWorkspaces: allWorkspaces ? true : undefined,
-				perPage
+				perPage,
+				allowWildcards
 			})
 		} catch (e) {
 			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
@@ -303,8 +314,8 @@
 						x.started_at
 							? new Date(x.started_at) > minDate
 							: x.created_at
-							? new Date(x.created_at) > minDate
-							: false
+								? new Date(x.created_at) > minDate
+								: false
 					)
 					externalJobs = computeExternalJobs(
 						newExternalJobs.filter((x) => x.started_at && new Date(x.started_at) > minDate)
@@ -437,8 +448,8 @@
 				x.started_at
 					? new Date(x.started_at) > minDate
 					: x.created_at
-					? new Date(x.created_at) > minDate
-					: false
+						? new Date(x.created_at) > minDate
+						: false
 			)
 		} else {
 			return jobs
@@ -479,7 +490,7 @@
 					tag: '-',
 					job_kind: 'script',
 					duration_ms: x.duration_ms
-				} as Job)
+				}) as Job
 		)
 	}
 
@@ -496,5 +507,50 @@
 		if (intervalId) {
 			clearInterval(intervalId)
 		}
+	})
+	$effect(() => {
+		jobKinds = computeJobKinds(jobKindsCat)
+	})
+	$effect(() => {
+		;[
+			$workspaceStore,
+			path,
+			label,
+			success,
+			worker,
+			isSkipped,
+			jobKinds,
+			concurrencyKey,
+			tag,
+			lookback,
+			user,
+			folder,
+			allowWildcards,
+			schedulePath,
+			showFutureJobs,
+			showSchedules,
+			allWorkspaces,
+			argFilter,
+			resultFilter
+		]
+
+		untrack(() => onParamChanges())
+	})
+	$effect(() => {
+		;[autoRefresh, refreshRate]
+		untrack(() => {
+			if (!intervalId && autoRefresh) {
+				intervalId = setInterval(syncer, refreshRate)
+			}
+		})
+	})
+	$effect(() => {
+		autoRefresh
+		untrack(() => {
+			if (intervalId && !autoRefresh) {
+				clearInterval(intervalId)
+				intervalId = undefined
+			}
+		})
 	})
 </script>

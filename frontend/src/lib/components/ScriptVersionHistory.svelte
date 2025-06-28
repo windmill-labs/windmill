@@ -13,16 +13,15 @@
 
 	const dispatch = createEventDispatcher()
 
-	export let openDetails: boolean = false
-	export let scriptPath: string
+	let { openDetails = false, scriptPath }: { openDetails?: boolean; scriptPath: string } = $props()
 
-	let deploymentMsgUpdateMode = false
-	let deploymentMsgUpdate: string | undefined = undefined
+	let deploymentMsgUpdateMode = $state(false)
+	let deploymentMsgUpdate: string | undefined = $state()
 
-	let selectedVersion: ScriptHistory | undefined = undefined
-	let selectedVersionIndex: number | undefined = undefined
-	let versions: ScriptHistory[] | undefined = undefined
-	let loading: boolean = false
+	let selectedVersion: ScriptHistory | undefined = $state()
+	let selectedVersionIndex: number | undefined = $state()
+	let versions: ScriptHistory[] | undefined = $state()
+	let loading: boolean = $state(false)
 
 	async function loadVersions() {
 		loading = true
@@ -56,8 +55,8 @@
 
 	loadVersions()
 
-	let showDiff: boolean = false
-	let previousHash: string | undefined = undefined
+	let showDiff: boolean = $state(false)
+	let previousHash: string | undefined = $state()
 </script>
 
 <Splitpanes class="!overflow-visible">
@@ -67,15 +66,15 @@
 				{#if versions && versions.length > 0}
 					<div class="flex gap-2 flex-col">
 						{#each versions ?? [] as version, versionIndex}
-							<!-- svelte-ignore a11y-click-events-have-key-events -->
-							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							<!-- svelte-ignore a11y_click_events_have_key_events -->
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
 							<div
 								class={classNames(
 									'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer ',
 									selectedVersion?.script_hash == version.script_hash ? 'bg-surface-selected' : '',
 									'hover:bg-surface-hover'
 								)}
-								on:click={() => {
+								onclick={() => {
 									selectedVersion = version
 									selectedVersionIndex = versionIndex
 
@@ -135,10 +134,15 @@
 										type="text"
 										bind:value={deploymentMsgUpdate}
 										class="!w-auto grow"
-										on:click|stopPropagation={() => {}}
-										on:keydown|stopPropagation
-										on:keypress|stopPropagation={({ key }) => {
-											if (key === 'Enter') updateDeploymentMsg(selectedVersion?.script_hash)
+										onclick={(e) => {
+											e.stopPropagation()
+										}}
+										onkeydown={(e) => {
+											e.stopPropagation()
+										}}
+										onkeypress={(e) => {
+											e.stopPropagation()
+											if (e.key === 'Enter') updateDeploymentMsg(selectedVersion?.script_hash)
 										}}
 									/>
 									<Button
@@ -174,7 +178,7 @@
 									Version {selectedVersion.script_hash}
 								{/if}
 								<button
-									on:click={() => {
+									onclick={() => {
 										deploymentMsgUpdate = selectedVersion?.deployment_msg
 										deploymentMsgUpdateMode = true
 									}}
@@ -192,13 +196,14 @@
 								<div class="w-min">
 									<ToggleButtonGroup
 										selected={showDiff ? 'diff' : 'code'}
-										let:item
 										on:selected={({ detail }) => {
 											showDiff = detail === 'diff'
 										}}
 									>
-										<ToggleButton light small value="code" label="Code" icon={Code} {item} />
-										<ToggleButton light small value="diff" label="Diff" icon={Diff} {item} />
+										{#snippet children({ item })}
+											<ToggleButton light small value="code" label="Code" icon={Code} {item} />
+											<ToggleButton light small value="diff" label="Diff" icon={Diff} {item} />
+										{/snippet}
 									</ToggleButtonGroup>
 								</div>
 

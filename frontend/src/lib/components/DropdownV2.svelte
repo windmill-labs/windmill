@@ -16,12 +16,22 @@
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI'
 
+	export let aiId: string | undefined = undefined
+	export let aiDescription: string | undefined = undefined
 	export let items: Item[] | (() => Item[]) | (() => Promise<Item[]>) = []
 	export let disabled = false
 	export let placement: Placement = 'bottom-end'
 	export let usePointerDownOutside = false
 	export let closeOnOtherDropdownOpen = true
+	export let fixedHeight = true
+	export let hidePopup = false
+	export let open = false
+	export let customWidth: number | undefined = undefined
+	export let customMenu = false
+
+	let buttonEl: HTMLButtonElement | undefined = undefined
 
 	const {
 		elements: { menu, item, trigger },
@@ -49,7 +59,6 @@
 		}
 	})
 
-	let open = false
 	const sync = createSync(states)
 	$: sync.open(open, (v) => (open = Boolean(v)))
 
@@ -73,7 +82,13 @@
 <ResolveOpen {open} on:open on:close />
 
 <button
-	class={twMerge('w-full h-8 flex items-center justify-end', $$props.class)}
+	bind:this={buttonEl}
+	use:triggerableByAI={{
+		id: aiId,
+		description: aiDescription,
+		callback: () => buttonEl?.click()
+	}}
+	class={twMerge('w-full flex items-center justify-end', fixedHeight && 'h-8', $$props.class)}
 	use:melt={$trigger}
 	{disabled}
 	on:click={(e) => e.stopPropagation()}
@@ -103,12 +118,17 @@
 	{/if}
 </button>
 
-{#if open}
-	<div use:melt={$menu} data-menu class="z-[6000]">
-		<div
-			class="bg-surface border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
-		>
-			<DropdownV2Inner items={computeItems} meltItem={item} />
-		</div>
+{#if open && !hidePopup}
+	<div use:melt={$menu} data-menu class="z-[6000] transition-all duration-100">
+		{#if customMenu}
+			<slot name="menu" />
+		{:else}
+			<div
+				class="bg-surface border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
+				style={customWidth ? `width: ${customWidth}px` : ''}
+			>
+				<DropdownV2Inner {aiId} items={computeItems} meltItem={item} />
+			</div>
+		{/if}
 	</div>
 {/if}

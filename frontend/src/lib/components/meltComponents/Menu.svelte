@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { melt, createSync } from '@melt-ui/svelte'
 	import type { MenubarBuilders } from '@melt-ui/svelte'
 	import type { Placement } from '@floating-ui/core'
@@ -7,14 +10,40 @@
 	import { twMerge } from 'tailwind-merge'
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
 
-	export let placement: Placement = 'right-start'
-	export let justifyEnd: boolean = false
-	export let lightMode: boolean = false
-	export let maxHeight: number = 900
-	export let disabled = false
-	export let createMenu: MenubarBuilders['createMenu']
-	export let invisible: boolean = false
-	export let usePointerDownOutside: boolean = false
+	interface Props {
+		placement?: Placement
+		justifyEnd?: boolean
+		lightMode?: boolean
+		maxHeight?: number
+		disabled?: boolean
+		createMenu: MenubarBuilders['createMenu']
+		invisible?: boolean
+		usePointerDownOutside?: boolean
+		menuClass?: string
+		open?: boolean
+		renderContent?: boolean
+		classNames?: string
+		triggr?: import('svelte').Snippet<[any]>
+		children?: import('svelte').Snippet<[any]>
+		class?: string
+	}
+
+	let {
+		placement = 'right-start',
+		justifyEnd = false,
+		lightMode = false,
+		maxHeight = 900,
+		disabled = false,
+		createMenu,
+		invisible = false,
+		usePointerDownOutside = false,
+		menuClass = '',
+		open = $bindable(false),
+		renderContent = false,
+		class: classNames = '',
+		triggr,
+		children
+	}: Props = $props()
 
 	// Use the passed createMenu function
 	const menu = createMenu({
@@ -32,10 +61,10 @@
 		states
 	} = menu
 
-	let open = false
-
 	const sync = createSync(states)
-	$: sync.open(open, (v) => (open = Boolean(v)))
+	$effect(() => {
+		sync.open(open, (v) => (open = Boolean(v)))
+	})
 
 	export function close() {
 		open = false
@@ -46,7 +75,7 @@
 	}
 </script>
 
-<div class={twMerge('w-full h-8', $$props.class)}>
+<div class={twMerge('w-full h-8', classNames)}>
 	<ResolveOpen {open} on:open on:close />
 
 	<button
@@ -56,32 +85,33 @@
 			capture: true,
 			stopPropagation: false,
 			exclude: getMenuElements,
-			customEventName: 'pointerdown_menu'
-		}}
-		on:pointerdown_outside={() => {
-			if (usePointerDownOutside) {
-				close()
+			customEventName: 'pointerdown_menu',
+			onClickOutside: () => {
+				if (usePointerDownOutside) {
+					close()
+				}
 			}
 		}}
 		data-menu
 	>
-		<slot name="trigger" {trigger} />
+		{@render triggr?.({ trigger })}
 	</button>
 
-	<!--svelte-ignore a11y-no-static-element-interactions-->
-	{#if open}
+	<!--svelte-ignore a11y_no_static_element_interactions-->
+	{#if open || renderContent}
 		<div
 			use:melt={$menuElement}
 			data-menu
 			class={twMerge(
 				'z-[6000] border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto',
 				lightMode ? 'bg-surface-inverse' : 'bg-surface',
-				invisible ? 'opacity-0' : ''
+				invisible ? 'opacity-0' : '',
+				menuClass
 			)}
-			on:click
+			onclick={bubble('click')}
 		>
 			<div class="py-1" style="max-height: {maxHeight}px; ">
-				<slot {item} />
+				{@render children?.({ item, open })}
 			</div>
 		</div>
 	{/if}

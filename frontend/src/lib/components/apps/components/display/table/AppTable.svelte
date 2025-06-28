@@ -11,14 +11,24 @@
 	import type { AppInput } from '../../../inputType'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { writable } from 'svelte/store'
-	import {
-		createSvelteTable,
-		flexRender,
-		type HeaderGroup,
-		type Row,
-		type Table,
-		type TableOptions
-	} from '@tanstack/svelte-table'
+
+	// tanstack-table v8 does not support svelte 5.
+	//
+	// This packages acts as a drop-in replacement:
+	// https://github.com/dummdidumm/tanstack-table-8-svelte-5
+	// It re-exports the core lib types but for some reason I can't
+	// import them so I get them manually from node_modules.
+	//
+	// tanstack-table v9 supports svelte 5 but is still in alpha at the
+	// time of writing, and introduces unstable breaking changes
+	import { createSvelteTable, flexRender } from '@tanstack/svelte-table'
+	import type {
+		HeaderGroup,
+		Row,
+		Table,
+		TableOptions
+	} from '$lib/../../node_modules/@tanstack/table-core/build/lib'
+
 	import AppButton from '../../buttons/AppButton.svelte'
 	import { classNames, isObject, sendUserToast } from '$lib/utils'
 	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
@@ -199,12 +209,12 @@
 								pageSize: resolvedConfig?.pagination?.configuration?.auto?.pageSize ?? 20
 							}
 						}
-				  }
+					}
 				: {}),
 			manualPagination: resolvedConfig?.pagination?.selected == 'manual',
 			pageCount:
 				resolvedConfig?.pagination?.selected == 'manual'
-					? resolvedConfig?.pagination?.configuration.manual.pageCount ?? -1
+					? (resolvedConfig?.pagination?.configuration.manual.pageCount ?? -1)
 					: undefined,
 			data: filteredResult,
 			columns: headers.map((header) => {
@@ -249,6 +259,12 @@
 		setSelectedIndex: (index: number) => {
 			if (filteredResult) {
 				toggleRow({ original: filteredResult[index] }, true)
+			}
+		},
+		setValue(nvalue) {
+			if (Array.isArray(nvalue)) {
+				result = nvalue
+				outputs?.result.set(nvalue)
 			}
 		}
 	}
@@ -357,7 +373,7 @@
 							/>
 						</div>
 					{:else}
-						<div />
+						<div></div>
 					{/if}
 
 					{#if componentInput?.hideRefreshButton && componentInput['autoRefresh']}

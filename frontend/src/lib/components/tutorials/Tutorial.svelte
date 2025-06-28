@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { driver, type Driver, type DriveStep } from 'driver.js'
-	import 'driver.js/dist/driver.css'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, mount } from 'svelte'
 	import { updateProgress } from '$lib/tutorialUtils'
 	import { ignoredTutorials } from './ignoredTutorials'
 	import SkipTutorials from './SkipTutorials.svelte'
 	import TutorialControls from './TutorialControls.svelte'
+	import TutorialInner from './TutorialInner.svelte'
 
 	export let index: number = 0
 	export let name: string = 'action'
@@ -33,18 +33,18 @@
 		if (state.activeIndex == 0) {
 			const div = document.createElement('div')
 
-			const skipTutorials = new SkipTutorials({
-				target: div
-			})
-
-			skipTutorials.$on('skipAll', () => {
-				dispatch('skipAll')
-				tutorial?.destroy()
-			})
-
-			skipTutorials.$on('skipThis', () => {
-				updateProgress(index)
-				tutorial?.destroy()
+			mount(SkipTutorials, {
+				target: div,
+				events: {
+					skipAll: () => {
+						dispatch('skipAll')
+						tutorial?.destroy()
+					},
+					skipThis: () => {
+						updateProgress(index)
+						tutorial?.destroy()
+					}
+				}
 			})
 
 			if (popoverDescription) {
@@ -54,42 +54,44 @@
 
 		const controls = document.createElement('div')
 
-		const tutorialControls = new TutorialControls({
+		mount(TutorialControls, {
 			target: controls,
 			props: {
 				activeIndex: state.activeIndex,
 				totalSteps
-			}
-		})
+			},
+			events: {
+				next: () => {
+					const step = tutorial?.getActiveStep()
 
-		tutorialControls.$on('next', () => {
-			const step = tutorial?.getActiveStep()
+					if (step) {
+						if (tutorial?.getActiveStep()?.popover?.onNextClick) {
+							const activeElement = tutorial?.getActiveElement()
+							tutorial?.getActiveStep()?.popover?.onNextClick?.(activeElement, step, {
+								config,
+								state,
+								driver: tutorial
+							})
+						} else {
+							tutorial?.moveNext()
+						}
+					}
+				},
+				previous: () => {
+					const step = tutorial?.getActiveStep()
 
-			if (step) {
-				if (tutorial?.getActiveStep()?.popover?.onNextClick) {
-					const activeElement = tutorial?.getActiveElement()
-					tutorial?.getActiveStep()?.popover?.onNextClick?.(activeElement, step, {
-						config,
-						state
-					})
-				} else {
-					tutorial?.moveNext()
-				}
-			}
-		})
-
-		tutorialControls.$on('previous', () => {
-			const step = tutorial?.getActiveStep()
-
-			if (step) {
-				if (tutorial?.getActiveStep()?.popover?.onPrevClick) {
-					const activeElement = tutorial?.getActiveElement()
-					tutorial?.getActiveStep()?.popover?.onPrevClick?.(activeElement, step, {
-						config,
-						state
-					})
-				} else {
-					tutorial?.movePrevious()
+					if (step) {
+						if (tutorial?.getActiveStep()?.popover?.onPrevClick) {
+							const activeElement = tutorial?.getActiveElement()
+							tutorial?.getActiveStep()?.popover?.onPrevClick?.(activeElement, step, {
+								config,
+								state,
+								driver: tutorial
+							})
+						} else {
+							tutorial?.movePrevious()
+						}
+					}
 				}
 			}
 		})
@@ -130,12 +132,6 @@
 	}
 </script>
 
-<style>
-	:global(.driver-popover) {
-		padding: 32px;
-	}
-	:global(.driver-popover-title) {
-		font-size: 1.2rem !important;
-		line-height: 2 !important;
-	}
-</style>
+{#if tutorial}
+	<TutorialInner />
+{/if}

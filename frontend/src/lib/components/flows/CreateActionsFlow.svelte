@@ -6,7 +6,7 @@
 	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
-	import { importFlowStore } from '$lib/components/flows/flowStore'
+	import { importFlowStore } from '$lib/components/flows/flowStore.svelte'
 	import { Loader2, Plus } from 'lucide-svelte'
 	import YAML from 'yaml'
 
@@ -24,6 +24,8 @@
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
 	<Button
+		aiId="flows-create-actions-flow"
+		aiDescription="Create a new flow"
 		size="sm"
 		spacingSize="xl"
 		startIcon={{ icon: Plus }}
@@ -67,8 +69,8 @@
 				fixedOverflowWidgets={false}
 			/>
 		{/await}
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button size="sm" on:click={importRaw}>Import</Button>
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

@@ -7,22 +7,6 @@
 
 	languages.typescript.typescriptDefaults.addExtraLib(processStdContent, 'process.d.ts')
 
-	// languages.typescript.javascriptDefaults.setModeConfiguration({
-	// 	completionItems: true,
-	// 	hovers: true,
-	// 	documentSymbols: true,
-	// 	definitions: true,
-	// 	references: true,
-	// 	documentHighlights: true,
-	// 	rename: true,
-	// 	diagnostics: true,
-	// 	documentRangeFormattingEdits: true,
-	// 	signatureHelp: true,
-	// 	onTypeFormattingEdits: true,
-	// 	codeActions: true,
-	// 	inlayHints: true
-	// })
-
 	languages.typescript.typescriptDefaults.setModeConfiguration({
 		completionItems: true,
 		hovers: true,
@@ -52,8 +36,9 @@
 	languages.typescript.typescriptDefaults.setDiagnosticsOptions({
 		noSemanticValidation: false,
 		noSyntaxValidation: false,
+
 		noSuggestionDiagnostics: false,
-		diagnosticCodesToIgnore: [1108]
+		diagnosticCodesToIgnore: [1108, 7006, 7034, 7019, 7005]
 	})
 
 	languages.typescript.typescriptDefaults.setCompilerOptions({
@@ -80,23 +65,10 @@
 		strict: true,
 		noLib: false,
 		allowImportingTsExtensions: true,
-		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+		allowSyntheticDefaultImports: true,
+		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs,
+		jsx: languages.typescript.JsxEmit.React
 	})
-
-	// languages.typescript.javascriptDefaults.setCompilerOptions({
-	// 	target: languages.typescript.ScriptTarget.Latest,
-	// 	allowNonTsExtensions: true,
-	// 	noSemanticValidation: false,
-	// 	noSyntaxValidation: false,
-	// 	allowImportingTsExtensions: true,
-	// 	checkJs: true,
-	// 	allowJs: true,
-	// 	noUnusedParameters: true,
-	// 	noUnusedLocals: true,
-	// 	strict: true,
-	// 	noLib: true,
-	// 	moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-	// })
 </script>
 
 <script lang="ts">
@@ -120,6 +92,8 @@
 
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType } from 'vscode-languageclient'
+	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
+
 	import { MonacoBinding } from 'y-monaco'
 	import {
 		dbSchemas,
@@ -135,18 +109,17 @@
 		createHash as randomHash,
 		editorConfig,
 		langToExt,
-		updateOptions
+		updateOptions,
+		extToLang
 	} from '$lib/editorUtils'
-	import type { Disposable } from 'vscode'
-	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
 	import { workspaceStore } from '$lib/stores'
-	import { type Preview, UserService } from '$lib/gen'
+	import { type Preview, ResourceService, type ScriptLang, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
-	import { initializeVscode } from '$lib/components/vscode'
+	import { initializeVscode, keepModelAroundToAvoidDisposalOfWorkers } from '$lib/components/vscode'
 
 	import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
-	import { sleep } from '$lib/utils'
-	import { editorCodeCompletion } from '$lib/components/copilot/completion'
+	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
+
 	import {
 		editor as meditor,
 		languages,
@@ -156,42 +129,39 @@
 		type IRange,
 		type IDisposable
 	} from 'monaco-editor'
-	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
 
 	import EditorTheme from './EditorTheme.svelte'
 	import {
 		BIGQUERY_TYPES,
+		DUCKDB_TYPES,
 		MSSQL_TYPES,
 		MYSQL_TYPES,
 		ORACLEDB_TYPES,
 		POSTGRES_TYPES,
 		SNOWFLAKE_TYPES
 	} from '$lib/consts'
-	import { setupTypeAcquisition } from '$lib/ata/index'
+	import { setupTypeAcquisition, type DepsToGet } from '$lib/ata/index'
 	import { initWasmTs } from '$lib/infer'
 	import { initVim } from './monaco_keybindings'
-	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	import { parseTypescriptDeps } from '$lib/relative_imports'
 
+	import { scriptLangToEditorLang } from '$lib/scripts'
+	import * as htmllang from '$lib/svelteMonarch'
+	import { conf, language } from '$lib/vueMonarch'
+
+	import { Autocompletor } from './copilot/autocomplete/Autocompletor'
+	import { AIChatEditorHandler } from './copilot/chat/monaco-adapter'
+	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
+	import { writable } from 'svelte/store'
+	import { formatResourceTypes } from './copilot/chat/script/core'
+	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
+	import { editorPositionMap } from '$lib/utils'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor | null = null
 
-	export let lang:
-		| 'typescript'
-		| 'python'
-		| 'go'
-		| 'shell'
-		| 'sql'
-		| 'graphql'
-		| 'powershell'
-		| 'php'
-		| 'css'
-		| 'javascript'
-		| 'rust'
-		| 'yaml'
-		| 'csharp'
+	// for related places search: ADD_NEW_LANG
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
@@ -212,20 +182,20 @@
 	export let args: Record<string, any> | undefined = undefined
 	export let useWebsockets: boolean = true
 	export let small = false
-	export let scriptLang: Preview['language'] | 'bunnative'
+	export let scriptLang: Preview['language'] | 'bunnative' | 'tsx' | 'jsx' | 'json' | undefined
 	export let disabled: boolean = false
 	export let lineNumbersMinChars = 3
+	export let files: Record<string, { code: string; readonly?: boolean }> | undefined = {}
+	export let extraLib: string | undefined = undefined
+	export let changeTimeout: number = 500
+	export let loadAsync = false
+	export let key: string | undefined = undefined
 
-	const rHash = randomHash()
+	let lang = scriptLangToEditorLang(scriptLang)
+	$: lang = scriptLangToEditorLang(scriptLang)
+
+	let filePath = computePath(path)
 	$: filePath = computePath(path)
-
-	function computePath(path: string | undefined): string {
-		if (path == '' || path == undefined || path.startsWith('/')) {
-			return rHash
-		} else {
-			return path as string
-		}
-	}
 
 	let initialPath: string | undefined = path
 
@@ -238,24 +208,74 @@
 	let websocketInterval: NodeJS.Timeout | undefined
 	let lastWsAttempt: Date = new Date()
 	let nbWsAttempt = 0
-	let disposeMethod: () => void | undefined
+	let disposeMethod: (() => void) | undefined
 	const dispatch = createEventDispatcher()
 	let graphqlService: MonacoGraphQLAPI | undefined = undefined
 
 	let dbSchema: DBSchema | undefined = undefined
 
 	let destroyed = false
-	const uri =
-		lang != 'go' && lang != 'typescript' && lang != 'python'
-			? `file:///${filePath ?? rHash}.${langToExt(lang)}`
-			: `file:///tmp/monaco/${randomHash()}.${langToExt(lang)}`
+	const uri = computeUri(filePath, scriptLang)
 
 	console.log('uri', uri)
 
-	buildWorkerDefinition()
+	function computeUri(filePath: string, scriptLang: string | undefined) {
+		let file
+		if (filePath.includes('.')) {
+			file = filePath
+		} else {
+			file = `${filePath}.${scriptLang == 'tsx' ? 'tsx' : langToExt(lang)}`
+		}
+		if (file.startsWith('/')) {
+			file = file.slice(1)
+		}
+		return !['deno', 'go', 'python3'].includes(scriptLang ?? '')
+			? `file:///${file}`
+			: `file:///tmp/monaco/${file}`
+	}
 
+	function computePath(path: string | undefined): string {
+		if (
+			['deno', 'go', 'python3'].includes(scriptLang ?? '') ||
+			path == '' ||
+			path == undefined //||path.startsWith('/')
+		) {
+			return randomHash()
+		} else {
+			console.log('path', path)
+			return path as string
+		}
+	}
+
+	export function switchToFile(path: string, value: string, lang: string) {
+		if (editor) {
+			const uri = mUri.parse(path)
+			console.log('switching to file', path, lang)
+			// vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(value))
+			let nmodel = meditor.getModel(uri)
+			if (nmodel) {
+				console.log('using existing model', path)
+				editor.setModel(nmodel)
+			} else {
+				console.log('creating model', path)
+				nmodel = meditor.createModel(value, lang, uri)
+				editor.setModel(nmodel)
+			}
+			model = nmodel
+			setTypescriptExtraLibs()
+		}
+	}
+
+	let valueAfterDispose: string | undefined = undefined
 	export function getCode(): string {
+		if (valueAfterDispose != undefined) {
+			return valueAfterDispose
+		}
 		return editor?.getValue() ?? ''
+	}
+
+	export function getModel(): meditor.IEditorModel | undefined {
+		return editor?.getModel() ?? undefined
 	}
 
 	export function insertAtCursor(code: string): void {
@@ -325,7 +345,10 @@
 	}
 
 	export function setCode(ncode: string, noHistory: boolean = false): void {
-		code = ncode
+		if (code != ncode) {
+			code = ncode
+		}
+
 		if (noHistory) {
 			editor?.setValue(ncode)
 		} else {
@@ -345,7 +368,16 @@
 		}
 	}
 
-	export function append(code): void {
+	function updateCode() {
+		const ncode = getCode()
+		if (code == ncode) {
+			return
+		}
+		code = ncode
+		dispatch('change', ncode)
+	}
+
+	export function append(code: string): void {
 		if (editor) {
 			const lineCount = editor.getModel()?.getLineCount() || 0
 			const lastLineLength = editor.getModel()?.getLineLength(lineCount) || 0
@@ -368,8 +400,8 @@
 
 	export async function format() {
 		if (editor) {
-			code = getCode()
-			if (lang != 'shell') {
+			updateCode()
+			if (lang != 'shell' && lang != 'nu') {
 				if ($formatOnSave != false) {
 					if (scriptLang == 'deno' && languageClients.length > 0) {
 						languageClients.forEach(async (x) => {
@@ -394,7 +426,7 @@
 													endColumn: edit.range.end.character + 1
 												},
 												text: edit.newText
-										  }
+											}
 										: {}
 								)
 								//@ts-ignore
@@ -405,7 +437,7 @@
 						await editor?.getAction('editor.action.formatDocument')?.run()
 					}
 				}
-				code = getCode()
+				updateCode()
 			}
 			if (formatAction) {
 				formatAction()
@@ -417,9 +449,9 @@
 		return scriptLang
 	}
 
-	let command: Disposable | undefined = undefined
+	let command: IDisposable | undefined = undefined
 
-	let sqlTypeCompletor: Disposable | undefined = undefined
+	let sqlTypeCompletor: IDisposable | undefined = undefined
 
 	$: initialized && lang === 'sql' && scriptLang
 		? addSqlTypeCompletions()
@@ -455,16 +487,18 @@
 						scriptLang === 'postgresql'
 							? POSTGRES_TYPES
 							: scriptLang === 'mysql'
-							? MYSQL_TYPES
-							: scriptLang === 'snowflake'
-							? SNOWFLAKE_TYPES
-							: scriptLang === 'bigquery'
-							? BIGQUERY_TYPES
-							: scriptLang === 'mssql'
-							? MSSQL_TYPES
-							: scriptLang === 'oracledb'
-							? ORACLEDB_TYPES
-							: []
+								? MYSQL_TYPES
+								: scriptLang === 'snowflake'
+									? SNOWFLAKE_TYPES
+									: scriptLang === 'bigquery'
+										? BIGQUERY_TYPES
+										: scriptLang === 'mssql'
+											? MSSQL_TYPES
+											: scriptLang === 'oracledb'
+												? ORACLEDB_TYPES
+												: scriptLang === 'duckdb'
+													? DUCKDB_TYPES
+													: []
 					).map((t) => ({
 						label: t,
 						kind: languages.CompletionItemKind.Function,
@@ -480,7 +514,7 @@
 		})
 	}
 
-	let sqlSchemaCompletor: Disposable | undefined = undefined
+	let sqlSchemaCompletor: IDisposable | undefined = undefined
 
 	function updateSchema() {
 		const newSchemaRes = lang === 'graphql' ? args?.api : args?.database
@@ -600,79 +634,45 @@
 		}
 	}
 
-	let copilotCompletor: Disposable | undefined = undefined
-	let copilotTs = Date.now()
-	let abortController: AbortController | undefined = undefined
+	let reviewingChanges = writable(false)
+	let aiChatEditorHandler: AIChatEditorHandler | undefined = undefined
 
-	function addCopilotSuggestions() {
-		if (copilotCompletor) {
-			copilotCompletor.dispose()
-		}
-		copilotCompletor = vscode.languages.registerInlineCompletionItemProvider(
-			{ pattern: '**' },
-			{
-				async provideInlineCompletionItems(model, position, context, token) {
-					abortController?.abort()
-					const textUntilPosition = model.getText(
-						new vscode.Range(0, 0, position.line, position.character)
-					)
-					let items: vscode.InlineCompletionItem[] = []
-
-					const lastChar = textUntilPosition[textUntilPosition.length - 1]
-					if (textUntilPosition.trim().length > 5 && lastChar.match(/[\(\{\s:=]/)) {
-						const textAfterPosition = model.getText(
-							new vscode.Range(position.line, position.character, model.lineCount + 1, 1)
-						)
-
-						const thisTs = Date.now()
-						copilotTs = thisTs
-						await sleep(200)
-						if (copilotTs === thisTs) {
-							abortController?.abort()
-							abortController = new AbortController()
-							token.onCancellationRequested(() => {
-								abortController?.abort()
-							})
-							const aiProvider = $copilotInfo.ai_provider
-							const insertText = await editorCodeCompletion(
-								textUntilPosition,
-								textAfterPosition,
-								lang,
-								abortController,
-								aiProvider
-							)
-							if (insertText) {
-								items = [
-									{
-										insertText,
-										range: new vscode.Range(
-											position.line,
-											position.character,
-											position.line,
-											position.character
-										)
-									}
-								]
-							}
-						}
-					}
-
-					return {
-						items,
-						commands: []
-					}
-				}
-			}
-		)
+	export function reviewAndApplyCode(code: string) {
+		aiChatEditorHandler?.reviewAndApply(code)
 	}
 
-	$: $copilotInfo.exists_ai_resource &&
-		$copilotInfo.code_completion_model &&
-		$codeCompletionSessionEnabled &&
-		initialized &&
-		addCopilotSuggestions()
+	function addChatHandler(editor: meditor.IStandaloneCodeEditor) {
+		try {
+			aiChatEditorHandler = new AIChatEditorHandler(editor)
+			reviewingChanges = aiChatEditorHandler.reviewingChanges
+		} catch (err) {
+			console.error('Could not add chat handler', err)
+		}
+	}
 
-	$: !$codeCompletionSessionEnabled && copilotCompletor && copilotCompletor.dispose()
+	let autocompletor: Autocompletor | undefined = undefined
+
+	function addAutoCompletor(
+		editor: meditor.IStandaloneCodeEditor,
+		scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json'
+	) {
+		if (autocompletor) {
+			autocompletor.dispose()
+		}
+		autocompletor = new Autocompletor(editor, scriptLang)
+	}
+
+	$: $copilotInfo.enabled &&
+		$codeCompletionSessionEnabled &&
+		Autocompletor.isProviderModelSupported($copilotInfo.codeCompletionModel) &&
+		initialized &&
+		editor &&
+		scriptLang &&
+		addAutoCompletor(editor, scriptLang)
+
+	$: $copilotInfo.enabled && initialized && editor && addChatHandler(editor)
+
+	$: !$codeCompletionSessionEnabled && autocompletor?.dispose()
 
 	const outputChannel = {
 		name: 'Language Server Client',
@@ -690,8 +690,20 @@
 	}
 
 	export async function reloadWebsocket() {
-		console.log('reloadWebsocket')
 		await closeWebsockets()
+
+		if (
+			!useWebsockets ||
+			!(
+				(lang == 'typescript' && scriptLang === 'deno') ||
+				lang == 'python' ||
+				lang == 'go' ||
+				lang == 'shell'
+			)
+		) {
+			return
+		}
+		console.log('reloadWebsocket')
 
 		function createLanguageClient(
 			transports: MessageTransports,
@@ -707,6 +719,7 @@
 					documentSelector: [lang],
 					errorHandler: {
 						error: () => ({ action: ErrorAction.Continue }),
+
 						closed: () => ({
 							action: CloseAction.Restart
 						})
@@ -720,7 +733,7 @@
 									uri: vscode.Uri.parse(uri),
 									name: 'windmill',
 									index: 0
-							  }
+								}
 							: undefined,
 					initializationOptions,
 					middleware: {
@@ -838,11 +851,6 @@
 		const hostname = getHostname()
 
 		let encodedImportMap = ''
-		// if (lang == 'typescript') {
-
-		// 	let worker = await languages.typescript.getTypeScriptWorker()
-		// 	console.log(worker)
-		// }
 
 		if (useWebsockets) {
 			if (lang == 'typescript' && scriptLang === 'deno') {
@@ -1007,7 +1015,8 @@
 							!websocketAlive.go &&
 							!websocketAlive.shellcheck &&
 							!websocketAlive.ruff &&
-							scriptLang != 'bun'
+							scriptLang != 'bun' &&
+							scriptLang != 'tsx'
 						) {
 							console.log('reconnecting to language servers')
 							lastWsAttempt = new Date()
@@ -1082,7 +1091,7 @@
 	}
 
 	let initialized = false
-	let ata: ((s: string) => void) | undefined = undefined
+	let ata: ((s: string | DepsToGet) => void) | undefined = undefined
 
 	let statusDiv: Element | null = null
 
@@ -1104,23 +1113,100 @@
 		}
 	}
 
+	$: files && model && onFileChanges()
+
+	let svelteRegistered = false
+	let vueRegistered = false
+	function onFileChanges() {
+		if (files && Object.keys(files).find((x) => x.endsWith('.svelte')) != undefined) {
+			if (!svelteRegistered) {
+				svelteRegistered = true
+				languages.register({
+					id: 'svelte',
+					extensions: ['.svelte'],
+					aliases: ['Svelte', 'svelte'],
+					mimetypes: ['application/svelte']
+				})
+				languages.setLanguageConfiguration('svelte', htmllang.conf as any)
+
+				languages.setMonarchTokensProvider('svelte', htmllang.language as any)
+			}
+		}
+
+		if (files && Object.keys(files).find((x) => x.endsWith('.vue')) != undefined) {
+			if (!vueRegistered) {
+				vueRegistered = true
+				languages.register({
+					id: 'vue',
+					extensions: ['.vue'],
+					aliases: ['Vue', 'Vue'],
+					mimetypes: ['application/svelte']
+				})
+				languages.setLanguageConfiguration('vue', conf as any)
+
+				languages.setMonarchTokensProvider('vue', language as any)
+			}
+		}
+
+		if (files && model) {
+			for (const [path, { code, readonly }] of Object.entries(files)) {
+				const luri = mUri.file(path)
+				if (luri.toString() != model.uri.toString()) {
+					let nmodel = meditor.getModel(luri)
+
+					if (nmodel == undefined) {
+						const lmodel = meditor.createModel(code, extToLang(path?.split('.')?.pop()!), luri)
+						if (readonly) {
+							lmodel.onDidChangeContent((evt) => {
+								// This will effectively undo any new edits
+								if (lmodel.getValue() != code && code) {
+									lmodel.setValue(code)
+								}
+							})
+						}
+					} else {
+						const lmodel = meditor.getModel(luri)
+						if (lmodel && code) {
+							lmodel.setValue(code)
+						}
+					}
+				}
+			}
+		}
+	}
+
 	let timeoutModel: NodeJS.Timeout | undefined = undefined
 	async function loadMonaco() {
+		console.log('path', uri)
+
 		try {
 			console.log("Loading Monaco's language client")
-			await initializeVscode('editor')
+			await initializeVscode('editor', divEl!)
 			console.log('done loading Monaco and vscode')
 		} catch (e) {
 			console.log('error initializing services', e)
 		}
 
+		// vscode.languages.registerDefinitionProvider('*', {
+		// 	provideDefinition(document, position, token) {
+		// 		// Get the word under the cursor (this will be the import or function being clicked)
+		// 		const wordRange = document.getWordRangeAtPosition(position)
+		// 		const word = document.getText(wordRange)
+
+		// 		// Do something with the word (for example, log it or handle it)
+		// 		console.log('Clicked on import or symbol:', word)
+
+		// 		// Optionally, you can also return a definition location
+		// 		return null // If you don't want to override the default behavior
+		// 	}
+		// })
 		// console.log('bef ready')
 		// console.log('af ready')
 
 		initialized = true
 
 		try {
-			model = meditor.createModel(code, lang, mUri.parse(uri))
+			model = meditor.createModel(code, lang == 'nu' ? 'python' : lang, mUri.parse(uri))
 		} catch (err) {
 			console.log('model already existed', err)
 			const nmodel = meditor.getModel(mUri.parse(uri))
@@ -1131,15 +1217,28 @@
 		}
 		model.updateOptions(lang == 'python' ? { tabSize: 4, insertSpaces: true } : updateOptions)
 
-		editor = meditor.create(divEl as HTMLDivElement, {
-			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
-			model,
-			fontSize: !small ? 14 : 12,
-			lineNumbersMinChars,
-			// overflowWidgetsDomNode: widgets,
-			tabSize: lang == 'python' ? 4 : 2,
-			folding
-		})
+		onFileChanges()
+
+		try {
+			editor = meditor.create(divEl as HTMLDivElement, {
+				...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
+				model,
+				fontSize: !small ? 14 : 12,
+				lineNumbersMinChars,
+				// overflowWidgetsDomNode: widgets,
+				tabSize: lang == 'python' ? 4 : 2,
+				folding
+			})
+			if (key && editorPositionMap?.[key]) {
+				editor.setPosition(editorPositionMap[key])
+				editor.revealPositionInCenterIfOutsideViewport(editorPositionMap[key])
+			}
+		} catch (e) {
+			console.error('Error loading monaco:', e)
+			return
+		}
+
+		keepModelAroundToAvoidDisposalOfWorkers()
 
 		// updateEditorKeybindingsMode(editor, 'vim', undefined)
 
@@ -1148,14 +1247,14 @@
 		editor?.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
-				let ncode = getCode()
-				code = ncode
-				dispatch('change', code)
-			}, 500)
+				updateCode()
+			}, changeTimeout)
 
 			ataModel && clearTimeout(ataModel)
 			ataModel = setTimeout(() => {
-				ata?.(getCode())
+				if (scriptLang == 'bun') {
+					ata?.(getCode())
+				}
 			}, 1000)
 		})
 
@@ -1163,16 +1262,20 @@
 			dispatch('blur')
 		})
 
+		editor?.onDidChangeCursorPosition((event) => {
+			if (key) editorPositionMap[key] = event.position
+		})
+
 		editor?.onDidFocusEditorText(() => {
 			dispatch('focus')
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
-				code = getCode()
+				updateCode()
 				shouldBindKey && format && format()
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {
-				code = getCode()
+				updateCode()
 				shouldBindKey && cmdEnterAction && cmdEnterAction()
 			})
 
@@ -1181,16 +1284,36 @@
 				editor?.trigger('keyboard', 'editor.action.commentLine', {})
 			})
 
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyL, function () {
+				const selectedLines = getSelectedLines()
+				const selection = editor?.getSelection()
+				const hasSelection =
+					selection &&
+					(selection.startLineNumber !== selection.endLineNumber ||
+						selection.startColumn !== selection.endColumn)
+				if (hasSelection && selectedLines) {
+					dispatch('addSelectedLinesToAiChat', {
+						lines: selectedLines,
+						startLine: selection.startLineNumber,
+						endLine: selection.endLineNumber
+					})
+				} else {
+					dispatch('toggleAiPanel')
+				}
+			})
+
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyU, function () {
+				dispatch('toggleTestPanel')
+			})
+
 			if (
 				!websocketAlive.deno &&
 				!websocketAlive.pyright &&
 				!websocketAlive.ruff &&
 				!websocketAlive.shellcheck &&
 				!websocketAlive.go &&
-				!websocketInterval &&
-				scriptLang != 'bun'
+				!websocketInterval
 			) {
-				console.log('reconnecting to language servers on focus')
 				reloadWebsocket()
 			}
 		})
@@ -1198,12 +1321,14 @@
 		reloadWebsocket()
 
 		setTypescriptExtraLibs()
+		setTypescriptRTNamespace()
 		return () => {
 			console.log('disposing editor')
 			ata = undefined
 			try {
 				closeWebsockets()
 				vimDisposable?.dispose()
+				console.log('disposing editor')
 				model?.dispose()
 				editor && editor.dispose()
 				console.log('disposed editor')
@@ -1213,74 +1338,104 @@
 		}
 	}
 
+	export async function fetchPackageDeps(deps: DepsToGet) {
+		ata?.(deps)
+	}
+
+	async function setTypescriptRTNamespace() {
+		if (
+			scriptLang &&
+			(scriptLang === 'bun' ||
+				scriptLang === 'deno' ||
+				scriptLang === 'bunnative' ||
+				scriptLang === 'nativets')
+		) {
+			const resourceTypes = await ResourceService.listResourceType({
+				workspace: $workspaceStore ?? ''
+			})
+
+			const namespace = formatResourceTypes(
+				resourceTypes,
+				scriptLang === 'bunnative' ? 'bun' : scriptLang
+			)
+
+			languages.typescript.typescriptDefaults.addExtraLib(namespace, 'rt.d.ts')
+		}
+	}
+
 	async function setTypescriptExtraLibs() {
-		if (lang === 'typescript' && scriptLang != 'deno') {
+		if (extraLib) {
+			const uri = mUri.parse('file:///extraLib.d.ts')
+			languages.typescript.typescriptDefaults.addExtraLib(extraLib, uri.toString())
+		}
+		if (lang === 'typescript' && (scriptLang == 'bun' || scriptLang == 'tsx') && ata == undefined) {
 			const hostname = getHostname()
 
-			if (scriptLang == 'bun' && ata == undefined) {
-				const addLibraryToRuntime = async (code: string, _path: string) => {
-					const path = 'file://' + _path
-					let uri = mUri.parse(path)
-					console.log('adding library to runtime', path)
-					languages.typescript.typescriptDefaults.addExtraLib(code, path)
-					try {
-						await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
-					} catch (e) {
-						console.log('error writing file', e)
-					}
+			const addLibraryToRuntime = async (code: string, _path: string) => {
+				const path = 'file://' + _path
+				let uri = mUri.parse(path)
+				console.log('adding library to runtime', path)
+				languages.typescript.typescriptDefaults.addExtraLib(code, path)
+				try {
+					await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
+				} catch (e) {
+					console.log('error writing file', e)
 				}
+			}
 
-				const addLocalFile = async (code: string, _path: string) => {
-					let p = new URL(_path, uri).href
-					// if (_path?.startsWith('/')) {
-					// 	p = 'file://' + p
-					// }
-					let nuri = mUri.parse(p)
-					console.log('adding local file', _path, nuri.toString())
-					if (editor) {
-						let localModel = meditor.getModel(nuri)
-						if (localModel) {
-							localModel.setValue(code)
-						} else {
-							meditor.createModel(code, 'typescript', nuri)
+			const addLocalFile = async (code: string, _path: string) => {
+				let p = new URL(_path, uri).href
+				// if (_path?.startsWith('/')) {
+				// 	p = 'file://' + p
+				// }
+				let nuri = mUri.parse(p)
+				console.log('adding local file', _path, nuri.toString())
+				if (editor) {
+					let localModel = meditor.getModel(nuri)
+					if (localModel) {
+						localModel.setValue(code)
+					} else {
+						meditor.createModel(code, 'typescript', nuri)
+					}
+					try {
+						if (model) {
+							model?.setValue(model.getValue())
 						}
-						try {
-							if (model) {
-								model?.setValue(model.getValue())
-							}
-						} catch (e) {
-							console.log('error resetting model', e)
-						}
+					} catch (e) {
+						console.log('error resetting model', e)
 					}
 				}
-				await initWasmTs()
-				const root = await genRoot(hostname)
-				console.log('SETUP TYPE ACQUISITION', { root, path })
-				ata = setupTypeAcquisition({
-					projectName: 'Windmill',
-					depsParser: (c) => {
-						return parseTypescriptDeps(c)
+			}
+			await initWasmTs()
+			const root = await genRoot(hostname)
+			console.log('SETUP TYPE ACQUISITION', { root, path })
+			ata = setupTypeAcquisition({
+				projectName: 'Windmill',
+				depsParser: (c) => {
+					return parseTypescriptDeps(c)
+				},
+				root,
+				scriptPath: path,
+				logger: console,
+				delegate: {
+					receivedFile: addLibraryToRuntime,
+					localFile: addLocalFile,
+					progress: (downloaded: number, total: number) => {
+						// console.log({ dl, ttl })
 					},
-					root,
-					scriptPath: path,
-					logger: console,
-					delegate: {
-						receivedFile: addLibraryToRuntime,
-						localFile: addLocalFile,
-						progress: (downloaded: number, total: number) => {
-							// console.log({ dl, ttl })
-						},
-						started: () => {
-							console.log('ATA start')
-						},
-						finished: (f) => {
-							console.log('ATA done')
-						}
+					started: () => {
+						console.log('ATA start')
+					},
+					finished: (f) => {
+						console.log('ATA done')
 					}
-				})
+				}
+			})
+			if (scriptLang == 'bun') {
 				ata?.('import "bun-types"')
 				ata?.(code)
 			}
+			dispatch('ataReady')
 		}
 	}
 
@@ -1301,21 +1456,30 @@
 		})
 	}
 
-	onMount(() => {
+	let loadTimeout: NodeJS.Timeout | undefined = undefined
+	onMount(async () => {
 		if (BROWSER) {
-			loadMonaco().then((x) => (disposeMethod = x))
+			if (loadAsync) {
+				loadTimeout = setTimeout(() => loadMonaco().then((x) => (disposeMethod = x)), 0)
+			} else {
+				let m = await loadMonaco()
+				disposeMethod = m
+			}
 		}
 	})
 
 	onDestroy(() => {
 		console.log('destroying editor')
+		valueAfterDispose = getCode()
 		destroyed = true
 		disposeMethod && disposeMethod()
 		websocketInterval && clearInterval(websocketInterval)
 		sqlSchemaCompletor && sqlSchemaCompletor.dispose()
-		copilotCompletor && copilotCompletor.dispose()
+		autocompletor && autocompletor.dispose()
 		sqlTypeCompletor && sqlTypeCompletor.dispose()
 		timeoutModel && clearTimeout(timeoutModel)
+		loadTimeout && clearTimeout(loadTimeout)
+		aiChatEditorHandler?.clear()
 	})
 
 	async function genRoot(hostname: string) {
@@ -1335,9 +1499,25 @@
 </script>
 
 <EditorTheme />
-<div bind:this={divEl} class="{$$props.class} editor {disabled ? 'disabled' : ''}" />
+{#if !editor}
+	<div class="inset-0 absolute overflow-clip">
+		<FakeMonacoPlaceHolder {code} />
+	</div>
+{/if}
+<div bind:this={divEl} class="{$$props.class} editor {disabled ? 'disabled' : ''}"></div>
 {#if $vimMode}
-	<div class="fixed bottom-0 z-30" bind:this={statusDiv} />
+	<div class="fixed bottom-0 z-30" bind:this={statusDiv}></div>
+{/if}
+
+{#if $reviewingChanges}
+	<GlobalReviewButtons
+		on:acceptAll={() => {
+			aiChatEditorHandler?.acceptAll()
+		}}
+		on:rejectAll={() => {
+			aiChatEditorHandler?.rejectAll()
+		}}
+	/>
 {/if}
 
 <style global lang="postcss">

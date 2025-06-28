@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { OauthService, type ResourceType } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { base } from '$lib/base'
 	import { emptySchema, emptyString } from '$lib/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import type SimpleEditor from './SimpleEditor.svelte'
@@ -11,18 +10,34 @@
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
 	import { Loader2 } from 'lucide-svelte'
+	import { untrack } from 'svelte'
+	import { base } from '$lib/base'
+	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
 
-	export let resourceType: string
-	export let resourceTypeInfo: ResourceType | undefined
-	export let args: Record<string, any> | any = {}
-	export let linkedSecret: string | undefined = undefined
-	export let isValid = true
-	export let linkedSecretCandidates: string[] | undefined = undefined
+	interface Props {
+		resourceType: string
+		resourceTypeInfo: ResourceType | undefined
+		args?: Record<string, any> | any
+		linkedSecret?: string | undefined
+		isValid?: boolean
+		linkedSecretCandidates?: string[] | undefined
+		description?: string | undefined
+	}
 
-	let schema = emptySchema()
-	let notFound = false
+	let {
+		resourceType,
+		resourceTypeInfo,
+		args = $bindable({}),
+		linkedSecret = $bindable(undefined),
+		isValid = $bindable(true),
+		linkedSecretCandidates = undefined,
+		description = $bindable(undefined)
+	}: Props = $props()
 
-	let supabaseWizard = false
+	let schema = $state(emptySchema())
+	let notFound = $state(false)
+
+	let supabaseWizard = $state(false)
 
 	async function isSupabaseAvailable() {
 		try {
@@ -36,17 +51,12 @@
 		viewJsonSchema = false
 		try {
 			schema = resourceTypeInfo.schema as any
-
 			schema.order = schema.order ?? Object.keys(schema.properties).sort()
-
 			notFound = false
 		} catch (e) {
 			notFound = true
 		}
 	}
-	$: $workspaceStore && loadSchema()
-
-	$: notFound && rawCode && parseJson()
 
 	function parseJson() {
 		try {
@@ -58,13 +68,9 @@
 			error = e.message
 		}
 	}
-	let error = ''
-	let rawCode = ''
-	let viewJsonSchema = false
-
-	$: rawCode && parseJson()
-
-	$: textFileContent && parseTextFileContent()
+	let error = $state('')
+	let rawCode = $state('')
+	let viewJsonSchema = $state(false)
 
 	function switchTab(asJson: boolean) {
 		viewJsonSchema = asJson
@@ -78,10 +84,8 @@
 		}
 	}
 
-	$: resourceType == 'postgresql' && isSupabaseAvailable()
-
-	let connectionString = ''
-	let validConnectionString = true
+	let connectionString = $state('')
+	let validConnectionString = $state(true)
 	function parseConnectionString(close: (_: any) => void) {
 		const regex =
 			/postgres(?:ql)?:\/\/(?<user>[^:@]+)(?::(?<password>[^@]+))?@(?<host>[^:\/?]+)(?::(?<port>\d+))?\/(?<dbname>[^\?]+)?(?:\?.*sslmode=(?<sslmode>[^&]+))?/
@@ -109,14 +113,29 @@
 		}
 	}
 
-	let rawCodeEditor: SimpleEditor | undefined = undefined
-	let textFileContent: string
+	let rawCodeEditor: SimpleEditor | undefined = $state(undefined)
+	let textFileContent: string | undefined = $state(undefined)
 
 	function parseTextFileContent() {
 		args = {
 			content: textFileContent
 		}
 	}
+	$effect(() => {
+		$workspaceStore && untrack(() => loadSchema())
+	})
+	$effect(() => {
+		notFound && rawCode && untrack(() => parseJson())
+	})
+	$effect(() => {
+		rawCode && untrack(() => parseJson())
+	})
+	$effect(() => {
+		textFileContent && untrack(() => parseTextFileContent())
+	})
+	$effect(() => {
+		resourceType == 'postgresql' && untrack(() => isSupabaseAvailable())
+	})
 </script>
 
 {#if !notFound}
@@ -134,7 +153,7 @@
 					placement: 'bottom'
 				}}
 			>
-				<svelte:fragment slot="trigger">
+				{#snippet trigger()}
 					<Button
 						spacingSize="sm"
 						size="xs"
@@ -145,8 +164,8 @@
 					>
 						From connection string
 					</Button>
-				</svelte:fragment>
-				<svelte:fragment slot="content" let:close>
+				{/snippet}
+				{#snippet content({ close })}
 					<div class="block text-primary p-4">
 						<div class="w-[550px] flex flex-col items-start gap-1">
 							<div class="flex flex-row gap-1 w-full">
@@ -172,7 +191,7 @@
 							{/if}
 						</div>
 					</div>
-				</svelte:fragment>
+				{/snippet}
 			</Popover>
 		{/if}
 		{#if resourceType == 'postgresql' && supabaseWizard}
@@ -185,6 +204,17 @@
 				<div class="text-[#11181C] dark:text-[#EDEDED] font-semibold">Connect Supabase</div>
 			</a>
 		{/if}
+		<GitHubAppIntegration
+			{resourceType}
+			{args}
+			{description}
+			onArgsUpdate={(newArgs) => {
+				args = newArgs
+				rawCode = JSON.stringify(args, null, 2)
+				rawCodeEditor?.setCode(rawCode)
+			}}
+			onDescriptionUpdate={(newDescription) => (description = newDescription)}
+		/>
 	</div>
 {:else}
 	<p class="italic text-tertiary text-xs mb-4"
@@ -195,7 +225,7 @@
 {#if notFound || viewJsonSchema}
 	{#if !emptyString(error)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
 			>{error}</span
-		>{:else}<div class="py-2" />{/if}
+		>{:else}<div class="py-2"></div>{/if}
 	<div class="h-full w-full border p-1 rounded">
 		{#await import('$lib/components/SimpleEditor.svelte')}
 			<Loader2 class="animate-spin" />
@@ -213,7 +243,7 @@
 	<h5 class="mt-4 inline-flex items-center gap-4">
 		File content ({resourceTypeInfo.format_extension})
 	</h5>
-	<div class="py-2" />
+	<div class="py-2"></div>
 	<div class="h-full w-full border p-1 rounded">
 		{#await import('$lib/components/SimpleEditor.svelte')}
 			<Loader2 class="animate-spin" />

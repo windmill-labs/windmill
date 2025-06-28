@@ -3,15 +3,14 @@
 
 	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 
-	import Select from './apps/svelte-select/lib/index'
+	import Select from './select/Select.svelte'
 
 	import { getScriptByPath } from '$lib/scripts'
 	import { Button, Drawer, DrawerContent } from './common'
 	import HighlightCode from './HighlightCode.svelte'
 	import FlowPathViewer from './flows/content/FlowPathViewer.svelte'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { Code, Code2, ExternalLink, Pen, RefreshCw } from 'lucide-svelte'
@@ -20,21 +19,37 @@
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { truncate } from '$lib/utils'
 
-	export let initialPath: string | undefined = undefined
-	export let scriptPath: string | undefined = undefined
-	export let allowFlow = false
-	export let itemKind: 'script' | 'flow' | 'app' = 'script'
-	export let kinds: Script['kind'][] = ['script']
-	export let disabled = false
-	export let allowRefresh = false
-	export let allowEdit = true
-	export let allowView = true
+	interface Props {
+		initialPath?: string | undefined
+		scriptPath?: string | undefined
+		allowFlow?: boolean
+		itemKind?: 'script' | 'flow' | 'app'
+		kinds?: Script['kind'][]
+		disabled?: boolean
+		allowRefresh?: boolean
+		allowEdit?: boolean
+		allowView?: boolean
+		clearable?: boolean
+	}
 
-	let items: { value: string; label: string }[] = []
-	let drawerViewer: Drawer
-	let drawerFlowViewer: Drawer
-	let code: string = ''
-	let lang: SupportedLanguage | undefined
+	let {
+		initialPath = undefined,
+		scriptPath = $bindable(undefined),
+		allowFlow = false,
+		itemKind = $bindable('script'),
+		kinds = ['script'],
+		disabled = false,
+		allowRefresh = false,
+		allowEdit = true,
+		allowView = true,
+		clearable = false
+	}: Props = $props()
+
+	let items: { value: string; label: string }[] = $state([])
+	let drawerViewer: Drawer | undefined = $state()
+	let drawerFlowViewer: Drawer | undefined = $state()
+	let code: string = $state('')
+	let lang: SupportedLanguage | undefined = $state()
 
 	let options: [[string, any, any, string | undefined]] = [['Script', 'script', Code2, undefined]]
 	allowFlow && options.push(['Flow', 'flow', FlowIcon, '#14b8a6'])
@@ -64,8 +79,10 @@
 		}
 	}
 
-	$: itemKind && $workspaceStore && loadItems()
-	let darkMode: boolean = false
+	$effect(() => {
+		itemKind && $workspaceStore && untrack(() => loadItems())
+	})
+	let darkMode: boolean = $state(false)
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -85,36 +102,36 @@
 <div class="flex flex-row items-center gap-4 w-full mt-2">
 	{#if options.length > 1}
 		<div>
-			<ToggleButtonGroup bind:selected={itemKind} let:item>
-				{#each options as [label, value, icon, selectedColor]}
-					<ToggleButton {icon} {disabled} {value} {label} {selectedColor} {item} />
-				{/each}
+			<ToggleButtonGroup
+				bind:selected={itemKind}
+				on:selected={() => {
+					scriptPath = ''
+				}}
+			>
+				{#snippet children({ item })}
+					{#each options as [label, value, icon, selectedColor]}
+						<ToggleButton {icon} {disabled} {value} {label} {selectedColor} {item} />
+					{/each}
+				{/snippet}
 			</ToggleButtonGroup>
 		</div>
 	{/if}
 
 	{#if disabled}
-		<input type="text" value={scriptPath ?? ''} disabled />
+		<input type="text" value={scriptPath ?? initialPath ?? ''} disabled />
 	{:else}
 		<Select
-			value={items?.find((x) => x.value == initialPath)}
-			class="grow shrink max-w-full"
-			on:change={() => {
-				dispatch('select', { path: scriptPath, itemKind })
-			}}
-			on:input={(ev) => {
-				if (!ev.detail) {
-					dispatch('select', { path: undefined, itemKind })
+			bind:value={
+				() => (scriptPath ?? initialPath) || undefined,
+				(path) => {
+					scriptPath = path
+					dispatch('select', { path, itemKind })
 				}
-			}}
-			bind:justValue={scriptPath}
+			}
+			class="grow shrink max-w-full"
 			{items}
+			{clearable}
 			placeholder="Pick {itemKind === 'app' ? 'an' : 'a'} {itemKind}"
-			inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-			containerStyles={darkMode
-				? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-				: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-			portal={false}
 		/>
 	{/if}
 
@@ -148,7 +165,7 @@
 						size="xs"
 						variant="border"
 						on:click={async () => {
-							drawerFlowViewer.openDrawer()
+							drawerFlowViewer?.openDrawer()
 						}}
 					>
 						View
@@ -206,7 +223,7 @@
 							const { language, content } = await getScriptByPath(scriptPath ?? '')
 							code = content
 							lang = language
-							drawerViewer.openDrawer()
+							drawerViewer?.openDrawer()
 						}}
 					>
 						View

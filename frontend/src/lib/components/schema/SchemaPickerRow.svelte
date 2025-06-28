@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { copyToClipboard } from '$lib/utils'
+	import { createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
+	import { copyToClipboard, formatDate, formatDateShort } from '$lib/utils'
 	import ObjectViewerWrapper from '$lib/components/propertyPicker/ObjectViewerWrapper.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Cell from '$lib/components/table/Cell.svelte'
@@ -7,67 +10,42 @@
 	import { CopyIcon, Eye, Loader2 } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { isObjectTooBig } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import type { FloatingConfig } from '@melt-ui/svelte/internal/actions'
 
-	export let payloadData: Record<string, any> | string
-	export let date: string | undefined
-	export let hovering = false
-	export let placement: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end' = 'bottom-start'
-	export let viewerOpen = false
-	export let limitPayloadSize = false
-	export let forceLoad = false
+	interface Props {
+		payloadData: Record<string, any> | string
+		date: string | undefined
+		hovering?: boolean
+		placement?: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end'
+		viewerOpen?: boolean
+		limitPayloadSize?: boolean
+		forceLoad?: boolean
+		start?: import('svelte').Snippet
+		extra?: import('svelte').Snippet<[any]>
+	}
 
-	let popover: Popover | undefined = undefined
+	let {
+		payloadData,
+		date,
+		hovering = false,
+		placement = 'bottom-start',
+		viewerOpen = false,
+		limitPayloadSize = false,
+		forceLoad = $bindable(false),
+		start,
+		extra
+	}: Props = $props()
+
+	let popover: Popover | undefined = $state(undefined)
 	let popoverOpen = false
-	let objectViewerLoaded = false
-	let popoverFullyOpened = false
+	let objectViewerLoaded = $state(false)
+	let popoverFullyOpened = $state(false)
 	let popoverOpenTimeout: ReturnType<typeof setTimeout> | null = null
 
 	const dispatch = createEventDispatcher()
 	const payloadTooBigForPreview = payloadData != 'WINDMILL_TOO_BIG' && isObjectTooBig(payloadData)
 	const isTooBig = payloadData === 'WINDMILL_TOO_BIG' || payloadTooBigForPreview
-
-	function formatDate(dateString: string | undefined): string {
-		if (!dateString) return ''
-		const date = new Date(dateString)
-		return new Intl.DateTimeFormat('en-US', {
-			year: 'numeric',
-			month: 'short',
-			day: 'numeric',
-			hour: '2-digit',
-			minute: '2-digit'
-		}).format(date)
-	}
-
-	function formatDateShort(dateString: string | undefined): string {
-		if (!dateString) return ''
-		const date = new Date(dateString)
-		const now = new Date()
-
-		// If date is today, only show time
-		if (date.toDateString() === now.toDateString()) {
-			return new Intl.DateTimeFormat('en-US', {
-				hour: '2-digit',
-				minute: '2-digit'
-			}).format(date)
-		}
-
-		// If date is this year, show only month and day
-		if (date.getFullYear() === now.getFullYear()) {
-			return new Intl.DateTimeFormat('en-US', {
-				month: 'short',
-				day: 'numeric'
-			}).format(date)
-		}
-
-		// If date is from another year, only show the date with year
-		return new Intl.DateTimeFormat('en-US', {
-			year: 'numeric',
-			month: 'short',
-			day: 'numeric'
-		}).format(date)
-	}
 
 	const floatingConfig: FloatingConfig = {
 		placement,
@@ -108,11 +86,16 @@
 		}
 	}
 
-	$: handleHoveringChange(hovering)
+	$effect(() => {
+		hovering
+		untrack(() => {
+			handleHoveringChange(hovering)
+		})
+	})
 </script>
 
 <Cell>
-	<slot name="start" />
+	{@render start?.()}
 </Cell>
 
 <Cell
@@ -146,7 +129,7 @@
 			{floatingConfig}
 			on:openChange={handlePopoverChange}
 		>
-			<svelte:fragment slot="trigger">
+			{#snippet trigger()}
 				<Button
 					variant="contained"
 					size="xs2"
@@ -156,9 +139,9 @@
 				>
 					<Eye size={16} />
 				</Button>
-			</svelte:fragment>
+			{/snippet}
 
-			<svelte:fragment slot="content">
+			{#snippet content()}
 				<div class="relative p-2 max-w-[400px]">
 					{#if payloadData === 'WINDMILL_TOO_BIG'}
 						<div class="text-center text-tertiary text-xs">
@@ -174,10 +157,10 @@
 							role="button"
 							tabindex="0"
 							aria-label="Copy JSON payload to clipboard"
-							on:click={() => {
+							onclick={() => {
 								copyToClipboard(JSON.stringify(payloadData))
 							}}
-							on:keydown
+							onkeydown={bubble('keydown')}
 						>
 							{#if !objectViewerLoaded && isTooBig}
 								<div class="flex justify-center items-center p-4">
@@ -213,11 +196,11 @@
 						</div>
 					{/if}
 				</div>
-			</svelte:fragment>
+			{/snippet}
 		</Popover>
 	</div>
 
-	<slot name="extra" {isTooBig} />
+	{@render extra?.({ isTooBig })}
 </Cell>
 
 <style>

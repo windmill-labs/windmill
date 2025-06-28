@@ -3,7 +3,7 @@
 	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
-	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
+	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { FlowService, type Flow, DraftService } from '$lib/gen'
@@ -76,11 +76,13 @@
 </script>
 
 {#if menuOpen}
-	<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
+	<ScheduleEditor onUpdate={() => goto('/schedules')} bind:this={scheduleEditor} />
 	<FlowHistory bind:this={flowHistory} path={flow.path} />
 {/if}
 
 <Row
+	aiId={`flow-row-${flow.path}`}
+	aiDescription={`Button to access the form to run the flow ${flow.summary ?? flow.path}`}
 	href={flow.draft_only
 		? `${base}/flows/edit/${flow.path}?nodraft=true`
 		: `${base}/flows/get/${flow.path}?workspace=${$workspaceStore}`}
@@ -101,7 +103,7 @@
 		{/if}
 		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
 		<DraftBadge has_draft={flow.has_draft} draft_only={flow.draft_only} />
-		<div class="w-8 center-center" />
+		<div class="w-8 center-center"></div>
 	</svelte:fragment>
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">
@@ -114,6 +116,8 @@
 							variant="border"
 							startIcon={{ icon: Pen }}
 							href="{base}/flows/edit/{flow.path}?nodraft=true"
+							aiId={`edit-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
+							aiDescription={`Edits the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 						>
 							Edit
 						</Button>
@@ -126,6 +130,8 @@
 							variant="border"
 							startIcon={{ icon: GitFork }}
 							href="{base}/flows/add?template={flow.path}"
+							aiId={`fork-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
+							aiDescription={`Fork the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 						>
 							Fork
 						</Button>
@@ -135,6 +141,8 @@
 		</span>
 
 		<Dropdown
+			aiId={`flow-row-dropdown-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
+			aiDescription={`Open dropdown for flow ${flow.summary?.length > 0 ? flow.summary : flow.path} options`}
 			items={async () => {
 				let { draft_only, path, archived, has_draft } = flow
 				let owner = isOwner(path, $userStore, $workspaceStore)
@@ -204,7 +212,7 @@
 									disabled: archived,
 									hide: $userStore?.operator
 								}
-						  ]
+							]
 						: []),
 					{
 						displayName: 'Deployments',
@@ -258,7 +266,7 @@
 									disabled: !owner,
 									hide: $userStore?.operator
 								}
-						  ]
+							]
 						: []),
 					{
 						displayName: 'Delete',

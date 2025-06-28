@@ -10,14 +10,16 @@ path = "src/lib.rs"
 
 [features]
 default = []
-enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise"]
-stripe = ["dep:async-stripe"]
-enterprise_saml = ["dep:samael"]
+private = ["windmill-audit/private"]
+enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker/enterprise"]
+stripe = []
+agent_worker_server = []
+enterprise_saml = ["dep:samael", "dep:libxml"]
 benchmark = []
 embedding = ["dep:tinyvector", "dep:hf-hub", "dep:tokenizers", "dep:candle-core", "dep:candle-transformers", "dep:candle-nn"]
-parquet = ["dep:datafusion", "dep:object_store", "dep:url", "windmill-common/parquet"]
-prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus"]
-openidconnect = ["dep:openidconnect"]
+parquet = ["dep:datafusion", "dep:object_store", "windmill-common/parquet", "windmill-worker/parquet"]
+prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker/prometheus"]
+openidconnect = ["dep:openidconnect", "windmill-common/openidconnect"]
 tantivy = ["dep:windmill-indexer"]
 kafka = ["dep:rdkafka"]
 nats = ["dep:async-nats", "dep:nkeys"]
@@ -26,22 +28,31 @@ smtp = ["dep:mail-parser", "dep:openssl", "windmill-common/smtp"]
 license = ["dep:rsa"]
 zip = ["dep:async_zip"]
 oauth2 = ["dep:async-oauth2"]
-http_trigger = ["dep:matchit"]
+http_trigger = ["dep:matchit", "dep:thiserror", "dep:sha1", "dep:constant_time_eq"]
 static_frontend = ["dep:rust-embed"]
 postgres_trigger = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:thiserror", "dep:rust_decimal", "dep:rust-postgres-native-tls"]
 mqtt_trigger = ["dep:thiserror", "dep:rumqttc"]
 sqs_trigger = ["dep:aws-sdk-sqs", "dep:thiserror", "dep:aws-config"]
+deno_core = ["dep:deno_core", "dep:deno_error"]
+gcp_trigger = ["dep:thiserror", "dep:google-cloud-pubsub", "dep:google-cloud-googleapis", "dep:tonic"]
+cloud = ["windmill-common/cloud"]
+mcp = ["dep:rmcp"]
+python = []
 
 [dependencies]
+rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", features=["transport-streamable-http-server", "transport-streamable-http-server-session", "transport-worker"], optional = true }
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-audit.workspace = true
 windmill-parser.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-py.workspace = true
+windmill-parser-py-imports.workspace = true
 windmill-git-sync.workspace = true
 windmill-indexer = { workspace = true, optional = true }
+windmill-worker.workspace = true
 tokio.workspace = true
+tokio-stream.workspace = true
 anyhow.workspace = true
 argon2.workspace = true
 axum.workspace = true
@@ -65,6 +76,7 @@ hex.workspace = true
 base64.workspace = true
 base32.workspace = true
 serde_urlencoded.workspace = true
+serde_yml.workspace = true
 cron.workspace = true
 mime_guess.workspace = true
 rust-embed = { workspace = true, optional = true }
@@ -83,14 +95,17 @@ tokio-tar.workspace = true
 hmac.workspace = true
 cookie.workspace = true
 sha2.workspace = true
+sha1 = { workspace = true, optional = true }
+constant_time_eq = { workspace = true, optional = true }
 urlencoding.workspace = true
-async-stripe = { workspace = true, optional = true }
 lazy_static.workspace = true
 prometheus = { workspace = true, optional = true }
 async_zip = { workspace = true, optional = true }
 regex.workspace = true
 bytes.workspace = true
+url.workspace = true
 samael = { workspace = true, optional = true }
+libxml = { workspace = true, optional = true }
 async-recursion.workspace = true
 rsa = { workspace = true, optional = true}
 uuid.workspace = true
@@ -103,7 +118,6 @@ candle-nn = { workspace = true, optional = true}
 datafusion = { workspace = true, optional = true}
 object_store = { workspace = true, optional = true}
 openidconnect = { workspace = true, optional = true}
-url = { workspace = true, optional = true}
 jsonwebtoken = { workspace = true }
 matchit = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true}
@@ -113,6 +127,7 @@ nkeys = { workspace = true, optional = true }
 const_format.workspace = true
 pin-project.workspace = true
 http.workspace = true
+indexmap.workspace = true
 async-stream.workspace = true
 ulid.workspace = true
 rust-postgres = { workspace = true, optional = true }
@@ -123,4 +138,13 @@ rust_decimal = { workspace = true, optional = true }
 rust-postgres-native-tls = { workspace = true, optional = true}
 rumqttc = { workspace = true, optional = true }
 aws-sdk-sqs = { workspace = true, optional = true } 
-aws-config = { workspace = true, optional = true}
+aws-config = { workspace = true, optional = true }
+aws-sdk-sts = { workspace = true, optional = true }
+google-cloud-pubsub = { workspace = true, optional = true }
+google-cloud-googleapis = { workspace = true , optional = true }
+tonic = { workspace = true, optional = true }
+deno_error = { workspace = true, optional = true }
+deno_core = { workspace = true, optional = true }
+
+[build-dependencies]
+deno_core = { workspace = true, optional = true }

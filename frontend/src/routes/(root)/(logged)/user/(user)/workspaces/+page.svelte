@@ -28,15 +28,18 @@
 
 	let invites: WorkspaceInvite[] = []
 	let list_all_as_super_admin: boolean = false
-	let workspaces: { id: string; name: string; username: string; color?: string | null }[] | undefined = undefined
+	let workspaces:
+		| { id: string; name: string; username: string; color?: string | null }[]
+		| undefined = undefined
 
 	let userSettings: UserSettings
 	let superadminSettings: SuperadminSettings
 
 	$: rd = $page.url.searchParams.get('rd')
 
-	$: if (userSettings && $page.url.hash === USER_SETTINGS_HASH) {
-		userSettings.openDrawer()
+	$: if (userSettings && $page.url.hash.startsWith(USER_SETTINGS_HASH)) {
+		const mcpMode = $page.url.hash.includes('-mcp')
+		userSettings.openDrawer(mcpMode)
 	}
 
 	async function loadInvites() {
@@ -59,6 +62,7 @@
 			}
 		} else {
 			const url = $page.url
+			console.log('logout 1')
 			await logoutWithRedirect(url.href.replace(url.origin, ''))
 		}
 	}
@@ -130,7 +134,7 @@
 				} else {
 					await goto(rd ?? '/')
 				}
-				console.log('Workspace selected, going to', rd)
+				console.log('Workspace selected going to ' + (rd ? `rd: ${rd}` : 'home'))
 			} catch (e) {
 				console.error('Error going to', rd, e)
 				window.location.reload()
@@ -197,8 +201,8 @@
 				>
 					{#if workspace.color}
 						<span
-						class="inline-block w-3 h-3 mr-2 rounded-full border border-gray-400"
-						style="background-color: {workspace.color}"
+							class="inline-block w-3 h-3 mr-2 rounded-full border border-gray-400"
+							style="background-color: {workspace.color}"
 						></span>
 					{/if}
 					<span class="font-mono">{workspace.id}</span> - {workspace.name} as
@@ -295,7 +299,12 @@
 				Superadmin settings
 			</Button>
 		{/if}
-		<Button variant="border" size="sm" on:click={userSettings.openDrawer} startIcon={{ icon: Cog }}>
+		<Button
+			variant="border"
+			size="sm"
+			on:click={() => userSettings.openDrawer()}
+			startIcon={{ icon: Cog }}
+		>
 			User settings
 		</Button>
 
@@ -321,4 +330,4 @@
 		</p>
 	</div>
 </div> -->
-<UserSettings bind:this={userSettings} />
+<UserSettings bind:this={userSettings} showMcpMode={true} />

@@ -96,7 +96,7 @@
 			}
 		}}
 	>
-		<div bind:this={editor} />
+		<div bind:this={editor}></div>
 	</div>
 {/if}
 

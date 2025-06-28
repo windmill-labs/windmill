@@ -11,6 +11,7 @@
 	import AwsIcon from '../icons/AwsIcon.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import MqttIcon from '../icons/MqttIcon.svelte'
+	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 
 	export let small = false
 
@@ -46,6 +47,12 @@
 			disabled: !$enterpriseLicense
 		},
 		{
+			icon: GoogleCloudIcon,
+			displayName: 'GCP Pub/Sub',
+			action: () => handleClick('gcp'),
+			disabled: !$enterpriseLicense
+		},
+		{
 			icon: MqttIcon,
 			displayName: 'MQTT',
 			action: () => handleClick('mqtt')
@@ -75,7 +82,7 @@
 	]
 </script>
 
-<DropdownV2 {items} placement="bottom-start">
+<DropdownV2 {items} placement="bottom-start" fixedHeight={false}>
 	<svelte:fragment slot="buttonReplacement">
 		{#if small}
 			<Button
@@ -94,7 +101,7 @@
 		{:else}
 			<Button
 				color="dark"
-				btnClasses="rounded-l-none"
+				btnClasses="!rounded-l-none"
 				wrapperClasses="h-full"
 				nonCaptureEvent
 				title="Test trigger"

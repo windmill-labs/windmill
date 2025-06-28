@@ -4,8 +4,14 @@
 	import { page } from '$app/stores'
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
-	import { cleanValueProperties, decodeState, emptySchema, orderedJsonStringify } from '$lib/utils'
-	import { initFlow } from '$lib/components/flows/flowStore'
+	import {
+		cleanValueProperties,
+		decodeState,
+		emptySchema,
+		orderedJsonStringify,
+		type StateStore
+	} from '$lib/utils'
+	import { initFlow } from '$lib/components/flows/flowStore.svelte'
 	import { goto } from '$lib/navigation'
 	import { afterNavigate, replaceState } from '$app/navigation'
 	import { writable } from 'svelte/store'
@@ -14,13 +20,15 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
-	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
+	import type { Trigger } from '$lib/components/triggers/utils'
+	import { untrack } from 'svelte'
+	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 
-	let version: undefined | number = undefined
+	let version: undefined | number = $state(undefined)
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const initialState = nodraft ? undefined : localStorage.getItem(`flow-${$page.params.path}`)
 	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
-	let initialArgs = {}
+	let initialArgs = $state({})
 	if ($initialArgsStore) {
 		initialArgs = $initialArgsStore
 		$initialArgsStore = undefined
@@ -30,7 +38,7 @@
 		| (Flow & {
 				draft?: Flow | undefined
 		  })
-		| undefined = undefined
+		| undefined = $state(undefined)
 
 	afterNavigate(() => {
 		if (nodraft) {
@@ -40,29 +48,40 @@
 		}
 	})
 
-	export const flowStore = writable<Flow>({
-		summary: '',
-		value: { modules: [] },
-		path: '',
-		edited_at: '',
-		edited_by: '',
-		archived: false,
-		extra_perms: {},
-		schema: emptySchema()
+	export const flowStore: StateStore<Flow> = $state({
+		val: {
+			summary: '',
+			value: { modules: [] },
+			path: '',
+			edited_at: '',
+			edited_by: '',
+			archived: false,
+			extra_perms: {},
+			schema: emptySchema()
+		}
 	})
 	const flowStateStore = writable<FlowState>({})
 
-	let loading = false
+	let loading = $state(false)
 
-	let selectedId: string = 'settings-metadata'
+	let selectedId: string = $state('settings-metadata')
 
 	let nobackenddraft = false
 
-	let savedPrimarySchedule: ScheduleTrigger | undefined = stateLoadedFromUrl?.primarySchedule
+	let savedPrimarySchedule: ScheduleTrigger | undefined = $state(
+		stateLoadedFromUrl?.primarySchedule
+	)
 
-	let flowBuilder: FlowBuilder | undefined = undefined
+	let draftTriggersFromUrl: Trigger[] | undefined = $state(undefined)
+	let selectedTriggerIndexFromUrl: number | undefined = $state(undefined)
+	let loadedFromHistoryFromUrl:
+		| { flowJobInitial: boolean | undefined; stepsState: Record<string, stepState> }
+		| undefined = $state(undefined)
+
+	let flowBuilder: FlowBuilder | undefined = $state(undefined)
 
 	async function loadFlow(): Promise<void> {
+		console.log('loadFlow')
 		loading = true
 		let flow: Flow
 		let statePath = stateLoadedFromUrl?.path
@@ -82,12 +101,23 @@
 			})
 
 			const draftOrDeployed = cleanValueProperties(savedFlow?.draft || savedFlow)
-			const urlScript = cleanValueProperties(stateLoadedFromUrl.flow)
+			const urlScript = cleanValueProperties(
+				$state.snapshot({
+					...stateLoadedFromUrl.flow,
+					draft_triggers: stateLoadedFromUrl.draft_triggers
+				})
+			)
 			flow = stateLoadedFromUrl.flow
-			savedPrimarySchedule = stateLoadedFromUrl.primarySchedule
+			draftTriggersFromUrl = stateLoadedFromUrl.draft_triggers
+			selectedTriggerIndexFromUrl = stateLoadedFromUrl.selected_trigger
+			loadedFromHistoryFromUrl = stateLoadedFromUrl.loadedFromHistory
+			flowBuilder?.setDraftTriggers(draftTriggersFromUrl)
+			flowBuilder?.setSelectedTriggerIndex(selectedTriggerIndexFromUrl)
+			flowBuilder?.setLoadedFromHistory(loadedFromHistoryFromUrl)
+			const selectedId = stateLoadedFromUrl?.selectedId ?? 'settings-metadata'
 			const reloadAction = () => {
 				stateLoadedFromUrl = undefined
-				goto(`/flows/edit/${statePath}`)
+				goto(`/flows/edit/${statePath}?selected=${selectedId}`)
 				loadFlow()
 			}
 			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(urlScript)) {
@@ -101,8 +131,8 @@
 					{
 						label: 'Show diff',
 						callback: async () => {
-							diffDrawer.openDrawer()
-							diffDrawer.setDiff({
+							diffDrawer?.openDrawer()
+							diffDrawer?.setDiff({
 								mode: 'simple',
 								original: draftOrDeployed,
 								current: urlScript,
@@ -128,20 +158,23 @@
 				path: $page.params.path
 			})
 			savedFlow = {
-				...structuredClone(flowWithDraft),
+				...structuredClone($state.snapshot(flowWithDraft)),
 				draft: flowWithDraft.draft
 					? {
-							...structuredClone(flowWithDraft.draft),
+							...structuredClone($state.snapshot(flowWithDraft.draft)),
 							path: flowWithDraft.draft.path ?? flowWithDraft.path // backward compatibility for old drafts missing path
-					  }
+						}
 					: undefined
 			} as Flow & {
-				draft?: Flow
+				draft?: Flow & {
+					draft_triggers?: Trigger[]
+				}
 			}
 			if (flowWithDraft.draft != undefined && !nobackenddraft) {
 				flow = flowWithDraft.draft
 				savedPrimarySchedule = flowWithDraft?.draft?.['primary_schedule']
 				flowBuilder?.setPrimarySchedule(savedPrimarySchedule)
+				flowBuilder?.setDraftTriggers(flowWithDraft?.draft?.['draft_triggers'])
 
 				if (!flowWithDraft.draft_only) {
 					const deployed = cleanValueProperties(flowWithDraft)
@@ -164,8 +197,8 @@
 						{
 							label: 'Show diff',
 							callback: async () => {
-								diffDrawer.openDrawer()
-								diffDrawer.setDiff({
+								diffDrawer?.openDrawer()
+								diffDrawer?.setDiff({
 									mode: 'simple',
 									original: deployed,
 									current: draft,
@@ -178,28 +211,31 @@
 				}
 			} else {
 				flow = flowWithDraft
+				flowBuilder?.setDraftTriggers(undefined)
 			}
 		}
 
 		await initFlow(flow, flowStore, flowStateStore)
 		loading = false
 		selectedId = stateLoadedFromUrl?.selectedId ?? $page.url.searchParams.get('selected')
+		flowBuilder?.loadFlowState()
 	}
 
-	$: {
+	$effect(() => {
 		if ($workspaceStore) {
-			loadFlow()
+			untrack(() => loadFlow())
 		}
-	}
+	})
 
-	let diffDrawer: DiffDrawer
+	let diffDrawer: DiffDrawer | undefined = $state()
 
 	async function restoreDraft() {
 		if (!savedFlow || !savedFlow.draft) {
 			sendUserToast('Could not restore to draft', true)
 			return
 		}
-		diffDrawer.closeDrawer()
+		diffDrawer?.closeDrawer()
+		stateLoadedFromUrl = undefined
 		goto(`/flows/edit/${savedFlow.draft.path}`)
 		loadFlow()
 	}
@@ -209,7 +245,7 @@
 			sendUserToast('Could not restore to deployed', true)
 			return
 		}
-		diffDrawer.closeDrawer()
+		diffDrawer?.closeDrawer()
 		if (savedFlow.draft) {
 			await DraftService.deleteDraft({
 				workspace: $workspaceStore!,
@@ -217,10 +253,10 @@
 				path: savedFlow.path
 			})
 		}
+		stateLoadedFromUrl = undefined
 		goto(`/flows/edit/${savedFlow.path}`)
 		loadFlow()
 	}
-	let getInitialAndModifiedValues: GetInitialAndModifiedValues | undefined = undefined
 </script>
 
 <!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
@@ -251,8 +287,13 @@
 	bind:savedFlow
 	{diffDrawer}
 	{savedPrimarySchedule}
-	bind:version
-	bind:getInitialAndModifiedValues
+	{draftTriggersFromUrl}
+	{selectedTriggerIndexFromUrl}
+	{version}
+	{loadedFromHistoryFromUrl}
 >
-	<UnsavedConfirmationModal {diffDrawer} {getInitialAndModifiedValues} />
+	<UnsavedConfirmationModal
+		{diffDrawer}
+		getInitialAndModifiedValues={flowBuilder?.getInitialAndModifiedValues}
+	/>
 </FlowBuilder>

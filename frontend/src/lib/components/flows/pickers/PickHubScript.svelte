@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { Alert, Badge, Skeleton } from '$lib/components/common'
 	import { capitalize, classNames } from '$lib/utils'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -8,16 +8,21 @@
 	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Loader2 } from 'lucide-svelte'
 
-	export let kind: HubScriptKind & string = 'script'
-	export let filter = ''
-	export let syncQuery = false
+	interface Props {
+		kind?: HubScriptKind & string
+		filter?: string
+		syncQuery?: boolean
+		children?: import('svelte').Snippet
+	}
 
-	let loading = false
-	let hubNotAvailable = false
+	let { kind = 'script', filter = $bindable(''), syncQuery = false, children }: Props = $props()
+
+	let loading = $state(false)
+	let hubNotAvailable = $state(false)
 
 	const dispatch = createEventDispatcher()
 
-	let appFilter: string | undefined = undefined
+	let appFilter: string | undefined = $state(undefined)
 	let items: {
 		path: string
 		summary: string
@@ -26,15 +31,12 @@
 		ask_id: number
 		app: string
 		kind: HubScriptKind
-	}[] = []
+	}[] = $state([])
 
-	let allApps: string[] = []
-	let apps: string[] = []
-
-	$: apps = filter.length > 0 ? Array.from(new Set(items?.map((x) => x.app) ?? [])).sort() : allApps
-
-	$: applyFilter(filter, kind, appFilter)
-	$: getAllApps(kind)
+	let allApps: string[] = $state([])
+	let apps: string[] = $derived.by(() =>
+		filter.length > 0 ? Array.from(new Set(items?.map((x) => x.app) ?? [])).sort() : allApps
+	)
 
 	async function getAllApps(filterKind: typeof kind) {
 		try {
@@ -71,14 +73,14 @@
 							limit: 40,
 							kind: filterKind,
 							app: appFilter
-					  })
-					: (
+						})
+					: ((
 							await ScriptService.getTopHubScripts({
 								limit: 40,
 								app: appFilter,
 								kind: filterKind
 							})
-					  ).asks ?? []
+						).asks ?? [])
 			if (ts === startTs) {
 				loading = false
 			}
@@ -103,10 +105,19 @@
 			loading = false
 		}
 	}
+
+	$effect(() => {
+		;[filter, kind, appFilter]
+		untrack(() => applyFilter(filter, kind, appFilter))
+	})
+	$effect(() => {
+		kind
+		untrack(() => getAllApps(kind))
+	})
 </script>
 
 <div class="w-full flex mt-1 items-center gap-2">
-	<slot />
+	{@render children?.()}
 	<div class="relative w-full">
 		<input
 			type="text"
@@ -121,7 +132,7 @@
 </div>
 
 {#if hubNotAvailable}
-	<div class="mt-2" />
+	<div class="mt-2"></div>
 	<Alert type="error" title="Hub not available" />
 {:else if items.length > 0 && apps.length > 0}
 	<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
@@ -133,7 +144,7 @@
 				<li class="flex flex-row w-full">
 					<button
 						class="p-4 gap-4 flex flex-row grow hover:bg-surface-hover bg-surface transition-all items-center rounded-md"
-						on:click={() => dispatch('pick', item)}
+						onclick={() => dispatch('pick', item)}
 					>
 						<div class="flex items-center gap-4">
 							<div
@@ -143,11 +154,8 @@
 								)}
 							>
 								{#if item['app'] in APP_TO_ICON_COMPONENT}
-									<svelte:component
-										this={APP_TO_ICON_COMPONENT[item['app']]}
-										height={18}
-										width={18}
-									/>
+									{@const SvelteComponent = APP_TO_ICON_COMPONENT[item['app']]}
+									<SvelteComponent height={18} width={18} />
 								{/if}
 							</div>
 
@@ -174,7 +182,7 @@
 		</div>
 	{/if}
 {:else}
-	<div class="my-2" />
+	<div class="my-2"></div>
 	{#each Array(10).fill(0) as _}
 		<Skeleton layout={[0.5, [4]]} />
 	{/each}

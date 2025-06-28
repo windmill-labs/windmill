@@ -6,15 +6,15 @@
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
-	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore'
+	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
 	import { initialArgsStore, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { decodeState, emptySchema } from '$lib/utils'
+	import { decodeState, emptySchema, type StateStore } from '$lib/utils'
 	import { tick } from 'svelte'
 	import { writable } from 'svelte/store'
-	import type { ScheduleTrigger } from '$lib/components/triggers'
-	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
+	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
+	import type { Trigger } from '$lib/components/triggers/utils'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 
@@ -31,31 +31,35 @@
 	const templateId = $page.url.searchParams.get('template_id')
 	const initialState = hubId || templatePath || nodraft ? undefined : localStorage.getItem('flow')
 
-	let selectedId: string = 'settings-metadata'
-	let loading = false
+	let selectedId: string = $state('settings-metadata')
+	let loading = $state(false)
 
-	let initialPath: string | undefined = undefined
-	let pathStoreInit: string | undefined = undefined
+	let initialPath: string | undefined = $state(undefined)
+	let pathStoreInit: string | undefined = $state(undefined)
 
-	let initialArgs = {}
+	let initialArgs = $state({})
 	if ($initialArgsStore) {
 		initialArgs = $initialArgsStore
 		$initialArgsStore = undefined
 	}
+	let flowBuilder: FlowBuilder | undefined = $state(undefined)
 
-	export const flowStore = writable<Flow>({
-		summary: '',
-		value: { modules: [] },
-		path: '',
-		edited_at: '',
-		edited_by: '',
-		archived: false,
-		extra_perms: {},
-		schema: emptySchema()
+	const flowStore: StateStore<Flow> = $state({
+		val: {
+			summary: '',
+			value: { modules: [] },
+			path: '',
+			edited_at: '',
+			edited_by: '',
+			archived: false,
+			extra_perms: {},
+			schema: emptySchema()
+		}
 	})
 	const flowStateStore = writable<FlowState>({})
 
-	let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
+	let draftTriggersFromUrl: Trigger[] | undefined = $state(undefined)
+	let selectedTriggerIndexFromUrl: number | undefined = $state(undefined)
 	async function loadFlow() {
 		loading = true
 		let flow: Flow = {
@@ -84,7 +88,7 @@
 				{
 					label: 'Start from blank instead',
 					callback: () => {
-						$flowStore = {
+						flowStore.val = {
 							summary: '',
 							value: { modules: [] },
 							path: '',
@@ -100,7 +104,10 @@
 
 			flow = state.flow
 			pathStoreInit = state.path
-			savedPrimarySchedule = state.primarySchedule
+			draftTriggersFromUrl = state.draft_triggers
+			selectedTriggerIndexFromUrl = state.selected_trigger
+			flowBuilder?.setDraftTriggers(draftTriggersFromUrl)
+			flowBuilder?.setSelectedTriggerIndex(selectedTriggerIndexFromUrl)
 			state?.selectedId && (selectedId = state?.selectedId)
 		} else {
 			if (templatePath) {
@@ -130,6 +137,12 @@
 				delete hub['comments']
 				initialPath = `u/${$userStore?.username}/flow_${hubId}`
 				Object.assign(flow, hub.flow)
+				if (flow.value.preprocessor_module?.value.type === 'rawscript') {
+					flow.value.preprocessor_module.value.content = replaceScriptPlaceholderWithItsValues(
+						hubId,
+						flow.value.preprocessor_module.value.content
+					)
+				}
 				flow = flow
 				goto('?', { replaceState: true })
 				selectedId = 'constants'
@@ -140,22 +153,18 @@
 			}
 		}
 		await initFlow(flow, flowStore, flowStateStore)
+		flowBuilder?.loadFlowState()
 		loading = false
 	}
 
 	loadFlow()
-
-	let getSelectedId: (() => string) | undefined = undefined
-	let flowBuilder: FlowBuilder | undefined = undefined
-
-	let getInitialAndModifiedValues: GetInitialAndModifiedValues | undefined = undefined
 </script>
 
 <!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
 
 <FlowBuilder
 	on:saveInitial={(e) => {
-		goto(`/flows/edit/${e.detail}?selected=${getSelectedId?.()}`)
+		goto(`/flows/edit/${e.detail}?selected=${flowBuilder?.getSelectedId?.()}`)
 	}}
 	on:deploy={(e) => {
 		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
@@ -165,8 +174,6 @@
 	}}
 	{initialPath}
 	{pathStoreInit}
-	bind:getSelectedId
-	bind:getInitialAndModifiedValues
 	bind:this={flowBuilder}
 	newFlow
 	{initialArgs}
@@ -174,7 +181,11 @@
 	{flowStateStore}
 	{selectedId}
 	{loading}
-	{savedPrimarySchedule}
+	{draftTriggersFromUrl}
+	{selectedTriggerIndexFromUrl}
+	noInitial
 >
-	<UnsavedConfirmationModal {getInitialAndModifiedValues} />
+	<UnsavedConfirmationModal
+		getInitialAndModifiedValues={flowBuilder?.getInitialAndModifiedValues}
+	/>
 </FlowBuilder>

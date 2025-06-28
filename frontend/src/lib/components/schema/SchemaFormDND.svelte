@@ -1,34 +1,58 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { dragHandle } from '@windmill-labs/svelte-dnd-action'
 	import SchemaForm from '../SchemaForm.svelte'
 	import { GripVertical } from 'lucide-svelte'
 	import type { Schema } from '$lib/common'
 	import { deepEqual } from 'fast-equals'
-	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
-	export let dndType: string | undefined = undefined
-	export let schema: Schema
-	export let args: Record<string, any> = {}
-	export let prettifyHeader: boolean = false
-	export let onlyMaskPassword: boolean = false
-	export let disablePortal: boolean = false
-	export let disabled: boolean = false
-	export let schemaSkippedValues: string[] = []
-	export let nestedParent: { label: string; nestedParent: any | undefined } | undefined = undefined
-	export let disableDnd: boolean = false
-	export let shouldDispatchChanges: boolean = false
-	export let diff: Record<string, SchemaDiff> = {}
-	export let nestedClasses = ''
-	export let isValid: boolean = true
-	export let noVariablePicker: boolean = false
+	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
+	interface Props {
+		dndType?: string | undefined
+		schema: Schema
+		args?: Record<string, any>
+		prettifyHeader?: boolean
+		onlyMaskPassword?: boolean
+		disablePortal?: boolean
+		disabled?: boolean
+		hiddenArgs?: string[]
+		nestedParent?: { label: string; nestedParent: any | undefined } | undefined
+		disableDnd?: boolean
+		shouldDispatchChanges?: boolean
+		diff?: Record<string, SchemaDiff>
+		nestedClasses?: string
+		isValid?: boolean
+		noVariablePicker?: boolean
+	}
 
+	let {
+		dndType = undefined,
+		schema = $bindable(),
+		args = $bindable(undefined),
+		prettifyHeader = false,
+		onlyMaskPassword = false,
+		disablePortal = false,
+		disabled = false,
+		hiddenArgs = [],
+		nestedParent = undefined,
+		disableDnd = false,
+		shouldDispatchChanges = false,
+		diff = {},
+		nestedClasses = '',
+		isValid = $bindable(true),
+		noVariablePicker = false
+	}: Props = $props()
+
+	$effect.pre(() => {
+		if (args == undefined) {
+			args = {}
+		}
+	})
 	const dispatch = createEventDispatcher()
 	const flipDurationMs = 200
 
-	let items = computeItems()
+	let items = $state(computeItems())
 
-	let dragDisabled = true
-	$: schema && dragDisabled && updateItems()
+	let dragDisabled = $state(true)
 
 	function computeItems() {
 		return (
@@ -49,7 +73,6 @@
 	function handleConsider(e) {
 		dragDisabled = false
 		const { items: newItems } = e.detail
-
 		items = newItems
 	}
 
@@ -59,21 +82,25 @@
 		dragDisabled = true
 		items = newItems
 
-		dispatch(
-			'reorder',
-			items.map((item) => item.value)
-		)
+		const newOrder = items.map((item) => item.value)
+		// console.log('handleFinalize', newOrder, e.detail)
+		dispatch('reorder', newOrder)
 	}
+	$effect(() => {
+		schema && dragDisabled && untrack(() => updateItems())
+	})
 </script>
 
+<!-- <pre class="text-xs">3 {JSON.stringify(schema, null, 2)}</pre> -->
 <!-- {JSON.stringify(schema)}
 {dragDisabled} -->
 <!-- {JSON.stringify(items)} -->
-<!-- svelte-ignore a11y-no-static-element-interactions -->
-<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+
 <SchemaForm
 	{nestedClasses}
-	{schemaSkippedValues}
+	{hiddenArgs}
 	on:click
 	on:change
 	on:reorder
@@ -95,7 +122,7 @@
 				flipDurationMs,
 				dropTargetStyle: {},
 				type: dndType ?? 'top-level'
-		  }}
+			}}
 	{items}
 	{diff}
 	{nestedParent}
@@ -103,11 +130,11 @@
 	bind:isValid
 	{noVariablePicker}
 >
-	<svelte:fragment slot="actions">
+	{#snippet actions()}
 		{#if !disableDnd}
 			<div class="w-4 h-8 cursor-move ml-2 handle" aria-label="drag-handle" use:dragHandle>
 				<GripVertical size={16} />
 			</div>
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 </SchemaForm>

@@ -3,18 +3,32 @@
 	import { Handle, Position } from '@xyflow/svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	export let enableSourceHandle: boolean = true
-	export let enableTargetHandle: boolean = true
-	export let offset: number = 0
-	export let wrapperClass: string = ''
+	interface Props {
+		enableSourceHandle?: boolean
+		enableTargetHandle?: boolean
+		offset?: number
+		wrapperClass?: string
+		children?: import('svelte').Snippet<[any]>
+	}
 
-	let darkMode: boolean = false
+	let {
+		enableSourceHandle = true,
+		enableTargetHandle = true,
+		offset = 0,
+		wrapperClass = '',
+		children
+	}: Props = $props()
+
+	let darkMode: boolean = $state(false)
 </script>
 
 <DarkModeObserver bind:darkMode />
 
-<div class={twMerge('relative shadow-md', wrapperClass)} style={`margin-left: ${offset}px;`}>
-	<slot {darkMode} />
+<div
+	class={twMerge('relative shadow-md rounded-sm', wrapperClass)}
+	style={`margin-left: ${offset}px;`}
+>
+	{@render children?.({ darkMode })}
 </div>
 
 {#if enableSourceHandle}

@@ -1,10 +1,8 @@
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME:
-    ${{ github.event_name != 'pull_request' && github.event_name !=
+  IMAGE_NAME: ${{ github.event_name != 'pull_request' && github.event_name !=
     'workflow_dispatch' && github.repository || 'windmill-labs/windmill-test' }}
-  DEV_SHA:
-    ${{ github.event_name != 'pull_request' && github.event_name !=
+  DEV_SHA: ${{ github.event_name != 'pull_request' && github.event_name !=
     'workflow_dispatch' && 'dev' || github.event.inputs.tag || github.sha }}
 name: Build windmill:main
 on:
@@ -33,7 +31,7 @@ on:
         type: boolean
 concurrency:
   group: ${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions: write-all
 
@@ -200,7 +198,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,license,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,otel,dind,php,mysql,mssql,bigquery,oracledb,postgres_trigger,mqtt_trigger,websocket,python,smtp,csharp,static_frontend,rust
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,agent_worker_server,tantivy,license,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,otel,dind,postgres_trigger,mqtt_trigger,gcp_trigger,websocket,smtp,static_frontend,all_languages,private,deno_core,mcp
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
             ${{ steps.meta-ee-public.outputs.tags }}
@@ -358,7 +356,7 @@ jobs:
     needs: [run_integration_test, build]
     if:
       github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' ||
-      startsWith(github.ref, 'refs/tags/v'))  && (github.event_name != 'workflow_dispatch') 
+      startsWith(github.ref, 'refs/tags/v'))  && (github.event_name != 'workflow_dispatch')
     steps:
       - uses: actions/checkout@v4
         with:
@@ -398,7 +396,7 @@ jobs:
   verify_ee_image_vulnerabilities:
     runs-on: ubicloud
     needs: [tag_latest_ee]
-    if: startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch') 
+    if: startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch')
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -440,8 +438,7 @@ jobs:
   build_ee_nsjail:
     needs: [build_ee]
     runs-on: ubicloud
-    if:
-      (github.event_name != 'pull_request') && ((github.event_name != 'workflow_dispatch') || (github.event.inputs.ee || github.event.inputs.nsjail))
+    if: (github.event_name != 'pull_request') && ((github.event_name != 'workflow_dispatch') || (github.event.inputs.ee || github.event.inputs.nsjail))
 
     steps:
       - uses: actions/checkout@v4
@@ -480,7 +477,7 @@ jobs:
         run: |
           sed -i 's|FROM ghcr.io/windmill-labs/windmill-ee:dev|FROM ghcr.io/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}|' ./docker/DockerfileNsjail
           cat ./docker/DockerfileNsjail | grep "FROM"
-        
+
       - name: Build and push publicly ee
         uses: depot/build-push-action@v1
         with:
@@ -494,14 +491,12 @@ jobs:
             ${{ steps.meta-ee-public.outputs.labels }}
             org.opencontainers.image.licenses=Windmill-Enterprise-License
 
-
   publish_ecr_s3:
     needs: [build_ee_nsjail]
     runs-on: ubicloud-standard-2-arm
-    if:
-      (github.event_name != 'pull_request') && (github.event_name !=
+    if: (github.event_name != 'pull_request') && (github.event_name !=
       'workflow_dispatch') && (github.ref == 'refs/heads/main' ||
-      startsWith(github.ref, 'refs/tags/v')) 
+      startsWith(github.ref, 'refs/tags/v'))
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

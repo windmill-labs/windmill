@@ -130,7 +130,7 @@
 			{/each}
 		</ul>
 	{:else}
-		<div class="mt-6" />
+		<div class="mt-6"></div>
 
 		{#each new Array(6) as _}
 			<Skeleton layout={[[4], 0.7]} />

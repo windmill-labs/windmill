@@ -9,7 +9,7 @@
 	import type { FlowEditorContext } from '../flows/types'
 	import type { PickableProperties } from '../flows/previousResults'
 	import YAML from 'yaml'
-	import { sliceModules } from '../flows/flowStateUtils'
+	import { sliceModules } from '../flows/flowStateUtils.svelte'
 	import { dfs } from '../flows/dfs'
 	import { yamlStringifyExceptKeys } from './utils'
 	import type { FlowCopilotContext } from './flow'
@@ -17,6 +17,7 @@
 	import type { SchemaProperty } from '$lib/common'
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	let generatedContent = ''
 	let loading = false
@@ -47,14 +48,14 @@
 			return
 		}
 		const properties = {
-			...($flowStore.schema?.properties as Record<string, SchemaProperty> | undefined),
+			...(flowStore.val.schema?.properties as Record<string, SchemaProperty> | undefined),
 			[newFlowInput]: schemaProperty
 		}
 		const required = [
-			...(($flowStore.schema?.required as string[] | undefined) ?? []),
+			...((flowStore.val.schema?.required as string[] | undefined) ?? []),
 			newFlowInput
 		]
-		$flowStore.schema = {
+		flowStore.val.schema = {
 			$schema: 'https://json-schema.org/draft/2020-12/schema',
 			properties,
 			required,
@@ -68,7 +69,7 @@
 		}
 		abortController = new AbortController()
 		loading = true
-		const flow: Flow = JSON.parse(JSON.stringify($flowStore))
+		const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
 		const idOrders = dfs(flow.value.modules, (x) => x.id)
 		const upToIndex = idOrders.indexOf($selectedId)
 		if (upToIndex === -1) {
@@ -107,7 +108,6 @@ If none of the available results are appropriate, are already used or are more a
 Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.
 Only return the expression without any wrapper.`
-			const aiProvider = $copilotInfo.ai_provider
 			generatedContent = await getNonStreamingCompletion(
 				[
 					{
@@ -115,8 +115,7 @@ Only return the expression without any wrapper.`
 						content: user
 					}
 				],
-				abortController,
-				aiProvider
+				abortController
 			)
 
 			if (
@@ -131,7 +130,7 @@ Only return the expression without any wrapper.`
 			}
 		} catch (err) {
 			if (!abortController.signal.aborted) {
-				sendUserToast('Could not generate summary: ' + err, true)
+				sendUserToast('Could not generate step input: ' + err, true)
 			}
 		} finally {
 			loading = false
@@ -139,7 +138,7 @@ Only return the expression without any wrapper.`
 	}
 
 	export function onKeyUp(event: KeyboardEvent) {
-		if (!$copilotInfo.exists_ai_resource || !$stepInputCompletionEnabled) {
+		if (!$copilotInfo.enabled || !$stepInputCompletionEnabled) {
 			return
 		}
 		if (event.key === 'Tab') {
@@ -157,6 +156,7 @@ Only return the expression without any wrapper.`
 	}
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function cancel() {
 		abortController.abort()
@@ -182,19 +182,19 @@ Only return the expression without any wrapper.`
 		cancelOnOutOfFocus()
 	}
 
-	$: if ($copilotInfo.exists_ai_resource && $stepInputCompletionEnabled && focused) {
+	$: if ($copilotInfo.enabled && $stepInputCompletionEnabled && focused) {
 		automaticGeneration()
 	}
 
-	$: dispatch('showExpr', generatedContent)
+	$: dispatchIfMounted('showExpr', generatedContent)
 
-	$: dispatch('showExpr', $generatedExprs?.[argName] || '')
+	$: dispatchIfMounted('showExpr', $generatedExprs?.[argName] || '')
 
 	let out = true // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
 	let openInputsModal = false
 </script>
 
-{#if $copilotInfo.exists_ai_resource && $stepInputCompletionEnabled}
+{#if $copilotInfo.enabled && $stepInputCompletionEnabled}
 	<FlowCopilotInputsModal
 		on:confirmed={async () => {
 			createFlowInput()
@@ -240,8 +240,8 @@ Only return the expression without any wrapper.`
 					loading || ($stepInputsLoading && empty)
 						? Loader2
 						: generatedContent.length > 0
-						? Check
-						: Wand2,
+							? Check
+							: Wand2,
 				classes: loading || ($stepInputsLoading && empty) ? 'animate-spin' : ''
 			}}
 			on:focus={() => {

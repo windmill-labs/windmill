@@ -1,30 +1,76 @@
 <script lang="ts">
 	import DataTable from './table/DataTable.svelte'
-	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { Row } from './table/index'
 	import { twMerge } from 'tailwind-merge'
+
 	const dispatch = createEventDispatcher()
 
-	export let loading = false
-	export let items: any[] | undefined = undefined
-	export let selectedItemId: any | undefined = undefined
-	export let isEmpty: boolean = true
-	export let length: number = 0
+	interface Props {
+		loading?: boolean
+		items?: any[] | undefined
+		selectedItemId?: any | undefined
+		isEmpty?: boolean
+		length?: number
+		rounded?: boolean
+		noBorder?: boolean
+		extraRowClasses?: { bgSelected: string; bgHover: string; class: string }
+		neverShowLoader?: boolean
+		columns?: import('svelte').Snippet
+		extra_row?: import('svelte').Snippet<[any]>
+		children?: import('svelte').Snippet<[any]>
+		empty?: import('svelte').Snippet<[any]>
+	}
 
-	let hasMore = false
+	let {
+		loading = $bindable(false),
+		items = $bindable(undefined),
+		selectedItemId = $bindable(undefined),
+		isEmpty = $bindable(true),
+		length = $bindable(0),
+		rounded = true,
+		noBorder = false,
+		extraRowClasses = {
+			bgSelected: '',
+			bgHover: '',
+			class: ''
+		},
+		neverShowLoader = false,
+		columns,
+		extra_row,
+		children,
+		empty
+	}: Props = $props()
+
+	const perPage = 20
+
+	let hasMore = $state(false)
 	let page = 1
-	let perPage = 10
 	let hasAlreadyFailed = false
-	let hovered: any | undefined = undefined
+	let hovered: any | undefined = $state(undefined)
 	let initLoad = false
 	let loadInputs: ((page: number, perPage: number) => Promise<any[]>) | undefined = undefined
 	let deleteItemFn: ((id: any) => Promise<any>) | undefined = undefined
+
+	export function reset() {
+		items = undefined
+		loading = false
+		initLoad = false
+		length = 0
+		hasMore = false
+		page = 1
+	}
+
+	let loadingMore = $state(false)
 
 	export async function loadData(loadOption: 'refresh' | 'forceRefresh' | 'loadMore' = 'loadMore') {
 		// console.log('loadData', loadOption, length, items?.length)
 
 		if (!loadInputs) return
+		if (loadOption == 'loadMore') {
+			if (loadingMore || loading) return
+			loadingMore = true
+		}
 		loading = true
 		hasMore = length === perPage * page
 
@@ -59,16 +105,17 @@
 					}))
 				}
 			}, 2000)
-
-			page = Math.ceil(items.length / perPage)
-			hasMore = items.length === perPage * page
-			if (hasMore) {
-				const potentialNewItems = await loadInputs(page + 1, perPage)
-				hasMore = potentialNewItems.length > 0
+			if (items) {
+				page = Math.ceil(items.length / perPage)
+				hasMore = items.length === perPage * page
+				if (hasMore) {
+					const potentialNewItems = await loadInputs(page + 1, perPage)
+					hasMore = potentialNewItems.length > 0
+				}
+				initLoad = true
+				isEmpty = items.length === 0
+				length = items.length
 			}
-			initLoad = true
-			isEmpty = items.length === 0
-			length = items.length
 		} catch (err) {
 			console.error(err)
 			if (hasAlreadyFailed) return
@@ -76,6 +123,7 @@
 			dispatch('error', { type: 'load', error: err })
 		} finally {
 			loading = false
+			loadingMore = false
 		}
 	}
 
@@ -106,43 +154,56 @@
 	}
 </script>
 
-<div class="h-full">
-	{#if items === undefined && loading}
-		<Skeleton layout={[[8]]} />
-	{:else if items && items.length > 0}
-		<DataTable
-			size="xs"
-			infiniteScroll
-			{hasMore}
-			tableFixed={true}
-			on:loadMore={() => {
-				loadData()
-			}}
-			{loading}
-		>
-			<slot name="columns" />
+<DataTable
+	size="xs"
+	infiniteScroll
+	{hasMore}
+	tableFixed={true}
+	on:loadMore={() => {
+		loadData()
+	}}
+	{loading}
+	{loadingMore}
+	{rounded}
+	{noBorder}
+	{neverShowLoader}
+>
+	{@render columns?.()}
 
-			<tbody class="h-full w-full">
-				{#each items ?? [] as item, index}
-					{@const hover = item.id === hovered}
-					<Row
-						on:click={() => dispatch('select', item)}
-						class={twMerge(
-							selectedItemId === item.id ? 'bg-surface-selected' : 'hover:bg-surface-hover',
-							'cursor-pointer rounded-md',
-							item.isNew && index === 0 ? 'animate-slideIn' : 'group'
-						)}
-						on:hover={(e) => (hovered = e.detail ? item.id : undefined)}
-					>
-						<slot {item} {hover} />
-					</Row>
-				{/each}
-			</tbody>
-		</DataTable>
-	{:else}
-		<slot name="empty" {items} />
-	{/if}
-</div>
+	<tbody class="h-full w-full">
+		<Row
+			on:click={() => dispatch('select', 'extraRow')}
+			class={twMerge(
+				extraRowClasses.class,
+				selectedItemId === 'extraRow' ? extraRowClasses.bgSelected : extraRowClasses.bgHover,
+				'cursor-pointer rounded-md'
+			)}
+			on:hover={(e) => (hovered = e.detail ? 'extraRow' : undefined)}
+		>
+			{@render extra_row?.({ hover: hovered === 'extraRow' })}
+		</Row>
+		{#each items ?? [] as item, index}
+			{@const hover = item.id === hovered}
+			<Row
+				on:click={() => dispatch('select', item)}
+				class={twMerge(
+					selectedItemId === item.id ? 'bg-surface-selected' : 'hover:bg-surface-hover',
+					'cursor-pointer rounded-md',
+					item.isNew && index === 0 ? 'animate-slideIn' : 'group'
+				)}
+				on:hover={(e) => (hovered = e.detail ? item.id : undefined)}
+			>
+				{@render children?.({ item, hover })}
+			</Row>
+		{/each}
+	</tbody>
+
+	{#snippet emptyMessage()}
+		{#if (!items || items?.length === 0) && (!loading || neverShowLoader)}
+			{@render empty?.({ items })}
+		{/if}
+	{/snippet}
+</DataTable>
 
 <style>
 	@keyframes slideOut {

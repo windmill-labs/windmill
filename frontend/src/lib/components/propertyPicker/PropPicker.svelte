@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ResourceService, VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import { Badge, Button } from '../common'
 	import type { PropPickerWrapperContext } from '../flows/propPicker/PropPickerWrapper.svelte'
 
@@ -48,11 +48,13 @@
 	let flowInputsFiltered: any = pickableProperties.flow_input
 	let resultByIdFiltered: any = pickableProperties.priorIds
 
-	let timeout: NodeJS.Timeout
+	let timeout: NodeJS.Timeout | undefined
 	function onSearch(search: string) {
 		filterActive = false
-		clearTimeout(timeout)
-		setTimeout(() => {
+		if (timeout) {
+			clearTimeout(timeout)
+		}
+		timeout = setTimeout(() => {
 			flowInputsFiltered =
 				search === EMPTY_STRING
 					? pickableProperties.flow_input
@@ -77,7 +79,7 @@
 				await VariableService.listVariable({
 					workspace: $workspaceStore ?? ''
 				})
-			).map((variable) => [variable.path, variable.is_secret ? '***' : variable.value ?? ''])
+			).map((variable) => [variable.path, variable.is_secret ? '***' : (variable.value ?? '')])
 		)
 	}
 
@@ -192,10 +194,14 @@
 	}
 
 	$: search, $inputMatches, $propPickerConfig, pickableProperties, updateState()
+
+	onDestroy(() => {
+		clearTimeout(timeout)
+	})
 </script>
 
 <div class="flex flex-col h-full rounded">
-	<div class="px-1 py-1">
+	<div class="px-1 pb-1">
 		<ClearableInput bind:value={search} placeholder="Search prop..." />
 	</div>
 	<!-- <div
@@ -223,7 +229,7 @@
 				<span class="font-normal text-sm text-secondary"
 					><span class="font-mono">flow_input</span></span
 				>
-				<div class="flex space-x-2 items-center" />
+				<div class="flex space-x-2 items-center"></div>
 			</div>
 			<div class="overflow-y-auto pb-2">
 				<ObjectViewer

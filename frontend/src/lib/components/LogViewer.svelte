@@ -29,6 +29,7 @@
 	export let noMaxH = false
 	export let noAutoScroll = false
 	export let download = true
+	export let customEmptyMessage = 'No logs are available yet'
 
 	// @ts-ignore
 	const ansi_up = new AnsiUp()
@@ -68,7 +69,7 @@
 			? truncateContent.substring(
 					s3LogPrefixes[prefixIndex]?.length,
 					end == -1 ? undefined : end + 1
-			  )
+				)
 			: undefined
 	}
 
@@ -108,7 +109,7 @@
 			? truncatedContent.substring(
 					truncatedContent.substring(1).indexOf('\n') + 2,
 					truncatedContent.length
-			  )
+				)
 			: truncatedContent
 	)
 	export function scrollToBottom() {
@@ -148,7 +149,7 @@
 
 <Drawer bind:this={logViewer} bind:open={drawerOpen} size="900px">
 	<DrawerContent title="Expanded Logs" on:close={logViewer.closeDrawer}>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			{#if jobId && download}
 				<Button
 					href="{base}/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
@@ -173,7 +174,7 @@
 			>
 				Copy to clipboard
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 		<div>
 			<pre
 				class="bg-surface-secondary text-secondary text-xs w-full p-2 whitespace-pre-wrap border rounded-md"
@@ -253,7 +254,7 @@
 					><br />{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)<br
 					/><button on:click={() => showMoreTruncate(len)}>Show more..</button><br />{/if}<span
 					>{@html html}</span
-				>{:else if !isLoading}<span>No logs are available yet</span>{/if}</pre
+				>{:else if !isLoading}<span>{customEmptyMessage}</span>{/if}</pre
 		>
 	</div>
 </div>

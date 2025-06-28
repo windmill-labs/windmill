@@ -8,9 +8,13 @@
 	import Tooltip from './Tooltip.svelte'
 	import { Button, DrawerContent } from './common'
 
-	export let value: any
-	let jsonViewer: Drawer
-	let jsonViewerContent: any | undefined
+	interface Props {
+		value: any
+	}
+
+	let { value }: Props = $props()
+	let jsonViewer: Drawer | undefined = $state()
+	let jsonViewerContent: any | undefined = $state()
 
 	function isString(value: any) {
 		return typeof value === 'string' || value instanceof String
@@ -33,7 +37,7 @@
 
 <Drawer bind:this={jsonViewer} size="800px">
 	<DrawerContent title="Argument Details" on:close={jsonViewer.closeDrawer}>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button
 				on:click={() => copyToClipboard(JSON.stringify(jsonViewerContent, null, 4))}
 				color="light"
@@ -42,7 +46,7 @@
 			>
 				Copy
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 		{#if isString(jsonViewerContent)}
 			<pre>{jsonViewerContent}</pre>
 		{:else}
@@ -61,17 +65,17 @@
 {:else if isString(value) && value.startsWith('$res:')}
 	<button
 		class="text-xs text-blue-500"
-		on:click={async () => {
+		onclick={async () => {
 			await getResource(value.substring('$res:'.length))
-			jsonViewer.toggleDrawer()
+			jsonViewer?.toggleDrawer()
 		}}>{value}</button
 	>
 {:else if isString(value) && value.startsWith('$var:')}
 	<button
 		class="text-xs text-blue-500"
-		on:click={async () => {
+		onclick={async () => {
 			await getVariable(value.substring('$res:'.length))
-			jsonViewer.toggleDrawer()
+			jsonViewer?.toggleDrawer()
 		}}>{value}</button
 	>
 {:else if typeof value !== 'object'}
@@ -80,9 +84,9 @@
 		{#if JSON.stringify(value).length > 80}
 			<button
 				class="text-xs text-blue-500"
-				on:click={() => {
+				onclick={() => {
 					jsonViewerContent = value
-					jsonViewer.toggleDrawer()
+					jsonViewer?.toggleDrawer()
 				}}>See expanded</button
 			>
 		{/if}
@@ -92,9 +96,9 @@
 		{#if JSON.stringify(value).length > 120}
 			<button
 				class="text-xs absolute top-0 right-4 text-tertiary"
-				on:click={() => {
+				onclick={() => {
 					jsonViewerContent = value
-					jsonViewer.toggleDrawer()
+					jsonViewer?.toggleDrawer()
 				}}><Expand size={18} /></button
 			>
 		{/if}

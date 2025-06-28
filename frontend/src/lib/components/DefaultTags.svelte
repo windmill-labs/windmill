@@ -6,14 +6,21 @@
 
 	import DefaultTagsInner from './DefaultTagsInner.svelte'
 
-	export let defaultTagPerWorkspace: boolean | undefined = undefined
-	export let defaultTagWorkspaces: string[] | undefined = undefined
+	interface Props {
+		defaultTagPerWorkspace?: boolean | undefined
+		defaultTagWorkspaces?: string[]
+	}
+
+	let {
+		defaultTagPerWorkspace = $bindable(undefined),
+		defaultTagWorkspaces = $bindable([])
+	}: Props = $props()
 
 	let placement: 'bottom-end' | 'top-end' = 'bottom-end'
 </script>
 
 <Popover floatingConfig={{ strategy: 'absolute', placement: placement }} contentClasses="p-4">
-	<svelte:fragment slot="trigger">
+	{#snippet trigger()}
 		<Button color="dark" size="xs" nonCaptureEvent={true}>
 			<div class="flex flex-row gap-1 items-center"
 				><Pen size={14} /> Default tags&nbsp;<Tooltip light
@@ -22,8 +29,8 @@
 				></div
 			>
 		</Button>
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{/snippet}
+	{#snippet content()}
 		<DefaultTagsInner bind:defaultTagPerWorkspace bind:defaultTagWorkspaces />
-	</svelte:fragment>
+	{/snippet}
 </Popover>

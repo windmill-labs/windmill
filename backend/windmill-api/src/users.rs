@@ -8,6 +8,8 @@
 
 #![allow(non_snake_case)]
 
+use quick_cache::sync::Cache;
+
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,7 +22,8 @@ use crate::utils::{
     generate_instance_wide_unique_username, get_instance_username_or_create_pending,
 };
 use crate::{
-    db::DB, utils::require_super_admin, webhook_util::WebhookShared, COOKIE_DOMAIN, IS_SECURE,
+    auth::ExpiringAuthCache, db::DB, utils::require_super_admin, webhook_util::WebhookShared,
+    COOKIE_DOMAIN, IS_SECURE,
 };
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use axum::{
@@ -39,7 +42,7 @@ use sqlx::FromRow;
 use time::OffsetDateTime;
 use tower_cookies::{Cookie, Cookies};
 use tracing::Instrument;
-use windmill_audit::audit_ee::{audit_log, AuditAuthor};
+use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 use windmill_common::auth::fetch_authed_from_permissioned_as;
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
@@ -214,6 +217,10 @@ pub async fn fetch_api_authed(
     fetch_api_authed_from_permissioned_as(permissioned_as, email, w_id, db, username_override).await
 }
 
+lazy_static::lazy_static! {
+    static ref API_AUTHED_CACHE: Cache<(String,String,String), ExpiringAuthCache> = Cache::new(300);
+}
+
 #[allow(unused)]
 pub async fn fetch_api_authed_from_permissioned_as(
     permissioned_as: String,
@@ -222,18 +229,43 @@ pub async fn fetch_api_authed_from_permissioned_as(
     db: &DB,
     username_override: Option<String>,
 ) -> error::Result<ApiAuthed> {
-    let authed =
-        fetch_authed_from_permissioned_as(permissioned_as, email.clone(), w_id, db).await?;
-    Ok(ApiAuthed {
-        username: authed.username,
-        email: email,
-        is_admin: authed.is_admin,
-        is_operator: authed.is_operator,
-        groups: authed.groups,
-        folders: authed.folders,
-        scopes: authed.scopes,
-        username_override: username_override,
-    })
+    let key = (w_id.to_string(), permissioned_as.clone(), email.clone());
+
+    let mut api_authed = match API_AUTHED_CACHE.get(&key) {
+        Some(expiring_authed) if expiring_authed.expiry > chrono::Utc::now() => {
+            tracing::debug!("API authed cache hit for user {}", email);
+            expiring_authed.authed
+        }
+        _ => {
+            tracing::debug!("API authed cache miss for user {}", email);
+            let authed =
+                fetch_authed_from_permissioned_as(permissioned_as, email.clone(), w_id, db).await?;
+
+            let api_authed = ApiAuthed {
+                username: authed.username,
+                email: email,
+                is_admin: authed.is_admin,
+                is_operator: authed.is_operator,
+                groups: authed.groups,
+                folders: authed.folders,
+                scopes: authed.scopes,
+                username_override: None,
+            };
+
+            API_AUTHED_CACHE.insert(
+                key,
+                ExpiringAuthCache {
+                    authed: api_authed.clone(),
+                    expiry: chrono::Utc::now() + chrono::Duration::try_seconds(120).unwrap(),
+                },
+            );
+
+            api_authed
+        }
+    };
+
+    api_authed.username_override = username_override;
+    Ok(api_authed)
 }
 
 #[derive(FromRow, Serialize)]
@@ -302,6 +334,7 @@ pub struct NewUser {
     pub super_admin: bool,
     pub name: Option<String>,
     pub company: Option<String>,
+    pub skip_email: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -509,7 +542,7 @@ async fn list_users_as_super_admin(
     let rows = if active_only.is_some_and(|x| x) {
         sqlx::query_as!(
             GlobalUserInfo,
-            "WITH active_users AS (SELECT distinct username as email FROM audit WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login')),
+            "WITH active_users AS (SELECT distinct username as email FROM audit WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),
             authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)
             SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, devops, name, company, username
             FROM password
@@ -1475,7 +1508,7 @@ async fn create_user(
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Json(nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
-    crate::users_ee::create_user(authed, db, webhook, argon2, nu).await
+    crate::users_oss::create_user(authed, db, webhook, argon2, nu).await
 }
 
 async fn delete_workspace_user(
@@ -1549,7 +1582,7 @@ async fn set_password(
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
     let email = authed.email.clone();
-    crate::users_ee::set_password(db, argon2, authed, &email, ep).await
+    crate::users_oss::set_password(db, argon2, authed, &email, ep).await
 }
 
 async fn set_password_of_user(
@@ -1560,7 +1593,7 @@ async fn set_password_of_user(
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    crate::users_ee::set_password(db, argon2, authed, &email, ep).await
+    crate::users_oss::set_password(db, argon2, authed, &email, ep).await
 }
 
 async fn set_login_type(
@@ -1717,7 +1750,22 @@ async fn refresh_token(
     .await?
     .unwrap_or(false);
 
-    let _ = create_session_token(&authed.email, super_admin, &mut tx, cookies).await?;
+    let new_token = create_session_token(&authed.email, super_admin, &mut tx, cookies).await?;
+
+    audit_log(
+        &mut *tx,
+        &AuditAuthor {
+            email: authed.email.to_string(),
+            username: authed.email.to_string(),
+            username_override: None,
+        },
+        "users.token.refresh",
+        ActionKind::Create,
+        &"global",
+        Some(&truncate_token(&new_token)),
+        None,
+    )
+    .await?;
 
     tx.commit().await?;
     Ok("token refreshed".to_string())
@@ -1805,6 +1853,18 @@ async fn create_token(
     .fetch_optional(&mut *tx)
     .await?
     .unwrap_or(false);
+    if *CLOUD_HOSTED {
+        let nb_tokens =
+            sqlx::query_scalar!("SELECT COUNT(*) FROM token WHERE email = $1", &authed.email)
+                .fetch_one(&db)
+                .await?;
+        if nb_tokens.unwrap_or(0) >= 10000 {
+            return Err(Error::BadRequest(
+                "You have reached the maximum number of tokens (10000) on cloud. Contact support@windmill.dev to increase the limit"
+                    .to_string(),
+            ));
+        }
+    }
     sqlx::query!(
         "INSERT INTO token
             (token, email, label, expiration, super_admin, scopes, workspace_id)
@@ -2538,7 +2598,7 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     sqlx::query!(
-        r#"UPDATE flow_workspace_runnables SET flow_path = REGEXP_REPLACE(flow_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE flow_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        r#"UPDATE workspace_runnable_dependencies SET flow_path = REGEXP_REPLACE(flow_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE flow_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
         old_username,
         w_id
@@ -2546,7 +2606,15 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     sqlx::query!(
-        r#"UPDATE flow_workspace_runnables SET runnable_path = REGEXP_REPLACE(runnable_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE runnable_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        r#"UPDATE workspace_runnable_dependencies SET app_path = REGEXP_REPLACE(app_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE app_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    ).execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"UPDATE workspace_runnable_dependencies SET runnable_path = REGEXP_REPLACE(runnable_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE runnable_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
         old_username,
         w_id

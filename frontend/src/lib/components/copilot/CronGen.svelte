@@ -8,7 +8,6 @@
 
 	import { base } from '$lib/base'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
-	import type { AIProvider } from '$lib/gen'
 
 	export let schedule: string
 	export let cronVersion: string
@@ -23,7 +22,7 @@
 		"You are a helpful assistant for creating CRON schedules using both standard and extended Croner patterns. The structure is 'second minute hour dayOfMonth month dayOfWeek'. Supported modifiers: ? (wildcard), L (last day/weekday), # (nth occurrence of a weekday), and W (closest weekday). Weekdays are Sunday (0 or 7), Monday (1), Tuesday (2), Wednesday (3), Thursday (4), Friday (5), Saturday (6). Ensure syntax is valid, including optional seconds and special modifiers. You only return either the CRON string without any leading/closing quotes or an error message prefixed with 'ERROR:'."
 
 	const SYSTEM_V1 =
-		"You are a helpful assitant for creating CRON schedules. The structure is 'second minute hour dayOfMonth month dayOfWeek'. Weekdays are Sunday (1), Monday (2), Tuesday (3), Wednesday (4), Thursday (5), Friday (6), Saturday (7). You only return the CRON string without any wrapping characters. If it is invalid, you will return an error message preceeded by 'ERROR:'."
+		"You are a helpful assistant for creating CRON schedules. The structure is 'second minute hour dayOfMonth month dayOfWeek'. Weekdays are Sunday (1), Monday (2), Tuesday (3), Wednesday (4), Thursday (5), Friday (6), Saturday (7). You only return the CRON string without any wrapping characters. If it is invalid, you will return an error message preceded by 'ERROR:'."
 
 	$: updateSystemPrompt(cronVersion)
 
@@ -41,7 +40,6 @@
 	async function generateCron() {
 		genLoading = true
 		abortController = new AbortController()
-		const aiProvider = $copilotInfo.ai_provider
 		try {
 			const messages: ChatCompletionMessageParam[] = [
 				{
@@ -54,11 +52,7 @@
 				}
 			]
 
-			const response = await getNonStreamingCompletion(
-				messages,
-				abortController,
-				aiProvider as AIProvider
-			)
+			const response = await getNonStreamingCompletion(messages, abortController)
 
 			if (response.startsWith('ERROR:')) {
 				throw response.replace('ERROR:', '').trim()
@@ -86,12 +80,12 @@
 			btnClasses="text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
 			loading={genLoading}
 			clickableWhileLoading
-			on:click={genLoading ? () => abortController?.abort() : undefined}
+			on:click={genLoading ? () => abortController?.abort() : () => {}}
 		/>
 	</svelte:fragment>
 	<svelte:fragment slot="content" let:close>
 		<div class="border rounded-lg shadow-lg p-4 bg-surface">
-			{#if $copilotInfo.exists_ai_resource}
+			{#if $copilotInfo.enabled}
 				<div class="flex w-96">
 					<input
 						bind:this={instructionsField}

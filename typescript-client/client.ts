@@ -3,10 +3,11 @@ import {
   VariableService,
   JobService,
   HelpersService,
+  AppService,
   MetricsService,
   OidcService,
   UserService,
-  TeamsService
+  TeamsService,
 } from "./index";
 import { OpenAPI } from "./index";
 // import type { DenoS3LightClientSettings } from "./index";
@@ -455,8 +456,8 @@ export async function getProgress(jobId?: any): Promise<number | null> {
 }
 
 /**
- * Set a flow user state 
- * @param key key of the state 
+ * Set a flow user state
+ * @param key key of the state
  * @param value value of the state
 
  */
@@ -771,6 +772,33 @@ export async function writeS3File(
 }
 
 /**
+ * Sign S3 objects to be used by anonymous users in public apps
+ * @param s3objects s3 objects to sign
+ * @returns signed s3 objects
+ */
+export async function signS3Objects(
+  s3objects: S3Object[]
+): Promise<S3Object[]> {
+  const signedKeys = await AppService.signS3Objects({
+    workspace: getWorkspace(),
+    requestBody: {
+      s3_objects: s3objects,
+    },
+  });
+  return signedKeys;
+}
+
+/**
+ * Sign S3 object to be used by anonymous users in public apps
+ * @param s3object s3 object to sign
+ * @returns signed s3 object
+ */
+export async function signS3Object(s3object: S3Object): Promise<S3Object> {
+  const [signedObject] = await signS3Objects([s3object]);
+  return signedObject;
+}
+
+/**
  * Get URLs needed for resuming a flow after this step
  * @param approver approver name
  * @returns approval page UI URL, resume and cancel API URLs for resuming the flow
@@ -892,6 +920,15 @@ interface SlackApprovalOptions {
   dynamicEnumsJson?: Record<string, any>;
 }
 
+interface TeamsApprovalOptions {
+  teamName: string;
+  channelName: string;
+  message?: string;
+  approver?: string;
+  defaultArgsJson?: Record<string, any>;
+  dynamicEnumsJson?: Record<string, any>;
+}
+
 /**
  * Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
  *
@@ -978,6 +1015,98 @@ export async function requestInteractiveSlackApproval({
   }
 
   await JobService.getSlackApprovalPayload({
+    workspace,
+    ...params,
+    id: getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
+  });
+}
+
+/**
+ * Sends an interactive approval request via Teams, allowing optional customization of the message, approver, and form fields.
+ *
+ * **[Enterprise Edition Only]** To include form fields in the Teams approval request, go to **Advanced -> Suspend -> Form**
+ * and define a form. Learn more at [Windmill Documentation](https://www.windmill.dev/docs/flows/flow_approval#form).
+ *
+ * @param {Object} options - The configuration options for the Teams approval request.
+ * @param {string} options.teamName - The Teams team name where the approval request will be sent.
+ * @param {string} options.channelName - The Teams channel name where the approval request will be sent.
+ * @param {string} [options.message] - Optional custom message to include in the Teams approval request.
+ * @param {string} [options.approver] - Optional user ID or name of the approver for the request.
+ * @param {DefaultArgs} [options.defaultArgsJson] - Optional object defining or overriding the default arguments to a form field.
+ * @param {Enums} [options.dynamicEnumsJson] - Optional object overriding the enum default values of an enum form field.
+ *
+ * @returns {Promise<void>} Resolves when the Teams approval request is successfully sent.
+ *
+ * @throws {Error} If the function is not called within a flow or flow preview.
+ * @throws {Error} If the `JobService.getTeamsApprovalPayload` call fails.
+ *
+ * **Usage Example:**
+ * ```typescript
+ * await requestInteractiveTeamsApproval({
+ *   teamName: "admins-teams",
+ *   channelName: "admins-teams-channel",
+ *   message: "Please approve this request",
+ *   approver: "approver123",
+ *   defaultArgsJson: { key1: "value1", key2: 42 },
+ *   dynamicEnumsJson: { foo: ["choice1", "choice2"], bar: ["optionA", "optionB"] },
+ * });
+ * ```
+ *
+ * **Note:** This function requires execution within a Windmill flow or flow preview.
+ */
+export async function requestInteractiveTeamsApproval({
+  teamName,
+  channelName,
+  message,
+  approver,
+  defaultArgsJson,
+  dynamicEnumsJson,
+}: TeamsApprovalOptions): Promise<void> {
+  const workspace = getWorkspace();
+  const flowJobId = getEnv("WM_FLOW_JOB_ID");
+
+  if (!flowJobId) {
+    throw new Error(
+      "You can't use this function in a standalone script or flow step preview. Please use it in a flow or a flow preview."
+    );
+  }
+
+  const flowStepId = getEnv("WM_FLOW_STEP_ID");
+  if (!flowStepId) {
+    throw new Error("This function can only be called as a flow step");
+  }
+
+  // Only include non-empty parameters
+  const params: {
+    approver?: string;
+    message?: string;
+    teamName: string;
+    channelName: string;
+    flowStepId: string;
+    defaultArgsJson?: string;
+    dynamicEnumsJson?: string;
+  } = {
+    teamName,
+    channelName,
+    flowStepId,
+  };
+
+  if (message) {
+    params.message = message;
+  }
+  if (approver) {
+    params.approver = approver;
+  }
+
+  if (defaultArgsJson) {
+    params.defaultArgsJson = JSON.stringify(defaultArgsJson);
+  }
+
+  if (dynamicEnumsJson) {
+    params.dynamicEnumsJson = JSON.stringify(dynamicEnumsJson);
+  }
+
+  await JobService.getTeamsApprovalPayload({
     workspace,
     ...params,
     id: getEnv("WM_JOB_ID") ?? "NO_JOB_ID",

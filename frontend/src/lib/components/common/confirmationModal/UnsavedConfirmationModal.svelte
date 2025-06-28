@@ -12,6 +12,7 @@
 	} from '$lib/utils'
 	import { page } from '$app/stores'
 	import type { GetInitialAndModifiedValues } from './unsavedTypes'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI'
 
 	export let getInitialAndModifiedValues: GetInitialAndModifiedValues = undefined
 	export let diffDrawer: DiffDrawer | undefined = undefined
@@ -66,6 +67,10 @@
 		}
 	})
 </script>
+
+{#if open}
+	<div style="display: none" use:triggerableByAI={{id: "unsaved-changes-confirmation-modal", description: "Unsaved changes confirmation modal. Needs user confirmation to leave the page."}}></div>
+{/if}
 
 <ConfirmationModal
 	{open}

@@ -3,16 +3,19 @@ use std::{collections::HashMap, fs::DirBuilder, process::Stdio};
 
 use itertools::Itertools;
 use serde_json::value::RawValue;
-use tokio::{fs::File, io::AsyncReadExt, process::Command};
+use tokio::{
+    fs::{self, File},
+    io::AsyncReadExt,
+    process::Command,
+};
 use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
-    jobs::QueuedJob,
     utils::calculate_hash,
-    worker::{save_cache, write_file},
+    worker::{save_cache, write_file, Connection},
 };
 use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
@@ -20,9 +23,10 @@ use crate::{
         start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY,
-    GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, TZ_ENV,
+    DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV,
+    NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
+use windmill_common::client::AuthedClient;
 
 const GO_REQ_SPLITTER: &str = "//go.sum\n";
 const NSJAIL_CONFIG_RUN_GO_CONTENT: &str = include_str!("../nsjail/run.go.config.proto");
@@ -36,9 +40,10 @@ pub const GO_OBJECT_STORE_PREFIX: &str = "gobin/";
 pub async fn handle_go_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    job: &MiniPulledJob,
+    conn: &Connection,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     inner_content: &str,
     job_dir: &str,
     requirements_o: Option<&String>,
@@ -65,7 +70,8 @@ pub async fn handle_go_job(
     ));
     let bin_path = format!("{}/{hash}", GO_BIN_CACHE_DIR);
     let remote_path = format!("{GO_OBJECT_STORE_PREFIX}{hash}");
-    let (cache, cache_logs) = windmill_common::worker::load_cache(&bin_path, &remote_path).await;
+    let (cache, cache_logs) =
+        windmill_common::worker::load_cache(&bin_path, &remote_path, false).await;
 
     let (skip_go_mod, skip_tidy) = if cache {
         (true, true)
@@ -77,7 +83,7 @@ pub async fn handle_go_job(
 
     let cache_logs = if !cache {
         let logs1 = format!("{cache_logs}\n\n--- GO DEPENDENCIES SETUP ---\n");
-        append_logs(&job.id, &job.workspace_id, logs1, db).await;
+        append_logs(&job.id, &job.workspace_id, logs1, conn).await;
 
         install_go_dependencies(
             &job.id,
@@ -85,17 +91,18 @@ pub async fn handle_go_job(
             mem_peak,
             canceled_by,
             job_dir,
-            db,
+            conn,
             true,
             skip_go_mod,
             skip_tidy,
+            false,
             worker_name,
             &job.workspace_id,
             occupation_metrics,
         )
         .await?;
 
-        create_args_and_out_file(client, job, job_dir, db).await?;
+        create_args_and_out_file(client, job, job_dir, conn).await?;
         {
             let sig = windmill_parser_go::parse_go_sig(&inner_content)?;
 
@@ -201,7 +208,7 @@ func Run(req Req) (interface{{}}, error){{
         let build_go_process = start_child_process(build_go_cmd, GO_PATH.as_str()).await?;
         handle_child(
             &job.id,
-            db,
+            conn,
             mem_peak,
             canceled_by,
             build_go_process,
@@ -212,6 +219,7 @@ func Run(req Req) (interface{{}}, error){{
             None,
             false,
             &mut Some(occupation_metrics),
+            None,
         )
         .await?;
 
@@ -219,6 +227,7 @@ func Run(req Req) (interface{{}}, error){{
             &bin_path,
             &format!("{GO_OBJECT_STORE_PREFIX}{hash}"),
             &format!("{job_dir}/main"),
+            false,
         )
         .await
         {
@@ -242,16 +251,15 @@ func Run(req Req) (interface{{}}, error){{
             ))
         })?;
 
-        create_args_and_out_file(client, job, job_dir, db).await?;
+        create_args_and_out_file(client, job, job_dir, conn).await?;
         cache_logs
     };
 
     let logs2 = format!("{cache_logs}\n\n--- GO CODE EXECUTION ---\n");
-    append_logs(&job.id, &job.workspace_id, logs2, db).await;
+    append_logs(&job.id, &job.workspace_id, logs2, conn).await;
 
-    let client = &client.get_authed().await;
-
-    let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -304,7 +312,7 @@ func Run(req Req) (interface{{}}, error){{
     };
     handle_child(
         &job.id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         child,
@@ -315,6 +323,7 @@ func Run(req Req) (interface{{}}, error){{
         job.timeout,
         false,
         &mut Some(occupation_metrics),
+        None,
     )
     .await?;
 
@@ -348,15 +357,25 @@ pub async fn install_go_dependencies(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     non_dep_job: bool,
     skip_go_mod: bool,
     has_sum: bool,
+    raw_deps: bool,
     worker_name: &str,
     w_id: &str,
     occupation_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
-    if !skip_go_mod {
+    if raw_deps {
+        let go_mod =
+            if let Some(module) = code.lines().find(|l| l.trim_start().starts_with("module ")) {
+                code.replace(module, "module mymod")
+            } else {
+                format!("module mymod\n{code}")
+            };
+        fs::write(format!("{job_dir}/go.mod"), go_mod).await?;
+    }
+    if !raw_deps && !skip_go_mod {
         gen_go_mymod(code, job_dir).await?;
         let mut child_cmd = Command::new(GO_PATH.as_str());
         child_cmd
@@ -368,7 +387,7 @@ pub async fn install_go_dependencies(
 
         handle_child(
             job_id,
-            db,
+            conn,
             mem_peak,
             canceled_by,
             child_process,
@@ -379,6 +398,7 @@ pub async fn install_go_dependencies(
             None,
             false,
             &mut Some(occupation_metrics),
+            None,
         )
         .await?;
 
@@ -395,7 +415,9 @@ pub async fn install_go_dependencies(
 
     let mut new_lockfile = false;
 
-    let hash = if !has_sum {
+    let hash = if raw_deps {
+        calculate_hash(code)
+    } else if !has_sum {
         calculate_hash(parse_go_imports(&code)?.iter().join("\n").as_str())
     } else {
         "".to_string()
@@ -405,24 +427,34 @@ pub async fn install_go_dependencies(
     let mut skip_tidy = has_sum;
 
     if !has_sum {
-        if let Some(cached) = sqlx::query_scalar!(
-            "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
-            hash
-        )
-        .fetch_optional(db)
-        .await?
-        {
-            let logs1 = format!("\nfound cached resolution: {}", hash);
-            append_logs(&job_id, w_id, logs1, db).await;
-            gen_go_mod(code, job_dir, &cached).await?;
-            skip_tidy = true;
-            new_lockfile = false;
-        } else {
-            new_lockfile = true;
+        if let Some(db) = conn.as_sql() {
+            if let Some(cached) = sqlx::query_scalar!(
+                "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
+                hash
+            )
+            .fetch_optional(db)
+            .await?
+            {
+                let logs1 = format!("\nfound cached resolution: {}", hash);
+                append_logs(&job_id, w_id, logs1, conn).await;
+                gen_go_mod(code, job_dir, &cached).await?;
+                skip_tidy = true;
+                new_lockfile = false;
+            } else {
+                new_lockfile = true;
+            }
         }
     }
 
-    let mod_command = if skip_tidy { "download" } else { "tidy" };
+    let mod_command = if skip_tidy ||
+        // If there is go.mod provided we want to use `download` only.
+        // Unlike `tidy` it does not modify local go.mod
+        raw_deps
+    {
+        "download"
+    } else {
+        "tidy"
+    };
     let mut child_cmd = Command::new(GO_PATH.as_str());
     child_cmd
         .current_dir(job_dir)
@@ -434,7 +466,7 @@ pub async fn install_go_dependencies(
 
     handle_child(
         job_id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         child_process,
@@ -445,6 +477,7 @@ pub async fn install_go_dependencies(
         None,
         false,
         &mut Some(occupation_metrics),
+        None,
     )
     .await?;
 
@@ -464,11 +497,15 @@ pub async fn install_go_dependencies(
     }
 
     if non_dep_job {
-        sqlx::query!(
-            "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
-            hash,
-            req_content
-        ).fetch_optional(db).await?;
+        if let Some(db) = conn.as_sql() {
+            sqlx::query!(
+                "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('5 mins')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
+                hash,
+                req_content
+            )
+            .fetch_optional(db)
+            .await?;
+        }
 
         return Ok(String::new());
     } else {

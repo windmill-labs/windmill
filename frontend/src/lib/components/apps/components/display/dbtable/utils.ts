@@ -8,6 +8,7 @@ import {
 } from 'graphql'
 import { tryEvery } from '$lib/utils'
 import { stringifySchema } from '$lib/components/copilot/lib'
+import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 
 export enum ColumnIdentity {
 	ByDefault = 'By Default',
@@ -61,15 +62,99 @@ export async function loadTableMetaData(
 	if (!resource || !table || !workspace) {
 		return undefined
 	}
+	const job = await JobService.runScriptPreview({
+		workspace: workspace,
+		requestBody: {
+			language: getLanguageByResourceType(resourceType),
+			content: await makeLoadTableMetaDataQuery(resource, workspace, table, resourceType),
+			args: {
+				database: resource
+			}
+		}
+	})
 
-	let code: string = ''
+	const maxRetries = 8
+	let attempts = 0
+	while (attempts < maxRetries) {
+		try {
+			await new Promise((resolve) => setTimeout(resolve, 1000 * (attempts || 0.6)))
 
+			const testResult = (await JobService.getCompletedJob({
+				workspace: workspace,
+				id: job
+			})) as any
+
+			if (testResult.success) {
+				attempts = maxRetries
+
+				if (resourceType === 'ms_sql_server') {
+					return testResult.result[0].map(lowercaseKeys)
+				} else {
+					return testResult.result.map(lowercaseKeys)
+				}
+			} else {
+				attempts++
+			}
+		} catch (error) {
+			attempts++
+		}
+	}
+
+	console.error('Failed to load table metadata after maximum retries.')
+	return undefined
+}
+
+export async function loadAllTablesMetaData(
+	resource: string,
+	workspace: string | undefined,
+	resourceType: string
+): Promise<Record<string, TableMetadata> | undefined> {
+	if (!resource || !workspace) {
+		return undefined
+	}
+
+	try {
+		let result = (await runScriptAndPollResult({
+			workspace: workspace,
+			requestBody: {
+				language: getLanguageByResourceType(resourceType),
+				content: await makeLoadTableMetaDataQuery(resource, workspace, undefined, resourceType),
+				args: {
+					database: resource
+				}
+			}
+		})) as ({ table_name: string; schema_name?: string } & object)[]
+		if (resourceType === 'ms_sql_server') {
+			result = (result as any)[0]
+		}
+		const map: Record<string, TableMetadata> = {}
+
+		for (const _col of result) {
+			const col = lowercaseKeys(_col)
+			const tableKey = col.schema_name ? `${col.schema_name}.${col.table_name}` : col.table_name
+			if (!(tableKey in map)) {
+				map[tableKey] = []
+			}
+			map[tableKey].push(col)
+		}
+		return map
+	} catch (e) {
+		throw new Error('Error loading all tables metadata: ' + e)
+	}
+}
+
+async function makeLoadTableMetaDataQuery(
+	resource: string,
+	workspace: string,
+	table: string | undefined,
+	resourceType: string
+): Promise<string> {
 	if (resourceType === 'mysql') {
 		const resourceObj = (await ResourceService.getResourceValue({
 			workspace,
 			path: resource.split(':')[1]
 		})) as any
-		code = `
+		return `
 	SELECT 
 			COLUMN_NAME as field,
 			COLUMN_TYPE as DataType,
@@ -77,19 +162,31 @@ export async function loadTableMetaData(
 			CASE WHEN COLUMN_KEY = 'PRI' THEN 'YES' ELSE 'NO' END as IsPrimaryKey,
 			CASE WHEN EXTRA like '%auto_increment%' THEN 'YES' ELSE 'NO' END as IsIdentity,
 			CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
-			CASE WHEN DATA_TYPE = 'enum' THEN true ELSE false END as IsEnum
+			CASE WHEN DATA_TYPE = 'enum' THEN true ELSE false END as IsEnum${
+				table
+					? ''
+					: `,
+			TABLE_NAME as table_name`
+			}
 	FROM 
-			INFORMATION_SCHEMA.COLUMNS
-	WHERE 
+			INFORMATION_SCHEMA.COLUMNS${
+				table
+					? `
+	WHERE
 			TABLE_NAME = '${table.split('.').reverse()[0]}' AND TABLE_SCHEMA = '${
-			table.split('.').reverse()[1] ?? resourceObj?.database ?? ''
-		}'
-	ORDER BY 
+				table.split('.').reverse()[1] ?? resourceObj?.database ?? ''
+			}'`
+					: `
+	WHERE
+			TABLE_SCHEMA NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys')`
+			}
+	ORDER BY
+			TABLE_NAME,
 			ORDINAL_POSITION;
 	`
 	} else if (resourceType === 'postgresql') {
-		code = `
-		SELECT 
+		return `
+	SELECT 
 		a.attname as field,
 		pg_catalog.format_type(a.atttypid, a.atttypmod) as DataType,
 		(SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid, true) for 128)
@@ -110,17 +207,32 @@ export async function loadTableMetaData(
 		END as IsNullable,
 		(SELECT true
 		 FROM pg_catalog.pg_enum e
-		 WHERE e.enumtypid = a.atttypid FETCH FIRST ROW ONLY) as IsEnum
-	FROM pg_catalog.pg_attribute a
+		 WHERE e.enumtypid = a.atttypid FETCH FIRST ROW ONLY) as IsEnum${
+				table
+					? ''
+					: `,
+    ns.nspname AS schema_name,
+    c.relname AS table_name`
+			}
+	FROM pg_catalog.pg_attribute a${
+		table
+			? `
 	WHERE a.attrelid = (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid WHERE relname = '${
 		table.split('.').reverse()[0]
 	}' AND ns.nspname = '${table.split('.').reverse()[1] ?? 'public'}')
 		AND a.attnum > 0 AND NOT a.attisdropped
-	ORDER BY a.attnum;
+		`
+			: `
+	JOIN pg_catalog.pg_class c ON a.attrelid = c.oid
+	JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid
+	WHERE c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped
+		AND ns.nspname != 'pg_catalog' AND ns.nspname != 'information_schema'`
+	}
+	ORDER BY ${table ? 'a.attnum' : 'ns.nspname, c.relname, a.attnum'};
 	
 	`
 	} else if (resourceType === 'ms_sql_server') {
-		code = `
+		return `
 		SELECT 
     COLUMN_NAME as field,
     DATA_TYPE as DataType,
@@ -128,32 +240,52 @@ export async function loadTableMetaData(
     CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 'By Default' ELSE 'No' END as IsIdentity,
     CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 1 ELSE 0 END as IsPrimaryKey, -- This line still needs correction for primary key identification
     CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
-    CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum
+    CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum${
+			table
+				? ''
+				: `,
+		TABLE_NAME as table_name`
+		}
 FROM    
-    INFORMATION_SCHEMA.COLUMNS
+    INFORMATION_SCHEMA.COLUMNS${
+			table
+				? `
 WHERE   
-    TABLE_NAME = '${table}'
+    TABLE_NAME = '${table}'`
+				: ''
+		}
 ORDER BY
     ORDINAL_POSITION;
-
 	`
 	} else if (resourceType === 'snowflake' || resourceType === 'snowflake_oauth') {
-		code = `
+		return `
 		select COLUMN_NAME as field,
 		DATA_TYPE as DataType,
 		COLUMN_DEFAULT as DefaultValue,
 		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 'By Default' ELSE 'No' END as IsIdentity,
 		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 1 ELSE 0 END as IsPrimaryKey,
 		CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
-		CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum
-	from information_schema.columns
+		CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum${
+			table
+				? ''
+				: `,
+		table_name as table_name,
+		table_schema as schema_name`
+		}
+	from information_schema.columns${
+		table
+			? `
 	where table_name = '${table.split('.').reverse()[0]}' and table_schema = '${
-			table.split('.').reverse()[1] ?? 'PUBLIC'
-		}'
+		table.split('.').reverse()[1] ?? 'PUBLIC'
+	}'`
+			: "\nwhere table_schema <> 'INFORMATION_SCHEMA'\n"
+	}
 	order by ORDINAL_POSITION;
 	`
 	} else if (resourceType === 'bigquery') {
-		code = `SELECT 
+		// TODO: find a solution for this (query uses hardcoded dataset name)
+		if (!table) throw new Error('Table name is required for BigQuery')
+		return `SELECT 
     c.COLUMN_NAME as field,
     DATA_TYPE as DataType,
     CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,
@@ -164,58 +296,14 @@ ORDER BY
 FROM
     ${table.split('.')[0]}.INFORMATION_SCHEMA.COLUMNS c
     LEFT JOIN
-    test_dataset.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p
+    ${table.split('.')[0]}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p
     on c.table_name = p.table_name AND c.column_name = p.COLUMN_NAME
 WHERE   
-    c.TABLE_NAME = "${table.split('.')[1]}"
+    c.TABLE_NAME = '${table.split('.')[1]}'
 order by c.ORDINAL_POSITION;`
 	} else {
 		throw new Error('Unsupported database type:' + resourceType)
 	}
-
-	const maxRetries = 3
-	let attempts = 0
-
-	while (attempts < maxRetries) {
-		try {
-			const job = await JobService.runScriptPreview({
-				workspace: workspace,
-				requestBody: {
-					language: getLanguageByResourceType(resourceType),
-					content: code,
-					args: {
-						database: resource
-					}
-				}
-			})
-
-			await new Promise((resolve) => setTimeout(resolve, 3000))
-
-			const testResult = (await JobService.getCompletedJob({
-				workspace: workspace,
-				id: job
-			})) as any
-
-			if (testResult.success) {
-				attempts = maxRetries
-
-				if (resourceType === 'ms_sql_server') {
-					return lowercaseKeys(testResult.result[0])
-				} else {
-					return lowercaseKeys(testResult.result)
-				}
-			} else {
-				attempts++
-			}
-		} catch (error) {
-			attempts++
-		}
-		// Exponential back-off
-		await new Promise((resolve) => setTimeout(resolve, 2000 * attempts))
-	}
-
-	console.error('Failed to load table metadata after maximum retries.')
-	return undefined
 }
 
 export function resourceTypeToLang(rt: string) {
@@ -226,14 +314,12 @@ export function resourceTypeToLang(rt: string) {
 	}
 }
 
-function lowercaseKeys(arr: Array<Record<string, any>>): Array<any> {
-	return arr.map((obj) => {
-		const newObj = {}
-		Object.keys(obj).forEach((key) => {
-			newObj[key.toLowerCase()] = obj[key]
-		})
-		return newObj
+function lowercaseKeys(obj: Record<string, any>): any {
+	const newObj = {}
+	Object.keys(obj).forEach((key) => {
+		newObj[key.toLowerCase()] = obj[key]
 	})
+	return newObj
 }
 
 const scripts: Record<
@@ -569,7 +655,9 @@ export function formatGraphqlSchema(schema: IntrospectionQuery): string {
 	return printSchema(buildClientSchema(schema))
 }
 
-export type DbType = 'mysql' | 'ms_sql_server' | 'postgresql' | 'snowflake' | 'bigquery'
+export type DbType = (typeof dbTypes)[number]
+export const dbTypes = ['mysql', 'ms_sql_server', 'postgresql', 'snowflake', 'bigquery'] as const
+export const isDbType = (str?: string): str is DbType => !!str && dbTypes.includes(str as DbType)
 
 export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
 	// Filter out hidden columns to avoid counting the wrong number of rows
@@ -713,4 +801,14 @@ export async function getTablesByResource(
 		default:
 			return []
 	}
+}
+
+export function dbSupportsSchemas(dbType: DbType): boolean {
+	return dbType === 'postgresql' || dbType === 'snowflake' || dbType === 'bigquery'
+}
+
+export function datatypeHasLength(datatype: string): boolean {
+	datatype = datatype.toLowerCase()
+	const lengthDataTypes = ['varchar', 'char', 'nvarchar', 'nchar', 'varbinary', 'binary', 'bit']
+	return lengthDataTypes.some((type) => datatype === type)
 }

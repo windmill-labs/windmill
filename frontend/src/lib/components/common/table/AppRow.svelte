@@ -23,8 +23,7 @@
 		Pen,
 		Share,
 		Trash,
-		Clipboard,
-		Loader2
+		Clipboard
 	} from 'lucide-svelte'
 	import { goto as gotoUrl } from '$app/navigation'
 	import { page } from '$app/stores'
@@ -55,16 +54,14 @@
 </script>
 
 {#if menuOpen}
-	{#await import('$lib/components/apps/editor/AppJsonEditor.svelte')}
-		<Loader2 class="animate-spin" />
-	{:then Module}
+	{#await import('$lib/components/apps/editor/AppJsonEditor.svelte') then Module}
 		<Module.default on:change bind:this={appExport} />
 	{/await}
 	<AppDeploymentHistory bind:this={appDeploymentHistory} appPath={app.path} />
 {/if}
 
 <Row
-	href={`${base}/apps/get/${app.path}`}
+	href="{base}/apps{app.raw_app ? '_raw' : ''}/get/{app.path}"
 	kind="app"
 	{marked}
 	path={app.path}
@@ -84,9 +81,17 @@
 				</div></Badge
 			>
 		{/if}
+		{#if app.raw_app}
+			<Badge small>
+				<div class="flex gap-1 items-center">
+					<FileJson size={14} />
+					Raw
+				</div></Badge
+			>
+		{/if}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
 		<DraftBadge has_draft={app.has_draft} draft_only={app.draft_only} />
-		<div class="w-8 center-center" />
+		<div class="w-8 center-center"></div>
 	</svelte:fragment>
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">
@@ -94,11 +99,13 @@
 				{#if app.canWrite}
 					<div>
 						<Button
+							aiId={`edit-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
+							aiDescription={`Edits the app ${app.summary?.length > 0 ? app.summary : app.path}`}
 							color="light"
 							size="xs"
 							variant="border"
 							startIcon={{ icon: Pen }}
-							href="{base}/apps/edit/{app.path}?nodraft=true"
+							href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}?nodraft=true"
 						>
 							Edit
 						</Button>
@@ -106,11 +113,13 @@
 				{:else}
 					<div>
 						<Button
+							aiId={`fork-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
+							aiDescription={`Fork the app ${app.summary?.length > 0 ? app.summary : app.path}`}
 							color="light"
 							size="xs"
 							variant="border"
 							startIcon={{ icon: GitFork }}
-							href="{base}/apps/add?template={app.path}"
+							href="{base}/apps{app.raw_app ? '_raw' : ''}/add?template={app.path}"
 						>
 							Fork
 						</Button>
@@ -119,6 +128,8 @@
 			{/if}
 		</span>
 		<Dropdown
+			aiId={`app-row-dropdown-${app.summary?.length > 0 ? app.summary : app.path}`}
+			aiDescription={`Open dropdown for app ${app.summary?.length > 0 ? app.summary : app.path} options`}
 			items={async () => {
 				let { draft_only, canWrite, summary, execution_mode, path, has_draft } = app
 
@@ -157,7 +168,7 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `${base}/apps/add?template=${path}`,
+						href: `${base}/apps${app.raw_app ? '_raw' : ''}/add?template=${path}`,
 						hide: $userStore?.operator
 					},
 					{
@@ -179,7 +190,7 @@
 									},
 									hide: $userStore?.operator
 								}
-						  ]
+							]
 						: []),
 					{
 						displayName: $userStore?.operator ? 'View JSON' : 'View/Edit JSON',
@@ -226,7 +237,7 @@
 										gotoUrl(url)
 									}
 								}
-						  ]
+							]
 						: []),
 					...(has_draft
 						? [
@@ -245,7 +256,7 @@
 									disabled: !canWrite,
 									hide: $userStore?.operator
 								}
-						  ]
+							]
 						: []),
 					{
 						displayName: 'Delete',

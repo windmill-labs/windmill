@@ -40,9 +40,17 @@
 				name: name
 			}
 		})
-		sendUserToast(`${edit ? 'Updated' : 'Created'} contextual variable ${name}`)
+		sendUserToast(
+			`${
+				edit ? 'Updated' : 'Created'
+			} contextual variable ${name}. It may take up to a few minutes to update.`
+		)
 		dispatch('update')
+
 		drawer.closeDrawer()
+		setTimeout(() => {
+			dispatch('update')
+		}, 5000)
 	}
 </script>
 
@@ -58,10 +66,10 @@
 				</Section>
 			{/if}
 			<Section label="Value">
-				<textarea rows="4" use:autosize bind:value placeholder="Variable value" />
+				<textarea rows="4" use:autosize bind:value placeholder="Variable value"></textarea>
 			</Section>
 		</div>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button
 				on:click={() => updateVariable()}
 				disabled={value === '' || name === ''}
@@ -71,6 +79,6 @@
 			>
 				{edit ? 'Update' : 'Save'}
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

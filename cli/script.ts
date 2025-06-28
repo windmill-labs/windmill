@@ -300,7 +300,7 @@ export async function handleFile(
     }
 
     if (typed && codebase) {
-      typed.codebase = codebase.digest;
+      typed.codebase = await codebase.getDigest();
     }
 
     const requestBodyCommon: NewScript = {
@@ -325,8 +325,7 @@ export async function handleFile(
       has_preprocessor: typed?.has_preprocessor,
       priority: typed?.priority,
       concurrency_key: typed?.concurrency_key,
-      //@ts-ignore
-      codebase: codebase?.digest,
+      codebase: await codebase?.getDigest(),
       timeout: typed?.timeout,
       on_behalf_of_email: typed?.on_behalf_of_email,
     };
@@ -548,6 +547,8 @@ export function filePathExtensionFromContentType(
     return ".my.sql";
   } else if (language === "bigquery") {
     return ".bq.sql";
+  } else if (language === "duckdb") {
+    return ".duckdb.sql";
   } else if (language === "oracledb") {
     return ".odb.sql";
   } else if (language === "snowflake") {
@@ -570,6 +571,11 @@ export function filePathExtensionFromContentType(
     return ".playbook.yml";
   } else if (language === "csharp") {
     return ".cs";
+  } else if (language === "nu") {
+    return ".nu";
+  } else if (language === "java") {
+    return ".java";
+    // for related places search: ADD_NEW_LANG
   } else {
     throw new Error("Invalid language: " + language);
   }
@@ -589,13 +595,17 @@ export const exts = [
   ".odb.sql",
   ".sf.sql",
   ".ms.sql",
+  ".duckdb.sql",
   ".sql",
   ".gql",
   ".ps1",
   ".php",
   ".rs",
   ".cs",
+  ".nu",
   ".playbook.yml",
+  ".java",
+  // for related places search: ADD_NEW_LANG
 ];
 
 export function removeExtensionToPath(path: string): string {
@@ -859,12 +869,14 @@ export type GlobalDeps = {
   pkgs: Record<string, string>;
   reqs: Record<string, string>;
   composers: Record<string, string>;
+  goMods: Record<string, string>;
 };
 export async function findGlobalDeps(): Promise<GlobalDeps> {
   const pkgs: { [key: string]: string } = {};
   const reqs: { [key: string]: string } = {};
   const composers: { [key: string]: string } = {};
-  const els = await FSFSElement(Deno.cwd(), []);
+  const goMods: { [key: string]: string } = {};
+  const els = await FSFSElement(Deno.cwd(), [], false);
   for await (const entry of readDirRecursiveWithIgnore((p, isDir) => {
     p = SEP + p;
     return (
@@ -872,21 +884,24 @@ export async function findGlobalDeps(): Promise<GlobalDeps> {
       !(
         p.endsWith(SEP + "package.json") ||
         p.endsWith(SEP + "requirements.txt") ||
-        p.endsWith(SEP + "composer.json")
+        p.endsWith(SEP + "composer.json") ||
+        p.endsWith(SEP + "go.mod")
       )
     );
   }, els)) {
     if (entry.isDirectory || entry.ignored) continue;
     const content = await entry.getContentText();
     if (entry.path.endsWith("package.json")) {
-      pkgs[entry.path.substring(0, entry.path.length - 12)] = content;
+      pkgs[entry.path.substring(0, entry.path.length - "package.json".length)] = content;
     } else if (entry.path.endsWith("requirements.txt")) {
-      reqs[entry.path.substring(0, entry.path.length - 16)] = content;
+      reqs[entry.path.substring(0, entry.path.length - "requirements.txt".length)] = content;
     } else if (entry.path.endsWith("composer.json")) {
-      composers[entry.path.substring(0, entry.path.length - 13)] = content;
+      composers[entry.path.substring(0, entry.path.length - "composer.json".length)] = content;
+    } else if (entry.path.endsWith("go.mod")) {
+      goMods[entry.path.substring(0, entry.path.length - "go.mod".length)] = content;
     }
   }
-  return { pkgs, reqs, composers };
+  return { pkgs, reqs, composers, goMods };
 }
 async function generateMetadata(
   opts: GlobalOptions & {
@@ -927,7 +942,7 @@ async function generateMetadata(
   } else {
     const ignore = await ignoreF(opts);
     const elems = await elementsToMap(
-      await FSFSElement(Deno.cwd(), codebases),
+      await FSFSElement(Deno.cwd(), codebases, false),
       (p, isD) => {
         return (
           (!isD && !exts.some((ext) => p.endsWith(ext))) ||
@@ -958,6 +973,10 @@ async function generateMetadata(
       }
     }
     if (hasAny) {
+      if (opts.dryRun) {
+        log.info(colors.gray(`Dry run complete.`));
+        return;
+      }
       if (
         !opts.yes &&
         !(await Confirm.prompt({
@@ -1021,6 +1040,7 @@ const command = new Command()
   )
   .arguments("[script:file]")
   .option("--yes", "Skip confirmation prompt")
+  .option("--dry-run", "Perform a dry run without making changes")
   .option("--lock-only", "re-generate only the lock")
   .option("--schema-only", "re-generate only script schema")
   .option(

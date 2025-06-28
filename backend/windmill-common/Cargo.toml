@@ -7,22 +7,26 @@ edition.workspace = true
 [features]
 default = []
 enterprise = []
+private = []
 jemalloc = ["dep:tikv-jemalloc-ctl"]
 tantivy = []
 prometheus = ["dep:prometheus"]
 loki = ["dep:tracing-loki"]
 benchmark = []
-parquet = ["dep:object_store", "dep:aws-config", "dep:aws-sdk-sts"]
+parquet = ["dep:object_store", "dep:aws-config", "dep:aws-sdk-sts", "dep:aws-smithy-types-convert", "dep:datafusion"]
+aws_auth = ["dep:aws-sdk-sts", "dep:aws-config"]
 otel = ["dep:opentelemetry-semantic-conventions", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk", 
     "dep:opentelemetry", "dep:tracing-opentelemetry", "dep:opentelemetry-appender-tracing", "dep:tonic"]
 smtp = ["dep:mail-send"]
 scoped_cache = []
-
+cloud = []
+openidconnect = ["dep:openidconnect"]
 [lib]
 name = "windmill_common"
 path = "src/lib.rs"
 
 [dependencies]
+tar.workspace = true
 hmac.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
@@ -32,6 +36,8 @@ serde_json.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 hex.workspace = true
+reqwest-middleware = { workspace = true }
+reqwest-retry = { workspace = true }
 rand.workspace = true
 sqlx = { workspace = true, features = ["postgres"] }
 uuid.workspace = true
@@ -39,6 +45,9 @@ tracing = { workspace = true }
 axum = { workspace = true }
 hyper = { workspace = true }
 tokio = { workspace = true }
+tokio-stream.workspace = true
+tokio-util.workspace = true
+datafusion = { workspace = true, optional = true}
 reqwest = { workspace = true }
 tracing-subscriber = { workspace = true }
 lazy_static.workspace = true
@@ -54,6 +63,7 @@ object_store = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 aws-config = { workspace = true, optional = true }
 aws-sdk-sts = { workspace = true, optional = true }
+aws-smithy-types-convert = { workspace = true, optional = true }
 indexmap.workspace = true
 bytes.workspace = true
 mail-send = { workspace = true, optional = true }
@@ -62,8 +72,15 @@ async-stream.workspace = true
 const_format.workspace = true
 crc.workspace = true
 windmill-macros.workspace = true
+windmill-parser-sql.workspace = true
+windmill-parser-ts.workspace = true
+windmill-parser-py.workspace = true
 jsonwebtoken.workspace = true
 backon.workspace = true
+openidconnect = { workspace = true, optional = true }
+strum.workspace = true
+strum_macros.workspace = true
+url.workspace = true
 
 semver.workspace = true
 croner = "2.0.6"
@@ -71,6 +88,8 @@ quick_cache.workspace = true
 pin-project-lite.workspace = true
 futures.workspace = true
 tempfile.workspace = true
+systemstat.workspace = true
+size.workspace = true
 
 opentelemetry-semantic-conventions = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }

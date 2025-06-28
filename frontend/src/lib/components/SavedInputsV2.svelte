@@ -1,24 +1,41 @@
 <script lang="ts">
 	import SavedInputsPicker from '$lib/components/SavedInputsPicker.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, tick } from 'svelte'
 	import HistoricInputs from '$lib/components/HistoricInputs.svelte'
 	import { type RunnableType } from '$lib/gen/types.gen.js'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Section from '$lib/components/Section.svelte'
 	import SaveInputsButton from '$lib/components/SaveInputsButton.svelte'
 	import { Button } from './common'
-	import { ExternalLink } from 'lucide-svelte'
+	import { ExternalLink, Search } from 'lucide-svelte'
+	import { Popover } from './meltComponents'
+	import SchemaForm from './SchemaForm.svelte'
+	import MultiSelect from './select/MultiSelect.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 	const dispatch = createEventDispatcher()
 
-	export let scriptHash: string | null = null
-	export let scriptPath: string | null = null
-	export let flowPath: string | null = null
-	export let inputSelected: 'saved' | 'history' | undefined = undefined
-	export let jsonView: boolean = false
+	interface Props {
+		scriptHash?: string | null
+		scriptPath?: string | null
+		flowPath?: string | null
+		inputSelected?: 'saved' | 'history' | undefined
+		jsonView?: boolean
+		schema: any
+		// Are the current Inputs valid and able to be saved?
+		isValid: boolean
+		args: object
+	}
 
-	// Are the current Inputs valid and able to be saved?
-	export let isValid: boolean
-	export let args: object
+	let {
+		scriptHash = null,
+		scriptPath = null,
+		flowPath = null,
+		inputSelected = $bindable(undefined),
+		jsonView = false,
+		schema,
+		isValid,
+		args
+	}: Props = $props()
 
 	export function resetSelected() {
 		historicInputs?.resetSelected(true)
@@ -26,18 +43,14 @@
 	}
 
 	let savedArgs: any = undefined
-	let runnableType: RunnableType | undefined = undefined
-	let savedInputsPicker: SavedInputsPicker | undefined = undefined
-	let historicInputs: HistoricInputs | undefined = undefined
+	let savedInputsPicker: SavedInputsPicker | undefined = $state(undefined)
+	let historicInputs: HistoricInputs | undefined = $state(undefined)
 
-	$: runnableId = scriptHash || scriptPath || flowPath || undefined
-	$: runnableType = scriptHash
-		? 'ScriptHash'
-		: scriptPath
-		? 'ScriptPath'
-		: flowPath
-		? 'FlowPath'
-		: undefined
+	let runnableId = $derived(scriptHash || scriptPath || flowPath || undefined)
+
+	let runnableType: RunnableType | undefined = $derived(
+		scriptHash ? 'ScriptHash' : scriptPath ? 'ScriptPath' : flowPath ? 'FlowPath' : undefined
+	)
 
 	function selectArgs(selected_args: any, type: 'saved' | 'history' | undefined) {
 		if (selected_args) {
@@ -51,6 +64,19 @@
 			dispatch('selected_args', savedArgs)
 		}
 	}
+
+	let searchArgs = $state({})
+	let appliedSearchArgs = $state({})
+
+	let searchArgsFields = $state([] as string[])
+
+	let emptySearchArgs = $derived(Object.keys(appliedSearchArgs).length === 0)
+
+	let filteredSchema = $derived({
+		properties: Object.fromEntries(
+			Object.entries(schema?.properties ?? {}).filter(([key]) => searchArgsFields.includes(key))
+		)
+	})
 </script>
 
 <div class="min-w-[300px] h-full flex flex-col">
@@ -62,7 +88,7 @@
 				wrapperClass="h-full"
 				small={true}
 			>
-				<svelte:fragment slot="action">
+				{#snippet action()}
 					<SaveInputsButton
 						{args}
 						disabled={!isValid || jsonView}
@@ -72,7 +98,7 @@
 							savedInputsPicker?.refresh()
 						}}
 					/>
-				</svelte:fragment>
+				{/snippet}
 
 				<SavedInputsPicker
 					bind:this={savedInputsPicker}
@@ -91,19 +117,92 @@
 
 		<Pane class="px-4 py-4 h-full">
 			<Section label="History" wrapperClass="h-full" small={true}>
-				<svelte:fragment slot="action">
-					<Button
-						size="xs2"
-						color="light"
-						btnClasses="!text-tertiary"
-						endIcon={{ icon: ExternalLink }}
-						on:click={() => {
-							window.open(`/runs/${runnableId}`, '_blank')
-						}}
-					>
-						All runs
-					</Button>
-				</svelte:fragment>
+				{#snippet action()}
+					<div class="flex space-x-2">
+						<Popover
+							class="w-fit"
+							usePointerDownOutside
+							closeOnOtherPopoverOpen
+							on:click={(e) => {
+								e.stopPropagation()
+							}}
+							floatingConfig={{ placement: 'top-end' }}
+						>
+							{#snippet trigger()}
+								<Button
+									variant="contained"
+									size="xs2"
+									color={emptySearchArgs ? 'light' : 'dark'}
+									nonCaptureEvent
+									title="Search history"
+									iconOnly={emptySearchArgs}
+									endIcon={{ icon: Search }}
+								>
+									{emptySearchArgs ? '' : 'Active filters'}
+								</Button>
+							{/snippet}
+
+							{#snippet content()}
+								<div class="p-2 overflow-auto max-h-[400px] min-h-[300px] w-[400px]">
+									<div class="flex items-center flex-wrap gap-x-2 justify-between">
+										<div class="text-sm text-secondary">Search by args</div>
+										<div class="flex flex-wrap gap-x-2">
+											{#if !emptySearchArgs}
+												<Button
+													on:click={async () => {
+														searchArgs = {}
+														appliedSearchArgs = {}
+														await tick()
+														historicInputs?.refresh(true)
+													}}
+													variant="contained"
+													size="xs2"
+													color="light">Reset filters</Button
+												>
+											{/if}
+											<Button
+												on:click={async () => {
+													appliedSearchArgs = structuredClone($state.snapshot(searchArgs))
+													await tick()
+													historicInputs?.refresh(true)
+												}}
+												endIcon={{ icon: Search }}
+												variant="contained"
+												size="xs2"
+												color="dark">Search</Button
+											>
+										</div>
+									</div>
+									<div class="my-2">
+										<MultiSelect
+											placeholder="arg fields to filter on"
+											items={safeSelectItems(Object.keys(schema?.properties ?? {}))}
+											bind:value={searchArgsFields}
+											disablePortal
+										/>
+									</div>
+									{#key filteredSchema}
+										<SchemaForm shouldHideNoInputs schema={filteredSchema} bind:args={searchArgs} />
+									{/key}
+									{#if searchArgsFields.length === 0}
+										<div class="text-secondary text-sm my-8 mx-auto">No filters</div>
+									{/if}
+								</div>
+							{/snippet}
+						</Popover>
+						<Button
+							size="xs2"
+							color="light"
+							btnClasses="!text-tertiary"
+							endIcon={{ icon: ExternalLink }}
+							on:click={() => {
+								window.open(`/runs/${runnableId}`, '_blank')
+							}}
+						>
+							All runs
+						</Button>
+					</div>
+				{/snippet}
 				<HistoricInputs
 					bind:this={historicInputs}
 					{runnableId}
@@ -112,6 +211,7 @@
 						if (e.detail) savedInputsPicker?.resetSelected()
 						selectArgs(e.detail?.args, e.detail ? 'history' : undefined)
 					}}
+					searchArgs={emptySearchArgs ? undefined : appliedSearchArgs}
 					showAuthor
 					placement="top-end"
 				/>

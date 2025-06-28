@@ -36,6 +36,91 @@ import { getNextId } from '$lib/components/flows/idUtils'
 import { enterpriseLicense } from '$lib/stores'
 import gridHelp from '../svelte-grid/utils/helper'
 
+type GridItemLocation =
+	| {
+			type: 'grid'
+			gridItemIndex: number
+	  }
+	| {
+			type: 'subgrid'
+			subgridItemIndex: number
+			subgridKey: string
+	  }
+interface GridItemWithLocation {
+	location: GridItemLocation
+	item: GridItem
+	parent: string | undefined
+}
+
+export function allItemsWithLocation(
+	grid: GridItem[],
+	subgrids: Record<string, GridItem[]> | undefined
+): GridItemWithLocation[] {
+	const gridItems: GridItemWithLocation[] = grid.map((x, i) => ({
+		location: {
+			type: 'grid',
+			gridItemIndex: i
+		},
+		item: x,
+		parent: undefined
+	}))
+	if (subgrids) {
+		for (const key of Object.keys(subgrids)) {
+			gridItems.push(
+				...subgrids[key].map((x, i) => ({
+					location: {
+						type: 'subgrid' as const,
+						subgridItemIndex: i,
+						subgridKey: key
+					},
+					item: x,
+					parent: key
+				}))
+			)
+		}
+	}
+	return gridItems
+}
+
+export function findGridItemWithLocation(
+	app: App,
+	id: string | undefined
+): GridItemWithLocation | undefined {
+	if (!id) return undefined
+	if (app?.grid) {
+		const gridItemIndex = app.grid.findIndex((x) => x.data?.id === id)
+		if (gridItemIndex > -1) {
+			return {
+				location: {
+					type: 'grid',
+					gridItemIndex: gridItemIndex
+				},
+				item: app.grid[gridItemIndex],
+				parent: undefined
+			}
+		}
+	}
+
+	if (app?.subgrids) {
+		for (const key of Object.keys(app.subgrids ?? {})) {
+			const subGridItemIndex = app.subgrids[key].findIndex((x) => x.data?.id === id)
+			if (subGridItemIndex > -1) {
+				return {
+					location: {
+						subgridItemIndex: subGridItemIndex,
+						subgridKey: key,
+						type: 'subgrid'
+					},
+					item: app.subgrids[key][subGridItemIndex],
+					parent: key
+				}
+			}
+		}
+	}
+
+	return undefined
+}
+
 export function findComponentSettings(app: App, id: string | undefined) {
 	if (!id) return undefined
 	if (app?.grid) {
@@ -391,7 +476,7 @@ export function appComponentFromType<T extends keyof typeof components>(
 			),
 			recomputeIds: init.recomputeIds ? [] : undefined,
 			actionButtons: init.actionButtons ? [] : undefined,
-			actions: [],
+			actions: undefined,
 			menuItems: init.menuItems ? [] : undefined,
 			numberOfSubgrids: init.numberOfSubgrids,
 			horizontalAlignment: override?.horizontalAlignment ?? init.horizontalAlignment,
@@ -772,20 +857,20 @@ export type InitConfig<
 	[Property in keyof T]: T[Property] extends StaticAppInput
 		? T[Property]['value'] | undefined
 		: T[Property] extends { type: 'oneOf' }
-		? {
-				type: 'oneOf'
-				selected: keyof T[Property]['configuration']
-				configuration: {
-					[Choice in keyof T[Property]['configuration']]: {
-						[IT in keyof T[Property]['configuration'][Choice]]: T[Property]['configuration'][Choice][IT] extends StaticAppInput
-							? T[Property]['configuration'][Choice][IT] extends StaticAppInputOnDemand
-								? () => Promise<T[Property]['configuration'][Choice][IT]['value'] | undefined>
-								: T[Property]['configuration'][Choice][IT]['value'] | undefined
-							: undefined
+			? {
+					type: 'oneOf'
+					selected: keyof T[Property]['configuration']
+					configuration: {
+						[Choice in keyof T[Property]['configuration']]: {
+							[IT in keyof T[Property]['configuration'][Choice]]: T[Property]['configuration'][Choice][IT] extends StaticAppInput
+								? T[Property]['configuration'][Choice][IT] extends StaticAppInputOnDemand
+									? () => Promise<T[Property]['configuration'][Choice][IT]['value'] | undefined>
+									: T[Property]['configuration'][Choice][IT]['value'] | undefined
+								: undefined
+						}
 					}
 				}
-		  }
-		: undefined
+			: undefined
 }
 
 export function initConfig<
@@ -827,27 +912,30 @@ export function initConfig<
 						? [
 								key,
 								configuration?.[key]?.type == 'static' ? configuration?.[key]?.['value'] : undefined
-						  ]
+							]
 						: value.type == 'oneOf'
-						? [
-								key,
-								{
-									selected: value.selected,
-									type: 'oneOf',
-									configuration: Object.fromEntries(
-										Object.entries(value.configuration).map(([choice, config]) => {
-											const conf = initConfig(config, configuration?.[key]?.configuration?.[choice])
-											Object.entries(config).forEach(([innerKey, innerValue]) => {
-												if (innerValue.type === 'static' && !(innerKey in conf)) {
-													conf[innerKey] = innerValue.value
-												}
+							? [
+									key,
+									{
+										selected: value.selected,
+										type: 'oneOf',
+										configuration: Object.fromEntries(
+											Object.entries(value.configuration).map(([choice, config]) => {
+												const conf = initConfig(
+													config,
+													configuration?.[key]?.configuration?.[choice]
+												)
+												Object.entries(config).forEach(([innerKey, innerValue]) => {
+													if (innerValue.type === 'static' && !(innerKey in conf)) {
+														conf[innerKey] = innerValue.value
+													}
+												})
+												return [choice, conf]
 											})
-											return [choice, conf]
-										})
-									)
-								}
-						  ]
-						: [key, undefined]
+										)
+									}
+								]
+							: [key, undefined]
 				)
 			) as any
 		)

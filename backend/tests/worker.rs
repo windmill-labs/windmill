@@ -1,7 +1,7 @@
 use serde::de::DeserializeOwned;
 use std::future::Future;
 use std::{str::FromStr, sync::Arc};
-use windmill_api_client::types::{NewScript, ScriptLang as NewScriptLanguage};
+use windmill_common::KillpillSender;
 
 #[cfg(feature = "enterprise")]
 use chrono::Timelike;
@@ -16,16 +16,20 @@ use tokio::sync::RwLock;
 #[cfg(feature = "enterprise")]
 use tokio::time::{timeout, Duration};
 
+#[cfg(feature = "python")]
 use windmill_api_client::types::{CreateFlowBody, RawScript};
-
 #[cfg(feature = "enterprise")]
 use windmill_api_client::types::{EditSchedule, NewSchedule, ScriptArgs};
+use windmill_api_client::types::{NewScript, ScriptLang as NewScriptLanguage};
 
 use serde::Serialize;
+#[cfg(feature = "deno_core")]
+use windmill_common::flows::InputTransform;
 use windmill_common::worker::WORKER_CONFIG;
+
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule, RestartedFrom},
-    flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
+    flows::{FlowModule, FlowModuleValue, FlowValue},
     jobs::{JobKind, JobPayload, RawCode},
     jwt::JWT_SECRET,
     scripts::{ScriptHash, ScriptLang},
@@ -137,11 +141,11 @@ impl ApiServer {
             rx,
             port_tx,
             false,
-            #[cfg(feature = "smtp")]
+            false,
             format!("http://localhost:{}", addr.port()),
         ));
 
-        _port_rx.await.unwrap();
+        _port_rx.await.expect("failed to receive port");
 
         // clear the cache between tests
         windmill_common::cache::clear();
@@ -167,6 +171,7 @@ impl ApiServer {
 //     Ok(())
 // }
 
+#[cfg(feature = "python")]
 fn get_module(cjob: &CompletedJob, id: &str) -> Option<FlowStatusModule> {
     cjob.flow_status.clone().and_then(|fs| {
         find_module_in_vec(
@@ -176,6 +181,7 @@ fn get_module(cjob: &CompletedJob, id: &str) -> Option<FlowStatusModule> {
     })
 }
 
+#[cfg(feature = "python")]
 fn find_module_in_vec(modules: Vec<FlowStatusModule>, id: &str) -> Option<FlowStatusModule> {
     modules.into_iter().find(|s| s.id() == id)
 }
@@ -284,6 +290,7 @@ mod suspend_resume {
             .unwrap()
     }
 
+    #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base"))]
     async fn test(db: Pool<Postgres>) {
         initialize_tracing().await;
@@ -315,7 +322,7 @@ mod suspend_resume {
                 let second = completed.next().await.unwrap();
                 // print_job(second, &db).await;
 
-                let token = windmill_worker::create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "", &Uuid::nil()).await.unwrap();
+                let token = windmill_common::auth::create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "", &Uuid::nil(), None).await.unwrap();
                 let secret = reqwest::get(format!(
                     "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}&approver=ruben"
                 ))
@@ -366,6 +373,7 @@ mod suspend_resume {
         );
     }
 
+    #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base"))]
     async fn cancel_from_job(db: Pool<Postgres>) {
         initialize_tracing().await;
@@ -391,6 +399,7 @@ mod suspend_resume {
         );
     }
 
+    #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base"))]
     async fn cancel_after_suspend(db: Pool<Postgres>) {
         initialize_tracing().await;
@@ -418,7 +427,7 @@ mod suspend_resume {
                 /* ... and send a request resume it. */
                 let second = completed.next().await.unwrap();
 
-                let token = windmill_worker::create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "", &Uuid::nil()).await.unwrap();
+                let token = windmill_common::auth::create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "", &Uuid::nil(), None).await.unwrap();
                 let secret = reqwest::get(format!(
                     "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}"
                 ))
@@ -564,6 +573,7 @@ def main(last, port):
         .unwrap()
     }
 
+    #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base"))]
     async fn test_pass(db: Pool<Postgres>) {
         initialize_tracing().await;
@@ -609,6 +619,7 @@ def main(last, port):
         assert_eq!(json!([3, 5, 7, 9]), result);
     }
 
+    #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base"))]
     async fn test_fail_step_zero(db: Pool<Postgres>) {
         initialize_tracing().await;
@@ -652,6 +663,7 @@ def main(last, port):
         );
     }
 
+    #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base"))]
     async fn test_fail_step_one(db: Pool<Postgres>) {
         initialize_tracing().await;
@@ -693,6 +705,7 @@ def main(last, port):
             .contains("index out of range"));
     }
 
+    #[cfg(feature = "python")]
     #[sqlx::test(fixtures("base"))]
     async fn test_with_failure_module(db: Pool<Postgres>) {
         initialize_tracing().await;
@@ -769,6 +782,7 @@ def main(error, port):
     }
 }
 
+#[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_iteration(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -827,6 +841,7 @@ async fn test_iteration(db: Pool<Postgres>) {
         .contains("2"));
 }
 
+#[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_iteration_parallel(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -999,7 +1014,7 @@ async fn in_test_worker<Fut: std::future::Future>(
     };
 
     /* ensure the worker quits before we return */
-    quit.send(()).expect("send");
+    quit.send();
 
     let _: () = worker
         .await
@@ -1011,16 +1026,13 @@ async fn in_test_worker<Fut: std::future::Future>(
 fn spawn_test_worker(
     db: &Pool<Postgres>,
     port: u16,
-) -> (
-    tokio::sync::broadcast::Sender<()>,
-    tokio::task::JoinHandle<()>,
-) {
+) -> (KillpillSender, tokio::task::JoinHandle<()>) {
     std::fs::DirBuilder::new()
         .recursive(true)
         .create(windmill_worker::GO_BIN_CACHE_DIR)
         .expect("could not create initial worker dir");
 
-    let (tx, rx) = tokio::sync::broadcast::channel(1);
+    let (tx, rx) = KillpillSender::new(1);
     let db = db.to_owned();
     let worker_instance: &str = "test worker instance";
     let worker_name: String = next_worker_name();
@@ -1036,11 +1048,11 @@ fn spawn_test_worker(
                 priority: 0,
                 tags: (*wc).worker_tags.clone(),
             }];
-            windmill_common::worker::make_suspended_pull_query(&wc).await;
-            windmill_common::worker::make_pull_query(&wc).await;
+            windmill_common::worker::store_suspended_pull_query(&wc).await;
+            windmill_common::worker::store_pull_query(&wc).await;
         }
         windmill_worker::run_worker(
-            &db,
+            &db.into(),
             worker_instance,
             worker_name,
             1,
@@ -1049,7 +1061,6 @@ fn spawn_test_worker(
             rx,
             tx2,
             &base_internal_url,
-            false,
         )
         .await
     };
@@ -1109,6 +1120,7 @@ trait StreamFind: futures::Stream + Unpin + Sized {
 
 impl<T: futures::Stream + Unpin + Sized> StreamFind for T {}
 
+#[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_deno_flow(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -1227,6 +1239,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
     }
 }
 
+#[cfg(feature = "python")]
 #[sqlx::test(fixtures("base"))]
 async fn test_identity(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -1264,6 +1277,7 @@ async fn test_identity(db: Pool<Postgres>) {
     assert_eq!(result, serde_json::json!(42));
 }
 
+#[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -1539,6 +1553,7 @@ async fn test_flow_result_by_id(db: Pool<Postgres>) {
     assert_eq!(result, serde_json::json!([[42]]));
 }
 
+#[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_stop_after_if(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -1592,6 +1607,7 @@ async fn test_stop_after_if(db: Pool<Postgres>) {
     assert_eq!(json!(-123), result);
 }
 
+#[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_stop_after_if_nested(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -1650,6 +1666,7 @@ async fn test_stop_after_if_nested(db: Pool<Postgres>) {
     assert_eq!(json!([-123]), result);
 }
 
+#[cfg(all(feature = "deno_core", feature = "python"))]
 #[sqlx::test(fixtures("base"))]
 async fn test_python_flow(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -1707,6 +1724,7 @@ async fn test_python_flow(db: Pool<Postgres>) {
     }
 }
 
+#[cfg(feature = "python")]
 #[sqlx::test(fixtures("base"))]
 async fn test_python_flow_2(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -1781,6 +1799,7 @@ func main(derp string) (string, error) {
     assert_eq!(result, serde_json::json!("hello world"));
 }
 
+#[cfg(feature = "rust")]
 #[sqlx::test(fixtures("base"))]
 async fn test_rust_job(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -1888,6 +1907,155 @@ echo "hello $msg"
     assert_eq!(job.json_result(), Some(json!("hello world")));
 }
 
+#[cfg(feature = "nu")]
+#[sqlx::test(fixtures("base"))]
+async fn test_nu_job(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"
+def main [ msg: string ] {
+    "hello " + $msg
+}
+"#
+    .to_owned();
+
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Nu,
+        custom_concurrency_key: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
+        cache_ttl: None,
+        dedicated_worker: None,
+    }))
+    .arg("msg", json!("world"))
+    .run_until_complete(&db, port)
+    .await;
+    assert_eq!(job.json_result(), Some(json!("hello world")));
+}
+
+#[cfg(feature = "nu")]
+#[sqlx::test(fixtures("base"))]
+async fn test_nu_job_full(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"
+def main [ 
+  # Required
+  ## Primitive
+  a
+  b: any
+  c: bool
+  d: float
+  e: datetime
+  f: string
+  j: nothing
+  ## Nesting
+  g: record
+  h: list<string>
+  i: table
+  # Optional
+  m?
+  n = "foo"
+  o: any = "foo"
+  p?: any
+  # TODO: ...x
+ ] {
+    0
+}
+        "#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Nu,
+        custom_concurrency_key: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
+        cache_ttl: None,
+        dedicated_worker: None,
+    }))
+    .arg("a", json!("3"))
+    .arg("b", json!("null"))
+    .arg("c", json!(true))
+    .arg("d", json!(3.0))
+    .arg("e", json!("2024-09-24T10:00:00.000Z"))
+    .arg("f", json!("str"))
+    .arg("j", json!(null))
+    .arg("g", json!({"a": 32}))
+    .arg("h", json!(["foo"]))
+    .arg(
+        "i",
+        json!([
+            {"a": 1, "b": "foo", "c": true},
+            {"a": 2, "b": "baz", "c": false}
+        ]),
+    )
+    .arg("n", json!("baz"))
+    .run_until_complete(&db, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, serde_json::json!(0));
+}
+
+#[cfg(feature = "java")]
+#[sqlx::test(fixtures("base"))]
+async fn test_java_job(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"
+public class Main {
+  public static Object main(
+    // Primitive
+    int a,
+    float b,
+    // Objects
+    Integer age,
+    Float d
+    ){
+    return "hello world";
+  }
+}
+
+"#
+    .to_owned();
+
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Java,
+        custom_concurrency_key: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
+        cache_ttl: None,
+        dedicated_worker: None,
+    }))
+    .arg("a", json!(3))
+    .arg("b", json!(3.0))
+    .arg("age", json!(30))
+    .arg("d", json!(3.0))
+    .run_until_complete(&db, port)
+    .await;
+    assert_eq!(job.json_result(), Some(json!("hello world")));
+}
+
+#[cfg(feature = "python")]
 #[sqlx::test(fixtures("base"))]
 async fn test_python_job(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -1921,6 +2089,7 @@ def main():
     assert_eq!(result, serde_json::json!("hello world"));
 }
 
+#[cfg(feature = "python")]
 #[sqlx::test(fixtures("base"))]
 async fn test_python_job_heavy_dep(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -1957,6 +2126,7 @@ def main():
     assert_eq!(result, serde_json::json!(3));
 }
 
+#[cfg(feature = "python")]
 #[sqlx::test(fixtures("base"))]
 async fn test_python_job_with_imports(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -2060,6 +2230,7 @@ export async function main(a: Date) {
     assert_eq!(result, serde_json::json!("object"));
 }
 
+#[cfg(feature = "python")]
 #[sqlx::test(fixtures("base"))]
 async fn test_python_job_datetime_and_bytes(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -2095,6 +2266,7 @@ def main(a: datetime, b: bytes):
     assert_eq!(result, serde_json::json!([true, true]));
 }
 
+#[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_empty_loop_1(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -2151,6 +2323,7 @@ async fn test_empty_loop_1(db: Pool<Postgres>) {
     assert_eq!(result, serde_json::json!(0));
 }
 
+#[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_invalid_first_step(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -2231,6 +2404,7 @@ async fn test_empty_loop_2(db: Pool<Postgres>) {
     assert_eq!(result, serde_json::json!([]));
 }
 
+#[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_step_after_loop(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -2354,6 +2528,7 @@ async fn test_branchone_simple(db: Pool<Postgres>) {
     assert_eq!(result, serde_json::json!([1, 2]));
 }
 
+#[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_branchone_with_cond(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -2390,6 +2565,7 @@ async fn test_branchone_with_cond(db: Pool<Postgres>) {
     assert_eq!(result, serde_json::json!([1, 3]));
 }
 
+#[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_branchall_sequential(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -2428,6 +2604,7 @@ async fn test_branchall_sequential(db: Pool<Postgres>) {
     assert_eq!(result, serde_json::json!([[1, 2], [1, 3]]));
 }
 
+#[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_branchall_simple(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -2555,6 +2732,7 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) {
     );
 }
 
+#[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_branchone_nested(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -2674,6 +2852,7 @@ async fn test_branchall_nested(db: Pool<Postgres>) {
     );
 }
 
+#[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_failure_module(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -2786,6 +2965,7 @@ async fn test_failure_module(db: Pool<Postgres>) {
     assert_eq!(json!({ "l": [0, 1, 2] }), result);
 }
 
+#[cfg(feature = "python")]
 #[sqlx::test(fixtures("base"))]
 async fn test_flow_lock_all(db: Pool<Postgres>) {
     use futures::StreamExt;
@@ -2924,6 +3104,7 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
         });
 }
 
+#[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 
 async fn test_complex_flow_restart(db: Pool<Postgres>) {
@@ -3608,6 +3789,7 @@ export async function main() {
     run_preview_relative_imports(&db, content, ScriptLang::Bun).await;
 }
 
+#[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base", "relative_bun"))]
 async fn test_nested_imports_bun(db: Pool<Postgres>) {
     let content = r#"
@@ -3656,6 +3838,7 @@ export async function main() {
     run_preview_relative_imports(&db, content, ScriptLang::Deno).await;
 }
 
+#[cfg(feature = "python")]
 #[sqlx::test(fixtures("base", "relative_python"))]
 async fn test_relative_imports_python(db: Pool<Postgres>) {
     let content = r#"
@@ -3673,6 +3856,7 @@ def main():
     run_preview_relative_imports(&db, content, ScriptLang::Python3).await;
 }
 
+#[cfg(feature = "python")]
 #[sqlx::test(fixtures("base", "relative_python"))]
 async fn test_nested_imports_python(db: Pool<Postgres>) {
     let content = r#"
@@ -3688,6 +3872,241 @@ def main():
     run_preview_relative_imports(&db, content, ScriptLang::Python3).await;
 }
 
+#[cfg(feature = "python")]
+async fn assert_lockfile(
+    db: &Pool<Postgres>,
+    script_content: String,
+    language: ScriptLang,
+    expected_lines: Vec<&str>,
+) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    client
+        .create_script(
+            "test-workspace",
+            &NewScript {
+                language: NewScriptLanguage::from_str(language.as_str()).unwrap(),
+                content: script_content,
+                path: "f/system/test_import".to_string(),
+                concurrent_limit: None,
+                concurrency_time_window_s: None,
+                cache_ttl: None,
+                dedicated_worker: None,
+                description: "".to_string(),
+                draft_only: None,
+                envs: vec![],
+                is_template: None,
+                kind: None,
+                parent_hash: None,
+                lock: None,
+                summary: "".to_string(),
+                tag: None,
+                schema: std::collections::HashMap::new(),
+                ws_error_handler_muted: Some(false),
+                priority: None,
+                delete_after_use: None,
+                timeout: None,
+                restart_unless_cancelled: None,
+                deployment_message: None,
+                concurrency_key: None,
+                visible_to_runner_only: None,
+                no_main_func: None,
+                codebase: None,
+                has_preprocessor: None,
+                on_behalf_of_email: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    let mut completed = listen_for_completed_jobs(&db).await;
+    let db2 = db.clone();
+    in_test_worker(
+        &db,
+        async move {
+            completed.next().await; // deployed script
+
+            let script = sqlx::query!(
+                "SELECT hash FROM script WHERE path = $1",
+                "f/system/test_import".to_string()
+            )
+            .fetch_one(&db2)
+            .await
+            .unwrap();
+
+            let job = RunJob::from(JobPayload::Dependencies {
+                path: "f/system/test_import".to_string(),
+                hash: ScriptHash(script.hash),
+                dedicated_worker: None,
+                language,
+            })
+            .push(&db2)
+            .await;
+
+            completed.next().await; // completed job
+
+            let result = completed_job(job, &db2).await.json_result().unwrap();
+
+            assert_eq!(
+                result,
+                json!({
+                    "lock": expected_lines.join("\n"),
+                    "status": "Successful lock file generation"
+                })
+            );
+        },
+        port,
+    )
+    .await;
+}
+
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base", "lockfile_python"))]
+async fn test_requirements_python(db: Pool<Postgres>) {
+    let content = r#"# py: ==3.11.11
+# requirements:
+# tiny==0.1.3
+
+import bar
+import baz # pin: foo
+import baz # repin: fee
+import bug # repin: free
+    
+def main():
+    pass
+"#
+    .to_string();
+
+    assert_lockfile(
+        &db,
+        content,
+        ScriptLang::Python3,
+        vec!["# py: 3.11.11", "tiny==0.1.3"],
+    )
+    .await;
+}
+
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base", "lockfile_python"))]
+async fn test_extra_requirements_python(db: Pool<Postgres>) {
+    {
+        let content = r#"# py: ==3.11.11
+# extra_requirements:
+# tiny
+
+import f.system.extra_requirements
+import tiny # pin: tiny==0.1.0
+import tiny # pin: tiny==0.1.1
+import tiny # repin: tiny==0.1.2
+
+def main():
+    pass
+    "#
+        .to_string();
+
+        assert_lockfile(
+            &db,
+            content,
+            ScriptLang::Python3,
+            vec!["# py: 3.11.11", "bottle==0.13.2", "tiny==0.1.2"],
+        )
+        .await;
+    }
+}
+
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base", "lockfile_python"))]
+async fn test_extra_requirements_python2(db: Pool<Postgres>) {
+    let content = r#"# py: ==3.11.11
+# extra_requirements:
+# tiny==0.1.3
+
+import simplejson # pin: simplejson==3.20.1
+def main():
+    pass
+"#
+    .to_string();
+
+    assert_lockfile(
+        &db,
+        content,
+        ScriptLang::Python3,
+        vec!["# py: 3.11.11", "simplejson==3.20.1", "tiny==0.1.3"],
+    )
+    .await;
+}
+
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base", "lockfile_python"))]
+async fn test_pins_python(db: Pool<Postgres>) {
+    let content = r#"# py: ==3.11.11
+# extra_requirements:
+# tiny==0.1.3
+# bottle==0.13.2
+
+import f.system.requirements
+import f.system.pins
+import tiny # repin: tiny==0.1.3
+import simplejson
+
+def main():
+    pass
+"#
+    .to_string();
+
+    assert_lockfile(
+        &db,
+        content,
+        ScriptLang::Python3,
+        vec![
+            "# py: 3.11.11",
+            "bottle==0.13.2",
+            "microdot==2.2.0",
+            "simplejson==3.19.3",
+            "tiny==0.1.3",
+        ],
+    )
+    .await;
+}
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base", "multipython"))]
+async fn test_multipython_python(db: Pool<Postgres>) {
+    let content = r#"# py: <=3.12.2, >=3.12.0
+import f.multipython.script1
+import f.multipython.aliases
+"#
+    .to_string();
+
+    assert_lockfile(&db, content, ScriptLang::Python3, vec!["# py: 3.12.1\n"]).await;
+}
+
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base", "multipython"))]
+async fn test_inline_script_metadata_python(db: Pool<Postgres>) {
+    let content = r#"# py_select_latest
+# /// script
+# requires-python = ">3.11,<3.12.3,!=3.12.2"
+# dependencies = [
+#   "tiny==0.1.3",
+# ]
+# ///
+"#
+    .to_string();
+
+    assert_lockfile(
+        &db,
+        content,
+        ScriptLang::Python3,
+        vec!["# py: 3.12.1", "tiny==0.1.3"],
+    )
+    .await;
+}
 #[sqlx::test(fixtures("base", "result_format"))]
 async fn test_result_format(db: Pool<Postgres>) {
     let ordered_result_job_id = "1eecb96a-c8b0-4a3d-b1b6-087878c55e41";
@@ -3698,7 +4117,7 @@ async fn test_result_format(db: Pool<Postgres>) {
 
     let port = server.addr.port();
 
-    let token = windmill_worker::create_token_for_owner(
+    let token = windmill_common::auth::create_token_for_owner(
         &db,
         "test-workspace",
         "u/test-user",
@@ -3706,6 +4125,7 @@ async fn test_result_format(db: Pool<Postgres>) {
         100,
         "",
         &Uuid::nil(),
+        None,
     )
     .await
     .unwrap();
@@ -3738,7 +4158,7 @@ async fn test_result_format(db: Pool<Postgres>) {
     assert_eq!(job_result.get(), correct_result);
 
     let response = windmill_api::jobs::run_wait_result(
-        &db,
+        &db.into(),
         Uuid::parse_str(ordered_result_job_id).unwrap(),
         "test-workspace".to_string(),
         None,
@@ -3938,6 +4358,7 @@ mod job_payload {
         ];
     }
 
+    #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_script_hash_payload(db: Pool<Postgres>) {
         initialize_tracing().await;
@@ -4098,6 +4519,7 @@ mod job_payload {
         test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
     }
 
+    #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_flow_node_payload(db: Pool<Postgres>) {
         initialize_tracing().await;
@@ -4282,6 +4704,7 @@ mod job_payload {
         test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
     }
 
+    #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_flow_payload(db: Pool<Postgres>) {
         initialize_tracing().await;
@@ -4293,6 +4716,7 @@ mod job_payload {
                 path: "f/system/hello_with_nodes_flow".to_string(),
                 dedicated_worker: None,
                 apply_preprocessor: false,
+                version: 1443253234253454,
             })
             .run_until_complete(&db, port)
             .await
@@ -4324,6 +4748,7 @@ mod job_payload {
         test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
     }
 
+    #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_flow_payload_with_preprocessor(db: Pool<Postgres>) {
         initialize_tracing().await;
@@ -4336,6 +4761,7 @@ mod job_payload {
                 path: "f/system/hello_with_preprocessor".to_string(),
                 dedicated_worker: None,
                 apply_preprocessor: true,
+                version: 1443253234253456,
             })
             .run_until_complete_with(db, port, |id| async move {
                 let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
@@ -4391,6 +4817,7 @@ mod job_payload {
         test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
     }
 
+    #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_restarted_flow_payload(db: Pool<Postgres>) {
         initialize_tracing().await;
@@ -4402,6 +4829,7 @@ mod job_payload {
                 path: "f/system/hello_with_nodes_flow".to_string(),
                 dedicated_worker: None,
                 apply_preprocessor: true,
+                version: 1443253234253454,
             })
             .run_until_complete(&db, port)
             .await
@@ -4443,6 +4871,7 @@ mod job_payload {
         test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
     }
 
+    #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_raw_flow_payload(db: Pool<Postgres>) {
         initialize_tracing().await;
@@ -4489,6 +4918,7 @@ mod job_payload {
         test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
     }
 
+    #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_raw_flow_payload_with_restarted_from(db: Pool<Postgres>) {
         initialize_tracing().await;
