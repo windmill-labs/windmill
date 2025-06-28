@@ -38,7 +38,7 @@ permissions: write-all
 
 jobs:
   build:
-    runs-on: [self-hosted, new]
+    runs-on: [self-hosted, ubicloud]
     if: (github.event_name != 'workflow_dispatch') || (github.event.inputs &&
       !github.event.inputs.ee)
     steps:
@@ -101,7 +101,7 @@ jobs:
             ${{ steps.meta-public.outputs.labels }}
 
   build_ee:
-    runs-on: ubicloud
+    runs-on: [self-hosted, ubicloud]
     if: (github.event_name != 'workflow_dispatch') || (github.event.inputs.ee || github.event.inputs.nsjail)
     steps:
       - uses: actions/checkout@v4
