@@ -203,7 +203,7 @@
 
 <div class="p-2 flex flex-col gap-2">
 	<Button
-		tooltip="Decision tree graph editor"
+		title="Decision tree graph editor"
 		id="decision-tree-graph-editor"
 		on:click={() => {
 			drawer?.openDrawer()

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run, createBubbler } from 'svelte/legacy'
+	import { createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()
 	import { createEventDispatcher } from 'svelte'
@@ -199,11 +199,11 @@
 				states: { open: undefined },
 				options: { openDelay: undefined }
 			}
-	run(() => {
+	$effect(() => {
 		tooltipPopover && openDelay !== undefined && ($openDelay = tooltipPopover?.openDelay)
 	}) //This option is reactive
 
-	run(() => {
+	$effect(() => {
 		$open !== undefined && dispatchIfMounted('tooltipOpen', $open)
 	})
 </script>
