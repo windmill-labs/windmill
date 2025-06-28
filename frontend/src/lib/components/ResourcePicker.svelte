@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { createEventDispatcher, onMount, untrack } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 	import AppConnect from './AppConnectDrawer.svelte'
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 
@@ -11,10 +11,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import { isDbType } from './apps/components/display/dbtable/utils'
 	import Select from './select/Select.svelte'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
-
-	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	interface Props {
 		initialValue?: string | undefined
@@ -28,6 +24,7 @@
 		expressOAuthSetup?: boolean
 		defaultValues?: Record<string, any> | undefined
 		placeholder?: string | undefined
+		onClear?: () => void
 	}
 
 	let {
@@ -41,7 +38,8 @@
 		selectFirst = false,
 		expressOAuthSetup = false,
 		defaultValues = undefined,
-		placeholder = undefined
+		placeholder = undefined,
+		onClear = undefined
 	}: Props = $props()
 
 	if (initialValue && value == undefined) {
@@ -182,7 +180,7 @@
 					initialValue = undefined
 					value = undefined
 					valueType = undefined
-					dispatch('clear')
+					onClear?.()
 				}}
 				items={collection}
 				clearable
