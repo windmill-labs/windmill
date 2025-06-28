@@ -846,7 +846,7 @@
 				format={format ?? ''}
 				bind:value
 				bind:editor
-				on:clear={() => {
+				onClear={() => {
 					defaultValue = null
 				}}
 				{showSchemaExplorer}
