@@ -35,16 +35,31 @@
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 
-	export let flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
-	export let marked: string | undefined
-	export let starred: boolean
-	export let shareModal: ShareModal
-	export let moveDrawer: MoveDrawer
-	export let deleteConfirmedCallback: (() => void) | undefined
-	export let deploymentDrawer: DeployWorkspaceDrawer
-	export let errorHandlerMuted: boolean
-	export let depth: number = 0
-	export let menuOpen: boolean = false
+	interface Props {
+		flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
+		marked: string | undefined
+		starred: boolean
+		shareModal: ShareModal
+		moveDrawer: MoveDrawer
+		deleteConfirmedCallback: (() => void) | undefined
+		deploymentDrawer: DeployWorkspaceDrawer
+		errorHandlerMuted: boolean
+		depth?: number
+		menuOpen?: boolean
+	}
+
+	let {
+		flow,
+		marked,
+		starred,
+		shareModal,
+		moveDrawer,
+		deleteConfirmedCallback = $bindable(),
+		deploymentDrawer,
+		errorHandlerMuted,
+		depth = 0,
+		menuOpen = $bindable(false)
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -71,8 +86,8 @@
 			sendUserToast(`Could not delete this flow ${err.body}`, true)
 		}
 	}
-	let scheduleEditor: ScheduleEditor
-	let flowHistory: FlowHistory
+	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
+	let flowHistory: FlowHistory | undefined = $state(undefined)
 </script>
 
 {#if menuOpen}
@@ -97,15 +112,15 @@
 	canFavorite={!flow.draft_only}
 	{depth}
 >
-	<svelte:fragment slot="badges">
+	{#snippet badges()}
 		{#if flow.archived}
 			<Badge color="red" baseClass="border">archived</Badge>
 		{/if}
 		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
 		<DraftBadge has_draft={flow.has_draft} draft_only={flow.draft_only} />
 		<div class="w-8 center-center"></div>
-	</svelte:fragment>
-	<svelte:fragment slot="actions">
+	{/snippet}
+	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
 			{#if !$userStore?.operator}
 				{#if flow.canWrite && !flow.archived}
@@ -218,7 +233,7 @@
 						displayName: 'Deployments',
 						icon: HistoryIcon,
 						action: () => {
-							flowHistory.open()
+							flowHistory?.open()
 						},
 						hide: $userStore?.operator
 					},
@@ -291,5 +306,5 @@
 				menuOpen = true
 			}}
 		/>
-	</svelte:fragment>
+	{/snippet}
 </Row>

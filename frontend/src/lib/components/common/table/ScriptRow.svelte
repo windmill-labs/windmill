@@ -42,17 +42,33 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 
-	export let script: Script & { canWrite: boolean; use_codebase: boolean }
-	export let marked: string | undefined
-	export let starred: boolean
-	export let shareModal: ShareModal
-	export let moveDrawer: MoveDrawer
-	export let deploymentDrawer: DeployWorkspaceDrawer
-	export let deleteConfirmedCallback: (() => void) | undefined
-	export let errorHandlerMuted: boolean
-	export let showCode: (path: string, summary: string) => void
-	export let depth: number = 0
-	export let menuOpen: boolean = false
+	interface Props {
+		script: Script & { canWrite: boolean; use_codebase: boolean }
+		marked: string | undefined
+		starred: boolean
+		shareModal: ShareModal
+		moveDrawer: MoveDrawer
+		deploymentDrawer: DeployWorkspaceDrawer
+		deleteConfirmedCallback: (() => void) | undefined
+		errorHandlerMuted: boolean
+		showCode: (path: string, summary: string) => void
+		depth?: number
+		menuOpen?: boolean
+	}
+
+	let {
+		script,
+		marked,
+		starred,
+		shareModal,
+		moveDrawer,
+		deploymentDrawer,
+		deleteConfirmedCallback = $bindable(),
+		errorHandlerMuted,
+		showCode,
+		depth = 0,
+		menuOpen = $bindable(false)
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -81,10 +97,10 @@
 		dispatch('change')
 		sendUserToast(`Deleted script ${path}`)
 	}
-	let scheduleEditor: ScheduleEditor
+	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
 
 	const dlt: 'delete' = 'delete'
-	let versionsDrawerOpen: boolean = false
+	let versionsDrawerOpen: boolean = $state(false)
 </script>
 
 {#if menuOpen}
@@ -108,7 +124,7 @@
 	canFavorite={!script.draft_only}
 	{depth}
 >
-	<svelte:fragment slot="badges">
+	{#snippet badges()}
 		{#if script.lock_error_logs}
 			<Badge color="red" baseClass="border border-red-200">Deployment failed</Badge>
 		{/if}
@@ -128,9 +144,9 @@
 		<div class="w-8 center-center">
 			<LanguageIcon lang={script.language} width={12} height={12} />
 		</div>
-	</svelte:fragment>
+	{/snippet}
 
-	<svelte:fragment slot="actions">
+	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
 			{#if !$userStore?.operator}
 				{#if script.use_codebase}
@@ -261,7 +277,7 @@
 						displayName: 'Schedule',
 						icon: Calendar,
 						action: () => {
-							scheduleEditor.openNew(false, script.path)
+							scheduleEditor?.openNew(false, script.path)
 						},
 						disabled: script.archived,
 						hide: $userStore?.operator
@@ -340,7 +356,7 @@
 				menuOpen = true
 			}}
 		/>
-	</svelte:fragment>
+	{/snippet}
 </Row>
 
 {#if script}

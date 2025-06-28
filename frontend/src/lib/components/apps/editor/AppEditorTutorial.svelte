@@ -11,8 +11,8 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { isAppTainted } from '$lib/components/tutorials/utils'
 
-	let appTutorials: AppTutorials | undefined = undefined
-	let targetTutorial: string | undefined = undefined
+	let appTutorials: AppTutorials | undefined = $state(undefined)
+	let targetTutorial: string | undefined = $state(undefined)
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -81,7 +81,7 @@
 
 {#key $tutorialsToDo}
 	<Dropdown items={getTutorialItems}>
-		<svelte:fragment slot="buttonReplacement">
+		{#snippet buttonReplacement()}
 			<Button
 				nonCaptureEvent
 				size="xs"
@@ -92,7 +92,7 @@
 					icon: BookOpen
 				}}
 			/>
-		</svelte:fragment>
+		{/snippet}
 	</Dropdown>
 {/key}
 

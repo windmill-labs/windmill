@@ -66,7 +66,7 @@
 			</MenuItem>
 
 			<MenuItem
-				on:click={() => {
+				onClick={() => {
 					if (!document.documentElement.classList.contains('dark')) {
 						document.documentElement.classList.add('dark')
 						window.localStorage.setItem('dark-mode', 'dark')
@@ -87,7 +87,7 @@
 			</MenuItem>
 
 			<MenuItem
-				on:click={() => logout()}
+				onClick={() => logout()}
 				class={twMerge(itemClass, 'text-primary font-semibold')}
 				{item}
 			>
@@ -124,7 +124,7 @@
 					{#if $userStore?.is_admin}
 						<MenuItem
 							class={twMerge(itemClass, 'py-2')}
-							on:click={() => {
+							onClick={() => {
 								goto('/workspace_settings?tab=premium')
 							}}
 							{item}
@@ -135,7 +135,7 @@
 				{:else}
 					<MenuItem
 						class={twMerge(itemClass, 'py-2')}
-						on:click={() => {
+						onClick={() => {
 							goto('/workspace_settings?tab=premium')
 						}}
 						{item}

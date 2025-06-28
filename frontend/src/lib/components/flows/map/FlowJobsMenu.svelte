@@ -148,7 +148,7 @@
 												items[idx].success == false ? 'text-red-400' : '',
 												'data-[highlighted]:bg-surface-hover'
 											)}
-											on:click={() => {
+											onClick={() => {
 												onSelectedIteration({
 													moduleId: moduleId,
 													index: items[idx].index,

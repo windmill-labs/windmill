@@ -33,20 +33,34 @@
 	import { isDeployable } from '$lib/utils_deployable'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 
-	export let app: ListableApp & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
-	export let marked: string | undefined
-	export let starred: boolean
-	export let shareModal: ShareModal
-	export let moveDrawer: MoveDrawer
-	export let deploymentDrawer: DeployWorkspaceDrawer
-	export let deleteConfirmedCallback: (() => void) | undefined
-	export let depth: number = 0
-	export let menuOpen: boolean = false
+	interface Props {
+		app: ListableApp & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
+		marked: string | undefined
+		starred: boolean
+		shareModal: ShareModal
+		moveDrawer: MoveDrawer
+		deploymentDrawer: DeployWorkspaceDrawer
+		deleteConfirmedCallback: (() => void) | undefined
+		depth?: number
+		menuOpen?: boolean
+	}
+
+	let {
+		app,
+		marked,
+		starred,
+		shareModal,
+		moveDrawer,
+		deploymentDrawer,
+		deleteConfirmedCallback = $bindable(),
+		depth = 0,
+		menuOpen = $bindable(false)
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
-	let appExport: { open: (path: string) => void } | undefined = undefined
-	let appDeploymentHistory: AppDeploymentHistory | undefined = undefined
+	let appExport: { open: (path: string) => void } | undefined = $state(undefined)
+	let appDeploymentHistory: AppDeploymentHistory | undefined = $state(undefined)
 
 	async function loadAppJson() {
 		appExport?.open(app.path)
@@ -72,7 +86,7 @@
 	canFavorite={!app.draft_only}
 	{depth}
 >
-	<svelte:fragment slot="badges">
+	{#snippet badges()}
 		{#if app.execution_mode == 'anonymous'}
 			<Badge small>
 				<div class="flex gap-1 items-center">
@@ -92,8 +106,8 @@
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
 		<DraftBadge has_draft={app.has_draft} draft_only={app.draft_only} />
 		<div class="w-8 center-center"></div>
-	</svelte:fragment>
-	<svelte:fragment slot="actions">
+	{/snippet}
+	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
 			{#if !$userStore?.operator}
 				{#if app.canWrite}
@@ -284,5 +298,5 @@
 				menuOpen = true
 			}}
 		/>
-	</svelte:fragment>
+	{/snippet}
 </Row>

@@ -4,12 +4,15 @@
 	import DataTable from './table/DataTable.svelte'
 	import Head from './table/Head.svelte'
 
-	export let headers: string[] | undefined
-	export let data: any[] | undefined // Object containing the data
-	export let keys: string[]
-	export let size: 'sm' | 'md' | 'lg' = 'md'
+	interface Props {
+		headers: string[] | undefined
+		data: any[] | undefined // Object containing the data
+		keys: string[]
+		size?: 'sm' | 'md' | 'lg'
+		getRowActions?: ((row: any) => any[]) | undefined
+	}
 
-	export let getRowActions: ((row: any) => any[]) | undefined = undefined
+	let { headers, data, keys, size = 'md', getRowActions = undefined }: Props = $props()
 </script>
 
 <div class="mt-2 w-full">

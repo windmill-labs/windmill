@@ -446,7 +446,7 @@
 					tag={flow.tag}
 				>
 					<!-- @migration-task: migrate this slot by hand, `trigger-badges` is an invalid identifier -->
-					<svelte:fragment slot="trigger-badges">
+					{#snippet trigger_badges()}
 						<TriggersBadge
 							showOnlyWithCount={true}
 							showDraft={false}
@@ -461,7 +461,7 @@
 							}}
 							small={false}
 						/>
-					</svelte:fragment>
+					{/snippet}
 					{#if $workspaceStore}
 						<Star
 							kind="flow"

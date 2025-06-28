@@ -222,7 +222,7 @@
 
 	function onTemplateChange(previousValueKey: string) {
 		return (newValue) => {
-			console.log('onTemplateChange', previousValueKey, newValue, id)
+			// console.log('onTemplateChange', previousValueKey, newValue, id)
 			previousConnectedValues[previousValueKey] = newValue
 			debounceTemplate()
 		}

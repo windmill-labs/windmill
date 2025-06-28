@@ -6,11 +6,12 @@
 	import FlowBuilderTutorialForLoop from './tutorials/FlowBuilderTutorialForLoop.svelte'
 	import FlowBuilderTutorialErrorHandler from './tutorials/FlowBuilderTutorialErrorHandler.svelte'
 
-	let flowBuilderTutorialSimpleFlow: FlowBuilderTutorialSimpleFlow | undefined = undefined
-	let flowBuilderTutorialForLoop: FlowBuilderTutorialForLoop | undefined = undefined
-	let flowBuilderTutorialBranchOne: FlowBuilderTutorialBranchOne | undefined = undefined
-	let flowBuilderTutorialBranchAll: FlowBuilderTutorialBranchAll | undefined = undefined
-	let flowBuilderTutorialErrorHandler: FlowBuilderTutorialErrorHandler | undefined = undefined
+	let flowBuilderTutorialSimpleFlow: FlowBuilderTutorialSimpleFlow | undefined = $state(undefined)
+	let flowBuilderTutorialForLoop: FlowBuilderTutorialForLoop | undefined = $state(undefined)
+	let flowBuilderTutorialBranchOne: FlowBuilderTutorialBranchOne | undefined = $state(undefined)
+	let flowBuilderTutorialBranchAll: FlowBuilderTutorialBranchAll | undefined = $state(undefined)
+	let flowBuilderTutorialErrorHandler: FlowBuilderTutorialErrorHandler | undefined =
+		$state(undefined)
 
 	export function runTutorialById(id: string, indexToInsertAt?: number | undefined) {
 		if (id === 'forloop') {

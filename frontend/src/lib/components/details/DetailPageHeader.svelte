@@ -23,16 +23,31 @@
 		color?: 'red'
 	}
 
-	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
+	const { triggersCount, triggersState } = $state(getContext<TriggerContext>('TriggerContext'))
 
-	export let mainButtons: MainButton[] = []
-	export let menuItems: MenuItemButton[] = []
-	export let title: string
-	export let tag: string | undefined
+	interface Props {
+		mainButtons?: MainButton[]
+		menuItems?: MenuItemButton[]
+		title: string
+		tag: string | undefined
+		errorHandlerKind: 'flow' | 'script'
+		scriptOrFlowPath: string
+		errorHandlerMuted: boolean | undefined
+		children?: import('svelte').Snippet
+		trigger_badges?: import('svelte').Snippet
+	}
 
-	export let errorHandlerKind: 'flow' | 'script'
-	export let scriptOrFlowPath: string
-	export let errorHandlerMuted: boolean | undefined
+	let {
+		mainButtons = [],
+		menuItems = [],
+		title,
+		tag,
+		errorHandlerKind,
+		scriptOrFlowPath,
+		errorHandlerMuted = $bindable(),
+		children,
+		trigger_badges
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -51,7 +66,7 @@
 				</div>{#if tag}
 					<Badge>tag: {tag}</Badge>
 				{/if}
-				<slot />
+				{@render children?.()}
 				{#if triggersState?.triggers?.some((t) => t.isPrimary && !t.isDraft)}
 					{@const primarySchedule = triggersState.triggers.findIndex(
 						(t) => t.isPrimary && !t.isDraft
@@ -71,7 +86,7 @@
 						{$triggersCount?.primary_schedule?.schedule ?? ''}
 					</Button>
 				{/if}
-				<slot name="trigger-badges" />
+				{@render trigger_badges?.()}
 			</div>
 			<div class="flex gap-1 md:gap-2 items-center">
 				{#if menuItems.length > 0}

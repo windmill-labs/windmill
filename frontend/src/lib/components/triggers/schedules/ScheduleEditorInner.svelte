@@ -975,7 +975,6 @@
 					{/snippet}
 					{#snippet action()}
 						<div class="flex flex-row items-center gap-1 text-2xs text-tertiary">
-							defaults
 							<Dropdown
 								disabled={!can_write}
 								items={[
@@ -990,7 +989,7 @@
 									}
 								]}
 							>
-								{#snippet children()}
+								{#snippet buttonReplacement()}
 									<Save size={12} class="mr-1" />
 									Set as default
 								{/snippet}
@@ -1091,7 +1090,7 @@
 									}
 								]}
 							>
-								{#snippet children()}
+								{#snippet buttonReplacement()}
 									<Save size={12} class="mr-1" />
 									Set as default
 								{/snippet}
@@ -1182,7 +1181,7 @@
 									}
 								]}
 							>
-								{#snippet children()}
+								{#snippet buttonReplacement()}
 									<Save size={12} class="mr-1" />
 									Set as default
 								{/snippet}

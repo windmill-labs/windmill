@@ -19,13 +19,14 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import Row from '$lib/components/table/Row.svelte'
+	import { untrack } from 'svelte'
 
 	type GroupW = Group & { canWrite: boolean }
 
-	let newGroupName: string = ''
-	let groups: GroupW[] | undefined = undefined
-	let instanceGroups: InstanceGroup[] | undefined = undefined
-	let groupDrawer: Drawer
+	let newGroupName: string = $state('')
+	let groups: GroupW[] | undefined = $state(undefined)
+	let instanceGroups: InstanceGroup[] | undefined = $state(undefined)
+	let groupDrawer: Drawer | undefined = $state()
 
 	async function loadGroups(): Promise<void> {
 		groups = (await GroupService.listGroups({ workspace: $workspaceStore! })).map((x) => {
@@ -56,17 +57,17 @@
 		})
 		loadGroups()
 		editGroupName = newGroupName
-		groupDrawer.openDrawer()
+		groupDrawer?.openDrawer()
 	}
 
-	$: {
-		loadInstanceGroups()
+	$effect(() => {
+		untrack(() => loadInstanceGroups())
 		if ($workspaceStore && $userStore) {
-			loadGroups()
+			untrack(() => loadGroups())
 		}
-	}
+	})
 
-	let editGroupName: string = ''
+	let editGroupName: string = $state('')
 </script>
 
 <Drawer bind:this={groupDrawer}>
@@ -93,14 +94,14 @@
 						floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 						containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
 					>
-						<svelte:fragment slot="trigger">
+						{#snippet trigger()}
 							<Button size="md" startIcon={{ icon: Plus }} nonCaptureEvent>New&nbsp;group</Button>
-						</svelte:fragment>
-						<svelte:fragment slot="content" let:close>
+						{/snippet}
+						{#snippet content({ close })}
 							<div class="flex-col flex gap-2 p-4">
 								<input
 									class="mr-2"
-									on:keyup={(e) => handleKeyUp(e, close)}
+									onkeyup={(e) => handleKeyUp(e, close)}
 									placeholder="New group name"
 									bind:value={newGroupName}
 								/>
@@ -116,7 +117,7 @@
 									Create
 								</Button>
 							</div>
-						</svelte:fragment>
+						{/snippet}
 					</Popover>
 				</div>
 			</div>
@@ -146,7 +147,7 @@
 								hoverable
 								on:click={() => {
 									editGroupName = name
-									groupDrawer.openDrawer()
+									groupDrawer?.openDrawer()
 								}}
 							>
 								<Cell first>
@@ -174,7 +175,7 @@
 												action: (e) => {
 													e?.stopPropagation()
 													editGroupName = name
-													groupDrawer.openDrawer()
+													groupDrawer?.openDrawer()
 												}
 											},
 											{
@@ -206,27 +207,30 @@
 			/>
 			<div class="relative mb-20 pt-8">
 				<TableCustom>
+					<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
 					<tr slot="header-row">
 						<th>Name</th>
 						<th>Members</th>
 					</tr>
-					<tbody slot="body">
-						{#each instanceGroups as { name, emails }}
-							<tr>
-								<td>
-									<a
-										href="#{name}"
-										on:click={() => {
-											editGroupName = name
-											groupDrawer.openDrawer()
-										}}
-										>{name}
-									</a>
-								</td>
-								<td>{emails?.length ?? 0} members</td>
-							</tr>
-						{/each}
-					</tbody>
+					{#snippet body()}
+						<tbody>
+							{#each instanceGroups ?? [] as { name, emails }}
+								<tr>
+									<td>
+										<a
+											href="#{name}"
+											onclick={() => {
+												editGroupName = name
+												groupDrawer?.openDrawer()
+											}}
+											>{name}
+										</a>
+									</td>
+									<td>{emails?.length ?? 0} members</td>
+								</tr>
+							{/each}
+						</tbody>
+					{/snippet}
 				</TableCustom>
 			</div>
 		{/if}

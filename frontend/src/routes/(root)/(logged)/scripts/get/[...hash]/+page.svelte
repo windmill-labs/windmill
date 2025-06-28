@@ -564,12 +564,11 @@
 							rightPaneSelected = 'triggers'
 						}}
 					>
-						<!-- @migration-task: migrate this slot by hand, `trigger-badges` is an invalid identifier -->
-						<svelte:fragment slot="trigger-badges">
+						{#snippet trigger_badges()}
 							<TriggersBadge
 								showOnlyWithCount={true}
 								showDraft={false}
-								path={script.path}
+								path={script?.path ?? ''}
 								newItem={false}
 								isFlow={false}
 								selected={rightPaneSelected === 'triggers'}
@@ -581,7 +580,7 @@
 									triggersState.selectedTriggerIndex = triggerIndex
 								}}
 							/>
-						</svelte:fragment>
+						{/snippet}
 						{#if $workspaceStore}
 							<Star
 								kind="script"

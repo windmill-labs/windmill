@@ -29,8 +29,9 @@
 	<div class="flex flex-col">
 		{#each computedItems ?? [] as item}
 			<MenuItem
-				on:click={(e) => item?.action?.(e)}
+				onClick={(e) => item?.action?.(e)}
 				href={item?.href}
+				target={item?.hrefTarget}
 				disabled={item?.disabled}
 				class={twMerge(
 					'px-4 py-2 text-primary font-semibold hover:bg-surface-hover cursor-pointer text-xs transition-all w-full',

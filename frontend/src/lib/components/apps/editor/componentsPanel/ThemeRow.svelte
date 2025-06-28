@@ -16,17 +16,20 @@
 	import ThemeDrawer from './ThemeDrawer.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 
-	export let previewThemePath: string | undefined = undefined
-
-	export let row: {
-		name: string
-		path: string
+	interface Props {
+		previewThemePath?: string | undefined
+		row: {
+			name: string
+			path: string
+		}
 	}
+
+	let { previewThemePath = $bindable(undefined), row }: Props = $props()
 
 	const { previewTheme, app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let cssString: string | undefined = $app?.theme?.type === 'inlined' ? $app.theme.css : undefined
-	$: type = $app?.theme?.type
+	let type = $derived($app?.theme?.type)
 
 	const dispatch = createEventDispatcher()
 
@@ -162,7 +165,7 @@
 			}
 		]
 	}
-	let themeDrawer: ThemeDrawer
+	let themeDrawer: ThemeDrawer | undefined = $state()
 </script>
 
 <tr class={twMerge(previewThemePath === row.path ? 'bg-blue-200' : '', 'transition-all')}>
