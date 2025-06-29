@@ -1,23 +1,29 @@
 <script lang="ts">
+	import { preventDefault, stopPropagation } from 'svelte/legacy'
+
 	import type { DecisionTreeNode } from '../component'
 	import { twMerge } from 'tailwind-merge'
 	import InsertDecisionTreeNode from './decisionTree/InsertDecisionTreeNode.svelte'
 	import { X } from 'lucide-svelte'
 	import NodeWrapper from '$lib/components/graph/renderers/nodes/NodeWrapper.svelte'
 
-	export let data: {
-		node: DecisionTreeNode
-		canDelete: boolean
-		nodeCallbackHandler: (
-			event: string,
-			detail: string,
-			graphNode: DecisionTreeNode | undefined,
-			parentIds: string[],
-			branchInsert: boolean
-		) => void
-		parentIds: string[]
-		branchHeader: boolean
+	interface Props {
+		data: {
+			node: DecisionTreeNode
+			canDelete: boolean
+			nodeCallbackHandler: (
+				event: string,
+				detail: string,
+				graphNode: DecisionTreeNode | undefined,
+				parentIds: string[],
+				branchInsert: boolean
+			) => void
+			parentIds: string[]
+			branchHeader: boolean
+		}
 	}
+
+	let { data }: Props = $props()
 
 	let open: boolean = false
 </script>
@@ -42,9 +48,17 @@
 			<div class="w-[27px] absolute -top-[32px] left-[50%] right-[50%] -translate-x-1/2">
 				<button
 					title="Delete branch"
-					on:click|preventDefault|stopPropagation={() => {
-						data.nodeCallbackHandler('removeBranch', data.node.id, data.node, data.parentIds, false)
-					}}
+					onclick={stopPropagation(
+						preventDefault(() => {
+							data.nodeCallbackHandler(
+								'removeBranch',
+								data.node.id,
+								data.node,
+								data.parentIds,
+								false
+							)
+						})
+					)}
 					type="button"
 					class="text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 				>

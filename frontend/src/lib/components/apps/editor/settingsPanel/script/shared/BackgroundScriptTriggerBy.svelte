@@ -4,12 +4,18 @@
 	import { getDependencies } from '../utils'
 	import ScriptTriggers from './ScriptTriggers.svelte'
 
-	export let script: HiddenRunnable
-	export let recomputeOnInputChanged: boolean | undefined = undefined
-	export let id: string
+	interface Props {
+		script: HiddenRunnable
+		recomputeOnInputChanged?: boolean | undefined
+		id: string
+	}
 
-	$: isFrontend = script.type == 'runnableByName' && script.inlineScript?.language === 'frontend'
-	$: triggerEvents = script.autoRefresh ? ['start', 'refresh'] : []
+	let { script = $bindable(), recomputeOnInputChanged = undefined, id }: Props = $props()
+
+	let isFrontend = $derived(
+		script.type == 'runnableByName' && script.inlineScript?.language === 'frontend'
+	)
+	let triggerEvents = $derived(script.autoRefresh ? ['start', 'refresh'] : [])
 </script>
 
 {#if script.type == 'runnableByName' && script.inlineScript}

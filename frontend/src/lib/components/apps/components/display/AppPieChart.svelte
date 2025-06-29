@@ -21,12 +21,23 @@
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'piechartcomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		initializing?: boolean | undefined
+		customCss?: ComponentCustomCSS<'piechartcomponent'> | undefined
+		render: boolean
+	}
+
+	let {
+		id,
+		componentInput,
+		configuration,
+		initializing = $bindable(undefined),
+		customCss = undefined,
+		render
+	}: Props = $props()
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -46,17 +57,19 @@
 		ArcElement
 	)
 
-	let result: { data: number[]; labels?: string[] } | undefined = undefined
-	let theme: string = 'theme1'
-	let doughnut = false
+	let result = $state(undefined) as { data: number[]; labels?: string[] } | undefined
+	let theme: string = $state('theme1')
+	let doughnut = $state(false)
 
-	$: backgroundColor = {
-		theme1: ['#FF6384', '#4BC0C0', '#FFCE56', '#E7E9ED', '#36A2EB'],
-		// blue theme
-		theme2: ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b'],
-		// red theme
-		theme3: ['#e74a3b', '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e']
-	}[theme]
+	let backgroundColor = $derived(
+		{
+			theme1: ['#FF6384', '#4BC0C0', '#FFCE56', '#E7E9ED', '#36A2EB'],
+			// blue theme
+			theme2: ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b'],
+			// red theme
+			theme3: ['#e74a3b', '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e']
+		}[theme]
+	)
 
 	const options = {
 		responsive: true,
@@ -64,7 +77,7 @@
 		maintainAspectRatio: false
 	}
 
-	$: data = {
+	let data = $derived({
 		labels: result?.labels ?? [],
 		datasets: [
 			{
@@ -72,9 +85,9 @@
 				backgroundColor: backgroundColor
 			}
 		]
-	}
+	})
 
-	let css = initCss($app.css?.piechartcomponent, customCss)
+	let css = $state(initCss($app.css?.piechartcomponent, customCss))
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}

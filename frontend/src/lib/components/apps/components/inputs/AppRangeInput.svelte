@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { getContext, onDestroy } from 'svelte'
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import RangeSlider from 'svelte-range-slider-pips'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
@@ -17,31 +20,37 @@
 	import { components } from '../../editor/component'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'rangecomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		customCss?: ComponentCustomCSS<'rangecomponent'> | undefined
+		render: boolean
+	}
+
+	let {
+		id,
+		configuration,
+		verticalAlignment = undefined,
+		customCss = undefined,
+		render
+	}: Props = $props()
 
 	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
-	let resolvedConfig = initConfig(
-		components['rangecomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['rangecomponent'].initialData.configuration, configuration)
 	)
 
-	let values: [number, number] = [0, 1]
-
-	$: (resolvedConfig.defaultLow != undefined || resolvedConfig.defaultHigh != undefined) &&
-		handleDefault()
+	let values: [number, number] = $state([0, 1])
 
 	function handleDefault() {
 		values = [resolvedConfig?.defaultLow ?? 0, resolvedConfig?.defaultHigh ?? 1]
 	}
 
-	let slider: HTMLElement
+	let slider: HTMLElement | undefined = $state()
 
 	let outputs = initOutput($worldStore, id, {
 		result: null as [number, number] | null
@@ -57,27 +66,33 @@
 		listInputs?.remove(id)
 	})
 
-	$: {
-		outputs?.result.set(values)
-		if (iterContext && listInputs) {
-			listInputs.set(id, values)
-		}
-	}
+	let css = $state(initCss($app.css?.rangecomponent, customCss))
 
-	let css = initCss($app.css?.rangecomponent, customCss)
-
-	let lastStyle: string | undefined = undefined
-	$: if (css && slider && lastStyle !== css?.handles?.style) {
-		const handles = slider.querySelectorAll<HTMLSpanElement>('.rangeNub')
-		if (handles) {
-			lastStyle = css?.handles?.style
-			handles.forEach((handle) => (handle.style.cssText = css?.handles?.style ?? ''))
-		}
-	}
+	let lastStyle: string | undefined = $state(undefined)
 
 	const format = (v, i, p) => {
 		return `${v}`
 	}
+	$effect.pre(() => {
+		resolvedConfig.defaultLow != undefined || resolvedConfig.defaultHigh != undefined
+		untrack(() => handleDefault())
+	})
+	$effect.pre(() => {
+		;[values[0], values[1]]
+		outputs?.result.set(values)
+		if (iterContext && listInputs) {
+			listInputs.set(id, values)
+		}
+	})
+	$effect.pre(() => {
+		if (css && slider && lastStyle !== css?.handles?.style) {
+			const handles = slider.querySelectorAll<HTMLSpanElement>('.rangeNub')
+			if (handles) {
+				lastStyle = css?.handles?.style
+				handles.forEach((handle) => (handle.style.cssText = css?.handles?.style ?? ''))
+			}
+		}
+	})
 </script>
 
 {#each Object.keys(components['rangecomponent'].initialData.configuration) as key (key)}
@@ -108,7 +123,7 @@
 				class={twMerge('grow', 'wm-slider-bar')}
 				style="--range-handle-focus: {'#7e9abd'}; --range-handle: {'#7e9abd'}; {css?.bar?.style ??
 					''}"
-				on:pointerdown|stopPropagation
+				onpointerdown={stopPropagation(bubble('pointerdown'))}
 			>
 				<RangeSlider
 					id="range-slider"

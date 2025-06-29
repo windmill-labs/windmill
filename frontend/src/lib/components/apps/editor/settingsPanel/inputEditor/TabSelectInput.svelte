@@ -4,7 +4,11 @@
 	import { allItems } from '$lib/components/apps/utils'
 	import { getContext } from 'svelte'
 
-	export let componentInput: StaticInput<{ id: string; index: number }>
+	interface Props {
+		componentInput: StaticInput<{ id: string; index: number }>
+	}
+
+	let { componentInput = $bindable() }: Props = $props()
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 

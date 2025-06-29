@@ -1,4 +1,4 @@
-<script context="module">
+<script module>
 </script>
 
 <script lang="ts">
@@ -11,16 +11,29 @@
 	import type { TableAction } from '$lib/components/apps/editor/component'
 	import AppAggridInfiniteTable from './AppAggridInfiniteTable.svelte'
 
-	export let id: string
-	export let license: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let initializing: boolean | undefined = undefined
-	export let render: boolean
-	export let customCss: ComponentCustomCSS<'aggridinfinitecomponentee'> | undefined = undefined
-	export let actions: TableAction[] = []
+	interface Props {
+		id: string
+		license: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		initializing?: boolean | undefined
+		render: boolean
+		customCss?: ComponentCustomCSS<'aggridinfinitecomponentee'> | undefined
+		actions?: TableAction[]
+	}
 
-	let loaded = false
+	let {
+		id,
+		license,
+		componentInput,
+		configuration,
+		initializing = $bindable(undefined),
+		render,
+		customCss = undefined,
+		actions = []
+	}: Props = $props()
+
+	let loaded = $state(false)
 	async function load() {
 		await import('ag-grid-enterprise')
 		const { LicenseManager } = await import('ag-grid-enterprise')

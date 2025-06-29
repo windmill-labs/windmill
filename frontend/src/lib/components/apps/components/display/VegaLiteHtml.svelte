@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { getContext, onMount } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
@@ -6,14 +9,24 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let initializing: boolean | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		initializing?: boolean | undefined
+		render: boolean
+	}
 
-	let result: object | undefined = undefined
-	let divEl: HTMLDivElement | null = null
+	let {
+		id,
+		componentInput,
+		configuration,
+		initializing = $bindable(undefined),
+		render
+	}: Props = $props()
+
+	let result: object | undefined = $state(undefined)
+	let divEl: HTMLDivElement | null = $state(null)
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -22,7 +35,7 @@
 		loading: false
 	})
 
-	let vegaEmbed
+	let vegaEmbed = $state() as any
 	onMount(async () => {
 		//@ts-ignore
 		await import(/* webpackIgnore: true */ 'https://cdn.jsdelivr.net/npm/vega@5.22.1')
@@ -34,35 +47,37 @@
 		vegaEmbed = window['vegaEmbed']
 	})
 
-	let h: number | undefined = undefined
-	let w: number | undefined = undefined
-	let canvas = false
+	let h: number | undefined = $state(undefined)
+	let w: number | undefined = $state(undefined)
+	let canvas = $state(false)
 
-	$: vegaEmbed &&
-		result &&
-		divEl &&
-		h &&
-		w &&
-		vegaEmbed(
-			divEl,
-			{
-				...result,
-				...{
-					width: w - 100,
-					config: {
-						legend: { orient: 'bottom', ...(result?.['config']?.['legend'] ?? {}) },
-						...(result?.['config'] ?? {})
+	$effect(() => {
+		vegaEmbed &&
+			result &&
+			divEl &&
+			h &&
+			w &&
+			vegaEmbed(
+				divEl,
+				{
+					...result,
+					...{
+						width: w - 100,
+						config: {
+							legend: { orient: 'bottom', ...(result?.['config']?.['legend'] ?? {}) },
+							...(result?.['config'] ?? {})
+						}
 					}
+				},
+				{
+					mode: 'vega-lite',
+					actions: false,
+					renderer: canvas ? 'canvas' : 'svg',
+					height: h - 75,
+					width: w - 100
 				}
-			},
-			{
-				mode: 'vega-lite',
-				actions: false,
-				renderer: canvas ? 'canvas' : 'svg',
-				height: h - 75,
-				width: w - 100
-			}
-		)
+			)
+	})
 </script>
 
 <InputValue key={'canvas'} {id} input={configuration.canvas} bind:value={canvas} />
@@ -70,7 +85,7 @@
 {#if render}
 	<div class="w-full h-full" bind:clientHeight={h} bind:clientWidth={w}>
 		<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
-			<div on:pointerdown bind:this={divEl}></div>
+			<div onpointerdown={bubble('pointerdown')} bind:this={divEl}></div>
 		</RunnableWrapper>
 	</div>
 {:else}

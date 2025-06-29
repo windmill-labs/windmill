@@ -20,14 +20,23 @@
 	import type { Preview } from '$lib/gen'
 	import type { InlineScript } from '../../types'
 
-	export let componentType: string | undefined = undefined
-	export let showScriptPicker = false
-	export let rawApps = false
-	export let unusedInlineScripts: { name: string; inlineScript: InlineScript }[]
+	interface Props {
+		componentType?: string | undefined
+		showScriptPicker?: boolean
+		rawApps?: boolean
+		unusedInlineScripts: { name: string; inlineScript: InlineScript }[]
+	}
 
-	let tab = 'workspacescripts'
-	let filter: string = ''
-	let picker: Drawer
+	let {
+		componentType = undefined,
+		showScriptPicker = false,
+		rawApps = false,
+		unusedInlineScripts
+	}: Props = $props()
+
+	let tab = $state('workspacescripts')
+	let filter: string = $state('')
+	let picker: Drawer | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 
@@ -78,13 +87,15 @@
 		newInlineScript(script.content, script.language)
 	}
 
-	$: langs = processLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
-		.map((l) => [defaultScriptLanguages[l], l])
-		.filter(
-			(x) =>
-				x[1] != 'docker' &&
-				($defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1]))
-		) as [string, Preview['language']][]
+	let langs = $derived(
+		processLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
+			.map((l) => [defaultScriptLanguages[l], l])
+			.filter(
+				(x) =>
+					x[1] != 'docker' &&
+					($defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1]))
+			) as [string, Preview['language']][]
+	)
 </script>
 
 <Drawer bind:this={picker} size="1000px">

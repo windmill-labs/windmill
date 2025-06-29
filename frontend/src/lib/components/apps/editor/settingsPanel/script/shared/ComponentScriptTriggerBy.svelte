@@ -5,15 +5,21 @@
 
 	import ScriptTriggers from './ScriptTriggers.svelte'
 
-	export let appComponent: AppComponent
-	export let appInput: ResultAppInput
+	interface Props {
+		appComponent: AppComponent
+		appInput: ResultAppInput
+	}
 
-	$: triggerEvents = getAllTriggerEvents(appComponent, appInput.autoRefresh)
-	$: isFrontend =
+	let { appComponent, appInput = $bindable() }: Props = $props()
+
+	let triggerEvents = $derived(getAllTriggerEvents(appComponent, appInput.autoRefresh))
+	let isFrontend = $derived(
 		appInput.runnable?.type == 'runnableByName' &&
-		appInput.runnable?.inlineScript?.language === 'frontend'
-	$: shoudlDisplayChangeEvents =
+			appInput.runnable?.inlineScript?.language === 'frontend'
+	)
+	let shoudlDisplayChangeEvents = $derived(
 		appInput.recomputeOnInputChanged && !isTriggerable(appComponent.type)
+	)
 </script>
 
 {#if appInput?.runnable?.type === 'runnableByName'}

@@ -14,23 +14,35 @@
 	import { workspaceStore } from '$lib/stores'
 	import type { InlineScript } from '$lib/components/apps/types'
 
-	type Tab = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
+	type TabType = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
 
-	export let defaultUserInput = false
-	export let hideCreateScript = false
-	export let onlyFlow = false
-	export let rawApps = false
-	export let unusedInlineScripts: { name: string; inlineScript: InlineScript }[]
+	interface Props {
+		defaultUserInput?: boolean
+		hideCreateScript?: boolean
+		onlyFlow?: boolean
+		rawApps?: boolean
+		unusedInlineScripts: { name: string; inlineScript: InlineScript }[]
+	}
+
+	let {
+		defaultUserInput = false,
+		hideCreateScript = false,
+		onlyFlow = false,
+		rawApps = false,
+		unusedInlineScripts = $bindable()
+	}: Props = $props()
 
 	// const { app, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
-	let tab: Tab = onlyFlow
-		? 'workspaceflows'
-		: unusedInlineScripts?.length > 0
-			? 'inlinescripts'
-			: 'workspacescripts'
-	let filter: string = ''
-	let picker: Drawer
+	let tab: TabType = $state(
+		onlyFlow
+			? 'workspaceflows'
+			: unusedInlineScripts?.length > 0
+				? 'inlinescripts'
+				: 'workspacescripts'
+	)
+	let filter: string = $state('')
+	let picker: Drawer | undefined = $state()
 
 	const dispatch = createEventDispatcher<{
 		pick: {

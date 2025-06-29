@@ -4,10 +4,21 @@
 	import ScriptSettingsSection from './ScriptSettingsSection.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 
-	export let autoRefresh: boolean | undefined = false
-	export let recomputeOnInputChanged: boolean | undefined = false
-	export let canConfigureRecomputeOnInputChanged: boolean = true
-	export let canConfigureRunOnStart: boolean = true
+	interface Props {
+		autoRefresh?: boolean | undefined
+		recomputeOnInputChanged?: boolean | undefined
+		canConfigureRecomputeOnInputChanged?: boolean
+		canConfigureRunOnStart?: boolean
+		children?: import('svelte').Snippet
+	}
+
+	let {
+		autoRefresh = $bindable(false),
+		recomputeOnInputChanged = $bindable(false),
+		canConfigureRecomputeOnInputChanged = true,
+		canConfigureRunOnStart = true,
+		children
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -50,10 +61,10 @@
 				</div>
 			{/if}
 		</div>
-		<slot />
+		{@render children?.()}
 	</ScriptSettingsSection>
 {:else}
 	<ScriptSettingsSection title="Triggers">
-		<slot />
+		{@render children?.()}
 	</ScriptSettingsSection>
 {/if}

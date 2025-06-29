@@ -1,42 +1,44 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { stopPropagation } from 'svelte/legacy'
+
+	import { getContext, untrack } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, RichConfigurations } from '../../types'
 	import 'quill/dist/quill.snow.css'
 	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let render: boolean
+	let editor = $state()
+	let quill: any = $state()
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		render: boolean
+		toolbarOptions?: any
+	}
 
-	let editor
-	let quill: any
-	export let toolbarOptions = [
-		[{ header: 1 }, { header: 2 }, 'blockquote', 'link', 'image', 'video'],
-		['bold', 'italic', 'underline', 'strike'],
-		[{ list: 'ordered' }, { list: 'ordered' }],
-		[{ align: [] }],
-		['clean']
-	]
+	let {
+		id,
+		configuration,
+		render,
+		toolbarOptions = [
+			[{ header: 1 }, { header: 2 }, 'blockquote', 'link', 'image', 'video'],
+			['bold', 'italic', 'underline', 'strike'],
+			[{ list: 'ordered' }, { list: 'ordered' }],
+			[{ align: [] }],
+			['clean']
+		]
+	}: Props = $props()
 
 	const { worldStore, componentControl, selectedComponent, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let placeholder: string | undefined = undefined
-	let defaultValue: string | undefined = undefined
+	let placeholder: string | undefined = $state(undefined)
+	let defaultValue: string | undefined = $state(undefined)
 
 	let outputs = initOutput($worldStore, id, {
 		result: ''
 	})
-
-	$: if (!render) {
-		quill = undefined
-	}
-
-	$: if (!quill && render) {
-		loadQuill()
-	}
 
 	async function loadQuill() {
 		const { default: Quill } = await import('quill')
@@ -73,14 +75,26 @@
 		}
 	}
 
-	$: handleDefault(defaultValue)
-
 	function handleDefault(defaultValue: string | undefined) {
 		if (quill) {
 			quill.root.innerHTML = defaultValue
 			setOutput()
 		}
 	}
+	$effect.pre(() => {
+		if (!render) {
+			quill = undefined
+		}
+	})
+	$effect.pre(() => {
+		if (!quill && render) {
+			untrack(() => loadQuill())
+		}
+	})
+	$effect.pre(() => {
+		;[defaultValue]
+		untrack(() => handleDefault(defaultValue))
+	})
 </script>
 
 <InputValue key="placeholder" {id} input={configuration.placeholder} bind:value={placeholder} />
@@ -90,11 +104,11 @@
 {#if render}
 	<div
 		class="editor-wrapper h-full flex-col flex max-h-full overflow-hidden"
-		on:pointerdown|stopPropagation={() => {
+		onpointerdown={stopPropagation(() => {
 			if (!$connectingInput.opened) {
 				$selectedComponent = [id]
 			}
-		}}
+		})}
 	>
 		<div bind:this={editor}></div>
 	</div>

@@ -20,30 +20,47 @@
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import type { Job } from '$lib/gen'
 	import type { JobById } from '../types'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 
-	export let open = false
-	export let jobs: string[]
-	export let jobsById: Record<string, JobById>
+	interface Props {
+		open?: boolean
+		jobs: string[]
+		jobsById: Record<string, JobById>
+		hasErrors?: boolean
+		selectedJobId?: string | undefined
+		refreshComponents?: (() => void) | undefined
+		errorByComponent?: Record<string, { id?: string; error: string }>
+	}
 
-	export let hasErrors: boolean = false
-	export let selectedJobId: string | undefined = undefined
-	export let refreshComponents: (() => void) | undefined = undefined
-	export let errorByComponent: Record<string, { id?: string; error: string }> = {}
+	let {
+		open = $bindable(false),
+		jobs,
+		jobsById,
+		hasErrors = false,
+		selectedJobId = $bindable(undefined),
+		refreshComponents = undefined,
+		errorByComponent = {}
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
-	let testJobLoader: TestJobLoader
-	let job: Job | undefined = undefined
-	let testIsLoading = false
+	let testJobLoader: TestJobLoader | undefined = $state()
+	let job: Job | undefined = $state(undefined)
+	let testIsLoading = $state(false)
 
-	let rightColumnSelect: 'timeline' | 'detail' = 'timeline'
+	let rightColumnSelect: 'timeline' | 'detail' = $state('timeline')
 
-	$: selectedJobId && !selectedJobId?.includes('Frontend') && testJobLoader?.watchJob(selectedJobId)
+	$effect(() => {
+		selectedJobId &&
+			!selectedJobId?.includes('Frontend') &&
+			untrack(() => selectedJobId && testJobLoader?.watchJob(selectedJobId))
+	})
 
-	$: if (selectedJobId?.includes('Frontend') && selectedJobId) {
-		job = undefined
-	}
+	$effect(() => {
+		if (selectedJobId?.includes('Frontend') && selectedJobId) {
+			job = undefined
+		}
+	})
 </script>
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
@@ -67,8 +84,8 @@
 								{#each jobs ?? [] as id}
 									{@const selectedJob = jobsById[id]}
 									{#if selectedJob}
-										<!-- svelte-ignore a11y-click-events-have-key-events -->
-										<!-- svelte-ignore a11y-no-static-element-interactions -->
+										<!-- svelte-ignore a11y_click_events_have_key_events -->
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
 										<div
 											class={classNames(
 												'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-surface-secondary hover:text-blue-400',
@@ -81,7 +98,7 @@
 														? 'text-blue-600'
 														: ''
 											)}
-											on:click={() => {
+											onclick={() => {
 												selectedJobId = id
 												rightColumnSelect = 'detail'
 											}}

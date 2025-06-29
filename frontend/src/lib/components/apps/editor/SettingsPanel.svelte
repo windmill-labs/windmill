@@ -109,58 +109,37 @@
 </script>
 
 {#if gridItemWithLocation}
-	{#key gridItemWithLocation.item.id}
-		<ComponentPanel
-			bind:componentSettings={
-				() => gridItemWithLocation,
-				(cs) => {
-					if (gridItemWithLocation?.location.type === 'grid') {
-						$app.grid[gridItemWithLocation.location.gridItemIndex] = cs.item
-					} else if (
-						gridItemWithLocation?.location.type === 'subgrid' &&
-						Array.isArray($app.subgrids?.[gridItemWithLocation.location.subgridKey])
-					) {
-						if (
-							$app.subgrids[gridItemWithLocation.location.subgridKey][
-								gridItemWithLocation.location.subgridItemIndex
-							]
-						) {
-							$app.subgrids[gridItemWithLocation.location.subgridKey][
-								gridItemWithLocation.location.subgridItemIndex
-							] = cs.item
-						}
-					}
-				}
-			}
-			onDelete={() => {
-				dispatch('delete')
-			}}
-		/>
-	{/key}
+	{#if gridItemWithLocation.location.type === 'grid'}
+		{#each $app.grid as gridItem, gridItemIndex}
+			{#if gridItem.data.id === gridItemWithLocation.item.id}
+				<ComponentPanel
+					bind:item={$app.grid[gridItemIndex]}
+					parent={gridItemWithLocation.parent}
+					onDelete={() => {
+						dispatch('delete')
+					}}
+				/>
+			{/if}
+		{/each}
+	{:else if gridItemWithLocation.location.type === 'subgrid' && $app.subgrids}
+		{#each $app.subgrids[gridItemWithLocation.location.subgridKey] as subgridItem, subgridItemIndex}
+			{#if subgridItem.data.id === gridItemWithLocation.item.id}
+				<ComponentPanel
+					bind:item={$app.subgrids[gridItemWithLocation.location.subgridKey][subgridItemIndex]}
+					parent={gridItemWithLocation.parent}
+					onDelete={() => {
+						dispatch('delete')
+					}}
+				/>
+			{/if}
+		{/each}
+	{/if}
 {:else if tableActionSettings}
 	{#key tableActionSettings?.item?.data?.id}
 		<ComponentPanel
 			noGrid
-			bind:componentSettings={
-				() => tableActionSettings,
-				(cs) => {
-					if (tableActionSettings) {
-						if (tableActionSettings.gridItemLocation.type === 'grid') {
-							const { gridItemIndex } = tableActionSettings.gridItemLocation
-							const { key, index } = tableActionSettings.location
-							if ($app.grid[gridItemIndex]?.data?.[key]) {
-								$app.grid[gridItemIndex].data[key][index] = cs.item.data
-							}
-						} else if (tableActionSettings.gridItemLocation.type === 'subgrid') {
-							const { subgridKey, subgridItemIndex } = tableActionSettings.gridItemLocation
-							const { key, index } = tableActionSettings.location
-							if ($app.subgrids?.[subgridKey]?.[subgridItemIndex]?.data?.[key]) {
-								$app.subgrids[subgridKey][subgridItemIndex].data[key][index] = cs.item.data
-							}
-						}
-					}
-				}
-			}
+			bind:item={tableActionSettings.item}
+			parent={tableActionSettings.parent}
 			duplicateMoveAllowed={false}
 			onDelete={() => {
 				if (tableActionSettings) {
@@ -209,24 +188,8 @@
 	{#key menuItemsSettings?.item?.id}
 		<ComponentPanel
 			noGrid
-			bind:componentSettings={
-				() => menuItemsSettings,
-				(cs) => {
-					if (menuItemsSettings) {
-						if (menuItemsSettings.gridItemLocation.type === 'grid') {
-							const { gridItemIndex } = menuItemsSettings.gridItemLocation
-							if ($app.grid[gridItemIndex]?.data?.type === 'menucomponent') {
-								$app.grid[gridItemIndex].data.menuItems[cs.index] = cs.item.data
-							}
-						} else if (menuItemsSettings.gridItemLocation.type === 'subgrid') {
-							const { subgridKey, subgridItemIndex } = menuItemsSettings.gridItemLocation
-							if ($app.subgrids?.[subgridKey]?.[subgridItemIndex]?.data?.type === 'menucomponent') {
-								$app.subgrids[subgridKey][subgridItemIndex].data.menuItems[cs.index] = cs.item.data
-							}
-						}
-					}
-				}
-			}
+			bind:item={menuItemsSettings.item}
+			parent={menuItemsSettings.parent}
 			onDelete={() => {
 				if (menuItemsSettings) {
 					const item = findGridItemWithLocation($app, menuItemsSettings.parent)

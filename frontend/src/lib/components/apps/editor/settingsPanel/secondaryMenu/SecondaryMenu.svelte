@@ -5,10 +5,14 @@
 	import { zIndexes } from '$lib/zIndexes'
 	import DocLink from '../DocLink.svelte'
 
-	export let right: boolean
+	interface Props {
+		right: boolean
+	}
+
+	let { right }: Props = $props()
 
 	let secondaryMenu = right ? secondaryMenuRight : secondaryMenuLeft
-	let width: number
+	let width: number | undefined = $state()
 </script>
 
 <div
@@ -39,7 +43,8 @@
 				{#if typeof $secondaryMenu.component === 'string'}
 					{@html $secondaryMenu.component}
 				{:else}
-					<svelte:component this={$secondaryMenu.component} {...$secondaryMenu.props} />
+					{@const SvelteComponent = $secondaryMenu.component}
+					<SvelteComponent {...$secondaryMenu.props} />
 				{/if}
 			</div>
 		</div>

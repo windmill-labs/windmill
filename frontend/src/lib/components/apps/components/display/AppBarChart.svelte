@@ -22,18 +22,28 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'barchartcomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		initializing?: boolean | undefined
+		customCss?: ComponentCustomCSS<'barchartcomponent'> | undefined
+		render: boolean
+	}
+
+	let {
+		id,
+		componentInput,
+		configuration,
+		initializing = $bindable(undefined),
+		customCss = undefined,
+		render
+	}: Props = $props()
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	let resolvedConfig = initConfig(
-		components['barchartcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['barchartcomponent'].initialData.configuration, configuration)
 	)
 
 	let outputs = initOutput($worldStore, id, {
@@ -52,15 +62,17 @@
 		BarElement
 	)
 
-	let result: { data: number[]; labels?: string[] } | undefined = undefined
+	let result = $state(undefined) as { data: number[]; labels?: string[] } | undefined
 
-	$: backgroundColor = {
-		theme1: ['#FF6384', '#4BC0C0', '#FFCE56', '#E7E9ED', '#36A2EB'],
-		// blue theme
-		theme2: ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b'],
-		// red theme
-		theme3: ['#e74a3b', '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e']
-	}[resolvedConfig.theme ?? 'theme1']
+	let backgroundColor = $derived(
+		{
+			theme1: ['#FF6384', '#4BC0C0', '#FFCE56', '#E7E9ED', '#36A2EB'],
+			// blue theme
+			theme2: ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b'],
+			// red theme
+			theme3: ['#e74a3b', '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e']
+		}[resolvedConfig.theme ?? 'theme1']
+	)
 
 	const lineOptions: ChartOptions<'line'> = {
 		responsive: true,
@@ -84,7 +96,7 @@
 		}
 	}
 
-	$: data = {
+	let data = $derived({
 		labels: result?.labels ?? [],
 
 		datasets: [
@@ -105,9 +117,9 @@
 				}
 			}
 		}
-	}
+	})
 
-	let css = initCss($app.css?.barchartcomponent, customCss)
+	let css = $state(initCss($app.css?.barchartcomponent, customCss))
 </script>
 
 {#each Object.keys(components['barchartcomponent'].initialData.configuration) as key (key)}

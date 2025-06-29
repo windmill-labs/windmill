@@ -1,7 +1,11 @@
 <script lang="ts">
 	import type { AppInput } from '../../inputType'
 
-	export let input: AppInput
+	interface Props {
+		input: AppInput
+	}
+
+	let { input }: Props = $props()
 </script>
 
 {#if input.type === 'connected'}

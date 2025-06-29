@@ -2,17 +2,28 @@
 	import { deepEqual } from 'fast-equals'
 	import type { ComponentCssProperty } from '../../types'
 	import InputValue from './InputValue.svelte'
+	import { untrack } from 'svelte'
 
-	export let css: ComponentCssProperty
-	export let id: string
-	export let key: string
-	export let extraKey: string = ''
+	interface Props {
+		css: ComponentCssProperty
+		id: string
+		key: string
+		extraKey?: string
+		customCss?: Record<string, ComponentCssProperty> | undefined
+		componentStyle?: Record<string, ComponentCssProperty> | undefined
+	}
 
-	export let customCss: Record<string, ComponentCssProperty> | undefined = undefined
-	export let componentStyle: Record<string, ComponentCssProperty> | undefined = undefined
+	let {
+		css = $bindable(),
+		id,
+		key,
+		extraKey = '',
+		customCss = undefined,
+		componentStyle = undefined
+	}: Props = $props()
 
-	let evalClassValue: string | undefined = undefined
-	let evalClassValueGlobal: string | undefined = undefined
+	let evalClassValue: string | undefined = $state(undefined)
+	let evalClassValueGlobal: string | undefined = $state(undefined)
 
 	function updateCss(
 		componentStyle: Record<string, ComponentCssProperty> | undefined,
@@ -36,17 +47,24 @@
 	}
 
 	// When any of the values change, update the css
-	$: updateCss(componentStyle, customCss, evalClassValue, evalClassValueGlobal)
+	$effect(() => {
+		;[componentStyle, customCss, evalClassValue, evalClassValueGlobal]
+		untrack(() => updateCss(componentStyle, customCss, evalClassValue, evalClassValueGlobal))
+	})
 
 	// We need to clear the evalClassValue if the user has disabled the evalClass
-	$: if (customCss?.[key]?.evalClass === undefined && evalClassValue !== undefined) {
-		evalClassValue = undefined
-	}
+	$effect(() => {
+		if (customCss?.[key]?.evalClass === undefined && evalClassValue !== undefined) {
+			evalClassValue = undefined
+		}
+	})
 
 	// We need to clear the evalClassValue if the user has disabled the evalClass
-	$: if (componentStyle?.[key]?.evalClass === undefined && evalClassValueGlobal !== undefined) {
-		evalClassValueGlobal = undefined
-	}
+	$effect(() => {
+		if (componentStyle?.[key]?.evalClass === undefined && evalClassValueGlobal !== undefined) {
+			evalClassValueGlobal = undefined
+		}
+	})
 </script>
 
 {#if customCss}

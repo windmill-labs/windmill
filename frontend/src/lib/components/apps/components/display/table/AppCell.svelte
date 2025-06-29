@@ -1,16 +1,23 @@
 <script lang="ts">
+	import { createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { createEventDispatcher, tick } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
 	import { isLinkObject } from './utils'
 
-	export let type: 'text' | 'badge' | 'link' = 'text'
-	export let value: any
-	export let width: number
+	interface Props {
+		type?: 'text' | 'badge' | 'link'
+		value: any
+		width: number
+	}
+
+	let { type = 'text', value = $bindable(), width }: Props = $props()
 
 	let isEditable = writable(false)
-	let tempValue = value
+	let tempValue = $state(value)
 
 	const dispatch = createEventDispatcher()
 
@@ -42,8 +49,8 @@
 </script>
 
 <td
-	on:keydown
-	on:click
+	onkeydown={bubble('keydown')}
+	onclick={bubble('click')}
 	class={twMerge(
 		'p-4 whitespace-pre-wrap truncate text-xs text-primary',
 		$isEditable && 'bg-gray-100'
@@ -66,20 +73,20 @@
 		<input
 			type="text"
 			value={tempValue}
-			on:input={handleInput}
-			on:blur={saveEdit}
+			oninput={handleInput}
+			onblur={saveEdit}
 			id="cell"
 			class="!appearance-none !bg-transparent !border-none !p-0 !m-0 leading-normal !text-xs"
 			style="outline: none; box-shadow: none; height: auto; resize: none;"
-			on:keypress={(e) => {
+			onkeypress={(e) => {
 				if (e.key === 'Enter') {
 					saveEdit()
 				}
 			}}
 		/>
 	{:else}
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<div on:dblclick={toggleEdit}>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div ondblclick={toggleEdit}>
 			{#if typeof value == 'object'}
 				{JSON.stringify(value)}
 			{:else}

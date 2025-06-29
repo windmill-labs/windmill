@@ -1,4 +1,4 @@
-<script lang="ts" context="module">
+<script lang="ts" module>
 	export type ActionType = {
 		label: string
 		icon: any
@@ -22,14 +22,20 @@
 	import ScriptSettingsSection from './shared/ScriptSettingsSection.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 
-	export let appInput: ResultAppInput
-	export let appComponent: AppComponent
-	export let hasScript: boolean
-
-	let runnable = appInput.runnable
-
 	const { runnableComponents, stateId } = getContext<AppViewerContext>('AppViewerContext')
-	export let actions: ActionType[] = []
+	interface Props {
+		appInput: ResultAppInput
+		appComponent: AppComponent
+		hasScript: boolean
+		actions?: ActionType[]
+	}
+
+	let {
+		appInput = $bindable(),
+		appComponent = $bindable(),
+		hasScript,
+		actions = []
+	}: Props = $props()
 
 	function updateAutoRefresh() {
 		const autoRefresh =
@@ -51,12 +57,13 @@
 
 <div>
 	{#key $stateId}
+		{@const runnable = appInput.runnable}
 		<ScriptSettingHeader
 			name={runnable?.type === 'runnableByName'
 				? runnable.name
 				: runnable?.type === 'runnableByPath'
-				? runnable.path
-				: ''}
+					? runnable.path
+					: ''}
 			{actions}
 		/>
 	{/key}

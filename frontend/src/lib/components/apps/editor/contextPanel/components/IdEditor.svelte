@@ -8,11 +8,15 @@
 
 	const { app, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
-	export let id: string
+	interface Props {
+		id: string
+	}
+
+	let { id }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
-	$: reservedIds = allItems($app.grid, $app.subgrids).map((item) => item.id)
+	let reservedIds = $derived(allItems($app.grid, $app.subgrids).map((item) => item.id))
 </script>
 
 <Popover
@@ -20,9 +24,9 @@
 	closeOnOtherPopoverOpen
 	contentClasses="p-4"
 >
-	<svelte:fragment slot="trigger">
+	{#snippet trigger()}
 		<button
-			on:click={() => {
+			onclick={() => {
 				$selectedComponent = [id]
 			}}
 			title="Edit ID"
@@ -31,8 +35,8 @@
 		>
 			<Pencil size={14} />
 		</button>
-	</svelte:fragment>
-	<svelte:fragment slot="content" let:close>
+	{/snippet}
+	{#snippet content({ close })}
 		<IdEditorInput
 			initialId={id}
 			on:close={() => close()}
@@ -42,5 +46,5 @@
 			}}
 			{reservedIds}
 		/>
-	</svelte:fragment>
+	{/snippet}
 </Popover>

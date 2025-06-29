@@ -5,19 +5,31 @@
 	import type { AppComponent } from './components'
 	import type { AppViewerContext } from '../../types'
 
-	export let component: AppComponent
-	export let selected: boolean
-	export let locked: boolean = false
-	export let render: boolean
-	export let fullHeight: boolean
-	export let overlapped: string | undefined = undefined
-	export let componentDraggedId: string | undefined = undefined
-
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
-	export let moveMode: string | undefined = undefined
-	let everRender = render
+	interface Props {
+		component: AppComponent
+		selected: boolean
+		locked?: boolean
+		render: boolean
+		fullHeight: boolean
+		overlapped?: string | undefined
+		componentDraggedId?: string | undefined
+	}
 
-	$: render && !everRender && (everRender = true)
+	let {
+		component,
+		selected,
+		locked = false,
+		render,
+		fullHeight,
+		overlapped = undefined,
+		componentDraggedId = undefined
+	}: Props = $props()
+	let everRender = $state(render)
+
+	$effect(() => {
+		render && !everRender && (everRender = true)
+	})
 </script>
 
 {#if everRender || $app.eagerRendering}
@@ -25,7 +37,6 @@
 		on:expand
 		on:lock
 		on:fillHeight
-		{moveMode}
 		{componentDraggedId}
 		{overlapped}
 		{render}

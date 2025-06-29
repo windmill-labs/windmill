@@ -18,34 +18,49 @@
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
-	export let items: FilledItem<T>[]
-	export let rowHeight: number = ROW_HEIGHT
-	export let gap = [ROW_GAP_X, ROW_GAP_Y]
-	export let throttleUpdate = 100
-	export let maxRow: number
-	export let breakpoint: EditorBreakpoint
+	interface Props {
+		items: FilledItem<T>[]
+		rowHeight?: number
+		gap?: any
+		throttleUpdate?: number
+		maxRow: number
+		breakpoint: EditorBreakpoint
+		allIdsInPath?: string[] | undefined
+		containerWidth?: number | undefined
+		parentWidth?: number | undefined
+		children?: import('svelte').Snippet<[any]>
+	}
 
-	export let allIdsInPath: string[] | undefined = undefined
-	export let containerWidth: number | undefined = undefined
-
-	export let parentWidth: number | undefined = undefined
+	let {
+		items = $bindable(),
+		rowHeight = ROW_HEIGHT,
+		gap = [ROW_GAP_X, ROW_GAP_Y],
+		throttleUpdate = 100,
+		maxRow,
+		breakpoint,
+		allIdsInPath = undefined,
+		containerWidth = $bindable(undefined),
+		parentWidth = undefined,
+		children
+	}: Props = $props()
 
 	const cols = columnConfiguration
 
-	let showSkeleton = false
+	let showSkeleton = $state(false)
 
-	let getComputedCols: 3 | 12 | undefined =
+	let getComputedCols: 3 | 12 | undefined = $state(
 		$app.mobileViewOnSmallerScreens == false ? WIDE_GRID_COLUMNS : undefined
+	)
 
-	let container
+	let container = $state()
 
-	$: [gapX, gapY] = gap
+	let [gapX, gapY] = $derived(gap)
 
-	let xPerPx = 0
+	let xPerPx = $state(0)
 
 	let yPerPx = rowHeight
 
-	$: containerHeight = getContainerHeight(items, yPerPx, getComputedCols)
+	let containerHeight = $derived(getContainerHeight(items, yPerPx, getComputedCols))
 
 	const onResize = throttle(() => {
 		if (!getComputedCols) return
@@ -92,7 +107,7 @@
 			})
 		})
 
-		sizeObserver.observe(container)
+		sizeObserver.observe(container as Element)
 
 		return () => sizeObserver.disconnect()
 	})
@@ -121,7 +136,7 @@
 					: ''} top: {top}px; left: {left}px;"
 			>
 				{#if item[getComputedCols]}
-					<slot dataItem={item} item={item[getComputedCols]} />
+					{@render children?.({ dataItem: item, item: item[getComputedCols] })}
 				{/if}
 			</div>
 		{/each}

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
+	import { untrack } from 'svelte'
 
 	/* Forked from MIT LICENSE
     https://raw.githubusercontent.com/Canutin/svelte-currency-input/main/src/lib/CurrencyInput.svelte 
@@ -27,18 +28,35 @@
 		formattedZero?: string
 	}
 
-	export let value: number = DEFAULT_VALUE
-	export let locale: string = DEFAULT_LOCALE
-	export let currency: string = DEFAULT_CURRENCY
-	export let name: string = DEFAULT_NAME
-	export let required: boolean = false
-	export let disabled: boolean = false
-	export let placeholder: number | null = DEFAULT_VALUE
-	export let isNegativeAllowed: boolean = true
-	export let fractionDigits: number = DEFAULT_FRACTION_DIGITS
-	export let inputClasses: InputClasses | null = null
-	export let noColor: boolean = false
-	export let style: string = ''
+	interface Props {
+		value?: number
+		locale?: string
+		currency?: string
+		name?: string
+		required?: boolean
+		disabled?: boolean
+		placeholder?: number | null
+		isNegativeAllowed?: boolean
+		fractionDigits?: number
+		inputClasses?: InputClasses | null
+		noColor?: boolean
+		style?: string
+	}
+
+	let {
+		value = $bindable(DEFAULT_VALUE),
+		locale = DEFAULT_LOCALE,
+		currency = DEFAULT_CURRENCY,
+		name = DEFAULT_NAME,
+		required = false,
+		disabled = false,
+		placeholder = DEFAULT_VALUE,
+		isNegativeAllowed = true,
+		fractionDigits = DEFAULT_FRACTION_DIGITS,
+		inputClasses = null,
+		noColor = false,
+		style = ''
+	}: Props = $props()
 
 	// Formats value as: e.g. $1,523.00 | -$1,523.00
 	const formatCurrency = (
@@ -158,14 +176,19 @@
 		}, 0.1)
 	}
 
-	let formattedValue = ''
+	let formattedValue = $state('')
 	let formattedPlaceholder =
 		placeholder !== null ? formatCurrency(placeholder, fractionDigits, fractionDigits) : ''
-	$: isZero = value === 0
-	$: isNegative = value < 0
-	$: value, setFormattedValue()
+	let isZero = $derived(value === 0)
+	let isNegative = $derived(value < 0)
+	$effect(() => {
+		value
+		untrack(() => {
+			setFormattedValue()
+		})
+	})
 
-	let darkMode: boolean = false
+	let darkMode: boolean = $state(false)
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -182,11 +205,11 @@
 		class="
 			{inputClasses?.formatted ?? DEFAULT_CLASS_FORMATTED}
 			{isNegativeAllowed && !isZero && !isNegative
-			? inputClasses?.formattedPositive ?? DEFAULT_CLASS_FORMATTED_POSITIVE
+			? (inputClasses?.formattedPositive ?? DEFAULT_CLASS_FORMATTED_POSITIVE)
 			: ''}
-			{isZero ? inputClasses?.formattedZero ?? DEFAULT_CLASS_FORMATTED_ZERO : ''}
+			{isZero ? (inputClasses?.formattedZero ?? DEFAULT_CLASS_FORMATTED_ZERO) : ''}
 			{isNegativeAllowed && isNegative
-			? inputClasses?.formattedNegative ?? DEFAULT_CLASS_FORMATTED_NEGATIVE
+			? (inputClasses?.formattedNegative ?? DEFAULT_CLASS_FORMATTED_NEGATIVE)
 			: ''}
 		"
 		style={style ? style : noColor ? (darkMode ? 'color: white;' : 'color: black;') : ''}
@@ -197,8 +220,8 @@
 		placeholder={formattedPlaceholder}
 		{disabled}
 		bind:value={formattedValue}
-		on:keydown={handleKeyDown}
-		on:keyup={setUnformattedValue}
+		onkeydown={handleKeyDown}
+		onkeyup={setUnformattedValue}
 	/>
 </div>
 

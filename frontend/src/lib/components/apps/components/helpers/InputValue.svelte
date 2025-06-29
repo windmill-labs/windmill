@@ -347,6 +347,10 @@
 			) &&
 			untrack(() => debounceTemplate())
 	})
+
+	// $effect(() => {
+	// 	console.log('handleConnection4', input)
+	// })
 	$effect(() => {
 		input?.type == 'static' && input.value
 		input && $worldStore && untrack(() => debounce(handleConnection))

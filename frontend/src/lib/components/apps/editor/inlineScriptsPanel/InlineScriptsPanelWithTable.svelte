@@ -5,7 +5,11 @@
 
 	const { selectedComponentInEditor } = getContext<AppEditorContext>('AppEditorContext')
 
-	export let gridItem: GridItem
+	interface Props {
+		gridItem: GridItem
+	}
+
+	let { gridItem = $bindable() }: Props = $props()
 </script>
 
 {#if gridItem?.data?.id === $selectedComponentInEditor || gridItem?.data?.id + '_transformer' === $selectedComponentInEditor}

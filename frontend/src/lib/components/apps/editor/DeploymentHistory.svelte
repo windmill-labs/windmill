@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { stopPropagation, createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 	import { classNames, displayDate, emptyString } from '$lib/utils'
@@ -6,21 +9,23 @@
 	import { workspaceStore } from '$lib/stores'
 	import { Skeleton } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { Pencil, ArrowRight, X, Loader2 } from 'lucide-svelte'
 
-	export let appPath: string | undefined
-	let loading: boolean = false
+	interface Props {
+		appPath: string | undefined
+	}
 
-	let versions: AppHistory[] = []
+	let { appPath }: Props = $props()
+	let loading: boolean = $state(false)
 
-	let selectedVersion: AppHistory | undefined = undefined
-	let selected: (AppWithLastVersion & { value: any }) | undefined = undefined
+	let versions: AppHistory[] = $state([])
 
-	let deploymentMsgUpdateMode = false
-	let deploymentMsgUpdate: string | undefined = undefined
+	let selectedVersion: AppHistory | undefined = $state(undefined)
+	let selected: (AppWithLastVersion & { value: any }) | undefined = $state(undefined)
 
-	$: selectedVersion !== undefined && loadValue(selectedVersion.version)
+	let deploymentMsgUpdateMode = $state(false)
+	let deploymentMsgUpdate: string | undefined = $state(undefined)
 
 	async function loadVersions() {
 		if (appPath === undefined) {
@@ -65,6 +70,12 @@
 
 	const dispatch = createEventDispatcher()
 	loadVersions()
+	$effect(() => {
+		selectedVersion?.version !== undefined &&
+			untrack(() => {
+				selectedVersion && loadValue(selectedVersion.version!)
+			})
+	})
 </script>
 
 <Splitpanes class="!overflow-visible">
@@ -75,14 +86,14 @@
 					{#if versions.length > 0}
 						<div class="flex gap-2 flex-col">
 							{#each versions ?? [] as version}
-								<!-- svelte-ignore a11y-click-events-have-key-events -->
-								<!-- svelte-ignore a11y-no-static-element-interactions -->
+								<!-- svelte-ignore a11y_click_events_have_key_events -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
 								<div
 									class={classNames(
 										'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
 										selectedVersion?.version == version.version ? 'bg-blue-100 text-blue-600' : ''
 									)}
-									on:click={() => {
+									onclick={() => {
 										selectedVersion = version
 										deploymentMsgUpdateMode = false
 										deploymentMsgUpdate = undefined
@@ -115,10 +126,11 @@
 										type="text"
 										bind:value={deploymentMsgUpdate}
 										class="!w-auto grow"
-										on:click|stopPropagation={() => {}}
-										on:keydown|stopPropagation
-										on:keypress|stopPropagation={({ key }) => {
-											if (key === 'Enter')
+										onclick={stopPropagation(() => {})}
+										onkeydown={stopPropagation(bubble('keydown'))}
+										onkeypress={(e) => {
+											e.stopPropagation()
+											if (e.key === 'Enter')
 												updateDeploymentMsg(selected?.id, selectedVersion?.version)
 										}}
 									/>
@@ -155,7 +167,7 @@
 									Deployed {displayDate(selected.created_at)} by {selected.created_by}
 								{/if}
 								<button
-									on:click={() => {
+									onclick={() => {
 										deploymentMsgUpdate = selectedVersion?.deployment_msg
 										deploymentMsgUpdateMode = true
 									}}

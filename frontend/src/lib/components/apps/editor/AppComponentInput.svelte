@@ -2,8 +2,12 @@
 	import { components, type AppComponent } from './component'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
 
-	export let component: AppComponent
-	export let resourceOnly = false
+	interface Props {
+		component: AppComponent
+		resourceOnly?: boolean
+	}
+
+	let { component = $bindable(), resourceOnly = false }: Props = $props()
 </script>
 
 {#if component?.componentInput?.type === 'runnable' && Object.keys(component?.componentInput?.fields ?? {}).length > 0}

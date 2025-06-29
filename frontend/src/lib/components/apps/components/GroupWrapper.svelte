@@ -3,10 +3,15 @@
 	import type { Writable } from 'svelte/store'
 	import type { GroupContext } from '../types'
 
-	export let context: Writable<Record<string, any>>
-	export let id: string
+	interface Props {
+		context: Writable<Record<string, any>>
+		id: string
+		children?: import('svelte').Snippet
+	}
+
+	let { context, id, children }: Props = $props()
 
 	setContext<GroupContext>('GroupContext', { id, context })
 </script>
 
-<slot />
+{@render children?.()}

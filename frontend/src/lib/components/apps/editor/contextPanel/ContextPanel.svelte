@@ -19,11 +19,11 @@
 
 	const dispatch = createEventDispatcher()
 
-	let hasState: boolean = false
+	let hasState: boolean = $state(false)
 </script>
 
 <PanelSection noPadding titlePadding="px-2 pt-2" title="Outputs">
-	<svelte:fragment slot="action">
+	{#snippet action()}
 		<div class="p-0.5">
 			<HideButton
 				on:click={() => {
@@ -33,7 +33,7 @@
 			/>
 			<DocLink docLink="https://www.windmill.dev/docs/apps/outputs" />
 		</div>
-	</svelte:fragment>
+	{/snippet}
 	<AnimatedButton
 		animate={$connectingInput.opened}
 		baseRadius="0px"
@@ -57,39 +57,35 @@
 					<div>
 						<span class="text-xs font-semibold text-secondary p-2">State & Context</span>
 
-						<OutputHeader
-							let:render
-							selectable={false}
-							id={'ctx'}
-							name={'App Context'}
-							first
-							color="blue"
-						>
-							<ComponentOutputViewer
-								{render}
-								componentId={'ctx'}
-								on:select={({ detail }) => {
-									$connectingInput = connectInput($connectingInput, 'ctx', detail)
-								}}
-							/>
+						<OutputHeader selectable={false} id={'ctx'} name={'App Context'} first color="blue">
+							{#snippet children({ render })}
+								<ComponentOutputViewer
+									{render}
+									componentId={'ctx'}
+									on:select={({ detail }) => {
+										$connectingInput = connectInput($connectingInput, 'ctx', detail)
+									}}
+								/>
+							{/snippet}
 						</OutputHeader>
 
 						<OutputHeader
-							let:render
 							selectable={false}
 							id={'state'}
 							name={'State'}
 							color="blue"
 							disabled={!hasState}
 						>
-							<ComponentOutputViewer
-								{render}
-								bind:hasContent={hasState}
-								componentId={'state'}
-								on:select={({ detail }) => {
-									$connectingInput = connectInput($connectingInput, 'state', detail)
-								}}
-							/>
+							{#snippet children({ render })}
+								<ComponentOutputViewer
+									{render}
+									bind:hasContent={hasState}
+									componentId={'state'}
+									on:select={({ detail }) => {
+										$connectingInput = connectInput($connectingInput, 'state', detail)
+									}}
+								/>
+							{/snippet}
 						</OutputHeader>
 					</div>
 

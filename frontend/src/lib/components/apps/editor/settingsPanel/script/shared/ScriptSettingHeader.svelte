@@ -4,9 +4,13 @@
 	import ScriptSettingsActions from './ScriptSettingsActions.svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	export let name: string
-	export let actions: ActionType[] = []
-	export let noBorder: boolean = false
+	interface Props {
+		name: string
+		actions?: ActionType[]
+		noBorder?: boolean
+	}
+
+	let { name, actions = [], noBorder = false }: Props = $props()
 </script>
 
 <div

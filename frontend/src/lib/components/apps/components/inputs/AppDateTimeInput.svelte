@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onDestroy } from 'svelte'
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type {
 		AppViewerContext,
@@ -19,22 +19,33 @@
 	import { twMerge } from 'tailwind-merge'
 	import { parseISO, format as formatDateFns } from 'date-fns'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let inputType: 'date'
-	export let verticalAlignment: VerticalAlignment | undefined = undefined
-	export let customCss: ComponentCustomCSS<'datetimeinputcomponent'> | undefined = undefined
-	export let render: boolean
-	export let onChange: string[] | undefined = undefined
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		inputType: 'date'
+		verticalAlignment?: VerticalAlignment | undefined
+		customCss?: ComponentCustomCSS<'datetimeinputcomponent'> | undefined
+		render: boolean
+		onChange?: string[] | undefined
+	}
+
+	let {
+		id,
+		configuration,
+		inputType,
+		verticalAlignment = undefined,
+		customCss = undefined,
+		render,
+		onChange = undefined
+	}: Props = $props()
 	const { app, worldStore, componentControl, selectedComponent, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
-	let resolvedConfig = initConfig(
-		components['datetimeinputcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['datetimeinputcomponent'].initialData.configuration, configuration)
 	)
 
 	let outputs = initOutput($worldStore, id, {
@@ -43,8 +54,9 @@
 	})
 
 	let initValue = outputs?.result.peak()
-	let value: string | undefined =
+	let value: string | undefined = $state(
 		!iterContext && initValue != undefined ? initValue : resolvedConfig.defaultValue
+	)
 
 	$componentControl[id] = {
 		setValue(nvalue: string) {
@@ -59,8 +71,6 @@
 
 	let initialHandleDefault = true
 
-	$: handleDefault(resolvedConfig.defaultValue)
-
 	function formatDate(dateString: string, formatString: string = 'dd.MM.yyyy HH:mm') {
 		if (formatString === '') {
 			formatString = 'dd.MM.yyyy HH:mm'
@@ -74,7 +84,28 @@
 		}
 	}
 
-	$: {
+	function fireOnChange() {
+		if (onChange) {
+			onChange.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
+		}
+	}
+
+	function handleDefault(defaultValue: string | undefined) {
+		if (initialHandleDefault) {
+			initialHandleDefault = false
+			if (value != undefined) {
+				return
+			}
+		}
+		value = defaultValue
+	}
+
+	let css = $state(initCss($app.css?.datetimeinputcomponent, customCss))
+	$effect.pre(() => {
+		;[resolvedConfig.defaultValue]
+		untrack(() => handleDefault(resolvedConfig.defaultValue))
+	})
+	$effect.pre(() => {
 		if (value) {
 			const r = formatDate(value, resolvedConfig.outputFormat)
 			outputs?.result.set(r)
@@ -120,25 +151,7 @@
 			}
 		}
 		fireOnChange()
-	}
-
-	function fireOnChange() {
-		if (onChange) {
-			onChange.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
-		}
-	}
-
-	function handleDefault(defaultValue: string | undefined) {
-		if (initialHandleDefault) {
-			initialHandleDefault = false
-			if (value != undefined) {
-				return
-			}
-		}
-		value = defaultValue
-	}
-
-	let css = initCss($app.css?.datetimeinputcomponent, customCss)
+	})
 </script>
 
 {#each Object.keys(components['datetimeinputcomponent'].initialData.configuration) as key (key)}

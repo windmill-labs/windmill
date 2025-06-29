@@ -1,5 +1,9 @@
 <script lang="ts">
-	export let license: string
+	interface Props {
+		license: string
+	}
+
+	let { license = $bindable() }: Props = $props()
 
 	let initial = license
 </script>

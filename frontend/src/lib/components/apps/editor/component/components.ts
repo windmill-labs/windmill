@@ -972,7 +972,27 @@ const agchartscomponentconst = {
 	},
 	initialData: {
 		configuration: {},
-		componentInput: undefined
+		componentInput: {
+			type: 'evalv2',
+			noStatic: true,
+			fieldType: 'object',
+			expr: `({
+				data: [
+					{ x: 1, y: 5 },
+					{ x: 2, y: 10 },
+					{ x: 3, y: 2 },
+					{ x: 4, y: 8 }
+				],
+				series: [{
+					type: 'bar',
+					xKey: 'x',
+					yKey: 'y',
+					fill: '#C8A2C8',
+					strokeWidth: 2.5
+				}]
+			})`,
+			connections: [] as InputConnectionEval[]
+		}
 	}
 } as const
 
@@ -1628,8 +1648,8 @@ export const components = {
 							backgroundColor: ['#FF6384', '#4BC0C0', '#FFCE56']
 						}
 					]
-				}
-			}
+				},
+			},
 		}
 	},
 	chartjscomponentv2: {
@@ -1656,7 +1676,20 @@ export const components = {
 					tooltip: 'ChartJs options object https://www.chartjs.org/docs/latest/general/options.html'
 				}
 			},
-			componentInput: undefined
+			componentInput: {
+				type: 'static',
+				fieldType: 'object',
+				value: {
+					labels: ['Pie', 'Charts', '<3'],
+					datasets: [
+						{
+							data: [25, 50, 25],
+							backgroundColor: ['#FF6384', '#4BC0C0', '#FFCE56']
+						}
+					]
+				},
+
+			},
 		}
 	},
 	barchartcomponent: {
@@ -1826,7 +1859,8 @@ This is a paragraph.
 							width: 2.5
 						}
 					}
-				}
+				},
+
 			},
 			configuration: {
 				layout: {
@@ -1846,7 +1880,21 @@ This is a paragraph.
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {},
 		initialData: {
-			componentInput: undefined,
+			componentInput: {
+				type: 'static',
+				fieldType: 'object',
+				value: {
+					type: 'bar',
+					x: [1, 2, 3, 4],
+					y: [5, 10, 2, 8],
+					marker: {
+						color: '#C8A2C8',
+						line: {
+							width: 2.5
+						}
+					}
+				},
+			},
 			configuration: {
 				layout: {
 					type: 'static',
@@ -1856,7 +1904,8 @@ This is a paragraph.
 						'Layout options for the plot. See https://plotly.com/javascript/reference/layout/ for more information'
 				}
 			}
-		}
+		},
+
 	},
 	timeseriescomponent: {
 		name: 'Timeseries',

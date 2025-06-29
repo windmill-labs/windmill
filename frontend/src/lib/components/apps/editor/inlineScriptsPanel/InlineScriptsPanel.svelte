@@ -40,24 +40,33 @@
 		}
 	}
 
-	$: gridItem =
+	let gridItem = $derived(
 		$selectedComponentInEditor && !$selectedComponentInEditor.startsWith(BG_PREFIX)
 			? findGridItem($app, $selectedComponentInEditor?.split('_')?.[0])
 			: undefined
-
-	$: hiddenInlineScript = $app?.hiddenInlineScripts?.findIndex((k_, index) => {
-		const [prefix, id] = $selectedComponentInEditor?.split('_') || []
-
-		if (prefix !== 'bg') return false
-
-		return Number(id) === index
-	})
-
-	$: unusedInlineScript = $app?.unusedInlineScripts?.findIndex(
-		(k_, index) => `unused-${index}` === $selectedComponentInEditor
 	)
 
-	export let width: number | undefined = undefined
+	let hiddenInlineScript = $derived(
+		$app?.hiddenInlineScripts?.findIndex((k_, index) => {
+			const [prefix, id] = $selectedComponentInEditor?.split('_') || []
+
+			if (prefix !== 'bg') return false
+
+			return Number(id) === index
+		})
+	)
+
+	let unusedInlineScript = $derived(
+		$app?.unusedInlineScripts?.findIndex(
+			(k_, index) => `unused-${index}` === $selectedComponentInEditor
+		)
+	)
+
+	interface Props {
+		width?: number | undefined
+	}
+
+	let { width = undefined }: Props = $props()
 </script>
 
 <Splitpanes
