@@ -27,12 +27,23 @@
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'timeseriescomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		initializing?: boolean | undefined
+		customCss?: ComponentCustomCSS<'timeseriescomponent'> | undefined
+		render: boolean
+	}
+
+	let {
+		id,
+		componentInput,
+		configuration,
+		initializing = $bindable(undefined),
+		customCss = undefined,
+		render
+	}: Props = $props()
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -41,9 +52,9 @@
 		loading: false
 	})
 
-	let logarithmicScale = false
-	let zoomable = false
-	let pannable = false
+	let logarithmicScale = $state(false)
+	let zoomable = $state(false)
+	let pannable = $state(false)
 
 	ChartJS.register(
 		Title,
@@ -59,9 +70,9 @@
 		LogarithmicScale
 	)
 
-	let result: { data: { x: any[]; y: string[] } } | undefined = undefined
+	let result: { data: { x: any[]; y: string[] } } | undefined = $state(undefined)
 
-	$: options = {
+	let options = $derived({
 		responsive: true,
 		animation: false,
 		maintainAspectRatio: false,
@@ -88,13 +99,13 @@
 				type: logarithmicScale ? 'logarithmic' : 'linear'
 			}
 		}
-	} as ChartOptions<'scatter'>
+	} as ChartOptions<'scatter'>)
 
-	$: data = {
+	let data = $derived({
 		datasets: result ?? []
-	} as ChartData<'scatter', (number | Point)[], unknown>
+	} as ChartData<'scatter', (number | Point)[], unknown>)
 
-	let css = initCss($app.css?.timeseriescomponent, customCss)
+	let css = $state(initCss($app.css?.timeseriescomponent, customCss))
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}

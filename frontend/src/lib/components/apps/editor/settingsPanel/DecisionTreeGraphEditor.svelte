@@ -14,13 +14,17 @@
 	import type { AppViewerContext } from '../../types'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 
-	export let component: AppComponent
-	export let nodes: DecisionTreeNode[]
+	interface Props {
+		component: AppComponent
+		nodes: DecisionTreeNode[]
+	}
 
-	let drawer: Drawer | undefined = undefined
-	let paneWidth = 0
-	let paneHeight = 0
-	let renderCount = 0
+	let { component = $bindable(), nodes = $bindable() }: Props = $props()
+
+	let drawer: Drawer | undefined = $state(undefined)
+	let paneWidth = $state(0)
+	let paneHeight = $state(0)
+	let renderCount = $state(0)
 
 	const { debuggingComponents } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -31,11 +35,13 @@
 		renderCount++
 	}, 300)
 
-	$: selectedNode = nodes?.find((node) => node.id == $selectedNodeId)
+	let selectedNode = $derived(nodes?.find((node) => node.id == $selectedNodeId))
 
 	setContext('DecisionTreeEditor', { selectedNodeId })
 
-	$: sortedSelectedNextNodes = selectedNode?.next.sort((n1, n2) => n1.id.localeCompare(n2.id))
+	let sortedSelectedNextNodes = $derived(
+		selectedNode?.next.sort((n1, n2) => n1.id.localeCompare(n2.id))
+	)
 </script>
 
 <Drawer bind:this={drawer} on:close={() => {}} on:open={() => {}} size="1200px">
@@ -66,14 +72,14 @@
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
 					class="h-full w-full bg-surface p-4 flex flex-col gap-6"
-					on:keydown={(e) => {
+					onkeydown={(e) => {
 						// Prevent keyboard events from bubbling to SvelteFlow
 						e.stopPropagation()
 					}}
 				>
 					{#if selectedNode}
 						<Section label="Conditions" class="w-full flex flex-col gap-2">
-							<svelte:fragment slot="action">
+							{#snippet action()}
 								<Button
 									size="xs"
 									color="light"
@@ -92,17 +98,17 @@
 								>
 									Delete node
 								</Button>
-							</svelte:fragment>
+							{/snippet}
 
 							<Label label="Summary">
 								<input
 									type="text"
 									class="input input-primary input-bordered"
 									bind:value={selectedNode.label}
-									on:input={() => {
+									oninput={() => {
 										debouncedNodes()
 									}}
-									on:keydown={(e) => {
+									onkeydown={(e) => {
 										// Prevent keyboard events from bubbling to SvelteFlow
 										e.stopPropagation()
 									}}

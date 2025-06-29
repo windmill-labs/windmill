@@ -154,31 +154,35 @@
 			container: document.getElementById(`agchart-${id}`) as HTMLElement,
 			data: data,
 			series:
-				(resolvedDatasets?.map((d, index) => {
-					if (!resolvedDatasetsValues) {
-						return
-					}
-					const type = resolvedDatasetsValues?.[index]?.type
-					if (!type) {
-						return
-					}
-					if (type === 'range-bar' || type === 'range-area') {
-						return {
-							type: type,
-							xKey: 'x',
-							yLowKey: `y-${index}-low`,
-							yHighKey: `y-${index}-high`,
-							yName: d.name
+				(resolvedDatasets
+					?.filter((_v, i) => resolvedDatasetsValues?.[i]?.type)
+					.map((d, index) => {
+						if (!resolvedDatasetsValues) {
+							console.error('No resolvedDatasetsValues found')
+							return
 						}
-					} else {
-						return {
-							type: type,
-							xKey: 'x',
-							yKey: `y-${index}`,
-							yName: d.name
+						const type = resolvedDatasetsValues?.[index]?.type
+						if (!type) {
+							console.error('No type found')
+							return
 						}
-					}
-				}) as any[]) ?? [],
+						if (type === 'range-bar' || type === 'range-area') {
+							return {
+								type: type,
+								xKey: 'x',
+								yLowKey: `y-${index}-low`,
+								yHighKey: `y-${index}-high`,
+								yName: d.name
+							}
+						} else {
+							return {
+								type: type,
+								xKey: 'x',
+								yKey: `y-${index}`,
+								yName: d.name
+							}
+						}
+					}) as any[]) ?? [],
 			...getChartStyleByTheme()
 		}
 
@@ -186,6 +190,7 @@
 			data: options.data,
 			series: options.series
 		})
+
 		AgChartsInstance?.update(chartInstance, options)
 	}
 
@@ -248,8 +253,9 @@
 	}
 
 	let darkMode = $state(false)
-	let resolvedDatasetsValues = $derived(
-		resolvedDatasets?.map((d) => {
+	let resolvedDatasetsValues = $state(undefined) as any[] | undefined
+	function updateResolvedDatasetsValues() {
+		resolvedDatasetsValues = resolvedDatasets?.map((d) => {
 			const config = initConfig(
 				{
 					value: {
@@ -327,20 +333,25 @@
 					value: d.value
 				}
 			)
-
+			// return config
 			return {
 				type: d.value['selected'],
 				// @ts-ignore
 				value: config.value?.['configuration']?.[d.value['selected']].value
 			}
 		})
-	)
+	}
+	$effect(() => {
+		resolvedDatasets?.map((x) => x) && untrack(() => updateResolvedDatasetsValues())
+	})
 	$effect(() => {
 		resolvedXData &&
 			resolvedDatasets &&
+			resolvedDatasets?.map((x) => x) &&
 			resolvedDatasetsValues &&
+			resolvedDatasetsValues?.map((x) => x) &&
 			chartInstance &&
-			untrack(() => updateChart())
+			updateChart()
 	})
 	$effect(() => {
 		result && chartInstance && untrack(() => updateChartByResult())
@@ -360,6 +371,10 @@
 	})
 </script>
 
+<pre class="text-2xs">
+{JSON.stringify(resolvedDatasets)}
+{JSON.stringify(resolvedDatasetsValues)}
+</pre>
 <DarkModeObserver
 	bind:darkMode
 	on:change={(e) => {
@@ -389,8 +404,17 @@
 				{id}
 				key={'datasets' + index}
 				extraKey={resolvedDataset.name}
-				bind:resolvedConfig={resolvedDatasetsValues[index]}
+				bind:resolvedConfig={
+					() => resolvedDatasetsValues?.[index],
+					(v) => {
+						console.log('v' + index, v)
+						if (resolvedDatasetsValues?.[index]) {
+							resolvedDatasetsValues[index] = v
+						}
+					}
+				}
 				configuration={resolvedDataset.value}
+				debug
 			/>
 		{/if}
 	{/each}

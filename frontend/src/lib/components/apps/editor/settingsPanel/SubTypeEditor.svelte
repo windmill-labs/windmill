@@ -2,23 +2,31 @@
 	import type { InputType, StaticInput } from '../../inputType'
 	import StaticInputEditor from './inputEditor/StaticInputEditor.svelte'
 
-	export let value: any
-	export let componentInput: StaticInput<any>
-	export let subFieldType: InputType | undefined
-	export let id: string | undefined
-
-	let fakeComponentInput: StaticInput<any> = {
-		...componentInput,
-		value
+	interface Props {
+		value: any
+		componentInput: StaticInput<any>
+		subFieldType: InputType | undefined
+		id: string | undefined
 	}
 
+	let { value = $bindable(), componentInput = $bindable(), subFieldType, id }: Props = $props()
+
 	// Bubble up changes to the real componentInput
-	$: fakeComponentInput && (value = fakeComponentInput.value)
 </script>
 
 <StaticInputEditor
 	{id}
 	fieldType={subFieldType}
-	bind:componentInput={fakeComponentInput}
+	bind:componentInput={
+		() => {
+			return {
+				...componentInput,
+				value
+			}
+		},
+		(v) => {
+			value = v.value
+		}
+	}
 	on:remove
 />

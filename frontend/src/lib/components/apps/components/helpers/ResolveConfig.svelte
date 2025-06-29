@@ -10,6 +10,7 @@
 		resolvedConfig: any | { type: 'oneOf'; configuration: any; selected: string }
 		configuration: RichConfiguration
 		initialConfig?: RichConfiguration | undefined
+		debug?: boolean
 	}
 
 	let {
@@ -18,15 +19,17 @@
 		key,
 		resolvedConfig = $bindable(),
 		configuration,
-		initialConfig = undefined
+		initialConfig = undefined,
+		debug = false
 	}: Props = $props()
 
 	function handleSelected(selected: string) {
 		if (resolvedConfig?.selected != undefined && resolvedConfig?.selected != selected) {
 			resolvedConfig.selected = selected
 		}
+		// console.log('handleSelected', JSON.stringify({ resolvedConfig, configuration }))
 	}
-	$effect(() => {
+	$effect.pre(() => {
 		configuration?.type == 'oneOf' &&
 			configuration.selected &&
 			untrack(() => handleSelected(configuration.selected))
@@ -50,6 +53,12 @@
 		{/if}
 	{/each}
 {:else}
+	{#if debug}
+		<pre
+			>{JSON.stringify(configuration)}
+			key: {key} {JSON.stringify({ r: resolvedConfig })} {JSON.stringify(configuration)}</pre
+		>
+	{/if}
 	<InputValue
 		field={key}
 		key={key + extraKey}
