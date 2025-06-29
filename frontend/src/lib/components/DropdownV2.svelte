@@ -17,7 +17,6 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI'
-	import { _ } from 'ag-grid-community'
 	import { untrack } from 'svelte'
 
 	interface Props {

@@ -48,7 +48,6 @@
 	import { getLanguageByResourceType } from './apps/components/display/dbtable/utils'
 	import StepHistory, { type StepHistoryData } from './flows/propPicker/StepHistory.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { _ } from 'ag-grid-community'
 
 	type Props = {
 		resourceType: string

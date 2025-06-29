@@ -1,7 +1,4 @@
 <script lang="ts">
-	// import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
-	// import { IS_APP_PUBLIC_CONTEXT_KEY, type EditorBreakpoint } from '$lib/components/apps/types'
-
 	// import { BROWSER } from 'esm-env'
 	// import { page } from '$app/stores'
 	// import { base } from '$lib/base'
@@ -23,5 +20,27 @@
 	// import Alert from '$lib/components/common/alert/Alert.svelte'
 	// import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	// import Login from '$lib/components/Login.svelte'
-	// // import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
+
+	// import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
+
+	// import { goto } from '$lib/navigation'
+	// import Github from '$lib/components/icons/brands/Github.svelte'
+	// import Gitlab from '$lib/components/icons/brands/Gitlab.svelte'
+	// import Google from '$lib/components/icons/brands/Google.svelte'
+	// import Microsoft from '$lib/components/icons/brands/Microsoft.svelte'
+	// import Okta from '$lib/components/icons/brands/Okta.svelte'
+	// import Auth0 from '$lib/components/icons/brands/Auth0.svelte'
+
+	// import { OauthService, UserService, WorkspaceService } from '$lib/gen'
+	// import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
+	// import { classNames, emptyString, parseQueryParams } from '$lib/utils'
+	// import { base } from '$lib/base'
+	// import { getUserExt } from '$lib/user'
+	// import { sendUserToast } from '$lib/toast'
+	// import { isCloudHosted } from '$lib/cloud'
+	// import { refreshSuperadmin } from '$lib/refreshUser'
+	// import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+
+	// import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
+	// import Button from '$lib/components/common/button/Button.svelte'
 </script>
