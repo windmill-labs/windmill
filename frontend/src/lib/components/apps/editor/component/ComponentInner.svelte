@@ -795,7 +795,7 @@
 		/>
 	{/if}
 	{#snippet failed(error, reset)}
-		<div class="flex flex-col items-center justify-center h-full bg-red-100 p-10 h-full w-full">
+		<div class="flex flex-col items-center justify-center bg-red-100 p-10 h-full w-full">
 			<h3 class="text-red-500 text-2xl font-bold">Rendering of component failed</h3>
 			<pre
 				class="text-2xs mt-4 w-full font-mono border border-red-500 rounded-md p-2 bg-surface-secondary text-primary overflow-auto"
