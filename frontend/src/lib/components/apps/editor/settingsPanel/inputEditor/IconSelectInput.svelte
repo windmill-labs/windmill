@@ -43,7 +43,7 @@
 	}
 
 	let {
-		value = $bindable(''),
+		value = $bindable(undefined),
 		floatingConfig = {
 			strategy: 'absolute',
 			placement: 'bottom-end'

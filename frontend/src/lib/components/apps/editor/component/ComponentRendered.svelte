@@ -14,6 +14,7 @@
 	import { Anchor } from 'lucide-svelte'
 	import { findGridItemParentGrid, isContainer } from '../appUtils'
 	import ComponentInner from './ComponentInner.svelte'
+	import { moveMode } from '../../gridUtils'
 
 	interface Props {
 		component: AppComponent
@@ -21,7 +22,6 @@
 		locked?: boolean
 		fullHeight: boolean
 		overlapped?: string | undefined
-		moveMode?: string | undefined
 		componentDraggedId?: string | undefined
 		render?: boolean
 	}
@@ -32,7 +32,6 @@
 		locked = false,
 		fullHeight,
 		overlapped = undefined,
-		moveMode = undefined,
 		componentDraggedId = undefined,
 		render = false
 	}: Props = $props()
@@ -131,7 +130,7 @@
 	data-connection-button
 >
 	{#if render}
-		{#if locked && componentActive && $componentActive && moveMode === 'move' && componentDraggedId && componentDraggedId !== component.id && cachedAreOnTheSameSubgrid}
+		{#if locked && componentActive && $componentActive && $moveMode === 'move' && componentDraggedId && componentDraggedId !== component.id && cachedAreOnTheSameSubgrid}
 			<div
 				class={twMerge('absolute inset-0 bg-locked center-center flex-col z-50', 'bg-locked-hover')}
 			>
@@ -140,7 +139,7 @@
 					<div class="text-xs"> Anchored: The component cannot be moved. </div>
 				</div>
 			</div>
-		{:else if moveMode === 'insert' && isContainer(component.type) && componentDraggedId && componentDraggedId !== component.id && cachedComponentDraggedIsNotChild}
+		{:else if $moveMode === 'insert' && isContainer(component.type) && componentDraggedId && componentDraggedId !== component.id && cachedComponentDraggedIsNotChild}
 			<div
 				class={twMerge(
 					'absolute inset-0  flex-col rounded-md bg-blue-100 dark:bg-gray-800 bg-opacity-50',

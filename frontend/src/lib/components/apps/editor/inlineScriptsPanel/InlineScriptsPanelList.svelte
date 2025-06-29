@@ -1,9 +1,7 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import { Badge, Button } from '$lib/components/common'
 	import { Plus } from 'lucide-svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import Tooltip from '../../../Tooltip.svelte'
 	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import { BG_PREFIX, getAllScriptNames } from '../../utils'
@@ -80,8 +78,8 @@
 	const dispatch = createEventDispatcher()
 	let runnables = $derived(getAppScripts($app.grid, $app.subgrids))
 	// When selected component changes, update selectedScriptComponentId
-	run(() => {
-		selectedComponent && handleSelectedComponent($selectedComponent)
+	$effect(() => {
+		$selectedComponent && untrack(() => handleSelectedComponent($selectedComponent))
 	})
 </script>
 

@@ -1,12 +1,7 @@
 <script lang="ts">
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../../inputType'
-	import type {
-		AppViewerContext,
-		ComponentCustomCSS,
-		RichConfiguration,
-		RichConfigurations
-	} from '../../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../../types'
 	import { initCss } from '../../../utils'
 	import { getContext, tick, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../../editor/appUtils'
@@ -24,8 +19,7 @@
 		initializing?: boolean | undefined
 		customCss?: ComponentCustomCSS<'agchartscomponent'> | undefined
 		render: boolean
-		datasets: RichConfiguration | undefined
-		xData: RichConfiguration | undefined
+
 		license?: string | undefined
 		ee?: boolean
 	}
@@ -37,22 +31,12 @@
 		initializing = $bindable(undefined),
 		customCss = undefined,
 		render,
-		datasets,
-		xData,
+
 		license = undefined,
 		ee = false
 	}: Props = $props()
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
-
-	type Dataset = {
-		value: RichConfiguration
-		name: string
-		type: 'bar' | 'line' | 'scatter' | 'area' | 'range-bar' | 'range-area'
-	}
-
-	let resolvedDatasets = $state(undefined) as Dataset[] | undefined
-	let resolvedXData: number[] = $state([])
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined as
@@ -115,85 +99,6 @@
 		}
 	}
 
-	function updateChart() {
-		if (!chartInstance) {
-			return
-		}
-
-		let data = [] as any[]
-		if (!resolvedDatasets) {
-			return
-		}
-		for (let i = 0; i < resolvedXData.length; i++) {
-			const o = {
-				x: resolvedXData[i]
-			}
-			if (!resolvedDatasetsValues) {
-				return
-			}
-			for (let j = 0; j < resolvedDatasets.length; j++) {
-				if (!resolvedDatasetsValues[j]) {
-					continue
-				}
-
-				if (
-					resolvedDatasetsValues[j].type === 'range-bar' ||
-					resolvedDatasetsValues[j].type === 'range-area'
-				) {
-					o[`y-${j}-low`] = resolvedDatasetsValues[j].value[i]?.[0]
-					o[`y-${j}-high`] = resolvedDatasetsValues[j].value[i]?.[1]
-				} else {
-					o[`y-${j}`] = resolvedDatasetsValues[j].value[i]
-				}
-			}
-
-			data.push(o)
-		}
-
-		const options = {
-			container: document.getElementById(`agchart-${id}`) as HTMLElement,
-			data: data,
-			series:
-				(resolvedDatasets
-					?.filter((_v, i) => resolvedDatasetsValues?.[i]?.type)
-					.map((d, index) => {
-						if (!resolvedDatasetsValues) {
-							console.error('No resolvedDatasetsValues found')
-							return
-						}
-						const type = resolvedDatasetsValues?.[index]?.type
-						if (!type) {
-							console.error('No type found')
-							return
-						}
-						if (type === 'range-bar' || type === 'range-area') {
-							return {
-								type: type,
-								xKey: 'x',
-								yLowKey: `y-${index}-low`,
-								yHighKey: `y-${index}-high`,
-								yName: d.name
-							}
-						} else {
-							return {
-								type: type,
-								xKey: 'x',
-								yKey: `y-${index}`,
-								yName: d.name
-							}
-						}
-					}) as any[]) ?? [],
-			...getChartStyleByTheme()
-		}
-
-		outputs.result.set({
-			data: options.data,
-			series: options.series
-		})
-
-		AgChartsInstance?.update(chartInstance, options)
-	}
-
 	function updateChartByResult() {
 		if (!result || !chartInstance) {
 			return
@@ -253,106 +158,7 @@
 	}
 
 	let darkMode = $state(false)
-	let resolvedDatasetsValues = $state(undefined) as any[] | undefined
-	function updateResolvedDatasetsValues() {
-		resolvedDatasetsValues = resolvedDatasets?.map((d) => {
-			const config = initConfig(
-				{
-					value: {
-						type: 'oneOf',
-						selected: 'bar',
-						labels: {
-							bar: 'Bar',
-							scatter: 'Scatter',
-							line: 'Line',
-							area: 'Area',
-							['range-bar']: 'Range Bar',
-							['range-area']: 'Range Area'
-						},
-						configuration: {
-							bar: {
-								value: {
-									type: 'static',
-									fieldType: 'array',
-									subFieldType: 'number',
-									value: [25, 25, 50]
-								}
-							},
-							scatter: {
-								value: {
-									type: 'static',
-									fieldType: 'array',
-									subFieldType: 'number',
-									value: [25, 25, 50]
-								}
-							},
-							line: {
-								value: {
-									type: 'static',
-									fieldType: 'array',
-									subFieldType: 'number',
-									value: [25, 25, 50]
-								}
-							},
-							area: {
-								value: {
-									type: 'static',
-									fieldType: 'array',
-									subFieldType: 'number',
-									value: [25, 25, 50]
-								}
-							},
-							['range-bar']: {
-								value: {
-									type: 'static',
-									fieldType: 'array',
-									subFieldType: 'number-tuple',
-									value: [
-										[10, 15],
-										[20, 25],
-										[18, 27]
-									]
-								}
-							},
-							['range-area']: {
-								value: {
-									type: 'static',
-									fieldType: 'array',
-									subFieldType: 'number-tuple',
-									value: [
-										[10, 15],
-										[20, 25],
-										[18, 27]
-									]
-								}
-							}
-						}
-					}
-				},
-				{
-					value: d.value
-				}
-			)
-			// return config
-			return {
-				type: d.value['selected'],
-				// @ts-ignore
-				value: config.value?.['configuration']?.[d.value['selected']].value
-			}
-		})
-	}
-	$effect(() => {
-		resolvedDatasets?.map((x) => x) && untrack(() => updateResolvedDatasetsValues())
-	})
-	$effect(() => {
-		resolvedXData &&
-			resolvedDatasets &&
-			resolvedDatasets?.map((x) => x) &&
-			resolvedDatasetsValues &&
-			resolvedDatasetsValues?.map((x) => x) &&
-			chartInstance &&
-			updateChart()
-	})
+
 	$effect(() => {
 		result && chartInstance && untrack(() => updateChartByResult())
 	})
@@ -371,54 +177,14 @@
 	})
 </script>
 
-<pre class="text-2xs">
-{JSON.stringify(resolvedDatasets)}
-{JSON.stringify(resolvedDatasetsValues)}
-</pre>
 <DarkModeObserver
 	bind:darkMode
 	on:change={(e) => {
 		tick().then(() => {
-			chartInstance && resolvedDatasetsValues && updateChart()
+			chartInstance && updateChartByResult()
 		})
 	}}
 />
-
-{#if datasets}
-	<ResolveConfig
-		{id}
-		key={'datasets'}
-		bind:resolvedConfig={resolvedDatasets}
-		configuration={datasets}
-	/>
-{/if}
-
-{#if xData}
-	<ResolveConfig {id} key={'xData'} bind:resolvedConfig={resolvedXData} configuration={xData} />
-{/if}
-
-{#if resolvedDatasets}
-	{#each resolvedDatasets as resolvedDataset, index (resolvedDataset.name + index)}
-		{#if resolvedDatasetsValues}
-			<ResolveConfig
-				{id}
-				key={'datasets' + index}
-				extraKey={resolvedDataset.name}
-				bind:resolvedConfig={
-					() => resolvedDatasetsValues?.[index],
-					(v) => {
-						console.log('v' + index, v)
-						if (resolvedDatasetsValues?.[index]) {
-							resolvedDatasetsValues[index] = v
-						}
-					}
-				}
-				configuration={resolvedDataset.value}
-				debug
-			/>
-		{/if}
-	{/each}
-{/if}
 
 {#each Object.keys(components['agchartscomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig

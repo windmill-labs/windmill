@@ -86,6 +86,11 @@
 					yaxis: {
 						color: $darkMode ? '#f3f6f8' : '#000',
 						...(resolvedConfig?.layout?.['yaxis'] ?? {})
+					},
+					legend: {
+						font: {
+							color: $darkMode ? '#f3f6f8' : '#000'
+						}
 					}
 				},
 				{ responsive: true, displayModeBar: false }
@@ -110,8 +115,8 @@
 	let resolvedDatasets: Dataset[] | undefined = $state()
 	let resolvedDatasetsValues: Array<number[]> = $state([])
 	let resolvedXData: number[] = $state([])
-	let data = $derived(
-		datasets && xData && resolvedDatasets
+	let data = $derived.by(() => {
+		return datasets && xData && resolvedDatasets
 			? resolvedDatasets.map((d, index) => {
 					const fields =
 						d.type === 'pie'
@@ -127,6 +132,7 @@
 						type: d.type,
 						color: d.color,
 						text: d.tooltip,
+						name: d.name,
 						...fields,
 						marker: {
 							color: d.color
@@ -144,7 +150,7 @@
 			: Array.isArray(result)
 				? result
 				: [result]
-	)
+	})
 	$effect(() => {
 		Plotly &&
 			render &&
@@ -153,6 +159,7 @@
 			h &&
 			w &&
 			shouldeUpdate &&
+			data &&
 			untrack(() => plot(data))
 	})
 </script>
@@ -172,7 +179,6 @@
 		key={'datasets'}
 		bind:resolvedConfig={resolvedDatasets}
 		configuration={datasets}
-		debug
 	/>
 {/if}
 

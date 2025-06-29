@@ -53,7 +53,6 @@
 	>
 		<Splitpanes>
 			<Pane size={60}>
-				{renderCount}
 				<div class="w-full h-full" bind:clientWidth={paneWidth} bind:clientHeight={paneHeight}>
 					{#if paneWidth && paneHeight}
 						<DecisionTreePreview

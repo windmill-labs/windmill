@@ -21,12 +21,18 @@
 		id: string
 	}
 
-	let { navbarItems = $bindable([]), id }: Props = $props()
+	let { navbarItems = $bindable(), id }: Props = $props()
+
+	$effect.pre(() => {
+		if (!navbarItems) {
+			navbarItems = []
+		}
+	})
 
 	const { appPath } = getContext<AppViewerContext>('AppViewerContext')
 
 	let items = $state(
-		navbarItems.map((tab, index) => {
+		(navbarItems ?? []).map((tab, index) => {
 			return { value: tab, id: generateRandomString(), originalIndex: index }
 		})
 	)

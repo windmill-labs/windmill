@@ -14,7 +14,6 @@
 		fullHeight: boolean
 		overlapped?: string | undefined
 		componentDraggedId?: string | undefined
-		moveMode?: string | undefined
 	}
 
 	let {
@@ -24,8 +23,7 @@
 		render,
 		fullHeight,
 		overlapped = undefined,
-		componentDraggedId = undefined,
-		moveMode = undefined
+		componentDraggedId = undefined
 	}: Props = $props()
 	let everRender = $state(render)
 
@@ -39,7 +37,6 @@
 		on:expand
 		on:lock
 		on:fillHeight
-		{moveMode}
 		{componentDraggedId}
 		{overlapped}
 		{render}

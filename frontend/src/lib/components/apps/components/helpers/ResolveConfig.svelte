@@ -54,8 +54,10 @@
 	{/each}
 {:else}
 	{#if debug}
-		<pre>
-			key: {key} {JSON.stringify({ r: resolvedConfig })} {JSON.stringify(configuration)}</pre
+		<pre class="text-2xs">
+			key: {key} 
+			{JSON.stringify({ r: resolvedConfig })}
+			{JSON.stringify(configuration)}</pre
 		>
 	{/if}
 	<InputValue
