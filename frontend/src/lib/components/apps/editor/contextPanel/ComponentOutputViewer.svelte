@@ -1,18 +1,22 @@
 <script lang="ts">
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext, ContextPanelContext } from '../../types'
 	import { recursivelyFilterKeyInJSON as recursivelyFilterInJSON } from '../appUtils'
 
-	export let componentId: string
-	export let hasContent: boolean = false
-	export let suffix: string = ''
-	export let render: boolean = true
+	interface Props {
+		componentId: string
+		hasContent?: boolean
+		suffix?: string
+		render?: boolean
+	}
+
+	let { componentId, hasContent = $bindable(false), suffix = '', render = true }: Props = $props()
 	const { worldStore, connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 	const { search, hasResult } = getContext<ContextPanelContext>('ContextPanel')
 
-	let object = {}
+	let object = $state({})
 
 	function subscribeToAllOutputs(observableOutputs: Record<string, Output<any>> | undefined) {
 		if (observableOutputs) {
@@ -34,9 +38,16 @@
 		}
 	}
 
-	$: subscribeToAllOutputs($worldStore?.outputsById?.[componentId])
-	$: filtered = recursivelyFilterInJSON(object, $search, componentId)
-	$: $hasResult[componentId] = Object.keys(filtered).length > 0
+	$effect(() => {
+		$worldStore?.outputsById?.[componentId]
+		untrack(() => {
+			subscribeToAllOutputs($worldStore?.outputsById?.[componentId])
+		})
+	})
+	let filtered = $derived(recursivelyFilterInJSON(object, $search, componentId))
+	$effect(() => {
+		$hasResult[componentId] = Object.keys(filtered).length > 0
+	})
 </script>
 
 {#if render && object != undefined && Object.keys(object).length > 0}

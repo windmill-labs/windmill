@@ -180,6 +180,7 @@
 				})
 			}
 		}
+		componentInput.value = $state.snapshot(componentInput.value)
 		componentInput = componentInput
 		items = getItems(componentInput)
 	}

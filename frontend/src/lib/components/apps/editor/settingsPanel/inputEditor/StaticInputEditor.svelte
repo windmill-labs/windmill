@@ -54,6 +54,7 @@
 	$effect(() => {
 		componentInput && appContext?.onchange?.()
 	})
+
 	let s3FileUploadRawMode = $state(false)
 	let s3FilePicker: S3FilePicker | undefined = $state(undefined)
 </script>

@@ -15,21 +15,33 @@
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let horizontalAlignment: HorizontalAlignment | undefined = undefined
-	export let verticalAlignment: VerticalAlignment | undefined = undefined
-	export let customCss:
-		| ComponentCustomCSS<'verticaldividercomponent' | 'horizontaldividercomponent'>
-		| undefined = undefined
-	export let position: 'horizontal' | 'vertical'
-	export let render: boolean
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		horizontalAlignment?: HorizontalAlignment | undefined
+		verticalAlignment?: VerticalAlignment | undefined
+		customCss?:
+			| ComponentCustomCSS<'verticaldividercomponent' | 'horizontaldividercomponent'>
+			| undefined
+		position: 'horizontal' | 'vertical'
+		render: boolean
+	}
+
+	let {
+		id,
+		configuration,
+		horizontalAlignment = undefined,
+		verticalAlignment = undefined,
+		customCss = undefined,
+		position,
+		render
+	}: Props = $props()
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
-	let size = 2
-	let color = '#00000060'
+	let size = $state(2)
+	let color = $state('#00000060')
 
-	let css = initCss($app.css?.[position + 'dividercomponent'], customCss)
+	let css = $state(initCss($app.css?.[position + 'dividercomponent'], customCss))
 
 	//used so that we can count number of outputs setup for first refresh
 	initOutput($worldStore, id, {})
