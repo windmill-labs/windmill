@@ -54,8 +54,7 @@
 	{/each}
 {:else}
 	{#if debug}
-		<pre
-			>{JSON.stringify(configuration)}
+		<pre>
 			key: {key} {JSON.stringify({ r: resolvedConfig })} {JSON.stringify(configuration)}</pre
 		>
 	{/if}

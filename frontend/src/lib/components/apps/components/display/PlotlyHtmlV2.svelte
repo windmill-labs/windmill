@@ -172,6 +172,7 @@
 		key={'datasets'}
 		bind:resolvedConfig={resolvedDatasets}
 		configuration={datasets}
+		debug
 	/>
 {/if}
 
