@@ -156,7 +156,7 @@
 			{/if}
 		</div>
 
-		<div class="border rounded bg-surface max-h-96 overflow-y-auto p-2">
+		<div class="border rounded bg-surface max-h-96 overflow-y-auto p-1">
 			{#each groupedScopes.groups as group}
 				<ScopeGroup {group} {selectedScopes} {disabled} onScopeChange={handleScopeChange} />
 			{/each}

@@ -193,11 +193,11 @@ impl ScopeDomain {
 /// Available scope actions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ScopeAction {
-    Read,    // GET operations, list, view
-    Write,   // POST, PUT, PATCH operations, create, update
-    Delete,  // DELETE operations
-    Run, // Special action for running (scripts, flows, etc.)
-    Admin,   // Administrative operations within the domain
+    Read,   // GET operations, list, view
+    Write,  // POST, PUT, PATCH operations, create, update
+    Delete, // DELETE operations
+    Run,    // Special action for running (scripts, flows, etc.)
+    Admin,  // Administrative operations within the domain
 }
 
 impl ScopeAction {
@@ -223,11 +223,10 @@ impl ScopeAction {
     }
 
     /// Check if this action includes another action
-    /// Admin includes all actions, Write includes Read, etc.
+    /// Admin includes all actions
     pub fn includes(&self, other: &ScopeAction) -> bool {
         match (self, other) {
             (ScopeAction::Admin, _) => true,
-            (ScopeAction::Write, ScopeAction::Read) => true,
             (a, b) => a == b,
         }
     }
@@ -267,9 +266,9 @@ pub fn check_route_access(
     }
 
     //Edge case for backward compatibility, if only scopes defined was filter tag then don't treat this we don't treat the token
-    //as a restricted token 
+    //as a restricted token
     if filter_tags && !restricted_scopes {
-        return Ok(())
+        return Ok(());
     }
 
     Err(Error::NotAuthorized(format!(

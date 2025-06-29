@@ -28,20 +28,14 @@
 	let tokens = $state<TruncatedToken[]>([])
 	let tokenPage = $state(1)
 	let newTokenLabel = $state<string | undefined>(defaultNewTokenLabel)
-	let newToken = $state<string | undefined>(undefined)
-	let displayCreateToken = $state(scopes != undefined)
 
 	const dispatch = createEventDispatcher()
 
 	$effect(() => {
-		if (openWithMcpMode) {
-			displayCreateToken = true
-		}
 		listTokens()
 	})
 
 	function handleTokenCreated(token: string) {
-		newToken = token
 		dispatch('tokenCreated', token)
 		listTokens()
 	}
@@ -76,14 +70,14 @@
 		Authenticate to the Windmill API with access tokens.
 	</div>
 
-		<CreateToken
-			{showMcpMode}
-			{openWithMcpMode}
-			bind:newTokenLabel
-			{defaultNewTokenWorkspace}
-			{scopes}
-			onTokenCreated={handleTokenCreated}
-		/>
+	<CreateToken
+		{showMcpMode}
+		{openWithMcpMode}
+		bind:newTokenLabel
+		{defaultNewTokenWorkspace}
+		{scopes}
+		onTokenCreated={handleTokenCreated}
+	/>
 	<div class="overflow-auto flex-1 min-h-64">
 		<TableCustom>
 			<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->

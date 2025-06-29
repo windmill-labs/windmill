@@ -495,14 +495,14 @@ fn transform_old_scope_to_new_scope(scopes: Option<&mut Vec<String>>) -> Windmil
                     continue;
                 }
                 //appending a 's' as runnable kind is singular while new scope format expect it to be plural
-                *scope = format!("{}s:execute:{}", run_scope[1], run_scope[2]);
+                *scope = format!("{}s:run:{}", run_scope[1], run_scope[2]);
             } else if scope.starts_with("jobs:") {
                 // Map old jobs scopes to new format
                 match scope.as_str() {
                     "jobs:listjobs" => *scope = "jobs:read".to_string(),
-                    "jobs:runscript" => *scope = "scripts:execute".to_string(),
-                    "jobs:runflow" => *scope = "flows:execute".to_string(),
-                    "jobs:resumeflow" => *scope = "flows:execute".to_string(),
+                    "jobs:runscript" => *scope = "scripts:run".to_string(),
+                    "jobs:runflow" => *scope = "flows:run".to_string(),
+                    "jobs:resumeflow" => *scope = "flows:run".to_string(),
                     "jobs:deletejob" => *scope = "jobs:delete".to_string(),
                     _ => continue,
                 }

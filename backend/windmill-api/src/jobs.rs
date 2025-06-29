@@ -2017,7 +2017,7 @@ pub async fn resume_suspended_flow_as_owner(
     Path((_w_id, flow_id)): Path<(String, Uuid)>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
 ) -> error::Result<StatusCode> {
-    check_scopes(&authed, || format!("flows:execute"))?;
+    check_scopes(&authed, || format!("flows:run"))?;
     let value = value.unwrap_or(serde_json::Value::Null);
     let mut tx = db.begin().await?;
 
@@ -3508,7 +3508,7 @@ pub async fn run_flow_by_path_inner(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
     let flow_path = flow_path.to_path();
-    check_scopes(&authed, || format!("flows:execute:{flow_path}"))?;
+    check_scopes(&authed, || format!("flows:run:{flow_path}"))?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
 
@@ -3632,7 +3632,7 @@ pub async fn restart_flow(
     let flow_path = completed_job
         .script_path
         .with_context(|| "No flow path set for completed flow job")?;
-    check_scopes(&authed, || format!("flows:execute:{flow_path}"))?;
+    check_scopes(&authed, || format!("flows:run:{flow_path}"))?;
 
     let ehm = HashMap::new();
     let push_args = completed_job
@@ -3709,7 +3709,7 @@ pub async fn run_script_by_path_inner(
 
     let script_path = script_path.to_path();
 
-    check_scopes(&authed, || format!("scripts:execute:{script_path}"))?;
+    check_scopes(&authed, || format!("scripts:run:{script_path}"))?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
     let (job_payload, tag, _delete_after_use, timeout, on_behalf_of) =
@@ -4378,7 +4378,7 @@ pub async fn run_wait_result_job_by_path_get(
         .await?;
 
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
-    check_scopes(&authed, || format!("scripts:execute:{script_path}"))?;
+    check_scopes(&authed, || format!("scripts:run:{script_path}"))?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
     let (job_payload, tag, delete_after_use, timeout, on_behalf_authed) =
@@ -4518,7 +4518,7 @@ pub async fn run_wait_result_script_by_path_internal(
 ) -> error::Result<Response> {
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
-    check_scopes(&authed, || format!("scripts:execute:{script_path}"))?;
+    check_scopes(&authed, || format!("scripts:run:{script_path}"))?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
     let (job_payload, tag, delete_after_use, timeout, on_behalf_of) =
@@ -4624,7 +4624,7 @@ pub async fn run_wait_result_script_by_hash(
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
     }
-    check_scopes(&authed, || format!("scripts:execute:{path}"))?;
+    check_scopes(&authed, || format!("scripts:run:{path}"))?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
@@ -4729,7 +4729,7 @@ pub async fn run_wait_result_flow_by_path_internal(
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
     let flow_path = flow_path.to_path();
-    check_scopes(&authed, || format!("flows:execute:{flow_path}"))?;
+    check_scopes(&authed, || format!("flows:run:{flow_path}"))?;
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
@@ -4813,7 +4813,7 @@ async fn run_preview_script(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    check_scopes(&authed, || format!("scripts:execute"))?;
+    check_scopes(&authed, || format!("scripts:run"))?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run preview jobs for security reasons".to_string(),
@@ -4882,7 +4882,7 @@ async fn run_bundle_preview_script(
 ) -> error::Result<(StatusCode, String)> {
     use windmill_common::scripts::PREVIEW_IS_TAR_CODEBASE_HASH;
 
-    check_scopes(&authed, || format!("scripts:execute"))?;
+    check_scopes(&authed, || format!("scripts:run"))?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run preview jobs for security reasons".to_string(),
@@ -5479,7 +5479,7 @@ async fn run_preview_flow_job(
     Query(run_query): Query<RunJobQuery>,
     Json(raw_flow): Json<PreviewFlow>,
 ) -> error::Result<(StatusCode, String)> {
-    check_scopes(&authed, || format!("flows:execute"))?;
+    check_scopes(&authed, || format!("flows:run"))?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run preview jobs for security reasons".to_string(),
@@ -5575,7 +5575,7 @@ pub async fn run_job_by_hash_inner(
         created_by,
         .. // delete_after_use not taken into account in async endpoints
     } = get_script_info_for_hash(&mut *tx, &w_id, hash).await?;
-    check_scopes(&authed, || format!("scripts:execute:{path}"))?;
+    check_scopes(&authed, || format!("scripts:run:{path}"))?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
     }

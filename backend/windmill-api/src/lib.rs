@@ -151,7 +151,6 @@ mod schedule;
 pub mod scim_ee;
 mod scim_oss;
 mod scopes;
-mod scope_middleware;
 mod scripts;
 mod service_logs;
 mod settings;
