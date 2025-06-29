@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import {
@@ -18,18 +18,27 @@
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import { userStore } from '$lib/stores'
 
-	export let id: string
-	export let initializing: boolean | undefined = false
-	export let customCss: ComponentCustomCSS<'jobiddisplaycomponent'> | undefined = undefined
-	export let configuration: RichConfigurations
-	export let render: boolean
+	interface Props {
+		id: string
+		initializing?: boolean | undefined
+		customCss?: ComponentCustomCSS<'jobiddisplaycomponent'> | undefined
+		configuration: RichConfigurations
+		render: boolean
+	}
+
+	let {
+		id,
+		initializing = $bindable(false),
+		customCss = undefined,
+		configuration,
+		render
+	}: Props = $props()
 
 	const { app, worldStore, workspace, appPath } = getContext<AppViewerContext>('AppViewerContext')
 	const requireHtmlApproval = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)
 
-	let resolvedConfig = initConfig(
-		components['jobiddisplaycomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['jobiddisplaycomponent'].initialData.configuration, configuration)
 	)
 
 	const outputs = initOutput($worldStore, id, {
@@ -40,18 +49,25 @@
 
 	initializing = false
 
-	let css = initCss($app.css?.jobiddisplaycomponent, customCss)
+	let css = $state(initCss($app.css?.jobiddisplaycomponent, customCss))
 
-	let testJobLoader: TestJobLoader | undefined = undefined
-	let testIsLoading: boolean = false
-	let testJob: Job | undefined = undefined
+	let testJobLoader: TestJobLoader | undefined = $state(undefined)
+	let testIsLoading: boolean = $state(false)
+	let testJob: Job | undefined = $state(undefined)
 
-	$: if (resolvedConfig.jobId) {
-		outputs.loading.set(true)
-		testJobLoader?.watchJob(resolvedConfig?.['jobId'])
-	}
+	$effect(() => {
+		if (resolvedConfig.jobId) {
+			untrack(() => {
+				outputs.loading.set(true)
+				const jobId = resolvedConfig?.['jobId']
+				if (jobId) {
+					testJobLoader?.watchJob(jobId)
+				}
+			})
+		}
+	})
 
-	let result: any = undefined
+	let result: any = $state(undefined)
 </script>
 
 {#each Object.keys(components['jobiddisplaycomponent'].initialData.configuration) as key (key)}
@@ -87,7 +103,6 @@
 />
 
 <InitializeComponent {id} />
-
 {#if render}
 	<div class="flex flex-col w-full h-full component-wrapper">
 		<div

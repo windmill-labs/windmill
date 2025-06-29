@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { createBubbler, preventDefault } from 'svelte/legacy'
+
+	const bubble = createBubbler()
+	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { getImageDataURL, initCss } from '../../utils'
@@ -12,25 +15,26 @@
 	import Loader from '../helpers/Loader.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'statcomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'statcomponent'> | undefined
+		render: boolean
+	}
+
+	let { id, configuration, customCss = undefined, render }: Props = $props()
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	let resolvedConfig = initConfig(
-		components['statcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['statcomponent'].initialData.configuration, configuration)
 	)
 
 	initOutput($worldStore, id, {})
 
-	let css = initCss($app.css?.statcomponent, customCss)
+	let css = $state(initCss($app.css?.statcomponent, customCss))
 
-	let iconComponent: any
-
-	$: isIcon && resolvedConfig?.media?.configuration?.icon?.icon && iconComponent && handleIcon()
+	let iconComponent: any = $state()
 
 	async function handleIcon() {
 		if (resolvedConfig?.media?.configuration?.icon?.icon) {
@@ -44,7 +48,13 @@
 		}
 	}
 
-	$: isIcon = resolvedConfig.media?.selected == 'icon'
+	let isIcon = $derived(resolvedConfig.media?.selected == 'icon')
+	$effect(() => {
+		isIcon &&
+			resolvedConfig?.media?.configuration?.icon?.icon &&
+			iconComponent &&
+			untrack(() => handleIcon())
+	})
 </script>
 
 {#each Object.keys(components['statcomponent'].initialData.configuration) as key (key)}
@@ -94,7 +104,7 @@
 			{:else}
 				<Loader loading={resolvedConfig?.media?.configuration?.image?.source == undefined}>
 					<img
-						on:pointerdown|preventDefault
+						onpointerdown={preventDefault(bubble('pointerdown'))}
 						src={getImageDataURL(
 							resolvedConfig?.media?.configuration?.image?.sourceKind,
 							resolvedConfig?.media?.configuration?.image?.source
