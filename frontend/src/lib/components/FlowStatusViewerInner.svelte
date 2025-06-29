@@ -11,10 +11,11 @@
 	import { base } from '$lib/base'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
+	import DisplayResult from './DisplayResult.svelte'
+
 	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import { onDestroy } from 'svelte'
 	import { Badge, Button, Skeleton, Tab } from './common'
-	import DisplayResult from './DisplayResult.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { type DurationStatus, type FlowStatusViewerContext, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'

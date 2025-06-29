@@ -9,9 +9,9 @@
 	import { twMerge } from 'tailwind-merge'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import ModuleAcceptReject, {
-		aiModuleActionToBgColor,
 		getAiModuleAction
 	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
+	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 	let {
 		small,
 		clazz

@@ -6,7 +6,7 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	import PdfViewer from '$lib/components/display/PdfViewer.svelte'
+	import { Loader2 } from 'lucide-svelte'
 
 	interface Props {
 		id: string
@@ -46,17 +46,21 @@
 
 {#if render}
 	<div class="relative w-full h-full bg-gray-100 component-wrapper">
-		<PdfViewer
-			{source}
-			{zoom}
-			class={css?.container?.class}
-			style={css?.container?.style}
-			on:loading={() => {
-				outputs.loading.set(true)
-			}}
-			on:loaded={() => {
-				outputs.loading.set(false)
-			}}
-		/>
+		{#await import('$lib/components/display/PdfViewer.svelte')}
+			<Loader2 class="animate-spin" />
+		{:then Module}
+			<Module.default
+				{source}
+				{zoom}
+				class={css?.container?.class}
+				style={css?.container?.style}
+				on:loading={() => {
+					outputs.loading.set(true)
+				}}
+				on:loaded={() => {
+					outputs.loading.set(false)
+				}}
+			/>
+		{/await}
 	</div>
 {/if}

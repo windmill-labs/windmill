@@ -16,7 +16,7 @@
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { triggerableByAI } from '$lib/actions/triggerableByAI'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { untrack } from 'svelte'
 
 	interface Props {

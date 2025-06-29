@@ -14,7 +14,7 @@
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
-	import { triggerableByAI } from '$lib/actions/triggerableByAI'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	interface Props {

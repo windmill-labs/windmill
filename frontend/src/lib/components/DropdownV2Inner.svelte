@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { MenuItem } from '$lib/components/meltComponents'
+	import MenuItem from '$lib/components/meltComponents/MenuItem.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'

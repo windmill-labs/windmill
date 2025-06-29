@@ -5,7 +5,7 @@
 	import { BellOff } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { goto } from '$lib/navigation'
-	import { triggerableByAI } from '$lib/actions/triggerableByAI'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
 	const dispatch = createEventDispatcher()
 
