@@ -86,7 +86,8 @@
 			onDelete()
 		}
 
-		let cId = componentSettings?.item.id
+		const item = componentSettings?.item
+		let cId = item?.id
 		if (cId) {
 			delete $worldStore.outputsById[cId]
 			delete $errorByComponent[cId]
@@ -98,15 +99,15 @@
 
 		$selectedComponent = undefined
 		$focusedGrid = undefined
-		if (componentSettings?.item && !noGrid) {
-			let ids = deleteGridItem($app, componentSettings?.item.data, componentSettings?.parent)
+		if (item && !noGrid) {
+			let ids = deleteGridItem($app, item.data, componentSettings?.parent)
 			for (const key of ids) {
 				delete $runnableComponents[key]
 			}
 		}
 
-		if (componentSettings?.item?.data?.id) {
-			delete $runnableComponents[componentSettings?.item?.data?.id]
+		if (item?.data?.id) {
+			delete $runnableComponents[item?.data?.id]
 		}
 		$app = $app
 		$runnableComponents = $runnableComponents
