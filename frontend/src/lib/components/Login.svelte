@@ -12,11 +12,12 @@
 	import { classNames, emptyString, parseQueryParams } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { getUserExt } from '$lib/user'
-	import { Button, Skeleton } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import { refreshSuperadmin } from '$lib/refreshUser'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import Skeleton from './common/skeleton/Skeleton.svelte'
+	import Button from './common/button/Button.svelte'
 
 	interface Props {
 		rd?: string | undefined
