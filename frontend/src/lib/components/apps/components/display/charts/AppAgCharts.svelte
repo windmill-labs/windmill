@@ -8,7 +8,7 @@
 		RichConfigurations
 	} from '../../../types'
 	import { initCss } from '../../../utils'
-	import { getContext, tick } from 'svelte'
+	import { getContext, tick, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../../editor/appUtils'
 	import { components } from '../../../editor/component'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
@@ -17,16 +17,31 @@
 	import type { AgChartOptions, AgChartInstance } from 'ag-charts-community'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'agchartscomponent'> | undefined = undefined
-	export let render: boolean
-	export let datasets: RichConfiguration | undefined
-	export let xData: RichConfiguration | undefined
-	export let license: string | undefined = undefined
-	export let ee: boolean = false
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		initializing?: boolean | undefined
+		customCss?: ComponentCustomCSS<'agchartscomponent'> | undefined
+		render: boolean
+		datasets: RichConfiguration | undefined
+		xData: RichConfiguration | undefined
+		license?: string | undefined
+		ee?: boolean
+	}
+
+	let {
+		id,
+		componentInput,
+		configuration,
+		initializing = $bindable(undefined),
+		customCss = undefined,
+		render,
+		datasets,
+		xData,
+		license = undefined,
+		ee = false
+	}: Props = $props()
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -36,8 +51,8 @@
 		type: 'bar' | 'line' | 'scatter' | 'area' | 'range-bar' | 'range-area'
 	}
 
-	let resolvedDatasets: Dataset[]
-	let resolvedXData: number[] = []
+	let resolvedDatasets = $state(undefined) as Dataset[] | undefined
+	let resolvedXData: number[] = $state([])
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined as
@@ -49,15 +64,14 @@
 		loading: false
 	})
 
-	let result: undefined | any = undefined
+	let result: undefined | any = $state(undefined)
 
-	const resolvedConfig = initConfig(
-		components['agchartscomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['agchartscomponent'].initialData.configuration, configuration)
 	)
 
-	let css = initCss($app.css?.agchartscomponent, customCss)
-	let chartInstance: AgChartInstance | undefined = undefined
+	let css = $state(initCss($app.css?.agchartscomponent, customCss))
+	let chartInstance: AgChartInstance | undefined = $state(undefined)
 
 	function getChartStyleByTheme() {
 		const gridColor = darkMode ? '#555555' : '#dddddd'
@@ -107,12 +121,16 @@
 		}
 
 		let data = [] as any[]
-
+		if (!resolvedDatasets) {
+			return
+		}
 		for (let i = 0; i < resolvedXData.length; i++) {
 			const o = {
 				x: resolvedXData[i]
 			}
-
+			if (!resolvedDatasetsValues) {
+				return
+			}
 			for (let j = 0; j < resolvedDatasets.length; j++) {
 				if (!resolvedDatasetsValues[j]) {
 					continue
@@ -137,6 +155,9 @@
 			data: data,
 			series:
 				(resolvedDatasets?.map((d, index) => {
+					if (!resolvedDatasetsValues) {
+						return
+					}
 					const type = resolvedDatasetsValues[index].type
 					if (type === 'range-bar' || type === 'range-area') {
 						return {
@@ -165,95 +186,6 @@
 		AgChartsInstance?.update(chartInstance, options)
 	}
 
-	$: resolvedDatasetsValues = resolvedDatasets?.map((d) => {
-		const config = initConfig(
-			{
-				value: {
-					type: 'oneOf',
-					selected: 'bar',
-					labels: {
-						bar: 'Bar',
-						scatter: 'Scatter',
-						line: 'Line',
-						area: 'Area',
-						['range-bar']: 'Range Bar',
-						['range-area']: 'Range Area'
-					},
-					configuration: {
-						bar: {
-							value: {
-								type: 'static',
-								fieldType: 'array',
-								subFieldType: 'number',
-								value: [25, 25, 50]
-							}
-						},
-						scatter: {
-							value: {
-								type: 'static',
-								fieldType: 'array',
-								subFieldType: 'number',
-								value: [25, 25, 50]
-							}
-						},
-						line: {
-							value: {
-								type: 'static',
-								fieldType: 'array',
-								subFieldType: 'number',
-								value: [25, 25, 50]
-							}
-						},
-						area: {
-							value: {
-								type: 'static',
-								fieldType: 'array',
-								subFieldType: 'number',
-								value: [25, 25, 50]
-							}
-						},
-						['range-bar']: {
-							value: {
-								type: 'static',
-								fieldType: 'array',
-								subFieldType: 'number-tuple',
-								value: [
-									[10, 15],
-									[20, 25],
-									[18, 27]
-								]
-							}
-						},
-						['range-area']: {
-							value: {
-								type: 'static',
-								fieldType: 'array',
-								subFieldType: 'number-tuple',
-								value: [
-									[10, 15],
-									[20, 25],
-									[18, 27]
-								]
-							}
-						}
-					}
-				}
-			},
-			{
-				value: d.value
-			}
-		)
-
-		return {
-			type: d.value['selected'],
-			// @ts-ignore
-			value: config.value?.['configuration']?.[d.value['selected']].value
-		}
-	})
-
-	$: resolvedXData && resolvedDatasets && resolvedDatasetsValues && chartInstance && updateChart()
-	$: result && chartInstance && updateChartByResult()
-
 	function updateChartByResult() {
 		if (!result || !chartInstance) {
 			return
@@ -276,8 +208,6 @@
 	}
 
 	let AgChartsInstance: any | undefined = undefined
-
-	$: license && loadLibrary()
 
 	async function loadLibrary() {
 		if (ee) {
@@ -314,14 +244,117 @@
 		}
 	}
 
-	$: if (render) {
-		destroyChart()
-		loadLibrary().then(() => {
-			initChart()
-		})
-	}
+	let darkMode = $state(false)
+	let resolvedDatasetsValues = $derived(
+		resolvedDatasets?.map((d) => {
+			const config = initConfig(
+				{
+					value: {
+						type: 'oneOf',
+						selected: 'bar',
+						labels: {
+							bar: 'Bar',
+							scatter: 'Scatter',
+							line: 'Line',
+							area: 'Area',
+							['range-bar']: 'Range Bar',
+							['range-area']: 'Range Area'
+						},
+						configuration: {
+							bar: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number',
+									value: [25, 25, 50]
+								}
+							},
+							scatter: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number',
+									value: [25, 25, 50]
+								}
+							},
+							line: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number',
+									value: [25, 25, 50]
+								}
+							},
+							area: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number',
+									value: [25, 25, 50]
+								}
+							},
+							['range-bar']: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number-tuple',
+									value: [
+										[10, 15],
+										[20, 25],
+										[18, 27]
+									]
+								}
+							},
+							['range-area']: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number-tuple',
+									value: [
+										[10, 15],
+										[20, 25],
+										[18, 27]
+									]
+								}
+							}
+						}
+					}
+				},
+				{
+					value: d.value
+				}
+			)
 
-	let darkMode = false
+			return {
+				type: d.value['selected'],
+				// @ts-ignore
+				value: config.value?.['configuration']?.[d.value['selected']].value
+			}
+		})
+	)
+	$effect(() => {
+		resolvedXData &&
+			resolvedDatasets &&
+			resolvedDatasetsValues &&
+			chartInstance &&
+			untrack(() => updateChart())
+	})
+	$effect(() => {
+		result && chartInstance && untrack(() => updateChartByResult())
+	})
+	$effect(() => {
+		license && untrack(() => loadLibrary())
+	})
+	$effect(() => {
+		if (render) {
+			untrack(() => {
+				destroyChart()
+				loadLibrary().then(() => {
+					initChart()
+				})
+			})
+		}
+	})
 </script>
 
 <DarkModeObserver
@@ -348,13 +381,15 @@
 
 {#if resolvedDatasets}
 	{#each resolvedDatasets as resolvedDataset, index (resolvedDataset.name + index)}
-		<ResolveConfig
-			{id}
-			key={'datasets' + index}
-			extraKey={resolvedDataset.name}
-			bind:resolvedConfig={resolvedDatasetsValues[index]}
-			configuration={resolvedDataset.value}
-		/>
+		{#if resolvedDatasetsValues}
+			<ResolveConfig
+				{id}
+				key={'datasets' + index}
+				extraKey={resolvedDataset.name}
+				bind:resolvedConfig={resolvedDatasetsValues[index]}
+				configuration={resolvedDataset.value}
+			/>
+		{/if}
 	{/each}
 {/if}
 

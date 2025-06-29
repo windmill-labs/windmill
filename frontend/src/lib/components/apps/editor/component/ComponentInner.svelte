@@ -69,7 +69,7 @@
 	import AppNumberInput from '../../components/inputs/AppNumberInput.svelte'
 	import AppNavbar from '../../components/display/AppNavbar.svelte'
 	import AppDateSelect from '../../components/inputs/AppDateSelect.svelte'
-	import AppDisplayComponentByJobId from '../../components/display/AppRecomputeAll.svelte'
+	import AppDisplayComponentByJobId from '../../components/display/AppDisplayComponentByJobId.svelte'
 	import AppRecomputeAll from '../../components/display/AppRecomputeAll.svelte'
 	import AppUserResource from '../../components/inputs/AppUserResource.svelte'
 	import type { AppComponent } from './components'
