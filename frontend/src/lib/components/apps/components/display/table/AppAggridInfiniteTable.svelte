@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { IDatasource } from 'ag-grid-community'
 
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../../types'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
@@ -21,15 +21,27 @@
 	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
 	import RunnableComponent from '../../helpers/RunnableComponent.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let initializing: boolean | undefined = undefined
-	export let render: boolean
-	export let customCss: ComponentCustomCSS<'aggridinfinitecomponent'> | undefined = undefined
-	export let actions: TableAction[] | undefined = undefined
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		initializing?: boolean | undefined
+		render: boolean
+		customCss?: ComponentCustomCSS<'aggridinfinitecomponent'> | undefined
+		actions?: TableAction[] | undefined
+	}
 
-	let runnableComponent: RunnableComponent | undefined = undefined
+	let {
+		id,
+		componentInput,
+		configuration,
+		initializing = $bindable(undefined),
+		render,
+		customCss = undefined,
+		actions = undefined
+	}: Props = $props()
+
+	let runnableComponent: RunnableComponent | undefined = $state(undefined)
 
 	function clear() {
 		setTimeout(() => {
@@ -40,13 +52,12 @@
 	const context = getContext<AppViewerContext>('AppViewerContext')
 	const { app, worldStore } = context
 
-	let css = initCss($app.css?.aggridcomponent, customCss)
-	let result: any[] | undefined = undefined
-	let loading: boolean = false
+	let css = $state(initCss($app.css?.aggridcomponent, customCss))
+	let result: any[] | undefined = $state(undefined)
+	let loading: boolean = $state(false)
 
-	let resolvedConfig = initConfig(
-		components['aggridinfinitecomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['aggridinfinitecomponent'].initialData.configuration, configuration)
 	)
 
 	let outputs = initOutput($worldStore, id, {
@@ -68,9 +79,9 @@
 		}
 	})
 
-	let aggrid: AppAggridExplorerTable | undefined = undefined
+	let aggrid: AppAggridExplorerTable | undefined = $state(undefined)
 
-	const datasource: IDatasource = {
+	const datasource: IDatasource = $state({
 		rowCount: undefined,
 
 		getRows: async function (params) {
@@ -136,9 +147,9 @@
 				}
 			})
 		}
-	}
+	})
 
-	let searchValue: string = ''
+	let searchValue: string = $state('')
 
 	function updateSearchInOutputs() {
 		outputs.params.set({
@@ -148,7 +159,9 @@
 		aggrid?.clearRows()
 	}
 
-	$: searchValue !== undefined && updateSearchInOutputs()
+	$effect(() => {
+		searchValue !== undefined && untrack(() => updateSearchInOutputs())
+	})
 </script>
 
 {#each Object.keys(components['aggridinfinitecomponent'].initialData.configuration) as key (key)}
