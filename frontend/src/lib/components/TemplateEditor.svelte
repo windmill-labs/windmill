@@ -21,11 +21,12 @@
 	import {
 		convertKind,
 		createDocumentationString,
-		createHash,
 		displayPartsToString,
 		editorConfig,
 		updateOptions
 	} from '$lib/editorUtils'
+	import { createHash } from '$lib/editorLangUtils'
+
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import { editor as meditor, Uri as mUri, languages, Range, KeyMod, KeyCode } from 'monaco-editor'
 	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'

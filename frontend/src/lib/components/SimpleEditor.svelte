@@ -57,7 +57,9 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
-	import { createHash, editorConfig, langToExt, updateOptions } from '$lib/editorUtils'
+	import { editorConfig, updateOptions } from '$lib/editorUtils'
+	import { createHash } from '$lib/editorLangUtils'
+
 	// import {
 	// 	editor as meditor,
 	// 	KeyCode,
@@ -80,6 +82,7 @@
 	import { initVim } from './monaco_keybindings'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { editorPositionMap } from '$lib/utils'
+	import { langToExt } from '$lib/editorLangUtils'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 

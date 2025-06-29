@@ -12,7 +12,7 @@
 	import type { Placement } from '@floating-ui/core'
 	import { conditionalMelt } from '$lib/utils'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
-	import { triggerableByAI } from '$lib/actions/triggerableByAI'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
 	type MenuItem = {
 		label: string

@@ -35,12 +35,12 @@
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import ModuleAcceptReject, {
-		aiModuleActionToBgColor,
 		getAiModuleAction
 	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 	import { Button } from '$lib/components/common'
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
+	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 
 	interface Props {
 		selected?: boolean

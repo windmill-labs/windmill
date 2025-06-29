@@ -3,7 +3,7 @@
 	import { Button } from '../common'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import { triggerableByAI } from '$lib/actions/triggerableByAI'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
 	import { UserService, type NewToken } from '$lib/gen'
 	import { copyToClipboard } from '$lib/utils'
@@ -135,10 +135,13 @@
 		<h3 class="pb-3 font-semibold">Add a new token</h3>
 
 		{#if showMcpMode}
-			<div class="mb-4 flex flex-row flex-shrink-0" use:triggerableByAI={{
-				id: 'account-settings-create-mcp-token',
-				description: 'Create a new MCP token to authenticate to the Windmill API'
-			}}>
+			<div
+				class="mb-4 flex flex-row flex-shrink-0"
+				use:triggerableByAI={{
+					id: 'account-settings-create-mcp-token',
+					description: 'Create a new MCP token to authenticate to the Windmill API'
+				}}
+			>
 				<Toggle
 					on:change={(e) => {
 						mcpCreationMode = e.detail

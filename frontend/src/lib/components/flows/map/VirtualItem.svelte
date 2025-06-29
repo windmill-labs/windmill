@@ -8,9 +8,9 @@
 	import { fade } from 'svelte/transition'
 	import { Database, Square } from 'lucide-svelte'
 	import ModuleAcceptReject, {
-		aiModuleActionToBgColor,
 		getAiModuleAction
 	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
+	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 
 	interface Props {
 		label?: string | undefined

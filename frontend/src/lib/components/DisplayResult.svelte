@@ -13,7 +13,8 @@
 		Table2,
 		Braces,
 		Highlighter,
-		ArrowDownFromLine
+		ArrowDownFromLine,
+		Loader2
 	} from 'lucide-svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import DisplayResultControlBar from './DisplayResultControlBar.svelte'
@@ -34,7 +35,6 @@
 	import { convertJsonToCsv } from './table/tableUtils'
 	import Tooltip from './Tooltip.svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
-	import PdfViewer from './display/PdfViewer.svelte'
 	import type { DisplayResultUi } from './custom_ui'
 	import { getContext, hasContext, createEventDispatcher, onDestroy } from 'svelte'
 	import { toJsonStr } from '$lib/utils'
@@ -634,10 +634,14 @@
 					</div>
 				{:else if !forceJson && resultKind === 'pdf'}
 					<div class="h-96 mt-2 border">
-						<PdfViewer
-							allowFullscreen
-							source="data:application/pdf;base64,{contentOrRootString(result.pdf)}"
-						/>
+						{#await import('$lib/components/display/PdfViewer.svelte')}
+							<Loader2 class="animate-spin" />
+						{:then Module}
+							<Module.default
+								allowFullscreen
+								source="data:application/pdf;base64,{contentOrRootString(result.pdf)}"
+							/>
+						{/await}
 					</div>
 				{:else if !forceJson && resultKind === 'plain'}<div class="h-full text-2xs"
 						><pre class="whitespace-pre-wrap"
@@ -809,18 +813,22 @@
 								</div>
 							{:else if result?.s3?.endsWith('.pdf')}
 								<div class="h-96 mt-2 border">
-									<PdfViewer
-										allowFullscreen
-										source="{`/api/w/${workspaceId}/${
-											appPath
-												? 'apps_u/download_s3_file/' + appPath
-												: 'job_helpers/load_image_preview'
-										}?${appPath ? 's3' : 'file_key'}=${encodeURIComponent(result.s3)}` +
-											(result.storage ? `&storage=${result.storage}` : '')}{appPath &&
-										result.presigned
-											? `&${result.presigned}`
-											: ''}"
-									/>
+									{#await import('$lib/components/display/PdfViewer.svelte')}
+										<Loader2 class="animate-spin" />
+									{:then Module}
+										<Module.default
+											allowFullscreen
+											source="{`/api/w/${workspaceId}/${
+												appPath
+													? 'apps_u/download_s3_file/' + appPath
+													: 'job_helpers/load_image_preview'
+											}?${appPath ? 's3' : 'file_key'}=${encodeURIComponent(result.s3)}` +
+												(result.storage ? `&storage=${result.storage}` : '')}{appPath &&
+											result.presigned
+												? `&${result.presigned}`
+												: ''}"
+										/>
+									{/await}
 								</div>
 							{/if}
 						{/if}
@@ -893,12 +901,16 @@
 									{/if}
 								{:else if s3object?.s3?.endsWith('.pdf')}
 									<div class="h-96 mt-2 border" data-interactive>
-										<PdfViewer
-											allowFullscreen
-											source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
-												s3object.s3
-											)}` + (s3object.storage ? `&storage=${s3object.storage}` : '')}
-										/>
+										{#await import('$lib/components/display/PdfViewer.svelte')}
+											<Loader2 class="animate-spin" />
+										{:then Module}
+											<Module.default
+												allowFullscreen
+												source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
+													s3object.s3
+												)}` + (s3object.storage ? `&storage=${s3object.storage}` : '')}
+											/>
+										{/await}
 									</div>
 								{/if}
 							{/each}

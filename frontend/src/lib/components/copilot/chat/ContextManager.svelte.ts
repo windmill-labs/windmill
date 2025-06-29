@@ -1,4 +1,3 @@
-import { langToExt } from '$lib/editorUtils'
 import { ResourceService, type ListResourceResponse, type ScriptLang } from '$lib/gen'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { SQLSchemaLanguages, type DBSchemas } from '$lib/stores'
@@ -6,6 +5,7 @@ import { diffLines } from 'diff'
 import type { ContextElement } from './context'
 
 import type { DisplayMessage } from './shared'
+import { langToExt } from '$lib/editorLangUtils'
 
 export interface ScriptOptions {
 	lang: ScriptLang | 'bunnative'
@@ -160,15 +160,15 @@ export default class ContextManager {
 				.map((c) =>
 					c.type === 'code'
 						? {
-								...c,
-								content: scriptOptions.code,
-								title: this.getContextCodePath(scriptOptions)
-							}
+							...c,
+							content: scriptOptions.code,
+							title: this.getContextCodePath(scriptOptions)
+						}
 						: c.type === 'db' && dbSchemas[c.title]
 							? {
-									...c,
-									schema: dbSchemas[c.title]
-								}
+								...c,
+								schema: dbSchemas[c.title]
+							}
 							: c
 				)
 
@@ -234,14 +234,14 @@ export default class ContextManager {
 			...(options.withCode === false ? [] : [codeContext]),
 			...(options.withDiff
 				? [
-						{
-							type: 'diff' as const,
-							title: 'diff_with_last_deployed_version',
-							content: this.scriptOptions.lastDeployedCode ?? '',
-							diff: diffLines(this.scriptOptions.lastDeployedCode ?? '', this.scriptOptions.code),
-							lang: this.scriptOptions.lang
-						}
-					]
+					{
+						type: 'diff' as const,
+						title: 'diff_with_last_deployed_version',
+						content: this.scriptOptions.lastDeployedCode ?? '',
+						diff: diffLines(this.scriptOptions.lastDeployedCode ?? '', this.scriptOptions.code),
+						lang: this.scriptOptions.lang
+					}
+				]
 				: [])
 		]
 	}
@@ -268,14 +268,14 @@ export default class ContextManager {
 			contextElements:
 				m.role !== 'tool' && m.contextElements
 					? m.contextElements.map((c) =>
-							c.type === 'db'
-								? {
-										type: 'db',
-										title: c.title,
-										schema: dbSchemas[c.title]
-									}
-								: c
-						)
+						c.type === 'db'
+							? {
+								type: 'db',
+								title: c.title,
+								schema: dbSchemas[c.title]
+							}
+							: c
+					)
 					: undefined
 		}))
 	}

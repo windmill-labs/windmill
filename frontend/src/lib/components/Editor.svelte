@@ -105,13 +105,8 @@
 		vimMode
 	} from '$lib/stores'
 
-	import {
-		createHash as randomHash,
-		editorConfig,
-		langToExt,
-		updateOptions,
-		extToLang
-	} from '$lib/editorUtils'
+	import { editorConfig, updateOptions } from '$lib/editorUtils'
+	import { createHash as randomHash } from '$lib/editorLangUtils'
 	import { workspaceStore } from '$lib/stores'
 	import { type Preview, ResourceService, type ScriptLang, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
@@ -156,6 +151,7 @@
 	import { formatResourceTypes } from './copilot/chat/script/core'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { editorPositionMap } from '$lib/utils'
+	import { extToLang, langToExt } from '$lib/editorLangUtils'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null

@@ -1,5 +1,6 @@
 import { dfs } from '$lib/components/flows/previousResults'
 import type { OpenFlow } from '$lib/gen'
+import type { AIModuleAction } from './core'
 
 export function getIndexInNestedModules(flow: OpenFlow, id: string) {
 	const accessingModules = dfs(id, flow, true).reverse()
@@ -78,5 +79,20 @@ export function getNestedModules(flow: OpenFlow, id: string, branchIndex?: numbe
 		return branch.modules
 	} else {
 		throw new Error('Module is not a loop or branch')
+	}
+}
+
+
+
+export function aiModuleActionToBgColor(action: AIModuleAction | undefined) {
+	switch (action) {
+		case 'modified':
+			return '!bg-orange-200 dark:!bg-orange-800'
+		case 'added':
+			return '!bg-green-200 dark:!bg-green-800'
+		case 'removed':
+			return '!bg-red-200/50 dark:!bg-red-800/50'
+		default:
+			return ''
 	}
 }
