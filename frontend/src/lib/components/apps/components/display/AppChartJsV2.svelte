@@ -164,7 +164,7 @@
 		{#if data && resolvedConfig.type}
 			{#key resolvedConfig.type}
 				{#key options}
-					<Chart type={resolvedConfig.type} {data} {options} />
+					<Chart type={resolvedConfig.type} data={$state.snapshot(data)} {options} />
 				{/key}
 			{/key}
 		{/if}

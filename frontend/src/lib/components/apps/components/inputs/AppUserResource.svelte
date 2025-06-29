@@ -17,17 +17,26 @@
 	import { twMerge } from 'tailwind-merge'
 	import LightweightResourcePicker from '$lib/components/LightweightResourcePicker.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'userresourcecomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		customCss?: ComponentCustomCSS<'userresourcecomponent'> | undefined
+		render: boolean
+	}
+
+	let {
+		id,
+		configuration,
+		verticalAlignment = undefined,
+		customCss = undefined,
+		render
+	}: Props = $props()
 
 	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
-	let resolvedConfig = initConfig(
-		components['userresourcecomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['userresourcecomponent'].initialData.configuration, configuration)
 	)
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
@@ -37,16 +46,18 @@
 		result: undefined as string | undefined
 	})
 
-	let css = initCss($app.css?.['userresourcecomponent'], customCss)
+	let css = $state(initCss($app.css?.['userresourcecomponent'], customCss))
 
-	$: classInput = twMerge(
-		'windmillapp w-full px-2',
-		css?.input?.class ?? '',
-		'wm-input',
-		'wm-user-resource-select'
+	let classInput = $derived(
+		twMerge(
+			'windmillapp w-full px-2',
+			css?.input?.class ?? '',
+			'wm-input',
+			'wm-user-resource-select'
+		)
 	)
 
-	let value: string | undefined = outputs.result.peak()?.replace('$res:', '')
+	let value: string | undefined = $state(outputs.result.peak()?.replace('$res:', ''))
 
 	value && assignValue(outputs.result.peak())
 
@@ -76,7 +87,7 @@
 		}
 	}
 
-	let resourcePicker: LightweightResourcePicker | undefined = undefined
+	let resourcePicker: LightweightResourcePicker | undefined = $state(undefined)
 </script>
 
 {#each Object.keys(components['userresourcecomponent'].initialData.configuration) as key (key)}

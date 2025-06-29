@@ -158,7 +158,10 @@
 					if (!resolvedDatasetsValues) {
 						return
 					}
-					const type = resolvedDatasetsValues[index].type
+					const type = resolvedDatasetsValues?.[index]?.type
+					if (!type) {
+						return
+					}
 					if (type === 'range-bar' || type === 'range-area') {
 						return {
 							type: type,
@@ -361,7 +364,7 @@
 	bind:darkMode
 	on:change={(e) => {
 		tick().then(() => {
-			updateChart()
+			chartInstance && resolvedDatasetsValues && updateChart()
 		})
 	}}
 />

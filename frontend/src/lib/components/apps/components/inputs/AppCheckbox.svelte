@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { getContext, onDestroy } from 'svelte'
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type {
 		AppViewerContext,
@@ -17,20 +17,35 @@
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let recomputeIds: string[] | undefined = undefined
-	export let customCss: ComponentCustomCSS<'checkboxcomponent'> | undefined = undefined
-	export let render: boolean
-	export let extraKey: string | undefined = undefined
-	export let preclickAction: (() => Promise<void>) | undefined = undefined
-	export let noInitialize = false
-	export let onToggle: string[] | undefined = undefined
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		horizontalAlignment?: 'left' | 'center' | 'right' | undefined
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		recomputeIds?: string[] | undefined
+		customCss?: ComponentCustomCSS<'checkboxcomponent'> | undefined
+		render: boolean
+		extraKey?: string | undefined
+		preclickAction?: (() => Promise<void>) | undefined
+		noInitialize?: boolean
+		onToggle?: string[] | undefined
+		controls?: { left: () => boolean; right: () => boolean | string } | undefined
+	}
 
-	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
-		undefined
+	let {
+		id,
+		configuration,
+		horizontalAlignment = undefined,
+		verticalAlignment = undefined,
+		recomputeIds = undefined,
+		customCss = undefined,
+		render,
+		extraKey = undefined,
+		preclickAction = undefined,
+		noInitialize = false,
+		onToggle = undefined,
+		controls = undefined
+	}: Props = $props()
 
 	const { app, worldStore, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -39,12 +54,11 @@
 	const rowContext = getContext<ListContext>('RowWrapperContext')
 	const rowInputs: ListInputs | undefined = getContext<ListInputs>('RowInputs')
 
-	let resolvedConfig = initConfig(
-		components['checkboxcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['checkboxcomponent'].initialData.configuration, configuration)
 	)
 
-	let value: boolean = resolvedConfig.defaultValue ?? false
+	let value: boolean = $state(resolvedConfig.defaultValue ?? false)
 
 	$componentControl[id] = {
 		setValue(nvalue: boolean) {
@@ -89,11 +103,15 @@
 		rowInputs?.remove(id)
 	})
 
-	$: value != undefined && handleInput()
+	$effect(() => {
+		value != undefined && untrack(() => handleInput())
+	})
 
-	$: resolvedConfig.defaultValue != undefined && handleDefault()
+	$effect(() => {
+		resolvedConfig.defaultValue != undefined && untrack(() => handleDefault())
+	})
 
-	let css = initCss($app.css?.checkboxcomponent, customCss)
+	let css = $state(initCss($app.css?.checkboxcomponent, customCss))
 </script>
 
 {#each Object.keys(components['checkboxcomponent'].initialData.configuration) as key (key)}

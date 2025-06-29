@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -41,7 +39,7 @@
 	}: Props = $props()
 
 	let everRender = $state(render)
-	run(() => {
+	$effect(() => {
 		render && !everRender && (everRender = true)
 	})
 
