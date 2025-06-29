@@ -3,11 +3,21 @@
 	import SkeletonElement from './SkeletonElement.svelte'
 	import { onMount } from 'svelte'
 
-	export let layout: SkeletonLayout
-	export let loading = true
-	export let overlay = false
+	interface Props {
+		layout: SkeletonLayout
+		loading?: boolean
+		overlay?: boolean
+		class?: string | undefined
+		mounted?: boolean
+	}
 
-	export let mounted = false
+	let {
+		layout,
+		loading = true,
+		overlay = false,
+		class: clazz = undefined,
+		mounted = $bindable(false)
+	}: Props = $props()
 	onMount(() => {
 		setTimeout(() => {
 			mounted = true
@@ -20,7 +30,7 @@
 		<div
 			class="flex grow flex-col overflow-hidden transition-[opacity] duration-1000 opacity-0 {mounted
 				? 'opacity-100'
-				: ''} {overlay ? 'absolute w-full h-full z-[1000]' : ''} {$$props.class}"
+				: ''} {overlay ? 'absolute w-full h-full z-[1000]' : ''} {clazz}"
 		>
 			{#each layout as row}
 				<div class="flex justify-between items-start gap-4">
