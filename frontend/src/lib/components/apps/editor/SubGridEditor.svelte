@@ -268,7 +268,7 @@
 						}}
 						disableMove={!!$connectingInput.opened}
 					>
-						{#snippet children({ dataItem, overlapped, moveMode, componentDraggedId })}
+						{#snippet children({ dataItem, overlapped, componentDraggedId })}
 							<ComponentWrapper
 								id={dataItem.id}
 								type={dataItem.data.type}
@@ -314,7 +314,6 @@
 											}
 											$app = $app
 										}}
-										{moveMode}
 										{componentDraggedId}
 									/>
 								</GridEditorMenu>
