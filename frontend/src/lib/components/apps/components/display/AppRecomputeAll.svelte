@@ -25,7 +25,7 @@
 
 	let {
 		id,
-		initializing = $bindable(false),
+		initializing = $bindable(undefined),
 		customCss = undefined,
 		configuration,
 		render,
