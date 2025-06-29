@@ -57,6 +57,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import AiChat from '$lib/components/copilot/chat/AIChat.svelte'
 	import { zIndexes } from '$lib/zIndexes'
+	import { chatState } from '$lib/components/copilot/chat/sharedChatState.svelte'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -691,7 +692,7 @@
 			</div>
 		{/if}
 		<Splitpanes horizontal={false} class="flex-1 min-h-0">
-			<Pane size={99.8 - aiChatManager.size} minSize={50} class="flex flex-col min-h-0">
+			<Pane size={99.8 - chatState.size} minSize={50} class="flex flex-col min-h-0">
 				<div
 					id="content"
 					class={classNames(
@@ -741,7 +742,7 @@
 				</div>
 			</Pane>
 			<Pane
-				bind:size={aiChatManager.size}
+				bind:size={chatState.size}
 				minSize={15}
 				class={`flex flex-col min-h-0 z-[${zIndexes.aiChat}]`}
 			>
