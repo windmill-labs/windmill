@@ -7,6 +7,7 @@
 	import type { GraphEventHandlers } from '../../graphBuilder.svelte'
 	import { getStraightLinePath } from '../utils'
 	import { twMerge } from 'tailwind-merge'
+	import { openedBottomBars } from '$lib/components/flows/propPicker/OutputPicker.svelte'
 
 	const { useDataflow } = getContext<{
 		useDataflow: Writable<boolean | undefined>
@@ -55,9 +56,11 @@
 			? `${edgePath} ${getStraightLinePath({ sourceX, sourceY, targetY })}`
 			: edgePath
 	)
+
+	let yOffset = $derived(openedBottomBars?.[data.sourceId] ? 30 : 22)
 </script>
 
-<EdgeLabel x={sourceX} y={sourceY + 28} class="base-edge" style="">
+<EdgeLabel x={sourceX} y={sourceY + yOffset} class="base-edge transition-transform">
 	{#if data?.insertable && !$useDataflow && !data?.moving}
 		<div
 			class={twMerge('edgeButtonContainer nodrag nopan top-0')}
