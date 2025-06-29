@@ -1,13 +1,14 @@
 <script lang="ts">
-	import type { ComponentCustomCSS, RichConfigurations } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'multiselectcomponent'> | undefined = undefined
-	export let render: boolean
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
+	interface Props {
+		id: string
+		render: boolean
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+	}
+
+	let { id, render, verticalAlignment = undefined }: Props = $props()
 </script>
 
 <InitializeComponent {id} />

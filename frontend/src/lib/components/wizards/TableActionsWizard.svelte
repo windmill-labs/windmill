@@ -12,11 +12,23 @@
 		CheckboxComponent,
 		SelectComponent
 	} from '../apps/editor/component'
-	export let actionsOrder: RichConfiguration | undefined = undefined
-	export let selectedId: string | undefined = undefined
-	export let components:
-		| (BaseAppComponent & (ButtonComponent | CheckboxComponent | SelectComponent))[]
-		| undefined
+	interface Props {
+		actionsOrder?: RichConfiguration | undefined
+		selectedId?: string | undefined
+		components:
+			| (BaseAppComponent & (ButtonComponent | CheckboxComponent | SelectComponent))[]
+			| undefined
+		trigger?: import('svelte').Snippet
+	}
+
+	let {
+		actionsOrder = $bindable(undefined),
+		selectedId = undefined,
+		components,
+		trigger
+	}: Props = $props()
+
+	const trigger_render = $derived(trigger)
 </script>
 
 <Popover
@@ -27,15 +39,15 @@
 	}}
 	closeButton
 >
-	<svelte:fragment slot="trigger">
-		<slot name="trigger" />
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{#snippet trigger()}
+		{@render trigger_render?.()}
+	{/snippet}
+	{#snippet content()}
 		<div class="w-96">
 			<PanelSection
 				title={`Manage actions programmatically`}
 				tooltip="
-		You can manage the order of the actions programmatically: You need to return an array of action ids in the order you want them to appear in the table. You can also hide actions by not including them in the array."
+			You can manage the order of the actions programmatically: You need to return an array of action ids in the order you want them to appear in the table. You can also hide actions by not including them in the array."
 			>
 				<div class="w-full flex gap-2 flex-col mt-2">
 					{#if actionsOrder}
@@ -93,5 +105,5 @@
 				</div>
 			</PanelSection>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </Popover>

@@ -8,10 +8,14 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import PdfViewer from '$lib/components/display/PdfViewer.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'pdfcomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'pdfcomponent'> | undefined
+		render: boolean
+	}
+
+	let { id, configuration, customCss = undefined, render }: Props = $props()
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -19,10 +23,10 @@
 		loading: false
 	})
 
-	let source: string | ArrayBuffer | undefined = undefined
-	let zoom: number | undefined = undefined
+	let source: string | ArrayBuffer | undefined = $state(undefined)
+	let zoom: number | undefined = $state(undefined)
 
-	let css = initCss($app.css?.pdfcomponent, customCss)
+	let css = $state(initCss($app.css?.pdfcomponent, customCss))
 </script>
 
 <InputValue key="source" {id} input={configuration.source} bind:value={source} />

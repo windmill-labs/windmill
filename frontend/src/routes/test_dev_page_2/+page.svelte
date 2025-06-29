@@ -1,40 +1,46 @@
 <script lang="ts">
-	import EditableSchemaForm from '$lib/components/EditableSchemaForm.svelte'
-	import AddPropertyV2 from '$lib/components/schema/AddPropertyV2.svelte'
-	import { Plus } from 'lucide-svelte'
+	// import { BROWSER } from 'esm-env'
+	// import { page } from '$app/stores'
+	// import { base } from '$lib/base'
+	// import { IS_APP_PUBLIC_CONTEXT_KEY, type EditorBreakpoint } from '$lib/components/apps/types'
 
-	// import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
-	// initializeMode()
-	let schema = $state({
-		type: 'object',
-		properties: {
-			name: { type: 'string' }
-		}
-	})
+	// import { WindmillIcon } from '$lib/components/icons'
+	// import { AppService, OpenAPI, type AppWithLastVersion } from '$lib/gen'
+	// import { enterpriseLicense, userStore } from '$lib/stores'
+	// import { twMerge } from 'tailwind-merge'
 
-	let addPropertyV2: AddPropertyV2 | undefined = $state(undefined)
+	// import { setContext } from 'svelte'
+	// import { writable } from 'svelte/store'
+	// import { setLicense } from '$lib/enterpriseUtils'
+	// import { isCloudHosted } from '$lib/cloud'
+	// import { getUserExt } from '$lib/user'
+	// import { User, UserRoundX } from 'lucide-svelte'
+	// import { goto } from '$app/navigation'
+	// import { sendUserToast } from '$lib/toast'
+	// import Alert from '$lib/components/common/alert/Alert.svelte'
+	// import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
+	// import Login from '$lib/components/Login.svelte'
+
+	// import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
+
+	// import { goto } from '$lib/navigation'
+	// import Github from '$lib/components/icons/brands/Github.svelte'
+	// import Gitlab from '$lib/components/icons/brands/Gitlab.svelte'
+	// import Google from '$lib/components/icons/brands/Google.svelte'
+	// import Microsoft from '$lib/components/icons/brands/Microsoft.svelte'
+	// import Okta from '$lib/components/icons/brands/Okta.svelte'
+	// import Auth0 from '$lib/components/icons/brands/Auth0.svelte'
+
+	// import { OauthService, UserService, WorkspaceService } from '$lib/gen'
+	// import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
+	// import { classNames, emptyString, parseQueryParams } from '$lib/utils'
+	// import { base } from '$lib/base'
+	// import { getUserExt } from '$lib/user'
+	// import { sendUserToast } from '$lib/toast'
+	// import { isCloudHosted } from '$lib/cloud'
+	// import { refreshSuperadmin } from '$lib/refreshUser'
+	// import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+
+	// import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
+	// import Button from '$lib/components/common/button/Button.svelte'
 </script>
-
-<AddPropertyV2 bind:this={addPropertyV2} bind:schema>
-	{#snippet trigger()}
-		<div
-			class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
-			id="add-flow-input-btn"
-		>
-			<Plus size={14} />
-		</div>
-	{/snippet}
-</AddPropertyV2>
-<EditableSchemaForm
-	isFlowInput
-	on:edit={(e) => {
-		addPropertyV2?.openDrawer(e.detail)
-	}}
-	on:delete={(e) => {
-		addPropertyV2?.handleDeleteArgument([e.detail])
-	}}
-	bind:schema
-	editTab="inputEditor"
-/>
-
-<pre class="text-xs">{JSON.stringify(schema, null, 2)}</pre>

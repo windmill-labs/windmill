@@ -12,24 +12,47 @@
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 
-	export let type: AlertType = 'info'
-	export let title: string
-	export let notRounded = false
-	export let tooltip: string = ''
-	export let documentationLink: string | undefined = undefined
-	export let size: 'xs' | 'sm' = 'sm'
-	export let collapsible: boolean = false
+	interface Props {
+		type?: AlertType
+		title: string
+		notRounded?: boolean
+		tooltip?: string
+		documentationLink?: string | undefined
+		size?: 'xs' | 'sm'
+		collapsible?: boolean
+		bgClass?: string | undefined
+		bgStyle?: string | undefined
+		iconClass?: string | undefined
+		iconStyle?: string | undefined
+		titleClass?: string | undefined
+		titleStyle?: string | undefined
+		descriptionClass?: string | undefined
+		descriptionStyle?: string | undefined
+		class?: string | undefined
+		isCollapsed?: boolean
+		children?: import('svelte').Snippet
+	}
 
-	export let bgClass: string | undefined = undefined
-	export let bgStyle: string | undefined = undefined
-	export let iconClass: string | undefined = undefined
-	export let iconStyle: string | undefined = undefined
-	export let titleClass: string | undefined = undefined
-	export let titleStyle: string | undefined = undefined
-	export let descriptionClass: string | undefined = undefined
-	export let descriptionStyle: string | undefined = undefined
-
-	export let isCollapsed = true
+	let {
+		type = 'info',
+		title,
+		notRounded = false,
+		tooltip = '',
+		documentationLink = undefined,
+		size = 'sm',
+		collapsible = false,
+		bgClass = undefined,
+		bgStyle = undefined,
+		iconClass = undefined,
+		iconStyle = undefined,
+		titleClass = undefined,
+		titleStyle = undefined,
+		descriptionClass = undefined,
+		descriptionStyle = undefined,
+		class: classNames = undefined,
+		isCollapsed = $bindable(true),
+		children
+	}: Props = $props()
 
 	const icons: Record<AlertType, any> = {
 		info: Info,
@@ -43,6 +66,8 @@
 			isCollapsed = !isCollapsed
 		}
 	}
+
+	const SvelteComponent = $derived(icons[type])
 </script>
 
 <div
@@ -51,14 +76,13 @@
 		size === 'sm' ? 'p-4' : 'p-2',
 		classes[type].bgClass,
 		bgClass,
-		$$props.class
+		classNames
 	)}
 	style={bgStyle}
 >
 	<div class="flex">
 		<div class="flex h-8 w-8 items-center justify-center rounded-full">
-			<svelte:component
-				this={icons[type]}
+			<SvelteComponent
 				class={twMerge(classes[type].iconClass, iconClass)}
 				style={iconStyle}
 				size={16}
@@ -77,11 +101,11 @@
 				>
 					{title}
 					{#if tooltip != '' || documentationLink}
-						<Tooltip {documentationLink} scale={0.9}>{tooltip}</Tooltip>
+						<Tooltip {documentationLink}>{tooltip}</Tooltip>
 					{/if}
 				</span>
 				{#if collapsible}
-					<button class="cursor-pointer" on:click={toggleCollapse}>
+					<button class="cursor-pointer" onclick={toggleCollapse}>
 						{#if isCollapsed}
 							<ChevronDown size={16} />
 						{:else}
@@ -91,7 +115,7 @@
 				{/if}
 			</div>
 
-			{#if $$slots.default && !isCollapsed}
+			{#if children && !isCollapsed}
 				<div transition:slide|local={{ duration: 200 }} class="mt-2">
 					<div
 						class={twMerge(
@@ -101,10 +125,10 @@
 						)}
 						style={descriptionStyle}
 					>
-						<slot />
+						{@render children?.()}
 					</div>
 				</div>
-			{:else if $$slots.default && !collapsible}
+			{:else if children && !collapsible}
 				<div class="mb-2">
 					<div
 						class={twMerge(
@@ -114,7 +138,7 @@
 						)}
 						style={descriptionStyle}
 					>
-						<slot />
+						{@render children?.()}
 					</div>
 				</div>
 			{/if}

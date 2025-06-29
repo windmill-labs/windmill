@@ -98,7 +98,7 @@
 					}
 				}}
 			>
-				<div slot="title" class="flex items-center">
+				<div slot="titleSlot" class="flex items-center">
 					<svelte:component this={icon} size={18} />
 					<span class="ml-1">
 						{name}

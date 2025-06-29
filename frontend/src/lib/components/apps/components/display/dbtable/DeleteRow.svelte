@@ -9,7 +9,11 @@
 	import { sendUserToast } from '$lib/toast'
 	import { getDeleteInput } from './queries/delete'
 
-	export let id: string
+	interface Props {
+		id: string
+	}
+
+	let { id }: Props = $props()
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -19,10 +23,10 @@
 		jobId: undefined
 	})
 
-	let runnableComponent: RunnableComponent
-	let loading = false
+	let runnableComponent: RunnableComponent | undefined = $state()
+	let loading = $state(false)
 
-	let input: AppInput | undefined = undefined
+	let input: AppInput | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 

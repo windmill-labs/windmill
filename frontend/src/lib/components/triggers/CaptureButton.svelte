@@ -13,7 +13,11 @@
 	import MqttIcon from '../icons/MqttIcon.svelte'
 	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 
-	export let small = false
+	interface Props {
+		small?: boolean
+	}
+
+	let { small = false }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -24,7 +28,7 @@
 		})
 	}
 
-	$: items = [
+	let items = $derived([
 		{
 			icon: Webhook,
 			displayName: 'Webhook',
@@ -79,11 +83,11 @@
 			action: () => handleClick('nats'),
 			disabled: !$enterpriseLicense
 		}
-	]
+	])
 </script>
 
 <DropdownV2 {items} placement="bottom-start" fixedHeight={false}>
-	<svelte:fragment slot="buttonReplacement">
+	{#snippet buttonReplacement()}
 		{#if small}
 			<Button
 				color="light"
@@ -109,5 +113,5 @@
 				<CaptureIcon variant="redDot" />
 			</Button>
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 </DropdownV2>

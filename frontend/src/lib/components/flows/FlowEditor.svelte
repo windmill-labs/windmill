@@ -36,6 +36,10 @@
 		onEditInput?: ((moduleId: string, key: string) => void) | undefined
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
+		aiChatOpen?: boolean
+		showFlowAiButton?: boolean
+		toggleAiChat?: () => void
+		onRunPreview?: () => void
 	}
 
 	let {
@@ -52,7 +56,11 @@
 		onTestUpTo = undefined,
 		onEditInput = undefined,
 		forceTestTab,
-		highlightArg
+		highlightArg,
+		aiChatOpen,
+		showFlowAiButton,
+		toggleAiChat,
+		onRunPreview = () => {}
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -106,6 +114,9 @@
 						}}
 						{onTestUpTo}
 						{onEditInput}
+						{aiChatOpen}
+						{showFlowAiButton}
+						{toggleAiChat}
 					/>
 				{/if}
 			</div>
@@ -128,6 +139,7 @@
 					{onDeployTrigger}
 					{forceTestTab}
 					{highlightArg}
+					{onRunPreview}
 				/>
 			{/if}
 		</Pane>

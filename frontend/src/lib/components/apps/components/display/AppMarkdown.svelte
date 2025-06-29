@@ -13,12 +13,23 @@
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'mardowncomponent'> | undefined = undefined
-	export let render: boolean
-	export let configuration: RichConfigurations
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		initializing?: boolean | undefined
+		customCss?: ComponentCustomCSS<'mardowncomponent'> | undefined
+		render: boolean
+		configuration: RichConfigurations
+	}
+
+	let {
+		id,
+		componentInput,
+		initializing = $bindable(undefined),
+		customCss = undefined,
+		render,
+		configuration
+	}: Props = $props()
 
 	const plugins: Plugin[] = [
 		gfmPlugin(),
@@ -27,9 +38,8 @@
 	]
 	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')
 
-	const resolvedConfig = initConfig(
-		components['mardowncomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['mardowncomponent'].initialData.configuration, configuration)
 	)
 
 	const outputs = initOutput($worldStore, id, {
@@ -37,9 +47,9 @@
 		loading: false
 	})
 
-	let result: string | undefined = undefined
+	let result: string | undefined = $state(undefined)
 
-	let css = initCss($app.css?.mardowncomponent, customCss)
+	let css = $state(initCss($app.css?.mardowncomponent, customCss))
 
 	const proseMapping = {
 		sm: 'prose-sm',
@@ -71,7 +81,7 @@
 
 {#if render}
 	<div
-		on:pointerdown={(e) => {
+		onpointerdown={(e) => {
 			if ($mode != 'preview') {
 				e?.preventDefault()
 			}
@@ -150,8 +160,8 @@
 	.wm-markdown h4:last-child {
 		margin-bottom: 0;
 	}
-	.wm-markdown code:not([class~="not-prose"]):not(.not-prose *)::before,
-	.wm-markdown code:not([class~="not-prose"]):not(.not-prose *)::after {
+	.wm-markdown code:not([class~='not-prose']):not(.not-prose *)::before,
+	.wm-markdown code:not([class~='not-prose']):not(.not-prose *)::after {
 		content: none !important;
 	}
 	.wm-markdown.prose code::before,

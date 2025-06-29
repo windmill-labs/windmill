@@ -6,8 +6,12 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { buildExtraLib } from '$lib/components/apps/utils'
 
-	export let componentInput: EvalAppInput | undefined
-	export let id: string
+	interface Props {
+		componentInput: EvalAppInput | undefined
+		id: string
+	}
+
+	let { componentInput = $bindable(), id }: Props = $props()
 
 	const {
 		onchange,
@@ -15,10 +19,11 @@
 		state: stateStore
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	$: extraLib =
+	let extraLib = $derived(
 		componentInput?.expr && $worldStore
 			? buildExtraLib($worldStore?.outputsById ?? {}, id, $stateStore, false)
 			: undefined
+	)
 
 	// 	`
 	// /** The current's app state */

@@ -8,6 +8,8 @@
 	import Alert from './common/alert/Alert.svelte'
 	import EditableSchemaDrawer from './schema/EditableSchemaDrawer.svelte'
 	import type { SchemaProperty } from '$lib/common'
+	import Toggle from './Toggle.svelte'
+	import { tick } from 'svelte'
 
 	interface Props {
 		canEditResourceType?: boolean
@@ -48,20 +50,6 @@
 					? 'bytes'
 					: 'string'
 	)
-
-	let schema = $state({
-		properties: itemsType?.properties || {},
-		order: Object.keys(itemsType?.properties || {}),
-		required: Object.values(itemsType?.properties || {}).map((p) => p.required)
-	})
-
-	function updateItemsType() {
-		itemsType = {
-			...itemsType,
-			properties: schema.properties,
-			type: 'object'
-		}
-	}
 </script>
 
 {#if canEditResourceType || originalType == 'string[]' || originalType == 'object[]'}
@@ -180,10 +168,40 @@
 {/if}
 
 {#if selected === 'object'}
-	<EditableSchemaDrawer
-		bind:schema
-		on:change={() => {
-			updateItemsType()
-		}}
+	<Toggle
+		bind:checked={
+			() => {
+				return itemsType?.properties != undefined
+			},
+			async (v) => {
+				await tick()
+				if (v) {
+					itemsType = { type: 'object', properties: {} }
+				} else {
+					itemsType = { type: 'object', properties: undefined }
+				}
+			}
+		}
+		options={{ left: 'JSON', right: 'Custom Object' }}
 	/>
+	{#if itemsType?.properties != undefined}
+		<EditableSchemaDrawer
+			bind:schema={
+				() => {
+					return {
+						properties: itemsType?.properties || {},
+						order: Object.keys(itemsType?.properties || {}),
+						required: Object.values(itemsType?.properties || {}).map((p) => p.required)
+					}
+				},
+				(schema) => {
+					itemsType = {
+						...itemsType,
+						properties: schema.properties,
+						type: 'object'
+					}
+				}
+			}
+		/>
+	{/if}
 {/if}
