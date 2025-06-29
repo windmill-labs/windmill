@@ -1,20 +1,24 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext } from '../../types'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Plus } from 'lucide-svelte'
 	import { isObject } from '$lib/utils'
 
-	export let columns: string[] = []
-	export let id: string | undefined
+	interface Props {
+		columns?: string[]
+		id: string | undefined
+	}
 
-	let remainingColumns: string[] = []
+	let { columns = [], id }: Props = $props()
+
+	let remainingColumns: string[] = $state([])
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 	const dispatch = createEventDispatcher()
 
-	let result = []
+	let result = $state([])
 
 	function subscribeToAllOutputs(observableOutputs: Record<string, Output<any>> | undefined) {
 		if (observableOutputs) {
@@ -39,12 +43,19 @@
 				return acc
 			}, new Set<string>())
 
-			remainingColumns = Array.from(allKeysSet).filter((x: string) => !columns?.includes(x))
+			remainingColumns = Array.from(allKeysSet).filter(
+				(x: string) => !columns?.includes(x) && x !== '__index'
+			)
 		}
 	}
 
-	$: id && subscribeToAllOutputs($worldStore?.outputsById?.[id])
-	$: updateRemainingColumns(result, columns)
+	$effect(() => {
+		id && untrack(() => subscribeToAllOutputs($worldStore?.outputsById?.[id]))
+	})
+	$effect(() => {
+		;[result, columns]
+		untrack(() => updateRemainingColumns(result, columns))
+	})
 </script>
 
 {#if remainingColumns.length > 0}
