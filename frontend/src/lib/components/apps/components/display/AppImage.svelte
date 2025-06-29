@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler, preventDefault } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
@@ -13,10 +16,14 @@
 	import { userStore } from '$lib/stores'
 	import { computeS3ImageViewerPolicy, isPartialS3Object } from '../../editor/appUtilsS3'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'imagecomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'imagecomponent'> | undefined
+		render: boolean
+	}
+
+	let { id, configuration, customCss = undefined, render }: Props = $props()
 
 	function computeForceViewerPolicies() {
 		if (!isEditor) {
@@ -26,9 +33,8 @@
 		return policy
 	}
 
-	const resolvedConfig = initConfig(
-		components['imagecomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['imagecomponent'].initialData.configuration, configuration)
 	)
 
 	const { app, appPath, worldStore, workspace, isEditor } =
@@ -42,9 +48,9 @@
 	//used so that we can count number of outputs setup for first refresh
 	initOutput($worldStore, id, {})
 
-	let css = initCss($app.css?.imagecomponent, customCss)
+	let css = $state(initCss($app.css?.imagecomponent, customCss))
 
-	let imageUrl: string | undefined = undefined
+	let imageUrl: string | undefined = $state(undefined)
 
 	async function getS3Image(source: string | undefined, storage?: string, presigned?: string) {
 		if (!source) return ''
@@ -91,7 +97,9 @@
 		}
 	}
 
-	$: resolvedConfig && loadImage()
+	$effect(() => {
+		resolvedConfig && loadImage()
+	})
 </script>
 
 <InitializeComponent {id} />
@@ -119,7 +127,7 @@
 	<Loader loading={imageUrl === undefined}>
 		{#if imageUrl}
 			<img
-				on:pointerdown|preventDefault
+				onpointerdown={preventDefault(bubble('pointerdown'))}
 				src={imageUrl}
 				alt={resolvedConfig.altText}
 				style={css?.image?.style ?? ''}
