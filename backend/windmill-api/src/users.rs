@@ -44,7 +44,7 @@ use tower_cookies::{Cookie, Cookies};
 use tracing::Instrument;
 use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
-use windmill_common::auth::fetch_authed_from_permissioned_as;
+use windmill_common::auth::{fetch_authed_from_permissioned_as, TOKEN_PREFIX_LEN};
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::users::COOKIE_NAME;
@@ -243,13 +243,14 @@ pub async fn fetch_api_authed_from_permissioned_as(
 
             let api_authed = ApiAuthed {
                 username: authed.username,
-                email: email,
+                email,
                 is_admin: authed.is_admin,
                 is_operator: authed.is_operator,
                 groups: authed.groups,
                 folders: authed.folders,
                 scopes: authed.scopes,
                 username_override: None,
+                token_prefix: authed.token_prefix,
             };
 
             API_AUTHED_CACHE.insert(
@@ -690,7 +691,12 @@ async fn logout(
         };
         audit_log(
             &mut *tx,
-            &AuditAuthor { email: email.clone(), username: email, username_override: None },
+            &AuditAuthor {
+                email: email.clone(),
+                username: email,
+                username_override: None,
+                token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+            },
             audit_message,
             ActionKind::Delete,
             "global",
@@ -1274,7 +1280,10 @@ async fn join_workspace<'c>(
     Ok((tx, username))
 }
 
-async fn leave_instance(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
+async fn leave_instance(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> Result<String> {
     let mut tx = db.begin().await?;
     sqlx::query!("DELETE FROM password WHERE email = $1", &authed.email)
         .execute(&mut *tx)
@@ -1639,8 +1648,12 @@ async fn login(
 ) -> Result<String> {
     let mut tx = db.begin().await?;
     let email = email.to_lowercase();
-    let audit_author =
-        AuditAuthor { email: email.clone(), username: email.clone(), username_override: None };
+    let audit_author = AuditAuthor {
+        email: email.clone(),
+        username: email.clone(),
+        username_override: None,
+        token_prefix: None,
+    };
     let email_w_h: Option<(String, String, bool, bool)> = sqlx::query_as(
         "SELECT email, password_hash, super_admin, first_time_user FROM password WHERE email = $1 AND login_type = \
          'password'",
@@ -1688,6 +1701,13 @@ async fn login(
             }
 
             let token = create_session_token(&email, super_admin, &mut tx, cookies).await?;
+
+            let audit_author = AuditAuthor {
+                email: email.clone(),
+                username: email.clone(),
+                username_override: None,
+                token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+            };
 
             audit_log(
                 &mut *tx,
@@ -1758,6 +1778,7 @@ async fn refresh_token(
             email: authed.email.to_string(),
             username: authed.email.to_string(),
             username_override: None,
+            token_prefix: authed.token_prefix,
         },
         "users.token.refresh",
         ActionKind::Create,
@@ -1798,6 +1819,7 @@ pub async fn create_session_token<'c>(
                 email: email.to_string(),
                 username: email.to_string(),
                 username_override: None,
+                token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
             },
             "users.token.invalidate_old_sessions",
             ActionKind::Delete,

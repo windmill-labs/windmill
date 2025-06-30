@@ -836,6 +836,7 @@ pub struct ApiAuthed {
     pub folders: Vec<(String, bool, bool)>,
     pub scopes: Option<Vec<String>>,
     pub username_override: Option<String>,
+    pub token_prefix: Option<String>,
 }
 
 impl From<ApiAuthed> for Authed {
@@ -848,6 +849,7 @@ impl From<ApiAuthed> for Authed {
             groups: value.groups,
             folders: value.folders,
             scopes: value.scopes,
+            token_prefix: value.token_prefix,
         }
     }
 }
@@ -858,6 +860,7 @@ impl From<&ApiAuthed> for AuditAuthor {
             email: value.email.clone(),
             username: value.username.clone(),
             username_override: value.username_override.clone(),
+            token_prefix: value.token_prefix.clone(),
         }
     }
 }
@@ -877,6 +880,9 @@ impl AuditAuthorable for ApiAuthed {
     }
     fn username_override(&self) -> Option<&str> {
         self.username_override.as_deref()
+    }
+    fn token_prefix(&self) -> Option<&str> {
+        self.token_prefix.as_deref()
     }
 }
 

@@ -26,6 +26,7 @@ pub struct AuditAuthor {
     pub username: String,
     pub email: String,
     pub username_override: Option<String>,
+    pub token_prefix: Option<String>,
 }
 
 #[cfg(not(feature = "private"))]
