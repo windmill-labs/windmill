@@ -2,13 +2,25 @@
 	import type { ComponentCssProperty } from '../../types'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 
-	export let forceStyle: boolean = false
-	export let forceClass: boolean = false
-	export let id: string
-	export let property: ComponentCssProperty | undefined = undefined
-	export let overriden: boolean = false
-	export let overridding: boolean = false
-	export let wmClass: string | undefined = undefined
+	interface Props {
+		forceStyle?: boolean
+		forceClass?: boolean
+		id: string
+		property?: ComponentCssProperty | undefined
+		overriden?: boolean
+		overridding?: boolean
+		wmClass?: string | undefined
+	}
+
+	let {
+		forceStyle = false,
+		forceClass = false,
+		id,
+		property = $bindable(undefined),
+		overriden = false,
+		overridding = false,
+		wmClass = undefined
+	}: Props = $props()
 
 	function hasValues(obj: ComponentCssProperty | undefined) {
 		if (!obj) return false

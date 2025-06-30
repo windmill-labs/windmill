@@ -8,14 +8,24 @@
 	import UserInfoSettings from './settings/UserInfoSettings.svelte'
 	import AIUserSettings from './settings/AIUserSettings.svelte'
 
-	export let scopes: string[] | undefined = undefined
-	export let newTokenLabel: string | undefined = undefined
-	export let newTokenWorkspace: string | undefined = undefined
-	export let newToken: string | undefined = undefined
-	export let showMcpMode: boolean = false
+	interface Props {
+		scopes?: string[] | undefined
+		newTokenLabel?: string | undefined
+		newTokenWorkspace?: string | undefined
+		newToken?: string | undefined
+		showMcpMode?: boolean
+	}
 
-	let drawer: Drawer
-	let openWithMcpMode = false
+	let {
+		scopes = undefined,
+		newTokenLabel = undefined,
+		newTokenWorkspace = undefined,
+		newToken = $bindable(undefined),
+		showMcpMode = false
+	}: Props = $props()
+
+	let drawer: Drawer | undefined = $state()
+	let openWithMcpMode = $state(false)
 
 	const dispatch = createEventDispatcher()
 

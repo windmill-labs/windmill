@@ -13,29 +13,35 @@
 	import { twMerge } from 'tailwind-merge'
 	import { throttle } from '../../utils'
 	import { Button } from '../common'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 
-	export let source: string | ArrayBuffer | undefined = undefined
-	export let zoom: number | undefined = 100
-	export let extraButton: any | undefined = undefined
-	export let allowFullscreen = false
-	let fullscreen = false
-	let wrapper: HTMLDivElement | undefined = undefined
-	let error: string | undefined = undefined
-	let doc: PDFDocumentProxy | undefined = undefined
-	let pages: PDFPageProxy[] = []
-
-	let controlsWidth: number | undefined = undefined
-	let controlsHeight: number | undefined = undefined
-	let pageNumber = 1
-
-	$: if (source == '') {
-		resetDoc()
-		error = 'Set the "Source" attribute of the PDF component'
+	interface Props {
+		source?: string | ArrayBuffer | undefined
+		zoom?: number | undefined
+		extraButton?: any | undefined
+		allowFullscreen?: boolean
+		class?: string | undefined
+		style?: string | undefined
 	}
-	$: zoom && handleZoom()
-	$: wrapper && loadDocument(source)
-	$: wideView = controlsWidth && controlsWidth > 450
+
+	let {
+		source = undefined,
+		zoom = $bindable(100),
+		extraButton = undefined,
+		allowFullscreen = false,
+		class: classNames = undefined,
+		style = undefined
+	}: Props = $props()
+
+	let fullscreen = $state(false)
+	let wrapper: HTMLDivElement | undefined = $state(undefined)
+	let error: string | undefined = $state(undefined)
+	let doc: PDFDocumentProxy | undefined = $state(undefined)
+	let pages: PDFPageProxy[] = $state([])
+
+	let controlsWidth: number | undefined = $state(undefined)
+	let controlsHeight: number | undefined = $state(undefined)
+	let pageNumber = $state(1)
 
 	async function resetDoc() {
 		await doc?.destroy()
@@ -173,6 +179,22 @@
 		}
 		return value
 	}
+	$effect(() => {
+		if (source == '') {
+			untrack(() => {
+				resetDoc()
+				error = 'Set the "Source" attribute of the PDF component'
+			})
+		}
+	})
+	$effect(() => {
+		zoom && untrack(() => handleZoom())
+	})
+	$effect(() => {
+		source
+		wrapper && untrack(() => loadDocument(source))
+	})
+	let wideView = $derived(controlsWidth && controlsWidth > 450)
 </script>
 
 <div
@@ -239,7 +261,7 @@
 				</div>
 				<div class="center-center px-2 text-secondary text-sm">
 					<input
-						on:input={({ currentTarget }) => {
+						oninput={({ currentTarget }) => {
 							scrollToPage(currentTarget.valueAsNumber)
 						}}
 						min="1"
@@ -295,19 +317,20 @@
 		{/if}
 		<div
 			bind:this={wrapper}
-			on:scroll={throttledScroll}
+			onscroll={throttledScroll}
 			class={twMerge(
 				'w-full h-full overflow-auto',
-				$$props.class ?? '',
+				classNames,
 				// css?.container?.class ?? '',
 				'bg-gray-100',
 				'wm-pdf'
 			)}
-			style={$$props.style ?? ''}
+			style={style ?? ''}
 		></div>
 	{/if}
 	{#if extraButton}
-		<svelte:component this={extraButton} />
+		{@const SvelteComponent = extraButton}
+		<SvelteComponent />
 	{/if}
 	<!-- {#if $mode !== 'preview' && $selectedComponent?.includes(id)}
 			<button
@@ -318,7 +341,6 @@
 				Sync zoom value
 			</button>
 		{/if} -->
-	<slot name="extra-button" />
 	{#if error}
 		<div
 			class="absolute inset-0 z-20 center-center

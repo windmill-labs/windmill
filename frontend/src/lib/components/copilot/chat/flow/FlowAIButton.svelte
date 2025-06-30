@@ -7,19 +7,28 @@
 	import { Button } from '$lib/components/common'
 	import { getModifierKey } from '$lib/utils'
 	import { WandSparkles } from 'lucide-svelte'
+	import { twMerge } from 'tailwind-merge'
 
-	let { openPanel }: { openPanel: () => void } = $props()
+	let {
+		togglePanel,
+		opened,
+		class: className
+	}: { togglePanel: () => void; opened?: boolean; class?: string } = $props()
 </script>
 
 {#snippet button(onClick: () => void)}
 	<Button
 		color="light"
 		variant="border"
-		size="xs"
+		size="xs2"
 		on:click={onClick}
 		startIcon={{ icon: WandSparkles }}
 		iconOnly
-		btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface"
+		btnClasses={twMerge(
+			'!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface h-[28px] w-[32px] rounded-md py-1 px-1',
+			opened ? 'bg-surface-selected' : '',
+			className
+		)}
 	>
 		AI Panel
 	</Button>
@@ -27,7 +36,7 @@
 
 {#if $copilotInfo.enabled}
 	<DarkPopover>
-		<svelte:fragment slot="text">
+		{#snippet text()}
 			<div class="flex flex-row gap-1">
 				Show the AI Panel.
 
@@ -35,15 +44,17 @@
 					{getModifierKey()}L
 				</div>
 			</div>
-		</svelte:fragment>
-		{@render button(openPanel)}
+		{/snippet}
+		{@render button(togglePanel)}
 	</DarkPopover>
 {:else}
 	<Popover placement="bottom">
-		<svelte:fragment slot="trigger">
-			{@render button(() => {})}
-		</svelte:fragment>
-		<svelte:fragment slot="content">
+		{#snippet trigger()}
+			{@render button(() => {
+				togglePanel()
+			})}
+		{/snippet}
+		{#snippet content()}
 			<div class="block text-primary p-4">
 				<p class="text-sm"
 					>Enable Windmill AI in the <a
@@ -54,6 +65,6 @@
 					></p
 				>
 			</div>
-		</svelte:fragment>
+		{/snippet}
 	</Popover>
 {/if}

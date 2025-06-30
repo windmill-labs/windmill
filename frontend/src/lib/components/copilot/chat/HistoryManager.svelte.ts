@@ -1,6 +1,6 @@
 import { openDB, type DBSchema as IDBSchema, type IDBPDatabase } from 'idb'
 import type { DisplayMessage } from './shared'
-import { createLongHash } from '$lib/editorUtils'
+import { createLongHash } from '$lib/editorLangUtils'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 interface ChatSchema extends IDBSchema {
 	chats: {

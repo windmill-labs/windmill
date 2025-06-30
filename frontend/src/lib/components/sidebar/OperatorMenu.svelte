@@ -219,7 +219,7 @@
 
 					<div role="none">
 						<MenuItem
-							on:click={() => {
+							onClick={() => {
 								if (!document.documentElement.classList.contains('dark')) {
 									document.documentElement.classList.add('dark')
 									window.localStorage.setItem('dark-mode', 'dark')
@@ -244,7 +244,7 @@
 						</MenuItem>
 						<MenuItem
 							href="{base}/user/workspaces"
-							on:click={() => {
+							onClick={() => {
 								localStorage.removeItem('workspace')
 							}}
 							class={twMerge(
@@ -274,7 +274,7 @@
 						{/if}
 
 						<MenuItem
-							on:click={() => logout()}
+							onClick={() => logout()}
 							class={twMerge(
 								'flex flex-row gap-3.5  items-center px-2 py-2 w-full',
 								'text-secondary text-xs',
@@ -293,8 +293,8 @@
 						role="none"
 					>
 						<MenuItem
-							on:m-focusin={() => debouncedSetMoreOpen(true)}
-							on:m-focusout={() => debouncedSetMoreOpen(false)}
+							onFocusIn={() => debouncedSetMoreOpen(true)}
+							onFocusOut={() => debouncedSetMoreOpen(false)}
 							{item}
 						>
 							{#if !moreOpen || secondMenuLinks.length === 0}
@@ -311,8 +311,8 @@
 											'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 										)}
 										{item}
-										on:m-focusin={() => debouncedSetMoreOpen(true)}
-										on:m-focusout={() => debouncedSetMoreOpen(false)}
+										onFocusIn={() => debouncedSetMoreOpen(true)}
+										onFocusOut={() => debouncedSetMoreOpen(false)}
 									>
 										{menuLink.label}
 									</MenuItem>

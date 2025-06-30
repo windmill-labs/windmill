@@ -5,12 +5,16 @@
 	import type { Job } from '$lib/gen'
 	import { Loader2 } from 'lucide-svelte'
 
-	export let frontendJob: boolean | any = false
-	export let testJob: Job | any = undefined
-	export let testIsLoading = false
+	interface Props {
+		frontendJob?: boolean | any
+		testJob?: Job | any
+		testIsLoading?: boolean
+	}
 
-	let logDrawerOpen = false
-	let resultDrawerOpen = false
+	let { frontendJob = false, testJob = undefined, testIsLoading = false }: Props = $props()
+
+	let logDrawerOpen = $state(false)
+	let resultDrawerOpen = $state(false)
 </script>
 
 <Splitpanes horizontal>

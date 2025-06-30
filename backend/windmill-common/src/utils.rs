@@ -752,15 +752,30 @@ pub trait WarnAfterExt: Future + Sized {
     #[track_caller]
     fn warn_after_seconds(self, seconds: u8) -> WarnAfterFuture<Self> {
         let caller = Location::caller();
+        self.build_from_caller(seconds, caller, None)
+    }
+
+    fn build_from_caller(
+        self,
+        seconds: u8,
+        caller: &Location,
+        sql: Option<String>,
+    ) -> WarnAfterFuture<Self> {
         let location = format!("{}:{}", caller.file(), caller.line());
         WarnAfterFuture {
             future: self,
             timeout: time::sleep(Duration::from_secs(seconds as u64)),
             warned: false,
             start_time: std::time::Instant::now(),
-            location: location,
+            location,
             seconds,
+            sql,
         }
+    }
+    #[track_caller]
+    fn warn_after_seconds_with_sql(self, seconds: u8, sql: String) -> WarnAfterFuture<Self> {
+        let caller = Location::caller();
+        self.build_from_caller(seconds, caller, Some(sql))
     }
 }
 
@@ -778,6 +793,7 @@ pin_project! {
         location: String,
         start_time: std::time::Instant,
         seconds: u8,
+        sql: Option<String>,
     }
 }
 
@@ -787,13 +803,20 @@ impl<F: Future> Future for WarnAfterFuture<F> {
     fn poll(self: Pin<&mut Self>, cx: &mut TContext<'_>) -> Poll<Self::Output> {
         let this = self.project();
 
+        fn build_query_string(location: &str, sql: Option<&str>) -> String {
+            match sql {
+                Some(sql) => format!("{}: {}", location, sql),
+                None => location.to_string(),
+            }
+        }
+
         // Poll the timeout future to check if it has elapsed.
         if !*this.warned {
             if this.timeout.poll(cx).is_ready() {
                 tracing::warn!(
                     location = this.location,
                     "SLOW_QUERY: query {} to db taking longer than expected (> {} seconds)",
-                    this.location,
+                    build_query_string(&this.location, this.sql.as_deref()),
                     this.seconds,
                 );
                 *this.warned = true;
@@ -808,7 +831,7 @@ impl<F: Future> Future for WarnAfterFuture<F> {
                     tracing::warn!(
                         location = this.location,
                         "SLOW_QUERY: completed query {} with total duration: {:.2?}",
-                        this.location,
+                        build_query_string(&this.location, this.sql.as_deref()),
                         elapsed
                     );
                 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { Skeleton } from '$lib/components/common'
 	import { classNames } from '$lib/utils'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
@@ -7,31 +7,40 @@
 	import { Circle } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 
-	export let kind: HubScriptKind & string = 'script'
-	export let filter = ''
-
-	export let loading = false
-	export let selected: number | undefined = undefined
-	let hubNotAvailable = false
+	let hubNotAvailable = $state(false)
 
 	const dispatch = createEventDispatcher()
 
-	export let appFilter: string | undefined = undefined
-	export let items: {
-		path: string
-		summary: string
-		id: number
-		version_id: number
-		ask_id: number
-		app: string
-		kind: HubScriptKind
-	}[] = []
-	export let displayPath = false
+	interface Props {
+		kind?: HubScriptKind & string
+		filter?: string
+		loading?: boolean
+		selected?: number | undefined
+		appFilter?: string | undefined
+		items?: {
+			path: string
+			summary: string
+			id: number
+			version_id: number
+			ask_id: number
+			app: string
+			kind: HubScriptKind
+		}[]
+		displayPath?: boolean
+		apps?: string[]
+	}
 
-	export let apps: string[] = []
+	let {
+		kind = 'script',
+		filter = $bindable(''),
+		loading = $bindable(false),
+		selected = undefined,
+		appFilter = undefined,
+		items = $bindable([]),
+		displayPath = false,
+		apps = $bindable([])
+	}: Props = $props()
 	let allApps: string[] = []
-	$: applyFilter(filter, kind, appFilter)
-	$: getAllApps(kind)
 
 	async function getAllApps(filterKind: typeof kind) {
 		try {
@@ -69,14 +78,14 @@
 							text: `${filter}`,
 							limit: 40,
 							kind: filterKind
-					  })
-					: (
+						})
+					: ((
 							await ScriptService.getTopHubScripts({
 								limit: 40,
 								kind: filterKind,
 								app: appFilter
 							})
-					  ).asks ?? []
+						).asks ?? [])
 
 			const mappedItems = scripts.map(
 				(x: {
@@ -125,9 +134,21 @@
 			dispatch('pickScript', item)
 		}
 	}
+	$effect(() => {
+		;[filter, kind, appFilter]
+		untrack(() => {
+			applyFilter(filter, kind, appFilter)
+		})
+	})
+	$effect(() => {
+		kind
+		untrack(() => {
+			getAllApps(kind)
+		})
+	})
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} />
 {#if hubNotAvailable}
 	<div class="text-2xs text-red-400 ftext-2xs font-light text-center py-2 px-3 items-center">
 		Hub not available
@@ -141,7 +162,7 @@
 		{#each items as item, index (item.path)}
 			<li class="w-full">
 				<Popover class="w-full" placement="right" forceOpen={index === selected}>
-					<svelte:fragment slot="text">
+					{#snippet text()}
 						<div class="flex flex-col">
 							<div class="text-left text-xs font-normal leading-tight py-0"
 								>{item.summary ?? ''}</div
@@ -150,21 +171,18 @@
 								{item.path ?? ''}
 							</div>
 						</div>
-					</svelte:fragment>
+					{/snippet}
 					<button
 						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover transition-all items-center rounded-md {index ===
 						selected
 							? 'bg-surface-hover'
 							: ''}"
-						on:click={() => dispatch('pickScript', item)}
+						onclick={() => dispatch('pickScript', item)}
 					>
 						<div class={classNames('flex justify-center items-center')}>
 							{#if item['app'] in APP_TO_ICON_COMPONENT}
-								<svelte:component
-									this={APP_TO_ICON_COMPONENT[item['app']]}
-									height={14}
-									width={14}
-								/>
+								{@const SvelteComponent = APP_TO_ICON_COMPONENT[item['app']]}
+								<SvelteComponent height={14} width={14} />
 							{:else}
 								<div
 									class="w-[14px] h-[14px] text-gray-400 flex flex-row items-center justify-center"

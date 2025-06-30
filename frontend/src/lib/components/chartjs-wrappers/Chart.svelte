@@ -2,49 +2,49 @@
 <!-- Replaces svelte-chartjs not working with Svelte 5 because it's using svelte/internal -->
 
 <script lang="ts" generics="T extends ChartType">
-  import {
-    Chart,
-    Tooltip,
-    type ChartData,
-    type ChartOptions,
-	type ChartType,
-  } from 'chart.js';
-  import type { HTMLCanvasAttributes } from 'svelte/elements';
+	import { Chart, Tooltip, type ChartData, type ChartOptions, type ChartType } from 'chart.js'
+	import type { HTMLCanvasAttributes } from 'svelte/elements'
 
-  import 'chart.js/auto';
-  import 'chartjs-adapter-date-fns';
+	import 'chart.js/auto'
+	import 'chartjs-adapter-date-fns'
+	import { untrack } from 'svelte'
 
-  interface Props extends HTMLCanvasAttributes {
-    type: T,
-    data: ChartData<T>;
-    options: ChartOptions<T>;
-  }
+	interface Props extends HTMLCanvasAttributes {
+		type: T
+		data: ChartData<T>
+		options: ChartOptions<T>
+	}
 
-  const { type, data, options, ...rest }: Props = $props();
+	const { type, data, options, ...rest }: Props = $props()
 
-  Chart.register(Tooltip);
+	Chart.register(Tooltip)
 
-  let canvasElem: HTMLCanvasElement;
-  let chart: Chart<T>;
+	let canvasElem: HTMLCanvasElement
+	let chart: Chart<T>
 
-  $effect(() => {
-    chart = new Chart(canvasElem, {
-      type,
-      data,
-      options,
-    });
+	$effect(() => {
+		;[type, data, options]
+		untrack(() => {
+			chart = new Chart(canvasElem, {
+				type,
+				data,
+				options
+			})
+		})
+		return () => {
+			chart.destroy()
+		}
+	})
 
-    return () => {
-      chart.destroy();
-    };
-  });
-
-  $effect(() => {
-    if (chart) {
-      chart.data = data;
-      chart.update();
-    }
-  });
+	$effect(() => {
+		chart
+		untrack(() => {
+			if (chart) {
+				chart.data = data
+				chart.update()
+			}
+		})
+	})
 </script>
 
 <canvas bind:this={canvasElem} {...rest}></canvas>

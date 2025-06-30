@@ -11,7 +11,7 @@
 	import { yamlStringifyExceptKeys } from './utils'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
-	import { triggerableByAI } from '$lib/actions/triggerableByAI'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
 	type PromptConfig = {
 		system: string
@@ -234,72 +234,70 @@ Generate a description for the flow below:
 		}
 	}}
 >
-		<div
-			class="absolute left-[0.5rem] {elementType === 'textarea'
-				? 'top-[1.3rem]'
-				: 'top-[0.3rem]'}  flex flex-row gap-2 items-start pointer-events-none"
-		>
-			{#if active}
-				<span
-					class={twMerge(
-						'absolute text-xs bg-violet-100 text-violet-800 dark:bg-gray-700 dark:text-violet-400 px-1 py-0.5 rounded-md flex flex-row items-center justify-center gap-2 transition-all shrink-0',
-						!loading && generatedContent.length > 0
-							? 'bg-green-100 text-green-800 dark:text-green-400 dark:bg-green-700'
-							: ''
-					)}
-				>
-					<span
-						class="px-0.5 py-0.5 rounded-md text-2xs text-bold flex flex-row items-center gap-1"
-					>
-						{#if loading}
-							ESC
-						{:else}
-							TAB
-						{/if}
-						{#if loading}
-							<Loader2 class="animate-spin" size={12} />
-						{:else if generatedContent}
-							<Check size={12} />
-						{:else}
-							<Wand2 size={12} />
-						{/if}
-					</span>
+	<div
+		class="absolute left-[0.5rem] {elementType === 'textarea'
+			? 'top-[1.3rem]'
+			: 'top-[0.3rem]'}  flex flex-row gap-2 items-start pointer-events-none"
+	>
+		{#if active}
+			<span
+				class={twMerge(
+					'absolute text-xs bg-violet-100 text-violet-800 dark:bg-gray-700 dark:text-violet-400 px-1 py-0.5 rounded-md flex flex-row items-center justify-center gap-2 transition-all shrink-0',
+					!loading && generatedContent.length > 0
+						? 'bg-green-100 text-green-800 dark:text-green-400 dark:bg-green-700'
+						: ''
+				)}
+			>
+				<span class="px-0.5 py-0.5 rounded-md text-2xs text-bold flex flex-row items-center gap-1">
+					{#if loading}
+						ESC
+					{:else}
+						TAB
+					{/if}
+					{#if loading}
+						<Loader2 class="animate-spin" size={12} />
+					{:else if generatedContent}
+						<Check size={12} />
+					{:else}
+						<Wand2 size={12} />
+					{/if}
 				</span>
-				<div
-					bind:clientHeight={genHeight}
-					class={twMerge(
-						'text-sm leading-6 indent-[3.5rem] text-gray-500 dark:text-gray-400 pr-1',
-						elementType === 'input' ? 'text-ellipsis overflow-hidden whitespace-nowrap' : ''
-					)}
-					style={elementType === 'input' ? `max-width: calc(${width}px - 0.5rem)` : ''}
-				>
-					{generatedContent}
-				</div>
-			{/if}
-		</div>
-		{#if elementType === 'textarea'}
-			<div>
-				<div class="flex flex-row-reverse !text-3xs text-tertiary -mt-4">GH Markdown</div>
-				<textarea
-					bind:this={el}
-					bind:value={content}
-					use:autosize
-					{...elementProps}
-					placeholder={!active ? elementProps.placeholder : ''}
-					class={active ? '!indent-[3.5rem]' : ''}
-					on:focus={() => (focused = true)}
-					on:blur={() => (focused = false)}
-				></textarea>
+			</span>
+			<div
+				bind:clientHeight={genHeight}
+				class={twMerge(
+					'text-sm leading-6 indent-[3.5rem] text-gray-500 dark:text-gray-400 pr-1',
+					elementType === 'input' ? 'text-ellipsis overflow-hidden whitespace-nowrap' : ''
+				)}
+				style={elementType === 'input' ? `max-width: calc(${width}px - 0.5rem)` : ''}
+			>
+				{generatedContent}
 			</div>
-		{:else}
-			<input
+		{/if}
+	</div>
+	{#if elementType === 'textarea'}
+		<div>
+			<div class="flex flex-row-reverse !text-3xs text-tertiary -mt-4">GH Markdown</div>
+			<textarea
 				bind:this={el}
 				bind:value={content}
+				use:autosize
+				{...elementProps}
 				placeholder={!active ? elementProps.placeholder : ''}
 				class={active ? '!indent-[3.5rem]' : ''}
 				on:focus={() => (focused = true)}
 				on:blur={() => (focused = false)}
-			/>
-		{/if}
+			></textarea>
+		</div>
+	{:else}
+		<input
+			bind:this={el}
+			bind:value={content}
+			placeholder={!active ? elementProps.placeholder : ''}
+			class={active ? '!indent-[3.5rem]' : ''}
+			on:focus={() => (focused = true)}
+			on:blur={() => (focused = false)}
+		/>
+	{/if}
 	<!-- <slot {updateFocus} {active} {generatedContent} classNames={active ? '!indent-[8.8rem]' : ''} /> -->
 </div>

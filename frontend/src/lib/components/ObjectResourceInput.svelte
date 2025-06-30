@@ -17,6 +17,7 @@
 		defaultValue: any
 		editor?: SimpleEditor | undefined
 		path?: string
+		onClear?: () => void
 	}
 
 	let {
@@ -26,7 +27,8 @@
 		showSchemaExplorer = false,
 		selectFirst = false,
 		defaultValue,
-		editor = $bindable(undefined)
+		editor = $bindable(undefined),
+		onClear = undefined
 	}: Props = $props()
 
 	function isResource() {
@@ -48,7 +50,7 @@
 		<ResourcePicker
 			{selectFirst}
 			{disablePortal}
-			on:clear
+			{onClear}
 			bind:value={
 				() => valueToPath(),
 				(v) => {

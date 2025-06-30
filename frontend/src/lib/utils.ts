@@ -1250,6 +1250,7 @@ export type Item = {
 	icon?: any
 	iconColor?: string
 	href?: string
+	hrefTarget?: '_blank' | '_self' | '_parent' | '_top'
 	disabled?: boolean
 	type?: 'action' | 'delete'
 	hide?: boolean | undefined
