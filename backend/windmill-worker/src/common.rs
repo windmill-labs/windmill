@@ -775,13 +775,12 @@ async fn get_workspace_s3_resource_path(
                 resource_path.to_string(),
             )
         }
-        Some(LargeFileStorage::GcsStorage(gcs_storage)) => {
-            let resource_path = gcs_storage.gcs_resource_path.trim_start_matches("$res:");
-            (StorageResourceType::Gcs, resource_path.to_string())
-        }
-        Some(LargeFileStorage::GcsServiceAccount(gcs_service_account)) => {
-            let resource_path = gcs_service_account.gcs_resource_path.trim_start_matches("$res:");
-            (StorageResourceType::GcsServiceAccount, resource_path.to_string())
+        Some(LargeFileStorage::GoogleCloudStorage(gcs)) => {
+            let resource_path = gcs.gcs_resource_path.trim_start_matches("$res:");
+            (
+                StorageResourceType::GoogleCloudStorage,
+                resource_path.to_string(),
+            )
         }
         None => {
             return Ok(None);

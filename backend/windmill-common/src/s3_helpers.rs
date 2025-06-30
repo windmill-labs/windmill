@@ -223,8 +223,7 @@ pub enum LargeFileStorage {
     AzureBlobStorage(AzureBlobStorage),
     S3AwsOidc(S3Storage),
     AzureWorkloadIdentity(AzureBlobStorage),
-    GcsStorage(GcsStorage),
-    GcsServiceAccount(GcsStorage),
+    GoogleCloudStorage(GoogleCloudStorage),
     // TODO: Add a filesystem type here in the future if needed
 }
 
@@ -243,7 +242,7 @@ pub struct AzureBlobStorage {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct GcsStorage {
+pub struct GoogleCloudStorage {
     pub gcs_resource_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_resource: Option<bool>,
@@ -260,7 +259,6 @@ impl ObjectStoreResource {
     pub fn expiration(&self) -> Option<DateTime<Utc>> {
         match self {
             ObjectStoreResource::S3(s3_resource) => s3_resource.expiration,
-            ObjectStoreResource::Gcs(gcs_resource) => gcs_resource.expiration,
             _ => None,
         }
     }
@@ -272,8 +270,7 @@ pub enum StorageResourceType {
     AzureBlob,
     S3AwsOidc,
     AzureWorkloadIdentity,
-    Gcs,
-    GcsServiceAccount,
+    GoogleCloudStorage,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -315,19 +312,20 @@ pub struct AzureBlobResource {
     pub federated_token_file: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+fn as_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::de::Deserializer<'de>,
+{
+    let v: serde_json::Value = Deserialize::deserialize(deserializer)?;
+    serde_json::to_string(&v).map_err(serde::de::Error::custom)
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct GcsResource {
     pub bucket: String,
-    pub region: Option<String>,
-    pub endpoint: Option<String>,
-    #[serde(rename = "useSSL")]
-    pub use_ssl: Option<bool>,
     #[serde(rename = "serviceAccountKey")]
-    pub service_account_key: Option<String>,
-    #[serde(rename = "serviceAccountKeyPath")]
-    pub service_account_key_path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub expiration: Option<DateTime<Utc>>,
+    #[serde(deserialize_with = "as_string")]
+    pub service_account_key: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Hash)]
@@ -410,9 +408,7 @@ pub async fn build_object_store_client(
         ObjectStoreResource::Azure(azure_blob_resource_ref) => {
             build_azure_blob_client(&azure_blob_resource_ref)
         }
-        ObjectStoreResource::Gcs(gcs_resource_ref) => {
-            build_gcs_client(&gcs_resource_ref).await
-        }
+        ObjectStoreResource::Gcs(gcs_resource_ref) => build_gcs_client(&gcs_resource_ref).await,
     }
 }
 
@@ -609,9 +605,7 @@ fn build_azure_blob_client(
 }
 
 #[cfg(feature = "parquet")]
-async fn build_gcs_client(
-    gcs_resource_ref: &GcsResource,
-) -> error::Result<Arc<dyn ObjectStore>> {
+async fn build_gcs_client(gcs_resource_ref: &GcsResource) -> error::Result<Arc<dyn ObjectStore>> {
     let gcs_resource = gcs_resource_ref.clone();
 
     let mut store_builder = GoogleCloudStorageBuilder::new()
@@ -625,25 +619,27 @@ async fn build_gcs_client(
         )
         .with_bucket_name(gcs_resource.bucket);
 
-    if let Some(service_account_key) = gcs_resource.service_account_key {
-        if !service_account_key.is_empty() {
-            store_builder = store_builder.with_service_account_key(service_account_key);
-        }
-    }
+    store_builder = store_builder.with_service_account_key(gcs_resource.service_account_key);
 
-    if let Some(service_account_key_path) = gcs_resource.service_account_key_path {
-        if !service_account_key_path.is_empty() {
-            store_builder = store_builder.with_service_account_path(service_account_key_path);
-        }
-    }
-
-    let store = store_builder.build().map_err(|err| {
-        tracing::error!("Error building GCS object store client: {:?}", err);
-        error::Error::internal_err(format!(
-            "Error building GCS object store client: {}",
-            err.to_string()
-        ))
-    })?;
+    // if private key is malformed, it will panic => https://github.com/apache/arrow-rs-object-store/issues/419
+    let store = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| store_builder.build()))
+        .map_err(|panic_info| {
+            tracing::error!(
+                "Panic while building GCS object store client: {:?}",
+                panic_info
+            );
+            error::Error::internal_err(format!(
+                "Panic while building GCS object store client: {:?}",
+                panic_info
+            ))
+        })?
+        .map_err(|err| {
+            tracing::error!("Error building GCS object store client: {:?}", err);
+            error::Error::internal_err(format!(
+                "Error building GCS object store client: {}",
+                err.to_string()
+            ))
+        })?;
 
     return Ok(Arc::new(store));
 }
@@ -654,7 +650,7 @@ pub enum ObjectStoreSettings {
     S3(S3Settings),
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "type")]
 pub enum ObjectSettings {
     S3(S3Settings),
@@ -705,7 +701,9 @@ pub async fn build_object_store_from_settings(
         }
         ObjectSettings::Gcs(gcs_settings) => {
             let gcs_resource = gcs_settings;
-            build_gcs_client(&gcs_resource).await.map(|x| ExpirableObjectStore::from(x))
+            build_gcs_client(&gcs_resource)
+                .await
+                .map(|x| ExpirableObjectStore::from(x))
         }
     }
 }

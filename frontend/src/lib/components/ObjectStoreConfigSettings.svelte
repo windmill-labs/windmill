@@ -6,6 +6,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import TestConnection from './TestConnection.svelte'
 	import { enterpriseLicense } from '$lib/stores'
+	import SimpleEditor from './SimpleEditor.svelte'
 
 	type S3Config = {
 		type: 'S3'
@@ -38,14 +39,11 @@
 	type GcsConfig = {
 		type: 'Gcs'
 		bucket: string
-		region?: string
-		serviceAccountKey?: string
-		serviceAccountKeyPath?: string
-		endpoint?: string
-		useSSL?: boolean
+		serviceAccountKey: Record<string, string>
 	}
 
-	export let bucket_config: S3Config | AzureConfig | AwsOidcConfig | GcsConfig | undefined = undefined
+	export let bucket_config: S3Config | AzureConfig | AwsOidcConfig | GcsConfig | undefined =
+		undefined
 
 	$: bucket_config?.type == 'S3' &&
 		bucket_config.allow_http == undefined &&
@@ -116,9 +114,9 @@
 			/>
 		</div>
 		<Tabs
-			bind:selected={bucket_config.type}
+			selected={bucket_config?.type ?? 'S3'}
 			on:selected={(e) => {
-				if (e.detail === 'S3') {
+				if (e.detail === 'S3' && bucket_config?.type !== 'S3') {
 					bucket_config = {
 						type: 'S3',
 						bucket: '',
@@ -127,7 +125,7 @@
 						secret_key: '',
 						endpoint: ''
 					}
-				} else if (e.detail === 'Azure') {
+				} else if (e.detail === 'Azure' && bucket_config?.type !== 'Azure') {
 					bucket_config = {
 						type: 'Azure',
 						accountName: '',
@@ -137,15 +135,18 @@
 						clientId: '',
 						accessKey: ''
 					}
-				} else if (e.detail === 'Gcs') {
+				} else if (e.detail === 'Gcs' && bucket_config?.type !== 'Gcs') {
 					bucket_config = {
 						type: 'Gcs',
 						bucket: '',
+						serviceAccountKey: {}
+					}
+				} else if (e.detail === 'AwsOidc' && bucket_config?.type !== 'AwsOidc') {
+					bucket_config = {
+						type: 'AwsOidc',
+						bucket: '',
 						region: '',
-						serviceAccountKey: '',
-						serviceAccountKeyPath: '',
-						endpoint: '',
-						useSSL: true
+						roleArn: ''
 					}
 				}
 			}}
@@ -153,7 +154,7 @@
 			<Tab size="sm" value="S3">S3</Tab>
 			<Tab size="sm" value="Azure">Azure Blob</Tab>
 			<Tab size="sm" value="AwsOidc">AWS OIDC</Tab>
-			<Tab size="sm" value="Gcs">GCS</Tab>
+			<Tab size="sm" value="Gcs">Google Cloud Storage</Tab>
 		</Tabs>
 		<div class="flex flex-col gap-2 mt-2 p-2 border rounded-md">
 			{#if bucket_config.type === 'S3'}
@@ -262,47 +263,31 @@
 					<input type="text" placeholder="bucket-name" bind:value={bucket_config.bucket} />
 				</label>
 				<label class="block pb-2">
-					<span class="text-primary font-semibold text-sm">Region</span>
-					<span class="text-tertiary text-2xs"
-						>If left empty, will use default region</span
-					>
-					<input type="text" placeholder="us-central1" bind:value={bucket_config.region} />
-				</label>
-				<label class="block pb-2">
 					<span class="text-primary font-semibold text-sm">Service Account Key</span>
-					<span class="text-tertiary text-2xs"
-						>JSON content of the service account key file (optional)</span
-					>
-					<textarea 
-						rows="3" 
-						placeholder="Paste service account JSON key here..."
-						bind:value={bucket_config.serviceAccountKey} 
-					></textarea>
-				</label>
-				<label class="block pb-2">
-					<span class="text-primary font-semibold text-sm">Service Account Key Path</span>
-					<span class="text-tertiary text-2xs"
-						>Path to service account key file on the server (optional)</span
-					>
-					<input 
-						type="text" 
-						placeholder="/path/to/service-account-key.json"
-						bind:value={bucket_config.serviceAccountKeyPath} 
+					<span class="text-tertiary text-2xs">JSON content of the service account key file</span>
+					<SimpleEditor
+						lang="json"
+						bind:code={
+							() => {
+								if (bucket_config?.type === 'Gcs') {
+									return JSON.stringify(bucket_config.serviceAccountKey)
+								} else {
+									return '{}'
+								}
+							},
+							(v) => {
+								if (bucket_config?.type === 'Gcs') {
+									try {
+										bucket_config.serviceAccountKey = JSON.parse(v ?? '{}')
+									} catch (_) {
+										bucket_config.serviceAccountKey = {}
+									}
+								}
+							}
+						}
+						class="h-80"
 					/>
 				</label>
-				<label class="block pb-2">
-					<span class="text-primary font-semibold text-sm">Endpoint</span>
-					<span class="text-tertiary text-2xs"
-						>Custom endpoint for GCS-compatible storage (optional)</span
-					>
-					<input type="text" placeholder="https://storage.googleapis.com" bind:value={bucket_config.endpoint} />
-				</label>
-				<div class="block pb-2">
-					<span class="text-tertiary text-2xs">Enable HTTPS for secure connections</span>
-					<div>
-						<Toggle bind:checked={bucket_config.useSSL} options={{ right: 'Use SSL' }} />
-					</div>
-				</div>
 			{:else}
 				<div>Unknown bucket type {bucket_config['type']}</div>
 			{/if}
