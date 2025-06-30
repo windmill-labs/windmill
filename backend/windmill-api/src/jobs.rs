@@ -240,11 +240,11 @@ pub fn workspaced_service() -> Router {
         .route("/run/dependencies", post(run_dependencies_job))
         .route("/run/flow_dependencies", post(run_flow_dependencies_job))
         .route(
-            "slack_approval/:job_id",
+            "/slack_approval/:job_id",
             get(crate::slack_approvals::request_slack_approval),
         )
         .route(
-            "teams_approval/:job_id",
+            "/teams_approval/:job_id",
             get(crate::teams_approvals_oss::request_teams_approval),
         )
 }
