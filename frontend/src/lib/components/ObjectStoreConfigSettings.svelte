@@ -105,6 +105,7 @@
 				buttonTextOverride="Test from a worker"
 			/>
 		</div>
+
 		<Tabs
 			bind:selected={bucket_config.type}
 			on:selected={(e) => {
