@@ -3,19 +3,6 @@
 		if (!id) return undefined
 		return aiChatManager.flowAiChatHelpers?.getModuleAction(id)
 	}
-
-	export function aiModuleActionToBgColor(action: AIModuleAction | undefined) {
-		switch (action) {
-			case 'modified':
-				return '!bg-orange-200 dark:!bg-orange-800'
-			case 'added':
-				return '!bg-green-200 dark:!bg-green-800'
-			case 'removed':
-				return '!bg-red-200/50 dark:!bg-red-800/50'
-			default:
-				return ''
-		}
-	}
 </script>
 
 <script lang="ts">

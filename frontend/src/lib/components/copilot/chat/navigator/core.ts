@@ -5,10 +5,10 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/index.mjs'
 import type { Tool } from '../shared'
-import { aiChatManager } from '../AIChatManager.svelte'
 import { ResourceService } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { get } from 'svelte/store'
+import { triggerablesByAi } from '../sharedChatState.svelte'
 
 export const CHAT_SYSTEM_PROMPT = `
 You are Windmill's intelligent assistant, designed to help users navigate the application and answer questions about its functionality. It is your only purpose to help the user in the context of the windmill application.
@@ -160,8 +160,8 @@ const GET_AVAILABLE_RESOURCES_TOOL: ChatCompletionTool = {
 
 function getTriggerableComponents(): string {
 	try {
-		// Get components registered in the triggerablesByAI store
-		const registeredComponents = aiChatManager.triggerablesByAI
+		// Get components registered in the triggerablesByAi store
+		const registeredComponents = triggerablesByAi
 		let result = 'TRIGGERABLE_COMPONENTS:\n'
 
 		// If there are no components registered, return a message
@@ -218,7 +218,7 @@ function triggerComponent(args: { id: string; value: string }): string {
 			return 'Trigger command requires an id parameter'
 		}
 
-		const component = aiChatManager.triggerablesByAI[id]
+		const component = triggerablesByAi[id]
 
 		if (!component) {
 			return `No triggerable component found with id: ${id}`

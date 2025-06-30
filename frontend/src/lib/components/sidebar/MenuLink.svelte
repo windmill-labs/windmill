@@ -4,7 +4,7 @@
 	import { navigating, page } from '$app/stores'
 	import Popover from '../Popover.svelte'
 	import { base } from '$app/paths'
-	import { triggerableByAI } from '$lib/actions/triggerableByAI'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { goto } from '$app/navigation'
 	import { twMerge } from 'tailwind-merge'
 

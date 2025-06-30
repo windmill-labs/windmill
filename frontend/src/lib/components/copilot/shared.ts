@@ -1,49 +1,49 @@
-import { createLongHash } from '$lib/editorUtils'
+import { createLongHash } from '$lib/editorLangUtils'
 import { type editor as meditor } from 'monaco-editor'
 
 export type VisualChange =
 	| {
-			type: 'added_inline'
-			position: {
-				line: number
-				column: number
-			}
-			value: string
-			options?: {
-				greenHighlight?: boolean
-			}
-	  }
+		type: 'added_inline'
+		position: {
+			line: number
+			column: number
+		}
+		value: string
+		options?: {
+			greenHighlight?: boolean
+		}
+	}
 	| {
-			type: 'added_block'
-			position: {
-				afterLineNumber: number
+		type: 'added_block'
+		position: {
+			afterLineNumber: number
+		}
+		value: string
+		options?: {
+			greenHighlight?: boolean
+			review?: {
+				acceptFn: () => void
+				rejectFn: () => void
 			}
-			value: string
-			options?: {
-				greenHighlight?: boolean
-				review?: {
-					acceptFn: () => void
-					rejectFn: () => void
-				}
-				extraChanges?: VisualChange[]
-			}
-	  }
+			extraChanges?: VisualChange[]
+		}
+	}
 	| {
-			type: 'deleted'
-			range: {
-				startLine: number
-				startColumn: number
-				endLine: number
-				endColumn: number
+		type: 'deleted'
+		range: {
+			startLine: number
+			startColumn: number
+			endLine: number
+			endColumn: number
+		}
+		options?: {
+			isWholeLine?: boolean
+			review?: {
+				acceptFn: () => void
+				rejectFn: () => void
 			}
-			options?: {
-				isWholeLine?: boolean
-				review?: {
-					acceptFn: () => void
-					rejectFn: () => void
-				}
-			}
-	  }
+		}
+	}
 
 function applyMonacoStyles(targetEl: HTMLElement, greenHighlight?: boolean) {
 	const computedStyles = window.getComputedStyle(
@@ -81,9 +81,8 @@ function addInlineGhostText(change: Extract<VisualChange, { type: 'added_inline'
 			endColumn: change.position.column + change.value.length
 		},
 		options: {
-			beforeContentClassName: `editor-ghost-text editor-ghost-text-content-${cssId} ${
-				change.options?.greenHighlight ? 'editor-ghost-text-green' : ''
-			}`
+			beforeContentClassName: `editor-ghost-text editor-ghost-text-content-${cssId} ${change.options?.greenHighlight ? 'editor-ghost-text-green' : ''
+				}`
 		}
 	}
 

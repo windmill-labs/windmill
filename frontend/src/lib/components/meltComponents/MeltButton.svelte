@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { type AnyMeltElement } from '@melt-ui/svelte'
 	import { conditionalMelt } from '$lib/utils'
-	import { triggerableByAI } from '$lib/actions/triggerableByAI'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
 	export let aiId: string | undefined = undefined
 	export let aiDescription: string | undefined = undefined
