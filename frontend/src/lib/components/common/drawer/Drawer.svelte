@@ -79,7 +79,7 @@
 	}
 
 	$effect(() => {
-		scrollLock(open)
+		scrollLock(open ?? false)
 	})
 
 	$effect(() => {
