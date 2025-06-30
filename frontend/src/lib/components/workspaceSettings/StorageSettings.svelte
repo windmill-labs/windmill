@@ -39,12 +39,12 @@
 
 <div class="flex flex-col gap-4 my-8">
 	<div class="flex flex-col gap-1">
-		<div class="text-primary text-lg font-semibold">Workspace Object Storage (S3/Azure Blob)</div>
+		<div class="text-primary text-lg font-semibold">Workspace Object Storage (S3/Azure Blob/GCS)</div>
 		<Description
 			link="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#workspace-object-storage"
 		>
-			Connect your Windmill workspace to your S3 bucket or your Azure Blob storage to enable users
-			to read and write from S3 without having to have access to the credentials.
+			Connect your Windmill workspace to your S3 bucket, Azure Blob storage, or Google Cloud Storage to enable users
+			to read and write from object storage without having to have access to the credentials.
 		</Description>
 	</div>
 </div>
@@ -74,6 +74,7 @@
 				<Tab size="xs" value="azure_blob">Azure Blob</Tab>
 				<Tab exact size="xs" value="s3_aws_oidc">AWS OIDC</Tab>
 				<Tab size="xs" value="azure_workload_identity">Azure Workload Identity</Tab>
+				<Tab exact size="xs" value="gcs">GCS</Tab>
 			</Tabs>
 		</div>
 		<div class="w-full flex gap-1 mt-4">

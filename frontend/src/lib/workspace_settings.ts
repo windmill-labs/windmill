@@ -1,7 +1,14 @@
 import type { GetSettingsResponse, LargeFileStorage } from './gen'
 import { emptyString } from './utils'
 
-type s3type = 's3' | 'azure_blob' | 's3_aws_oidc' | 'azure_workload_identity'
+// Extended type to include GCS support until backend types are regenerated
+type ExtendedLargeFileStorage = LargeFileStorage & {
+	gcs_resource_path?: string
+} & {
+	type?: LargeFileStorage['type'] | 'GcsStorage' | 'GcsServiceAccount'
+}
+
+type s3type = 's3' | 'azure_blob' | 's3_aws_oidc' | 'azure_workload_identity' | 'gcs'
 type s3ResourceSettingsItem = {
 	resourceType: s3type
 	resourcePath: string | undefined
@@ -23,7 +30,7 @@ export function convertBackendSettingsToFrontendSettings(
 }
 
 export function convertBackendSettingsToFrontendSettingsItem(
-	large_file_storage: GetSettingsResponse['large_file_storage']
+	large_file_storage: GetSettingsResponse['large_file_storage'] | ExtendedLargeFileStorage
 ): s3ResourceSettingsItem {
 	if (large_file_storage?.type === 'S3Storage') {
 		return {
@@ -49,6 +56,13 @@ export function convertBackendSettingsToFrontendSettingsItem(
 			resourcePath: large_file_storage?.s3_resource_path?.replace('$res:', ''),
 			publicResource: large_file_storage?.public_resource
 		}
+	} else if (large_file_storage?.type === 'GcsStorage') {
+		const gcsStorage = large_file_storage as ExtendedLargeFileStorage
+		return {
+			resourceType: 'gcs',
+			resourcePath: gcsStorage?.gcs_resource_path?.replace('$res:', ''),
+			publicResource: gcsStorage?.public_resource
+		}
 	} else {
 		return {
 			resourceType: 's3',
@@ -60,7 +74,7 @@ export function convertBackendSettingsToFrontendSettingsItem(
 
 export function convertFrontendToBackendSetting(
 	s3ResourceSettings: S3ResourceSettings
-): LargeFileStorage | undefined {
+): ExtendedLargeFileStorage | undefined {
 	let settings = convertFrontendToBackendettingsItem(s3ResourceSettings)
 	if (settings) {
 		settings.secondary_storage = Object.fromEntries(
@@ -73,10 +87,10 @@ export function convertFrontendToBackendSetting(
 }
 export function convertFrontendToBackendettingsItem(
 	s3ResourceSettings: s3ResourceSettingsItem
-): LargeFileStorage | undefined {
+): ExtendedLargeFileStorage | undefined {
 	if (!emptyString(s3ResourceSettings.resourcePath)) {
 		let resourcePathWithPrefix = `$res:${s3ResourceSettings.resourcePath}`
-		let params = {
+		let params: any = {
 			public_resource: s3ResourceSettings.publicResource
 		}
 		if (s3ResourceSettings.resourceType === 'azure_blob') {
@@ -91,6 +105,9 @@ export function convertFrontendToBackendettingsItem(
 			let typ: LargeFileStorage['type'] = 'S3AwsOidc'
 			params['type'] = typ
 			params['s3_resource_path'] = resourcePathWithPrefix
+		} else if (s3ResourceSettings.resourceType === 'gcs') {
+			params['type'] = 'GcsStorage'
+			params['gcs_resource_path'] = resourcePathWithPrefix
 		} else {
 			let typ: LargeFileStorage['type'] = 'S3Storage'
 			params['type'] = typ
