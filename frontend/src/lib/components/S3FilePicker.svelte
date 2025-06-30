@@ -25,7 +25,6 @@
 	import TableSimple from './TableSimple.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import FileUploadModal from './common/fileUpload/FileUploadModal.svelte'
-	import PdfViewer from './display/PdfViewer.svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	let deletionModalOpen = $state(false)
@@ -722,11 +721,15 @@
 								</div>
 							{:else if fileMetadata?.fileKey.endsWith('.pdf')}
 								<div class="w-full h-[950px] border">
-									<PdfViewer
-										source={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
-											fileMetadata.fileKey
-										)}` + (storage ? `&storage=${storage}` : '')}
-									/>
+									{#await import('$lib/components/display/PdfViewer.svelte')}
+										<Loader2 class="animate-spin" />
+									{:then Module}
+										<Module.default
+											source={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
+												fileMetadata.fileKey
+											)}` + (storage ? `&storage=${storage}` : '')}
+										/>
+									{/await}
 								</div>
 							{:else if filePreviewLoading}
 								<div class="flex h-6 items-center text-tertiary mb-4">

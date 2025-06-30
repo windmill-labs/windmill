@@ -3,20 +3,25 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import { initConfig } from '../../editor/appUtils'
 
-	export let navbarItem: NavbarItem
-	export let id: string
-	export let index: number
+	interface Props {
+		navbarItem: NavbarItem
+		id: string
+		index: number
+		resolvedPath?: string | undefined
+	}
 
-	export let resolvedPath: string | undefined = undefined
+	let { navbarItem, id, index, resolvedPath = $bindable(undefined) }: Props = $props()
 
-	let resolvedConfig = initConfig({ path: navbarItem.path }, { path: navbarItem.path })
+	let resolvedConfig = $state(initConfig({ path: navbarItem.path }, { path: navbarItem.path }))
 
-	$: resolvedPath = (
-		resolvedConfig?.path?.selected === 'href'
-			? resolvedConfig?.path?.configuration?.href?.href
-			: resolvedConfig?.path?.configuration?.app?.path +
-			  (resolvedConfig?.path?.configuration?.app?.queryParamsOrHash ?? '')
-	) as string | undefined
+	$effect.pre(() => {
+		resolvedPath = (
+			resolvedConfig?.path?.selected === 'href'
+				? resolvedConfig?.path?.configuration?.href?.href
+				: resolvedConfig?.path?.configuration?.app?.path +
+					(resolvedConfig?.path?.configuration?.app?.queryParamsOrHash ?? '')
+		) as string | undefined
+	})
 </script>
 
 <ResolveConfig

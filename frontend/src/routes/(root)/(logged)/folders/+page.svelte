@@ -17,12 +17,13 @@
 	import { Pen, Trash, Plus } from 'lucide-svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Row from '$lib/components/table/Row.svelte'
+	import { untrack } from 'svelte'
 
 	type FolderW = Folder & { canWrite: boolean }
 
-	let newFolderName: string = ''
-	let folders: FolderW[] | undefined = undefined
-	let folderDrawer: Drawer
+	let newFolderName: string = $state('')
+	let folders: FolderW[] | undefined = $state(undefined)
+	let folderDrawer: Drawer | undefined = $state()
 
 	async function loadFolders(): Promise<void> {
 		folders = (await FolderService.listFolders({ workspace: $workspaceStore! })).map((x) => {
@@ -53,16 +54,18 @@
 		$userStore?.folders.push(newFolderName)
 		loadFolders()
 		editFolderName = newFolderName
-		folderDrawer.openDrawer()
+		folderDrawer?.openDrawer()
 	}
 
-	$: {
+	$effect(() => {
 		if ($workspaceStore && $userStore) {
-			loadFolders()
+			untrack(() => {
+				loadFolders()
+			})
 		}
-	}
+	})
 
-	let editFolderName: string = ''
+	let editFolderName: string = $state('')
 
 	function computeMembers(owners: string[], extra_perms: Record<string, any>) {
 		const members = new Set(owners)
@@ -96,13 +99,13 @@
 					floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 					contentClasses="flex flex-col gap-2 p-4"
 				>
-					<svelte:fragment slot="trigger">
+					{#snippet trigger()}
 						<Button size="md" startIcon={{ icon: Plus }} nonCaptureEvent>New folder</Button>
-					</svelte:fragment>
-					<svelte:fragment slot="content" let:close>
+					{/snippet}
+					{#snippet content({ close })}
 						<input
 							class="mr-2"
-							on:keyup={(e) => handleKeyUp(e, () => close())}
+							onkeyup={(e) => handleKeyUp(e, () => close())}
 							placeholder="New folder name"
 							bind:value={newFolderName}
 						/>
@@ -120,7 +123,7 @@
 								Create
 							</Button>
 						</div>
-					</svelte:fragment>
+					{/snippet}
 				</Popover>
 			</div>
 		</PageHeader>
@@ -161,7 +164,7 @@
 								hoverable
 								on:click={() => {
 									editFolderName = name
-									folderDrawer.openDrawer()
+									folderDrawer?.openDrawer()
 								}}
 							>
 								<Cell first>
@@ -183,7 +186,7 @@
 												disabled: !canWrite,
 												action: () => {
 													editFolderName = name
-													folderDrawer.openDrawer()
+													folderDrawer?.openDrawer()
 												}
 											},
 											{
@@ -197,6 +200,7 @@
 															workspace: $workspaceStore ?? '',
 															name
 														})
+														folders = folders?.filter((f) => f.name !== name)
 													} catch (e) {
 														sendUserToast(e.body, true)
 														loadFolders()

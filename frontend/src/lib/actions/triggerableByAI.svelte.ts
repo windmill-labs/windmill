@@ -1,4 +1,4 @@
-import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
+import { triggerablesByAi } from '$lib/components/copilot/chat/sharedChatState.svelte'
 
 export interface TriggerableByAIOptions {
 	id?: string
@@ -60,15 +60,15 @@ export function triggerableByAI(element: HTMLElement, options: TriggerableByAIOp
 
 		// register the triggerable
 		const currentData = { description, onTrigger: handleTrigger }
-		aiChatManager.triggerablesByAI[id] = currentData
+		triggerablesByAi[id] = currentData
 	}
 
 	function unregister() {
 		if (isDisabled || !id) return
 
 		// unregister the triggerable
-		if (aiChatManager.triggerablesByAI[id]) {
-			delete aiChatManager.triggerablesByAI[id]
+		if (triggerablesByAi[id]) {
+			delete triggerablesByAi[id]
 		}
 	}
 
@@ -77,7 +77,7 @@ export function triggerableByAI(element: HTMLElement, options: TriggerableByAIOp
 
 	return {
 		update(newOptions: TriggerableByAIOptions) {
-			;({ id, description, callback, showAnimation = true } = newOptions)
+			; ({ id, description, callback, showAnimation = true } = newOptions)
 			register()
 		},
 		destroy() {

@@ -8,16 +8,27 @@
 
 	type T = Record<string, any>
 
-	export let result: Array<T>
-	export let manualPagination: boolean
-	export let pageSize: number
-	export let table: Readable<Table<T>>
-	export let download: boolean = true
-	export let loading: boolean = false
+	interface Props {
+		result: Array<T>
+		manualPagination: boolean
+		pageSize: number
+		table: Readable<Table<T>>
+		download?: boolean
+		loading?: boolean
+		class?: string
+		style?: string
+	}
 
-	let c = ''
-	export { c as class }
-	export let style = ''
+	let {
+		result,
+		manualPagination,
+		pageSize,
+		table,
+		download = true,
+		loading = false,
+		class: c = '',
+		style = ''
+	}: Props = $props()
 
 	function convertJSONToCSV(objArray: Record<string, any>[]) {
 		let str = ''
@@ -51,13 +62,15 @@
 		downloadAnchorNode.remove()
 	}
 
-	let isPreviousLoading = false
-	let isNextLoading = false
+	let isPreviousLoading = $state(false)
+	let isNextLoading = $state(false)
 
-	$: if (!loading) {
-		isPreviousLoading = false
-		isNextLoading = false
-	}
+	$effect(() => {
+		if (!loading) {
+			isPreviousLoading = false
+			isNextLoading = false
+		}
+	})
 </script>
 
 {#if result.length > pageSize || manualPagination || download}
@@ -68,7 +81,9 @@
 		<div class="flex items-center gap-1 flex-row">
 			{#if download}
 				<Popover>
-					<svelte:fragment slot="text">Download as CSV</svelte:fragment>
+					{#snippet text()}
+						Download as CSV
+					{/snippet}
 
 					<Button
 						size="xs2"
@@ -82,7 +97,9 @@
 			{/if}
 			{#if !$table.getIsAllColumnsVisible()}
 				<Popover>
-					<svelte:fragment slot="text">Display hidden columns</svelte:fragment>
+					{#snippet text()}
+						Display hidden columns
+					{/snippet}
 					<Button
 						size="xs2"
 						color="light"

@@ -81,7 +81,7 @@
 								? 'cursor-default bg-surface-selected'
 								: 'cursor-pointer hover:bg-surface-hover data-[highlighted]:bg-surface-hover'
 						)}
-						on:click={async () => {
+						onClick={async () => {
 							await toggleSwitchWorkspace(workspace.id)
 						}}
 						{item}
@@ -123,7 +123,7 @@
 				<div class="py-1" role="none">
 					<MenuItem
 						href="{base}/user/workspaces"
-						on:click={() => {
+						onClick={() => {
 							localStorage.removeItem('workspace')
 						}}
 						class={twMerge(
@@ -169,7 +169,7 @@
 							'text-secondary block font-normal w-full text-left px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900',
 							'data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900'
 						)}
-						on:click={() => {
+						onClick={() => {
 							goto('/workspace_settings?tab=premium')
 						}}
 						{item}

@@ -5,20 +5,37 @@
 	import { cleanseOneOfConfiguration } from '../appUtils'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 
-	export let key: string
-	export let oneOf: { selected: string; configuration: RichConfiguration } | any
-	export let inputSpecsConfiguration: RichConfiguration | any
-	export let labels: Record<string, string> | undefined
-	export let shouldCapitalize: boolean
-	export let id: string
-	export let resourceOnly: boolean
-	export let tooltip: string | undefined
-	export let disabledOptions: string[] = []
-	export let acceptSelf: boolean = false
-	export let recomputeOnInputChanged = true
-	export let showOnDemandOnlyToggle = true
+	interface Props {
+		key: string
+		oneOf: { selected: string; configuration: RichConfiguration } | any
+		inputSpecsConfiguration: RichConfiguration | any
+		labels: Record<string, string> | undefined
+		shouldCapitalize: boolean
+		id: string
+		resourceOnly: boolean
+		tooltip: string | undefined
+		disabledOptions?: string[]
+		acceptSelf?: boolean
+		recomputeOnInputChanged?: boolean
+		showOnDemandOnlyToggle?: boolean
+	}
 
-	$: {
+	let {
+		key,
+		oneOf = $bindable(),
+		inputSpecsConfiguration,
+		labels,
+		shouldCapitalize,
+		id,
+		resourceOnly,
+		tooltip,
+		disabledOptions = [],
+		acceptSelf = false,
+		recomputeOnInputChanged = true,
+		showOnDemandOnlyToggle = true
+	}: Props = $props()
+
+	$effect(() => {
 		if (oneOf == undefined) {
 			oneOf = { configuration: {}, selected: '' }
 		}
@@ -41,7 +58,7 @@
 				type: 'oneOf'
 			}
 		}
-	}
+	})
 
 	function getValueOfDeprecated(obj: object): boolean {
 		if (!obj) return false
@@ -62,7 +79,7 @@
 	<select
 		class="w-full border border-gray-300 rounded-md p-2"
 		value={oneOf.selected}
-		on:change={(e) => {
+		onchange={(e) => {
 			oneOf = { ...oneOf, selected: e?.target?.['value'] }
 		}}
 	>

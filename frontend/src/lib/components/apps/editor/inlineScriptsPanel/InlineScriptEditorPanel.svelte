@@ -8,11 +8,21 @@
 	import type { AppViewerContext } from '../../types'
 	import InlineScriptRunnableByPath from './InlineScriptRunnableByPath.svelte'
 
-	export let componentInput: AppInput | undefined
-	export let defaultUserInput = false
-	export let componentType: string
-	export let id: string
-	export let transformer: boolean
+	interface Props {
+		componentInput: AppInput | undefined
+		defaultUserInput?: boolean
+		componentType: string
+		id: string
+		transformer: boolean
+	}
+
+	let {
+		componentInput = $bindable(),
+		defaultUserInput = false,
+		componentType,
+		id,
+		transformer
+	}: Props = $props()
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 

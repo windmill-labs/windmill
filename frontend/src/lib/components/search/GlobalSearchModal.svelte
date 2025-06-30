@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, onMount, tick } from 'svelte'
+	import { onDestroy, onMount, tick, untrack } from 'svelte'
 	import {
 		AppService,
 		FlowService,
@@ -43,12 +43,12 @@
 	import RunsSearch from './RunsSearch.svelte'
 	import AskAiButton from '../copilot/AskAiButton.svelte'
 
-	let open: boolean = false
+	let open: boolean = $state(false)
 
-	let searchTerm: string = ''
-	let textInput: HTMLInputElement
-	let selectedWorkspace: string | undefined = undefined
-	let contentSearch: ContentSearchInner | undefined = undefined
+	let searchTerm: string = $state('')
+	let textInput: HTMLInputElement | undefined = $state()
+	let selectedWorkspace: string | undefined = $state(undefined)
+	let contentSearch: ContentSearchInner | undefined = $state(undefined)
 
 	const RUNS_PREFIX = '>'
 	const LOGS_PREFIX = '!'
@@ -57,7 +57,7 @@
 
 	type SearchMode = 'default' | 'switch-mode' | 'runs' | 'content' | 'logs'
 
-	let tab: SearchMode = 'default'
+	let tab: SearchMode = $state('default')
 
 	type quickMenuItem = {
 		search_id: string
@@ -195,15 +195,17 @@
 
 	let defaultMenuItemsWithHidden = [...defaultMenuItems, ...hiddenMenuItems]
 
-	let itemMap = {
+	let itemMap = $state({
 		default: defaultMenuItems as any[],
 		'switch-mode': switchModeItems,
 		runs: [] as any[],
 		content: [] as any[],
 		logs: [] as any[]
-	}
+	})
 
-	$: tab === 'content' && contentSearch?.open()
+	$effect(() => {
+		tab === 'content' && contentSearch?.open()
+	})
 
 	async function switchPrompt(tab: string) {
 		if (tab === 'default') {
@@ -222,7 +224,7 @@
 			searchTerm = LOGS_PREFIX
 		}
 		selectedItem = selectItem(0)
-		textInput.focus()
+		textInput?.focus()
 	}
 
 	function removePrefix(str: string, prefix: string): string {
@@ -238,7 +240,7 @@
 	let defaultMenuItemLabels = defaultMenuItems.map((item) => item.label)
 	let defaultMenuItemAndHiddenLabels = defaultMenuItemsWithHidden.map((item) => item.label)
 	let switchModeItemLabels = switchModeItems.map((item) => item.label)
-	let askAiButton: AskAiButton | undefined
+	let askAiButton: AskAiButton | undefined = $state()
 
 	function fuzzyFilter(filter: string, items: any[], itemsPlainText: string[]) {
 		if (filter === '') {
@@ -263,7 +265,7 @@
 		return r
 	}
 
-	let queryParseErrors: string[] = []
+	let queryParseErrors: string[] = $state([])
 
 	async function handleSearch() {
 		queryParseErrors = []
@@ -332,7 +334,7 @@
 		return itemMap[tab][index]
 	}
 
-	let selectedItem: any
+	let selectedItem: any = $state()
 
 	async function handleKeydown(event: KeyboardEvent) {
 		if ((!isMac() ? event.ctrlKey : event.metaKey) && event.key === 'k') {
@@ -384,7 +386,7 @@
 	// Used by callbacks, call this to change the mode
 	function switchMode(mode: SearchMode) {
 		switchPrompt(mode)
-		textInput.focus()
+		textInput?.focus()
 	}
 
 	function gotoWindmillItemPage(e: TableAny, newtab: boolean = false) {
@@ -418,7 +420,7 @@
 		}
 	}
 
-	let mouseMoved: boolean = false
+	let mouseMoved: boolean = $state(false)
 	function handleMouseMove() {
 		mouseMoved = true
 	}
@@ -433,7 +435,10 @@
 		window.removeEventListener('mousemove', handleMouseMove)
 	})
 
-	$: searchTerm, handleSearch()
+	$effect(() => {
+		searchTerm
+		untrack(() => handleSearch())
+	})
 
 	function placeholderFromPrefix(text: string): string {
 		switch (text) {
@@ -470,7 +475,7 @@
 
 	type TableAny = TableScript | TableFlow | TableApp | TableRawApp
 
-	let combinedItems: TableAny[] | undefined = undefined
+	let combinedItems: TableAny[] | undefined = $state(undefined)
 
 	async function fetchCombinedItems() {
 		const scripts = await ScriptService.listScripts({
@@ -579,10 +584,10 @@
 		}
 	}
 
-	let runsSearch: RunsSearch
-	let runSearchRemainingCount: number | undefined = undefined
-	let runSearchTotalCount: number | undefined = undefined
-	let indexMetadata: SearchJobsIndexResponse['index_metadata'] = undefined
+	let runsSearch: RunsSearch | undefined = $state()
+	let runSearchRemainingCount: number | undefined = $state(undefined)
+	let runSearchTotalCount: number | undefined = $state(undefined)
+	let indexMetadata: SearchJobsIndexResponse['index_metadata'] = $state(undefined)
 </script>
 
 {#if open}
@@ -596,9 +601,11 @@
 		>
 			<div
 				class="{maxModalWidth(tab)} w-full mt-36 bg-surface rounded-lg relative"
-				use:clickOutside={false}
-				on:click_outside={() => {
-					open = false
+				use:clickOutside={{
+					capture: false,
+					onClickOutside: () => {
+						open = false
+					}
 				}}
 			>
 				<div class="px-4 py-2 flex flex-row gap-1 items-center border-b">
@@ -631,7 +638,7 @@
 					{#if queryParseErrors.length > 0}
 						<Popover notClickable placement="bottom-start">
 							<AlertTriangle size={16} class="text-yellow-500" />
-							<svelte:fragment slot="text">
+							{#snippet text()}
 								Some of your search terms have been ignored because one or more parse errors:<br
 								/><br />
 								<ul>
@@ -639,7 +646,7 @@
 										<li>- {msg}</li>
 									{/each}
 								</ul>
-							</svelte:fragment>
+							{/snippet}
 						</Popover>
 					{/if}
 				</div>
