@@ -775,6 +775,13 @@ async fn get_workspace_s3_resource_path(
                 resource_path.to_string(),
             )
         }
+        Some(LargeFileStorage::GoogleCloudStorage(gcs)) => {
+            let resource_path = gcs.gcs_resource_path.trim_start_matches("$res:");
+            (
+                StorageResourceType::GoogleCloudStorage,
+                resource_path.to_string(),
+            )
+        }
         None => {
             return Ok(None);
         }

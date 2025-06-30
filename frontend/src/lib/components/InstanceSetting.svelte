@@ -649,7 +649,7 @@
 						<Button
 							variant="border"
 							color="light"
-							size="md"
+							size="xs"
 							btnClasses="mt-1"
 							on:click={() => {
 								if ($values[setting.key] == undefined || !Array.isArray($values[setting.key])) {
@@ -668,7 +668,7 @@
 								disabled={!$enterpriseLicense}
 								variant="border"
 								color="light"
-								size="md"
+								size="xs"
 								on:click={async () => {
 									try {
 										await SettingService.testCriticalChannels({

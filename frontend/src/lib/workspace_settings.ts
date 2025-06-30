@@ -1,7 +1,9 @@
 import type { GetSettingsResponse, LargeFileStorage } from './gen'
 import { emptyString } from './utils'
 
-type s3type = 's3' | 'azure_blob' | 's3_aws_oidc' | 'azure_workload_identity'
+// Extended type to include GCS support until backend types are regenerated
+
+type s3type = 's3' | 'azure_blob' | 's3_aws_oidc' | 'azure_workload_identity' | 'gcloud_storage'
 type s3ResourceSettingsItem = {
 	resourceType: s3type
 	resourcePath: string | undefined
@@ -49,6 +51,13 @@ export function convertBackendSettingsToFrontendSettingsItem(
 			resourcePath: large_file_storage?.s3_resource_path?.replace('$res:', ''),
 			publicResource: large_file_storage?.public_resource
 		}
+	} else if (large_file_storage?.type === 'GoogleCloudStorage') {
+		const gcsStorage = large_file_storage
+		return {
+			resourceType: 'gcloud_storage',
+			resourcePath: gcsStorage?.gcs_resource_path?.replace('$res:', ''),
+			publicResource: gcsStorage?.public_resource
+		}
 	} else {
 		return {
 			resourceType: 's3',
@@ -91,6 +100,10 @@ export function convertFrontendToBackendettingsItem(
 			let typ: LargeFileStorage['type'] = 'S3AwsOidc'
 			params['type'] = typ
 			params['s3_resource_path'] = resourcePathWithPrefix
+		} else if (s3ResourceSettings.resourceType === 'gcloud_storage') {
+			let typ: LargeFileStorage['type'] = 'GoogleCloudStorage'
+			params['type'] = typ
+			params['gcs_resource_path'] = resourcePathWithPrefix
 		} else {
 			let typ: LargeFileStorage['type'] = 'S3Storage'
 			params['type'] = typ
