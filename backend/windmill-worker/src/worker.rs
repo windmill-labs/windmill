@@ -1192,6 +1192,7 @@ pub async fn run_worker(
     let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());
     let job_completed_processor_is_done =
         Arc::new(AtomicBool::new(matches!(conn, Connection::Http(_))));
+    let background_processor_is_draining = Arc::new(AtomicBool::new(false));
 
     let send_result = match (conn, job_completed_rx) {
         (Connection::Sql(db), Some(job_completed_receiver)) => Some(start_background_processor(
@@ -1199,6 +1200,7 @@ pub async fn run_worker(
             job_completed_tx.clone(),
             same_worker_queue_size.clone(),
             job_completed_processor_is_done.clone(),
+            background_processor_is_draining.clone(),
             base_internal_url.to_string(),
             db.clone(),
             worker_dir.clone(),
@@ -1476,6 +1478,13 @@ pub async fn run_worker(
             } else {
                 match &conn {
                     Connection::Sql(db) => {
+                        // Check if background processor is draining and wait if so
+                        if background_processor_is_draining.load(Ordering::SeqCst) {
+                            tracing::info!(worker = %worker_name, hostname = %hostname, "Background processor is draining, waiting before pulling jobs");
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                            continue;
+                        }
+
                         let pull_time = Instant::now();
                         let likelihood_of_suspend = last_30jobs_suspended as f64 / 30.0;
                         let suspend_first = suspend_first_success

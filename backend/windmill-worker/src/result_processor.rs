@@ -130,6 +130,7 @@ pub fn start_background_processor(
     job_completed_sender: JobCompletedSender,
     same_worker_queue_size: Arc<AtomicU16>,
     job_completed_processor_is_done: Arc<AtomicBool>,
+    background_processor_is_draining: Arc<AtomicBool>,
     base_internal_url: String,
     db: DB,
     worker_dir: String,
@@ -165,6 +166,7 @@ pub fn start_background_processor(
                 if bounded_result.is_none() && unbounded_result.is_none() {
                     // Queue is empty, stop draining
                     is_draining = false;
+                    background_processor_is_draining.store(false, Ordering::SeqCst);
                     tracing::info!("Background processor finished draining, resuming normal operation");
                 }
                 
@@ -201,6 +203,7 @@ pub fn start_background_processor(
                     // Check if we need to start draining (latency > 5s)
                     if !is_draining && latency > Duration::from_secs(5) {
                         is_draining = true;
+                        background_processor_is_draining.store(true, Ordering::SeqCst);
                         tracing::warn!(
                             "Background processor latency exceeded 5s ({}ms), starting drain mode",
                             latency.as_millis()
@@ -270,6 +273,7 @@ pub fn start_background_processor(
                     // Check if we need to start draining (latency > 5s)
                     if !is_draining && latency > Duration::from_secs(5) {
                         is_draining = true;
+                        background_processor_is_draining.store(true, Ordering::SeqCst);
                         tracing::warn!(
                             "Background processor latency exceeded 5s ({}ms) for UpdateFlow, starting drain mode",
                             latency.as_millis()
