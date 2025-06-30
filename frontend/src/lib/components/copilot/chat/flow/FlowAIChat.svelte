@@ -88,7 +88,7 @@
 		},
 		// flow apply/reject
 		getPreviewFlow: () => {
-			return previewFlow
+			return $state.snapshot(previewFlow)
 		},
 		hasDiff: () => {
 			return Object.keys(affectedModules).length > 0
