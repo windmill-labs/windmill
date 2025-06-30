@@ -45,6 +45,7 @@
 			mock: { enabled: boolean; return_value?: unknown }
 		}) => void
 		onEditInput?: (moduleId: string, key: string) => void
+		showApproval?: boolean
 	}
 
 	let {
@@ -63,7 +64,8 @@
 		onSelect,
 		onTestUpTo,
 		onUpdateMock,
-		onEditInput
+		onEditInput,
+		showApproval
 	}: Props = $props()
 
 	const { selectedId } = getContext<{
@@ -246,6 +248,7 @@
 					inputTransform={mod.value.type !== 'identity' ? mod.value.input_transforms : undefined}
 					{onTestUpTo}
 					{onEditInput}
+					{showApproval}
 				>
 					{#snippet icon()}
 						<div>

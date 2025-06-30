@@ -76,6 +76,7 @@
 		inputTransform?: Record<string, any> | undefined
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		onEditInput?: (moduleId: string, key: string) => void
+		showApproval?: boolean
 	}
 
 	let {
@@ -106,7 +107,8 @@
 		onTestUpTo,
 		inputTransform,
 		onUpdateMock,
-		onEditInput
+		onEditInput,
+		showApproval
 	}: Props = $props()
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
@@ -423,6 +425,15 @@
 			{/snippet}
 		</FlowModuleSchemaItemViewer>
 
+		{#if editMode && showApproval}
+			<div
+				class={twMerge(
+					'fixed top-1/2 -translate-y-1/2 left-full h-fit w-fit rounded-md bg-surface flex items-center justify-center p-2 ml-2 shadow-md'
+				)}
+			>
+				<div id="flow-status-waiting-for-events"></div>
+			</div>
+		{/if}
 		{#if outputPickerVisible}
 			<OutputPicker
 				bind:this={outputPicker}

@@ -94,6 +94,9 @@
 				data.eventHandlers.updateMock(detail)
 			}}
 			onEditInput={data.eventHandlers.editInput}
+			showApproval={type === 'WaitingForExecutor' ||
+				type === 'WaitingForEvents' ||
+				type === 'WaitingForPriorSteps'}
 		/>
 
 		<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10">
