@@ -57,6 +57,7 @@
 		toggleAiChat?: () => void
 		waitingJob?: Job | undefined
 		isOwner?: boolean
+		showModuleStatus?: boolean
 	}
 
 	let {
@@ -75,7 +76,8 @@
 		showFlowAiButton,
 		toggleAiChat,
 		waitingJob,
-		isOwner
+		isOwner,
+		showModuleStatus = true
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -361,7 +363,7 @@
 			editMode
 			{onTestUpTo}
 			{onEditInput}
-			flowModuleStates={$localModuleStates}
+			flowModuleStates={showModuleStatus ? $localModuleStates : undefined}
 			{waitingJob}
 			{isOwner}
 			onDelete={(id) => {

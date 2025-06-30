@@ -909,8 +909,7 @@
 	}
 
 	let isOwner = $state(false)
-
-	$inspect('dbg isOwner flowbuilder', isOwner)
+	let showModuleStatus = $state(false)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -1108,6 +1107,9 @@
 						{loading}
 						bind:job
 						bind:isOwner
+						onRunPreview={() => {
+							showModuleStatus = true
+						}}
 					/>
 					<Button
 						loading={loadingDraft}
@@ -1179,6 +1181,7 @@
 					}}
 					waitingJob={job}
 					{isOwner}
+					{showModuleStatus}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

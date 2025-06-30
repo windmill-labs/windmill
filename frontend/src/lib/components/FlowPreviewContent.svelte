@@ -42,6 +42,7 @@
 		localModuleStates?: Writable<Record<string, GraphModuleState>>
 		localDurationStatuses?: Writable<Record<string, DurationStatus>>
 		isOwner?: boolean
+		onRunPreview?: () => void
 	}
 
 	let {
@@ -59,7 +60,8 @@
 		scrollTop = $bindable(0),
 		localModuleStates = $bindable(writable({})),
 		localDurationStatuses = $bindable(writable({})),
-		isOwner = $bindable(false)
+		isOwner = $bindable(false),
+		onRunPreview = $bindable(undefined)
 	}: Props = $props()
 
 	let restartBranchNames: [number, string][] = []
@@ -118,6 +120,7 @@
 		if (stepHistoryLoader?.flowJobInitial) {
 			stepHistoryLoader?.setFlowJobInitial(false)
 		}
+		onRunPreview?.()
 		try {
 			lastPreviewFlow = JSON.stringify(flowStore.val)
 			jobProgressReset()

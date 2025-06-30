@@ -18,13 +18,15 @@
 		localModuleStates: Writable<Record<string, GraphModuleState>>
 		job: Job | undefined
 		isOwner?: boolean
+		onRunPreview?: () => void
 	}
 
 	let {
 		loading = false,
 		localModuleStates = $bindable(writable({})),
 		job = $bindable(undefined),
-		isOwner = $bindable(false)
+		isOwner = $bindable(false),
+		onRunPreview = $bindable(undefined)
 	}: Props = $props()
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -147,6 +149,7 @@
 			}}
 			bind:preventEscape
 			bind:isOwner
+			{onRunPreview}
 		/>
 	</Drawer>
 {/if}

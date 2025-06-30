@@ -44,6 +44,7 @@
 		onRunPreview?: () => void
 		waitingJob?: Job | undefined
 		isOwner?: boolean
+		showModuleStatus?: boolean
 	}
 
 	let {
@@ -67,7 +68,8 @@
 		toggleAiChat,
 		onRunPreview = () => {},
 		waitingJob,
-		isOwner
+		isOwner,
+		showModuleStatus
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -127,6 +129,7 @@
 						{toggleAiChat}
 						{waitingJob}
 						{isOwner}
+						{showModuleStatus}
 					/>
 				{/if}
 			</div>
