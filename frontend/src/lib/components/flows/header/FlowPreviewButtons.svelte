@@ -19,6 +19,8 @@
 		job: Job | undefined
 		isOwner?: boolean
 		onRunPreview?: () => void
+		isRunning?: boolean
+		previewOpen?: boolean
 	}
 
 	let {
@@ -26,11 +28,12 @@
 		localModuleStates = $bindable(writable({})),
 		job = $bindable(undefined),
 		isOwner = $bindable(false),
-		onRunPreview = $bindable(undefined)
+		onRunPreview = $bindable(undefined),
+		isRunning = $bindable(false),
+		previewOpen = $bindable(false)
 	}: Props = $props()
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
-	let previewOpen = $state(false)
 	let previewMode: 'upTo' | 'whole' = $state('whole')
 
 	export async function openPreview(test: boolean = false) {
@@ -150,6 +153,7 @@
 			bind:preventEscape
 			bind:isOwner
 			{onRunPreview}
+			bind:isRunning
 		/>
 	</Drawer>
 {/if}

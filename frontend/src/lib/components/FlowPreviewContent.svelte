@@ -43,6 +43,7 @@
 		localDurationStatuses?: Writable<Record<string, DurationStatus>>
 		isOwner?: boolean
 		onRunPreview?: () => void
+		isRunning?: boolean
 	}
 
 	let {
@@ -61,12 +62,12 @@
 		localModuleStates = $bindable(writable({})),
 		localDurationStatuses = $bindable(writable({})),
 		isOwner = $bindable(false),
-		onRunPreview = $bindable(undefined)
+		onRunPreview = $bindable(undefined),
+		isRunning = $bindable(false)
 	}: Props = $props()
 
 	let restartBranchNames: [number, string][] = []
 
-	let isRunning: boolean = $state(false)
 	let jobProgressReset: () => void = $state(() => {})
 	let jsonView: boolean = $state(false)
 	let jsonEditor: JsonInputs | undefined = $state(undefined)

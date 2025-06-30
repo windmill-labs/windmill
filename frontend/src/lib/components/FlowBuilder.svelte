@@ -910,6 +910,38 @@
 
 	let isOwner = $state(false)
 	let showModuleStatus = $state(false)
+	let isRunning = $state(false)
+	let previewOpen = $state(false)
+
+	let jobRunning = $state(false)
+	function jobObserver(job: Job) {
+		if (isRunning === jobRunning) {
+			return
+		}
+		if (isRunning) {
+			jobRunning = true
+			return
+		}
+		if (!previewOpen) {
+			// Find last module with a job in flow_status
+			const lastModuleWithJob = job.flow_status?.modules
+				?.slice()
+				.reverse()
+				.find((module) => 'job' in module)
+			if (lastModuleWithJob && lastModuleWithJob.id) {
+				outputPickerOpenFns[lastModuleWithJob.id]?.()
+			}
+		}
+		jobRunning = isRunning
+	}
+
+	// Register output open function
+	let outputPickerOpenFns = $state<Record<string, () => void>>({})
+	setContext<Record<string, () => void>>('openOutputPicker', outputPickerOpenFns)
+
+	$effect(() => {
+		job && jobObserver(job)
+	})
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -1110,6 +1142,8 @@
 						onRunPreview={() => {
 							showModuleStatus = true
 						}}
+						bind:isRunning
+						bind:previewOpen
 					/>
 					<Button
 						loading={loadingDraft}

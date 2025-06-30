@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import InputPickerInner from './InputPickerInner.svelte'
@@ -103,6 +103,15 @@
 
 	$effect(() => {
 		updatePositioning(historyOpen, zoom)
+	})
+
+	onMount(() => {
+		let outputPickerOpenFns = getContext<Record<string, () => void>>('openOutputPicker')
+		if (outputPickerOpenFns) {
+			outputPickerOpenFns[id] = () => {
+				outputOpen = true
+			}
+		}
 	})
 </script>
 
