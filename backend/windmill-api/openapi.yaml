@@ -1566,7 +1566,7 @@ paths:
                 type: string
 
   /w/{workspace}/workspaces/delete_invite:
-    post:
+    delete:
       summary: delete user invite
       operationId: delete invite
       tags:
@@ -4753,7 +4753,7 @@ paths:
                 $ref: "#/components/schemas/Script"
 
   /w/{workspace}/scripts/delete/h/{hash}:
-    post:
+    delete:
       summary: delete script by hash (erase content but keep hash, require admin)
       operationId: deleteScriptByHash
       tags:
@@ -4770,7 +4770,7 @@ paths:
                 $ref: "#/components/schemas/Script"
 
   /w/{workspace}/scripts/delete/p/{path}:
-    post:
+    delete:
       summary: delete script at a given path (require admin)
       operationId: deleteScriptByPath
       tags:
@@ -7702,7 +7702,7 @@ paths:
                   - result
 
   /w/{workspace}/jobs/completed/delete/{id}:
-    post:
+    delete:
       summary: delete completed job (erase content but keep run id)
       operationId: deleteCompletedJob
       tags:
@@ -11838,7 +11838,7 @@ paths:
                 format: uuid
 
   /w/{workspace}/inputs/delete/{input}:
-    post:
+    delete:
       summary: Delete a Saved Input
       operationId: deleteInput
       tags:

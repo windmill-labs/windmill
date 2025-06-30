@@ -53,7 +53,7 @@ use anyhow::Context;
 use axum::{
     extract::{FromRequest, Json, Path, Query},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{delete, get, post},
     Extension, Router,
 };
 use base64::Engine;
@@ -213,7 +213,7 @@ pub fn workspaced_service() -> Router {
         )
         .route(
             "/completed/delete/:id",
-            post(delete_completed_job).layer(cors.clone()),
+            delete(delete_completed_job).layer(cors.clone()),
         )
         .route(
             "/flow/resume/:id",
@@ -1736,7 +1736,6 @@ async fn list_filtered_job_uuids(
     Query(lq): Query<ListCompletedQuery>,
 ) -> error::JsonResult<Vec<Uuid>> {
     require_admin(authed.is_admin, &authed.username)?;
-    check_scopes(&authed, || format!("jobs:read"))?;
 
     let mut sqlb = list_completed_jobs_query(
         w_id.as_str(),
@@ -1901,8 +1900,6 @@ async fn list_jobs(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
 ) -> error::JsonResult<Vec<Job>> {
-    check_scopes(&authed, || format!("jobs:read"))?;
-
     let limit = pagination.per_page.unwrap_or(1000);
     let (per_page, offset) = paginate(pagination);
     let lqc = lq.clone();
@@ -1978,7 +1975,6 @@ pub async fn resume_suspended_flow_as_owner(
     Path((_w_id, flow_id)): Path<(String, Uuid)>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
 ) -> error::Result<StatusCode> {
-    check_scopes(&authed, || format!("flows:run"))?;
     let value = value.unwrap_or(serde_json::Value::Null);
     let mut tx = db.begin().await?;
 
@@ -3468,6 +3464,7 @@ pub async fn run_flow_by_path_inner(
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
+
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("flows:run:{flow_path}"))?;
 
@@ -3669,7 +3666,6 @@ pub async fn run_script_by_path_inner(
     check_license_key_valid().await?;
 
     let script_path = script_path.to_path();
-
     check_scopes(&authed, || format!("scripts:run:{script_path}"))?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -4311,6 +4307,9 @@ pub async fn run_wait_result_job_by_path_get(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
+    let script_path = script_path.to_path();
+    check_scopes(&authed, || format!("scripts:run:{script_path}"))?;
+
     if method == http::Method::HEAD {
         return Ok(Json(serde_json::json!("")).into_response());
     }
@@ -4327,8 +4326,6 @@ pub async fn run_wait_result_job_by_path_get(
     let mut args = args.process_args(&authed, &db, &w_id, None).await?;
     args.body = args::Body::HashMap(payload_args);
 
-    let script_path = script_path.to_path();
-
     let args = args
         .to_args_from_runnable(
             &db,
@@ -4339,7 +4336,6 @@ pub async fn run_wait_result_job_by_path_get(
         .await?;
 
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
-    check_scopes(&authed, || format!("scripts:run:{script_path}"))?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
     let (job_payload, tag, delete_after_use, timeout, on_behalf_authed) =
@@ -4477,9 +4473,10 @@ pub async fn run_wait_result_script_by_path_internal(
     w_id: String,
     args: PushArgsOwned,
 ) -> error::Result<Response> {
-    check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
     check_scopes(&authed, || format!("scripts:run:{script_path}"))?;
+
+    check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
     let (job_payload, tag, delete_after_use, timeout, on_behalf_of) =
@@ -4773,8 +4770,6 @@ async fn run_preview_script(
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
-
-    check_scopes(&authed, || format!("scripts:run"))?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run preview jobs for security reasons".to_string(),
@@ -4843,7 +4838,6 @@ async fn run_bundle_preview_script(
 ) -> error::Result<(StatusCode, String)> {
     use windmill_common::scripts::PREVIEW_IS_TAR_CODEBASE_HASH;
 
-    check_scopes(&authed, || format!("scripts:run"))?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run preview jobs for security reasons".to_string(),
@@ -5440,7 +5434,6 @@ async fn run_preview_flow_job(
     Query(run_query): Query<RunJobQuery>,
     Json(raw_flow): Json<PreviewFlow>,
 ) -> error::Result<(StatusCode, String)> {
-    check_scopes(&authed, || format!("flows:run"))?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run preview jobs for security reasons".to_string(),
@@ -5536,6 +5529,7 @@ pub async fn run_job_by_hash_inner(
         created_by,
         .. // delete_after_use not taken into account in async endpoints
     } = get_script_info_for_hash(&mut *tx, &w_id, hash).await?;
+
     check_scopes(&authed, || format!("scripts:run:{path}"))?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
@@ -5964,8 +5958,6 @@ async fn list_completed_jobs(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
 ) -> error::JsonResult<Vec<ListableCompletedJob>> {
-    check_scopes(&authed, || format!("jobs:read"))?;
-
     let (per_page, offset) = paginate(pagination);
 
     let sql = list_completed_jobs_query(
@@ -6278,8 +6270,6 @@ async fn delete_completed_job<'a>(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
-    check_scopes(&authed, || format!("jobs:delete"))?;
-
     let mut tx = user_db.begin(&authed).await?;
 
     require_admin(authed.is_admin, &authed.username)?;

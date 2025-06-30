@@ -257,15 +257,12 @@ pub fn check_route_access(
 
     // Find the domain for this route
     let required_domain = extract_domain_from_route(route_path)?;
-    let mut filter_tags = false;
     let mut restricted_scopes = false;
     // Check if any token scope grants the required access
     for scope_str in token_scopes {
-        if scope_str.starts_with("if_jobs:filter_tags:") && !filter_tags {
-            filter_tags = true
-        } else {
+        if !scope_str.starts_with("if_jobs:filter_tags:") {
             if let Ok(scope) = ScopeDefinition::from_scope_string(scope_str) {
-                if scope_grants_access(&scope, required_domain, required_action, route_path)? {
+                if scope_grants_access(&scope, required_domain, required_action)? {
                     return Ok(());
                 }
             }
@@ -277,7 +274,7 @@ pub fn check_route_access(
 
     //Edge case for backward compatibility, if only scopes defined was filter tag then don't treat this we don't treat the token
     //as a restricted token
-    if filter_tags && !restricted_scopes {
+    if !restricted_scopes {
         return Ok(());
     }
 
@@ -293,7 +290,10 @@ fn map_http_method_to_action(method: &str, route_path: &str) -> ScopeAction {
         "GET" | "HEAD" | "OPTIONS" => ScopeAction::Read,
         "POST" => {
             // POST can be create (write) or run depending on the endpoint
-            if RUN_KEYWORD.iter().any(|path| route_path.contains(path)) {
+            if RUN_KEYWORD
+                .iter()
+                .any(|sub_path| route_path.contains(sub_path))
+            {
                 ScopeAction::Run
             } else {
                 ScopeAction::Write
@@ -305,12 +305,13 @@ fn map_http_method_to_action(method: &str, route_path: &str) -> ScopeAction {
     }
 }
 
-const SCRIPT_JOBS: [&'static str; 5] = [
+const SCRIPT_JOBS: [&'static str; 6] = [
     "jobs/run/p",
     "jobs/run/h",
     "jobs/run_wait_result/p",
     "jobs/run_wait_result/h",
-    "jobs/run/preview",
+    "jobs/run/preview_bundle",
+    "jobs/run/preview/",
 ];
 
 const FLOW_JOBS: [&'static str; 6] = [
@@ -370,7 +371,6 @@ fn scope_grants_access(
     scope: &ScopeDefinition,
     required_domain: ScopeDomain,
     required_action: ScopeAction,
-    route_path: &str,
 ) -> Result<bool> {
     // Check domain match
     let scope_domain = ScopeDomain::from_str(&scope.domain)
@@ -388,26 +388,8 @@ fn scope_grants_access(
         return Ok(false);
     }
 
-    // Check resource path match if specified
-    if let Some(scope_resource) = &scope.resource {
-        return Ok(resource_path_matches(scope_resource, route_path));
-    }
-
     // No resource specified means access to entire domain
     Ok(true)
-}
-
-fn resource_path_matches(scope_resource: &str, route_path: &str) -> bool {
-    if scope_resource == "*" {
-        return true;
-    }
-
-    if scope_resource.ends_with("*") {
-        let prefix = &scope_resource[..scope_resource.len() - 1];
-        return route_path.contains(prefix);
-    }
-
-    route_path.contains(scope_resource)
 }
 
 /// Helper function to check if scopes allow access to a route

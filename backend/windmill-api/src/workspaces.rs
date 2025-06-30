@@ -74,7 +74,7 @@ pub fn workspaced_service() -> Router {
         .route("/archive", post(archive_workspace))
         .route("/invite_user", post(invite_user))
         .route("/add_user", post(add_user))
-        .route("/delete_invite", post(delete_invite))
+        .route("/delete_invite", delete(delete_invite))
         .route("/get_settings", get(get_settings))
         .route("/get_deploy_to", get(get_deploy_to))
         .route("/edit_slack_command", post(edit_slack_command))

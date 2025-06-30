@@ -68,13 +68,13 @@
 		{hash}
 		token=""
 		{args}
-		scopes={isFlow ? [`flows:execute:${currentPath}`] : [`scripts:execute:${currentPath}`]}
+		scopes={isFlow ? [`flows:run:${currentPath}`] : [`scripts:run:${currentPath}`]}
 		{newItem}
 	/>
 {:else if selectedTrigger.type === 'email'}
 	<EmailTriggerPanel
 		token=""
-		scopes={isFlow ? [`flows:execute:${currentPath}`] : [`scripts:execute:${currentPath}`]}
+		scopes={isFlow ? [`flows:run:${currentPath}`] : [`scripts:run:${currentPath}`]}
 		path={initialPath || fakeInitialPath}
 		{isFlow}
 		on:email-domain

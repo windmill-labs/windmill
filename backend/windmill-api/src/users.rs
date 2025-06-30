@@ -157,14 +157,23 @@ pub fn check_scopes<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
 where
     F: FnOnce() -> String,
 {
-    if authed.scopes.as_ref().is_some_and(|scopes| {
-        scopes.iter().any(|s| {
-            s.starts_with("jobs:") || s.starts_with("scripts:") || s.starts_with("flows:")
-        })
-    }) {
-        let req = &required();
-        if !authed.scopes.as_ref().unwrap().contains(req) {
-            return Err(Error::BadRequest(format!("missing required scope: {req}")));
+    if let Some(scopes) = authed.scopes.as_ref() {
+        let required_scope = &required();
+        let mut has_other_scope = false;
+
+        for scope in scopes {
+            if !scope.starts_with("if_jobs:filter_tags:") {
+                if !has_other_scope {
+                    has_other_scope = true;
+                }
+                if scope == required_scope {
+                    return Ok(());
+                }
+            }
+        }
+
+        if has_other_scope {
+            return Err(Error::BadRequest(format!("missing required scope: {required_scope}")));
         }
     }
     Ok(())

@@ -67,7 +67,7 @@
 
 
 
-		scopes = [`${itemKind}s:execute:${scriptPath}`]
+		scopes = [`${itemKind}s:run:${scriptPath}`]
 	}
 </script>
 
