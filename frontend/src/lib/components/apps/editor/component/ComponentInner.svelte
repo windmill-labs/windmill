@@ -41,7 +41,6 @@
 	import PlotlyHtmlV2 from '../../components/display/PlotlyHtmlV2.svelte'
 	import AppScatterChart from '../../components/display/AppScatterChart.svelte'
 	import AppPieChart from '../../components/display/AppPieChart.svelte'
-	import AppTable from '../../components/display/table/AppTable.svelte'
 	import AppAggridTable from '../../components/display/table/AppAggridTable.svelte'
 	import AppText from '../../components/display/AppText.svelte'
 	import AppCodeInputComponent from '../../components/inputs/AppCodeInputComponent.svelte'
@@ -74,6 +73,7 @@
 	import AppUserResource from '../../components/inputs/AppUserResource.svelte'
 	import type { AppComponent } from './components'
 	import { Button } from '$lib/components/common'
+	import { Loader2 } from 'lucide-svelte'
 
 	interface Props {
 		component: AppComponent
@@ -235,15 +235,19 @@
 			{render}
 		/>
 	{:else if component.type === 'tablecomponent'}
-		<AppTable
-			configuration={component.configuration}
-			id={component.id}
-			customCss={component.customCss}
-			bind:initializing
-			componentInput={component.componentInput}
-			actionButtons={component.actionButtons}
-			{render}
-		/>
+		{#await import('$lib/components/apps/components/display/table/AppTable.svelte')}
+			<Loader2 />
+		{:then Module}
+			<Module.default
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				actionButtons={component.actionButtons}
+				{render}
+			/>
+		{/await}
 	{:else if component.type === 'dbexplorercomponent'}
 		<AppDbExplorer
 			configuration={component.configuration}
