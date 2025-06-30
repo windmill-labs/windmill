@@ -85,7 +85,7 @@ export function convertFrontendToBackendettingsItem(
 ): LargeFileStorage | undefined {
 	if (!emptyString(s3ResourceSettings.resourcePath)) {
 		let resourcePathWithPrefix = `$res:${s3ResourceSettings.resourcePath}`
-		let params: any = {
+		let params = {
 			public_resource: s3ResourceSettings.publicResource
 		}
 		if (s3ResourceSettings.resourceType === 'azure_blob') {
