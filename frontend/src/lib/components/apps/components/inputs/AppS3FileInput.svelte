@@ -15,16 +15,26 @@
 	import { defaultIfEmptyString } from '$lib/utils'
 	import { userStore } from '$lib/stores'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'s3fileinputcomponent'> | undefined = undefined
-	export let render: boolean
-	export let extraKey: string | undefined = undefined
-	export let onFileChange: string[] | undefined = undefined
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'s3fileinputcomponent'> | undefined
+		render: boolean
+		extraKey?: string | undefined
+		onFileChange?: string[] | undefined
+	}
 
-	let resolvedConfig = initConfig(
-		components['s3fileinputcomponent'].initialData.configuration,
-		configuration
+	let {
+		id,
+		configuration,
+		customCss = undefined,
+		render,
+		extraKey = undefined,
+		onFileChange = undefined
+	}: Props = $props()
+
+	let resolvedConfig = $state(
+		initConfig(components['s3fileinputcomponent'].initialData.configuration, configuration)
 	)
 
 	let fileUploads: Writable<FileUploadData[]> = writable([])
@@ -38,16 +48,16 @@
 		}
 	}
 
-	let value: { path: string; filename: string }[] | undefined = undefined
+	let value: { path: string; filename: string }[] | undefined = $state(undefined)
 	const outputs = initOutput($worldStore, id, {
 		result: value ?? ([] as { path: string; filename: string }[] | undefined),
 		loading: false,
 		jobId: undefined
 	})
 
-	$: resolvedConfigS3 = resolvedConfig.type.configuration.s3
+	let resolvedConfigS3 = $derived(resolvedConfig.type.configuration.s3)
 
-	let css = initCss($app.css?.fileinputcomponent, customCss)
+	let css = $state(initCss($app.css?.fileinputcomponent, customCss))
 	/*
 
 		{#if resolvedConfig.displayDirectLink && fileUpload.progress === 100}

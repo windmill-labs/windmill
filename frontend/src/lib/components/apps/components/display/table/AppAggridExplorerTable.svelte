@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { stopPropagation } from 'svelte/legacy'
+
 	import { GridApi, createGrid, type IDatasource } from 'ag-grid-community'
 	import { sendUserToast } from '$lib/utils'
-	import { createEventDispatcher, getContext, mount, unmount } from 'svelte'
+	import { createEventDispatcher, getContext, mount, unmount, untrack } from 'svelte'
 	import type { AppViewerContext, ComponentCustomCSS, ContextPanelContext } from '../../../types'
 
 	import type { TableAction, components } from '$lib/components/apps/editor/component'
@@ -22,28 +24,44 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { stateSnapshot, withProps } from '$lib/svelte5Utils.svelte'
 
-	export let id: string
-	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
-	export let containerHeight: number | undefined = undefined
-	export let resolvedConfig: InitConfig<
-		| (typeof components)['dbexplorercomponent']['initialData']['configuration']
-		| (typeof components)['aggridinfinitecomponent']['initialData']['configuration']
-		| (typeof components)['aggridinfinitecomponentee']['initialData']['configuration']
-	>
-	export let datasource: IDatasource
-	export let state: any = undefined
-	export let outputs: Record<string, Output<any>>
-	export let allowDelete: boolean
-	export let actions: TableAction[] = []
-	export let result: any[] | undefined = undefined
-	export let allowColumnDefsActions: boolean = true
+	interface Props {
+		id: string
+		customCss?: ComponentCustomCSS<'aggridcomponent'> | undefined
+		containerHeight?: number | undefined
+		resolvedConfig: InitConfig<
+			| (typeof components)['dbexplorercomponent']['initialData']['configuration']
+			| (typeof components)['aggridinfinitecomponent']['initialData']['configuration']
+			| (typeof components)['aggridinfinitecomponentee']['initialData']['configuration']
+		>
+		datasource: IDatasource
+		componentState?: any
+		outputs: Record<string, Output<any>>
+		allowDelete: boolean
+		actions?: TableAction[]
+		result?: any[] | undefined
+		allowColumnDefsActions?: boolean
+	}
+
+	let {
+		id,
+		customCss = undefined,
+		containerHeight = undefined,
+		resolvedConfig,
+		datasource,
+		componentState = $bindable(undefined),
+		outputs,
+		allowDelete,
+		actions = [],
+		result = undefined,
+		allowColumnDefsActions = true
+	}: Props = $props()
 	let inputs = {}
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
 	const contextPanel = getContext<ContextPanelContext>('ContextPanel')
 	const { app, selectedComponent, componentControl, darkMode, mode } = context
 
-	let css = initCss($app.css?.aggridcomponent, customCss)
+	let css = $state(initCss($app.css?.aggridcomponent, customCss))
 
 	let selectedRowIndex = -1
 
@@ -76,8 +94,8 @@
 		)
 	}
 
-	let clientHeight
-	let clientWidth
+	let clientHeight = $state()
+	let clientWidth = $state()
 
 	const dispatch = createEventDispatcher()
 
@@ -104,10 +122,8 @@
 		resolvedConfig?.extraConfig?.['defaultColDef']?.['onCellValueChanged']?.(event)
 	}
 
-	let api: GridApi<any> | undefined = undefined
-	let eGui: HTMLDivElement
-
-	$: eGui && mountGrid()
+	let api: GridApi<any> | undefined = $state(undefined)
+	let eGui: HTMLDivElement | undefined = $state()
 
 	function refreshActions(actions: TableAction[]) {
 		if (!deepEqual(actions, lastActions)) {
@@ -117,7 +133,6 @@
 	}
 
 	let lastActions: TableAction[] | undefined = undefined
-	$: actions && refreshActions(actions)
 
 	const tableActionsFactory = cellRendererFactory((c, p) => {
 		const rowIndex = p.node.rowIndex ?? 0
@@ -255,8 +270,8 @@
 		})
 	}
 
-	let firstRow: number = 0
-	let lastRow: number = 0
+	let firstRow: number = $state(0)
+	let lastRow: number = $state(0)
 
 	function validateColumnDefs(columnDefs: ColumnDef[]): {
 		isValid: boolean
@@ -325,7 +340,7 @@
 					rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
 						? resolvedConfig.rowMultiselectWithClick
 						: false,
-					initialState: state,
+					initialState: componentState,
 					suppressRowDeselection: true,
 					enableCellTextSelection: true,
 					...(resolvedConfig?.extraConfig ?? {}),
@@ -340,7 +355,7 @@
 						lastRow = e.lastRow
 					},
 					onStateUpdated: (e) => {
-						state = e?.api?.getState()
+						componentState = e?.api?.getState()
 						resolvedConfig?.extraConfig?.['onStateUpdated']?.(e)
 					},
 					onGridReady: (e) => {
@@ -371,22 +386,9 @@
 		}
 	}
 
-	$: api && resolvedConfig && updateOptions()
+	let oldDatasource = $state(datasource)
 
-	let oldDatasource = datasource
-	$: if (datasource && datasource != oldDatasource) {
-		oldDatasource = datasource
-
-		api?.updateGridOptions({ datasource })
-	}
-
-	let extraConfig = resolvedConfig.extraConfig
-	$: if (!deepEqual(extraConfig, resolvedConfig.extraConfig)) {
-		extraConfig = resolvedConfig.extraConfig
-		if (extraConfig) {
-			api?.updateGridOptions(extraConfig)
-		}
-	}
+	let extraConfig = $state(resolvedConfig.extraConfig)
 
 	export function clearRows() {
 		api?.purgeInfiniteCache()
@@ -435,6 +437,33 @@
 			}
 		})
 	}
+	$effect(() => {
+		eGui && untrack(() => mountGrid())
+	})
+	$effect(() => {
+		actions && untrack(() => refreshActions(actions))
+	})
+	$effect(() => {
+		api && resolvedConfig && updateOptions()
+	})
+	$effect(() => {
+		if (api && datasource && datasource != oldDatasource) {
+			oldDatasource = datasource
+			untrack(() => {
+				api?.updateGridOptions({ datasource })
+			})
+		}
+	})
+	$effect(() => {
+		if (!deepEqual(extraConfig, resolvedConfig.extraConfig)) {
+			extraConfig = resolvedConfig.extraConfig
+			if (extraConfig && api) {
+				untrack(() => {
+					extraConfig && api?.updateGridOptions(extraConfig)
+				})
+			}
+		}
+	})
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -459,19 +488,19 @@
 		bind:clientWidth
 	>
 		<div
-			on:pointerdown|stopPropagation={() => {
+			onpointerdown={stopPropagation(() => {
 				$selectedComponent = [id]
-			}}
+			})}
 			style:height="{clientHeight}px"
 			style:width="{clientWidth}px"
 			class="ag-theme-alpine"
 			class:ag-theme-alpine-dark={$darkMode}
 		>
-			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				bind:this={eGui}
 				style:height="100%"
-				on:keydown={(e) => {
+				onkeydown={(e) => {
 					if ((e.ctrlKey || e.metaKey) && e.key === 'c' && $mode !== 'dnd') {
 						const selectedCell = api?.getFocusedCell()
 						if (selectedCell) {
@@ -490,7 +519,9 @@
 			<div class="flex gap-1 w-full justify-between items-center text-xs text-primary p-2">
 				<div>
 					<Popover>
-						<svelte:fragment slot="text">Download</svelte:fragment>
+						{#snippet text()}
+							Download
+						{/snippet}
 						<Button
 							startIcon={{ icon: Download }}
 							color="light"

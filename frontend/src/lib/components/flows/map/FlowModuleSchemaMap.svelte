@@ -15,11 +15,8 @@
 	} from '$lib/components/flows/flowStateUtils.svelte'
 	import type { FlowModule, ScriptLang } from '$lib/gen'
 	import { emptyFlowModuleState } from '../utils'
-	import FlowSettingsItem from './FlowSettingsItem.svelte'
-	import FlowConstantsItem from './FlowConstantsItem.svelte'
 
 	import { dfs } from '../dfs'
-	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import { push } from '$lib/history'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
@@ -40,6 +37,8 @@
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import type { GraphModuleState } from '$lib/components/graph'
 	import { writable, type Writable } from 'svelte/store'
+	import FlowStickyNode from './FlowStickyNode.svelte'
+	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -53,6 +52,9 @@
 		onTestUpTo?: ((id: string) => void) | undefined
 		onEditInput?: (moduleId: string, key: string) => void
 		localModuleStates: Writable<Record<string, GraphModuleState>>
+		aiChatOpen?: boolean
+		showFlowAiButton?: boolean
+		toggleAiChat?: () => void
 	}
 
 	let {
@@ -66,7 +68,10 @@
 		workspace = $workspaceStore,
 		onTestUpTo,
 		onEditInput,
-		localModuleStates = $bindable(writable({}))
+		localModuleStates = $bindable(writable({})),
+		aiChatOpen,
+		showFlowAiButton,
+		toggleAiChat
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -243,9 +248,17 @@
 		}
 	}
 
+	let stepHistoryLoader = getStepHistoryLoaderContext()
+
 	async function loadLastJob(path: string, moduleId: string) {
 		if (!path) {
 			return
+		}
+		if (stepHistoryLoader) {
+			stepHistoryLoader.stepStates[moduleId] = {
+				initial: true,
+				loadingJobs: true
+			}
 		}
 		const previousJobId = await JobService.listJobs({
 			workspace: $workspaceStore!,
@@ -266,6 +279,9 @@
 					previewJobId: previousJobId[0].id,
 					previewWorkspaceId: previousJobId[0].workspace_id,
 					previewSuccess: getJobResult.success
+				}
+				if (stepHistoryLoader) {
+					stepHistoryLoader.stepStates[moduleId].loadingJobs = false
 				}
 			}
 			$flowStateStore = $flowStateStore
@@ -308,14 +324,17 @@
 </Portal>
 <div class="flex flex-col h-full relative -pt-1">
 	<div
-		class={`z-10 sticky inline-flex flex-col gap-2 top-0 bg-surface-secondary flex-initial p-2 items-center transition-colors duration-[400ms] ease-linear border-b`}
+		class={`z-50 absolute inline-flex flex-col gap-2 top-3 left-1/2 -translate-x-1/2 flex-initial  items-center transition-colors duration-[400ms] ease-linear bg-surface-100`}
 	>
-		{#if !disableSettings}
-			<FlowSettingsItem />
-		{/if}
-		{#if !disableStaticInputs}
-			<FlowConstantsItem />
-		{/if}
+		<FlowStickyNode
+			{showFlowAiButton}
+			{disableSettings}
+			{disableStaticInputs}
+			{smallErrorHandler}
+			on:generateStep
+			{aiChatOpen}
+			{toggleAiChat}
+		/>
 	</div>
 
 	<div class="z-10 flex-auto grow bg-surface-secondary" bind:clientHeight={minHeight}>
@@ -534,13 +553,6 @@
 				refreshStateStore(flowStore)
 			}}
 		/>
-	</div>
-	<div
-		class="z-10 absolute inline-flex w-full text-sm gap-2 bottom-0 left-0 p-2 {smallErrorHandler
-			? 'flex-row-reverse'
-			: 'justify-center'} border-b"
-	>
-		<FlowErrorHandlerItem small={smallErrorHandler} on:generateStep />
 	</div>
 </div>
 

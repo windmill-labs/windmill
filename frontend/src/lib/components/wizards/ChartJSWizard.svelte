@@ -13,7 +13,12 @@
 		name: string
 	}
 
-	export let value: Dataset | undefined = undefined
+	interface Props {
+		value?: Dataset | undefined
+		trigger?: import('svelte').Snippet
+	}
+
+	let { value = $bindable(undefined), trigger: trigger_render }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -30,10 +35,10 @@
 	}}
 	closeOnOtherPopoverOpen
 >
-	<svelte:fragment slot="trigger">
-		<slot name="trigger" />
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{#snippet trigger()}
+		{@render trigger_render?.()}
+	{/snippet}
+	{#snippet content()}
 		{#if value}
 			<div class="flex flex-col w-96 p-4 gap-4 max-h-[70vh] overflow-y-auto">
 				<Label label="Name">
@@ -61,5 +66,5 @@
 				<Button color="red" size="xs" on:click={removeDataset}>Remove dataset</Button>
 			</div>
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 </Popover>

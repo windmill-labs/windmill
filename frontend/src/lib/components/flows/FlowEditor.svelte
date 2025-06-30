@@ -14,8 +14,8 @@
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
-	import { triggerableByAI } from '$lib/actions/triggerableByAI'
 	import type { GraphModuleState } from '../graph'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	interface Props {
@@ -37,8 +37,11 @@
 		onEditInput?: ((moduleId: string, key: string) => void) | undefined
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
-		onRunPreview?: () => void
 		localModuleStates: Writable<Record<string, GraphModuleState>>
+		aiChatOpen?: boolean
+		showFlowAiButton?: boolean
+		toggleAiChat?: () => void
+		onRunPreview?: () => void
 	}
 
 	let {
@@ -56,8 +59,11 @@
 		onEditInput = undefined,
 		forceTestTab,
 		highlightArg,
-		onRunPreview = () => {},
-		localModuleStates = $bindable(writable({}))
+		localModuleStates = $bindable(writable({})),
+		aiChatOpen,
+		showFlowAiButton,
+		toggleAiChat,
+		onRunPreview = () => {}
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -112,6 +118,9 @@
 						{onTestUpTo}
 						{onEditInput}
 						{localModuleStates}
+						{aiChatOpen}
+						{showFlowAiButton}
+						{toggleAiChat}
 					/>
 				{/if}
 			</div>

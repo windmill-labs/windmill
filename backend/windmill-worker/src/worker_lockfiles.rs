@@ -188,7 +188,7 @@ fn try_normalize(path: &Path) -> Option<PathBuf> {
 
 fn parse_ts_relative_imports(raw_code: &str, script_path: &str) -> error::Result<Vec<String>> {
     let mut relative_imports = vec![];
-    let r = parse_expr_for_imports(raw_code)?;
+    let r = parse_expr_for_imports(raw_code, true)?;
     for import in r {
         let import = import.trim_end_matches(".ts");
         if import.starts_with("/") {

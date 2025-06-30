@@ -138,6 +138,9 @@
 							}}
 						>
 							{item.label || '\xa0'}
+							{#if item.subtitle}
+								<div class="text-xs text-tertiary">{item.subtitle}</div>
+							{/if}
 						</button>
 					</li>
 				{/each}

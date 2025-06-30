@@ -39,7 +39,7 @@
 		onDeployTrigger = () => {},
 		forceTestTab,
 		highlightArg,
-		onRunPreview = () => {}
+		onRunPreview
 	}: Props = $props()
 
 	const {

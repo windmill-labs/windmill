@@ -163,23 +163,24 @@
 		if (!deepEqual(schema?.order, lkeys) || !deepEqual(keys, lkeys)) {
 			if (schema?.order && Array.isArray(schema.order)) {
 				const n = {}
-
 				;(schema.order as string[]).forEach((x) => {
 					if (schema.properties && schema.properties[x] != undefined) {
 						n[x] = schema.properties[x]
 					}
 				})
-
 				Object.keys(schema.properties ?? {})
 					.filter((x) => !schema.order?.includes(x))
 					.forEach((x) => {
 						n[x] = schema.properties[x]
 					})
-				if (!deepEqual(schema.properties, n)) {
+				if (
+					!deepEqual(schema.properties, n) ||
+					!deepEqual(Object.keys(schema.properties), Object.keys(n))
+				) {
 					schema.properties = n
 				}
 			}
-			let nkeys = [...new Set(Object.keys(schema.properties ?? {}))]
+			let nkeys = Object.keys(schema.properties ?? {})
 
 			if (!deepEqual(keys, nkeys)) {
 				keys = nkeys
@@ -261,7 +262,8 @@
 		</Button>
 	</div>
 {/if}
-
+<!-- {JSON.stringify(schema.order)} -->
+<!-- {JSON.stringify(schema)} -->
 <div
 	class="w-full {className} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''} {nestedClasses}"
 	use:dragHandleZone={dndConfig ?? { items: [], dragDisabled: true }}

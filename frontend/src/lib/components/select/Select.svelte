@@ -1,4 +1,4 @@
-<script lang="ts" generics="Item extends { label?: string; value: any; }">
+<script lang="ts" generics="Item extends { label?: string; value: any; subtitle?: string }">
 	import { clickOutside } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import CloseButton from '../common/CloseButton.svelte'

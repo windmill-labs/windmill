@@ -38,9 +38,9 @@
 </script>
 
 <script lang="ts">
-	import { CornerDownLeft } from 'lucide-svelte'
+	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
 	import Button from './common/button/Button.svelte'
-	import Editor from './Editor.svelte'
+	import type Editor from './Editor.svelte'
 	import { runScriptAndPollResult } from './jobs/utils'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -48,7 +48,6 @@
 	import { getLanguageByResourceType } from './apps/components/display/dbtable/utils'
 	import StepHistory, { type StepHistoryData } from './flows/propPicker/StepHistory.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { _ } from 'ag-grid-community'
 
 	type Props = {
 		resourceType: string
@@ -147,14 +146,18 @@
 
 <Splitpanes>
 	<Pane class="relative">
-		<Editor
-			bind:this={editor}
-			bind:code
-			lang="sql"
-			scriptLang="mysql"
-			class="w-full h-full"
-			cmdEnterAction={run}
-		/>
+		{#await import('$lib/components/Editor.svelte')}
+			<Loader2 class="animate-spin" />
+		{:then Module}
+			<Module.default
+				bind:this={editor}
+				bind:code
+				lang="sql"
+				scriptLang="mysql"
+				class="w-full h-full"
+				cmdEnterAction={run}
+			/>
+		{/await}
 		<Button
 			wrapperClasses="absolute z-10 bottom-2 right-6"
 			color={isRunning ? 'red' : undefined}

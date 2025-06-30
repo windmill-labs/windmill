@@ -46,12 +46,20 @@
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
 	import { cleanInputs } from './flows/utils'
-	import { Calendar, Pen, Save, DiffIcon, HistoryIcon, FileJson, type Icon } from 'lucide-svelte'
+	import {
+		Calendar,
+		Pen,
+		Save,
+		DiffIcon,
+		HistoryIcon,
+		FileJson,
+		type Icon,
+		Settings
+	} from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import { type FlowCopilotContext } from './copilot/flow'
-	import FlowAIButton from './copilot/chat/flow/FlowAIButton.svelte'
 	import { loadFlowModuleState } from './flows/flowStateUtils.svelte'
 	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -76,6 +84,11 @@
 	import { TestSteps } from './flows/testSteps.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { GraphModuleState } from './graph'
+	import {
+		setStepHistoryLoaderContext,
+		StepHistoryLoader,
+		type stepState
+	} from './stepHistoryLoader.svelte'
 
 	interface Props {
 		initialPath?: string
@@ -97,6 +110,11 @@
 		draftTriggersFromUrl?: Trigger[] | undefined
 		selectedTriggerIndexFromUrl?: number | undefined
 		children?: import('svelte').Snippet
+		loadedFromHistoryFromUrl?: {
+			flowJobInitial: boolean | undefined
+			stepsState: Record<string, stepState>
+		}
+		noInitial?: boolean
 	}
 
 	let {
@@ -118,7 +136,9 @@
 		setSavedraftCb = undefined,
 		draftTriggersFromUrl = undefined,
 		selectedTriggerIndexFromUrl = undefined,
-		children
+		children,
+		loadedFromHistoryFromUrl,
+		noInitial = false
 	}: Props = $props()
 
 	let initialPathStore = writable(initialPath)
@@ -534,7 +554,11 @@
 						path: $pathStore,
 						selectedId: $selectedIdStore,
 						draft_triggers: triggersState.getDraftTriggersSnapshot(),
-						selected_trigger: triggersState.getSelectedTriggerSnapshot()
+						selected_trigger: triggersState.getSelectedTriggerSnapshot(),
+						loadedFromHistory: {
+							flowJobInitial: stepHistoryLoader.flowJobInitial,
+							stepsState: stepHistoryLoader.stepStates
+						}
 					})
 				)
 			} catch (err) {
@@ -774,7 +798,7 @@
 						}
 					]
 				: []),
-			...(customUi?.topBar?.history != false
+			...(customUi?.topBar?.export != false
 				? [
 						{
 							displayName: 'Export',
@@ -786,6 +810,17 @@
 							icon: FileJson,
 							action: () => yamlEditorDrawer?.openDrawer(),
 							disabled: hasAiDiff
+						}
+					]
+				: []),
+			...(customUi?.topBar?.settings != false
+				? [
+						{
+							displayName: 'Flow settings',
+							icon: Settings,
+							action: () => {
+								select('settings-metadata')
+							}
 						}
 					]
 				: [])
@@ -836,6 +871,39 @@
 	})
 
 	let localModuleStates: Writable<Record<string, GraphModuleState>> = $state(writable({}))
+	export async function loadFlowState() {
+		await stepHistoryLoader.loadIndividualStepsStates(
+			flowStore.val as Flow,
+			flowStateStore,
+			$workspaceStore!,
+			$initialPathStore,
+			$pathStore
+		)
+	}
+
+	let stepHistoryLoader = new StepHistoryLoader(
+		loadedFromHistoryFromUrl?.stepsState ?? {},
+		loadedFromHistoryFromUrl?.flowJobInitial,
+		saveSessionDraft,
+		noInitial
+	)
+	setStepHistoryLoaderContext(stepHistoryLoader)
+
+	export function setLoadedFromHistory(
+		loadedFromHistoryUrl:
+			| {
+					flowJobInitial: boolean | undefined
+					stepsState: Record<string, stepState>
+			  }
+			| undefined
+	) {
+		if (!loadedFromHistoryUrl) {
+			return
+		}
+
+		stepHistoryLoader.setFlowJobInitial(loadedFromHistoryUrl.flowJobInitial)
+		stepHistoryLoader.stepStates = loadedFromHistoryUrl.stepsState
+	}
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -1021,9 +1089,6 @@
 							</div>
 						</Button>
 					{/if}
-					{#if !disableAi && customUi?.topBar?.aiBuilder != false && !aiChatManager.open}
-						<FlowAIButton openPanel={() => aiChatManager.openChat()} />
-					{/if}
 					<FlowPreviewButtons
 						bind:localModuleStates
 						on:openTriggers={(e) => {
@@ -1057,7 +1122,6 @@
 					/>
 				</div>
 			</div>
-
 			<!-- metadata -->
 			{#if $flowStateStore}
 				<FlowEditor
@@ -1097,10 +1161,13 @@
 					}}
 					{forceTestTab}
 					{highlightArg}
-					onRunPreview={() => {
-						flowPreviewButtons?.runPreview()
-					}}
 					{localModuleStates}
+					aiChatOpen={aiChatManager.open}
+					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
+					toggleAiChat={() => aiChatManager.toggleOpen()}
+					onRunPreview={() => {
+						flowPreviewButtons?.openPreview(true)
+					}}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

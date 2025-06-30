@@ -3,21 +3,41 @@
 	import { BROWSER } from 'esm-env'
 	import Disposable from './Disposable.svelte'
 	import ConditionalPortal from './ConditionalPortal.svelte'
-	import { aiChatManager } from '../../copilot/chat/AIChatManager.svelte'
+	import { chatState } from '$lib/components/copilot/chat/sharedChatState.svelte'
 
-	export let open = false
-	export let duration = 0.3
-	export let placement = 'right'
-	export let size = '600px'
-	export let alwaysOpen = false
-	export let shouldUsePortal: boolean = true
-	export let offset: number = 0
-	export let preventEscape = false
-	export let disableChatOffset: boolean = false
+	interface Props {
+		open?: boolean
+		duration?: number
+		placement?: string
+		size?: string
+		alwaysOpen?: boolean
+		shouldUsePortal?: boolean
+		offset?: number
+		preventEscape?: boolean
+		disableChatOffset?: boolean
+		class?: string | undefined
+		positionClass?: string | undefined
+		children?: import('svelte').Snippet<[any]>
+	}
 
-	let disposable: Disposable | undefined = undefined
+	let {
+		open = $bindable(false),
+		duration = 0.3,
+		placement = 'right',
+		size = '600px',
+		alwaysOpen = false,
+		shouldUsePortal = true,
+		offset = 0,
+		preventEscape = false,
+		disableChatOffset = false,
+		class: clazz = '',
+		positionClass = undefined,
+		children
+	}: Props = $props()
 
-	$: durationMs = duration * 1000
+	let disposable: Disposable | undefined = $state(undefined)
+
+	let durationMs = $derived(duration * 1000)
 
 	export function toggleDrawer() {
 		disposable?.toggleDrawer()
@@ -42,7 +62,7 @@
 	let mounted = false
 	const dispatch = createEventDispatcher()
 
-	$: style = `--duration: ${duration}s; --size: ${size};`
+	let style = $derived(`--duration: ${duration}s; --size: ${size};`)
 
 	function scrollLock(open: boolean) {
 		if (BROWSER) {
@@ -54,45 +74,55 @@
 		}
 	}
 
-	$: scrollLock(open)
+	$effect(() => {
+		scrollLock(open)
+	})
 
-	$: open ? openDrawer() : closeDrawer()
+	$effect(() => {
+		open ? openDrawer() : closeDrawer()
+	})
 
-	let timeout = true
-	$: !open ? setTimeout(() => (timeout = true), durationMs) : (timeout = false)
+	let timeout = $state(true)
+	$effect(() => {
+		!open ? setTimeout(() => (timeout = true), durationMs) : (timeout = false)
+	})
 	onMount(() => {
 		mounted = true
 	})
+
+	const children_render = $derived(children)
+	const aiChatOpen = $derived(chatState.size > 0)
 </script>
 
 <ConditionalPortal condition={shouldUsePortal}>
 	<Disposable
 		initialOffset={offset}
-		let:handleClickAway
-		let:zIndex
 		bind:open
 		bind:this={disposable}
 		on:open
 		on:close
 		{preventEscape}
 	>
-		<aside
-			class="drawer windmill-app windmill-drawer {$$props.class ?? ''} {$$props.positionClass ??
-				''} {aiChatManager.open ? 'respect-global-chat' : ''}"
-			class:open
-			class:close={!open && timeout}
-			class:global-chat-open={aiChatManager.open}
-			style={`${style}; --zIndex: ${zIndex}; --adjusted-offset: calc(${aiChatManager.open && placement === 'right' && !disableChatOffset ? aiChatManager.size : 0}% + 4px)`}
-		>
-			<!-- svelte-ignore a11y-click-events-have-key-events -->
-			<!-- svelte-ignore a11y-no-static-element-interactions -->
-			<div class="overlay {$$props.positionClass ?? ''}" on:click={handleClickAway}></div>
-			<div class="panel {placement} {$$props.positionClass}" class:size>
-				{#if open || !timeout || alwaysOpen}
-					<slot {open} />
-				{/if}
-			</div>
-		</aside>
+		{#snippet children({ handleClickAway, zIndex })}
+			<aside
+				class="drawer windmill-app windmill-drawer {clazz ?? ''} {positionClass ?? ''} {aiChatOpen
+					? 'respect-global-chat'
+					: ''}"
+				class:open
+				class:close={!open && timeout}
+				class:global-chat-open={aiChatOpen}
+				style={`${style}; --zIndex: ${zIndex}; --adjusted-offset: calc(${aiChatOpen && placement === 'right' && !disableChatOffset ? chatState.size : 0}% + 4px)`}
+			>
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="overlay {positionClass ?? ''}" onclick={handleClickAway}></div>
+				<div class="panel {placement} {positionClass}" class:size>
+					{#if open || !timeout || alwaysOpen}
+						{@render children_render?.({ open })}
+					{/if}
+				</div>
+			</aside>
+		{/snippet}
 	</Disposable>
 </ConditionalPortal>
 

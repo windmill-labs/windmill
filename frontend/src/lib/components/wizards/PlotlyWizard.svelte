@@ -11,7 +11,7 @@
 
 	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
-	let closeOnOutsideClick = true
+	let closeOnOutsideClick = $state(true)
 
 	type Dataset = {
 		value: RichConfiguration
@@ -23,7 +23,12 @@
 		extraOptions?: { mode: 'markers' | 'lines' | 'lines+markers' } | undefined
 	}
 
-	export let value: Dataset | undefined = undefined
+	interface Props {
+		value?: Dataset | undefined
+		trigger?: import('svelte').Snippet
+	}
+
+	let { value = $bindable(undefined), trigger: trigger_render }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -40,10 +45,10 @@
 	}}
 	{closeOnOutsideClick}
 >
-	<svelte:fragment slot="trigger">
-		<slot name="trigger" />
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{#snippet trigger()}
+		{@render trigger_render?.()}
+	{/snippet}
+	{#snippet content()}
 		{#if value}
 			<div class="flex flex-col w-96 p-4 gap-4 max-h-[70vh] overflow-y-auto">
 				<Label label="Name">
@@ -55,7 +60,7 @@
 						<option value="bar">Bar</option>
 						<option
 							value="scatter"
-							on:click={() => {
+							onclick={() => {
 								if (value && value?.extraOptions === undefined) {
 									value.extraOptions = { mode: 'markers' }
 								}
@@ -77,13 +82,13 @@
 				{/if}
 
 				<Label label="Aggregation method">
-					<svelte:fragment slot="header">
+					{#snippet header()}
 						<Tooltip>
 							A method to aggregate the data. For example, if you have multiple x data points with
 							the same value, you can choose to sum them up or take the mean. If you don't have
 							multiple x data points with the same value, this option will have no effect.
 						</Tooltip>
-					</svelte:fragment>
+					{/snippet}
 					<select bind:value={value.aggregation_method}>
 						<option value="sum">Sum</option>
 						<option value="mean">Mean</option>
@@ -128,5 +133,5 @@
 				<Button color="red" size="xs" on:click={removeDataset}>Remove dataset</Button>
 			</div>
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 </Popover>

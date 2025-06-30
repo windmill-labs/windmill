@@ -206,8 +206,6 @@
 		if (previewArguments) {
 			previewArgs.val = structuredClone($state.snapshot(previewArguments))
 		}
-		//previewOpen = true
-		// TODO have a proper function that can execute the flow without rendering the drawer
 		onRunPreview?.()
 	}
 

@@ -8,10 +8,21 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { isObject } from '$lib/utils'
 
-	export let id: string
-	export let columnDefs: Array<any> = []
-	export let result: Array<any> | undefined = []
-	export let allowColumnDefsActions: boolean = true
+	interface Props {
+		id: string
+		columnDefs?: Array<any>
+		result?: Array<any> | undefined
+		allowColumnDefsActions?: boolean
+		children?: import('svelte').Snippet
+	}
+
+	let {
+		id,
+		columnDefs = [],
+		result = [],
+		allowColumnDefsActions = true,
+		children
+	}: Props = $props()
 
 	const { app, mode, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -80,7 +91,7 @@
 				</Alert>
 			</div>
 		{:else}
-			<slot />
+			{@render children?.()}
 		{/if}
 	{:else if columnDefs !== undefined}
 		<div class="m-16">

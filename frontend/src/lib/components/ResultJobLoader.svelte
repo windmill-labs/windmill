@@ -1,21 +1,31 @@
 <script lang="ts">
 	import { JobService, type Preview } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { onDestroy, tick } from 'svelte'
+	import { onDestroy, tick, untrack } from 'svelte'
 	import { createEventDispatcher } from 'svelte'
 	import type { SupportedLanguage } from '$lib/common'
 
-	export let isLoading = false
-	export let job: { completed: boolean; result: any; id: string; success?: boolean } | undefined =
-		undefined
-	export let workspaceOverride: string | undefined = undefined
-	export let notfound = false
-	export let isEditor = false
-	export let allowConcurentRequests = false
+	interface Props {
+		isLoading?: boolean
+		job?: { completed: boolean; result: any; id: string; success?: boolean } | undefined
+		workspaceOverride?: string | undefined
+		notfound?: boolean
+		isEditor?: boolean
+		allowConcurentRequests?: boolean
+	}
+
+	let {
+		isLoading = $bindable(false),
+		job = $bindable(undefined),
+		workspaceOverride = undefined,
+		notfound = $bindable(false),
+		isEditor = false,
+		allowConcurentRequests = false
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
-	$: workspace = workspaceOverride ?? $workspaceStore!
+	let workspace = $derived(workspaceOverride ?? $workspaceStore!)
 
 	let syncIteration: number = 0
 	let errorIteration = 0
@@ -24,9 +34,16 @@
 	let ITERATIONS_BEFORE_SUPER_SLOW_REFRESH = 100
 
 	let lastStartedAt: number = Date.now()
-	let currentId: string | undefined = undefined
+	let currentId: string | undefined = $state(undefined)
 
-	$: isLoading = currentId !== undefined
+	$effect(() => {
+		let newIsLoading = currentId !== undefined
+		untrack(() => {
+			if (isLoading !== newIsLoading) {
+				isLoading = newIsLoading
+			}
+		})
+	})
 
 	type Callbacks = { done: (x: any) => void; cancel: () => void; error: (err: Error) => void }
 

@@ -3,9 +3,13 @@
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 	import PanelSection from './common/PanelSection.svelte'
 
-	export let datasets: RichConfiguration | undefined = undefined
-	export let xData: RichConfiguration | undefined = undefined
-	export let id: string
+	interface Props {
+		datasets?: RichConfiguration | undefined
+		xData?: RichConfiguration | undefined
+		id: string
+	}
+
+	let { datasets = $bindable(undefined), xData = $bindable(undefined), id }: Props = $props()
 </script>
 
 <PanelSection

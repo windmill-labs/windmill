@@ -6,10 +6,11 @@
 	import PlotlyRichEditor from './PlotlyRichEditor.svelte'
 	import ChartJSRichEditor from './ChartJSRichEditor.svelte'
 	import AGChartRichEditor from './AGChartRichEditor.svelte'
-	import { getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { AppViewerContext, RichConfiguration } from '../../types'
 	import type { InputConnectionEval } from '../../inputType'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { createChartjsComponentDataset, createPlotlyComponentDataset } from '../appUtils'
 
 	interface Props {
 		component: AppComponent
@@ -19,24 +20,15 @@
 	let { component = $bindable(), children }: Props = $props()
 	let convertToUIEditorCallback: (() => void) | undefined = $state(undefined)
 
-	let selected = $state('ui-editor')
-	let renderCount = $state(0)
+	console.log('FOOBAR', component.type)
 
-	onMount(() => {
-		if (
-			(component.type === 'plotlycomponentv2' ||
-				component.type === 'chartjscomponentv2' ||
-				component.type === 'agchartscomponent' ||
-				component.type === 'agchartscomponentee') &&
-			component.componentInput === undefined &&
-			component.datasets === undefined
-		) {
-			setUpUIEditor()
-			renderCount++
-		} else if (component.componentInput !== undefined) {
-			selected = 'json'
-		}
-	})
+	let selected = $state(
+		(component.type === 'plotlycomponentv2' || component.type === 'chartjscomponentv2') &&
+			component.datasets !== undefined
+			? 'ui-editor'
+			: 'json'
+	)
+	let renderCount = $state(0)
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 	interface Dataset {
@@ -231,48 +223,6 @@
 		}
 	}
 
-	function createChartjsComponentDataset(): RichConfiguration {
-		return {
-			type: 'static',
-			fieldType: 'array',
-			subFieldType: 'chartjs',
-			value: [
-				{
-					value: {
-						type: 'static',
-						fieldType: 'array',
-						subFieldType: 'number',
-						value: [25, 25, 50]
-					},
-					name: 'Dataset 1'
-				}
-			]
-		}
-	}
-
-	function createPlotlyComponentDataset(): RichConfiguration {
-		return {
-			type: 'static',
-			fieldType: 'array',
-			subFieldType: 'plotly',
-			value: [
-				{
-					value: {
-						type: 'static',
-						fieldType: 'array',
-						subFieldType: 'number',
-						value: [1, 2, 3, 4]
-					},
-					name: 'Dataset 1',
-					aggregation_method: 'sum',
-					type: 'bar',
-					tooltip: '',
-					color: '#C8A2C8'
-				}
-			]
-		}
-	}
-
 	function createXData(): RichConfiguration {
 		return {
 			type: 'evalv2',
@@ -395,7 +345,7 @@
 	}
 </script>
 
-{#if component.type === 'plotlycomponentv2' || component.type === 'chartjscomponentv2' || component.type === 'agchartscomponent' || component.type === 'agchartscomponentee'}
+{#if component.type === 'plotlycomponentv2' || component.type === 'chartjscomponentv2'}
 	<div class="p-2">
 		<ToggleButtonGroup
 			bind:selected

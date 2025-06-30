@@ -76,7 +76,7 @@
 
 <div class="p-4 h-full flex flex-col" id="flow-editor-flow-inputs">
 	{#if summary == 'Terminate flow'}
-		<Alert role="info" title="The flow stops here"
+		<Alert type="info" title="The flow stops here"
 			>This is an identity step with an early stop that has 'true' for expression</Alert
 		>
 	{:else}{#if !failureModule && !preprocessorModule}
@@ -114,7 +114,7 @@
 		{/if}
 		{#if kind == 'trigger'}
 			<div class="mt-2"></div>
-			<Alert title="Trigger scripts" role="info">
+			<Alert title="Trigger scripts" type="info">
 				Trigger scripts are designed to pull data from an external source and return all of the new
 				items since the last run, without resorting to external webhooks.<br /><br />
 
@@ -149,7 +149,7 @@
 
 		{#if kind == 'script' && !noEditor && !preprocessorModule}
 			<div class="mt-2"></div>
-			<Alert title="Action Scripts" role="info">
+			<Alert title="Action Scripts" type="info">
 				An action script is simply a script that is neither a trigger nor an approval script. Those
 				are the majority of the scripts.
 			</Alert>
@@ -158,7 +158,7 @@
 		{#if kind == 'approval'}
 			{#if !noEditor}
 				<div class="mt-2"></div>
-				<Alert title="Approval/Prompt Step" role="info">
+				<Alert title="Approval/Prompt Step" type="info">
 					An approval/prompt step will suspend the execution of a flow until it has been approved
 					and/or the prompts have been filled in the UI or through the resume endpoints or the
 					approval page by and solely by the recipients of the secret urls. See details in
