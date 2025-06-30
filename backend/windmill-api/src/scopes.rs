@@ -84,15 +84,19 @@ pub enum ScopeDomain {
     OAuth,
     AI,
 
+    Indexer,
+    Teams,   // Microsoft Teams integration
+    GitSync, // Git synchronization
+
     // Special domains
-    Capture,     // Webhook capture
-    Drafts,      // Draft resources
-    Favorites,   // User favorites
-    Inputs,      // Input templates
-    JobHelpers,  // Job helper functions
-    Concurrency, // Concurrency groups
-    Oidc,        // OpenID Connect
-    Openapi,     // OpenAPI generation
+    Capture,           // Webhook capture
+    Drafts,            // Draft resources
+    Favorites,         // User favorites
+    Inputs,            // Input templates
+    JobHelpers,        // Job helper functions
+    ConcurrencyGroups, // Concurrency groups
+    Oidc,              // OpenID Connect
+    Openapi,           // OpenAPI generation
 
     // Additional domains
     Acls,         // Granular access control lists
@@ -136,12 +140,15 @@ impl ScopeDomain {
             Self::Favorites => "favorites",
             Self::Inputs => "inputs",
             Self::JobHelpers => "job_helpers",
-            Self::Concurrency => "concurrency",
+            Self::ConcurrencyGroups => "concurrency_groups",
             Self::Oidc => "oidc",
             Self::Openapi => "openapi",
             Self::Acls => "acls",
             Self::RawApps => "raw_apps",
             Self::AgentWorkers => "agent_workers",
+            Self::Indexer => "indexer",
+            Self::Teams => "teams",
+            Self::GitSync => "git_sync",
         }
     }
 
@@ -174,12 +181,15 @@ impl ScopeDomain {
             "configs" => Some(Self::Configs),
             "oauth" => Some(Self::OAuth),
             "ai" => Some(Self::AI),
+            "indexer" | "srch" => Some(Self::Indexer),
+            "teams" => Some(Self::Teams),
+            "git_sync" | "github_app" => Some(Self::GitSync),
             "capture" => Some(Self::Capture),
             "drafts" => Some(Self::Drafts),
             "favorites" => Some(Self::Favorites),
             "inputs" => Some(Self::Inputs),
             "job_helpers" => Some(Self::JobHelpers),
-            "concurrency" => Some(Self::Concurrency),
+            "concurrency_groups" => Some(Self::ConcurrencyGroups),
             "oidc" => Some(Self::Oidc),
             "openapi" => Some(Self::Openapi),
             "acls" => Some(Self::Acls),
@@ -325,8 +335,10 @@ fn is_script_or_flow_domain(route_path: &str) -> Option<ScopeDomain> {
 }
 
 fn extract_domain_from_route(route_path: &str) -> Result<ScopeDomain> {
-    // Extract the domain from the route path
-    // Example: /api/w/workspace/jobs/123 -> jobs domain
+    // Examples:
+    // - /api/w/workspace/jobs/123 -> jobs domain (workspaced)
+    // - /api/teams/sync -> teams domain (global)
+    // - /api/srch/index/search -> indexer domain (global)
     let parts: Vec<&str> = route_path.split('/').collect();
 
     let domain = if parts.len() >= 5 && parts[1] == "api" && parts[2] == "w" {
@@ -338,6 +350,8 @@ fn extract_domain_from_route(route_path: &str) -> Result<ScopeDomain> {
         };
 
         domain
+    } else if parts.len() >= 3 && parts[1] == "api" {
+        ScopeDomain::from_str(parts[2])
     } else {
         None
     };

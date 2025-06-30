@@ -34,11 +34,11 @@ use agent_workers_oss::AgentCache;
 
 use anyhow::Context;
 use argon2::Argon2;
-use axum::extract::DefaultBodyLimit;
-use axum::{middleware::from_extractor, routing::get, routing::post, Extension, Router};
-use axum::response::Response;
-use axum::http::HeaderValue;
 use axum::body::Body;
+use axum::extract::DefaultBodyLimit;
+use axum::http::HeaderValue;
+use axum::response::Response;
+use axum::{middleware::from_extractor, routing::get, routing::post, Extension, Router};
 use db::DB;
 use reqwest::Client;
 #[cfg(feature = "oauth2")]
@@ -178,6 +178,7 @@ mod stripe_oss;
 #[cfg(feature = "private")]
 pub mod teams_ee;
 mod teams_oss;
+mod token;
 mod tracing_init;
 mod triggers;
 mod users;
@@ -190,7 +191,6 @@ pub mod webhook_util;
 #[cfg(feature = "websocket")]
 mod websocket_triggers;
 mod workers;
-mod token;
 mod workspaces;
 #[cfg(feature = "private")]
 pub mod workspaces_ee;
@@ -240,7 +240,6 @@ lazy_static::lazy_static! {
 
 }
 
-
 // Compliance with cloud events spec.
 pub async fn add_webhook_allowed_origin(
     req: axum::extract::Request,
@@ -262,7 +261,6 @@ pub async fn add_webhook_allowed_origin(
     }
     next.run(req).await
 }
-
 
 #[cfg(not(feature = "tantivy"))]
 type IndexReader = ();
@@ -612,6 +610,42 @@ pub async fn run_server(
                         .nest("/sqs_triggers", sqs_triggers_service)
                         .nest("/gcp_triggers", gcp_triggers_service)
                         .nest("/postgres_triggers", postgres_triggers_service)
+                        .nest(
+                            "/apps_u",
+                            apps::unauthed_service()
+                                .layer(from_extractor::<OptAuthed>())
+                                .layer(cors.clone()),
+                        )
+                        .nest("/agent_workers", {
+                            #[cfg(feature = "agent_worker_server")]
+                            {
+                                agent_workers_router.layer(Extension(agent_cache.clone()))
+                            }
+                            #[cfg(not(feature = "agent_worker_server"))]
+                            {
+                                Router::new()
+                            }
+                        })
+                        .nest(
+                            "/jobs_u",
+                            jobs::workspace_unauthed_service().layer(cors.clone()),
+                        )
+                        .nest("/github_app", {
+                            #[cfg(feature = "enterprise")]
+                            {
+                                git_sync_oss::workspaced_service()
+                            }
+                            #[cfg(not(feature = "enterprise"))]
+                            Router::new()
+                        })
+                        .nest(
+                            "/resources_u",
+                            resources::public_service().layer(cors.clone()),
+                        )
+                        .nest(
+                            "/capture_u",
+                            capture::workspaced_unauthed_service().layer(cors.clone()),
+                        ),
                 )
                 .nest("/tokens", token::global_service())
                 .nest("/workspaces", workspaces::global_service())
@@ -663,12 +697,6 @@ pub async fn run_server(
                         Router::new()
                     }
                 })
-                .nest(
-                    "/w/:workspace_id/apps_u",
-                    apps::unauthed_service()
-                        .layer(from_extractor::<OptAuthed>())
-                        .layer(cors.clone()),
-                )
                 .nest("/mcp/w/:workspace_id/sse", mcp_router)
                 .layer(from_extractor::<OptAuthed>())
                 .nest("/agent_workers", {
@@ -681,20 +709,6 @@ pub async fn run_server(
                         Router::new()
                     }
                 })
-                .nest("/w/:workspace_id/agent_workers", {
-                    #[cfg(feature = "agent_worker_server")]
-                    {
-                        agent_workers_router.layer(Extension(agent_cache.clone()))
-                    }
-                    #[cfg(not(feature = "agent_worker_server"))]
-                    {
-                        Router::new()
-                    }
-                })
-                .nest(
-                    "/w/:workspace_id/jobs_u",
-                    jobs::workspace_unauthed_service().layer(cors.clone()),
-                )
                 .route("/slack", post(slack_approvals::slack_app_callback_handler))
                 .nest("/teams", {
                     #[cfg(feature = "enterprise")]
@@ -707,23 +721,6 @@ pub async fn run_server(
                         Router::new()
                     }
                 })
-                .route(
-                    "/w/:workspace_id/jobs/slack_approval/:job_id",
-                    get(slack_approvals::request_slack_approval),
-                )
-                .route(
-                    "/w/:workspace_id/jobs/teams_approval/:job_id",
-                    get(teams_approvals_oss::request_teams_approval),
-                )
-                .nest("/w/:workspace_id/github_app", {
-                    #[cfg(feature = "enterprise")]
-                    {
-                        git_sync_oss::workspaced_service()
-                    }
-
-                    #[cfg(not(feature = "enterprise"))]
-                    Router::new()
-                })
                 .nest("/github_app", {
                     #[cfg(feature = "enterprise")]
                     {
@@ -733,14 +730,6 @@ pub async fn run_server(
                     #[cfg(not(feature = "enterprise"))]
                     Router::new()
                 })
-                .nest(
-                    "/w/:workspace_id/resources_u",
-                    resources::public_service().layer(cors.clone()),
-                )
-                .nest(
-                    "/w/:workspace_id/capture_u",
-                    capture::workspaced_unauthed_service().layer(cors.clone()),
-                )
                 .nest(
                     "/auth",
                     users::make_unauthed_service().layer(Extension(argon2)),
