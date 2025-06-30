@@ -1665,7 +1665,10 @@ pub async fn handle_flow(
                         update_flow.success
                     );
                     job_completed_tx
-                        .send(SendResult::UpdateFlow(update_flow), false)
+                        .send(SendResult::UpdateFlow(crate::TimedUpdateFlow {
+                            update_flow,
+                            queued_at: std::time::Instant::now(),
+                        }), false)
                         .warn_after_seconds(3)
                         .await
                         .map_err(|e| {

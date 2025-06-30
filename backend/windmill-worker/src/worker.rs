@@ -492,7 +492,10 @@ impl JobCompletedSender {
                 } else {
                     unbounded_sender
                 }
-                .send_async(SendResult::JobCompleted(jc))
+                .send_async(SendResult::JobCompleted(TimedJobCompleted {
+                    job_completed: jc,
+                    queued_at: std::time::Instant::now(),
+                }))
                 .await
                 .map_err(|_e| {
                     anyhow::anyhow!("Failed to send job completed to background processor")
@@ -1934,10 +1937,23 @@ async fn queue_init_bash_maybe<'c>(
 }
 
 pub enum SendResult {
-    JobCompleted(JobCompleted),
-    UpdateFlow(UpdateFlow),
+    JobCompleted(TimedJobCompleted),
+    UpdateFlow(TimedUpdateFlow),
 }
 
+#[derive(Debug)]
+pub struct TimedJobCompleted {
+    pub job_completed: JobCompleted,
+    pub queued_at: std::time::Instant,
+}
+
+#[derive(Debug)]
+pub struct TimedUpdateFlow {
+    pub update_flow: UpdateFlow,
+    pub queued_at: std::time::Instant,
+}
+
+#[derive(Debug)]
 pub struct UpdateFlow {
     pub flow: Uuid,
     pub w_id: String,

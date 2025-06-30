@@ -9,6 +9,7 @@ use std::{
         atomic::{AtomicBool, AtomicU16, Ordering},
         Arc,
     },
+    time::{Duration, Instant},
 };
 use tracing::{field, Instrument};
 #[cfg(not(feature = "otel"))]
@@ -139,6 +140,9 @@ pub fn start_background_processor(
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut has_been_killed = false;
+        let mut is_draining = false;
+        let _last_latency_check = Instant::now();
+        let mut highest_latency = Duration::ZERO;
 
         let JobCompletedReceiver { bounded_rx, mut killpill_rx, unbounded_rx } = job_completed_rx;
 
@@ -153,6 +157,18 @@ pub fn start_background_processor(
                     .ok()
                     .map(JobCompletedRx::JobCompleted)
                     .or_else(|| bounded_rx.try_recv().ok().map(JobCompletedRx::JobCompleted))
+            } else if is_draining {
+                // When draining, only process existing jobs, don't accept new ones
+                let bounded_result = bounded_rx.try_recv().ok().map(JobCompletedRx::JobCompleted);
+                let unbounded_result = unbounded_rx.try_recv().ok().map(JobCompletedRx::JobCompleted);
+                
+                if bounded_result.is_none() && unbounded_result.is_none() {
+                    // Queue is empty, stop draining
+                    is_draining = false;
+                    tracing::info!("Background processor finished draining, resuming normal operation");
+                }
+                
+                bounded_result.or(unbounded_result)
             } else {
                 tokio::select! {
                     biased;
@@ -173,7 +189,24 @@ pub fn start_background_processor(
             let mut bench = BenchmarkIter::new();
 
             match sr {
-                JobCompletedRx::JobCompleted(SendResult::JobCompleted(jc)) => {
+                JobCompletedRx::JobCompleted(SendResult::JobCompleted(timed_jc)) => {
+                    let jc = timed_jc.job_completed;
+                    let latency = timed_jc.queued_at.elapsed();
+                    
+                    // Track highest latency for draining decision
+                    if latency > highest_latency {
+                        highest_latency = latency;
+                    }
+                    
+                    // Check if we need to start draining (latency > 5s)
+                    if !is_draining && latency > Duration::from_secs(5) {
+                        is_draining = true;
+                        tracing::warn!(
+                            "Background processor latency exceeded 5s ({}ms), starting drain mode",
+                            latency.as_millis()
+                        );
+                    }
+                    
                     let is_init_script_and_failure =
                         !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
                     let is_dependency_job = matches!(
@@ -217,15 +250,31 @@ pub fn start_background_processor(
                         infos.add_iter(bench, true);
                     }
                 }
-                JobCompletedRx::JobCompleted(SendResult::UpdateFlow(UpdateFlow {
-                    flow,
-                    w_id,
-                    success,
-                    result,
-                    worker_dir,
-                    stop_early_override,
-                    token,
-                })) => {
+                JobCompletedRx::JobCompleted(SendResult::UpdateFlow(timed_update_flow)) => {
+                    let UpdateFlow {
+                        flow,
+                        w_id,
+                        success,
+                        result,
+                        worker_dir,
+                        stop_early_override,
+                        token,
+                    } = timed_update_flow.update_flow;
+                    let latency = timed_update_flow.queued_at.elapsed();
+                    
+                    // Track highest latency for draining decision
+                    if latency > highest_latency {
+                        highest_latency = latency;
+                    }
+                    
+                    // Check if we need to start draining (latency > 5s)
+                    if !is_draining && latency > Duration::from_secs(5) {
+                        is_draining = true;
+                        tracing::warn!(
+                            "Background processor latency exceeded 5s ({}ms) for UpdateFlow, starting drain mode",
+                            latency.as_millis()
+                        );
+                    }
                     // let r;
                     tracing::info!(parent_flow = %flow, "updating flow status");
                     if let Err(e) = update_flow_status_after_job_completion(
