@@ -81,9 +81,6 @@ use windmill_common::{
     },
 };
 
-#[cfg(feature = "prometheus")]
-use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
-
 use windmill_common::{
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
     get_script_info_for_hash, FlowVersionInfo, ScriptHashInfo, BASE_URL,
