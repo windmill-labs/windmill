@@ -41,6 +41,9 @@
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
+	import type { Job } from '$lib/gen'
+	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
+	import { workspaceStore } from '$lib/stores'
 
 	interface Props {
 		selected?: boolean
@@ -77,6 +80,8 @@
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		onEditInput?: (moduleId: string, key: string) => void
 		showApproval?: boolean
+		waitingJob?: Job | undefined
+		isOwner?: boolean
 	}
 
 	let {
@@ -108,7 +113,9 @@
 		inputTransform,
 		onUpdateMock,
 		onEditInput,
-		showApproval
+		showApproval,
+		waitingJob,
+		isOwner = false
 	}: Props = $props()
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
@@ -427,11 +434,11 @@
 
 		{#if editMode && showApproval}
 			<div
-				class={twMerge(
-					'fixed top-1/2 -translate-y-1/2 left-full h-fit w-fit rounded-md bg-surface flex items-center justify-center p-2 ml-2 shadow-md'
-				)}
+				class={'fixed top-1/2 -translate-y-1/2 left-full h-fit w-fit rounded-md bg-surface flex items-center justify-center p-2 ml-2 shadow-md'}
 			>
-				<div id="flow-status-waiting-for-events"></div>
+				{#if waitingJob}
+					<FlowStatusWaitingForEvents job={waitingJob} workspaceId={$workspaceStore!} {isOwner} />
+				{/if}
 			</div>
 		{/if}
 		{#if outputPickerVisible}

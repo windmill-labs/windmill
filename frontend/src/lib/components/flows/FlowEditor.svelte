@@ -10,7 +10,7 @@
 	import { writable, type Writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
-	import type { Flow } from '$lib/gen'
+	import type { Flow, Job } from '$lib/gen'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
@@ -42,6 +42,8 @@
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
 		onRunPreview?: () => void
+		waitingJob?: Job | undefined
+		isOwner?: boolean
 	}
 
 	let {
@@ -63,7 +65,9 @@
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,
-		onRunPreview = () => {}
+		onRunPreview = () => {},
+		waitingJob,
+		isOwner
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -121,6 +125,8 @@
 						{aiChatOpen}
 						{showFlowAiButton}
 						{toggleAiChat}
+						{waitingJob}
+						{isOwner}
 					/>
 				{/if}
 			</div>

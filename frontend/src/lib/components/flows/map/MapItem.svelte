@@ -2,7 +2,7 @@
 	import { Button } from '$lib/components/common'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
-	import type { FlowModule } from '$lib/gen'
+	import type { FlowModule, Job } from '$lib/gen'
 	import { Building, Repeat, Square, ArrowDown, GitBranch } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
@@ -46,6 +46,8 @@
 		}) => void
 		onEditInput?: (moduleId: string, key: string) => void
 		showApproval?: boolean
+		waitingJob?: Job | undefined
+		isOwner?: boolean
 	}
 
 	let {
@@ -65,7 +67,9 @@
 		onTestUpTo,
 		onUpdateMock,
 		onEditInput,
-		showApproval
+		showApproval,
+		waitingJob,
+		isOwner = false
 	}: Props = $props()
 
 	const { selectedId } = getContext<{
@@ -249,6 +253,8 @@
 					{onTestUpTo}
 					{onEditInput}
 					{showApproval}
+					{waitingJob}
+					{isOwner}
 				>
 					{#snippet icon()}
 						<div>

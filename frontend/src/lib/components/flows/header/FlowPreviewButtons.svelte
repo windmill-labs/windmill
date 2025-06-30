@@ -16,9 +16,16 @@
 	interface Props {
 		loading?: boolean
 		localModuleStates: Writable<Record<string, GraphModuleState>>
+		job: Job | undefined
+		isOwner?: boolean
 	}
 
-	let { loading = false, localModuleStates = $bindable(writable({})) }: Props = $props()
+	let {
+		loading = false,
+		localModuleStates = $bindable(writable({})),
+		job = $bindable(undefined),
+		isOwner = $bindable(false)
+	}: Props = $props()
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 	let previewOpen = $state(false)
@@ -43,7 +50,6 @@
 
 	let flowPreviewContent: FlowPreviewContent | undefined = $state(undefined)
 	let jobId: string | undefined = $state(undefined)
-	let job: Job | undefined = $state(undefined)
 	let preventEscape = $state(false)
 	let selectedJobStep: string | undefined = $state(undefined)
 	let selectedJobStepIsTopLevel: boolean | undefined = $state(undefined)
@@ -140,6 +146,7 @@
 				dispatch('openTriggers', e.detail)
 			}}
 			bind:preventEscape
+			bind:isOwner
 		/>
 	</Drawer>
 {/if}

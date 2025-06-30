@@ -1,4 +1,4 @@
-import type { FlowModule, RawScript, Script } from '$lib/gen'
+import type { FlowModule, Job, RawScript, Script } from '$lib/gen'
 import { type Edge } from '@xyflow/svelte'
 import { getDependeeAndDependentComponents } from '../flows/flowExplorer'
 import { dfsByModule } from '../flows/previousResults'
@@ -117,6 +117,8 @@ export type ModuleN = {
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		insertable: boolean
 		editMode: boolean
+		waitingJob: Job | undefined
+		isOwner: boolean
 	}
 }
 
@@ -283,6 +285,8 @@ export function graphBuilder(
 		cache: boolean
 		earlyStop: boolean
 		editMode: boolean
+		waitingJob: Job | undefined
+		isOwner: boolean
 	},
 	failureModule: FlowModule | undefined,
 	preprocessorModule: FlowModule | undefined,
@@ -333,7 +337,9 @@ export function graphBuilder(
 					moving: moving,
 					flowModuleStates: extra.flowModuleStates,
 					insertable: extra.insertable,
-					editMode: extra.editMode
+					editMode: extra.editMode,
+					waitingJob: extra.waitingJob,
+					isOwner: extra.isOwner
 				},
 				type: 'module'
 			})

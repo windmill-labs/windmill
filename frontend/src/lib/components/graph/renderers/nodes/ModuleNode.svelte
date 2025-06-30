@@ -97,6 +97,8 @@
 			showApproval={type === 'WaitingForExecutor' ||
 				type === 'WaitingForEvents' ||
 				type === 'WaitingForPriorSteps'}
+			waitingJob={data.waitingJob}
+			isOwner={data.isOwner}
 		/>
 
 		<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10">

@@ -41,6 +41,7 @@
 		scrollTop?: number
 		localModuleStates?: Writable<Record<string, GraphModuleState>>
 		localDurationStatuses?: Writable<Record<string, DurationStatus>>
+		isOwner?: boolean
 	}
 
 	let {
@@ -57,7 +58,8 @@
 		branchOrIterationN = $bindable(0),
 		scrollTop = $bindable(0),
 		localModuleStates = $bindable(writable({})),
-		localDurationStatuses = $bindable(writable({}))
+		localDurationStatuses = $bindable(writable({})),
+		isOwner = $bindable(false)
 	}: Props = $props()
 
 	let restartBranchNames: [number, string][] = []
@@ -515,6 +517,7 @@
 					}}
 					bind:selectedJobStep
 					bind:rightColumnSelect
+					bind:isOwner
 				/>
 			{:else}
 				<div class="italic text-tertiary h-full grow"> Flow status will be displayed here </div>

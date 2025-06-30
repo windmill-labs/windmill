@@ -31,7 +31,6 @@
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { buildPrefix } from './graph/graphBuilder.svelte'
-	import Portal from './Portal.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -939,9 +938,6 @@
 					{/if}
 				{:else if job.flow_status?.modules?.[job?.flow_status?.step]?.type === 'WaitingForEvents'}
 					<FlowStatusWaitingForEvents {workspaceId} {job} {isOwner} />
-					<Portal target="#flow-status-waiting-for-events">
-						<FlowStatusWaitingForEvents {workspaceId} {job} {isOwner} />
-					</Portal>
 				{:else if $suspendStatus && Object.keys($suspendStatus).length > 0}
 					<div class="flex gap-2 flex-col">
 						{#each Object.values($suspendStatus) as suspendCount (suspendCount.job.id)}

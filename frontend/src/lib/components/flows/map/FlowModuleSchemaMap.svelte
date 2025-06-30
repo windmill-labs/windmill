@@ -13,7 +13,7 @@
 		pickFlow,
 		insertNewPreprocessorModule
 	} from '$lib/components/flows/flowStateUtils.svelte'
-	import type { FlowModule, ScriptLang } from '$lib/gen'
+	import type { FlowModule, Job, ScriptLang } from '$lib/gen'
 	import { emptyFlowModuleState } from '../utils'
 
 	import { dfs } from '../dfs'
@@ -55,6 +55,8 @@
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
+		waitingJob?: Job | undefined
+		isOwner?: boolean
 	}
 
 	let {
@@ -71,7 +73,9 @@
 		localModuleStates = $bindable(writable({})),
 		aiChatOpen,
 		showFlowAiButton,
-		toggleAiChat
+		toggleAiChat,
+		waitingJob,
+		isOwner
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -358,6 +362,8 @@
 			{onTestUpTo}
 			{onEditInput}
 			flowModuleStates={$localModuleStates}
+			{waitingJob}
+			{isOwner}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)
 				const cb = () => {

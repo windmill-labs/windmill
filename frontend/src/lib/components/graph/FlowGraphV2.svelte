@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { FlowService, type FlowModule } from '../../gen'
+	import { FlowService, type FlowModule, type Job } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
 	import { getContext, onDestroy, setContext, tick, untrack } from 'svelte'
 
@@ -86,6 +86,8 @@
 		editMode?: boolean
 		allowSimplifiedPoll?: boolean
 		expandedSubflows?: Record<string, FlowModule[]>
+		waitingJob?: Job | undefined
+		isOwner?: boolean
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -146,7 +148,9 @@
 		allowSimplifiedPoll = true,
 		expandedSubflows = $bindable({}),
 		onTestUpTo = undefined,
-		onEditInput = undefined
+		onEditInput = undefined,
+		waitingJob = undefined,
+		isOwner = false
 	}: Props = $props()
 
 	setContext<{
@@ -400,7 +404,9 @@
 				newFlow,
 				cache,
 				earlyStop,
-				editMode
+				editMode,
+				waitingJob,
+				isOwner
 			},
 			failureModule,
 			preprocessorModule,

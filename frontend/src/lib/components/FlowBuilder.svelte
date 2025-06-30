@@ -9,7 +9,8 @@
 		type OpenFlow,
 		type InputTransform,
 		type TriggersCount,
-		CaptureService
+		CaptureService,
+		type Job
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history'
 	import {
@@ -165,6 +166,8 @@
 	// AI changes warning modal
 	let aiChangesWarningOpen = $state(false)
 	let aiChangesConfirmCallback = $state<() => void>(() => {})
+
+	let job: Job | undefined = $state(undefined)
 
 	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
 		const { selectedTriggers } = event.detail
@@ -904,6 +907,10 @@
 		stepHistoryLoader.setFlowJobInitial(loadedFromHistoryUrl.flowJobInitial)
 		stepHistoryLoader.stepStates = loadedFromHistoryUrl.stepsState
 	}
+
+	let isOwner = $state(false)
+
+	$inspect('dbg isOwner flowbuilder', isOwner)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -1099,6 +1106,8 @@
 						}}
 						bind:this={flowPreviewButtons}
 						{loading}
+						bind:job
+						bind:isOwner
 					/>
 					<Button
 						loading={loadingDraft}
@@ -1168,6 +1177,8 @@
 					onRunPreview={() => {
 						flowPreviewButtons?.openPreview(true)
 					}}
+					waitingJob={job}
+					{isOwner}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>
