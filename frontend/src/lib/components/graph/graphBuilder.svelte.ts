@@ -4,6 +4,7 @@ import { getDependeeAndDependentComponents } from '../flows/flowExplorer'
 import { dfsByModule } from '../flows/previousResults'
 import { defaultIfEmptyString } from '$lib/utils'
 import type { GraphModuleState } from './model'
+import type { Asset } from '../assets/lib'
 
 export type InsertKind =
 	| 'script'
@@ -90,6 +91,7 @@ export type FlowNode =
 	| SubflowBoundN
 	| NoBranchN
 	| TriggerN
+	| AssetN
 
 export type InputN = {
 	type: 'input2'
@@ -253,6 +255,13 @@ export type TriggerN = {
 		isEditor: boolean
 		eventHandlers: GraphEventHandlers
 		disableAi: boolean
+	}
+}
+
+export type AssetN = {
+	type: 'asset'
+	data: {
+		asset: Asset
 	}
 }
 

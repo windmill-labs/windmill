@@ -143,7 +143,6 @@
 	let flowStateStore = $derived(flowEditorContext?.flowStateStore)
 
 	let assets = $derived(id ? $flowStateStore?.[id]?.assetsCache : undefined)
-	let containsSelectedAsset = $derived(assets?.some((a) => assetEq(a, selectedAssetStore?.val)))
 
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
@@ -276,8 +275,7 @@
 	class={classNames(
 		'w-full module flex rounded-sm cursor-pointer max-w-full ',
 		'flex relative',
-		deletable ? aiModuleActionToBgColor(action) : '',
-		containsSelectedAsset ? '!bg-surface-hover' : ''
+		deletable ? aiModuleActionToBgColor(action) : ''
 	)}
 	style="width: 275px; height: 34px; background-color: {hover && bgHoverColor
 		? bgHoverColor
@@ -292,8 +290,7 @@
 	<div
 		class={classNames(
 			'absolute rounded-sm outline-offset-0 outline-slate-500 dark:outline-gray-400',
-			selected || containsSelectedAsset ? 'outline outline-2' : 'active:outline active:outline-2',
-			containsSelectedAsset ? 'outline-slate-600 dark:outline-gray-300' : ''
+			selected ? 'outline outline-2' : 'active:outline active:outline-2'
 		)}
 		style={`width: 275px; height: ${outputPickerVisible ? (outputPickerBarOpen ? '51px' : '35px') : '34px'};`}
 	></div>

@@ -17,6 +17,7 @@
 	import {
 		graphBuilder,
 		isTriggerStep,
+		type AssetN,
 		type InlineScript,
 		type InsertKind,
 		type NodeLayout,
@@ -50,10 +51,17 @@
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
 	import { deepEqual } from 'fast-equals'
 	import ViewportResizer from './ViewportResizer.svelte'
+	import type { FlowEditorContext } from '../flows/types'
+	import AssetNode from './renderers/nodes/AssetNode.svelte'
+	import { formatAsset } from '../assets/lib'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
 	const triggerContext = getContext<TriggerContext>('TriggerContext')
+
+	const flowEditorContextOpt: FlowEditorContext | undefined =
+		getContext<FlowEditorContext>('FlowEditorContext')
+	const flowStateStoreOpt = flowEditorContextOpt.flowStateStore
 
 	let fullWidth = 0
 	let width = $state(0)
@@ -220,9 +228,11 @@
 				.decross(nodes.length > 20 ? decrossTwoLayer() : decrossOpt())
 				.coord(coordCenter())
 				.nodeSize((d) => {
+					const id: string | undefined = d?.data?.['id'] ?? ''
+					const assetOffset = $flowStateStoreOpt?.[id]?.assetsCache?.length ? 100 : 0
 					return [
-						(nodeWidths[d?.data?.['id'] ?? ''] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
-						NODE.height + NODE.gap.vertical
+						(nodeWidths[id] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
+						NODE.height + NODE.gap.vertical + assetOffset
 					] as readonly [number, number]
 				})
 			boxSize = layout(dag as any)
@@ -254,6 +264,55 @@
 
 		lastNodes = [nodes, newNodes]
 		return newNodes
+	}
+
+	function computeAssetNodes(nodes: Node[]) {
+		const ASSET_X_GAP = 20
+		const ASSET_WIDTH = 180
+		const ASSET_Y_OFFSET = 55
+		return nodes.flatMap((node) => {
+			const assets = $flowStateStoreOpt?.[node.id]?.assetsCache
+			const assetNodes = assets?.map(
+				(asset, assetIdx) =>
+					({
+						id: `${node.id}-asset-${formatAsset(asset)}`,
+						type: 'asset',
+						data: { asset },
+						position: {
+							x:
+								(ASSET_WIDTH + ASSET_X_GAP) * (assetIdx - assets.length / 2) +
+								(NODE.width + ASSET_X_GAP) / 2,
+							y: ASSET_Y_OFFSET
+						},
+						parentId: node.id,
+						width: ASSET_WIDTH
+					}) satisfies Node & AssetN
+			)
+			return assetNodes ?? []
+		})
+	}
+
+	function computeAssetEdges(edges: Edge[], assetNodes: (Node & AssetN)[]): Edge[] {
+		return assetNodes.map(
+			(n) =>
+				({
+					id: `${n.id}-edge`,
+					source: n.parentId ?? '',
+					target: n.id,
+					type: 'empty',
+					data: {
+						insertable: false,
+						sourceId: n.id,
+						targetId: n.parentId,
+						moving: moving,
+						eventHandlers: eventHandler,
+						index: 0,
+						enableTrigger: false,
+						disableAi: disableAi,
+						disableMoveIds: []
+					}
+				}) satisfies Edge
+		)
 	}
 
 	let eventHandler = {
@@ -344,7 +403,9 @@
 		let newGraph = graph
 
 		nodes = layoutNodes(newGraph.nodes)
-		edges = newGraph.edges
+		const assetNodes = computeAssetNodes(nodes)
+		nodes = [...nodes, ...assetNodes]
+		edges = [...newGraph.edges, ...computeAssetEdges(newGraph.edges, assetNodes)]
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
 	}
@@ -363,7 +424,8 @@
 		branchOneEnd: BranchOneEndNode,
 		subflowBound: SubflowBound,
 		noBranch: NoBranchNode,
-		trigger: TriggersNode
+		trigger: TriggersNode,
+		asset: AssetNode
 	} as any
 
 	const edgeTypes = {
