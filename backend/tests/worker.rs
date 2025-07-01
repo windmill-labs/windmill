@@ -4648,6 +4648,8 @@ mod job_payload {
                     }
                 }))
                 .unwrap(),
+                use_local_lockfiles: false,
+                raw_deps: None,
             })
             .arg("skip_flow_update", json!(true))
             .run_until_complete(&db, port)

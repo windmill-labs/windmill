@@ -690,6 +690,17 @@ pub async fn handle_flow_dependency_job(
                 .flatten()
         })
         .flatten();
+        
+    // Extract raw_deps if available
+    let raw_deps = job
+        .args
+        .as_ref()
+        .map(|x| {
+            x.get("raw_deps")
+                .map(|v| serde_json::from_str::<HashMap<String, String>>(v.get()).ok())
+                .flatten()
+        })
+        .flatten();
 
     // `JobKind::FlowDependencies` job store either:
     // - A saved flow version `id` in the `script_hash` column.
@@ -735,6 +746,7 @@ pub async fn handle_flow_dependency_job(
         &nodes_to_relock,
         occupancy_metrics,
         skip_flow_update,
+        raw_deps,
     )
     .await?;
     if !errors.is_empty() {
@@ -904,6 +916,7 @@ async fn lock_modules<'c>(
     locks_to_reload: &Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
     skip_flow_update: bool,
+    raw_deps: Option<HashMap<String, String>>,
     // (modules to replace old seq (even unmmodified ones), new transaction, modified ids) )
 ) -> Result<(
     Vec<FlowModule>,
@@ -956,6 +969,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
+                        raw_deps.clone(),
                     ))
                     .await?;
                     e.value = FlowModuleValue::ForloopFlow {
@@ -991,6 +1005,7 @@ async fn lock_modules<'c>(
                             locks_to_reload,
                             occupancy_metrics,
                             skip_flow_update,
+                            raw_deps.clone(),
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -1018,6 +1033,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
+                        raw_deps.clone(),
                     ))
                     .await?;
                     e.value = FlowModuleValue::WhileloopFlow {
@@ -1050,6 +1066,7 @@ async fn lock_modules<'c>(
                             locks_to_reload,
                             occupancy_metrics,
                             skip_flow_update,
+                            raw_deps.clone(),
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -1075,6 +1092,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
+                        raw_deps.clone(),
                     ))
                     .await?;
                     errors.extend(ninner_errors);
@@ -1114,6 +1132,27 @@ async fn lock_modules<'c>(
             new_flow_modules.push(e);
             continue;
         };
+
+        // Check if we have a predefined lockfile in raw_deps for this language
+        if let Some(ref deps) = raw_deps {
+            if let Some(lockfile) = deps.get(language.as_str()) {
+                // Use the predefined lockfile for this language
+                e.value = windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
+                    lock: Some(lockfile.clone()),
+                    path,
+                    input_transforms,
+                    content,
+                    language,
+                    tag,
+                    custom_concurrency_key,
+                    concurrent_limit,
+                    concurrency_time_window_s,
+                    is_trigger,
+                });
+                new_flow_modules.push(e);
+                continue;
+            }
+        }
 
         if let Some(locks_to_reload) = locks_to_reload {
             if !locks_to_reload.contains(&e.id) {
