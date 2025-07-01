@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { FlowService, type FlowModule } from '../../gen'
+	import { FlowService, ResourceService, type FlowModule } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
 	import { getContext, onDestroy, setContext, tick, untrack } from 'svelte'
 
@@ -57,6 +57,8 @@
 	import { getAllModules } from '../flows/flowExplorer'
 	import { inferAssets } from '$lib/infer'
 	import OnChange from '../common/OnChange.svelte'
+	import S3FilePicker from '../S3FilePicker.svelte'
+	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -170,14 +172,26 @@
 		})
 	}
 
-	const assetsCtx: FlowGraphAssetContext = $state({
+	const flowGraphAssetsCtx: FlowGraphAssetContext = $state({
 		val: {
 			assetsMap: {} as Record<string, Asset[]>,
-			selectedAsset: undefined
+			selectedAsset: undefined,
+			dbManagerDrawer: undefined,
+			s3FilePicker: undefined,
+			resourceMetadataCache: {}
 		}
 	})
-	setContext<FlowGraphAssetContext>('FlowGraphAssetContext', assetsCtx)
-	const assetsMap = $derived(assetsCtx.val.assetsMap)
+	setContext<FlowGraphAssetContext>('FlowGraphAssetContext', flowGraphAssetsCtx)
+	const assetsMap = $derived(flowGraphAssetsCtx.val.assetsMap)
+	const resMetadataCache = $derived(flowGraphAssetsCtx.val.resourceMetadataCache)
+	$effect(() => {
+		for (const asset of Object.values(assetsMap ?? []).flatMap((x) => x)) {
+			if (asset.kind !== 'resource' || asset.path in resMetadataCache) continue
+			ResourceService.getResource({ path: asset.path, workspace: $workspaceStore! })
+				.then((r) => (resMetadataCache[asset.path] = { resourceType: r.resource_type }))
+				.catch((err) => (resMetadataCache[asset.path] = undefined))
+		}
+	})
 
 	function computeSimplifiableFlow(modules: FlowModule[], simplifiedFlow: boolean) {
 		const isSimplif = isSimplifiable(modules)
@@ -623,6 +637,9 @@
 		/>
 	{/if}
 {/each}
+
+<S3FilePicker bind:this={flowGraphAssetsCtx.val.s3FilePicker} readOnlyMode />
+<DbManagerDrawer bind:this={flowGraphAssetsCtx.val.dbManagerDrawer} />
 
 <style lang="postcss">
 	:global(.svelte-flow__handle) {
