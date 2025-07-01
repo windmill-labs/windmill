@@ -1,7 +1,7 @@
 <script lang="ts" module>
 	type testModuleState = {
 		loading: boolean
-		cancel?: () => void
+		cancel?: () => Promise<void>
 	}
 
 	let testModulesState = $state<Record<string, testModuleState>>({})
@@ -52,7 +52,10 @@
 		// Not defined if JobProgressBar not loaded
 		if (jobProgressReset) jobProgressReset()
 
-		testModulesState[mod.id].cancel = testJobLoader?.cancelJob
+		testModulesState[mod.id].cancel = async () => {
+			await testJobLoader?.cancelJob()
+			testJob = undefined
+		}
 
 		const val = mod.value
 		// let jobId: string | undefined = undefined
