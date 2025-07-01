@@ -560,7 +560,6 @@ where
         } else {
             extract_token(parts, state).await
         };
-
         if let Some(token) = token_o {
             if let Ok(Extension(cache)) =
                 Extension::<Arc<AuthCache>>::from_request_parts(parts, state).await
@@ -589,7 +588,6 @@ where
                             return Err(err);
                         }
                     }
-
                     parts.extensions.insert(authed.clone());
 
                     Span::current().record("username", &authed.username.as_str());
@@ -603,7 +601,7 @@ where
             }
         }
         BRUTE_FORCE_COUNTER.increment().await;
-        Err(Error::NotAuthorized("Token not found".to_string()))
+        Err(Error::NotAuthorized("Invalid token".to_string()))
     }
 }
 

@@ -47,6 +47,40 @@ impl ScopeDefinition {
             ))),
         }
     }
+
+    pub fn as_string(&self) -> String {
+        match self.resource.as_ref() {
+            Some(resource) => {
+                format!("{}:{}:{}", self.domain, self.action, resource)
+            }
+            None => format!("{}:{}", self.domain, self.action),
+        }
+    }
+
+    pub fn includes(&self, other: &ScopeDefinition) -> bool {
+        if self.domain != other.domain {
+            return false;
+        }
+
+        if self.action != other.action {
+            return false;
+        }
+
+        match (self.resource.as_deref(), other.resource.as_ref()) {
+            (Some("*"), _) | (None, _) => {
+                return true;
+            }
+            (Some(resource_path), Some(other_resource_path)) => {
+                if resource_path.ends_with("/*") {
+                    let prefix = &resource_path[..resource_path.len() - 1];
+                    other_resource_path.starts_with(prefix)
+                } else {
+                    resource_path == other_resource_path
+                }
+            }
+            _ => return false,
+        }
+    }
 }
 
 /// Available scope domains (top-level API categories)
@@ -247,11 +281,6 @@ pub fn check_route_access(
     route_path: &str,
     http_method: &str,
 ) -> Result<()> {
-    // Special case: "*" scope grants all access
-    if token_scopes.contains(&"*".to_string()) {
-        return Ok(());
-    }
-
     // Map HTTP method to scope action (considering route context)
     let required_action = map_http_method_to_action(http_method, route_path);
 

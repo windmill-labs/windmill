@@ -41,30 +41,8 @@
 		}
 	}
 
-	function selectAllScopes() {
-		if (!groupedScopes) return
-
-		const allScopes: string[] = []
-
-		for (const group of groupedScopes.groups) {
-			for (const scope of group.scopes) {
-				if (scope.requires_resource_path) {
-					allScopes.push(`${scope.value}:*`)
-				} else {
-					allScopes.push(scope.value)
-				}
-			}
-		}
-
-		selectedScopes = allScopes
-	}
-
 	function clearAllScopes() {
 		selectedScopes = []
-	}
-
-	function selectAdministratorScope() {
-		selectedScopes = ['*']
 	}
 
 	const hasAdministratorScope = $derived(selectedScopes.includes('*'))
@@ -90,26 +68,7 @@
 	{:else if groupedScopes}
 		<!-- Quick actions -->
 		<div class="mb-4 p-3 bg-surface border rounded">
-			<h4 class="text-sm font-medium text-primary mb-2">Quick Actions</h4>
 			<div class="flex flex-wrap gap-2">
-				<button
-					onclick={selectAdministratorScope}
-					{disabled}
-					class="px-2 py-1 text-xs border rounded transition-colors duration-150 {disabled
-						? 'opacity-50 cursor-not-allowed'
-						: 'hover:bg-surface-hover'} bg-red-50 text-red-700 border-red-200"
-				>
-					Administrator (Full Access)
-				</button>
-				<button
-					onclick={selectAllScopes}
-					{disabled}
-					class="px-2 py-1 text-xs border rounded transition-colors duration-150 {disabled
-						? 'opacity-50 cursor-not-allowed'
-						: 'hover:bg-surface-hover'} bg-blue-50 text-blue-700 border-blue-200"
-				>
-					Select All Scopes
-				</button>
 				<button
 					onclick={clearAllScopes}
 					{disabled}
@@ -120,13 +79,6 @@
 					Clear All
 				</button>
 			</div>
-
-			{#if hasAdministratorScope}
-				<div class="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
-					<span class="font-medium">⚠️ Administrator scope</span> grants full access and overrides all
-					other scope selections.
-				</div>
-			{/if}
 		</div>
 
 		<div class="mb-4 p-3 bg-surface-secondary border rounded">

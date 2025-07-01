@@ -18,6 +18,7 @@ use crate::db::ApiAuthed;
 
 pub use crate::auth::Tokened;
 
+use crate::scopes::ScopeDefinition;
 use crate::utils::{
     generate_instance_wide_unique_username, get_instance_username_or_create_pending,
 };
@@ -158,22 +159,26 @@ where
     F: FnOnce() -> String,
 {
     if let Some(scopes) = authed.scopes.as_ref() {
-        let required_scope = &required();
         let mut has_other_scope = false;
-
+        let required_scope = ScopeDefinition::from_scope_string(&required())?;
         for scope in scopes {
             if !scope.starts_with("if_jobs:filter_tags:") {
                 if !has_other_scope {
                     has_other_scope = true;
                 }
-                if scope == required_scope {
-                    return Ok(());
+
+                match ScopeDefinition::from_scope_string(scope) {
+                    Ok(scope) if scope.includes(&required_scope) => return Ok(()),
+                    _ => {}
                 }
             }
         }
 
         if has_other_scope {
-            return Err(Error::BadRequest(format!("missing required scope: {required_scope}")));
+            return Err(Error::BadRequest(format!(
+                "Required scope: {}",
+                required_scope.as_string()
+            )));
         }
     }
     Ok(())
