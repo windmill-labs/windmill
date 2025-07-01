@@ -8,6 +8,7 @@ import type Editor from '../Editor.svelte'
 import type SimpleEditor from '../SimpleEditor.svelte'
 import type { StateStore } from '$lib/utils'
 import type { TestSteps } from './testSteps.svelte'
+import type { Asset } from '../assets/lib'
 
 export type FlowInput = Record<
 	string,
@@ -78,4 +79,5 @@ export type FlowEditorContext = {
 	customUi: FlowBuilderWhitelabelCustomUi
 	insertButtonOpen: Writable<boolean>
 	executionCount: Writable<number>
+	selectedAssetStore: StateStore<Asset | undefined>
 }

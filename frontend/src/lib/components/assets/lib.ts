@@ -24,3 +24,8 @@ export function getAssetUsagePageUri(usage: ListAssetsResponse[number]['usages']
 		return `/flows/get/${usage.usage_path}`
 	}
 }
+
+export function assetEquals(a: Asset | undefined, b: Asset | undefined): boolean {
+	if (!a || !b) return a === b
+	return a.kind === b.kind && a.path === b.path
+}

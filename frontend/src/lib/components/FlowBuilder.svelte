@@ -565,6 +565,7 @@
 	}
 
 	const previewArgsStore = $state({ val: initialArgs })
+	const selectedAssetStore = $state({ val: undefined })
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
 	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory(flowStore.val)
@@ -603,7 +604,8 @@
 		customUi,
 		insertButtonOpen,
 		executionCount: writable(0),
-		flowInputEditorState: flowInputEditorStateStore
+		flowInputEditorState: flowInputEditorStateStore,
+		selectedAssetStore
 	})
 
 	// Add triggers context store

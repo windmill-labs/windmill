@@ -8,7 +8,7 @@
 	import ExploreAssetButton, {
 		assetCanBeExplored
 	} from '../../../routes/(root)/(logged)/assets/ExploreAssetButton.svelte'
-	import { formatAsset, parseAsset } from './lib'
+	import { formatAsset, parseAsset, type Asset } from './lib'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import { untrack } from 'svelte'
 	import { ResourceService } from '$lib/gen'
@@ -16,17 +16,26 @@
 	import Button from '../common/button/Button.svelte'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
+	import type { Placement } from '@floating-ui/core'
 
 	let {
 		assets: assetsUris,
 		enableChangeAnimation = true,
 		size = 'xs',
-		noBtnText = false
+		noBtnText = false,
+		outline = false,
+		popoverPlacement = 'bottom-end',
+		onHoverLi,
+		disableLiTooltip = false
 	}: {
 		assets: string[]
 		enableChangeAnimation?: boolean
 		size?: 'xs' | '3xs'
 		noBtnText?: boolean
+		outline?: boolean
+		popoverPlacement?: Placement
+		disableLiTooltip?: boolean
+		onHoverLi?: (asset: Asset, eventType: 'enter' | 'leave') => void
 	} = $props()
 	const assets = $derived(assetsUris.map(parseAsset).filter((x) => !!x) ?? [])
 
@@ -37,7 +46,6 @@
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
 	let resourceEditorDrawer: ResourceEditorDrawer | undefined = $state()
 	let isOpen = $state(false)
-
 	let resourceDataCache: Record<string, string | undefined> = $state({})
 
 	$effect(() => {
@@ -73,18 +81,21 @@
 </script>
 
 <Popover
-	floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+	floatingConfig={{ strategy: 'absolute', placement: popoverPlacement }}
 	usePointerDownOutside
 	closeOnOtherPopoverOpen
 	bind:isOpen
+	escapeBehavior="ignore"
 >
 	<svelte:fragment slot="trigger">
 		<div
 			class={twMerge(
 				size === '3xs' ? 'h-[1.6rem]' : 'py-1.5',
-				'text-xs flex items-center gap-1.5 px-2 rounded-md border border-tertiary/30 relative',
+				'text-xs flex items-center gap-1.5 px-2 rounded-md relative',
+				'border border-tertiary/30 outline outline-2',
 				'bg-surface hover:bg-surface-hover active:bg-surface',
-				'transition-colors hover:text-primary cursor-pointer'
+				outline ? 'outline-tertiary' : 'outline-transparent',
+				'transition-all hover:text-primary cursor-pointer'
 			)}
 		>
 			<div
@@ -103,8 +114,12 @@
 		<ul class="divide-y rounded-md">
 			{#each assets as asset}
 				{#if asset}
-					<li class="text-sm px-4 h-12 flex gap-4 items-center justify-between">
-						<Tooltip class="select-none max-w-48 truncate">
+					<li
+						class="text-sm px-4 h-12 flex gap-4 items-center justify-between hover:bg-surface-hover"
+						onmouseenter={() => onHoverLi?.(asset, 'enter')}
+						onmouseleave={() => onHoverLi?.(asset, 'leave')}
+					>
+						<Tooltip class="select-none max-w-48 truncate" disablePopup={disableLiTooltip}>
 							{formatAsset(asset)}
 							<svelte:fragment slot="text">
 								{formatAsset(asset)}

@@ -42,7 +42,7 @@
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import AssetsDropdownButton from '$lib/components/assets/AssetsDropdownButton.svelte'
-	import { formatAsset } from '$lib/components/assets/lib'
+	import { assetEquals, formatAsset } from '$lib/components/assets/lib'
 
 	interface Props {
 		selected?: boolean
@@ -115,7 +115,7 @@
 
 	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
 	const flowInputsStore = flowEditorContext?.flowInputsStore
-
+	const selectedAssetStore = flowEditorContext?.selectedAssetStore
 	const dispatch = createEventDispatcher()
 
 	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
@@ -143,6 +143,7 @@
 	let flowStateStore = $derived(flowEditorContext?.flowStateStore)
 
 	let assets = $derived(id ? $flowStateStore?.[id]?.assetsCache : undefined)
+	let containsSelectedAsset = $derived(assets?.some((a) => assetEquals(a, selectedAssetStore?.val)))
 
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
@@ -467,7 +468,10 @@
 
 	{#if !action}
 		<div
-			class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex flex-col gap-1 justify-center mt-[0.55rem] w-fit px-2 h-9 min-w-14"
+			class={twMerge(
+				'absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex flex-col gap-1 justify-center w-fit px-2 h-9 min-w-14 transition-all',
+				(hover || selected) && outputPickerVisible ? 'mt-[0.6rem]' : ''
+			)}
 		>
 			{#if deletable && (hover || selected) && outputPickerVisible}
 				<div transition:fade={{ duration: 100 }}>
@@ -515,13 +519,20 @@
 					{/if}
 				</div>
 			{/if}
-			{#if assets?.length && (hover || selected)}
+			{#if assets?.length && (hover || selected || containsSelectedAsset)}
 				<div transition:fade={{ duration: 100 }}>
 					<AssetsDropdownButton
+						popoverPlacement="left"
 						size="3xs"
 						assets={assets.map(formatAsset)}
 						enableChangeAnimation={selected}
 						noBtnText
+						outline={containsSelectedAsset}
+						disableLiTooltip
+						onHoverLi={(asset, eventType) => {
+							if (selectedAssetStore)
+								selectedAssetStore.val = eventType === 'enter' ? asset : undefined
+						}}
 					/>
 				</div>
 			{/if}
