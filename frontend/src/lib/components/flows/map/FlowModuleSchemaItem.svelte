@@ -2,7 +2,7 @@
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 
 	import Popover from '$lib/components/Popover.svelte'
-	import { classNames } from '$lib/utils'
+	import { classNames, pluralize } from '$lib/utils'
 	import {
 		AlertTriangle,
 		Bed,
@@ -42,7 +42,7 @@
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import AssetsDropdownButton from '$lib/components/assets/AssetsDropdownButton.svelte'
-	import { assetEquals, formatAsset } from '$lib/components/assets/lib'
+	import { assetEq, formatAsset } from '$lib/components/assets/lib'
 
 	interface Props {
 		selected?: boolean
@@ -143,7 +143,7 @@
 	let flowStateStore = $derived(flowEditorContext?.flowStateStore)
 
 	let assets = $derived(id ? $flowStateStore?.[id]?.assetsCache : undefined)
-	let containsSelectedAsset = $derived(assets?.some((a) => assetEquals(a, selectedAssetStore?.val)))
+	let containsSelectedAsset = $derived(assets?.some((a) => assetEq(a, selectedAssetStore?.val)))
 
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
@@ -522,6 +522,13 @@
 			{#if assets?.length && (hover || selected || containsSelectedAsset)}
 				<div transition:fade={{ duration: 100 }}>
 					<AssetsDropdownButton
+						liSubtitle={(asset) => {
+							const x = Object.values($flowStateStore ?? {}).reduce(
+								(p, s) => p + (s.assetsCache?.some((a) => assetEq(a, asset)) ? 1 : 0),
+								0
+							)
+							return `Used in ${pluralize(x, 'step')}`
+						}}
 						popoverPlacement="left"
 						size="3xs"
 						assets={assets.map(formatAsset)}

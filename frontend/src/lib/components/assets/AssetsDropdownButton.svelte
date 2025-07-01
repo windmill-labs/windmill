@@ -25,8 +25,9 @@
 		noBtnText = false,
 		outline = false,
 		popoverPlacement = 'bottom-end',
+		disableLiTooltip = false,
 		onHoverLi,
-		disableLiTooltip = false
+		liSubtitle
 	}: {
 		assets: string[]
 		enableChangeAnimation?: boolean
@@ -36,6 +37,7 @@
 		popoverPlacement?: Placement
 		disableLiTooltip?: boolean
 		onHoverLi?: (asset: Asset, eventType: 'enter' | 'leave') => void
+		liSubtitle?: (asset: Asset) => string
 	} = $props()
 	const assets = $derived(assetsUris.map(parseAsset).filter((x) => !!x) ?? [])
 
@@ -113,49 +115,52 @@
 	<svelte:fragment slot="content">
 		<ul class="divide-y rounded-md">
 			{#each assets as asset}
-				{#if asset}
-					<li
-						class="text-sm px-4 h-12 flex gap-4 items-center justify-between hover:bg-surface-hover"
-						onmouseenter={() => onHoverLi?.(asset, 'enter')}
-						onmouseleave={() => onHoverLi?.(asset, 'leave')}
-					>
+				<li
+					class="text-sm px-4 h-12 flex gap-4 items-center justify-between hover:bg-surface-hover"
+					onmouseenter={() => onHoverLi?.(asset, 'enter')}
+					onmouseleave={() => onHoverLi?.(asset, 'leave')}
+				>
+					<div class="flex flex-col">
 						<Tooltip class="select-none max-w-48 truncate" disablePopup={disableLiTooltip}>
 							{formatAsset(asset)}
 							<svelte:fragment slot="text">
 								{formatAsset(asset)}
 							</svelte:fragment>
 						</Tooltip>
+						<span class="text-xs text-tertiary">
+							{liSubtitle?.(asset)}
+						</span>
+					</div>
 
-						<div class="flex gap-2">
-							{#if asset.kind === 'resource' && resourceDataCache[asset.path] !== undefined}
-								<Button
-									startIcon={{ icon: Edit2 }}
-									size="xs"
-									variant="border"
-									spacingSize="xs2"
-									iconOnly
-									on:click={() => (resourceEditorDrawer?.initEdit(asset.path), (isOpen = false))}
-								/>
-							{/if}
-							{#if asset.kind === 'resource' && resourceDataCache[asset.path] === undefined}
-								<Tooltip class="mr-2.5">
-									<AlertTriangle size={16} class="text-orange-500" />
-									<svelte:fragment slot="text">Could not fetch resource</svelte:fragment>
-								</Tooltip>
-							{/if}
-							{#if assetCanBeExplored(asset, { resourceType: resourceDataCache[asset.path] })}
-								<ExploreAssetButton
-									{asset}
-									{s3FilePicker}
-									{dbManagerDrawer}
-									onClick={() => (isOpen = false)}
-									noText
-									_resourceMetadata={{ resourceType: resourceDataCache[asset.path] }}
-								/>
-							{/if}
-						</div>
-					</li>
-				{/if}
+					<div class="flex gap-2">
+						{#if asset.kind === 'resource' && resourceDataCache[asset.path] !== undefined}
+							<Button
+								startIcon={{ icon: Edit2 }}
+								size="xs"
+								variant="border"
+								spacingSize="xs2"
+								iconOnly
+								on:click={() => (resourceEditorDrawer?.initEdit(asset.path), (isOpen = false))}
+							/>
+						{/if}
+						{#if asset.kind === 'resource' && resourceDataCache[asset.path] === undefined}
+							<Tooltip class="mr-2.5">
+								<AlertTriangle size={16} class="text-orange-500" />
+								<svelte:fragment slot="text">Could not fetch resource</svelte:fragment>
+							</Tooltip>
+						{/if}
+						{#if assetCanBeExplored(asset, { resourceType: resourceDataCache[asset.path] })}
+							<ExploreAssetButton
+								{asset}
+								{s3FilePicker}
+								{dbManagerDrawer}
+								onClick={() => (isOpen = false)}
+								noText
+								_resourceMetadata={{ resourceType: resourceDataCache[asset.path] }}
+							/>
+						{/if}
+					</div>
+				</li>
 			{/each}
 		</ul>
 	</svelte:fragment>
