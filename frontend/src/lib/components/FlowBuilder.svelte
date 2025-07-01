@@ -90,6 +90,7 @@
 		StepHistoryLoader,
 		type stepState
 	} from './stepHistoryLoader.svelte'
+	import { FlowPreview } from './FlowPreview.svelte'
 
 	interface Props {
 		initialPath?: string
@@ -597,7 +598,7 @@
 
 	let insertButtonOpen = writable<boolean>(false)
 
-	setContext<FlowEditorContext>('FlowEditorContext', {
+	const flowEditorContext: FlowEditorContext = {
 		selectedId: selectedIdStore,
 		currentEditor: writable(undefined),
 		previewArgs: previewArgsStore,
@@ -616,7 +617,12 @@
 		insertButtonOpen,
 		executionCount: writable(0),
 		flowInputEditorState: flowInputEditorStateStore
-	})
+	}
+
+	setContext<FlowEditorContext>('FlowEditorContext', flowEditorContext)
+
+	// Create FlowPreview instance
+	const flowPreview = new FlowPreview(flowEditorContext)
 
 	// Add triggers context store
 	const triggersState = $state(
@@ -942,6 +948,12 @@
 	$effect(() => {
 		job && jobObserver(job)
 	})
+
+	$effect(() => {
+		if (flowPreview.isRunning) {
+			showModuleStatus = true
+		}
+	})
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -1137,13 +1149,9 @@
 						}}
 						bind:this={flowPreviewButtons}
 						{loading}
-						bind:job
 						bind:isOwner
-						onRunPreview={() => {
-							showModuleStatus = true
-						}}
-						bind:isRunning
 						bind:previewOpen
+						{flowPreview}
 					/>
 					<Button
 						loading={loadingDraft}
@@ -1217,11 +1225,11 @@
 					{isOwner}
 					{showModuleStatus}
 					onTestFlow={() => {
-						flowPreviewButtons?.runPreview()
+						flowPreview?.test(previewArgsStore.val)
 					}}
 					{isRunning}
 					onCancelTestFlow={() => {
-						flowPreviewButtons?.cancelTest()
+						flowPreview?.cancelTest()
 					}}
 				/>
 			{:else}

@@ -25,6 +25,7 @@
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
 	import { TestSteps } from '$lib/components/flows/testSteps.svelte'
+	import { FlowPreview } from '$lib/components/FlowPreview.svelte'
 
 	let token = $page.url.searchParams.get('wm_token') ?? undefined
 	let workspace = $page.url.searchParams.get('workspace') ?? undefined
@@ -84,7 +85,7 @@
 		triggersState: new Triggers()
 	})
 
-	setContext<FlowEditorContext>('FlowEditorContext', {
+	const flowEditorContext: FlowEditorContext = {
 		selectedId: selectedIdStore,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
@@ -107,11 +108,16 @@
 			payloadData: undefined
 		}),
 		currentEditor: writable(undefined)
-	})
+	}
+	setContext<FlowEditorContext>('FlowEditorContext', flowEditorContext)
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
 	})
+
+	// Create FlowPreview instance for running preview
+	const flowPreview = new FlowPreview(flowEditorContext)
+
 	type LastEdit = {
 		content: string
 		path: string
@@ -269,7 +275,7 @@
 			</div>
 
 			<div class="flex justify-center pt-1 z-50 absolute right-2 top-2 gap-2">
-				<FlowPreviewButtons bind:this={flowPreviewButtons} />
+				<FlowPreviewButtons bind:this={flowPreviewButtons} {flowPreview} />
 			</div>
 			<Splitpanes horizontal class="h-full max-h-screen grow">
 				<Pane size={33}>

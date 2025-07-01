@@ -1,21 +1,17 @@
 <script lang="ts">
 	import { run, stopPropagation } from 'svelte/legacy'
 
-	import { type Job, JobService, type RestartedFrom, type OpenFlow } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { type RestartedFrom } from '$lib/gen'
 	import { Badge, Button } from './common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
-	import { runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import SchemaFormWithArgPicker from './SchemaFormWithArgPicker.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import { AlertTriangle, ArrowRight, CornerDownLeft, Play, RefreshCw, X } from 'lucide-svelte'
-	import { emptyString, sendUserToast } from '$lib/utils'
-	import { dfs } from './flows/dfs'
-	import { sliceModules } from './flows/flowStateUtils.svelte'
+	import { emptyString } from '$lib/utils'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import Toggle from './Toggle.svelte'
 	import JsonInputs from './JsonInputs.svelte'
@@ -24,14 +20,13 @@
 	import type { DurationStatus, GraphModuleState } from './graph'
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
-	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
+
+	import type { FlowPreview } from './FlowPreview.svelte'
 
 	interface Props {
-		previewMode: 'upTo' | 'whole'
+		flowPreview: FlowPreview
 		open: boolean
 		preventEscape?: boolean
-		jobId?: string | undefined
-		job?: Job | undefined
 		initial?: boolean
 		selectedJobStep?: string | undefined
 		selectedJobStepIsTopLevel?: boolean | undefined
@@ -42,16 +37,13 @@
 		localModuleStates?: Writable<Record<string, GraphModuleState>>
 		localDurationStatuses?: Writable<Record<string, DurationStatus>>
 		isOwner?: boolean
-		onRunPreview?: () => void
-		isRunning?: boolean
+		refreshTrigger?: number
 	}
 
 	let {
-		previewMode = $bindable(),
+		flowPreview,
 		open,
 		preventEscape = $bindable(false),
-		jobId = $bindable(undefined),
-		job = $bindable(undefined),
 		initial = $bindable(false),
 		selectedJobStep = $bindable(undefined),
 		selectedJobStepIsTopLevel = $bindable(undefined),
@@ -62,8 +54,7 @@
 		localModuleStates = $bindable(writable({})),
 		localDurationStatuses = $bindable(writable({})),
 		isOwner = $bindable(false),
-		onRunPreview = $bindable(undefined),
-		isRunning = $bindable(false)
+		refreshTrigger = 0
 	}: Props = $props()
 
 	let restartBranchNames: [number, string][] = []
@@ -76,7 +67,7 @@
 
 	export function test() {
 		renderCount++
-		runPreview(previewArgs.val, undefined)
+		flowPreview.test(previewArgs.val)
 	}
 
 	const {
@@ -97,45 +88,24 @@
 	let currentJobId: string | undefined = $state(undefined)
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
-	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
-		const previewFlow = aiChatManager.flowAiChatHelpers?.getPreviewFlow()
-		if (previewMode === 'whole') {
-			return previewFlow ?? flowStore.val
-		} else {
-			const flow = previewFlow ?? stateSnapshot(flowStore).val
-			const idOrders = dfs(flow.value.modules, (x) => x.id)
-			let upToIndex = idOrders.indexOf($selectedId)
+	// Set up FlowPreview callbacks
+	$effect(() => {
+		flowPreview.setJobProgressReset(jobProgressReset)
+		flowPreview.setOnRunPreviewCallback(() => {})
+	})
 
-			if (upToIndex != -1) {
-				flow.value.modules = sliceModules(flow.value.modules, upToIndex, idOrders)
-			}
-			return flow
+	// Handle refresh trigger
+	$effect(() => {
+		if (refreshTrigger > 0) {
+			renderCount++
 		}
-	}
+	})
 
-	let lastPreviewFlow: undefined | string = $state(undefined)
-	export async function runPreview(
-		args: Record<string, any>,
-		restartedFrom: RestartedFrom | undefined
-	) {
-		if (stepHistoryLoader?.flowJobInitial) {
-			stepHistoryLoader?.setFlowJobInitial(false)
-		}
-		onRunPreview?.()
-		try {
-			lastPreviewFlow = JSON.stringify(flowStore.val)
-			jobProgressReset()
-			const newFlow = extractFlow(previewMode)
-			jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
-			isRunning = true
-			if (inputSelected) {
-				savedArgs = previewArgs.val
-				inputSelected = undefined
-			}
-		} catch (e) {
-			sendUserToast('Could not run preview', true, undefined, e.toString())
-			isRunning = false
-			jobId = undefined
+	async function runPreview(args: Record<string, any>, restartedFrom: RestartedFrom | undefined) {
+		await flowPreview.runPreview(args, restartedFrom)
+		if (inputSelected) {
+			savedArgs = previewArgs.val
+			inputSelected = undefined
 		}
 		schemaFormWithArgPicker?.refreshHistory()
 	}
@@ -162,10 +132,10 @@
 	}
 
 	function onSelectedJobStepChange() {
-		if (selectedJobStep !== undefined && job?.flow_status?.modules !== undefined) {
+		if (selectedJobStep !== undefined && flowPreview.job?.flow_status?.modules !== undefined) {
 			selectedJobStepIsTopLevel =
-				job?.flow_status?.modules.map((m) => m.id).indexOf(selectedJobStep) >= 0
-			let moduleDefinition = job?.raw_flow?.modules.find((m) => m.id == selectedJobStep)
+				flowPreview.job?.flow_status?.modules.map((m) => m.id).indexOf(selectedJobStep) >= 0
+			let moduleDefinition = flowPreview.job?.raw_flow?.modules.find((m) => m.id == selectedJobStep)
 			if (moduleDefinition?.value.type == 'forloopflow') {
 				selectedJobStepType = 'forloop'
 			} else if (moduleDefinition?.value.type == 'branchall') {
@@ -199,7 +169,7 @@
 		}
 	}
 
-	export function refresh() {
+	function refresh() {
 		renderCount++
 	}
 
@@ -214,27 +184,11 @@
 		}
 	}
 	run(() => {
-		if (job?.type === 'CompletedJob') {
-			isRunning = false
-		}
-	})
-	run(() => {
 		selectedJobStep !== undefined && onSelectedJobStepChange()
 	})
 	run(() => {
 		scrollableDiv && onScrollableDivChange()
 	})
-
-	export async function cancelTest() {
-		try {
-			jobId &&
-				(await JobService.cancelQueuedJob({
-					workspace: $workspaceStore ?? '',
-					id: jobId,
-					requestBody: {}
-				}))
-		} catch {}
-	}
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -252,13 +206,12 @@
 			/>
 		</div>
 
-		{#if isRunning}
+		{#if flowPreview.isRunning}
 			<div class="mx-auto">
 				<Button
 					color="red"
 					on:click={async () => {
-						isRunning = false
-						cancelTest()
+						flowPreview.cancelTest()
 					}}
 					size="sm"
 					btnClasses="w-full max-w-lg"
@@ -270,7 +223,7 @@
 			</div>
 		{:else}
 			<div class="grow justify-center flex flex-row gap-4">
-				{#if jobId !== undefined && selectedJobStep !== undefined && selectedJobStepIsTopLevel && aiChatManager.flowAiChatHelpers?.getModuleAction(selectedJobStep) !== 'removed'}
+				{#if flowPreview.jobId !== undefined && selectedJobStep !== undefined && selectedJobStepIsTopLevel && aiChatManager.flowAiChatHelpers?.getModuleAction(selectedJobStep) !== 'removed'}
 					{#if selectedJobStepType == 'single'}
 						<Button
 							size="xs"
@@ -279,7 +232,7 @@
 							title={`Re-start this flow from step ${selectedJobStep} (included).`}
 							on:click={() => {
 								runPreview(previewArgs.val, {
-									flow_job_id: jobId,
+									flow_job_id: flowPreview.jobId,
 									step_id: selectedJobStep,
 									branch_or_iteration_n: 0
 								})
@@ -304,7 +257,7 @@
 									startIcon={{ icon: RefreshCw }}
 									on:click={() => {
 										runPreview(previewArgs.val, {
-											flow_job_id: jobId,
+											flow_job_id: flowPreview.jobId,
 											step_id: selectedJobStep,
 											branch_or_iteration_n: 0
 										})
@@ -350,7 +303,7 @@
 											aria-label="Restart flow"
 											on:click|once={() => {
 												runPreview(previewArgs.val, {
-													flow_job_id: jobId,
+													flow_job_id: flowPreview.jobId,
 													step_id: selectedJobStep,
 													branch_or_iteration_n: branchOrIterationN
 												})
@@ -366,7 +319,7 @@
 				{/if}
 				<Button
 					variant="contained"
-					startIcon={{ icon: isRunning ? RefreshCw : Play }}
+					startIcon={{ icon: flowPreview.isRunning ? RefreshCw : Play }}
 					color="dark"
 					size="sm"
 					btnClasses="w-full max-w-lg"
@@ -374,7 +327,7 @@
 					id="flow-editor-test-flow-drawer"
 					shortCut={{ Icon: CornerDownLeft }}
 				>
-					{#if previewMode == 'upTo'}
+					{#if flowPreview.previewMode == 'upTo'}
 						Test up to
 						<Badge baseClass="ml-1" color="indigo">
 							{$selectedId}
@@ -387,7 +340,7 @@
 		{/if}
 	</div>
 	<div class="w-full flex flex-col gap-y-1">
-		{#if lastPreviewFlow && JSON.stringify(flowStore.val) != lastPreviewFlow}
+		{#if flowPreview.hasFlowChanged()}
 			<div class="pt-1">
 				<div
 					class="bg-orange-200 text-orange-600 border border-orange-600 p-2 flex items-center gap-2 rounded"
@@ -397,7 +350,7 @@
 				</div>
 			</div>
 		{/if}
-		<FlowProgressBar {job} bind:reset={jobProgressReset} />
+		<FlowProgressBar job={flowPreview.job} bind:reset={jobProgressReset} />
 	</div>
 
 	<div
@@ -477,26 +430,26 @@
 				class="absolute top-[22px] right-2 border p-1.5 hover:bg-surface-hover rounded-md center-center"
 			>
 				<FlowHistoryJobPicker
-					selectInitial={jobId == undefined}
+					selectInitial={flowPreview.jobId == undefined}
 					on:select={(e) => {
 						if (!currentJobId) {
-							currentJobId = jobId
+							currentJobId = flowPreview.jobId
 						}
 						const detail = e.detail
-						jobId = detail.jobId
+						flowPreview.jobId = detail.jobId
 						if (detail.initial && stepHistoryLoader?.flowJobInitial === undefined) {
 							stepHistoryLoader?.setFlowJobInitial(detail.initial)
 						}
 					}}
 					on:unselect={() => {
-						jobId = currentJobId
+						flowPreview.jobId = currentJobId
 						currentJobId = undefined
 					}}
 					path={$initialPathStore == '' ? $pathStore : $initialPathStore}
 				/>
 			</div>
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
-			{#if jobId}
+			{#if flowPreview.jobId}
 				{#if stepHistoryLoader?.flowJobInitial}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
@@ -513,13 +466,13 @@
 					</div>
 				{/if}
 				<FlowStatusViewer
-					bind:job
+					bind:job={flowPreview.job}
 					bind:localModuleStates
 					bind:localDurationStatuses
 					hideDownloadInGraph={customUi?.downloadLogs === false}
 					wideResults
 					{flowStateStore}
-					{jobId}
+					jobId={flowPreview.jobId}
 					on:done={() => {
 						$executionCount = $executionCount + 1
 					}}
