@@ -291,11 +291,16 @@
 		return newNodes
 	}
 
-	function computeAssetNodes(nodes: Node[]) {
+	function computeAssetNodes(nodes: Node[], edges: Edge[]): [Node[], Edge[]] {
 		const ASSET_X_GAP = 20
 		const ASSET_WIDTH = 180
 		const ASSET_TOP_OFFSET = 45
-		return nodes.flatMap((node) => {
+
+		const allAssetNodes: (Node & AssetN)[] = []
+		const allAssetEdges: Edge[] = []
+		const newNodes = [...nodes]
+
+		for (const node of newNodes) {
 			const assets = assetsMap?.[node.id]
 			const assetNodes = assets?.map(
 				(asset, assetIdx) =>
@@ -313,44 +318,41 @@
 						width: ASSET_WIDTH
 					}) satisfies Node & AssetN
 			)
-			return assetNodes ?? []
-		})
-	}
 
-	// When changing the height in layoutNodes, the node gets centered, so we have to adjust the y-offset
-	function fixAssetParentYOffset(nodes: Node[]): Node[] {
-		return nodes.map((n) => {
-			const assets = assetsMap?.[n.id]
-			if (!assets?.length) return n
-			return {
-				...n,
-				position: { ...n.position, y: n.position.y + ASSET_OFFSET_TOP / 2 }
+			const assetEdges = assetNodes?.map((n) => {
+				const source = (n.data.accessType !== 'read' ? n.parentId : n.id) ?? ''
+				const target = (n.data.accessType !== 'read' ? n.id : n.parentId) ?? ''
+				return {
+					id: `${n.id}-edge`,
+					source,
+					target,
+					type: 'empty',
+					data: {
+						insertable: false,
+						sourceId: source,
+						targetId: target,
+						moving: moving,
+						eventHandlers: eventHandler,
+						index: 0,
+						enableTrigger: false,
+						disableAi: disableAi,
+						disableMoveIds: []
+					}
+				} satisfies Edge
+			})
+
+			if (assets?.length) {
+				node.position.y += ASSET_TOP_OFFSET / 2
 			}
-		})
-	}
 
-	function computeAssetEdges(edges: Edge[], assetNodes: (Node & AssetN)[]): Edge[] {
-		return assetNodes.map((n) => {
-			const source = (n.data.accessType !== 'read' ? n.parentId : n.id) ?? ''
-			const target = (n.data.accessType !== 'read' ? n.id : n.parentId) ?? ''
-			return {
-				id: `${n.id}-edge`,
-				source,
-				target,
-				type: 'empty',
-				data: {
-					insertable: false,
-					sourceId: source,
-					targetId: target,
-					moving: moving,
-					eventHandlers: eventHandler,
-					index: 0,
-					enableTrigger: false,
-					disableAi: disableAi,
-					disableMoveIds: []
-				}
-			} satisfies Edge
-		})
+			allAssetEdges.push(...(assetEdges ?? []))
+			allAssetNodes.push(...(assetNodes ?? []))
+		}
+
+		return [
+			[...newNodes, ...allAssetNodes],
+			[...edges, ...allAssetEdges]
+		]
 	}
 
 	let eventHandler = {
@@ -440,10 +442,7 @@
 		}
 		let newGraph = graph
 
-		nodes = layoutNodes(newGraph.nodes)
-		const assetNodes = computeAssetNodes(nodes)
-		nodes = [...fixAssetParentYOffset(nodes), ...assetNodes]
-		edges = [...newGraph.edges, ...computeAssetEdges(newGraph.edges, assetNodes)]
+		;[nodes, edges] = computeAssetNodes(layoutNodes(newGraph.nodes), newGraph.edges)
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
 	}
