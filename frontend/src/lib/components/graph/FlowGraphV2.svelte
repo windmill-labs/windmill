@@ -37,7 +37,7 @@
 	import { Expand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
-	import { encodeState, readFieldsRecursively } from '$lib/utils'
+	import { clone, encodeState, readFieldsRecursively } from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
 	import HiddenBaseEdge from './renderers/edges/HiddenBaseEdge.svelte'
@@ -197,10 +197,10 @@
 		)
 	}
 
-	let lastNodes: [NodeLayout[], Node[]] | undefined = undefined
+	let lastNodes: [NodeLayout[], Node[], assetsMap: any] | undefined = undefined
 	function layoutNodes(nodes: NodeLayout[]): Node[] {
 		let lastResult = lastNodes?.[1]
-		if (lastResult && deepEqual(nodes, lastNodes?.[0])) {
+		if (lastResult && deepEqual(nodes, lastNodes?.[0]) && deepEqual(assetsMap, lastNodes?.[2])) {
 			return lastResult
 		}
 		let seenId: string[] = []
@@ -271,7 +271,7 @@
 			}
 		}))
 
-		lastNodes = [nodes, newNodes]
+		lastNodes = [nodes, newNodes, clone(assetsMap)]
 		return newNodes
 	}
 
@@ -486,8 +486,10 @@
 	})
 	$effect(() => {
 		;[graph, allowSimplifiedPoll]
+		readFieldsRecursively(assetsMap)
 		untrack(() => updateStores())
 	})
+
 	let showDataflow = $derived(
 		$selectedId != undefined &&
 			!$selectedId.startsWith('constants') &&
@@ -608,11 +610,12 @@
 	{/if}
 </div>
 
-{#each getAllModules(modules) as mod}
+{#each getAllModules(modules) as mod (mod.id)}
 	{#if mod.value.type === 'rawscript'}
 		{@const v = mod.value}
 		<OnChange
 			key={v.content}
+			runFirstEffect
 			onChange={() =>
 				inferAssets(v.language, v.content).then((assetsRaw) => {
 					if (assetsMap) assetsMap[mod.id] = assetsRaw.map(parseAsset).filter((a) => !!a)
