@@ -211,6 +211,8 @@
 		)
 	}
 
+	const ASSET_OFFSET_TOP = 45
+
 	let lastNodes: [NodeLayout[], Node[], assetsMap: any] | undefined = undefined
 	function layoutNodes(nodes: NodeLayout[]): Node[] {
 		let lastResult = lastNodes?.[1]
@@ -251,10 +253,10 @@
 				.coord(coordCenter())
 				.nodeSize((d) => {
 					const id: string | undefined = d?.data?.['id'] ?? ''
-					const assetOffset = assetsMap?.[id]?.length ? 100 : 0
+					const assetOffsetTop = assetsMap?.[id]?.length ? ASSET_OFFSET_TOP : 0
 					return [
 						(nodeWidths[id] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
-						NODE.height + NODE.gap.vertical + assetOffset
+						NODE.height + NODE.gap.vertical + assetOffsetTop
 					] as readonly [number, number]
 				})
 			boxSize = layout(dag as any)
@@ -292,7 +294,7 @@
 	function computeAssetNodes(nodes: Node[]) {
 		const ASSET_X_GAP = 20
 		const ASSET_WIDTH = 180
-		const ASSET_Y_OFFSET = 55
+		const ASSET_TOP_OFFSET = 45
 		return nodes.flatMap((node) => {
 			const assets = assetsMap?.[node.id]
 			const assetNodes = assets?.map(
@@ -300,12 +302,12 @@
 					({
 						id: `${node.id}-asset-${formatAsset(asset)}`,
 						type: 'asset',
-						data: { asset },
+						data: { asset, accessType: 'read' },
 						position: {
 							x:
 								(ASSET_WIDTH + ASSET_X_GAP) * (assetIdx - assets.length / 2) +
 								(NODE.width + ASSET_X_GAP) / 2,
-							y: ASSET_Y_OFFSET
+							y: -ASSET_TOP_OFFSET
 						},
 						parentId: node.id,
 						width: ASSET_WIDTH
@@ -315,27 +317,40 @@
 		})
 	}
 
+	// When changing the height in layoutNodes, the node gets centered, so we have to adjust the y-offset
+	function fixAssetParentYOffset(nodes: Node[]): Node[] {
+		return nodes.map((n) => {
+			const assets = assetsMap?.[n.id]
+			if (!assets?.length) return n
+			return {
+				...n,
+				position: { ...n.position, y: n.position.y + ASSET_OFFSET_TOP / 2 }
+			}
+		})
+	}
+
 	function computeAssetEdges(edges: Edge[], assetNodes: (Node & AssetN)[]): Edge[] {
-		return assetNodes.map(
-			(n) =>
-				({
-					id: `${n.id}-edge`,
-					source: n.parentId ?? '',
-					target: n.id,
-					type: 'empty',
-					data: {
-						insertable: false,
-						sourceId: n.id,
-						targetId: n.parentId,
-						moving: moving,
-						eventHandlers: eventHandler,
-						index: 0,
-						enableTrigger: false,
-						disableAi: disableAi,
-						disableMoveIds: []
-					}
-				}) satisfies Edge
-		)
+		return assetNodes.map((n) => {
+			const source = (n.data.accessType !== 'read' ? n.parentId : n.id) ?? ''
+			const target = (n.data.accessType !== 'read' ? n.id : n.parentId) ?? ''
+			return {
+				id: `${n.id}-edge`,
+				source,
+				target,
+				type: 'empty',
+				data: {
+					insertable: false,
+					sourceId: source,
+					targetId: target,
+					moving: moving,
+					eventHandlers: eventHandler,
+					index: 0,
+					enableTrigger: false,
+					disableAi: disableAi,
+					disableMoveIds: []
+				}
+			} satisfies Edge
+		})
 	}
 
 	let eventHandler = {
@@ -427,7 +442,7 @@
 
 		nodes = layoutNodes(newGraph.nodes)
 		const assetNodes = computeAssetNodes(nodes)
-		nodes = [...nodes, ...assetNodes]
+		nodes = [...fixAssetParentYOffset(nodes), ...assetNodes]
 		edges = [...newGraph.edges, ...computeAssetEdges(newGraph.edges, assetNodes)]
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
@@ -632,7 +647,8 @@
 			runFirstEffect
 			onChange={() =>
 				inferAssets(v.language, v.content).then((assetsRaw) => {
-					if (assetsMap) assetsMap[mod.id] = assetsRaw.map(parseAsset).filter((a) => !!a)
+					const newAssets = assetsRaw.map(parseAsset).filter((a) => !!a)
+					if (assetsMap && !deepEqual(assetsMap[mod.id], newAssets)) assetsMap[mod.id] = newAssets
 				})}
 		/>
 	{/if}

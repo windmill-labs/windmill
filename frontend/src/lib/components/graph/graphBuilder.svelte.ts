@@ -262,6 +262,7 @@ export type AssetN = {
 	type: 'asset'
 	data: {
 		asset: Asset
+		accessType: 'read' | 'write'
 	}
 }
 
