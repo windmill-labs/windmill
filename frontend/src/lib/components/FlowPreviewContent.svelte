@@ -224,6 +224,17 @@
 	run(() => {
 		scrollableDiv && onScrollableDivChange()
 	})
+
+	export async function cancelTest() {
+		try {
+			jobId &&
+				(await JobService.cancelQueuedJob({
+					workspace: $workspaceStore ?? '',
+					id: jobId,
+					requestBody: {}
+				}))
+		} catch {}
+	}
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -247,14 +258,7 @@
 					color="red"
 					on:click={async () => {
 						isRunning = false
-						try {
-							jobId &&
-								(await JobService.cancelQueuedJob({
-									workspace: $workspaceStore ?? '',
-									id: jobId,
-									requestBody: {}
-								}))
-						} catch {}
+						cancelTest()
 					}}
 					size="sm"
 					btnClasses="w-full max-w-lg"

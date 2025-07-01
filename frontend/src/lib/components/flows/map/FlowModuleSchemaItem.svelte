@@ -488,9 +488,9 @@
 					{#if !testIsLoading}
 						<Button
 							size="sm"
-							color="dark"
+							color="light"
 							title="Run"
-							btnClasses="p-1.5"
+							btnClasses="p-1.5 hover:bg-marine-500 hover:text-primary-inverse dark:hover:bg-marine-50"
 							on:click={() => {
 								outputPicker?.toggleOpen(true)
 								moduleTest?.loadArgsAndRunTest()

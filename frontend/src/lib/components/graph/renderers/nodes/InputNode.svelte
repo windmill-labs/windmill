@@ -77,6 +77,13 @@
 			earlyStop={data.earlyStop}
 			editMode={data.editMode}
 			onEditInput={data.eventHandlers.editInput}
+			onTestFlow={() => {
+				data.eventHandlers.testFlow()
+			}}
+			isRunning={data.isRunning}
+			onCancelTestFlow={() => {
+				data.eventHandlers.cancelTestFlow()
+			}}
 		/>
 	{/snippet}
 </NodeWrapper>

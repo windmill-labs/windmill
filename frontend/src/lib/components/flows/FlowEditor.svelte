@@ -45,6 +45,9 @@
 		waitingJob?: Job | undefined
 		isOwner?: boolean
 		showModuleStatus?: boolean
+		onTestFlow?: () => void
+		isRunning?: boolean
+		onCancelTestFlow?: () => void
 	}
 
 	let {
@@ -69,7 +72,10 @@
 		onRunPreview = () => {},
 		waitingJob,
 		isOwner,
-		showModuleStatus
+		showModuleStatus,
+		onTestFlow,
+		isRunning,
+		onCancelTestFlow
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -130,6 +136,9 @@
 						{waitingJob}
 						{isOwner}
 						{showModuleStatus}
+						{onTestFlow}
+						{isRunning}
+						{onCancelTestFlow}
 					/>
 				{/if}
 			</div>

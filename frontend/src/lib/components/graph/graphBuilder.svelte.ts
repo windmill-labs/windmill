@@ -54,6 +54,8 @@ export type GraphEventHandlers = {
 	updateMock: (detail: { mock: FlowModule['mock']; id: string }) => void
 	testUpTo: (id: string) => void
 	editInput: (moduleId: string, key: string) => void
+	testFlow: () => void
+	cancelTestFlow: () => void
 }
 
 export type SimplifiableFlow = { simplifiedFlow: boolean }
@@ -102,6 +104,7 @@ export type InputN = {
 		cache: boolean
 		earlyStop: boolean
 		editMode: boolean
+		isRunning: boolean
 	}
 }
 
@@ -287,6 +290,7 @@ export function graphBuilder(
 		editMode: boolean
 		waitingJob: Job | undefined
 		isOwner: boolean
+		isRunning: boolean
 	},
 	failureModule: FlowModule | undefined,
 	preprocessorModule: FlowModule | undefined,
@@ -439,7 +443,8 @@ export function graphBuilder(
 				disableAi: extra.disableAi,
 				cache: extra.cache,
 				earlyStop: extra.earlyStop,
-				editMode: extra.editMode
+				editMode: extra.editMode,
+				isRunning: extra.isRunning
 			}
 		}
 

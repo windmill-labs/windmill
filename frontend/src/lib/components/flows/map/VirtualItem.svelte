@@ -1,16 +1,17 @@
 <script lang="ts">
-	import { Badge } from '$lib/components/common'
+	import { Badge, Button } from '$lib/components/common'
 
 	import VirtualItemWrapper from './VirtualItemWrapper.svelte'
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { fade } from 'svelte/transition'
-	import { Database, Square } from 'lucide-svelte'
+	import { Database, Loader2, Play, Square } from 'lucide-svelte'
 	import ModuleAcceptReject, {
 		getAiModuleAction
 	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		label?: string | undefined
@@ -32,6 +33,9 @@
 		icon?: import('svelte').Snippet
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		onEditInput?: (moduleId: string, key: string) => void
+		onTestFlow?: () => void
+		isRunning?: boolean
+		onCancelTestFlow?: () => void
 	}
 
 	let {
@@ -53,7 +57,10 @@
 		editMode = false,
 		icon,
 		onUpdateMock,
-		onEditInput
+		onEditInput,
+		onTestFlow,
+		isRunning,
+		onCancelTestFlow
 	}: Props = $props()
 
 	const outputPickerVisible = $derived(
@@ -133,6 +140,54 @@
 				</OutputPicker>
 			{/if}
 		</div>
+
+		{#if alwaysPluggable}
+			<div
+				class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center justify-end w-fit px-2 h-9 min-w-32"
+			>
+				{#if outputPickerVisible}
+					<div transition:fade={{ duration: 100 }}>
+						{#if !isRunning}
+							<Button
+								size="sm"
+								color="dark"
+								title="Run"
+								btnClasses={twMerge(
+									'p-1.5 h-[34px] transition-all duration-200',
+									hover || selected ? 'w-[120px]' : 'w-[44.5px]'
+								)}
+								on:click={() => {
+									onTestFlow?.()
+								}}
+							>
+								{#if isRunning}
+									<Loader2 size={16} class="animate-spin" />
+								{:else}
+									<Play size={16} />
+								{/if}
+								{#if hover || selected}
+									<span transition:fade={{ duration: 100 }} class="text-xs">Test flow</span>
+								{/if}
+							</Button>
+						{:else}
+							<Button
+								size="xs"
+								color="red"
+								variant="contained"
+								btnClasses="h-[34px] w-[120px] p-1.5"
+								on:click={async () => {
+									onCancelTestFlow?.()
+								}}
+							>
+								<Loader2 size={16} class="animate-spin" />
+								<span transition:fade={{ duration: 100 }} class="text-xs">Cancel</span>
+							</Button>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		{/if}
+
 		<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
 			{#if cache}
 				<Popover notClickable>

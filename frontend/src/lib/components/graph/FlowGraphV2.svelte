@@ -88,6 +88,7 @@
 		expandedSubflows?: Record<string, FlowModule[]>
 		waitingJob?: Job | undefined
 		isOwner?: boolean
+		isRunning?: boolean
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -110,6 +111,8 @@
 		onTestUpTo?: ((id: string) => void) | undefined
 		onSelectedIteration?: onSelectedIteration
 		onEditInput?: (moduleId: string, key: string) => void
+		onTestFlow?: () => void
+		onCancelTestFlow?: () => void
 	}
 
 	let {
@@ -150,7 +153,10 @@
 		onTestUpTo = undefined,
 		onEditInput = undefined,
 		waitingJob = undefined,
-		isOwner = false
+		isOwner = false,
+		onTestFlow = undefined,
+		isRunning = false,
+		onCancelTestFlow = undefined
 	}: Props = $props()
 
 	setContext<{
@@ -312,6 +318,12 @@
 		},
 		editInput: (moduleId: string, key: string) => {
 			onEditInput?.(moduleId, key)
+		},
+		testFlow: () => {
+			onTestFlow?.()
+		},
+		cancelTestFlow: () => {
+			onCancelTestFlow?.()
 		}
 	}
 
@@ -406,7 +418,8 @@
 				earlyStop,
 				editMode,
 				waitingJob,
-				isOwner
+				isOwner,
+				isRunning
 			},
 			failureModule,
 			preprocessorModule,

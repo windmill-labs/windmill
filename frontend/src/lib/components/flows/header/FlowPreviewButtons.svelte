@@ -51,6 +51,10 @@
 		flowPreviewContent?.test()
 	}
 
+	export function cancelTest() {
+		flowPreviewContent?.cancelTest()
+	}
+
 	const dispatch = createEventDispatcher()
 
 	let flowPreviewContent: FlowPreviewContent | undefined = $state(undefined)

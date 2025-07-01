@@ -58,6 +58,9 @@
 		waitingJob?: Job | undefined
 		isOwner?: boolean
 		showModuleStatus?: boolean
+		onTestFlow?: () => void
+		isRunning?: boolean
+		onCancelTestFlow?: () => void
 	}
 
 	let {
@@ -77,7 +80,10 @@
 		toggleAiChat,
 		waitingJob,
 		isOwner,
-		showModuleStatus = true
+		showModuleStatus = true,
+		onTestFlow,
+		isRunning,
+		onCancelTestFlow
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -566,6 +572,9 @@
 				module.mock = $state.snapshot(detail.mock)
 				refreshStateStore(flowStore)
 			}}
+			{onTestFlow}
+			{isRunning}
+			{onCancelTestFlow}
 		/>
 	</div>
 </div>

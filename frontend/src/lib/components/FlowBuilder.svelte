@@ -1216,6 +1216,13 @@
 					waitingJob={job}
 					{isOwner}
 					{showModuleStatus}
+					onTestFlow={() => {
+						flowPreviewButtons?.runPreview()
+					}}
+					{isRunning}
+					onCancelTestFlow={() => {
+						flowPreviewButtons?.cancelTest()
+					}}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>
