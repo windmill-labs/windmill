@@ -11,9 +11,16 @@
 	import Alert from '../common/alert/Alert.svelte'
 	import OneOfInputSpecsEditor from '../apps/editor/settingsPanel/OneOfInputSpecsEditor.svelte'
 
-	export let value: NavbarItem
+	interface Props {
+		value: NavbarItem
+		trigger?: import('svelte').Snippet
+	}
+
+	let { value = $bindable(), trigger }: Props = $props()
 
 	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+
+	const trigger_render = $derived(trigger)
 </script>
 
 <Popover
@@ -25,10 +32,10 @@
 	closeButton
 	contentClasses="p-4 max-h-[70vh] overflow-y-auto"
 >
-	<svelte:fragment slot="trigger">
-		<slot name="trigger" />
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{#snippet trigger()}
+		{@render trigger_render?.()}
+	{/snippet}
+	{#snippet content()}
 		{#if value}
 			<Section label="Navbar item" class="flex flex-col gap-2 w-80 overflow-y-auto max-h-screen">
 				<InputsSpecEditor
@@ -133,5 +140,5 @@
 				</Label>
 			</Section>
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 </Popover>

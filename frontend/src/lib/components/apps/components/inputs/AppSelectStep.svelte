@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
@@ -12,27 +12,35 @@
 	import { initCss } from '../../utils'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let render: boolean
-	export let customCss: ComponentCustomCSS<'selectstepcomponent'> | undefined = undefined
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		horizontalAlignment?: 'left' | 'center' | 'right' | undefined
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		render: boolean
+		customCss?: ComponentCustomCSS<'selectstepcomponent'> | undefined
+	}
+
+	let {
+		id,
+		configuration,
+		horizontalAlignment = undefined,
+		verticalAlignment = undefined,
+		render,
+		customCss = undefined
+	}: Props = $props()
 
 	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
-	const resolvedConfig = initConfig(
-		components['selectstepcomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['selectstepcomponent'].initialData.configuration, configuration)
 	)
 	const outputs = initOutput($worldStore, id, {
 		result: undefined as string | undefined
 	})
 
-	let selected: string = ''
-	let selectedIndex: number = 0
-
-	$: resolvedConfig.defaultValue != undefined && setDefaultValue()
+	let selected: string = $state('')
+	let selectedIndex: number = $state(0)
 
 	$componentControl[id] = {
 		setValue(nvalue: string) {
@@ -80,8 +88,13 @@
 		return typeof item == 'string' ? item : item.label
 	}
 
-	let css = initCss($app.css?.selectstepcomponent, customCss)
-	$: selected && handleSelection(selected)
+	let css = $state(initCss($app.css?.selectstepcomponent, customCss))
+	$effect(() => {
+		resolvedConfig.defaultValue != undefined && untrack(() => setDefaultValue())
+	})
+	$effect(() => {
+		selected && untrack(() => handleSelection(selected))
+	})
 </script>
 
 {#each Object.keys(components['selectstepcomponent'].initialData.configuration) as key (key)}
@@ -112,7 +125,7 @@
 	class={twMerge(css?.container?.class, 'wm-select-step')}
 	style={css?.container?.style}
 >
-	<div class="w-full" on:pointerdown={onPointerDown}>
+	<div class="w-full" onpointerdown={onPointerDown}>
 		<Stepper
 			tabs={(resolvedConfig?.items ?? []).map((item) => getLabel(item))}
 			hasValidations={false}

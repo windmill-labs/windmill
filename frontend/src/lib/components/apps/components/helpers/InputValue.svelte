@@ -222,7 +222,7 @@
 
 	function onTemplateChange(previousValueKey: string) {
 		return (newValue) => {
-			console.log('onTemplateChange', previousValueKey, newValue, id)
+			// console.log('onTemplateChange', previousValueKey, newValue, id)
 			previousConnectedValues[previousValueKey] = newValue
 			debounceTemplate()
 		}
@@ -347,6 +347,10 @@
 			) &&
 			untrack(() => debounceTemplate())
 	})
+
+	// $effect(() => {
+	// 	console.log('handleConnection4', input)
+	// })
 	$effect(() => {
 		input?.type == 'static' && input.value
 		input && $worldStore && untrack(() => debounce(handleConnection))

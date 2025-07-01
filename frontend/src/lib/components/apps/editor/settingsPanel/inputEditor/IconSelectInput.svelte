@@ -5,20 +5,20 @@
 	import type { ComputeConfig } from 'svelte-floating-ui'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 
-	export let value: string | undefined = ''
+	let loading = $state(false)
+	let items: string[] | undefined = $state()
+	let filteredItems: string[] | undefined = $state()
+	let search = $state('')
 
-	let loading = false
-	let items: string[]
-	let filteredItems: string[]
-	let search = ''
-
-	$: if (search) {
-		filteredItems = items.filter((item) => {
-			return item.toLowerCase().includes(search.toLowerCase())
-		})
-	} else {
-		filteredItems = items
-	}
+	$effect.pre(() => {
+		if (search) {
+			filteredItems = items?.filter((item) => {
+				return item.toLowerCase().includes(search.toLowerCase())
+			})
+		} else {
+			filteredItems = items
+		}
+	})
 
 	async function getData() {
 		loading = true
@@ -37,14 +37,22 @@
 		}
 	}
 
-	export let floatingConfig: ComputeConfig = {
-		strategy: 'absolute',
-		placement: 'bottom-end'
+	interface Props {
+		value?: string | undefined
+		floatingConfig?: ComputeConfig
 	}
+
+	let {
+		value = $bindable(undefined),
+		floatingConfig = {
+			strategy: 'absolute',
+			placement: 'bottom-end'
+		}
+	}: Props = $props()
 </script>
 
 <Popover {floatingConfig} closeOnOtherPopoverOpen contentClasses="p-4">
-	<svelte:fragment slot="trigger">
+	{#snippet trigger()}
 		<div class="relative">
 			<ClearableInput
 				readonly
@@ -59,13 +67,13 @@
 				</div>
 			{/if}
 		</div>
-	</svelte:fragment>
-	<svelte:fragment slot="content" let:close>
+	{/snippet}
+	{#snippet content({ close })}
 		{#if !loading}
 			{#if filteredItems}
 				<div class="w-72">
 					<input
-						on:keydown={(event) => {
+						onkeydown={(event) => {
 							if (!['ArrowDown', 'ArrowUp'].includes(event.key)) {
 								event.stopPropagation()
 							}
@@ -80,15 +88,15 @@
 							<button
 								type="button"
 								title={label}
-								on:click={() => {
+								onclick={() => {
 									select(label)
 									close()
 								}}
 								class="w-full center-center flex-col font-normal p-1
-											hover:bg-gray-100 focus:bg-gray-100 rounded duration-200 dark:hover:bg-frost-900 dark:focus:bg-frost-900
-											{label === value ? 'text-blue-600 bg-blue-50 pointer-events-none' : ''}"
+												hover:bg-gray-100 focus:bg-gray-100 rounded duration-200 dark:hover:bg-frost-900 dark:focus:bg-frost-900
+												{label === value ? 'text-blue-600 bg-blue-50 pointer-events-none' : ''}"
 							>
-								<!-- svelte-ignore a11y-missing-attribute -->
+								<!-- svelte-ignore a11y_missing_attribute -->
 								<img
 									class="dark:invert"
 									loading="lazy"
@@ -109,5 +117,5 @@
 				<div class="text-center text-sm text-secondary p-2"> Couldn't load options </div>
 			{/if}
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 </Popover>

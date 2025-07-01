@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { base } from '$lib/base'
-	import { AssetService, ConcurrencyGroupsService, type Job, type WorkflowStatus } from '../../gen'
+	import { ConcurrencyGroupsService, type Job, type WorkflowStatus } from '../../gen'
 	import TestJobLoader from '../TestJobLoader.svelte'
 	import DisplayResult from '../DisplayResult.svelte'
 	import JobArgs from '../JobArgs.svelte'
@@ -15,69 +15,64 @@
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 	import Popover from '../Popover.svelte'
 	import { isFlowPreview, isScriptPreview, truncateRev } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { ListFilter } from 'lucide-svelte'
-	import { usePromise } from '$lib/svelte5Utils.svelte'
-	import { formatAsset } from '../assets/lib'
 
-	export let id: string
-	export let blankLink = false
-	export let workspace: string | undefined
+	interface Props {
+		id: string
+		blankLink?: boolean
+		workspace: string | undefined
+	}
 
-	let job: Job | undefined = undefined
-	let watchJob: ((id: string) => Promise<void>) | undefined = undefined
-	let getLogs: (() => Promise<void>) | undefined = undefined
+	let { id, blankLink = false, workspace }: Props = $props()
 
-	let result: any
+	let job: Job | undefined = $state(undefined)
+
+	let result: any = $state()
 
 	function onDone(event: { detail: Job }) {
 		job = event.detail
 		result = job['result']
 	}
 
-	let currentJob: Job | undefined = undefined
+	let currentJob: Job | undefined = $state(undefined)
 
-	$: if (currentJob?.id == id) {
-		job = currentJob
-	}
-
-	$: id && watchJob && watchJob(id)
-
-	$: job?.logs == undefined && job && viewTab == 'logs' && getLogs?.()
-
-	let lastJobId: string | undefined = undefined
-	let concurrencyKey: string | undefined = undefined
-	$: job?.id && lastJobId !== job.id && getConcurrencyKey(job)
+	let lastJobId: string | undefined = $state(undefined)
+	let concurrencyKey: string | undefined = $state(undefined)
 	async function getConcurrencyKey(job: Job) {
 		lastJobId = job.id
 		concurrencyKey = await ConcurrencyGroupsService.getConcurrencyKey({ id: job.id })
 	}
 
-	let viewTab = 'result'
-
-	let assets = usePromise(async () =>
-		(job?.job_kind === 'flow' || job?.job_kind === 'script') && job?.script_path
-			? AssetService.listAssetsForUsage({
-					workspace: workspace ?? $workspaceStore ?? '',
-					usageKind: job.job_kind,
-					usagePath: job.script_path
-				})
-			: undefined
-	)
-	$: job?.job_kind && job.script_path && assets.refresh()
+	let viewTab = $state('result')
 
 	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
 		return x as Record<string, WorkflowStatus>
 	}
 	const dispatch = createEventDispatcher()
+	$effect(() => {
+		if (currentJob?.id == id) {
+			job = currentJob
+		}
+	})
+	$effect(() => {
+		id && testJobLoader && untrack(() => testJobLoader?.watchJob(id))
+	})
+	$effect(() => {
+		job?.logs == undefined && job && viewTab == 'logs' && untrack(() => testJobLoader?.getLogs())
+	})
+	$effect(() => {
+		job?.id && lastJobId !== job.id && untrack(() => job && getConcurrencyKey(job))
+	})
+
+	let testJobLoader: TestJobLoader | undefined = $state(undefined)
 </script>
 
 <TestJobLoader
 	lazyLogs
 	workspaceOverride={workspace}
 	bind:job={currentJob}
-	bind:getLogs
-	bind:watchJob
+	bind:this={testJobLoader}
 	on:done={onDone}
 />
 
@@ -118,7 +113,7 @@
 			{/if}
 			{#if concurrencyKey}
 				<Popover notClickable>
-					<svelte:fragment slot="text">
+					{#snippet text()}
 						This job has concurrency limits enabled with the key:
 						<Button
 							class="inline-text"
@@ -131,13 +126,13 @@
 							{concurrencyKey}
 							<ListFilter class="inline-block" size={10} />
 						</Button>
-					</svelte:fragment>
+					{/snippet}
 					<Badge large>Concurrency: {truncateRev(concurrencyKey, 20)}</Badge>
 				</Popover>
 			{/if}
 			{#if job?.worker}
 				<Popover notClickable>
-					<svelte:fragment slot="text">
+					{#snippet text()}
 						This job was run on worker:
 						<Button
 							class="inline-text"
@@ -147,10 +142,10 @@
 								dispatch('filterByWorker', job?.worker)
 							}}
 						>
-							{job.worker}
+							{job?.worker}
 							<ListFilter class="inline-block" size={10} />
 						</Button>
-					</svelte:fragment>
+					{/snippet}
 					<Badge large>Worker: {truncateRev(job.worker, 20)}</Badge>
 				</Popover>
 			{/if}
@@ -173,17 +168,6 @@
 				args={job?.args}
 			/>
 		</div>
-
-		{#if assets.value}
-			<span class="font-semibold text-xs leading-6">Assets</span>
-			<ul class="w-full">
-				{#each assets.value as asset}
-					<li class="!list-disc ml-6 text-sm">
-						<p class="truncate">{formatAsset(asset)}</p>
-					</li>
-				{/each}
-			</ul>
-		{/if}
 
 		{#if job?.type === 'CompletedJob'}
 			<span class="font-semibold text-xs leading-6">Results</span>

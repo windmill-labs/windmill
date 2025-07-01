@@ -1,10 +1,10 @@
-<script lang="ts" context="module">
+<script lang="ts" module>
 	import { writable, type Writable } from 'svelte/store'
 	let selected: Writable<string | undefined> = writable(undefined)
 </script>
 
 <script lang="ts">
-	import { getContext, onMount } from 'svelte'
+	import { getContext, onMount, untrack } from 'svelte'
 	import type { AppViewerContext } from '../../types'
 	import { type NavbarItem } from '../../editor/component'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -14,20 +14,29 @@
 	import type { Output } from '../../rx'
 	import ResolveNavbarItemPath from './ResolveNavbarItemPath.svelte'
 
-	export let navbarItem: NavbarItem
-	export let id: string
-	export let borderColor: string | undefined = undefined
-	export let index: number
-	export let output: {
-		result: Output<{
-			currentPath: string
-		}>
+	interface Props {
+		navbarItem: NavbarItem
+		id: string
+		borderColor?: string | undefined
+		index: number
+		output: {
+			result: Output<{
+				currentPath: string
+			}>
+		}
+		orientation?: 'horizontal' | 'vertical' | undefined
 	}
-	export let orientation: 'horizontal' | 'vertical' | undefined = undefined
 
-	let icon: any
+	let {
+		navbarItem,
+		id,
+		borderColor = undefined,
+		index,
+		output = $bindable(),
+		orientation = undefined
+	}: Props = $props()
 
-	$: navbarItem.icon && icon && handleIcon()
+	let icon: any = $state()
 
 	async function handleIcon() {
 		if (navbarItem.icon) {
@@ -38,10 +47,10 @@
 	const { appPath, replaceStateFn, gotoFn, isEditor, worldStore } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let resolvedPath: string | undefined = undefined
-	let resolvedLabel: string | undefined = undefined
-	let resolvedDisabled: boolean | undefined = undefined
-	let resolvedHidden: boolean | undefined = undefined
+	let resolvedPath: string | undefined = $state(undefined)
+	let resolvedLabel: string | undefined = $state(undefined)
+	let resolvedDisabled: boolean | undefined = $state(undefined)
+	let resolvedHidden: boolean | undefined = $state(undefined)
 
 	function extractPathDetails() {
 		const url = window.location.pathname + window.location.search + window.location.hash
@@ -53,7 +62,7 @@
 		$selected = resolvedPath === extractPathDetails() ? resolvedPath : undefined
 	})
 
-	let initialized: boolean = false
+	let initialized: boolean = $state(false)
 
 	function initSelection() {
 		initialized = true
@@ -62,8 +71,6 @@
 
 		$selected = resolvedPath === extractPathDetails() ? resolvedPath : undefined
 	}
-
-	$: !initialized && resolvedPath && initSelection()
 
 	function getButtonProps(resolvedPath: string | undefined) {
 		if ($appPath && resolvedPath?.includes($appPath)) {
@@ -112,7 +119,13 @@
 		}
 	}
 
-	$: buttonProps = getButtonProps(resolvedPath)
+	$effect(() => {
+		navbarItem.icon && icon && untrack(() => handleIcon())
+	})
+	$effect(() => {
+		!initialized && resolvedPath && untrack(() => initSelection())
+	})
+	let buttonProps = $derived(getButtonProps(resolvedPath))
 </script>
 
 <ResolveNavbarItemPath {navbarItem} {id} {index} bind:resolvedPath />

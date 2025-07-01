@@ -3,15 +3,22 @@
 	import type { ListInputs, ListContext } from '../../types'
 	import { writable } from 'svelte/store'
 
-	export let index: number
-	export let value: any
-	export let disabled = false
-	export let onSet: (id: string, value: any) => void
-	export let onRemove: (id: string) => void
+	interface Props {
+		index: number
+		value: any
+		disabled?: boolean
+		onSet: (id: string, value: any) => void
+		onRemove: (id: string) => void
+		children?: import('svelte').Snippet
+	}
+
+	let { index, value, disabled = false, onSet, onRemove, children }: Props = $props()
 
 	const ctx = writable({ index, value, disabled })
 
-	$: $ctx = { index, value, disabled }
+	$effect(() => {
+		$ctx = { index, value, disabled }
+	})
 
 	setContext<ListContext>('RowWrapperContext', ctx)
 	setContext<ListInputs>('RowInputs', {
@@ -24,4 +31,4 @@
 	})
 </script>
 
-<slot />
+{@render children?.()}

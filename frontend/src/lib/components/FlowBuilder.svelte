@@ -46,12 +46,20 @@
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
 	import { cleanInputs } from './flows/utils'
-	import { Calendar, Pen, Save, DiffIcon, HistoryIcon, FileJson, type Icon } from 'lucide-svelte'
+	import {
+		Calendar,
+		Pen,
+		Save,
+		DiffIcon,
+		HistoryIcon,
+		FileJson,
+		type Icon,
+		Settings
+	} from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import { type FlowCopilotContext } from './copilot/flow'
-	import FlowAIButton from './copilot/chat/flow/FlowAIButton.svelte'
 	import { loadFlowModuleState } from './flows/flowStateUtils.svelte'
 	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -106,6 +114,16 @@
 			stepsState: Record<string, stepState>
 		}
 		noInitial?: boolean
+		onSaveInitial?: ({ path, id }: { path: string; id: string }) => void
+		onSaveDraft?: ({
+			path,
+			savedAtNewPath,
+			newFlow
+		}: {
+			path: string
+			savedAtNewPath: boolean
+			newFlow: boolean
+		}) => void
 	}
 
 	let {
@@ -789,7 +807,7 @@
 						}
 					]
 				: []),
-			...(customUi?.topBar?.history != false
+			...(customUi?.topBar?.export != false
 				? [
 						{
 							displayName: 'Export',
@@ -801,6 +819,17 @@
 							icon: FileJson,
 							action: () => yamlEditorDrawer?.openDrawer(),
 							disabled: hasAiDiff
+						}
+					]
+				: []),
+			...(customUi?.topBar?.settings != false
+				? [
+						{
+							displayName: 'Flow settings',
+							icon: Settings,
+							action: () => {
+								select('settings-metadata')
+							}
 						}
 					]
 				: [])
@@ -1068,9 +1097,6 @@
 							</div>
 						</Button>
 					{/if}
-					{#if !disableAi && customUi?.topBar?.aiBuilder != false && !aiChatManager.open}
-						<FlowAIButton openPanel={() => aiChatManager.openChat()} />
-					{/if}
 					<FlowPreviewButtons
 						on:openTriggers={(e) => {
 							select('triggers')
@@ -1103,7 +1129,6 @@
 					/>
 				</div>
 			</div>
-
 			<!-- metadata -->
 			{#if $flowStateStore}
 				<FlowEditor
@@ -1143,6 +1168,9 @@
 					}}
 					{forceTestTab}
 					{highlightArg}
+					aiChatOpen={aiChatManager.open}
+					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
+					toggleAiChat={() => aiChatManager.toggleOpen()}
 					onRunPreview={() => {
 						flowPreviewButtons?.openPreview(true)
 					}}

@@ -2,7 +2,7 @@
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 
 	import Popover from '$lib/components/Popover.svelte'
-	import { classNames, pluralize } from '$lib/utils'
+	import { classNames } from '$lib/utils'
 	import {
 		AlertTriangle,
 		Bed,
@@ -35,14 +35,12 @@
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import ModuleAcceptReject, {
-		aiModuleActionToBgColor,
 		getAiModuleAction
 	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 	import { Button } from '$lib/components/common'
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
-	import AssetsDropdownButton from '$lib/components/assets/AssetsDropdownButton.svelte'
-	import { assetEq, formatAsset } from '$lib/components/assets/lib'
+	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 
 	interface Props {
 		selected?: boolean
@@ -115,7 +113,7 @@
 
 	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
 	const flowInputsStore = flowEditorContext?.flowInputsStore
-	const selectedAssetStore = flowEditorContext?.selectedAssetStore
+
 	const dispatch = createEventDispatcher()
 
 	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
@@ -141,8 +139,6 @@
 	let outputPickerBarOpen = $state(false)
 
 	let flowStateStore = $derived(flowEditorContext?.flowStateStore)
-
-	let assets = $derived(id ? $flowStateStore?.[id]?.assetsCache : undefined)
 
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
@@ -292,7 +288,7 @@
 			'absolute rounded-sm outline-offset-0 outline-slate-500 dark:outline-gray-400',
 			selected ? 'outline outline-2' : 'active:outline active:outline-2'
 		)}
-		style={`width: 275px; height: ${outputPickerVisible ? (outputPickerBarOpen ? '51px' : '35px') : '34px'};`}
+		style={`width: 275px; height: ${outputPickerVisible ? '51px' : '34px'};`}
 	></div>
 	<div
 		class="absolute text-sm right-2 flex flex-row gap-1 z-10 transition-all duration-100"
@@ -465,14 +461,11 @@
 		{/if}
 	</div>
 
-	{#if !action}
+	{#if deletable && !action}
 		<div
-			class={twMerge(
-				'absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex flex-col gap-1 justify-center w-fit px-2 h-9 min-w-14',
-				'mt-[0.6rem]'
-			)}
+			class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-2 h-9 min-w-14"
 		>
-			{#if deletable && (hover || selected) && outputPickerVisible}
+			{#if (hover || selected) && outputPickerVisible}
 				<div transition:fade={{ duration: 100 }}>
 					{#if !testIsLoading}
 						<Button
@@ -516,29 +509,6 @@
 							<X size={14} />
 						</Button>
 					{/if}
-				</div>
-			{/if}
-			{#if assets?.length && (hover || selected)}
-				<div transition:fade={{ duration: 100 }}>
-					<AssetsDropdownButton
-						liSubtitle={(asset) => {
-							const x = Object.values($flowStateStore ?? {}).reduce(
-								(p, s) => p + (s.assetsCache?.some((a) => assetEq(a, asset)) ? 1 : 0),
-								0
-							)
-							return `Used in ${pluralize(x, 'step')}`
-						}}
-						popoverPlacement="left"
-						size="3xs"
-						assets={assets.map(formatAsset)}
-						enableChangeAnimation={selected}
-						noBtnText
-						disableLiTooltip
-						onHoverLi={(asset, eventType) => {
-							if (selectedAssetStore)
-								selectedAssetStore.val = eventType === 'enter' ? asset : undefined
-						}}
-					/>
 				</div>
 			{/if}
 		</div>

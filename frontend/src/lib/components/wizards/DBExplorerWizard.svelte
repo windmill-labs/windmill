@@ -11,9 +11,13 @@
 	import { ColumnIdentity, type ColumnDef } from '../apps/components/display/dbtable/utils'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 
-	export let value: ColumnDef | undefined
-
 	import Alert from '../common/alert/Alert.svelte'
+	interface Props {
+		value: ColumnDef | undefined
+		trigger?: import('svelte').Snippet
+	}
+
+	let { value = $bindable(), trigger: trigger_render }: Props = $props()
 
 	const presets = [
 		{
@@ -71,7 +75,7 @@
 		}
 	]
 
-	let renderCount = 0
+	let renderCount = $state(0)
 
 	function computeWarning(columnMetadata, value) {
 		if (columnMetadata?.isnullable === 'NO' && !columnMetadata?.defaultvalue) {
@@ -118,7 +122,7 @@
 		return null
 	}
 
-	$: warning = computeWarning(value, value)
+	let warning = $derived(computeWarning(value, value))
 </script>
 
 <Popover
@@ -130,27 +134,27 @@
 	contentClasses="max-h-[70vh] overflow-y-auto p-4 flex flex-col gap-4 w-96"
 	closeOnOtherPopoverOpen
 >
-	<svelte:fragment slot="trigger">
-		<slot name="trigger" />
-	</svelte:fragment>
+	{#snippet trigger()}
+		{@render trigger_render?.()}
+	{/snippet}
 
-	<svelte:fragment slot="content">
+	{#snippet content()}
 		{#if value}
 			<Section label="Column settings">
-				<svelte:fragment slot="header">
+				{#snippet header()}
 					<Badge color="blue">
 						{value.field}
 					</Badge>
-				</svelte:fragment>
+				{/snippet}
 				<Label label="Skip for select and update">
-					<svelte:fragment slot="header">
+					{#snippet header()}
 						<Tooltip>
 							By default, all columns are included in the select and update queries. If you want to
 							exclude a column from the select and update queries, you can set this property to
 							true.
 						</Tooltip>
-					</svelte:fragment>
-					<svelte:fragment slot="action">
+					{/snippet}
+					{#snippet action()}
 						<Toggle
 							on:pointerdown={(e) => {
 								e?.stopPropagation()
@@ -159,7 +163,7 @@
 							size="xs"
 							disabled={value?.isprimarykey}
 						/>
-					</svelte:fragment>
+					{/snippet}
 					{#if value?.isprimarykey}
 						<Alert type="warning" size="xs" title="Primary key" class="my-1">
 							You cannot skip a primary key.
@@ -168,14 +172,14 @@
 				</Label>
 
 				<Label label="Hide from insert">
-					<svelte:fragment slot="header">
+					{#snippet header()}
 						<Tooltip>
 							By default, all columns are used to generate the submit form. If you want to exclude a
 							column from the submit form, you can set this property to true. If the column is not
 							nullable or doesn't have a default value, a default value will be required.
 						</Tooltip>
-					</svelte:fragment>
-					<svelte:fragment slot="action">
+					{/snippet}
+					{#snippet action()}
 						<Toggle
 							disabled={value?.isidentity === ColumnIdentity.Always}
 							on:pointerdown={(e) => {
@@ -184,7 +188,7 @@
 							bind:checked={value.hideInsert}
 							size="xs"
 						/>
-					</svelte:fragment>
+					{/snippet}
 				</Label>
 				{#if value?.isidentity === ColumnIdentity.Always}
 					<Alert type="warning" size="xs" title="Identity column" class="my-1">
@@ -216,13 +220,13 @@
 					/>
 				{/if}
 				<Label label="Default input">
-					<svelte:fragment slot="header">
+					{#snippet header()}
 						<Tooltip>
 							By default, all columns are used to generate the submit form. If you want to exclude a
 							column from the submit form, you can set this property to true. If the column is not
 							nullable or doesn't have a default value, a default value will be required.
 						</Tooltip>
-					</svelte:fragment>
+					{/snippet}
 					{#if value?.datatype}
 						{@const type = value?.datatype}
 
@@ -266,7 +270,7 @@
 			<Section label="AG Grid configuration">
 				<div
 					class={twMerge('flex flex-col gap-4', value.ignored ? 'opacity-50 cursor-none ' : '')}
-					on:pointerdown={(e) => {
+					onpointerdown={(e) => {
 						if (value?.ignored) {
 							e?.stopPropagation()
 						}
@@ -292,7 +296,7 @@
 					</Label>
 
 					<Label label="Flex">
-						<svelte:fragment slot="header">
+						{#snippet header()}
 							<Tooltip
 								documentationLink="https://www.ag-grid.com/javascript-data-grid/column-sizing/#column-flex"
 							>
@@ -306,7 +310,7 @@
 								remaining. The column with flex: 2 has twice the size with flex: 1. So final sizes
 								will be: 150px, 100px, 200px.
 							</Tooltip>
-						</svelte:fragment>
+						{/snippet}
 
 						<input type="range" step="1" bind:value={value.flex} min={1} max={12} />
 						<div class="text-xs">{value.flex}</div>
@@ -324,7 +328,7 @@
 					</Label>
 
 					<Label label="Value formatter">
-						<svelte:fragment slot="header">
+						{#snippet header()}
 							<Tooltip
 								documentationLink="https://www.ag-grid.com/javascript-data-grid/value-formatters/"
 							>
@@ -332,8 +336,8 @@
 								one type (e.g. numeric) but needs to be converted for human reading (e.g. putting in
 								currency symbols and number formatting).
 							</Tooltip>
-						</svelte:fragment>
-						<svelte:fragment slot="action">
+						{/snippet}
+						{#snippet action()}
 							<Button
 								size="xs"
 								color="light"
@@ -346,7 +350,7 @@
 							>
 								Clear
 							</Button>
-						</svelte:fragment>
+						{/snippet}
 					</Label>
 					<div>
 						{#key renderCount}
@@ -360,7 +364,7 @@
 									<div class="text-xs font-semibold">Presets</div>
 									<select
 										bind:value={value.valueFormatter}
-										on:change={() => {
+										onchange={() => {
 											renderCount++
 										}}
 										placeholder="Code"
@@ -392,5 +396,5 @@
 				</div>
 			</Section>
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 </Popover>

@@ -7,8 +7,12 @@
 	import ScriptSettingsSection from './shared/ScriptSettingsSection.svelte'
 	import ScriptTransformer from './shared/ScriptTransformer.svelte'
 
-	export let runnable: HiddenRunnable
-	export let id: string
+	interface Props {
+		runnable: HiddenRunnable
+		id: string
+	}
+
+	let { runnable = $bindable(), id }: Props = $props()
 
 	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
