@@ -339,7 +339,7 @@ fn test_parse_imports() -> anyhow::Result<()> {
     import { bar } from \"bar/foo/d\";
     import { bar as baroof } from \"bar\";
 ";
-    let mut l = parse_expr_for_imports(code)?;
+    let mut l = parse_expr_for_imports(code, false)?;
     l.sort();
     assert_eq!(
         l,
@@ -360,7 +360,7 @@ fn test_parse_imports_dts() -> anyhow::Result<()> {
     let code = "
 export type foo = number
 ";
-    let mut l = parse_expr_for_imports(code)?;
+    let mut l = parse_expr_for_imports(code, false)?;
     l.sort();
     assert_eq!(l, vec![] as Vec<String>);
 

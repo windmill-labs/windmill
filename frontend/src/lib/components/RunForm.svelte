@@ -18,7 +18,7 @@
 	import { page } from '$app/stores'
 	import { replaceState } from '$app/navigation'
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
-	import { triggerableByAI } from '$lib/actions/triggerableByAI'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import { untrack } from 'svelte'
 

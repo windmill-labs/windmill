@@ -30,14 +30,8 @@ import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/type
 import { untrack } from 'svelte'
 import type { DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage } from './ask/core'
+import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 
-type TriggerablesMap = Record<
-	string,
-	{
-		description: string
-		onTrigger: ((value?: string) => void) | undefined
-	}
->
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -47,7 +41,6 @@ export enum AIMode {
 }
 
 class AIChatManager {
-	DEFAULT_SIZE = 22
 	NAVIGATION_SYSTEM_PROMPT = `
 	CONSIDERATIONS:
 	 - You are provided with a tool to switch to navigation mode, only use it when you are sure that the user is asking you to navigate the application, help them find something or fetch data from the API. Do not use it otherwise.
@@ -57,8 +50,7 @@ class AIChatManager {
 	abortController: AbortController | undefined = undefined
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
-	size = $state<number>(localStorage.getItem('ai-chat-open') === 'true' ? this.DEFAULT_SIZE : 0)
-	readonly isOpen = $derived(this.size > 0)
+	readonly isOpen = $derived(chatState.size > 0)
 	savedSize = $state<number>(0)
 	instructions = $state<string>('')
 	pendingPrompt = $state<string>('')
@@ -74,7 +66,6 @@ class AIChatManager {
 	tools = $state<Tool<any>[]>([])
 	helpers = $state<any | undefined>(undefined)
 
-	triggerablesByAI = $state<TriggerablesMap>({})
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
 	scriptEditorApplyCode = $state<((code: string) => void) | undefined>(undefined)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
@@ -89,7 +80,7 @@ class AIChatManager {
 		ask: true
 	})
 
-	open = $derived(this.size > 0)
+	open = $derived(chatState.size > 0)
 
 	async loadApiTools() {
 		if (this.apiTools.length === 0) {
@@ -129,7 +120,7 @@ class AIChatManager {
 				getLang: () => lang
 			}
 			if (options?.closeScriptSettings) {
-				const closeComponent = this.triggerablesByAI['close-script-builder-settings']
+				const closeComponent = triggerablesByAi['close-script-builder-settings']
 				if (closeComponent) {
 					closeComponent.onTrigger?.()
 				}
@@ -188,22 +179,22 @@ class AIChatManager {
 	}
 
 	openChat = () => {
-		this.size = this.savedSize > 0 ? this.savedSize : this.DEFAULT_SIZE
+		chatState.size = this.savedSize > 0 ? this.savedSize : DEFAULT_SIZE
 		localStorage.setItem('ai-chat-open', 'true')
 	}
 
 	closeChat = () => {
-		this.savedSize = this.size
-		this.size = 0
+		this.savedSize = chatState.size
+		chatState.size = 0
 		localStorage.setItem('ai-chat-open', 'false')
 	}
 
 	toggleOpen = () => {
-		if (this.size > 0) {
-			this.savedSize = this.size
+		if (chatState.size > 0) {
+			this.savedSize = chatState.size
 		}
-		this.size = this.size === 0 ? (this.savedSize > 0 ? this.savedSize : this.DEFAULT_SIZE) : 0
-		localStorage.setItem('ai-chat-open', this.size === 0 ? 'false' : 'true')
+		chatState.size = chatState.size === 0 ? (this.savedSize > 0 ? this.savedSize : DEFAULT_SIZE) : 0
+		localStorage.setItem('ai-chat-open', chatState.size === 0 ? 'false' : 'true')
 	}
 
 	askAi = (
@@ -432,8 +423,8 @@ class AIChatManager {
 					: this.mode === AIMode.NAVIGATOR
 						? prepareNavigatorUserMessage(oldInstructions)
 						: await prepareScriptUserMessage(oldInstructions, lang, oldSelectedContext, {
-								isPreprocessor
-							})
+							isPreprocessor
+						})
 
 			this.messages.push(userMessage)
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
@@ -503,7 +494,7 @@ class AIChatManager {
 
 	restartLastGeneration = (displayMessageIndex: number) => {
 		const userMessage = this.displayMessages[displayMessageIndex]
-		
+
 		if (!userMessage || userMessage.role !== 'user') {
 			throw new Error('No user message found at the specified index')
 		}
@@ -657,15 +648,15 @@ class AIChatManager {
 				const editorRelated =
 					currentEditor && currentEditor.type === 'script' && currentEditor.stepId === module.id
 						? {
-								diffMode: currentEditor.diffMode,
-								lastDeployedCode: currentEditor.lastDeployedCode,
-								lastSavedCode: undefined
-							}
+							diffMode: currentEditor.diffMode,
+							lastDeployedCode: currentEditor.lastDeployedCode,
+							lastSavedCode: undefined
+						}
 						: {
-								diffMode: false,
-								lastDeployedCode: undefined,
-								lastSavedCode: undefined
-							}
+							diffMode: false,
+							lastDeployedCode: undefined,
+							lastSavedCode: undefined
+						}
 
 				return {
 					args: moduleState?.previewArgs ?? {},

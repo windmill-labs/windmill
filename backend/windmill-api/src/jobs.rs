@@ -20,16 +20,13 @@ use sqlx::Pool;
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
-#[cfg(feature = "prometheus")]
-use std::sync::atomic::Ordering;
 use tokio::io::AsyncReadExt;
-#[cfg(feature = "prometheus")]
-use tokio::time::Instant;
 use tower::ServiceBuilder;
 use windmill_common::auth::is_super_admin_email;
 use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{format_completed_job_result, format_result, ENTRYPOINT_OVERRIDE};
+use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
 
 use windmill_common::scripts::PREVIEW_IS_CODEBASE_HASH;
@@ -84,9 +81,6 @@ use windmill_common::{
     },
 };
 
-#[cfg(feature = "prometheus")]
-use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
-
 use windmill_common::{
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
     get_script_info_for_hash, FlowVersionInfo, ScriptHashInfo, BASE_URL,
@@ -95,36 +89,6 @@ use windmill_queue::{
     cancel_job, get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs,
     PushArgsOwned, PushIsolationLevel,
 };
-
-#[cfg(feature = "prometheus")]
-type Histo = prometheus::Histogram;
-
-#[cfg(not(feature = "prometheus"))]
-type Histo = ();
-
-#[cfg(feature = "prometheus")]
-fn setup_list_jobs_debug_metrics() -> Option<Histo> {
-    let api_list_jobs_query_duration = if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed)
-        && METRICS_ENABLED.load(Ordering::Relaxed)
-    {
-        Some(
-            prometheus::register_histogram!(prometheus::HistogramOpts::new(
-                "api_list_jobs_query_duration",
-                "Duration of listing jobs (query)",
-            ))
-            .expect("register prometheus metric"),
-        )
-    } else {
-        None
-    };
-
-    api_list_jobs_query_duration
-}
-
-#[cfg(not(feature = "prometheus"))]
-fn setup_list_jobs_debug_metrics() -> Option<Histo> {
-    None
-}
 
 pub fn workspaced_service() -> Router {
     let cors = CorsLayer::new()
@@ -135,8 +99,6 @@ pub fn workspaced_service() -> Router {
     // Cloud events abuse control headers
     let ce_headers =
         ServiceBuilder::new().layer(axum::middleware::from_fn(add_webhook_allowed_origin));
-
-    let api_list_jobs_query_duration = setup_list_jobs_debug_metrics();
 
     Router::new()
         .route(
@@ -212,10 +174,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/add_batch_jobs/:n", post(add_batch_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
-        .route(
-            "/list",
-            get(list_jobs).layer(Extension(api_list_jobs_query_duration)),
-        )
+        .route("/list", get(list_jobs))
         .route(
             "/list_selected_job_groups",
             // We use post because sending a huge array as a query param can produce
@@ -1926,7 +1885,6 @@ async fn list_jobs(
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
-    Extension(_api_list_jobs_query_duration): Extension<Option<Histo>>,
 ) -> error::JsonResult<Vec<Job>> {
     check_scopes(&authed, || format!("jobs:listjobs"))?;
 
@@ -1990,23 +1948,11 @@ async fn list_jobs(
     };
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
-    #[cfg(feature = "prometheus")]
-    let start = Instant::now();
-
-    #[cfg(feature = "prometheus")]
-    if _api_list_jobs_query_duration.is_some() || true {
-        tracing::info!("list_jobs query: {}", sql);
-    }
-
-    let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql).fetch_all(&mut *tx).await?;
+    let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql)
+        .fetch_all(&mut *tx)
+        .warn_after_seconds_with_sql(5, format!("list_jobs: {}", sql))
+        .await?;
     tx.commit().await?;
-
-    #[cfg(feature = "prometheus")]
-    if let Some(api_list_jobs_query_duration) = _api_list_jobs_query_duration {
-        let duration = start.elapsed().as_secs_f64();
-        api_list_jobs_query_duration.observe(duration);
-        tracing::info!("list_jobs query took {}s: {}", duration, sql);
-    }
 
     Ok(Json(jobs.into_iter().map(From::from).collect()))
 }
@@ -5875,6 +5821,7 @@ pub fn filter_list_completed_query(
         sqlb.and_where_le("started_at", "?".bind(&dt.to_rfc3339()));
     }
     if let Some(dt) = &lq.created_or_started_after {
+        sqlb.and_where_ge("created_at", "?".bind(&dt.to_rfc3339()));
         sqlb.and_where_ge("started_at", "?".bind(&dt.to_rfc3339()));
     }
 

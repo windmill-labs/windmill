@@ -10,6 +10,7 @@
 		type GridShadow
 	} from '../editor/appUtils'
 	import { throttle } from './utils/other'
+	import { moveMode } from '../gridUtils'
 
 	const dispatch = createEventDispatcher()
 
@@ -31,7 +32,6 @@
 		onTop: any
 		shadow?: { x: number; y: number; w: number; h: number } | undefined
 		overlapped?: string | undefined
-		moveMode?: 'move' | 'insert'
 		type?: string | undefined
 		fakeShadow?: GridShadow | undefined
 		disableMove?: boolean
@@ -64,7 +64,6 @@
 		onTop,
 		shadow = $bindable(undefined),
 		overlapped = undefined,
-		moveMode = 'move',
 		type = undefined,
 		fakeShadow = undefined,
 		disableMove = true,
@@ -288,7 +287,7 @@
 		const { clientX, clientY } = event
 		const cordDiff = { x: (clientX / $scale) * 100 - initX, y: (clientY / $scale) * 100 - initY }
 
-		if (moveMode === 'move') {
+		if ($moveMode === 'move') {
 			onMove({
 				cordDiff,
 				clientY,
@@ -545,7 +544,7 @@
 				} transform: translate(${left}px, ${top}px); `} "
 >
 	{@render children?.()}
-	{#if moveMode === 'move' && !disableMove}
+	{#if $moveMode === 'move' && !disableMove}
 		<div class="svlt-grid-resizer-bottom" onpointerdown={(e) => resizePointerDown(e, 'vertical')}
 		></div>
 		<div class="svlt-grid-resizer-side" onpointerdown={(e) => resizePointerDown(e, 'horizontal')}
@@ -558,7 +557,7 @@
 	<div
 		class={twMerge(
 			'svlt-grid-shadow shadow-active',
-			shouldDisplayShadow(moveMode, overlapped) ? '' : 'hidden'
+			shouldDisplayShadow($moveMode, overlapped) ? '' : 'hidden'
 		)}
 		style="width: {shadow.w * xPerPx - gapX * 2}px; height: {shadow.h * yPerPx -
 			gapY * 2}px; transform: translate({shadow.x * xPerPx + gapX}px, {shadow.y * yPerPx +

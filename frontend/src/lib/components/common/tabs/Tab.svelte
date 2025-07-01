@@ -2,7 +2,7 @@
 	import type { TabsContext } from '$lib/components/apps/editor/settingsPanel/inputEditor/tabs.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { triggerableByAI } from '$lib/actions/triggerableByAI'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
 	const dispatch = createEventDispatcher<{ onpointerdown: any }>()
 

@@ -1,7 +1,13 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
+
 	type InputType = string | number | boolean
-	export let input: HTMLInputElement | undefined = undefined
-	export let defaultValue: InputType | undefined = undefined
+	interface Props {
+		input?: HTMLInputElement | undefined
+		defaultValue?: InputType | undefined
+	}
+
+	let { input = $bindable(undefined), defaultValue = undefined }: Props = $props()
 
 	function setInputValueToDefaultValue() {
 		if (defaultValue !== undefined && input) {
@@ -15,8 +21,12 @@
 		}
 	}
 
-	$: input && defaultValue && setInputValueToDefaultValue()
-	$: input &&
-		(defaultValue === '' || defaultValue === undefined || defaultValue === null) &&
-		clearInputValue()
+	$effect.pre(() => {
+		input && defaultValue && untrack(() => setInputValueToDefaultValue())
+	})
+	$effect.pre(() => {
+		input &&
+			(defaultValue === '' || defaultValue === undefined || defaultValue === null) &&
+			untrack(() => clearInputValue())
+	})
 </script>

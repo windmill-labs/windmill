@@ -10,12 +10,13 @@
 	import { Loader2, Plus } from 'lucide-svelte'
 	import YAML from 'yaml'
 
-	let drawer: Drawer | undefined = undefined
-	let pendingRaw: string
-	let importType: 'yaml' | 'json' = 'yaml'
+	let drawer: Drawer | undefined = $state(undefined)
+	let pendingRaw: string | undefined = $state(undefined)
+	let importType: 'yaml' | 'json' = $state('yaml')
 
 	async function importRaw() {
-		$importFlowStore = importType === 'yaml' ? YAML.parse(pendingRaw) : JSON.parse(pendingRaw)
+		$importFlowStore =
+			importType === 'yaml' ? YAML.parse(pendingRaw ?? '') : JSON.parse(pendingRaw ?? '')
 		await goto('/flows/add')
 		drawer?.closeDrawer?.()
 	}

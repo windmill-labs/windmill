@@ -7,12 +7,16 @@
 	import { createEventDispatcher } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 
-	export let row: {
-		name: string
-		path: string
+	interface Props {
+		row: {
+			name: string
+			path: string
+		}
 	}
 
-	let editedName = row.name
+	let { row }: Props = $props()
+
+	let editedName = $state(row.name)
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -22,14 +26,14 @@
 	closeOnOtherPopoverOpen
 	contentClasses="flex flex-col w-80 gap-2 p-4"
 >
-	<svelte:fragment slot="trigger">
+	{#snippet trigger()}
 		<Button color="light" size="xs2" nonCaptureEvent={true}>
 			<div class="flex flex-row gap-1 items-center">
 				<Pen size={16} />
 			</div>
 		</Button>
-	</svelte:fragment>
-	<svelte:fragment slot="content" let:close>
+	{/snippet}
+	{#snippet content({ close })}
 		<div class="leading-6 font-semibold text-xs">Edit theme name</div>
 		<div class="flex flex-row gap-2">
 			<input bind:value={editedName} />
@@ -52,5 +56,5 @@
 				Update
 			</Button>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </Popover>

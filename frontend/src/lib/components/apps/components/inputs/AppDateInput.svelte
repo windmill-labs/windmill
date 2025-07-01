@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
+	import { getContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -11,23 +14,34 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let inputType: 'date'
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'dateinputcomponent'> | undefined = undefined
-	export let render: boolean
-	export let onChange: string[] | undefined = undefined
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		inputType: 'date'
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		customCss?: ComponentCustomCSS<'dateinputcomponent'> | undefined
+		render: boolean
+		onChange?: string[] | undefined
+	}
+
+	let {
+		id,
+		configuration,
+		inputType,
+		verticalAlignment = undefined,
+		customCss = undefined,
+		render,
+		onChange = undefined
+	}: Props = $props()
 
 	const { app, worldStore, selectedComponent, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let resolvedConfig = initConfig(
-		components['dateinputcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['dateinputcomponent'].initialData.configuration, configuration)
 	)
 
-	let value: string | undefined = undefined
+	let value: string | undefined = $state(undefined)
 
 	$componentControl[id] = {
 		setValue(nvalue: string) {
@@ -44,8 +58,6 @@
 		result: undefined as string | undefined
 	})
 
-	$: handleDefault(resolvedConfig.defaultValue)
-
 	function formatDate(dateString: string, formatString: string = 'dd.MM.yyyy') {
 		if (formatString === '') {
 			formatString = 'dd.MM.yyyy'
@@ -59,15 +71,6 @@
 		}
 	}
 
-	$: {
-		if (value) {
-			outputs?.result.set(formatDate(value, resolvedConfig.outputFormat))
-		} else {
-			outputs?.result.set(undefined)
-		}
-		fireOnChange()
-	}
-
 	function fireOnChange() {
 		if (onChange) {
 			onChange.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
@@ -77,7 +80,19 @@
 	function handleDefault(defaultValue: string | undefined) {
 		value = defaultValue
 	}
-	let css = initCss($app.css?.dateinputcomponent, customCss)
+	let css = $state(initCss($app.css?.dateinputcomponent, customCss))
+	$effect.pre(() => {
+		resolvedConfig.defaultValue
+		untrack(() => handleDefault(resolvedConfig.defaultValue))
+	})
+	$effect.pre(() => {
+		if (value) {
+			outputs?.result.set(formatDate(value, resolvedConfig.outputFormat))
+		} else {
+			outputs?.result.set(undefined)
+		}
+		untrack(() => fireOnChange())
+	})
 </script>
 
 {#each Object.keys(components['dateinputcomponent'].initialData.configuration) as key (key)}
@@ -104,11 +119,11 @@
 <AlignWrapper {render} {verticalAlignment}>
 	{#if inputType === 'date'}
 		<input
-			on:keydown={(e) => {
+			onkeydown={(e) => {
 				e.stopPropagation()
 			}}
-			on:focus={() => ($selectedComponent = [id])}
-			on:pointerdown|stopPropagation
+			onfocus={() => ($selectedComponent = [id])}
+			onpointerdown={stopPropagation(bubble('pointerdown'))}
 			type="date"
 			bind:value
 			disabled={resolvedConfig.disabled}

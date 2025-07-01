@@ -6,12 +6,16 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	import PdfViewer from '$lib/components/display/PdfViewer.svelte'
+	import { Loader2 } from 'lucide-svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'pdfcomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'pdfcomponent'> | undefined
+		render: boolean
+	}
+
+	let { id, configuration, customCss = undefined, render }: Props = $props()
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -19,10 +23,10 @@
 		loading: false
 	})
 
-	let source: string | ArrayBuffer | undefined = undefined
-	let zoom: number | undefined = undefined
+	let source: string | ArrayBuffer | undefined = $state(undefined)
+	let zoom: number | undefined = $state(undefined)
 
-	let css = initCss($app.css?.pdfcomponent, customCss)
+	let css = $state(initCss($app.css?.pdfcomponent, customCss))
 </script>
 
 <InputValue key="source" {id} input={configuration.source} bind:value={source} />
@@ -42,17 +46,21 @@
 
 {#if render}
 	<div class="relative w-full h-full bg-gray-100 component-wrapper">
-		<PdfViewer
-			{source}
-			{zoom}
-			class={css?.container?.class}
-			style={css?.container?.style}
-			on:loading={() => {
-				outputs.loading.set(true)
-			}}
-			on:loaded={() => {
-				outputs.loading.set(false)
-			}}
-		/>
+		{#await import('$lib/components/display/PdfViewer.svelte')}
+			<Loader2 class="animate-spin" />
+		{:then Module}
+			<Module.default
+				{source}
+				{zoom}
+				class={css?.container?.class}
+				style={css?.container?.style}
+				on:loading={() => {
+					outputs.loading.set(true)
+				}}
+				on:loaded={() => {
+					outputs.loading.set(false)
+				}}
+			/>
+		{/await}
 	</div>
 {/if}
