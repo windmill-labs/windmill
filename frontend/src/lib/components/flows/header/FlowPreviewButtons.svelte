@@ -3,11 +3,11 @@
 
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
+	import type { Job } from '$lib/gen'
 	import { createEventDispatcher, tick } from 'svelte'
 
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import type { FlowPreview } from '$lib/components/FlowPreview.svelte'
 	import { Play } from 'lucide-svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import type { DurationStatus, GraphModuleState } from '$lib/components/graph'
@@ -15,44 +15,50 @@
 
 	interface Props {
 		loading?: boolean
-		localModuleStates?: Writable<Record<string, GraphModuleState>>
+		localModuleStates: Writable<Record<string, GraphModuleState>>
+		job: Job | undefined
 		isOwner?: boolean
+		onRunPreview?: () => void
+		isRunning?: boolean
 		previewOpen?: boolean
-		flowPreview: FlowPreview
 	}
 
 	let {
 		loading = false,
 		localModuleStates = $bindable(writable({})),
+		job = $bindable(undefined),
 		isOwner = $bindable(false),
-		previewOpen = $bindable(false),
-		flowPreview
+		onRunPreview = $bindable(undefined),
+		isRunning = $bindable(false),
+		previewOpen = $bindable(false)
 	}: Props = $props()
 
-	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
-	let renderCount = $state(0)
+	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	let previewMode: 'upTo' | 'whole' = $state('whole')
 
 	export async function openPreview(test: boolean = false) {
 		if (!previewOpen) {
 			previewOpen = true
 			await tick()
-			renderCount++
+			flowPreviewContent?.refresh()
 			if (!test) return
 		}
-		flowPreview.test(previewArgs.val)
+		flowPreviewContent?.test()
 	}
 
 	export function runPreview() {
-		renderCount++
-		flowPreview.test(previewArgs.val)
+		flowPreviewContent?.refresh
+		flowPreviewContent?.test()
 	}
 
 	export function cancelTest() {
-		flowPreview.cancelTest()
+		flowPreviewContent?.cancelTest()
 	}
 
 	const dispatch = createEventDispatcher()
 
+	let flowPreviewContent: FlowPreviewContent | undefined = $state(undefined)
+	let jobId: string | undefined = $state(undefined)
 	let preventEscape = $state(false)
 	let selectedJobStep: string | undefined = $state(undefined)
 	let selectedJobStepIsTopLevel: boolean | undefined = $state(undefined)
@@ -94,10 +100,10 @@
 
 	export function testUpTo() {
 		if (upToDisabled) return
-		flowPreview.previewMode = 'upTo'
+		previewMode = 'upTo'
 		//previewOpen = false
-		renderCount++
-		flowPreview.test(previewArgs.val)
+		flowPreviewContent?.refresh()
+		flowPreviewContent?.test()
 	}
 </script>
 
@@ -105,10 +111,10 @@
 	color="dark"
 	size="xs"
 	on:click={() => {
-		flowPreview.previewMode = 'whole'
+		previewMode = 'whole'
 		previewOpen = !previewOpen
 		if (previewOpen) {
-			renderCount++
+			flowPreviewContent?.refresh()
 		}
 	}}
 	startIcon={{ icon: Play }}
@@ -128,11 +134,14 @@
 {#if !loading}
 	<Drawer bind:open={previewOpen} size="75%" {preventEscape} alwaysOpen>
 		<FlowPreviewContent
-			{flowPreview}
+			bind:this={flowPreviewContent}
 			bind:localModuleStates
 			bind:localDurationStatuses
 			open={previewOpen}
 			bind:scrollTop
+			bind:previewMode
+			bind:job
+			bind:jobId
 			bind:selectedJobStep
 			bind:selectedJobStepIsTopLevel
 			bind:selectedJobStepType
@@ -147,7 +156,8 @@
 			}}
 			bind:preventEscape
 			bind:isOwner
-			refreshTrigger={renderCount}
+			{onRunPreview}
+			bind:isRunning
 		/>
 	</Drawer>
 {/if}

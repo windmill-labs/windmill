@@ -49,7 +49,6 @@
 	import type { PickableProperties } from './flows/previousResults'
 	import { Triggers } from './triggers/triggers.svelte'
 	import { TestSteps } from './flows/testSteps.svelte'
-	import { FlowPreview } from './FlowPreview.svelte'
 
 	let flowCopilotContext: FlowCopilotContext = {
 		shouldUpdatePropertyType: writable<{
@@ -448,7 +447,7 @@
 		showCaptureHint: writable(undefined),
 		triggersState: new Triggers()
 	})
-	const flowEditorContext: FlowEditorContext = {
+	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
@@ -471,15 +470,11 @@
 			payloadData: undefined
 		}),
 		currentEditor: writable(undefined)
-	}
-	setContext<FlowEditorContext>('FlowEditorContext', flowEditorContext)
+	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
 	})
-
-	// Create FlowPreview instance for running preview
-	const flowPreview = new FlowPreview(flowEditorContext)
 
 	let lastSent: OpenFlow | undefined = undefined
 	function updateFlow(flow: OpenFlow) {
@@ -698,7 +693,7 @@
 				</div>
 
 				<div class="flex justify-center pt-1 z-50 absolute right-2 top-2 gap-2">
-					<FlowPreviewButtons bind:this={flowPreviewButtons} {flowPreview} />
+					<FlowPreviewButtons bind:this={flowPreviewButtons} />
 				</div>
 				<Splitpanes horizontal class="h-full max-h-screen grow">
 					<Pane size={67}>
