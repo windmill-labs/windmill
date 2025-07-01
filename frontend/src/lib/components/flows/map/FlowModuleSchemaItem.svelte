@@ -276,7 +276,8 @@
 	class={classNames(
 		'w-full module flex rounded-sm cursor-pointer max-w-full ',
 		'flex relative',
-		deletable ? aiModuleActionToBgColor(action) : ''
+		deletable ? aiModuleActionToBgColor(action) : '',
+		containsSelectedAsset ? '!bg-surface-hover' : ''
 	)}
 	style="width: 275px; height: 34px; background-color: {hover && bgHoverColor
 		? bgHoverColor
@@ -291,9 +292,10 @@
 	<div
 		class={classNames(
 			'absolute rounded-sm outline-offset-0 outline-slate-500 dark:outline-gray-400',
-			selected ? 'outline outline-2' : 'active:outline active:outline-2'
+			selected || containsSelectedAsset ? 'outline outline-2' : 'active:outline active:outline-2',
+			containsSelectedAsset ? 'outline-slate-600 dark:outline-gray-300' : ''
 		)}
-		style={`width: 275px; height: ${outputPickerVisible ? '51px' : '34px'};`}
+		style={`width: 275px; height: ${outputPickerVisible ? (outputPickerBarOpen ? '51px' : '35px') : '34px'};`}
 	></div>
 	<div
 		class="absolute text-sm right-2 flex flex-row gap-1 z-10 transition-all duration-100"
@@ -469,8 +471,8 @@
 	{#if !action}
 		<div
 			class={twMerge(
-				'absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex flex-col gap-1 justify-center w-fit px-2 h-9 min-w-14 transition-all',
-				(hover || selected) && outputPickerVisible ? 'mt-[0.6rem]' : ''
+				'absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex flex-col gap-1 justify-center w-fit px-2 h-9 min-w-14',
+				'mt-[0.6rem]'
 			)}
 		>
 			{#if deletable && (hover || selected) && outputPickerVisible}
@@ -519,7 +521,7 @@
 					{/if}
 				</div>
 			{/if}
-			{#if assets?.length && (hover || selected || containsSelectedAsset)}
+			{#if assets?.length && (hover || selected)}
 				<div transition:fade={{ duration: 100 }}>
 					<AssetsDropdownButton
 						liSubtitle={(asset) => {
@@ -534,7 +536,6 @@
 						assets={assets.map(formatAsset)}
 						enableChangeAnimation={selected}
 						noBtnText
-						outline={containsSelectedAsset}
 						disableLiTooltip
 						onHoverLi={(asset, eventType) => {
 							if (selectedAssetStore)

@@ -23,7 +23,6 @@
 		enableChangeAnimation = true,
 		size = 'xs',
 		noBtnText = false,
-		outline = false,
 		popoverPlacement = 'bottom-end',
 		disableLiTooltip = false,
 		onHoverLi,
@@ -33,7 +32,6 @@
 		enableChangeAnimation?: boolean
 		size?: 'xs' | '3xs'
 		noBtnText?: boolean
-		outline?: boolean
 		popoverPlacement?: Placement
 		disableLiTooltip?: boolean
 		onHoverLi?: (asset: Asset, eventType: 'enter' | 'leave') => void
@@ -94,9 +92,8 @@
 			class={twMerge(
 				size === '3xs' ? 'h-[1.6rem]' : 'py-1.5',
 				'text-xs flex items-center gap-1.5 px-2 rounded-md relative',
-				'border border-tertiary/30 outline outline-2',
+				'border border-tertiary/30',
 				'bg-surface hover:bg-surface-hover active:bg-surface',
-				outline ? 'outline-tertiary' : 'outline-transparent',
 				'transition-all hover:text-primary cursor-pointer'
 			)}
 		>
