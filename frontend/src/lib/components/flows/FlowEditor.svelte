@@ -15,7 +15,9 @@
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI'
-	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	import FlowModuleScriptAssetHandler from './content/RawScriptAssetHandler.svelte'
+	import { getAllModules } from './flowExplorer'
+	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	interface Props {
 		loading: boolean
@@ -139,3 +141,12 @@
 		{/if}
 	</Splitpanes>
 </div>
+
+{#each getAllModules(flowStore.val.value.modules) as mod}
+	{#if mod.value.type === 'rawscript'}
+		<FlowModuleScriptAssetHandler
+			value={mod.value}
+			onChange={(assets) => ($flowStateStore[mod.id].assetsCache = assets)}
+		/>
+	{/if}
+{/each}

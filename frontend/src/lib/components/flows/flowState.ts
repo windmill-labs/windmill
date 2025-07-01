@@ -3,6 +3,7 @@ import type { Flow, FlowModule } from '$lib/gen'
 import type { Writable } from 'svelte/store'
 import { loadFlowModuleState } from './flowStateUtils.svelte'
 import { emptyFlowModuleState } from './utils'
+import type { Asset } from '../assets/lib'
 
 export type FlowModuleState = {
 	schema?: Schema
@@ -11,6 +12,7 @@ export type FlowModuleState = {
 	previewJobId?: string
 	previewWorkspaceId?: string
 	previewSuccess?: boolean
+	assetsCache?: Asset[]
 }
 
 export type FlowState = Record<string, FlowModuleState>

@@ -17,7 +17,17 @@
 	import Tooltip from '../meltComponents/Tooltip.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 
-	let { assets: assetsUris }: { assets: string[] } = $props()
+	let {
+		assets: assetsUris,
+		enableChangeAnimation = true,
+		size = 'xs',
+		noBtnText = false
+	}: {
+		assets: string[]
+		enableChangeAnimation?: boolean
+		size?: 'xs' | '3xs'
+		noBtnText?: boolean
+	} = $props()
 	const assets = $derived(assetsUris.map(parseAsset).filter((x) => !!x) ?? [])
 
 	let prevAssetsUris = $state<string[]>([])
@@ -31,16 +41,27 @@
 	let resourceDataCache: Record<string, string | undefined> = $state({})
 
 	$effect(() => {
+		if (!enableChangeAnimation) {
+			if (blueBgDiv) {
+				blueBgDiv.classList.remove('animate-fade-out')
+			}
+		}
+	})
+
+	$effect(() => {
 		if (!assetsUris) return
 		untrack(() => {
 			if (deepEqual(assetsUris, prevAssetsUris)) return
 			prevAssetsUris = clone(assetsUris)
+
 			// Replay animation
-			if (blueBgDiv) {
+			if (blueBgDiv && enableChangeAnimation) {
+				blueBgDiv.classList.add('animate-fade-out')
 				blueBgDiv.style.animation = 'none'
 				blueBgDiv.offsetHeight /* trigger reflow */
 				blueBgDiv.style.animation = ''
 			}
+
 			for (const asset of assets) {
 				if (asset.kind !== 'resource' || asset.path in resourceDataCache) continue
 				ResourceService.getResource({ path: asset.path, workspace: $workspaceStore! })
@@ -51,21 +72,30 @@
 	})
 </script>
 
-<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }} bind:isOpen>
+<Popover
+	floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+	usePointerDownOutside
+	closeOnOtherPopoverOpen
+	bind:isOpen
+>
 	<svelte:fragment slot="trigger">
 		<div
 			class={twMerge(
-				'text-xs flex items-center gap-2 px-2 py-1.5 bg-surface rounded-md border relative',
-				'transition-colors hover:bg-surface-hover hover:text-primary active:bg-surface/0 cursor-pointer'
+				size === '3xs' ? 'h-[1.6rem]' : 'py-1.5',
+				'text-xs flex items-center gap-1.5 px-2 rounded-md border border-tertiary/30 relative',
+				'bg-surface hover:bg-surface-hover active:bg-surface',
+				'transition-colors hover:text-primary cursor-pointer'
 			)}
 		>
 			<div
 				bind:this={blueBgDiv}
-				class="absolute pointer-events-none bg-blue-300/60 inset-0 rounded-md opacity-0 animate-fade-out"
+				class="absolute pointer-events-none bg-slate-300 dark:bg-[#576278] inset-0 rounded-md opacity-0"
 			></div>
-			<Pyramid size={16} class="z-10" />
-			<span class="z-10">
-				{pluralize(assets.length, 'asset')}
+			<Pyramid size={size === '3xs' ? 13 : 16} class="z-10" />
+			<span
+				class={twMerge('z-10 font-normal', size === '3xs' ? 'text-3xs mt-[0.08rem]' : 'text-xs')}
+			>
+				{noBtnText ? assets.length : pluralize(assets.length, 'asset')}
 			</span>
 		</div>
 	</svelte:fragment>
