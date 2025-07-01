@@ -104,7 +104,7 @@ export async function generateFlowLockInternal(
   justUpdateMetadataLock?: boolean,
   noStaleMessage?: boolean,
   useLocalLockfiles?: boolean,
-): Promise<string | undefined> {
+): Promise<string | void> {
   if (folder.endsWith(SEP)) {
     folder = folder.substring(0, folder.length - 1);
   }

@@ -3272,6 +3272,7 @@ pub async fn push<'c, 'd>(
     _priority_override: Option<i16>,
     authed: Option<&Authed>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
+    dbg!(&args);
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
         let premium_workspace =
@@ -3658,12 +3659,12 @@ pub async fn push<'c, 'd>(
         JobPayload::RawFlowDependencies { path, flow_value, use_local_lockfiles: _, raw_deps } => {
             // Add raw_deps to args if present
             if let Some(raw_deps) = raw_deps {
-                args.as_mut().map(|args_map| {
-                    args_map.insert(
-                        "raw_deps".to_string(),
-                        to_raw_value(&raw_deps)
-                    );
-                });
+                // args.as_mut().map(|args_map| {
+                //     args_map.insert(
+                //         "raw_deps".to_string(),
+                //         to_raw_value(&raw_deps)
+                //     );
+                // });
             }
             (
             None,
