@@ -2091,6 +2091,89 @@ def main():
 
 #[cfg(feature = "python")]
 #[sqlx::test(fixtures("base"))]
+async fn test_python_global_site_packages(db: Pool<Postgres>) {
+    use windmill_common::{cache::concatcp, worker::ROOT_CACHE_DIR};
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    // Shared for all 3.12.*
+    let path = concatcp!(ROOT_CACHE_DIR, "python_3_12/global-site-packages").to_owned();
+    std::fs::create_dir_all(&path).unwrap();
+    std::fs::write(path + "/my_global_site_package_3_12_any.py", "").unwrap();
+
+    // 3.12
+    {
+        let content = r#"# py: ==3.12
+#requirements:
+#
+
+import my_global_site_package_3_12_any
+
+def main():
+    return "hello world"
+                "#
+        .to_owned();
+
+        let job = JobPayload::Code(RawCode {
+            hash: None,
+            content,
+            path: None,
+            language: ScriptLang::Python3,
+            lock: None,
+            custom_concurrency_key: None,
+            concurrent_limit: None,
+            concurrency_time_window_s: None,
+            cache_ttl: None,
+            dedicated_worker: None,
+        });
+
+        let result = run_job_in_new_worker_until_complete(&db, job, port)
+            .await
+            .json_result()
+            .unwrap();
+
+        assert_eq!(result, serde_json::json!("hello world"));
+    }
+
+    // 3.12.1
+    {
+        let content = r#"# py: ==3.12.1
+#requirements:
+#
+
+import my_global_site_package_3_12_any
+
+def main():
+    return "hello world"
+                "#
+        .to_owned();
+
+        let job = JobPayload::Code(RawCode {
+            hash: None,
+            content,
+            path: None,
+            language: ScriptLang::Python3,
+            lock: None,
+            custom_concurrency_key: None,
+            concurrent_limit: None,
+            concurrency_time_window_s: None,
+            cache_ttl: None,
+            dedicated_worker: None,
+        });
+
+        let result = run_job_in_new_worker_until_complete(&db, job, port)
+            .await
+            .json_result()
+            .unwrap();
+
+        assert_eq!(result, serde_json::json!("hello world"));
+    }
+}
+
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base"))]
 async fn test_python_job_heavy_dep(db: Pool<Postgres>) {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await;
