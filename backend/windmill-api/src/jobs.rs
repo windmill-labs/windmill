@@ -20,11 +20,7 @@ use sqlx::Pool;
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
-#[cfg(feature = "prometheus")]
-use std::sync::atomic::Ordering;
 use tokio::io::AsyncReadExt;
-#[cfg(feature = "prometheus")]
-use tokio::time::Instant;
 use tower::ServiceBuilder;
 use windmill_common::auth::is_super_admin_email;
 use windmill_common::error::JsonResult;
@@ -84,9 +80,6 @@ use windmill_common::{
         Pagination, StripPath,
     },
 };
-
-#[cfg(feature = "prometheus")]
-use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
 
 use windmill_common::{
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,

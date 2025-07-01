@@ -288,9 +288,9 @@ dependencies = [
 
 [[package]]
 name = "arrow"
-version = "55.1.0"
+version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1bb018b6960c87fd9d025009820406f74e83281185a8bdcb44880d2aa5c9a87"
+checksum = "f3f15b4c6b148206ff3a2b35002e08929c2462467b62b9c02036d9c34f9ef994"
 dependencies = [
  "arrow-arith",
  "arrow-array",
@@ -309,9 +309,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-arith"
-version = "55.1.0"
+version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44de76b51473aa888ecd6ad93ceb262fb8d40d1f1154a4df2f069b3590aa7575"
+checksum = "30feb679425110209ae35c3fbf82404a39a4c0436bb3ec36164d8bffed2a4ce4"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -323,9 +323,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-array"
-version = "55.1.0"
+version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29ed77e22744475a9a53d00026cf8e166fe73cf42d89c4c4ae63607ee1cfcc3f"
+checksum = "70732f04d285d49054a48b72c54f791bb3424abae92d27aafdf776c98af161c8"
 dependencies = [
  "ahash 0.8.12",
  "arrow-buffer",
@@ -340,9 +340,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-buffer"
-version = "55.1.0"
+version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0391c96eb58bf7389171d1e103112d3fc3e5625ca6b372d606f2688f1ea4cce"
+checksum = "169b1d5d6cb390dd92ce582b06b23815c7953e9dfaaea75556e89d890d19993d"
 dependencies = [
  "bytes",
  "half",
@@ -351,9 +351,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-cast"
-version = "55.1.0"
+version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f39e1d774ece9292697fcbe06b5584401b26bd34be1bec25c33edae65c2420ff"
+checksum = "e4f12eccc3e1c05a766cafb31f6a60a46c2f8efec9b74c6e0648766d30686af8"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -372,9 +372,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-csv"
-version = "55.1.0"
+version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9055c972a07bf12c2a827debfd34f88d3b93da1941d36e1d9fee85eebe38a12a"
+checksum = "012c9fef3f4a11573b2c74aec53712ff9fdae4a95f4ce452d1bbf088ee00f06b"
 dependencies = [
  "arrow-array",
  "arrow-cast",
@@ -382,15 +382,14 @@ dependencies = [
  "chrono",
  "csv",
  "csv-core",
- "lazy_static",
  "regex",
 ]
 
 [[package]]
 name = "arrow-data"
-version = "55.1.0"
+version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf75ac27a08c7f48b88e5c923f267e980f27070147ab74615ad85b5c5f90473d"
+checksum = "8de1ce212d803199684b658fc4ba55fb2d7e87b213de5af415308d2fee3619c2"
 dependencies = [
  "arrow-buffer",
  "arrow-schema",
@@ -400,9 +399,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-ipc"
-version = "55.1.0"
+version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a222f0d93772bd058d1268f4c28ea421a603d66f7979479048c429292fac7b2e"
+checksum = "d9ea5967e8b2af39aff5d9de2197df16e305f47f404781d3230b2dc672da5d92"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -414,9 +413,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-json"
-version = "55.1.0"
+version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9085342bbca0f75e8cb70513c0807cc7351f1fbf5cb98192a67d5e3044acb033"
+checksum = "5709d974c4ea5be96d900c01576c7c0b99705f4a3eec343648cb1ca863988a9c"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -425,7 +424,7 @@ dependencies = [
  "arrow-schema",
  "chrono",
  "half",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "lexical-core",
  "memchr",
  "num",
@@ -436,9 +435,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-ord"
-version = "55.1.0"
+version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab2f1065a5cad7b9efa9e22ce5747ce826aa3855766755d4904535123ef431e7"
+checksum = "6506e3a059e3be23023f587f79c82ef0bcf6d293587e3272d20f2d30b969b5a7"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -449,9 +448,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-row"
-version = "55.1.0"
+version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3703a0e3e92d23c3f756df73d2dc9476873f873a76ae63ef9d3de17fda83b2d8"
+checksum = "52bf7393166beaf79b4bed9bfdf19e97472af32ce5b6b48169d321518a08cae2"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -462,18 +461,18 @@ dependencies = [
 
 [[package]]
 name = "arrow-schema"
-version = "55.1.0"
+version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73a47aa0c771b5381de2b7f16998d351a6f4eb839f1e13d48353e17e873d969b"
+checksum = "af7686986a3bf2254c9fb130c623cdcb2f8e1f15763e7c71c310f0834da3d292"
 dependencies = [
  "bitflags 2.9.1",
 ]
 
 [[package]]
 name = "arrow-select"
-version = "55.1.0"
+version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24b7b85575702b23b85272b01bc1c25a01c9b9852305e5d0078c79ba25d995d4"
+checksum = "dd2b45757d6a2373faa3352d02ff5b54b098f5e21dccebc45a21806bc34501e5"
 dependencies = [
  "ahash 0.8.12",
  "arrow-array",
@@ -485,9 +484,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-string"
-version = "55.1.0"
+version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9260fddf1cdf2799ace2b4c2fc0356a9789fa7551e0953e35435536fecefebbd"
+checksum = "0377d532850babb4d927a06294314b316e23311503ed580ec6ce6a0158f49d40"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -636,7 +635,7 @@ dependencies = [
  "bytes",
  "http 1.3.1",
  "rand 0.8.5",
- "reqwest 0.12.20",
+ "reqwest 0.12.21",
  "serde",
  "serde-aux",
  "serde_json",
@@ -978,15 +977,15 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-http-client"
-version = "1.0.5"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f491388e741b7ca73b24130ff464c1478acc34d5b331b7dd0a2ee4643595a15"
+checksum = "f108f1ca850f3feef3009bdcc977be201bca9a91058864d9de0684e64514bee0"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
  "h2 0.3.26",
- "h2 0.4.10",
+ "h2 0.4.11",
  "http 0.2.12",
  "http 1.3.1",
  "http-body 0.4.6",
@@ -2105,15 +2104,15 @@ checksum = "510ca239cf13b7f8d16a2b48f263de7b4f8c566f0af58d901031473c76afb1e3"
 
 [[package]]
 name = "console"
-version = "0.15.11"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "054ccb5b10f9f2cbf51eb355ca1d05c2d279ce1804688d0db74b4733a5aeafd8"
+checksum = "2e09ced7ebbccb63b4c65413d821f2e00ce54c5ca4514ddc6b3c892fdbcbc69d"
 dependencies = [
  "encode_unicode",
  "libc",
  "once_cell",
  "unicode-width 0.2.1",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2719,7 +2718,7 @@ dependencies = [
  "base64 0.22.1",
  "half",
  "hashbrown 0.14.5",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "libc",
  "log",
  "object_store",
@@ -2898,7 +2897,7 @@ dependencies = [
  "datafusion-functions-aggregate-common",
  "datafusion-functions-window-common",
  "datafusion-physical-expr-common",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "paste",
  "recursive",
  "serde_json",
@@ -2913,7 +2912,7 @@ checksum = "422ac9cf3b22bbbae8cdf8ceb33039107fde1b5492693168f13bd566b1bcc839"
 dependencies = [
  "arrow",
  "datafusion-common",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "itertools 0.14.0",
  "paste",
 ]
@@ -3067,7 +3066,7 @@ dependencies = [
  "datafusion-common",
  "datafusion-expr",
  "datafusion-physical-expr",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "itertools 0.14.0",
  "log",
  "recursive",
@@ -3090,7 +3089,7 @@ dependencies = [
  "datafusion-physical-expr-common",
  "half",
  "hashbrown 0.14.5",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "itertools 0.14.0",
  "log",
  "paste",
@@ -3152,7 +3151,7 @@ dependencies = [
  "futures",
  "half",
  "hashbrown 0.14.5",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "itertools 0.14.0",
  "log",
  "parking_lot 0.12.4",
@@ -3194,7 +3193,7 @@ dependencies = [
  "bigdecimal",
  "datafusion-common",
  "datafusion-expr",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "log",
  "recursive",
  "regex",
@@ -3306,7 +3305,7 @@ dependencies = [
  "deno_media_type",
  "deno_path_util",
  "http 1.3.1",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "log",
  "once_cell",
  "parking_lot 0.12.4",
@@ -3347,7 +3346,7 @@ dependencies = [
  "glob",
  "ignore",
  "import_map",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "jsonc-parser",
  "log",
  "percent-encoding",
@@ -3388,7 +3387,7 @@ dependencies = [
  "deno_path_util",
  "deno_unsync",
  "futures",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "libc",
  "memoffset",
  "parking_lot 0.12.4",
@@ -3511,7 +3510,7 @@ dependencies = [
  "deno_tls",
  "dyn-clone",
  "error_reporter",
- "h2 0.4.10",
+ "h2 0.4.11",
  "hickory-resolver",
  "http 1.3.1",
  "http-body-util",
@@ -3792,14 +3791,14 @@ dependencies = [
  "elliptic-curve",
  "errno",
  "faster-hex",
- "h2 0.4.10",
+ "h2 0.4.11",
  "hkdf",
  "http 1.3.1",
  "http-body-util",
  "hyper 1.6.0",
  "hyper-util",
  "idna",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "ipnetwork",
  "k256",
  "lazy-regex",
@@ -3875,7 +3874,7 @@ version = "0.212.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2d328067139909aa81522a5d90f119368b541fbddd73ab630e4d9f777865f0d"
 dependencies = [
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "proc-macro-rules",
  "proc-macro2",
  "quote",
@@ -3919,7 +3918,7 @@ dependencies = [
  "deno_error",
  "deno_path_util",
  "deno_semver",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "serde",
  "serde_json",
  "sys_traits",
@@ -4248,7 +4247,7 @@ dependencies = [
  "deno_permissions",
  "deno_tls",
  "fastwebsockets",
- "h2 0.4.10",
+ "h2 0.4.11",
  "http 1.3.1",
  "http-body-util",
  "hyper 1.6.0",
@@ -5856,7 +5855,7 @@ dependencies = [
  "google-cloud-token",
  "home",
  "jsonwebtoken 9.3.1",
- "reqwest 0.12.20",
+ "reqwest 0.12.21",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -5899,7 +5898,7 @@ version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d901aeb453fd80e51d64df4ee005014f6cf39f2d736dd64f7239c132d9d39a6a"
 dependencies = [
- "reqwest 0.12.20",
+ "reqwest 0.12.21",
  "thiserror 1.0.69",
  "tokio",
 ]
@@ -6015,7 +6014,7 @@ dependencies = [
  "futures-sink",
  "futures-util",
  "http 0.2.12",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "slab",
  "tokio",
  "tokio-util",
@@ -6024,9 +6023,9 @@ dependencies = [
 
 [[package]]
 name = "h2"
-version = "0.4.10"
+version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9421a676d1b147b16b82c9225157dc629087ef8ec4d5e2960f9437a90dac0a5"
+checksum = "17da50a276f1e01e0ba6c029e47b7100754904ee8a278f886546e98575380785"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -6034,7 +6033,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "http 1.3.1",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "slab",
  "tokio",
  "tokio-util",
@@ -6183,7 +6182,7 @@ dependencies = [
  "native-tls",
  "num_cpus",
  "rand 0.9.0",
- "reqwest 0.12.20",
+ "reqwest 0.12.21",
  "serde",
  "serde_json",
  "thiserror 2.0.12",
@@ -6405,7 +6404,7 @@ dependencies = [
  "bytes",
  "futures-channel",
  "futures-util",
- "h2 0.4.10",
+ "h2 0.4.11",
  "http 1.3.1",
  "http-body 1.0.1",
  "httparse",
@@ -6729,7 +6728,7 @@ checksum = "1215d4d92511fbbdaea50e750e91f2429598ef817f02b579158e92803b52c00a"
 dependencies = [
  "boxed_error",
  "deno_error",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "log",
  "percent-encoding",
  "serde",
@@ -6751,9 +6750,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.9.0"
+version = "2.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cea70ddb795996207ad57735b50c5982d8844f38ba9ee5f1aedcfb708a2aa11e"
+checksum = "fe4cd85333e22411419a0bcae1297d25e58c9443848b11dc6a86fefe8c78a661"
 dependencies = [
  "equivalent",
  "hashbrown 0.15.4",
@@ -6762,14 +6761,14 @@ dependencies = [
 
 [[package]]
 name = "indicatif"
-version = "0.17.11"
+version = "0.17.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "183b3088984b400f4cfac3620d5e076c84da5364016b4f49473de574b2586235"
+checksum = "4adb2ee6ad319a912210a36e56e3623555817bcc877a7e6e8802d1d69c4d8056"
 dependencies = [
  "console",
- "number_prefix",
  "portable-atomic",
  "unicode-width 0.2.1",
+ "unit-prefix",
  "web-time",
 ]
 
@@ -7045,7 +7044,7 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ee7893dab2e44ae5f9d0173f26ff4aa327c10b01b06a72b52dd9405b628640d"
 dependencies = [
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
 ]
 
 [[package]]
@@ -8010,7 +8009,7 @@ dependencies = [
  "bitflags 2.9.1",
  "codespan-reporting",
  "hexf-parse",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "log",
  "num-traits",
  "rustc-hash 1.1.0",
@@ -8299,7 +8298,7 @@ dependencies = [
  "dirs-sys 0.4.1",
  "fancy-regex 0.14.0",
  "heck 0.5.0",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "log",
  "lru 0.12.5",
  "miette",
@@ -8507,12 +8506,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "number_prefix"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
-
-[[package]]
 name = "oauth2"
 version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8523,7 +8516,7 @@ dependencies = [
  "getrandom 0.2.16",
  "http 1.3.1",
  "rand 0.8.5",
- "reqwest 0.12.20",
+ "reqwest 0.12.21",
  "serde",
  "serde_json",
  "serde_path_to_error",
@@ -8572,8 +8565,9 @@ dependencies = [
  "percent-encoding",
  "quick-xml 0.37.5",
  "rand 0.9.0",
- "reqwest 0.12.20",
+ "reqwest 0.12.21",
  "ring 0.17.14",
+ "rustls-pemfile 2.2.0",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -9043,9 +9037,9 @@ dependencies = [
 
 [[package]]
 name = "parquet"
-version = "55.1.0"
+version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be7b2d778f6b841d37083ebdf32e33a524acde1266b5884a8ca29bf00dfa1231"
+checksum = "b17da4150748086bd43352bc77372efa9b6e3dbd06a04831d2a98c041c225cfa"
 dependencies = [
  "ahash 0.8.12",
  "arrow-array",
@@ -9178,7 +9172,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3672b37090dbd86368a4145bc067582552b29c27377cad4e0a306c97f9bd7772"
 dependencies = [
  "fixedbitset",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
 ]
 
 [[package]]
@@ -10271,9 +10265,9 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.12.20"
+version = "0.12.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eabf4c97d9130e2bf606614eb937e86edac8292eaa6f422f995d7e8de1eb1813"
+checksum = "4c8cea6b35bcceb099f30173754403d2eba0a5dc18cea3630fccd88251909288"
 dependencies = [
  "async-compression",
  "base64 0.22.1",
@@ -10281,7 +10275,7 @@ dependencies = [
  "encoding_rs",
  "futures-core",
  "futures-util",
- "h2 0.4.10",
+ "h2 0.4.11",
  "http 1.3.1",
  "http-body 1.0.1",
  "http-body-util",
@@ -10327,7 +10321,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "http 1.3.1",
- "reqwest 0.12.20",
+ "reqwest 0.12.21",
  "serde",
  "thiserror 1.0.69",
  "tower-service",
@@ -10346,7 +10340,7 @@ dependencies = [
  "http 1.3.1",
  "hyper 1.6.0",
  "parking_lot 0.11.2",
- "reqwest 0.12.20",
+ "reqwest 0.12.21",
  "reqwest-middleware",
  "retry-policies",
  "thiserror 1.0.69",
@@ -10450,7 +10444,7 @@ dependencies = [
 [[package]]
 name = "rmcp"
 version = "0.1.5"
-source = "git+https://github.com/modelcontextprotocol/rust-sdk#b9d7d61ebd6e8385cbc4aa105d4e25774fc1a59c"
+source = "git+https://github.com/modelcontextprotocol/rust-sdk#9ca20c69b27e531a5eadfd4b5654592ab93e2b11"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -10479,7 +10473,7 @@ dependencies = [
 [[package]]
 name = "rmcp-macros"
 version = "0.1.5"
-source = "git+https://github.com/modelcontextprotocol/rust-sdk#b9d7d61ebd6e8385cbc4aa105d4e25774fc1a59c"
+source = "git+https://github.com/modelcontextprotocol/rust-sdk#9ca20c69b27e531a5eadfd4b5654592ab93e2b11"
 dependencies = [
  "darling 0.20.11",
  "proc-macro2",
@@ -11042,6 +11036,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "schemars"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1375ba8ef45a6f15d83fa8748f1079428295d403d6ea991d09ab100155fbc06d"
+dependencies = [
+ "dyn-clone",
+ "ref-cast",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "schemars_derive"
 version = "0.8.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11250,7 +11256,7 @@ version = "1.0.140"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20068b6e96dc6c9bd23e01df8827e6c7e1f2fddd43c21810382803c136b99373"
 dependencies = [
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "itoa",
  "memchr",
  "ryu",
@@ -11333,16 +11339,17 @@ dependencies = [
 
 [[package]]
 name = "serde_with"
-version = "3.13.0"
+version = "3.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf65a400f8f66fb7b0552869ad70157166676db75ed8181f8104ea91cf9d0b42"
+checksum = "f2c45cd61fefa9db6f254525d46e392b852e0e61d9a1fd36e5bd183450a556d5"
 dependencies = [
  "base64 0.22.1",
  "chrono",
  "hex",
  "indexmap 1.9.3",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "schemars 0.9.0",
+ "schemars 1.0.3",
  "serde",
  "serde_derive",
  "serde_json",
@@ -11352,9 +11359,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with_macros"
-version = "3.13.0"
+version = "3.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81679d9ed988d5e9a5e6531dc3f2c28efbd639cbd1dfb628df08edea6004da77"
+checksum = "de90945e6565ce0d9a25098082ed4ee4002e047cb59892c318d66821e14bb30f"
 dependencies = [
  "darling 0.20.11",
  "proc-macro2",
@@ -11368,7 +11375,7 @@ version = "0.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "59e2dd588bf1597a252c3b920e0143eb99b0f76e4e082f4c92ce34fbc9e71ddd"
 dependencies = [
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "itoa",
  "libyml",
  "memchr",
@@ -11803,7 +11810,7 @@ dependencies = [
  "futures-util",
  "hashbrown 0.15.4",
  "hashlink 0.10.0",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "log",
  "memchr",
  "once_cell",
@@ -12204,7 +12211,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4740e53eaf68b101203c1df0937d5161a29f3c13bceed0836ddfe245b72dd000"
 dependencies = [
  "anyhow",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "serde",
  "serde_json",
  "swc_cached",
@@ -12316,7 +12323,7 @@ checksum = "65f21494e75d0bd8ef42010b47cabab9caaed8f2207570e809f6f4eb51a710d1"
 dependencies = [
  "better_scoped_tls",
  "bitflags 2.9.1",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "once_cell",
  "phf",
  "rustc-hash 1.1.0",
@@ -12385,7 +12392,7 @@ checksum = "76c76d8b9792ce51401d38da0fa62158d61f6d80d16d68fe5b03ce4bf5fba383"
 dependencies = [
  "base64 0.21.7",
  "dashmap 5.5.3",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "once_cell",
  "serde",
  "sha1",
@@ -12425,7 +12432,7 @@ version = "0.134.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "029eec7dd485923a75b5a45befd04510288870250270292fc2c1b3a9e7547408"
 dependencies = [
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "num_cpus",
  "once_cell",
  "rustc-hash 1.1.0",
@@ -13405,7 +13412,7 @@ version = "0.19.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b5bb770da30e5cbfde35a2d7b9b8a2c4b8ef89548a7a6aeab5c9a576e3e7421"
 dependencies = [
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "serde",
  "serde_spanned",
  "toml_datetime",
@@ -13418,7 +13425,7 @@ version = "0.22.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41fe8c660ae4257887cf66394862d21dbca4a6ddd26f04a3560410406a2f819a"
 dependencies = [
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "toml_datetime",
  "winnow 0.7.11",
 ]
@@ -13435,7 +13442,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "flate2",
- "h2 0.4.10",
+ "h2 0.4.11",
  "http 1.3.1",
  "http-body 1.0.1",
  "http-body-util",
@@ -13620,7 +13627,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba3beec919fbdf99d719de8eda6adae3281f8a5b71ae40431f44dc7423053d34"
 dependencies = [
  "loki-api",
- "reqwest 0.12.20",
+ "reqwest 0.12.21",
  "serde",
  "serde_json",
  "snap",
@@ -14034,6 +14041,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "unit-prefix"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "323402cff2dd658f39ca17c789b502021b3f18707c91cdf22e3838e1b4023817"
+
+[[package]]
 name = "universal-hash"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -14178,7 +14191,7 @@ checksum = "97599c400fc79925922b58303e98fcb8fa88f573379a08ddb652e72cbd2e70f6"
 dependencies = [
  "bitflags 2.9.1",
  "encoding_rs",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "num-bigint",
  "serde",
  "thiserror 1.0.69",
@@ -14471,7 +14484,7 @@ dependencies = [
  "cfg_aliases 0.1.1",
  "codespan-reporting",
  "document-features",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "log",
  "naga",
  "once_cell",
@@ -14616,7 +14629,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -14636,7 +14649,7 @@ dependencies = [
  "prometheus",
  "quote",
  "rand 0.9.0",
- "reqwest 0.12.20",
+ "reqwest 0.12.21",
  "rustls 0.23.28",
  "serde",
  "serde_json",
@@ -14668,7 +14681,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -14706,7 +14719,7 @@ dependencies = [
  "hmac",
  "http 1.3.1",
  "hyper 1.6.0",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "itertools 0.14.0",
  "jsonwebtoken 8.3.0",
  "lazy_static",
@@ -14728,7 +14741,7 @@ dependencies = [
  "rand 0.9.0",
  "rdkafka",
  "regex",
- "reqwest 0.12.20",
+ "reqwest 0.12.21",
  "rmcp",
  "rsa",
  "rumqttc",
@@ -14779,7 +14792,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -14794,7 +14807,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "chrono",
  "serde",
@@ -14807,7 +14820,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-autoscaling"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "serde",
@@ -14821,7 +14834,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -14845,7 +14858,7 @@ dependencies = [
  "hex",
  "hmac",
  "hyper 1.6.0",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "itertools 0.14.0",
  "jsonwebtoken 8.3.0",
  "lazy_static",
@@ -14863,7 +14876,7 @@ dependencies = [
  "quick_cache",
  "rand 0.9.0",
  "regex",
- "reqwest 0.12.20",
+ "reqwest 0.12.21",
  "reqwest-middleware",
  "reqwest-retry",
  "semver 1.0.26",
@@ -14898,7 +14911,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "regex",
  "serde",
@@ -14912,7 +14925,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -14935,7 +14948,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-macros"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "itertools 0.14.0",
  "lazy_static",
@@ -14947,7 +14960,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "convert_case 0.6.0",
  "serde",
@@ -14956,7 +14969,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -14968,7 +14981,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-csharp"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -14980,7 +14993,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -14992,7 +15005,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15004,7 +15017,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-java"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -15016,7 +15029,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-nu"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "nu-parser",
@@ -15027,7 +15040,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -15038,7 +15051,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -15049,7 +15062,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15072,7 +15085,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -15089,7 +15102,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15101,7 +15114,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15119,7 +15132,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "getrandom 0.2.16",
@@ -15143,7 +15156,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -15153,7 +15166,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15170,7 +15183,7 @@ dependencies = [
  "lazy_static",
  "prometheus",
  "regex",
- "reqwest 0.12.20",
+ "reqwest 0.12.21",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -15186,7 +15199,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -15196,7 +15209,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.501.4"
+version = "1.502.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15248,7 +15261,7 @@ dependencies = [
  "prometheus",
  "rand 0.9.0",
  "regex",
- "reqwest 0.12.20",
+ "reqwest 0.12.21",
  "reqwest-middleware",
  "rust_decimal",
  "serde",
@@ -16028,7 +16041,7 @@ dependencies = [
  "crc32fast",
  "crossbeam-utils",
  "displaydoc",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "num_enum",
  "thiserror 1.0.69",
 ]
