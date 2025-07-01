@@ -61,6 +61,8 @@
 	})
 
 	let forceJson = $state(false)
+
+	const logJob = $derived(testJob ?? selectedJob)
 </script>
 
 <Splitpanes horizontal>
@@ -110,14 +112,14 @@
 		{:else}
 			<LogViewer
 				small
-				jobId={selectedJob?.id}
-				duration={selectedJob?.['duration_ms']}
-				mem={selectedJob?.['mem_peak']}
-				content={selectedJob?.logs}
-				isLoading={(testIsLoading && selectedJob?.['running'] == false) ||
+				jobId={logJob?.id}
+				duration={logJob?.['duration_ms']}
+				mem={logJob?.['mem_peak']}
+				content={logJob?.logs}
+				isLoading={(testIsLoading && logJob?.['running'] == false) ||
 					fetchingLastJob ||
 					loadingHistory}
-				tag={selectedJob?.tag}
+				tag={logJob?.tag}
 			/>
 		{/if}
 	</Pane>
