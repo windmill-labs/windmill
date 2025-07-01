@@ -49,7 +49,7 @@ use anyhow::Context;
 use axum::{
     extract::{FromRequest, Json, Path, Query},
     response::{IntoResponse, Response},
-    routing::{delete, get, post},
+    routing::{get, post},
     Extension, Router,
 };
 use base64::Engine;
@@ -206,7 +206,7 @@ pub fn workspaced_service() -> Router {
         )
         .route(
             "/completed/delete/:id",
-            delete(delete_completed_job).layer(cors.clone()),
+            post(delete_completed_job).layer(cors.clone()),
         )
         .route(
             "/flow/resume/:id",

@@ -1,8 +1,7 @@
 <script lang="ts">
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { displayDate } from '$lib/utils'
-	import type { TruncatedToken } from '$lib/gen'
-	import { UserService } from '$lib/gen'
+	import { UserService, type TruncatedToken } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import CreateToken from './CreateToken.svelte'

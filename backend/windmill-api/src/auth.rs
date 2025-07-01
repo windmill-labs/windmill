@@ -503,7 +503,7 @@ fn transform_old_scope_to_new_scope(scopes: Option<&mut Vec<String>>) -> Windmil
                     "jobs:runscript" => "scripts:run",
                     "jobs:runflow" => "flows:run",
                     "jobs:resumeflow" => "flows:run",
-                    "jobs:deletejob" => "jobs:delete",
+                    "jobs:deletejob" => "jobs:write",
                     _ => continue,
                 };
 

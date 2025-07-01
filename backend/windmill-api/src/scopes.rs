@@ -62,7 +62,7 @@ impl ScopeDefinition {
             return false;
         }
 
-        if self.action != "admin" && self.action != other.action {
+        if self.action != other.action {
             return false;
         }
 
@@ -136,14 +136,12 @@ pub enum ScopeDomain {
     Acls,         // Granular access control lists
     RawApps,      // Raw application data
     AgentWorkers, // Agent workers management
-    JobsU,
 }
 
 impl ScopeDomain {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Jobs => "jobs",
-            Self::JobsU => "jobs_u",
             Self::Scripts => "scripts",
             Self::Flows => "flows",
             Self::Apps => "apps",
@@ -188,8 +186,7 @@ impl ScopeDomain {
 
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
-            "jobs" => Some(Self::Jobs),
-            "jobs_u" => Some(Self::JobsU),
+            "jobs" | "jobs_u" => Some(Self::Jobs),
             "scripts" => Some(Self::Scripts),
             "flows" => Some(Self::Flows),
             "apps" => Some(Self::Apps),
@@ -237,11 +234,9 @@ impl ScopeDomain {
 /// Available scope actions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ScopeAction {
-    Read,   // GET operations, list, view
-    Write,  // POST, PUT, PATCH operations, create, update
-    Delete, // DELETE operations
-    Run,    // Special action for running (scripts, flows, etc.)
-    Admin,  // Administrative operations within the domain
+    Read,  // GET operations, list, view
+    Write, // POST, PUT, PATCH, DELETE operations, create, update, delete
+    Run,   // Special action for running (scripts, flows, etc.)
 }
 
 impl ScopeAction {
@@ -249,9 +244,7 @@ impl ScopeAction {
         match self {
             Self::Read => "read",
             Self::Write => "write",
-            Self::Delete => "delete",
             Self::Run => "run",
-            Self::Admin => "admin",
         }
     }
 
@@ -259,18 +252,17 @@ impl ScopeAction {
         match s {
             "read" => Some(Self::Read),
             "write" => Some(Self::Write),
-            "delete" => Some(Self::Delete),
+            "delete" => Some(Self::Write), 
             "run" => Some(Self::Run),
-            "admin" => Some(Self::Admin),
             _ => None,
         }
     }
 
     /// Check if this action includes another action
-    /// Admin includes all actions
+    /// Write includes Read
     pub fn includes(&self, other: &ScopeAction) -> bool {
         match (self, other) {
-            (ScopeAction::Admin, _) => true,
+            (ScopeAction::Write, ScopeAction::Read) => true,
             (a, b) => a == b,
         }
     }
@@ -332,8 +324,7 @@ fn map_http_method_to_action(method: &str, route_path: &str) -> ScopeAction {
                 ScopeAction::Write
             }
         }
-        "PUT" | "PATCH" => ScopeAction::Write,
-        "DELETE" => ScopeAction::Delete,
+        "PUT" | "PATCH" | "DELETE" => ScopeAction::Write,
         _ => ScopeAction::Read,
     }
 }
@@ -459,11 +450,10 @@ mod tests {
 
     #[test]
     fn test_scope_action_hierarchy() {
-        assert!(ScopeAction::Admin.includes(&ScopeAction::Read));
-        assert!(ScopeAction::Admin.includes(&ScopeAction::Write));
-        assert!(ScopeAction::Admin.includes(&ScopeAction::Delete));
         assert!(ScopeAction::Write.includes(&ScopeAction::Read));
         assert!(!ScopeAction::Read.includes(&ScopeAction::Write));
+        assert!(!ScopeAction::Run.includes(&ScopeAction::Read));
+        assert!(!ScopeAction::Run.includes(&ScopeAction::Write));
     }
 
     #[test]
@@ -489,6 +479,7 @@ mod tests {
 
         assert!(check_route_access(&scopes, "/api/w/test_workspace/jobs/123", "GET").is_ok());
 
+        // DELETE now requires write permission, so it should still fail with read-only scope
         assert!(check_route_access(&scopes, "/api/w/test_workspace/jobs/123", "DELETE").is_err());
     }
 

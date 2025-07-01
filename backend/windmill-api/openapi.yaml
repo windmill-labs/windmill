@@ -1566,7 +1566,7 @@ paths:
                 type: string
 
   /w/{workspace}/workspaces/delete_invite:
-    delete:
+    post:
       summary: delete user invite
       operationId: delete invite
       tags:
@@ -2794,17 +2794,19 @@ paths:
 
   /tokens/list/scopes:
     get:
-      summary: get all available scopes grouped by category
-      operationId: ListGroupedTokenScopes
+      summary: list of available scopes
+      operationId: ListAvailableScopes
       tags:
         - token
       responses:
         "200":
-          description: grouped token scopes
+          description: list of available scopes
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GroupedScopesResponse"
+                type: array
+                items:
+                  $ref: "#/components/schemas/ScopeDomain"
 
   /users/tokens/create:
     post:
@@ -4753,7 +4755,7 @@ paths:
                 $ref: "#/components/schemas/Script"
 
   /w/{workspace}/scripts/delete/h/{hash}:
-    delete:
+    post:
       summary: delete script by hash (erase content but keep hash, require admin)
       operationId: deleteScriptByHash
       tags:
@@ -4770,7 +4772,7 @@ paths:
                 $ref: "#/components/schemas/Script"
 
   /w/{workspace}/scripts/delete/p/{path}:
-    delete:
+    post:
       summary: delete script at a given path (require admin)
       operationId: deleteScriptByPath
       tags:
@@ -7702,7 +7704,7 @@ paths:
                   - result
 
   /w/{workspace}/jobs/completed/delete/{id}:
-    delete:
+    post:
       summary: delete completed job (erase content but keep run id)
       operationId: deleteCompletedJob
       tags:
@@ -11838,7 +11840,7 @@ paths:
                 format: uuid
 
   /w/{workspace}/inputs/delete/{input}:
-    delete:
+    post:
       summary: Delete a Saved Input
       operationId: deleteInput
       tags:
@@ -16433,7 +16435,7 @@ components:
         - label
         - requires_resource_path
 
-    ScopeGroup:
+    ScopeDomain:
       type: object
       properties:
         name:
@@ -16449,15 +16451,6 @@ components:
         - name
         - scopes
 
-    GroupedScopesResponse:
-      type: object
-      properties:
-        groups:
-          type: array
-          items:
-            $ref: "#/components/schemas/ScopeGroup"
-      required:
-        - groups
 
     ListableRawApp:
       type: object

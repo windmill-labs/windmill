@@ -5,7 +5,7 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
-	import { UserService, IntegrationService, type NewToken } from '$lib/gen'
+	import { IntegrationService, UserService, type NewToken } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
 	import MultiSelect from '../select/MultiSelect.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'

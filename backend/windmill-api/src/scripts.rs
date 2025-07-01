@@ -23,7 +23,7 @@ use axum::extract::Multipart;
 use axum::{
     extract::{Extension, Path, Query},
     response::IntoResponse,
-    routing::{get, post, delete},
+    routing::{get, post},
     Json, Router,
 };
 use hyper::StatusCode;
@@ -145,8 +145,8 @@ pub fn workspaced_service() -> Router {
         .route("/raw_unpinned/p/*path", get(raw_script_by_path_unpinned))
         .route("/exists/p/*path", get(exists_script_by_path))
         .route("/archive/h/:hash", post(archive_script_by_hash))
-        .route("/delete/h/:hash", delete(delete_script_by_hash))
-        .route("/delete/p/*path", delete(delete_script_by_path))
+        .route("/delete/h/:hash", post(delete_script_by_hash))
+        .route("/delete/p/*path", post(delete_script_by_path))
         .route("/get/h/:hash", get(get_script_by_hash))
         .route("/raw/h/:hash", get(raw_script_by_hash))
         .route("/deployment_status/h/:hash", get(get_deployment_status))
