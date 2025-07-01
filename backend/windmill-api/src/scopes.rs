@@ -62,7 +62,7 @@ impl ScopeDefinition {
             return false;
         }
 
-        if self.action != other.action {
+        if self.action != "admin" && self.action != other.action {
             return false;
         }
 
@@ -315,6 +315,10 @@ pub fn check_route_access(
 }
 
 fn map_http_method_to_action(method: &str, route_path: &str) -> ScopeAction {
+    if route_path.contains("/resume/") || route_path.contains("/cancel/") {
+        return ScopeAction::Run;
+    }
+
     match method.to_uppercase().as_str() {
         "GET" | "HEAD" | "OPTIONS" => ScopeAction::Read,
         "POST" => {

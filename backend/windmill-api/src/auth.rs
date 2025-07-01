@@ -498,14 +498,16 @@ fn transform_old_scope_to_new_scope(scopes: Option<&mut Vec<String>>) -> Windmil
                 *scope = format!("{}s:run:{}", run_scope[1], run_scope[2]);
             } else if scope.starts_with("jobs:") {
                 // Map old jobs scopes to new format
-                match scope.as_str() {
-                    "jobs:listjobs" => *scope = "jobs:read".to_string(),
-                    "jobs:runscript" => *scope = "scripts:run".to_string(),
-                    "jobs:runflow" => *scope = "flows:run".to_string(),
-                    "jobs:resumeflow" => *scope = "flows:run".to_string(),
-                    "jobs:deletejob" => *scope = "jobs:delete".to_string(),
+                let new_scope = match scope.as_str() {
+                    "jobs:listjobs" => "jobs:read",
+                    "jobs:runscript" => "scripts:run",
+                    "jobs:runflow" => "flows:run",
+                    "jobs:resumeflow" => "flows:run",
+                    "jobs:deletejob" => "jobs:delete",
                     _ => continue,
-                }
+                };
+
+                *scope = new_scope.to_string();
             }
         }
     }
@@ -601,7 +603,7 @@ where
             }
         }
         BRUTE_FORCE_COUNTER.increment().await;
-        Err(Error::NotAuthorized("Invalid token".to_string()))
+        Err(Error::NotAuthorized("Unauthorized".to_string()))
     }
 }
 

@@ -63,7 +63,7 @@ fn trigger_scope_options_grouped() -> Vec<ScopeOption> {
     out
 }
 
-fn get_grouped_scopes() -> GroupedScopesResponse {
+fn get_scopes() -> GroupedScopesResponse {
     let groups = vec![
         ScopeGroup {
             name: "Scripts & Flows".to_string(),
@@ -185,7 +185,7 @@ fn get_grouped_scopes() -> GroupedScopesResponse {
                 ScopeOption {
                     value: "jobs_u:run".to_string(),
                     label: "Resume & Cancel Public Jobs".to_string(),
-                    description: Some("Run public jobs with limited permissions".to_string()),
+                    description: Some("Resume & Cancel Public Job".to_string()),
                     requires_resource_path: false,
                 },
             ],
@@ -640,12 +640,6 @@ fn get_grouped_scopes() -> GroupedScopesResponse {
                     requires_resource_path: false,
                 },
                 ScopeOption {
-                    value: "agent_workers:delete".to_string(),
-                    label: "Remove Agents & Blacklist Tokens".to_string(),
-                    description: Some("Remove agents and blacklist tokens".to_string()),
-                    requires_resource_path: false,
-                },
-                ScopeOption {
                     value: "agent_workers:admin".to_string(),
                     label: "Full Agent Worker Administration".to_string(),
                     description: Some(
@@ -746,12 +740,6 @@ fn get_grouped_scopes() -> GroupedScopesResponse {
                     requires_resource_path: false,
                 },
                 ScopeOption {
-                    value: "openapi:read".to_string(),
-                    label: "Get OpenAPI Specifications".to_string(),
-                    description: Some("Get OpenAPI specifications and generate docs".to_string()),
-                    requires_resource_path: false,
-                },
-                ScopeOption {
                     value: "openapi:write".to_string(),
                     label: "Generate & Download API Documentation".to_string(),
                     description: Some("Update and generate API documentation".to_string()),
@@ -761,7 +749,7 @@ fn get_grouped_scopes() -> GroupedScopesResponse {
                     value: "openapi:admin".to_string(),
                     label: "Full OpenAPI Administration".to_string(),
                     description: Some(
-                        "Complete access to all OpenAPI operations and system settings".to_string(),
+                        "Complete access to all OpenAPI operations".to_string(),
                     ),
                     requires_resource_path: false,
                 },
@@ -851,12 +839,6 @@ fn get_grouped_scopes() -> GroupedScopesResponse {
                     requires_resource_path: false,
                 },
                 ScopeOption {
-                    value: "acls:delete".to_string(),
-                    label: "Delete ACLs".to_string(),
-                    description: Some("Remove access control list entries".to_string()),
-                    requires_resource_path: false,
-                },
-                ScopeOption {
                     value: "acls:admin".to_string(),
                     label: "Full ACL Administration".to_string(),
                     description: Some(
@@ -932,7 +914,7 @@ fn get_grouped_scopes() -> GroupedScopesResponse {
 }
 
 pub fn global_service() -> Router {
-    Router::new().route("/list/grouped_scopes", get(get_grouped_available_scopes))
+    Router::new().route("/list/scopes", get(get_all_available_scopes))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -955,6 +937,6 @@ pub struct GroupedScopesResponse {
     pub groups: Vec<ScopeGroup>,
 }
 
-async fn get_grouped_available_scopes() -> JsonResult<GroupedScopesResponse> {
-    Ok(Json(get_grouped_scopes()))
+async fn get_all_available_scopes() -> JsonResult<GroupedScopesResponse> {
+    Ok(Json(get_scopes()))
 }
