@@ -178,16 +178,6 @@
 		flowStateStore && $flowStateStore && untrack(() => updateLastJob($flowStateStore))
 	})
 
-	let nlastJob = $derived.by(() => {
-		if (testJob) {
-			return { ...testJob, preview: true }
-		}
-		if (lastJob) {
-			return { ...lastJob, preview: false }
-		}
-		return undefined
-	})
-
 	let isConnectingCandidate = $derived(
 		!!id && !!$flowPropPickerConfig && !!pickableIds && Object.keys(pickableIds).includes(id)
 	)
@@ -444,7 +434,8 @@
 						prefix={'results'}
 						connectingData={isConnecting ? connectingData : undefined}
 						{mock}
-						lastJob={nlastJob}
+						{lastJob}
+						{testJob}
 						moduleId={id}
 						onSelect={selectConnection}
 						{onUpdateMock}
@@ -457,6 +448,7 @@
 						isLoading={testIsLoading ||
 							(id ? stepHistoryLoader?.stepStates[id]?.loadingJobs : false)}
 						initial={id ? stepHistoryLoader?.stepStates[id]?.initial : undefined}
+						onNewJob={(job) => (lastJob = job)}
 					/>
 				{/snippet}
 			</OutputPicker>

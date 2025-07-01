@@ -858,7 +858,10 @@
 											{testIsLoading}
 											disableMock={preprocessorModule || failureModule}
 											disableHistory={failureModule}
-											loadingHistory={stepHistoryLoader?.stepStates[flowModule.id]?.loadingJobs}
+											loadingJob={stepHistoryLoader?.stepStates[flowModule.id]?.loadingJobs}
+											onNewJob={(job) => {
+												lastJob = job
+											}}
 										/>
 									</Pane>
 								{/if}

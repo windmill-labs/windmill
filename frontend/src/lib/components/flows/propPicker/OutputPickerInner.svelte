@@ -56,7 +56,8 @@
 		rightMargin?: boolean
 		disableMock?: boolean
 		disableHistory?: boolean
-		lastJob?: SelectedJob
+		lastJob?: Job
+		testJob?: Job
 		derivedHistoryOpen?: boolean // derived from historyOpen
 		historyOffset?: any
 		clazz?: string
@@ -67,10 +68,12 @@
 		selectionId?: string
 		initial?: boolean
 		onResetInitial?: () => void
+		onNewJob?: (job: Job) => void
 	}
 
 	let {
 		lastJob = undefined,
+		testJob = undefined,
 		prefix = '',
 		allowCopy = false,
 		connectingData = undefined,
@@ -99,7 +102,8 @@
 		onUpdateMock,
 		onEditInput,
 		selectionId,
-		initial
+		initial,
+		onNewJob
 	}: Props = $props()
 
 	type SelectedJob =
@@ -130,25 +134,25 @@
 		}
 	}
 
-	function selectJob(job: SelectedJob | undefined) {
-		if (job && 'result' in job) {
+	function selectJob(nJob: SelectedJob | undefined) {
+		if (nJob && 'result' in nJob) {
+			selectedJob = nJob
+		} else if (job && 'result' in job) {
 			selectedJob = job
-		} else if (lastJob && 'result' in lastJob) {
-			selectedJob = lastJob
 		} else {
 			selectedJob = undefined
 		}
 	}
 
 	$effect(() => {
-		if (!lastJob || !('result' in lastJob)) {
+		if (!job || !('result' in job)) {
 			return
 		}
-		selectJob(lastJob)
+		selectJob(job)
 
-		if (lastJob.preview && mock?.enabled) {
+		if (job.preview && mock?.enabled) {
 			preview = 'job'
-			lastJob.preview = false
+			job.preview = false
 		}
 	})
 
@@ -254,6 +258,22 @@
 		}
 	})
 
+	let job = $derived.by(() => {
+		if (testJob) {
+			return { ...testJob, preview: testJob.type === 'CompletedJob' }
+		}
+		if (lastJob) {
+			return { ...lastJob, preview: false }
+		}
+		return undefined
+	})
+
+	$effect(() => {
+		if (testJob && testJob.type === 'CompletedJob') {
+			untrack(() => onNewJob?.($state.snapshot(testJob)))
+		}
+	})
+
 	let popoverHeight = $derived(customHeight ?? (clientHeight > 0 ? clientHeight : 0))
 
 	const isLoadingAndNotMock = $derived(isLoading && !mock?.enabled)
@@ -324,7 +344,7 @@
 											togglePreview('mock')
 											return
 										}
-										if (detail.id === lastJob?.id && !mock?.enabled) {
+										if (detail.id === job?.id && !mock?.enabled) {
 											togglePreview(undefined)
 											return
 										}
@@ -363,7 +383,7 @@
 					<div
 						class={twMerge(
 							'w-grow min-w-0 flex gap-1 items-center h-[27px] rounded-md  group',
-							preview || selectedJob?.id !== lastJob?.id ? 'p-[2px] bg-surface-secondary' : ''
+							preview || selectedJob?.id !== job?.id ? 'p-[2px] bg-surface-secondary' : ''
 						)}
 					>
 						{#if loopStatus?.type === 'self'}
@@ -399,7 +419,7 @@
 								job={selectedJob}
 								class={twMerge(
 									'min-w-16 text-secondary',
-									preview || selectedJob?.id !== lastJob?.id ? 'bg-surface shadow-sm h-[23px]' : ''
+									preview || selectedJob?.id !== job?.id ? 'bg-surface shadow-sm h-[23px]' : ''
 								)}
 							/>
 						{/if}
@@ -686,7 +706,7 @@
 						pureViewer={false}
 					/>
 				{/if}
-			{:else if !lastJob}
+			{:else if !job}
 				<div class="flex flex-col items-center justify-center h-full">
 					<p class="text-xs text-secondary">
 						Test this step to see results{#if !disableMock}
