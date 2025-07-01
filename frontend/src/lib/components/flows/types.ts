@@ -79,5 +79,9 @@ export type FlowEditorContext = {
 	customUi: FlowBuilderWhitelabelCustomUi
 	insertButtonOpen: Writable<boolean>
 	executionCount: Writable<number>
-	selectedAssetStore: StateStore<Asset | undefined>
 }
+
+export type FlowGraphAssetContext = StateStore<{
+	selectedAsset: Asset | undefined
+	assetsMap?: Record<string, Asset[]> // Maps module ids to their assets
+}>

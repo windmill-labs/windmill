@@ -15,11 +15,7 @@
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI'
-	import { getAllModules } from './flowExplorer'
-	import { inferAssets } from '$lib/infer'
-	import { parseAsset } from '../assets/lib'
-	import OnChange from '../common/OnChange.svelte'
-	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	interface Props {
 		loading: boolean
@@ -143,18 +139,3 @@
 		{/if}
 	</Splitpanes>
 </div>
-
-{#each getAllModules(flowStore.val.value.modules) as mod}
-	{#if mod.value.type === 'rawscript'}
-		{@const v = mod.value}
-		<OnChange
-			key={v.content}
-			onChange={() =>
-				inferAssets(v.language, v.content).then((assetsRaw) => {
-					$flowStateStore[mod.id].assetsCache = assetsRaw
-						.map((asset) => parseAsset(asset))
-						.filter((a) => !!a)
-				})}
-		/>
-	{/if}
-{/each}

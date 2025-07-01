@@ -3,17 +3,18 @@
 	import type { AssetN } from '../../graphBuilder.svelte'
 	import { Pyramid } from 'lucide-svelte'
 	import { assetEq, formatAsset } from '$lib/components/assets/lib'
-	import { getContext } from 'svelte'
-	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { twMerge } from 'tailwind-merge'
+	import type { FlowGraphAssetContext } from '$lib/components/flows/types'
+	import { getContext } from 'svelte'
 
 	interface Props {
 		data: AssetN['data']
 	}
 
-	const { selectedAssetStore } = getContext<FlowEditorContext>('FlowEditorContext') ?? {}
+	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext>('FlowGraphAssetContext')
+
 	let { data }: Props = $props()
-	const isSelected = $derived(assetEq(selectedAssetStore.val, data.asset))
+	const isSelected = $derived(assetEq(flowGraphAssetsCtx.val.selectedAsset, data.asset))
 </script>
 
 <NodeWrapper>
@@ -24,8 +25,8 @@
 				'bg-surface py-1 px-1.5 flex gap-1.5 rounded-sm text-tertiary border',
 				isSelected ? 'bg-surface-hover border-surface-inverse' : 'border-transparent'
 			)}
-			onmouseenter={() => (selectedAssetStore.val = data.asset)}
-			onmouseleave={() => (selectedAssetStore.val = undefined)}
+			onmouseenter={() => (flowGraphAssetsCtx.val.selectedAsset = data.asset)}
+			onmouseleave={() => (flowGraphAssetsCtx.val.selectedAsset = undefined)}
 		>
 			<Pyramid size={16} class="shrink-0" />
 			<span class="text-3xs truncate">

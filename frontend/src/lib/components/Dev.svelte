@@ -431,7 +431,6 @@
 	}
 
 	const flowStateStore = writable({} as FlowState)
-	const selectedAssetStore = $state({ val: undefined })
 
 	const previewArgsStore = $state({ val: {} })
 	const scriptEditorDrawer = writable(undefined)
@@ -470,8 +469,7 @@
 			editPanelSize: undefined,
 			payloadData: undefined
 		}),
-		currentEditor: writable(undefined),
-		selectedAssetStore
+		currentEditor: writable(undefined)
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),

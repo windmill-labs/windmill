@@ -37,7 +37,7 @@
 	import { Expand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
-	import { encodeState } from '$lib/utils'
+	import { encodeState, readFieldsRecursively } from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
 	import HiddenBaseEdge from './renderers/edges/HiddenBaseEdge.svelte'
@@ -51,17 +51,16 @@
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
 	import { deepEqual } from 'fast-equals'
 	import ViewportResizer from './ViewportResizer.svelte'
-	import type { FlowEditorContext } from '../flows/types'
 	import AssetNode from './renderers/nodes/AssetNode.svelte'
-	import { formatAsset } from '../assets/lib'
+	import { formatAsset, parseAsset, type Asset } from '../assets/lib'
+	import type { FlowGraphAssetContext } from '../flows/types'
+	import { getAllModules } from '../flows/flowExplorer'
+	import { inferAssets } from '$lib/infer'
+	import OnChange from '../common/OnChange.svelte'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
 	const triggerContext = getContext<TriggerContext>('TriggerContext')
-
-	const flowEditorContextOpt: FlowEditorContext | undefined =
-		getContext<FlowEditorContext>('FlowEditorContext')
-	const flowStateStoreOpt = flowEditorContextOpt.flowStateStore
 
 	let fullWidth = 0
 	let width = $state(0)
@@ -171,6 +170,15 @@
 		})
 	}
 
+	const assetsCtx: FlowGraphAssetContext = $state({
+		val: {
+			assetsMap: {} as Record<string, Asset[]>,
+			selectedAsset: undefined
+		}
+	})
+	setContext<FlowGraphAssetContext>('FlowGraphAssetContext', assetsCtx)
+	const assetsMap = $derived(assetsCtx.val.assetsMap)
+
 	function computeSimplifiableFlow(modules: FlowModule[], simplifiedFlow: boolean) {
 		const isSimplif = isSimplifiable(modules)
 		simplifiableFlow = isSimplif ? { simplifiedFlow } : undefined
@@ -229,7 +237,7 @@
 				.coord(coordCenter())
 				.nodeSize((d) => {
 					const id: string | undefined = d?.data?.['id'] ?? ''
-					const assetOffset = $flowStateStoreOpt?.[id]?.assetsCache?.length ? 100 : 0
+					const assetOffset = assetsMap?.[id]?.length ? 100 : 0
 					return [
 						(nodeWidths[id] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
 						NODE.height + NODE.gap.vertical + assetOffset
@@ -271,7 +279,7 @@
 		const ASSET_WIDTH = 180
 		const ASSET_Y_OFFSET = 55
 		return nodes.flatMap((node) => {
-			const assets = $flowStateStoreOpt?.[node.id]?.assetsCache
+			const assets = assetsMap?.[node.id]
 			const assetNodes = assets?.map(
 				(asset, assetIdx) =>
 					({
@@ -476,7 +484,8 @@
 		)
 	})
 	$effect(() => {
-		;(graph || allowSimplifiedPoll) && untrack(() => updateStores())
+		;[graph, allowSimplifiedPoll]
+		untrack(() => updateStores())
 	})
 	let showDataflow = $derived(
 		$selectedId != undefined &&
@@ -597,6 +606,19 @@
 		</SvelteFlowProvider>
 	{/if}
 </div>
+
+{#each getAllModules(modules) as mod}
+	{#if mod.value.type === 'rawscript'}
+		{@const v = mod.value}
+		<OnChange
+			key={v.content}
+			onChange={() =>
+				inferAssets(v.language, v.content).then((assetsRaw) => {
+					if (assetsMap) assetsMap[mod.id] = assetsRaw.map(parseAsset).filter((a) => !!a)
+				})}
+		/>
+	{/if}
+{/each}
 
 <style lang="postcss">
 	:global(.svelte-flow__handle) {
