@@ -141,7 +141,8 @@ pub fn workspaced_service() -> Router {
             post(acknowledge_all_critical_alerts),
         )
         .route("/critical_alerts/mute", post(mute_critical_alerts))
-        .route("/operator_settings", post(update_operator_settings));
+        .route("/operator_settings", post(update_operator_settings))
+        .route("/fork_info", get(get_fork_info));
 
     #[cfg(all(feature = "stripe", feature = "enterprise"))]
     {
@@ -157,6 +158,7 @@ pub fn global_service() -> Router {
         .route("/list", get(list_workspaces))
         .route("/users", get(user_workspaces))
         .route("/create", post(create_workspace))
+        .route("/fork/:workspace_id", post(fork_workspace))
         .route("/exists", post(exists_workspace))
         .route("/exists_username", post(exists_username))
         .route("/allowed_domain_auto_invite", get(is_allowed_auto_domain))
@@ -308,6 +310,15 @@ struct CreateWorkspace {
     name: String,
     username: Option<String>,
     color: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ForkWorkspace {
+    id: String,
+    name: String,
+    username: Option<String>,
+    color: Option<String>,
+    description: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1612,6 +1623,202 @@ async fn create_workspace(
     Ok(format!("Created workspace {}", &nw.id))
 }
 
+async fn fork_workspace(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(parent_workspace_id): Path<String>,
+    Json(fw): Json<ForkWorkspace>,
+) -> Result<String> {
+    // Check if user has permission to fork the parent workspace
+    // For now, we'll require admin access to the parent workspace
+    let parent_workspace = sqlx::query!(
+        "SELECT id, name, owner FROM workspace WHERE id = $1 AND deleted = false",
+        parent_workspace_id
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    let parent_workspace = not_found_if_none(parent_workspace, "workspace", &parent_workspace_id)?;
+
+    // TODO: Add proper permission check - for now, only allow workspace owner or super admin
+    let is_super_admin = sqlx::query_scalar!(
+        "SELECT super_admin FROM password WHERE email = $1",
+        &authed.email
+    )
+    .fetch_optional(&db)
+    .await?
+    .unwrap_or(false);
+
+    if parent_workspace.owner != authed.email && !is_super_admin {
+        return Err(Error::BadRequest(
+            "You must be the workspace owner or super admin to fork this workspace".to_string(),
+        ));
+    }
+
+    // Apply same restrictions as create_workspace
+    if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
+        require_super_admin(&db, &authed.email).await?;
+    }
+
+    #[cfg(not(feature = "enterprise"))]
+    _check_nb_of_workspaces(&db).await?;
+
+    if *CLOUD_HOSTED {
+        let nb_workspaces = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM workspace WHERE owner = $1",
+            authed.email
+        )
+        .fetch_one(&db)
+        .await?;
+        if nb_workspaces.unwrap_or(0) >= 10 {
+            return Err(Error::BadRequest(
+                "You have reached the maximum number of workspaces (10) on cloud. Contact support@windmill.dev to increase the limit"
+                    .to_string(),
+            ));
+        }
+    }
+
+    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+
+    // Check for workspace ID conflicts
+    check_w_id_conflict(&mut tx, &fw.id).await?;
+
+    // Create the forked workspace using the same logic as create_workspace
+    sqlx::query!(
+        "INSERT INTO workspace (id, name, owner) VALUES ($1, $2, $3)",
+        fw.id,
+        fw.name,
+        authed.email,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO workspace_settings (workspace_id, color) VALUES ($1, $2)",
+        fw.id,
+        fw.color,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    let key = rd_string(64);
+    sqlx::query!(
+        "INSERT INTO workspace_key (workspace_id, kind, key) VALUES ($1, 'cloud', $2)",
+        fw.id,
+        &key
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Handle username creation
+    let automate_username_creation = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        AUTOMATE_USERNAME_CREATION_SETTING,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .map(|v| v.as_bool())
+    .flatten()
+    .unwrap_or(false);
+
+    let username = if automate_username_creation {
+        if fw.username.is_some() && fw.username.unwrap().len() > 0 {
+            return Err(Error::BadRequest(
+                "username is not allowed when username creation is automated".to_string(),
+            ));
+        }
+        get_instance_username_or_create_pending(&mut tx, &authed.email).await?
+    } else {
+        fw.username
+            .ok_or(Error::BadRequest("username is required".to_string()))?
+    };
+
+    // Create admin user and default group
+    sqlx::query!(
+        "INSERT INTO usr (workspace_id, email, username, is_admin) VALUES ($1, $2, $3, true)",
+        fw.id,
+        authed.email,
+        username,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO group_ VALUES ($1, 'all', 'The group that always contains all users of this workspace')",
+        fw.id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO usr_to_group VALUES ($1, 'all', $2)",
+        fw.id,
+        username
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Create default folders (same as create_workspace)
+    sqlx::query!(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_themes', 'App Themes', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
+        fw.id,
+        username,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_custom', 'App Custom Components', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
+        fw.id,
+        username,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_groups', 'App Groups', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
+        fw.id,
+        username,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO resource (workspace_id, path, value, description, resource_type, created_by, edited_at) VALUES ($1, 'f/app_themes/theme_0', '{\"name\": \"Default Theme\", \"value\": \"\"}', 'The default app theme', 'app_theme', $2, now()) ON CONFLICT DO NOTHING",
+        fw.id,
+        username,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Record the fork relationship
+    sqlx::query!(
+        "INSERT INTO workspace_fork (fork_workspace_id, parent_workspace_id, created_by, fork_point) VALUES ($1, $2, $3, NOW())",
+        fw.id,
+        parent_workspace_id,
+        authed.email,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Copy or reference resources from parent workspace
+    crate::workspace_fork::copy_workspace_resources(&mut tx, &parent_workspace_id, &fw.id).await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.fork",
+        ActionKind::Create,
+        &fw.id,
+        Some(&format!("Forked from {}", parent_workspace_id)),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+    Ok(format!("Forked workspace {} from {}", &fw.id, &parent_workspace_id))
+}
+
 async fn edit_workspace(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -2206,4 +2413,12 @@ async fn update_operator_settings(
     tx.commit().await?;
 
     Ok("Operator settings updated successfully".to_string())
+}
+
+async fn get_fork_info(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Option<crate::workspace_fork::WorkspaceFork>> {
+    let fork_info = crate::workspace_fork::get_fork_info(&db, &w_id).await?;
+    Ok(Json(fork_info))
 }

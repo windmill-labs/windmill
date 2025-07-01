@@ -195,6 +195,7 @@ pub mod workspaces_ee;
 mod workspaces_export;
 mod workspaces_extra;
 mod workspaces_oss;
+mod workspace_fork;
 
 #[cfg(feature = "mcp")]
 mod mcp;

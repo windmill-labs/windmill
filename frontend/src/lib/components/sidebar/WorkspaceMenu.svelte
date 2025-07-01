@@ -8,7 +8,7 @@
 		workspaceUsageStore,
 		workspaceColor
 	} from '$lib/stores'
-	import { Building, Plus, Settings } from 'lucide-svelte'
+	import { Building, Plus, Settings, GitFork } from 'lucide-svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
 	import { goto } from '$lib/navigation'
@@ -116,6 +116,19 @@
 					>
 						<Plus size={16} />
 						Workspace
+					</a>
+				</div>
+			{/if}
+			{#if ($userStore?.is_admin || $superadmin) && !strictWorkspaceSelect && $workspaceStore}
+				<div class="py-1" role="none">
+					<a
+						href="{base}/user/fork_workspace/{$workspaceStore}"
+						class="text-primary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2"
+						role="menuitem"
+						tabindex="-1"
+					>
+						<GitFork size={16} />
+						Fork workspace
 					</a>
 				</div>
 			{/if}
