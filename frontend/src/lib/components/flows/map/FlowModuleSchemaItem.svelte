@@ -175,7 +175,11 @@
 	}
 
 	$effect(() => {
-		flowStateStore && $flowStateStore && untrack(() => updateLastJob($flowStateStore))
+		if (testJob && testJob.type === 'CompletedJob') {
+			lastJob = $state.snapshot(testJob)
+		} else if (flowStateStore && $flowStateStore) {
+			untrack(() => updateLastJob($flowStateStore))
+		}
 	})
 
 	let isConnectingCandidate = $derived(
@@ -448,7 +452,6 @@
 						isLoading={testIsLoading ||
 							(id ? stepHistoryLoader?.stepStates[id]?.loadingJobs : false)}
 						initial={id ? stepHistoryLoader?.stepStates[id]?.initial : undefined}
-						onNewJob={(job) => (lastJob = job)}
 					/>
 				{/snippet}
 			</OutputPicker>

@@ -25,7 +25,6 @@
 		disableHistory?: boolean
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		loadingJob?: boolean
-		onNewJob?: (job: Job) => void
 	}
 
 	let {
@@ -41,8 +40,7 @@
 		disableMock = false,
 		disableHistory = false,
 		onUpdateMock,
-		loadingJob = false,
-		onNewJob
+		loadingJob = false
 	}: Props = $props()
 
 	const { testSteps } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -84,7 +82,6 @@
 			{loopStatus}
 			{disableMock}
 			{disableHistory}
-			{onNewJob}
 		>
 			{#snippet copilot_fix()}
 				{#if lang && editor && diffEditor && testSteps.getStepArgs(mod.id) && selectedJob?.type === 'CompletedJob' && !selectedJob.success && getStringError(selectedJob.result)}

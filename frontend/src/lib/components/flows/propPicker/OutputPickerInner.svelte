@@ -68,7 +68,6 @@
 		selectionId?: string
 		initial?: boolean
 		onResetInitial?: () => void
-		onNewJob?: (job: Job) => void
 	}
 
 	let {
@@ -102,8 +101,7 @@
 		onUpdateMock,
 		onEditInput,
 		selectionId,
-		initial,
-		onNewJob
+		initial
 	}: Props = $props()
 
 	type SelectedJob =
@@ -266,12 +264,6 @@
 			return { ...lastJob, preview: false }
 		}
 		return undefined
-	})
-
-	$effect(() => {
-		if (testJob && testJob.type === 'CompletedJob') {
-			untrack(() => onNewJob?.($state.snapshot(testJob)))
-		}
 	})
 
 	let popoverHeight = $derived(customHeight ?? (clientHeight > 0 ? clientHeight : 0))
