@@ -62,7 +62,7 @@
 		selected && untrack(() => updateSelected())
 	})
 
-	let lastSelected: string | undefined = $state(undefined)
+	let lastSelected: string | undefined = $state(selected)
 	$effect(() => {
 		if ($selectedStore !== untrack(() => lastSelected)) {
 			lastSelected = $selectedStore

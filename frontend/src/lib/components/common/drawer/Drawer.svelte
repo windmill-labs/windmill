@@ -21,7 +21,7 @@
 	}
 
 	let {
-		open = $bindable(false),
+		open = $bindable(undefined),
 		duration = 0.3,
 		placement = 'right',
 		size = '600px',
@@ -34,6 +34,10 @@
 		positionClass = undefined,
 		children
 	}: Props = $props()
+
+	if (open === undefined) {
+		open = false
+	}
 
 	let disposable: Disposable | undefined = $state(undefined)
 
@@ -75,7 +79,7 @@
 	}
 
 	$effect(() => {
-		scrollLock(open)
+		scrollLock(open ?? false)
 	})
 
 	$effect(() => {
