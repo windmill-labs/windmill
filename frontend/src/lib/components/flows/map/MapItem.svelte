@@ -246,6 +246,7 @@
 					inputTransform={mod.value.type !== 'identity' ? mod.value.input_transforms : undefined}
 					{onTestUpTo}
 					{onEditInput}
+					enableTestRun
 				>
 					{#snippet icon()}
 						<div>

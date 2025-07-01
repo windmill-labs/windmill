@@ -76,6 +76,7 @@
 		inputTransform?: Record<string, any> | undefined
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		onEditInput?: (moduleId: string, key: string) => void
+		enableTestRun?: boolean
 	}
 
 	let {
@@ -106,7 +107,8 @@
 		onTestUpTo,
 		inputTransform,
 		onUpdateMock,
-		onEditInput
+		onEditInput,
+		enableTestRun = false
 	}: Props = $props()
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
@@ -465,7 +467,7 @@
 		<div
 			class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-2 h-9 min-w-14"
 		>
-			{#if (hover || selected) && outputPickerVisible}
+			{#if (hover || selected) && outputPickerVisible && enableTestRun}
 				<div transition:fade={{ duration: 100 }}>
 					{#if !testIsLoading}
 						<Button
