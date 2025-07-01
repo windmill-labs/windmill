@@ -87,6 +87,12 @@
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
+
+	let conditionalModuleStates = writable<Record<string, GraphModuleState>>({})
+	$effect(() => {
+		conditionalModuleStates.set(showModuleStatus ? $localModuleStates : {})
+	})
+
 	export async function insertNewModuleAtIndex(
 		modules: FlowModule[],
 		index: number,
@@ -363,7 +369,7 @@
 			editMode
 			{onTestUpTo}
 			{onEditInput}
-			flowModuleStates={showModuleStatus ? $localModuleStates : undefined}
+			flowModuleStates={$conditionalModuleStates}
 			{waitingJob}
 			{isOwner}
 			onDelete={(id) => {
