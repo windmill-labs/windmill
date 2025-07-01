@@ -4,6 +4,8 @@
 	import type { ContextElement } from './context'
 	import AvailableContextList from './AvailableContextList.svelte'
 	import { aiChatManager } from './AIChatManager.svelte'
+	import Portal from '$lib/components/Portal.svelte'
+	import { zIndexes } from '$lib/zIndexes'
 
 	interface Props {
 		availableContext: ContextElement[]
@@ -361,22 +363,24 @@
 </div>
 
 {#if showContextTooltip}
-	<div
-		bind:this={tooltipElement}
-		class="absolute bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50"
-		style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px;"
-	>
-		<AvailableContextList
-			{availableContext}
-			{selectedContext}
-			onSelect={(element) => {
-				handleContextSelection(element)
-			}}
-			showAllAvailable={true}
-			stringSearch={contextTooltipWord.slice(1)}
-			selectedIndex={selectedSuggestionIndex}
-		/>
-	</div>
+	<Portal target="body">
+		<div
+			bind:this={tooltipElement}
+			class="absolute bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg"
+			style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px; z-index: {zIndexes.tooltip};"
+		>
+			<AvailableContextList
+				{availableContext}
+				{selectedContext}
+				onSelect={(element) => {
+					handleContextSelection(element)
+				}}
+				showAllAvailable={true}
+				stringSearch={contextTooltipWord.slice(1)}
+				selectedIndex={selectedSuggestionIndex}
+			/>
+		</div>
+	</Portal>
 {/if}
 
 <style>
