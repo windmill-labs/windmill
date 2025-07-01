@@ -124,7 +124,7 @@
 								{formatAsset(asset)}
 							</svelte:fragment>
 						</Tooltip>
-						<span class="text-xs text-tertiary">
+						<span class="text-xs text-tertiary select-none">
 							{liSubtitle?.(asset)}
 						</span>
 					</div>
