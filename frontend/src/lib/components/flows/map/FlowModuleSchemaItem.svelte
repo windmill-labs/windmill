@@ -175,17 +175,11 @@
 	}
 
 	$effect(() => {
-		flowStateStore && $flowStateStore && untrack(() => updateLastJob($flowStateStore))
-	})
-
-	let nlastJob = $derived.by(() => {
-		if (testJob) {
-			return { ...testJob, preview: true }
+		if (testJob && testJob.type === 'CompletedJob') {
+			lastJob = $state.snapshot(testJob)
+		} else if (flowStateStore && $flowStateStore) {
+			untrack(() => updateLastJob($flowStateStore))
 		}
-		if (lastJob) {
-			return { ...lastJob, preview: false }
-		}
-		return undefined
 	})
 
 	let isConnectingCandidate = $derived(
@@ -444,7 +438,8 @@
 						prefix={'results'}
 						connectingData={isConnecting ? connectingData : undefined}
 						{mock}
-						lastJob={nlastJob}
+						{lastJob}
+						{testJob}
 						moduleId={id}
 						onSelect={selectConnection}
 						{onUpdateMock}
