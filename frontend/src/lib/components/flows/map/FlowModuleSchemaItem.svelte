@@ -76,6 +76,7 @@
 		inputTransform?: Record<string, any> | undefined
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		onEditInput?: (moduleId: string, key: string) => void
+		enableTestRun?: boolean
 	}
 
 	let {
@@ -106,7 +107,8 @@
 		onTestUpTo,
 		inputTransform,
 		onUpdateMock,
-		onEditInput
+		onEditInput,
+		enableTestRun = false
 	}: Props = $props()
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
@@ -462,56 +464,58 @@
 	</div>
 
 	{#if deletable && !action}
-		<div
-			class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-2 h-9 min-w-14"
-		>
-			{#if (hover || selected) && outputPickerVisible}
-				<div transition:fade={{ duration: 100 }}>
-					{#if !testIsLoading}
-						<Button
-							size="sm"
-							color="dark"
-							title="Run"
-							btnClasses="p-1.5"
-							on:click={() => {
-								outputPicker?.toggleOpen(true)
-								moduleTest?.loadArgsAndRunTest()
-							}}
-							dropdownItems={[
-								{
-									label: 'Test up to here',
-									onClick: () => {
-										if (id) {
-											onTestUpTo?.(id)
+		{#if enableTestRun}
+			<div
+				class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-2 h-9 min-w-14"
+			>
+				{#if (hover || selected) && outputPickerVisible}
+					<div transition:fade={{ duration: 100 }}>
+						{#if !testIsLoading}
+							<Button
+								size="sm"
+								color="dark"
+								title="Run"
+								btnClasses="p-1.5"
+								on:click={() => {
+									outputPicker?.toggleOpen(true)
+									moduleTest?.loadArgsAndRunTest()
+								}}
+								dropdownItems={[
+									{
+										label: 'Test up to here',
+										onClick: () => {
+											if (id) {
+												onTestUpTo?.(id)
+											}
 										}
 									}
-								}
-							]}
-							dropdownBtnClasses="!w-4 px-1"
-						>
-							{#if testIsLoading}
-								<Loader2 size={12} class="animate-spin" />
-							{:else}
-								<Play size={12} />
-							{/if}
-						</Button>
-					{:else}
-						<Button
-							size="xs"
-							color="red"
-							variant="contained"
-							btnClasses="!h-[25.5px] !w-[44.5px] !p-1.5 gap-0.5"
-							on:click={async () => {
-								moduleTest?.cancelJob()
-							}}
-						>
-							<Loader2 size={10} class="animate-spin mr-0.5" />
-							<X size={14} />
-						</Button>
-					{/if}
-				</div>
-			{/if}
-		</div>
+								]}
+								dropdownBtnClasses="!w-4 px-1"
+							>
+								{#if testIsLoading}
+									<Loader2 size={12} class="animate-spin" />
+								{:else}
+									<Play size={12} />
+								{/if}
+							</Button>
+						{:else}
+							<Button
+								size="xs"
+								color="red"
+								variant="contained"
+								btnClasses="!h-[25.5px] !w-[44.5px] !p-1.5 gap-0.5"
+								on:click={async () => {
+									moduleTest?.cancelJob()
+								}}
+							>
+								<Loader2 size={10} class="animate-spin mr-0.5" />
+								<X size={14} />
+							</Button>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		{/if}
 		<button
 			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
 outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-red-400 hover:text-white
