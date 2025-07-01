@@ -72,7 +72,7 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { createEventDispatcher, onMount, setContext, untrack } from 'svelte'
+	import { onMount, setContext, untrack } from 'svelte'
 	import Summary from './Summary.svelte'
 	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
@@ -116,6 +116,14 @@
 		savedPrimarySchedule?: ScheduleTrigger | undefined
 		functionExports?: ((exports: ScriptBuilderFunctionExports) => void) | undefined
 		children?: import('svelte').Snippet
+		onDeploy?: (e: { path: string; hash: string }) => void
+		onDeployError?: (e: { path: string; error: any }) => void
+		onSaveInitial?: (e: { path: string; hash: string }) => void
+		onHistoryRestore?: () => void
+		onSaveDraftOnlyAtNewPath?: (e: { path: string }) => void
+		onSaveDraft?: (e: { path: string; savedAtNewPath: boolean; script: NewScript }) => void
+		onSeeDetails?: (e: { path: string }) => void
+		onSaveDraftError?: (e: { path: string; error: any }) => void
 	}
 
 	let {
@@ -135,7 +143,13 @@
 		customUi = {},
 		savedPrimarySchedule = undefined,
 		functionExports = undefined,
-		children
+		children,
+		onDeploy,
+		onDeployError,
+		onSaveInitial,
+		onSeeDetails,
+		onSaveDraftError,
+		onSaveDraft
 	}: Props = $props()
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
@@ -209,8 +223,6 @@
 		])
 		loadTriggers()
 	}
-
-	const dispatch = createEventDispatcher()
 
 	onMount(() => {
 		if (functionExports) {
@@ -573,10 +585,10 @@
 				script.parent_hash = newHash
 				sendUserToast('Deployed')
 			} else {
-				dispatch('deploy', newHash)
+				onDeploy?.({ path: script.path, hash: newHash })
 			}
 		} catch (error) {
-			dispatch('deployError', error)
+			onDeployError?.({ path: script.path, error })
 			sendUserToast(`Error while saving the script: ${error.body || error.message}`, true)
 		}
 		loadingSave = false
@@ -629,7 +641,7 @@
 			} catch (error) {
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
-
+			let newHash = ''
 			if (initialPath == '' || savedScript?.draft_only) {
 				if (savedScript?.draft_only) {
 					await ScriptService.deleteScriptByPath({
@@ -649,7 +661,7 @@
 						runnableKind: 'script'
 					})
 				}
-				await ScriptService.createScript({
+				newHash = await ScriptService.createScript({
 					workspace: $workspaceStore!,
 					requestBody: {
 						path: script.path,
@@ -709,9 +721,9 @@
 			if (initialPath == '' || (savedScript?.draft_only && script.path !== initialPath)) {
 				savedAtNewPath = true
 				initialPath = script.path
-				dispatch('saveInitial', script.path)
+				onSaveInitial?.({ path: script.path, hash: newHash })
 			}
-			dispatch('saveDraft', { path: script.path, savedAtNewPath, script })
+			onSaveDraft?.({ path: script.path, savedAtNewPath, script })
 
 			sendUserToast('Saved as draft')
 		} catch (error) {
@@ -719,7 +731,7 @@
 				`Error while saving the script as a draft: ${error.body || error.message}`,
 				true
 			)
-			dispatch('saveDraftError', error)
+			onSaveDraftError?.({ path: script.path, error })
 		}
 		loadingDraft = false
 	}
@@ -777,7 +789,7 @@
 									{
 										label: 'Exit & See details',
 										onClick: () => {
-											dispatch('seeDetails', initialPath)
+											onSeeDetails?.({ path: initialPath })
 										}
 									}
 								]

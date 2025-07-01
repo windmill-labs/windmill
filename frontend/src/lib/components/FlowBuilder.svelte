@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import {
 		FlowService,
 		type Flow,
@@ -56,7 +54,6 @@
 		type Icon,
 		Settings
 	} from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import { type FlowCopilotContext } from './copilot/flow'
@@ -124,6 +121,12 @@
 			savedAtNewPath: boolean
 			newFlow: boolean
 		}) => void
+		onSaveDraftError?: ({ error }: { error: any }) => void
+		onSaveDraftOnlyAtNewPath?: ({ path, selectedId }: { path: string; selectedId: string }) => void
+		onDeploy?: ({ path }: { path: string }) => void
+		onDeployError?: ({ error }: { error: any }) => void
+		onDetails?: ({ path }: { path: string }) => void
+		onHistoryRestore?: () => void
 	}
 
 	let {
@@ -147,7 +150,15 @@
 		selectedTriggerIndexFromUrl = undefined,
 		children,
 		loadedFromHistoryFromUrl,
-		noInitial = false
+		noInitial = false,
+		onSaveInitial,
+		onSaveDraft,
+		onDeploy,
+		onDeployError,
+		onDetails,
+		onSaveDraftError,
+		onSaveDraftOnlyAtNewPath,
+		onHistoryRestore
 	}: Props = $props()
 
 	let initialPathStore = writable(initialPath)
@@ -228,8 +239,6 @@
 			onLatest = true
 		}
 	}
-
-	const dispatch = createEventDispatcher()
 
 	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule) // kept for legacy reasons
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
@@ -361,18 +370,18 @@
 
 			let savedAtNewPath = false
 			if (newFlow) {
-				dispatch('saveInitial', $pathStore)
+				onSaveInitial?.({ path: $pathStore, id: getSelectedId() })
 			} else if (savedFlow?.draft_only && $pathStore !== initialPath) {
 				savedAtNewPath = true
 				initialPath = $pathStore
+				onSaveDraftOnlyAtNewPath?.({ path: $pathStore, selectedId: getSelectedId() })
 				// this is so we can use the flow builder outside of sveltekit
-				dispatch('saveDraftOnlyAtNewPath', { path: $pathStore, selectedId: getSelectedId() })
 			}
-			dispatch('saveDraft', { path: $pathStore, savedAtNewPath, newFlow })
+			onSaveDraft?.({ path: $pathStore, savedAtNewPath, newFlow })
 			sendUserToast('Saved as draft')
 		} catch (error) {
 			sendUserToast(`Error while saving the flow as a draft: ${error.body || error.message}`, true)
-			dispatch('saveDraftError', error)
+			onSaveDraftError?.({ error })
 		}
 		loadingDraft = false
 	}
@@ -542,9 +551,10 @@
 			} as Flow
 			setDraftTriggers([])
 			loadingSave = false
-			dispatch('deploy', $pathStore)
+			onDeploy?.({ path: $pathStore })
 		} catch (err) {
-			dispatch('deployError', err)
+			onDeployError?.({ error: err })
+			// this is so we can use the flow builder outside of sveltekit
 			sendUserToast(`The flow could not be saved: ${err.body ?? err}`, true)
 			loadingSave = false
 		}
@@ -738,7 +748,7 @@
 		if (savedFlow?.draft_only === false || savedFlow?.draft_only === undefined) {
 			dropdownItems.push({
 				label: 'Exit & see details',
-				onClick: () => dispatch('details', $pathStore)
+				onClick: () => onDetails?.({ path: $pathStore })
 			})
 		}
 
@@ -853,28 +863,28 @@
 	let forceTestTab: Record<string, boolean> = $state({})
 	let highlightArg: Record<string, string | undefined> = $state({})
 
-	run(() => {
+	$effect.pre(() => {
 		initialPathStore.set(initialPath)
 	})
-	run(() => {
+	$effect.pre(() => {
 		setContext('customUi', customUi)
 	})
-	run(() => {
+	$effect.pre(() => {
 		if (flowStore.val || $selectedIdStore) {
 			readFieldsRecursively(flowStore.val)
 			untrack(() => saveSessionDraft())
 		}
 	})
-	run(() => {
+	$effect.pre(() => {
 		initialPath && ($pathStore = initialPath)
 	})
-	run(() => {
+	$effect.pre(() => {
 		selectedId && untrack(() => select(selectedId))
 	})
-	run(() => {
+	$effect.pre(() => {
 		initialPath && initialPath != '' && $workspaceStore && untrack(() => loadTriggers())
 	})
-	run(() => {
+	$effect.pre(() => {
 		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasDiff() ?? false
 		customUi && untrack(() => onCustomUiChange(customUi, hasAiDiff))
 	})
@@ -942,7 +952,7 @@
 {#key renderCount}
 	{#if !$userStore?.operator}
 		{#if $pathStore}
-			<FlowHistory bind:this={flowHistory} path={$pathStore} on:historyRestore />
+			<FlowHistory bind:this={flowHistory} path={$pathStore} {onHistoryRestore} />
 		{/if}
 		<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 		<FlowImportExportMenu bind:drawer={jsonViewerDrawer} />

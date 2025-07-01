@@ -79,7 +79,7 @@
 		| undefined = $state(undefined)
 
 	let flowBuilder: FlowBuilder | undefined = $state(undefined)
-
+	let notFound = $state(false)
 	async function loadFlow(): Promise<void> {
 		console.log('loadFlow')
 		loading = true
@@ -93,7 +93,13 @@
 					workspace: $workspaceStore!,
 					path: statePath
 				})
-			).id
+			)?.id
+
+			if (version == undefined) {
+				notFound = true
+				sendUserToast(`Flow not found at path ${statePath}`, true)
+				return
+			}
 
 			savedFlow = await FlowService.getFlowByPathWithDraft({
 				workspace: $workspaceStore!,
@@ -262,38 +268,44 @@
 <!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
-<FlowBuilder
-	on:deploy={(e) => {
-		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
-	}}
-	on:details={(e) => {
-		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
-	}}
-	on:saveDraftOnlyAtNewPath={(e) => {
-		const { path, selectedId } = e.detail
-		goto(`/flows/edit/${path}?selected=${selectedId}`)
-	}}
-	on:historyRestore={() => {
-		loadFlow()
-	}}
-	{flowStore}
-	{flowStateStore}
-	initialPath={$page.params.path}
-	newFlow={false}
-	{selectedId}
-	{initialArgs}
-	{loading}
-	bind:this={flowBuilder}
-	bind:savedFlow
-	{diffDrawer}
-	{savedPrimarySchedule}
-	{draftTriggersFromUrl}
-	{selectedTriggerIndexFromUrl}
-	{version}
-	{loadedFromHistoryFromUrl}
->
-	<UnsavedConfirmationModal
+{#if notFound}
+	<div class="flex flex-col items-center justify-center h-full">
+		<h1 class="text-2xl font-bold">Flow not found at path {$page.params.path}</h1>
+		<p class="text-gray-500">The flow you are looking for does not exist.</p>
+	</div>
+{:else}
+	<FlowBuilder
+		onDeploy={(e) => {
+			goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
+		}}
+		onDetails={(e) => {
+			goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
+		}}
+		onSaveDraftOnlyAtNewPath={(e) => {
+			goto(`/flows/edit/${e.path}?selected=${e.selectedId}`)
+		}}
+		onHistoryRestore={() => {
+			loadFlow()
+		}}
+		{flowStore}
+		{flowStateStore}
+		initialPath={$page.params.path}
+		newFlow={false}
+		{selectedId}
+		{initialArgs}
+		{loading}
+		bind:this={flowBuilder}
+		bind:savedFlow
 		{diffDrawer}
-		getInitialAndModifiedValues={flowBuilder?.getInitialAndModifiedValues}
-	/>
-</FlowBuilder>
+		{savedPrimarySchedule}
+		{draftTriggersFromUrl}
+		{selectedTriggerIndexFromUrl}
+		{version}
+		{loadedFromHistoryFromUrl}
+	>
+		<UnsavedConfirmationModal
+			{diffDrawer}
+			getInitialAndModifiedValues={flowBuilder?.getInitialAndModifiedValues}
+		/>
+	</FlowBuilder>
+{/if}

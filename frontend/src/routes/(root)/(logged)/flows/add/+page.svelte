@@ -163,14 +163,14 @@
 <!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
 
 <FlowBuilder
-	on:saveInitial={(e) => {
-		goto(`/flows/edit/${e.detail}?selected=${flowBuilder?.getSelectedId?.()}`)
+	onSaveInitial={(e) => {
+		goto(`/flows/edit/${e.path}?selected=${e.id}`)
 	}}
-	on:deploy={(e) => {
-		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
+	onDeploy={(e) => {
+		goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
 	}}
-	on:details={(e) => {
-		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
+	onDetails={(e) => {
+		goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
 	}}
 	{initialPath}
 	{pathStoreInit}

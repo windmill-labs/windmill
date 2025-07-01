@@ -1,11 +1,10 @@
 {
 	"name": "windmill-components",
-	"version": "1.501.4",
+	"version": "1.501.14",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
 		"preview": "vite preview",
-		"postinstall": "node scripts/untar_ui_builder.js && node scripts/patch_files.js",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --threshold warning",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --ignore-path .gitignore --check --plugin-search-dir=. . && eslint --ignore-path .gitignore .",
@@ -161,7 +160,7 @@
 		"zod-to-json-schema": "^3.24.5"
 	},
 	"peerDependencies": {
-		"svelte": "^4.0.0"
+		"svelte": "^5.0.0"
 	},
 	"exports": {
 		"./package.json": "./package.json",
@@ -170,6 +169,14 @@
 			"svelte": "./dist/index.js"
 		},
 		"./assets/app.css": "./package/assets/app.css",
+		"./components/custom_ui": {
+			"types": "./package/components/custom_ui.d.ts",
+			"default": "./package/components/custom_ui.js"
+		},
+		"./components/scriptBuilder": {
+			"types": "./package/components/scriptBuilder.d.ts",
+			"default": "./package/components/scriptBuilder.js"
+		},
 		"./components/TestJobLoader.svelte": {
 			"types": "./package/components/TestJobLoader.svelte.d.ts",
 			"svelte": "./package/components/TestJobLoader.svelte",
@@ -519,6 +526,12 @@
 			],
 			"tailwindUtils": [
 				"./package/components/apps/editor/componentsPanel/tailwindUtils.d.ts"
+			],
+			"components/scriptBuilder": [
+				"./package/components/scriptBuilder.d.ts"
+			],
+			"components/custom_ui": [
+				"./package/components/custom_ui.d.ts"
 			]
 		}
 	},
