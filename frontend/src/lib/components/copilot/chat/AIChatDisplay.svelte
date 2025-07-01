@@ -208,67 +208,68 @@
 		>
 			<div class="flex flex-col" bind:clientHeight={height}>
 				{#each messages as message, messageIndex}
-					{#if message.role === 'user' && message.contextElements}
-						<div class="flex flex-row gap-1 mb-1 overflow-scroll no-scrollbar px-2">
-							{#each message.contextElements as element}
-								<ContextElementBadge contextElement={element} />
-							{/each}
-						</div>
-					{/if}
-					<div
-						class={twMerge(
-							'text-sm py-1 mx-2',
-							message.role === 'user' &&
-								'px-2 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 rounded-lg mb-2 relative group',
-							message.role === 'user' && messageIndex > 0 && 'mt-6',
-							(message.role === 'assistant' || message.role === 'tool') && 'px-[1px]',
-							message.role === 'tool' && 'text-tertiary'
-						)}
-					>
-						{#if message.role === 'assistant'}
-							<AssistantMessage {message} />
-						{:else}
-							{message.content}
+					<div class={twMerge(message.role === 'user' && messageIndex > 0 && 'mt-6', 'mb-2')}>
+						{#if message.role === 'user' && message.contextElements}
+							<div class="flex flex-row gap-1 mb-1 overflow-scroll no-scrollbar px-2">
+								{#each message.contextElements as element}
+									<ContextElementBadge contextElement={element} />
+								{/each}
+							</div>
 						{/if}
+						<div
+							class={twMerge(
+								'text-sm py-1 mx-2',
+								message.role === 'user' &&
+									'px-2 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 rounded-lg relative group',
+								(message.role === 'assistant' || message.role === 'tool') && 'px-[1px]',
+								message.role === 'tool' && 'text-tertiary'
+							)}
+						>
+							{#if message.role === 'assistant'}
+								<AssistantMessage {message} />
+							{:else}
+								{message.content}
+							{/if}
 
-						{#if message.role === 'user' && isLastUserMessage(messageIndex) && !aiChatManager.loading}
+							{#if message.role === 'user' && isLastUserMessage(messageIndex) && !aiChatManager.loading}
+								<div
+									class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity"
+								>
+									<Button
+										size="xs2"
+										variant="border"
+										color="light"
+										iconOnly
+										title="Restart generation"
+										startIcon={{ icon: RefreshCwIcon }}
+										btnClasses="!p-1 !h-6 !w-6"
+										on:click={() => restartGeneration(messageIndex)}
+									/>
+								</div>
+							{/if}
+						</div>
+						{#if message.role === 'user' && message.snapshot}
 							<div
-								class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity"
+								class="mx-2 text-sm text-tertiary flex flex-row items-center justify-between gap-2 mt-2"
 							>
+								Saved a flow snapshot
 								<Button
 									size="xs2"
 									variant="border"
 									color="light"
-									iconOnly
-									title="Restart generation"
-									startIcon={{ icon: RefreshCwIcon }}
-									btnClasses="!p-1 !h-6 !w-6"
-									on:click={() => restartGeneration(messageIndex)}
-								/>
+									on:click={() => {
+										if (message.snapshot) {
+											aiChatManager.flowAiChatHelpers?.revertToSnapshot(message.snapshot)
+										}
+									}}
+									title="Revert to snapshot"
+									startIcon={{ icon: Undo2Icon }}
+								>
+									Revert
+								</Button>
 							</div>
 						{/if}
 					</div>
-					{#if message.role === 'user' && message.snapshot}
-						<div
-							class="mx-2 text-sm text-tertiary flex flex-row items-center justify-between gap-2 mb-2"
-						>
-							Saved a flow snapshot
-							<Button
-								size="xs2"
-								variant="border"
-								color="light"
-								on:click={() => {
-									if (message.snapshot) {
-										aiChatManager.flowAiChatHelpers?.revertToSnapshot(message.snapshot)
-									}
-								}}
-								title="Revert to snapshot"
-								startIcon={{ icon: Undo2Icon }}
-							>
-								Revert
-							</Button>
-						</div>
-					{/if}
 				{/each}
 				{#if aiChatManager.loading && !aiChatManager.currentReply}
 					<div class="mb-6 py-1 px-2">
