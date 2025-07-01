@@ -3656,16 +3656,8 @@ pub async fn push<'c, 'd>(
             None,
             None,
         ),
-        JobPayload::RawFlowDependencies { path, flow_value, use_local_lockfiles: _, raw_deps } => {
-            // Add raw_deps to args if present
-            if let Some(raw_deps) = raw_deps {
-                // args.as_mut().map(|args_map| {
-                //     args_map.insert(
-                //         "raw_deps".to_string(),
-                //         to_raw_value(&raw_deps)
-                //     );
-                // });
-            }
+        JobPayload::RawFlowDependencies { path, flow_value, use_local_lockfiles: _, raw_deps: _ } => {
+            // raw_deps is now passed via args parameter from the API layer
             (
             None,
             Some(path),

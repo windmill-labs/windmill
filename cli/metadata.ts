@@ -431,12 +431,14 @@ export async function updateFlow(
     const goDeps = findClosestRawReqs("go", remotePath, globalDeps);
     const phpDeps = findClosestRawReqs("php", remotePath, globalDeps);
 
+    console.log(pythonReqs);
+
     // Collect all found dependencies
     const rawDeps: Record<string, string> = {};
 
     if (pythonReqs) {
       log.info(colors.blue(`Found Python requirements.txt for ${remotePath}`));
-      rawDeps.python = pythonReqs;
+      rawDeps.python3 = pythonReqs;
     }
 
     if (nodeDeps) {

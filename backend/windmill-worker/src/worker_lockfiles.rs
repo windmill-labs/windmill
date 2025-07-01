@@ -690,8 +690,7 @@ pub async fn handle_flow_dependency_job(
                 .flatten()
         })
         .flatten();
-        
-    // Extract raw_deps if available
+
     let raw_deps = job
         .args
         .as_ref()
@@ -702,6 +701,7 @@ pub async fn handle_flow_dependency_job(
         })
         .flatten();
 
+    dbg!(&raw_deps);
     // `JobKind::FlowDependencies` job store either:
     // - A saved flow version `id` in the `script_hash` column.
     // - Preview raw flow in the `queue` or `job` table.
@@ -1135,7 +1135,8 @@ async fn lock_modules<'c>(
 
         // Check if we have a predefined lockfile in raw_deps for this language
         if let Some(ref deps) = raw_deps {
-            if let Some(lockfile) = deps.get(language.as_str()) {
+            if let Some(lockfile) = deps.get(dbg!(language.as_str())) {
+                dbg!("YAY!");
                 // Use the predefined lockfile for this language
                 e.value = windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
                     lock: Some(lockfile.clone()),
