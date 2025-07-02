@@ -56,6 +56,7 @@
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import AssetsDropdownButton from '$lib/components/assets/AssetsDropdownButton.svelte'
 	import { inferAssets } from '$lib/infer'
+	import { assetEq } from '$lib/components/assets/lib'
 
 	const {
 		selectedId,
@@ -415,7 +416,23 @@
 									{#key flowModule.id}
 										<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
 											{#if assets.value?.length}
-												<AssetsDropdownButton assets={assets.value} />
+												<AssetsDropdownButton
+													assets={assets.value}
+													accessTypeOverrides={flowModule.value.asset_access_type_overrides}
+													onAccessTypeChanged={async (asset, access_type) => {
+														if (flowModule.value.type !== 'rawscript') return
+														flowModule.value.asset_access_type_overrides =
+															flowModule.value.asset_access_type_overrides?.filter(
+																(a) => !assetEq(a, asset)
+															)
+														flowModule.value.asset_access_type_overrides ??= []
+														await tick()
+														flowModule.value.asset_access_type_overrides.push({
+															...asset,
+															access_type
+														})
+													}}
+												/>
 											{/if}
 										</div>
 										<Editor

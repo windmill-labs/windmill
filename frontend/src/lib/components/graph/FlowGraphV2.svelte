@@ -73,7 +73,7 @@
 		READ_ASSET_Y_OFFSET,
 		WRITE_ASSET_Y_OFFSET
 	} from '../flows/utils'
-	import { formatAsset } from '../assets/lib'
+	import { assetEq, formatAsset } from '../assets/lib'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -741,10 +741,16 @@
 	{#if mod.value.type === 'rawscript'}
 		{@const v = mod.value}
 		<OnChange
-			key={v.content}
+			key={[v.content, v.asset_access_type_overrides]}
 			runFirstEffect
 			onChange={() =>
 				inferAssets(v.language, v.content).then((assets) => {
+					for (const override of v.asset_access_type_overrides ?? []) {
+						assets = assets.map((asset) => {
+							if (assetEq(asset, override)) return { ...asset, access_type: override.access_type }
+							return asset
+						})
+					}
 					if (assetsMap && !deepEqual(assetsMap[mod.id], assets)) assetsMap[mod.id] = assets
 				})}
 		/>

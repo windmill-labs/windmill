@@ -8,15 +8,17 @@
 	import ExploreAssetButton, {
 		assetCanBeExplored
 	} from '../../../routes/(root)/(logged)/assets/ExploreAssetButton.svelte'
-	import { formatAsset, type Asset, type AssetWithAccessType } from './lib'
+	import { assetEq, formatAsset, type Asset, type AssetWithAccessType } from './lib'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import { untrack } from 'svelte'
-	import { ResourceService } from '$lib/gen'
+	import { ResourceService, type AssetUsageAccessType } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import Button from '../common/button/Button.svelte'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import type { Placement } from '@floating-ui/core'
+	import Select from '../select/Select.svelte'
+	import { safeSelectItems } from '../select/utils.svelte'
 
 	let {
 		assets,
@@ -25,8 +27,10 @@
 		noBtnText = false,
 		popoverPlacement = 'bottom-end',
 		disableLiTooltip = false,
+		accessTypeOverrides,
 		onHoverLi,
-		liSubtitle
+		liSubtitle,
+		onAccessTypeChanged
 	}: {
 		assets: AssetWithAccessType[]
 		enableChangeAnimation?: boolean
@@ -34,8 +38,10 @@
 		noBtnText?: boolean
 		popoverPlacement?: Placement
 		disableLiTooltip?: boolean
+		accessTypeOverrides?: AssetWithAccessType[]
 		onHoverLi?: (asset: Asset, eventType: 'enter' | 'leave') => void
 		liSubtitle?: (asset: Asset) => string
+		onAccessTypeChanged?: (asset: AssetWithAccessType, accessType: AssetUsageAccessType) => void
 	} = $props()
 
 	let prevAssets = $state<typeof assets>([])
@@ -153,6 +159,20 @@
 								onClick={() => (isOpen = false)}
 								noText
 								_resourceMetadata={{ resource_type: resourceDataCache[asset.path] }}
+							/>
+						{/if}
+						{#if onAccessTypeChanged}
+							<Select
+								disablePortal
+								items={safeSelectItems(['r', 'w', 'rw'])}
+								bind:value={
+									() =>
+										accessTypeOverrides?.find((a) => assetEq(a, asset))?.access_type ??
+										asset.access_type,
+									(a) => {
+										a && onAccessTypeChanged?.(asset, a)
+									}
+								}
 							/>
 						{/if}
 					</div>
