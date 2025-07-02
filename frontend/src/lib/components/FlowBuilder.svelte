@@ -46,7 +46,7 @@
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
-	import { cleanInputs } from './flows/utils'
+	import { cleanInputs, type previewContext } from './flows/utils'
 	import {
 		Calendar,
 		Pen,
@@ -952,6 +952,8 @@
 	$effect(() => {
 		job && jobObserver(job)
 	})
+
+	setContext<previewContext>('previewContext', { getJob: () => job })
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
