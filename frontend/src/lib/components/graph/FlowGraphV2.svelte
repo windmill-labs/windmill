@@ -262,12 +262,8 @@
 					let assetAdditionalHeight = 0
 					if (assetsMap?.[id]?.some((a) => a.accessType === 'read'))
 						assetAdditionalHeight += NODE_WITH_READ_ASSET_Y_OFFSET
-
 					if (assetsMap?.[id]?.some((a) => a.accessType === 'write'))
 						assetAdditionalHeight += NODE_WITH_WRITE_ASSET_Y_OFFSET
-
-					console.log('assetAdditionalHeight', assetAdditionalHeight)
-
 					return [
 						(nodeWidths[id] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
 						NODE.height + NODE.gap.vertical + assetAdditionalHeight
@@ -320,22 +316,28 @@
 
 		for (const node of newNodes) {
 			const assets = assetsMap?.[node.id]
-			const assetNodes: (Node & AssetN)[] | undefined = assets?.map(
-				({ asset, accessType }, assetIdx) =>
-					({
-						id: `${node.id}-asset-${formatAsset(asset)}`,
-						type: 'asset',
-						data: { asset, accessType },
-						position: {
-							x:
-								(ASSET_WIDTH + ASSET_X_GAP) * (assetIdx - assets.length / 2) +
-								(NODE.width + ASSET_X_GAP) / 2,
-							y: accessType === 'read' ? READ_ASSET_Y_OFFSET : WRITE_ASSET_Y_OFFSET
-						},
-						parentId: node.id,
-						width: ASSET_WIDTH
-					}) satisfies Node & AssetN
-			)
+			let [readAssetIdx, writeAssetIdx] = [0, 0]
+			let [readAssetCount, writeAssetCount] = [
+				assets?.filter((a) => a.accessType === 'read').length ?? 0,
+				assets?.filter((a) => a.accessType === 'write').length ?? 0
+			]
+			const assetNodes: (Node & AssetN)[] | undefined = assets?.map(({ asset, accessType }) => {
+				const assetIdx = accessType === 'read' ? readAssetIdx++ : writeAssetIdx++
+				const accessTypeTotal = accessType === 'read' ? readAssetCount : writeAssetCount
+				return {
+					id: `${node.id}-asset-${formatAsset(asset)}`,
+					type: 'asset',
+					data: { asset, accessType },
+					position: {
+						x:
+							(ASSET_WIDTH + ASSET_X_GAP) * (assetIdx - accessTypeTotal / 2) +
+							(NODE.width + ASSET_X_GAP) / 2,
+						y: accessType === 'read' ? READ_ASSET_Y_OFFSET : WRITE_ASSET_Y_OFFSET
+					},
+					parentId: node.id,
+					width: ASSET_WIDTH
+				} satisfies Node & AssetN
+			})
 
 			if (assetNodes?.length) {
 				if (assetNodes.every((n) => n.data.accessType === 'read')) {
