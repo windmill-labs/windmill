@@ -213,7 +213,8 @@
 		)
 	}
 
-	const NODE_WITH_ASSET_OFFSET_TOP = 45
+	const NODE_WITH_READ_ASSET_Y_OFFSET = 45
+	const NODE_WITH_WRITE_ASSET_Y_OFFSET = 60
 
 	let lastNodes: [NodeLayout[], Node[], assetsMap: any] | undefined = undefined
 	function layoutNodes(nodes: NodeLayout[]): Node[] {
@@ -255,7 +256,7 @@
 				.coord(coordCenter())
 				.nodeSize((d) => {
 					const id: string | undefined = d?.data?.['id'] ?? ''
-					const assetOffsetTop = assetsMap?.[id]?.length ? NODE_WITH_ASSET_OFFSET_TOP : 0
+					const assetOffsetTop = assetsMap?.[id]?.length ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0
 					return [
 						(nodeWidths[id] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
 						NODE.height + NODE.gap.vertical + assetOffsetTop
@@ -296,7 +297,8 @@
 	function computeAssetNodes(nodes: Node[], edges: Edge[]): [Node[], Edge[]] {
 		const ASSET_X_GAP = 20
 		const ASSET_WIDTH = 180
-		const ASSET_TOP_OFFSET = 45
+		const READ_ASSET_Y_OFFSET = -45
+		const WRITE_ASSET_Y_OFFSET = 58
 
 		const allAssetNodes: (Node & AssetN)[] = []
 		const allAssetEdges: Edge[] = []
@@ -305,29 +307,35 @@
 		// If node at yPosition 310.5 has asset nodes on the top, every node
 		// at the same yPosition will need to get shifted by the same amount for everything
 		// to align
-		const yPosAccessTypeMap: Record<number, 'read'> = {}
+		const yPosAccessTypeMap: Record<number, 'read' | 'write' | 'rw'> = {}
 
 		for (const node of newNodes) {
 			const assets = assetsMap?.[node.id]
-			const assetNodes = assets?.map(
+			const assetNodes: (Node & AssetN)[] | undefined = assets?.map(
 				(asset, assetIdx) =>
 					({
 						id: `${node.id}-asset-${formatAsset(asset)}`,
 						type: 'asset',
-						data: { asset, accessType: 'read' },
+						data: { asset, accessType: 'write' },
 						position: {
 							x:
 								(ASSET_WIDTH + ASSET_X_GAP) * (assetIdx - assets.length / 2) +
 								(NODE.width + ASSET_X_GAP) / 2,
-							y: -ASSET_TOP_OFFSET
+							y: WRITE_ASSET_Y_OFFSET
 						},
 						parentId: node.id,
 						width: ASSET_WIDTH
 					}) satisfies Node & AssetN
 			)
 
-			if (assets?.length) {
-				yPosAccessTypeMap[node.position.y] = 'read'
+			if (assetNodes?.length) {
+				if (assetNodes.every((n) => n.data.accessType === 'read')) {
+					yPosAccessTypeMap[node.position.y] = 'read'
+				} else if (assetNodes.every((n) => n.data.accessType === 'write')) {
+					yPosAccessTypeMap[node.position.y] = 'write'
+				} else {
+					yPosAccessTypeMap[node.position.y] = 'rw'
+				}
 			}
 
 			const assetEdges = assetNodes?.map((n) => {
@@ -361,7 +369,9 @@
 			if (node.position.y in yPosAccessTypeMap) {
 				const accessType = yPosAccessTypeMap[node.position.y]
 				if (accessType === 'read') {
-					node.position.y = node.position.y + NODE_WITH_ASSET_OFFSET_TOP / 2
+					node.position.y = node.position.y + NODE_WITH_READ_ASSET_Y_OFFSET / 2
+				} else if (accessType === 'write') {
+					node.position.y = node.position.y - NODE_WITH_WRITE_ASSET_Y_OFFSET / 2
 				}
 			}
 		}
