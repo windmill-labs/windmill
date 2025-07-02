@@ -59,6 +59,7 @@
 	import OnChange from '../common/OnChange.svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
+	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -178,6 +179,7 @@
 			selectedAsset: undefined,
 			dbManagerDrawer: undefined,
 			s3FilePicker: undefined,
+			resourceEditorDrawer: undefined,
 			resourceMetadataCache: {}
 		}
 	})
@@ -354,7 +356,6 @@
 			allAssetNodes.push(...(assetNodes ?? []))
 		}
 
-		console.log('yPosAccessTypeMap', yPosAccessTypeMap)
 		// Fix y positions of all nodes that were shifted by layoutNodes
 		for (const node of newNodes) {
 			if (node.position.y in yPosAccessTypeMap) {
@@ -670,6 +671,7 @@
 
 <S3FilePicker bind:this={flowGraphAssetsCtx.val.s3FilePicker} readOnlyMode />
 <DbManagerDrawer bind:this={flowGraphAssetsCtx.val.dbManagerDrawer} />
+<ResourceEditorDrawer bind:this={flowGraphAssetsCtx.val.resourceEditorDrawer} />
 
 <style lang="postcss">
 	:global(.svelte-flow__handle) {

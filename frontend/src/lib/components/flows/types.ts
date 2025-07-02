@@ -11,6 +11,7 @@ import type { TestSteps } from './testSteps.svelte'
 import type { Asset } from '../assets/lib'
 import type S3FilePicker from '../S3FilePicker.svelte'
 import type DbManagerDrawer from '../DBManagerDrawer.svelte'
+import type ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 
 export type FlowInput = Record<
 	string,
@@ -88,6 +89,7 @@ export type FlowGraphAssetContext = StateStore<{
 	assetsMap?: Record<string, Asset[]> // Maps module ids to their assets
 	s3FilePicker: S3FilePicker | undefined
 	dbManagerDrawer: DbManagerDrawer | undefined
+	resourceEditorDrawer: ResourceEditorDrawer | undefined
 	// Maps resource paths to their metadata. undefined is for error
 	resourceMetadataCache: Record<string, { resourceType?: string } | undefined>
 }>

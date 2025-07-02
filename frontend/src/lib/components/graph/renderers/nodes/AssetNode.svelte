@@ -10,12 +10,19 @@
 		assetCanBeExplored
 	} from '../../../../../routes/(root)/(logged)/assets/ExploreAssetButton.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
+	import { pluralize } from '$lib/utils'
 
 	interface Props {
 		data: AssetN['data']
 	}
 
 	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext>('FlowGraphAssetContext')
+
+	const usageCount = $derived(
+		Object.values(flowGraphAssetsCtx.val.assetsMap ?? {})
+			.flat()
+			.filter((a) => assetEq(a, data.asset)).length
+	)
 
 	let { data }: Props = $props()
 	const isSelected = $derived(assetEq(flowGraphAssetsCtx.val.selectedAsset, data.asset))
@@ -57,7 +64,22 @@
 					{/if}
 				{/if}
 			</div>
-			<svelte:fragment slot="text">{formatAsset(data.asset)}</svelte:fragment>
+			<svelte:fragment slot="text">
+				Used in {pluralize(usageCount, 'step')}<br />
+				<a
+					href={undefined}
+					class={twMerge(
+						'text-xs',
+						data.asset.kind === 'resource' ? 'text-blue-400 cursor-pointer' : 'text-tertiary'
+					)}
+					onclick={() => {
+						if (data.asset.kind === 'resource')
+							flowGraphAssetsCtx.val.resourceEditorDrawer?.initEdit(data.asset.path)
+					}}
+				>
+					{formatAsset(data.asset)}
+				</a>
+			</svelte:fragment>
 		</Tooltip>
 	{/snippet}
 </NodeWrapper>
