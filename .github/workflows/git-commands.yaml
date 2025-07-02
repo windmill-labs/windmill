@@ -152,6 +152,7 @@ jobs:
           echo "${{ steps.get-commit-hash.outputs.commit_hash }}" > backend/ee-repo-ref.txt
           echo "Updated backend/ee-repo-ref.txt with commit hash: ${{ steps.get-commit-hash.outputs.commit_hash }}"
           # commit and push the changes
+          PR_NUMBER=${{ github.event.issue.number }}
           BRANCH_NAME=$(gh pr view $PR_NUMBER --json headRefName --jq .headRefName)
           echo "Checking out PR branch: $BRANCH_NAME"
           git checkout $BRANCH_NAME
@@ -159,7 +160,7 @@ jobs:
           git config --local user.name "GitHub Action"
           git add backend/ee-repo-ref.txt
           git commit -m "Update ee-repo-ref.txt"
-          git push origin ${{ github.event.issue.pull_request.head.ref }}
+          git push origin $BRANCH_NAME
 
       - name: Comment on PR - Completed
         uses: actions/github-script@v6
