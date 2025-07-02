@@ -21,7 +21,7 @@
 	const usageCount = $derived(
 		Object.values(flowGraphAssetsCtx.val.assetsMap ?? {})
 			.flat()
-			.filter(({ asset }) => assetEq(asset, data.asset)).length
+			.filter((asset) => assetEq(asset, data.asset)).length
 	)
 
 	let { data }: Props = $props()
@@ -70,7 +70,9 @@
 					href={undefined}
 					class={twMerge(
 						'text-xs',
-						data.asset.kind === 'resource' ? 'text-blue-400 cursor-pointer' : 'text-tertiary'
+						data.asset.kind === 'resource'
+							? 'text-blue-400 cursor-pointer'
+							: 'dark:text-tertiary text-tertiary-inverse'
 					)}
 					onclick={() => {
 						if (data.asset.kind === 'resource')

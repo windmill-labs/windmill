@@ -907,7 +907,7 @@
 												<ExploreAssetButton
 													asset={{ kind: 'resource', path: path }}
 													{dbManagerDrawer}
-													_resourceMetadata={{ resourceType: resource_type }}
+													_resourceMetadata={{ resource_type }}
 													class="w-24"
 												/>
 											{/if}

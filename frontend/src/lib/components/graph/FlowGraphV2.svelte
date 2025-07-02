@@ -58,7 +58,6 @@
 	import { deepEqual } from 'fast-equals'
 	import ViewportResizer from './ViewportResizer.svelte'
 	import AssetNode from './renderers/nodes/AssetNode.svelte'
-	import { formatAsset, parseAsset } from '../assets/lib'
 	import type { FlowGraphAssetContext } from '../flows/types'
 	import { getAllModules } from '../flows/flowExplorer'
 	import { inferAssets } from '$lib/infer'
@@ -67,11 +66,14 @@
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import {
+		assetDisplaysAsInputInFlowGraph,
+		assetDisplaysAsOutputInFlowGraph,
 		NODE_WITH_READ_ASSET_Y_OFFSET,
 		NODE_WITH_WRITE_ASSET_Y_OFFSET,
 		READ_ASSET_Y_OFFSET,
 		WRITE_ASSET_Y_OFFSET
 	} from '../flows/utils'
+	import { formatAsset } from '../assets/lib'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -201,21 +203,24 @@
 	// Fetch resource metadata for the ExploreAssetButton
 	const resMetadataCache = $derived(flowGraphAssetsCtx.val.resourceMetadataCache)
 	$effect(() => {
-		for (const { asset } of Object.values(assetsMap ?? []).flatMap((x) => x)) {
+		for (const asset of Object.values(assetsMap ?? []).flatMap((x) => x)) {
 			if (asset.kind !== 'resource' || asset.path in resMetadataCache) continue
 			ResourceService.getResource({ path: asset.path, workspace: $workspaceStore! })
-				.then((r) => (resMetadataCache[asset.path] = { resourceType: r.resource_type }))
+				.then((r) => (resMetadataCache[asset.path] = { resource_type: r.resource_type }))
 				.catch((err) => (resMetadataCache[asset.path] = undefined))
 		}
 	})
 
 	// Fetch transitive assets (path scripts and flows)
+	const _currentlyFetchingAssets = new Set<string>()
 	$effect(() => {
 		if (!$workspaceStore) return
 		let usages: { path: string; kind: AssetUsageKind }[] = []
 		let modIds: string[] = []
 		for (const mod of getAllModules(modules)) {
 			if (mod.id in assetsMap) continue
+			if (_currentlyFetchingAssets.has(mod.id)) continue
+			_currentlyFetchingAssets.add(mod.id)
 			if (mod.value.type === 'flow' || mod.value.type === 'script') {
 				usages.push({ path: mod.value.path, kind: mod.value.type })
 				modIds.push(mod.id)
@@ -226,14 +231,19 @@
 				workspace: $workspaceStore,
 				requestBody: { usages }
 			}).then((result) => {
-				result.map((assets, idx) => {
-					const [usage, modId] = [usages[idx], modIds[idx]]
-					assetsMap[modId] = assets.map((asset) => ({
-						asset,
-						accessType: usage.kind === 'flow' ? 'read' : 'write'
-					}))
+				result.forEach((assets, idx) => {
+					assetsMap[modIds[idx]] = assets
+					_currentlyFetchingAssets.delete(modIds[idx])
 				})
 			})
+		}
+	})
+
+	// Prune assetsMap to only contain assets that are actually used
+	$effect(() => {
+		const allModules = new Set(getAllModules(modules).map((mod) => mod.id))
+		for (const asset in assetsMap) {
+			if (!allModules.has(asset)) delete assetsMap[asset]
 		}
 	})
 
@@ -342,44 +352,65 @@
 		const allAssetNodes: (Node & AssetN)[] = []
 		const allAssetEdges: Edge[] = []
 
-		// If node at yPosition 310.5 has asset nodes on the top, every node
-		// at the same yPosition will need to get shifted by the same amount for everything
-		// to align
-		const yPosMap: Record<number, { read?: true; write?: true }> = {}
+		const yPosMap: Record<number, { r?: true; w?: true }> = {}
 
 		for (const node of nodes) {
 			const assets = assetsMap?.[node.id]
-			let [readAssetIdx, writeAssetIdx] = [0, 0]
-			let [readAssetCount, writeAssetCount] = [
-				assets?.filter((a) => a.accessType === 'read').length ?? 0,
-				assets?.filter((a) => a.accessType === 'write').length ?? 0
+			let [inputAssetIdx, outputAssetIdx] = [-1, -1]
+			let [inputAssetCount, outputAssetCount] = [
+				assets?.filter(assetDisplaysAsInputInFlowGraph).length ?? 0,
+				assets?.filter(assetDisplaysAsOutputInFlowGraph).length ?? 0
 			]
-			const assetNodes: (Node & AssetN)[] | undefined = assets?.map(({ asset, accessType }) => {
-				const assetIdx = accessType === 'read' ? readAssetIdx++ : writeAssetIdx++
-				const accessTypeTotal = accessType === 'read' ? readAssetCount : writeAssetCount
-				return {
-					id: `${node.id}-asset-${formatAsset(asset)}`,
-					type: 'asset',
-					data: { asset, accessType },
-					position: {
-						x:
-							(ASSET_WIDTH + ASSET_X_GAP) * (assetIdx - accessTypeTotal / 2) +
-							(NODE.width + ASSET_X_GAP) / 2,
-						y: accessType === 'read' ? READ_ASSET_Y_OFFSET : WRITE_ASSET_Y_OFFSET
-					},
-					parentId: node.id,
-					width: ASSET_WIDTH
-				} satisfies Node & AssetN
+
+			if (inputAssetCount || outputAssetCount)
+				yPosMap[node.position.y] = yPosMap[node.position.y] ?? {}
+			if (inputAssetCount) yPosMap[node.position.y].r = true
+			if (outputAssetCount) yPosMap[node.position.y].w = true
+
+			const assetNodes: (Node & AssetN)[] | undefined = assets?.flatMap((asset) => {
+				const displayAsInput = assetDisplaysAsInputInFlowGraph(asset)
+				const displayAsOutput = assetDisplaysAsOutputInFlowGraph(asset)
+				if (displayAsInput) inputAssetIdx++
+				if (displayAsOutput) outputAssetIdx++
+
+				const base = { type: 'asset' as const, parentId: node.id, width: ASSET_WIDTH }
+				return [
+					...(displayAsInput
+						? [
+								{
+									...base,
+									data: { asset, displayedAs: 'input' as const },
+									id: `${node.id}-asset-in-${formatAsset(asset)}`,
+									position: {
+										x:
+											(ASSET_WIDTH + ASSET_X_GAP) * (inputAssetIdx - inputAssetCount / 2) +
+											(NODE.width + ASSET_X_GAP) / 2,
+										y: READ_ASSET_Y_OFFSET
+									}
+								}
+							]
+						: []),
+					...(displayAsOutput
+						? [
+								{
+									...base,
+									data: { asset, displayedAs: 'output' as const },
+									id: `${node.id}-asset-out-${formatAsset(asset)}`,
+									position: {
+										x:
+											(ASSET_WIDTH + ASSET_X_GAP) * (outputAssetIdx - outputAssetCount / 2) +
+											(NODE.width + ASSET_X_GAP) / 2,
+										y: WRITE_ASSET_Y_OFFSET
+									}
+								}
+							]
+						: [])
+				]
 			})
 
-			if (readAssetCount || writeAssetCount)
-				yPosMap[node.position.y] = yPosMap[node.position.y] ?? {}
-			if (readAssetCount) yPosMap[node.position.y].read = true
-			if (writeAssetCount) yPosMap[node.position.y].write = true
-
 			const assetEdges = assetNodes?.map((n) => {
-				const source = (n.data.accessType !== 'read' ? n.parentId : n.id) ?? ''
-				const target = (n.data.accessType !== 'read' ? n.id : n.parentId) ?? ''
+				const source = (n.data.displayedAs === 'output' ? n.parentId : n.id) ?? ''
+				const target = (n.data.displayedAs === 'output' ? n.id : n.parentId) ?? ''
 				return {
 					id: `${n.id}-edge`,
 					source,
@@ -409,8 +440,8 @@
 		let prevYPos = NaN
 		for (const node of sortedNewNodes) {
 			if (node.position.y !== prevYPos) {
-				if (yPosMap[prevYPos]?.write) currentYOffset += NODE_WITH_WRITE_ASSET_Y_OFFSET
-				if (yPosMap[node.position.y]?.read) currentYOffset += NODE_WITH_READ_ASSET_Y_OFFSET
+				if (yPosMap[prevYPos]?.w) currentYOffset += NODE_WITH_WRITE_ASSET_Y_OFFSET
+				if (yPosMap[node.position.y]?.r) currentYOffset += NODE_WITH_READ_ASSET_Y_OFFSET
 				prevYPos = node.position.y
 			}
 			node.position.y += currentYOffset
@@ -713,13 +744,8 @@
 			key={v.content}
 			runFirstEffect
 			onChange={() =>
-				inferAssets(v.language, v.content).then((assetsRaw) => {
-					const newAssets = assetsRaw.map(parseAsset).filter((a) => !!a)
-					if (assetsMap && !deepEqual(assetsMap[mod.id], newAssets))
-						assetsMap[mod.id] = newAssets.map((asset) => ({
-							asset,
-							accessType: asset.kind === 'resource' ? 'write' : 'read'
-						}))
+				inferAssets(v.language, v.content).then((assets) => {
+					if (assetsMap && !deepEqual(assetsMap[mod.id], assets)) assetsMap[mod.id] = assets
 				})}
 		/>
 	{/if}

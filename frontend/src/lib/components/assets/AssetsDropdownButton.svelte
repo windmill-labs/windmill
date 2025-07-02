@@ -8,7 +8,7 @@
 	import ExploreAssetButton, {
 		assetCanBeExplored
 	} from '../../../routes/(root)/(logged)/assets/ExploreAssetButton.svelte'
-	import { formatAsset, parseAsset, type Asset } from './lib'
+	import { formatAsset, type Asset, type AssetWithAccessType } from './lib'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import { untrack } from 'svelte'
 	import { ResourceService } from '$lib/gen'
@@ -19,7 +19,7 @@
 	import type { Placement } from '@floating-ui/core'
 
 	let {
-		assets: assetsUris,
+		assets,
 		enableChangeAnimation = true,
 		size = 'xs',
 		noBtnText = false,
@@ -28,7 +28,7 @@
 		onHoverLi,
 		liSubtitle
 	}: {
-		assets: string[]
+		assets: AssetWithAccessType[]
 		enableChangeAnimation?: boolean
 		size?: 'xs' | '3xs'
 		noBtnText?: boolean
@@ -37,9 +37,8 @@
 		onHoverLi?: (asset: Asset, eventType: 'enter' | 'leave') => void
 		liSubtitle?: (asset: Asset) => string
 	} = $props()
-	const assets = $derived(assetsUris.map(parseAsset).filter((x) => !!x) ?? [])
 
-	let prevAssetsUris = $state<string[]>([])
+	let prevAssets = $state<typeof assets>([])
 	let blueBgDiv: HTMLDivElement | undefined = $state()
 
 	let s3FilePicker: S3FilePicker | undefined = $state()
@@ -57,10 +56,10 @@
 	})
 
 	$effect(() => {
-		if (!assetsUris) return
+		assets
 		untrack(() => {
-			if (deepEqual(assetsUris, prevAssetsUris)) return
-			prevAssetsUris = clone(assetsUris)
+			if (deepEqual(assets, prevAssets)) return
+			prevAssets = clone(assets)
 
 			// Replay animation
 			if (blueBgDiv && enableChangeAnimation) {
@@ -146,14 +145,14 @@
 								<svelte:fragment slot="text">Could not fetch resource</svelte:fragment>
 							</Tooltip>
 						{/if}
-						{#if assetCanBeExplored(asset, { resourceType: resourceDataCache[asset.path] })}
+						{#if assetCanBeExplored(asset, { resource_type: resourceDataCache[asset.path] })}
 							<ExploreAssetButton
 								{asset}
 								{s3FilePicker}
 								{dbManagerDrawer}
 								onClick={() => (isOpen = false)}
 								noText
-								_resourceMetadata={{ resourceType: resourceDataCache[asset.path] }}
+								_resourceMetadata={{ resource_type: resourceDataCache[asset.path] }}
 							/>
 						{/if}
 					</div>

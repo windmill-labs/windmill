@@ -8,7 +8,10 @@
 	import { getStraightLinePath } from '../utils'
 	import { twMerge } from 'tailwind-merge'
 	import { type FlowGraphAssetContext } from '$lib/components/flows/types'
-	import { NODE_WITH_WRITE_ASSET_Y_OFFSET } from '$lib/components/flows/utils'
+	import {
+		assetDisplaysAsOutputInFlowGraph,
+		NODE_WITH_WRITE_ASSET_Y_OFFSET
+	} from '$lib/components/flows/utils'
 
 	const { useDataflow } = getContext<{
 		useDataflow: Writable<boolean | undefined>
@@ -44,7 +47,7 @@
 
 	const shouldOffsetInsertButtonDueToAssetNode = flowGraphAssetCtx?.val.assetsMap?.[
 		data.sourceId
-	]?.some((a) => a.accessType === 'write')
+	]?.some(assetDisplaysAsOutputInFlowGraph)
 
 	let [edgePath] = $derived(
 		getBezierPath({

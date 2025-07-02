@@ -3,9 +3,9 @@ use axum::{
     routing::{get, post},
     Extension, Json, Router,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
-use windmill_common::{db::UserDB, error::JsonResult};
+use windmill_common::{assets::AssetUsageKind, db::UserDB, error::JsonResult};
 
 use crate::db::ApiAuthed;
 
@@ -13,31 +13,6 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_assets))
         .route("/list_by_usages", post(list_assets_by_usages))
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
-#[sqlx(type_name = "ASSET_KIND", rename_all = "lowercase")]
-#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
-pub enum AssetKind {
-    S3Object,
-    Resource,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
-#[sqlx(type_name = "ASSET_USAGE_KIND", rename_all = "lowercase")]
-#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
-pub enum AssetUsageKind {
-    Script,
-    Flow,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
-#[sqlx(type_name = "ASSET_ACCESS_TYPE", rename_all = "lowercase")]
-#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
-pub enum AssetUsageAccessType {
-    R,
-    W,
-    RW,
 }
 
 async fn list_assets(

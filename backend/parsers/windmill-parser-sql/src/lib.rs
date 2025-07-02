@@ -7,6 +7,7 @@ use regex::Regex;
 #[cfg(target_arch = "wasm32")]
 use regex_lite::Regex;
 
+use serde::Serialize;
 use serde_json::json;
 
 use std::{
@@ -19,7 +20,31 @@ pub use windmill_parser::{Arg, MainArgSignature, Typ};
 pub const SANITIZED_ENUM_STR: &str = "__sanitized_enum__";
 pub const SANITIZED_RAW_STRING_STR: &str = "__sanitized_raw_string__";
 
-pub fn parse_assets(code: &str) -> anyhow::Result<Vec<String>> {
+#[derive(Serialize, PartialEq, Clone, Copy)]
+#[serde(rename_all(serialize = "lowercase"))]
+pub enum AssetUsageAccessType {
+    R,
+    W,
+    RW,
+}
+
+#[derive(Serialize, PartialEq, Clone, Copy)]
+#[serde(rename_all(serialize = "lowercase"))]
+pub enum AssetKind {
+    S3Object,
+    Resource,
+}
+
+#[derive(Serialize)]
+pub struct ParseAssetsResult<'a> {
+    pub kind: AssetKind,
+    pub path: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_type: Option<AssetUsageAccessType>, // None in case of ambiguity
+}
+
+pub fn parse_assets<'a>(code: &'a str) -> anyhow::Result<Vec<ParseAssetsResult<'a>>> {
+    use AssetUsageAccessType::*;
     let mut assets = vec![];
 
     lazy_static::lazy_static! {
@@ -28,12 +53,44 @@ pub fn parse_assets(code: &str) -> anyhow::Result<Vec<String>> {
     }
 
     for cap in RE_S3_PATH.captures_iter(code) {
-        assets.push(format!("s3://{}", cap.get(1).unwrap().as_str()));
+        assets.push(ParseAssetsResult {
+            kind: AssetKind::S3Object,
+            path: cap.get(1).unwrap().as_str(),
+            access_type: None,
+        });
     }
 
     for cap in RE_RESOURCE_PATH.captures_iter(code) {
-        assets.push(format!("$res:{}", cap.get(1).unwrap().as_str()));
+        assets.push(ParseAssetsResult {
+            kind: AssetKind::Resource,
+            path: cap.get(1).unwrap().as_str(),
+            access_type: None,
+        });
     }
+
+    let assets = {
+        let mut arr: Vec<ParseAssetsResult<'a>> = vec![];
+        for asset in assets {
+            // Remove duplicates
+            if let Some(existing) = arr
+                .iter_mut()
+                .find(|x| x.path == asset.path && x.kind == asset.kind)
+            {
+                // merge access types
+                existing.access_type = match (asset.access_type, existing.access_type) {
+                    (None, _) | (_, None) => None,
+                    (Some(R), Some(W)) | (Some(W), Some(R)) => Some(RW),
+                    (Some(RW), _) | (_, Some(RW)) => Some(RW),
+                    (Some(R), Some(R)) => Some(R),
+                    (Some(W), Some(W)) => Some(W),
+                };
+            } else {
+                arr.push(asset);
+            }
+        }
+        arr.sort_by_key(|a| a.path);
+        arr
+    };
 
     Ok(assets)
 }

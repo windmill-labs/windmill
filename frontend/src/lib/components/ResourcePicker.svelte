@@ -250,7 +250,7 @@
 	</div>
 	{#if showSchemaExplorer && isDbType(resourceType) && value}
 		<ExploreAssetButton
-			_resourceMetadata={{ resourceType }}
+			_resourceMetadata={{ resource_type: resourceType }}
 			asset={{ kind: 'resource', path: value }}
 			{dbManagerDrawer}
 		/>

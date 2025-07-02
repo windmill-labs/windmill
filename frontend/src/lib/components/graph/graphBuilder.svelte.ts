@@ -4,7 +4,7 @@ import { getDependeeAndDependentComponents } from '../flows/flowExplorer'
 import { dfsByModule } from '../flows/previousResults'
 import { defaultIfEmptyString } from '$lib/utils'
 import type { GraphModuleState } from './model'
-import type { Asset } from '../assets/lib'
+import type { AssetWithAccessType } from '../assets/lib'
 
 export type InsertKind =
 	| 'script'
@@ -261,8 +261,8 @@ export type TriggerN = {
 export type AssetN = {
 	type: 'asset'
 	data: {
-		asset: Asset
-		accessType: 'read' | 'write'
+		asset: AssetWithAccessType
+		displayedAs: 'input' | 'output'
 	}
 }
 

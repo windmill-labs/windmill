@@ -40,6 +40,7 @@ import wasmUrlNu from 'windmill-parser-wasm-nu/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlJava from 'windmill-parser-wasm-java/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from './inferArgSig.js'
+import { type AssetWithAccessType } from './components/assets/lib.js'
 
 const loadSchemaLastRun =
 	writable<[string | undefined, MainArgSignature | undefined, string | undefined]>(undefined)
@@ -82,17 +83,15 @@ async function initWasmJava() {
 export async function inferAssets(
 	language: SupportedLanguage | undefined,
 	code: string
-): Promise<string[]> {
-	async function parseAssets(): Promise<string[]> {
-		if (language === 'duckdb') {
-			await initWasmRegex()
-			return JSON.parse(parse_assets_sql(code))
-		}
-		return []
+): Promise<AssetWithAccessType[]> {
+	if (language === 'duckdb') {
+		await initWasmRegex()
+		return (JSON.parse(parse_assets_sql(code)) as AssetWithAccessType[]).map((a) => ({
+			...a,
+			accessType: 'rw'
+		}))
 	}
-	const assets = new Array(...new Set(await parseAssets()))
-	assets.sort()
-	return assets
+	return []
 }
 
 const SQL_LANGUAGES = [

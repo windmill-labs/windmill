@@ -1,11 +1,11 @@
 <script module lang="ts">
 	export function assetCanBeExplored(
 		asset: Asset,
-		_resourceMetadata?: { resourceType?: string }
+		_resourceMetadata?: { resource_type?: string }
 	): boolean {
 		return (
 			asset.kind === 's3object' ||
-			(asset.kind === 'resource' && isDbType(_resourceMetadata?.resourceType))
+			(asset.kind === 'resource' && isDbType(_resourceMetadata?.resource_type))
 		)
 	}
 </script>
@@ -18,7 +18,6 @@
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { isS3Uri } from '$lib/utils'
 	import { Database, File } from 'lucide-svelte'
-	import { twMerge } from 'tailwind-merge'
 
 	const {
 		asset,
@@ -32,7 +31,7 @@
 		btnClasses = ''
 	}: {
 		asset: Asset
-		_resourceMetadata?: { resourceType?: string }
+		_resourceMetadata?: { resource_type?: string }
 		s3FilePicker?: S3FilePicker
 		dbManagerDrawer?: DbManagerDrawer
 		onClick?: () => void
@@ -49,10 +48,10 @@
 	variant={buttonVariant}
 	spacingSize="xs2"
 	wrapperClasses={className}
-	btnClasses={twMerge('p-0.5', btnClasses)}
+	{btnClasses}
 	on:click={async () => {
-		if (asset.kind === 'resource' && isDbType(_resourceMetadata?.resourceType)) {
-			dbManagerDrawer?.openDrawer(_resourceMetadata.resourceType, asset.path)
+		if (asset.kind === 'resource' && isDbType(_resourceMetadata?.resource_type)) {
+			dbManagerDrawer?.openDrawer(_resourceMetadata.resource_type, asset.path)
 		} else if (asset.kind === 's3object' && isS3Uri(assetUri)) {
 			s3FilePicker?.open(assetUri)
 		}

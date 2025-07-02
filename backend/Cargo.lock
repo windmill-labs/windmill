@@ -15108,6 +15108,7 @@ dependencies = [
  "lazy_static",
  "regex",
  "regex-lite",
+ "serde",
  "serde_json",
  "windmill-parser",
 ]

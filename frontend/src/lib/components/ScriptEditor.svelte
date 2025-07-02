@@ -47,6 +47,7 @@
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
+	import type { AssetWithAccessType } from './assets/lib'
 
 	interface Props {
 		// Exported
@@ -134,7 +135,7 @@
 			dispatch('change', { code, schema })
 	})
 
-	let assets: string[] = $state([])
+	let assets: AssetWithAccessType[] = $state([])
 	$effect(() => {
 		inferAssets(lang, code).then((a) => (assets = a))
 	})

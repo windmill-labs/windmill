@@ -1,12 +1,13 @@
-import type { AssetKind as _AssetKind, Asset as _Asset, ListAssetsResponse } from '$lib/gen'
+import type {
+	AssetKind as _AssetKind,
+	Asset as _Asset,
+	ListAssetsResponse,
+	AssetUsageAccessType
+} from '$lib/gen'
 
 export type Asset = _Asset
 export type AssetKind = _AssetKind
-
-export function parseAsset(asset: string): Asset | undefined {
-	if (asset.startsWith('$res:')) return { path: asset.substring(5), kind: 'resource' }
-	if (asset.startsWith('s3://')) return { path: asset.substring(5), kind: 's3object' }
-}
+export type AssetWithAccessType = Asset & { access_type?: AssetUsageAccessType }
 
 export function formatAsset(asset: Asset): string {
 	switch (asset.kind) {

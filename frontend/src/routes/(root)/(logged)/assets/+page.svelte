@@ -79,7 +79,7 @@
 								{asset}
 								{s3FilePicker}
 								{dbManagerDrawer}
-								_resourceMetadata={{ resourceType: resourceTypesCache[asset.path] }}
+								_resourceMetadata={{ resource_type: resourceTypesCache[asset.path] }}
 								class="w-24"
 							/>
 						</Cell>

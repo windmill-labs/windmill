@@ -5,7 +5,8 @@ import {
 	type InputTransform,
 	type Job,
 	type RestartedFrom,
-	type OpenFlow
+	type OpenFlow,
+	type AssetUsageAccessType
 } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { cleanExpr, emptySchema } from '$lib/utils'
@@ -200,3 +201,7 @@ export const NODE_WITH_READ_ASSET_Y_OFFSET = 45
 export const NODE_WITH_WRITE_ASSET_Y_OFFSET = 45
 export const READ_ASSET_Y_OFFSET = -45
 export const WRITE_ASSET_Y_OFFSET = 64
+export const assetDisplaysAsInputInFlowGraph = (a: { access_type?: AssetUsageAccessType }) =>
+	!a.access_type || a.access_type === 'r' || a.access_type === 'rw'
+export const assetDisplaysAsOutputInFlowGraph = (a: { access_type?: AssetUsageAccessType }) =>
+	a.access_type === 'w' || a.access_type === 'rw'
