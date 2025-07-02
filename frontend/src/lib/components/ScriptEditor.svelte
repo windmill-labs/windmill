@@ -47,7 +47,7 @@
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
-	import type { AssetWithAccessType } from './assets/lib'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
 
 	interface Props {
 		// Exported
@@ -135,9 +135,9 @@
 			dispatch('change', { code, schema })
 	})
 
-	let assets: AssetWithAccessType[] = $state([])
+	let assets = usePromise(() => inferAssets(lang, code))
 	$effect(() => {
-		inferAssets(lang, code).then((a) => (assets = a))
+		untrack(() => assets.refresh()), [lang, code]
 	})
 
 	let width = $state(1200)
@@ -511,8 +511,8 @@
 		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
 			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
 				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
-					{#if assets.length}
-						<AssetsDropdownButton {assets} />
+					{#if assets.status === 'ok' && assets.value.length > 0}
+						<AssetsDropdownButton assets={assets.value} />
 					{/if}
 					{#if testPanelSize === 0}
 						<HideButton

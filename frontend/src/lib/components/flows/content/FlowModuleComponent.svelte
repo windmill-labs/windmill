@@ -52,8 +52,10 @@
 	import { checkIfParentLoop } from '../utils'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
-	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import { refreshStateStore, usePromise } from '$lib/svelte5Utils.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
+	import AssetsDropdownButton from '$lib/components/assets/AssetsDropdownButton.svelte'
+	import { inferAssets } from '$lib/infer'
 
 	const {
 		selectedId,
@@ -294,6 +296,17 @@
 			}, 100)
 		}
 	})
+
+	let assets = usePromise(async () =>
+		flowModule.value.type === 'rawscript'
+			? await inferAssets(flowModule.value.language, flowModule.value.content)
+			: undefined
+	)
+	$effect(() => {
+		if (flowModule.value.type !== 'rawscript') return
+		;[flowModule.value.content, flowModule.value.language]
+		untrack(() => assets.refresh())
+	})
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -400,6 +413,11 @@
 							{#if flowModule.value.type === 'rawscript'}
 								{#if !noEditor}
 									{#key flowModule.id}
+										<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
+											{#if assets.value?.length}
+												<AssetsDropdownButton assets={assets.value} />
+											{/if}
+										</div>
 										<Editor
 											on:addSelectedLinesToAiChat={(e) => {
 												const { lines, startLine, endLine } = e.detail
