@@ -32,7 +32,6 @@ import type { DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 
-
 export enum AIMode {
 	SCRIPT = 'script',
 	FLOW = 'flow',
@@ -423,8 +422,8 @@ class AIChatManager {
 					: this.mode === AIMode.NAVIGATOR
 						? prepareNavigatorUserMessage(oldInstructions)
 						: await prepareScriptUserMessage(oldInstructions, lang, oldSelectedContext, {
-							isPreprocessor
-						})
+								isPreprocessor
+							})
 
 			this.messages.push(userMessage)
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
@@ -492,7 +491,7 @@ class AIChatManager {
 		this.abortController?.abort()
 	}
 
-	restartLastGeneration = (displayMessageIndex: number) => {
+	restartLastGeneration = (displayMessageIndex: number, newContent?: string) => {
 		const userMessage = this.displayMessages[displayMessageIndex]
 
 		if (!userMessage || userMessage.role !== 'user') {
@@ -518,56 +517,7 @@ class AIChatManager {
 		this.messages = this.messages.slice(0, lastActualUserMessageIndex)
 
 		// Resend the request with the same instructions
-		this.instructions = userMessage.content
-		this.sendRequest()
-	}
-
-	editMessage = (displayMessageIndex: number, newContent: string) => {
-		const userMessage = this.displayMessages[displayMessageIndex]
-
-		if (!userMessage || userMessage.role !== 'user') {
-			throw new Error('No user message found at the specified index')
-		}
-
-		// Update the message content
-		this.displayMessages[displayMessageIndex] = {
-			...userMessage,
-			content: newContent
-		}
-
-		// Remove all messages after the edited message
-		this.displayMessages = this.displayMessages.slice(0, displayMessageIndex + 1)
-
-		// Find the corresponding user message in actual messages and remove it and everything after it
-		let actualUserMessageIndex = -1
-		let userMessageCount = 0
-		
-		// Count user messages up to the display message index to find the corresponding actual message
-		for (let i = 0; i <= displayMessageIndex; i++) {
-			if (this.displayMessages[i].role === 'user') {
-				userMessageCount++
-			}
-		}
-
-		// Find the nth user message in actual messages
-		let currentUserCount = 0
-		for (let i = 0; i < this.messages.length; i++) {
-			if (this.messages[i].role === 'user') {
-				currentUserCount++
-				if (currentUserCount === userMessageCount) {
-					actualUserMessageIndex = i
-					break
-				}
-			}
-		}
-
-		if (actualUserMessageIndex !== -1) {
-			// Remove this message and everything after it
-			this.messages = this.messages.slice(0, actualUserMessageIndex)
-		}
-
-		// Send the request with the new content
-		this.instructions = newContent
+		this.instructions = newContent ?? userMessage.content
 		this.sendRequest()
 	}
 
@@ -697,15 +647,15 @@ class AIChatManager {
 				const editorRelated =
 					currentEditor && currentEditor.type === 'script' && currentEditor.stepId === module.id
 						? {
-							diffMode: currentEditor.diffMode,
-							lastDeployedCode: currentEditor.lastDeployedCode,
-							lastSavedCode: undefined
-						}
+								diffMode: currentEditor.diffMode,
+								lastDeployedCode: currentEditor.lastDeployedCode,
+								lastSavedCode: undefined
+							}
 						: {
-							diffMode: false,
-							lastDeployedCode: undefined,
-							lastSavedCode: undefined
-						}
+								diffMode: false,
+								lastDeployedCode: undefined,
+								lastSavedCode: undefined
+							}
 
 				return {
 					args: moduleState?.previewArgs ?? {},

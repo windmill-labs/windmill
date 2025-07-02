@@ -136,7 +136,7 @@
 
 	function saveEditMessage() {
 		if (editingMessageIndex !== null && editingMessageContent.trim()) {
-			aiChatManager.editMessage(editingMessageIndex, editingMessageContent.trim())
+			aiChatManager.restartLastGeneration(editingMessageIndex, editingMessageContent.trim())
 			editingMessageIndex = null
 			editingMessageContent = ''
 		}
