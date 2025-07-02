@@ -90,6 +90,7 @@
 		StepHistoryLoader,
 		type stepState
 	} from './stepHistoryLoader.svelte'
+	import { ModulesTestStates } from './modulesTest.svelte'
 
 	interface Props {
 		initialPath?: string
@@ -606,6 +607,7 @@
 	}
 
 	let insertButtonOpen = writable<boolean>(false)
+	let modulesTestStates = new ModulesTestStates()
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
@@ -625,7 +627,8 @@
 		customUi,
 		insertButtonOpen,
 		executionCount: writable(0),
-		flowInputEditorState: flowInputEditorStateStore
+		flowInputEditorState: flowInputEditorStateStore,
+		modulesTestStates
 	})
 
 	// Add triggers context store

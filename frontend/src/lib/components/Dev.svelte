@@ -49,6 +49,7 @@
 	import type { PickableProperties } from './flows/previousResults'
 	import { Triggers } from './triggers/triggers.svelte'
 	import { TestSteps } from './flows/testSteps.svelte'
+	import { ModulesTestStates } from './modulesTest.svelte'
 
 	let flowCopilotContext: FlowCopilotContext = {
 		shouldUpdatePropertyType: writable<{
@@ -469,7 +470,8 @@
 			editPanelSize: undefined,
 			payloadData: undefined
 		}),
-		currentEditor: writable(undefined)
+		currentEditor: writable(undefined),
+		modulesTestStates: new ModulesTestStates()
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
