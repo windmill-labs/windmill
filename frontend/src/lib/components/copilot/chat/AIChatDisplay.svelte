@@ -4,6 +4,7 @@
 	import { type Snippet } from 'svelte'
 	import {
 		CheckIcon,
+		EditIcon,
 		HistoryIcon,
 		Loader2,
 		Plus,
@@ -65,6 +66,8 @@
 
 	let contextTextareaComponent: ContextTextarea | undefined = $state()
 	let instructionsTextarea: HTMLTextAreaElement | undefined = $state()
+	let editingMessageIndex = $state<number | null>(null)
+	let editingMessageContent = $state<string>('')
 
 	export function focusInput() {
 		if (aiChatManager.mode === 'script') {
@@ -119,6 +122,24 @@
 
 	function restartGeneration(messageIndex: number) {
 		aiChatManager.restartLastGeneration(messageIndex)
+	}
+
+	function startEditMessage(messageIndex: number) {
+		editingMessageIndex = messageIndex
+		editingMessageContent = messages[messageIndex].content
+	}
+
+	function cancelEditMessage() {
+		editingMessageIndex = null
+		editingMessageContent = ''
+	}
+
+	function saveEditMessage() {
+		if (editingMessageIndex !== null && editingMessageContent.trim()) {
+			aiChatManager.editMessage(editingMessageIndex, editingMessageContent.trim())
+			editingMessageIndex = null
+			editingMessageContent = ''
+		}
 	}
 </script>
 
@@ -227,24 +248,73 @@
 						>
 							{#if message.role === 'assistant'}
 								<AssistantMessage {message} />
+							{:else if message.role === 'user' && editingMessageIndex === messageIndex}
+								<textarea
+									bind:value={editingMessageContent}
+									use:autosize
+									onkeydown={(e) => {
+										if (e.key === 'Enter' && !e.shiftKey) {
+											e.preventDefault()
+											saveEditMessage()
+										} else if (e.key === 'Escape') {
+											e.preventDefault()
+											cancelEditMessage()
+										}
+									}}
+									class="w-full resize-none bg-transparent border-none outline-none"
+									placeholder="Edit message..."
+									rows={3}
+								></textarea>
+								<div class="flex justify-end gap-1 mt-1">
+									<Button
+										size="xs2"
+										variant="border"
+										color="light"
+										on:click={cancelEditMessage}
+										title="Cancel editing"
+									>
+										Cancel
+									</Button>
+									<Button
+										size="xs2"
+										variant="border"
+										color="blue"
+										on:click={saveEditMessage}
+										title="Save and send"
+									>
+										Send
+									</Button>
+								</div>
 							{:else}
 								{message.content}
 							{/if}
 
-							{#if message.role === 'user' && isLastUserMessage(messageIndex) && !aiChatManager.loading}
+							{#if message.role === 'user' && editingMessageIndex !== messageIndex && !aiChatManager.loading}
 								<div
-									class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity"
+									class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1"
 								>
 									<Button
 										size="xs2"
 										variant="border"
 										color="light"
 										iconOnly
-										title="Restart generation"
-										startIcon={{ icon: RefreshCwIcon }}
+										title="Edit message"
+										startIcon={{ icon: EditIcon }}
 										btnClasses="!p-1 !h-6 !w-6"
-										on:click={() => restartGeneration(messageIndex)}
+										on:click={() => startEditMessage(messageIndex)}
 									/>
+									{#if isLastUserMessage(messageIndex)}
+										<Button
+											size="xs2"
+											variant="border"
+											color="light"
+											iconOnly
+											title="Restart generation"
+											startIcon={{ icon: RefreshCwIcon }}
+											btnClasses="!p-1 !h-6 !w-6"
+											on:click={() => restartGeneration(messageIndex)}
+										/>
+									{/if}
 								</div>
 							{/if}
 						</div>

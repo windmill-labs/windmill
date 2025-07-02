@@ -522,6 +522,55 @@ class AIChatManager {
 		this.sendRequest()
 	}
 
+	editMessage = (displayMessageIndex: number, newContent: string) => {
+		const userMessage = this.displayMessages[displayMessageIndex]
+
+		if (!userMessage || userMessage.role !== 'user') {
+			throw new Error('No user message found at the specified index')
+		}
+
+		// Update the message content
+		this.displayMessages[displayMessageIndex] = {
+			...userMessage,
+			content: newContent
+		}
+
+		// Remove all messages after the edited message
+		this.displayMessages = this.displayMessages.slice(0, displayMessageIndex + 1)
+
+		// Find the corresponding user message in actual messages and remove it and everything after it
+		let actualUserMessageIndex = -1
+		let userMessageCount = 0
+		
+		// Count user messages up to the display message index to find the corresponding actual message
+		for (let i = 0; i <= displayMessageIndex; i++) {
+			if (this.displayMessages[i].role === 'user') {
+				userMessageCount++
+			}
+		}
+
+		// Find the nth user message in actual messages
+		let currentUserCount = 0
+		for (let i = 0; i < this.messages.length; i++) {
+			if (this.messages[i].role === 'user') {
+				currentUserCount++
+				if (currentUserCount === userMessageCount) {
+					actualUserMessageIndex = i
+					break
+				}
+			}
+		}
+
+		if (actualUserMessageIndex !== -1) {
+			// Remove this message and everything after it
+			this.messages = this.messages.slice(0, actualUserMessageIndex)
+		}
+
+		// Send the request with the new content
+		this.instructions = newContent
+		this.sendRequest()
+	}
+
 	fix = () => {
 		if (!this.open) {
 			this.toggleOpen()
