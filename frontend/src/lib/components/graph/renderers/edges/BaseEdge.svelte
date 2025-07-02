@@ -7,10 +7,14 @@
 	import type { GraphEventHandlers } from '../../graphBuilder.svelte'
 	import { getStraightLinePath } from '../utils'
 	import { twMerge } from 'tailwind-merge'
+	import { type FlowGraphAssetContext } from '$lib/components/flows/types'
+	import { NODE_WITH_WRITE_ASSET_Y_OFFSET } from '$lib/components/flows/utils'
 
 	const { useDataflow } = getContext<{
 		useDataflow: Writable<boolean | undefined>
 	}>('FlowGraphContext')
+
+	const flowGraphAssetCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
 
 	let {
 		// id,
@@ -38,6 +42,10 @@
 		}
 	} = $props()
 
+	const shouldOffsetInsertButtonDueToAssetNode = flowGraphAssetCtx?.val.assetsMap?.[
+		data.sourceId
+	]?.some((a) => a.accessType === 'write')
+
 	let [edgePath] = $derived(
 		getBezierPath({
 			sourceX,
@@ -57,7 +65,12 @@
 	)
 </script>
 
-<EdgeLabel x={sourceX} y={sourceY + 28} class="base-edge" style="">
+<EdgeLabel
+	x={sourceX}
+	y={sourceY + 28 + (shouldOffsetInsertButtonDueToAssetNode ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0)}
+	class="base-edge"
+	style=""
+>
 	{#if data?.insertable && !$useDataflow && !data?.moving}
 		<div
 			class={twMerge('edgeButtonContainer nodrag nopan top-0')}

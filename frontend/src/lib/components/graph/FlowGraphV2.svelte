@@ -52,7 +52,7 @@
 	import { deepEqual } from 'fast-equals'
 	import ViewportResizer from './ViewportResizer.svelte'
 	import AssetNode from './renderers/nodes/AssetNode.svelte'
-	import { formatAsset, parseAsset, type Asset } from '../assets/lib'
+	import { formatAsset, parseAsset } from '../assets/lib'
 	import type { FlowGraphAssetContext } from '../flows/types'
 	import { getAllModules } from '../flows/flowExplorer'
 	import { inferAssets } from '$lib/infer'
@@ -60,6 +60,7 @@
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
+	import { NODE_WITH_READ_ASSET_Y_OFFSET, NODE_WITH_WRITE_ASSET_Y_OFFSET } from '../flows/utils'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -175,7 +176,7 @@
 
 	const flowGraphAssetsCtx: FlowGraphAssetContext = $state({
 		val: {
-			assetsMap: {} as Record<string, Asset[]>,
+			assetsMap: {},
 			selectedAsset: undefined,
 			dbManagerDrawer: undefined,
 			s3FilePicker: undefined,
@@ -187,7 +188,7 @@
 	const assetsMap = $derived(flowGraphAssetsCtx.val.assetsMap)
 	const resMetadataCache = $derived(flowGraphAssetsCtx.val.resourceMetadataCache)
 	$effect(() => {
-		for (const asset of Object.values(assetsMap ?? []).flatMap((x) => x)) {
+		for (const { asset } of Object.values(assetsMap ?? []).flatMap((x) => x)) {
 			if (asset.kind !== 'resource' || asset.path in resMetadataCache) continue
 			ResourceService.getResource({ path: asset.path, workspace: $workspaceStore! })
 				.then((r) => (resMetadataCache[asset.path] = { resourceType: r.resource_type }))
@@ -212,9 +213,6 @@
 			triggerContext?.simplifiedPoll ? (get(triggerContext.simplifiedPoll) ?? false) : false
 		)
 	}
-
-	const NODE_WITH_READ_ASSET_Y_OFFSET = 45
-	const NODE_WITH_WRITE_ASSET_Y_OFFSET = 60
 
 	let lastNodes: [NodeLayout[], Node[], assetsMap: any] | undefined = undefined
 	function layoutNodes(nodes: NodeLayout[]): Node[] {
@@ -312,16 +310,16 @@
 		for (const node of newNodes) {
 			const assets = assetsMap?.[node.id]
 			const assetNodes: (Node & AssetN)[] | undefined = assets?.map(
-				(asset, assetIdx) =>
+				({ asset, accessType }, assetIdx) =>
 					({
 						id: `${node.id}-asset-${formatAsset(asset)}`,
 						type: 'asset',
-						data: { asset, accessType: 'write' },
+						data: { asset, accessType },
 						position: {
 							x:
 								(ASSET_WIDTH + ASSET_X_GAP) * (assetIdx - assets.length / 2) +
 								(NODE.width + ASSET_X_GAP) / 2,
-							y: WRITE_ASSET_Y_OFFSET
+							y: accessType === 'read' ? READ_ASSET_Y_OFFSET : WRITE_ASSET_Y_OFFSET
 						},
 						parentId: node.id,
 						width: ASSET_WIDTH
@@ -673,7 +671,8 @@
 			onChange={() =>
 				inferAssets(v.language, v.content).then((assetsRaw) => {
 					const newAssets = assetsRaw.map(parseAsset).filter((a) => !!a)
-					if (assetsMap && !deepEqual(assetsMap[mod.id], newAssets)) assetsMap[mod.id] = newAssets
+					if (assetsMap && !deepEqual(assetsMap[mod.id], newAssets))
+						assetsMap[mod.id] = newAssets.map((asset) => ({ asset, accessType: 'read' }))
 				})}
 		/>
 	{/if}

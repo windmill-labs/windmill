@@ -21,7 +21,7 @@
 	const usageCount = $derived(
 		Object.values(flowGraphAssetsCtx.val.assetsMap ?? {})
 			.flat()
-			.filter((a) => assetEq(a, data.asset)).length
+			.filter(({ asset }) => assetEq(asset, data.asset)).length
 	)
 
 	let { data }: Props = $props()
