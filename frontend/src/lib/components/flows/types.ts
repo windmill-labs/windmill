@@ -86,7 +86,7 @@ export type FlowEditorContext = {
 
 export type FlowGraphAssetContext = StateStore<{
 	selectedAsset: Asset | undefined
-	assetsMap?: Record<string, { asset: Asset; accessType: 'read' | 'write' }[]> // Maps module ids to their assets
+	assetsMap: Record<string, { asset: Asset; accessType: 'read' | 'write' }[]> // Maps module ids to their assets
 	s3FilePicker: S3FilePicker | undefined
 	dbManagerDrawer: DbManagerDrawer | undefined
 	resourceEditorDrawer: ResourceEditorDrawer | undefined

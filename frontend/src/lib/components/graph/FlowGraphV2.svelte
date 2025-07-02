@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { FlowService, ResourceService, type FlowModule } from '../../gen'
+	import {
+		AssetService,
+		FlowService,
+		ResourceService,
+		type AssetUsageKind,
+		type FlowModule
+	} from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
 	import { getContext, onDestroy, setContext, tick, untrack } from 'svelte'
 
@@ -191,6 +197,8 @@
 	})
 	setContext<FlowGraphAssetContext>('FlowGraphAssetContext', flowGraphAssetsCtx)
 	const assetsMap = $derived(flowGraphAssetsCtx.val.assetsMap)
+
+	// Fetch resource metadata for the ExploreAssetButton
 	const resMetadataCache = $derived(flowGraphAssetsCtx.val.resourceMetadataCache)
 	$effect(() => {
 		for (const { asset } of Object.values(assetsMap ?? []).flatMap((x) => x)) {
@@ -198,6 +206,34 @@
 			ResourceService.getResource({ path: asset.path, workspace: $workspaceStore! })
 				.then((r) => (resMetadataCache[asset.path] = { resourceType: r.resource_type }))
 				.catch((err) => (resMetadataCache[asset.path] = undefined))
+		}
+	})
+
+	// Fetch transitive assets (path scripts and flows)
+	$effect(() => {
+		if (!$workspaceStore) return
+		let usages: { usage_path: string; usage_kind: AssetUsageKind }[] = []
+		let modIds: string[] = []
+		for (const mod of getAllModules(modules)) {
+			if (mod.id in assetsMap) continue
+			if (mod.value.type === 'flow' || mod.value.type === 'script') {
+				usages.push({ usage_path: mod.value.path, usage_kind: mod.value.type })
+				modIds.push(mod.id)
+			}
+		}
+		if (usages.length) {
+			AssetService.listAssetsByUsage({
+				workspace: $workspaceStore,
+				requestBody: { usages }
+			}).then((result) => {
+				result.map((assets, idx) => {
+					const [usage, modId] = [usages[idx], modIds[idx]]
+					assetsMap[modId] = assets.map((asset) => ({
+						asset,
+						accessType: usage.usage_kind === 'flow' ? 'read' : 'write'
+					}))
+				})
+			})
 		}
 	})
 

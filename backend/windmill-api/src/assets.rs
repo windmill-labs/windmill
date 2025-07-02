@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, Query},
+    extract::Path,
     routing::{get, post},
     Extension, Json, Router,
 };
@@ -17,7 +17,7 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/link", post(link_assets))
         .route("/list", get(list_assets))
-        .route("/list_for_usage", get(list_assets_for_usage))
+        .route("/list_by_usages", post(list_assets_by_usages))
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
@@ -40,6 +40,12 @@ pub enum AssetUsageKind {
 pub struct Asset {
     pub path: String,
     pub kind: AssetKind,
+}
+
+#[derive(Deserialize)]
+struct Usage {
+    usage_kind: AssetUsageKind,
+    usage_path: String,
 }
 
 #[derive(Deserialize)]
@@ -117,31 +123,37 @@ async fn list_assets(
 }
 
 #[derive(Deserialize)]
-struct ListAssetForUsageQuery {
-    usage_kind: AssetUsageKind,
-    usage_path: String,
+struct ListAssetsByUsagesBody {
+    usages: Vec<Usage>,
 }
 
-async fn list_assets_for_usage(
+async fn list_assets_by_usages(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
-    Query(ListAssetForUsageQuery { usage_kind, usage_path }): Query<ListAssetForUsageQuery>,
     Extension(user_db): Extension<UserDB>,
-) -> JsonResult<Vec<Value>> {
-    let assets = sqlx::query_scalar!(
-        r#"SELECT
-            jsonb_build_object(
-                'path', path,
-                'kind', kind
-            ) as "list!: _"
-        FROM asset
-        WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = $3"#,
-        w_id,
-        usage_path,
-        usage_kind as AssetUsageKind
-    )
-    .fetch_all(&mut *user_db.begin(&authed).await?)
-    .await?;
+    Json(body): Json<ListAssetsByUsagesBody>,
+) -> JsonResult<Vec<Vec<Value>>> {
+    let mut assets_vec = vec![];
 
-    Ok(Json(assets))
+    let mut tx = user_db.begin(&authed).await?;
+
+    for usage in body.usages {
+        let assets = sqlx::query_scalar!(
+            r#"SELECT
+                jsonb_build_object(
+                    'path', path,
+                    'kind', kind
+                ) as "list!: _"
+            FROM asset
+            WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = $3"#,
+            w_id,
+            usage.usage_path,
+            usage.usage_kind as AssetUsageKind
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        assets_vec.push(assets);
+    }
+
+    Ok(Json(assets_vec))
 }

@@ -13005,31 +13005,50 @@ paths:
                           usage_kind:
                             $ref: '#/components/schemas/AssetUsageKind'
 
-  /w/{workspace}/assets/list_for_usage:
-    get:
-      summary: List all assets used by a given usage path
-      operationId: listAssetsForUsage
+  /w/{workspace}/assets/list_by_usages:
+    post:
+      summary: List all assets used by given usages paths
+      operationId: listAssetsByUsage
       tags:
       - asset
       parameters:
       - $ref: '#/components/parameters/WorkspaceId'
-      - $ref: '#/components/parameters/AssetUsageKind'
-      - $ref: '#/components/parameters/AssetUsagePath'
+      requestBody:
+        description: list assets by usages
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [usages]
+              properties:
+                usages:
+                  type: array
+                  items:
+                    type: object
+                    required: [usage_path, usage_kind]
+                    properties:
+                      usage_path:
+                        type: string
+                      usage_kind:
+                        $ref: '#/components/schemas/AssetUsageKind'
       responses:
         '200':
-          description: all assets used by the given usage path
+          description: all assets used by the given usage paths, in the same order
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  type: object
-                  required: [path, kind]
-                  properties:
-                    path:
-                      type: string
-                    kind:
-                      $ref: '#/components/schemas/AssetKind'
+                  type: array
+                  items:
+                    type: object
+                    required: [path, kind]
+                    properties:
+                      path:
+                        type: string
+                      kind:
+                        $ref: '#/components/schemas/AssetKind'
 
 components:
   securitySchemes:
