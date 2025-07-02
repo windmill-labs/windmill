@@ -5,6 +5,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { getContext } from 'svelte'
 	import type { previewContext } from '../utils'
+	import type { Job } from '$lib/gen'
 
 	interface Props {
 		isRunning?: boolean
@@ -26,52 +27,53 @@
 </script>
 
 {#if !isRunning}
-	<div
-		class={twMerge(
-			'flex flex-col transition-all duration-200 h-34',
+	<Button
+		size="sm"
+		color="dark"
+		title="Run"
+		btnClasses={twMerge(
+			'relative p-1.5 h-[34px] transition-all duration-200',
 			wide ? 'w-[120px]' : 'w-[44.5px]'
 		)}
+		on:click={() => {
+			onTestFlow?.()
+		}}
 	>
-		<div class="grow min-h-0">
-			<Button
-				size="sm"
-				color="dark"
-				title="Run"
-				wrapperClasses="h-full"
-				btnClasses={twMerge('p-1.5 h-full', job ? 'rounded-b-none' : '')}
-				on:click={() => {
-					onTestFlow?.()
-				}}
-			>
-				{#if isRunning}
-					<Loader2 size={16} class="animate-spin" />
-				{:else}
-					<Play size={16} />
-				{/if}
-				{#if hover || selected}
-					<span transition:fade={{ duration: 100 }} class="text-xs">Test flow</span>
-				{/if}
-			</Button>
-		</div>
-		{#if job}
-			{@const bgStatus = 'success' in job && job.success ? 'bg-green-400' : 'bg-red-400'}
-			<button
-				onclick={onOpenDetails}
-				class={twMerge(
-					'text-xs rounded-b-md w-full px-1.5 h-[12px] bg-surface flex flex-row items-center gap-1 justify-center'
-				)}
-			>
-				<div
-					class={twMerge('rounded-full w-2 h-2', bgStatus)}
-					title={'success' in job && job.success ? 'Success' : 'Failed'}
-				>
-				</div>
-				{#if wide}
-					<span in:fade={{ duration: 100, delay: 200 }} class="text-xs2"> Open preview </span>
-				{/if}
-			</button>
+		{#if isRunning}
+			<Loader2 size={16} class="animate-spin" />
+		{:else}
+			<Play size={16} />
 		{/if}
-	</div>
+		{#if hover || selected}
+			<span transition:fade={{ duration: 100 }} class="text-xs">Test flow</span>
+		{/if}
+
+		{#if job && wide}
+			<div class="absolute top-[38px] left-0 right-0">
+				<button
+					class={twMerge(
+						'text-xs rounded px-1.5 h-[20px] bg-surface flex flex-row items-center gap-2 justify-center transition-all duration-200',
+						'hover:bg-surface-hover',
+						wide ? 'w-[120px]' : 'w-[44.5px]'
+					)}
+					in:fade={{ duration: 100, delay: 200 }}
+					onclick={(e) => {
+						e.stopPropagation()
+						onOpenDetails?.()
+					}}
+				>
+					{@render dotStatus(job, true)}
+					{#if wide}
+						<span class="text-2xs text-gray-400 hover:text-primary"> Open preview </span>
+					{/if}
+				</button>
+			</div>
+		{:else if job}
+			<div class="absolute -top-1 -right-1" out:fade={{ duration: 100 }}>
+				{@render dotStatus(job)}
+			</div>
+		{/if}
+	</Button>
 {:else}
 	<Button
 		size="xs"
@@ -86,3 +88,15 @@
 		<span transition:fade={{ duration: 100 }} class="text-xs">Cancel</span>
 	</Button>
 {/if}
+
+{#snippet dotStatus(job: Job, small: boolean = false)}
+	<div
+		class={twMerge(
+			'rounded-full',
+			small ? 'h-2 w-2' : 'h-3 w-3',
+			'success' in job && job.success ? 'bg-green-400' : 'bg-red-400'
+		)}
+		title={'success' in job && job.success ? 'Success' : 'Failed'}
+	>
+	</div>
+{/snippet}
