@@ -56,6 +56,7 @@ export type GraphEventHandlers = {
 	editInput: (moduleId: string, key: string) => void
 	testFlow: () => void
 	cancelTestFlow: () => void
+	openPreview: () => void
 }
 
 export type SimplifiableFlow = { simplifiedFlow: boolean }

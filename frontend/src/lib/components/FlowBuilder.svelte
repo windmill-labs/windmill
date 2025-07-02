@@ -1235,6 +1235,9 @@
 					onCancelTestFlow={() => {
 						flowPreviewButtons?.cancelTest()
 					}}
+					onOpenPreview={() => {
+						flowPreviewButtons?.openPreview()
+					}}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

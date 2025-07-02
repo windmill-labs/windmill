@@ -113,6 +113,7 @@
 		onEditInput?: (moduleId: string, key: string) => void
 		onTestFlow?: () => void
 		onCancelTestFlow?: () => void
+		onOpenPreview?: () => void
 	}
 
 	let {
@@ -157,6 +158,7 @@
 		onTestFlow = undefined,
 		isRunning = false,
 		onCancelTestFlow = undefined
+		onOpenPreview = undefined
 	}: Props = $props()
 
 	setContext<{
@@ -324,6 +326,9 @@
 		},
 		cancelTestFlow: () => {
 			onCancelTestFlow?.()
+		},
+		openPreview: () => {
+			onOpenPreview?.()
 		}
 	}
 

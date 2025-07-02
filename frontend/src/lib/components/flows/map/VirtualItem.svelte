@@ -36,6 +36,7 @@
 		onTestFlow?: () => void
 		isRunning?: boolean
 		onCancelTestFlow?: () => void
+		onOpenPreview?: () => void
 	}
 
 	let {
@@ -60,7 +61,8 @@
 		onEditInput,
 		onTestFlow,
 		isRunning,
-		onCancelTestFlow
+		onCancelTestFlow,
+		onOpenPreview
 	}: Props = $props()
 
 	const outputPickerVisible = $derived(
@@ -153,6 +155,7 @@
 							{selected}
 							{onTestFlow}
 							{onCancelTestFlow}
+							{onOpenPreview}
 						/>
 					</div>
 				{/if}

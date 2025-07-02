@@ -84,6 +84,9 @@
 			onCancelTestFlow={() => {
 				data.eventHandlers.cancelTestFlow()
 			}}
+			onOpenPreview={() => {
+				data.eventHandlers.openPreview()
+			}}
 		/>
 	{/snippet}
 </NodeWrapper>

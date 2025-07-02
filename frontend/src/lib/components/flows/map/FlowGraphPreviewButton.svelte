@@ -5,7 +5,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import { getContext } from 'svelte'
 	import type { previewContext } from '../utils'
-	import type { Job } from '$lib/gen'
 
 	interface Props {
 		isRunning?: boolean
@@ -13,10 +12,10 @@
 		selected?: boolean
 		onTestFlow?: () => void
 		onCancelTestFlow?: () => void
-		onOpenDetails?: () => void
+		onOpenPreview?: () => void
 	}
 
-	let { isRunning, hover, selected, onTestFlow, onCancelTestFlow, onOpenDetails }: Props = $props()
+	let { isRunning, hover, selected, onTestFlow, onCancelTestFlow, onOpenPreview }: Props = $props()
 
 	const jobContext = getContext<previewContext>('previewContext')
 	const job = $derived(jobContext?.getJob())
@@ -59,18 +58,21 @@
 					in:fade={{ duration: 100, delay: 200 }}
 					onclick={(e) => {
 						e.stopPropagation()
-						onOpenDetails?.()
+						onOpenPreview?.()
 					}}
 				>
-					{@render dotStatus(job, true)}
+					<div
+						class={twMerge(
+							'rounded-full h-2 w-2',
+							'success' in job && job.success ? 'bg-green-400' : 'bg-red-400'
+						)}
+						title={'success' in job && job.success ? 'Success' : 'Failed'}
+					>
+					</div>
 					{#if wide}
 						<span class="text-2xs text-gray-400 hover:text-primary"> Open preview </span>
 					{/if}
 				</button>
-			</div>
-		{:else if job}
-			<div class="absolute -top-1 -right-1" out:fade={{ duration: 100 }}>
-				{@render dotStatus(job)}
 			</div>
 		{/if}
 	</Button>
@@ -88,15 +90,3 @@
 		<span transition:fade={{ duration: 100 }} class="text-xs">Cancel</span>
 	</Button>
 {/if}
-
-{#snippet dotStatus(job: Job, small: boolean = false)}
-	<div
-		class={twMerge(
-			'rounded-full',
-			small ? 'h-2 w-2' : 'h-3 w-3',
-			'success' in job && job.success ? 'bg-green-400' : 'bg-red-400'
-		)}
-		title={'success' in job && job.success ? 'Success' : 'Failed'}
-	>
-	</div>
-{/snippet}
