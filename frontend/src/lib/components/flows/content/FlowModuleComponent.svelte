@@ -252,7 +252,9 @@
 		$selectedId && untrack(() => onSelectedIdChange())
 	})
 	$effect(() => {
-		if ($workspaceStore && $pathStore && flowModule?.id && $flowStateStore) {
+		if (testJob && testJob.type === 'CompletedJob') {
+			lastJob = $state.snapshot(testJob)
+		} else if ($workspaceStore && $pathStore && flowModule?.id && $flowStateStore) {
 			untrack(() => getLastJob())
 		}
 	})
@@ -893,7 +895,7 @@
 											{testIsLoading}
 											disableMock={preprocessorModule || failureModule}
 											disableHistory={failureModule}
-											loadingHistory={stepHistoryLoader?.stepStates[flowModule.id]?.loadingJobs}
+											loadingJob={stepHistoryLoader?.stepStates[flowModule.id]?.loadingJobs}
 										/>
 									</Pane>
 								{/if}
