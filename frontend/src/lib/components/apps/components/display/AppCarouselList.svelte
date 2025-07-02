@@ -174,16 +174,12 @@
 											color="light"
 											on:click={() => {
 												const pagesCount = result?.length ?? 0
-												let newIndex: number
 
 												if (currentPageIndex > 0) {
-													newIndex = currentPageIndex - 1
+													carousel.goTo(currentPageIndex - 1)
 												} else {
-													newIndex = pagesCount - 1
+													carousel.goTo(pagesCount - 1)
 												}
-
-												carousel.goTo(newIndex)
-												currentPageIndex = newIndex
 											}}
 										>
 											<ArrowLeftCircle size={16} />
@@ -198,16 +194,11 @@
 											color="light"
 											on:click={() => {
 												const pagesCount = result?.length ?? 0
-												let newIndex: number
-
 												if (currentPageIndex < pagesCount - 1) {
-													newIndex = currentPageIndex + 1
+													carousel.goTo(currentPageIndex + 1)
 												} else {
-													newIndex = 0
+													carousel.goTo(0)
 												}
-
-												carousel.goTo(newIndex)
-												currentPageIndex = newIndex
 											}}
 										>
 											<ArrowRightCircle size={16} />
@@ -224,7 +215,7 @@
 											} else {
 												inputs[id] = { ...inputs[id], [index]: value }
 											}
-											outputs?.inputs.set(inputs)
+											outputs?.inputs.set(inputs, true)
 										}}
 										onRemove={(id) => {
 											if (inputs?.[id] == undefined) {
@@ -237,7 +228,7 @@
 												delete inputs[id][index]
 												inputs[id] = { ...inputs[id] }
 											}
-											outputs?.inputs.set(inputs)
+											outputs?.inputs.set(inputs, true)
 										}}
 										{value}
 										{index}
