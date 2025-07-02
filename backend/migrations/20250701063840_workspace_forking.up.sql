@@ -4,9 +4,9 @@
 CREATE TABLE workspace_fork (
     fork_workspace_id VARCHAR(63) PRIMARY KEY,
     parent_workspace_id VARCHAR(63) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     created_by VARCHAR(255) NOT NULL,
-    fork_point TIMESTAMP NOT NULL DEFAULT NOW(),
+    fork_point TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_fork_workspace FOREIGN KEY (fork_workspace_id) REFERENCES workspace(id) ON DELETE CASCADE,
     CONSTRAINT fk_parent_workspace FOREIGN KEY (parent_workspace_id) REFERENCES workspace(id) ON DELETE CASCADE
 );
@@ -19,7 +19,7 @@ CREATE TABLE forked_resource_refs (
     resource_path VARCHAR(4000) NOT NULL,
     is_reference BOOLEAN NOT NULL DEFAULT TRUE,
     parent_resource_id VARCHAR(4000),
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_forked_resource_workspace FOREIGN KEY (fork_workspace_id) REFERENCES workspace(id) ON DELETE CASCADE
 );
 
