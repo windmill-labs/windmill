@@ -1,17 +1,17 @@
 <script lang="ts">
-	import { Badge, Button } from '$lib/components/common'
+	import { Badge } from '$lib/components/common'
 
 	import VirtualItemWrapper from './VirtualItemWrapper.svelte'
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { fade } from 'svelte/transition'
-	import { Database, Loader2, Play, Square } from 'lucide-svelte'
+	import { Database, Square } from 'lucide-svelte'
 	import ModuleAcceptReject, {
 		getAiModuleAction
 	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
-	import { twMerge } from 'tailwind-merge'
+	import FlowGraphPreviewButton from './FlowGraphPreviewButton.svelte'
 
 	interface Props {
 		label?: string | undefined
@@ -147,42 +147,13 @@
 			>
 				{#if outputPickerVisible}
 					<div transition:fade={{ duration: 100 }}>
-						{#if !isRunning}
-							<Button
-								size="sm"
-								color="dark"
-								title="Run"
-								btnClasses={twMerge(
-									'p-1.5 h-[34px] transition-all duration-200',
-									hover || selected ? 'w-[120px]' : 'w-[44.5px]'
-								)}
-								on:click={() => {
-									onTestFlow?.()
-								}}
-							>
-								{#if isRunning}
-									<Loader2 size={16} class="animate-spin" />
-								{:else}
-									<Play size={16} />
-								{/if}
-								{#if hover || selected}
-									<span transition:fade={{ duration: 100 }} class="text-xs">Test flow</span>
-								{/if}
-							</Button>
-						{:else}
-							<Button
-								size="xs"
-								color="red"
-								variant="contained"
-								btnClasses="h-[34px] w-[120px] p-1.5"
-								on:click={async () => {
-									onCancelTestFlow?.()
-								}}
-							>
-								<Loader2 size={16} class="animate-spin" />
-								<span transition:fade={{ duration: 100 }} class="text-xs">Cancel</span>
-							</Button>
-						{/if}
+						<FlowGraphPreviewButton
+							{isRunning}
+							{hover}
+							{selected}
+							{onTestFlow}
+							{onCancelTestFlow}
+						/>
 					</div>
 				{/if}
 			</div>
