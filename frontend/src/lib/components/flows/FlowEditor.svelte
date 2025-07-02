@@ -41,7 +41,6 @@
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
-		onRunPreview?: () => void
 		waitingJob?: Job | undefined
 		isOwner?: boolean
 		showModuleStatus?: boolean
@@ -71,7 +70,6 @@
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,
-		onRunPreview = () => {},
 		waitingJob,
 		isOwner,
 		showModuleStatus,
@@ -167,7 +165,7 @@
 					{onDeployTrigger}
 					{forceTestTab}
 					{highlightArg}
-					{onRunPreview}
+					{onTestFlow}
 				/>
 			{/if}
 		</Pane>

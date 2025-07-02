@@ -1224,9 +1224,6 @@
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
-					onRunPreview={() => {
-						flowPreviewButtons?.openPreview(true)
-					}}
 					waitingJob={job}
 					{isOwner}
 					{showModuleStatus}
