@@ -3,9 +3,11 @@
     nixpkgs.url = "nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     rust-overlay.url = "github:oxalica/rust-overlay";
+    # Use separate channel for claude code. It always needs to be latest
+    nixpkgs-claude.url = "nixpkgs/nixos-unstable";
   };
 
-  outputs = { self, nixpkgs, flake-utils, rust-overlay }:
+  outputs = { self, nixpkgs, nixpkgs-claude, flake-utils, rust-overlay }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
@@ -13,6 +15,10 @@
           config.allowUnfree = true;
           overlays = [ (import rust-overlay) ];
         };
+        claude-code = (import nixpkgs-claude {
+          inherit system;
+          config.allowUnfree = true;
+        }).claude-code;
         lib = pkgs.lib;
         stdenv = pkgs.stdenv;
         rust = pkgs.rust-bin.stable.latest.default.override {
@@ -95,7 +101,10 @@
         };
 
         devShells.default = pkgs.mkShell {
-          buildInputs = buildInputs ++ (with pkgs; [
+          buildInputs = buildInputs ++ [
+            # To update run: `nix flake update nixpkgs-claude`
+            claude-code
+          ] ++ (with pkgs; [
             # Essentials
             rust
             cargo-watch

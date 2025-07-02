@@ -719,7 +719,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{/if}
 
 			{#if customUi?.assistants != false}
-				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash' || lang == 'nu'}
+				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash'}
 					<Button
 						aiId="editor-bar-reload-assistants"
 						aiDescription="Reload assistants"
