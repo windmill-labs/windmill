@@ -157,7 +157,7 @@
 		isOwner = false,
 		onTestFlow = undefined,
 		isRunning = false,
-		onCancelTestFlow = undefined
+		onCancelTestFlow = undefined,
 		onOpenPreview = undefined
 	}: Props = $props()
 

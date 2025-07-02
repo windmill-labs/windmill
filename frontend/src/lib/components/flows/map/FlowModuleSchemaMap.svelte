@@ -61,6 +61,7 @@
 		onTestFlow?: () => void
 		isRunning?: boolean
 		onCancelTestFlow?: () => void
+		onOpenPreview?: () => void
 	}
 
 	let {
@@ -83,7 +84,8 @@
 		showModuleStatus = true,
 		onTestFlow,
 		isRunning,
-		onCancelTestFlow
+		onCancelTestFlow,
+		onOpenPreview
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -575,6 +577,7 @@
 			{onTestFlow}
 			{isRunning}
 			{onCancelTestFlow}
+			{onOpenPreview}
 		/>
 	</div>
 </div>

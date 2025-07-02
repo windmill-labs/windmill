@@ -41,7 +41,7 @@
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
-	import type { Job } from '$lib/gen'
+	import type { FlowStatusModule, Job } from '$lib/gen'
 	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
 	import { workspaceStore } from '$lib/stores'
 
@@ -79,10 +79,12 @@
 		inputTransform?: Record<string, any> | undefined
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		onEditInput?: (moduleId: string, key: string) => void
-		showApproval?: boolean
 		waitingJob?: Job | undefined
 		isOwner?: boolean
 		enableTestRun?: boolean
+		type?: FlowStatusModule['type'] | undefined
+		darkMode?: boolean
+		skipped?: boolean
 	}
 
 	let {
@@ -114,10 +116,12 @@
 		inputTransform,
 		onUpdateMock,
 		onEditInput,
-		showApproval,
 		waitingJob,
 		isOwner = false,
-		enableTestRun = false
+		enableTestRun = false,
+		type,
+		darkMode,
+		skipped
 	}: Props = $props()
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
@@ -202,6 +206,10 @@
 	const icon_render = $derived(icon)
 
 	const action = $derived(getAiModuleAction(id))
+
+	const showApproval = $derived(
+		type === 'WaitingForExecutor' || type === 'WaitingForEvents' || type === 'WaitingForPriorSteps'
+	)
 </script>
 
 {#if deletable && id && editId}
@@ -449,6 +457,9 @@
 				bind:bottomBarOpen={outputPickerBarOpen}
 				{loopStatus}
 				{onEditInput}
+				{type}
+				{darkMode}
+				{skipped}
 			>
 				{#snippet children({ allowCopy, isConnecting, selectConnection })}
 					<OutputPickerInner
