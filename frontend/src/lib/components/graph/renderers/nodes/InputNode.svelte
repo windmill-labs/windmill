@@ -87,6 +87,9 @@
 			onOpenPreview={() => {
 				data.eventHandlers.openPreview()
 			}}
+			onHideJobStatus={() => {
+				data.eventHandlers.hideJobStatus()
+			}}
 		/>
 	{/snippet}
 </NodeWrapper>

@@ -922,8 +922,8 @@
 	let showModuleStatus = $state(false)
 	let isRunning = $state(false)
 	let previewOpen = $state(false)
-
 	let jobRunning = $state(false)
+
 	function jobObserver(job: Job) {
 		if (isRunning === jobRunning) {
 			return
@@ -953,7 +953,9 @@
 		job && jobObserver(job)
 	})
 
-	setContext<previewContext>('previewContext', { getJob: () => job })
+	setContext<previewContext>('previewContext', {
+		getJob: () => (showModuleStatus ? job : undefined)
+	})
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -1237,6 +1239,9 @@
 					}}
 					onOpenPreview={() => {
 						flowPreviewButtons?.openPreview()
+					}}
+					onHideJobStatus={() => {
+						showModuleStatus = false
 					}}
 				/>
 			{:else}

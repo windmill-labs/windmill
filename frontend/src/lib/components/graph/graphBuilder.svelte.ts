@@ -57,6 +57,7 @@ export type GraphEventHandlers = {
 	testFlow: () => void
 	cancelTestFlow: () => void
 	openPreview: () => void
+	hideJobStatus: () => void
 }
 
 export type SimplifiableFlow = { simplifiedFlow: boolean }

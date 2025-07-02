@@ -37,6 +37,7 @@
 		isRunning?: boolean
 		onCancelTestFlow?: () => void
 		onOpenPreview?: () => void
+		onHideJobStatus?: () => void
 	}
 
 	let {
@@ -62,7 +63,8 @@
 		onTestFlow,
 		isRunning,
 		onCancelTestFlow,
-		onOpenPreview
+		onOpenPreview,
+		onHideJobStatus
 	}: Props = $props()
 
 	const outputPickerVisible = $derived(
@@ -145,7 +147,7 @@
 
 		{#if alwaysPluggable}
 			<div
-				class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center justify-end w-fit px-2 h-9 min-w-32"
+				class="absolute top-1/2 -translate-y-8 -translate-x-[100%] -left-[0] flex py-4 pb-10 justify-end w-fit px-2 min-w-32"
 			>
 				{#if outputPickerVisible}
 					<div transition:fade={{ duration: 100 }}>
@@ -156,6 +158,7 @@
 							{onTestFlow}
 							{onCancelTestFlow}
 							{onOpenPreview}
+							{onHideJobStatus}
 						/>
 					</div>
 				{/if}

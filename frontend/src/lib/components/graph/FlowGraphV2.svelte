@@ -114,6 +114,7 @@
 		onTestFlow?: () => void
 		onCancelTestFlow?: () => void
 		onOpenPreview?: () => void
+		onHideJobStatus?: () => void
 	}
 
 	let {
@@ -158,7 +159,8 @@
 		onTestFlow = undefined,
 		isRunning = false,
 		onCancelTestFlow = undefined,
-		onOpenPreview = undefined
+		onOpenPreview = undefined,
+		onHideJobStatus = undefined
 	}: Props = $props()
 
 	setContext<{
@@ -329,6 +331,9 @@
 		},
 		openPreview: () => {
 			onOpenPreview?.()
+		},
+		hideJobStatus: () => {
+			onHideJobStatus?.()
 		}
 	}
 

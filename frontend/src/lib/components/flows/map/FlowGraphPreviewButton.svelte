@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { fade } from 'svelte/transition'
-	import { Loader2, Play } from 'lucide-svelte'
+	import { Loader2, Play, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { getContext } from 'svelte'
 	import type { previewContext } from '../utils'
+	import Popover from '$lib/components/Popover.svelte'
 
 	interface Props {
 		isRunning?: boolean
@@ -13,16 +14,23 @@
 		onTestFlow?: () => void
 		onCancelTestFlow?: () => void
 		onOpenPreview?: () => void
+		onHideJobStatus?: () => void
 	}
 
-	let { isRunning, hover, selected, onTestFlow, onCancelTestFlow, onOpenPreview }: Props = $props()
+	let {
+		isRunning,
+		hover,
+		selected,
+		onTestFlow,
+		onCancelTestFlow,
+		onOpenPreview,
+		onHideJobStatus
+	}: Props = $props()
 
 	const jobContext = getContext<previewContext>('previewContext')
 	const job = $derived(jobContext?.getJob())
 
-	$inspect('dbg job', job)
-
-	const wide = $derived(hover || selected)
+	const wide = $derived(hover || selected || job)
 </script>
 
 {#if !isRunning}
@@ -43,35 +51,54 @@
 		{:else}
 			<Play size={16} />
 		{/if}
-		{#if hover || selected}
+		{#if wide}
 			<span transition:fade={{ duration: 100 }} class="text-xs">Test flow</span>
 		{/if}
 
 		{#if job && wide}
-			<div class="absolute top-[38px] left-0 right-0">
+			<div
+				class="absolute top-[38px] left-0 right-0 flex flex-row items-center shadow-sm rounded-md"
+				in:fade={{ duration: 100, delay: 200 }}
+				style={`width: ${wide ? '120px' : '44.5px'}`}
+			>
+				<Popover class="grow min-w-0">
+					<button
+						class={twMerge(
+							'text-xs rounded-md rounded-r-none px-1.5 h-[24px] w-full bg-surface flex flex-row items-center gap-2 justify-center transition-all duration-200 ',
+							'hover:bg-surface-hover text-gray-400 hover:text-primary'
+						)}
+						onclick={(e) => {
+							e.stopPropagation()
+							onOpenPreview?.()
+						}}
+					>
+						<div
+							class={twMerge(
+								'rounded-full h-2 w-2',
+								'success' in job && job.success ? 'bg-green-400' : 'bg-red-400'
+							)}
+							title={'success' in job && job.success ? 'Success' : 'Failed'}
+						>
+						</div>
+						{#if wide}
+							<span class="text-xs truncate" dir="rtl">
+								{job.id.slice(-5)}
+							</span>
+						{/if}
+					</button>
+					{#snippet text()}
+						See run details
+					{/snippet}
+				</Popover>
 				<button
-					class={twMerge(
-						'text-xs rounded px-1.5 h-[20px] bg-surface flex flex-row items-center gap-2 justify-center transition-all duration-200',
-						'hover:bg-surface-hover',
-						wide ? 'w-[120px]' : 'w-[44.5px]'
-					)}
-					in:fade={{ duration: 100, delay: 200 }}
+					class="h-[24px] px-1.5 bg-surface rounded-md rounded-l-none text-gray-400 hover:bg-red-500 hover:text-white"
+					title="Close preview"
 					onclick={(e) => {
 						e.stopPropagation()
-						onOpenPreview?.()
+						onHideJobStatus?.()
 					}}
 				>
-					<div
-						class={twMerge(
-							'rounded-full h-2 w-2',
-							'success' in job && job.success ? 'bg-green-400' : 'bg-red-400'
-						)}
-						title={'success' in job && job.success ? 'Success' : 'Failed'}
-					>
-					</div>
-					{#if wide}
-						<span class="text-2xs text-gray-400 hover:text-primary"> Open preview </span>
-					{/if}
+					<X size={14} />
 				</button>
 			</div>
 		{/if}

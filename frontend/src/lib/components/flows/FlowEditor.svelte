@@ -37,7 +37,7 @@
 		onEditInput?: ((moduleId: string, key: string) => void) | undefined
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
-		localModuleStates: Writable<Record<string, GraphModuleState>>
+		localModuleStates?: Writable<Record<string, GraphModuleState>>
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
@@ -49,6 +49,7 @@
 		isRunning?: boolean
 		onCancelTestFlow?: () => void
 		onOpenPreview?: () => void
+		onHideJobStatus?: () => void
 	}
 
 	let {
@@ -66,7 +67,7 @@
 		onEditInput = undefined,
 		forceTestTab,
 		highlightArg,
-		localModuleStates = $bindable(writable({})),
+		localModuleStates = writable({}),
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,
@@ -77,7 +78,8 @@
 		onTestFlow,
 		isRunning,
 		onCancelTestFlow,
-		onOpenPreview
+		onOpenPreview,
+		onHideJobStatus
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -142,6 +144,7 @@
 						{isRunning}
 						{onCancelTestFlow}
 						{onOpenPreview}
+						{onHideJobStatus}
 					/>
 				{/if}
 			</div>

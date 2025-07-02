@@ -51,7 +51,7 @@
 		workspace?: string | undefined
 		onTestUpTo?: ((id: string) => void) | undefined
 		onEditInput?: (moduleId: string, key: string) => void
-		localModuleStates: Writable<Record<string, GraphModuleState>>
+		localModuleStates?: Writable<Record<string, GraphModuleState>>
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
@@ -62,6 +62,7 @@
 		isRunning?: boolean
 		onCancelTestFlow?: () => void
 		onOpenPreview?: () => void
+		onHideJobStatus?: () => void
 	}
 
 	let {
@@ -75,7 +76,7 @@
 		workspace = $workspaceStore,
 		onTestUpTo,
 		onEditInput,
-		localModuleStates = $bindable(writable({})),
+		localModuleStates = writable({}),
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,
@@ -85,7 +86,8 @@
 		onTestFlow,
 		isRunning,
 		onCancelTestFlow,
-		onOpenPreview
+		onOpenPreview,
+		onHideJobStatus
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -578,6 +580,7 @@
 			{isRunning}
 			{onCancelTestFlow}
 			{onOpenPreview}
+			{onHideJobStatus}
 		/>
 	</div>
 </div>
