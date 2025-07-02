@@ -38,7 +38,8 @@ const setValue = {
 
 const setSelectedIndex = {
 	title: 'setSelectedIndex',
-	description: 'Use the setSelectedIndex function to select a row in a table or an AG Grid table.',
+	description:
+		'Use the setSelectedIndex function to select a row in a table, an AG Grid table, or navigate to a slide in a Carousel component.',
 	example: 'setSelectedIndex(id: string, index: number)',
 	documentation: 'https://www.windmill.dev/docs/apps/app-runnable-panel#setselectedindex'
 }
@@ -90,6 +91,8 @@ export function getComponentControl(type: keyof typeof components): Array<Compon
 			return [setTab, setValue, setSelectedIndex]
 		case 'selecttabcomponent':
 			return [setTab, setValue, setSelectedIndex]
+		case 'carousellistcomponent':
+			return [setSelectedIndex]
 		case 'conditionalwrapper':
 		case 'steppercomponent':
 			return [setTab]

@@ -1319,6 +1319,7 @@ export function isContainer(type: string): boolean {
 		type === 'horizontalsplitpanescomponent' ||
 		type === 'steppercomponent' ||
 		type === 'listcomponent' ||
+		type === 'carousellistcomponent' ||
 		type === 'decisiontreecomponent'
 	)
 }
@@ -1335,6 +1336,9 @@ export function subGridIndexKey(type: string | undefined, id: string, world: Wor
 		}
 		case 'steppercomponent': {
 			return (world?.outputsById?.[id]?.currentStepIndex?.peak() as number) ?? 0
+		}
+		case 'carousellistcomponent': {
+			return (world?.outputsById?.[id]?.currentIndex?.peak() as number) ?? 0
 		}
 		case 'decisiontreecomponent': {
 			return (world?.outputsById?.[id]?.currentNodeIndex?.peak() as number) ?? 0
