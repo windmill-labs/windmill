@@ -265,10 +265,10 @@
 		)
 	}
 
-	let lastNodes: [NodeLayout[], Node[], typeof assetsMap] | undefined = undefined
+	let lastNodes: [NodeLayout[], Node[]] | undefined = undefined
 	function layoutNodes(nodes: NodeLayout[]): Node[] {
 		let lastResult = lastNodes?.[1]
-		if (lastResult && nodes === lastNodes?.[0] && deepEqual(assetsMap, lastNodes?.[2])) {
+		if (lastResult && nodes === lastNodes?.[0]) {
 			return lastResult
 		}
 		let seenId: string[] = []
@@ -303,13 +303,12 @@
 			const layout = sugiyama()
 				.decross(nodes.length > 20 ? decrossTwoLayer() : decrossOpt())
 				.coord(coordCenter())
-				.nodeSize(
-					(d) =>
-						[
-							(nodeWidths[d?.data?.['id'] ?? ''] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
-							NODE.height + NODE.gap.vertical
-						] as readonly [number, number]
-				)
+				.nodeSize((d) => {
+					return [
+						(nodeWidths[d?.data?.['id'] ?? ''] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
+						NODE.height + NODE.gap.vertical
+					] as readonly [number, number]
+				})
 			boxSize = layout(dag as any)
 		} catch {
 			const layout = sugiyama()
@@ -338,7 +337,7 @@
 			}
 		}))
 
-		lastNodes = [nodes, newNodes, clone(assetsMap)]
+		lastNodes = [nodes, newNodes]
 		return newNodes
 	}
 
