@@ -205,22 +205,21 @@
 	$effect(() => {
 		for (const asset of Object.values(assetsMap ?? []).flatMap((x) => x)) {
 			if (asset.kind !== 'resource' || asset.path in resMetadataCache) continue
-			ResourceService.getResource({ path: asset.path, workspace: $workspaceStore! })
-				.then((r) => (resMetadataCache[asset.path] = { resource_type: r.resource_type }))
-				.catch((err) => (resMetadataCache[asset.path] = undefined))
+			resMetadataCache[asset.path] = undefined // avoid fetching multiple times because of async
+			ResourceService.getResource({ path: asset.path, workspace: $workspaceStore! }).then(
+				(r) => (resMetadataCache[asset.path] = { resource_type: r.resource_type })
+			)
 		}
 	})
 
 	// Fetch transitive assets (path scripts and flows)
-	const _currentlyFetchingAssets = new Set<string>()
 	$effect(() => {
 		if (!$workspaceStore) return
 		let usages: { path: string; kind: AssetUsageKind }[] = []
 		let modIds: string[] = []
 		for (const mod of getAllModules(modules)) {
 			if (mod.id in assetsMap) continue
-			if (_currentlyFetchingAssets.has(mod.id)) continue
-			_currentlyFetchingAssets.add(mod.id)
+			assetsMap[mod.id] = [] // avoid fetching multiple times because of async
 			if (mod.value.type === 'flow' || mod.value.type === 'script') {
 				usages.push({ path: mod.value.path, kind: mod.value.type })
 				modIds.push(mod.id)
@@ -233,7 +232,6 @@
 			}).then((result) => {
 				result.forEach((assets, idx) => {
 					assetsMap[modIds[idx]] = assets
-					_currentlyFetchingAssets.delete(modIds[idx])
 				})
 			})
 		}
@@ -242,8 +240,8 @@
 	// Prune assetsMap to only contain assets that are actually used
 	$effect(() => {
 		const allModules = new Set(getAllModules(modules).map((mod) => mod.id))
-		for (const asset in assetsMap) {
-			if (!allModules.has(asset)) delete assetsMap[asset]
+		for (const modId in assetsMap) {
+			if (!allModules.has(modId)) delete assetsMap[modId]
 		}
 	})
 
@@ -341,9 +339,12 @@
 		return newNodes
 	}
 
-	let computeAssetNodesCache: [Node[], ReturnType<typeof computeAssetNodes>] | undefined
+	let computeAssetNodesCache:
+		| [Node[], typeof assetsMap, ReturnType<typeof computeAssetNodes>]
+		| undefined
 	function computeAssetNodes(nodes: Node[], edges: Edge[]): [Node[], Edge[]] {
-		if (nodes === computeAssetNodesCache?.[0]) return computeAssetNodesCache[1]
+		if (nodes === computeAssetNodesCache?.[0] && deepEqual(assetsMap, computeAssetNodesCache?.[1]))
+			return computeAssetNodesCache[2]
 
 		const ASSET_X_GAP = 20
 		const ASSET_WIDTH = 180
@@ -450,7 +451,7 @@
 			[...sortedNewNodes, ...allAssetNodes],
 			[...edges, ...allAssetEdges]
 		]
-		computeAssetNodesCache = [nodes, ret]
+		computeAssetNodesCache = [nodes, clone(assetsMap), ret]
 		return ret
 	}
 
