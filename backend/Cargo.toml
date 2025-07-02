@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.501.4"
+version = "1.502.2"
 authors.workspace = true
 edition.workspace = true
 
@@ -32,7 +32,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.501.4"
+version = "1.502.2"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -348,7 +348,7 @@ nkeys = "0.4.4"
 nu-parser = { version = "0.101.0", default-features = false }
 
 datafusion = "47.0.0"
-object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7", features = ["aws", "azure"] } 
+object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7", features = ["aws", "azure", "gcp"] } 
 openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
 aws-sdk-sqs = "1.57.0"

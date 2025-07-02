@@ -255,6 +255,7 @@
 					{showApproval}
 					{waitingJob}
 					{isOwner}
+					enableTestRun
 				>
 					{#snippet icon()}
 						<div>

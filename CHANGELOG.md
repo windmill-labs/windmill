@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.502.2](https://github.com/windmill-labs/windmill/compare/v1.502.1...v1.502.2) (2025-07-01)
+
+
+### Bug Fixes
+
+* bad spacing ai chat context elements ([#6111](https://github.com/windmill-labs/windmill/issues/6111)) ([2fb912b](https://github.com/windmill-labs/windmill/commit/2fb912b78c90d9e70d3db4b0c3c473831161c8b4))
+* **frontend:** improve step job load ([#6109](https://github.com/windmill-labs/windmill/issues/6109)) ([0afe3f9](https://github.com/windmill-labs/windmill/commit/0afe3f9691d93f837b10b29a0cf125eaa175589d))
+* **frontend:** only show test button for script modules ([#6107](https://github.com/windmill-labs/windmill/issues/6107)) ([7042a6f](https://github.com/windmill-labs/windmill/commit/7042a6f52db823d6b9b5ad14fa83af36880bd2d5))
+
+## [1.502.1](https://github.com/windmill-labs/windmill/compare/v1.502.0...v1.502.1) (2025-07-01)
+
+
+### Bug Fixes
+
+* **frontend:** update test job logs ([#6102](https://github.com/windmill-labs/windmill/issues/6102)) ([a4c295b](https://github.com/windmill-labs/windmill/commit/a4c295b5e857314d78de6bb6ab942dc60ff99279))
+
+## [1.502.0](https://github.com/windmill-labs/windmill/compare/v1.501.4...v1.502.0) (2025-06-30)
+
+
+### Features
+
+* kafka better retry and errors ([#6067](https://github.com/windmill-labs/windmill/issues/6067)) ([8edf4b2](https://github.com/windmill-labs/windmill/commit/8edf4b2b92fe77ad86d96d41095b05540176e783))
+* use FIM for code autocomplete ([#6081](https://github.com/windmill-labs/windmill/issues/6081)) ([431437c](https://github.com/windmill-labs/windmill/commit/431437c3449ddcd8c45bacd696a4db209577773b))
+
+
+### Bug Fixes
+
+* add support for GCS object storage  ([#6083](https://github.com/windmill-labs/windmill/issues/6083)) ([c51e128](https://github.com/windmill-labs/windmill/commit/c51e128920801ec7199033c59655a0bcdd5341ba))
+* fix critical alerts flapping on low disk  ([#6075](https://github.com/windmill-labs/windmill/issues/6075)) ([bcba462](https://github.com/windmill-labs/windmill/commit/bcba46225f094e60bb7e77ed74fc060ffaccb6c6))
+* fix s3 settings reset ([8ba3959](https://github.com/windmill-labs/windmill/commit/8ba3959adac955cd4ec5cbebd357703992c68baa))
+* **frontend:** improve flow editor settings bar UX ([#6049](https://github.com/windmill-labs/windmill/issues/6049)) ([ded54f2](https://github.com/windmill-labs/windmill/commit/ded54f2e68da09618c377cd699e0a2eaa53a63a8))
+* optimize public apps rendering ([a7e78f0](https://github.com/windmill-labs/windmill/commit/a7e78f01f1697b8a4a3c61cd4377bc34b8077d38))
+* public url in app menu ([ca368ab](https://github.com/windmill-labs/windmill/commit/ca368aba7a334efc9963f69b3a4462d9972997f4))
+* test up to broken due to mutable flow ai chat preview ([#6096](https://github.com/windmill-labs/windmill/issues/6096)) ([805a8b5](https://github.com/windmill-labs/windmill/commit/805a8b574c057b911bff5d335e0c63051c6587ee))
+
 ## [1.501.4](https://github.com/windmill-labs/windmill/compare/v1.501.3...v1.501.4) (2025-06-26)
 
 

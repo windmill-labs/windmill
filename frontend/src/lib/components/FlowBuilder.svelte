@@ -116,6 +116,16 @@
 			stepsState: Record<string, stepState>
 		}
 		noInitial?: boolean
+		onSaveInitial?: ({ path, id }: { path: string; id: string }) => void
+		onSaveDraft?: ({
+			path,
+			savedAtNewPath,
+			newFlow
+		}: {
+			path: string
+			savedAtNewPath: boolean
+			newFlow: boolean
+		}) => void
 	}
 
 	let {
