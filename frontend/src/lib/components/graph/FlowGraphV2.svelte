@@ -219,10 +219,10 @@
 		)
 	}
 
-	let lastNodes: [NodeLayout[], Node[], assetsMap: any] | undefined = undefined
+	let lastNodes: [NodeLayout[], Node[], typeof assetsMap] | undefined = undefined
 	function layoutNodes(nodes: NodeLayout[]): Node[] {
 		let lastResult = lastNodes?.[1]
-		if (lastResult && deepEqual(nodes, lastNodes?.[0]) && deepEqual(assetsMap, lastNodes?.[2])) {
+		if (lastResult && nodes === lastNodes?.[0] && deepEqual(assetsMap, lastNodes?.[2])) {
 			return lastResult
 		}
 		let seenId: string[] = []
@@ -257,18 +257,13 @@
 			const layout = sugiyama()
 				.decross(nodes.length > 20 ? decrossTwoLayer() : decrossOpt())
 				.coord(coordCenter())
-				.nodeSize((d) => {
-					const id: string | undefined = d?.data?.['id'] ?? ''
-					let assetAdditionalHeight = 0
-					if (assetsMap?.[id]?.some((a) => a.accessType === 'read'))
-						assetAdditionalHeight += NODE_WITH_READ_ASSET_Y_OFFSET
-					if (assetsMap?.[id]?.some((a) => a.accessType === 'write'))
-						assetAdditionalHeight += NODE_WITH_WRITE_ASSET_Y_OFFSET
-					return [
-						(nodeWidths[id] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
-						NODE.height + NODE.gap.vertical + assetAdditionalHeight
-					] as readonly [number, number]
-				})
+				.nodeSize(
+					(d) =>
+						[
+							(nodeWidths[d?.data?.['id'] ?? ''] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
+							NODE.height + NODE.gap.vertical
+						] as readonly [number, number]
+				)
 			boxSize = layout(dag as any)
 		} catch {
 			const layout = sugiyama()
@@ -301,20 +296,22 @@
 		return newNodes
 	}
 
+	let computeAssetNodesCache: [Node[], ReturnType<typeof computeAssetNodes>] | undefined
 	function computeAssetNodes(nodes: Node[], edges: Edge[]): [Node[], Edge[]] {
+		if (nodes === computeAssetNodesCache?.[0]) return computeAssetNodesCache[1]
+
 		const ASSET_X_GAP = 20
 		const ASSET_WIDTH = 180
 
 		const allAssetNodes: (Node & AssetN)[] = []
 		const allAssetEdges: Edge[] = []
-		const newNodes = [...nodes]
 
 		// If node at yPosition 310.5 has asset nodes on the top, every node
 		// at the same yPosition will need to get shifted by the same amount for everything
 		// to align
-		const yPosAccessTypeMap: Record<number, 'read' | 'write' | 'rw'> = {}
+		const yPosMap: Record<number, { read?: true; write?: true }> = {}
 
-		for (const node of newNodes) {
+		for (const node of nodes) {
 			const assets = assetsMap?.[node.id]
 			let [readAssetIdx, writeAssetIdx] = [0, 0]
 			let [readAssetCount, writeAssetCount] = [
@@ -339,15 +336,10 @@
 				} satisfies Node & AssetN
 			})
 
-			if (assetNodes?.length) {
-				if (assetNodes.every((n) => n.data.accessType === 'read')) {
-					yPosAccessTypeMap[node.position.y] = 'read'
-				} else if (assetNodes.every((n) => n.data.accessType === 'write')) {
-					yPosAccessTypeMap[node.position.y] = 'write'
-				} else {
-					yPosAccessTypeMap[node.position.y] = 'rw'
-				}
-			}
+			if (readAssetCount || writeAssetCount)
+				yPosMap[node.position.y] = yPosMap[node.position.y] ?? {}
+			if (readAssetCount) yPosMap[node.position.y].read = true
+			if (writeAssetCount) yPosMap[node.position.y].write = true
 
 			const assetEdges = assetNodes?.map((n) => {
 				const source = (n.data.accessType !== 'read' ? n.parentId : n.id) ?? ''
@@ -375,23 +367,25 @@
 			allAssetNodes.push(...(assetNodes ?? []))
 		}
 
-		// Fix y positions of all nodes that were shifted by layoutNodes
-		for (const node of newNodes) {
-			if (node.position.y in yPosAccessTypeMap) {
-				const accessType = yPosAccessTypeMap[node.position.y]
-				if (accessType === 'read' || accessType === 'rw') {
-					node.position.y = node.position.y + NODE_WITH_READ_ASSET_Y_OFFSET / 2
-				}
-				if (accessType === 'write' || accessType === 'rw') {
-					node.position.y = node.position.y - NODE_WITH_WRITE_ASSET_Y_OFFSET / 2
-				}
+		// Shift all nodes to make space for the new asset nodes
+		const sortedNewNodes = clone(nodes.sort((a, b) => a.position.y - b.position.y))
+		let currentYOffset = 0
+		let prevYPos = NaN
+		for (const node of sortedNewNodes) {
+			if (node.position.y !== prevYPos) {
+				if (yPosMap[prevYPos]?.write) currentYOffset += NODE_WITH_WRITE_ASSET_Y_OFFSET
+				if (yPosMap[node.position.y]?.read) currentYOffset += NODE_WITH_READ_ASSET_Y_OFFSET
+				prevYPos = node.position.y
 			}
+			node.position.y += currentYOffset
 		}
 
-		return [
-			[...newNodes, ...allAssetNodes],
+		let ret: ReturnType<typeof computeAssetNodes> = [
+			[...sortedNewNodes, ...allAssetNodes],
 			[...edges, ...allAssetEdges]
 		]
+		computeAssetNodesCache = [nodes, ret]
+		return ret
 	}
 
 	let eventHandler = {
