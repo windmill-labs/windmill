@@ -1464,3 +1464,15 @@ export function isS3Uri(uri: string): uri is S3Uri {
 	const match = uri.match(/^s3:\/\/([^/]*)\/(.*)$/)
 	return !!match && match.length === 3
 }
+
+export function transpose<T>(matrix: T[][]): T[][] {
+	const maxW = Math.max(...matrix.map((row) => row.length))
+	const maxH = matrix.length
+	const transposed: T[][] = Array.from({ length: maxW }, () => Array(maxH).fill(undefined))
+	for (let i = 0; i < maxH; i++) {
+		for (let j = 0; j < matrix[i].length; j++) {
+			transposed[j][i] = matrix[i][j]
+		}
+	}
+	return transposed
+}

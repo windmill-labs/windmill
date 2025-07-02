@@ -211,7 +211,7 @@
 		)
 	}
 
-	const ASSET_OFFSET_TOP = 45
+	const NODE_WITH_ASSET_OFFSET_TOP = 45
 
 	let lastNodes: [NodeLayout[], Node[], assetsMap: any] | undefined = undefined
 	function layoutNodes(nodes: NodeLayout[]): Node[] {
@@ -253,7 +253,7 @@
 				.coord(coordCenter())
 				.nodeSize((d) => {
 					const id: string | undefined = d?.data?.['id'] ?? ''
-					const assetOffsetTop = assetsMap?.[id]?.length ? ASSET_OFFSET_TOP : 0
+					const assetOffsetTop = assetsMap?.[id]?.length ? NODE_WITH_ASSET_OFFSET_TOP : 0
 					return [
 						(nodeWidths[id] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
 						NODE.height + NODE.gap.vertical + assetOffsetTop
@@ -300,6 +300,11 @@
 		const allAssetEdges: Edge[] = []
 		const newNodes = [...nodes]
 
+		// If node at yPosition 310.5 has asset nodes on the top, every node
+		// at the same yPosition will need to get shifted by the same amount for everything
+		// to align
+		const yPosAccessTypeMap: Record<number, 'read'> = {}
+
 		for (const node of newNodes) {
 			const assets = assetsMap?.[node.id]
 			const assetNodes = assets?.map(
@@ -318,6 +323,10 @@
 						width: ASSET_WIDTH
 					}) satisfies Node & AssetN
 			)
+
+			if (assets?.length) {
+				yPosAccessTypeMap[node.position.y] = 'read'
+			}
 
 			const assetEdges = assetNodes?.map((n) => {
 				const source = (n.data.accessType !== 'read' ? n.parentId : n.id) ?? ''
@@ -341,12 +350,19 @@
 				} satisfies Edge
 			})
 
-			if (assets?.length) {
-				node.position.y += ASSET_TOP_OFFSET / 2
-			}
-
 			allAssetEdges.push(...(assetEdges ?? []))
 			allAssetNodes.push(...(assetNodes ?? []))
+		}
+
+		console.log('yPosAccessTypeMap', yPosAccessTypeMap)
+		// Fix y positions of all nodes that were shifted by layoutNodes
+		for (const node of newNodes) {
+			if (node.position.y in yPosAccessTypeMap) {
+				const accessType = yPosAccessTypeMap[node.position.y]
+				if (accessType === 'read') {
+					node.position.y = node.position.y + NODE_WITH_ASSET_OFFSET_TOP / 2
+				}
+			}
 		}
 
 		return [
@@ -441,7 +457,6 @@
 			return
 		}
 		let newGraph = graph
-
 		;[nodes, edges] = computeAssetNodes(layoutNodes(newGraph.nodes), newGraph.edges)
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
