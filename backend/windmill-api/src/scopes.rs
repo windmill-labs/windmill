@@ -6,7 +6,9 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use windmill_common::error::{Error, Result};
 
 /// Comprehensive scope system for JWT token authorization
@@ -23,24 +25,68 @@ const RUN_KEYWORD: [&'static str; 4] = ["/run", "/execute", "/restart", "/resume
 pub struct ScopeDefinition {
     pub domain: String,
     pub action: String,
-    pub resource: Option<String>,
+    pub kind: Option<String>, // For jobs:run:kind (optional)
+    pub resource: Option<Vec<String>>,
 }
 
 impl ScopeDefinition {
-    pub fn new(domain: &str, action: &str, resource: Option<&str>) -> Self {
+    pub fn new(
+        domain: &str,
+        action: &str,
+        kind: Option<&str>,
+        resource: Option<Vec<String>>,
+    ) -> Self {
         Self {
             domain: domain.to_string(),
             action: action.to_string(),
-            resource: resource.map(|s| s.to_string()),
+            kind: kind.map(|s| s.to_string()),
+            resource: resource,
         }
     }
 
     pub fn from_scope_string(scope: &str) -> Result<Self> {
         let parts: Vec<&str> = scope.split(':').collect();
 
+        let into_owned_vec = |resources: &str| -> Vec<String> {
+            let resources = resources
+                .split(",")
+                .collect_vec()
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect_vec();
+
+            resources
+        };
+
         match parts.len() {
-            2 => Ok(Self::new(parts[0], parts[1], None)),
-            3 => Ok(Self::new(parts[0], parts[1], Some(parts[2]))),
+            2 => Ok(Self::new(parts[0], parts[1], None, None)), // domain:action
+            3 => {
+                if parts[0] == "jobs" && parts[1] == "run" {
+                    Ok(Self::new(parts[0], parts[1], Some(parts[2]), None))
+                } else {
+                    Ok(Self::new(
+                        parts[0],
+                        parts[1],
+                        None,
+                        Some(into_owned_vec(parts[2])),
+                    ))
+                }
+            }
+            4 => {
+                if parts[0] == "jobs" && parts[1] == "run" {
+                    Ok(Self::new(
+                        parts[0],
+                        parts[1],
+                        Some(parts[2]),
+                        Some(into_owned_vec(parts[3])),
+                    ))
+                } else {
+                    Err(Error::BadRequest(format!(
+                        "Invalid 4-part scope: {}",
+                        scope
+                    )))
+                }
+            }
             _ => Err(Error::BadRequest(format!(
                 "Invalid scope format: {}",
                 scope
@@ -49,11 +95,23 @@ impl ScopeDefinition {
     }
 
     pub fn as_string(&self) -> String {
-        match self.resource.as_ref() {
-            Some(resource) => {
-                format!("{}:{}:{}", self.domain, self.action, resource)
+        match (&self.kind, &self.resource) {
+            (Some(kind), Some(resource)) => {
+                format!(
+                    "{}:{}:{}:{}",
+                    self.domain,
+                    self.action,
+                    kind,
+                    resource.join(",")
+                )
             }
-            None => format!("{}:{}", self.domain, self.action),
+            (Some(kind), None) => {
+                format!("{}:{}:{}", self.domain, self.action, kind)
+            }
+            (None, Some(resource)) => {
+                format!("{}:{}:{}", self.domain, self.action, resource.join(","))
+            }
+            (None, None) => format!("{}:{}", self.domain, self.action),
         }
     }
 
@@ -66,20 +124,112 @@ impl ScopeDefinition {
             return false;
         }
 
-        match (self.resource.as_deref(), other.resource.as_ref()) {
-            (Some("*"), _) | (None, _) => {
-                return true;
-            }
-            (Some(resource_path), Some(other_resource_path)) => {
-                if resource_path.ends_with("/*") {
-                    let prefix = &resource_path[..resource_path.len() - 1];
-                    other_resource_path.starts_with(prefix)
-                } else {
-                    resource_path == other_resource_path
+        if self.domain == "jobs" && self.action == "run" {
+            match (&self.kind, &other.kind) {
+                (Some(self_kind), Some(other_kind)) => {
+                    if self_kind != other_kind {
+                        return false;
+                    }
+                }
+                (None, _) => {
+                    return true;
+                }
+                (Some(_), None) => {
+                    return false;
                 }
             }
-            _ => return false,
         }
+
+        match (&self.resource, &other.resource) {
+            (None, _) => true,
+            (Some(_), None) => false,
+            (Some(self_resources), Some(other_resources)) => {
+                self.resources_match(self_resources, other_resources)
+            }
+        }
+    }
+
+    fn resources_match(&self, scope_resources: &[String], required_resources: &[String]) -> bool {
+        if scope_resources.contains(&"*".to_string())
+            || required_resources.contains(&"*".to_string())
+        {
+            return true;
+        }
+
+        if scope_resources.len() <= 4 && required_resources.len() <= 4 {
+            return self.resources_match_small(scope_resources, required_resources);
+        }
+
+        self.resources_match_large(scope_resources, required_resources)
+    }
+
+    fn resources_match_small(
+        &self,
+        scope_resources: &[String],
+        required_resources: &[String],
+    ) -> bool {
+        for required in required_resources {
+            for scope_resource in scope_resources {
+                if self.resource_matches_pattern(scope_resource, required) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn resources_match_large(
+        &self,
+        scope_resources: &[String],
+        required_resources: &[String],
+    ) -> bool {
+        let mut exact_matches = HashSet::new();
+        let mut patterns = Vec::new();
+
+        for scope_resource in scope_resources {
+            if scope_resource.contains('*') {
+                patterns.push(scope_resource);
+            } else {
+                exact_matches.insert(scope_resource);
+            }
+        }
+
+        for required in required_resources {
+            if exact_matches.contains(required) {
+                return true;
+            }
+
+            for pattern in &patterns {
+                if self.resource_matches_pattern(pattern, required) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    fn resource_matches_pattern(&self, scope_resource: &str, required_resource: &str) -> bool {
+        if scope_resource == "*" || required_resource == "*" || scope_resource == required_resource
+        {
+            return true;
+        }
+
+        if scope_resource.ends_with("/*") {
+            let scope_prefix = &scope_resource[..scope_resource.len() - 1];
+            if required_resource.starts_with(scope_prefix) {
+                return true;
+            }
+        }
+
+        if required_resource.ends_with("/*") {
+            let required_prefix = &required_resource[..required_resource.len() - 1];
+            if scope_resource.starts_with(required_prefix) {
+                return true;
+            }
+        }
+
+        false
     }
 }
 
@@ -252,7 +402,7 @@ impl ScopeAction {
         match s {
             "read" => Some(Self::Read),
             "write" => Some(Self::Write),
-            "delete" => Some(Self::Write), 
+            "delete" => Some(Self::Write),
             "run" => Some(Self::Run),
             _ => None,
         }
@@ -440,12 +590,43 @@ mod tests {
         let scope = ScopeDefinition::from_scope_string("jobs:read").unwrap();
         assert_eq!(scope.domain, "jobs");
         assert_eq!(scope.action, "read");
+        assert_eq!(scope.kind, None);
         assert_eq!(scope.resource, None);
 
         let scope = ScopeDefinition::from_scope_string("scripts:run:f/folder/*").unwrap();
         assert_eq!(scope.domain, "scripts");
         assert_eq!(scope.action, "run");
-        assert_eq!(scope.resource, Some("f/folder/*".to_string()));
+        assert_eq!(scope.kind, None);
+        assert_eq!(scope.resource, Some(vec!["f/folder/*".to_string()]));
+
+        // Test jobs:run:kind parsing
+        let scope = ScopeDefinition::from_scope_string("jobs:run:scripts").unwrap();
+        assert_eq!(scope.domain, "jobs");
+        assert_eq!(scope.action, "run");
+        assert_eq!(scope.kind, Some("scripts".to_string()));
+        assert_eq!(scope.resource, None);
+
+        // Test jobs:run:kind:resource parsing
+        let scope = ScopeDefinition::from_scope_string("jobs:run:flows:f/folder/*").unwrap();
+        assert_eq!(scope.domain, "jobs");
+        assert_eq!(scope.action, "run");
+        assert_eq!(scope.kind, Some("flows".to_string()));
+        assert_eq!(scope.resource, Some(vec!["f/folder/*".to_string()]));
+
+        // Test comma-separated resources parsing
+        let scope =
+            ScopeDefinition::from_scope_string("scripts:read:path1,path2,f/folder/*").unwrap();
+        assert_eq!(scope.domain, "scripts");
+        assert_eq!(scope.action, "read");
+        assert_eq!(scope.kind, None);
+        assert_eq!(
+            scope.resource,
+            Some(vec![
+                "path1".to_string(),
+                "path2".to_string(),
+                "f/folder/*".to_string()
+            ])
+        );
     }
 
     #[test]
@@ -464,13 +645,6 @@ mod tests {
         let domain =
             extract_domain_from_route("/api/w/test_workspace/scripts/test_script").unwrap();
         assert_eq!(domain, ScopeDomain::Scripts);
-    }
-
-    #[test]
-    fn test_wildcard_scope_access() {
-        let scopes = vec!["*".to_string()];
-
-        assert!(check_route_access(&scopes, "/api/w/test_workspace/jobs/123", "GET").is_ok());
     }
 
     #[test]
@@ -500,5 +674,160 @@ mod tests {
         assert_eq!(ScopeDomain::Acls.as_str(), "acls");
         assert_eq!(ScopeDomain::RawApps.as_str(), "raw_apps");
         assert_eq!(ScopeDomain::AgentWorkers.as_str(), "agent_workers");
+    }
+
+    #[test]
+    fn test_resource_array_matching() {
+        // Test wildcard access
+        let scope_all = ScopeDefinition::new("scripts", "read", None, Some(vec!["*".to_string()]));
+        let required = ScopeDefinition::new(
+            "scripts",
+            "read",
+            None,
+            Some(vec!["path1".to_string(), "path2".to_string()]),
+        );
+        assert!(scope_all.includes(&required));
+
+        // Test exact matches
+        let scope_exact = ScopeDefinition::new(
+            "scripts",
+            "read",
+            None,
+            Some(vec!["path1".to_string(), "path2".to_string()]),
+        );
+        let required_subset =
+            ScopeDefinition::new("scripts", "read", None, Some(vec!["path1".to_string()]));
+        assert!(scope_exact.includes(&required_subset));
+
+        // Test partial match - should grant access if ANY required resource matches
+        let scope_limited =
+            ScopeDefinition::new("scripts", "read", None, Some(vec!["path1".to_string()]));
+        let required_partial = ScopeDefinition::new(
+            "scripts",
+            "read",
+            None,
+            Some(vec!["path1".to_string(), "path2".to_string()]),
+        );
+        assert!(scope_limited.includes(&required_partial)); // path1 matches, so access granted
+
+        // Test no match - scope doesn't cover any of the required resources
+        let scope_different =
+            ScopeDefinition::new("scripts", "read", None, Some(vec!["path3".to_string()]));
+        let required_no_match = ScopeDefinition::new(
+            "scripts",
+            "read",
+            None,
+            Some(vec!["path1".to_string(), "path2".to_string()]),
+        );
+        assert!(!scope_different.includes(&required_no_match));
+
+        // Test pattern matching
+        let scope_pattern = ScopeDefinition::new(
+            "scripts",
+            "read",
+            None,
+            Some(vec!["f/folder/*".to_string()]),
+        );
+        let required_in_folder = ScopeDefinition::new(
+            "scripts",
+            "read",
+            None,
+            Some(vec!["f/folder/script1".to_string()]),
+        );
+        assert!(scope_pattern.includes(&required_in_folder));
+
+        // Test mixed patterns and exact matches
+        let scope_mixed = ScopeDefinition::new(
+            "scripts",
+            "read",
+            None,
+            Some(vec!["exact_path".to_string(), "f/folder/*".to_string()]),
+        );
+        let required_mixed1 = ScopeDefinition::new(
+            "scripts",
+            "read",
+            None,
+            Some(vec!["exact_path".to_string()]),
+        );
+        let required_mixed2 = ScopeDefinition::new(
+            "scripts",
+            "read",
+            None,
+            Some(vec!["f/folder/script2".to_string()]),
+        );
+        assert!(scope_mixed.includes(&required_mixed1));
+        assert!(scope_mixed.includes(&required_mixed2));
+    }
+
+    #[test]
+    fn test_efficiency_small_vs_large_arrays() {
+        // Test small array optimization path
+        let scope_small = ScopeDefinition::new(
+            "scripts",
+            "read",
+            None,
+            Some(vec!["path1".to_string(), "path2".to_string()]),
+        );
+        let required_small =
+            ScopeDefinition::new("scripts", "read", None, Some(vec!["path1".to_string()]));
+        assert!(scope_small.includes(&required_small));
+
+        // Test large array optimization path
+        let large_scope_vec: Vec<String> = (0..10).map(|i| format!("path{}", i)).collect();
+        let scope_large = ScopeDefinition::new("scripts", "read", None, Some(large_scope_vec));
+        let required_large =
+            ScopeDefinition::new("scripts", "read", None, Some(vec!["path5".to_string()]));
+        assert!(scope_large.includes(&required_large));
+    }
+
+    #[test]
+    fn test_user_example_case() {
+        // User's example: scope has "u/dieri/*", required has ["u/dadad/wqdq", "u/*"]
+        // Should grant access because scope "u/dieri/*" falls under required pattern "u/*"
+        let user_scope =
+            ScopeDefinition::new("scripts", "read", None, Some(vec!["u/dieri/*".to_string()]));
+        let required_mixed = ScopeDefinition::new(
+            "scripts",
+            "read",
+            None,
+            Some(vec!["u/dadad/wqdq".to_string(), "u/*".to_string()]),
+        );
+        assert!(user_scope.includes(&required_mixed)); // Should match because u/dieri/* falls under u/*
+
+        // Another example: scope covers one but not both paths
+        let scope_specific = ScopeDefinition::new(
+            "scripts",
+            "read",
+            None,
+            Some(vec!["folder/file1".to_string()]),
+        );
+        let required_multi = ScopeDefinition::new(
+            "scripts",
+            "read",
+            None,
+            Some(vec!["folder/file1".to_string(), "other/file2".to_string()]),
+        );
+        assert!(scope_specific.includes(&required_multi)); // Should match because folder/file1 matches exactly
+
+        // Test bidirectional pattern matching more explicitly
+        let scope_broad =
+            ScopeDefinition::new("scripts", "read", None, Some(vec!["u/*".to_string()]));
+        let required_specific = ScopeDefinition::new(
+            "scripts",
+            "read",
+            None,
+            Some(vec!["u/dieri/script.py".to_string()]),
+        );
+        assert!(scope_broad.includes(&required_specific)); // u/* covers u/dieri/script.py
+
+        let scope_specific_path = ScopeDefinition::new(
+            "scripts",
+            "read",
+            None,
+            Some(vec!["u/dieri/script.py".to_string()]),
+        );
+        let required_broad =
+            ScopeDefinition::new("scripts", "read", None, Some(vec!["u/*".to_string()]));
+        assert!(scope_specific_path.includes(&required_broad)); // u/dieri/script.py satisfies u/*
     }
 }

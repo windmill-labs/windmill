@@ -3459,7 +3459,7 @@ pub async fn run_flow_by_path_inner(
     check_license_key_valid().await?;
 
     let flow_path = flow_path.to_path();
-    check_scopes(&authed, || format!("flows:run:{flow_path}"))?;
+    check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
 
@@ -3583,7 +3583,7 @@ pub async fn restart_flow(
     let flow_path = completed_job
         .script_path
         .with_context(|| "No flow path set for completed flow job")?;
-    check_scopes(&authed, || format!("flows:run:{flow_path}"))?;
+    check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
 
     let ehm = HashMap::new();
     let push_args = completed_job
@@ -3659,7 +3659,7 @@ pub async fn run_script_by_path_inner(
     check_license_key_valid().await?;
 
     let script_path = script_path.to_path();
-    check_scopes(&authed, || format!("scripts:run:{script_path}"))?;
+    check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
     let (job_payload, tag, _delete_after_use, timeout, on_behalf_of) =
@@ -4301,7 +4301,7 @@ pub async fn run_wait_result_job_by_path_get(
     check_license_key_valid().await?;
 
     let script_path = script_path.to_path();
-    check_scopes(&authed, || format!("scripts:run:{script_path}"))?;
+    check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
 
     if method == http::Method::HEAD {
         return Ok(Json(serde_json::json!("")).into_response());
@@ -4467,7 +4467,7 @@ pub async fn run_wait_result_script_by_path_internal(
     args: PushArgsOwned,
 ) -> error::Result<Response> {
     let script_path = script_path.to_path();
-    check_scopes(&authed, || format!("scripts:run:{script_path}"))?;
+    check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
 
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
 
@@ -4575,7 +4575,7 @@ pub async fn run_wait_result_script_by_hash(
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
     }
-    check_scopes(&authed, || format!("scripts:run:{path}"))?;
+    check_scopes(&authed, || format!("jobs:run:scripts:{path}"))?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
@@ -4680,7 +4680,7 @@ pub async fn run_wait_result_flow_by_path_internal(
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
     let flow_path = flow_path.to_path();
-    check_scopes(&authed, || format!("flows:run:{flow_path}"))?;
+    check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
@@ -5523,7 +5523,7 @@ pub async fn run_job_by_hash_inner(
         .. // delete_after_use not taken into account in async endpoints
     } = get_script_info_for_hash(&mut *tx, &w_id, hash).await?;
 
-    check_scopes(&authed, || format!("scripts:run:{path}"))?;
+    check_scopes(&authed, || format!("jobs:run:scripts:{path}"))?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
     }

@@ -36,13 +36,114 @@ fn trigger_scope_domains() -> Vec<ScopeDomain> {
             scopes: vec![
                 ScopeOption {
                     value: format!("{domain}:read"),
-                    label: format!("Read {} Triggers", display_name),
-                    ..Default::default()
+                    label: "Read permission".to_string(),
+                    requires_resource_path: true,
                 },
                 ScopeOption {
                     value: format!("{domain}:write"),
-                    label: format!("Write {} Triggers", display_name),
-                    ..Default::default()
+                    label: "Write permission".to_string(),
+                    requires_resource_path: true,
+                },
+            ],
+        });
+    }
+    domains
+}
+
+fn standard_scope_domains() -> Vec<ScopeDomain> {
+    const STANDARD_DOMAINS: &[(&str, &str, &str, bool)] = &[
+        (
+            "scripts",
+            "Scripts",
+            "Access to automation scripts and workflows",
+            true,
+        ),
+        (
+            "flows",
+            "Flows",
+            "Access to automation scripts and workflows",
+            true,
+        ),
+        ("apps", "Apps", "App management", true),
+        ("raw_apps", "RawApps", "Raw app management", true),
+        ("resources", "Resources", "Resource management", true),
+        ("variables", "Variables", "", true),
+        (
+            "schedules",
+            "Schedules",
+            "Scheduled tasks and automated triggers",
+            true,
+        ),
+        ("folders", "Folders", "Folder management", true),
+        ("users", "Users", "User account management", false),
+        ("groups", "Groups", "Group management", false),
+        ("workspaces", "Workspaces", "Workspace management", false),
+        ("audit", "Audit", "Audit log management", false),
+        ("workers", "Workers", "Worker management", false),
+        ("settings", "Settings", "System settings management", false),
+        (
+            "service_logs",
+            "Service Logs",
+            "Service log management",
+            false,
+        ),
+        ("configs", "Configs", "Configuration management", false),
+        ("oauth", "OAuth", "OAuth management", false),
+        ("ai", "AI", "AI feature management", false),
+        (
+            "agent_workers",
+            "Agent Workers",
+            "Agent worker management",
+            false,
+        ),
+        ("drafts", "Drafts", "Draft management", false),
+        ("favorites", "Favorites", "Favorite items management", false),
+        ("inputs", "Inputs", "Input management", false),
+        ("job_helpers", "Job Helpers", "Job helper utilities", false),
+        (
+            "openapi",
+            "OpenAPI",
+            "OpenAPI documentation management",
+            false,
+        ),
+        ("capture", "Capture", "Request capture management", false),
+        (
+            "concurrency_groups",
+            "Concurrency Groups",
+            "Concurrency group management",
+            false,
+        ),
+        ("oidc", "OIDC", "OIDC management", false),
+        ("acls", "ACLs", "Access Control List management", false),
+        ("indexer", "Indexer", "Search indexer management", false),
+        ("teams", "Teams", "Team management", false),
+        (
+            "git_sync",
+            "Git Sync",
+            "Git synchronization management",
+            false,
+        ),
+    ];
+
+    let mut domains = Vec::new();
+    for (domain_key, domain_name, description, requires_resource_path) in STANDARD_DOMAINS {
+        domains.push(ScopeDomain {
+            name: domain_name.to_string(),
+            description: if description.is_empty() {
+                None
+            } else {
+                Some(description.to_string())
+            },
+            scopes: vec![
+                ScopeOption {
+                    value: format!("{domain_key}:read"),
+                    label: "Read permission".to_string(),
+                    requires_resource_path: *requires_resource_path,
+                },
+                ScopeOption {
+                    value: format!("{domain_key}:write"),
+                    label: "Write permission".to_string(),
+                    requires_resource_path: *requires_resource_path,
                 },
             ],
         });
@@ -51,527 +152,34 @@ fn trigger_scope_domains() -> Vec<ScopeDomain> {
 }
 
 fn get_scopes() -> Vec<ScopeDomain> {
-    let mut groups = vec![
-        ScopeDomain {
-            name: "Scripts".to_string(),
-            description: Some("Access to automation scripts and workflows".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "scripts:read".to_string(),
-                    label: "Read Scripts".to_string(),
-                    requires_resource_path: true,
-                },
-                ScopeOption {
-                    value: "scripts:write".to_string(),
-                    label: "Write Scripts".to_string(),
-                    requires_resource_path: true,
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Flows".to_string(),
-            description: Some("Access to automation scripts and workflows".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "flows:read".to_string(),
-                    label: "Read Flows".to_string(),
-                    requires_resource_path: true,
-                },
-                ScopeOption {
-                    value: "flows:write".to_string(),
-                    label: "Write Flows".to_string(),
-                    requires_resource_path: true,
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Jobs".to_string(),
-            description: Some("Job management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "jobs:read".to_string(),
-                    label: "Read Jobs".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "jobs:run".to_string(),
-                    label: "Run Jobs".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Apps".to_string(),
-            description: Some("App management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "apps:read".to_string(),
-                    label: "Read Apps".to_string(),
-                    requires_resource_path: true,
-                },
-                ScopeOption {
-                    value: "apps:write".to_string(),
-                    label: "Write Apps".to_string(),
-                    requires_resource_path: true,
-                },
-                ScopeOption {
-                    value: "apps:run".to_string(),
-                    label: "Run App Components".to_string(),
-                    requires_resource_path: true,
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "RawApps".to_string(),
-            description: Some("Raw app management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "raw_apps:read".to_string(),
-                    label: "Read Raw Apps".to_string(),
-                    requires_resource_path: true,
-                },
-                ScopeOption {
-                    value: "raw_apps:write".to_string(),
-                    label: "Write Raw Apps".to_string(),
-                    requires_resource_path: true,
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Resources".to_string(),
-            description: Some("Resource management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "resources:read".to_string(),
-                    label: "Read Resources".to_string(),
-                    requires_resource_path: true,
-                },
-                ScopeOption {
-                    value: "resources:write".to_string(),
-                    label: "Write Resources".to_string(),
-                    requires_resource_path: true,
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Variables".to_string(),
-            description: None,
-            scopes: vec![
-                ScopeOption {
-                    value: "variables:read".to_string(),
-                    label: "Read Variables".to_string(),
-                    requires_resource_path: true,
-                },
-                ScopeOption {
-                    value: "variables:write".to_string(),
-                    label: "Write Variables".to_string(),
-                    requires_resource_path: true,
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Schedules".to_string(),
-            description: Some("Scheduled tasks and automated triggers".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "schedules:read".to_string(),
-                    label: "Read Schedules".to_string(),
-                    requires_resource_path: true,
-                },
-                ScopeOption {
-                    value: "schedules:write".to_string(),
-                    label: "Write Schedules".to_string(),
-                    requires_resource_path: true,
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Users".to_string(),
-            description: Some("User account management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "users:read".to_string(),
-                    label: "Read Users".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "users:write".to_string(),
-                    label: "Write Users".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Groups".to_string(),
-            description: Some("Group management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "groups:read".to_string(),
-                    label: "Read Groups".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "groups:write".to_string(),
-                    label: "Write Groups".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Folders".to_string(),
-            description: Some("Folder management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "folders:read".to_string(),
-                    label: "Read Folders".to_string(),
-                    requires_resource_path: true,
-                },
-                ScopeOption {
-                    value: "folders:write".to_string(),
-                    label: "Write Folders".to_string(),
-                    requires_resource_path: true,
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Workspaces".to_string(),
-            description: Some("Workspace management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "workspaces:read".to_string(),
-                    label: "Read Workspaces".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "workspaces:write".to_string(),
-                    label: "Write Workspaces".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Audit".to_string(),
-            description: Some("Audit log management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "audit:read".to_string(),
-                    label: "Read Audit Logs".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "audit:write".to_string(),
-                    label: "Write Audit Logs".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Workers".to_string(),
-            description: Some("Worker management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "workers:read".to_string(),
-                    label: "Read Workers".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "workers:write".to_string(),
-                    label: "Write Workers".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Settings".to_string(),
-            description: Some("System settings management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "settings:read".to_string(),
-                    label: "Read Settings".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "settings:write".to_string(),
-                    label: "Write Settings".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Service Logs".to_string(),
-            description: Some("Service log management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "service_logs:read".to_string(),
-                    label: "Read Service Logs".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "service_logs:write".to_string(),
-                    label: "Write Service Logs".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Configs".to_string(),
-            description: Some("Configuration management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "configs:read".to_string(),
-                    label: "Read Configs".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "configs:write".to_string(),
-                    label: "Write Configs".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "OAuth".to_string(),
-            description: Some("OAuth management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "oauth:read".to_string(),
-                    label: "Read OAuth".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "oauth:write".to_string(),
-                    label: "Write OAuth".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "AI".to_string(),
-            description: Some("AI feature management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "ai:read".to_string(),
-                    label: "Read AI".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "ai:write".to_string(),
-                    label: "Write AI".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Agent Workers".to_string(),
-            description: Some("Agent worker management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "agent_workers:read".to_string(),
-                    label: "Read Agent Workers".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "agent_workers:write".to_string(),
-                    label: "Write Agent Workers".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Drafts".to_string(),
-            description: Some("Draft management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "drafts:read".to_string(),
-                    label: "Read Drafts".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "drafts:write".to_string(),
-                    label: "Write Drafts".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Favorites".to_string(),
-            description: Some("Favorite items management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "favorites:read".to_string(),
-                    label: "Read Favorites".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "favorites:write".to_string(),
-                    label: "Write Favorites".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Inputs".to_string(),
-            description: Some("Input management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "inputs:read".to_string(),
-                    label: "Read Inputs".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "inputs:write".to_string(),
-                    label: "Write Inputs".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Job Helpers".to_string(),
-            description: Some("Job helper utilities".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "job_helpers:read".to_string(),
-                    label: "Read Job Helpers".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "job_helpers:write".to_string(),
-                    label: "Write Job Helpers".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "OpenAPI".to_string(),
-            description: Some("OpenAPI documentation management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "openapi:read".to_string(),
-                    label: "Read OpenAPI".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "openapi:write".to_string(),
-                    label: "Write OpenAPI".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Capture".to_string(),
-            description: Some("Request capture management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "capture:read".to_string(),
-                    label: "Read Capture".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "capture:write".to_string(),
-                    label: "Write Capture".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Concurrency Groups".to_string(),
-            description: Some("Concurrency group management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "concurrency_groups:read".to_string(),
-                    label: "Read Concurrency Groups".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "concurrency_groups:write".to_string(),
-                    label: "Write Concurrency Groups".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "OIDC".to_string(),
-            description: Some("OIDC management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "oidc:read".to_string(),
-                    label: "Read OIDC".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "oidc:write".to_string(),
-                    label: "Write OIDC".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "ACLs".to_string(),
-            description: Some("Access Control List management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "acls:read".to_string(),
-                    label: "Read ACLs".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "acls:write".to_string(),
-                    label: "Write ACLs".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Indexer".to_string(),
-            description: Some("Search indexer management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "indexer:read".to_string(),
-                    label: "Read Indexer".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "indexer:write".to_string(),
-                    label: "Write Indexer".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Teams".to_string(),
-            description: Some("Team management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "teams:read".to_string(),
-                    label: "Read Teams".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "teams:write".to_string(),
-                    label: "Write Teams".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-        ScopeDomain {
-            name: "Git Sync".to_string(),
-            description: Some("Git synchronization management".to_string()),
-            scopes: vec![
-                ScopeOption {
-                    value: "git_sync:read".to_string(),
-                    label: "Read Git Sync".to_string(),
-                    ..Default::default()
-                },
-                ScopeOption {
-                    value: "git_sync:write".to_string(),
-                    label: "Write Git Sync".to_string(),
-                    ..Default::default()
-                },
-            ],
-        },
-    ];
+    let mut groups = vec![ScopeDomain {
+        name: "Jobs".to_string(),
+        description: Some("Job management".to_string()),
+        scopes: vec![
+            ScopeOption {
+                value: "jobs:read".to_string(),
+                label: "Read permission".to_string(),
+                ..Default::default()
+            },
+            ScopeOption {
+                value: "jobs:write".to_string(),
+                label: "Write permission".to_string(),
+                ..Default::default()
+            },
+            ScopeOption {
+                value: "jobs:run:scripts".to_string(),
+                label: "Run scripts".to_string(),
+                requires_resource_path: true,
+            },
+            ScopeOption {
+                value: "jobs:run:flows".to_string(),
+                label: "Run flows".to_string(),
+                requires_resource_path: true,
+            },
+        ],
+    }];
 
-    // Add trigger domains
+    groups.extend(standard_scope_domains());
     groups.extend(trigger_scope_domains());
 
     groups

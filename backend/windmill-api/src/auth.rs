@@ -500,9 +500,9 @@ fn transform_old_scope_to_new_scope(scopes: Option<&mut Vec<String>>) -> Windmil
                 // Map old jobs scopes to new format
                 let new_scope = match scope.as_str() {
                     "jobs:listjobs" => "jobs:read",
-                    "jobs:runscript" => "scripts:run",
-                    "jobs:runflow" => "flows:run",
-                    "jobs:resumeflow" => "flows:run",
+                    "jobs:runscript" => "jobs:run:scripts",
+                    "jobs:runflow" => "jobs:run:flows",
+                    "jobs:resumeflow" => "jobs:run:flows",
                     "jobs:deletejob" => "jobs:write",
                     _ => continue,
                 };

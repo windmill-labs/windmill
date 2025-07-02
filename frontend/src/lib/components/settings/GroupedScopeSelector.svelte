@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { type ScopeDomain, type ScopeDefinition, TokenService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { Loader2, ChevronDown, ChevronRight, Settings } from 'lucide-svelte'
+	import { Loader2, ChevronDown, ChevronRight, Pen } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import Popover from '../meltComponents/Popover.svelte'
 
@@ -18,9 +18,11 @@
 	let error = $state<string | null>(null)
 
 	let expandedDomains = $state<Set<string>>(new Set())
-	let domainAdminSelected = $state<Map<string, boolean>>(new Map())
+	let domainFullAccessSelected = $state<Map<string, boolean>>(new Map())
 	let individualScopeSelections = $state<Map<string, boolean>>(new Map())
-	let resourcePaths = $state<Map<string, string>>(new Map())
+	let resourcePaths = $state<Record<string, string[]>>({})
+	let currentInputValues = $state<Record<string, string>>({})
+	let pathErrors = $state<Record<string, string>>({})
 
 	async function fetchScopeDomains(): Promise<void> {
 		loading = true
@@ -41,9 +43,11 @@
 	function initializeDomainStates() {
 		if (!scopeDomains) return
 
-		const newDomainAdminSelected = new Map<string, boolean>()
+		const newDomainFullAccessSelected = new Map<string, boolean>()
 		const newIndividualScopeSelections = new Map<string, boolean>()
-		const newResourcePaths = new Map<string, string>()
+		const newResourcePaths: Record<string, string[]> = {}
+		const newCurrentInputValues: Record<string, string> = {}
+		const newPathErrors: Record<string, string> = {}
 
 		for (const domain of scopeDomains) {
 			const writeScopeValue = getWriteScopeForDomain(domain)
@@ -52,13 +56,15 @@
 				selectedScopes.some(
 					(scope) => scope === writeScopeValue || scope.startsWith(writeScopeValue + ':')
 				)
-			newDomainAdminSelected.set(domain.name, Boolean(hasWriteSelected))
+			newDomainFullAccessSelected.set(domain.name, Boolean(hasWriteSelected))
 
 			for (const scope of domain.scopes) {
 				const isSelected = selectedScopes.some((selected) => {
 					if (scope.requires_resource_path && selected.startsWith(scope.value + ':')) {
 						const resourcePath = selected.substring(scope.value.length + 1)
-						newResourcePaths.set(scope.value, resourcePath)
+						const paths = resourcePath.split(',').map(p => p.trim())
+						const existingPaths = newResourcePaths[scope.value] || []
+						newResourcePaths[scope.value] = [...existingPaths, ...paths]
 						return true
 					}
 					return selected === scope.value
@@ -66,10 +72,11 @@
 				newIndividualScopeSelections.set(scope.value, isSelected)
 			}
 		}
-
-		domainAdminSelected = newDomainAdminSelected
+		domainFullAccessSelected = newDomainFullAccessSelected
 		individualScopeSelections = newIndividualScopeSelections
 		resourcePaths = newResourcePaths
+		currentInputValues = newCurrentInputValues
+		pathErrors = newPathErrors
 	}
 
 	function getWriteScopeForDomain(domain: ScopeDomain): string | null {
@@ -91,11 +98,9 @@
 		const writeScopeValue = getWriteScopeForDomain(domain)
 		if (!writeScopeValue) return
 
-		domainAdminSelected.set(domain.name, checked)
+		domainFullAccessSelected.set(domain.name, checked)
 
 		if (checked) {
-			expandedDomains.add(domain.name)
-
 			selectedScopes = selectedScopes.filter(
 				(scope) =>
 					!domain.scopes.some(
@@ -105,10 +110,6 @@
 			)
 
 			selectedScopes = [...selectedScopes, writeScopeValue]
-
-			for (const scope of domain.scopes) {
-				individualScopeSelections.set(scope.value, scope.value === writeScopeValue)
-			}
 		} else {
 			selectedScopes = selectedScopes.filter(
 				(scope) =>
@@ -117,23 +118,27 @@
 							scope === domainScope.value || scope.startsWith(domainScope.value + ':')
 					)
 			)
-
-			for (const scope of domain.scopes) {
-				individualScopeSelections.set(scope.value, false)
-			}
 		}
 	}
 
 	function handleIndividualScopeChange(
 		scope: ScopeDefinition,
-		checked: boolean,
-		resourcePath?: string
+		checked: boolean
 	) {
-		// Use the generic handler for scopes that require resource paths
 		if (scope.requires_resource_path) {
-			handleScopeWithResourcePath(scope.value, checked, resourcePath)
+			individualScopeSelections.set(scope.value, checked)
+			if (checked) {
+				// Initialize with default wildcard if no paths exist
+				const currentPaths = resourcePaths[scope.value] || []
+				if (currentPaths.length === 0) {
+					resourcePaths[scope.value] = ['*']
+					updateSelectedScopesForResourcePaths(scope.value, ['*'])
+				}
+			} else {
+				resourcePaths[scope.value] = []
+				updateSelectedScopesForResourcePaths(scope.value, [])
+			}
 		} else {
-			// Simple scope without resource path
 			individualScopeSelections.set(scope.value, checked)
 
 			if (checked) {
@@ -151,40 +156,6 @@
 		updateDomainCheckboxState(scope)
 	}
 
-	function handleScopeWithResourcePath(
-		scopeValue: string,
-		checked: boolean,
-		resourcePath?: string
-	) {
-		individualScopeSelections.set(scopeValue, checked)
-
-		if (checked) {
-			const scopeString = resourcePath ? `${scopeValue}:${resourcePath}` : scopeValue
-
-			selectedScopes = selectedScopes.filter(
-				(s) => !s.startsWith(scopeValue + ':') && s !== scopeValue
-			)
-
-			selectedScopes = [...selectedScopes, scopeString]
-
-			if (!resourcePath) {
-				resourcePaths.set(scopeValue, '*')
-			}
-		} else {
-			selectedScopes = selectedScopes.filter(
-				(s) => !s.startsWith(scopeValue + ':') && s !== scopeValue
-			)
-		}
-	}
-
-	function handleScopeResourcePathChange(scopeValue: string, resourcePath: string) {
-		resourcePaths.set(scopeValue, resourcePath)
-
-		if (individualScopeSelections.get(scopeValue)) {
-			handleScopeWithResourcePath(scopeValue, true, resourcePath)
-		}
-	}
-
 	function updateDomainCheckboxState(changedScope: ScopeDefinition) {
 		if (!scopeDomains) return
 
@@ -194,47 +165,27 @@
 		const writeScope = getWriteScopeForDomain(domain)
 		const hasWriteSelected = writeScope && individualScopeSelections.get(writeScope)
 
-		domainAdminSelected.set(domain.name, hasWriteSelected || false)
+		domainFullAccessSelected.set(domain.name, hasWriteSelected || false)
 	}
 
 	function getSelectedScopesForDomain(domain: ScopeDomain): string[] {
-		if (domain.name === 'Jobs') {
-			const jobsScopes = domain.scopes
-				.filter((scope) => scope.value !== 'jobs:run' && individualScopeSelections.get(scope.value))
-				.map((scope) => {
-					const resourcePath = resourcePaths.get(scope.value)
-					return resourcePath ? `${scope.value}:${resourcePath}` : scope.value
-				})
-
-			const scriptsRunSelected = individualScopeSelections.get('scripts:run')
-			const flowsRunSelected = individualScopeSelections.get('flows:run')
-
-			if (scriptsRunSelected) {
-				const resourcePath = resourcePaths.get('scripts:run')
-				jobsScopes.push(resourcePath ? `scripts:run:${resourcePath}` : 'scripts:run')
-			}
-
-			if (flowsRunSelected) {
-				const resourcePath = resourcePaths.get('flows:run')
-				jobsScopes.push(resourcePath ? `flows:run:${resourcePath}` : 'flows:run')
-			}
-
-			return jobsScopes
-		}
-
 		return domain.scopes
 			.filter((scope) => individualScopeSelections.get(scope.value))
 			.map((scope) => {
-				const resourcePath = resourcePaths.get(scope.value)
-				return resourcePath ? `${scope.value}:${resourcePath}` : scope.value
+				const resourcePathArray = resourcePaths[scope.value]
+				return resourcePathArray && resourcePathArray.length > 0 
+					? `${scope.value}:${resourcePathArray.join(',')}` 
+					: scope.value
 			})
 	}
 
 	function clearAllScopes() {
 		selectedScopes = []
-		domainAdminSelected.clear()
+		domainFullAccessSelected.clear()
 		individualScopeSelections.clear()
-		resourcePaths.clear()
+		resourcePaths = {}
+		currentInputValues = {}
+		pathErrors = {}
 		expandedDomains.clear()
 		initializeDomainStates()
 	}
@@ -247,6 +198,99 @@
 			initializeDomainStates()
 		}
 	})
+
+	function validateResourcePath(path: string): string | null {
+		if (!path.trim()) return 'Path cannot be empty'
+		
+		const trimmedPath = path.trim()
+		
+		if (trimmedPath === '*') return null
+		
+		if (trimmedPath === 'u/*' || trimmedPath === 'f/*') return null
+		
+		if (!trimmedPath.startsWith('u/') && !trimmedPath.startsWith('f/')) {
+			return 'Path must start with u/ or f/'
+		}
+		
+		const parts = trimmedPath.split('/')
+		if (parts.length !== 3) {
+			return 'Path must have exactly 3 parts: u/{user}/{resource} or f/{folder}/{resource}'
+		}
+		
+		if (parts[1] === '') {
+			return 'Username/folder name cannot be empty'
+		}
+		
+		if (parts[2] === '') {
+			return 'Resource name cannot be empty'
+		}
+		
+		if (parts[2] === '*') return null
+		
+		if (parts[2].includes('*')) {
+			return 'Wildcards can only be used as the full resource name (*)'
+		}
+		
+		return null
+	}
+
+	function addResourcePath(scopeValue: string, path: string) {
+		const error = validateResourcePath(path)
+		if (error) {
+			pathErrors[scopeValue] = error
+			return false
+		}
+		
+		delete pathErrors[scopeValue]
+		const currentPaths = resourcePaths[scopeValue] || []
+		
+		if (currentPaths.includes(path.trim())) {
+			pathErrors[scopeValue] = 'Path already exists'
+			return false
+		}
+		
+		if (currentPaths.length >= 10) {
+			pathErrors[scopeValue] = 'Maximum 10 paths allowed'
+			return false
+		}
+		
+		const newPaths = [...currentPaths, path.trim()]
+		resourcePaths[scopeValue] = newPaths
+		currentInputValues[scopeValue] = ''
+		
+		updateSelectedScopesForResourcePaths(scopeValue, newPaths)
+		return true
+	}
+
+	function removeResourcePath(scopeValue: string, pathToRemove: string) {
+		const currentPaths = resourcePaths[scopeValue] || []
+		const newPaths = currentPaths.filter(p => p !== pathToRemove)
+		resourcePaths[scopeValue] = newPaths
+		delete pathErrors[scopeValue]
+		
+		updateSelectedScopesForResourcePaths(scopeValue, newPaths)
+	}
+
+	function editResourcePath(scopeValue: string, oldPath: string) {
+		currentInputValues[scopeValue] = oldPath
+		removeResourcePath(scopeValue, oldPath)
+	}
+
+	function updateSelectedScopesForResourcePaths(scopeValue: string, paths: string[]) {
+		selectedScopes = selectedScopes.filter(
+			(s) => !s.startsWith(scopeValue + ':') && s !== scopeValue
+		)
+		
+		if (paths.length > 0) {
+			const scopeString = `${scopeValue}:${paths.join(',')}`
+			selectedScopes = [...selectedScopes, scopeString]
+			individualScopeSelections.set(scopeValue, true)
+		} else {
+			individualScopeSelections.set(scopeValue, false)
+		}
+		
+		updateDomainCheckboxState({ value: scopeValue } as any)
+	}
 
 	fetchScopeDomains()
 </script>
@@ -264,7 +308,6 @@
 			</Button>
 		</div>
 	{:else if scopeDomains}
-		<!-- Selected Scopes Summary -->
 		<div class="mb-6 p-4 bg-surface-secondary border rounded-lg">
 			<div class="flex items-center justify-between mb-3">
 				<h4 class="text-sm font-semibold text-primary">
@@ -303,7 +346,7 @@
 		<div class="space-y-3">
 			{#each scopeDomains as domain}
 				{@const isExpanded = expandedDomains.has(domain.name)}
-				{@const isDomainSelected = domainAdminSelected.get(domain.name) || false}
+				{@const isDomainSelected = domainFullAccessSelected.get(domain.name) || false}
 				{@const selectedScopes = getSelectedScopesForDomain(domain)}
 
 				<div class="border rounded-lg bg-surface overflow-hidden">
@@ -358,241 +401,121 @@
 
 					{#if isExpanded}
 						<div class="p-2">
-							<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+							<div class="grid grid-cols-2 gap-4">
 								{#each domain.scopes as scope}
 									{@const isSelected = individualScopeSelections.get(scope.value) || false}
-									{@const resourcePath = resourcePaths.get(scope.value) || ''}
+									{@const resourcePathArray = resourcePaths[scope.value] || []}
+									{@const currentInput = currentInputValues[scope.value] || ''}
+									{@const pathError = pathErrors[scope.value]}
 
-									{#if domain.name === 'Jobs' && scope.value === 'jobs:run'}
-										{@const scriptsRunSelected =
-											individualScopeSelections.get('scripts:run') || false}
-										{@const flowsRunSelected = individualScopeSelections.get('flows:run') || false}
-										{@const scriptsRunResourcePath = resourcePaths.get('scripts:run') || '*'}
-										{@const flowsRunResourcePath = resourcePaths.get('flows:run') || '*'}
+									<div
+										class="flex justify-between p-3 border rounded-lg bg-surface-secondary min-h-16 w-full"
+									>
+										<div class="flex items-center gap-2">
+											<input
+												type="checkbox"
+												id={`scope-${scope.value}`}
+												checked={isSelected}
+												{disabled}
+												onchange={(e) =>
+													handleIndividualScopeChange(
+														scope,
+														e.currentTarget.checked
+													)}
+												class="!w-4 !h-4"
+											/>
 
-										<div class="p-3 border rounded-lg bg-surface-secondary h-auto col-span-full">
-											<div class="mb-3">
-												<h4 class="text-sm font-medium text-primary mb-2">Run Jobs</h4>
-												<p class="text-xs text-tertiary">Enable running scripts and flows</p>
-											</div>
-
-											<div class="space-y-4">
-												<!-- Scripts Run -->
-												<div>
-													<div class="flex items-center gap-2 mb-2">
-														<input
-															type="checkbox"
-															id="scripts-run"
-															checked={scriptsRunSelected}
-															{disabled}
-															onchange={(e) =>
-																handleScopeWithResourcePath(
-																	'scripts:run',
-																	e.currentTarget.checked,
-																	scriptsRunResourcePath
-																)}
-															class="w-4 h-4 text-blue-600 bg-surface border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
-														/>
-														<label
-															for="scripts-run"
-															class="text-sm font-medium text-primary cursor-pointer flex-1"
-														>
-															Run Scripts
-														</label>
-														{#if scriptsRunSelected}
-															<Popover closeOnOtherPopoverOpen contentClasses="p-3">
-																{#snippet trigger()}
-																	<Button size="xs" variant="border">
-																		<Settings size={14} />
-																	</Button>
-																{/snippet}
-																{#snippet content({ close })}
-																	<div class="w-72">
-																		<label class="block text-xs font-medium text-secondary mb-2">
-																			Scripts Resource Path
-																		</label>
-																		<input
-																			type="text"
-																			value={scriptsRunResourcePath}
-																			placeholder="e.g., f/folder/*, script_name, *"
-																			{disabled}
-																			oninput={(e) => {
-																				handleScopeResourcePathChange(
-																					'scripts:run',
-																					e.currentTarget.value
-																				)
-																			}}
-																			class="w-full text-sm px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-surface"
-																		/>
-																		<p class="text-xs text-tertiary mt-2">
-																			Use '*' for all scripts, 'f/folder/*' for folder contents, or
-																			specific paths.
-																		</p>
-																		<div class="flex gap-2 mt-3">
-																			<Button
-																				onclick={() => {
-																					handleScopeResourcePathChange('scripts:run', '*')
-																					close()
-																				}}
-																				size="xs"
-																				variant="border">All (*)</Button
-																			>
-																			<Button onclick={close} size="xs">Done</Button>
-																		</div>
-																	</div>
-																{/snippet}
-															</Popover>
-														{/if}
-													</div>
-													<p class="text-xs text-tertiary ml-6">Execute automation scripts</p>
-												</div>
-
-												<!-- Flows Run -->
-												<div>
-													<div class="flex items-center gap-2 mb-2">
-														<input
-															type="checkbox"
-															id="flows-run"
-															checked={flowsRunSelected}
-															{disabled}
-															onchange={(e) =>
-																handleScopeWithResourcePath(
-																	'flows:run',
-																	e.currentTarget.checked,
-																	flowsRunResourcePath
-																)}
-															class="w-4 h-4 text-blue-600 bg-surface border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
-														/>
-														<label
-															for="flows-run"
-															class="text-sm font-medium text-primary cursor-pointer flex-1"
-														>
-															Run Flows
-														</label>
-														{#if flowsRunSelected}
-															<Popover closeOnOtherPopoverOpen contentClasses="p-3">
-																{#snippet trigger()}
-																	<Button size="xs" variant="border">
-																		<Settings size={14} />
-																		{flowsRunResourcePath}
-																	</Button>
-																{/snippet}
-																{#snippet content({ close })}
-																	<div class="w-72">
-																		<label class="block text-xs font-medium text-secondary mb-2">
-																			Flows Resource Path
-																		</label>
-																		<input
-																			type="text"
-																			value={flowsRunResourcePath}
-																			placeholder="e.g., f/folder/*, flow_name, *"
-																			{disabled}
-																			oninput={(e) => {
-																				handleScopeResourcePathChange(
-																					'flows:run',
-																					e.currentTarget.value
-																				)
-																			}}
-																			class="w-full text-sm px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-surface"
-																		/>
-																		<p class="text-xs text-tertiary mt-2">
-																			Use '*' for all flows, 'f/folder/*' for folder contents, or
-																			specific paths.
-																		</p>
-																		<div class="flex gap-2 mt-3">
-																			<Button
-																				onclick={() => {
-																					handleScopeResourcePathChange('flows:run', '*')
-																					close()
-																				}}
-																				size="xs"
-																				variant="border">All (*)</Button
-																			>
-																			<Button onclick={close} size="xs">Done</Button>
-																		</div>
-																	</div>
-																{/snippet}
-															</Popover>
-														{/if}
-													</div>
-													<p class="text-xs text-tertiary ml-6">Execute automation flows</p>
-												</div>
-											</div>
+											<p class="font-medium text-xs">
+												{scope.label}
+											</p>
 										</div>
-									{:else}
-										<div class="p-3 border rounded-lg bg-surface-secondary h-auto">
-											<div class="flex items-start gap-2 mb-2">
-												<div class="flex-shrink-0 mt-0.5">
-													<input
-														type="checkbox"
-														id={`scope-${scope.value}`}
-														checked={isSelected}
-														{disabled}
-														onchange={(e) =>
-															handleIndividualScopeChange(
-																scope,
-																e.currentTarget.checked,
-																scope.requires_resource_path ? resourcePath || '*' : undefined
-															)}
-														class="w-4 h-4 text-blue-600 bg-surface border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
-													/>
-												</div>
-
-												<div class="flex">
-													<p class="font-medium text-secondary mb-2">
-														{scope.label}
-													</p>
-													{#if scope.requires_resource_path && isSelected}
-														<div class="flex justify-end">
-															<Popover closeOnOtherPopoverOpen contentClasses="p-3">
-																{#snippet trigger()}
-																	<Button size="xs" variant="border">
-																		<Settings size={14} />
-																		Resource
-																	</Button>
-																{/snippet}
-																{#snippet content({ close })}
-																	<div class="w-72">
-																		<p class="block text-xs font-medium text-secondary mb-2">
-																			{scope.label} Resource Path
-																		</p>
-																		<input
-																			type="text"
-																			value={resourcePath}
-																			placeholder="e.g., f/folder/*, resource_name, *"
-																			{disabled}
-																			oninput={(e) => {
-																				handleScopeResourcePathChange(
-																					scope.value,
-																					e.currentTarget.value
-																				)
-																			}}
-																			class="w-full text-sm px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-surface"
-																		/>
-																		<p class="text-xs text-tertiary mt-2">
-																			Use '*' for all resources, 'f/folder/*' for folder contents,
-																			or specific paths.
-																		</p>
-																		<div class="flex gap-2 mt-3">
-																			<Button
-																				onclick={() => {
-																					handleScopeResourcePathChange(scope.value, '*')
-																					close()
-																				}}
-																				size="xs"
-																				variant="border">All (*)</Button
-																			>
-																			<Button onclick={close} size="xs">Done</Button>
-																		</div>
-																	</div>
-																{/snippet}
-															</Popover>
+										{#if scope.requires_resource_path && isSelected}
+											<Popover closeOnOtherPopoverOpen contentClasses="p-3">
+												{#snippet trigger()}
+													<Button size="xs" variant="border">
+														<Pen size={14} />
+													</Button>
+												{/snippet}
+												{#snippet content({ close })}
+													<div class="w-80">
+														<p class="block text-xs font-medium text-secondary mb-2">
+															{scope.label} Paths ({resourcePathArray.length}/10)
+														</p>
+														
+														<!-- Add new path input -->
+														<div class="mb-3">
+															<input
+																type="text"
+																value={currentInput}
+																placeholder="e.g., u/username/*, f/folder/script.py"
+																{disabled}
+																oninput={(e) => {
+																	currentInputValues[scope.value] = e.currentTarget.value
+																	delete pathErrors[scope.value]
+																}}
+																onkeydown={(e) => {
+																	if (e.key === 'Enter' && currentInput.trim()) {
+																		e.preventDefault()
+																		addResourcePath(scope.value, currentInput)
+																	}
+																}}
+																class="w-full text-sm px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-surface"
+															/>
+															<p class="text-xs text-tertiary mt-1">
+																Press Enter to add • Formats: u/user/*, f/folder/*, u/user/file, f/folder/file, *
+															</p>
+															{#if pathError}
+																<p class="text-xs text-red-600 mt-1">{pathError}</p>
+															{/if}
 														</div>
-													{/if}
-												</div>
-											</div>
-										</div>
-									{/if}
+
+														<!-- Existing paths as chips -->
+														{#if resourcePathArray.length > 0}
+															<div class="space-y-2 mb-3 max-h-32 overflow-y-auto">
+																{#each resourcePathArray as path}
+																	<div class="flex items-center justify-between bg-blue-50 px-2 py-1 rounded text-xs">
+																		<span class="font-mono text-blue-800 flex-1 truncate">{path}</span>
+																		<div class="flex gap-1 ml-2">
+																			<button
+																				type="button"
+																				onclick={() => editResourcePath(scope.value, path)}
+																				class="text-blue-600 hover:text-blue-800 p-0.5"
+																				title="Edit path"
+																			>
+																				<Pen size={12} />
+																			</button>
+																			<button
+																				type="button"
+																				onclick={() => removeResourcePath(scope.value, path)}
+																				class="text-red-600 hover:text-red-800 p-0.5"
+																				title="Remove path"
+																			>
+																				×
+																			</button>
+																		</div>
+																	</div>
+																{/each}
+															</div>
+														{/if}
+
+														<div class="flex gap-2 mt-3">
+															<Button
+																onclick={() => {
+																	addResourcePath(scope.value, '*')
+																}}
+																size="xs"
+																variant="border"
+																disabled={resourcePathArray.includes('*')}
+															>
+																Add All (*)
+															</Button>
+															<Button onclick={close} size="xs">Done</Button>
+														</div>
+													</div>
+												{/snippet}
+											</Popover>
+										{/if}
+									</div>
 								{/each}
 							</div>
 						</div>
