@@ -15,8 +15,8 @@
 
 	interface Props {
 		loading?: boolean
-		localModuleStates: Writable<Record<string, GraphModuleState>>
-		job: Job | undefined
+		localModuleStates?: Writable<Record<string, GraphModuleState>>
+		job?: Job
 		isOwner?: boolean
 		onRunPreview?: () => void
 		isRunning?: boolean
