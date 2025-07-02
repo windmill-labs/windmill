@@ -78,7 +78,7 @@
 				moduleState?.skipped
 			)}
 			moving={data.moving}
-			duration_ms={data.editMode ? undefined : moduleState?.duration_ms}
+			duration_ms={moduleState?.duration_ms}
 			retries={moduleState?.retries}
 			{flowJobs}
 			on:delete={(e) => {

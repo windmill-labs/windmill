@@ -17,6 +17,7 @@
 	} from '$lib/components/graph/graphBuilder.svelte'
 	import { checkIfParentLoop } from '$lib/components/flows/utils'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		moduleId: string
@@ -117,7 +118,12 @@
 		{/if}
 
 		{#if duration_ms}
-			<div class="absolute z-10 right-0 -top-4 center-center text-tertiary text-2xs">
+			<div
+				class={twMerge(
+					'absolute z-10 right-0 -top-4 center-center text-tertiary text-2xs',
+					editMode ? 'text-gray-400 dark:text-gray-500 text-2xs font-normal mr-2' : ''
+				)}
+			>
 				{msToSec(duration_ms)}s
 			</div>
 		{/if}

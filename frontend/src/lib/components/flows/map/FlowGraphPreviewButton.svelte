@@ -37,7 +37,6 @@
 	<Button
 		size="sm"
 		color="dark"
-		title="Run"
 		btnClasses={twMerge(
 			'relative p-1.5 h-[34px] transition-all duration-200',
 			wide ? 'w-[120px]' : 'w-[44.5px]'
@@ -54,55 +53,48 @@
 		{#if wide}
 			<span transition:fade={{ duration: 100 }} class="text-xs">Test flow</span>
 		{/if}
-
-		{#if job && wide}
-			<div
-				class="absolute top-[38px] left-0 right-0 flex flex-row items-center shadow-sm rounded-md"
-				in:fade={{ duration: 100, delay: 200 }}
-				style={`width: ${wide ? '120px' : '44.5px'}`}
-			>
-				<Popover class="grow min-w-0">
-					<button
-						class={twMerge(
-							'text-xs rounded-md rounded-r-none px-1.5 h-[24px] w-full bg-surface flex flex-row items-center gap-2 justify-center transition-all duration-200 ',
-							'hover:bg-surface-hover text-gray-400 hover:text-primary'
-						)}
-						onclick={(e) => {
-							e.stopPropagation()
-							onOpenPreview?.()
-						}}
-					>
-						<div
-							class={twMerge(
-								'rounded-full h-2 w-2',
-								'success' in job && job.success ? 'bg-green-400' : 'bg-red-400'
-							)}
-							title={'success' in job && job.success ? 'Success' : 'Failed'}
-						>
-						</div>
-						{#if wide}
-							<span class="text-xs truncate" dir="rtl">
-								{job.id.slice(-5)}
-							</span>
-						{/if}
-					</button>
-					{#snippet text()}
-						See run details
-					{/snippet}
-				</Popover>
-				<button
-					class="h-[24px] px-1.5 bg-surface rounded-md rounded-l-none text-gray-400 hover:bg-red-500 hover:text-white"
-					title="Close preview"
-					onclick={(e) => {
-						e.stopPropagation()
-						onHideJobStatus?.()
-					}}
-				>
-					<X size={14} />
-				</button>
-			</div>
-		{/if}
 	</Button>
+	{#if job && wide}
+		<div
+			class="flex flex-row items-center shadow-sm rounded-md mt-1"
+			in:fade={{ duration: 100, delay: 200 }}
+			style={`width: ${wide ? '120px' : '44.5px'}`}
+		>
+			<Popover class="grow min-w-0">
+				<button
+					class={twMerge(
+						'text-xs rounded-md rounded-r-none px-1.5 h-[24px] w-full bg-surface flex flex-row items-center gap-2 justify-center transition-all duration-200 ',
+						'hover:bg-surface-hover text-gray-400 hover:text-primary'
+					)}
+					onclick={onOpenPreview}
+				>
+					<div
+						class={twMerge(
+							'rounded-full h-2 w-2',
+							'success' in job && job.success ? 'bg-green-400' : 'bg-red-400'
+						)}
+						title={'success' in job && job.success ? 'Success' : 'Failed'}
+					>
+					</div>
+					{#if wide}
+						<span class="text-xs truncate" dir="rtl">
+							{job.id.slice(-5)}
+						</span>
+					{/if}
+				</button>
+				{#snippet text()}
+					See run details
+				{/snippet}
+			</Popover>
+			<button
+				class="h-[24px] px-1.5 bg-surface rounded-md rounded-l-none text-gray-400 hover:bg-red-500 hover:text-white"
+				title="Close preview"
+				onclick={onHideJobStatus}
+			>
+				<X size={14} />
+			</button>
+		</div>
+	{/if}
 {:else}
 	<Button
 		size="xs"
