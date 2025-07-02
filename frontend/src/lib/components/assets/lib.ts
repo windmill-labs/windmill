@@ -18,10 +18,10 @@ export function formatAsset(asset: Asset): string {
 }
 
 export function getAssetUsagePageUri(usage: ListAssetsResponse[number]['usages'][number]) {
-	if (usage.usage_kind === 'script') {
-		return `/scripts/get/${usage.usage_path}`
-	} else if (usage.usage_kind === 'flow') {
-		return `/flows/get/${usage.usage_path}`
+	if (usage.kind === 'script') {
+		return `/scripts/get/${usage.path}`
+	} else if (usage.kind === 'flow') {
+		return `/flows/get/${usage.path}`
 	}
 }
 

@@ -5,17 +5,12 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::{Postgres, Transaction};
-use windmill_common::{
-    db::UserDB,
-    error::{JsonResult, Result},
-};
+use windmill_common::{db::UserDB, error::JsonResult};
 
 use crate::db::ApiAuthed;
 
 pub fn workspaced_service() -> Router {
     Router::new()
-        .route("/link", post(link_assets))
         .route("/list", get(list_assets))
         .route("/list_by_usages", post(list_assets_by_usages))
 }
@@ -36,64 +31,13 @@ pub enum AssetUsageKind {
     Flow,
 }
 
-#[derive(Deserialize)]
-pub struct Asset {
-    pub path: String,
-    pub kind: AssetKind,
-}
-
-#[derive(Deserialize)]
-struct Usage {
-    usage_kind: AssetUsageKind,
-    usage_path: String,
-}
-
-#[derive(Deserialize)]
-pub struct LinkAssetsBody {
-    pub assets: Vec<Asset>,
-    pub usage_path: String,
-    pub usage_kind: AssetUsageKind,
-}
-
-async fn link_assets(
-    authed: ApiAuthed,
-    Path(w_id): Path<String>,
-    Extension(user_db): Extension<UserDB>,
-    Json(body): Json<LinkAssetsBody>,
-) -> JsonResult<()> {
-    let mut tx = user_db.begin(&authed).await?;
-    link_assets_internal(&mut tx, w_id, body).await?;
-    tx.commit().await?;
-    Ok(Json(()))
-}
-
-async fn link_assets_internal(
-    tx: &mut Transaction<'_, Postgres>,
-    w_id: String,
-    body: LinkAssetsBody,
-) -> Result<()> {
-    sqlx::query!(
-        r#"DELETE FROM asset WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = $3;"#,
-        w_id,
-        body.usage_path,
-        body.usage_kind as AssetUsageKind
-    )
-    .execute(&mut **tx)
-    .await?;
-
-    for asset in body.assets {
-        sqlx::query!(
-            r#"INSERT INTO asset (workspace_id, path, kind, usage_path, usage_kind) VALUES ($1, $2, $3, $4, $5);"#,
-            w_id,
-            asset.path,
-            asset.kind as AssetKind,
-            body.usage_path,
-            body.usage_kind as AssetUsageKind
-        )
-        .execute(&mut **tx)
-        .await?;
-    }
-    Ok(())
+#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
+#[sqlx(type_name = "ASSET_ACCESS_TYPE", rename_all = "lowercase")]
+#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
+pub enum AssetUsageAccessType {
+    R,
+    W,
+    RW,
 }
 
 async fn list_assets(
@@ -107,8 +51,8 @@ async fn list_assets(
                 'path', path,
                 'kind', kind,
                 'usages', ARRAY_AGG(jsonb_build_object(
-                    'usage_path', usage_path,
-                    'usage_kind', usage_kind
+                    'path', usage_path,
+                    'kind', usage_kind
                 ))
             ) as "list!: _"
         FROM asset
@@ -123,8 +67,14 @@ async fn list_assets(
 }
 
 #[derive(Deserialize)]
+pub struct ListAssetsByUsagesBodyInner {
+    kind: AssetUsageKind,
+    path: String,
+}
+
+#[derive(Deserialize)]
 struct ListAssetsByUsagesBody {
-    usages: Vec<Usage>,
+    usages: Vec<ListAssetsByUsagesBodyInner>,
 }
 
 async fn list_assets_by_usages(
@@ -133,27 +83,25 @@ async fn list_assets_by_usages(
     Extension(user_db): Extension<UserDB>,
     Json(body): Json<ListAssetsByUsagesBody>,
 ) -> JsonResult<Vec<Vec<Value>>> {
-    let mut assets_vec = vec![];
-
     let mut tx = user_db.begin(&authed).await?;
-
+    let mut assets_vec = vec![];
     for usage in body.usages {
         let assets = sqlx::query_scalar!(
             r#"SELECT
                 jsonb_build_object(
                     'path', path,
-                    'kind', kind
+                    'kind', kind,
+                    'access_type', usage_access_type
                 ) as "list!: _"
             FROM asset
             WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = $3"#,
             w_id,
-            usage.usage_path,
-            usage.usage_kind as AssetUsageKind
+            usage.path,
+            usage.kind as AssetUsageKind
         )
         .fetch_all(&mut *tx)
         .await?;
         assets_vec.push(assets);
     }
-
     Ok(Json(assets_vec))
 }

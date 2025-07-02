@@ -212,12 +212,12 @@
 	// Fetch transitive assets (path scripts and flows)
 	$effect(() => {
 		if (!$workspaceStore) return
-		let usages: { usage_path: string; usage_kind: AssetUsageKind }[] = []
+		let usages: { path: string; kind: AssetUsageKind }[] = []
 		let modIds: string[] = []
 		for (const mod of getAllModules(modules)) {
 			if (mod.id in assetsMap) continue
 			if (mod.value.type === 'flow' || mod.value.type === 'script') {
-				usages.push({ usage_path: mod.value.path, usage_kind: mod.value.type })
+				usages.push({ path: mod.value.path, kind: mod.value.type })
 				modIds.push(mod.id)
 			}
 		}
@@ -230,7 +230,7 @@
 					const [usage, modId] = [usages[idx], modIds[idx]]
 					assetsMap[modId] = assets.map((asset) => ({
 						asset,
-						accessType: usage.usage_kind === 'flow' ? 'read' : 'write'
+						accessType: usage.kind === 'flow' ? 'read' : 'write'
 					}))
 				})
 			})

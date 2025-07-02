@@ -101,13 +101,13 @@
 				<li>
 					<a
 						href={getAssetUsagePageUri(u)}
-						aria-label={`${u.usage_kind}/${u.usage_path}`}
+						aria-label={`${u.kind}/${u.path}`}
 						class="text-sm text-primary flex items-center py-3 px-4 gap-3 hover:bg-surface-hover cursor-pointer"
 					>
-						<RowIcon kind={u.usage_kind} />
+						<RowIcon kind={u.kind} />
 						<div class="flex flex-col justify-center flex-1">
-							<span class="font-semibold">{u.usage_path}</span>
-							<span class="text-xs text-tertiary">{u.usage_kind}</span>
+							<span class="font-semibold">{u.path}</span>
+							<span class="text-xs text-tertiary">{u.kind}</span>
 						</div>
 						<div class="flex gap-2">
 							<div class="text-xs border text-tertiary max-w-fit p-1 rounded-md">Read</div>

@@ -12942,35 +12942,6 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/assets/link:
-    post:
-      summary: Deletes all current assets of the corresponding entity and updates them to the new ones
-      operationId: linkAssets
-      tags:
-      - asset
-      parameters:
-      - $ref: '#/components/parameters/WorkspaceId'
-      requestBody:
-        description: link assets
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                assets:
-                  type: array
-                  items:
-                    $ref: '#/components/schemas/Asset'
-                usage_path:
-                  type: string
-                usage_kind:
-                  $ref: '#/components/schemas/AssetUsageKind'
-              required: [assets, usage_path, usage_kind]
-      responses:
-        '201':
-          description: assets linked
-  
   /w/{workspace}/assets/list:
     get:
       summary: List all assets in the workspace
@@ -12998,12 +12969,14 @@ paths:
                       type: array
                       items:
                         type: object
-                        required: [usage_path, usage_kind]
+                        required: [path, kind]
                         properties:
-                          usage_path:
+                          path:
                             type: string
-                          usage_kind:
+                          kind:
                             $ref: '#/components/schemas/AssetUsageKind'
+                          access_type:
+                            $ref: '#/components/schemas/AssetUsageAccessType'
 
   /w/{workspace}/assets/list_by_usages:
     post:
@@ -13026,11 +12999,11 @@ paths:
                   type: array
                   items:
                     type: object
-                    required: [usage_path, usage_kind]
+                    required: [path, kind]
                     properties:
-                      usage_path:
+                      path:
                         type: string
-                      usage_kind:
+                      kind:
                         $ref: '#/components/schemas/AssetUsageKind'
       responses:
         '200':
@@ -13049,6 +13022,8 @@ paths:
                         type: string
                       kind:
                         $ref: '#/components/schemas/AssetKind'
+                      access_type:
+                        $ref: '#/components/schemas/AssetUsageAccessType'
 
 components:
   securitySchemes:
@@ -13076,18 +13051,6 @@ components:
     WorkspaceId:
       name: workspace
       in: path
-      required: true
-      schema:
-        type: string
-    AssetUsageKind:
-      name: usage_kind
-      in: query
-      required: true
-      schema:
-        $ref: "#/components/schemas/AssetUsageKind"
-    AssetUsagePath:
-      name: usage_path
-      in: query
       required: true
       schema:
         type: string
@@ -17293,6 +17256,12 @@ components:
       enum:
       - script
       - flow
+    AssetUsageAccessType:
+      type: string
+      enum:
+      - r
+      - w
+      - rw
     AssetKind:
       type: string
       enum:

@@ -11,10 +11,9 @@
 		type TriggersCount,
 		PostgresTriggerService,
 		CaptureService,
-		type ScriptLang,
-		AssetService
+		type ScriptLang
 	} from '$lib/gen'
-	import { inferArgs, inferAssets } from '$lib/infer'
+	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
 	import AIFormSettings from './copilot/AIFormSettings.svelte'
 	import {
@@ -98,7 +97,6 @@
 	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
-	import { parseAsset } from './assets/lib'
 
 	interface Props {
 		script: NewScript & { draft_triggers?: Trigger[] }
@@ -563,18 +561,6 @@
 					true
 				)
 			}
-
-			const assets = (await inferAssets(script.language, script.content))
-				.map(parseAsset)
-				.filter((a) => !!a)
-			await AssetService.linkAssets({
-				workspace: $workspaceStore!,
-				requestBody: {
-					assets,
-					usage_kind: 'script',
-					usage_path: script.path
-				}
-			})
 
 			const { draft_triggers: _, ...newScript } = structuredClone($state.snapshot(script))
 			savedScript = structuredClone($state.snapshot(newScript)) as NewScriptWithDraft
