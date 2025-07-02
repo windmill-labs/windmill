@@ -43,7 +43,6 @@
 		toggleAiChat?: () => void
 		waitingJob?: Job | undefined
 		isOwner?: boolean
-		showModuleStatus?: boolean
 		onTestFlow?: () => void
 		isRunning?: boolean
 		onCancelTestFlow?: () => void
@@ -72,7 +71,6 @@
 		toggleAiChat,
 		waitingJob,
 		isOwner,
-		showModuleStatus,
 		onTestFlow,
 		isRunning,
 		onCancelTestFlow,
@@ -137,7 +135,6 @@
 						{toggleAiChat}
 						{waitingJob}
 						{isOwner}
-						{showModuleStatus}
 						{onTestFlow}
 						{isRunning}
 						{onCancelTestFlow}

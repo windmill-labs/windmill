@@ -956,6 +956,13 @@
 	setContext<previewContext>('previewContext', {
 		getJob: () => (showModuleStatus ? job : undefined)
 	})
+
+	// Create a derived store that only shows the module states when showModuleStatus is true
+	// this store can also be updated
+	let derivedModuleStates = writable<Record<string, GraphModuleState>>({})
+	$effect(() => {
+		derivedModuleStates.set(showModuleStatus ? $localModuleStates : {})
+	})
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -1220,13 +1227,12 @@
 					}}
 					{forceTestTab}
 					{highlightArg}
-					{localModuleStates}
+					localModuleStates={derivedModuleStates}
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
 					waitingJob={job}
 					{isOwner}
-					{showModuleStatus}
 					onTestFlow={() => {
 						flowPreviewButtons?.runPreview()
 					}}

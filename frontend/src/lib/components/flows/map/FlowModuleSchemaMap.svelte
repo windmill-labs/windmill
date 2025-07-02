@@ -57,7 +57,6 @@
 		toggleAiChat?: () => void
 		waitingJob?: Job | undefined
 		isOwner?: boolean
-		showModuleStatus?: boolean
 		onTestFlow?: () => void
 		isRunning?: boolean
 		onCancelTestFlow?: () => void
@@ -82,7 +81,6 @@
 		toggleAiChat,
 		waitingJob,
 		isOwner,
-		showModuleStatus = true,
 		onTestFlow,
 		isRunning,
 		onCancelTestFlow,
@@ -97,11 +95,6 @@
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
-
-	let conditionalModuleStates = writable<Record<string, GraphModuleState>>({})
-	$effect(() => {
-		conditionalModuleStates.set(showModuleStatus ? $localModuleStates : {})
-	})
 
 	export async function insertNewModuleAtIndex(
 		modules: FlowModule[],
@@ -379,7 +372,7 @@
 			editMode
 			{onTestUpTo}
 			{onEditInput}
-			flowModuleStates={$conditionalModuleStates}
+			flowModuleStates={$localModuleStates}
 			{waitingJob}
 			{isOwner}
 			onDelete={(id) => {
