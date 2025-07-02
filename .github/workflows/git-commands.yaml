@@ -1,4 +1,4 @@
-name: Update SQLx
+name: Git commands
 
 on:
   issue_comment:
@@ -102,4 +102,73 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: 'Successfully ran sqlx update'
+            })
+
+  update-ee-ref:
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/eeref')
+    runs-on: ubicloud-standard-2
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Comment on PR - Starting
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: 'Starting ee ref update...'
+            })
+
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.issue.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Checkout windmill-ee-private
+        uses: actions/checkout@v3
+        with:
+          repository: windmill-labs/windmill-ee-private
+          path: windmill-ee-private
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+
+      - name: Get last commit hash of private-repo
+        id: get-commit-hash
+        run: |
+          cd windmill-ee-private
+          COMMIT_HASH=$(git rev-parse HEAD)
+          echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
+          echo "Latest commit hash: $COMMIT_HASH"
+
+      - name: Update ee-repo-ref.txt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "${{ steps.get-commit-hash.outputs.commit_hash }}" > backend/ee-repo-ref.txt
+          echo "Updated backend/ee-repo-ref.txt with commit hash: ${{ steps.get-commit-hash.outputs.commit_hash }}"
+          # commit and push the changes
+          BRANCH_NAME=$(gh pr view $PR_NUMBER --json headRefName --jq .headRefName)
+          echo "Checking out PR branch: $BRANCH_NAME"
+          git checkout $BRANCH_NAME
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add backend/ee-repo-ref.txt
+          git commit -m "Update ee-repo-ref.txt"
+          git push origin ${{ github.event.issue.pull_request.head.ref }}
+
+      - name: Comment on PR - Completed
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: 'Successfully updated ee-repo-ref.txt'
             })
