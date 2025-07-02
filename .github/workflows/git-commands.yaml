@@ -159,7 +159,7 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add backend/ee-repo-ref.txt
-          git commit -m "Update ee-repo-ref.txt"
+          git commit -m "Update ee-repo-ref.txt" || echo "No changes to commit"
           git push origin $BRANCH_NAME
 
       - name: Comment on PR - Completed
