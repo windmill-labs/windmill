@@ -197,4 +197,6 @@ export function checkIfParentLoop(
 }
 
 export const NODE_WITH_READ_ASSET_Y_OFFSET = 45
-export const NODE_WITH_WRITE_ASSET_Y_OFFSET = 45
+export const NODE_WITH_WRITE_ASSET_Y_OFFSET = 48
+export const READ_ASSET_Y_OFFSET = -45
+export const WRITE_ASSET_Y_OFFSET = 68

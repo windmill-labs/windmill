@@ -60,7 +60,12 @@
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
-	import { NODE_WITH_READ_ASSET_Y_OFFSET, NODE_WITH_WRITE_ASSET_Y_OFFSET } from '../flows/utils'
+	import {
+		NODE_WITH_READ_ASSET_Y_OFFSET,
+		NODE_WITH_WRITE_ASSET_Y_OFFSET,
+		READ_ASSET_Y_OFFSET,
+		WRITE_ASSET_Y_OFFSET
+	} from '../flows/utils'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -254,10 +259,18 @@
 				.coord(coordCenter())
 				.nodeSize((d) => {
 					const id: string | undefined = d?.data?.['id'] ?? ''
-					const assetOffsetTop = assetsMap?.[id]?.length ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0
+					let assetAdditionalHeight = 0
+					if (assetsMap?.[id]?.some((a) => a.accessType === 'read'))
+						assetAdditionalHeight += NODE_WITH_READ_ASSET_Y_OFFSET
+
+					if (assetsMap?.[id]?.some((a) => a.accessType === 'write'))
+						assetAdditionalHeight += NODE_WITH_WRITE_ASSET_Y_OFFSET
+
+					console.log('assetAdditionalHeight', assetAdditionalHeight)
+
 					return [
 						(nodeWidths[id] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
-						NODE.height + NODE.gap.vertical + assetOffsetTop
+						NODE.height + NODE.gap.vertical + assetAdditionalHeight
 					] as readonly [number, number]
 				})
 			boxSize = layout(dag as any)
@@ -295,8 +308,6 @@
 	function computeAssetNodes(nodes: Node[], edges: Edge[]): [Node[], Edge[]] {
 		const ASSET_X_GAP = 20
 		const ASSET_WIDTH = 180
-		const READ_ASSET_Y_OFFSET = -45
-		const WRITE_ASSET_Y_OFFSET = 58
 
 		const allAssetNodes: (Node & AssetN)[] = []
 		const allAssetEdges: Edge[] = []
@@ -366,9 +377,10 @@
 		for (const node of newNodes) {
 			if (node.position.y in yPosAccessTypeMap) {
 				const accessType = yPosAccessTypeMap[node.position.y]
-				if (accessType === 'read') {
+				if (accessType === 'read' || accessType === 'rw') {
 					node.position.y = node.position.y + NODE_WITH_READ_ASSET_Y_OFFSET / 2
-				} else if (accessType === 'write') {
+				}
+				if (accessType === 'write' || accessType === 'rw') {
 					node.position.y = node.position.y - NODE_WITH_WRITE_ASSET_Y_OFFSET / 2
 				}
 			}
@@ -672,7 +684,10 @@
 				inferAssets(v.language, v.content).then((assetsRaw) => {
 					const newAssets = assetsRaw.map(parseAsset).filter((a) => !!a)
 					if (assetsMap && !deepEqual(assetsMap[mod.id], newAssets))
-						assetsMap[mod.id] = newAssets.map((asset) => ({ asset, accessType: 'read' }))
+						assetsMap[mod.id] = newAssets.map((asset) => ({
+							asset,
+							accessType: asset.kind === 'resource' ? 'write' : 'read'
+						}))
 				})}
 		/>
 	{/if}
