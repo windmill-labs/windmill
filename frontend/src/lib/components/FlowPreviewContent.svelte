@@ -44,6 +44,7 @@
 		isOwner?: boolean
 		onRunPreview?: () => void
 		isRunning?: boolean
+		render?: boolean
 	}
 
 	let {
@@ -63,7 +64,8 @@
 		localDurationStatuses = $bindable(writable({})),
 		isOwner = $bindable(false),
 		onRunPreview = $bindable(undefined),
-		isRunning = $bindable(false)
+		isRunning = $bindable(false),
+		render = $bindable(false)
 	}: Props = $props()
 
 	let restartBranchNames: [number, string][] = []
@@ -526,6 +528,7 @@
 					bind:selectedJobStep
 					bind:rightColumnSelect
 					bind:isOwner
+					{render}
 				/>
 			{:else}
 				<div class="italic text-tertiary h-full grow"> Flow status will be displayed here </div>

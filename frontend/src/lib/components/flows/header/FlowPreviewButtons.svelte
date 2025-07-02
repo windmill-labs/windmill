@@ -35,6 +35,7 @@
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 	let previewMode: 'upTo' | 'whole' = $state('whole')
+	let deferContent = $state(false)
 
 	export async function openPreview(test: boolean = false) {
 		if (!previewOpen) {
@@ -46,7 +47,11 @@
 		flowPreviewContent?.test()
 	}
 
-	export function runPreview() {
+	export async function runPreview() {
+		if (!previewOpen) {
+			deferContent = true
+			await tick()
+		}
 		flowPreviewContent?.refresh
 		flowPreviewContent?.test()
 	}
@@ -132,7 +137,7 @@
 </Button>
 
 {#if !loading}
-	<Drawer bind:open={previewOpen} size="75%" {preventEscape} alwaysOpen>
+	<Drawer bind:open={previewOpen} size="75%" {preventEscape} alwaysOpen={deferContent}>
 		<FlowPreviewContent
 			bind:this={flowPreviewContent}
 			bind:localModuleStates
@@ -158,6 +163,7 @@
 			bind:isOwner
 			{onRunPreview}
 			bind:isRunning
+			render={previewOpen || deferContent}
 		/>
 	</Drawer>
 {/if}
