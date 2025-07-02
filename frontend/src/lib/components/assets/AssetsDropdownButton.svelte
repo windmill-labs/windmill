@@ -10,15 +10,15 @@
 	} from '../../../routes/(root)/(logged)/assets/ExploreAssetButton.svelte'
 	import { assetEq, formatAsset, type Asset, type AssetWithAccessType } from './lib'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
-	import { untrack } from 'svelte'
-	import { ResourceService, type AssetUsageAccessType } from '$lib/gen'
+	import { tick, untrack } from 'svelte'
+	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import Button from '../common/button/Button.svelte'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import type { Placement } from '@floating-ui/core'
-	import Select from '../select/Select.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
+	import MultiToggle from '../MultiToggle.svelte'
 
 	let {
 		assets,
@@ -27,10 +27,9 @@
 		noBtnText = false,
 		popoverPlacement = 'bottom-end',
 		disableLiTooltip = false,
-		accessTypeOverrides,
+		alternativeAccessTypes = $bindable(),
 		onHoverLi,
-		liSubtitle,
-		onAccessTypeChanged
+		liSubtitle
 	}: {
 		assets: AssetWithAccessType[]
 		enableChangeAnimation?: boolean
@@ -38,10 +37,9 @@
 		noBtnText?: boolean
 		popoverPlacement?: Placement
 		disableLiTooltip?: boolean
-		accessTypeOverrides?: AssetWithAccessType[]
+		alternativeAccessTypes?: AssetWithAccessType[]
 		onHoverLi?: (asset: Asset, eventType: 'enter' | 'leave') => void
 		liSubtitle?: (asset: Asset) => string
-		onAccessTypeChanged?: (asset: AssetWithAccessType, accessType: AssetUsageAccessType) => void
 	} = $props()
 
 	let prevAssets = $state<typeof assets>([])
@@ -117,6 +115,9 @@
 	<svelte:fragment slot="content">
 		<ul class="divide-y rounded-md">
 			{#each assets as asset}
+				{@const alternativeAccessType = alternativeAccessTypes?.find((a) =>
+					assetEq(a, asset)
+				)?.access_type}
 				<li
 					class="text-sm px-4 h-12 flex gap-4 items-center justify-between hover:bg-surface-hover"
 					onmouseenter={() => onHoverLi?.(asset, 'enter')}
@@ -134,7 +135,7 @@
 						</span>
 					</div>
 
-					<div class="flex gap-2">
+					<div class="flex gap-2 items-center">
 						{#if asset.kind === 'resource' && resourceDataCache[asset.path] !== undefined}
 							<Button
 								startIcon={{ icon: Edit2 }}
@@ -161,20 +162,20 @@
 								_resourceMetadata={{ resource_type: resourceDataCache[asset.path] }}
 							/>
 						{/if}
-						{#if onAccessTypeChanged}
-							<Select
-								disablePortal
-								items={safeSelectItems(['r', 'w', 'rw'])}
-								bind:value={
-									() =>
-										accessTypeOverrides?.find((a) => assetEq(a, asset))?.access_type ??
-										asset.access_type,
-									(a) => {
-										a && onAccessTypeChanged?.(asset, a)
-									}
+						<MultiToggle
+							items={safeSelectItems(['r', 'w', 'rw'])}
+							error={!asset.access_type && !alternativeAccessType}
+							disabled={!!asset.access_type}
+							bind:value={
+								() => asset.access_type ?? alternativeAccessType,
+								async (access_type) => {
+									alternativeAccessTypes = alternativeAccessTypes?.filter((a) => !assetEq(a, asset))
+									alternativeAccessTypes ??= []
+									await tick()
+									alternativeAccessTypes.push({ ...asset, access_type })
 								}
-							/>
-						{/if}
+							}
+						/>
 					</div>
 				</li>
 			{/each}

@@ -270,7 +270,7 @@ components:
           type: string
         is_trigger:
           type: boolean
-        asset_access_type_overrides:
+        asset_alternative_access_types:
           type: array
           items:
             type: object
