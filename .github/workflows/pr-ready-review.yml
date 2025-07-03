@@ -1,22 +1,37 @@
-name: Auto Comment on PR Ready for Review
+name: Claude Auto Review
 
 on:
   pull_request:
-    types: [opened, ready_for_review]
+    types: [ready_for_review, opened]
 
 jobs:
-  add-review-comment:
-    if: github.event.pull_request.draft == false
-    runs-on: ubicloud-standard-2
+  auto-review:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false || github.event.pull_request.ready_for_review == true
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
     steps:
-      - name: Add review comment
-        uses: actions/github-script@v7
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          github-token: ${{ secrets.PUBLIC_REPO_TOKEN }}
-          script: |
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              body: '/ai review this PR'
-            });
+          fetch-depth: 1
+
+      - name: Automatic PR Review
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          timeout_minutes: "60"
+          direct_prompt: |
+            Please review this pull request and provide comprehensive feedback.
+
+            Focus on:
+            - Code quality and best practices
+            - Potential bugs or issues
+            - Performance considerations
+            - Security implications
+
+            Provide constructive feedback with specific suggestions for improvement.
+            Use inline comments to highlight specific areas of concern.
+          allowed_tools: "mcp__github__create_pending_pull_request_review,mcp__github__add_pull_request_review_comment_to_pending_review,mcp__github__submit_pending_pull_request_review,mcp__github__get_pull_request_diff"
