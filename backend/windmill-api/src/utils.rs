@@ -8,7 +8,7 @@
 
 use axum::{body::Body, response::Response};
 use regex::Regex;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use sqlx::{Postgres, Transaction};
 #[cfg(feature = "enterprise")]
 use windmill_common::worker::CLOUD_HOSTED;
@@ -17,6 +17,8 @@ use windmill_common::{
     error::{self, Error},
     DB,
 };
+
+use crate::{db::ApiAuthed, scopes::ScopeDefinition};
 
 #[cfg(feature = "enterprise")]
 use windmill_common::error::JsonResult;
@@ -221,10 +223,6 @@ where
     let o: Option<String> = Option::deserialize(deserializer)?;
     Ok(o.filter(|s| !s.trim().is_empty()))
 }
-
-use serde::Serialize;
-
-use crate::{db::ApiAuthed, scopes::ScopeDefinition};
 
 #[derive(Serialize)]
 pub struct CriticalAlert {

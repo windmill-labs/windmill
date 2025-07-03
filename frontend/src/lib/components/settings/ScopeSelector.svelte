@@ -362,7 +362,7 @@
 			scopeState.isSelected = false
 		}
 
-		updateDomainCheckboxState({ value: scopeValue } as any)
+		updateDomainCheckboxState({ value: scopeValue } as ScopeDefinition)
 	}
 
 	function syncSelectedScopesWithState() {

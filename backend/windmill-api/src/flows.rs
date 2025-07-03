@@ -1115,7 +1115,7 @@ async fn get_flow_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let flow_o = sqlx::query_as::<_, FlowWDraft>(
-        "SELECT flow.path, flow.summary, flow,description, flow_version.schema, flow_version.value, flow.extra_perms, flow.draft_only, flow.ws_error_handler_muted, flow.dedicated_worker, draft.value as draft, flow.tag, flow.visible_to_runner_only, flow.on_behalf_of_email
+        "SELECT flow.path, flow.summary, flow.description, flow_version.schema, flow_version.value, flow.extra_perms, flow.draft_only, flow.ws_error_handler_muted, flow.dedicated_worker, draft.value as draft, flow.tag, flow.visible_to_runner_only, flow.on_behalf_of_email
          FROM flow
         LEFT JOIN draft
             ON flow.path = draft.path AND draft.workspace_id = $2 AND draft.typ = 'flow' 
