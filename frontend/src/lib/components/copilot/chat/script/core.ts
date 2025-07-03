@@ -389,9 +389,7 @@ export function prepareScriptTools(
 	if (['python3', 'php', 'bun', 'deno', 'nativets', 'bunnative'].includes(language)) {
 		tools.push(resourceTypeTool)
 	}
-	console.log('context', context)
 	if (context.some((c) => c.type === 'db')) {
-		console.log('dbSchemaTool')
 		tools.push(dbSchemaTool)
 	}
 	return tools
