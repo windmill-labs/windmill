@@ -44,7 +44,7 @@
 
 <ul
 	class={twMerge(
-		'flex text-nowrap bg-gray-300 rounded-full items-center border relative transition-colors',
+		'flex text-nowrap px-[1px] bg-gray-300 rounded-full items-center border relative transition-colors',
 		error ? 'border-red-300 bg-red-100' : '',
 		className
 	)}

@@ -18,7 +18,7 @@
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import type { Placement } from '@floating-ui/core'
 	import { safeSelectItems } from '../select/utils.svelte'
-	import MultiToggle from '../MultiToggle.svelte'
+	import MiniToggleButtonGroup from '../MiniToggleButtonGroup.svelte'
 
 	let {
 		assets,
@@ -162,7 +162,7 @@
 								_resourceMetadata={{ resource_type: resourceDataCache[asset.path] }}
 							/>
 						{/if}
-						<MultiToggle
+						<MiniToggleButtonGroup
 							items={safeSelectItems(['r', 'w', 'rw'])}
 							error={!asset.access_type && !alternativeAccessType}
 							disabled={!!asset.access_type}
