@@ -65,14 +65,10 @@ impl<'a> AssetsFinder<'a> {
 
         match &node.args[0] {
             Expr::Constant(ExprConstant { value: Constant::Str(value), .. }) => {
-                if let Some((k, path)) = parse_asset_syntax(value.as_str()) {
-                    if k != kind {
-                        return Err(());
-                    }
-                    self.paths_storage.push(path.to_string());
-                    self.assets
-                        .push(ParseAssetsResult { kind, path: "", access_type });
-                }
+                let path = parse_asset_syntax(&value).map(|(_, p)| p).unwrap_or(&value);
+                self.paths_storage.push(path.to_string());
+                self.assets
+                    .push(ParseAssetsResult { kind, path: "", access_type });
             }
             _ => return Err(()),
         };
