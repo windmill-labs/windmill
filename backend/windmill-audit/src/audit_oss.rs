@@ -20,6 +20,35 @@ use {
     },
 };
 
+#[cfg(not(feature = "private"))]
+impl AuditAuthorable for AuditAuthor {
+    fn email(&self) -> &str {
+        &self.email
+    }
+
+    fn username(&self) -> &str {
+        &self.username
+    }
+
+    fn username_override(&self) -> Option<&str> {
+        self.username_override.as_deref()
+    }
+
+    fn token_prefix(&self) -> Option<&str> {
+        self.token_prefix.as_deref()
+    }
+}
+
+#[cfg(not(feature = "private"))]
+pub trait AuditAuthorable {
+    fn username(&self) -> &str;
+    fn email(&self) -> &str;
+    fn username_override(&self) -> Option<&str>;
+    fn token_prefix(&self) -> Option<&str> {
+        None
+    }
+}
+
 #[derive(Clone)]
 #[cfg(not(feature = "private"))]
 pub struct AuditAuthor {
