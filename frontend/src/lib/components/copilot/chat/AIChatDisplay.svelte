@@ -68,16 +68,6 @@
 		aiChatManager.sendRequest({ instructions: suggestion })
 	}
 
-	function isLastUserMessage(messageIndex: number): boolean {
-		// Find the last user message index
-		for (let i = messages.length - 1; i >= 0; i--) {
-			if (messages[i].role === 'user') {
-				return i === messageIndex
-			}
-		}
-		return false
-	}
-
 	export function focusInput() {
 		aiChatInput?.focusInput()
 	}
@@ -169,13 +159,7 @@
 		>
 			<div class="flex flex-col" bind:clientHeight={height}>
 				{#each messages as message, messageIndex}
-					<AIChatMessage
-						{message}
-						{messageIndex}
-						{availableContext}
-						{selectedContext}
-						isLastUserMessage={isLastUserMessage(messageIndex)}
-					/>
+					<AIChatMessage {message} {messageIndex} {availableContext} {selectedContext} />
 				{/each}
 				{#if aiChatManager.loading && !aiChatManager.currentReply}
 					<div class="mb-6 py-1 px-2">

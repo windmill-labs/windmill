@@ -216,6 +216,30 @@ class AIChatManager {
 		}
 	}
 
+	retryRequest = () => {
+		const lastUserMessage = this.getLastUserMessage()
+		if (lastUserMessage) {
+			this.restartGeneration(lastUserMessage.index)
+			lastUserMessage.error = false
+		}
+	}
+
+	private getLastUserMessage = () => {
+		for (let i = this.displayMessages.length - 1; i >= 0; i--) {
+			const message = this.displayMessages[i]
+			if (message.role === 'user') {
+				return message
+			}
+		}
+	}
+
+	private flagLastMessageAsError = () => {
+		const lastUserMessage = this.getLastUserMessage()
+		if (lastUserMessage) {
+			lastUserMessage.error = true
+		}
+	}
+
 	private chatRequest = async ({
 		messages,
 		abortController,
@@ -402,7 +426,8 @@ class AIChatManager {
 					role: 'user',
 					content: this.instructions,
 					contextElements: this.mode === AIMode.SCRIPT ? oldSelectedContext : undefined,
-					snapshot
+					snapshot,
+					index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 				}
 			]
 			const oldInstructions = this.instructions
@@ -477,6 +502,7 @@ class AIChatManager {
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
 		} catch (err) {
 			console.error(err)
+			this.flagLastMessageAsError()
 			if (err instanceof Error) {
 				sendUserToast('Failed to send request: ' + err.message, true)
 			} else {
@@ -491,7 +517,7 @@ class AIChatManager {
 		this.abortController?.abort()
 	}
 
-	restartLastGeneration = (displayMessageIndex: number, newContent?: string) => {
+	restartGeneration = (displayMessageIndex: number, newContent?: string) => {
 		const userMessage = this.displayMessages[displayMessageIndex]
 
 		if (!userMessage || userMessage.role !== 'user') {
@@ -501,20 +527,14 @@ class AIChatManager {
 		// Remove all messages including and after the specified user message
 		this.displayMessages = this.displayMessages.slice(0, displayMessageIndex)
 
-		// Find the last user message in actual messages and remove it and everything after it
-		let lastActualUserMessageIndex = -1
-		for (let i = this.messages.length - 1; i >= 0; i--) {
-			if (this.messages[i].role === 'user') {
-				lastActualUserMessageIndex = i
-				break
-			}
-		}
+		// Find corresponding message in actual messages and remove it and everything after it
+		let actualMessageIndex = this.messages.findIndex((_, i) => i === userMessage.index)
 
-		if (lastActualUserMessageIndex === -1) {
+		if (actualMessageIndex === -1) {
 			throw new Error('No actual user message found to restart from')
 		}
 
-		this.messages = this.messages.slice(0, lastActualUserMessageIndex)
+		this.messages = this.messages.slice(0, actualMessageIndex)
 
 		// Resend the request with the same instructions
 		this.instructions = newContent ?? userMessage.content

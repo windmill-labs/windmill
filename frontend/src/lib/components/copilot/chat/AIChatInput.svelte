@@ -74,7 +74,7 @@
 			return
 		}
 		if (editingMessageIndex !== null) {
-			aiChatManager.restartLastGeneration(editingMessageIndex, instructions)
+			aiChatManager.restartGeneration(editingMessageIndex, instructions)
 			editingMessageIndex = null
 		} else {
 			aiChatManager.sendRequest({ instructions })

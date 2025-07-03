@@ -14,18 +14,12 @@
 		selectedContext: ContextElement[]
 		message: DisplayMessage
 		messageIndex: number
-		isLastUserMessage: boolean
 	}
 
-	const { message, messageIndex, availableContext, selectedContext, isLastUserMessage }: Props =
-		$props()
+	const { message, messageIndex, availableContext, selectedContext }: Props = $props()
 
 	let editingMessageIndex = $state<number | null>(null)
 	let aiChatInputComponent: AIChatInput | undefined = $state()
-
-	function restartGeneration(messageIndex: number) {
-		aiChatManager.restartLastGeneration(messageIndex)
-	}
 
 	function startEditMessage(messageIndex: number) {
 		editingMessageIndex = messageIndex
@@ -77,23 +71,6 @@
 			{:else}
 				{message.content}
 			{/if}
-
-			{#if message.role === 'user' && !aiChatManager.loading && isLastUserMessage}
-				<div
-					class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1"
-				>
-					<Button
-						size="xs2"
-						variant="border"
-						color="light"
-						iconOnly
-						title="Restart generation"
-						startIcon={{ icon: RefreshCwIcon }}
-						btnClasses="!p-1 !h-6 !w-6"
-						on:click={() => restartGeneration(messageIndex)}
-					/>
-				</div>
-			{/if}
 		</div>
 	{/if}
 	{#if message.role === 'user' && message.snapshot}
@@ -116,3 +93,17 @@
 		</div>
 	{/if}
 </div>
+{#if message.role === 'user' && message.error}
+	<div class="flex justify-end px-2 -mt-1">
+		<Button
+			size="xs2"
+			variant="border"
+			title="Retry generation"
+			color="light"
+			startIcon={{ icon: RefreshCwIcon }}
+			onclick={() => aiChatManager.retryRequest()}
+		>
+			Retry
+		</Button>
+	</div>
+{/if}
