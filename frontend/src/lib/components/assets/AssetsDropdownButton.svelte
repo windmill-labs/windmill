@@ -17,8 +17,8 @@
 	import Tooltip from '../meltComponents/Tooltip.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import type { Placement } from '@floating-ui/core'
-	import { safeSelectItems } from '../select/utils.svelte'
-	import MiniToggleButtonGroup from '../MiniToggleButtonGroup.svelte'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 
 	let {
 		assets,
@@ -162,12 +162,8 @@
 								_resourceMetadata={{ resource_type: resourceDataCache[asset.path] }}
 							/>
 						{/if}
-						<MiniToggleButtonGroup
-							items={safeSelectItems(['r', 'w', 'rw'])}
-							error={!asset.access_type && !alternativeAccessType}
-							disabled={!!asset.access_type}
-							clearable
-							bind:value={
+						<ToggleButtonGroup
+							bind:selected={
 								() => asset.access_type ?? alternativeAccessType,
 								async (access_type) => {
 									alternativeAccessTypes ??= []
@@ -177,7 +173,13 @@
 									alternativeAccessTypes = val
 								}
 							}
-						/>
+						>
+							{#snippet children({ item })}
+								{#each ['r', 'w', 'rw'] as v}
+									<ToggleButton value={v} label={v} {item} />
+								{/each}
+							{/snippet}
+						</ToggleButtonGroup>
 					</div>
 				</li>
 			{/each}
