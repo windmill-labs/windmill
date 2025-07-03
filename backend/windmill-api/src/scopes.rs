@@ -426,7 +426,7 @@ pub fn check_route_access(
 
     // Find the domain and kind for this route
     let (required_domain, required_kind) = extract_domain_from_route(route_path)?;
-    let mut restricted_scopes = false;
+    let mut is_scoped_token = false;
     // Check if any token scope grants the required access
     for scope_str in token_scopes {
         if !scope_str.starts_with("if_jobs:filter_tags:") {
@@ -440,15 +440,15 @@ pub fn check_route_access(
                     return Ok(());
                 }
             }
-            if !restricted_scopes {
-                restricted_scopes = true;
+            if !is_scoped_token {
+                is_scoped_token = true;
             }
         }
     }
 
     //Edge case for backward compatibility, if only scopes defined was filter tag then don't treat this we don't treat the token
     //as a restricted token
-    if !restricted_scopes {
+    if !is_scoped_token {
         return Ok(());
     }
     let scope_display = if let Some(kind) = required_kind {

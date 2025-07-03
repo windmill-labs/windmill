@@ -159,12 +159,12 @@ where
     F: FnOnce() -> String,
 {
     if let Some(scopes) = authed.scopes.as_ref() {
-        let mut has_other_scope = false;
+        let mut is_scoped_token = false;
         let required_scope = ScopeDefinition::from_scope_string(&required())?;
         for scope in scopes {
             if !scope.starts_with("if_jobs:filter_tags:") {
-                if !has_other_scope {
-                    has_other_scope = true;
+                if !is_scoped_token {
+                    is_scoped_token = true;
                 }
 
                 match ScopeDefinition::from_scope_string(scope) {
@@ -174,7 +174,7 @@ where
             }
         }
 
-        if has_other_scope {
+        if is_scoped_token {
             return Err(Error::NotAuthorized(format!(
                 "Required scope: {}",
                 required_scope.as_string()
