@@ -178,4 +178,15 @@ pub fn parse_assets_sql(code: &str) -> String {
     }
 }
 
+#[cfg(feature = "ts-parser")]
+#[wasm_bindgen]
+pub fn parse_assets_ts(code: &str) -> String {
+    let mut paths_storage = vec![];
+    if let Ok(r) = windmill_parser_ts::parse_assets(code, &mut paths_storage) {
+        return serde_json::to_string(&r).unwrap();
+    } else {
+        return "Invalid".to_string();
+    }
+}
+
 // for related places search: ADD_NEW_LANG

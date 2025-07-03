@@ -4,7 +4,7 @@ import type { Schema, SupportedLanguage } from './common.js'
 import { emptySchema, sortObject } from './utils.js'
 import { tick } from 'svelte'
 
-import initTsParser, { parse_deno, parse_outputs } from 'windmill-parser-wasm-ts'
+import initTsParser, { parse_assets_ts, parse_deno, parse_outputs } from 'windmill-parser-wasm-ts'
 import initRegexParsers, {
 	parse_sql,
 	parse_mysql,
@@ -86,10 +86,11 @@ export async function inferAssets(
 ): Promise<AssetWithAccessType[]> {
 	if (language === 'duckdb') {
 		await initWasmRegex()
-		return (JSON.parse(parse_assets_sql(code)) as AssetWithAccessType[]).map((a) => ({
-			...a,
-			accessType: 'rw'
-		}))
+		return JSON.parse(parse_assets_sql(code))
+	}
+	if (language === 'deno' || language === 'nativets' || language === 'bun') {
+		await initWasmTs()
+		return JSON.parse(parse_assets_ts(code))
 	}
 	return []
 }

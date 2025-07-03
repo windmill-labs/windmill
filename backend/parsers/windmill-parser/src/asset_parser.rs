@@ -48,3 +48,13 @@ pub fn merge_assets<'a>(assets: Vec<ParseAssetsResult<'a>>) -> Vec<ParseAssetsRe
     arr.sort_by_key(|a| a.path);
     arr
 }
+
+pub fn parse_resource_syntax(uri: &str) -> Option<&str> {
+    if uri.starts_with("res://") {
+        Some(&uri[6..])
+    } else if uri.starts_with("$res:") {
+        Some(&uri[5..])
+    } else {
+        None
+    }
+}
