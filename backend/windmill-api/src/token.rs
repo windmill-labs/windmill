@@ -36,12 +36,12 @@ fn trigger_scope_domains() -> Vec<ScopeDomain> {
             scopes: vec![
                 ScopeOption {
                     value: format!("{domain}:read"),
-                    label: "Read permission".to_string(),
+                    label: "Read".to_string(),
                     requires_resource_path: true,
                 },
                 ScopeOption {
                     value: format!("{domain}:write"),
-                    label: "Write permission".to_string(),
+                    label: "Write".to_string(),
                     requires_resource_path: true,
                 },
             ],
