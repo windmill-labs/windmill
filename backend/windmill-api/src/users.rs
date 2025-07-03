@@ -175,7 +175,7 @@ where
         }
 
         if has_other_scope {
-            return Err(Error::BadRequest(format!(
+            return Err(Error::NotAuthorized(format!(
                 "Required scope: {}",
                 required_scope.as_string()
             )));

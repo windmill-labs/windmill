@@ -205,20 +205,30 @@ fn resource_matches_pattern(scope_resource: &str, accepted_resource: &str) -> bo
         return true;
     }
 
-    if accepted_resource.ends_with("/*") {
-        let required_prefix = &accepted_resource[..accepted_resource.len() - 2];
-        if scope_resource.starts_with(required_prefix) {
-            let valid_end = scope_resource
-                .chars()
-                .nth(required_prefix.len())
-                .map(|c| c == '/')
-                .unwrap_or(true);
-
-            return valid_end;
+    let matches_wildcard = |pattern: &str, resource: &str| -> bool {
+        if !pattern.ends_with("/*") {
+            return false;
         }
-    }
 
-    false
+        let prefix = &pattern[..pattern.len() - 2];
+        
+        if !resource.starts_with(prefix) {
+            return false;
+        }
+
+        // If the resource is exactly the prefix, it matches
+        if resource.len() == prefix.len() {
+            return true;
+        }
+
+        // If the resource is longer, the next character must be '/' for a valid match
+        // This prevents "u/user" from matching "u/use/*"
+        resource.chars().nth(prefix.len()) == Some('/')
+    };
+
+    // Check if either resource is a wildcard pattern and matches the other
+    matches_wildcard(scope_resource, accepted_resource)
+        || matches_wildcard(accepted_resource, scope_resource)
 }
 
 /// Available scope domains (top-level API categories)

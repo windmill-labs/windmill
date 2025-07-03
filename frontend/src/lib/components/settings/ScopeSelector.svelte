@@ -269,10 +269,9 @@
 
 	const hasAdministratorScope = $derived(selectedScopes.includes('*'))
 
-	// Re-initialize when selectedScopes changes externally
 	$effect(() => {
-		if (scopeDomains) {
-			initializeDomainStates()
+		if (scopeDomains && componentState.domains) {
+			syncSelectedScopesWithState()
 		}
 	})
 
@@ -364,6 +363,49 @@
 		}
 
 		updateDomainCheckboxState({ value: scopeValue } as any)
+	}
+
+	function syncSelectedScopesWithState() {
+		if (!scopeDomains) return
+
+		for (const domain of scopeDomains) {
+			const domainState = getDomainState(domain.name)
+			if (!domainState) continue
+
+			// Check if domain has full access
+			const writeScopeValue = getWriteScopeForDomain(domain)
+			const hasWriteSelected =
+				writeScopeValue &&
+				selectedScopes.some(
+					(scope) => scope === writeScopeValue || scope.startsWith(writeScopeValue + ':')
+				)
+			
+			const runScopes = domain.scopes.filter(scope => scope.value.includes(':run:'))
+			const hasRunScopesSelected = runScopes.length > 0 && runScopes.every(runScope => 
+				selectedScopes.some(scope => scope === runScope.value || scope.startsWith(runScope.value + ':'))
+			)
+			
+			domainState.hasFullAccess = Boolean(hasWriteSelected && (runScopes.length === 0 || hasRunScopesSelected))
+
+			for (const scope of domain.scopes) {
+				const scopeState = domainState.scopes[scope.value]
+				if (!scopeState) continue
+
+				scopeState.resourcePaths = []
+				
+				const isSelected = selectedScopes.some((selected) => {
+					if (scope.requires_resource_path && selected.startsWith(scope.value + ':')) {
+						const resourcePath = selected.substring(scope.value.length + 1)
+						const paths = resourcePath.split(',').map((p) => p.trim())
+						scopeState.resourcePaths = [...paths]
+						return true
+					}
+					return selected === scope.value
+				})
+				
+				scopeState.isSelected = isSelected
+			}
+		}
 	}
 
 	fetchScopeDomains()
