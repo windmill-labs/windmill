@@ -293,7 +293,6 @@
 					handleContextSelection(availableContext[0])
 				}
 			} else {
-				console.log('pipi')
 				onSendRequest()
 			}
 		}
