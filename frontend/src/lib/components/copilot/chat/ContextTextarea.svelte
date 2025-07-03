@@ -269,12 +269,9 @@
 			contextTooltipWord = ''
 			selectedSuggestionIndex = 0
 		}
-		// onUpdateInstructions(value)
-		// value
 	}
 
 	function handleKeyPress(e: KeyboardEvent) {
-		console.log('handleKeyPress', e)
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault()
 			if (contextTooltipWord) {

@@ -54,19 +54,6 @@
 		}
 	}
 
-	// function cancelEditMessage() {
-	// 	editingMessageIndex = null
-	// 	editingMessageContent = ''
-	// }
-
-	// function saveEditMessage() {
-	// 	if (editingMessageIndex !== null && editingMessageContent.trim()) {
-	// 		aiChatManager.restartLastGeneration(editingMessageIndex, editingMessageContent.trim())
-	// 		editingMessageIndex = null
-	// 		editingMessageContent = ''
-	// 	}
-	// }
-
 	function addContextToSelection(contextElement: ContextElement) {
 		if (
 			selectedContext &&
