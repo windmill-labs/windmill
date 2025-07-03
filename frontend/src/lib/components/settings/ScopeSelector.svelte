@@ -11,18 +11,64 @@
 		class?: string
 	}
 
+	interface ScopeState {
+		isSelected: boolean
+		resourcePaths: string[]
+		currentInputValue: string
+		pathError?: string
+	}
+
+	interface DomainState {
+		isExpanded: boolean
+		hasFullAccess: boolean
+		scopes: Record<string, ScopeState>
+	}
+
+	interface ComponentState {
+		domains: Record<string, DomainState>
+	}
+
 	let { selectedScopes = $bindable([]), disabled = false, class: className = '' }: Props = $props()
 
 	let scopeDomains = $state<ScopeDomain[] | null>(null)
 	let loading = $state(false)
 	let error = $state<string | null>(null)
 
-	let expandedDomains = $state<Set<string>>(new Set())
-	let domainFullAccessSelected = $state<Map<string, boolean>>(new Map())
-	let individualScopeSelections = $state<Map<string, boolean>>(new Map())
-	let resourcePaths = $state<Record<string, string[]>>({})
-	let currentInputValues = $state<Record<string, string>>({})
-	let pathErrors = $state<Record<string, string>>({})
+	let componentState = $state<ComponentState>({ domains: {} })
+
+	function createScopeState(scope: ScopeDefinition): ScopeState {
+		return {
+			isSelected: false,
+			resourcePaths: [],
+			currentInputValue: '',
+			pathError: undefined
+		}
+	}
+
+	function createDomainState(domain: ScopeDomain): DomainState {
+		const scopes: Record<string, ScopeState> = {}
+		for (const scope of domain.scopes) {
+			scopes[scope.value] = createScopeState(scope)
+		}
+		return {
+			isExpanded: false,
+			hasFullAccess: false,
+			scopes
+		}
+	}
+
+	function getScopeState(scopeValue: string): ScopeState | undefined {
+		for (const domainState of Object.values(componentState.domains)) {
+			if (domainState.scopes[scopeValue]) {
+				return domainState.scopes[scopeValue]
+			}
+		}
+		return undefined
+	}
+
+	function getDomainState(domainName: string): DomainState | undefined {
+		return componentState.domains[domainName]
+	}
 
 	async function fetchScopeDomains(): Promise<void> {
 		loading = true
@@ -43,13 +89,12 @@
 	function initializeDomainStates() {
 		if (!scopeDomains) return
 
-		const newDomainFullAccessSelected = new Map<string, boolean>()
-		const newIndividualScopeSelections = new Map<string, boolean>()
-		const newResourcePaths: Record<string, string[]> = {}
-		const newCurrentInputValues: Record<string, string> = {}
-		const newPathErrors: Record<string, string> = {}
+		const newDomains: Record<string, DomainState> = {}
 
 		for (const domain of scopeDomains) {
+			const domainState = createDomainState(domain)
+			
+			// Check if domain has full access
 			const writeScopeValue = getWriteScopeForDomain(domain)
 			const hasWriteSelected =
 				writeScopeValue &&
@@ -62,28 +107,29 @@
 				selectedScopes.some(scope => scope === runScope.value || scope.startsWith(runScope.value + ':'))
 			)
 			
-			const isDomainFullySelected = hasWriteSelected && (runScopes.length === 0 || hasRunScopesSelected)
-			newDomainFullAccessSelected.set(domain.name, Boolean(isDomainFullySelected))
+			domainState.hasFullAccess = Boolean(hasWriteSelected && (runScopes.length === 0 || hasRunScopesSelected))
 
+			// Initialize individual scope states
 			for (const scope of domain.scopes) {
+				const scopeState = domainState.scopes[scope.value]
+				
 				const isSelected = selectedScopes.some((selected) => {
 					if (scope.requires_resource_path && selected.startsWith(scope.value + ':')) {
 						const resourcePath = selected.substring(scope.value.length + 1)
 						const paths = resourcePath.split(',').map((p) => p.trim())
-						const existingPaths = newResourcePaths[scope.value] || []
-						newResourcePaths[scope.value] = [...existingPaths, ...paths]
+						scopeState.resourcePaths = [...scopeState.resourcePaths, ...paths]
 						return true
 					}
 					return selected === scope.value
 				})
-				newIndividualScopeSelections.set(scope.value, isSelected)
+				
+				scopeState.isSelected = isSelected
 			}
+			
+			newDomains[domain.name] = domainState
 		}
-		domainFullAccessSelected = newDomainFullAccessSelected
-		individualScopeSelections = newIndividualScopeSelections
-		resourcePaths = newResourcePaths
-		currentInputValues = newCurrentInputValues
-		pathErrors = newPathErrors
+		
+		componentState = { domains: newDomains }
 	}
 
 	function getWriteScopeForDomain(domain: ScopeDomain): string | null {
@@ -92,22 +138,23 @@
 	}
 
 	function toggleDomainExpansion(domainName: string) {
-		const newExpanded = new Set(expandedDomains)
-		if (newExpanded.has(domainName)) {
-			newExpanded.delete(domainName)
-		} else {
-			newExpanded.add(domainName)
+		const domainState = getDomainState(domainName)
+		if (domainState) {
+			domainState.isExpanded = !domainState.isExpanded
 		}
-		expandedDomains = newExpanded
 	}
 
 	function handleDomainCheckboxChange(domain: ScopeDomain, checked: boolean) {
 		const writeScopeValue = getWriteScopeForDomain(domain)
 		if (!writeScopeValue) return
 
-		domainFullAccessSelected.set(domain.name, checked)
+		const domainState = getDomainState(domain.name)
+		if (!domainState) return
+
+		domainState.hasFullAccess = checked
 
 		if (checked) {
+			// Remove any existing scopes for this domain
 			selectedScopes = selectedScopes.filter(
 				(scope) =>
 					!domain.scopes.some(
@@ -125,6 +172,7 @@
 				selectedScopes = [...selectedScopes, runScope.value]
 			}
 		} else {
+			// Remove all scopes for this domain
 			selectedScopes = selectedScopes.filter(
 				(scope) =>
 					!domain.scopes.some(
@@ -136,22 +184,23 @@
 	}
 
 	function handleIndividualScopeChange(scope: ScopeDefinition, checked: boolean) {
+		const scopeState = getScopeState(scope.value)
+		if (!scopeState) return
+
+		scopeState.isSelected = checked
+
 		if (scope.requires_resource_path) {
-			individualScopeSelections.set(scope.value, checked)
 			if (checked) {
 				// Initialize with default wildcard if no paths exist
-				const currentPaths = resourcePaths[scope.value] || []
-				if (currentPaths.length === 0) {
-					resourcePaths[scope.value] = ['*']
+				if (scopeState.resourcePaths.length === 0) {
+					scopeState.resourcePaths = ['*']
 					updateSelectedScopesForResourcePaths(scope.value, ['*'])
 				}
 			} else {
-				resourcePaths[scope.value] = []
+				scopeState.resourcePaths = []
 				updateSelectedScopesForResourcePaths(scope.value, [])
 			}
 		} else {
-			individualScopeSelections.set(scope.value, checked)
-
 			if (checked) {
 				selectedScopes = selectedScopes.filter(
 					(s) => !s.startsWith(scope.value + ':') && s !== scope.value
@@ -173,38 +222,49 @@
 		const domain = scopeDomains.find((d) => d.scopes.some((s) => s.value === changedScope.value))
 		if (!domain) return
 
+		const domainState = getDomainState(domain.name)
+		if (!domainState) return
+
 		const writeScope = getWriteScopeForDomain(domain)
-		const hasWriteSelected = writeScope && individualScopeSelections.get(writeScope)
+		const hasWriteSelected = writeScope && domainState.scopes[writeScope]?.isSelected
 
 		const runScopes = domain.scopes.filter(scope => scope.value.includes(':run:'))
 		const hasRunScopesSelected = runScopes.length > 0 && runScopes.every(runScope => 
-			individualScopeSelections.get(runScope.value)
+			domainState.scopes[runScope.value]?.isSelected
 		)
 
 		const isDomainFullySelected = hasWriteSelected && (runScopes.length === 0 || hasRunScopesSelected)
-		domainFullAccessSelected.set(domain.name, isDomainFullySelected || false)
+		domainState.hasFullAccess = Boolean(isDomainFullySelected)
 	}
 
 	function getSelectedScopesForDomain(domain: ScopeDomain): string[] {
+		const domainState = getDomainState(domain.name)
+		if (!domainState) return []
+
 		return domain.scopes
-			.filter((scope) => individualScopeSelections.get(scope.value))
+			.filter((scope) => domainState.scopes[scope.value]?.isSelected)
 			.map((scope) => {
-				const resourcePathArray = resourcePaths[scope.value]
-				return resourcePathArray && resourcePathArray.length > 0
-					? `${scope.value}:${resourcePathArray.join(',')}`
+				const scopeState = domainState.scopes[scope.value]
+				const resourcePaths = scopeState?.resourcePaths || []
+				return resourcePaths.length > 0
+					? `${scope.value}:${resourcePaths.join(',')}`
 					: scope.value
 			})
 	}
 
 	function clearAllScopes() {
 		selectedScopes = []
-		domainFullAccessSelected.clear()
-		individualScopeSelections.clear()
-		resourcePaths = {}
-		currentInputValues = {}
-		pathErrors = {}
-		expandedDomains.clear()
-		initializeDomainStates()
+		// Reset all domain states
+		for (const domainState of Object.values(componentState.domains)) {
+			domainState.hasFullAccess = false
+			domainState.isExpanded = false
+			for (const scopeState of Object.values(domainState.scopes)) {
+				scopeState.isSelected = false
+				scopeState.resourcePaths = []
+				scopeState.currentInputValue = ''
+				scopeState.pathError = undefined
+			}
+		}
 	}
 
 	const hasAdministratorScope = $derived(selectedScopes.includes('*'))
@@ -252,33 +312,37 @@
 	}
 
 	function addResourcePath(scopeValue: string, path: string) {
+		const scopeState = getScopeState(scopeValue)
+		if (!scopeState) return false
+
 		const error = validateResourcePath(path)
 		if (error) {
-			pathErrors[scopeValue] = error
+			scopeState.pathError = error
 			return false
 		}
 
-		delete pathErrors[scopeValue]
-		const currentPaths = resourcePaths[scopeValue] || []
+		scopeState.pathError = undefined
 
-		if (currentPaths.includes(path.trim())) {
-			pathErrors[scopeValue] = 'Path already exists'
+		if (scopeState.resourcePaths.includes(path.trim())) {
+			scopeState.pathError = 'Path already exists'
 			return false
 		}
 
-		const newPaths = [...currentPaths, path.trim()]
-		resourcePaths[scopeValue] = newPaths
-		currentInputValues[scopeValue] = ''
+		const newPaths = [...scopeState.resourcePaths, path.trim()]
+		scopeState.resourcePaths = newPaths
+		scopeState.currentInputValue = ''
 
 		updateSelectedScopesForResourcePaths(scopeValue, newPaths)
 		return true
 	}
 
 	function removeResourcePath(scopeValue: string, pathToRemove: string) {
-		const currentPaths = resourcePaths[scopeValue] || []
-		const newPaths = currentPaths.filter((p) => p !== pathToRemove)
-		resourcePaths[scopeValue] = newPaths
-		delete pathErrors[scopeValue]
+		const scopeState = getScopeState(scopeValue)
+		if (!scopeState) return
+
+		const newPaths = scopeState.resourcePaths.filter((p) => p !== pathToRemove)
+		scopeState.resourcePaths = newPaths
+		scopeState.pathError = undefined
 
 		updateSelectedScopesForResourcePaths(scopeValue, newPaths)
 	}
@@ -288,12 +352,15 @@
 			(s) => !s.startsWith(scopeValue + ':') && s !== scopeValue
 		)
 
+		const scopeState = getScopeState(scopeValue)
+		if (!scopeState) return
+
 		if (paths.length > 0) {
 			const scopeString = `${scopeValue}:${paths.join(',')}`
 			selectedScopes = [...selectedScopes, scopeString]
-			individualScopeSelections.set(scopeValue, true)
+			scopeState.isSelected = true
 		} else {
-			individualScopeSelections.set(scopeValue, false)
+			scopeState.isSelected = false
 		}
 
 		updateDomainCheckboxState({ value: scopeValue } as any)
@@ -352,8 +419,9 @@
 
 		<div class="space-y-3">
 			{#each scopeDomains as domain}
-				{@const isExpanded = expandedDomains.has(domain.name)}
-				{@const isDomainSelected = domainFullAccessSelected.get(domain.name) || false}
+				{@const domainState = getDomainState(domain.name)}
+				{@const isExpanded = domainState?.isExpanded || false}
+				{@const isDomainSelected = domainState?.hasFullAccess || false}
 				{@const selectedScopes = getSelectedScopesForDomain(domain)}
 
 				<div class="border rounded-lg bg-surface overflow-hidden">
@@ -410,10 +478,11 @@
 						<div class="p-2">
 							<div class="grid grid-cols-2 gap-4">
 								{#each domain.scopes as scope}
-									{@const isSelected = individualScopeSelections.get(scope.value) || false}
-									{@const resourcePathArray = resourcePaths[scope.value] || []}
-									{@const currentInput = currentInputValues[scope.value] || ''}
-									{@const pathError = pathErrors[scope.value]}
+									{@const scopeState = domainState?.scopes[scope.value]}
+									{@const isSelected = scopeState?.isSelected || false}
+									{@const resourcePathArray = scopeState?.resourcePaths || []}
+									{@const currentInput = scopeState?.currentInputValue || ''}
+									{@const pathError = scopeState?.pathError}
 
 									<div
 										class="flex justify-between p-3 border rounded-lg bg-surface-secondary min-h-16 w-full"
@@ -451,8 +520,10 @@
 																placeholder="e.g., u/username/*, f/folder/script.py"
 																{disabled}
 																oninput={(e) => {
-																	currentInputValues[scope.value] = e.currentTarget.value
-																	delete pathErrors[scope.value]
+																	if (scopeState) {
+																		scopeState.currentInputValue = e.currentTarget.value
+																		scopeState.pathError = undefined
+																	}
 																}}
 																onkeydown={(e) => {
 																	if (e.key === 'Enter' && currentInput.trim()) {

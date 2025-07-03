@@ -10,7 +10,7 @@
 	import MultiSelect from '../select/MultiSelect.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
 	import TokenDisplay from './TokenDisplay.svelte'
-	import GroupedScopeSelector from './GroupedScopeSelector.svelte'
+	import ScopeSelector from './ScopeSelector.svelte'
 
 	interface Props {
 		showMcpMode?: boolean
@@ -195,7 +195,7 @@
 						/>
 					</div>
 					{#if showCustomScopes}
-						<GroupedScopeSelector bind:selectedScopes={customScopes} />
+						<ScopeSelector bind:selectedScopes={customScopes} />
 					{/if}
 				</div>
 			{/if}
