@@ -6,37 +6,32 @@
 	import { aiChatManager } from './AIChatManager.svelte'
 	import { Button } from '$lib/components/common'
 	import { RefreshCwIcon, Undo2Icon } from 'lucide-svelte'
-	// import AIChatInput from './AIChatInput.svelte'
+	import AIChatInput from './AIChatInput.svelte'
+	import type { ContextElement } from './context'
 
 	interface Props {
+		availableContext: ContextElement[]
+		selectedContext: ContextElement[]
 		message: DisplayMessage
 		messageIndex: number
-		messages: DisplayMessage[]
+		isLastUserMessage: boolean
 	}
 
-	const { message, messageIndex, messages }: Props = $props()
+	const { message, messageIndex, availableContext, selectedContext, isLastUserMessage }: Props =
+		$props()
 
 	let editingMessageIndex = $state<number | null>(null)
-	let editingMessageContent = $state<string>('')
-
-	function isLastUserMessage(messageIndex: number): boolean {
-		// Find the last user message index
-		for (let i = messages.length - 1; i >= 0; i--) {
-			if (messages[i].role === 'user') {
-				return i === messageIndex
-			}
-		}
-		return false
-	}
+	let aiChatInputComponent: AIChatInput | undefined = $state()
 
 	function restartGeneration(messageIndex: number) {
 		aiChatManager.restartLastGeneration(messageIndex)
 	}
 
 	function startEditMessage(messageIndex: number) {
-		console.log('startEditMessage', messageIndex)
 		editingMessageIndex = messageIndex
-		editingMessageContent = messages[messageIndex].content
+		setTimeout(() => {
+			aiChatInputComponent?.focusInput()
+		}, 100)
 	}
 </script>
 
@@ -59,8 +54,13 @@
 		</div>
 	{/if}
 	{#if message.role === 'user' && editingMessageIndex === messageIndex}
-		<!-- <AIChatInput {availableContext} {selectedContext} {messages} {editingMessageIndex} /> -->
-		<p>Editing</p>
+		<AIChatInput
+			bind:this={aiChatInputComponent}
+			{availableContext}
+			{selectedContext}
+			initialInstructions={message.content}
+			bind:editingMessageIndex
+		/>
 	{:else}
 		<div
 			class={twMerge(
@@ -78,7 +78,7 @@
 				{message.content}
 			{/if}
 
-			{#if message.role === 'user' && !aiChatManager.loading && isLastUserMessage(messageIndex)}
+			{#if message.role === 'user' && !aiChatManager.loading && isLastUserMessage}
 				<div
 					class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1"
 				>

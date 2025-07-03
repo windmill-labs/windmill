@@ -15,6 +15,7 @@
 		disabled: boolean
 		onSendRequest: () => void
 		onAddContext: (contextElement: ContextElement) => void
+		onEscape: () => void
 	}
 
 	let {
@@ -25,7 +26,8 @@
 		placeholder,
 		disabled,
 		onSendRequest,
-		onAddContext
+		onAddContext,
+		onEscape
 	}: Props = $props()
 
 	let showContextTooltip = $state(false)
@@ -272,6 +274,7 @@
 	}
 
 	function handleKeyPress(e: KeyboardEvent) {
+		console.log('handleKeyPress', e)
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault()
 			if (contextTooltipWord) {
@@ -300,6 +303,10 @@
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			onEscape()
+		}
+
 		if (!showContextTooltip) return
 
 		const filteredContext = availableContext.filter(
