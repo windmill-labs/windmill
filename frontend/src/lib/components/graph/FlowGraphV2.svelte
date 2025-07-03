@@ -753,7 +753,8 @@
 					.then((assets) => {
 						for (const override of v.asset_alternative_access_types ?? []) {
 							assets = assets.map((asset) => {
-								if (assetEq(asset, override)) return { ...asset, access_type: override.access_type }
+								if (assetEq(asset, override) && !asset.access_type)
+									return { ...asset, access_type: override.access_type }
 								return asset
 							})
 						}
