@@ -299,10 +299,12 @@
 		}
 	})
 
-	let assets = usePromise(async () =>
-		flowModule.value.type === 'rawscript'
-			? await inferAssets(flowModule.value.language, flowModule.value.content)
-			: undefined
+	let assets = usePromise(
+		async () =>
+			flowModule.value.type === 'rawscript'
+				? await inferAssets(flowModule.value.language, flowModule.value.content)
+				: undefined,
+		{ clearValueOnRefresh: false }
 	)
 	$effect(() => {
 		if (flowModule.value.type !== 'rawscript') return

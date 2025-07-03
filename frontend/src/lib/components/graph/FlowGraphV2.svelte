@@ -749,15 +749,17 @@
 			key={[v.content, v.asset_alternative_access_types]}
 			runFirstEffect
 			onChange={() =>
-				inferAssets(v.language, v.content).then((assets) => {
-					for (const override of v.asset_alternative_access_types ?? []) {
-						assets = assets.map((asset) => {
-							if (assetEq(asset, override)) return { ...asset, access_type: override.access_type }
-							return asset
-						})
-					}
-					if (assetsMap && !deepEqual(assetsMap[mod.id], assets)) assetsMap[mod.id] = assets
-				})}
+				inferAssets(v.language, v.content)
+					.then((assets) => {
+						for (const override of v.asset_alternative_access_types ?? []) {
+							assets = assets.map((asset) => {
+								if (assetEq(asset, override)) return { ...asset, access_type: override.access_type }
+								return asset
+							})
+						}
+						if (assetsMap && !deepEqual(assetsMap[mod.id], assets)) assetsMap[mod.id] = assets
+					})
+					.catch((e) => {})}
 		/>
 	{/if}
 {/each}

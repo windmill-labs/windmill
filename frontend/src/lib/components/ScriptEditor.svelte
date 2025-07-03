@@ -135,7 +135,7 @@
 			dispatch('change', { code, schema })
 	})
 
-	let assets = usePromise(() => inferAssets(lang, code))
+	let assets = usePromise(() => inferAssets(lang, code), { clearValueOnRefresh: false })
 	$effect(() => {
 		untrack(() => assets.refresh()), [lang, code]
 	})

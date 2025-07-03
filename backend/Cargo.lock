@@ -15064,6 +15064,7 @@ version = "1.502.2"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
+ "rustpython-ast",
  "rustpython-parser",
  "serde_json",
  "windmill-parser",

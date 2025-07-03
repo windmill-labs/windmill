@@ -19,7 +19,7 @@ import initRegexParsers, {
 	parse_powershell,
 	parse_assets_sql
 } from 'windmill-parser-wasm-regex'
-import initPythonParser, { parse_python } from 'windmill-parser-wasm-py'
+import initPythonParser, { parse_assets_py, parse_python } from 'windmill-parser-wasm-py'
 import initGoParser, { parse_go } from 'windmill-parser-wasm-go'
 import initPhpParser, { parse_php } from 'windmill-parser-wasm-php'
 import initRustParser, { parse_rust } from 'windmill-parser-wasm-rust'
@@ -91,6 +91,10 @@ export async function inferAssets(
 	if (language === 'deno' || language === 'nativets' || language === 'bun') {
 		await initWasmTs()
 		return JSON.parse(parse_assets_ts(code))
+	}
+	if (language === 'python3') {
+		await initWasmPython()
+		return JSON.parse(parse_assets_py(code))
 	}
 	return []
 }
