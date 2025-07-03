@@ -459,7 +459,7 @@
 			{/if}
 		</div>
 
-		<div class="space-y-3">
+		<div class="space-y-3 max-h-96 overflow-y-auto">
 			{#each scopeDomains as domain}
 				{@const domainState = getDomainState(domain.name)}
 				{@const isExpanded = domainState?.isExpanded || false}
@@ -518,7 +518,7 @@
 
 					{#if isExpanded}
 						<div class="p-2">
-							<div class="grid grid-cols-2 gap-4">
+							<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
 								{#each domain.scopes as scope}
 									{@const scopeState = domainState?.scopes[scope.value]}
 									{@const isSelected = scopeState?.isSelected || false}
@@ -529,7 +529,7 @@
 									<div
 										class="flex justify-between p-3 border rounded-lg bg-surface-secondary min-h-16 w-full"
 									>
-										<div class="flex items-center gap-2">
+										<div class="flex items-center gap-2 flex-1 min-w-0">
 											<input
 												type="checkbox"
 												id={`scope-${scope.value}`}
@@ -537,17 +537,17 @@
 												{disabled}
 												onchange={(e) =>
 													handleIndividualScopeChange(scope, e.currentTarget.checked)}
-												class="!w-4 !h-4"
+												class="!w-4 !h-4 flex-shrink-0"
 											/>
 
-											<p class="font-medium text-xs">
+											<p class="font-medium text-xs truncate">
 												{scope.label}
 											</p>
 										</div>
 										{#if scope.requires_resource_path && isSelected}
 											<Popover closeOnOtherPopoverOpen contentClasses="p-3">
 												{#snippet trigger()}
-													<Button size="xs" variant="border">
+													<Button size="xs" variant="border" class="flex-shrink-0">
 														<Pen size={14} />
 													</Button>
 												{/snippet}
