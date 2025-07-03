@@ -1,10 +1,11 @@
 use swc_common::{sync::Lrc, FileName, SourceMap};
-use swc_ecma_ast::{CallExpr, Expr, Lit, MemberExpr, MemberProp, Str};
+use swc_ecma_ast::{CallExpr, Expr, Lit, MemberExpr, MemberProp, Str, TsLit};
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsSyntax};
 use swc_ecma_visit::{Visit, VisitWith};
 use windmill_parser::asset_parser::{
-    merge_assets, parse_resource_syntax, AssetKind, ParseAssetsResult,
+    merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType, ParseAssetsResult,
 };
+use AssetUsageAccessType::*;
 
 pub fn parse_assets<'a>(
     code: &'a str,
@@ -48,39 +49,63 @@ pub fn parse_assets<'a>(
 
 struct AssetsFinder<'a> {
     assets: Vec<ParseAssetsResult<'a>>,
+    // We have to store paths separately because of lifetime concerns
     paths_storage: &'a mut Vec<String>,
 }
 
 impl<'a> Visit for AssetsFinder<'a> {
-    fn visit_call_expr(&mut self, node: &swc_ecma_ast::CallExpr) {
-        let kind = match node.callee.as_expr().map(AsRef::as_ref) {
-            Some(Expr::Ident(ident)) if ident.sym.as_str() == "getResource" => AssetKind::Resource,
-            Some(Expr::Member(MemberExpr { prop: MemberProp::Ident(ident), .. }))
-                if ident.sym.as_str() == "getResource" =>
-            {
-                AssetKind::Resource
-            }
-
-            _ => {
-                <CallExpr as VisitWith<Self>>::visit_children_with(node, self);
-                return;
-            }
-        };
-        if node.args.len() != 1 {
-            return;
-        }
-        match node.args[0].expr.as_ref() {
-            Expr::Lit(Lit::Str(Str { value, .. })) => {
-                if let Some(path) = parse_resource_syntax(value.as_str()) {
+    // visit_call_expr will not recurse if it detects an asset,
+    // so this will only be called when no further context was found
+    fn visit_lit(&mut self, node: &swc_ecma_ast::Lit) {
+        match node {
+            swc_ecma_ast::Lit::Str(str) => {
+                if let Some((kind, path)) = parse_asset_syntax(str.value.as_str()) {
                     self.paths_storage.push(path.to_string());
                     self.assets
                         .push(ParseAssetsResult { kind, path: "", access_type: None });
                 }
             }
-            _ => {
-                <CallExpr as VisitWith<Self>>::visit_children_with(node, self);
-                return;
-            }
+            _ => <Lit as VisitWith<Self>>::visit_children_with(node, self),
         }
+    }
+
+    fn visit_call_expr(&mut self, node: &swc_ecma_ast::CallExpr) {
+        match self.visit_call_expr_inner(node) {
+            Ok(_) => {}
+            Err(_) => <CallExpr as VisitWith<Self>>::visit_children_with(node, self),
+        }
+    }
+}
+
+impl<'a> AssetsFinder<'a> {
+    fn visit_call_expr_inner(&mut self, node: &swc_ecma_ast::CallExpr) -> Result<(), ()> {
+        let ident = match node.callee.as_expr().map(AsRef::as_ref) {
+            Some(Expr::Ident(i)) => i.sym.as_str(),
+            Some(Expr::Member(MemberExpr { prop: MemberProp::Ident(i), .. })) => i.sym.as_str(),
+            _ => return Err(()),
+        };
+        let (kind, access_type) = match ident {
+            "getResource" => (AssetKind::Resource, None),
+            "loadS3File" => (AssetKind::S3Object, Some(R)),
+            "writeS3File" => (AssetKind::S3Object, Some(W)),
+            _ => return Err(()),
+        };
+        if node.args.len() < 1 {
+            return Err(());
+        }
+        match node.args[0].expr.as_ref() {
+            Expr::Lit(Lit::Str(Str { value, .. })) => {
+                if let Some((k, path)) = parse_asset_syntax(value.as_str()) {
+                    if k != kind {
+                        return Err(());
+                    }
+                    self.paths_storage.push(path.to_string());
+                    self.assets
+                        .push(ParseAssetsResult { kind, path: "", access_type });
+                }
+            }
+            _ => return Err(()),
+        }
+        Ok(())
     }
 }

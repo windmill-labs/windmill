@@ -49,11 +49,13 @@ pub fn merge_assets<'a>(assets: Vec<ParseAssetsResult<'a>>) -> Vec<ParseAssetsRe
     arr
 }
 
-pub fn parse_resource_syntax(uri: &str) -> Option<&str> {
-    if uri.starts_with("res://") {
-        Some(&uri[6..])
-    } else if uri.starts_with("$res:") {
-        Some(&uri[5..])
+pub fn parse_asset_syntax(s: &str) -> Option<(AssetKind, &str)> {
+    if s.starts_with("s3://") {
+        Some((AssetKind::S3Object, &s[5..]))
+    } else if s.starts_with("res://") {
+        Some((AssetKind::Resource, &s[6..]))
+    } else if s.starts_with("$res:") {
+        Some((AssetKind::Resource, &s[5..]))
     } else {
         None
     }
