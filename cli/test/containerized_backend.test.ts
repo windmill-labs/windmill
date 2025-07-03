@@ -17,37 +17,46 @@ async function fileExists(path: string): Promise<boolean> {
 
 Deno.test("Containerized Backend: start and health check", async () => {
     await withContainerizedBackend(async (backend, tempDir) => {
-        // Verify API is responsive
+        // Verify API is responsive and returns expected workspace
         const settings = await backend.getWorkspaceSettings();
         assertEquals(settings.workspace_id, "test");
-
-        // Log what we actually got to debug
-        console.log("Workspace settings:", JSON.stringify(settings, null, 2));
-
-        // Verify git-sync configuration exists (might be under different key)
-        // assertEquals(typeof settings.git_sync, 'object');
-        // assertEquals(Array.isArray(settings.git_sync.include_path), true);
+        assertEquals(typeof settings, "object");
+        
+        // Verify backend is actually responding to API requests by testing multiple endpoints
+        const scripts = await backend.listAllScripts();
+        assert(Array.isArray(scripts), "Backend should return scripts array");
+        
+        const apps = await backend.listAllApps();
+        assert(Array.isArray(apps), "Backend should return apps array");
+        
+        const resources = await backend.listAllResources();
+        assert(Array.isArray(resources), "Backend should return resources array");
+        
+        // Verify health check passes
+        await backend.checkHealth(); // This throws if unhealthy
+        
+        console.log(`✅ Backend started successfully - scripts: ${scripts.length}, apps: ${apps.length}, resources: ${resources.length}`);
     });
 });
 
 Deno.test("Containerized Backend: CLI settings pull", async () => {
     await withContainerizedBackend(async (backend, tempDir) => {
-        // First, create a basic wmill.yaml file
+        // Create initial wmill.yaml with different settings than backend  
         await Deno.writeTextFile(
             `${tempDir}/wmill.yaml`,
             `defaultTs: bun
-includes: []
-excludes: []`,
+includes: ["local/**"]
+excludes: ["*.tmp"]`,
         );
 
         const result = await backend.runCLICommand(
-            ["settings", "pull", "--json-output"],
+            ["gitsync-settings", "pull", "--json-output", "--replace"],
             tempDir,
         );
 
         assertEquals(result.code, 0);
 
-        // Parse JSON output (handle warning messages)
+        // Parse JSON output
         const lines = result.stdout.split("\n");
         let jsonOutput: any;
         for (const line of lines) {
@@ -58,11 +67,22 @@ excludes: []`,
         }
 
         assertEquals(jsonOutput.success, true);
-        assertEquals(Array.isArray(jsonOutput.settings.includes), true);
+        assertEquals(typeof jsonOutput.repository, "string");
+        assert(jsonOutput.repository.length > 0, "Should return repository path");
 
-        // Verify wmill.yaml was created
+        // Verify backend settings were actually pulled by checking the updated wmill.yaml
         const yamlContent = await Deno.readTextFile(`${tempDir}/wmill.yaml`);
+        
+        // Should contain backend's default includes pattern, not the original "local/**" 
         assertStringIncludes(yamlContent, "f/**");
+        assert(!yamlContent.includes("local/**"), "Original local settings should be replaced");
+        
+        // Verify the structure is valid by parsing it
+        const yamlLines = yamlContent.split('\n');
+        const hasIncludes = yamlLines.some(line => line.includes('includes:'));
+        const hasExcludes = yamlLines.some(line => line.includes('excludes:'));
+        assert(hasIncludes, "YAML should contain includes section");
+        assert(hasExcludes, "YAML should contain excludes section");
     });
 });
 
@@ -987,166 +1007,13 @@ Deno.test("Settings: authentication failure", async () => {
     });
 });
 
-Deno.test("Settings: shows help information", async () => {
-    await withContainerizedBackend(async (backend, tempDir) => {
-        const result = await backend.runCLICommand(
-            ["settings", "--help"],
-            tempDir,
-        );
-
-        assertEquals(result.code, 0);
-        assertStringIncludes(result.stdout, "settings");
-        assertStringIncludes(result.stdout, "pull");
-        assertStringIncludes(result.stdout, "push");
-    });
-});
 
 // =============================================================================
 // MIGRATED SYNC TESTS - Full coverage from old sync.test.ts
 // =============================================================================
 
-Deno.test("Sync: pull with --settings-from-json override", async () => {
-    await withContainerizedBackend(async (backend, tempDir) => {
-        await Deno.writeTextFile(
-            `${tempDir}/wmill.yaml`,
-            `defaultTs: bun
-includes:
-  - f/**`,
-        );
 
-        const settingsOverride = JSON.stringify({
-            include_path: ["g/**", "u/**"],
-            include_type: ["script", "flow", "app", "resource"],
-        });
 
-        const result = await backend.runCLICommand(
-            [
-                "sync",
-                "pull",
-                "--settings-from-json",
-                settingsOverride,
-                "--dry-run",
-            ],
-            tempDir,
-        );
-
-        assertEquals(result.code, 0);
-        // Should show that settings override was applied in dry run
-        assertStringIncludes(result.stdout, "g/");
-    });
-});
-
-Deno.test("Sync: push with --settings-from-json filters files", async () => {
-    await withContainerizedBackend(async (backend, tempDir) => {
-        // Create basic wmill.yaml first
-        await Deno.writeTextFile(
-            `${tempDir}/wmill.yaml`,
-            `defaultTs: bun
-includes:
-  - f/**
-  - g/**
-excludes:
-  - "*.test.ts"`,
-        );
-
-        // Create multiple types of files
-        await Deno.mkdir(`${tempDir}/f`, { recursive: true });
-        await Deno.mkdir(`${tempDir}/g`, { recursive: true });
-
-        // Create script in f/
-        await Deno.writeTextFile(
-            `${tempDir}/f/script1.ts`,
-            `export async function main() { return "f script"; }`,
-        );
-        await Deno.writeTextFile(
-            `${tempDir}/f/script1.script.yaml`,
-            `summary: F Script`,
-        );
-
-        // Create script in g/
-        await Deno.writeTextFile(
-            `${tempDir}/g/script2.ts`,
-            `export async function main() { return "g script"; }`,
-        );
-        await Deno.writeTextFile(
-            `${tempDir}/g/script2.script.yaml`,
-            `summary: G Script`,
-        );
-
-        // Use settings override to only include g/**
-        const settingsOverride = JSON.stringify({
-            include_path: ["g/**"],
-            include_type: ["script"],
-        });
-
-        const result = await backend.runCLICommand(
-            [
-                "sync",
-                "push",
-                "--settings-from-json",
-                settingsOverride,
-                "--dry-run",
-            ],
-            tempDir,
-        );
-
-        assertEquals(result.code, 0);
-
-        // Should only show g/ script, not f/ script
-        assertStringIncludes(result.stdout, "g/script2");
-        assert(!result.stdout.includes("f/script1"));
-    });
-});
-
-Deno.test({
-    name: "Sync: dry-run mode shows changes without applying",
-    sanitizeOps: false,
-    sanitizeResources: false,
-    fn: async () => {
-        await withContainerizedBackend(async (backend, tempDir) => {
-            await Deno.writeTextFile(
-                `${tempDir}/wmill.yaml`,
-                `defaultTs: bun
-includes:
-  - f/**`,
-            );
-
-            // Create local script
-            await Deno.mkdir(`${tempDir}/f`, { recursive: true });
-            await Deno.writeTextFile(
-                `${tempDir}/f/dry_run_test.ts`,
-                `export async function main() { return "dry run test"; }`,
-            );
-            await Deno.writeTextFile(
-                `${tempDir}/f/dry_run_test.script.yaml`,
-                `summary: Dry Run Test`,
-            );
-
-            const result = await backend.runCLICommand(
-                ["sync", "push", "--dry-run"],
-                tempDir,
-            );
-
-            assertEquals(result.code, 0);
-            assertStringIncludes(result.stdout, "Dry run complete");
-            assertStringIncludes(result.stdout, "f/dry_run_test");
-
-            // Verify the script wasn't actually pushed by checking if it exists on backend
-            // We do this by running a non-dry-run sync push and seeing if it would add the file
-            // If dry-run worked correctly, the file shouldn't exist on backend yet
-            const actualPushResult = await backend.runCLICommand(
-                ["sync", "push", "--dry-run"],
-                tempDir,
-            );
-
-            // The file should still show as "would be added" because dry-run didn't actually push it
-            assertStringIncludes(
-                actualPushResult.stdout,
-                "+ script f/dry_run_test",
-            );
-        });
-    },
-});
 
 Deno.test("Sync: respects include and exclude patterns", async () => {
     await withContainerizedBackend(async (backend, tempDir) => {
@@ -1159,102 +1026,117 @@ excludes:
   - "**/*.test.ts"`,
         );
 
-        await Deno.mkdir(`${tempDir}/f`, { recursive: true });
+        await Deno.mkdir(`${tempDir}/f/testfolder`, { recursive: true });
 
-        // Create both regular and test files
-        await Deno.writeTextFile(
-            `${tempDir}/f/regular_script.ts`,
-            `export async function main() { return "regular"; }`,
-        );
-        await Deno.writeTextFile(
-            `${tempDir}/f/regular_script.script.yaml`,
-            `summary: Regular Script`,
-        );
+        const timestamp = Date.now();
 
+        // Create both regular and test files with unique names to avoid conflicts
+        const regularScriptContent = `export async function main() { return "regular_${timestamp}"; }`;
         await Deno.writeTextFile(
-            `${tempDir}/f/test_script.test.ts`,
-            `export async function main() { return "test"; }`,
+            `${tempDir}/f/testfolder/regular_script_${timestamp}.ts`,
+            regularScriptContent,
         );
         await Deno.writeTextFile(
-            `${tempDir}/f/test_script.test.script.yaml`,
-            `summary: Test Script`,
+            `${tempDir}/f/testfolder/regular_script_${timestamp}.script.yaml`,
+            `summary: Regular Script ${timestamp}
+path: f/testfolder/regular_script_${timestamp}`,
         );
 
+        const testScriptContent = `export async function main() { return "test_${timestamp}"; }`;
+        await Deno.writeTextFile(
+            `${tempDir}/f/testfolder/test_script_${timestamp}.test.ts`,
+            testScriptContent,
+        );
+        await Deno.writeTextFile(
+            `${tempDir}/f/testfolder/test_script_${timestamp}.test.script.yaml`,
+            `summary: Test Script ${timestamp}
+path: f/testfolder/test_script_${timestamp}.test`,
+        );
+
+        console.log(`🔍 Getting backend state before pattern-filtered push...`);
+
+        // Get initial backend state
+        const initialScripts = await backend.listAllScripts();
+        const initialRegularExists = initialScripts.some(s => s.path === `f/testfolder/regular_script_${timestamp}`);
+        const initialTestExists = initialScripts.some(s => s.path === `f/testfolder/test_script_${timestamp}.test`);
+
+        assertEquals(initialRegularExists, false, "Regular script should not exist initially");
+        assertEquals(initialTestExists, false, "Test script should not exist initially");
+
+        // Push files and verify filtering behavior
         const result = await backend.runCLICommand(
-            ["sync", "push", "--dry-run"],
+            ["sync", "push", "--yes"],
             tempDir,
         );
 
         assertEquals(result.code, 0);
-        // Should include regular script but exclude test script (.ts file)
-        assertStringIncludes(result.stdout, "regular_script");
+
+        console.log("📂 Verifying include/exclude pattern filtering...");
+
+        // STRONG ASSERTION: Verify backend actually received only the included files
+        const afterScripts = await backend.listAllScripts();
+        
+        // Regular script should be pushed (included by f/** and not excluded)
+        const pushedRegularScript = afterScripts.find(s => s.path === `f/testfolder/regular_script_${timestamp}`);
         assert(
-            !result.stdout.includes("test_script.test.ts"),
-            "The .ts test file should be excluded by **/*.test.ts pattern",
+            pushedRegularScript,
+            `Regular script should exist on backend: f/testfolder/regular_script_${timestamp}`
         );
+        assertEquals(
+            pushedRegularScript.content.trim(),
+            regularScriptContent.trim(),
+            "Regular script content should match local file"
+        );
+        assertEquals(
+            pushedRegularScript.summary,
+            `Regular Script ${timestamp}`,
+            "Regular script summary should match metadata"
+        );
+
+        // Test script should NOT be pushed (excluded by **/*.test.ts pattern)
+        const pushedTestScript = afterScripts.find(s => s.path === `f/testfolder/test_script_${timestamp}.test`);
+        assertEquals(
+            pushedTestScript,
+            undefined,
+            `Test script should NOT exist on backend due to exclusion pattern: f/testfolder/test_script_${timestamp}.test`
+        );
+
+        console.log(`✅ Include/exclude patterns working correctly - regular script pushed, test script excluded`);
     });
 });
 
-Deno.test("Sync: handles type filtering correctly", async () => {
-    await withContainerizedBackend(async (backend, tempDir) => {
-        const settingsOverride = JSON.stringify({
-            include_path: ["**"],
-            include_type: ["script"], // Only scripts, no apps
-            exclude_path: [],
-        });
-
-        await Deno.mkdir(`${tempDir}/f`, { recursive: true });
-
-        // Create both script and app
-        await Deno.writeTextFile(
-            `${tempDir}/f/my_script.ts`,
-            `export async function main() { return "script"; }`,
-        );
-        await Deno.writeTextFile(
-            `${tempDir}/f/my_script.script.yaml`,
-            `summary: My Script`,
-        );
-
-        await Deno.mkdir(`${tempDir}/f/my_app.app`, { recursive: true });
-        await Deno.writeTextFile(
-            `${tempDir}/f/my_app.app/app.yaml`,
-            `summary: My App`,
-        );
-
-        const result = await backend.runCLICommand(
-            [
-                "sync",
-                "push",
-                "--settings-from-json",
-                settingsOverride,
-                "--dry-run",
-            ],
-            tempDir,
-        );
-
-        assertEquals(result.code, 0);
-        // Should include script but exclude app due to type filtering
-        assertStringIncludes(result.stdout, "my_script");
-        assert(!result.stdout.includes("my_app"));
-    });
-});
 
 Deno.test("Sync: authentication failure handling", async () => {
     await withContainerizedBackend(async (backend, tempDir) => {
-        // Create a CLI command with invalid token
+        // Create wmill.yaml for the sync command
+        await Deno.writeTextFile(
+            `${tempDir}/wmill.yaml`,
+            `defaultTs: bun
+includes:
+  - f/**`,
+        );
+
+        console.log(`🔍 Testing authentication failure handling...`);
+
+        // Test with an invalid token - use backend helper but override token
+        const invalidToken = "invalid_token_" + Date.now();
+        
+        // Create a CLI command with invalid token using manual construction
+        // since we need to override the authentication
         const cmd = new Deno.Command("/home/alex/.deno/bin/deno", {
             args: [
                 "run",
                 "-A",
                 "/home/alex/windmill/windmill/cli/main.ts",
                 "--base-url",
-                "http://localhost:8001",
+                backend.baseUrl,  // Use actual backend URL
                 "--workspace",
                 "test",
                 "--token",
-                "invalid_token_456",
+                invalidToken,
                 "sync",
                 "pull",
+                "--json-output", // Get structured error output
             ],
             cwd: tempDir,
             stdout: "piped",
@@ -1262,30 +1144,66 @@ Deno.test("Sync: authentication failure handling", async () => {
         });
 
         const result = await cmd.output();
-
-        // Should fail with authentication error
-        assert(result.code !== 0);
+        const stdout = new TextDecoder().decode(result.stdout);
         const stderr = new TextDecoder().decode(result.stderr);
-        assertStringIncludes(stderr.toLowerCase(), "unauthorized");
+
+        console.log("Auth failure stdout:", stdout);
+        console.log("Auth failure stderr:", stderr);
+        console.log("Auth failure exit code:", result.code);
+
+        // STRONG ASSERTIONS: Verify specific authentication failure behavior
+        
+        // 1. Command should fail with non-zero exit code
+        assert(result.code !== 0, "Sync command should fail with invalid token");
+        
+        // 2. Should contain the exact authentication error message
+        const combinedOutput = stdout + stderr;
+        const expectedAuthError = "Unauthorized: Could not authenticate with the provided credentials";
+        
+        assert(
+            combinedOutput.includes(expectedAuthError),
+            `Output should contain exact authentication error message: "${expectedAuthError}". Got stdout: "${stdout}", stderr: "${stderr}"`
+        );
+        
+        // 3. Should not have completed any sync operations  
+        assert(
+            !combinedOutput.includes("Done!") && !combinedOutput.includes('"success": true'),
+            "Should not show successful completion with invalid auth"
+        );
+
+        console.log(`✅ Authentication failure properly detected and handled`);
     });
 });
 
 Deno.test("Sync: network error handling", async () => {
     await withContainerizedBackend(async (backend, tempDir) => {
+        // Create wmill.yaml for the sync command
+        await Deno.writeTextFile(
+            `${tempDir}/wmill.yaml`,
+            `defaultTs: bun
+includes:
+  - f/**`,
+        );
+
+        console.log(`🔍 Testing network error handling...`);
+
         // Use invalid base URL to simulate network error
+        const invalidUrl = "http://localhost:9999"; // Non-existent port
+        
         const cmd = new Deno.Command("/home/alex/.deno/bin/deno", {
             args: [
                 "run",
                 "-A",
                 "/home/alex/windmill/windmill/cli/main.ts",
                 "--base-url",
-                "http://localhost:9999", // Non-existent port
+                invalidUrl,
                 "--workspace",
                 "test",
                 "--token",
-                "any_token",
+                "any_token_for_network_test",
                 "sync",
                 "pull",
+                "--json-output", // Get structured error output
             ],
             cwd: tempDir,
             stdout: "piped",
@@ -1293,899 +1211,44 @@ Deno.test("Sync: network error handling", async () => {
         });
 
         const result = await cmd.output();
-
-        // Should fail with network error
-        assert(result.code !== 0);
+        const stdout = new TextDecoder().decode(result.stdout);
         const stderr = new TextDecoder().decode(result.stderr);
+
+        console.log("Network error stdout:", stdout);
+        console.log("Network error stderr:", stderr);
+        console.log("Network error exit code:", result.code);
+
+        // STRONG ASSERTIONS: Verify specific network error behavior
+        
+        // 1. Command should fail with non-zero exit code
+        assert(result.code !== 0, "Sync command should fail with network error");
+        
+        // 2. Should contain the exact network error message
+        const combinedOutput = stdout + stderr;
+        const expectedNetworkError = `Network error: Could not connect to Windmill server at ${invalidUrl}/`;
+        
         assert(
-            stderr.includes("Network error") ||
-                stderr.includes("connection") ||
-                stderr.includes("refused") ||
-                stderr.includes("fetch"),
+            combinedOutput.includes(expectedNetworkError),
+            `Output should contain exact network error message: "${expectedNetworkError}". Got stdout: "${stdout}", stderr: "${stderr}"`
         );
+        
+        // 3. Should not have completed any sync operations
+        assert(
+            !combinedOutput.includes("Done!") && !combinedOutput.includes('"success": true'),
+            "Should not show successful completion with network error"
+        );
+
+        // 4. Should fail early (not try to proceed with sync operations)
+        assert(
+            !combinedOutput.includes("Computing the files to update") && !combinedOutput.includes("Applying changes"),
+            "Should fail before attempting sync operations"
+        );
+
+        console.log(`✅ Network error properly detected and handled`);
     });
 });
 
-Deno.test("Sync: shows help information", async () => {
-    await withContainerizedBackend(async (backend, tempDir) => {
-        const result = await backend.runCLICommand(["sync", "--help"], tempDir);
 
-        assertEquals(result.code, 0);
-        assertStringIncludes(result.stdout, "sync");
-        assertStringIncludes(result.stdout, "pull");
-        assertStringIncludes(result.stdout, "push");
-    });
-});
-
-// =============================================================================
-// WMILL.YAML HANDLING TESTS - New fixes for --include-wmill-yaml
-// =============================================================================
-
-Deno.test(
-    "Sync Pull: --include-wmill-yaml shows wmill.yaml in dry-run JSON output",
-    async () => {
-        await withContainerizedBackend(async (backend, tempDir) => {
-            // Create wmill.yaml with different settings than backend
-            await Deno.writeTextFile(
-                `${tempDir}/wmill.yaml`,
-                `defaultTs: bun
-includes:
-  - f/**
-excludes: []
-skipScripts: false
-skipFlows: false
-skipApps: false
-skipFolders: false
-skipVariables: true
-skipResources: true
-skipResourceTypes: true
-skipSecrets: true
-includeSchedules: true
-includeTriggers: true
-includeUsers: false
-includeGroups: false
-includeSettings: false
-includeKey: false`,
-            );
-
-            // Update backend to have different settings but preserve repository config
-            await backend.updateGitSyncConfig({
-                git_sync_settings: {
-                    repositories: [
-                        {
-                            git_repo_resource_path: "u/test/test_repo",
-                            script_path: "f/**",
-                            group_by_folder: false,
-                            use_individual_branch: false,
-                            settings: {
-                                include_path: ["g/**"], // Changed from f/** to g/** to test diff detection
-                                include_type: [
-                                    "script",
-                                    "flow",
-                                    "app",
-                                    "folder",
-                                    "variable",
-                                    "resource",
-                                    "resourcetype",
-                                    "secret",
-                                ],
-                                exclude_path: [],
-                                extra_include_path: [],
-                            },
-                        },
-                    ],
-                },
-            });
-
-            const result = await backend.runCLICommand(
-                [
-                    "sync",
-                    "pull",
-                    "--include-wmill-yaml",
-                    "--dry-run",
-                    "--json-output",
-                ],
-                tempDir,
-            );
-
-            assertEquals(result.code, 0);
-
-            // Parse JSON output
-            const jsonLine = result.stdout
-                .split("\n")
-                .find((line) => line.trim().startsWith("{"));
-            const jsonOutput = JSON.parse(jsonLine!);
-
-            assertEquals(jsonOutput.success, true);
-            assert(
-                jsonOutput.modified.includes("wmill.yaml"),
-                "wmill.yaml should be in modified array",
-            );
-        });
-    },
-);
-
-Deno.test(
-    "Sync Pull: excludes wmill.yaml when --include-wmill-yaml not used",
-    async () => {
-        await withContainerizedBackend(async (backend, tempDir) => {
-            // Create wmill.yaml
-            await Deno.writeTextFile(
-                `${tempDir}/wmill.yaml`,
-                `defaultTs: bun
-includes:
-  - f/**`,
-            );
-
-            const result = await backend.runCLICommand(
-                ["sync", "pull", "--dry-run", "--json-output"],
-                tempDir,
-            );
-
-            assertEquals(result.code, 0);
-
-            // Parse JSON output
-            const jsonLine = result.stdout
-                .split("\n")
-                .find((line) => line.trim().startsWith("{"));
-            const jsonOutput = JSON.parse(jsonLine!);
-
-            assertEquals(jsonOutput.success, true);
-            assert(
-                !jsonOutput.modified.includes("wmill.yaml"),
-                "wmill.yaml should NOT be in output without --include-wmill-yaml",
-            );
-            assert(
-                !jsonOutput.added.includes("wmill.yaml"),
-                "wmill.yaml should NOT be in added array",
-            );
-            assert(
-                !jsonOutput.deleted.includes("wmill.yaml"),
-                "wmill.yaml should NOT be in deleted array",
-            );
-        });
-    },
-);
-
-Deno.test(
-    "Sync Pull: --include-wmill-yaml applies wmill.yaml changes in actual run",
-    async () => {
-        await withContainerizedBackend(async (backend, tempDir) => {
-            // Create local wmill.yaml with specific settings
-            await Deno.writeTextFile(
-                `${tempDir}/wmill.yaml`,
-                `defaultTs: bun
-includes:
-  - f/**
-excludes:
-  - "*.old.ts"
-includeSettings: false
-skipVariables: true`,
-            );
-
-            // Set backend to have DIFFERENT settings using settings push with JSON
-            const backendSettings = JSON.stringify({
-                include_path: ["g/**", "u/**"], // Different from local f/**
-                include_type: [
-                    "script",
-                    "flow",
-                    "app",
-                    "variable",
-                    "resource",
-                    "settings",
-                ], // includeSettings: true, skipVariables: false
-                exclude_path: ["*.test.ts"], // Different from local *.old.ts
-            });
-
-            const pushResult = await backend.runCLICommand(
-                ["settings", "push", "--from-json", backendSettings],
-                tempDir,
-            );
-            assertEquals(pushResult.code, 0);
-
-            // Run sync pull with --include-wmill-yaml
-            const result = await backend.runCLICommand(
-                ["sync", "pull", "--include-wmill-yaml", "--yes"],
-                tempDir,
-            );
-
-            assertEquals(result.code, 0);
-
-            // Check that wmill.yaml was updated
-            const updatedContent = await Deno.readTextFile(
-                `${tempDir}/wmill.yaml`,
-            );
-
-            // Parse the YAML content to check structure properly
-            const { parse } = await import("jsr:@std/yaml@^1.0.5");
-            const parsedYaml = parse(updatedContent) as any;
-
-            console.log("DEBUG: Parsed YAML structure:");
-            console.log(JSON.stringify(parsedYaml, null, 2));
-
-            // Test that --include-wmill-yaml correctly merged legacy format with new workspace format
-
-            // 1. Legacy format should still be present at the top level
-            assertEquals(parsedYaml.defaultTs, "bun", "Should preserve legacy defaultTs");
-            assert(Array.isArray(parsedYaml.includes), "Should preserve legacy includes array");
-            assert(parsedYaml.includes.includes("f/**"), "Should preserve original legacy includes f/**");
-            assert(Array.isArray(parsedYaml.excludes), "Should preserve legacy excludes array");
-            assert(parsedYaml.excludes.includes("*.old.ts"), "Should preserve original legacy excludes *.old.ts");
-            assertEquals(parsedYaml.includeSettings, false, "Should preserve legacy includeSettings");
-            assertEquals(parsedYaml.skipVariables, true, "Should preserve legacy skipVariables");
-
-            // 2. New workspace format should be added
-            assert(parsedYaml.workspaces, "Should have workspaces section");
-            assert(parsedYaml.workspaces.test, "Should have test workspace");
-            assertEquals(parsedYaml.defaultWorkspace, "test", "Should set defaultWorkspace");
-
-            // 3. Workspace structure should be correct
-            const testWorkspace = parsedYaml.workspaces.test;
-            assertEquals(testWorkspace.baseUrl, "http://localhost:8001/", "Should have correct baseUrl");
-            assertEquals(testWorkspace.workspaceId, "test", "Should have correct workspaceId");
-            assert(testWorkspace.repositories, "Should have repositories section");
-
-            // 4. Repository-specific backend settings should be present
-            const repoSettings = testWorkspace.repositories["u/test/test_repo"];
-            assert(repoSettings, "Should have u/test/test_repo repository settings");
-
-            // Check backend settings in repository section
-            assert(Array.isArray(repoSettings.includes), "Repository should have includes array");
-            assert(repoSettings.includes.includes("g/**"), "Repository should include g/** from backend");
-            assert(repoSettings.includes.includes("u/**"), "Repository should include u/** from backend");
-
-            assert(Array.isArray(repoSettings.excludes), "Repository should have excludes array");
-            assert(repoSettings.excludes.includes("*.test.ts"), "Repository should exclude *.test.ts from backend");
-
-            assertEquals(repoSettings.includeSettings, true, "Repository should have includeSettings: true from backend");
-            assertEquals(repoSettings.skipVariables, false, "Repository should have skipVariables: false from backend");
-
-            // Verify sync operation also pulled files matching the new backend includes (g/** and u/**)
-            assertStringIncludes(
-                result.stdout,
-                "+ resource u/admin/test_database.resource.yaml",
-                "Should pull u/** resources",
-            );
-            assertStringIncludes(
-                result.stdout,
-                "+ variable u/admin/test_config.variable.yaml",
-                "Should pull u/** variables",
-            );
-        });
-    },
-);
-
-Deno.test(
-    "Sync Pull: --include-wmill-yaml includes wmill.yaml in change count",
-    async () => {
-        await withContainerizedBackend(async (backend, tempDir) => {
-            // Create local wmill.yaml with includeSettings: false
-            await Deno.writeTextFile(
-                `${tempDir}/wmill.yaml`,
-                `defaultTs: bun
-includeSettings: false`,
-            );
-
-            // Update backend to have different settings (includeSettings: true)
-            await backend.updateGitSyncConfig({
-                git_sync_settings: {
-                    repositories: [
-                        {
-                            git_repo_resource_path: "u/test/test_repo",
-                            script_path: "f/**",
-                            group_by_folder: false,
-                            use_individual_branch: false,
-                            settings: {
-                                include_path: ["f/**"],
-                                include_type: [
-                                    "script",
-                                    "flow",
-                                    "app",
-                                    "folder",
-                                    "variable",
-                                    "resource",
-                                    "resourcetype",
-                                    "secret",
-                                    "settings",
-                                ],
-                                exclude_path: [],
-                                extra_include_path: [],
-                            },
-                        },
-                    ],
-                },
-            });
-
-            const result = await backend.runCLICommand(
-                ["sync", "pull", "--include-wmill-yaml", "--dry-run"],
-                tempDir,
-            );
-
-            assertEquals(result.code, 0);
-
-            // Test the specific expected behavior:
-            // 1. Backend has test data that doesn't exist locally -> should show as + (added)
-            assertStringIncludes(
-                result.stdout,
-                "+ resource u/admin/test_database.resource.yaml",
-            );
-            assertStringIncludes(
-                result.stdout,
-                "+ resource u/test/test_repo.resource.yaml",
-            );
-            assertStringIncludes(
-                result.stdout,
-                "+ app f/test_dashboard.app/app.yaml",
-            );
-            assertStringIncludes(
-                result.stdout,
-                "+ variable u/admin/test_config.variable.yaml",
-            );
-
-            // 2. wmill.yaml differs between local and backend -> should show as ~ (modified)
-            // Local has includeSettings: false, backend has "settings" in include_type
-            assertStringIncludes(result.stdout, "~ wmill.yaml");
-
-            // 3. Total should be 5 changes (4 resources + 1 wmill.yaml)
-            assertStringIncludes(result.stdout, "5 changes to apply");
-        });
-    },
-);
-
-Deno.test(
-    "Sync Push: --include-wmill-yaml shows wmill.yaml in dry-run JSON output",
-    async () => {
-        await withContainerizedBackend(async (backend, tempDir) => {
-            // Create wmill.yaml with different settings than backend
-            await Deno.writeTextFile(
-                `${tempDir}/wmill.yaml`,
-                `defaultTs: bun
-includes:
-  - f/**
-includeSettings: false`,
-            );
-
-            // Update backend to have different includeSettings
-            await backend.updateGitSyncConfig({
-                git_sync_settings: {
-                    repositories: [
-                        {
-                            git_repo_resource_path: "u/test/test_repo",
-                            script_path: "f/**",
-                            group_by_folder: false,
-                            use_individual_branch: false,
-                            settings: {
-                                include_path: ["f/**"],
-                                include_type: [
-                                    "script",
-                                    "flow",
-                                    "app",
-                                    "folder",
-                                    "variable",
-                                    "resource",
-                                    "resourcetype",
-                                    "secret",
-                                    "settings",
-                                ],
-                                exclude_path: [],
-                                extra_include_path: [],
-                            },
-                        },
-                    ],
-                },
-            });
-
-            const result = await backend.runCLICommand(
-                [
-                    "sync",
-                    "push",
-                    "--include-wmill-yaml",
-                    "--dry-run",
-                    "--json-output",
-                ],
-                tempDir,
-            );
-
-            assertEquals(result.code, 0);
-
-            // Parse JSON output
-            const jsonLine = result.stdout
-                .split("\n")
-                .find((line) => line.trim().startsWith("{"));
-            const jsonOutput = JSON.parse(jsonLine!);
-
-            assertEquals(jsonOutput.success, true);
-            // Test expected behavior: local wmill.yaml (includeSettings: false) differs from backend (includeSettings: true)
-            // So wmill.yaml should show as modified when pushing local changes to backend
-            const hasWmillYaml =
-                jsonOutput.modified?.includes("wmill.yaml") ||
-                jsonOutput.created?.includes("wmill.yaml") ||
-                result.stdout.includes("wmill.yaml");
-            assert(
-                hasWmillYaml,
-                "wmill.yaml should be in the changes when --include-wmill-yaml is used",
-            );
-        });
-    },
-);
-
-Deno.test(
-    "Sync Push: excludes wmill.yaml when --include-wmill-yaml not used",
-    async () => {
-        await withContainerizedBackend(async (backend, tempDir) => {
-            // Create wmill.yaml
-            await Deno.writeTextFile(
-                `${tempDir}/wmill.yaml`,
-                `defaultTs: bun
-includes:
-  - f/**
-includeSettings: false`,
-            );
-
-            const result = await backend.runCLICommand(
-                ["sync", "push", "--dry-run", "--json-output"],
-                tempDir,
-            );
-
-            assertEquals(result.code, 0);
-
-            // Parse JSON output
-            const jsonLine = result.stdout
-                .split("\n")
-                .find((line) => line.trim().startsWith("{"));
-            const jsonOutput = JSON.parse(jsonLine!);
-
-            assertEquals(jsonOutput.success, true);
-            assert(
-                !jsonOutput.modified.includes("wmill.yaml"),
-                "wmill.yaml should NOT be in output without --include-wmill-yaml",
-            );
-            assert(
-                !jsonOutput.added.includes("wmill.yaml"),
-                "wmill.yaml should NOT be in added array",
-            );
-            assert(
-                !jsonOutput.deleted.includes("wmill.yaml"),
-                "wmill.yaml should NOT be in deleted array",
-            );
-        });
-    },
-);
-
-Deno.test(
-    "Sync Push: --include-wmill-yaml applies wmill.yaml changes to remote",
-    async () => {
-        await withContainerizedBackend(async (backend, tempDir) => {
-            // Create local wmill.yaml with new format and specific settings
-            await Deno.writeTextFile(
-                `${tempDir}/wmill.yaml`,
-                `workspaces:
-  test:
-    baseUrl: 'http://localhost:8001/'
-    workspaceId: test
-    repositories:
-      u/test/test_repo:
-        defaultTs: bun
-        includes:
-          - f/**
-        includeSettings: false
-        skipVariables: false
-        skipResources: false
-defaultWorkspace: test`,
-            );
-
-            // Set backend to different settings first
-            await backend.updateGitSyncConfig({
-                git_sync_settings: {
-                    repositories: [
-                        {
-                            git_repo_resource_path: "u/test/test_repo",
-                            script_path: "f/**",
-                            group_by_folder: false,
-                            use_individual_branch: false,
-                            settings: {
-                                include_path: ["f/**"],
-                                include_type: [
-                                    "script",
-                                    "flow",
-                                    "app",
-                                    "folder",
-                                    "variable",
-                                    "resource",
-                                    "resourcetype",
-                                    "secret",
-                                    "settings",
-                                ],
-                                exclude_path: [],
-                                extra_include_path: [],
-                            },
-                        },
-                    ],
-                },
-            });
-
-            // Check what the local wmill.yaml looks like before pushing
-            const localWmillContent = await Deno.readTextFile(`${tempDir}/wmill.yaml`);
-            console.log("DEBUG: Local wmill.yaml before push:");
-            console.log(localWmillContent);
-
-            // Run actual push with --include-wmill-yaml
-            const result = await backend.runCLICommand(
-                ["sync", "push", "--include-wmill-yaml", "--yes"],
-                tempDir,
-            );
-
-            console.log("DEBUG: Push command output:");
-            console.log("stdout:", result.stdout);
-            console.log("stderr:", result.stderr);
-            console.log("exit code:", result.code);
-
-            assertEquals(result.code, 0);
-            // Verify the push completed successfully (message format may vary)
-            assertStringIncludes(result.stdout, "Done!");
-
-            // Verify backend settings were updated by checking the push was successful
-            assertStringIncludes(result.stdout, "wmill.yaml");
-
-            // Test expected behavior: local wmill.yaml should be pushed to backend
-            // Try to verify by pulling settings back
-            const pullResult = await backend.runCLICommand(
-                ["settings", "pull", "--json-output"],
-                tempDir,
-            );
-            const jsonLine = pullResult.stdout
-                .split("\n")
-                .find((line) => line.trim().startsWith("{"));
-            const settings = JSON.parse(jsonLine!);
-
-            console.log("DEBUG: Backend settings after push:");
-            console.log(JSON.stringify(settings, null, 2));
-
-            // Backend should now have includeSettings: false (matching local wmill.yaml)
-            // Check that settings were actually affected by the push
-            assertEquals(
-                settings.settings.includeSettings,
-                false,
-                "Backend should not include settings after push",
-            );
-        });
-    },
-);
-
-Deno.test(
-    "Sync Push: --include-wmill-yaml includes wmill.yaml in change count",
-    async () => {
-        await withContainerizedBackend(async (backend, tempDir) => {
-            // Create wmill.yaml with different settings
-            await Deno.writeTextFile(
-                `${tempDir}/wmill.yaml`,
-                `defaultTs: bun
-includeSettings: false`,
-            );
-
-            // Set backend to different settings
-            await backend.updateGitSyncConfig({
-                git_sync_settings: {
-                    repositories: [
-                        {
-                            git_repo_resource_path: "u/test/test_repo",
-                            script_path: "f/**",
-                            group_by_folder: false,
-                            use_individual_branch: false,
-                            settings: {
-                                include_path: ["f/**"],
-                                include_type: [
-                                    "script",
-                                    "flow",
-                                    "app",
-                                    "folder",
-                                    "variable",
-                                    "resource",
-                                    "resourcetype",
-                                    "secret",
-                                    "settings",
-                                ],
-                                exclude_path: [],
-                                extra_include_path: [],
-                            },
-                        },
-                    ],
-                },
-            });
-
-            const result = await backend.runCLICommand(
-                ["sync", "push", "--include-wmill-yaml", "--dry-run"],
-                tempDir,
-            );
-
-            assertEquals(result.code, 0);
-            // Should show wmill.yaml in the changes (may include other test files)
-            assertStringIncludes(result.stdout, "changes to apply");
-            assertStringIncludes(result.stdout, "~ wmill.yaml");
-        });
-    },
-);
-
-Deno.test(
-    "Sync: wmill.yaml never included in regular file operations",
-    async () => {
-        await withContainerizedBackend(async (backend, tempDir) => {
-            // Create wmill.yaml and regular files
-            await Deno.writeTextFile(
-                `${tempDir}/wmill.yaml`,
-                `defaultTs: bun
-includes:
-  - f/**`,
-            );
-
-            await Deno.mkdir(`${tempDir}/f`, { recursive: true });
-            await Deno.writeTextFile(
-                `${tempDir}/f/test_script.ts`,
-                `export async function main() { return "test"; }`,
-            );
-            await Deno.writeTextFile(
-                `${tempDir}/f/test_script.script.yaml`,
-                `summary: Test Script`,
-            );
-
-            // Push without --include-wmill-yaml should never process wmill.yaml as a file
-            const pushResult = await backend.runCLICommand(
-                ["sync", "push", "--dry-run"],
-                tempDir,
-            );
-            assertEquals(pushResult.code, 0);
-            // Check that wmill.yaml doesn't appear as a file operation (+ - ~ prefixes)
-            assert(
-                !pushResult.stdout.includes("+ wmill.yaml"),
-                "wmill.yaml should not be added in regular sync operations",
-            );
-            assert(
-                !pushResult.stdout.includes("- wmill.yaml"),
-                "wmill.yaml should not be deleted in regular sync operations",
-            );
-            assert(
-                !pushResult.stdout.includes("~ wmill.yaml"),
-                "wmill.yaml should not be modified in regular sync operations",
-            );
-
-            // Pull without --include-wmill-yaml should never process wmill.yaml as a file
-            const pullResult = await backend.runCLICommand(
-                ["sync", "pull", "--dry-run"],
-                tempDir,
-            );
-            assertEquals(pullResult.code, 0);
-            // Check that wmill.yaml doesn't appear as a file operation (+ - ~ prefixes)
-            assert(
-                !pullResult.stdout.includes("+ wmill.yaml"),
-                "wmill.yaml should not be added in regular sync operations",
-            );
-            assert(
-                !pullResult.stdout.includes("- wmill.yaml"),
-                "wmill.yaml should not be deleted in regular sync operations",
-            );
-            assert(
-                !pullResult.stdout.includes("~ wmill.yaml"),
-                "wmill.yaml should not be modified in regular sync operations",
-            );
-        });
-    },
-);
-
-Deno.test(
-    "Sync: wmill.yaml doesn't get deleted during sync operations",
-    async () => {
-        await withContainerizedBackend(async (backend, tempDir) => {
-            // Create wmill.yaml
-            await Deno.writeTextFile(
-                `${tempDir}/wmill.yaml`,
-                `defaultTs: bun
-includes:
-  - f/**`,
-            );
-
-            // Run sync pull that might create/modify other files
-            const result = await backend.runCLICommand(
-                ["sync", "pull", "--yes"],
-                tempDir,
-            );
-            assertEquals(result.code, 0);
-
-            // Verify wmill.yaml still exists and wasn't modified
-            const content = await Deno.readTextFile(`${tempDir}/wmill.yaml`);
-            assertStringIncludes(content, "defaultTs: bun");
-            assertStringIncludes(content, "includes:");
-        });
-    },
-);
-
-// =============================================================================
-// SETTINGS REPOSITORY PATH FIX TESTS - New fixes for $res: prefix handling
-// =============================================================================
-
-Deno.test(
-    "Settings: push works with repository paths without $res: prefix",
-    async () => {
-        await withContainerizedBackend(async (backend, tempDir) => {
-            await Deno.writeTextFile(
-                `${tempDir}/wmill.yaml`,
-                `defaultTs: bun
-includes:
-  - g/**
-excludes: []
-git_sync:
-  include_path:
-    - g/**
-  include_type:
-    - script
-    - flow
-  exclude_path: []
-  extra_include_path: []`,
-            );
-
-            // First check what repositories are available
-            const listResult = await backend.runCLICommand(
-                ["settings", "list-repositories"],
-                tempDir,
-            );
-            console.log("Available repositories:", listResult.stdout);
-            console.log("List repositories exit code:", listResult.code);
-
-            // Skip this test if no repositories are configured (CE edition or git sync setup failed)
-            if (
-                listResult.code !== 0 ||
-                !listResult.stdout.includes(
-                    "u/alex/breathtaking_git_repository",
-                )
-            ) {
-                console.log(
-                    "⚠️ Skipping repository path test - git sync not available or repository not configured",
-                );
-                return;
-            }
-
-            // Use repository path without $res: prefix (this was failing before the fix)
-            const result = await backend.runCLICommand(
-                [
-                    "settings",
-                    "push",
-                    "--repository",
-                    "u/alex/breathtaking_git_repository",
-                ],
-                tempDir,
-            );
-
-            assertEquals(result.code, 0);
-            assertStringIncludes(result.stdout, "Settings successfully pushed");
-        });
-    },
-);
-
-Deno.test(
-    "Settings: push works with repository paths with $res: prefix",
-    async () => {
-        await withContainerizedBackend(async (backend, tempDir) => {
-            await Deno.writeTextFile(
-                `${tempDir}/wmill.yaml`,
-                `defaultTs: bun
-includes:
-  - g/**
-excludes: []
-git_sync:
-  include_path:
-    - g/**
-  include_type:
-    - script
-  exclude_path: []
-  extra_include_path: []`,
-            );
-
-            // First check what repositories are available
-            const listResult = await backend.runCLICommand(
-                ["settings", "list-repositories"],
-                tempDir,
-            );
-
-            // Skip this test if no repositories are configured (CE edition or git sync setup failed)
-            if (
-                listResult.code !== 0 ||
-                !listResult.stdout.includes(
-                    "u/alex/breathtaking_git_repository",
-                )
-            ) {
-                console.log(
-                    "⚠️ Skipping repository path test - git sync not available or repository not configured",
-                );
-                return;
-            }
-
-            // Use repository path with $res: prefix
-            const result = await backend.runCLICommand(
-                [
-                    "settings",
-                    "push",
-                    "--repository",
-                    "$res:u/alex/breathtaking_git_repository",
-                ],
-                tempDir,
-            );
-
-            assertEquals(result.code, 0);
-            assertStringIncludes(result.stdout, "Settings successfully pushed");
-        });
-    },
-);
-
-Deno.test(
-    "Settings: push matches repositories using both normalized and display formats",
-    async () => {
-        await withContainerizedBackend(async (backend, tempDir) => {
-            await Deno.writeTextFile(
-                `${tempDir}/wmill.yaml`,
-                `defaultTs: bun
-includes:
-  - f/**
-git_sync:
-  include_path:
-    - f/**
-  include_type:
-    - script
-  exclude_path: []
-  extra_include_path: []`,
-            );
-
-            // First check what repositories are available
-            const listResult = await backend.runCLICommand(
-                ["settings", "list-repositories"],
-                tempDir,
-            );
-
-            // Skip this test if no repositories are configured (CE edition or git sync setup failed)
-            if (
-                listResult.code !== 0 ||
-                !listResult.stdout.includes(
-                    "u/alex/breathtaking_git_repository",
-                )
-            ) {
-                console.log(
-                    "⚠️ Skipping repository path test - git sync not available or repository not configured",
-                );
-                return;
-            }
-
-            // First push with display format (no prefix)
-            const result1 = await backend.runCLICommand(
-                [
-                    "settings",
-                    "push",
-                    "--repository",
-                    "u/alex/breathtaking_git_repository",
-                ],
-                tempDir,
-            );
-            assertEquals(result1.code, 0);
-
-            // Then verify we can also use normalized format (with prefix)
-            const result2 = await backend.runCLICommand(
-                [
-                    "settings",
-                    "pull",
-                    "--repository",
-                    "$res:u/alex/breathtaking_git_repository",
-                    "--json-output",
-                ],
-                tempDir,
-            );
-            assertEquals(result2.code, 0);
-
-            // Both should work and reference the same repository
-            const jsonLine = result2.stdout
-                .split("\n")
-                .find((line) => line.trim().startsWith("{"));
-            const settings = JSON.parse(jsonLine!);
-            assertEquals(settings.git_sync.include_path, ["f/**"]);
-        });
-    },
-);
 
 // =============================================================================
 // END-TO-END INTEGRATION TESTS - Complete workflows

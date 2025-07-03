@@ -30,7 +30,7 @@ async function tryResolveWorkspace(
   if (cache) return { isError: false, value: cache };
 
   if (opts.workspace) {
-    const e = await getWorkspaceByName(opts.workspace);
+    const e = await getWorkspaceByName(opts.workspace, opts.configDir);
     if (!e) {
       return {
         isError: true,
@@ -57,8 +57,57 @@ export async function resolveWorkspace(
 ): Promise<Workspace> {
   if (opts.baseUrl) {
     if (opts.workspace && opts.token) {
+      const normalizedBaseUrl = new URL(opts.baseUrl).toString(); // add trailing slash if not present
+      
+      // First try to find existing workspace profile by name, then by workspaceId + remote
+      if (opts.workspace) {
+        // Try by workspace name first
+        let existingWorkspace = await getWorkspaceByName(opts.workspace, opts.configDir);
+        
+        // If not found by name, try to find by workspaceId + remote match
+        if (!existingWorkspace) {
+          const { allWorkspaces } = await import("./workspace.ts");
+          const workspaces = await allWorkspaces(opts.configDir);
+          const matchingWorkspaces = workspaces.filter(
+            w => w.workspaceId === opts.workspace && w.remote === normalizedBaseUrl
+          );
+          
+          if (matchingWorkspaces.length === 1) {
+            // Exactly one match - use it
+            existingWorkspace = matchingWorkspaces[0];
+          } else if (matchingWorkspaces.length > 1) {
+            // Multiple matches - show error with workspace names
+            const workspaceNames = matchingWorkspaces.map(w => w.name).join(", ");
+            log.info(
+              colors.red(
+                `Ambiguous workspace: Multiple workspace profiles found for workspaceId "${opts.workspace}" and baseUrl "${normalizedBaseUrl}": ${workspaceNames}. Please specify a workspace name instead of workspaceId.`
+              )
+            );
+            return Deno.exit(-1);
+          }
+        }
+        
+        if (existingWorkspace) {
+          // Validate that the base URL matches the profile's remote
+          if (existingWorkspace.remote !== normalizedBaseUrl) {
+            log.info(
+              colors.red(
+                `Base URL mismatch: --base-url is ${normalizedBaseUrl} but workspace profile "${opts.workspace}" uses ${existingWorkspace.remote}`
+              )
+            );
+            return Deno.exit(-1);
+          }
+          // Use the existing workspace profile (preserves workspace name)
+          return {
+            ...existingWorkspace,
+            token: opts.token, // Use the provided token
+          };
+        }
+      }
+      
+      // No existing profile found, create temporary workspace
       return {
-        remote: new URL(opts.baseUrl).toString(), // add trailing slash if not present
+        remote: normalizedBaseUrl,
         workspaceId: opts.workspace,
         name: opts.workspace,
         token: opts.token,
@@ -96,7 +145,7 @@ export async function requireLogin(
   try {
     return await wmill.globalWhoami();
   } catch (error) {
-    // Check if this is a network connectivity issue
+    // Check for network errors and provide clearer messages
     const errorMsg = error instanceof Error ? error.message : String(error);
     if (errorMsg.includes('fetch') || errorMsg.includes('connection') || errorMsg.includes('ECONNREFUSED') || errorMsg.includes('refused')) {
       throw new Error(`Network error: Could not connect to Windmill server at ${workspace.remote}`);

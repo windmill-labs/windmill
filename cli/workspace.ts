@@ -14,9 +14,9 @@ export interface Workspace {
   token: string;
 }
 
-export async function allWorkspaces(): Promise<Workspace[]> {
+export async function allWorkspaces(configDirOverride?: string): Promise<Workspace[]> {
   try {
-    const file = (await getRootStore()) + "remotes.ndjson";
+    const file = (await getRootStore(configDirOverride)) + "remotes.ndjson";
     const txt = await Deno.readTextFile(file);
     return txt
       .split("\n")
@@ -40,7 +40,7 @@ async function getActiveWorkspaceName(
     return opts?.workspace;
   }
   try {
-    return await Deno.readTextFile((await getRootStore()) + "/activeWorkspace");
+    return await Deno.readTextFile((await getRootStore(opts?.configDir)) + "/activeWorkspace");
   } catch {
     return undefined;
   }
@@ -53,13 +53,14 @@ export async function getActiveWorkspace(
   if (!name) {
     return undefined;
   }
-  return await getWorkspaceByName(name);
+  return await getWorkspaceByName(name, opts?.configDir);
 }
 
 export async function getWorkspaceByName(
-  workspaceName: string
+  workspaceName: string,
+  configDirOverride?: string
 ): Promise<Workspace | undefined> {
-  const workspaceStream = await allWorkspaces();
+  const workspaceStream = await allWorkspaces(configDirOverride);
   for await (const workspace of workspaceStream) {
     if (workspace.name === workspaceName) {
       return workspace;
@@ -69,7 +70,7 @@ export async function getWorkspaceByName(
 }
 
 async function list(opts: GlobalOptions) {
-  const workspaces = await allWorkspaces();
+  const workspaces = await allWorkspaces(opts.configDir);
   const activeName = await getActiveWorkspaceName(opts);
 
   new Table()
@@ -101,7 +102,7 @@ async function switchC(opts: GlobalOptions, workspaceName: string) {
     return;
   }
 
-  const all = await allWorkspaces();
+  const all = await allWorkspaces(opts.configDir);
   if (all.findIndex((x) => x.name === workspaceName) === -1) {
     log.info(
       colors.red.bold(
@@ -115,13 +116,13 @@ async function switchC(opts: GlobalOptions, workspaceName: string) {
     return;
   }
 
-  await setActiveWorkspace(workspaceName);
+  await setActiveWorkspace(workspaceName, opts.configDir);
   return;
 }
 
-export async function setActiveWorkspace(workspaceName: string) {
+export async function setActiveWorkspace(workspaceName: string, configDirOverride?: string) {
   await Deno.writeTextFile(
-    (await getRootStore()) + "/activeWorkspace",
+    (await getRootStore(configDirOverride)) + "/activeWorkspace",
     workspaceName
   );
 }
@@ -246,7 +247,7 @@ export async function add(
     },
     opts
   );
-  await setActiveWorkspace(workspaceName);
+  await setActiveWorkspace(workspaceName, opts.configDir);
 
   log.info(
     colors.green.underline(
@@ -257,8 +258,85 @@ export async function add(
 
 export async function addWorkspace(workspace: Workspace, opts: any) {
   workspace.remote = new URL(workspace.remote).toString(); // add trailing slash in all cases!
+  
+  // Check for conflicts before adding
+  const existingWorkspaces = await allWorkspaces(opts.configDir);
+  const isInteractive = Deno.stdin.isTerminal() && Deno.stdout.isTerminal() && !opts.force;
+  
+  // Check 1: Workspace name already exists
+  const nameConflict = existingWorkspaces.find(w => w.name === workspace.name);
+  if (nameConflict) {
+    // If it's the exact same workspace (same remote + workspaceId), just update the token
+    if (nameConflict.remote === workspace.remote && nameConflict.workspaceId === workspace.workspaceId) {
+      log.info(colors.yellow(`Updating token for existing workspace "${workspace.name}"`));
+    } else {
+      // Different remote or workspaceId - this is a conflict
+      log.info(colors.red.bold(`❌ Workspace name "${workspace.name}" already exists!`));
+      log.info(`   Existing: ${nameConflict.workspaceId} on ${nameConflict.remote}`);
+      log.info(`   New:      ${workspace.workspaceId} on ${workspace.remote}`);
+      
+      if (!isInteractive) {
+        // In non-interactive mode (tests, scripts), auto-overwrite with force flag
+        if (opts.force) {
+          log.info(colors.yellow("Force flag enabled, overwriting existing workspace."));
+        } else {
+          throw new Error("Workspace name conflict. Use --force to overwrite or choose a different name.");
+        }
+      } else {
+        const overwrite = await Input.confirm({
+          message: "Do you want to overwrite the existing workspace?",
+          default: false,
+        });
+        
+        if (!overwrite) {
+          log.info(colors.yellow("Operation cancelled."));
+          return;
+        }
+      }
+    }
+  }
+  
+  // Check 2: Same (remote, workspaceId) tuple already exists under different name
+  const tupleConflict = existingWorkspaces.find(w => 
+    w.remote === workspace.remote && 
+    w.workspaceId === workspace.workspaceId && 
+    w.name !== workspace.name
+  );
+  
+  if (tupleConflict) {
+    log.info(colors.red.bold(`❌ Workspace ${workspace.workspaceId} on ${workspace.remote} already exists!`));
+    log.info(`   Existing name: "${tupleConflict.name}"`);
+    log.info(`   New name:      "${workspace.name}"`);
+    log.info(colors.yellow(`\nNote: Backend constraint prevents duplicate (remote, workspaceId) combinations.`));
+    
+    if (!isInteractive) {
+      // In non-interactive mode (tests, scripts), auto-overwrite with force flag
+      if (opts.force) {
+        log.info(colors.yellow(`Force flag enabled, overwriting existing workspace "${tupleConflict.name}".`));
+      } else {
+        throw new Error(`Backend constraint violation: (${workspace.remote}, ${workspace.workspaceId}) already exists as "${tupleConflict.name}". Use --force to overwrite.`);
+      }
+    } else {
+      const overwrite = await Input.confirm({
+        message: `Do you want to overwrite the existing workspace "${tupleConflict.name}"?`,
+        default: false,
+      });
+      
+      if (!overwrite) {
+        log.info(colors.yellow("Operation cancelled."));
+        return;
+      }
+    }
+    
+    // Remove the conflicting workspace
+    await removeWorkspace(tupleConflict.name, true, opts);
+  }
+  
+  // Remove existing workspace with same name (if updating)
   await removeWorkspace(workspace.name, true, opts);
-  const file = await Deno.open((await getRootStore()) + "remotes.ndjson", {
+  
+  // Add the new workspace
+  const file = await Deno.open((await getRootStore(opts.configDir)) + "remotes.ndjson", {
     append: true,
     write: true,
     read: true,
@@ -274,7 +352,7 @@ export async function removeWorkspace(
   silent: boolean,
   opts: any
 ) {
-  const orgWorkspaces = await allWorkspaces();
+  const orgWorkspaces = await allWorkspaces(opts.configDir);
   if (orgWorkspaces.findIndex((x) => x.name === name) === -1) {
     if (!silent) {
       log.info(
@@ -290,7 +368,7 @@ export async function removeWorkspace(
   }
 
   await Deno.writeTextFile(
-    (await getRootStore()) + "remotes.ndjson",
+    (await getRootStore(opts.configDir)) + "remotes.ndjson",
     orgWorkspaces
       .filter((x) => x.name !== name)
       .map((x) => JSON.stringify(x))

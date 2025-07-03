@@ -171,6 +171,11 @@
 	let initialGitSyncSettings = $state<GitSyncSettings | undefined>(undefined)
 	let loadedSettings = $state(false)
 
+	// Reactive trigger to ensure UI updates when repository data changes
+	let repoReactivityTrigger = $state(0)
+
+
+
 	const latestGitSyncHubScript = hubPaths.gitSync
 
 	// Each repository may have been populated from workspace-level legacy settings. Track on the repo itself.
@@ -178,58 +183,63 @@
 
 	// Track changes in repositories
 	const repoChanges = $derived(
-		gitSyncSettings.repositories.map((repo, idx) => {
-			const repoValid = isRepoValid(idx)
+		(() => {
+			// Force reactivity check by accessing the trigger
+			repoReactivityTrigger;
 
-			// If there were no initial repos, treat each repo as changed only when valid
-			if (!initialGitSyncSettings || !initialGitSyncSettings.repositories || initialGitSyncSettings.repositories.length === 0) {
-				return repoValid
-			}
+			return gitSyncSettings.repositories.map((repo, idx) => {
+				const repoValid = isRepoValid(idx)
 
-			const initial = initialGitSyncSettings.repositories.find(
-				initialRepo => initialRepo.git_repo_resource_path === repo.git_repo_resource_path
-			)
-
-			// If no matching initial repo found, this is a new repo - changed only when valid
-			if (!initial) return repoValid
-
-			// Handle array ordering for consistent comparison
-			const settings1 = {
-				include_path: [...initial.settings.include_path].sort(),
-				exclude_path: [...(initial.settings.exclude_path ?? [])].sort(),
-				extra_include_path: [...(initial.settings.extra_include_path ?? [])].sort(),
-				include_type: [...initial.settings.include_type].sort()
-			};
-
-			const settings2 = {
-				include_path: [...repo.settings.include_path].sort(),
-				exclude_path: [...(repo.settings.exclude_path ?? [])].sort(),
-				extra_include_path: [...(repo.settings.extra_include_path ?? [])].sort(),
-				include_type: [...repo.settings.include_type].sort()
-			};
-
-			// Compare all properties in a consistent way
-			const isChanged = !deepEqual(
-				{
-					settings: settings1,
-					use_individual_branch: initial.use_individual_branch,
-					group_by_folder: initial.group_by_folder,
-					script_path: initial.script_path,
-					git_repo_resource_path: initial.git_repo_resource_path,
-					exclude_types_override: [...(initial.exclude_types_override ?? [])].sort()
-				},
-				{
-					settings: settings2,
-					use_individual_branch: repo.use_individual_branch,
-					group_by_folder: repo.group_by_folder,
-					script_path: repo.script_path,
-					git_repo_resource_path: repo.git_repo_resource_path,
-					exclude_types_override: [...(repo.exclude_types_override ?? [])].sort()
+				// If there were no initial repos, treat each repo as changed only when valid
+				if (!initialGitSyncSettings || !initialGitSyncSettings.repositories || initialGitSyncSettings.repositories.length === 0) {
+					return repoValid
 				}
-			)
 
-			return isChanged && repoValid
-		})
+				const initial = initialGitSyncSettings.repositories.find(
+					initialRepo => initialRepo.git_repo_resource_path === repo.git_repo_resource_path
+				)
+
+				// If no matching initial repo found, this is a new repo - changed only when valid
+				if (!initial) return repoValid
+
+				// Handle array ordering for consistent comparison
+				const settings1 = {
+					include_path: [...initial.settings.include_path].sort(),
+					exclude_path: [...(initial.settings.exclude_path ?? [])].sort(),
+					extra_include_path: [...(initial.settings.extra_include_path ?? [])].sort(),
+					include_type: [...initial.settings.include_type].sort()
+				};
+
+				const settings2 = {
+					include_path: [...repo.settings.include_path].sort(),
+					exclude_path: [...(repo.settings.exclude_path ?? [])].sort(),
+					extra_include_path: [...(repo.settings.extra_include_path ?? [])].sort(),
+					include_type: [...repo.settings.include_type].sort()
+				};
+
+				// Compare all properties in a consistent way
+				const isChanged = !deepEqual(
+					{
+						settings: settings1,
+						use_individual_branch: initial.use_individual_branch,
+						group_by_folder: initial.group_by_folder,
+						script_path: initial.script_path,
+						git_repo_resource_path: initial.git_repo_resource_path,
+						exclude_types_override: [...(initial.exclude_types_override ?? [])].sort()
+					},
+					{
+						settings: settings2,
+						use_individual_branch: repo.use_individual_branch,
+						group_by_folder: repo.group_by_folder,
+						script_path: repo.script_path,
+						git_repo_resource_path: repo.git_repo_resource_path,
+						exclude_types_override: [...(repo.exclude_types_override ?? [])].sort()
+					}
+				)
+
+				return isChanged && repoValid
+			})
+		})()
 	)
 
 	const hasAnyChanges = $derived(
@@ -1305,6 +1315,8 @@
 				</div>
 				<div class="pt-2"></div>
 
+
+
 				{#if Array.isArray(gitSyncSettings.repositories)}
 					{#each gitSyncSettings.repositories as repo, idx}
 						<div class="rounded-lg shadow-sm border p-0 w-full mb-4">
@@ -1383,8 +1395,7 @@
 										class="rounded-full p-2 bg-surface-secondary duration-200 hover:bg-surface-hover"
 										aria-label="Remove repository"
 										onclick={() => {
-											gitSyncSettings.repositories.splice(idx, 1)
-											gitSyncSettings.repositories = [...gitSyncSettings.repositories]
+											gitSyncSettings.repositories = gitSyncSettings.repositories.filter((_, i) => i !== idx)
 										}}
 									>
 										<Trash size={14} />
@@ -1397,11 +1408,8 @@
 										{#key repo}
 											<div class="pt-1 font-semibold">Resource: </div>
 											<ResourcePicker
-												resourceType="git_repository"
-												initialValue={repo.git_repo_resource_path}
-												on:change={(ev) => {
-													repo.git_repo_resource_path = ev.detail
-												}}
+												bind:value={repo.git_repo_resource_path}
+												resourceType={'git_repository'}
 											/>
 											{#if !emptyString(repo.git_repo_resource_path)}
 												<Button
@@ -1480,6 +1488,8 @@
 													bind:yamlText
 													onSettingsChange={(settings) => {
 														yamlText = settings.yaml
+														// Force reactivity update
+														repoReactivityTrigger = repoReactivityTrigger + 1
 													}}
 												/>
 												<div class="w-1/3 flex gap-2">

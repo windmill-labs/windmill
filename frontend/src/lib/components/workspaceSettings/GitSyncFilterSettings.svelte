@@ -45,9 +45,8 @@
 	}
 
 	type PreviewResult = {
-		diff?: string
-		yaml?: string
-		settings?: any
+		diff?: { [key: string]: { from: any; to: any } }
+		hasChanges?: boolean
 	}
 
 	let {
@@ -719,7 +718,7 @@ codebases: []`
 					>
 						{isPreviewLoading ? 'Previewing...' : 'Preview'}
 					</Button>
-					{#if previewResult?.diff?.trim()}
+					{#if previewResult?.hasChanges && previewResult?.diff && Object.keys(previewResult.diff).length > 0}
 						<Button
 							size="sm"
 							on:click={pushFiltersToGitRepo}
@@ -765,9 +764,25 @@ codebases: []`
 						class="border rounded p-2 text-xs max-h-40 overflow-y-auto bg-surface-secondary mt-2"
 					>
 						<div class="font-semibold text-[11px] mb-1 text-tertiary">Preview of changes:</div>
-						{#if previewResult.diff?.trim()}
-							<div class="mt-2">
-								<pre class="rounded p-2 text-2xs"><code>{previewResult.diff}</code></pre>
+						{#if previewResult.hasChanges && previewResult.diff && Object.keys(previewResult.diff).length > 0}
+							<div class="mt-2 space-y-1">
+								{#each Object.entries(previewResult.diff) as [field, change]}
+									<div class="flex items-start gap-2 text-2xs">
+										<span class="font-mono text-tertiary min-w-0 flex-shrink-0">{field}:</span>
+										<div class="min-w-0 flex-1">
+											{#if Array.isArray(change.from) || Array.isArray(change.to)}
+												<div class="space-y-0.5">
+													<div class="text-red-600">- {JSON.stringify(change.from)}</div>
+													<div class="text-green-600">+ {JSON.stringify(change.to)}</div>
+												</div>
+											{:else}
+												<span class="text-red-600">{JSON.stringify(change.from)}</span>
+												<span class="text-tertiary"> → </span>
+												<span class="text-green-600">{JSON.stringify(change.to)}</span>
+											{/if}
+										</div>
+									</div>
+								{/each}
 							</div>
 						{:else}
 							<div class="mt-2 text-tertiary">No changes found! The file is up to date.</div>

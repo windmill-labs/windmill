@@ -11,6 +11,7 @@ export interface ContainerConfig {
   username?: string;
   password?: string;
   timeout?: number;
+  testConfigDir?: string;
 }
 
 export class ContainerizedBackend {
@@ -25,7 +26,8 @@ export class ContainerizedBackend {
       token: config.token || '',
       username: config.username || 'admin@windmill.dev',
       password: config.password || 'changeme',
-      timeout: config.timeout || 120000 // 2 minutes
+      timeout: config.timeout || 120000, // 2 minutes
+      testConfigDir: config.testConfigDir || '' // Will be created if empty
     };
   }
 
@@ -51,6 +53,13 @@ export class ContainerizedBackend {
   }
 
   /**
+   * Get the test config directory
+   */
+  get testConfigDir(): string {
+    return this.config.testConfigDir;
+  }
+
+  /**
    * Start the containerized backend (database + server + worker)
    */
   async start(): Promise<void> {
@@ -59,6 +68,12 @@ export class ContainerizedBackend {
     }
 
     console.log('🚀 Starting containerized Windmill backend...');
+    
+    // Create isolated test config directory if not provided
+    if (!this.config.testConfigDir) {
+      this.config.testConfigDir = await Deno.makeTempDir({ prefix: 'wmill_test_config_' });
+      console.log(`📁 Created test config directory: ${this.config.testConfigDir}`);
+    }
     
     // Start containers with EE license key
     const startCmd = new Deno.Command('docker', {
@@ -113,6 +128,17 @@ export class ContainerizedBackend {
     });
 
     await stopCmd.output();
+    
+    // Clean up test config directory if we created it
+    if (this.config.testConfigDir && this.config.testConfigDir.includes('wmill_test_config_')) {
+      try {
+        await Deno.remove(this.config.testConfigDir, { recursive: true });
+        console.log(`🗑️  Cleaned up test config directory: ${this.config.testConfigDir}`);
+      } catch (error) {
+        console.warn(`⚠️  Failed to clean up test config directory: ${error}`);
+      }
+    }
+    
     this.isRunning = false;
     console.log('✅ Backend stopped');
   }
@@ -948,6 +974,7 @@ export async function main(
       '--base-url', this.config.baseUrl,
       '--workspace', this.config.workspace,
       '--token', this.config.token,
+      '--config-dir', this.config.testConfigDir,
       ...args
     ];
     

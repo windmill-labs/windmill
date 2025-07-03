@@ -27,8 +27,6 @@ export class NpmProvider extends Provider {
       new URL(`${this.packageName ?? name}`, this.apiUrl)
     );
     if (!response.ok) {
-      // Consume response body even on error to avoid resource leak
-      await response.text();
       throw new Error(
         "couldn't fetch the latest version - try again after sometime"
       );

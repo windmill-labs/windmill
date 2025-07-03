@@ -1,150 +1,77 @@
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { resolveWorkspaceAndRepositoryForSync } from "../settings_utils.ts";
-import { getWorkspaceRepositorySettings, readConfigFile } from "../conf.ts";
+import { readConfigFile, getEffectiveSettings } from "../conf.ts";
 import { withContainerizedBackend } from "./containerized_backend.ts";
 
 // =============================================================================
 // SYNC CONFIGURATION RESOLUTION TESTS
-// Tests for the bugs found in workspace/repository resolution
+// Tests for configuration resolution and integration with backend
 // =============================================================================
 
-Deno.test("Config Resolution: resolveWorkspaceAndRepositoryForSync loads wmill.yaml automatically", async () => {
-  // Create test wmill.yaml
-  const testConfig = `workspaces:
-  test:
-    baseUrl: 'http://localhost:8000/'
-    workspaceId: test
-    repositories:
-      u/test/repo:
-        defaultTs: bun
-        includes: []
-        excludes: []
-        skipScripts: false
-        skipFlows: false
-        skipApps: false
-        skipFolders: false
-        skipVariables: true
-        skipResources: true
-        skipResourceTypes: true
-        skipSecrets: true
-        includeSchedules: true
-        includeTriggers: true
-        includeUsers: false
-        includeGroups: false
-        includeSettings: true
-        includeKey: false
-defaultWorkspace: test`;
-
-  await Deno.writeTextFile("wmill.yaml", testConfig);
-  
-  try {
-    // Call without providing config - should load from wmill.yaml
-    const result = await resolveWorkspaceAndRepositoryForSync("test", "u/test/repo");
-    
-    // Should load workspace and repository correctly
-    assertEquals(result.workspaceName, "test");
-    assertEquals(result.repositoryPath, "u/test/repo");
-    
-    // Should extract repository settings to top level
-    assertEquals(result.syncOptions.includeSettings, true);
-    assertEquals(result.syncOptions.skipResources, true);
-    assertEquals(result.syncOptions.skipVariables, true);
-    assertEquals(result.syncOptions.defaultTs, "bun");
-    
-  } finally {
-    await Deno.remove("wmill.yaml");
-  }
-});
-
-Deno.test("Config Resolution: resolveWorkspaceAndRepositoryForSync with undefined params uses defaultWorkspace", async () => {
-  // Create test wmill.yaml with defaultWorkspace
-  const testConfig = `workspaces:
-  production:
-    baseUrl: 'http://localhost:8000/'
-    workspaceId: production
-    repositories:
-      u/prod/main:
-        includeSettings: true
-        skipResources: false
-defaultWorkspace: production`;
-
-  await Deno.writeTextFile("wmill.yaml", testConfig);
-  
-  try {
-    // Call with undefined params - should use defaultWorkspace  
-    const result = await resolveWorkspaceAndRepositoryForSync(undefined, undefined);
-    
-    assertEquals(result.workspaceName, "production");
-    assertEquals(result.repositoryPath, "u/prod/main");
-    assertEquals(result.syncOptions.includeSettings, true);
-    assertEquals(result.syncOptions.skipResources, false);
-    
-  } finally {
-    await Deno.remove("wmill.yaml");
-  }
-});
-
-Deno.test("Config Resolution: getWorkspaceRepositorySettings extracts repository settings correctly", async () => {
+Deno.test("Config Resolution: getEffectiveSettings applies overrides correctly", async () => {
   const config = {
-    workspaces: {
-      test: {
-        baseUrl: 'http://localhost:8000/',
-        workspaceId: 'test',
-        repositories: {
-          'u/user/repo': {
-            includeSettings: true,
-            skipResources: true,
-            skipVariables: false,
-            defaultTs: 'deno' as const
-          }
-        }
+    defaultTs: 'bun' as const,
+    includeSettings: false,
+    skipResources: false,
+    skipVariables: true,
+    
+    overrides: {
+      'test:u/user/repo': {
+        includeSettings: true,
+        skipResources: true,
+        skipVariables: false,
+        defaultTs: 'deno' as const
       }
     }
   };
   
-  const result = getWorkspaceRepositorySettings(config, "test", "u/user/repo");
+  const result = getEffectiveSettings(config, "test", "u/user/repo");
   
-  // Should merge config with repository settings, with repository settings taking precedence
-  assertEquals(result.includeSettings, true);
-  assertEquals(result.skipResources, true); 
-  assertEquals(result.skipVariables, false);
-  assertEquals(result.defaultTs, 'deno');
-  
-  // Should still contain original config structure
-  assertEquals(result.workspaces?.test?.baseUrl, 'http://localhost:8000/');
+  // Should merge config with repository overrides, with overrides taking precedence
+  assertEquals(result.includeSettings, true);   // Override
+  assertEquals(result.skipResources, true);     // Override
+  assertEquals(result.skipVariables, false);    // Override
+  assertEquals(result.defaultTs, 'deno');       // Override
 });
 
-Deno.test("Config Resolution: getWorkspaceRepositorySettings falls back gracefully", async () => {
+Deno.test("Config Resolution: getEffectiveSettings falls back gracefully", async () => {
   const config = {
     defaultTs: 'bun' as const,
-    includeSettings: false
+    includeSettings: false,
+    skipVariables: true
   };
   
-  // Test with non-existent workspace
-  const result1 = getWorkspaceRepositorySettings(config, "nonexistent", "u/user/repo");
-  assertEquals(result1, config); // Should return original config
+  // Test with non-existent workspace/repo combination (no overrides)
+  const result1 = getEffectiveSettings(config, "nonexistent", "u/user/repo");
   
-  // Test with existent workspace but non-existent repository
-  const configWithWorkspace = {
-    workspaces: {
-      test: {
-        baseUrl: 'http://localhost:8000/',
-        workspaceId: 'test',
-        repositories: {}
+  // Should return base config merged with defaults
+  assertEquals(result1.defaultTs, 'bun');
+  assertEquals(result1.includeSettings, false);
+  assertEquals(result1.skipVariables, true);
+  assertEquals(result1.skipSecrets, true); // From DEFAULT_SYNC_OPTIONS
+  
+  // Test with config that has overrides but no matching ones
+  const configWithOverrides = {
+    defaultTs: 'bun' as const,
+    includeSettings: false,
+    overrides: {
+      'other:u/other/repo': {
+        defaultTs: 'deno' as const
       }
-    },
-    defaultTs: 'bun' as const
+    }
   };
   
-  const result2 = getWorkspaceRepositorySettings(configWithWorkspace, "test", "nonexistent");
-  assertEquals(result2, configWithWorkspace); // Should return original config
+  const result2 = getEffectiveSettings(configWithOverrides, "test", "u/user/repo");
+  
+  // Should ignore non-matching overrides
+  assertEquals(result2.defaultTs, 'bun');
+  assertEquals(result2.includeSettings, false);
 });
 
 // =============================================================================
 // INTEGRATION TESTS WITH REAL BACKEND
 // =============================================================================
 
-Deno.test("Integration: wmill.yaml vs JSON override produces identical results", async () => {
+Deno.test("Integration: wmill.yaml configuration produces expected results", async () => {
   await withContainerizedBackend(async (backend, tempDir) => {
     // Create wmill.yaml with settings
     await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
@@ -159,7 +86,7 @@ includeSettings: true
 includeSchedules: true
 includeTriggers: true`);
     
-    // Test 1: Pull with wmill.yaml only (no repository restriction)
+    // Test pull with wmill.yaml configuration
     const yamlResult = await backend.runCLICommand(['sync', 'pull', '--dry-run', '--json-output'], tempDir);
     if (yamlResult.code !== 0) {
       console.log("YAML command failed!");
@@ -177,32 +104,10 @@ includeTriggers: true`);
     }
     const yamlData = JSON.parse(yamlOutput);
     
-    // Test 2: Pull with JSON override (same settings)  
-    const jsonSettings = JSON.stringify({
-      include_path: ["f/**", "settings.yaml"],
-      include_type: ["script", "flow", "app", "folder", "schedule", "trigger", "settings"]
-    });
+    // Should include settings.yaml due to includeSettings: true
+    assertEquals(yamlData.added.includes('settings.yaml'), true);
     
-    const jsonResult = await backend.runCLICommand([
-      'sync', 'pull', '--dry-run', '--json-output',
-      '--settings-from-json', jsonSettings
-    ], tempDir);
-    assertEquals(jsonResult.code, 0);
-    
-    const jsonOutput = jsonResult.stdout.split('\n').find(line => line.trim().startsWith('{'));
-    if (!jsonOutput) {
-      console.log("JSON Result stdout:", jsonResult.stdout);
-      console.log("JSON Result stderr:", jsonResult.stderr);
-      throw new Error("No JSON output found in JSON result");
-    }
-    const jsonData = JSON.parse(jsonOutput);
-    
-    // Both should produce identical results
-    assertEquals(yamlData.added.length, jsonData.added.length);
-    assertEquals(yamlData.added.includes('settings.yaml'), jsonData.added.includes('settings.yaml'));
-    assertEquals(yamlData.added.includes('settings.yaml'), true); // Both should include settings.yaml
-    
-    // Neither should include resources or variables (due to skip flags)
+    // Should NOT include resources or variables (due to skip flags)
     const hasResources = yamlData.added.some((file: string) => file.includes('.resource.yaml'));
     const hasVariables = yamlData.added.some((file: string) => file.includes('.variable.yaml'));
     assertEquals(hasResources, false);
