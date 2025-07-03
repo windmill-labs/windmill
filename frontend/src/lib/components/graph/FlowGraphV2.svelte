@@ -367,6 +367,7 @@
 			if (inputAssetCount) yPosMap[node.position.y].r = true
 			if (outputAssetCount) yPosMap[node.position.y].w = true
 
+			// Each asset can be displayed once (R or W) or twice (RW) per node hence the flatMap
 			const assetNodes: (Node & AssetN)[] | undefined = assets?.flatMap((asset) => {
 				const displayAsInput = assetDisplaysAsInputInFlowGraph(asset)
 				const displayAsOutput = assetDisplaysAsOutputInFlowGraph(asset)
@@ -383,8 +384,10 @@
 									id: `${node.id}-asset-in-${formatAsset(asset)}`,
 									position: {
 										x:
-											(ASSET_WIDTH + ASSET_X_GAP) * (inputAssetIdx - inputAssetCount / 2) +
-											(NODE.width + ASSET_X_GAP) / 2,
+											inputAssetCount === 1
+												? (NODE.width - ASSET_WIDTH) / 2 - 10 // Ensure we see the edge
+												: (ASSET_WIDTH + ASSET_X_GAP) * (inputAssetIdx - inputAssetCount / 2) +
+													(NODE.width + ASSET_X_GAP) / 2,
 										y: READ_ASSET_Y_OFFSET
 									}
 								}
@@ -398,8 +401,10 @@
 									id: `${node.id}-asset-out-${formatAsset(asset)}`,
 									position: {
 										x:
-											(ASSET_WIDTH + ASSET_X_GAP) * (outputAssetIdx - outputAssetCount / 2) +
-											(NODE.width + ASSET_X_GAP) / 2,
+											outputAssetCount === 1
+												? (NODE.width - ASSET_WIDTH) / 2 - 10 // Ensure we see the edge
+												: (ASSET_WIDTH + ASSET_X_GAP) * (outputAssetIdx - outputAssetCount / 2) +
+													(NODE.width + ASSET_X_GAP) / 2,
 										y: WRITE_ASSET_Y_OFFSET
 									}
 								}
