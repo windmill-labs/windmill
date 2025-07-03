@@ -4,7 +4,8 @@ use crate::{
     jobs::{run_flow_by_path_inner, run_script_by_path_inner, RunJobQuery},
     resources::try_get_resource_from_db_as,
     trigger_helpers::TriggerJobArgs,
-    users::{check_scopes, fetch_api_authed},
+    users::fetch_api_authed,
+    utils::check_scopes,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
@@ -521,7 +522,9 @@ pub async fn create_mqtt_trigger(
     Path(w_id): Path<String>,
     Json(new_mqtt_trigger): Json<NewMqttTrigger>,
 ) -> error::Result<(StatusCode, String)> {
-    check_scopes(&authed, || format!("mqtt_triggers:write:{}", &new_mqtt_trigger.path))?;
+    check_scopes(&authed, || {
+        format!("mqtt_triggers:write:{}", &new_mqtt_trigger.path)
+    })?;
     if *CLOUD_HOSTED {
         return Err(error::Error::BadRequest(
             "MQTT triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host".to_string(),

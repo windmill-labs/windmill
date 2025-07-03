@@ -2,9 +2,6 @@
 use crate::http_trigger_args::{HttpMethod, RawHttpTriggerArgs};
 #[cfg(feature = "parquet")]
 use crate::job_helpers_oss::get_workspace_s3_resource;
-use crate::resources::try_get_resource_from_db_as;
-use crate::trigger_helpers::{get_runnable_format, RunnableId};
-use crate::utils::{non_empty_str, ExpiringCacheEntry};
 use crate::{
     auth::{AuthCache, OptTokened},
     db::{ApiAuthed, DB},
@@ -12,8 +9,12 @@ use crate::{
         run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_flow_by_path_internal,
         run_wait_result_script_by_path_internal, RunJobQuery,
     },
-    users::{check_scopes, fetch_api_authed},
+    users::fetch_api_authed,
+    trigger_helpers::{get_runnable_format, RunnableId},
+    resources::try_get_resource_from_db_as,
+    utils::{non_empty_str, ExpiringCacheEntry, check_scopes}
 };
+
 use anyhow::anyhow;
 use axum::response::Response;
 use axum::{
@@ -317,7 +318,9 @@ async fn create_trigger_inner(
     new_http_trigger: &NewTrigger,
     route_path_key: &str,
 ) -> WindmillResult<()> {
-    check_scopes(&authed, || format!("http_triggers:write:{}", &new_http_trigger.path))?;
+    check_scopes(&authed, || {
+        format!("http_triggers:write:{}", &new_http_trigger.path)
+    })?;
 
     sqlx::query!(
         r#"
@@ -523,7 +526,6 @@ async fn create_trigger(
     Path(w_id): Path<String>,
     Json(new_http_trigger): Json<NewTrigger>,
 ) -> WindmillResult<(StatusCode, String)> {
-
     let route_path_key = validate_http_trigger(&db, &w_id, &new_http_trigger).await?;
 
     let mut tx = user_db.begin(&authed).await?;

@@ -39,7 +39,8 @@ use crate::{
         run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_internal, RunJobQuery,
     },
     trigger_helpers::TriggerJobArgs,
-    users::{check_scopes, fetch_api_authed},
+    users::fetch_api_authed,
+    utils::check_scopes,
 };
 
 use std::borrow::Cow;
@@ -342,7 +343,6 @@ pub async fn set_enabled(
     let path = path.to_path();
     check_scopes(&authed, || format!("websocket_triggers:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
-
 
     // important to set server_id, last_server_ping and error to NULL to stop current websocket listener
     let one_o = sqlx::query_scalar!(

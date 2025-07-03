@@ -6,7 +6,7 @@ use std::collections::{
 use crate::{
     db::{ApiAuthed, DB},
     postgres_triggers::mapper::{Mapper, MappingInfo},
-    users::check_scopes,
+    utils::check_scopes,
 };
 use axum::{
     extract::{Path, Query},
