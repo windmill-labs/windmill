@@ -7,7 +7,7 @@
  */
 
 use crate::db::{ApiAuthed, DB};
-use axum::{extract::Path, routing::{get, post}, Json, Router};
+use axum::{extract::{Extension, Path}, routing::{get, post}, Json, Router};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_common::error::{Error, JsonResult, Result};
@@ -306,14 +306,14 @@ pub fn workspaced_service() -> Router {
 
 async fn create_fork_handler(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
     Json(request): Json<CreateForkRequest>,
 ) -> JsonResult<ForkResponse> {
-    let db = &authed.db;
     require_admin(authed.is_admin, &authed.username)?;
     
     let fork = create_fork(
-        db,
+        &db,
         &workspace_id,
         &authed.email,
         &request.name,
@@ -325,19 +325,18 @@ async fn create_fork_handler(
 
 async fn get_fork_info_handler(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
 ) -> JsonResult<Option<WorkspaceFork>> {
-    let db = &authed.db;
-    
-    let fork_info = get_fork_info(db, &workspace_id).await?;
+    let fork_info = get_fork_info(&db, &workspace_id).await?;
     Ok(Json(fork_info))
 }
 
 async fn list_forks_handler(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
 ) -> JsonResult<Vec<WorkspaceFork>> {
-    let db = &authed.db;
     require_admin(authed.is_admin, &authed.username)?;
     
     let forks = sqlx::query_as!(
@@ -348,7 +347,7 @@ async fn list_forks_handler(
          ORDER BY created_at DESC",
         workspace_id
     )
-    .fetch_all(db)
+    .fetch_all(&db)
     .await?;
     
     Ok(Json(forks))
@@ -356,10 +355,9 @@ async fn list_forks_handler(
 
 async fn list_resource_refs_handler(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
 ) -> JsonResult<Vec<ForkedResourceRef>> {
-    let db = &authed.db;
-    
-    let refs = get_forked_resource_refs(db, &workspace_id).await?;
+    let refs = get_forked_resource_refs(&db, &workspace_id).await?;
     Ok(Json(refs))
 }
