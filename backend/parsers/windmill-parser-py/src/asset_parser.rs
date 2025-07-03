@@ -31,6 +31,21 @@ struct AssetsFinder<'a> {
     paths_storage: &'a mut Vec<String>,
 }
 impl<'a> Visitor for AssetsFinder<'a> {
+    // visit_call_expr will not recurse if it detects an asset,
+    // so this will only be called when no further context was found
+    fn visit_expr_constant(&mut self, node: ExprConstant) {
+        match node.value {
+            Constant::Str(s) => {
+                if let Some((kind, path)) = parse_asset_syntax(&s) {
+                    self.paths_storage.push(path.to_string());
+                    self.assets
+                        .push(ParseAssetsResult { kind, path: "", access_type: None });
+                }
+            }
+            _ => self.generic_visit_expr_constant(node),
+        }
+    }
+
     fn visit_expr_call(&mut self, node: rustpython_ast::ExprCall) {
         match self.visit_expr_call_inner(&node) {
             Ok(_) => {}
