@@ -163,6 +163,7 @@
 							/>
 						{/if}
 						<ToggleButtonGroup
+							disabled={!!asset.access_type}
 							bind:selected={
 								() => asset.access_type ?? alternativeAccessType,
 								async (access_type) => {
