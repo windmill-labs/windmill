@@ -17,6 +17,7 @@ use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
     JobCompletedSender, PreviousResult, SameWorkerSender, SendResult, UpdateFlow, KEEP_JOB_DIR,
 };
+
 use anyhow::Context;
 use futures::TryFutureExt;
 use mappable_rc::Marc;
@@ -2030,6 +2031,7 @@ async fn push_next_flow_job(
                     .to_string(),
                 email: flow_job.permissioned_as_email.clone(),
                 username_override: None,
+                token_prefix: Some(format!("psh.nxt.flowjob-{}", client.token.to_string())),
             };
 
             if can_be_resumed || disapproved_or_timeout_but_continue {
@@ -2772,6 +2774,7 @@ async fn push_next_flow_job(
             &flow_job.created_by,
             email,
             permissioned_as,
+            Some(&format!("job-span-{}", flow_job.flow_innermost_root_job.unwrap_or(flow_job.id))),
             scheduled_for_o,
             flow_job.schedule_path(),
             Some(flow_job.id),

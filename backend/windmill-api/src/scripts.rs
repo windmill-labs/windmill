@@ -941,6 +941,7 @@ async fn create_script_internal<'c>(
             &authed.username,
             &authed.email,
             permissioned_as,
+            authed.token_prefix.as_deref(),
             None,
             None,
             None,

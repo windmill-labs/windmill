@@ -428,6 +428,7 @@ pub async fn push_init_job<'c>(
         worker_name,
         "worker@windmill.dev",
         SUPERADMIN_SECRET_EMAIL.to_string(),
+        Some("worker_init_job"),
         None,
         None,
         None,
@@ -1212,6 +1213,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     &queued_job.created_by,
                     &queued_job.permissioned_as_email,
                     queued_job.permissioned_as.clone(),
+                    Some(&format!("add.completed.job{}", queued_job.id)),
                     scheduled_for,
                     queued_job.schedule_path(),
                     None,
@@ -1735,6 +1737,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         },
         email,
         permissioned_as,
+        Some(&format!("error.handler.{job_id}")),
         None,
         None,
         Some(job_id),
@@ -1842,6 +1845,7 @@ async fn handle_recovered_schedule<'a, 'c, T: Serialize + Send + Sync>(
         SCHEDULE_RECOVERY_HANDLER_USERNAME,
         email,
         permissioned_as,
+        Some(&format!("recovered.schedule.{job_id}")),
         None,
         None,
         Some(job_id),
@@ -1930,6 +1934,7 @@ async fn handle_successful_schedule<'a, 'c, T: Serialize + Send + Sync>(
         SCHEDULE_RECOVERY_HANDLER_USERNAME,
         email,
         permissioned_as,
+        Some(&format!("successful.schedule.recovery{job_id}")),
         None,
         None,
         Some(job_id),
@@ -2220,6 +2225,7 @@ pub async fn create_token(db: &DB, job: &MiniPulledJob, perms: Option<JobPerms>)
             &job.permissioned_as_email,
             &job.id,
             perms,
+            Some(format!("job-span-{}", job.flow_innermost_root_job.unwrap_or(job.id))),
         )
         .warn_after_seconds(5)
         .await
@@ -3257,6 +3263,7 @@ pub async fn push<'c, 'd>(
     user: &str,
     mut email: &str,
     mut permissioned_as: String,
+    token_prefix: Option<&str>,
     scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
     schedule_path: Option<String>,
     parent_job: Option<Uuid>,
@@ -4372,12 +4379,14 @@ pub async fn push<'c, 'd>(
                 email: email.to_string(),
                 username: permissioned_as.trim_start_matches("u/").to_string(),
                 username_override: Some(user.to_string()),
+                token_prefix: token_prefix.map(|s| s.to_string()),
             }
         } else {
             AuditAuthor {
                 email: email.to_string(),
                 username: user.to_string(),
                 username_override: None,
+                token_prefix: token_prefix.map(|s| s.to_string()),
             }
         };
 

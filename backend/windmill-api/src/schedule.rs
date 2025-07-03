@@ -7,10 +7,7 @@
  */
 
 use crate::{
-    db::{ApiAuthed, DB},
-    settings::{delete_global_setting, set_global_setting_internal},
-    users::maybe_refresh_folders,
-    utils::require_super_admin,
+    db::{ApiAuthed, DB}, settings::{delete_global_setting, set_global_setting_internal}, users::maybe_refresh_folders, utils::require_super_admin
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -25,11 +22,7 @@ use std::str::FromStr;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
-    db::UserDB,
-    error::{Error, JsonResult, Result},
-    schedule::Schedule,
-    utils::{not_found_if_none, paginate, Pagination, ScheduleType, StripPath},
-    worker::to_raw_value,
+    db::UserDB, error::{Error, JsonResult, Result}, schedule::Schedule, utils::{not_found_if_none, paginate, Pagination, ScheduleType, StripPath}, worker::to_raw_value
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::schedule::push_scheduled_job;

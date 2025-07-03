@@ -608,6 +608,7 @@ async fn trigger_dependents_to_recompute_dependencies(
             &created_by,
             email,
             permissioned_as.to_string(),
+            Some("trigger.dependents.to.recompute.dependencies"),
             None,
             None,
             None,
