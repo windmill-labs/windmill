@@ -56,13 +56,20 @@
 				selectedScopes.some(
 					(scope) => scope === writeScopeValue || scope.startsWith(writeScopeValue + ':')
 				)
-			newDomainFullAccessSelected.set(domain.name, Boolean(hasWriteSelected))
+			
+			const runScopes = domain.scopes.filter(scope => scope.value.includes(':run:'))
+			const hasRunScopesSelected = runScopes.length > 0 && runScopes.every(runScope => 
+				selectedScopes.some(scope => scope === runScope.value || scope.startsWith(runScope.value + ':'))
+			)
+			
+			const isDomainFullySelected = hasWriteSelected && (runScopes.length === 0 || hasRunScopesSelected)
+			newDomainFullAccessSelected.set(domain.name, Boolean(isDomainFullySelected))
 
 			for (const scope of domain.scopes) {
 				const isSelected = selectedScopes.some((selected) => {
 					if (scope.requires_resource_path && selected.startsWith(scope.value + ':')) {
 						const resourcePath = selected.substring(scope.value.length + 1)
-						const paths = resourcePath.split(',').map(p => p.trim())
+						const paths = resourcePath.split(',').map((p) => p.trim())
 						const existingPaths = newResourcePaths[scope.value] || []
 						newResourcePaths[scope.value] = [...existingPaths, ...paths]
 						return true
@@ -109,7 +116,14 @@
 					)
 			)
 
+			// Always add the write scope
 			selectedScopes = [...selectedScopes, writeScopeValue]
+			
+			// Also add any run scopes for this domain
+			const runScopes = domain.scopes.filter(scope => scope.value.includes(':run:'))
+			for (const runScope of runScopes) {
+				selectedScopes = [...selectedScopes, runScope.value]
+			}
 		} else {
 			selectedScopes = selectedScopes.filter(
 				(scope) =>
@@ -121,10 +135,7 @@
 		}
 	}
 
-	function handleIndividualScopeChange(
-		scope: ScopeDefinition,
-		checked: boolean
-	) {
+	function handleIndividualScopeChange(scope: ScopeDefinition, checked: boolean) {
 		if (scope.requires_resource_path) {
 			individualScopeSelections.set(scope.value, checked)
 			if (checked) {
@@ -165,7 +176,13 @@
 		const writeScope = getWriteScopeForDomain(domain)
 		const hasWriteSelected = writeScope && individualScopeSelections.get(writeScope)
 
-		domainFullAccessSelected.set(domain.name, hasWriteSelected || false)
+		const runScopes = domain.scopes.filter(scope => scope.value.includes(':run:'))
+		const hasRunScopesSelected = runScopes.length > 0 && runScopes.every(runScope => 
+			individualScopeSelections.get(runScope.value)
+		)
+
+		const isDomainFullySelected = hasWriteSelected && (runScopes.length === 0 || hasRunScopesSelected)
+		domainFullAccessSelected.set(domain.name, isDomainFullySelected || false)
 	}
 
 	function getSelectedScopesForDomain(domain: ScopeDomain): string[] {
@@ -173,8 +190,8 @@
 			.filter((scope) => individualScopeSelections.get(scope.value))
 			.map((scope) => {
 				const resourcePathArray = resourcePaths[scope.value]
-				return resourcePathArray && resourcePathArray.length > 0 
-					? `${scope.value}:${resourcePathArray.join(',')}` 
+				return resourcePathArray && resourcePathArray.length > 0
+					? `${scope.value}:${resourcePathArray.join(',')}`
 					: scope.value
 			})
 	}
@@ -201,36 +218,36 @@
 
 	function validateResourcePath(path: string): string | null {
 		if (!path.trim()) return 'Path cannot be empty'
-		
+
 		const trimmedPath = path.trim()
-		
+
 		if (trimmedPath === '*') return null
-		
+
 		if (trimmedPath === 'u/*' || trimmedPath === 'f/*') return null
-		
+
 		if (!trimmedPath.startsWith('u/') && !trimmedPath.startsWith('f/')) {
 			return 'Path must start with u/ or f/'
 		}
-		
+
 		const parts = trimmedPath.split('/')
 		if (parts.length !== 3) {
 			return 'Path must have exactly 3 parts: u/{user}/{resource} or f/{folder}/{resource}'
 		}
-		
+
 		if (parts[1] === '') {
 			return 'Username/folder name cannot be empty'
 		}
-		
+
 		if (parts[2] === '') {
 			return 'Resource name cannot be empty'
 		}
-		
+
 		if (parts[2] === '*') return null
-		
+
 		if (parts[2].includes('*')) {
 			return 'Wildcards can only be used as the full resource name (*)'
 		}
-		
+
 		return null
 	}
 
@@ -240,47 +257,37 @@
 			pathErrors[scopeValue] = error
 			return false
 		}
-		
+
 		delete pathErrors[scopeValue]
 		const currentPaths = resourcePaths[scopeValue] || []
-		
+
 		if (currentPaths.includes(path.trim())) {
 			pathErrors[scopeValue] = 'Path already exists'
 			return false
 		}
-		
-		if (currentPaths.length >= 10) {
-			pathErrors[scopeValue] = 'Maximum 10 paths allowed'
-			return false
-		}
-		
+
 		const newPaths = [...currentPaths, path.trim()]
 		resourcePaths[scopeValue] = newPaths
 		currentInputValues[scopeValue] = ''
-		
+
 		updateSelectedScopesForResourcePaths(scopeValue, newPaths)
 		return true
 	}
 
 	function removeResourcePath(scopeValue: string, pathToRemove: string) {
 		const currentPaths = resourcePaths[scopeValue] || []
-		const newPaths = currentPaths.filter(p => p !== pathToRemove)
+		const newPaths = currentPaths.filter((p) => p !== pathToRemove)
 		resourcePaths[scopeValue] = newPaths
 		delete pathErrors[scopeValue]
-		
-		updateSelectedScopesForResourcePaths(scopeValue, newPaths)
-	}
 
-	function editResourcePath(scopeValue: string, oldPath: string) {
-		currentInputValues[scopeValue] = oldPath
-		removeResourcePath(scopeValue, oldPath)
+		updateSelectedScopesForResourcePaths(scopeValue, newPaths)
 	}
 
 	function updateSelectedScopesForResourcePaths(scopeValue: string, paths: string[]) {
 		selectedScopes = selectedScopes.filter(
 			(s) => !s.startsWith(scopeValue + ':') && s !== scopeValue
 		)
-		
+
 		if (paths.length > 0) {
 			const scopeString = `${scopeValue}:${paths.join(',')}`
 			selectedScopes = [...selectedScopes, scopeString]
@@ -288,7 +295,7 @@
 		} else {
 			individualScopeSelections.set(scopeValue, false)
 		}
-		
+
 		updateDomainCheckboxState({ value: scopeValue } as any)
 	}
 
@@ -418,10 +425,7 @@
 												checked={isSelected}
 												{disabled}
 												onchange={(e) =>
-													handleIndividualScopeChange(
-														scope,
-														e.currentTarget.checked
-													)}
+													handleIndividualScopeChange(scope, e.currentTarget.checked)}
 												class="!w-4 !h-4"
 											/>
 
@@ -438,11 +442,8 @@
 												{/snippet}
 												{#snippet content({ close })}
 													<div class="w-80">
-														<p class="block text-xs font-medium text-secondary mb-2">
-															{scope.label} Paths ({resourcePathArray.length}/10)
-														</p>
-														
-														<!-- Add new path input -->
+														<p class="block text-xs font-medium text-secondary mb-2"> Paths </p>
+
 														<div class="mb-3">
 															<input
 																type="text"
@@ -462,37 +463,32 @@
 																class="w-full text-sm px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-surface"
 															/>
 															<p class="text-xs text-tertiary mt-1">
-																Press Enter to add • Formats: u/user/*, f/folder/*, u/user/file, f/folder/file, *
+																Press Enter to add • Formats: u/user/*, f/folder/*, u/user/file,
+																f/folder/file, *
 															</p>
 															{#if pathError}
 																<p class="text-xs text-red-600 mt-1">{pathError}</p>
 															{/if}
 														</div>
 
-														<!-- Existing paths as chips -->
 														{#if resourcePathArray.length > 0}
 															<div class="space-y-2 mb-3 max-h-32 overflow-y-auto">
 																{#each resourcePathArray as path}
-																	<div class="flex items-center justify-between bg-blue-50 px-2 py-1 rounded text-xs">
-																		<span class="font-mono text-blue-800 flex-1 truncate">{path}</span>
-																		<div class="flex gap-1 ml-2">
-																			<button
-																				type="button"
-																				onclick={() => editResourcePath(scope.value, path)}
-																				class="text-blue-600 hover:text-blue-800 p-0.5"
-																				title="Edit path"
-																			>
-																				<Pen size={12} />
-																			</button>
-																			<button
-																				type="button"
-																				onclick={() => removeResourcePath(scope.value, path)}
-																				class="text-red-600 hover:text-red-800 p-0.5"
-																				title="Remove path"
-																			>
-																				×
-																			</button>
-																		</div>
+																	<div
+																		class="flex items-center justify-between bg-blue-50 px-2 py-1 rounded text-xs"
+																	>
+																		<span class="font-mono text-blue-800 flex-1 truncate"
+																			>{path}</span
+																		>
+
+																		<button
+																			type="button"
+																			onclick={() => removeResourcePath(scope.value, path)}
+																			class="text-red-600 hover:text-red-800 p-0.5"
+																			title="Remove path"
+																		>
+																			×
+																		</button>
 																	</div>
 																{/each}
 															</div>

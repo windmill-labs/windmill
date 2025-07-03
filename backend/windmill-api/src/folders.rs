@@ -13,7 +13,7 @@ use crate::db::ApiAuthed;
 use crate::{
     auth::AuthCache,
     db::DB,
-    users::Tokened,
+    users::{check_scopes, Tokened},
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
@@ -419,6 +419,7 @@ async fn get_folder(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> JsonResult<Folder> {
+    check_scopes(&authed, || format!("folders:read:f/{}", name))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let folder = not_found_if_none(get_folderopt(&mut tx, &w_id, &name).await?, "Folder", &name)?;
@@ -457,6 +458,7 @@ async fn get_folder_usage(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> JsonResult<FolderUsage> {
+    check_scopes(&authed, || format!("folders:read:f/{}", name))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let scripts = sqlx::query_scalar!(

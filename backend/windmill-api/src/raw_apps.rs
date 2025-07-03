@@ -7,7 +7,7 @@
  */
 use crate::{
     db::{ApiAuthed, DB},
-    users::require_owner_of_path,
+    users::{check_scopes, require_owner_of_path},
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
@@ -128,6 +128,7 @@ async fn get_data(
     Path((w_id, _version, path)): Path<(String, u16, StripPath)>,
 ) -> Result<Response> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("raw_apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let app_o = sqlx::query_scalar!(
@@ -154,6 +155,7 @@ async fn create_app(
     Path(w_id): Path<String>,
     Json(app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
+    check_scopes(&authed, || format!("raw_apps:write:{}", app.path))?;
     if *CLOUD_HOSTED {
         let nb_apps = sqlx::query_scalar!(
             "SELECT COUNT(*) FROM raw_app WHERE workspace_id = $1",
@@ -233,6 +235,7 @@ async fn delete_app(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("raw_apps:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
@@ -271,6 +274,7 @@ async fn update_app(
     use sql_builder::prelude::*;
 
     let path = path.to_path();
+    check_scopes(&authed, || format!("raw_apps:write:{}", path))?;
 
     let mut tx = user_db.begin(&authed).await?;
     let mut sqlb = SqlBuilder::update_table("raw_app");
@@ -347,6 +351,7 @@ async fn exists_app(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
     let path = path.to_path();
+    // Note: exists_app doesn't require authentication, so no scope check needed
     let exists = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM raw_app WHERE path = $1 AND workspace_id = $2)",
         path,

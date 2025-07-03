@@ -9,7 +9,7 @@
 use crate::{
     db::{ApiAuthed, DB},
     settings::{delete_global_setting, set_global_setting_internal},
-    users::maybe_refresh_folders,
+    users::{check_scopes, maybe_refresh_folders},
     utils::require_super_admin,
 };
 use axum::{
@@ -135,6 +135,8 @@ async fn create_schedule(
     Path(w_id): Path<String>,
     Json(ns): Json<NewSchedule>,
 ) -> Result<String> {
+    check_scopes(&authed, || format!("schedules:write:{}", ns.path))?;
+
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
 
     #[cfg(not(feature = "enterprise"))]
@@ -301,6 +303,7 @@ async fn edit_schedule(
     Json(es): Json<EditSchedule>,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("schedules:write:{}", path))?;
 
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
     let mut tx = user_db.begin(&authed).await?;
@@ -567,6 +570,7 @@ async fn get_schedule(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Schedule> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("schedules:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let schedule_o = windmill_queue::schedule::get_schedule_opt(&mut *tx, &w_id, path).await?;
@@ -615,6 +619,7 @@ pub async fn set_enabled(
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
+    check_scopes(&authed, || format!("schedules:write:{}", path))?;
     let schedule_o = sqlx::query_as!(
         Schedule,
         r#"
@@ -752,8 +757,9 @@ async fn delete_schedule(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
+    check_scopes(&authed, || format!("schedules:write:{}", path))?;
+    let mut tx = user_db.begin(&authed).await?;
 
     clear_schedule(&mut tx, path, &w_id).await?;
     let exists = sqlx::query_scalar!(

@@ -13,7 +13,7 @@ use crate::{
     triggers::{
         get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
     },
-    users::{maybe_refresh_folders, require_owner_of_path},
+    users::{check_scopes, maybe_refresh_folders, require_owner_of_path},
     utils::WithStarredInfoQuery,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
@@ -512,6 +512,8 @@ async fn create_script_internal<'c>(
     user_db: UserDB,
     webhook: WebhookShared,
 ) -> Result<(ScriptHash, Transaction<'c, Postgres>)> {
+    check_scopes(&authed, || format!("scripts:write:{}", ns.path))?;
+
     let codebase = ns.codebase.as_ref();
     #[cfg(not(feature = "enterprise"))]
     if ns.ws_error_handler_muted.is_some_and(|val| val) {
@@ -1035,6 +1037,7 @@ async fn get_script_by_path(
     Query(query): Query<WithStarredInfoQuery>,
 ) -> JsonResult<ScriptWithStarred> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("scripts:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = if query.with_starred_info.unwrap_or(false) {
@@ -1092,6 +1095,7 @@ async fn get_script_by_path_w_draft(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<ScriptWDraft> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("scripts:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, ScriptWDraft>(
@@ -1115,6 +1119,8 @@ async fn get_script_history(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Vec<ScriptHistory>> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("scripts:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
     let query_result = sqlx::query!(
         "SELECT s.hash as hash, dm.deployment_msg as deployment_msg 
@@ -1122,7 +1128,7 @@ async fn get_script_history(
         WHERE s.workspace_id = $1 AND s.path = $2
         ORDER by s.created_at DESC",
         w_id,
-        path.to_path(),
+        path,
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -1143,6 +1149,8 @@ async fn get_latest_version(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Option<ScriptHistory>> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("scripts:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
     let row_o = sqlx::query!(
         "SELECT s.hash as hash, dm.deployment_msg as deployment_msg 
@@ -1150,7 +1158,7 @@ async fn get_latest_version(
         WHERE s.workspace_id = $1 AND s.path = $2
         ORDER by s.created_at DESC LIMIT 1",
         w_id,
-        path.to_path(),
+        path,
     )
     .fetch_optional(&mut *tx)
     .await?;
@@ -1173,11 +1181,14 @@ async fn update_script_history(
     Path((w_id, script_hash, script_path)): Path<(String, ScriptHash, StripPath)>,
     Json(script_history_update): Json<ScriptHistoryUpdate>,
 ) -> Result<()> {
+    let script_path = script_path.to_path();
+    check_scopes(&authed, || format!("scripts:write:{}", script_path))?;
+
     let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
         "INSERT INTO deployment_metadata (workspace_id, path, script_hash, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, script_hash) WHERE script_hash IS NOT NULL DO UPDATE SET deployment_msg = $4",
         w_id,
-        script_path.to_path(),
+        script_path,
         script_hash.0,
         script_history_update.deployment_msg,
     )
@@ -1326,6 +1337,7 @@ async fn raw_script_by_path_internal(
     unpin: bool,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("scripts:read:{}", path))?;
     if !path.ends_with(".py")
         && !path.ends_with(".ts")
         && !path.ends_with(".go")
@@ -1475,6 +1487,9 @@ async fn get_script_by_hash(
         }),
     )
     .await?;
+
+    check_scopes(&authed, || format!("scripts:read:{}", &r.script.path))?;
+
     tx.commit().await?;
 
     Ok(Json(r))
@@ -1539,6 +1554,7 @@ async fn archive_script_by_path(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<()> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("scripts:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     require_owner_of_path(&authed, path)?;
@@ -1602,6 +1618,8 @@ async fn archive_script_by_hash(
     .await
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
 
+    check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
+
     audit_log(
         &mut *tx,
         &authed,
@@ -1642,6 +1660,8 @@ async fn delete_script_by_hash(
     .await
     .map_err(|e| Error::internal_err(format!("deleting script by hash {w_id}: {e:#}")))?;
 
+    check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
+
     audit_log(
         &mut *tx,
         &authed,
@@ -1676,6 +1696,7 @@ async fn delete_script_by_path(
     Query(query): Query<DeleteScriptQuery>,
 ) -> JsonResult<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("scripts:write:{}", path))?;
 
     if path == "u/admin/hub_sync" && w_id == "admins" {
         return Err(Error::BadRequest(

@@ -6,6 +6,7 @@ use std::collections::{
 use crate::{
     db::{ApiAuthed, DB},
     postgres_triggers::mapper::{Mapper, MappingInfo},
+    users::check_scopes,
 };
 use axum::{
     extract::{Path, Query},
@@ -360,6 +361,8 @@ pub async fn create_postgres_trigger(
     Path(w_id): Path<String>,
     Json(new_postgres_trigger): Json<NewPostgresTrigger>,
 ) -> Result<(StatusCode, String)> {
+    check_scopes(&authed, || format!("postgres_triggers:write:{}", new_postgres_trigger.path))?;
+
     if *CLOUD_HOSTED {
         return Err(error::Error::BadRequest(
             "Postgres triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host".to_string(),
@@ -1122,8 +1125,9 @@ pub async fn get_postgres_trigger(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<PostgresTrigger> {
-    let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
+    check_scopes(&authed, || format!("postgres_triggers:read:{}", path))?;
+    let mut tx = user_db.begin(&authed).await?;
     let trigger = sqlx::query_as!(
         PostgresTrigger,
         r#"
@@ -1168,7 +1172,8 @@ pub async fn update_postgres_trigger(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(postgres_trigger): Json<EditPostgresTrigger>,
 ) -> Result<String> {
-    let workspace_path = path.to_path();
+    let path = path.to_path();
+    check_scopes(&authed, || format!("postgres_triggers:write:{}", path))?;
 
     let EditPostgresTrigger {
         replication_slot_name,
@@ -1253,7 +1258,7 @@ pub async fn update_postgres_trigger(
         replication_slot_name,
         publication_name,
         w_id,
-        workspace_path,
+        path,
     )
     .execute(&mut *tx)
     .await?;
@@ -1282,7 +1287,7 @@ pub async fn update_postgres_trigger(
     )
     .await?;
 
-    Ok(workspace_path.to_string())
+    Ok(path.to_string())
 }
 
 pub async fn delete_postgres_trigger(
@@ -1292,6 +1297,7 @@ pub async fn delete_postgres_trigger(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("postgres_triggers:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
         r#"
@@ -1363,8 +1369,9 @@ pub async fn set_enabled(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<SetEnabled>,
 ) -> Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
+    check_scopes(&authed, || format!("postgres_triggers:write:{}", path))?;
+    let mut tx = user_db.begin(&authed).await?;
 
     // important to set server_id, last_server_ping and error to NULL to stop current postgres listener
     let one_o = sqlx::query_scalar!(

@@ -11,7 +11,7 @@ use std::{collections::HashMap, sync::Arc};
 use crate::{
     db::{ApiAuthed, DB},
     resources::get_resource_value_interpolated_internal,
-    users::{require_owner_of_path, OptAuthed},
+    users::{check_scopes, require_owner_of_path, OptAuthed},
     utils::WithStarredInfoQuery,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
@@ -442,6 +442,7 @@ async fn get_app(
     Query(query): Query<WithStarredInfoQuery>,
 ) -> JsonResult<AppWithLastVersionAndStarred> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let app_o = if query.with_starred_info.unwrap_or(false) {
@@ -489,6 +490,7 @@ async fn get_app_lite(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<AppWithLastVersion> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
@@ -516,6 +518,7 @@ async fn get_app_w_draft(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<AppWithLastVersionAndDraft> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let app_o = sqlx::query_as::<_, AppWithLastVersionAndDraft>(
@@ -545,6 +548,8 @@ async fn get_app_history(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Vec<AppHistory>> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", &path))?;
     let mut tx = user_db.begin(&authed).await?;
     let query_result = sqlx::query!(
         "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg
@@ -552,7 +557,7 @@ async fn get_app_history(
         WHERE a.workspace_id = $1 AND a.path = $2
         ORDER BY created_at DESC",
         w_id,
-        path.to_path(),
+        path,
     ).fetch_all(&mut *tx).await?;
     tx.commit().await?;
 
@@ -572,6 +577,8 @@ async fn get_latest_version(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Option<AppHistory>> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
     let row = sqlx::query!(
         "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg
@@ -579,7 +586,7 @@ async fn get_latest_version(
         WHERE a.workspace_id = $1 AND a.path = $2
         ORDER BY created_at DESC",
         w_id,
-        path.to_path(),
+        path,
     ).fetch_optional(&mut *tx).await?;
     tx.commit().await?;
 
@@ -607,17 +614,19 @@ async fn update_app_history(
         .fetch_optional(&mut *tx)
         .await?;
 
-    if app_path.is_none() {
+    let Some(app_path) = app_path else {
         tx.commit().await?;
         return Err(Error::NotFound(
             format!("App with ID {app_id} not found").to_string(),
         ));
-    }
+    };
+
+    check_scopes(&authed, || format!("apps:write:{}", &app_path))?;
 
     sqlx::query!(
         "INSERT INTO deployment_metadata (workspace_id, path, app_version, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path, app_version) WHERE app_version IS NOT NULL DO UPDATE SET deployment_msg = $4",
         w_id,
-        app_path.unwrap(),
+        app_path,
         app_version,
         app_history_update.deployment_msg,
     )
@@ -662,6 +671,9 @@ async fn get_app_by_id(
     tx.commit().await?;
 
     let app = not_found_if_none(app_o, "App", id.to_string())?;
+
+    check_scopes(&authed, || format!("apps:read:{}", &app.path))?;
+
     Ok(Json(app))
 }
 
@@ -754,6 +766,7 @@ async fn get_secret_id(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let id_o = sqlx::query_scalar!(
@@ -859,6 +872,8 @@ async fn create_app_raw<'a>(
     )
     .await?;
 
+    check_scopes(&authed, || format!("apps:write:{}", path))?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::CreateApp { workspace: w_id, path: path.clone() },
@@ -897,6 +912,8 @@ async fn create_app(
     Json(app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
     let path = app.path.clone();
+    check_scopes(&authed, || format!("apps:write:{}", &path))?;
+
     let (new_tx, _path, _id) = create_app_internal(authed, db, user_db, &w_id, false, app).await?;
 
     new_tx.commit().await?;
@@ -1098,6 +1115,7 @@ async fn delete_app(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("apps:write:{}", path))?;
 
     if path == "g/all/setup_app" && w_id == "admins" {
         return Err(Error::BadRequest(
@@ -1181,6 +1199,7 @@ async fn update_app(
 ) -> Result<String> {
     // create_app_internal(authed, user_db, db, &w_id, &mut app).await?;
     let path = path.to_path();
+    check_scopes(&authed, || format!("apps:write:{}", path))?;
     let opath = path.to_string();
     let (new_tx, npath, _v_id) =
         update_app_internal(authed, db, user_db, &w_id, path, false, ns).await?;
@@ -1207,6 +1226,7 @@ async fn update_app_raw<'a>(
     multipart: Multipart,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("apps:write:{}", path))?;
     let opath = path.to_string();
     let (npath, _id) = process_app_multipart!(
         authed,
@@ -1636,6 +1656,7 @@ async fn execute_component(
     // Execution is publisher and an user is authenticated: check if the user is authorized to
     // execute the app.
     if let (ExecutionMode::Publisher, Some(authed)) = (policy.execution_mode, opt_authed.as_ref()) {
+        check_scopes(authed, || format!("apps:write:{}", path))?;
         lazy_static! {
             /// Cache for the permit to execute an app component.
             static ref PERMIT_CACHE: cache::Cache<[u8; 32], bool> = cache::Cache::new(1000);
@@ -1930,6 +1951,10 @@ async fn upload_s3_file_from_app(
             Some(username.clone()),
         )
         .await?;
+
+        check_scopes(&on_behalf_authed, || {
+            format!("apps:write:{}", path.to_path())
+        })?;
 
         if let Some(file_key) = query.file_key {
             // file key is provided => requires workspace, user or list policy and must match the regex
@@ -2347,6 +2372,10 @@ async fn download_s3_file_from_app(
         get_on_behalf_authed_from_app(&db, &path, &w_id, &opt_authed, force_viewer_allowed_s3_keys)
             .await?;
 
+    if let Some(ref authed) = on_behalf_authed {
+        check_scopes(authed, || format!("apps:read:{}", path))?;
+    }
+
     check_if_allowed_to_access_s3_file_from_app(
         &db,
         &opt_authed,
@@ -2412,10 +2441,9 @@ async fn exists_app(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
-    let path = path.to_path();
     let exists = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)",
-        path,
+        path.to_path(),
         w_id
     )
     .fetch_one(&db)

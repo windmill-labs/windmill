@@ -8,7 +8,7 @@
 
 use crate::{
     db::{ApiAuthed, DB},
-    users::{maybe_refresh_folders, require_owner_of_path},
+    users::{check_scopes, maybe_refresh_folders, require_owner_of_path},
     webhook_util::{WebhookMessage, WebhookShared},
 };
 
@@ -140,6 +140,7 @@ async fn get_variable(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<ListableVariable> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("variables:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let variable_o = sqlx::query_as::<_, ListableVariable>(
@@ -224,6 +225,7 @@ async fn get_value(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("variables:read:{}", path))?;
     let tx = user_db.begin(&authed).await?;
     return get_value_internal(tx, &db, &w_id, &path, &authed)
         .await
@@ -314,6 +316,7 @@ async fn create_variable(
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(variable): Json<CreateVariable>,
 ) -> Result<(StatusCode, String)> {
+    check_scopes(&authed, || format!("variables:write:{}", variable.path))?;
     if *CLOUD_HOSTED {
         let nb_variables = sqlx::query_scalar!(
             "SELECT COUNT(*) FROM variable WHERE workspace_id = $1",
@@ -410,6 +413,7 @@ async fn delete_variable(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("variables:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
@@ -484,6 +488,7 @@ async fn update_variable(
     use sql_builder::prelude::*;
 
     let path = path.to_path();
+    check_scopes(&authed, || format!("variables:write:{}", path))?;
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
 
     let mut sqlb = SqlBuilder::update_table("variable");
