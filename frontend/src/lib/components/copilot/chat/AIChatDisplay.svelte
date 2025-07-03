@@ -50,6 +50,7 @@
 	} = $props()
 
 	let aiChatInput: AIChatInput | undefined = $state()
+	let editingMessageIndex = $state<number | null>(null)
 
 	let scrollEl: HTMLDivElement | undefined = $state()
 	async function scrollDown() {
@@ -159,7 +160,13 @@
 		>
 			<div class="flex flex-col" bind:clientHeight={height}>
 				{#each messages as message, messageIndex}
-					<AIChatMessage {message} {messageIndex} {availableContext} bind:selectedContext />
+					<AIChatMessage
+						{message}
+						{messageIndex}
+						{availableContext}
+						bind:selectedContext
+						bind:editingMessageIndex
+					/>
 				{/each}
 				{#if aiChatManager.loading && !aiChatManager.currentReply}
 					<div class="mb-6 py-1 px-2">

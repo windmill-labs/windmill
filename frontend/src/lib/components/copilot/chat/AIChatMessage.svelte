@@ -14,13 +14,21 @@
 		selectedContext: ContextElement[]
 		message: DisplayMessage
 		messageIndex: number
+		editingMessageIndex: number | null
 	}
 
-	let { message, messageIndex, availableContext, selectedContext = $bindable() }: Props = $props()
+	let {
+		message,
+		messageIndex,
+		availableContext,
+		selectedContext = $bindable(),
+		editingMessageIndex = $bindable(null)
+	}: Props = $props()
 
-	let editingMessageIndex = $state<number | null>(null)
-
-	function startEditMessage(messageIndex: number) {
+	function editMessage() {
+		if (message.role !== 'user' || editingMessageIndex !== null || aiChatManager.loading) {
+			return
+		}
 		editingMessageIndex = messageIndex
 	}
 </script>
@@ -33,7 +41,7 @@
 	)}
 	role="button"
 	tabindex="0"
-	onclick={() => (message.role === 'user' ? startEditMessage(messageIndex) : null)}
+	onclick={() => editMessage()}
 	onkeydown={() => {}}
 >
 	{#if message.role === 'user' && message.contextElements && editingMessageIndex !== messageIndex}
@@ -48,7 +56,8 @@
 			{availableContext}
 			bind:selectedContext
 			initialInstructions={message.content}
-			bind:editingMessageIndex
+			{editingMessageIndex}
+			onEditEnd={() => (editingMessageIndex = null)}
 		/>
 	{:else}
 		<div
@@ -57,8 +66,7 @@
 				message.role === 'user' &&
 					'px-2 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 rounded-lg relative group',
 				(message.role === 'assistant' || message.role === 'tool') && 'px-[1px]',
-				message.role === 'tool' && 'text-tertiary',
-				editingMessageIndex !== null && 'opacity-50'
+				message.role === 'tool' && 'text-tertiary'
 			)}
 		>
 			{#if message.role === 'assistant'}

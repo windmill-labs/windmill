@@ -7,21 +7,6 @@
 	import type { ContextElement } from './context'
 	import { aiChatManager } from './AIChatManager.svelte'
 
-	function clickOutside(node: HTMLElement) {
-		function handleClick(event: MouseEvent) {
-			if (node && !node.contains(event.target as Node) && editingMessageIndex !== null) {
-				editingMessageIndex = null
-			}
-		}
-
-		document.addEventListener('click', handleClick, true)
-		return {
-			destroy() {
-				document.removeEventListener('click', handleClick, true)
-			}
-		}
-	}
-
 	interface Props {
 		availableContext: ContextElement[]
 		selectedContext: ContextElement[]
@@ -30,6 +15,7 @@
 		placeholder?: string
 		initialInstructions?: string
 		editingMessageIndex?: number | null
+		onEditEnd?: () => void
 	}
 
 	let {
@@ -39,7 +25,8 @@
 		isFirstMessage = false,
 		placeholder = 'Ask anything',
 		initialInstructions = '',
-		editingMessageIndex = $bindable(null)
+		editingMessageIndex = null,
+		onEditEnd = () => {}
 	}: Props = $props()
 
 	let contextTextareaComponent: ContextTextarea | undefined = $state()
@@ -51,6 +38,21 @@
 			contextTextareaComponent?.focus()
 		} else {
 			instructionsTextareaComponent?.focus()
+		}
+	}
+
+	function clickOutside(node: HTMLElement) {
+		function handleClick(event: MouseEvent) {
+			if (node && !node.contains(event.target as Node) && editingMessageIndex !== null) {
+				onEditEnd()
+			}
+		}
+
+		document.addEventListener('click', handleClick, true)
+		return {
+			destroy() {
+				document.removeEventListener('click', handleClick, true)
+			}
 		}
 	}
 
@@ -75,7 +77,7 @@
 		}
 		if (editingMessageIndex !== null) {
 			aiChatManager.restartGeneration(editingMessageIndex, instructions)
-			editingMessageIndex = null
+			onEditEnd()
 		} else {
 			aiChatManager.sendRequest({ instructions })
 			instructions = ''
@@ -134,9 +136,7 @@
 				sendRequest()
 			}}
 			{disabled}
-			onEscape={() => {
-				editingMessageIndex = null
-			}}
+			onEscape={onEditEnd}
 		/>
 	{:else}
 		<div class="relative w-full px-2 scroll-pb-2 pt-2">
@@ -149,7 +149,7 @@
 						e.preventDefault()
 						sendRequest()
 					} else if (e.key === 'Escape') {
-						editingMessageIndex = null
+						onEditEnd()
 					}
 				}}
 				rows={3}
