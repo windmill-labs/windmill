@@ -33,7 +33,8 @@
 		Plus,
 		Unplug,
 		AlertCircle,
-		Database
+		Database,
+		Pyramid
 	} from 'lucide-svelte'
 	import UserMenu from './UserMenu.svelte'
 	import DiscordIcon from '../icons/brands/Discord.svelte'
@@ -178,6 +179,14 @@
 			disabled: $userStore?.operator,
 			aiId: 'sidebar-menu-link-resources',
 			aiDescription: 'Button to navigate to resources'
+		},
+		{
+			label: 'Assets',
+			href: `${base}/assets`,
+			icon: Pyramid,
+			disabled: $userStore?.operator,
+			aiId: 'sidebar-menu-link-assets',
+			aiDescription: 'Button to navigate to assets'
 		}
 	])
 	let defaultExtraTriggerLinks = $derived([

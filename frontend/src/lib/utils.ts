@@ -1433,4 +1433,46 @@ export function scroll_into_view_if_needed_polyfill(elem: Element, centerIfNeede
 	return observer // return for testing
 }
 
+export function clone<T>(t: T): T {
+	if (typeof t === 'function') throw new Error('Cannot clone a function')
+	if (typeof t === 'object') return stateSnapshot(t) as T
+	return t
+}
+
 export const editorPositionMap: Record<string, IPosition> = {}
+
+export type S3Uri = `s3://${string}/${string}`
+export type S3Object =
+	| S3Uri
+	| {
+			s3: string
+			storage?: string
+	  }
+
+export function parseS3Object(s3Object: S3Object): { s3: string; storage?: string } {
+	if (typeof s3Object === 'object') return s3Object
+	const match = s3Object.match(/^s3:\/\/([^/]*)\/(.*)$/)
+	return { storage: match?.[1] || undefined, s3: match?.[2] ?? '' }
+}
+
+export function formatS3Object(s3Object: S3Object): S3Uri {
+	if (typeof s3Object === 'object') return `s3://${s3Object.storage ?? ''}/${s3Object.s3}`
+	return s3Object
+}
+
+export function isS3Uri(uri: string): uri is S3Uri {
+	const match = uri.match(/^s3:\/\/([^/]*)\/(.*)$/)
+	return !!match && match.length === 3
+}
+
+export function transpose<T>(matrix: T[][]): T[][] {
+	const maxW = Math.max(...matrix.map((row) => row.length))
+	const maxH = matrix.length
+	const transposed: T[][] = Array.from({ length: maxW }, () => Array(maxH).fill(undefined))
+	for (let i = 0; i < maxH; i++) {
+		for (let j = 0; j < matrix[i].length; j++) {
+			transposed[j][i] = matrix[i][j]
+		}
+	}
+	return transposed
+}

@@ -12942,6 +12942,89 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/assets/list:
+    get:
+      summary: List all assets in the workspace
+      operationId: listAssets
+      tags:
+      - asset
+      parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: all assets in the workspace
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [path, kind, usages]
+                  properties:
+                    path:
+                      type: string
+                    kind:
+                      $ref: '#/components/schemas/AssetKind'
+                    usages:
+                      type: array
+                      items:
+                        type: object
+                        required: [path, kind]
+                        properties:
+                          path:
+                            type: string
+                          kind:
+                            $ref: '#/components/schemas/AssetUsageKind'
+                          access_type:
+                            $ref: '#/components/schemas/AssetUsageAccessType'
+
+  /w/{workspace}/assets/list_by_usages:
+    post:
+      summary: List all assets used by given usages paths
+      operationId: listAssetsByUsage
+      tags:
+      - asset
+      parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        description: list assets by usages
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [usages]
+              properties:
+                usages:
+                  type: array
+                  items:
+                    type: object
+                    required: [path, kind]
+                    properties:
+                      path:
+                        type: string
+                      kind:
+                        $ref: '#/components/schemas/AssetUsageKind'
+      responses:
+        '200':
+          description: all assets used by the given usage paths, in the same order
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required: [path, kind]
+                    properties:
+                      path:
+                        type: string
+                      kind:
+                        $ref: '#/components/schemas/AssetKind'
+                      access_type:
+                        $ref: '#/components/schemas/AssetUsageAccessType'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -17168,3 +17251,27 @@ components:
           type: string
           description: Microsoft Teams channel name
           minLength: 1
+    AssetUsageKind:
+      type: string
+      enum:
+      - script
+      - flow
+    AssetUsageAccessType:
+      type: string
+      enum:
+      - r
+      - w
+      - rw
+    AssetKind:
+      type: string
+      enum:
+      - s3object
+      - resource
+    Asset:
+      type: object
+      properties:
+        path:
+          type: string
+        kind:
+          $ref: '#/components/schemas/AssetKind'
+      required: [path, kind]

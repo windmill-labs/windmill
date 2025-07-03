@@ -4,7 +4,7 @@
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import { sendUserToast, sortArray } from '$lib/utils'
-	import { ArrowLeft, Database, Expand, Loader2, Minimize, RefreshCcw } from 'lucide-svelte'
+	import { ArrowLeft, Expand, Loader2, Minimize, RefreshCcw } from 'lucide-svelte'
 	import {
 		dbSupportsSchemas,
 		getDbSchemas,
@@ -15,7 +15,6 @@
 		type TableMetadata
 	} from './apps/components/display/dbtable/utils'
 	import DbManager from './DBManager.svelte'
-	import { Alert } from './common'
 	import { dbDeleteTableActionWithPreviewScript, dbTableOpsWithPreviewScripts } from './dbOps'
 	import { makeCreateTableQuery } from './apps/components/display/dbtable/queries/createTable'
 	import { runScriptAndPollResult } from './jobs/utils'
@@ -24,22 +23,24 @@
 	import SimpleAgTable from './SimpleAgTable.svelte'
 	import { untrack } from 'svelte'
 
-	type Props = {
-		resourceType: DbType
-		resourcePath: string
-		class?: string
+	let resourceType: DbType | undefined = $state(undefined)
+	let resourcePath: string | undefined = $state(undefined)
+	let open = $derived(resourcePath && resourceType)
+
+	export function openDrawer(_resourceType: DbType, _resourcePath: string) {
+		resourceType = _resourceType
+		resourcePath = _resourcePath
+		getSchema()
+	}
+	export function closeDrawer() {
+		resourceType = undefined
+		resourcePath = undefined
+		refreshCount = 0
+		refreshing = false
 	}
 
-	let { resourceType, resourcePath }: Props = $props()
-
 	let dbSchema: DBSchema | undefined = $derived(
-		resourcePath in $dbSchemas ? $dbSchemas[resourcePath] : undefined
-	)
-
-	let isDrawerOpen: boolean = $state(false)
-
-	let shouldDisplayError = $derived(
-		resourcePath && resourcePath in $dbSchemas && !$dbSchemas[resourcePath]
+		resourcePath && resourcePath in $dbSchemas ? $dbSchemas[resourcePath] : undefined
 	)
 
 	// `refreshCount` is a derived state. `refreshing` is the source of truth
@@ -56,11 +57,11 @@
 
 	let expand = $state(false)
 	$effect(() => {
-		if (!isDrawerOpen) expand = false
+		if (!open) expand = false
 	})
 
 	async function getSchema() {
-		if ($dbSchemas[resourcePath] && !refreshing) return
+		if (!resourcePath || !resourceType || ($dbSchemas[resourcePath] && !refreshing)) return
 		try {
 			const oldDbSchema = $dbSchemas[resourcePath]
 			await getDbSchemas(
@@ -69,9 +70,7 @@
 				$workspaceStore,
 				$dbSchemas,
 				(message: string) => {
-					if (isDrawerOpen) {
-						sendUserToast(message, true)
-					}
+					if (open) sendUserToast(message, true)
 				}
 			)
 			// avoid infinite loop on error due to the way getDbSchemas is implemented
@@ -95,6 +94,8 @@
 	let cachedLastRefreshCount = 0
 
 	async function getColDefs(tableKey: string) {
+		if (!resourcePath || !resourceType) return []
+
 		if (cachedLastRefreshCount !== refreshCount) cachedColDefs = {}
 		cachedLastRefreshCount = refreshCount
 		if (cachedColDefs[tableKey]) {
@@ -130,37 +131,26 @@
 	}}
 />
 
-{#if shouldDisplayError}
-	<Alert type="error" size="xs" title="Schema not available" class="mt-2">
-		Schema could not be loaded. Please check the permissions of the resource.
-	</Alert>
-{:else}
-	<Button
-		size="xs"
-		variant="border"
-		spacingSize="xs2"
-		btnClasses="mt-1 w-24"
-		on:click={async () => {
-			if (!dbSchema || !$workspaceStore) refreshing = true
-			isDrawerOpen = true
-		}}
-	>
-		<Database size={18} /> Manager
-	</Button>
-	<Drawer bind:open={isDrawerOpen} size={expand ? `${windowWidth}px` : '1200px'} preventEscape>
+<Drawer
+	bind:open
+	size={expand ? `${windowWidth}px` : '1200px'}
+	preventEscape
+	on:close={closeDrawer}
+>
+	{#key [resourceType, resourcePath, dbSchema]}
 		<DrawerContent
 			title={replResultData ? 'Query Result' : 'Database Manager'}
 			on:close={() => {
 				if (replResultData) {
 					replResultData = undefined
 				} else {
-					isDrawerOpen = false
+					closeDrawer()
 				}
 			}}
 			CloseIcon={replResultData ? ArrowLeft : undefined}
 			noPadding
 		>
-			{#if dbSchema && $workspaceStore}
+			{#if dbSchema && $workspaceStore && resourceType && resourcePath}
 				<Splitpanes horizontal>
 					<Pane class="relative">
 						<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -191,8 +181,8 @@
 								dbTableOpsWithPreviewScripts({
 									colDefs,
 									tableKey,
-									resourcePath,
-									resourceType,
+									resourcePath: resourcePath!,
+									resourceType: resourceType!,
 									workspace: $workspaceStore
 								})}
 							dbTableActionsFactory={[
@@ -204,16 +194,16 @@
 							]}
 							{refresh}
 							dbTableEditorPropsFactory={({ selectedSchemaKey }) => ({
-								resourceType,
+								resourceType: resourceType!,
 								previewSql: (values) =>
-									makeCreateTableQuery(values, resourceType, selectedSchemaKey),
+									makeCreateTableQuery(values, resourceType!, selectedSchemaKey),
 								async onConfirm(values) {
 									await runScriptAndPollResult({
 										workspace: $workspaceStore,
 										requestBody: {
 											args: { database: '$res:' + resourcePath },
-											content: makeCreateTableQuery(values, resourceType, selectedSchemaKey),
-											language: getLanguageByResourceType(resourceType)
+											content: makeCreateTableQuery(values, resourceType!, selectedSchemaKey),
+											language: getLanguageByResourceType(resourceType!)
 										}
 									})
 									refresh()
@@ -268,5 +258,5 @@
 				/>
 			{/snippet}
 		</DrawerContent>
-	</Drawer>
-{/if}
+	{/key}
+</Drawer>

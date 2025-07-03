@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { FlowService, type FlowModule } from '../../gen'
+	import {
+		AssetService,
+		FlowService,
+		ResourceService,
+		type AssetUsageKind,
+		type FlowModule
+	} from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
 	import { getContext, onDestroy, setContext, tick, untrack } from 'svelte'
 
@@ -17,6 +23,7 @@
 	import {
 		graphBuilder,
 		isTriggerStep,
+		type AssetN,
 		type InlineScript,
 		type InsertKind,
 		type NodeLayout,
@@ -36,7 +43,7 @@
 	import { Expand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
-	import { encodeState } from '$lib/utils'
+	import { clone, encodeState, readFieldsRecursively } from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
 	import HiddenBaseEdge from './renderers/edges/HiddenBaseEdge.svelte'
@@ -50,6 +57,23 @@
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
 	import { deepEqual } from 'fast-equals'
 	import ViewportResizer from './ViewportResizer.svelte'
+	import AssetNode from './renderers/nodes/AssetNode.svelte'
+	import type { FlowGraphAssetContext } from '../flows/types'
+	import { getAllModules } from '../flows/flowExplorer'
+	import { inferAssets } from '$lib/infer'
+	import OnChange from '../common/OnChange.svelte'
+	import S3FilePicker from '../S3FilePicker.svelte'
+	import DbManagerDrawer from '../DBManagerDrawer.svelte'
+	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
+	import {
+		assetDisplaysAsInputInFlowGraph,
+		assetDisplaysAsOutputInFlowGraph,
+		NODE_WITH_READ_ASSET_Y_OFFSET,
+		NODE_WITH_WRITE_ASSET_Y_OFFSET,
+		READ_ASSET_Y_OFFSET,
+		WRITE_ASSET_Y_OFFSET
+	} from '../flows/utils'
+	import { assetEq, formatAsset } from '../assets/lib'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -163,6 +187,64 @@
 		})
 	}
 
+	const flowGraphAssetsCtx: FlowGraphAssetContext = $state({
+		val: {
+			assetsMap: {},
+			selectedAsset: undefined,
+			dbManagerDrawer: undefined,
+			s3FilePicker: undefined,
+			resourceEditorDrawer: undefined,
+			resourceMetadataCache: {}
+		}
+	})
+	setContext<FlowGraphAssetContext>('FlowGraphAssetContext', flowGraphAssetsCtx)
+	const assetsMap = $derived(flowGraphAssetsCtx.val.assetsMap)
+
+	// Fetch resource metadata for the ExploreAssetButton
+	const resMetadataCache = $derived(flowGraphAssetsCtx.val.resourceMetadataCache)
+	$effect(() => {
+		for (const asset of Object.values(assetsMap ?? []).flatMap((x) => x)) {
+			if (asset.kind !== 'resource' || asset.path in resMetadataCache) continue
+			resMetadataCache[asset.path] = undefined // avoid fetching multiple times because of async
+			ResourceService.getResource({ path: asset.path, workspace: $workspaceStore! }).then(
+				(r) => (resMetadataCache[asset.path] = { resource_type: r.resource_type })
+			)
+		}
+	})
+
+	// Fetch transitive assets (path scripts and flows)
+	$effect(() => {
+		if (!$workspaceStore) return
+		let usages: { path: string; kind: AssetUsageKind }[] = []
+		let modIds: string[] = []
+		for (const mod of getAllModules(modules)) {
+			if (mod.id in assetsMap) continue
+			assetsMap[mod.id] = [] // avoid fetching multiple times because of async
+			if (mod.value.type === 'flow' || mod.value.type === 'script') {
+				usages.push({ path: mod.value.path, kind: mod.value.type })
+				modIds.push(mod.id)
+			}
+		}
+		if (usages.length) {
+			AssetService.listAssetsByUsage({
+				workspace: $workspaceStore,
+				requestBody: { usages }
+			}).then((result) => {
+				result.forEach((assets, idx) => {
+					assetsMap[modIds[idx]] = assets
+				})
+			})
+		}
+	})
+
+	// Prune assetsMap to only contain assets that are actually used
+	$effect(() => {
+		const allModules = new Set(getAllModules(modules).map((mod) => mod.id))
+		for (const modId in assetsMap) {
+			if (!allModules.has(modId)) delete assetsMap[modId]
+		}
+	})
+
 	function computeSimplifiableFlow(modules: FlowModule[], simplifiedFlow: boolean) {
 		const isSimplif = isSimplifiable(modules)
 		simplifiableFlow = isSimplif ? { simplifiedFlow } : undefined
@@ -184,7 +266,7 @@
 	let lastNodes: [NodeLayout[], Node[]] | undefined = undefined
 	function layoutNodes(nodes: NodeLayout[]): Node[] {
 		let lastResult = lastNodes?.[1]
-		if (lastResult && deepEqual(nodes, lastNodes?.[0])) {
+		if (lastResult && nodes === lastNodes?.[0]) {
 			return lastResult
 		}
 		let seenId: string[] = []
@@ -255,6 +337,122 @@
 
 		lastNodes = [nodes, newNodes]
 		return newNodes
+	}
+
+	let computeAssetNodesCache:
+		| [Node[], typeof assetsMap, ReturnType<typeof computeAssetNodes>]
+		| undefined
+	function computeAssetNodes(nodes: Node[], edges: Edge[]): [Node[], Edge[]] {
+		if (nodes === computeAssetNodesCache?.[0] && deepEqual(assetsMap, computeAssetNodesCache?.[1]))
+			return computeAssetNodesCache[2]
+
+		const ASSET_X_GAP = 20
+		const ASSET_WIDTH = 180
+
+		const allAssetNodes: (Node & AssetN)[] = []
+		const allAssetEdges: Edge[] = []
+
+		const yPosMap: Record<number, { r?: true; w?: true }> = {}
+
+		for (const node of nodes) {
+			const assets = assetsMap?.[node.id]
+			let [inputAssetIdx, outputAssetIdx] = [-1, -1]
+			let [inputAssetCount, outputAssetCount] = [
+				assets?.filter(assetDisplaysAsInputInFlowGraph).length ?? 0,
+				assets?.filter(assetDisplaysAsOutputInFlowGraph).length ?? 0
+			]
+
+			if (inputAssetCount || outputAssetCount)
+				yPosMap[node.position.y] = yPosMap[node.position.y] ?? {}
+			if (inputAssetCount) yPosMap[node.position.y].r = true
+			if (outputAssetCount) yPosMap[node.position.y].w = true
+
+			const assetNodes: (Node & AssetN)[] | undefined = assets?.flatMap((asset) => {
+				const displayAsInput = assetDisplaysAsInputInFlowGraph(asset)
+				const displayAsOutput = assetDisplaysAsOutputInFlowGraph(asset)
+				if (displayAsInput) inputAssetIdx++
+				if (displayAsOutput) outputAssetIdx++
+
+				const base = { type: 'asset' as const, parentId: node.id, width: ASSET_WIDTH }
+				return [
+					...(displayAsInput
+						? [
+								{
+									...base,
+									data: { asset, displayedAs: 'input' as const },
+									id: `${node.id}-asset-in-${formatAsset(asset)}`,
+									position: {
+										x:
+											(ASSET_WIDTH + ASSET_X_GAP) * (inputAssetIdx - inputAssetCount / 2) +
+											(NODE.width + ASSET_X_GAP) / 2,
+										y: READ_ASSET_Y_OFFSET
+									}
+								}
+							]
+						: []),
+					...(displayAsOutput
+						? [
+								{
+									...base,
+									data: { asset, displayedAs: 'output' as const },
+									id: `${node.id}-asset-out-${formatAsset(asset)}`,
+									position: {
+										x:
+											(ASSET_WIDTH + ASSET_X_GAP) * (outputAssetIdx - outputAssetCount / 2) +
+											(NODE.width + ASSET_X_GAP) / 2,
+										y: WRITE_ASSET_Y_OFFSET
+									}
+								}
+							]
+						: [])
+				]
+			})
+
+			const assetEdges = assetNodes?.map((n) => {
+				const source = (n.data.displayedAs === 'output' ? n.parentId : n.id) ?? ''
+				const target = (n.data.displayedAs === 'output' ? n.id : n.parentId) ?? ''
+				return {
+					id: `${n.id}-edge`,
+					source,
+					target,
+					type: 'empty',
+					data: {
+						insertable: false,
+						sourceId: source,
+						targetId: target,
+						moving: moving,
+						eventHandlers: eventHandler,
+						index: 0,
+						enableTrigger: false,
+						disableAi: disableAi,
+						disableMoveIds: []
+					}
+				} satisfies Edge
+			})
+
+			allAssetEdges.push(...(assetEdges ?? []))
+			allAssetNodes.push(...(assetNodes ?? []))
+		}
+
+		// Shift all nodes to make space for the new asset nodes
+		const sortedNewNodes = clone(nodes.sort((a, b) => a.position.y - b.position.y))
+		let currentYOffset = 0
+		let prevYPos = NaN
+		for (const node of sortedNewNodes) {
+			if (node.position.y !== prevYPos) {
+				if (yPosMap[prevYPos]?.w) currentYOffset += NODE_WITH_WRITE_ASSET_Y_OFFSET
+				if (yPosMap[node.position.y]?.r) currentYOffset += NODE_WITH_READ_ASSET_Y_OFFSET
+				prevYPos = node.position.y
+			}
+			node.position.y += currentYOffset
+		}
+
+		let ret: ReturnType<typeof computeAssetNodes> = [
+			[...sortedNewNodes, ...allAssetNodes],
+			[...edges, ...allAssetEdges]
+		]
+		computeAssetNodesCache = [nodes, clone(assetsMap), ret]
+		return ret
 	}
 
 	let eventHandler = {
@@ -343,9 +541,7 @@
 			return
 		}
 		let newGraph = graph
-
-		nodes = layoutNodes(newGraph.nodes)
-		edges = newGraph.edges
+		;[nodes, edges] = computeAssetNodes(layoutNodes(newGraph.nodes), newGraph.edges)
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
 	}
@@ -364,7 +560,8 @@
 		branchOneEnd: BranchOneEndNode,
 		subflowBound: SubflowBound,
 		noBranch: NoBranchNode,
-		trigger: TriggersNode
+		trigger: TriggersNode,
+		asset: AssetNode
 	} as any
 
 	const edgeTypes = {
@@ -415,8 +612,11 @@
 		)
 	})
 	$effect(() => {
-		;(graph || allowSimplifiedPoll) && untrack(() => updateStores())
+		;[graph, allowSimplifiedPoll]
+		readFieldsRecursively(assetsMap)
+		untrack(() => updateStores())
 	})
+
 	let showDataflow = $derived(
 		$selectedId != undefined &&
 			!$selectedId.startsWith('constants') &&
@@ -536,6 +736,30 @@
 		</SvelteFlowProvider>
 	{/if}
 </div>
+
+{#each getAllModules(modules) as mod (mod.id)}
+	{#if mod.value.type === 'rawscript'}
+		{@const v = mod.value}
+		<OnChange
+			key={[v.content, v.asset_alternative_access_types]}
+			runFirstEffect
+			onChange={() =>
+				inferAssets(v.language, v.content).then((assets) => {
+					for (const override of v.asset_alternative_access_types ?? []) {
+						assets = assets.map((asset) => {
+							if (assetEq(asset, override)) return { ...asset, access_type: override.access_type }
+							return asset
+						})
+					}
+					if (assetsMap && !deepEqual(assetsMap[mod.id], assets)) assetsMap[mod.id] = assets
+				})}
+		/>
+	{/if}
+{/each}
+
+<S3FilePicker bind:this={flowGraphAssetsCtx.val.s3FilePicker} readOnlyMode />
+<DbManagerDrawer bind:this={flowGraphAssetsCtx.val.dbManagerDrawer} />
+<ResourceEditorDrawer bind:this={flowGraphAssetsCtx.val.resourceEditorDrawer} />
 
 <style lang="postcss">
 	:global(.svelte-flow__handle) {
