@@ -30,28 +30,6 @@ pub struct AuditAuthor {
 }
 
 #[cfg(not(feature = "private"))]
-impl AuditAuthorable for AuditAuthor {
-    fn email(&self) -> &str {
-        &self.email
-    }
-
-    fn username(&self) -> &str {
-        &self.username
-    }
-
-    fn username_override(&self) -> Option<&str> {
-        self.username_override.as_deref()
-    }
-}
-
-#[cfg(not(feature = "private"))]
-pub trait AuditAuthorable {
-    fn username(&self) -> &str;
-    fn email(&self) -> &str;
-    fn username_override(&self) -> Option<&str>;
-}
-
-#[cfg(not(feature = "private"))]
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn audit_log<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     _db: E,
