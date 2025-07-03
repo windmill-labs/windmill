@@ -9,6 +9,7 @@ use std::{collections::HashMap, sync::Arc};
  */
 
 use crate::{
+    auth::OptTokened,
     db::{ApiAuthed, DB},
     resources::get_resource_value_interpolated_internal,
     users::{require_owner_of_path, OptAuthed},
@@ -52,6 +53,7 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
     apps::{AppScriptId, ListAppQuery},
+    auth::TOKEN_PREFIX_LEN,
     cache::{self, future::FutureCachedExt},
     db::UserDB,
     error::{to_anyhow, Error, JsonResult, Result},
@@ -1040,6 +1042,7 @@ async fn create_app_internal<'a>(
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
+        authed.token_prefix.as_deref(),
         None,
         None,
         None,
@@ -1411,6 +1414,7 @@ async fn update_app_internal<'a>(
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
+        authed.token_prefix.as_deref(),
         None,
         None,
         None,
@@ -1517,6 +1521,7 @@ fn empty_triggerables(mut policy: Policy) -> Policy {
 
 async fn execute_component(
     OptAuthed(opt_authed): OptAuthed,
+    tokened: OptTokened,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -1719,6 +1724,10 @@ async fn execute_component(
         &username,
         email,
         permissioned_as,
+        opt_authed
+            .and_then(|a| a.token_prefix)
+            .or_else(|| tokened.token.map(|t| t[0..TOKEN_PREFIX_LEN].to_string()))
+            .as_deref(),
         None,
         None,
         None,
