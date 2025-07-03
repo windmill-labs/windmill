@@ -1,5 +1,5 @@
 use swc_common::{sync::Lrc, FileName, SourceMap};
-use swc_ecma_ast::{CallExpr, Expr, Lit, MemberExpr, MemberProp, Str, TsLit};
+use swc_ecma_ast::{CallExpr, Expr, Lit, MemberExpr, MemberProp, Str};
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsSyntax};
 use swc_ecma_visit::{Visit, VisitWith};
 use windmill_parser::asset_parser::{
@@ -7,10 +7,7 @@ use windmill_parser::asset_parser::{
 };
 use AssetUsageAccessType::*;
 
-pub fn parse_assets<'a>(
-    code: &'a str,
-    paths_storage: &'a mut Vec<String>,
-) -> anyhow::Result<Vec<ParseAssetsResult<'a>>> {
+pub fn parse_assets(code: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>>> {
     let cm: Lrc<SourceMap> = Default::default();
     let fm = cm.new_source_file(FileName::Custom("main.ts".into()).into(), code.into());
     let lexer = Lexer::new(
@@ -35,34 +32,27 @@ pub fn parse_assets<'a>(
             anyhow::anyhow!("Error while parsing code, it is invalid TypeScript: {err_s}, {e:?}")
         })?
         .body;
-    let mut assets_finder = AssetsFinder { assets: vec![], paths_storage };
+    let mut assets_finder = AssetsFinder { assets: vec![] };
     assets_finder.visit_module_items(&ast);
-    for (asset, path) in assets_finder
-        .assets
-        .iter_mut()
-        .zip(assets_finder.paths_storage.iter_mut())
-    {
-        asset.path = path;
-    }
     Ok(merge_assets(assets_finder.assets))
 }
 
-struct AssetsFinder<'a> {
-    assets: Vec<ParseAssetsResult<'a>>,
-    // We have to store paths separately because of lifetime concerns
-    paths_storage: &'a mut Vec<String>,
+struct AssetsFinder {
+    assets: Vec<ParseAssetsResult<String>>,
 }
 
-impl<'a> Visit for AssetsFinder<'a> {
+impl Visit for AssetsFinder {
     // visit_call_expr will not recurse if it detects an asset,
     // so this will only be called when no further context was found
     fn visit_lit(&mut self, node: &swc_ecma_ast::Lit) {
         match node {
             swc_ecma_ast::Lit::Str(str) => {
                 if let Some((kind, path)) = parse_asset_syntax(str.value.as_str()) {
-                    self.paths_storage.push(path.to_string());
-                    self.assets
-                        .push(ParseAssetsResult { kind, path: "", access_type: None });
+                    self.assets.push(ParseAssetsResult {
+                        kind,
+                        path: path.to_string(),
+                        access_type: None,
+                    });
                 }
             }
             _ => <Lit as VisitWith<Self>>::visit_children_with(node, self),
@@ -77,7 +67,7 @@ impl<'a> Visit for AssetsFinder<'a> {
     }
 }
 
-impl<'a> AssetsFinder<'a> {
+impl AssetsFinder {
     fn visit_call_expr_inner(&mut self, node: &swc_ecma_ast::CallExpr) -> Result<(), ()> {
         let ident = match node.callee.as_expr().map(AsRef::as_ref) {
             Some(Expr::Ident(i)) => i.sym.as_str(),
@@ -96,9 +86,8 @@ impl<'a> AssetsFinder<'a> {
         match node.args[0].expr.as_ref() {
             Expr::Lit(Lit::Str(Str { value, .. })) => {
                 let path = parse_asset_syntax(&value).map(|(_, p)| p).unwrap_or(&value);
-                self.paths_storage.push(path.to_string());
                 self.assets
-                    .push(ParseAssetsResult { kind, path: "", access_type });
+                    .push(ParseAssetsResult { kind, path: path.to_string(), access_type });
             }
             _ => return Err(()),
         }

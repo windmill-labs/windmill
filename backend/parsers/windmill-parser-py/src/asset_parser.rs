@@ -5,41 +5,31 @@ use windmill_parser::asset_parser::{
 };
 use AssetUsageAccessType::*;
 
-pub fn parse_assets<'a>(
-    input: &'a str,
-    paths_storage: &'a mut Vec<String>,
-) -> anyhow::Result<Vec<ParseAssetsResult<'a>>> {
-    let ast = Suite::parse(&input, "main.py")
+pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>>> {
+    let ast = Suite::parse(input, "main.py")
         .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?;
 
-    let mut assets_finder = AssetsFinder { assets: vec![], paths_storage };
+    let mut assets_finder = AssetsFinder { assets: vec![] };
     ast.into_iter()
         .for_each(|stmt| assets_finder.visit_stmt(stmt));
-    for (asset, path) in assets_finder
-        .assets
-        .iter_mut()
-        .zip(assets_finder.paths_storage.iter_mut())
-    {
-        asset.path = path;
-    }
     Ok(merge_assets(assets_finder.assets))
 }
 
-struct AssetsFinder<'a> {
-    assets: Vec<ParseAssetsResult<'a>>,
-    // We have to store paths separately because of lifetime concerns
-    paths_storage: &'a mut Vec<String>,
+struct AssetsFinder {
+    assets: Vec<ParseAssetsResult<String>>,
 }
-impl<'a> Visitor for AssetsFinder<'a> {
+impl Visitor for AssetsFinder {
     // visit_call_expr will not recurse if it detects an asset,
     // so this will only be called when no further context was found
     fn visit_expr_constant(&mut self, node: ExprConstant) {
         match node.value {
             Constant::Str(s) => {
                 if let Some((kind, path)) = parse_asset_syntax(&s) {
-                    self.paths_storage.push(path.to_string());
-                    self.assets
-                        .push(ParseAssetsResult { kind, path: "", access_type: None });
+                    self.assets.push(ParseAssetsResult {
+                        kind,
+                        path: path.to_string(),
+                        access_type: None,
+                    });
                 }
             }
             _ => self.generic_visit_expr_constant(node),
@@ -54,7 +44,7 @@ impl<'a> Visitor for AssetsFinder<'a> {
     }
 }
 
-impl<'a> AssetsFinder<'a> {
+impl AssetsFinder {
     fn visit_expr_call_inner(&mut self, node: &rustpython_ast::ExprCall) -> Result<(), ()> {
         let ident: String = node
             .func
@@ -81,9 +71,8 @@ impl<'a> AssetsFinder<'a> {
         match &node.args[0] {
             Expr::Constant(ExprConstant { value: Constant::Str(value), .. }) => {
                 let path = parse_asset_syntax(&value).map(|(_, p)| p).unwrap_or(&value);
-                self.paths_storage.push(path.to_string());
                 self.assets
-                    .push(ParseAssetsResult { kind, path: "", access_type });
+                    .push(ParseAssetsResult { kind, path: path.to_string(), access_type });
             }
             _ => return Err(()),
         };

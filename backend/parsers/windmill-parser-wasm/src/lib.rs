@@ -181,8 +181,7 @@ pub fn parse_assets_sql(code: &str) -> String {
 #[cfg(feature = "ts-parser")]
 #[wasm_bindgen]
 pub fn parse_assets_ts(code: &str) -> String {
-    let mut paths_storage = vec![];
-    if let Ok(r) = windmill_parser_ts::parse_assets(code, &mut paths_storage) {
+    if let Ok(r) = windmill_parser_ts::parse_assets(code) {
         return serde_json::to_string(&r).unwrap();
     } else {
         return "Invalid".to_string();
@@ -192,8 +191,7 @@ pub fn parse_assets_ts(code: &str) -> String {
 #[cfg(feature = "py-parser")]
 #[wasm_bindgen]
 pub fn parse_assets_py(code: &str) -> String {
-    let mut paths_storage = vec![];
-    if let Ok(r) = windmill_parser_py::parse_assets(code, &mut paths_storage) {
+    if let Ok(r) = windmill_parser_py::parse_assets(code) {
         return serde_json::to_string(&r).unwrap();
     } else {
         return "Invalid".to_string();

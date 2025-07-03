@@ -10,7 +10,7 @@ use nom::{
     IResult, Parser,
 };
 
-pub fn parse_assets<'a>(input: &'a str) -> anyhow::Result<Vec<ParseAssetsResult<'a>>> {
+pub fn parse_assets<'a>(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<&str>>> {
     let mut assets = Vec::new();
     let mut remaining = input;
 
@@ -26,7 +26,7 @@ pub fn parse_assets<'a>(input: &'a str) -> anyhow::Result<Vec<ParseAssetsResult<
     Ok(merge_assets(assets))
 }
 
-fn parse_asset(input: &str) -> IResult<&str, ParseAssetsResult> {
+fn parse_asset(input: &str) -> IResult<&str, ParseAssetsResult<&str>> {
     alt((
         parse_s3_object_read.map(|path| ParseAssetsResult {
             path,

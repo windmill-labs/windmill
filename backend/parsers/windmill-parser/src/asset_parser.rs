@@ -18,20 +18,20 @@ pub enum AssetKind {
 }
 
 #[derive(Serialize)]
-pub struct ParseAssetsResult<'a> {
+pub struct ParseAssetsResult<S: AsRef<str>> {
     pub kind: AssetKind,
-    pub path: &'a str,
+    pub path: S,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub access_type: Option<AssetUsageAccessType>, // None in case of ambiguity
 }
 
-pub fn merge_assets<'a>(assets: Vec<ParseAssetsResult<'a>>) -> Vec<ParseAssetsResult<'a>> {
-    let mut arr: Vec<ParseAssetsResult<'a>> = vec![];
+pub fn merge_assets<S: AsRef<str>>(assets: Vec<ParseAssetsResult<S>>) -> Vec<ParseAssetsResult<S>> {
+    let mut arr: Vec<ParseAssetsResult<S>> = vec![];
     for asset in assets {
         // Remove duplicates
         if let Some(existing) = arr
             .iter_mut()
-            .find(|x| x.path == asset.path && x.kind == asset.kind)
+            .find(|x| x.path.as_ref() == asset.path.as_ref() && x.kind == asset.kind)
         {
             // merge access types
             existing.access_type = match (asset.access_type, existing.access_type) {
@@ -45,7 +45,7 @@ pub fn merge_assets<'a>(assets: Vec<ParseAssetsResult<'a>>) -> Vec<ParseAssetsRe
             arr.push(asset);
         }
     }
-    arr.sort_by_key(|a| a.path);
+    arr.sort_by(|a, b| a.path.as_ref().cmp(b.path.as_ref()));
     arr
 }
 

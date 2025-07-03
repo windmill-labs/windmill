@@ -39,16 +39,23 @@ pub struct AssetUsage {
     pub access_type: AssetUsageAccessType,
 }
 
-pub fn parse_assets<'a>(
-    input: &'a str,
+pub fn parse_assets(
+    input: &str,
     lang: ScriptLang,
-    paths_storage: &'a mut Vec<String>,
-) -> anyhow::Result<Option<Vec<ParseAssetsResult<'a>>>> {
+) -> anyhow::Result<Option<Vec<ParseAssetsResult<String>>>> {
     let r = match lang {
-        ScriptLang::Python3 => windmill_parser_py::parse_assets(input, paths_storage),
-        ScriptLang::DuckDb => windmill_parser_sql::parse_assets(input),
+        ScriptLang::Python3 => windmill_parser_py::parse_assets(input),
+        ScriptLang::DuckDb => windmill_parser_sql::parse_assets(input).map(|a| {
+            a.iter()
+                .map(|a| ParseAssetsResult {
+                    path: a.path.to_string(),
+                    access_type: a.access_type,
+                    kind: a.kind,
+                })
+                .collect()
+        }),
         ScriptLang::Deno | ScriptLang::Bun | ScriptLang::Nativets => {
-            windmill_parser_ts::parse_assets(input, paths_storage)
+            windmill_parser_ts::parse_assets(input)
         }
         _ => return Ok(None),
     };
