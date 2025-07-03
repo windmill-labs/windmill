@@ -231,8 +231,8 @@
 		{/if}
 		<AIChatInput
 			bind:this={aiChatInput}
+			bind:selectedContext
 			{availableContext}
-			{selectedContext}
 			{disabled}
 			isFirstMessage={messages.length === 0}
 			placeholder={messages.length === 0 ? 'Ask anything' : 'Ask followup'}

@@ -133,7 +133,7 @@
 			}}
 		/>
 	{:else}
-		<div class="relative w-full px-2 scroll-pb-2 pt-2" use:clickOutside>
+		<div class="relative w-full px-2 scroll-pb-2 pt-2">
 			<textarea
 				bind:this={instructionsTextareaComponent}
 				bind:value={instructions}
