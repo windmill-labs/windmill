@@ -32,7 +32,8 @@ async fn list_assets(
             ) as "list!: _"
         FROM asset
         WHERE workspace_id = $1
-        GROUP BY path, kind"#,
+        GROUP BY path, kind
+        ORDER BY path, kind"#,
         w_id,
     )
     .fetch_all(&mut *user_db.begin(&authed).await?)
@@ -69,7 +70,8 @@ async fn list_assets_by_usages(
                     'access_type', usage_access_type
                 ) as "list!: _"
             FROM asset
-            WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = $3"#,
+            WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = $3
+            ORDER BY path, kind"#,
             w_id,
             usage.path,
             usage.kind as AssetUsageKind
