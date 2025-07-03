@@ -159,7 +159,7 @@
 		>
 			<div class="flex flex-col" bind:clientHeight={height}>
 				{#each messages as message, messageIndex}
-					<AIChatMessage {message} {messageIndex} {availableContext} {selectedContext} />
+					<AIChatMessage {message} {messageIndex} {availableContext} bind:selectedContext />
 				{/each}
 				{#if aiChatManager.loading && !aiChatManager.currentReply}
 					<div class="mb-6 py-1 px-2">

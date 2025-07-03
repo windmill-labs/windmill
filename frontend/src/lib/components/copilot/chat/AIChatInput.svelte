@@ -81,6 +81,12 @@
 			instructions = ''
 		}
 	}
+
+	$effect(() => {
+		if (editingMessageIndex !== null) {
+			focusInput()
+		}
+	})
 </script>
 
 <div use:clickOutside>

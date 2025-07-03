@@ -16,16 +16,12 @@
 		messageIndex: number
 	}
 
-	const { message, messageIndex, availableContext, selectedContext }: Props = $props()
+	let { message, messageIndex, availableContext, selectedContext = $bindable() }: Props = $props()
 
 	let editingMessageIndex = $state<number | null>(null)
-	let aiChatInputComponent: AIChatInput | undefined = $state()
 
 	function startEditMessage(messageIndex: number) {
 		editingMessageIndex = messageIndex
-		setTimeout(() => {
-			aiChatInputComponent?.focusInput()
-		}, 100)
 	}
 </script>
 
@@ -49,9 +45,8 @@
 	{/if}
 	{#if message.role === 'user' && editingMessageIndex === messageIndex}
 		<AIChatInput
-			bind:this={aiChatInputComponent}
 			{availableContext}
-			{selectedContext}
+			bind:selectedContext
 			initialInstructions={message.content}
 			bind:editingMessageIndex
 		/>
