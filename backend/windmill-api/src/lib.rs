@@ -609,45 +609,8 @@ pub async fn run_server(
                         .nest("/mqtt_triggers", mqtt_triggers_service)
                         .nest("/sqs_triggers", sqs_triggers_service)
                         .nest("/gcp_triggers", gcp_triggers_service)
-                        .nest("/postgres_triggers", postgres_triggers_service)
-                        .nest(
-                            "/apps_u",
-                            apps::unauthed_service()
-                                .layer(from_extractor::<OptAuthed>())
-                                .layer(cors.clone()),
-                        )
-                        .nest("/agent_workers", {
-                            #[cfg(feature = "agent_worker_server")]
-                            {
-                                agent_workers_router.layer(Extension(agent_cache.clone()))
-                            }
-                            #[cfg(not(feature = "agent_worker_server"))]
-                            {
-                                Router::new()
-                            }
-                        })
-                        .nest(
-                            "/jobs_u",
-                            jobs::workspace_unauthed_service().layer(cors.clone()),
-                        )
-                        .nest("/github_app", {
-                            #[cfg(feature = "enterprise")]
-                            {
-                                git_sync_oss::workspaced_service()
-                            }
-                            #[cfg(not(feature = "enterprise"))]
-                            Router::new()
-                        })
-                        .nest(
-                            "/resources_u",
-                            resources::public_service().layer(cors.clone()),
-                        )
-                        .nest(
-                            "/capture_u",
-                            capture::workspaced_unauthed_service().layer(cors.clone()),
-                        ),
+                        .nest("/postgres_triggers", postgres_triggers_service),
                 )
-                .nest("/tokens", token::global_service())
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
                     "/users",
@@ -684,6 +647,7 @@ pub async fn run_server(
                     scim_oss::global_service()
                         .route_layer(axum::middleware::from_fn(has_scim_token)),
                 )
+                .nest("/tokens", token::global_service())
                 .nest("/concurrency_groups", concurrency_groups::global_service())
                 .nest("/scripts_u", scripts::global_unauthed_service())
                 .nest("/apps_u", {
@@ -697,6 +661,12 @@ pub async fn run_server(
                         Router::new()
                     }
                 })
+                .nest(
+                    "/w/:workspace_id/apps_u",
+                    apps::unauthed_service()
+                        .layer(from_extractor::<OptAuthed>())
+                        .layer(cors.clone()),
+                )
                 .nest("/mcp/w/:workspace_id/sse", mcp_router)
                 .layer(from_extractor::<OptAuthed>())
                 .nest("/agent_workers", {
@@ -709,6 +679,20 @@ pub async fn run_server(
                         Router::new()
                     }
                 })
+                .nest("/w/:workspace_id/agent_workers", {
+                    #[cfg(feature = "agent_worker_server")]
+                    {
+                        agent_workers_router.layer(Extension(agent_cache.clone()))
+                    }
+                    #[cfg(not(feature = "agent_worker_server"))]
+                    {
+                        Router::new()
+                    }
+                })
+                .nest(
+                    "/w/:workspace_id/jobs_u",
+                    jobs::workspace_unauthed_service().layer(cors.clone()),
+                )
                 .route("/slack", post(slack_approvals::slack_app_callback_handler))
                 .nest("/teams", {
                     #[cfg(feature = "enterprise")]
@@ -721,6 +705,23 @@ pub async fn run_server(
                         Router::new()
                     }
                 })
+                .route(
+                    "/w/:workspace_id/jobs/slack_approval/:job_id",
+                    get(slack_approvals::request_slack_approval),
+                )
+                .route(
+                    "/w/:workspace_id/jobs/teams_approval/:job_id",
+                    get(teams_approvals_oss::request_teams_approval),
+                )
+                .nest("/w/:workspace_id/github_app", {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        git_sync_oss::workspaced_service()
+                    }
+
+                    #[cfg(not(feature = "enterprise"))]
+                    Router::new()
+                })
                 .nest("/github_app", {
                     #[cfg(feature = "enterprise")]
                     {
@@ -730,6 +731,14 @@ pub async fn run_server(
                     #[cfg(not(feature = "enterprise"))]
                     Router::new()
                 })
+                .nest(
+                    "/w/:workspace_id/resources_u",
+                    resources::public_service().layer(cors.clone()),
+                )
+                .nest(
+                    "/w/:workspace_id/capture_u",
+                    capture::workspaced_unauthed_service().layer(cors.clone()),
+                )
                 .nest(
                     "/auth",
                     users::make_unauthed_service().layer(Extension(argon2)),
