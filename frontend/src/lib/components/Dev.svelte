@@ -535,7 +535,7 @@
 			$workspaceStore = workspace
 		}
 	})
-	$effect(() => {
+	$effect.pre(() => {
 		if (workspace && token) {
 			untrack(() => loadUser())
 			untrack(() => setupCopilotInfo())
