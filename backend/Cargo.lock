@@ -14913,6 +14913,7 @@ dependencies = [
  "url",
  "uuid",
  "windmill-macros",
+ "windmill-parser",
  "windmill-parser-py",
  "windmill-parser-sql",
  "windmill-parser-ts",
