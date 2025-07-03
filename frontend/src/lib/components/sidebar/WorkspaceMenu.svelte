@@ -21,6 +21,8 @@
 	import { workspaceAIClients } from '../copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 	import type { MenubarBuilders } from '@melt-ui/svelte'
+	import { GitMerge, GitPullRequest, GitBranch } from 'lucide-svelte'
+	import { onMount } from 'svelte'
 
 	interface Props {
 		isCollapsed?: boolean
@@ -30,6 +32,53 @@
 	}
 
 	let { isCollapsed = false, createMenu, strictWorkspaceSelect = false }: Props = $props()
+
+	// Workspace fork status
+	let currentWorkspaceForkInfo = $state<{ parent_workspace_id: string; fork_workspace_id: string } | null>(null)
+	let pendingMergeRequests = $state<any[]>([])
+	let hasUnmergedChanges = $state(false)
+
+	async function loadWorkspaceForkStatus() {
+		if (!$workspaceStore || !($userStore?.is_admin || $superadmin)) return
+		
+		try {
+			// Check if current workspace is a fork
+			const response = await fetch(`/api/w/${$workspaceStore}/workspaces/fork/fork_info`)
+			if (response.ok) {
+				currentWorkspaceForkInfo = await response.json()
+			} else {
+				currentWorkspaceForkInfo = null
+			}
+			
+			// Check for pending merge requests
+			const mergeResponse = await fetch(`/api/w/${$workspaceStore}/workspaces/merge/list_merge_requests`)
+			if (mergeResponse.ok) {
+				pendingMergeRequests = await mergeResponse.json()
+			}
+			
+			// Check for unmerged changes (if this is a fork)
+			if (currentWorkspaceForkInfo) {
+				const refsResponse = await fetch(`/api/w/${$workspaceStore}/workspaces/fork/resource_refs`)
+				if (refsResponse.ok) {
+					const refs = await refsResponse.json()
+					hasUnmergedChanges = refs.some((ref: any) => !ref.is_reference)
+				}
+			}
+		} catch (error) {
+			console.log('Failed to load workspace fork status:', error)
+		}
+	}
+
+	onMount(() => {
+		loadWorkspaceForkStatus()
+	})
+
+	// Reload fork status when workspace changes
+	$effect(() => {
+		if ($workspaceStore) {
+			loadWorkspaceForkStatus()
+		}
+	})
 
 	async function toggleSwitchWorkspace(id: string) {
 		if ($workspaceStore === id) {
@@ -87,13 +136,26 @@
 						{item}
 					>
 						<div class="flex items-center justify-between min-w-0 w-full">
-							<div>
-								<div class="text-primary pl-4 truncate text-left text-[1.2em]">{workspace.name}</div
-								>
+							<div class="flex-1 min-w-0">
+								<div class="text-primary pl-4 truncate text-left text-[1.2em] flex items-center gap-1">
+									{workspace.name}
+									{#if $workspaceStore === workspace.id && currentWorkspaceForkInfo}
+										<GitBranch size={12} class="text-blue-500" title="This is a forked workspace" />
+									{/if}
+									{#if $workspaceStore === workspace.id && hasUnmergedChanges}
+										<div class="w-2 h-2 bg-orange-500 rounded-full" title="Unmerged changes"></div>
+									{/if}
+									{#if $workspaceStore === workspace.id && pendingMergeRequests.length > 0}
+										<div class="w-2 h-2 bg-blue-500 rounded-full" title="{pendingMergeRequests.length} pending merge request(s)"></div>
+									{/if}
+								</div>
 								<div
 									class="text-tertiary font-mono pl-4 text-2xs whitespace-nowrap truncate text-left"
 								>
 									{workspace.id}
+									{#if $workspaceStore === workspace.id && currentWorkspaceForkInfo}
+										<span class="text-blue-500">← {currentWorkspaceForkInfo.parent_workspace_id}</span>
+									{/if}
 								</div>
 							</div>
 							{#if workspace.color}
@@ -130,6 +192,45 @@
 						<GitFork size={16} />
 						Fork workspace
 					</a>
+					
+					{#if currentWorkspaceForkInfo}
+						<MenuItem
+							onClick={() => {
+								goto(`${base}/workspace_merge`)
+							}}
+							class={twMerge(
+								'text-primary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2',
+								'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary',
+								hasUnmergedChanges ? 'text-orange-600' : ''
+							)}
+							{item}
+						>
+							<GitMerge size={16} />
+							Create merge request
+							{#if hasUnmergedChanges}
+								<div class="w-2 h-2 bg-orange-500 rounded-full ml-auto"></div>
+							{/if}
+						</MenuItem>
+						
+						{#if pendingMergeRequests.length > 0}
+							<MenuItem
+								onClick={() => {
+									goto(`${base}/workspace_merge`)
+								}}
+								class={twMerge(
+									'text-blue-600 px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2',
+									'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+								)}
+								{item}
+							>
+								<GitPullRequest size={16} />
+								View merge requests
+								<div class="bg-blue-500 text-white text-xs px-1 rounded-full ml-auto">
+									{pendingMergeRequests.length}
+								</div>
+							</MenuItem>
+						{/if}
+					{/if}
 				</div>
 			{/if}
 			{#if !strictWorkspaceSelect}

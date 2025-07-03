@@ -11,7 +11,7 @@
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
 	import { page } from '$app/stores'
-	import { usersWorkspaceStore } from '$lib/stores'
+	import { usersWorkspaceStore, userStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -59,19 +59,15 @@
 	}
 
 	async function forkWorkspace(): Promise<void> {
-		// TODO: This will use our new fork endpoint once we add it to the generated client
-		// For now, we'll create a manual API call
 		try {
-			const response = await fetch(`/api/workspaces/fork/${parentWorkspaceId}`, {
+			// Use our new fork API endpoint
+			const response = await fetch(`/api/w/${parentWorkspaceId}/workspaces/fork/create_fork`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
 				},
 				body: JSON.stringify({
-					id,
 					name,
-					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
-					username: automateUsernameCreation ? undefined : username,
 					description: `Forked from ${parentWorkspace?.name || parentWorkspaceId}`
 				})
 			})
@@ -81,10 +77,46 @@
 				throw new Error(error)
 			}
 
-			sendUserToast(`Forked workspace ${id} from ${parentWorkspaceId}`)
+			const result = await response.json()
+			
+			// Update workspace color if specified
+			if (colorEnabled && workspaceColor) {
+				try {
+					await fetch(`/api/w/${result.fork_workspace_id}/workspaces/change_workspace_color`, {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+						},
+						body: JSON.stringify({ color: workspaceColor })
+					})
+				} catch (colorError) {
+					console.warn('Failed to set workspace color:', colorError)
+				}
+			}
+
+			// Create user in the new workspace if needed
+			if (!automateUsernameCreation && username) {
+				try {
+					await fetch(`/api/w/${result.fork_workspace_id}/workspaces/add_user`, {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+						},
+						body: JSON.stringify({ 
+							email: $userStore?.email, 
+							username,
+							is_admin: true 
+						})
+					})
+				} catch (userError) {
+					console.warn('Failed to set username:', userError)
+				}
+			}
+
+			sendUserToast(`Forked workspace ${result.fork_workspace_id} from ${parentWorkspaceId}`)
 
 			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-			switchWorkspace(id)
+			switchWorkspace(result.fork_workspace_id)
 
 			goto(rd ?? '/')
 		} catch (error) {

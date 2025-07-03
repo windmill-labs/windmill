@@ -6,10 +6,12 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::db::DB;
+use crate::db::{ApiAuthed, DB};
+use axum::{extract::Path, routing::{get, post}, Json, Router};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
-use windmill_common::error::{Error, Result};
+use windmill_common::error::{Error, JsonResult, Result};
+use windmill_common::utils::{rd_string, require_admin};
 
 #[derive(FromRow, Serialize, Deserialize)]
 pub struct WorkspaceFork {
@@ -28,6 +30,20 @@ pub struct ForkedResourceRef {
     pub resource_path: String,
     pub is_reference: bool,
     pub parent_resource_id: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CreateForkRequest {
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ForkResponse {
+    pub fork_workspace_id: String,
+    pub parent_workspace_id: String,
+    pub name: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -132,27 +148,105 @@ pub async fn is_resource_reference(
     Ok(result.flatten())
 }
 
+/// Create a new workspace fork
+pub async fn create_fork(
+    db: &DB,
+    parent_workspace_id: &str,
+    created_by: &str,
+    fork_name: &str,
+    description: Option<&str>,
+) -> Result<ForkResponse> {
+    let mut tx = db.begin().await?;
+    
+    // Generate fork workspace ID
+    let fork_workspace_id = format!("{}-fork-{}", parent_workspace_id, rd_string(6));
+    
+    // Create the fork workspace
+    sqlx::query!(
+        "INSERT INTO workspace (id, name, owner, deleted, premium) 
+         SELECT $1, $2, owner, false, premium FROM workspace WHERE id = $3",
+        fork_workspace_id,
+        fork_name,
+        parent_workspace_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    
+    // Create fork relationship
+    sqlx::query!(
+        "INSERT INTO workspace_fork (fork_workspace_id, parent_workspace_id, created_by, fork_point)
+         VALUES ($1, $2, $3, NOW())",
+        fork_workspace_id,
+        parent_workspace_id,
+        created_by
+    )
+    .execute(&mut *tx)
+    .await?;
+    
+    // Copy workspace resources
+    copy_workspace_resources(&mut tx, parent_workspace_id, &fork_workspace_id).await?;
+    
+    tx.commit().await?;
+    
+    let fork_info = sqlx::query_as!(
+        WorkspaceFork,
+        "SELECT fork_workspace_id, parent_workspace_id, created_at, created_by, fork_point 
+         FROM workspace_fork 
+         WHERE fork_workspace_id = $1",
+        fork_workspace_id
+    )
+    .fetch_one(db)
+    .await?;
+    
+    Ok(ForkResponse {
+        fork_workspace_id: fork_info.fork_workspace_id,
+        parent_workspace_id: fork_info.parent_workspace_id,
+        name: fork_name.to_string(),
+        created_at: fork_info.created_at,
+    })
+}
+
 /// Copy all basic resources from parent to fork (creates initial references)
-/// This is left as a placeholder for the actual implementation
 pub async fn copy_workspace_resources(
     tx: &mut Transaction<'_, Postgres>,
     parent_workspace_id: &str,
     fork_workspace_id: &str,
 ) -> Result<()> {
-    // TODO: Implement the actual resource copying logic
-    // This should:
-    // 1. Find all resources in the parent workspace (scripts, flows, apps, variables, etc.)
-    // 2. Create references in the forked_resource_refs table
-    // 3. Optionally create lightweight copies of essential resources
-    
-    // For now, this is intentionally left blank as planned
-    // We can implement this later with the specific resource copying strategy
-    
     tracing::info!(
         "Copying resources from workspace {} to fork {}",
         parent_workspace_id,
         fork_workspace_id
     );
+    
+    // Copy core workspace resources by creating references
+    let resource_types = vec![
+        ("script", "SELECT path FROM script WHERE workspace_id = $1 AND NOT deleted AND NOT archived"),
+        ("flow", "SELECT path FROM flow WHERE workspace_id = $1 AND NOT archived"),
+        ("app", "SELECT path FROM app WHERE workspace_id = $1"),
+        ("raw_app", "SELECT path FROM raw_app WHERE workspace_id = $1"),
+        ("variable", "SELECT path FROM variable WHERE workspace_id = $1"),
+        ("resource", "SELECT path FROM resource WHERE workspace_id = $1"),
+        ("resource_type", "SELECT name as path FROM resource_type WHERE workspace_id = $1"),
+        ("folder", "SELECT name as path FROM folder WHERE workspace_id = $1"),
+        ("schedule", "SELECT path FROM schedule WHERE workspace_id = $1"),
+    ];
+    
+    for (resource_type, query) in resource_types {
+        let paths: Vec<String> = sqlx::query_scalar(query)
+            .bind(parent_workspace_id)
+            .fetch_all(&mut **tx)
+            .await?;
+            
+        for path in paths {
+            create_resource_reference(
+                tx,
+                fork_workspace_id,
+                resource_type,
+                &path,
+                &format!("{}:{}", parent_workspace_id, path),
+            ).await?;
+        }
+    }
     
     Ok(())
 }
@@ -200,4 +294,72 @@ pub async fn handle_resource_modification(
     }
 
     Ok(())
+}
+
+pub fn workspaced_service() -> Router {
+    Router::new()
+        .route("/create_fork", post(create_fork_handler))
+        .route("/fork_info", get(get_fork_info_handler))
+        .route("/list_forks", get(list_forks_handler))
+        .route("/resource_refs", get(list_resource_refs_handler))
+}
+
+async fn create_fork_handler(
+    authed: ApiAuthed,
+    Path(workspace_id): Path<String>,
+    Json(request): Json<CreateForkRequest>,
+) -> JsonResult<ForkResponse> {
+    let db = &authed.db;
+    require_admin(authed.is_admin, &authed.username)?;
+    
+    let fork = create_fork(
+        db,
+        &workspace_id,
+        &authed.email,
+        &request.name,
+        request.description.as_deref(),
+    ).await?;
+    
+    Ok(Json(fork))
+}
+
+async fn get_fork_info_handler(
+    authed: ApiAuthed,
+    Path(workspace_id): Path<String>,
+) -> JsonResult<Option<WorkspaceFork>> {
+    let db = &authed.db;
+    
+    let fork_info = get_fork_info(db, &workspace_id).await?;
+    Ok(Json(fork_info))
+}
+
+async fn list_forks_handler(
+    authed: ApiAuthed,
+    Path(workspace_id): Path<String>,
+) -> JsonResult<Vec<WorkspaceFork>> {
+    let db = &authed.db;
+    require_admin(authed.is_admin, &authed.username)?;
+    
+    let forks = sqlx::query_as!(
+        WorkspaceFork,
+        "SELECT fork_workspace_id, parent_workspace_id, created_at, created_by, fork_point 
+         FROM workspace_fork 
+         WHERE parent_workspace_id = $1
+         ORDER BY created_at DESC",
+        workspace_id
+    )
+    .fetch_all(db)
+    .await?;
+    
+    Ok(Json(forks))
+}
+
+async fn list_resource_refs_handler(
+    authed: ApiAuthed,
+    Path(workspace_id): Path<String>,
+) -> JsonResult<Vec<ForkedResourceRef>> {
+    let db = &authed.db;
+    
+    let refs = get_forked_resource_refs(db, &workspace_id).await?;
+    Ok(Json(refs))
 }

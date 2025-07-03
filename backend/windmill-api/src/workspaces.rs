@@ -142,7 +142,9 @@ pub fn workspaced_service() -> Router {
         )
         .route("/critical_alerts/mute", post(mute_critical_alerts))
         .route("/operator_settings", post(update_operator_settings))
-        .route("/fork_info", get(get_fork_info));
+        .route("/fork_info", get(get_fork_info))
+        .nest("/fork", crate::workspace_fork::workspaced_service())
+        .nest("/merge", crate::workspace_merge::workspaced_service());
 
     #[cfg(all(feature = "stripe", feature = "enterprise"))]
     {
