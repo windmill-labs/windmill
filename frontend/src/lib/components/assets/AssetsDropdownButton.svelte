@@ -118,6 +118,7 @@
 				{@const alternativeAccessType = alternativeAccessTypes?.find((a) =>
 					assetEq(a, asset)
 				)?.access_type}
+				{@const hasWarning = !asset.access_type && !alternativeAccessType}
 				<li
 					class="text-sm px-4 h-12 flex gap-4 items-center justify-between hover:bg-surface-hover"
 					onmouseenter={() => onHoverLi?.(asset, 'enter')}
@@ -162,8 +163,10 @@
 								_resourceMetadata={{ resource_type: resourceDataCache[asset.path] }}
 							/>
 						{/if}
+
 						<ToggleButtonGroup
 							disabled={!!asset.access_type}
+							tabListClass={hasWarning ? 'bg-red-200' : ''}
 							bind:selected={
 								() => asset.access_type ?? alternativeAccessType,
 								async (access_type) => {
@@ -177,7 +180,13 @@
 						>
 							{#snippet children({ item })}
 								{#each ['r', 'w', 'rw'] as v}
-									<ToggleButton value={v} label={v} {item} />
+									<ToggleButton
+										class={hasWarning ? 'bg-transparent hover:bg-red-100' : ''}
+										value={v}
+										label={v}
+										{item}
+										tooltip={'Could not infer access type from code, please select manually'}
+									/>
 								{/each}
 							{/snippet}
 						</ToggleButtonGroup>
