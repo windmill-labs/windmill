@@ -166,13 +166,15 @@
 							items={safeSelectItems(['r', 'w', 'rw'])}
 							error={!asset.access_type && !alternativeAccessType}
 							disabled={!!asset.access_type}
+							clearable
 							bind:value={
 								() => asset.access_type ?? alternativeAccessType,
 								async (access_type) => {
-									alternativeAccessTypes = alternativeAccessTypes?.filter((a) => !assetEq(a, asset))
 									alternativeAccessTypes ??= []
 									await tick()
-									alternativeAccessTypes.push({ ...asset, access_type })
+									let val = alternativeAccessTypes?.filter((a) => !assetEq(a, asset))
+									val.push({ ...asset, access_type })
+									alternativeAccessTypes = val
 								}
 							}
 						/>
