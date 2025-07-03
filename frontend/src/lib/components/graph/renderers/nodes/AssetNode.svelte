@@ -41,7 +41,7 @@
 				onmouseleave={() => (flowGraphAssetsCtx.val.selectedAsset = undefined)}
 			>
 				<Pyramid size={16} class="shrink-0 ml-1" />
-				<span class="text-3xs truncate">
+				<span class="text-3xs truncate flex-1">
 					{formatAsset(data.asset)}
 				</span>
 				{#if isSelected}
