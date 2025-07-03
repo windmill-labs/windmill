@@ -10,7 +10,8 @@ use std::collections::HashMap;
 
 use crate::{
     db::{ApiAuthed, DB},
-    users::{check_scopes, maybe_refresh_folders, require_owner_of_path, Tokened},
+    users::{maybe_refresh_folders, require_owner_of_path, Tokened},
+    utils::check_scopes,
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{

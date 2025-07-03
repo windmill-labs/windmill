@@ -18,7 +18,6 @@ use crate::db::ApiAuthed;
 
 pub use crate::auth::Tokened;
 
-use crate::scopes::ScopeDefinition;
 use crate::utils::{
     generate_instance_wide_unique_username, get_instance_username_or_create_pending,
 };
@@ -152,36 +151,6 @@ pub async fn maybe_refresh_folders(
     } else {
         authed
     }
-}
-
-pub fn check_scopes<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
-where
-    F: FnOnce() -> String,
-{
-    if let Some(scopes) = authed.scopes.as_ref() {
-        let mut is_scoped_token = false;
-        let required_scope = ScopeDefinition::from_scope_string(&required())?;
-        for scope in scopes {
-            if !scope.starts_with("if_jobs:filter_tags:") {
-                if !is_scoped_token {
-                    is_scoped_token = true;
-                }
-
-                match ScopeDefinition::from_scope_string(scope) {
-                    Ok(scope) if scope.includes(&required_scope) => return Ok(()),
-                    _ => {}
-                }
-            }
-        }
-
-        if is_scoped_token {
-            return Err(Error::NotAuthorized(format!(
-                "Required scope: {}",
-                required_scope.as_string()
-            )));
-        }
-    }
-    Ok(())
 }
 
 pub fn get_scope_tags(authed: &ApiAuthed) -> Option<Vec<&str>> {

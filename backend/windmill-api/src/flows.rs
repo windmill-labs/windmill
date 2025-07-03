@@ -8,15 +8,15 @@
 
 use std::collections::HashMap;
 
-use crate::db::ApiAuthed;
-use crate::triggers::{
-    get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
-};
 use crate::utils::WithStarredInfoQuery;
 use crate::{
-    db::DB,
+    db::{ApiAuthed, DB},
     schedule::clear_schedule,
-    users::{check_scopes, maybe_refresh_folders, require_owner_of_path},
+    triggers::{
+        get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
+    },
+    users::{maybe_refresh_folders, require_owner_of_path},
+    utils::check_scopes,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };

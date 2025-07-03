@@ -8,12 +8,11 @@
 
 use std::sync::Arc;
 
-use crate::db::ApiAuthed;
-
 use crate::{
     auth::AuthCache,
-    db::DB,
-    users::{check_scopes, Tokened},
+    db::{ApiAuthed, DB},
+    users::Tokened,
+    utils::check_scopes,
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{

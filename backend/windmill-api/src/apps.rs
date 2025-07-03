@@ -11,8 +11,8 @@ use std::{collections::HashMap, sync::Arc};
 use crate::{
     db::{ApiAuthed, DB},
     resources::get_resource_value_interpolated_internal,
-    users::{check_scopes, require_owner_of_path, OptAuthed},
-    utils::WithStarredInfoQuery,
+    users::{require_owner_of_path, OptAuthed},
+    utils::{check_scopes, WithStarredInfoQuery},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };

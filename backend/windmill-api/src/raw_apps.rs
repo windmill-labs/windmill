@@ -7,7 +7,8 @@
  */
 use crate::{
     db::{ApiAuthed, DB},
-    users::{check_scopes, require_owner_of_path},
+    users::require_owner_of_path,
+    utils::check_scopes,
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{

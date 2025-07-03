@@ -13,8 +13,8 @@ use crate::{
     triggers::{
         get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
     },
-    users::{check_scopes, maybe_refresh_folders, require_owner_of_path},
-    utils::WithStarredInfoQuery,
+    users::{maybe_refresh_folders, require_owner_of_path},
+    utils::{check_scopes, WithStarredInfoQuery},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };

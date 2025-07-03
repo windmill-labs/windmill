@@ -32,18 +32,14 @@ use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
 use windmill_common::scripts::PREVIEW_IS_CODEBASE_HASH;
 use windmill_common::variables::get_workspace_key;
 
-use crate::add_webhook_allowed_origin;
-use crate::concurrency_groups::join_concurrency_key;
-use crate::db::ApiAuthed;
-
-use crate::trigger_helpers::RunnableId;
-use crate::users::get_scope_tags;
-use crate::utils::content_plain;
 use crate::{
+    add_webhook_allowed_origin,
     args::{self, RawWebhookArgs},
-    db::DB,
-    users::{check_scopes, require_owner_of_path, OptAuthed},
-    utils::require_super_admin,
+    concurrency_groups::join_concurrency_key,
+    db::{ApiAuthed, DB},
+    trigger_helpers::RunnableId,
+    users::{get_scope_tags, require_owner_of_path, OptAuthed},
+    utils::{check_scopes, content_plain, require_super_admin},
 };
 use anyhow::Context;
 use axum::{

@@ -9,8 +9,8 @@
 use crate::{
     db::{ApiAuthed, DB},
     settings::{delete_global_setting, set_global_setting_internal},
-    users::{check_scopes, maybe_refresh_folders},
-    utils::require_super_admin,
+    users::maybe_refresh_folders,
+    utils::{check_scopes, require_super_admin},
 };
 use axum::{
     extract::{Extension, Path, Query},
