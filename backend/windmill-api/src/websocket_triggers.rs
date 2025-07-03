@@ -39,7 +39,7 @@ use crate::{
         run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_internal, RunJobQuery,
     },
     trigger_helpers::TriggerJobArgs,
-    users::fetch_api_authed,
+    users::{check_scopes, fetch_api_authed},
 };
 
 use std::borrow::Cow;
