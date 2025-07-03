@@ -144,93 +144,81 @@ impl ScopeDefinition {
             (None, _) => true,
             (Some(_), None) => false,
             (Some(self_resources), Some(other_resources)) => {
-                self.resources_match(self_resources, other_resources)
+                resources_match(self_resources, other_resources)
             }
         }
     }
+}
 
-    fn resources_match(&self, scope_resources: &[String], required_resources: &[String]) -> bool {
-        if scope_resources.contains(&"*".to_string())
-            || required_resources.contains(&"*".to_string())
-        {
-            return true;
-        }
-
-        if scope_resources.len() <= 4 && required_resources.len() <= 4 {
-            return self.resources_match_small(scope_resources, required_resources);
-        }
-
-        self.resources_match_large(scope_resources, required_resources)
+fn resources_match(scope_resources: &[String], accepted_resources: &[String]) -> bool {
+    if scope_resources.contains(&"*".to_string()) || accepted_resources.contains(&"*".to_string()) {
+        return true;
     }
 
-    fn resources_match_small(
-        &self,
-        scope_resources: &[String],
-        required_resources: &[String],
-    ) -> bool {
-        for required in required_resources {
-            for scope_resource in scope_resources {
-                if self.resource_matches_pattern(scope_resource, required) {
-                    return true;
-                }
-            }
-        }
-        false
+    if scope_resources.len() <= 4 && accepted_resources.len() <= 4 {
+        return resources_match_small(scope_resources, accepted_resources);
     }
 
-    fn resources_match_large(
-        &self,
-        scope_resources: &[String],
-        required_resources: &[String],
-    ) -> bool {
-        let mut exact_matches = HashSet::new();
-        let mut patterns = Vec::new();
+    resources_match_large(scope_resources, accepted_resources)
+}
 
+fn resources_match_small(scope_resources: &[String], accepted_resources: &[String]) -> bool {
+    for required in accepted_resources {
         for scope_resource in scope_resources {
-            if scope_resource.contains('*') {
-                patterns.push(scope_resource);
-            } else {
-                exact_matches.insert(scope_resource);
-            }
-        }
-
-        for required in required_resources {
-            if exact_matches.contains(required) {
+            if resource_matches_pattern(scope_resource, required) {
                 return true;
             }
-
-            for pattern in &patterns {
-                if self.resource_matches_pattern(pattern, required) {
-                    return true;
-                }
-            }
         }
+    }
+    false
+}
 
-        false
+fn resources_match_large(scope_resources: &[String], accepted_resources: &[String]) -> bool {
+    let mut exact_matches = HashSet::new();
+    let mut patterns = Vec::new();
+
+    for scope_resource in scope_resources {
+        if scope_resource.contains('*') {
+            patterns.push(scope_resource);
+        } else {
+            exact_matches.insert(scope_resource);
+        }
     }
 
-    fn resource_matches_pattern(&self, scope_resource: &str, required_resource: &str) -> bool {
-        if scope_resource == "*" || required_resource == "*" || scope_resource == required_resource
-        {
+    for accepted_resource in accepted_resources {
+        if exact_matches.contains(accepted_resource) {
             return true;
         }
 
-        if scope_resource.ends_with("/*") {
-            let scope_prefix = &scope_resource[..scope_resource.len() - 1];
-            if required_resource.starts_with(scope_prefix) {
+        for pattern in &patterns {
+            if resource_matches_pattern(pattern, accepted_resource) {
                 return true;
             }
         }
-
-        if required_resource.ends_with("/*") {
-            let required_prefix = &required_resource[..required_resource.len() - 1];
-            if scope_resource.starts_with(required_prefix) {
-                return true;
-            }
-        }
-
-        false
     }
+
+    false
+}
+
+fn resource_matches_pattern(scope_resource: &str, accepted_resource: &str) -> bool {
+    if scope_resource == accepted_resource {
+        return true;
+    }
+
+    if accepted_resource.ends_with("/*") {
+        let required_prefix = &accepted_resource[..accepted_resource.len() - 2];
+        if scope_resource.starts_with(required_prefix) {
+            let valid_end = scope_resource
+                .chars()
+                .nth(required_prefix.len())
+                .map(|c| c == '/')
+                .unwrap_or(true);
+
+            return valid_end;
+        }
+    }
+
+    false
 }
 
 /// Available scope domains (top-level API categories)
@@ -426,14 +414,19 @@ pub fn check_route_access(
     // Map HTTP method to scope action (considering route context)
     let required_action = map_http_method_to_action(http_method, route_path);
 
-    // Find the domain for this route
-    let required_domain = extract_domain_from_route(route_path)?;
+    // Find the domain and kind for this route
+    let (required_domain, required_kind) = extract_domain_from_route(route_path)?;
     let mut restricted_scopes = false;
     // Check if any token scope grants the required access
     for scope_str in token_scopes {
         if !scope_str.starts_with("if_jobs:filter_tags:") {
             if let Ok(scope) = ScopeDefinition::from_scope_string(scope_str) {
-                if scope_grants_access(&scope, required_domain, required_action)? {
+                if scope_grants_access(
+                    &scope,
+                    required_domain,
+                    required_action,
+                    required_kind.as_deref(),
+                )? {
                     return Ok(());
                 }
             }
@@ -448,11 +441,20 @@ pub fn check_route_access(
     if !restricted_scopes {
         return Ok(());
     }
+    let scope_display = if let Some(kind) = required_kind {
+        format!(
+            "{}:{}:{}",
+            required_domain.as_str(),
+            required_action.as_str(),
+            kind
+        )
+    } else {
+        format!("{}:{}", required_domain.as_str(), required_action.as_str())
+    };
 
     Err(Error::NotAuthorized(format!(
-        "Access denied. Required scope: {}:{}",
-        required_domain.as_str(),
-        required_action.as_str()
+        "Access denied. Required scope: {}",
+        scope_display
     )))
 }
 
@@ -497,42 +499,45 @@ const FLOW_JOBS: [&'static str; 6] = [
     "jobs/flow/user_states",
 ];
 
-fn is_script_or_flow_domain(route_path: &str) -> Option<ScopeDomain> {
+fn extract_kind_from_route(route_path: &str) -> Option<String> {
     if route_path.starts_with("jobs") {
         if SCRIPT_JOBS.iter().any(|path| route_path.starts_with(path)) {
-            return Some(ScopeDomain::Scripts);
+            return Some("scripts".to_string());
         } else if FLOW_JOBS.iter().any(|path| route_path.starts_with(path)) {
-            return Some(ScopeDomain::Flows);
+            return Some("flows".to_string());
         }
     }
-
-    return None;
+    None
 }
 
-fn extract_domain_from_route(route_path: &str) -> Result<ScopeDomain> {
+fn extract_domain_from_route(route_path: &str) -> Result<(ScopeDomain, Option<String>)> {
     // Examples:
     // - /api/w/workspace/jobs/123 -> jobs domain (workspaced)
     // - /api/teams/sync -> teams domain (global)
     // - /api/srch/index/search -> indexer domain (global)
     let parts: Vec<&str> = route_path.split('/').collect();
 
-    let domain = if parts.len() >= 5 && parts[1] == "api" && parts[2] == "w" {
+    let (domain, kind) = if parts.len() >= 5 && parts[1] == "api" && parts[2] == "w" {
         let domain_part = parts[4];
+        let route_suffix = &parts[4..].join("/");
 
-        let domain = match is_script_or_flow_domain(&parts[4..].join("/")) {
-            None => ScopeDomain::from_str(domain_part),
-            domain => domain,
+        let domain = ScopeDomain::from_str(domain_part);
+
+        let kind = if domain_part == "jobs" {
+            extract_kind_from_route(route_suffix)
+        } else {
+            None
         };
 
-        domain
+        (domain, kind)
     } else if parts.len() >= 3 && parts[1] == "api" {
-        ScopeDomain::from_str(parts[2])
+        (ScopeDomain::from_str(parts[2]), None)
     } else {
-        None
+        (None, None)
     };
 
     if let Some(domain) = domain {
-        return Ok(domain);
+        return Ok((domain, kind));
     }
 
     Err(Error::BadRequest(format!(
@@ -545,6 +550,7 @@ fn scope_grants_access(
     scope: &ScopeDefinition,
     required_domain: ScopeDomain,
     required_action: ScopeAction,
+    required_kind: Option<&str>,
 ) -> Result<bool> {
     // Check domain match
     let scope_domain = ScopeDomain::from_str(&scope.domain)
@@ -560,6 +566,20 @@ fn scope_grants_access(
 
     if !scope_action.includes(&required_action) {
         return Ok(false);
+    }
+
+    if required_domain == ScopeDomain::Jobs && required_action == ScopeAction::Run {
+        match (&scope.kind, required_kind) {
+            (Some(scope_kind), Some(req_kind)) => {
+                if scope_kind != req_kind {
+                    return Ok(false);
+                }
+            }
+            (None, _) => {}
+            (Some(_), None) => {
+                return Ok(false);
+            }
+        }
     }
 
     // No resource specified means access to entire domain
@@ -593,10 +613,10 @@ mod tests {
         assert_eq!(scope.kind, None);
         assert_eq!(scope.resource, None);
 
-        let scope = ScopeDefinition::from_scope_string("scripts:run:f/folder/*").unwrap();
-        assert_eq!(scope.domain, "scripts");
+        let scope = ScopeDefinition::from_scope_string("jobs:run:scripts:f/folder/*").unwrap();
+        assert_eq!(scope.domain, "jobs");
         assert_eq!(scope.action, "run");
-        assert_eq!(scope.kind, None);
+        assert_eq!(scope.kind, Some("scripts".to_string()));
         assert_eq!(scope.resource, Some(vec!["f/folder/*".to_string()]));
 
         // Test jobs:run:kind parsing
@@ -639,12 +659,14 @@ mod tests {
 
     #[test]
     fn test_route_domain_extraction() {
-        let domain = extract_domain_from_route("/api/w/test_workspace/jobs/123").unwrap();
+        let (domain, kind) = extract_domain_from_route("/api/w/test_workspace/jobs/123").unwrap();
         assert_eq!(domain, ScopeDomain::Jobs);
+        assert_eq!(kind, None);
 
-        let domain =
+        let (domain, kind) =
             extract_domain_from_route("/api/w/test_workspace/scripts/test_script").unwrap();
         assert_eq!(domain, ScopeDomain::Scripts);
+        assert_eq!(kind, None);
     }
 
     #[test]

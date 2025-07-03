@@ -7,7 +7,6 @@ use axum::{
 };
 use chrono::TimeZone;
 use http::{request::Parts, StatusCode};
-use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde::Deserialize;
 use tower_cookies::Cookies;
@@ -489,13 +488,12 @@ fn transform_old_scope_to_new_scope(scopes: Option<&mut Vec<String>>) -> Windmil
     if let Some(scopes) = scopes {
         for scope in scopes.iter_mut() {
             if scope.starts_with("run:") {
-                let run_scope = scope.split(":").collect_vec();
+                let (_, part_scope) = scope.split_once(":").unwrap();
 
-                if run_scope.len() != 3 {
-                    continue;
+                if let Some((kind, path)) = part_scope.split_once("/") {
+                    //appending a 's' as runnable kind is singular while new scope format expect it to be plural
+                    *scope = format!("jobs:run:{}s:{}", kind, path);
                 }
-                //appending a 's' as runnable kind is singular while new scope format expect it to be plural
-                *scope = format!("{}s:run:{}", run_scope[1], run_scope[2]);
             } else if scope.starts_with("jobs:") {
                 // Map old jobs scopes to new format
                 let new_scope = match scope.as_str() {
