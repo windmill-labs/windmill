@@ -1,9 +1,11 @@
-use crate::db::{ApiAuthed, DB};
-use crate::jobs::{
-    filter_list_completed_query, filter_list_queue_query, Job, ListCompletedQuery, ListQueueQuery,
-    UnifiedJob,
+use crate::{
+    db::{ApiAuthed, DB},
+    jobs::{
+        filter_list_completed_query, filter_list_queue_query, Job, ListCompletedQuery,
+        ListQueueQuery, UnifiedJob,
+    },
+    utils::check_scopes,
 };
-use crate::users::check_scopes;
 use axum::extract::Path;
 use axum::routing::{delete, get};
 use axum::{extract::Query, Extension, Json};
@@ -144,7 +146,7 @@ async fn get_concurrent_intervals(
     Query(iq): Query<ExtendedJobsParams>,
     Query(lq): Query<ListCompletedQuery>,
 ) -> JsonResult<ExtendedJobs> {
-    check_scopes(&authed, || format!("jobs:listjobs"))?;
+    check_scopes(&authed, || format!("jobs:read"))?;
 
     if lq.success.is_some() && lq.running.is_some_and(|x| x) {
         return Err(error::Error::BadRequest(
