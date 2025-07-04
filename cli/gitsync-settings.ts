@@ -182,6 +182,21 @@ function syncOptionsToIncludeType(opts: SyncOptions): string[] {
     return includeTypes;
 }
 
+// Convert SyncOptions to backend format used by both Windmill backend and UI
+function syncOptionsToBackendFormat(opts: SyncOptions): {
+    include_path: string[];
+    exclude_path: string[];
+    extra_include_path: string[];
+    include_type: string[];
+} {
+    return {
+        include_path: opts.includes || [],
+        exclude_path: opts.excludes || [],
+        extra_include_path: opts.extraIncludes || [],
+        include_type: syncOptionsToIncludeType(opts),
+    };
+}
+
 // Select repository interactively if multiple exist
 // Generate structured diff showing field changes
 function generateStructuredDiff(
@@ -498,8 +513,8 @@ async function pullGitSyncSettings(
                     JSON.stringify({
                         success: true,
                         hasChanges,
-                        current: normalizedCurrent,
-                        backend: normalizedBackend,
+                        local: syncOptionsToBackendFormat(normalizedCurrent),
+                        backend: syncOptionsToBackendFormat(normalizedBackend),
                         repository: selectedRepo.git_repo_resource_path,
                         diff: structuredDiff,
                     }),
@@ -887,8 +902,8 @@ async function pushGitSyncSettings(
                     JSON.stringify({
                         success: true,
                         hasChanges,
-                        current: normalizeSyncOptions(currentSyncOptions),
-                        backend: normalizeSyncOptions(effectiveSettings),
+                        local: syncOptionsToBackendFormat(normalizeSyncOptions(effectiveSettings)),
+                        backend: syncOptionsToBackendFormat(normalizeSyncOptions(currentSyncOptions)),
                         repository: selectedRepo.git_repo_resource_path,
                         diff: structuredDiff,
                     }),

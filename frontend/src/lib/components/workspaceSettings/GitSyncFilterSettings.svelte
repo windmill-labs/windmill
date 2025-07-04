@@ -47,6 +47,18 @@
 	type PreviewResult = {
 		diff?: { [key: string]: { from: any; to: any } }
 		hasChanges?: boolean
+		local?: {
+			include_path: string[]
+			exclude_path: string[]
+			extra_include_path: string[]
+			include_type: string[]
+		}
+		backend?: {
+			include_path: string[]
+			exclude_path: string[]
+			extra_include_path: string[]
+			include_type: string[]
+		}
 	}
 
 	let {
@@ -80,7 +92,7 @@
 	// Compute effective include types (include_type minus exclude_types_override for legacy repos only)
 	const effectiveIncludeTypes = $derived(
 		isLegacyRepo
-			? include_type.filter(type => !exclude_types_override.includes(type))
+			? include_type.filter((type) => !exclude_types_override.includes(type))
 			: include_type
 	)
 
@@ -150,6 +162,19 @@
 		}
 	}
 
+	// Apply settings from backend format (used by both local git repo and backend settings)
+	function fromBackendFormat(settings: {
+		include_path: string[]
+		exclude_path: string[]
+		extra_include_path: string[]
+		include_type: string[]
+	}) {
+		include_path = settings.include_path || []
+		excludes = settings.exclude_path || []
+		extraIncludes = settings.extra_include_path || []
+		include_type = settings.include_type || []
+	}
+
 	// Simplified YAML parsing for manual editing
 	function fromYaml(yamlStr: string) {
 		yamlError = ''
@@ -209,7 +234,6 @@
 			}
 
 			include_type = Array.from(newTypes)
-
 		} catch (e) {
 			yamlError = e.message || 'Invalid YAML'
 			console.error('Error parsing YAML:', e)
@@ -312,7 +336,9 @@ codebases: []`
 			let jobSuccess = false
 			let result: PreviewResult = {}
 
-			await (await import('$lib/utils')).tryEvery({
+			await (
+				await import('$lib/utils')
+			).tryEvery({
 				tryCode: async () => {
 					const testResult = await JobService.getCompletedJob({ workspace, id: jobId })
 					jobSuccess = !!testResult.success
@@ -352,24 +378,24 @@ codebases: []`
 	// Simplified push function - always uses JSON approach
 	async function pushFiltersToGitRepo() {
 		if (isPullMode) {
-			// In pull mode, apply the pulled YAML to current settings
-			if (previewResult?.yaml) {
+			// In pull mode, apply the local settings (from git repo) to UI
+			if (previewResult?.local) {
 				try {
-					fromYaml(previewResult.yaml);
-					yamlText = previewResult.yaml;
-					onSettingsChange({ yaml: previewResult.yaml });
-					sendUserToast('Changes applied - remember to save repository settings to persist changes');
+					fromBackendFormat(previewResult.local)
+					yamlText = generateYamlFromUI()
+					onSettingsChange({ yaml: yamlText })
+					sendUserToast('Changes applied - remember to save repository settings to persist changes')
 
 					// Clear the preview state after applying settings
-					previewResult = null;
-					previewJobId = null;
-					previewJobStatus = undefined;
-					previewError = '';
+					previewResult = null
+					previewJobId = null
+					previewJobStatus = undefined
+					previewError = ''
 				} catch (e) {
-					previewError = 'Failed to apply pulled YAML: ' + e.message;
+					previewError = 'Failed to apply pulled settings: ' + e.message
 				}
 			}
-			return;
+			return
 		}
 
 		// Push mode - send current UI state as JSON
@@ -401,7 +427,9 @@ codebases: []`
 			pushJobStatus = 'running'
 			let jobSuccess = false
 
-			await (await import('$lib/utils')).tryEvery({
+			await (
+				await import('$lib/utils')
+			).tryEvery({
 				tryCode: async () => {
 					const testResult = await JobService.getCompletedJob({ workspace, id: jobId })
 					jobSuccess = !!testResult.success
@@ -537,30 +565,44 @@ codebases: []`
 						</Tabs>
 
 						{#if filtersTab === 'includes'}
-							<FilterList title="Include path filters" bind:items={include_path} placeholder="Add filter (e.g. f/**)">
+							<FilterList
+								title="Include path filters"
+								bind:items={include_path}
+								placeholder="Add filter (e.g. f/**)"
+							>
 								{#snippet tooltip()}
 									<Tooltip>
-										Only scripts, flows and apps with their path matching one of those filters will be
-										synced to the Git repositories below. The filters allow '*' and '**' characters,
-										with '*' matching any character allowed in paths until the next slash (/) and '**'
-										matching anything including slashes. By default everything in folders will be
-										synced.
+										Only scripts, flows and apps with their path matching one of those filters will
+										be synced to the Git repositories below. The filters allow '*' and '**'
+										characters, with '*' matching any character allowed in paths until the next
+										slash (/) and '**' matching anything including slashes. By default everything in
+										folders will be synced.
 									</Tooltip>
 								{/snippet}
 							</FilterList>
 						{:else if filtersTab === 'excludes'}
-							<FilterList title="Exclude path filters" bind:items={excludes} placeholder="Add filter (e.g. f/**)">
+							<FilterList
+								title="Exclude path filters"
+								bind:items={excludes}
+								placeholder="Add filter (e.g. f/**)"
+							>
 								{#snippet tooltip()}
 									<Tooltip>
-										After the include / extra include checks, if a file matches any of these patterns it will be skipped.
+										After the include / extra include checks, if a file matches any of these
+										patterns it will be skipped.
 									</Tooltip>
 								{/snippet}
 							</FilterList>
 						{:else}
-							<FilterList title="Extra include filters" bind:items={extraIncludes} placeholder="Add filter (e.g. f/**)">
+							<FilterList
+								title="Extra include filters"
+								bind:items={extraIncludes}
+								placeholder="Add filter (e.g. f/**)"
+							>
 								{#snippet tooltip()}
 									<Tooltip>
-										Secondary allow-list applied after include/exclude. File must match at least one of these in addition to the main includes list if provided.
+										Secondary allow-list applied after include/exclude. File must match at least one
+										of these in addition to the main includes list if provided.
 									</Tooltip>
 								{/snippet}
 							</FilterList>
