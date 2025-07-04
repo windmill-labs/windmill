@@ -109,6 +109,7 @@
 					// call again to auto apply
 					aiChatManager.scriptEditorApplyCode?.(pendingCode)
 					pendingCode = ''
+					show = false
 				}
 			}}
 			showContext={false}
