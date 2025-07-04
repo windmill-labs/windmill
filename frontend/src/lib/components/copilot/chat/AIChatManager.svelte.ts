@@ -415,7 +415,7 @@ class AIChatManager {
 
 		this.abortController = new AbortController()
 		const lang = this.scriptEditorOptions?.lang ?? 'bun'
-		const selectedContext: ContextElement[] = this.contextManager.getSelectedContext()
+		const selectedContext: ContextElement[] = [...this.contextManager.getSelectedContext()]
 		const startLine = selection.startLineNumber
 		const endLine = selection.endLineNumber
 		selectedContext.push({
