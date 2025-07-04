@@ -31,6 +31,7 @@ import { untrack } from 'svelte'
 import type { DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
+import type ContextTextarea from './ContextTextarea.svelte'
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -71,6 +72,7 @@ class AIChatManager {
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	pendingNewCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
+	aiChatInput = $state<HTMLInputElement | ContextTextarea | undefined>(undefined)
 
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script: this.scriptEditorOptions !== undefined,
@@ -87,6 +89,16 @@ class AIChatManager {
 			if (this.mode === AIMode.NAVIGATOR) {
 				this.tools = [this.changeModeTool, ...navigatorTools, ...this.apiTools]
 			}
+		}
+	}
+
+	setAiChatInput(aiChatInput: HTMLInputElement | ContextTextarea) {
+		this.aiChatInput = aiChatInput
+	}
+
+	focusInput() {
+		if (this.aiChatInput) {
+			this.aiChatInput.focus()
 		}
 	}
 

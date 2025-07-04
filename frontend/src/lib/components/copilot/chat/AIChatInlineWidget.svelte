@@ -50,7 +50,6 @@
 			widget = new SimpleContentWidget(lineNumber, widgetElement)
 			editor.addContentWidget(widget)
 			if (aiChatInput) {
-				console.log('focusing input')
 				aiChatInput.focusInput()
 			}
 		} else if (!show && widget) {

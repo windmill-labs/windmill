@@ -153,6 +153,7 @@
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { editorPositionMap } from '$lib/utils'
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
+	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
@@ -1294,13 +1295,14 @@
 					(selection.startLineNumber !== selection.endLineNumber ||
 						selection.startColumn !== selection.endColumn)
 				if (hasSelection && selectedLines) {
-					dispatch('addSelectedLinesToAiChat', {
-						lines: selectedLines,
-						startLine: selection.startLineNumber,
-						endLine: selection.endLineNumber
-					})
+					aiChatManager.addSelectedLinesToContext(
+						selectedLines,
+						selection.startLineNumber,
+						selection.endLineNumber
+					)
 				} else {
-					dispatch('toggleAiPanel')
+					aiChatManager.toggleOpen()
+					aiChatManager.focusInput()
 				}
 			})
 

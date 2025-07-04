@@ -567,11 +567,6 @@
 							inferSchema(e.detail)
 						}}
 						on:saveDraft
-						on:toggleAiPanel={() => aiChatManager.toggleOpen()}
-						on:addSelectedLinesToAiChat={(e) => {
-							const { lines, startLine, endLine } = e.detail
-							aiChatManager.addSelectedLinesToContext(lines, startLine, endLine)
-						}}
 						on:toggleTestPanel={toggleTestPanel}
 						cmdEnterAction={async () => {
 							await inferSchema(code)

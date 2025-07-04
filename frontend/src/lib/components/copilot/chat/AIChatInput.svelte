@@ -41,7 +41,6 @@
 	let instructions = $state(initialInstructions)
 
 	export function focusInput() {
-		console.log('focusing input', aiChatManager.mode)
 		if (aiChatManager.mode === 'script') {
 			contextTextareaComponent?.focus()
 		} else {
@@ -95,6 +94,14 @@
 	$effect(() => {
 		if (editingMessageIndex !== null) {
 			focusInput()
+		}
+	})
+
+	$effect(() => {
+		if (aiChatManager.mode === 'script' && contextTextareaComponent) {
+			aiChatManager.setAiChatInput(contextTextareaComponent)
+		} else if (instructionsTextareaComponent) {
+			aiChatManager.setAiChatInput(instructionsTextareaComponent)
 		}
 	})
 </script>
