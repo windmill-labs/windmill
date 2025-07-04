@@ -4,6 +4,7 @@
 	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
 	import LoadingIcon from '$lib/components/apps/svelte-select/lib/LoadingIcon.svelte'
+	import { onDestroy } from 'svelte'
 
 	interface Props {
 		editor: monaco.editor.IStandaloneCodeEditor
@@ -48,6 +49,18 @@
 		}
 	}
 
+	// Cleanup function to safely remove widget
+	function cleanupWidget() {
+		if (widget) {
+			try {
+				editor.removeContentWidget(widget)
+			} catch (error) {
+				console.warn('Failed to remove content widget:', error)
+			}
+			widget = null
+		}
+	}
+
 	// Create/remove widget based on show state
 	$effect(() => {
 		if (show && !widget && widgetElement && selection) {
@@ -62,9 +75,20 @@
 			}
 		} else if (!show && widget) {
 			aiChatManager.cancel()
-			editor.removeContentWidget(widget)
-			widget = null
+			cleanupWidget()
 		}
+
+		// Cleanup function for the effect
+		return () => {
+			if (widget) {
+				cleanupWidget()
+			}
+		}
+	})
+
+	// Ensure widget is cleaned up when component is destroyed
+	onDestroy(() => {
+		cleanupWidget()
 	})
 
 	$effect(() => {
