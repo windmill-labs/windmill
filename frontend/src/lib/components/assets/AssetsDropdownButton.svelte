@@ -8,7 +8,7 @@
 	import ExploreAssetButton, {
 		assetCanBeExplored
 	} from '../../../routes/(root)/(logged)/assets/ExploreAssetButton.svelte'
-	import { assetEq, formatAsset, type Asset, type AssetWithAccessType } from './lib'
+	import { assetEq, type Asset, type AssetWithAccessType } from './lib'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import { tick, untrack } from 'svelte'
 	import { ResourceService } from '$lib/gen'
@@ -27,7 +27,7 @@
 		noBtnText = false,
 		popoverPlacement = 'bottom-end',
 		disableLiTooltip = false,
-		alternativeAccessTypes = $bindable(),
+		fallbackAccessTypes = $bindable(),
 		onHoverLi,
 		liSubtitle
 	}: {
@@ -37,7 +37,7 @@
 		noBtnText?: boolean
 		popoverPlacement?: Placement
 		disableLiTooltip?: boolean
-		alternativeAccessTypes?: AssetWithAccessType[]
+		fallbackAccessTypes?: AssetWithAccessType[]
 		onHoverLi?: (asset: Asset, eventType: 'enter' | 'leave') => void
 		liSubtitle?: (asset: Asset) => string
 	} = $props()
@@ -115,10 +115,10 @@
 	<svelte:fragment slot="content">
 		<ul class="divide-y rounded-md">
 			{#each assets as asset}
-				{@const alternativeAccessType = alternativeAccessTypes?.find((a) =>
+				{@const fallbackAccessType = fallbackAccessTypes?.find((a) =>
 					assetEq(a, asset)
 				)?.access_type}
-				{@const hasWarning = !asset.access_type && !alternativeAccessType}
+				{@const hasWarning = !asset.access_type && !fallbackAccessType}
 				<li
 					class="text-sm px-4 h-12 flex gap-4 items-center justify-between hover:bg-surface-hover"
 					onmouseenter={() => onHoverLi?.(asset, 'enter')}
@@ -126,9 +126,9 @@
 				>
 					<div class="flex flex-col">
 						<Tooltip class="select-none max-w-48 truncate" disablePopup={disableLiTooltip}>
-							{formatAsset(asset)}
+							{asset.path}
 							<svelte:fragment slot="text">
-								{formatAsset(asset)}
+								{asset.path}
 							</svelte:fragment>
 						</Tooltip>
 						<span class="text-xs text-tertiary select-none">
@@ -168,13 +168,13 @@
 							disabled={!!asset.access_type}
 							tabListClass={hasWarning ? 'bg-red-200' : ''}
 							bind:selected={
-								() => asset.access_type ?? alternativeAccessType,
+								() => asset.access_type ?? fallbackAccessType,
 								async (access_type) => {
-									alternativeAccessTypes ??= []
+									fallbackAccessTypes ??= []
 									await tick()
-									let val = alternativeAccessTypes?.filter((a) => !assetEq(a, asset))
+									let val = fallbackAccessTypes?.filter((a) => !assetEq(a, asset))
 									val.push({ ...asset, access_type })
-									alternativeAccessTypes = val
+									fallbackAccessTypes = val
 								}
 							}
 						>

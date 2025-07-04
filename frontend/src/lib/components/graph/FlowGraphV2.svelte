@@ -73,7 +73,7 @@
 		READ_ASSET_Y_OFFSET,
 		WRITE_ASSET_Y_OFFSET
 	} from '../flows/utils'
-	import { assetEq, formatAsset } from '../assets/lib'
+	import { assetEq } from '../assets/lib'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -381,7 +381,7 @@
 								{
 									...base,
 									data: { asset, displayedAs: 'input' as const },
-									id: `${node.id}-asset-in-${formatAsset(asset)}`,
+									id: `${node.id}-asset-in-${asset.kind}-${asset.path}`,
 									position: {
 										x:
 											inputAssetCount === 1
@@ -398,7 +398,7 @@
 								{
 									...base,
 									data: { asset, displayedAs: 'output' as const },
-									id: `${node.id}-asset-out-${formatAsset(asset)}`,
+									id: `${node.id}-asset-out-${asset.kind}-${asset.path}`,
 									position: {
 										x:
 											outputAssetCount === 1
@@ -746,12 +746,12 @@
 	{#if mod.value.type === 'rawscript'}
 		{@const v = mod.value}
 		<OnChange
-			key={[v.content, v.asset_alternative_access_types]}
+			key={[v.content, v.asset_fallback_access_types]}
 			runFirstEffect
 			onChange={() =>
 				inferAssets(v.language, v.content)
 					.then((assets) => {
-						for (const override of v.asset_alternative_access_types ?? []) {
+						for (const override of v.asset_fallback_access_types ?? []) {
 							assets = assets.map((asset) => {
 								if (assetEq(asset, override) && !asset.access_type)
 									return { ...asset, access_type: override.access_type }

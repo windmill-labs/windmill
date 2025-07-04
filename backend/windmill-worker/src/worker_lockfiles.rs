@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use sha2::Digest;
 use sqlx::types::Json;
 use uuid::Uuid;
+use windmill_common::assets::{parse_assets, AssetKind, AssetUsageAccessType, AssetUsageKind};
 use windmill_common::error::Error;
 use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
@@ -928,6 +929,7 @@ async fn lock_modules<'c>(
             concurrent_limit,
             concurrency_time_window_s,
             is_trigger,
+            asset_fallback_access_types,
         } = e.get_value()?
         else {
             match e.get_value()? {
@@ -1210,6 +1212,39 @@ async fn lock_modules<'c>(
                 None
             }
         };
+
+        if let Some(assets) = parse_assets(&content, language)? {
+            for asset_result in assets {
+                let kind: AssetKind = asset_result.kind.into();
+                let asset_alternative_access_type = || {
+                    asset_fallback_access_types
+                        .as_ref()
+                        .and_then(|v| {
+                            v.iter()
+                                .find(|a| a.kind == kind && a.path == asset_result.path)
+                        })
+                        .map(|a| a.access_type)
+                };
+                let access_type: Option<AssetUsageAccessType> = asset_result
+                    .access_type
+                    .map(Into::into)
+                    .or_else(asset_alternative_access_type);
+
+                sqlx::query!(
+                    r#"INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind)
+                    VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING"#,
+                    job.workspace_id,
+                    asset_result.path,
+                    kind as AssetKind,
+                    access_type as Option<AssetUsageAccessType>,
+                    job_path,
+                    AssetUsageKind::Flow as AssetUsageKind
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+
         e.value = windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
             lock,
             path,
@@ -1221,8 +1256,10 @@ async fn lock_modules<'c>(
             concurrent_limit,
             concurrency_time_window_s,
             is_trigger,
+            asset_fallback_access_types,
         });
         new_flow_modules.push(e);
+
         continue;
     }
 

@@ -2,7 +2,7 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { AssetN } from '../../graphBuilder.svelte'
 	import { AlertTriangle, Pyramid } from 'lucide-svelte'
-	import { assetEq, formatAsset } from '$lib/components/assets/lib'
+	import { assetEq } from '$lib/components/assets/lib'
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowGraphAssetContext } from '$lib/components/flows/types'
 	import { getContext } from 'svelte'
@@ -42,26 +42,23 @@
 			>
 				<Pyramid size={16} class="shrink-0 ml-1" />
 				<span class="text-3xs truncate flex-1">
-					{formatAsset(data.asset)}
+					{data.asset.path}
 				</span>
-				{#if isSelected}
-					{#if data.asset.kind === 'resource' && flowGraphAssetsCtx.val.resourceMetadataCache[data.asset.path] === undefined}
-						<Tooltip class="mr-2.5">
-							<AlertTriangle size={16} class="text-orange-500" />
-							<svelte:fragment slot="text">Could not fetch resource</svelte:fragment>
-						</Tooltip>
-					{/if}
-					{#if assetCanBeExplored(data.asset, flowGraphAssetsCtx.val.resourceMetadataCache[data.asset.path])}
-						<ExploreAssetButton
-							btnClasses="rounded-none"
-							asset={data.asset}
-							noText
-							buttonVariant="contained"
-							s3FilePicker={flowGraphAssetsCtx.val.s3FilePicker}
-							dbManagerDrawer={flowGraphAssetsCtx.val.dbManagerDrawer}
-							_resourceMetadata={flowGraphAssetsCtx.val.resourceMetadataCache[data.asset.path]}
-						/>
-					{/if}
+				{#if data.asset.kind === 'resource' && flowGraphAssetsCtx.val.resourceMetadataCache[data.asset.path] === undefined}
+					<Tooltip class={'pr-1 flex items-center justify-center'}>
+						<AlertTriangle size={16} class="text-orange-500" />
+						<svelte:fragment slot="text">Could not fetch resource</svelte:fragment>
+					</Tooltip>
+				{:else if isSelected && assetCanBeExplored(data.asset, flowGraphAssetsCtx.val.resourceMetadataCache[data.asset.path])}
+					<ExploreAssetButton
+						btnClasses="rounded-none"
+						asset={data.asset}
+						noText
+						buttonVariant="contained"
+						s3FilePicker={flowGraphAssetsCtx.val.s3FilePicker}
+						dbManagerDrawer={flowGraphAssetsCtx.val.dbManagerDrawer}
+						_resourceMetadata={flowGraphAssetsCtx.val.resourceMetadataCache[data.asset.path]}
+					/>
 				{/if}
 			</div>
 			<svelte:fragment slot="text">
@@ -79,8 +76,9 @@
 							flowGraphAssetsCtx.val.resourceEditorDrawer?.initEdit(data.asset.path)
 					}}
 				>
-					{formatAsset(data.asset)}
-				</a>
+					{data.asset.path}
+				</a><br />
+				<span class="dark:text-tertiary text-tertiary-inverse text-xs">{data.asset.kind}</span>
 			</svelte:fragment>
 		</Tooltip>
 	{/snippet}

@@ -270,7 +270,7 @@ components:
           type: string
         is_trigger:
           type: boolean
-        asset_alternative_access_types:
+        asset_fallback_access_types:
           type: array
           items:
             type: object

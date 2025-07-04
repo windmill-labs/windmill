@@ -421,9 +421,7 @@
 											{#if assets.value?.length}
 												<AssetsDropdownButton
 													assets={assets.value}
-													bind:alternativeAccessTypes={
-														flowModule.value.asset_alternative_access_types
-													}
+													bind:fallbackAccessTypes={flowModule.value.asset_fallback_access_types}
 												/>
 											{/if}
 										</div>
