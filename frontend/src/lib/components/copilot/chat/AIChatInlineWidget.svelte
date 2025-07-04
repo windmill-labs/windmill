@@ -50,8 +50,14 @@
 		}
 	}
 
-	// Cleanup function to safely remove widget
+	// Cleanup function to safely remove widget and cancel requests
 	function cleanupWidget() {
+		// Cancel any ongoing request
+		if (processing && aiChatManager.abortController && !aiChatManager.abortController.signal.aborted) {
+			console.log('Cancelling ongoing request during cleanup')
+			aiChatManager.abortController.abort()
+		}
+		
 		if (widget) {
 			try {
 				editor.removeContentWidget(widget)
@@ -60,6 +66,10 @@
 			}
 			widget = null
 		}
+		
+		// Reset processing state
+		processing = false
+		pendingCode = ''
 	}
 
 	// Create/remove widget based on show state
@@ -130,6 +140,18 @@
 					return
 				}
 				
+				// Prevent multiple concurrent requests
+				if (processing) {
+					console.log('Request already in progress, ignoring duplicate request')
+					return
+				}
+				
+				// Cancel any ongoing request before starting a new one
+				if (aiChatManager.abortController && !aiChatManager.abortController.signal.aborted) {
+					console.log('Cancelling previous request')
+					aiChatManager.abortController.abort()
+				}
+				
 				processing = true
 				
 				try {
@@ -141,7 +163,10 @@
 				} catch (error) {
 					console.error('Inline AI request failed:', error)
 					if (error instanceof Error) {
-						sendUserToast('AI request failed: ' + error.message, true)
+						// Don't show error toast for cancelled requests
+						if (error.message !== 'Request was cancelled') {
+							sendUserToast('AI request failed: ' + error.message, true)
+						}
 					} else {
 						sendUserToast('AI request failed: Unknown error', true)
 					}
@@ -153,6 +178,11 @@
 			}}
 			onKeyDown={(e) => {
 				if (e.key === 'Escape') {
+					// Cancel any ongoing request
+					if (processing && aiChatManager.abortController && !aiChatManager.abortController.signal.aborted) {
+						console.log('Cancelling request due to Escape key')
+						aiChatManager.abortController.abort()
+					}
 					show = false
 				} else if (e.key === 'ArrowDown' && pendingCode) {
 					// call again to auto apply
