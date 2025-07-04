@@ -97,9 +97,13 @@
 	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
+	import type { AssetWithAccessType } from './assets/lib'
 
 	interface Props {
-		script: NewScript & { draft_triggers?: Trigger[] }
+		script: NewScript & {
+			draft_triggers?: Trigger[]
+			fallback_access_types?: AssetWithAccessType[]
+		}
 		fullyLoaded?: boolean
 		initialPath?: string
 		template?: 'docker' | 'bunnative' | 'script'
@@ -536,7 +540,8 @@
 					no_main_func: script.no_main_func,
 					has_preprocessor: script.has_preprocessor,
 					deployment_message: deploymentMsg || undefined,
-					on_behalf_of_email: script.on_behalf_of_email
+					on_behalf_of_email: script.on_behalf_of_email,
+					fallback_access_types: script.fallback_access_types
 				}
 			})
 
@@ -1756,6 +1761,7 @@
 			kind={script.kind}
 			{template}
 			tag={script.tag}
+			bind:fallbackAccessTypes={script.fallback_access_types}
 			lastSavedCode={savedScript?.draft?.content}
 			lastDeployedCode={savedScript?.draft_only ? undefined : savedScript?.content}
 			bind:args

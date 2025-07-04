@@ -15,6 +15,10 @@
 	import { pluralize, truncate } from '$lib/utils'
 	import { untrack } from 'svelte'
 	import ExploreAssetButton from './ExploreAssetButton.svelte'
+	import {
+		assetDisplaysAsInputInFlowGraph,
+		assetDisplaysAsOutputInFlowGraph
+	} from '$lib/components/flows/utils'
 
 	let assets = usePromise(() => AssetService.listAssets({ workspace: $workspaceStore ?? '' }))
 
@@ -110,9 +114,12 @@
 							<span class="text-xs text-tertiary">{u.kind}</span>
 						</div>
 						<div class="flex gap-2">
-							<div class="text-xs border text-tertiary max-w-fit p-1 rounded-md">Read</div>
-							<div class="text-xs border text-tertiary max-w-fit p-1 rounded-md">Write</div>
-							<div class="text-xs border text-tertiary max-w-fit p-1 rounded-md">Todo</div>
+							{#if assetDisplaysAsInputInFlowGraph(u)}
+								<div class="text-xs border text-tertiary max-w-fit p-1 rounded-md">Read</div>
+							{/if}
+							{#if assetDisplaysAsOutputInFlowGraph(u)}
+								<div class="text-xs border text-tertiary max-w-fit p-1 rounded-md">Write</div>
+							{/if}
 						</div>
 					</a>
 				</li>

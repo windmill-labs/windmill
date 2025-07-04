@@ -13722,6 +13722,21 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
+        fallback_access_types:
+          type: array
+          items:
+            type: object
+            required: [path, kind, access_type]
+            properties:
+              path:
+                type: string
+              kind:
+                type: string
+                enum: [s3object, resource]
+              access_type:
+                type: string
+                enum: [r, w, rw]
+            
       required:
         - path
         - summary

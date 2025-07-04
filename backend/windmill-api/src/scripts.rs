@@ -42,7 +42,11 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_worker::process_relative_imports;
 
-use windmill_common::{error::to_anyhow, worker::CLOUD_HOSTED};
+use windmill_common::{
+    assets::{clear_asset_usage, insert_asset_usage, parse_assets, AssetUsageKind},
+    error::to_anyhow,
+    worker::CLOUD_HOSTED,
+};
 
 use windmill_common::{
     db::UserDB,
@@ -992,6 +996,20 @@ async fn create_script_internal<'c>(
                 tracing::error!(%e, "error processing relative imports");
             }
         });
+
+        clear_asset_usage(&db, &w_id, &script_path, AssetUsageKind::Script).await?;
+
+        for asset in parse_assets(&ns.content, language)?.iter().flatten() {
+            insert_asset_usage(
+                &db,
+                &w_id,
+                asset,
+                ns.fallback_access_types.as_ref().map(Vec::as_slice),
+                &ns.path,
+                AssetUsageKind::Script,
+            )
+            .await?;
+        }
 
         handle_deployment_metadata(
             &authed.email,

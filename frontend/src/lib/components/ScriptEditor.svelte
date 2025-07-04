@@ -48,6 +48,7 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
+	import type { AssetWithAccessType } from './assets/lib'
 
 	interface Props {
 		// Exported
@@ -78,6 +79,7 @@
 		lastSavedCode?: string | undefined
 		lastDeployedCode?: string | undefined
 		editor_bar_right?: import('svelte').Snippet
+		fallbackAccessTypes?: AssetWithAccessType[]
 	}
 
 	let {
@@ -106,7 +108,8 @@
 		stablePathForCaptures = '',
 		lastSavedCode = undefined,
 		lastDeployedCode = undefined,
-		editor_bar_right
+		editor_bar_right,
+		fallbackAccessTypes = $bindable()
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -512,7 +515,7 @@
 			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
 				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
 					{#if assets.status === 'ok' && assets.value.length > 0}
-						<AssetsDropdownButton assets={assets.value} />
+						<AssetsDropdownButton assets={assets.value} bind:fallbackAccessTypes />
 					{/if}
 					{#if testPanelSize === 0}
 						<HideButton

@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
+use sqlx::PgExecutor;
 use windmill_parser::asset_parser::ParseAssetsResult;
 
-use crate::scripts::ScriptLang;
+use crate::{error, scripts::ScriptLang};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
 #[sqlx(type_name = "ASSET_KIND", rename_all = "lowercase")]
@@ -39,7 +40,7 @@ pub struct AssetUsage {
     pub access_type: AssetUsageAccessType,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
 pub struct AssetWithAccessType {
     pub path: String,
     pub kind: AssetKind,
@@ -85,4 +86,61 @@ impl From<windmill_parser::asset_parser::AssetUsageAccessType> for AssetUsageAcc
             windmill_parser::asset_parser::AssetUsageAccessType::RW => AssetUsageAccessType::RW,
         }
     }
+}
+
+pub async fn insert_asset_usage<'e>(
+    executor: impl PgExecutor<'e>,
+    workspace_id: &str,
+    parsed_asset: &ParseAssetsResult<String>,
+    fallback_access_types: Option<&[AssetWithAccessType]>,
+    usage_path: &str,
+    usage_kind: AssetUsageKind,
+) -> error::Result<()> {
+    let kind: AssetKind = parsed_asset.kind.into();
+    let asset_alternative_access_type = || {
+        fallback_access_types
+            .as_ref()
+            .and_then(|v| {
+                v.iter()
+                    .find(|a| a.kind == kind && a.path == parsed_asset.path)
+            })
+            .map(|a| a.access_type)
+    };
+    let access_type: Option<AssetUsageAccessType> = parsed_asset
+        .access_type
+        .map(Into::into)
+        .or_else(asset_alternative_access_type);
+
+    sqlx::query!(
+        r#"INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind)
+                VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING"#,
+        workspace_id,
+        parsed_asset.path,
+        kind as AssetKind,
+        access_type as Option<AssetUsageAccessType>,
+        usage_path,
+        usage_kind as AssetUsageKind
+    )
+    .execute(executor)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn clear_asset_usage<'e>(
+    executor: impl PgExecutor<'e>,
+    workspace_id: &str,
+    usage_path: &str,
+    usage_kind: AssetUsageKind,
+) -> error::Result<()> {
+    sqlx::query!(
+        r#"DELETE FROM asset WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = $3"#,
+        workspace_id,
+        usage_path,
+        usage_kind as AssetUsageKind
+    )
+    .execute(executor)
+    .await?;
+
+    Ok(())
 }

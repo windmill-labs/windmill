@@ -27,7 +27,8 @@ async fn list_assets(
                 'kind', kind,
                 'usages', ARRAY_AGG(jsonb_build_object(
                     'path', usage_path,
-                    'kind', usage_kind
+                    'kind', usage_kind,
+                    'access_type', usage_access_type
                 ))
             ) as "list!: _"
         FROM asset
