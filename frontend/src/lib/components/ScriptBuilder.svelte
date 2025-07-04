@@ -65,7 +65,6 @@
 	import ScriptSchema from './ScriptSchema.svelte'
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
-	import type DiffDrawer from './DiffDrawer.svelte'
 	import type Editor from './Editor.svelte'
 	import WorkerTagPicker from './WorkerTagPicker.svelte'
 	import MetadataGen from './copilot/MetadataGen.svelte'
@@ -74,7 +73,7 @@
 	import DefaultScripts from './DefaultScripts.svelte'
 	import { onMount, setContext, untrack } from 'svelte'
 	import Summary from './Summary.svelte'
-	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
+
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
 	import type { ScheduleTrigger, TriggerContext } from './triggers'
@@ -86,7 +85,6 @@
 	} from '$lib/script_helpers'
 	import CaptureTable from './triggers/CaptureTable.svelte'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
-	import type { ScriptBuilderFunctionExports } from './scriptBuilder'
 	import DeployButton from './DeployButton.svelte'
 	import {
 		type NewScriptWithDraftAndDraftTriggers,
@@ -97,37 +95,13 @@
 	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
+	import type { ScriptBuilderProps } from './script_builder'
+	import type { DiffDrawerI } from './diff_drawer'
 
-	interface Props {
-		script: NewScript & { draft_triggers?: Trigger[] }
-		fullyLoaded?: boolean
-		initialPath?: string
-		template?: 'docker' | 'bunnative' | 'script'
-		initialArgs?: Record<string, any>
-		lockedLanguage?: boolean
-		showMeta?: boolean
-		neverShowMeta?: boolean
-		diffDrawer?: DiffDrawer | undefined
-		savedScript?: NewScriptWithDraftAndDraftTriggers | undefined
-		searchParams?: URLSearchParams
-		disableHistoryChange?: boolean
-		replaceStateFn?: (url: string) => void
-		customUi?: ScriptBuilderWhitelabelCustomUi
-		savedPrimarySchedule?: ScheduleTrigger | undefined
-		functionExports?: ((exports: ScriptBuilderFunctionExports) => void) | undefined
-		children?: import('svelte').Snippet
-		onDeploy?: (e: { path: string; hash: string }) => void
-		onDeployError?: (e: { path: string; error: any }) => void
-		onSaveInitial?: (e: { path: string; hash: string }) => void
-		onHistoryRestore?: () => void
-		onSaveDraftOnlyAtNewPath?: (e: { path: string }) => void
-		onSaveDraft?: (e: { path: string; savedAtNewPath: boolean; script: NewScript }) => void
-		onSeeDetails?: (e: { path: string }) => void
-		onSaveDraftError?: (e: { path: string; error: any }) => void
-	}
+
 
 	let {
-		script = $bindable(),
+		script,
 		fullyLoaded = true,
 		initialPath = $bindable(''),
 		template = $bindable('script'),
@@ -150,7 +124,7 @@
 		onSeeDetails,
 		onSaveDraftError,
 		onSaveDraft
-	}: Props = $props()
+	}: ScriptBuilderProps = $props()
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
 		return {
@@ -739,7 +713,7 @@
 	function computeDropdownItems(
 		initialPath: string,
 		savedScript: NewScriptWithDraftAndDraftTriggers | undefined,
-		diffDrawer: DiffDrawer | undefined
+		diffDrawer: DiffDrawerI | undefined
 	) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
 			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
@@ -963,8 +937,8 @@
 {@render children?.()}
 
 <DeployOverrideConfirmationModal
-	bind:deployedBy
-	bind:confirmCallback
+	{deployedBy}
+	{confirmCallback}
 	bind:open
 	{diffDrawer}
 	bind:deployedValue

@@ -262,20 +262,20 @@
 			"svelte": "./package/components/FlowStatusViewer.svelte",
 			"default": "./package/components/FlowStatusViewer.svelte"
 		},
-		"./components/FlowBuilder.svelte": {
-			"types": "./package/components/FlowBuilder.svelte.d.ts",
-			"svelte": "./package/components/FlowBuilder.svelte",
-			"default": "./package/components/FlowBuilder.svelte"
+		"./components/FlowWrapper.svelte": {
+			"types": "./package/components/FlowWrapper.svelte.d.ts",
+			"svelte": "./package/components/FlowWrapper.svelte",
+			"default": "./package/components/FlowWrapper.svelte"
 		},
-		"./components/AppEditor.svelte": {
-			"types": "./package/components/apps/editor/AppEditor.svelte.d.ts",
-			"svelte": "./package/components/apps/editor/AppEditor.svelte",
-			"default": "./package/components/apps/editor/AppEditor.svelte"
+		"./components/AppWrapper.svelte": {
+			"types": "./package/components/apps/editor/AppWrapper.svelte.d.ts",
+			"svelte": "./package/components/apps/editor/AppWrapper.svelte",
+			"default": "./package/components/apps/editor/AppWrapper.svelte"
 		},
-		"./components/ScriptBuilder.svelte": {
-			"types": "./package/components/ScriptBuilder.svelte.d.ts",
-			"svelte": "./package/components/ScriptBuilder.svelte",
-			"default": "./package/components/ScriptBuilder.svelte"
+		"./components/ScriptWrapper.svelte": {
+			"types": "./package/components/ScriptWrapper.svelte.d.ts",
+			"svelte": "./package/components/ScriptWrapper.svelte",
+			"default": "./package/components/ScriptWrapper.svelte"
 		},
 		"./components/FlowEditor.svelte": {
 			"types": "./package/components/flows/FlowEditor.svelte.d.ts",
@@ -458,14 +458,14 @@
 			"components/FlowBuilder.svelte": [
 				"./package/components/FlowBuilder.svelte.d.ts"
 			],
-			"components/AppEditor.svelte": [
-				"./package/components/apps/editor/AppEditor.svelte.d.ts"
+			"components/AppWrapper.svelte": [
+				"./package/components/AppWrapper.svelte.d.ts"
 			],
-			"components/ScriptBuilder.svelte": [
-				"./package/components/ScriptBuilder.svelte.d.ts"
+			"components/ScriptWrapper.svelte": [
+				"./package/components/ScriptWrapper.svelte.d.ts"
 			],
-			"components/FlowEditor.svelte": [
-				"./package/components/flows/FlowEditor.svelte.d.ts"
+			"components/FlowWrapper.svelte": [
+				"./package/components/FlowWrapper.svelte.d.ts"
 			],
 			"components/SchemaViewer.svelte": [
 				"./package/components/SchemaViewer.svelte.d.ts"

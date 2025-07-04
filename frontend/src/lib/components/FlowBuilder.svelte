@@ -24,7 +24,6 @@
 		orderedJsonStringify,
 		readFieldsRecursively,
 		replaceFalseWithUndefined,
-		type StateStore,
 		type Value
 	} from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
@@ -33,12 +32,11 @@
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
 	import { onMount, setContext, untrack, type ComponentType } from 'svelte'
-	import { writable, type Writable } from 'svelte/store'
+	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Badge, Button, UndoRedo } from './common'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
-	import type { FlowState } from './flows/flowState'
 	import { dfs as dfsApply } from './flows/dfs'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
@@ -62,7 +60,6 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import FlowTutorials from './FlowTutorials.svelte'
 	import { ignoredTutorials } from './tutorials/ignoredTutorials'
-	import type DiffDrawer from './DiffDrawer.svelte'
 	import FlowHistory from './flows/FlowHistory.svelte'
 	import Summary from './Summary.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
@@ -85,49 +82,9 @@
 		StepHistoryLoader,
 		type stepState
 	} from './stepHistoryLoader.svelte'
+	import type { FlowBuilderProps } from './flow_builder'
 
-	interface Props {
-		initialPath?: string
-		pathStoreInit?: string | undefined
-		newFlow: boolean
-		selectedId: string | undefined
-		initialArgs?: Record<string, any>
-		loading?: boolean
-		flowStore: StateStore<OpenFlow>
-		flowStateStore: Writable<FlowState>
-		savedFlow?: FlowWithDraftAndDraftTriggers | undefined
-		diffDrawer?: DiffDrawer | undefined
-		customUi?: FlowBuilderWhitelabelCustomUi
-		disableAi?: boolean
-		disabledFlowInputs?: boolean
-		savedPrimarySchedule?: ScheduleTrigger | undefined // used to set the primary schedule in the legacy primaryScheduleStore
-		version?: number | undefined
-		setSavedraftCb?: ((cb: () => void) => void) | undefined
-		draftTriggersFromUrl?: Trigger[] | undefined
-		selectedTriggerIndexFromUrl?: number | undefined
-		children?: import('svelte').Snippet
-		loadedFromHistoryFromUrl?: {
-			flowJobInitial: boolean | undefined
-			stepsState: Record<string, stepState>
-		}
-		noInitial?: boolean
-		onSaveInitial?: ({ path, id }: { path: string; id: string }) => void
-		onSaveDraft?: ({
-			path,
-			savedAtNewPath,
-			newFlow
-		}: {
-			path: string
-			savedAtNewPath: boolean
-			newFlow: boolean
-		}) => void
-		onSaveDraftError?: ({ error }: { error: any }) => void
-		onSaveDraftOnlyAtNewPath?: ({ path, selectedId }: { path: string; selectedId: string }) => void
-		onDeploy?: ({ path }: { path: string }) => void
-		onDeployError?: ({ error }: { error: any }) => void
-		onDetails?: ({ path }: { path: string }) => void
-		onHistoryRestore?: () => void
-	}
+
 
 	let {
 		initialPath = $bindable(''),
@@ -159,7 +116,7 @@
 		onSaveDraftError,
 		onSaveDraftOnlyAtNewPath,
 		onHistoryRestore
-	}: Props = $props()
+	}: FlowBuilderProps = $props()
 
 	let initialPathStore = writable(initialPath)
 
@@ -929,8 +886,8 @@
 {@render children?.()}
 
 <DeployOverrideConfirmationModal
-	bind:deployedBy
-	bind:confirmCallback
+	{deployedBy}
+	{confirmCallback}
 	bind:open
 	{diffDrawer}
 	bind:deployedValue

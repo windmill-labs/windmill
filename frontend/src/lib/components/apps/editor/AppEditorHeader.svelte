@@ -57,7 +57,6 @@
 	import { secondaryMenuLeftStore, secondaryMenuRightStore } from './settingsPanel/secondaryMenu'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import AppEditorTutorial from './AppEditorTutorial.svelte'
-	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import AppReportsDrawer from './AppReportsDrawer.svelte'
 	import { type ColumnDef, getPrimaryKeys } from '../components/display/dbtable/utils'
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
@@ -82,6 +81,7 @@
 	import { collectStaticFields, type TriggerableV2 } from './commonAppUtils'
 	import LazyModePanel from './contextPanel/LazyModePanel.svelte'
 	import { Sha256 } from '@aws-crypto/sha256-js'
+	import type { DiffDrawerI } from '$lib/components/diff_drawer'
 
 	async function hash(message) {
 		try {
@@ -103,7 +103,7 @@
 	interface Props {
 		policy: Policy
 		fromHub?: boolean
-		diffDrawer?: DiffDrawer | undefined
+		diffDrawer?: DiffDrawerI | undefined
 		savedApp?:
 			| {
 					value: App
@@ -981,8 +981,8 @@
 	})}
 {/if}
 <DeployOverrideConfirmationModal
-	bind:deployedBy
-	bind:confirmCallback
+	{deployedBy}
+	{confirmCallback}
 	bind:open
 	{diffDrawer}
 	bind:deployedValue

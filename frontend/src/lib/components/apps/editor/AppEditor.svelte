@@ -12,6 +12,7 @@
 	import type {
 		App,
 		AppEditorContext,
+		AppEditorProps,
 		AppViewerContext,
 		ConnectingInput,
 		ContextPanelContext,
@@ -33,7 +34,7 @@
 
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
-	import { VariableService, type Policy } from '$lib/gen'
+	import { VariableService } from '$lib/gen'
 	import { initHistory } from '$lib/history'
 	import { Component, Minus, Paintbrush, Plus, Smartphone, Scan, Hand, Grab } from 'lucide-svelte'
 	import { animateTo, findGridItem, findGridItemParentGrid } from './appUtils'
@@ -51,36 +52,9 @@
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import { getTheme } from './componentsPanel/themeUtils'
 	import StylePanel from './settingsPanel/StylePanel.svelte'
-	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import AppEditorBottomPanel from './AppEditorBottomPanel.svelte'
 	import panzoom from 'panzoom'
-
-	interface Props {
-		app: App
-		path: string
-		policy: Policy
-		summary: string
-		fromHub?: boolean
-		diffDrawer?: DiffDrawer | undefined
-		savedApp?:
-			| {
-					value: App
-					draft?: any
-					path: string
-					summary: string
-					policy: any
-					draft_only?: boolean
-					custom_path?: string
-			  }
-			| undefined
-		version?: number | undefined
-		newApp?: boolean
-		newPath?: string | undefined
-		replaceStateFn?: (path: string) => void
-		gotoFn?: (path: string, opt?: Record<string, any> | undefined) => void
-		unsavedConfirmationModal?: import('svelte').Snippet<[any]>
-	}
 
 	let {
 		app,
@@ -96,7 +70,7 @@
 		replaceStateFn = (path: string) => window.history.replaceState(null, '', path),
 		gotoFn = (path: string, opt?: Record<string, any>) => window.history.pushState(null, '', path),
 		unsavedConfirmationModal
-	}: Props = $props()
+	}: AppEditorProps = $props()
 
 	migrateApp(app)
 

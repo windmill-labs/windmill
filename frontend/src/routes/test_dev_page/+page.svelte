@@ -1,8 +1,9 @@
 <script lang="ts">
 	import type { ScriptBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
-	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
+	import ScriptWrapper from '$lib/components/ScriptWrapper.svelte'
+	import type { NewScript } from '$lib/gen'
 
-	let showWhiteLabelUI: 'no' | 'old' | 'new' = 'new'
+	let showWhiteLabelUI = $state('new') as 'no' | 'old' | 'new'
 	const showWhiteLabelOptions = [
 		{ value: 'no', label: 'No whitelabel' },
 		{ value: 'old', label: 'Old whitelabel' },
@@ -59,7 +60,7 @@
 		},
 		settingsPanel: {
 			metadata: {
-				languages: ['python3'],
+				languages: ['python3', 'bun'],
 				disableScriptKind: true,
 				editableSchemaForm: { jsonOnly: true, disableVariablePicker: true },
 				disableMute: true
@@ -78,12 +79,20 @@
 		disableTooltips: true
 	}
 
-	$: customUi =
-		showWhiteLabelUI === 'old'
+	let customUi =
+		$derived(showWhiteLabelUI === 'old'
 			? oldWhiteLabelUIConfig
 			: showWhiteLabelUI === 'new'
 			? newWhiteLabelUIConfig
-			: noWhiteLabelUIConfig
+			: noWhiteLabelUIConfig)
+
+	let script: NewScript = $state({
+		summary: 'foo',
+		path: 'u/admin/foo',
+		description: 'foo',
+		language: 'python3',
+		content: 'def main():\n\tprint("Hello, World!")'
+	})
 </script>
 
 <select bind:value={showWhiteLabelUI} placeholder="Select UI Type">
@@ -92,14 +101,8 @@
 	{/each}
 </select>
 
-<ScriptBuilder
-	script={{
-		summary: 'foo',
-		path: 'u/admin/foo',
-		description: 'foo',
-		language: 'python3',
-		content: 'def main():\n\tprint("Hello, World!")'
-	}}
+<ScriptWrapper
+	{script}
 	neverShowMeta={true}
 	{customUi}
 />
