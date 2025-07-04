@@ -39,6 +39,13 @@ pub struct AssetUsage {
     pub access_type: AssetUsageAccessType,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AssetWithAccessType {
+    pub path: String,
+    pub kind: AssetKind,
+    pub access_type: AssetUsageAccessType,
+}
+
 pub fn parse_assets(
     input: &str,
     lang: ScriptLang,
@@ -60,4 +67,22 @@ pub fn parse_assets(
         _ => return Ok(None),
     };
     return r.map(Some);
+}
+
+impl From<windmill_parser::asset_parser::AssetKind> for AssetKind {
+    fn from(kind: windmill_parser::asset_parser::AssetKind) -> Self {
+        match kind {
+            windmill_parser::asset_parser::AssetKind::S3Object => AssetKind::S3Object,
+            windmill_parser::asset_parser::AssetKind::Resource => AssetKind::Resource,
+        }
+    }
+}
+impl From<windmill_parser::asset_parser::AssetUsageAccessType> for AssetUsageAccessType {
+    fn from(access_type: windmill_parser::asset_parser::AssetUsageAccessType) -> Self {
+        match access_type {
+            windmill_parser::asset_parser::AssetUsageAccessType::R => AssetUsageAccessType::R,
+            windmill_parser::asset_parser::AssetUsageAccessType::W => AssetUsageAccessType::W,
+            windmill_parser::asset_parser::AssetUsageAccessType::RW => AssetUsageAccessType::RW,
+        }
+    }
 }
