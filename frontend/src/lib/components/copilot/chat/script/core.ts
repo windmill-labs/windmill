@@ -369,6 +369,7 @@ Return the modified CODE that fulfills the user's request. Assume all user queri
 - ❌ **NEVER** include only modified sections
 - ❌ **NEVER** add explanatory text or comments outside the format
 - ❌ **NEVER** include \`\`\` code fences in your response
+- ❌ **NEVER** modify the code outside the boundaries
 
 ## Output Format
 

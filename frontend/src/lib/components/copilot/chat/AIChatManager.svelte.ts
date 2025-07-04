@@ -442,6 +442,12 @@ class AIChatManager {
 		if (newCodeMatch && newCodeMatch[1]) {
 			return newCodeMatch[1].trim()
 		} else {
+			// try to take everything after the last <new_code> tag, no xml tags
+			const lastNewCodeMatch = reply.match(/<new_code>([\s\S]*)/i)
+			if (lastNewCodeMatch && lastNewCodeMatch[1]) {
+				// remove final backticks
+				return lastNewCodeMatch[1].trim().replace(/```/g, '')
+			}
 			return ''
 		}
 	}
