@@ -2,14 +2,16 @@
 	import * as monaco from 'monaco-editor'
 	import AIChatInput from './AIChatInput.svelte'
 	import { aiChatManager } from './AIChatManager.svelte'
+	import type { Selection } from 'monaco-editor'
 
 	interface Props {
 		editor: monaco.editor.IStandaloneCodeEditor
-		lineNumber: number
+		selection: Selection | null
+		selectedCode: string
 		show: boolean
 	}
 
-	let { editor, lineNumber, show = $bindable(false) }: Props = $props()
+	let { editor, selection, selectedCode, show = $bindable(false) }: Props = $props()
 
 	let widget: SimpleContentWidget | null = $state(null)
 	let widgetElement: HTMLElement | null = $state(null)
@@ -46,18 +48,18 @@
 	// Create/remove widget based on show state
 	$effect(() => {
 		console.log('show', show)
-		if (show && !widget && widgetElement) {
-			console.log('adding widget', lineNumber)
-			widget = new SimpleContentWidget(lineNumber, widgetElement)
+		if (show && !widget && widgetElement && selection) {
+			console.log('adding widget', selection)
+			const startLine = selection.startLineNumber
+			widget = new SimpleContentWidget(startLine, widgetElement)
 			editor.addContentWidget(widget)
 			if (aiChatInput) {
 				aiChatInput.focusInput()
 			}
 		} else if (!show && widget) {
-			console.log('removing widget', lineNumber)
+			console.log('removing widget', selection)
 			editor.removeContentWidget(widget)
 			widget = null
-			isPositionedBelow = false
 		}
 	})
 
@@ -67,18 +69,22 @@
 	}
 </script>
 
-<div bind:this={widgetElement} class="w-[300px]">
-	<AIChatInput
-		bind:this={aiChatInput}
-		availableContext={aiChatManager.contextManager.getAvailableContext()}
-		selectedContext={aiChatManager.contextManager.getSelectedContext()}
-		onClickOutside={() => {
-			show = false
-		}}
-		onSendRequest={(instructions) => {
-			console.log('sending request', instructions)
-			aiChatManager.sendInlineRequest(instructions)
-		}}
-		className="-ml-2"
-	/>
-</div>
+{#if show}
+	<div bind:this={widgetElement} class="w-[300px]">
+		<AIChatInput
+			bind:this={aiChatInput}
+			availableContext={aiChatManager.contextManager.getAvailableContext()}
+			selectedContext={aiChatManager.contextManager.getSelectedContext()}
+			onClickOutside={() => {
+				show = false
+			}}
+			onSendRequest={async (instructions) => {
+				console.log('sending request', instructions)
+				const reply = await aiChatManager.sendInlineRequest(instructions, selectedCode, selection)
+				aiChatManager.scriptEditorApplyCode?.(reply)
+			}}
+			className="-ml-2"
+			showContext={false}
+		/>
+	</div>
+{/if}

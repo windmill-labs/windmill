@@ -154,6 +154,7 @@
 	import { editorPositionMap } from '$lib/utils'
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
+	import type { Selection } from 'monaco-editor'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
@@ -637,7 +638,7 @@
 
 	// Inline ai chat widget
 	let showInlineAIChat = false
-	let aiWidgetPosition: number = 1
+	let inlineAIChatSelection: Selection | null = null
 	let selectedCode = ''
 
 	export function reviewAndApplyCode(code: string) {
@@ -1288,7 +1289,6 @@
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyL, function () {
-				closeAIInlineWidget()
 				const selectedLines = getSelectedLines()
 				const selection = editor?.getSelection()
 				const hasSelection =
@@ -1308,8 +1308,11 @@
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyK, function () {
-				console.log('ctrl cmd k')
-				showAIInlineWidget()
+				if (showInlineAIChat) {
+					closeAIInlineWidget()
+				} else {
+					showAIInlineWidget()
+				}
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyU, function () {
@@ -1470,20 +1473,18 @@
 	function showAIInlineWidget() {
 		if (!editor) return
 
-		const selection = editor.getSelection()
-		if (!selection || selection.isEmpty()) {
+		inlineAIChatSelection = editor.getSelection()
+		if (!inlineAIChatSelection || inlineAIChatSelection.isEmpty()) {
 			return
 		}
-
-		selectedCode = editor.getModel()?.getValueInRange(selection) || ''
-		const startPos = selection.getStartPosition()
-		aiWidgetPosition = Math.max(startPos.lineNumber - 2, 0)
+		selectedCode = editor.getModel()?.getValueInRange(inlineAIChatSelection) || ''
 		showInlineAIChat = true
 		aiChatInlineWidget?.focusInput()
 	}
 
 	function closeAIInlineWidget() {
 		showInlineAIChat = false
+		inlineAIChatSelection = null
 		selectedCode = ''
 	}
 
@@ -1553,12 +1554,13 @@
 	/>
 {/if}
 
-{#if editor && showInlineAIChat}
+{#if editor}
 	<AIChatInlineWidget
 		bind:this={aiChatInlineWidget}
 		bind:show={showInlineAIChat}
 		{editor}
-		lineNumber={aiWidgetPosition}
+		selection={inlineAIChatSelection}
+		{selectedCode}
 	/>
 {/if}
 

@@ -20,6 +20,7 @@
 		className?: string
 		onClickOutside?: () => void
 		onSendRequest?: (instructions: string) => void
+		showContext?: boolean
 	}
 
 	let {
@@ -33,7 +34,8 @@
 		onEditEnd = () => {},
 		className = '',
 		onClickOutside = () => {},
-		onSendRequest = () => {}
+		onSendRequest = () => {},
+		showContext = true
 	}: Props = $props()
 
 	let contextTextareaComponent: ContextTextarea | undefined = $state()
@@ -41,8 +43,11 @@
 	let instructions = $state(initialInstructions)
 
 	export function focusInput() {
-		console.log('focusing input', aiChatManager.mode)
+		console.log('focusing input', aiChatManager.mode, contextTextareaComponent)
 		if (aiChatManager.mode === 'script') {
+			if (!contextTextareaComponent) {
+				console.log('fefefe')
+			}
 			contextTextareaComponent?.focus()
 		} else {
 			instructionsTextareaComponent?.focus()
@@ -109,37 +114,39 @@
 
 <div use:clickOutside>
 	{#if aiChatManager.mode === 'script'}
-		<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
-			<Popover>
-				<svelte:fragment slot="trigger">
-					<div
-						class="border rounded-md px-1 py-0.5 font-normal text-tertiary text-xs hover:bg-surface-hover bg-surface"
-						>@</div
-					>
-				</svelte:fragment>
-				<svelte:fragment slot="content" let:close>
-					<AvailableContextList
-						{availableContext}
-						{selectedContext}
-						onSelect={(element) => {
-							addContextToSelection(element)
-							close()
+		{#if showContext}
+			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
+				<Popover>
+					<svelte:fragment slot="trigger">
+						<div
+							class="border rounded-md px-1 py-0.5 font-normal text-tertiary text-xs hover:bg-surface-hover bg-surface"
+							>@</div
+						>
+					</svelte:fragment>
+					<svelte:fragment slot="content" let:close>
+						<AvailableContextList
+							{availableContext}
+							{selectedContext}
+							onSelect={(element) => {
+								addContextToSelection(element)
+								close()
+							}}
+						/>
+					</svelte:fragment>
+				</Popover>
+				{#each selectedContext as element}
+					<ContextElementBadge
+						contextElement={element}
+						deletable
+						on:delete={() => {
+							selectedContext = selectedContext?.filter(
+								(c) => c.type !== element.type || c.title !== element.title
+							)
 						}}
 					/>
-				</svelte:fragment>
-			</Popover>
-			{#each selectedContext as element}
-				<ContextElementBadge
-					contextElement={element}
-					deletable
-					on:delete={() => {
-						selectedContext = selectedContext?.filter(
-							(c) => c.type !== element.type || c.title !== element.title
-						)
-					}}
-				/>
-			{/each}
-		</div>
+				{/each}
+			</div>
+		{/if}
 		<ContextTextarea
 			bind:this={contextTextareaComponent}
 			bind:value={instructions}

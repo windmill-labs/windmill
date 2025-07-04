@@ -37,6 +37,7 @@ import { askTools, prepareAskSystemMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import type ContextTextarea from './ContextTextarea.svelte'
 import type { ContextElement } from './context'
+import type { Selection } from 'monaco-editor'
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -400,12 +401,22 @@ class AIChatManager {
 		}
 	}
 
-	sendInlineRequest = async (instructions: string) => {
+	sendInlineRequest = async (instructions: string, selectedCode: string, selection: Selection) => {
 		if (!this.abortController) {
 			this.abortController = new AbortController()
 		}
 		const lang = this.scriptEditorOptions?.lang ?? 'bun'
-		const selectedContext = this.contextManager.getSelectedContext().filter((c) => c.type === 'db')
+		const selectedContext: ContextElement[] = this.contextManager.getSelectedContext()
+		const startLine = selection.startLineNumber
+		const endLine = selection.endLineNumber
+		selectedContext.push({
+			type: 'code_piece',
+			lang,
+			title: `L${startLine}-L${endLine}`,
+			startLine,
+			endLine,
+			content: selectedCode
+		})
 		const systemMessage: ChatCompletionSystemMessageParam = {
 			role: 'system',
 			content: INLINE_CHAT_SYSTEM_PROMPT
@@ -413,6 +424,7 @@ class AIChatManager {
 		const userMessage = await prepareScriptUserMessage(instructions, lang, selectedContext, {
 			isPreprocessor: false
 		})
+		console.log('userMessage', userMessage)
 		const messages = [userMessage]
 		let reply = ''
 		const params = {
@@ -428,7 +440,7 @@ class AIChatManager {
 			systemMessage
 		}
 		await this.chatRequest({ ...params })
-		console.log(reply)
+		return reply
 	}
 
 	sendRequest = async (
