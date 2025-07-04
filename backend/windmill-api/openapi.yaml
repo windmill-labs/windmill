@@ -14320,6 +14320,8 @@ components:
           type: string
         parameters:
           type: object
+        span:
+          type: string
       required:
         - id
         - timestamp

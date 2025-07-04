@@ -514,6 +514,7 @@ pub async fn transform_json_value<'c>(
                         email: "backend".to_string(),
                         username: "backend".to_string(),
                         username_override: None,
+                        token_prefix: None,
                     }),
             )
             .await?;

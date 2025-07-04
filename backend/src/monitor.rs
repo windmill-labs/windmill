@@ -1926,6 +1926,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             &job.email,
             &job.id,
             None,
+            Some(format!("handle_zombie_jobs")),
         )
         .await
         .expect("could not create job token");
