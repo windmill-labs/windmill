@@ -25,7 +25,8 @@
 		Route,
 		Search,
 		SearchCode,
-		Unplug
+		Unplug,
+		WandSparkles
 	} from 'lucide-svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
@@ -293,8 +294,7 @@
 		}
 
 		if (tab === 'default') {
-			if (searchTerm === '')
-				itemMap['default'] = defaultMenuItems
+			if (searchTerm === '') itemMap['default'] = defaultMenuItems
 			else
 				itemMap['default'] = fuzzyFilter(
 					searchTerm,
@@ -371,9 +371,6 @@
 						if (el) scroll_into_view_if_needed_polyfill(el, false)
 					}
 				}
-			}
-			if ((itemMap[tab] ?? []).length === 0 && searchTerm.length > 0 && event.key === 'Enter') {
-				askAiButton?.onClick()
 			}
 		}
 	}
@@ -656,7 +653,11 @@
 							defaultMenuItemsWithHidden.some((x) => e.search_id === x.search_id)
 						)}
 						{#if items.length > 0}
-							<div class={tab === 'switch-mode' ? 'p-2' : 'p-2 border-b'}>
+							<div
+								class={tab === 'switch-mode' || itemMap[tab].length === items.length
+									? 'p-2'
+									: 'p-2 border-b'}
+							>
 								{#each items as el}
 									<QuickMenuItem
 										onselect={(shift) => el?.action(shift)}
@@ -674,8 +675,8 @@
 					{/if}
 
 					{#if tab === 'default'}
-						<div class="p-2">
-							{#if (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)).length > 0}
+						{#if (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)).length > 0}
+							<div class="p-2">
 								<div class="py-2 px-1 text-xs font-semibold text-tertiary">
 									Flows/Scripts/Apps
 								</div>
@@ -694,19 +695,31 @@
 										bind:mouseMoved
 									/>
 								{/each}
-							{/if}
+							</div>
+						{/if}
 
-							{#if (itemMap[tab] ?? []).length === 0}
+						{#if (itemMap[tab] ?? []).length === 0}
+							<div class="p-2">
+								<QuickMenuItem
+									onselect={() => {
+										askAiButton?.onClick()
+									}}
+									id={'ai:no-results-ask-ai'}
+									hovered={true}
+									label={`Try asking \`${searchTerm}\` to AI`}
+									icon={WandSparkles}
+									bind:mouseMoved
+								/>
 								<div class="flex w-full justify-center items-center">
 									<div class="text-tertiary text-center">
-										<div class="text-2xl font-bold"
-											>Nothing found, ask the AI to find what you need!</div
-										>
-										<div class="text-sm">Tip: press `esc` to quickly clear the search bar</div>
+										<!-- <div class="text-2xl font-bold" -->
+										<!-- 	>Nothing found, ask the AI to find what you need!</div -->
+										<!-- > -->
+										<div class="pt-1 text-sm">Tip: press `esc` to quickly clear the search bar</div>
 									</div>
 								</div>
-							{/if}
-						</div>
+							</div>
+						{/if}
 					{:else if tab === 'content'}
 						<ContentSearchInner
 							search={removePrefix(searchTerm, '#')}
