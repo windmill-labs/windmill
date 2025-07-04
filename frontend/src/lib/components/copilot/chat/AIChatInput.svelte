@@ -36,7 +36,7 @@
 		onEditEnd = () => {},
 		className = '',
 		onClickOutside = () => {},
-		onSendRequest = () => {},
+		onSendRequest = undefined,
 		showContext = true,
 		bottomRightSnippet
 	}: Props = $props()
