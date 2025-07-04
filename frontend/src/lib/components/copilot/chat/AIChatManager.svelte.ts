@@ -402,9 +402,7 @@ class AIChatManager {
 	}
 
 	sendInlineRequest = async (instructions: string, selectedCode: string, selection: Selection) => {
-		if (!this.abortController) {
-			this.abortController = new AbortController()
-		}
+		this.abortController = new AbortController()
 		const lang = this.scriptEditorOptions?.lang ?? 'bun'
 		const selectedContext: ContextElement[] = this.contextManager.getSelectedContext()
 		const startLine = selection.startLineNumber

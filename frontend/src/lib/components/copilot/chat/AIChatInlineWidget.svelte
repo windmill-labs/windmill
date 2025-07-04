@@ -61,6 +61,7 @@
 				aiChatInput.focusInput()
 			}
 		} else if (!show && widget) {
+			aiChatManager.cancel()
 			editor.removeContentWidget(widget)
 			widget = null
 		}
