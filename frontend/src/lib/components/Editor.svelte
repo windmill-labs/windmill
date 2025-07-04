@@ -122,7 +122,8 @@
 		KeyMod,
 		Uri as mUri,
 		type IRange,
-		type IDisposable
+		type IDisposable,
+		type IPosition
 	} from 'monaco-editor'
 
 	import EditorTheme from './EditorTheme.svelte'
@@ -147,6 +148,7 @@
 	import { Autocompletor } from './copilot/autocomplete/Autocompletor'
 	import { AIChatEditorHandler } from './copilot/chat/monaco-adapter'
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
+	import AIChatInlineWidget from './copilot/chat/AIChatInlineWidget.svelte'
 	import { writable } from 'svelte/store'
 	import { formatResourceTypes } from './copilot/chat/script/core'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
@@ -632,6 +634,11 @@
 
 	let reviewingChanges = writable(false)
 	let aiChatEditorHandler: AIChatEditorHandler | undefined = undefined
+
+	// Inline ai chat widget
+	let showInlineAIChat = false
+	let aiWidgetPosition: IPosition = { lineNumber: 1, column: 1 }
+	let selectedCode = ''
 
 	export function reviewAndApplyCode(code: string) {
 		aiChatEditorHandler?.reviewAndApply(code)
@@ -1298,6 +1305,10 @@
 				}
 			})
 
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyK, function () {
+				showAIInlineWidget()
+			})
+
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyU, function () {
 				dispatch('toggleTestPanel')
 			})
@@ -1324,6 +1335,7 @@
 			try {
 				closeWebsockets()
 				vimDisposable?.dispose()
+				closeAIInlineWidget()
 				console.log('disposing editor')
 				model?.dispose()
 				editor && editor.dispose()
@@ -1452,6 +1464,28 @@
 		})
 	}
 
+	function showAIInlineWidget() {
+		if (!editor) return
+
+		const selection = editor.getSelection()
+		if (!selection || selection.isEmpty()) {
+			return
+		}
+
+		selectedCode = editor.getModel()?.getValueInRange(selection) || ''
+		const startPos = selection.getStartPosition()
+		aiWidgetPosition = {
+			lineNumber: startPos.lineNumber,
+			column: startPos.column
+		}
+		showInlineAIChat = true
+	}
+
+	function closeAIInlineWidget() {
+		showInlineAIChat = false
+		selectedCode = ''
+	}
+
 	let loadTimeout: NodeJS.Timeout | undefined = undefined
 	onMount(async () => {
 		if (BROWSER) {
@@ -1500,7 +1534,7 @@
 		<FakeMonacoPlaceHolder {code} />
 	</div>
 {/if}
-<div bind:this={divEl} class="{$$props.class} editor {disabled ? 'disabled' : ''}"></div>
+<div bind:this={divEl} class="{$$restProps.class || ''} editor {disabled ? 'disabled' : ''}"></div>
 {#if $vimMode}
 	<div class="fixed bottom-0 z-30" bind:this={statusDiv}></div>
 {/if}
@@ -1514,6 +1548,10 @@
 			aiChatEditorHandler?.rejectAll()
 		}}
 	/>
+{/if}
+
+{#if editor}
+	<AIChatInlineWidget bind:show={showInlineAIChat} {editor} position={aiWidgetPosition} />
 {/if}
 
 <style global lang="postcss">
@@ -1538,5 +1576,22 @@
 		border-radius: 4px;
 		left: -4px;
 		top: -5px;
+	}
+
+	/* AI Code Widget Decorations */
+	:global(.ai-selected-code) {
+		background-color: rgba(59, 130, 246, 0.1) !important;
+		border: 1px solid rgba(59, 130, 246, 0.3) !important;
+	}
+
+	:global(.ai-processing) {
+		background-color: rgba(245, 158, 11, 0.1) !important;
+		border: 1px solid rgba(245, 158, 11, 0.3) !important;
+	}
+
+	:global(.ai-processing-text) {
+		color: var(--color-warning) !important;
+		font-style: italic !important;
+		font-size: 12px !important;
 	}
 </style>

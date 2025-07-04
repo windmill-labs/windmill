@@ -57,7 +57,7 @@
 			bind:selectedContext
 			initialInstructions={message.content}
 			{editingMessageIndex}
-			onEditEnd={() => (editingMessageIndex = null)}
+			onClickOutside={() => (editingMessageIndex = null)}
 		/>
 	{:else}
 		<div

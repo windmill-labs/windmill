@@ -5,6 +5,7 @@
 	import AvailableContextList from './AvailableContextList.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		value: string
@@ -16,6 +17,7 @@
 		onSendRequest: () => void
 		onAddContext: (contextElement: ContextElement) => void
 		onEscape: () => void
+		className?: string
 	}
 
 	let {
@@ -27,7 +29,8 @@
 		disabled,
 		onSendRequest,
 		onAddContext,
-		onEscape
+		onEscape,
+		className = ''
 	}: Props = $props()
 
 	let showContextTooltip = $state(false)
@@ -336,7 +339,7 @@
 	}
 </script>
 
-<div class="relative w-full px-2 scroll-pb-2">
+<div class={twMerge('relative w-full px-2 scroll-pb-2 bg-surface', className)}>
 	<div class="textarea-input absolute top-0 left-0 pointer-events-none">
 		<span class="break-words">
 			{@html getHighlightedText(value)}
