@@ -20,8 +20,7 @@
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import type { FlowEditorContext, FlowInput } from '../types'
-	import { type Writable } from 'svelte/store'
+	import type { FlowEditorContext } from '../types'
 	import { twMerge } from 'tailwind-merge'
 	import IdEditorInput from '$lib/components/IdEditorInput.svelte'
 	import { dfs } from '../dfs'
@@ -35,8 +34,13 @@
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
+	import ModuleAcceptReject, {
+		getAiModuleAction
+	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 	import { Button } from '$lib/components/common'
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
+	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
+	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 
 	interface Props {
 		selected?: boolean
@@ -72,6 +76,7 @@
 		inputTransform?: Record<string, any> | undefined
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		onEditInput?: (moduleId: string, key: string) => void
+		enableTestRun?: boolean
 	}
 
 	let {
@@ -102,16 +107,14 @@
 		onTestUpTo,
 		inputTransform,
 		onUpdateMock,
-		onEditInput
+		onEditInput,
+		enableTestRun = false
 	}: Props = $props()
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
 
-	const { flowInputsStore } = getContext<{ flowInputsStore: Writable<FlowInput | undefined> }>(
-		'FlowGraphContext'
-	)
-
-	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
+	const flowInputsStore = flowEditorContext?.flowInputsStore
 
 	const dispatch = createEventDispatcher()
 
@@ -138,6 +141,8 @@
 	let outputPickerBarOpen = $state(false)
 
 	let flowStateStore = $derived(flowEditorContext?.flowStateStore)
+
+	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	function updateConnectingData(
 		id: string | undefined,
@@ -170,17 +175,11 @@
 	}
 
 	$effect(() => {
-		flowStateStore && $flowStateStore && untrack(() => updateLastJob($flowStateStore))
-	})
-
-	let nlastJob = $derived.by(() => {
-		if (testJob) {
-			return { ...testJob, preview: true }
+		if (testJob && testJob.type === 'CompletedJob') {
+			lastJob = $state.snapshot(testJob)
+		} else if (flowStateStore && $flowStateStore) {
+			untrack(() => updateLastJob($flowStateStore))
 		}
-		if (lastJob) {
-			return { ...lastJob, preview: false }
-		}
-		return undefined
 	})
 
 	let isConnectingCandidate = $derived(
@@ -192,6 +191,8 @@
 	)
 
 	const icon_render = $derived(icon)
+
+	const action = $derived(getAiModuleAction(id))
 </script>
 
 {#if deletable && id && editId}
@@ -255,7 +256,7 @@
 {#if deletable && id && flowEditorContext?.flowStore && outputPickerVisible}
 	{@const flowStore = flowEditorContext?.flowStore.val}
 	{@const mod = flowStore?.value ? dfsPreviousResults(id, flowStore, false)[0] : undefined}
-	{#if mod && $flowStateStore[id]}
+	{#if mod && $flowStateStore?.[id]}
 		<ModuleTest bind:this={moduleTest} {mod} bind:testIsLoading bind:testJob />
 	{/if}
 {/if}
@@ -263,7 +264,11 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class={classNames('w-full module flex rounded-sm cursor-pointer max-w-full ', 'flex relative')}
+	class={classNames(
+		'w-full module flex rounded-sm cursor-pointer max-w-full ',
+		'flex relative',
+		deletable ? aiModuleActionToBgColor(action) : ''
+	)}
 	style="width: 275px; height: 34px; background-color: {hover && bgHoverColor
 		? bgHoverColor
 		: bgColor};"
@@ -271,6 +276,9 @@
 	onmouseleave={() => (hover = false)}
 	onpointerdown={stopPropagation(preventDefault(() => dispatch('pointerdown')))}
 >
+	{#if deletable}
+		<ModuleAcceptReject {action} {id} />
+	{/if}
 	<div
 		class={classNames(
 			'absolute rounded-sm outline-offset-0 outline-slate-500 dark:outline-gray-400',
@@ -394,8 +402,18 @@
 		{/if}
 	</div>
 
-	<div class="flex flex-col w-full">
-		<FlowModuleSchemaItemViewer {label} {path} {id} {deletable} {bold} bind:editId {hover}>
+	<div
+		class={twMerge('flex flex-col w-full', deletable && action === 'removed' ? 'opacity-50' : '')}
+	>
+		<FlowModuleSchemaItemViewer
+			{label}
+			{path}
+			{id}
+			deletable={deletable && !action}
+			{bold}
+			bind:editId
+			{hover}
+		>
 			{#snippet icon()}
 				{@render icon_render?.()}
 			{/snippet}
@@ -420,7 +438,8 @@
 						prefix={'results'}
 						connectingData={isConnecting ? connectingData : undefined}
 						{mock}
-						lastJob={nlastJob}
+						{lastJob}
+						{testJob}
 						moduleId={id}
 						onSelect={selectConnection}
 						{onUpdateMock}
@@ -430,64 +449,68 @@
 						bind:derivedHistoryOpen={historyOpen}
 						historyOffset={{ mainAxis: 12, crossAxis: -9 }}
 						clazz="p-1"
-						isLoading={testIsLoading}
+						isLoading={testIsLoading ||
+							(id ? stepHistoryLoader?.stepStates[id]?.loadingJobs : false)}
+						initial={id ? stepHistoryLoader?.stepStates[id]?.initial : undefined}
 					/>
 				{/snippet}
 			</OutputPicker>
 		{/if}
 	</div>
 
-	{#if deletable}
-		<div
-			class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-2 h-9 min-w-14"
-		>
-			{#if (hover || selected) && outputPickerVisible}
-				<div transition:fade={{ duration: 100 }}>
-					{#if !testIsLoading}
-						<Button
-							size="sm"
-							color="dark"
-							title="Run"
-							btnClasses="p-1.5"
-							on:click={() => {
-								outputPicker?.toggleOpen(true)
-								moduleTest?.loadArgsAndRunTest()
-							}}
-							dropdownItems={[
-								{
-									label: 'Test up to here',
-									onClick: () => {
-										if (id) {
-											onTestUpTo?.(id)
+	{#if deletable && !action}
+		{#if enableTestRun}
+			<div
+				class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-2 h-9 min-w-14"
+			>
+				{#if (hover || selected) && outputPickerVisible}
+					<div transition:fade={{ duration: 100 }}>
+						{#if !testIsLoading}
+							<Button
+								size="sm"
+								color="dark"
+								title="Run"
+								btnClasses="p-1.5"
+								on:click={() => {
+									outputPicker?.toggleOpen(true)
+									moduleTest?.loadArgsAndRunTest()
+								}}
+								dropdownItems={[
+									{
+										label: 'Test up to here',
+										onClick: () => {
+											if (id) {
+												onTestUpTo?.(id)
+											}
 										}
 									}
-								}
-							]}
-							dropdownBtnClasses="!w-4 px-1"
-						>
-							{#if testIsLoading}
-								<Loader2 size={12} class="animate-spin" />
-							{:else}
-								<Play size={12} />
-							{/if}
-						</Button>
-					{:else}
-						<Button
-							size="xs"
-							color="red"
-							variant="contained"
-							btnClasses="!h-[25.5px] !w-[44.5px] !p-1.5 gap-0.5"
-							on:click={async () => {
-								moduleTest?.cancelJob()
-							}}
-						>
-							<Loader2 size={10} class="animate-spin mr-0.5" />
-							<X size={14} />
-						</Button>
-					{/if}
-				</div>
-			{/if}
-		</div>
+								]}
+								dropdownBtnClasses="!w-4 px-1"
+							>
+								{#if testIsLoading}
+									<Loader2 size={12} class="animate-spin" />
+								{:else}
+									<Play size={12} />
+								{/if}
+							</Button>
+						{:else}
+							<Button
+								size="xs"
+								color="red"
+								variant="contained"
+								btnClasses="!h-[25.5px] !w-[44.5px] !p-1.5 gap-0.5"
+								on:click={async () => {
+									moduleTest?.cancelJob()
+								}}
+							>
+								<Loader2 size={10} class="animate-spin mr-0.5" />
+								<X size={14} />
+							</Button>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		{/if}
 		<button
 			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
 outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-red-400 hover:text-white

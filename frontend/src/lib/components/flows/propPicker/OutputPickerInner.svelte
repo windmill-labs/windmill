@@ -28,6 +28,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import DisplayResultControlBar from '$lib/components/DisplayResultControlBar.svelte'
 	import { base } from '$lib/base'
+	import { fade } from 'svelte/transition'
 
 	interface Props {
 		prefix?: string
@@ -55,7 +56,8 @@
 		rightMargin?: boolean
 		disableMock?: boolean
 		disableHistory?: boolean
-		lastJob?: SelectedJob
+		lastJob?: Job
+		testJob?: Job
 		derivedHistoryOpen?: boolean // derived from historyOpen
 		historyOffset?: any
 		clazz?: string
@@ -64,10 +66,13 @@
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		onEditInput?: (moduleId: string, key: string) => void
 		selectionId?: string
+		initial?: boolean
+		onResetInitial?: () => void
 	}
 
 	let {
 		lastJob = undefined,
+		testJob = undefined,
 		prefix = '',
 		allowCopy = false,
 		connectingData = undefined,
@@ -95,7 +100,8 @@
 		onSelect,
 		onUpdateMock,
 		onEditInput,
-		selectionId
+		selectionId,
+		initial
 	}: Props = $props()
 
 	type SelectedJob =
@@ -126,25 +132,25 @@
 		}
 	}
 
-	function selectJob(job: SelectedJob | undefined) {
-		if (job && 'result' in job) {
+	function selectJob(nJob: SelectedJob | undefined) {
+		if (nJob && 'result' in nJob) {
+			selectedJob = nJob
+		} else if (job && 'result' in job) {
 			selectedJob = job
-		} else if (lastJob && 'result' in lastJob) {
-			selectedJob = lastJob
 		} else {
 			selectedJob = undefined
 		}
 	}
 
 	$effect(() => {
-		if (!lastJob || !('result' in lastJob)) {
+		if (!job || !('result' in job)) {
 			return
 		}
-		selectJob(lastJob)
+		selectJob(job)
 
-		if (lastJob.preview && mock?.enabled) {
+		if (job.preview && mock?.enabled) {
 			preview = 'job'
-			lastJob.preview = false
+			job.preview = false
 		}
 	})
 
@@ -250,7 +256,19 @@
 		}
 	})
 
+	let job = $derived.by(() => {
+		if (testJob) {
+			return { ...testJob, preview: testJob.type === 'CompletedJob' }
+		}
+		if (lastJob) {
+			return { ...lastJob, preview: false }
+		}
+		return undefined
+	})
+
 	let popoverHeight = $derived(customHeight ?? (clientHeight > 0 ? clientHeight : 0))
+
+	const isLoadingAndNotMock = $derived(isLoading && !mock?.enabled)
 
 	const copilot_fix_render = $derived(copilot_fix)
 </script>
@@ -318,7 +336,7 @@
 											togglePreview('mock')
 											return
 										}
-										if (detail.id === lastJob?.id && !mock?.enabled) {
+										if (detail.id === job?.id && !mock?.enabled) {
 											togglePreview(undefined)
 											return
 										}
@@ -353,11 +371,11 @@
 						{/snippet}
 					</Popover>
 				{/if}
-				{#if !isLoading}
+				{#if !isLoadingAndNotMock || mock?.enabled}
 					<div
 						class={twMerge(
 							'w-grow min-w-0 flex gap-1 items-center h-[27px] rounded-md  group',
-							preview || selectedJob?.id !== lastJob?.id ? 'p-[2px] bg-surface-secondary' : ''
+							preview || selectedJob?.id !== job?.id ? 'p-[2px] bg-surface-secondary' : ''
 						)}
 					>
 						{#if loopStatus?.type === 'self'}
@@ -393,7 +411,7 @@
 								job={selectedJob}
 								class={twMerge(
 									'min-w-16 text-secondary',
-									preview || selectedJob?.id !== lastJob?.id ? 'bg-surface shadow-sm h-[23px]' : ''
+									preview || selectedJob?.id !== job?.id ? 'bg-surface shadow-sm h-[23px]' : ''
 								)}
 							/>
 						{/if}
@@ -413,7 +431,7 @@
 					</div>
 				{/if}
 
-				{#if !disableMock && !isLoading}
+				{#if !disableMock && !isLoadingAndNotMock}
 					<Tooltip disablePopup={mock?.enabled}>
 						<Button
 							color="light"
@@ -578,7 +596,7 @@
 				hoveringResult = false
 			}}
 		>
-			{#if isLoading}
+			{#if isLoadingAndNotMock}
 				<div class="flex flex-col items-center justify-center">
 					<Loader2 class="animate-spin" />
 				</div>
@@ -680,7 +698,7 @@
 						pureViewer={false}
 					/>
 				{/if}
-			{:else if !lastJob}
+			{:else if !job}
 				<div class="flex flex-col items-center justify-center h-full">
 					<p class="text-xs text-secondary">
 						Test this step to see results{#if !disableMock}
@@ -700,6 +718,13 @@
 			{/if}
 		</div>
 	</div>
+	{#if initial && !mock?.enabled}
+		<span
+			in:fade
+			class="-mb-1 -mt-0.5 w-full text-right pr-4 dark:text-gray-500 text-gray-400 font-normal text-2xs py-0"
+			>Run loaded from history</span
+		>
+	{/if}
 </div>
 
 {#snippet editKey(key: string)}

@@ -30,14 +30,8 @@ import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/type
 import { untrack } from 'svelte'
 import type { DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage } from './ask/core'
+import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 
-type TriggerablesMap = Record<
-	string,
-	{
-		description: string
-		onTrigger: ((value?: string) => void) | undefined
-	}
->
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -47,7 +41,6 @@ export enum AIMode {
 }
 
 class AIChatManager {
-	DEFAULT_SIZE = 22
 	NAVIGATION_SYSTEM_PROMPT = `
 	CONSIDERATIONS:
 	 - You are provided with a tool to switch to navigation mode, only use it when you are sure that the user is asking you to navigate the application, help them find something or fetch data from the API. Do not use it otherwise.
@@ -57,8 +50,7 @@ class AIChatManager {
 	abortController: AbortController | undefined = undefined
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
-	size = $state<number>(localStorage.getItem('ai-chat-open') === 'true' ? this.DEFAULT_SIZE : 0)
-	readonly isOpen = $derived(this.size > 0)
+	readonly isOpen = $derived(chatState.size > 0)
 	savedSize = $state<number>(0)
 	instructions = $state<string>('')
 	pendingPrompt = $state<string>('')
@@ -66,7 +58,7 @@ class AIChatManager {
 	currentReply = $state<string>('')
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
-	automaticScroll = $state<boolean>(true)
+	#automaticScroll = $state<boolean>(true)
 	systemMessage = $state<ChatCompletionSystemMessageParam>({
 		role: 'system',
 		content: ''
@@ -74,7 +66,6 @@ class AIChatManager {
 	tools = $state<Tool<any>[]>([])
 	helpers = $state<any | undefined>(undefined)
 
-	triggerablesByAI = $state<TriggerablesMap>({})
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
 	scriptEditorApplyCode = $state<((code: string) => void) | undefined>(undefined)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
@@ -89,7 +80,7 @@ class AIChatManager {
 		ask: true
 	})
 
-	open = $derived(this.size > 0)
+	open = $derived(chatState.size > 0)
 
 	async loadApiTools() {
 		if (this.apiTools.length === 0) {
@@ -129,7 +120,7 @@ class AIChatManager {
 				getLang: () => lang
 			}
 			if (options?.closeScriptSettings) {
-				const closeComponent = this.triggerablesByAI['close-script-builder-settings']
+				const closeComponent = triggerablesByAi['close-script-builder-settings']
 				if (closeComponent) {
 					closeComponent.onTrigger?.()
 				}
@@ -178,32 +169,32 @@ class AIChatManager {
 			}
 		},
 		fn: async ({ args, toolId, toolCallbacks }) => {
-			toolCallbacks.onToolCall(toolId, 'Switching to ' + args.mode + ' mode...')
+			toolCallbacks.setToolStatus(toolId, 'Switching to ' + args.mode + ' mode...')
 			this.changeMode(args.mode as AIMode, args.pendingPrompt, {
 				closeScriptSettings: true
 			})
-			toolCallbacks.onFinishToolCall(toolId, 'Switched to ' + args.mode + ' mode')
+			toolCallbacks.setToolStatus(toolId, 'Switched to ' + args.mode + ' mode')
 			return 'Mode changed to ' + args.mode
 		}
 	}
 
 	openChat = () => {
-		this.size = this.savedSize > 0 ? this.savedSize : this.DEFAULT_SIZE
+		chatState.size = this.savedSize > 0 ? this.savedSize : DEFAULT_SIZE
 		localStorage.setItem('ai-chat-open', 'true')
 	}
 
 	closeChat = () => {
-		this.savedSize = this.size
-		this.size = 0
+		this.savedSize = chatState.size
+		chatState.size = 0
 		localStorage.setItem('ai-chat-open', 'false')
 	}
 
 	toggleOpen = () => {
-		if (this.size > 0) {
-			this.savedSize = this.size
+		if (chatState.size > 0) {
+			this.savedSize = chatState.size
 		}
-		this.size = this.size === 0 ? (this.savedSize > 0 ? this.savedSize : this.DEFAULT_SIZE) : 0
-		localStorage.setItem('ai-chat-open', this.size === 0 ? 'false' : 'true')
+		chatState.size = chatState.size === 0 ? (this.savedSize > 0 ? this.savedSize : DEFAULT_SIZE) : 0
+		localStorage.setItem('ai-chat-open', chatState.size === 0 ? 'false' : 'true')
 	}
 
 	askAi = (
@@ -286,9 +277,14 @@ class AIChatManager {
 							callbacks.onNewToken(delta)
 						}
 						const toolCalls = c.choices[0].delta.tool_calls || []
+						if (toolCalls.length > 0 && answer) {
+							// if tool calls are present but we have some textual content already, we need to display it to the user first
+							callbacks.onMessageEnd()
+							answer = ''
+						}
 						for (const toolCall of toolCalls) {
 							const { index } = toolCall
-							const finalToolCall = finalToolCalls[index]
+							let finalToolCall = finalToolCalls[index]
 							if (!finalToolCall) {
 								finalToolCalls[index] = toolCall
 							} else {
@@ -298,6 +294,19 @@ class AIChatManager {
 									} else {
 										finalToolCall.function.arguments =
 											(finalToolCall.function.arguments ?? '') + toolCall.function.arguments
+									}
+								}
+							}
+							finalToolCall = finalToolCalls[index]
+							if (finalToolCall?.function) {
+								const {
+									function: { name: funcName },
+									id: toolCallId
+								} = finalToolCall
+								if (funcName && toolCallId) {
+									const tool = tools.find((t) => t.def.function.name === funcName)
+									if (tool && tool.preAction) {
+										tool.preAction({ toolCallbacks: callbacks, toolId: toolCallId })
 									}
 								}
 							}
@@ -339,12 +348,10 @@ class AIChatManager {
 					}
 				}
 			}
-			return messages
 		} catch (err) {
+			callbacks.onMessageEnd()
 			if (!abortController.signal.aborted) {
 				throw err
-			} else {
-				return messages
 			}
 		}
 	}
@@ -376,15 +383,27 @@ class AIChatManager {
 				this.contextManager?.updateContextOnRequest(options)
 			}
 			this.loading = true
-			this.automaticScroll = true
+			this.#automaticScroll = true
 			this.abortController = new AbortController()
+
+			if (this.mode === AIMode.FLOW && !this.flowAiChatHelpers) {
+				throw new Error('No flow helpers found')
+			}
+
+			let snapshot: ExtendedOpenFlow | undefined = undefined
+			if (this.mode === AIMode.FLOW) {
+				this.flowAiChatHelpers!.rejectAllModuleActions()
+				snapshot = this.flowAiChatHelpers!.getFlowAndSelectedId().flow
+				this.flowAiChatHelpers!.setLastSnapshot(snapshot)
+			}
 
 			this.displayMessages = [
 				...this.displayMessages,
 				{
 					role: 'user',
 					content: this.instructions,
-					contextElements: this.mode === AIMode.SCRIPT ? oldSelectedContext : undefined
+					contextElements: this.mode === AIMode.SCRIPT ? oldSelectedContext : undefined,
+					snapshot
 				}
 			]
 			const oldInstructions = this.instructions
@@ -404,8 +423,8 @@ class AIChatManager {
 					: this.mode === AIMode.NAVIGATOR
 						? prepareNavigatorUserMessage(oldInstructions)
 						: await prepareScriptUserMessage(oldInstructions, lang, oldSelectedContext, {
-								isPreprocessor
-							})
+							isPreprocessor
+						})
 
 			this.messages.push(userMessage)
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
@@ -440,14 +459,7 @@ class AIChatManager {
 						}
 						this.currentReply = ''
 					},
-					onToolCall: (id, content) => {
-						this.displayMessages = [
-							...this.displayMessages,
-							{ role: 'tool', tool_call_id: id, content }
-						]
-					},
-					onFinishToolCall: (id, content) => {
-						console.log('onFinishToolCall', id, content)
+					setToolStatus: (id, content) => {
 						const existingIdx = this.displayMessages.findIndex(
 							(m) => m.role === 'tool' && m.tool_call_id === id
 						)
@@ -460,28 +472,9 @@ class AIChatManager {
 				}
 			}
 
-			if (this.mode === AIMode.FLOW && !this.flowAiChatHelpers) {
-				throw new Error('No flow helpers found')
-			}
 			await this.chatRequest({
 				...params
 			})
-			if (this.currentReply) {
-				// just in case the onMessageEnd is not called (due to an error for instance)
-				this.displayMessages = [
-					...this.displayMessages,
-					{
-						role: 'assistant',
-						content: this.currentReply,
-						contextElements:
-							this.mode === AIMode.SCRIPT
-								? oldSelectedContext.filter((c) => c.type === 'code')
-								: undefined
-					}
-				]
-				this.currentReply = ''
-			}
-
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
 		} catch (err) {
 			console.error(err)
@@ -496,8 +489,37 @@ class AIChatManager {
 	}
 
 	cancel = () => {
-		this.currentReply = ''
 		this.abortController?.abort()
+	}
+
+	restartLastGeneration = (displayMessageIndex: number) => {
+		const userMessage = this.displayMessages[displayMessageIndex]
+
+		if (!userMessage || userMessage.role !== 'user') {
+			throw new Error('No user message found at the specified index')
+		}
+
+		// Remove all messages including and after the specified user message
+		this.displayMessages = this.displayMessages.slice(0, displayMessageIndex)
+
+		// Find the last user message in actual messages and remove it and everything after it
+		let lastActualUserMessageIndex = -1
+		for (let i = this.messages.length - 1; i >= 0; i--) {
+			if (this.messages[i].role === 'user') {
+				lastActualUserMessageIndex = i
+				break
+			}
+		}
+
+		if (lastActualUserMessageIndex === -1) {
+			throw new Error('No actual user message found to restart from')
+		}
+
+		this.messages = this.messages.slice(0, lastActualUserMessageIndex)
+
+		// Resend the request with the same instructions
+		this.instructions = userMessage.content
+		this.sendRequest()
 	}
 
 	fix = () => {
@@ -529,8 +551,16 @@ class AIChatManager {
 		if (chat) {
 			this.displayMessages = chat.displayMessages
 			this.messages = chat.actualMessages
-			this.automaticScroll = true
+			this.#automaticScroll = true
 		}
+	}
+
+	get automaticScroll() {
+		return this.#automaticScroll
+	}
+
+	disableAutomaticScroll = () => {
+		this.#automaticScroll = false
 	}
 
 	generateStep = async (moduleId: string, lang: ScriptLang, instructions: string) => {
@@ -618,15 +648,15 @@ class AIChatManager {
 				const editorRelated =
 					currentEditor && currentEditor.type === 'script' && currentEditor.stepId === module.id
 						? {
-								diffMode: currentEditor.diffMode,
-								lastDeployedCode: currentEditor.lastDeployedCode,
-								lastSavedCode: undefined
-							}
+							diffMode: currentEditor.diffMode,
+							lastDeployedCode: currentEditor.lastDeployedCode,
+							lastSavedCode: undefined
+						}
 						: {
-								diffMode: false,
-								lastDeployedCode: undefined,
-								lastSavedCode: undefined
-							}
+							diffMode: false,
+							lastDeployedCode: undefined,
+							lastSavedCode: undefined
+						}
 
 				return {
 					args: moduleState?.previewArgs ?? {},

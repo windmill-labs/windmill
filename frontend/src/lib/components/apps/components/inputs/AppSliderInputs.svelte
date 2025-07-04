@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { stopPropagation } from 'svelte/legacy'
+
 	import RangeSlider from 'svelte-range-slider-pips'
-	import { getContext, onDestroy } from 'svelte'
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import type {
 		ListInputs,
 		AppViewerContext,
@@ -17,11 +19,21 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'slidercomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		customCss?: ComponentCustomCSS<'slidercomponent'> | undefined
+		render: boolean
+	}
+
+	let {
+		id,
+		configuration,
+		verticalAlignment = undefined,
+		customCss = undefined,
+		render
+	}: Props = $props()
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
@@ -29,24 +41,21 @@
 	const { app, worldStore, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let resolvedConfig = initConfig(
-		components['slidercomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['slidercomponent'].initialData.configuration, configuration)
 	)
 
 	onDestroy(() => {
 		listInputs?.remove(id)
 	})
 
-	let values: [number] = [resolvedConfig.defaultValue ?? 0]
-
-	$: resolvedConfig.defaultValue != undefined && handleDefault()
+	let values: [number] = $state([resolvedConfig.defaultValue ?? 0])
 
 	function handleDefault() {
 		values = [resolvedConfig?.defaultValue ?? 0]
 	}
 
-	let slider: HTMLElement
+	let slider: HTMLElement | undefined = $state()
 
 	const outputs = initOutput($worldStore, id, {
 		result: (0 as number) || null
@@ -57,8 +66,6 @@
 			values = [nvalue]
 		}
 	}
-
-	$: values && handleValues()
 
 	function handleValues() {
 		// Disallow 'e' character in numbers
@@ -73,16 +80,9 @@
 		}
 	}
 
-	let css = initCss($app.css?.slidercomponent, customCss)
+	let css = $state(initCss($app.css?.slidercomponent, customCss))
 
-	let lastStyle: string | undefined = undefined
-	$: if (css && slider && lastStyle !== css?.handle?.style) {
-		const handle = slider.querySelector<HTMLSpanElement>('.rangeNub')
-		if (handle) {
-			lastStyle = css?.handle?.style
-			handle.style.cssText = css?.handle?.style ?? ''
-		}
-	}
+	let lastStyle: string | undefined = $state(undefined)
 
 	const spanClass =
 		'text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5'
@@ -101,9 +101,27 @@
 		}
 	}
 
-	$: if (resolvedConfig.max != undefined && resolvedConfig.step && render) {
-		computeWidth()
-	}
+	$effect.pre(() => {
+		resolvedConfig.defaultValue != undefined && untrack(() => handleDefault())
+	})
+	$effect.pre(() => {
+		values?.[0]
+		values && handleValues()
+	})
+	$effect.pre(() => {
+		if (css && slider && lastStyle !== css?.handle?.style) {
+			const handle = slider.querySelector<HTMLSpanElement>('.rangeNub')
+			if (handle) {
+				lastStyle = css?.handle?.style
+				handle.style.cssText = css?.handle?.style ?? ''
+			}
+		}
+	})
+	$effect.pre(() => {
+		if (resolvedConfig.max != undefined && resolvedConfig.step && render) {
+			untrack(() => computeWidth())
+		}
+	})
 </script>
 
 {#each Object.keys(components['slidercomponent'].initialData.configuration) as key (key)}
@@ -138,7 +156,7 @@
 			)}
 			style="--range-handle-focus: {'#7e9abd'}; --range-handle: {'#7e9abd'}; {css?.bar?.style ??
 				''}"
-			on:pointerdown|stopPropagation={() => ($selectedComponent = [id])}
+			onpointerdown={stopPropagation(() => ($selectedComponent = [id]))}
 		>
 			<RangeSlider
 				id="slider-input"

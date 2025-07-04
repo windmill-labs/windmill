@@ -42,7 +42,7 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_worker::process_relative_imports;
 
-use windmill_common::error::to_anyhow;
+use windmill_common::{error::to_anyhow, worker::CLOUD_HOSTED};
 
 use windmill_common::{
     db::UserDB,
@@ -520,6 +520,29 @@ async fn create_script_internal<'c>(
                 .to_string(),
         ));
     }
+    if *CLOUD_HOSTED {
+        let nb_scripts =
+            sqlx::query_scalar!("SELECT COUNT(*) FROM script WHERE workspace_id = $1", &w_id)
+                .fetch_one(&db)
+                .await?;
+        if nb_scripts.unwrap_or(0) >= 5000 {
+            return Err(Error::BadRequest(
+                    "You have reached the maximum number of scripts (5000) on cloud. Contact support@windmill.dev to increase the limit"
+                        .to_string(),
+                ));
+        }
+
+        if ns.summary.len() > 300 {
+            return Err(Error::BadRequest(
+                "Summary must be less than 300 characters on cloud".to_string(),
+            ));
+        }
+        if ns.description.len() > 3000 {
+            return Err(Error::BadRequest(
+                "Description must be less than 3000 characters on cloud".to_string(),
+            ));
+        }
+    }
     let script_path = ns.path.clone();
     let hash = ScriptHash(hash_script(&ns));
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
@@ -918,6 +941,7 @@ async fn create_script_internal<'c>(
             &authed.username,
             &authed.email,
             permissioned_as,
+            authed.token_prefix.as_deref(),
             None,
             None,
             None,

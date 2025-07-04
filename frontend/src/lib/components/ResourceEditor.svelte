@@ -21,6 +21,7 @@
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import TestTriggerConnection from './triggers/TestTriggerConnection.svelte'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
 
 	interface Props {
 		canSave?: boolean
@@ -247,19 +248,33 @@
 
 			<GfmMarkdown md={description} />
 		{/if}
-		<div class="flex w-full justify-between items-center mt-4">
-			<div></div>
-			{#if resourceToEdit?.resource_type === 'nats' || resourceToEdit?.resource_type === 'kafka'}
-				<TestTriggerConnection kind={resourceToEdit?.resource_type} args={{ connection: args }} />
-			{:else}
-				<TestConnection resourceType={resourceToEdit?.resource_type} {args} />
-			{/if}
+		<div class="w-full flex gap-4 flex-row-reverse items-center mt-4">
 			<Toggle
 				on:change={(e) => switchTab(e.detail)}
 				options={{
 					right: 'As JSON'
 				}}
 			/>
+			{#if resourceToEdit?.resource_type === 'nats' || resourceToEdit?.resource_type === 'kafka'}
+				<TestTriggerConnection kind={resourceToEdit?.resource_type} args={{ connection: args }} />
+			{:else}
+				<TestConnection resourceType={resourceToEdit?.resource_type} {args} />
+			{/if}
+			{#if resource_type === 'git_repository' && $workspaceStore && $userStore?.is_admin}
+				<GitHubAppIntegration
+					resourceType={resource_type}
+					{args}
+					{description}
+					onArgsUpdate={(newArgs) => {
+						args = newArgs
+						// Update rawCode if in JSON view mode
+						if (viewJsonSchema) {
+							rawCode = JSON.stringify(args, null, 2)
+						}
+					}}
+					onDescriptionUpdate={(newDescription) => (description = newDescription)}
+				/>
+			{/if}
 		</div>
 		<div>
 			{#if loadingSchema}

@@ -83,7 +83,7 @@ strum_macros.workspace = true
 url.workspace = true
 
 semver.workspace = true
-croner = "2.0.6"
+croner = "2.2.0"
 quick_cache.workspace = true
 pin-project-lite.workspace = true
 futures.workspace = true

@@ -24,15 +24,26 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { Scatter } from '$lib/components/chartjs-wrappers/chartJs'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'scatterchartcomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		initializing?: boolean | undefined
+		customCss?: ComponentCustomCSS<'scatterchartcomponent'> | undefined
+		render: boolean
+	}
 
-	let zoomable = false
-	let pannable = false
+	let {
+		id,
+		componentInput,
+		configuration,
+		initializing = $bindable(undefined),
+		customCss = undefined,
+		render
+	}: Props = $props()
+
+	let zoomable = $state(false)
+	let pannable = $state(false)
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -53,9 +64,9 @@
 		zoomPlugin
 	)
 
-	let result: { data: { x: any[]; y: string[] } } | undefined = undefined
+	let result: { data: { x: any[]; y: string[] } } | undefined = $state(undefined)
 
-	$: options = {
+	let options = $derived({
 		responsive: true,
 		animation: false,
 		maintainAspectRatio: false,
@@ -74,13 +85,13 @@
 				}
 			}
 		}
-	} as ChartOptions<'scatter'>
+	} as ChartOptions<'scatter'>)
 
-	$: data = {
+	let data = $derived({
 		datasets: result ?? []
-	} as ChartData<'scatter', (number | Point)[], unknown>
+	} as ChartData<'scatter', (number | Point)[], unknown>)
 
-	let css = initCss($app.css?.scatterchartcomponent, customCss)
+	let css = $state(initCss($app.css?.scatterchartcomponent, customCss))
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}

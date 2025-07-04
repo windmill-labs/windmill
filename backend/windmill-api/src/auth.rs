@@ -21,7 +21,7 @@ use std::sync::{
 use tokio::sync::RwLock;
 
 use windmill_common::{
-    auth::{get_folders_for_user, get_groups_for_user, JWTAuthClaims},
+    auth::{get_folders_for_user, get_groups_for_user, JWTAuthClaims, TOKEN_PREFIX_LEN},
     jwt,
     users::{COOKIE_NAME, SUPERADMIN_SECRET_EMAIL},
 };
@@ -134,6 +134,7 @@ impl AuthCache {
                             folders: claims.folders,
                             scopes: None,
                             username_override,
+                            token_prefix: claims.audit_span,
                         };
 
                         AUTH_CACHE.insert(
@@ -217,6 +218,7 @@ impl AuthCache {
                                             folders,
                                             scopes: None,
                                             username_override,
+                                            token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
                                         })
                                     } else {
                                         let groups = vec![name.to_string()];
@@ -238,6 +240,7 @@ impl AuthCache {
                                             folders,
                                             scopes: None,
                                             username_override,
+                                            token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
                                         })
                                     }
                                 } else {
@@ -252,6 +255,7 @@ impl AuthCache {
                                         folders,
                                         scopes: None,
                                         username_override,
+                                        token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
                                     })
                                 }
                             }
@@ -299,6 +303,7 @@ impl AuthCache {
                                                 folders,
                                                 scopes,
                                                 username_override,
+                                                token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
                                             })
                                         }
                                         None if super_admin => Some(ApiAuthed {
@@ -310,6 +315,7 @@ impl AuthCache {
                                             folders: vec![],
                                             scopes,
                                             username_override,
+                                            token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
                                         }),
                                         None => None,
                                     }
@@ -323,6 +329,7 @@ impl AuthCache {
                                         folders: Vec::new(),
                                         scopes,
                                         username_override,
+                                        token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
                                     })
                                 }
                             }
@@ -355,6 +362,7 @@ impl AuthCache {
                         folders: Vec::new(),
                         scopes: None,
                         username_override: None,
+                        token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
                     })
                 } else {
                     None

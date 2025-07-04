@@ -22,6 +22,17 @@ class S3BufferedReader(BufferedReader):
 
     def __enter__(self):
         reader = self._context_manager.__enter__()
+        if reader.status_code >= 400:
+            error_bytes = reader.read()
+            try:
+                error_text = error_bytes.decode('utf-8')
+            except UnicodeDecodeError:
+                error_text = str(error_bytes)
+            raise httpx.HTTPStatusError(
+                f"Failed to load S3 file: {reader.status_code} {reader.reason_phrase} - {error_text}",
+                request=reader.request,
+                response=reader
+            )
         self._iterator = reader.iter_bytes()
         return self
 

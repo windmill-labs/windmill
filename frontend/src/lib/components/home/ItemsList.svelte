@@ -41,7 +41,7 @@
 	import TreeViewRoot from './TreeViewRoot.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { getContext, untrack } from 'svelte'
-	import TriggerableByAI from '../TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	interface Props {
 		filter?: string
 		subtab?: 'flow' | 'script' | 'app'
@@ -350,220 +350,224 @@
 	</DrawerContent>
 </Drawer>
 
-<TriggerableByAI id="home-items-list" description="Lists of scripts, flows, and apps">
-	<CenteredPage>
-		<div class="flex flex-wrap gap-2 items-center justify-between w-full mt-2">
-			<div class="flex justify-start">
-				<ToggleButtonGroup
-					bind:selected={itemKind}
-					on:selected={() => {
-						if (itemKind != 'all') {
-							subtab = itemKind
-						}
-						setQuery($page.url, 'kind', itemKind)
-					}}
-					class="h-10"
-				>
-					{#snippet children({ item })}
-						<ToggleButton value="all" label="All" class="text-sm px-4 py-2" {item} />
+<CenteredPage>
+	<div
+		class="flex flex-wrap gap-2 items-center justify-between w-full mt-2"
+		use:triggerableByAI={{
+			id: 'home-items-list',
+			description: 'Lists of scripts, flows, and apps'
+		}}
+	>
+		<div class="flex justify-start">
+			<ToggleButtonGroup
+				bind:selected={itemKind}
+				on:selected={() => {
+					if (itemKind != 'all') {
+						subtab = itemKind
+					}
+					setQuery($page.url, 'kind', itemKind)
+				}}
+				class="h-10"
+			>
+				{#snippet children({ item })}
+					<ToggleButton value="all" label="All" class="text-sm px-4 py-2" {item} />
+					<ToggleButton
+						value="script"
+						icon={Code2}
+						label="Scripts"
+						class="text-sm px-4 py-2"
+						{item}
+					/>
+					{#if HOME_SEARCH_SHOW_FLOW}
 						<ToggleButton
-							value="script"
-							icon={Code2}
-							label="Scripts"
+							value="flow"
+							label="Flows"
+							icon={FlowIcon}
 							class="text-sm px-4 py-2"
+							selectedColor="#14b8a6"
 							{item}
 						/>
-						{#if HOME_SEARCH_SHOW_FLOW}
-							<ToggleButton
-								value="flow"
-								label="Flows"
-								icon={FlowIcon}
-								class="text-sm px-4 py-2"
-								selectedColor="#14b8a6"
-								{item}
-							/>
-						{/if}
-						<ToggleButton
-							value="app"
-							label="Apps"
-							icon={LayoutDashboard}
-							class="text-sm px-4 py-2"
-							selectedColor="#fb923c"
-							{item}
+					{/if}
+					<ToggleButton
+						value="app"
+						label="Apps"
+						icon={LayoutDashboard}
+						class="text-sm px-4 py-2"
+						selectedColor="#fb923c"
+						{item}
+					/>
+				{/snippet}
+			</ToggleButtonGroup>
+		</div>
+
+		<div class="relative text-tertiary grow min-w-[100px]">
+			<!-- svelte-ignore a11y_autofocus -->
+			<input
+				autofocus
+				placeholder={HOME_SEARCH_PLACEHOLDER}
+				bind:value={filter}
+				class="bg-surface !h-10 !px-4 !pr-10 !rounded-lg text-sm focus:outline-none"
+			/>
+			<button aria-label="Search" type="submit" class="absolute right-0 top-0 mt-3 mr-4">
+				<svg
+					class="h-4 w-4 fill-current"
+					xmlns="http://www.w3.org/2000/svg"
+					xmlns:xlink="http://www.w3.org/1999/xlink"
+					version="1.1"
+					id="Capa_1"
+					x="0px"
+					y="0px"
+					viewBox="0 0 56.966 56.966"
+					style="enable-background:new 0 0 56.966 56.966;"
+					xml:space="preserve"
+					width="512px"
+					height="512px"
+				>
+					<path
+						d="M55.146,51.887L41.588,37.786c3.486-4.144,5.396-9.358,5.396-14.786c0-12.682-10.318-23-23-23s-23,10.318-23,23  s10.318,23,23,23c4.761,0,9.298-1.436,13.177-4.162l13.661,14.208c0.571,0.593,1.339,0.92,2.162,0.92  c0.779,0,1.518-0.297,2.079-0.837C56.255,54.982,56.293,53.08,55.146,51.887z M23.984,6c9.374,0,17,7.626,17,17s-7.626,17-17,17  s-17-7.626-17-17S14.61,6,23.984,6z"
+					/>
+				</svg>
+			</button>
+		</div>
+		<Button
+			on:click={() => openSearchWithPrefilledText('#')}
+			variant="border"
+			size="sm"
+			spacingSize="lg"
+			wrapperClasses="h-10"
+			color="light"
+			endIcon={{
+				icon: SearchCode
+			}}
+		>
+			Content
+		</Button>
+	</div>
+	<div class="relative">
+		<ListFilters
+			syncQuery
+			bind:selectedFilter={ownerFilter}
+			filters={owners}
+			bottomMargin={false}
+		/>
+		{#if filteredItems?.length == 0}
+			<div class="mt-10"></div>
+		{/if}
+		{#if !loading}
+			<div class="flex w-full flex-row-reverse gap-2 mt-4 mb-1 items-center h-6">
+				<Popover floatingConfig={{ placement: 'bottom-end' }}>
+					{#snippet trigger()}
+						<Button
+							startIcon={{
+								icon: SlidersHorizontal
+							}}
+							nonCaptureEvent
+							iconOnly
+							size="xs"
+							color="light"
+							variant="border"
+							spacingSize="xs2"
 						/>
 					{/snippet}
-				</ToggleButtonGroup>
-			</div>
-
-			<div class="relative text-tertiary grow min-w-[100px]">
-				<!-- svelte-ignore a11y_autofocus -->
-				<input
-					autofocus
-					placeholder={HOME_SEARCH_PLACEHOLDER}
-					bind:value={filter}
-					class="bg-surface !h-10 !px-4 !pr-10 !rounded-lg text-sm focus:outline-none"
-				/>
-				<button aria-label="Search" type="submit" class="absolute right-0 top-0 mt-3 mr-4">
-					<svg
-						class="h-4 w-4 fill-current"
-						xmlns="http://www.w3.org/2000/svg"
-						xmlns:xlink="http://www.w3.org/1999/xlink"
-						version="1.1"
-						id="Capa_1"
-						x="0px"
-						y="0px"
-						viewBox="0 0 56.966 56.966"
-						style="enable-background:new 0 0 56.966 56.966;"
-						xml:space="preserve"
-						width="512px"
-						height="512px"
-					>
-						<path
-							d="M55.146,51.887L41.588,37.786c3.486-4.144,5.396-9.358,5.396-14.786c0-12.682-10.318-23-23-23s-23,10.318-23,23  s10.318,23,23,23c4.761,0,9.298-1.436,13.177-4.162l13.661,14.208c0.571,0.593,1.339,0.92,2.162,0.92  c0.779,0,1.518-0.297,2.079-0.837C56.255,54.982,56.293,53.08,55.146,51.887z M23.984,6c9.374,0,17,7.626,17,17s-7.626,17-17,17  s-17-7.626-17-17S14.61,6,23.984,6z"
-						/>
-					</svg>
-				</button>
-			</div>
-			<Button
-				on:click={() => openSearchWithPrefilledText('#')}
-				variant="border"
-				size="sm"
-				spacingSize="lg"
-				wrapperClasses="h-10"
-				color="light"
-				endIcon={{
-					icon: SearchCode
-				}}
-			>
-				Content
-			</Button>
-		</div>
-		<div class="relative">
-			<ListFilters
-				syncQuery
-				bind:selectedFilter={ownerFilter}
-				filters={owners}
-				bottomMargin={false}
-			/>
-			{#if filteredItems?.length == 0}
-				<div class="mt-10"></div>
-			{/if}
-			{#if !loading}
-				<div class="flex w-full flex-row-reverse gap-2 mt-4 mb-1 items-center h-6">
-					<Popover floatingConfig={{ placement: 'bottom-end' }}>
-						{#snippet trigger()}
-							<Button
-								startIcon={{
-									icon: SlidersHorizontal
-								}}
-								nonCaptureEvent
-								iconOnly
-								size="xs"
-								color="light"
-								variant="border"
-								spacingSize="xs2"
-							/>
-						{/snippet}
-						{#snippet content()}
-							<div class="p-4">
-								<span class="text-sm font-semibold">Filters</span>
-								<div class="flex flex-col gap-2 mt-2">
-									<Toggle size="xs" bind:checked={archived} options={{ right: 'Only archived' }} />
-									{#if $userStore && !$userStore.operator}
-										<Toggle
-											size="xs"
-											bind:checked={includeWithoutMain}
-											options={{ right: 'Include without main function' }}
-										/>
-									{/if}
-								</div>
+					{#snippet content()}
+						<div class="p-4">
+							<span class="text-sm font-semibold">Filters</span>
+							<div class="flex flex-col gap-2 mt-2">
+								<Toggle size="xs" bind:checked={archived} options={{ right: 'Only archived' }} />
+								{#if $userStore && !$userStore.operator}
+									<Toggle
+										size="xs"
+										bind:checked={includeWithoutMain}
+										options={{ right: 'Include without main function' }}
+									/>
+								{/if}
 							</div>
-						{/snippet}
-					</Popover>
-					{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
-						<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
-					{:else if $userStore?.is_admin || $userStore?.is_super_admin}
-						<Toggle
-							size="xs"
-							bind:checked={filterUserFolders}
-							options={{ right: `Only u/${$userStore.username} and f/*` }}
-						/>
-					{/if}
-					<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
-					{#if treeView}
-						<Button
-							btnClasses="py-0 h-6"
-							size="xs"
-							variant="border"
-							color="light"
-							on:click={() => (collapseAll = !collapseAll)}
-							startIcon={{
-								icon: collapseAll ? UnfoldVertical : FoldVertical
-							}}
-						>
-							{#if collapseAll}
-								Expand all
-							{:else}
-								Collapse all
-							{/if}
-						</Button>
-					{/if}
-				</div>
-			{/if}
-		</div>
-		<div>
-			{#if filteredItems == undefined}
-				<div class="mt-4"></div>
-				<Skeleton layout={[[2], 1]} />
-				{#each new Array(6) as _}
-					<Skeleton layout={[[4], 0.5]} />
-				{/each}
-			{:else if filteredItems.length === 0}
-				<NoItemFound />
-			{:else if treeView}
-				<TreeViewRoot
-					{items}
-					{nbDisplayed}
-					{collapseAll}
-					isSearching={filter !== ''}
-					on:scriptChanged={() => loadScripts(includeWithoutMain)}
-					on:flowChanged={loadFlows}
-					on:appChanged={loadApps}
-					on:rawAppChanged={loadRawApps}
-					on:reload={() => {
-						loadScripts(includeWithoutMain)
-						loadFlows()
-						loadApps()
-						loadRawApps()
-					}}
-					{showCode}
-				/>
-			{:else}
-				<div class="border rounded-md">
-					{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
-						<Item
-							{item}
-							on:scriptChanged={() => loadScripts(includeWithoutMain)}
-							on:flowChanged={loadFlows}
-							on:appChanged={loadApps}
-							on:rawAppChanged={loadRawApps}
-							on:reload={() => {
-								loadScripts(includeWithoutMain)
-								loadFlows()
-								loadApps()
-								loadRawApps()
-							}}
-							{showCode}
-						/>
-					{/each}
-				</div>
-				{#if items && items?.length > 15 && nbDisplayed < items.length}
-					<span class="text-xs"
-						>{nbDisplayed} items out of {items.length}
-						<button class="ml-4" onclick={() => (nbDisplayed += 30)}>load 30 more</button></span
-					>
+						</div>
+					{/snippet}
+				</Popover>
+				{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
+					<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
+				{:else if $userStore?.is_admin || $userStore?.is_super_admin}
+					<Toggle
+						size="xs"
+						bind:checked={filterUserFolders}
+						options={{ right: `Only u/${$userStore.username} and f/*` }}
+					/>
 				{/if}
+				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
+				{#if treeView}
+					<Button
+						btnClasses="py-0 h-6"
+						size="xs"
+						variant="border"
+						color="light"
+						on:click={() => (collapseAll = !collapseAll)}
+						startIcon={{
+							icon: collapseAll ? UnfoldVertical : FoldVertical
+						}}
+					>
+						{#if collapseAll}
+							Expand all
+						{:else}
+							Collapse all
+						{/if}
+					</Button>
+				{/if}
+			</div>
+		{/if}
+	</div>
+	<div>
+		{#if filteredItems == undefined}
+			<div class="mt-4"></div>
+			<Skeleton layout={[[2], 1]} />
+			{#each new Array(6) as _}
+				<Skeleton layout={[[4], 0.5]} />
+			{/each}
+		{:else if filteredItems.length === 0}
+			<NoItemFound />
+		{:else if treeView}
+			<TreeViewRoot
+				{items}
+				{nbDisplayed}
+				{collapseAll}
+				isSearching={filter !== ''}
+				on:scriptChanged={() => loadScripts(includeWithoutMain)}
+				on:flowChanged={loadFlows}
+				on:appChanged={loadApps}
+				on:rawAppChanged={loadRawApps}
+				on:reload={() => {
+					loadScripts(includeWithoutMain)
+					loadFlows()
+					loadApps()
+					loadRawApps()
+				}}
+				{showCode}
+			/>
+		{:else}
+			<div class="border rounded-md">
+				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
+					<Item
+						{item}
+						on:scriptChanged={() => loadScripts(includeWithoutMain)}
+						on:flowChanged={loadFlows}
+						on:appChanged={loadApps}
+						on:rawAppChanged={loadRawApps}
+						on:reload={() => {
+							loadScripts(includeWithoutMain)
+							loadFlows()
+							loadApps()
+							loadRawApps()
+						}}
+						{showCode}
+					/>
+				{/each}
+			</div>
+			{#if items && items?.length > 15 && nbDisplayed < items.length}
+				<span class="text-xs"
+					>{nbDisplayed} items out of {items.length}
+					<button class="ml-4" onclick={() => (nbDisplayed += 30)}>load 30 more</button></span
+				>
 			{/if}
-		</div>
-	</CenteredPage>
-</TriggerableByAI>
+		{/if}
+	</div>
+</CenteredPage>

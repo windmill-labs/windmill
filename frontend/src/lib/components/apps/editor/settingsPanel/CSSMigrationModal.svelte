@@ -16,14 +16,18 @@
 	import CloseButton from '$lib/components/common/CloseButton.svelte'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 	import Portal from '$lib/components/Portal.svelte'
-	export let component: AppComponent | undefined
+	interface Props {
+		component: AppComponent | undefined
+	}
+
+	let { component = $bindable() }: Props = $props()
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	function fadeFast(node: HTMLElement) {
 		return fade(node, { duration: 100 })
 	}
-	let migrationModalOpen: boolean = false
+	let migrationModalOpen: boolean = $state(false)
 
 	export function open() {
 		migrationModalOpen = true
@@ -37,9 +41,6 @@
 
 		return code
 	}
-
-	$: generatedCode = generateCodeFromMigrations(migrations)
-	$: migrations = new Map<string, string[]>()
 
 	function getSelector(key: string) {
 		return customisationByComponent
@@ -126,6 +127,8 @@
 	}
 
 	let type: string | undefined = component?.type
+	let migrations = $derived(new Map<string, string[]>())
+	let generatedCode = $derived(generateCodeFromMigrations(migrations))
 </script>
 
 <HighlightTheme />

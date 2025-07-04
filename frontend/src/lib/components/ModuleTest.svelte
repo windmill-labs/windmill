@@ -1,8 +1,7 @@
 <script lang="ts" module>
 	type testModuleState = {
 		loading: boolean
-		instances: number
-		cancel?: () => void
+		cancel?: () => Promise<void>
 	}
 
 	let testModulesState = $state<Record<string, testModuleState>>({})
@@ -15,6 +14,7 @@
 	import { getContext, onMount } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import TestJobLoader from './TestJobLoader.svelte'
+	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
 
 	interface Props {
 		mod: FlowModule
@@ -37,6 +37,7 @@
 
 	let testJobLoader: TestJobLoader | undefined = $state(undefined)
 	let jobProgressReset: () => void = () => {}
+	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	export function runTestWithStepArgs() {
 		runTest(testSteps.getStepArgs(mod.id)?.value)
@@ -51,7 +52,10 @@
 		// Not defined if JobProgressBar not loaded
 		if (jobProgressReset) jobProgressReset()
 
-		testModulesState[mod.id].cancel = testJobLoader?.cancelJob
+		testModulesState[mod.id].cancel = async () => {
+			await testJobLoader?.cancelJob()
+			testJob = undefined
+		}
 
 		const val = mod.value
 		// let jobId: string | undefined = undefined
@@ -92,6 +96,7 @@
 				$flowStateStore[mod.id].previewWorkspaceId = testJob.workspace_id
 				$flowStateStore = $flowStateStore
 			}
+			stepHistoryLoader?.resetInitial(mod.id)
 		}
 		testJob = undefined
 	}
@@ -105,16 +110,10 @@
 	})
 
 	onMount(() => {
-		testModulesState[mod.id] = {
-			...(testModulesState[mod.id] ?? { loading: false, instances: 0 }),
-			loading: testIsLoading,
-			instances: testModulesState[mod.id]!.instances + 1
-		}
-		return () => {
-			testModulesState[mod.id]!.instances -= 1
-			if (testModulesState[mod.id]!.instances < 1) {
-				delete testModulesState[mod.id]
-			}
+		const modId = mod.id
+		testModulesState[modId] = {
+			...(testModulesState[modId] ?? { loading: false, instances: 0 }),
+			loading: testIsLoading
 		}
 	})
 </script>
@@ -126,12 +125,15 @@
 	bind:this={testJobLoader}
 	bind:isLoading={
 		() => testModulesState[mod.id]?.loading ?? false,
-		(v) =>
-			(testModulesState[mod.id] = {
-				...testModulesState[mod.id],
-				loading: v ?? false,
-				instances: testModulesState[mod.id]?.instances ?? 0
-			})
+		(v) => {
+			let newLoading = v ?? false
+			if (testModulesState[mod.id]?.loading !== newLoading) {
+				testModulesState[mod.id] = {
+					...(testModulesState[mod.id] ?? {}),
+					loading: newLoading
+				}
+			}
+		}
 	}
 	bind:job={testJob}
 />

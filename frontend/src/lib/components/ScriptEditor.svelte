@@ -45,7 +45,7 @@
 	import { getStringError } from './copilot/chat/utils'
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
-	import TriggerableByAI from './TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
 	interface Props {
 		// Exported
@@ -417,7 +417,14 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
-<TriggerableByAI id="script-editor" description="Component to edit a script" />
+<!-- Standalone triggerable registration for the script editor -->
+<div
+	style="display: none"
+	use:triggerableByAI={{
+		id: 'script-editor',
+		description: 'Component to edit a script'
+	}}
+></div>
 
 <Modal title="Invite others" bind:open={showCollabPopup}>
 	<div>Have others join by sharing the following url:</div>

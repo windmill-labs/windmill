@@ -12,6 +12,7 @@ pub struct Authed {
     // (folder name, can write, is owner)
     pub folders: Vec<(String, bool, bool)>,
     pub scopes: Option<Vec<String>>,
+    pub token_prefix: Option<String>,
 }
 
 #[derive(Clone)]

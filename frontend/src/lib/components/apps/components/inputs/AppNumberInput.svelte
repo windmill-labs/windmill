@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { getContext, onDestroy } from 'svelte'
+	import { stopPropagation } from 'svelte/legacy'
+
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type {
@@ -16,20 +18,30 @@
 	import { components } from '../../editor/component'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'numberinputcomponent'> | undefined = undefined
-	export let render: boolean
-	export let onChange: string[] | undefined = undefined
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		customCss?: ComponentCustomCSS<'numberinputcomponent'> | undefined
+		render: boolean
+		onChange?: string[] | undefined
+	}
+
+	let {
+		id,
+		configuration,
+		verticalAlignment = undefined,
+		customCss = undefined,
+		render,
+		onChange = undefined
+	}: Props = $props()
 	const { app, worldStore, selectedComponent, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
-	let resolvedConfig = initConfig(
-		components['numberinputcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['numberinputcomponent'].initialData.configuration, configuration)
 	)
 
 	onDestroy(() => {
@@ -41,8 +53,9 @@
 	})
 
 	let initValue = outputs?.result.peak()
-	let value: number | undefined =
+	let value: number | undefined = $state(
 		!iterContext && initValue != undefined ? initValue : resolvedConfig.defaultValue
+	)
 
 	$componentControl[id] = {
 		setValue(nvalue: number | undefined) {
@@ -51,10 +64,6 @@
 		}
 	}
 	let initialHandleDefault = true
-
-	$: handleDefault(resolvedConfig.defaultValue)
-
-	$: value, onChangeValue()
 
 	function onChangeValue() {
 		outputs?.result.set(value ?? undefined)
@@ -80,7 +89,15 @@
 		value = defaultValue
 	}
 
-	let css = initCss($app.css?.numberinputcomponent, customCss)
+	let css = $state(initCss($app.css?.numberinputcomponent, customCss))
+	$effect.pre(() => {
+		resolvedConfig.defaultValue
+		untrack(() => handleDefault(resolvedConfig.defaultValue))
+	})
+	$effect.pre(() => {
+		value
+		untrack(() => onChangeValue())
+	})
 </script>
 
 {#each Object.keys(components['numberinputcomponent'].initialData.configuration) as key (key)}
@@ -106,8 +123,8 @@
 
 <AlignWrapper {render} {verticalAlignment}>
 	<input
-		on:pointerdown|stopPropagation={() => ($selectedComponent = [id])}
-		on:focus={() => ($selectedComponent = [id])}
+		onpointerdown={stopPropagation(() => ($selectedComponent = [id]))}
+		onfocus={() => ($selectedComponent = [id])}
 		class={twMerge(
 			'windmillapp w-full py-1.5 px-2 text-sm  app-editor-input',
 			css?.input?.class ?? '',

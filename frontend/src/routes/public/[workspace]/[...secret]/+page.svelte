@@ -5,7 +5,6 @@
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import { IS_APP_PUBLIC_CONTEXT_KEY, type EditorBreakpoint } from '$lib/components/apps/types'
 
-	import { Alert, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
 	import { AppService, OpenAPI, type AppWithLastVersion } from '$lib/gen'
 	import { enterpriseLicense, userStore } from '$lib/stores'
@@ -20,6 +19,8 @@
 	import { User, UserRoundX } from 'lucide-svelte'
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 
 	let app: (AppWithLastVersion & { value: any }) | undefined = undefined
 	let notExists = false

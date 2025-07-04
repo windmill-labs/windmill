@@ -6,7 +6,7 @@
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
 	import { Globe } from 'lucide-svelte'
 
-	let tab = 'button'
+	let tab = $state('button')
 	let dropdownItems = [
 		{
 			label: 'Lorem ipsum',

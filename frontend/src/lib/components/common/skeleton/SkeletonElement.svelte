@@ -1,7 +1,11 @@
 <script lang="ts">
 	import { HEIGHT_UNIT, type ISkeletonElement } from './model'
 
-	export let element: ISkeletonElement
+	interface Props {
+		element: ISkeletonElement
+	}
+
+	let { element }: Props = $props()
 </script>
 
 <div

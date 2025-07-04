@@ -8,10 +8,14 @@
 	import { createEventDispatcher } from 'svelte'
 	import GroupNameEditor from './NameEditor.svelte'
 
-	export let row: {
-		name: string
-		path: string
+	interface Props {
+		row: {
+			name: string
+			path: string
+		}
 	}
+
+	let { row }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 

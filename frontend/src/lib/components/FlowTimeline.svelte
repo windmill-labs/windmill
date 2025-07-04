@@ -1,40 +1,52 @@
 <script lang="ts">
 	import { debounce, displayDate, msToSec } from '$lib/utils'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
 	import { Loader2 } from 'lucide-svelte'
 	import TimelineBar from './TimelineBar.svelte'
 	import type { Writable } from 'svelte/store'
 	import WaitTimeWarning from './common/waitTimeWarning/WaitTimeWarning.svelte'
 
-	export let selfWaitTime: number | undefined = undefined
-	export let aggregateWaitTime: number | undefined = undefined
-	export let flowModules: string[]
-	export let durationStatuses: Writable<
-		Record<
-			string,
-			{
-				byJob: Record<string, { created_at?: number; started_at?: number; duration_ms?: number }>
-				iteration_from?: number
-				iteration_total?: number
-			}
+	interface Props {
+		selfWaitTime?: number | undefined
+		aggregateWaitTime?: number | undefined
+		flowModules: string[]
+		durationStatuses: Writable<
+			Record<
+				string,
+				{
+					byJob: Record<string, { created_at?: number; started_at?: number; duration_ms?: number }>
+					iteration_from?: number
+					iteration_total?: number
+				}
+			>
 		>
-	>
-	export let flowDone = false
+		flowDone?: boolean
+	}
 
-	let min: undefined | number = undefined
-	let max: undefined | number = undefined
-	let total: number | undefined = undefined
+	let {
+		selfWaitTime = undefined,
+		aggregateWaitTime = undefined,
+		flowModules,
+		durationStatuses,
+		flowDone = false
+	}: Props = $props()
+
+	let min: undefined | number = $state(undefined)
+	let max: undefined | number = $state(undefined)
+	let total: number | undefined = $state(undefined)
 
 	let items:
 		| Record<
 				string,
 				Array<{ created_at?: number; started_at?: number; duration_ms?: number; id: string }>
 		  >
-		| undefined = undefined
+		| undefined = $state(undefined)
 
-	let debounced = debounce(() => computeItems($durationStatuses), 30)
-	$: flowDone != undefined && $durationStatuses && debounced()
+	let { debounced, clearDebounce } = debounce(() => computeItems($durationStatuses), 30)
+	$effect(() => {
+		flowDone != undefined && $durationStatuses && untrack(() => debounced())
+	})
 
 	export function reset() {
 		min = undefined
@@ -104,7 +116,7 @@
 		}
 	}
 
-	let now = getDbClockNow().getTime()
+	let now = $state(getDbClockNow().getTime())
 
 	let interval = setInterval((x) => {
 		if (!max) {
@@ -117,6 +129,7 @@
 
 	onDestroy(() => {
 		interval && clearInterval(interval)
+		clearDebounce()
 	})
 </script>
 
@@ -164,7 +177,7 @@
 					<div class="w-full flex flex-row-reverse sticky top-0">
 						<button
 							class="!text-secondary underline mr-2 text-2xs text-right whitespace-nowrap"
-							on:click={() => {
+							onclick={() => {
 								let r = $durationStatuses[k]
 								if (r.iteration_from) {
 									r.iteration_from -= 20
@@ -187,8 +200,8 @@
 										? b.started_at
 											? b.started_at - b?.created_at
 											: b.duration_ms
-											? 0
-											: now - b?.created_at
+												? 0
+												: now - b?.created_at
 										: 0}
 									<div class="flex w-full">
 										<TimelineBar
@@ -209,7 +222,7 @@
 												{min}
 												concat
 												started_at={b.started_at}
-												len={b.started_at ? b?.duration_ms ?? now - b?.started_at : 0}
+												len={b.started_at ? (b?.duration_ms ?? now - b?.started_at) : 0}
 												running={b?.duration_ms == undefined}
 											/>
 										{/if}

@@ -5,7 +5,6 @@
 
 	import { get, writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/base.css'
-	import type { FlowInput } from '../flows/types'
 	import {
 		SvelteFlow,
 		type Node,
@@ -82,7 +81,6 @@
 		download?: boolean
 		fullSize?: boolean
 		disableAi?: boolean
-		flowInputsStore?: Writable<FlowInput | undefined>
 		triggerNode?: boolean
 		workspace?: string
 		editMode?: boolean
@@ -142,7 +140,6 @@
 		download = false,
 		fullSize = false,
 		disableAi = false,
-		flowInputsStore = writable<FlowInput | undefined>(undefined),
 		triggerNode = false,
 		workspace = $workspaceStore ?? 'NO_WORKSPACE',
 		editMode = false,
@@ -154,9 +151,8 @@
 
 	setContext<{
 		selectedId: Writable<string | undefined>
-		flowInputsStore: Writable<FlowInput | undefined>
 		useDataflow: Writable<boolean | undefined>
-	}>('FlowGraphContext', { selectedId, flowInputsStore, useDataflow })
+	}>('FlowGraphContext', { selectedId, useDataflow })
 
 	if (triggerContext && allowSimplifiedPoll) {
 		if (isSimplifiable(modules)) {
@@ -238,6 +234,7 @@
 			boxSize = layout(dag as any)
 		}
 
+		const yOffset = insertable ? 100 : 0
 		const newNodes = dag.descendants().map((des) => ({
 			...des.data,
 			id: des.data.id,
@@ -252,7 +249,7 @@
 						NODE.width / 2 -
 						(width - fullWidth) / 2
 					: 0,
-				y: des.y || 0
+				y: (des.y || 0) + yOffset
 			}
 		}))
 
@@ -346,6 +343,7 @@
 			return
 		}
 		let newGraph = graph
+		newGraph.nodes.sort((a, b) => b.id.localeCompare(a.id))
 
 		nodes = layoutNodes(newGraph.nodes)
 		edges = newGraph.edges

@@ -4,6 +4,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import Tooltip from './Tooltip.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
 	export let options: {
 		left?: string
@@ -20,6 +21,8 @@
 	export let id = (Math.random() + 1).toString(36).substring(10)
 	export let lightMode: boolean = false
 	export let eeOnly: boolean = false
+	export let aiId: string | undefined = undefined
+	export let aiDescription: string | undefined = undefined
 
 	export let size: 'sm' | 'xs' | '2xs' | '2sm' = 'sm'
 
@@ -54,7 +57,17 @@
 
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div class="relative" on:click|stopPropagation>
+	<div
+		class="relative"
+		on:click|stopPropagation
+		use:triggerableByAI={{
+			id: aiId,
+			description: aiDescription,
+			callback: () => {
+				checked = !checked
+			}
+		}}
+	>
 		<input
 			on:focus
 			on:click

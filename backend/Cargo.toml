@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.500.2"
+version = "1.502.2"
 authors.workspace = true
 edition.workspace = true
 
@@ -32,7 +32,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.500.2"
+version = "1.502.2"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -329,7 +329,7 @@ jsonwebtoken = "8.3.0"
 pem = "3.0.1"
 nix = { version = "0.27.1", features = ["process", "signal"] }
 tinyvector = { git = "https://github.com/windmill-labs/tinyvector", rev = "20823b94c20f2b9093f318badd24026cf54dcc85" }
-hf-hub = "0.3.2"
+hf-hub = "0.4.3"
 tokenizers = "0.14.1"
 candle-core = "0.9.1"
 candle-transformers = "0.9.1"
@@ -348,7 +348,7 @@ nkeys = "0.4.4"
 nu-parser = { version = "0.101.0", default-features = false }
 
 datafusion = "47.0.0"
-object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7", features = ["aws", "azure"] } 
+object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7", features = ["aws", "azure", "gcp"] } 
 openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
 aws-sdk-sqs = "1.57.0"

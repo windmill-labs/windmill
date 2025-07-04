@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { type Job, JobService, type Flow, type RestartedFrom, type OpenFlow } from '$lib/gen'
+	import { type Job, JobService, type RestartedFrom, type OpenFlow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Badge, Button } from './common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -18,9 +18,11 @@
 	import Toggle from './Toggle.svelte'
 	import JsonInputs from './JsonInputs.svelte'
 	import FlowHistoryJobPicker from './FlowHistoryJobPicker.svelte'
-	import { NEVER_TESTED_THIS_FAR } from './flows/models'
 	import { writable, type Writable } from 'svelte/store'
 	import type { DurationStatus, GraphModuleState } from './graph'
+	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
+	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
+	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
@@ -28,7 +30,6 @@
 
 	export let jobId: string | undefined = undefined
 	export let job: Job | undefined = undefined
-	export let initial: boolean = false
 
 	export let selectedJobStep: string | undefined = undefined
 	export let selectedJobStepIsTopLevel: boolean | undefined = undefined
@@ -69,15 +70,18 @@
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
+	let stepHistoryLoader = getStepHistoryLoaderContext()
+
 	let renderCount: number = 0
 	let schemaFormWithArgPicker: SchemaFormWithArgPicker | undefined = undefined
 	let currentJobId: string | undefined = undefined
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
+		const previewFlow = aiChatManager.flowAiChatHelpers?.getPreviewFlow()
 		if (previewMode === 'whole') {
-			return flowStore.val
+			return previewFlow ?? flowStore.val
 		} else {
-			const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
+			const flow = previewFlow ?? stateSnapshot(flowStore).val
 			const idOrders = dfs(flow.value.modules, (x) => x.id)
 			let upToIndex = idOrders.indexOf($selectedId)
 
@@ -93,8 +97,8 @@
 		args: Record<string, any>,
 		restartedFrom: RestartedFrom | undefined
 	) {
-		if (initial) {
-			initial = false
+		if (stepHistoryLoader?.flowJobInitial) {
+			stepHistoryLoader?.setFlowJobInitial(false)
 		}
 		try {
 			lastPreviewFlow = JSON.stringify(flowStore.val)
@@ -183,44 +187,6 @@
 
 	$: selectedJobStep !== undefined && onSelectedJobStepChange()
 
-	async function loadIndividualStepsStates() {
-		// console.log('loadIndividualStepsStates')
-		dfs(flowStore.val.value.modules, async (module) => {
-			// console.log('module', $flowStateStore[module.id], module.id)
-			const prev = $flowStateStore[module.id]?.previewResult
-			if (prev && prev != NEVER_TESTED_THIS_FAR) {
-				return
-			}
-			const previousJobId = await JobService.listJobs({
-				workspace: $workspaceStore!,
-				scriptPathExact:
-					`path` in module.value
-						? module.value.path
-						: ($initialPathStore == '' ? $pathStore : $initialPathStore) + '/' + module.id,
-				jobKinds: ['preview', 'script', 'flowpreview', 'flow', 'flowscript'].join(','),
-				page: 1,
-				perPage: 1
-			})
-			// console.log('previousJobId', previousJobId, module.id)
-
-			if (previousJobId.length > 0) {
-				const getJobResult = await JobService.getCompletedJobResultMaybe({
-					workspace: $workspaceStore!,
-					id: previousJobId[0].id
-				})
-				if ('result' in getJobResult) {
-					$flowStateStore[module.id] = {
-						...($flowStateStore[module.id] ?? {}),
-						previewResult: getJobResult.result,
-						previewJobId: previousJobId[0].id,
-						previewWorkspaceId: previousJobId[0].workspace_id,
-						previewSuccess: getJobResult.success
-					}
-				}
-			}
-		})
-	}
-
 	let scrollableDiv: HTMLDivElement | undefined = undefined
 	function handleScroll() {
 		scrollTop = scrollableDiv?.scrollTop ?? 0
@@ -275,7 +241,7 @@
 			</div>
 		{:else}
 			<div class="grow justify-center flex flex-row gap-4">
-				{#if jobId !== undefined && selectedJobStep !== undefined && selectedJobStepIsTopLevel}
+				{#if jobId !== undefined && selectedJobStep !== undefined && selectedJobStepIsTopLevel && aiChatManager.flowAiChatHelpers?.getModuleAction(selectedJobStep) !== 'removed'}
 					{#if selectedJobStepType == 'single'}
 						<Button
 							size="xs"
@@ -483,16 +449,15 @@
 			>
 				<FlowHistoryJobPicker
 					selectInitial={jobId == undefined}
-					on:nohistory={() => {
-						loadIndividualStepsStates()
-					}}
 					on:select={(e) => {
 						if (!currentJobId) {
 							currentJobId = jobId
 						}
 						const detail = e.detail
-						initial = detail.initial
 						jobId = detail.jobId
+						if (detail.initial && stepHistoryLoader?.flowJobInitial === undefined) {
+							stepHistoryLoader?.setFlowJobInitial(detail.initial)
+						}
 					}}
 					on:unselect={() => {
 						jobId = currentJobId
@@ -502,12 +467,12 @@
 				/>
 			</div>
 			{#if jobId}
-				{#if initial}
+				{#if stepHistoryLoader?.flowJobInitial}
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<!-- svelte-ignore a11y-no-static-element-interactions -->
 					<div
 						on:click={() => {
-							initial = false
+							stepHistoryLoader?.setFlowJobInitial(false)
 						}}
 						class="cursor-pointer h-full hover:bg-gray-500/20 dark:hover:bg-gray-500/20 dark:bg-gray-500/80 rounded bg-gray-500/40 absolute top-0 left-0 w-full z-50"
 					>
@@ -528,12 +493,6 @@
 					{jobId}
 					on:done={() => {
 						$executionCount = $executionCount + 1
-					}}
-					on:jobsLoaded={() => {
-						if (initial) {
-							console.log('loading initial steps after initial job loaded')
-							loadIndividualStepsStates()
-						}
 					}}
 					bind:selectedJobStep
 					bind:rightColumnSelect

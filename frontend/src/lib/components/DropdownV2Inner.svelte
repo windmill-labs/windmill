@@ -1,11 +1,9 @@
 <script lang="ts">
-	import { MenuItem } from '$lib/components/meltComponents'
+	import MenuItem from '$lib/components/meltComponents/MenuItem.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import type { Item } from '$lib/utils'
-	import TriggerableByAI from './TriggerableByAI.svelte'
-	import { goto } from '$app/navigation'
 
 	interface Props {
 		aiId?: string
@@ -30,42 +28,32 @@
 {#if computedItems}
 	<div class="flex flex-col">
 		{#each computedItems ?? [] as item}
-			<TriggerableByAI
-				id={`${aiId ? `${aiId}-${item.displayName}` : undefined}`}
-				description={item.displayName}
-				onTrigger={() => {
-					if (item.action) {
-						item.action({} as MouseEvent)
-					}
-					if (item.href) {
-						goto(item.href)
-					}
-				}}
+			<MenuItem
+				onClick={(e) => item?.action?.(e)}
+				href={item?.href}
+				target={item?.hrefTarget}
+				disabled={item?.disabled}
+				class={twMerge(
+					'px-4 py-2 text-primary font-semibold hover:bg-surface-hover cursor-pointer text-xs transition-all w-full',
+					'data-[highlighted]:bg-surface-hover',
+					'flex flex-row gap-2 items-center',
+					item?.disabled && 'text-gray-400 cursor-not-allowed',
+					item?.type === 'delete' &&
+						!item?.disabled &&
+						'text-red-500 hover:bg-red-100 hover:text-red-500 data-[highlighted]:text-red-500 data-[highlighted]:bg-red-100'
+				)}
+				item={meltItem}
+				aiId={`${aiId ? `${aiId}-${item.displayName}` : undefined}`}
+				aiDescription={item.displayName}
 			>
-				<MenuItem
-					on:click={(e) => item?.action?.(e)}
-					href={item?.href}
-					disabled={item?.disabled}
-					class={twMerge(
-						'px-4 py-2 text-primary font-semibold hover:bg-surface-hover cursor-pointer text-xs transition-all w-full',
-						'data-[highlighted]:bg-surface-hover',
-						'flex flex-row gap-2 items-center',
-						item?.disabled && 'text-gray-400 cursor-not-allowed',
-						item?.type === 'delete' &&
-							!item?.disabled &&
-							'text-red-500 hover:bg-red-100 hover:text-red-500 data-[highlighted]:text-red-500 data-[highlighted]:bg-red-100'
-					)}
-					item={meltItem}
-				>
-					{#if item.icon}
-						<item.icon size={14} color={item.iconColor} />
-					{/if}
-					<p title={item.displayName} class="truncate grow min-w-0 whitespace-nowrap text-left">
-						{item.displayName}
-					</p>
-					{@render item.extra?.()}
-				</MenuItem>
-			</TriggerableByAI>
+				{#if item.icon}
+					<item.icon size={14} color={item.iconColor} />
+				{/if}
+				<p title={item.displayName} class="truncate grow min-w-0 whitespace-nowrap text-left">
+					{item.displayName}
+				</p>
+				{@render item.extra?.()}
+			</MenuItem>
 		{/each}
 	</div>
 {:else}

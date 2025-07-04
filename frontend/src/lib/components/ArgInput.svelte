@@ -10,7 +10,7 @@
 		getSchemaFromProperties
 	} from '$lib/utils'
 	import { DollarSign, Pipette, Plus, X, Check, Loader2 } from 'lucide-svelte'
-	import { createEventDispatcher, onMount, tick, untrack } from 'svelte'
+	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { Button, SecondsInput } from './common'
 	import FieldHeader from './FieldHeader.svelte'
@@ -449,7 +449,7 @@
 		}
 	}
 
-	let debounced = debounce(() => compareValues(value), 50)
+	let { debounced, clearDebounce } = debounce(() => compareValues(value), 50)
 	let inputCat = $derived(computeInputCat(type, format, itemsType?.type, enum_, contentEncoding))
 	$effect(() => {
 		oneOf && untrack(() => updateOneOfSelected(oneOf))
@@ -492,6 +492,10 @@
 	})
 	$effect(() => {
 		shouldDispatchChanges && debounced(value)
+	})
+
+	onDestroy(() => {
+		clearDebounce()
 	})
 </script>
 
@@ -842,7 +846,7 @@
 				format={format ?? ''}
 				bind:value
 				bind:editor
-				on:clear={() => {
+				onClear={() => {
 					defaultValue = null
 				}}
 				{showSchemaExplorer}

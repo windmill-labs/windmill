@@ -510,7 +510,7 @@
 										class={itemClass}
 										href={subItem.href}
 										{item}
-										on:click={() => {
+										onClick={() => {
 											subItem?.['action']?.()
 										}}
 										aiId={subItem.aiId}

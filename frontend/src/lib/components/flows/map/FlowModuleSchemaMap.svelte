@@ -15,11 +15,8 @@
 	} from '$lib/components/flows/flowStateUtils.svelte'
 	import type { FlowModule, ScriptLang } from '$lib/gen'
 	import { emptyFlowModuleState } from '../utils'
-	import FlowSettingsItem from './FlowSettingsItem.svelte'
-	import FlowConstantsItem from './FlowConstantsItem.svelte'
 
 	import { dfs } from '../dfs'
-	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import { push } from '$lib/history'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
@@ -38,6 +35,8 @@
 	import { dfsByModule } from '../previousResults'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import FlowStickyNode from './FlowStickyNode.svelte'
+	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -50,6 +49,9 @@
 		workspace?: string | undefined
 		onTestUpTo?: ((id: string) => void) | undefined
 		onEditInput?: (moduleId: string, key: string) => void
+		aiChatOpen?: boolean
+		showFlowAiButton?: boolean
+		toggleAiChat?: () => void
 	}
 
 	let {
@@ -62,21 +64,16 @@
 		smallErrorHandler = false,
 		workspace = $workspaceStore,
 		onTestUpTo,
-		onEditInput
+		onEditInput,
+		aiChatOpen,
+		showFlowAiButton,
+		toggleAiChat
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
 
-	const {
-		customUi,
-		selectedId,
-		moving,
-		history,
-		flowStateStore,
-		flowStore,
-		flowInputsStore,
-		pathStore
-	} = getContext<FlowEditorContext>('FlowEditorContext')
+	const { customUi, selectedId, moving, history, flowStateStore, flowStore, pathStore } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
@@ -89,8 +86,8 @@
 		inlineScript?: InlineScript
 	): Promise<FlowModule[]> {
 		push(history, flowStore.val)
-		var module = emptyModule($flowStateStore, flowStore.val, kind == 'flow')
-		var state = emptyFlowModuleState()
+		let module = emptyModule($flowStateStore, flowStore.val, kind == 'flow')
+		let state = emptyFlowModuleState()
 		$flowStateStore[module.id] = state
 		if (wsFlow) {
 			;[module, state] = await pickFlow(wsFlow.path, wsFlow.summary, module.id)
@@ -111,14 +108,8 @@
 		} else if (kind == 'branchall') {
 			;[module, state] = await createBranchAll(module.id)
 		} else if (inlineScript) {
-			const { language, kind, subkind } = inlineScript
-			;[module, state] = await createInlineScriptModule(
-				language,
-				kind,
-				subkind,
-				module.id,
-				module.summary
-			)
+			const { language, kind, subkind, summary } = inlineScript
+			;[module, state] = await createInlineScriptModule(language, kind, subkind, module.id, summary)
 			$flowStateStore[module.id] = state
 			if (kind == 'trigger') {
 				module.summary = 'Trigger'
@@ -192,7 +183,7 @@
 		return dfsByModule(id, flowStore.val.value.modules)[0]
 	}
 
-	async function addBranch(id: string) {
+	export async function addBranch(id: string) {
 		push(history, flowStore.val)
 		let module = findModuleById(id)
 
@@ -209,7 +200,7 @@
 		}
 	}
 
-	function removeBranch(id: string, index: number) {
+	export function removeBranch(id: string, index: number) {
 		push(history, flowStore.val)
 		let module = findModuleById(id)
 
@@ -253,9 +244,17 @@
 		}
 	}
 
+	let stepHistoryLoader = getStepHistoryLoaderContext()
+
 	async function loadLastJob(path: string, moduleId: string) {
 		if (!path) {
 			return
+		}
+		if (stepHistoryLoader) {
+			stepHistoryLoader.stepStates[moduleId] = {
+				initial: true,
+				loadingJobs: true
+			}
 		}
 		const previousJobId = await JobService.listJobs({
 			workspace: $workspaceStore!,
@@ -276,6 +275,9 @@
 					previewJobId: previousJobId[0].id,
 					previewWorkspaceId: previousJobId[0].workspace_id,
 					previewSuccess: getJobResult.success
+				}
+				if (stepHistoryLoader) {
+					stepHistoryLoader.stepStates[moduleId].loadingJobs = false
 				}
 			}
 			$flowStateStore = $flowStateStore
@@ -318,14 +320,17 @@
 </Portal>
 <div class="flex flex-col h-full relative -pt-1">
 	<div
-		class={`z-10 sticky inline-flex flex-col gap-2 top-0 bg-surface-secondary flex-initial p-2 items-center transition-colors duration-[400ms] ease-linear border-b`}
+		class={`z-50 absolute inline-flex flex-col gap-2 top-3 left-1/2 -translate-x-1/2 flex-initial  items-center transition-colors duration-[400ms] ease-linear bg-surface-100`}
 	>
-		{#if !disableSettings}
-			<FlowSettingsItem />
-		{/if}
-		{#if !disableStaticInputs}
-			<FlowConstantsItem />
-		{/if}
+		<FlowStickyNode
+			{showFlowAiButton}
+			{disableSettings}
+			{disableStaticInputs}
+			{smallErrorHandler}
+			on:generateStep
+			{aiChatOpen}
+			{toggleAiChat}
+		/>
 	</div>
 
 	<div class="z-10 flex-auto grow bg-surface-secondary" bind:clientHeight={minHeight}>
@@ -344,7 +349,6 @@
 			modules={flowStore.val.value.modules}
 			preprocessorModule={flowStore.val.value?.preprocessor_module}
 			{selectedId}
-			{flowInputsStore}
 			{workspace}
 			editMode
 			{onTestUpTo}
@@ -544,13 +548,6 @@
 				refreshStateStore(flowStore)
 			}}
 		/>
-	</div>
-	<div
-		class="z-10 absolute inline-flex w-full text-sm gap-2 bottom-0 left-0 p-2 {smallErrorHandler
-			? 'flex-row-reverse'
-			: 'justify-center'} border-b"
-	>
-		<FlowErrorHandlerItem small={smallErrorHandler} on:generateStep />
 	</div>
 </div>
 

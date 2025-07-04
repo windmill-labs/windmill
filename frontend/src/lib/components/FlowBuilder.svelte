@@ -32,6 +32,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { Drawer } from '$lib/components/common'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
+	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
 	import { onMount, setContext, untrack, type ComponentType } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
@@ -45,12 +46,20 @@
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
 	import { cleanInputs } from './flows/utils'
-	import { Calendar, Pen, Save, DiffIcon, HistoryIcon, FileJson, type Icon } from 'lucide-svelte'
+	import {
+		Calendar,
+		Pen,
+		Save,
+		DiffIcon,
+		HistoryIcon,
+		FileJson,
+		type Icon,
+		Settings
+	} from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import { type FlowCopilotContext } from './copilot/flow'
-	import FlowAIButton from './copilot/chat/flow/FlowAIButton.svelte'
 	import { loadFlowModuleState } from './flows/flowStateUtils.svelte'
 	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -74,6 +83,11 @@
 	import { Triggers } from './triggers/triggers.svelte'
 	import { TestSteps } from './flows/testSteps.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
+	import {
+		setStepHistoryLoaderContext,
+		StepHistoryLoader,
+		type stepState
+	} from './stepHistoryLoader.svelte'
 
 	interface Props {
 		initialPath?: string
@@ -95,6 +109,21 @@
 		draftTriggersFromUrl?: Trigger[] | undefined
 		selectedTriggerIndexFromUrl?: number | undefined
 		children?: import('svelte').Snippet
+		loadedFromHistoryFromUrl?: {
+			flowJobInitial: boolean | undefined
+			stepsState: Record<string, stepState>
+		}
+		noInitial?: boolean
+		onSaveInitial?: ({ path, id }: { path: string; id: string }) => void
+		onSaveDraft?: ({
+			path,
+			savedAtNewPath,
+			newFlow
+		}: {
+			path: string
+			savedAtNewPath: boolean
+			newFlow: boolean
+		}) => void
 	}
 
 	let {
@@ -116,7 +145,9 @@
 		setSavedraftCb = undefined,
 		draftTriggersFromUrl = undefined,
 		selectedTriggerIndexFromUrl = undefined,
-		children
+		children,
+		loadedFromHistoryFromUrl,
+		noInitial = false
 	}: Props = $props()
 
 	let initialPathStore = writable(initialPath)
@@ -140,11 +171,31 @@
 	let draftTriggersModalOpen = $state(false)
 	let confirmDeploymentCallback: (triggersToDeploy: Trigger[]) => void = () => {}
 
+	// AI changes warning modal
+	let aiChangesWarningOpen = $state(false)
+	let aiChangesConfirmCallback = $state<() => void>(() => {})
+
 	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
 		const { selectedTriggers } = event.detail
 		// Continue with saving the flow
 		draftTriggersModalOpen = false
 		confirmDeploymentCallback(selectedTriggers)
+	}
+
+	function hasAIChanges(): boolean {
+		return aiChatManager.flowAiChatHelpers?.hasDiff() ?? false
+	}
+
+	function withAIChangesWarning(callback: () => void) {
+		if (hasAIChanges()) {
+			aiChangesConfirmCallback = () => {
+				aiChatManager.flowAiChatHelpers?.rejectAllModuleActions()
+				callback()
+			}
+			aiChangesWarningOpen = true
+		} else {
+			callback()
+		}
 	}
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
@@ -205,9 +256,16 @@
 	let loadingDraft = $state(false)
 
 	export async function saveDraft(forceSave = false): Promise<void> {
+		withAIChangesWarning(async () => {
+			await saveDraftInternal(forceSave)
+		})
+	}
+
+	async function saveDraftInternal(forceSave = false): Promise<void> {
 		if (!newFlow && !savedFlow) {
 			return
 		}
+
 		if (savedFlow) {
 			const draftOrDeployed = cleanValueProperties(savedFlow.draft || savedFlow)
 			const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
@@ -223,7 +281,7 @@
 					{
 						label: 'Save anyway',
 						callback: () => {
-							saveDraft(true)
+							saveDraftInternal(true)
 						}
 					}
 				])
@@ -332,6 +390,12 @@
 	}
 
 	async function handleSaveFlow(deploymentMsg?: string) {
+		withAIChangesWarning(async () => {
+			await handleSaveFlowInternal(deploymentMsg)
+		})
+	}
+
+	async function handleSaveFlowInternal(deploymentMsg?: string) {
 		await compareVersions()
 		if (onLatest || initialPath == '' || savedFlow?.draft_only) {
 			// Handle directly
@@ -499,7 +563,11 @@
 						path: $pathStore,
 						selectedId: $selectedIdStore,
 						draft_triggers: triggersState.getDraftTriggersSnapshot(),
-						selected_trigger: triggersState.getSelectedTriggerSnapshot()
+						selected_trigger: triggersState.getSelectedTriggerSnapshot(),
+						loadedFromHistory: {
+							flowJobInitial: stepHistoryLoader.flowJobInitial,
+							stepsState: stepHistoryLoader.stepStates
+						}
 					})
 				)
 			} catch (err) {
@@ -722,7 +790,10 @@
 		disabled?: boolean
 	}[] = $state([])
 
-	function onCustomUiChange(customUi: FlowBuilderWhitelabelCustomUi | undefined) {
+	function onCustomUiChange(
+		customUi: FlowBuilderWhitelabelCustomUi | undefined,
+		hasAiDiff: boolean
+	) {
 		moreItems = [
 			...(customUi?.topBar?.history != false
 				? [
@@ -736,7 +807,7 @@
 						}
 					]
 				: []),
-			...(customUi?.topBar?.history != false
+			...(customUi?.topBar?.export != false
 				? [
 						{
 							displayName: 'Export',
@@ -746,7 +817,19 @@
 						{
 							displayName: 'Edit in YAML',
 							icon: FileJson,
-							action: () => yamlEditorDrawer?.openDrawer()
+							action: () => yamlEditorDrawer?.openDrawer(),
+							disabled: hasAiDiff
+						}
+					]
+				: []),
+			...(customUi?.topBar?.settings != false
+				? [
+						{
+							displayName: 'Flow settings',
+							icon: Settings,
+							action: () => {
+								select('settings-metadata')
+							}
 						}
 					]
 				: [])
@@ -792,8 +875,43 @@
 		initialPath && initialPath != '' && $workspaceStore && untrack(() => loadTriggers())
 	})
 	run(() => {
-		customUi && untrack(() => onCustomUiChange(customUi))
+		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasDiff() ?? false
+		customUi && untrack(() => onCustomUiChange(customUi, hasAiDiff))
 	})
+
+	export async function loadFlowState() {
+		await stepHistoryLoader.loadIndividualStepsStates(
+			flowStore.val as Flow,
+			flowStateStore,
+			$workspaceStore!,
+			$initialPathStore,
+			$pathStore
+		)
+	}
+
+	let stepHistoryLoader = new StepHistoryLoader(
+		loadedFromHistoryFromUrl?.stepsState ?? {},
+		loadedFromHistoryFromUrl?.flowJobInitial,
+		saveSessionDraft,
+		noInitial
+	)
+	setStepHistoryLoaderContext(stepHistoryLoader)
+
+	export function setLoadedFromHistory(
+		loadedFromHistoryUrl:
+			| {
+					flowJobInitial: boolean | undefined
+					stepsState: Record<string, stepState>
+			  }
+			| undefined
+	) {
+		if (!loadedFromHistoryUrl) {
+			return
+		}
+
+		stepHistoryLoader.setFlowJobInitial(loadedFromHistoryUrl.flowJobInitial)
+		stepHistoryLoader.stepStates = loadedFromHistoryUrl.stepsState
+	}
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -818,6 +936,8 @@
 	}}
 	on:confirmed={handleDraftTriggersConfirmed}
 />
+
+<AIChangesWarningModal bind:open={aiChangesWarningOpen} onConfirm={aiChangesConfirmCallback} />
 
 {#key renderCount}
 	{#if !$userStore?.operator}
@@ -956,12 +1076,14 @@
 								)
 
 								diffDrawer?.openDrawer()
+								const currentFlow =
+									aiChatManager.flowAiChatHelpers?.getPreviewFlow() ?? flowStore.val
 								diffDrawer?.setDiff({
 									mode: 'normal',
 									deployed: deployedValue ?? savedFlow,
 									draft: savedFlow?.draft,
 									current: {
-										...flowStore.val,
+										...currentFlow,
 										path: $pathStore,
 										draft_triggers: currentDraftTriggers
 									}
@@ -974,9 +1096,6 @@
 								Diff
 							</div>
 						</Button>
-					{/if}
-					{#if !disableAi && customUi?.topBar?.aiBuilder != false && !aiChatManager.open}
-						<FlowAIButton openPanel={() => aiChatManager.openChat()} />
 					{/if}
 					<FlowPreviewButtons
 						on:openTriggers={(e) => {
@@ -1010,7 +1129,6 @@
 					/>
 				</div>
 			</div>
-
 			<!-- metadata -->
 			{#if $flowStateStore}
 				<FlowEditor
@@ -1050,6 +1168,12 @@
 					}}
 					{forceTestTab}
 					{highlightArg}
+					aiChatOpen={aiChatManager.open}
+					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
+					toggleAiChat={() => aiChatManager.toggleOpen()}
+					onRunPreview={() => {
+						flowPreviewButtons?.openPreview(true)
+					}}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

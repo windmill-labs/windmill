@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { createEventDispatcher, onMount } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 	import AppConnect from './AppConnectDrawer.svelte'
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 
@@ -11,10 +11,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import { isDbType } from './apps/components/display/dbtable/utils'
 	import Select from './select/Select.svelte'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
-
-	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	interface Props {
 		initialValue?: string | undefined
@@ -28,6 +24,7 @@
 		expressOAuthSetup?: boolean
 		defaultValues?: Record<string, any> | undefined
 		placeholder?: string | undefined
+		onClear?: () => void
 	}
 
 	let {
@@ -41,7 +38,8 @@
 		selectFirst = false,
 		expressOAuthSetup = false,
 		defaultValues = undefined,
-		placeholder = undefined
+		placeholder = undefined,
+		onClear = undefined
 	}: Props = $props()
 
 	if (initialValue && value == undefined) {
@@ -87,7 +85,11 @@
 	}
 
 	let loading = $state(true)
-	async function loadResources(resourceType: string | undefined) {
+	async function loadResources(
+		resourceType: string | undefined,
+		initialValue: string | undefined,
+		value: string | undefined
+	) {
 		loading = true
 		try {
 			const resourceTypesToQuery =
@@ -128,11 +130,12 @@
 	}
 
 	$effect(() => {
-		$workspaceStore && loadResources(resourceType)
-	})
-
-	$effect(() => {
-		dispatchIfMounted('change', value)
+		$workspaceStore &&
+			loadResources(
+				resourceType,
+				untrack(() => initialValue),
+				untrack(() => value)
+			)
 	})
 
 	let appConnect: AppConnect | undefined = $state()
@@ -141,7 +144,7 @@
 
 <AppConnect
 	on:refresh={async (e) => {
-		await loadResources(resourceType)
+		await loadResources(resourceType, initialValue, value)
 		value = e.detail
 		valueType = collection.find((x) => x?.value == value)?.type
 	}}
@@ -151,7 +154,7 @@
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
 	on:refresh={async (e) => {
-		await loadResources(resourceType)
+		await loadResources(resourceType, initialValue, value)
 		if (e.detail) {
 			value = e.detail
 			valueType = collection.find((x) => x?.value == value)?.type
@@ -177,7 +180,7 @@
 					initialValue = undefined
 					value = undefined
 					valueType = undefined
-					dispatch('clear')
+					onClear?.()
 				}}
 				items={collection}
 				clearable
@@ -237,7 +240,7 @@
 			btnClasses="w-8 px-0.5 py-1.5"
 			size="sm"
 			on:click={() => {
-				loadResources(resourceType)
+				loadResources(resourceType, initialValue, value)
 			}}
 			startIcon={{ icon: RotateCw }}
 			iconOnly

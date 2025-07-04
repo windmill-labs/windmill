@@ -14,7 +14,7 @@
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
-	import TriggerableByAI from '../TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	interface Props {
@@ -36,6 +36,10 @@
 		onEditInput?: ((moduleId: string, key: string) => void) | undefined
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
+		aiChatOpen?: boolean
+		showFlowAiButton?: boolean
+		toggleAiChat?: () => void
+		onRunPreview?: () => void
 	}
 
 	let {
@@ -52,7 +56,11 @@
 		onTestUpTo = undefined,
 		onEditInput = undefined,
 		forceTestTab,
-		highlightArg
+		highlightArg,
+		aiChatOpen,
+		showFlowAiButton,
+		toggleAiChat,
+		onRunPreview = () => {}
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -74,8 +82,11 @@
 <div
 	id="flow-editor"
 	class={'h-full overflow-hidden transition-colors duration-[400ms] ease-linear border-t'}
+	use:triggerableByAI={{
+		id: 'flow-editor',
+		description: 'Component to edit a flow'
+	}}
 >
-	<TriggerableByAI id="flow-editor" description="Component to edit a flow" />
 	<Splitpanes>
 		<Pane size={50} minSize={15} class="h-full relative z-0">
 			<div class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative">
@@ -103,6 +114,9 @@
 						}}
 						{onTestUpTo}
 						{onEditInput}
+						{aiChatOpen}
+						{showFlowAiButton}
+						{toggleAiChat}
 					/>
 				{/if}
 			</div>
@@ -125,6 +139,7 @@
 					{onDeployTrigger}
 					{forceTestTab}
 					{highlightArg}
+					{onRunPreview}
 				/>
 			{/if}
 		</Pane>
