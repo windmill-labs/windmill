@@ -1308,10 +1308,12 @@
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyK, function () {
-				if (showInlineAIChat) {
-					closeAIInlineWidget()
-				} else {
-					showAIInlineWidget()
+				if ($copilotInfo.enabled) {
+					if (showInlineAIChat) {
+						closeAIInlineWidget()
+					} else {
+						showAIInlineWidget()
+					}
 				}
 			})
 
@@ -1554,7 +1556,7 @@
 	/>
 {/if}
 
-{#if editor}
+{#if editor && $copilotInfo.enabled}
 	<AIChatInlineWidget
 		bind:this={aiChatInlineWidget}
 		bind:show={showInlineAIChat}

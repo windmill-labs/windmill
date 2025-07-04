@@ -1,7 +1,7 @@
 <script lang="ts">
 	import * as monaco from 'monaco-editor'
 	import AIChatInput from './AIChatInput.svelte'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
 	import LoadingIcon from '$lib/components/apps/svelte-select/lib/LoadingIcon.svelte'
 
@@ -51,6 +51,9 @@
 	// Create/remove widget based on show state
 	$effect(() => {
 		if (show && !widget && widgetElement && selection) {
+			if (aiChatManager.mode !== AIMode.SCRIPT) {
+				aiChatManager.changeMode(AIMode.SCRIPT)
+			}
 			const startLine = selection.startLineNumber
 			widget = new AIChatWidget(startLine, widgetElement)
 			editor.addContentWidget(widget)
@@ -60,6 +63,12 @@
 		} else if (!show && widget) {
 			editor.removeContentWidget(widget)
 			widget = null
+		}
+	})
+
+	$effect(() => {
+		if (!aiChatManager.pendingNewCode && pendingCode) {
+			pendingCode = ''
 		}
 	})
 
