@@ -526,6 +526,8 @@ async fn create_trigger(
     Path(w_id): Path<String>,
     Json(new_http_trigger): Json<NewTrigger>,
 ) -> WindmillResult<(StatusCode, String)> {
+    require_admin(authed.is_admin, &authed.username)?;
+
     let route_path_key = validate_http_trigger(&db, &w_id, &new_http_trigger).await?;
 
     let mut tx = user_db.begin(&authed).await?;
