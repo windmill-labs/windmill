@@ -294,7 +294,7 @@
 
 		if (tab === 'default') {
 			if (searchTerm === '')
-				itemMap['default'] = fuzzyFilter(searchTerm, defaultMenuItems, defaultMenuItemLabels)
+				itemMap['default'] = defaultMenuItems
 			else
 				itemMap['default'] = fuzzyFilter(
 					searchTerm,
@@ -653,7 +653,7 @@
 				<div class="overflow-y-auto relative {maxModalHeight(tab)}">
 					{#if tab === 'default' || tab === 'switch-mode'}
 						{@const items = (itemMap[tab] ?? []).filter((e) =>
-							defaultMenuItemsWithHidden.includes(e)
+							defaultMenuItemsWithHidden.some((x) => e.search_id === x.search_id)
 						)}
 						{#if items.length > 0}
 							<div class={tab === 'switch-mode' ? 'p-2' : 'p-2 border-b'}>
