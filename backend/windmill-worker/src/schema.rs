@@ -72,6 +72,7 @@ fn make_rules_for_arg_typ(typ: &Typ) -> Vec<SchemaValidationRule> {
         Typ::Resource(_) => (),
         Typ::DynSelect(_) => (),
         Typ::Unknown => (),
+        Typ::TypeRef(_) => ()
     }
 
     rules
