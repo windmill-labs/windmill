@@ -1538,7 +1538,7 @@
 		<FakeMonacoPlaceHolder {code} />
 	</div>
 {/if}
-<div bind:this={divEl} class="{$$restProps.class || ''} editor {disabled ? 'disabled' : ''}"></div>
+<div bind:this={divEl} class="{$$props.class} editor {disabled ? 'disabled' : ''}"></div>
 {#if $vimMode}
 	<div class="fixed bottom-0 z-30" bind:this={statusDiv}></div>
 {/if}
@@ -1586,22 +1586,5 @@
 		border-radius: 4px;
 		left: -4px;
 		top: -5px;
-	}
-
-	/* AI Code Widget Decorations */
-	:global(.ai-selected-code) {
-		background-color: rgba(59, 130, 246, 0.1) !important;
-		border: 1px solid rgba(59, 130, 246, 0.3) !important;
-	}
-
-	:global(.ai-processing) {
-		background-color: rgba(245, 158, 11, 0.1) !important;
-		border: 1px solid rgba(245, 158, 11, 0.3) !important;
-	}
-
-	:global(.ai-processing-text) {
-		color: var(--color-warning) !important;
-		font-style: italic !important;
-		font-size: 12px !important;
 	}
 </style>

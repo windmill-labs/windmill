@@ -14,12 +14,12 @@
 
 	let { editor, selection, selectedCode, show = $bindable(false) }: Props = $props()
 
-	let widget: SimpleContentWidget | null = $state(null)
+	let widget: AIChatWidget | null = $state(null)
 	let widgetElement: HTMLElement | null = $state(null)
 	let aiChatInput: AIChatInput | null = $state(null)
 	let processing = $state(false)
 
-	class SimpleContentWidget implements monaco.editor.IContentWidget {
+	class AIChatWidget implements monaco.editor.IContentWidget {
 		private domNode: HTMLElement
 		public position: monaco.IPosition
 
@@ -51,7 +51,7 @@
 	$effect(() => {
 		if (show && !widget && widgetElement && selection) {
 			const startLine = selection.startLineNumber
-			widget = new SimpleContentWidget(startLine, widgetElement)
+			widget = new AIChatWidget(startLine, widgetElement)
 			editor.addContentWidget(widget)
 			if (aiChatInput) {
 				aiChatInput.focusInput()
@@ -90,6 +90,11 @@
 				const reply = await aiChatManager.sendInlineRequest(instructions, selectedCode, selection)
 				aiChatManager.scriptEditorApplyCode?.(reply)
 				processing = false
+			}}
+			onKeyDown={(e) => {
+				if (e.key === 'Escape') {
+					show = false
+				}
 			}}
 			showContext={false}
 			className="-ml-2"

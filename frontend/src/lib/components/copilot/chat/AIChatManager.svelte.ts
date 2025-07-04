@@ -424,7 +424,6 @@ class AIChatManager {
 		const userMessage = await prepareScriptUserMessage(instructions, lang, selectedContext, {
 			isPreprocessor: false
 		})
-		console.log('userMessage', userMessage)
 		const messages = [userMessage]
 		let reply = ''
 		const params = {
@@ -441,14 +440,12 @@ class AIChatManager {
 		}
 		await this.chatRequest({ ...params })
 
-		// Parse XML output to extract only the code
 		const newCodeMatch = reply.match(/<new_code>([\s\S]*?)<\/new_code>/i)
 		if (newCodeMatch && newCodeMatch[1]) {
 			return newCodeMatch[1].trim()
+		} else {
+			return reply
 		}
-
-		// Fallback: if no XML structure found, return the raw reply
-		return reply
 	}
 
 	sendRequest = async (

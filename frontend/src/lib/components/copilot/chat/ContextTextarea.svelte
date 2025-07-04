@@ -16,8 +16,8 @@
 		disabled: boolean
 		onSendRequest: () => void
 		onAddContext: (contextElement: ContextElement) => void
-		onEscape: () => void
 		className?: string
+		onKeyDown?: (e: KeyboardEvent) => void
 	}
 
 	let {
@@ -29,8 +29,8 @@
 		disabled,
 		onSendRequest,
 		onAddContext,
-		onEscape,
-		className = ''
+		className = '',
+		onKeyDown = undefined
 	}: Props = $props()
 
 	let showContextTooltip = $state(false)
@@ -302,8 +302,8 @@
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
-		if (e.key === 'Escape') {
-			onEscape()
+		if (onKeyDown) {
+			onKeyDown(e)
 		}
 
 		if (!showContextTooltip) return

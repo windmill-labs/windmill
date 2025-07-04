@@ -23,6 +23,7 @@
 		onSendRequest?: (instructions: string) => void
 		showContext?: boolean
 		bottomRightSnippet?: Snippet
+		onKeyDown?: (e: KeyboardEvent) => void
 	}
 
 	let {
@@ -38,7 +39,8 @@
 		onClickOutside = () => {},
 		onSendRequest = undefined,
 		showContext = true,
-		bottomRightSnippet
+		bottomRightSnippet,
+		onKeyDown = undefined
 	}: Props = $props()
 
 	let contextTextareaComponent: ContextTextarea | undefined = $state()
@@ -153,7 +155,7 @@
 				onSendRequest ? onSendRequest(instructions) : sendRequest()
 			}}
 			{disabled}
-			onEscape={onEditEnd}
+			{onKeyDown}
 		/>
 	{:else}
 		<div class={twMerge('relative w-full scroll-pb-2 pt-2', className)}>
@@ -162,11 +164,12 @@
 				bind:value={instructions}
 				use:autosize
 				onkeydown={(e) => {
+					if (onKeyDown) {
+						onKeyDown(e)
+					}
 					if (e.key === 'Enter' && !e.shiftKey) {
 						e.preventDefault()
 						sendRequest()
-					} else if (e.key === 'Escape') {
-						onEditEnd()
 					}
 				}}
 				rows={3}
