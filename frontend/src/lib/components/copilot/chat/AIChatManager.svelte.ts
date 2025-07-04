@@ -444,7 +444,7 @@ class AIChatManager {
 		if (newCodeMatch && newCodeMatch[1]) {
 			return newCodeMatch[1].trim()
 		} else {
-			return reply
+			return ''
 		}
 	}
 

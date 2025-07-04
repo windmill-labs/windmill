@@ -18,6 +18,7 @@
 	let widgetElement: HTMLElement | null = $state(null)
 	let aiChatInput: AIChatInput | null = $state(null)
 	let processing = $state(false)
+	let pendingCode = $state('')
 
 	class AIChatWidget implements monaco.editor.IContentWidget {
 		private domNode: HTMLElement
@@ -70,7 +71,13 @@
 </script>
 
 {#snippet bottomRightSnippet()}
-	<LoadingIcon />
+	{#if processing}
+		<LoadingIcon />
+	{:else if pendingCode}
+		<span class="text-xs text-tertiary pr-1">↓ to apply</span>
+	{:else}
+		<div></div>
+	{/if}
 {/snippet}
 
 {#if show}
@@ -88,17 +95,25 @@
 				}
 				processing = true
 				const reply = await aiChatManager.sendInlineRequest(instructions, selectedCode, selection)
-				aiChatManager.scriptEditorApplyCode?.(reply)
+				if (reply) {
+					aiChatManager.scriptEditorApplyCode?.(reply)
+					pendingCode = reply
+				}
 				processing = false
+				focusInput()
 			}}
 			onKeyDown={(e) => {
 				if (e.key === 'Escape') {
 					show = false
+				} else if (e.key === 'ArrowDown' && pendingCode) {
+					// call again to auto apply
+					aiChatManager.scriptEditorApplyCode?.(pendingCode)
+					pendingCode = ''
 				}
 			}}
 			showContext={false}
 			className="-ml-2"
-			bottomRightSnippet={processing ? bottomRightSnippet : undefined}
+			bottomRightSnippet={processing || pendingCode ? bottomRightSnippet : undefined}
 			disabled={processing}
 		/>
 	</div>
