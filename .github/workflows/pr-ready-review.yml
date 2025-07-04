@@ -4,6 +4,10 @@ on:
   pull_request:
     types: [ready_for_review, opened]
 
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   auto-review:
     runs-on: ubuntu-latest
