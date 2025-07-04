@@ -402,6 +402,17 @@ class AIChatManager {
 	}
 
 	sendInlineRequest = async (instructions: string, selectedCode: string, selection: Selection) => {
+		// Validate inputs
+		if (!instructions.trim()) {
+			throw new Error('Instructions are required')
+		}
+		if (!selectedCode.trim()) {
+			throw new Error('Selected code is required')
+		}
+		if (instructions.length > 10000) {
+			throw new Error('Instructions are too long (max 10,000 characters)')
+		}
+
 		this.abortController = new AbortController()
 		const lang = this.scriptEditorOptions?.lang ?? 'bun'
 		const selectedContext: ContextElement[] = this.contextManager.getSelectedContext()
@@ -415,40 +426,77 @@ class AIChatManager {
 			endLine,
 			content: selectedCode
 		})
+		
 		const systemMessage: ChatCompletionSystemMessageParam = {
 			role: 'system',
 			content: INLINE_CHAT_SYSTEM_PROMPT
 		}
-		const userMessage = await prepareScriptUserMessage(instructions, lang, selectedContext, {
-			isPreprocessor: false
-		})
-		const messages = [userMessage]
+		
 		let reply = ''
-		const params = {
-			messages,
-			abortController: this.abortController,
-			callbacks: {
-				onNewToken: (token: string) => {
-					reply += token
+		
+		try {
+			const userMessage = await prepareScriptUserMessage(instructions, lang, selectedContext, {
+				isPreprocessor: false
+			})
+			const messages = [userMessage]
+			
+			const params = {
+				messages,
+				abortController: this.abortController,
+				callbacks: {
+					onNewToken: (token: string) => {
+						reply += token
+					},
+					onMessageEnd: () => {},
+					setToolStatus: () => {}
 				},
-				onMessageEnd: () => {},
-				setToolStatus: () => {}
-			},
-			systemMessage
-		}
-		await this.chatRequest({ ...params })
+				systemMessage
+			}
+			
+			await this.chatRequest({ ...params })
 
-		const newCodeMatch = reply.match(/<new_code>([\s\S]*?)<\/new_code>/i)
-		if (newCodeMatch && newCodeMatch[1]) {
-			return newCodeMatch[1].trim()
-		} else {
-			// try to take everything after the last <new_code> tag, no xml tags
+			// Validate we received a response
+			if (!reply.trim()) {
+				throw new Error('AI response was empty')
+			}
+
+			// Try to extract new code from response
+			const newCodeMatch = reply.match(/<new_code>([\s\S]*?)<\/new_code>/i)
+			if (newCodeMatch && newCodeMatch[1]) {
+				const code = newCodeMatch[1].trim()
+				if (!code) {
+					throw new Error('AI response contained empty code block')
+				}
+				return code
+			}
+			
+			// Fallback: try to take everything after the last <new_code> tag
 			const lastNewCodeMatch = reply.match(/<new_code>([\s\S]*)/i)
 			if (lastNewCodeMatch && lastNewCodeMatch[1]) {
-				// remove final backticks
-				return lastNewCodeMatch[1].trim().replace(/```/g, '')
+				const code = lastNewCodeMatch[1].trim().replace(/```/g, '')
+				if (!code) {
+					throw new Error('AI response contained empty code block')
+				}
+				return code
 			}
-			return ''
+			
+			// If no code tags found, throw error with helpful message
+			throw new Error('AI response did not contain valid code. Please try rephrasing your request.')
+			
+		} catch (error) {
+			// Handle different types of errors
+			if (this.abortController?.signal.aborted) {
+				throw new Error('Request was cancelled')
+			}
+			
+			if (error instanceof Error) {
+				// Re-throw known errors
+				throw error
+			}
+			
+			// Handle unknown errors
+			console.error('Unexpected error in sendInlineRequest:', error)
+			throw new Error('An unexpected error occurred. Please try again.')
 		}
 	}
 

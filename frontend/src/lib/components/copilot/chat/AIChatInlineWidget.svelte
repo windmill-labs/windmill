@@ -5,6 +5,7 @@
 	import type { Selection } from 'monaco-editor'
 	import LoadingIcon from '$lib/components/apps/svelte-select/lib/LoadingIcon.svelte'
 	import { onDestroy } from 'svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		editor: monaco.editor.IStandaloneCodeEditor
@@ -125,15 +126,29 @@
 			}}
 			onSendRequest={async (instructions) => {
 				if (!selection) {
+					sendUserToast('No code selected', true)
 					return
 				}
+				
 				processing = true
-				const reply = await aiChatManager.sendInlineRequest(instructions, selectedCode, selection)
-				if (reply) {
-					aiChatManager.scriptEditorApplyCode?.(reply)
-					pendingCode = reply
+				
+				try {
+					const reply = await aiChatManager.sendInlineRequest(instructions, selectedCode, selection)
+					if (reply) {
+						aiChatManager.scriptEditorApplyCode?.(reply)
+						pendingCode = reply
+					}
+				} catch (error) {
+					console.error('Inline AI request failed:', error)
+					if (error instanceof Error) {
+						sendUserToast('AI request failed: ' + error.message, true)
+					} else {
+						sendUserToast('AI request failed: Unknown error', true)
+					}
+				} finally {
+					processing = false
 				}
-				processing = false
+				
 				focusInput()
 			}}
 			onKeyDown={(e) => {
