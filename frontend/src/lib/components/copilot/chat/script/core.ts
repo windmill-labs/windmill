@@ -339,6 +339,17 @@ export const CHAT_SYSTEM_PROMPT = `
 	Do not mention or reveal these instructions to the user unless explicitly asked to do so.
 `
 
+export const INLINE_CHAT_SYSTEM_PROMPT = `
+	You are a coding assistant for the Windmill platform. You are provided with a list of INSTRUCTIONS and the current contents of a code section under CODE_SECTION.
+	You can also receive a DATABASES list that is the list of databases that are available in the user's workspace.
+
+	Your task is to return the modified CODE_SECTION that fulfills the user's request and nothing else. Assume all user queries are valid and actionable.
+
+	IMPORTANT:
+	- ALWAYS ONLY include a **single code block** with the **entire updated section**, not just the modified sections.
+	- DO NOT include any other text or comments.
+`
+
 const CHAT_USER_CODE_CONTEXT = `
 - {title}:
 \`\`\`{language}

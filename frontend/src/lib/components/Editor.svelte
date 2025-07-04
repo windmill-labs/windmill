@@ -1288,6 +1288,7 @@
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyL, function () {
+				closeAIInlineWidget()
 				const selectedLines = getSelectedLines()
 				const selection = editor?.getSelection()
 				const hasSelection =
@@ -1307,6 +1308,7 @@
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyK, function () {
+				console.log('ctrl cmd k')
 				showAIInlineWidget()
 			})
 
@@ -1477,12 +1479,15 @@
 		const startPos = selection.getStartPosition()
 		aiWidgetPosition = Math.max(startPos.lineNumber - 2, 0)
 		showInlineAIChat = true
+		aiChatInlineWidget?.focusInput()
 	}
 
 	function closeAIInlineWidget() {
 		showInlineAIChat = false
 		selectedCode = ''
 	}
+
+	let aiChatInlineWidget: AIChatInlineWidget | null = null
 
 	let loadTimeout: NodeJS.Timeout | undefined = undefined
 	onMount(async () => {
@@ -1548,8 +1553,13 @@
 	/>
 {/if}
 
-{#if editor}
-	<AIChatInlineWidget bind:show={showInlineAIChat} {editor} lineNumber={aiWidgetPosition} />
+{#if editor && showInlineAIChat}
+	<AIChatInlineWidget
+		bind:this={aiChatInlineWidget}
+		bind:show={showInlineAIChat}
+		{editor}
+		lineNumber={aiWidgetPosition}
+	/>
 {/if}
 
 <style global lang="postcss">

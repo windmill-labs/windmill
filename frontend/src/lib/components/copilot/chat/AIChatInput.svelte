@@ -19,6 +19,7 @@
 		onEditEnd?: () => void
 		className?: string
 		onClickOutside?: () => void
+		onSendRequest?: (instructions: string) => void
 	}
 
 	let {
@@ -31,7 +32,8 @@
 		editingMessageIndex = null,
 		onEditEnd = () => {},
 		className = '',
-		onClickOutside = () => {}
+		onClickOutside = () => {},
+		onSendRequest = () => {}
 	}: Props = $props()
 
 	let contextTextareaComponent: ContextTextarea | undefined = $state()
@@ -39,6 +41,7 @@
 	let instructions = $state(initialInstructions)
 
 	export function focusInput() {
+		console.log('focusing input', aiChatManager.mode)
 		if (aiChatManager.mode === 'script') {
 			contextTextareaComponent?.focus()
 		} else {
@@ -146,7 +149,8 @@
 			{placeholder}
 			onAddContext={(contextElement) => addContextToSelection(contextElement)}
 			onSendRequest={() => {
-				sendRequest()
+				console.log('sending request', instructions)
+				onSendRequest ? onSendRequest(instructions) : sendRequest()
 			}}
 			{disabled}
 			onEscape={onEditEnd}

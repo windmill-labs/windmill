@@ -16,7 +16,11 @@ import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
-import { prepareScriptSystemMessage, prepareScriptTools } from './script/core'
+import {
+	INLINE_CHAT_SYSTEM_PROMPT,
+	prepareScriptSystemMessage,
+	prepareScriptTools
+} from './script/core'
 import { navigatorTools, prepareNavigatorSystemMessage } from './navigator/core'
 import { loadApiTools } from './navigator/apiTools'
 import { prepareScriptUserMessage } from './script/core'
@@ -32,6 +36,7 @@ import type { DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import type ContextTextarea from './ContextTextarea.svelte'
+import type { ContextElement } from './context'
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -257,7 +262,8 @@ class AIChatManager {
 	private chatRequest = async ({
 		messages,
 		abortController,
-		callbacks
+		callbacks,
+		systemMessage: systemMessageOverride
 	}: {
 		messages: ChatCompletionMessageParam[]
 		abortController: AbortController
@@ -265,12 +271,13 @@ class AIChatManager {
 			onNewToken: (token: string) => void
 			onMessageEnd: () => void
 		}
+		systemMessage?: ChatCompletionSystemMessageParam
 	}) => {
 		try {
 			let completion: any = null
 
 			while (true) {
-				const systemMessage = this.systemMessage
+				const systemMessage = systemMessageOverride ?? this.systemMessage
 				const tools = this.tools
 				const helpers = this.helpers
 
@@ -391,6 +398,37 @@ class AIChatManager {
 				throw err
 			}
 		}
+	}
+
+	sendInlineRequest = async (instructions: string) => {
+		if (!this.abortController) {
+			this.abortController = new AbortController()
+		}
+		const lang = this.scriptEditorOptions?.lang ?? 'bun'
+		const selectedContext = this.contextManager.getSelectedContext().filter((c) => c.type === 'db')
+		const systemMessage: ChatCompletionSystemMessageParam = {
+			role: 'system',
+			content: INLINE_CHAT_SYSTEM_PROMPT
+		}
+		const userMessage = await prepareScriptUserMessage(instructions, lang, selectedContext, {
+			isPreprocessor: false
+		})
+		const messages = [userMessage]
+		let reply = ''
+		const params = {
+			messages,
+			abortController: this.abortController,
+			callbacks: {
+				onNewToken: (token: string) => {
+					reply += token
+				},
+				onMessageEnd: () => {},
+				setToolStatus: () => {}
+			},
+			systemMessage
+		}
+		await this.chatRequest({ ...params })
+		console.log(reply)
 	}
 
 	sendRequest = async (
@@ -571,6 +609,7 @@ class AIChatManager {
 		}
 		this.changeMode(AIMode.SCRIPT)
 		this.contextManager?.addSelectedLinesToContext(lines, startLine, endLine)
+		this.focusInput()
 	}
 
 	saveAndClear = async () => {
