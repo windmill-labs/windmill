@@ -35,9 +35,9 @@ import { untrack } from 'svelte'
 import type { DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
-import type ContextTextarea from './ContextTextarea.svelte'
 import type { ContextElement } from './context'
 import type { Selection } from 'monaco-editor'
+import type AIChatInput from './AIChatInput.svelte'
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -78,7 +78,7 @@ class AIChatManager {
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	pendingNewCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
-	aiChatInput = $state<HTMLInputElement | ContextTextarea | undefined>(undefined)
+	aiChatInput = $state<AIChatInput | null>(null)
 
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script: this.scriptEditorOptions !== undefined,
@@ -98,13 +98,13 @@ class AIChatManager {
 		}
 	}
 
-	setAiChatInput(aiChatInput: HTMLInputElement | ContextTextarea) {
+	setAiChatInput(aiChatInput: AIChatInput | null) {
 		this.aiChatInput = aiChatInput
 	}
 
 	focusInput() {
 		if (this.aiChatInput) {
-			this.aiChatInput.focus()
+			this.aiChatInput.focusInput()
 		}
 	}
 
@@ -440,6 +440,7 @@ class AIChatManager {
 			systemMessage
 		}
 		await this.chatRequest({ ...params })
+		// remove ```
 		return reply
 	}
 

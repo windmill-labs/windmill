@@ -47,9 +47,7 @@
 
 	// Create/remove widget based on show state
 	$effect(() => {
-		console.log('show', show)
 		if (show && !widget && widgetElement && selection) {
-			console.log('adding widget', selection)
 			const startLine = selection.startLineNumber
 			widget = new SimpleContentWidget(startLine, widgetElement)
 			editor.addContentWidget(widget)
@@ -57,15 +55,15 @@
 				aiChatInput.focusInput()
 			}
 		} else if (!show && widget) {
-			console.log('removing widget', selection)
 			editor.removeContentWidget(widget)
 			widget = null
 		}
 	})
 
 	export function focusInput() {
-		console.log('focusing input')
-		aiChatInput?.focusInput()
+		setTimeout(() => {
+			aiChatInput?.focusInput()
+		}, 130)
 	}
 </script>
 
@@ -79,12 +77,14 @@
 				show = false
 			}}
 			onSendRequest={async (instructions) => {
-				console.log('sending request', instructions)
+				if (!selection) {
+					return
+				}
 				const reply = await aiChatManager.sendInlineRequest(instructions, selectedCode, selection)
 				aiChatManager.scriptEditorApplyCode?.(reply)
 			}}
-			className="-ml-2"
 			showContext={false}
+			className="-ml-2"
 		/>
 	</div>
 {/if}
