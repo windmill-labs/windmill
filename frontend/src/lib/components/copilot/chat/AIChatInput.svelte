@@ -17,7 +17,6 @@
 		initialInstructions?: string
 		editingMessageIndex?: number | null
 		onEditEnd?: () => void
-		showContext?: boolean
 		className?: string
 		onClickOutside?: () => void
 	}
@@ -31,7 +30,6 @@
 		initialInstructions = '',
 		editingMessageIndex = null,
 		onEditEnd = () => {},
-		showContext = true,
 		className = '',
 		onClickOutside = () => {}
 	}: Props = $props()
@@ -108,57 +106,53 @@
 
 <div use:clickOutside>
 	{#if aiChatManager.mode === 'script'}
-		{#if showContext}
-			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 px-2 no-scrollbar">
-				<Popover>
-					<svelte:fragment slot="trigger">
-						<div
-							class="border rounded-md px-1 py-0.5 font-normal text-tertiary text-xs hover:bg-surface-hover"
-							>@</div
-						>
-					</svelte:fragment>
-					<svelte:fragment slot="content" let:close>
-						<AvailableContextList
-							{availableContext}
-							{selectedContext}
-							onSelect={(element) => {
-								addContextToSelection(element)
-								close()
-							}}
-						/>
-					</svelte:fragment>
-				</Popover>
-				{#each selectedContext as element}
-					<ContextElementBadge
-						contextElement={element}
-						deletable
-						on:delete={() => {
-							selectedContext = selectedContext?.filter(
-								(c) => c.type !== element.type || c.title !== element.title
-							)
+		<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
+			<Popover>
+				<svelte:fragment slot="trigger">
+					<div
+						class="border rounded-md px-1 py-0.5 font-normal text-tertiary text-xs hover:bg-surface-hover bg-surface"
+						>@</div
+					>
+				</svelte:fragment>
+				<svelte:fragment slot="content" let:close>
+					<AvailableContextList
+						{availableContext}
+						{selectedContext}
+						onSelect={(element) => {
+							addContextToSelection(element)
+							close()
 						}}
 					/>
-				{/each}
-			</div>
-		{/if}
-		<div class={twMerge('px-2', className)}>
-			<ContextTextarea
-				bind:this={contextTextareaComponent}
-				bind:value={instructions}
-				{availableContext}
-				{selectedContext}
-				{isFirstMessage}
-				{placeholder}
-				onAddContext={(contextElement) => addContextToSelection(contextElement)}
-				onSendRequest={() => {
-					sendRequest()
-				}}
-				{disabled}
-				onEscape={onEditEnd}
-			/>
+				</svelte:fragment>
+			</Popover>
+			{#each selectedContext as element}
+				<ContextElementBadge
+					contextElement={element}
+					deletable
+					on:delete={() => {
+						selectedContext = selectedContext?.filter(
+							(c) => c.type !== element.type || c.title !== element.title
+						)
+					}}
+				/>
+			{/each}
 		</div>
+		<ContextTextarea
+			bind:this={contextTextareaComponent}
+			bind:value={instructions}
+			{availableContext}
+			{selectedContext}
+			{isFirstMessage}
+			{placeholder}
+			onAddContext={(contextElement) => addContextToSelection(contextElement)}
+			onSendRequest={() => {
+				sendRequest()
+			}}
+			{disabled}
+			onEscape={onEditEnd}
+		/>
 	{:else}
-		<div class={twMerge('relative w-full px-2 scroll-pb-2 pt-2', className)}>
+		<div class={twMerge('relative w-full scroll-pb-2 pt-2', className)}>
 			<textarea
 				bind:this={instructionsTextareaComponent}
 				bind:value={instructions}

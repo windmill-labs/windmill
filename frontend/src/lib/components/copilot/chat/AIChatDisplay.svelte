@@ -220,32 +220,34 @@
 				</Button>
 			</div>
 		{/if}
-		<AIChatInput
-			bind:this={aiChatInput}
-			bind:selectedContext
-			{availableContext}
-			{disabled}
-			isFirstMessage={messages.length === 0}
-			placeholder={messages.length === 0 ? 'Ask anything' : 'Ask followup'}
-		/>
-		<div
-			class={`flex flex-row ${
-				aiChatManager.mode === 'script' && hasDiff ? 'justify-between' : 'justify-end'
-			} items-center pl-2`}
-		>
-			{#if aiChatManager.mode === 'script' && hasDiff}
-				<ChatQuickActions {askAi} {diffMode} />
-			{/if}
-			{#if disabled}
-				<div class="text-tertiary text-xs my-2 px-2">
-					<Markdown md={disabledMessage} />
-				</div>
-			{:else}
-				<div class="flex flex-row gap-2 min-w-0">
-					<ChatMode />
-					<ProviderModelSelector />
-				</div>
-			{/if}
+		<div class="px-2">
+			<AIChatInput
+				bind:this={aiChatInput}
+				bind:selectedContext
+				{availableContext}
+				{disabled}
+				isFirstMessage={messages.length === 0}
+				placeholder={messages.length === 0 ? 'Ask anything' : 'Ask followup'}
+			/>
+			<div
+				class={`flex flex-row ${
+					aiChatManager.mode === 'script' && hasDiff ? 'justify-between' : 'justify-end'
+				} items-center`}
+			>
+				{#if aiChatManager.mode === 'script' && hasDiff}
+					<ChatQuickActions {askAi} {diffMode} />
+				{/if}
+				{#if disabled}
+					<div class="text-tertiary text-xs my-2 px-2">
+						<Markdown md={disabledMessage} />
+					</div>
+				{:else}
+					<div class="flex flex-row gap-2 min-w-0">
+						<ChatMode />
+						<ProviderModelSelector />
+					</div>
+				{/if}
+			</div>
 		</div>
 		{#if (aiChatManager.mode === AIMode.NAVIGATOR || aiChatManager.mode === AIMode.ASK) && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
 			<div class="px-2 mt-4">

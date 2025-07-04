@@ -1,6 +1,7 @@
 <script lang="ts">
 	import * as monaco from 'monaco-editor'
 	import AIChatInput from './AIChatInput.svelte'
+	import { aiChatManager } from './AIChatManager.svelte'
 
 	interface Props {
 		editor: monaco.editor.IStandaloneCodeEditor
@@ -60,12 +61,11 @@
 	})
 </script>
 
-<div bind:this={widgetElement} class="flex min-w-[300px]">
+<div bind:this={widgetElement} class="w-[300px]">
 	<AIChatInput
 		bind:this={aiChatInput}
-		availableContext={[]}
-		selectedContext={[]}
-		showContext={false}
+		availableContext={aiChatManager.contextManager.getAvailableContext()}
+		selectedContext={aiChatManager.contextManager.getSelectedContext()}
 		onClickOutside={() => {
 			show = false
 		}}
