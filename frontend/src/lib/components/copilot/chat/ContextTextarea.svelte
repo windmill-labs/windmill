@@ -339,8 +339,13 @@
 	}
 </script>
 
-<div class={twMerge('relative w-full px-2 scroll-pb-2 bg-surface', className)}>
-	<div class="textarea-input absolute top-0 left-0 pointer-events-none">
+<div class="relative w-full scroll-pb-2 bg-surface">
+	<div
+		class={twMerge(
+			'textarea-input absolute top-0 left-0 pointer-events-none py-1 !px-2',
+			className
+		)}
+	>
 		<span class="break-words">
 			{@html getHighlightedText(value)}
 		</span>
@@ -359,7 +364,10 @@
 			}, 200)
 		}}
 		{placeholder}
-		class="textarea-input resize-none bg-transparent caret-black dark:caret-white"
+		class={twMerge(
+			'textarea-input resize-none bg-transparent caret-black dark:caret-white',
+			className
+		)}
 		style={value.length > 0 ? 'color: transparent; -webkit-text-fill-color: transparent;' : ''}
 		{disabled}
 	></textarea>
@@ -388,7 +396,7 @@
 
 <style>
 	.textarea-input {
-		padding: 0.25rem 1rem;
+		padding: 0.25rem;
 		border: 1px solid transparent;
 		font-family: inherit;
 		font-size: 0.875rem;

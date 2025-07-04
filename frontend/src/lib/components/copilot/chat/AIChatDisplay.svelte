@@ -231,7 +231,7 @@
 		<div
 			class={`flex flex-row ${
 				aiChatManager.mode === 'script' && hasDiff ? 'justify-between' : 'justify-end'
-			} items-center px-0.5`}
+			} items-center pl-2`}
 		>
 			{#if aiChatManager.mode === 'script' && hasDiff}
 				<ChatQuickActions {askAi} {diffMode} />

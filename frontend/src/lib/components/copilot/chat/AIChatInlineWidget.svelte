@@ -4,11 +4,11 @@
 
 	interface Props {
 		editor: monaco.editor.IStandaloneCodeEditor
-		position: monaco.IPosition
+		lineNumber: number
 		show: boolean
 	}
 
-	let { editor, position, show = $bindable(false) }: Props = $props()
+	let { editor, lineNumber, show = $bindable(false) }: Props = $props()
 
 	let widget: SimpleContentWidget | null = $state(null)
 	let widgetElement: HTMLElement | null = $state(null)
@@ -19,9 +19,9 @@
 		private domNode: HTMLElement
 		public position: monaco.IPosition
 
-		constructor(position: monaco.IPosition, domNode: HTMLElement) {
+		constructor(lineNumber: number, domNode: HTMLElement) {
 			this.domNode = domNode
-			this.position = position
+			this.position = { lineNumber, column: 0 }
 		}
 
 		getId(): string {
@@ -46,32 +46,17 @@
 	// Create/remove widget based on show state
 	$effect(() => {
 		if (show && !widget && widgetElement) {
-			console.log('adding widget')
-			widget = new SimpleContentWidget(position, widgetElement)
+			console.log('adding widget', lineNumber)
+			widget = new SimpleContentWidget(lineNumber, widgetElement)
 			editor.addContentWidget(widget)
 			if (aiChatInput) {
+				console.log('focusing input')
 				aiChatInput.focusInput()
 			}
 		} else if (!show && widget) {
-			console.log('removing widget')
 			editor.removeContentWidget(widget)
 			widget = null
 			isPositionedBelow = false
-		}
-	})
-
-	let lastPosition = $state<monaco.IPosition | null>(null)
-	$effect(() => {
-		if (
-			widget &&
-			position &&
-			(!lastPosition ||
-				lastPosition.lineNumber !== position.lineNumber ||
-				lastPosition.column !== position.column)
-		) {
-			widget.position = position
-			editor.layoutContentWidget(widget)
-			lastPosition = { ...position }
 		}
 	})
 </script>
@@ -82,9 +67,9 @@
 		availableContext={[]}
 		selectedContext={[]}
 		showContext={false}
-		className="!px-0 mb-2"
 		onClickOutside={() => {
 			show = false
 		}}
+		className="-ml-2"
 	/>
 </div>

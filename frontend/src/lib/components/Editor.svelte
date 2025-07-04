@@ -122,8 +122,7 @@
 		KeyMod,
 		Uri as mUri,
 		type IRange,
-		type IDisposable,
-		type IPosition
+		type IDisposable
 	} from 'monaco-editor'
 
 	import EditorTheme from './EditorTheme.svelte'
@@ -637,7 +636,7 @@
 
 	// Inline ai chat widget
 	let showInlineAIChat = false
-	let aiWidgetPosition: IPosition = { lineNumber: 1, column: 1 }
+	let aiWidgetPosition: number = 1
 	let selectedCode = ''
 
 	export function reviewAndApplyCode(code: string) {
@@ -1474,10 +1473,7 @@
 
 		selectedCode = editor.getModel()?.getValueInRange(selection) || ''
 		const startPos = selection.getStartPosition()
-		aiWidgetPosition = {
-			lineNumber: startPos.lineNumber,
-			column: startPos.column
-		}
+		aiWidgetPosition = Math.max(startPos.lineNumber - 2, 0)
 		showInlineAIChat = true
 	}
 
@@ -1551,7 +1547,7 @@
 {/if}
 
 {#if editor}
-	<AIChatInlineWidget bind:show={showInlineAIChat} {editor} position={aiWidgetPosition} />
+	<AIChatInlineWidget bind:show={showInlineAIChat} {editor} lineNumber={aiWidgetPosition} />
 {/if}
 
 <style global lang="postcss">

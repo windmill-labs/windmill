@@ -41,6 +41,7 @@
 	let instructions = $state(initialInstructions)
 
 	export function focusInput() {
+		console.log('focusing input', aiChatManager.mode)
 		if (aiChatManager.mode === 'script') {
 			contextTextareaComponent?.focus()
 		} else {
@@ -133,21 +134,22 @@
 				{/each}
 			</div>
 		{/if}
-		<ContextTextarea
-			bind:this={contextTextareaComponent}
-			bind:value={instructions}
-			{availableContext}
-			{selectedContext}
-			{isFirstMessage}
-			{placeholder}
-			onAddContext={(contextElement) => addContextToSelection(contextElement)}
-			onSendRequest={() => {
-				sendRequest()
-			}}
-			{disabled}
-			onEscape={onEditEnd}
-			{className}
-		/>
+		<div class={twMerge('px-2', className)}>
+			<ContextTextarea
+				bind:this={contextTextareaComponent}
+				bind:value={instructions}
+				{availableContext}
+				{selectedContext}
+				{isFirstMessage}
+				{placeholder}
+				onAddContext={(contextElement) => addContextToSelection(contextElement)}
+				onSendRequest={() => {
+					sendRequest()
+				}}
+				{disabled}
+				onEscape={onEditEnd}
+			/>
+		</div>
 	{:else}
 		<div class={twMerge('relative w-full px-2 scroll-pb-2 pt-2', className)}>
 			<textarea
