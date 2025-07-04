@@ -4,8 +4,8 @@
 	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
 	import LoadingIcon from '$lib/components/apps/svelte-select/lib/LoadingIcon.svelte'
-	import { onDestroy } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { onDestroy } from 'svelte'
 
 	interface Props {
 		editor: monaco.editor.IStandaloneCodeEditor
@@ -20,7 +20,6 @@
 	let widgetElement: HTMLElement | null = $state(null)
 	let aiChatInput: AIChatInput | null = $state(null)
 	let processing = $state(false)
-	let pendingCode = $state('')
 
 	class AIChatWidget implements monaco.editor.IContentWidget {
 		private domNode: HTMLElement
@@ -52,12 +51,7 @@
 
 	// Cleanup function to safely remove widget and cancel requests
 	function cleanupWidget() {
-		// Cancel any ongoing request
-		if (processing && aiChatManager.abortController && !aiChatManager.abortController.signal.aborted) {
-			console.log('Cancelling ongoing request during cleanup')
-			aiChatManager.abortController.abort()
-		}
-		
+		aiChatManager.cancel()
 		if (widget) {
 			try {
 				editor.removeContentWidget(widget)
@@ -66,10 +60,6 @@
 			}
 			widget = null
 		}
-		
-		// Reset processing state
-		processing = false
-		pendingCode = ''
 	}
 
 	// Create/remove widget based on show state
@@ -85,27 +75,12 @@
 				aiChatInput.focusInput()
 			}
 		} else if (!show && widget) {
-			aiChatManager.cancel()
 			cleanupWidget()
 		}
-
-		// Cleanup function for the effect
-		return () => {
-			if (widget) {
-				cleanupWidget()
-			}
-		}
 	})
 
-	// Ensure widget is cleaned up when component is destroyed
 	onDestroy(() => {
 		cleanupWidget()
-	})
-
-	$effect(() => {
-		if (!aiChatManager.pendingNewCode && pendingCode) {
-			pendingCode = ''
-		}
 	})
 
 	export function focusInput() {
@@ -118,7 +93,7 @@
 {#snippet bottomRightSnippet()}
 	{#if processing}
 		<LoadingIcon />
-	{:else if pendingCode}
+	{:else if aiChatManager.pendingNewCode}
 		<span class="text-xs text-tertiary pr-1">↓ to apply</span>
 	{:else}
 		<div></div>
@@ -135,65 +110,44 @@
 				show = false
 			}}
 			onSendRequest={async (instructions) => {
-				if (!selection) {
-					sendUserToast('No code selected', true)
+				if (!selection || processing) {
 					return
 				}
-				
-				// Prevent multiple concurrent requests
-				if (processing) {
-					console.log('Request already in progress, ignoring duplicate request')
-					return
-				}
-				
-				// Cancel any ongoing request before starting a new one
-				if (aiChatManager.abortController && !aiChatManager.abortController.signal.aborted) {
-					console.log('Cancelling previous request')
-					aiChatManager.abortController.abort()
-				}
-				
+
 				processing = true
-				
+
 				try {
 					const reply = await aiChatManager.sendInlineRequest(instructions, selectedCode, selection)
 					if (reply) {
 						aiChatManager.scriptEditorApplyCode?.(reply)
-						pendingCode = reply
 					}
 				} catch (error) {
 					console.error('Inline AI request failed:', error)
 					if (error instanceof Error) {
-						// Don't show error toast for cancelled requests
-						if (error.message !== 'Request was cancelled') {
-							sendUserToast('AI request failed: ' + error.message, true)
-						}
+						sendUserToast('AI request failed: ' + error.message, true)
 					} else {
 						sendUserToast('AI request failed: Unknown error', true)
 					}
 				} finally {
 					processing = false
 				}
-				
+
 				focusInput()
 			}}
 			onKeyDown={(e) => {
 				if (e.key === 'Escape') {
-					// Cancel any ongoing request
-					if (processing && aiChatManager.abortController && !aiChatManager.abortController.signal.aborted) {
-						console.log('Cancelling request due to Escape key')
-						aiChatManager.abortController.abort()
-					}
 					show = false
-				} else if (e.key === 'ArrowDown' && pendingCode) {
+				} else if (e.key === 'ArrowDown' && aiChatManager.pendingNewCode) {
 					// call again to auto apply
-					aiChatManager.scriptEditorApplyCode?.(pendingCode)
-					pendingCode = ''
+					aiChatManager.scriptEditorApplyCode?.(aiChatManager.pendingNewCode)
 					show = false
 				}
 			}}
 			showContext={false}
 			className="-ml-2"
-			bottomRightSnippet={processing || pendingCode ? bottomRightSnippet : undefined}
+			bottomRightSnippet={processing || aiChatManager.pendingNewCode
+				? bottomRightSnippet
+				: undefined}
 			disabled={processing}
 		/>
 	</div>

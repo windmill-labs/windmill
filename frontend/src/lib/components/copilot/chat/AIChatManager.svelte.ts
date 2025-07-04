@@ -409,9 +409,6 @@ class AIChatManager {
 		if (!selectedCode.trim()) {
 			throw new Error('Selected code is required')
 		}
-		if (instructions.length > 10000) {
-			throw new Error('Instructions are too long (max 10,000 characters)')
-		}
 
 		this.abortController = new AbortController()
 		const lang = this.scriptEditorOptions?.lang ?? 'bun'
@@ -426,20 +423,20 @@ class AIChatManager {
 			endLine,
 			content: selectedCode
 		})
-		
+
 		const systemMessage: ChatCompletionSystemMessageParam = {
 			role: 'system',
 			content: INLINE_CHAT_SYSTEM_PROMPT
 		}
-		
+
 		let reply = ''
-		
+
 		try {
 			const userMessage = await prepareScriptUserMessage(instructions, lang, selectedContext, {
 				isPreprocessor: false
 			})
 			const messages = [userMessage]
-			
+
 			const params = {
 				messages,
 				abortController: this.abortController,
@@ -452,7 +449,7 @@ class AIChatManager {
 				},
 				systemMessage
 			}
-			
+
 			await this.chatRequest({ ...params })
 
 			// Validate we received a response
@@ -469,7 +466,7 @@ class AIChatManager {
 				}
 				return code
 			}
-			
+
 			// Fallback: try to take everything after the last <new_code> tag
 			const lastNewCodeMatch = reply.match(/<new_code>([\s\S]*)/i)
 			if (lastNewCodeMatch && lastNewCodeMatch[1]) {
@@ -479,22 +476,14 @@ class AIChatManager {
 				}
 				return code
 			}
-			
+
 			// If no code tags found, throw error with helpful message
 			throw new Error('AI response did not contain valid code. Please try rephrasing your request.')
-			
 		} catch (error) {
-			// Handle different types of errors
+			// if abort controller is aborted, don't throw an error
 			if (this.abortController?.signal.aborted) {
-				throw new Error('Request was cancelled')
+				return
 			}
-			
-			if (error instanceof Error) {
-				// Re-throw known errors
-				throw error
-			}
-			
-			// Handle unknown errors
 			console.error('Unexpected error in sendInlineRequest:', error)
 			throw new Error('An unexpected error occurred. Please try again.')
 		}
