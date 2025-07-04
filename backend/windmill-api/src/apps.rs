@@ -1661,7 +1661,6 @@ async fn execute_component(
     // Execution is publisher and an user is authenticated: check if the user is authorized to
     // execute the app.
     if let (ExecutionMode::Publisher, Some(authed)) = (policy.execution_mode, opt_authed.as_ref()) {
-        check_scopes(authed, || format!("apps:write:{}", path))?;
         lazy_static! {
             /// Cache for the permit to execute an app component.
             static ref PERMIT_CACHE: cache::Cache<[u8; 32], bool> = cache::Cache::new(1000);
@@ -1960,10 +1959,6 @@ async fn upload_s3_file_from_app(
             Some(username.clone()),
         )
         .await?;
-
-        check_scopes(&on_behalf_authed, || {
-            format!("apps:write:{}", path.to_path())
-        })?;
 
         if let Some(file_key) = query.file_key {
             // file key is provided => requires workspace, user or list policy and must match the regex
@@ -2380,10 +2375,6 @@ async fn download_s3_file_from_app(
     let (on_behalf_authed, policy) =
         get_on_behalf_authed_from_app(&db, &path, &w_id, &opt_authed, force_viewer_allowed_s3_keys)
             .await?;
-
-    if let Some(ref authed) = on_behalf_authed {
-        check_scopes(authed, || format!("apps:read:{}", path))?;
-    }
 
     check_if_allowed_to_access_s3_file_from_app(
         &db,
