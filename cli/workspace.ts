@@ -2,7 +2,7 @@
 import { GlobalOptions } from "./types.ts";
 import { getRootStore } from "./store.ts";
 import { loginInteractive, tryGetLoginInfo } from "./login.ts";
-import { colors, Command, Input, log, setClient, Table } from "./deps.ts";
+import { colors, Command, Confirm, Input, log, setClient, Table } from "./deps.ts";
 
 import * as wmill from "./gen/services.gen.ts";
 import { requireLogin } from "./context.ts";
@@ -283,7 +283,7 @@ export async function addWorkspace(workspace: Workspace, opts: any) {
           throw new Error("Workspace name conflict. Use --force to overwrite or choose a different name.");
         }
       } else {
-        const overwrite = await Input.confirm({
+        const overwrite = await Confirm.prompt({
           message: "Do you want to overwrite the existing workspace?",
           default: false,
         });
@@ -317,7 +317,7 @@ export async function addWorkspace(workspace: Workspace, opts: any) {
         throw new Error(`Backend constraint violation: (${workspace.remote}, ${workspace.workspaceId}) already exists as "${tupleConflict.name}". Use --force to overwrite.`);
       }
     } else {
-      const overwrite = await Input.confirm({
+      const overwrite = await Confirm.prompt({
         message: `Do you want to overwrite the existing workspace "${tupleConflict.name}"?`,
         default: false,
       });

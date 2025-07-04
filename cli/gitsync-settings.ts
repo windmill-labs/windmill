@@ -382,7 +382,7 @@ async function pullGitSyncSettings(
         let selectedRepo: GitSyncRepository;
         if (opts.repository) {
             const found = settings.git_sync.repositories.find(
-                (r) =>
+                (r: GitSyncRepository) =>
                     r.git_repo_resource_path === opts.repository ||
                     r.git_repo_resource_path === `$res:${opts.repository}`,
             );
@@ -822,7 +822,7 @@ async function pushGitSyncSettings(
         let selectedRepo: GitSyncRepository;
         if (opts.repository) {
             const found = settings.git_sync.repositories.find(
-                (r) =>
+                (r: GitSyncRepository) =>
                     r.git_repo_resource_path === opts.repository ||
                     r.git_repo_resource_path === `$res:${opts.repository}`,
             );
@@ -932,7 +932,7 @@ async function pushGitSyncSettings(
             }
         } else {
             // Update the specific repository settings
-            const updatedRepos = settings.git_sync.repositories.map((repo) => {
+            const updatedRepos = settings.git_sync.repositories.map((repo: GitSyncRepository) => {
                 if (
                     repo.git_repo_resource_path ===
                     selectedRepo.git_repo_resource_path

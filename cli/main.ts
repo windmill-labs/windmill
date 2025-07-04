@@ -114,7 +114,13 @@ const command = new Command()
                 useDefault?: boolean;
                 useBackend?: boolean;
                 repository?: string;
-            } & GlobalOptions,
+                workspace?: string;
+                debug?: unknown;
+                showDiffs?: boolean;
+                token?: string;
+                baseUrl?: string;
+                configDir?: string;
+            },
         ) => {
             if (await Deno.stat("wmill.yaml").catch(() => null)) {
                 log.error(colors.red("wmill.yaml already exists"));
@@ -161,7 +167,7 @@ const command = new Command()
                         const { getActiveWorkspace } = await import(
                             "./workspace.ts"
                         );
-                        const activeWorkspace = await getActiveWorkspace(opts);
+                        const activeWorkspace = await getActiveWorkspace(opts as GlobalOptions);
 
                         if (!activeWorkspace) {
                             log.info(
@@ -173,8 +179,8 @@ const command = new Command()
                             return;
                         }
 
-                        await requireLogin(opts);
-                        const workspace = await resolveWorkspace(opts);
+                        await requireLogin(opts as GlobalOptions);
+                        const workspace = await resolveWorkspace(opts as GlobalOptions);
 
                         const wmill = await import("./gen/services.gen.ts");
                         const settings = await wmill.getSettings({
@@ -239,7 +245,7 @@ const command = new Command()
                                     "./gitsync-settings.ts"
                                 );
                                 await pullGitSyncSettings({
-                                    ...opts,
+                                    ...(opts as GlobalOptions),
                                     repository: opts.repository,
                                     jsonOutput: false,
                                     diff: false,

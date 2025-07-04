@@ -4,6 +4,7 @@ import {
   Command,
   Confirm,
   Input,
+  Select,
   ensureDir,
   minimatch,
   JSZip,
@@ -124,9 +125,8 @@ async function resolveEffectiveSyncOptions(
         throw new Error(`Multiple repository overrides found for workspace "${workspace.name || workspace.workspaceId}": ${repoList}. Use --repository to specify which one to sync.`);
       }
 
-      selectedRepository = await Input.prompt({
+      selectedRepository = await Select.prompt({
         message: "Select repository override to use for sync:",
-        type: Input.type.select,
         options: repositoryChoices
       });
     }
@@ -136,7 +136,7 @@ async function resolveEffectiveSyncOptions(
   if (!selectedRepository) {
     throw new Error("Repository could not be determined. This should not happen.");
   }
-  return getEffectiveSettings(localConfig, workspace.workspaceId, selectedRepository, workspace);
+  return getEffectiveSettings(localConfig, workspace.workspaceId, selectedRepository, undefined);
 }
 
 // Helper function to find overrides that apply to the current workspace
@@ -1252,7 +1252,7 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
   
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   // Start with effective options from config, then overlay only explicitly provided CLI flags
-  const mergedOpts = Object.assign({}, effectiveOpts);
+  const mergedOpts = Object.assign({}, effectiveOpts) as typeof opts;
   
   // Always preserve these operational CLI flags
   if (opts.dryRun !== undefined) mergedOpts.dryRun = opts.dryRun;
@@ -1574,7 +1574,7 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
   
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   // Start with effective options from config, then overlay only explicitly provided CLI flags
-  const mergedOpts = Object.assign({}, effectiveOpts);
+  const mergedOpts = Object.assign({}, effectiveOpts) as typeof opts;
   
   // Always preserve these operational CLI flags
   if (opts.dryRun !== undefined) mergedOpts.dryRun = opts.dryRun;
