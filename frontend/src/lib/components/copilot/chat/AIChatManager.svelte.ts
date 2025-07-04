@@ -440,7 +440,14 @@ class AIChatManager {
 			systemMessage
 		}
 		await this.chatRequest({ ...params })
-		// remove ```
+
+		// Parse XML output to extract only the code
+		const newCodeMatch = reply.match(/<new_code>([\s\S]*?)<\/new_code>/i)
+		if (newCodeMatch && newCodeMatch[1]) {
+			return newCodeMatch[1].trim()
+		}
+
+		// Fallback: if no XML structure found, return the raw reply
 		return reply
 	}
 

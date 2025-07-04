@@ -3,6 +3,7 @@
 	import AIChatInput from './AIChatInput.svelte'
 	import { aiChatManager } from './AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
+	import LoadingIcon from '$lib/components/apps/svelte-select/lib/LoadingIcon.svelte'
 
 	interface Props {
 		editor: monaco.editor.IStandaloneCodeEditor
@@ -16,6 +17,7 @@
 	let widget: SimpleContentWidget | null = $state(null)
 	let widgetElement: HTMLElement | null = $state(null)
 	let aiChatInput: AIChatInput | null = $state(null)
+	let processing = $state(false)
 
 	class SimpleContentWidget implements monaco.editor.IContentWidget {
 		private domNode: HTMLElement
@@ -67,8 +69,12 @@
 	}
 </script>
 
+{#snippet bottomRightSnippet()}
+	<LoadingIcon />
+{/snippet}
+
 {#if show}
-	<div bind:this={widgetElement} class="w-[300px]">
+	<div bind:this={widgetElement} class="w-[300px] -mt-2">
 		<AIChatInput
 			bind:this={aiChatInput}
 			availableContext={aiChatManager.contextManager.getAvailableContext()}
@@ -80,11 +86,15 @@
 				if (!selection) {
 					return
 				}
+				processing = true
 				const reply = await aiChatManager.sendInlineRequest(instructions, selectedCode, selection)
 				aiChatManager.scriptEditorApplyCode?.(reply)
+				processing = false
 			}}
 			showContext={false}
 			className="-ml-2"
+			bottomRightSnippet={processing ? bottomRightSnippet : undefined}
+			disabled={processing}
 		/>
 	</div>
 {/if}

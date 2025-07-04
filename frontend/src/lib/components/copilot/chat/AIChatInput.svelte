@@ -7,6 +7,7 @@
 	import type { ContextElement } from './context'
 	import { aiChatManager } from './AIChatManager.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import type { Snippet } from 'svelte'
 
 	interface Props {
 		availableContext: ContextElement[]
@@ -21,6 +22,7 @@
 		onClickOutside?: () => void
 		onSendRequest?: (instructions: string) => void
 		showContext?: boolean
+		bottomRightSnippet?: Snippet
 	}
 
 	let {
@@ -35,7 +37,8 @@
 		className = '',
 		onClickOutside = () => {},
 		onSendRequest = () => {},
-		showContext = true
+		showContext = true,
+		bottomRightSnippet
 	}: Props = $props()
 
 	let contextTextareaComponent: ContextTextarea | undefined = $state()
@@ -100,7 +103,7 @@
 	})
 </script>
 
-<div use:clickOutside>
+<div use:clickOutside class="relative">
 	{#if aiChatManager.mode === 'script'}
 		{#if showContext}
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
@@ -144,7 +147,9 @@
 			{placeholder}
 			onAddContext={(contextElement) => addContextToSelection(contextElement)}
 			onSendRequest={() => {
-				console.log('sending request', instructions)
+				if (disabled) {
+					return
+				}
 				onSendRequest ? onSendRequest(instructions) : sendRequest()
 			}}
 			{disabled}
@@ -169,6 +174,11 @@
 				class="resize-none"
 				{disabled}
 			></textarea>
+		</div>
+	{/if}
+	{#if bottomRightSnippet}
+		<div class="absolute bottom-2 right-2">
+			{@render bottomRightSnippet()}
 		</div>
 	{/if}
 </div>
