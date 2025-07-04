@@ -40,6 +40,7 @@ use crate::{
     trigger_helpers::RunnableId,
     users::{get_scope_tags, require_owner_of_path, OptAuthed},
     utils::{check_scopes, content_plain, require_super_admin},
+    auth::{Tokened, OptTokened}
 };
 use anyhow::Context;
 use axum::{
