@@ -104,7 +104,7 @@
 			title="Retry generation"
 			color="light"
 			startIcon={{ icon: RefreshCwIcon }}
-			onclick={() => aiChatManager.retryRequest()}
+			onclick={() => aiChatManager.retryRequest(messageIndex)}
 		>
 			Retry
 		</Button>

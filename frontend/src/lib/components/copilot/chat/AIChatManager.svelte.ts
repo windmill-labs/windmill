@@ -216,11 +216,13 @@ class AIChatManager {
 		}
 	}
 
-	retryRequest = () => {
-		const lastUserMessage = this.getLastUserMessage()
-		if (lastUserMessage) {
-			this.restartGeneration(lastUserMessage.index)
-			lastUserMessage.error = false
+	retryRequest = (messageIndex: number) => {
+		const message = this.displayMessages[messageIndex]
+		if (message && message.role === 'user') {
+			this.restartGeneration(messageIndex)
+			message.error = false
+		} else {
+			throw new Error('No user message found at the specified index')
 		}
 	}
 
