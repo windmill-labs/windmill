@@ -232,15 +232,18 @@ async function run(
 async function generateLocks(
   opts: GlobalOptions & {
     yes?: boolean;
+    "use-local-lockfiles"?: boolean;
   } & SyncOptions,
   folder: string | undefined
 ) {
+  // Check for environment variable USE_LOCAL_LOCKFILE
+  const useLocalLockfiles = opts["use-local-lockfiles"] || Deno.env.get("USE_LOCAL_LOCKFILE") === "true";
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   opts = await mergeConfigWithConfigFile(opts);
   if (folder) {
     // read script metadata file
-    await generateFlowLockInternal(folder, false, workspace);
+    await generateFlowLockInternal(folder, false, workspace, undefined, undefined, useLocalLockfiles);
   } else {
     const ignore = await ignoreF(opts);
     const elems = Object.keys(
@@ -261,7 +264,7 @@ async function generateLocks(
     let hasAny = false;
 
     for (const folder of elems) {
-      const candidate = await generateFlowLockInternal(folder, true, workspace);
+      const candidate = await generateFlowLockInternal(folder, true, workspace, undefined, undefined, useLocalLockfiles);
       if (candidate) {
         hasAny = true;
         log.info(colors.green(`+ ${candidate}`));
@@ -283,7 +286,7 @@ async function generateLocks(
       return;
     }
     for (const folder of elems) {
-      await generateFlowLockInternal(folder, false, workspace);
+      await generateFlowLockInternal(folder, false, workspace, undefined, undefined, useLocalLockfiles);
     }
   }
 }
@@ -342,6 +345,10 @@ const command = new Command()
   )
   .arguments("[flow:file]")
   .option("--yes", "Skip confirmation prompt")
+  .option(
+    "--use-local-lockfiles",
+    "Use local lockfiles (requirements.txt, go.mod, package.json) instead of generating them on the server (can also be set with USE_LOCAL_LOCKFILE=true environment variable)"
+  )
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
