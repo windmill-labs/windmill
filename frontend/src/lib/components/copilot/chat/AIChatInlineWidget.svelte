@@ -25,10 +25,53 @@
 	class AIChatWidget implements monaco.editor.IContentWidget {
 		private domNode: HTMLElement
 		public position: monaco.IPosition
+		private editor: monaco.editor.IStandaloneCodeEditor
+		private originalPadding: number = 0
 
-		constructor(lineNumber: number, domNode: HTMLElement) {
+		constructor(
+			lineNumber: number,
+			domNode: HTMLElement,
+			editor: monaco.editor.IStandaloneCodeEditor
+		) {
 			this.domNode = domNode
 			this.position = { lineNumber, column: 0 }
+			this.editor = editor
+			this.ensureSpaceAbove()
+		}
+
+		private ensureSpaceAbove() {
+			const widgetHeight = 100
+			const additionalPadding = 15
+			const linesHeight = 20 * this.position.lineNumber
+			if (linesHeight < widgetHeight + additionalPadding) {
+				// Add top margin to editor to make space
+				const editorDom = this.editor.getDomNode()
+				if (editorDom) {
+					const neededPadding = widgetHeight + additionalPadding - linesHeight
+					this.originalPadding = this.editor.getOption(monaco.editor.EditorOption.padding)?.top || 0
+					editor.updateOptions({
+						padding: {
+							top: neededPadding
+						}
+					})
+					// Trigger layout update
+					this.editor.layout()
+				}
+			}
+		}
+
+		private restoreEditorSpacing() {
+			if (this.position.lineNumber < 10) {
+				const editorDom = this.editor.getDomNode()
+				if (editorDom) {
+					editor.updateOptions({
+						padding: {
+							top: this.originalPadding
+						}
+					})
+					this.editor.layout()
+				}
+			}
 		}
 
 		getId(): string {
@@ -42,11 +85,12 @@
 		getPosition(): monaco.editor.IContentWidgetPosition {
 			return {
 				position: this.position,
-				preference: [
-					monaco.editor.ContentWidgetPositionPreference.ABOVE,
-					monaco.editor.ContentWidgetPositionPreference.BELOW
-				]
+				preference: [monaco.editor.ContentWidgetPositionPreference.ABOVE]
 			}
+		}
+
+		dispose() {
+			this.restoreEditorSpacing()
 		}
 	}
 
@@ -55,6 +99,7 @@
 		aiChatManager.cancel()
 		if (widget) {
 			try {
+				widget.dispose()
 				editor.removeContentWidget(widget)
 			} catch (error) {
 				console.warn('Failed to remove content widget:', error)
@@ -70,7 +115,7 @@
 				aiChatManager.changeMode(AIMode.SCRIPT)
 			}
 			const startLine = selection.startLineNumber
-			widget = new AIChatWidget(startLine, widgetElement)
+			widget = new AIChatWidget(startLine, widgetElement, editor)
 			editor.addContentWidget(widget)
 			if (aiChatInput) {
 				aiChatInput.focusInput()
