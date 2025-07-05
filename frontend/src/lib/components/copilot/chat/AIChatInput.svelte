@@ -6,6 +6,8 @@
 	import autosize from '$lib/autosize'
 	import type { ContextElement } from './context'
 	import { aiChatManager } from './AIChatManager.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import type { Snippet } from 'svelte'
 
 	interface Props {
 		availableContext: ContextElement[]
@@ -16,6 +18,12 @@
 		initialInstructions?: string
 		editingMessageIndex?: number | null
 		onEditEnd?: () => void
+		className?: string
+		onClickOutside?: () => void
+		onSendRequest?: (instructions: string) => void
+		showContext?: boolean
+		bottomRightSnippet?: Snippet
+		onKeyDown?: (e: KeyboardEvent) => void
 	}
 
 	let {
@@ -26,7 +34,13 @@
 		placeholder = 'Ask anything',
 		initialInstructions = '',
 		editingMessageIndex = null,
-		onEditEnd = () => {}
+		onEditEnd = () => {},
+		className = '',
+		onClickOutside = () => {},
+		onSendRequest = undefined,
+		showContext = true,
+		bottomRightSnippet,
+		onKeyDown = undefined
 	}: Props = $props()
 
 	let contextTextareaComponent: ContextTextarea | undefined = $state()
@@ -43,8 +57,8 @@
 
 	function clickOutside(node: HTMLElement) {
 		function handleClick(event: MouseEvent) {
-			if (node && !node.contains(event.target as Node) && editingMessageIndex !== null) {
-				onEditEnd()
+			if (node && !node.contains(event.target as Node)) {
+				onClickOutside()
 			}
 		}
 
@@ -91,39 +105,41 @@
 	})
 </script>
 
-<div use:clickOutside>
+<div use:clickOutside class="relative">
 	{#if aiChatManager.mode === 'script'}
-		<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 px-2 no-scrollbar">
-			<Popover>
-				<svelte:fragment slot="trigger">
-					<div
-						class="border rounded-md px-1 py-0.5 font-normal text-tertiary text-xs hover:bg-surface-hover"
-						>@</div
-					>
-				</svelte:fragment>
-				<svelte:fragment slot="content" let:close>
-					<AvailableContextList
-						{availableContext}
-						{selectedContext}
-						onSelect={(element) => {
-							addContextToSelection(element)
-							close()
+		{#if showContext}
+			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
+				<Popover>
+					<svelte:fragment slot="trigger">
+						<div
+							class="border rounded-md px-1 py-0.5 font-normal text-tertiary text-xs hover:bg-surface-hover bg-surface"
+							>@</div
+						>
+					</svelte:fragment>
+					<svelte:fragment slot="content" let:close>
+						<AvailableContextList
+							{availableContext}
+							{selectedContext}
+							onSelect={(element) => {
+								addContextToSelection(element)
+								close()
+							}}
+						/>
+					</svelte:fragment>
+				</Popover>
+				{#each selectedContext as element}
+					<ContextElementBadge
+						contextElement={element}
+						deletable
+						on:delete={() => {
+							selectedContext = selectedContext?.filter(
+								(c) => c.type !== element.type || c.title !== element.title
+							)
 						}}
 					/>
-				</svelte:fragment>
-			</Popover>
-			{#each selectedContext as element}
-				<ContextElementBadge
-					contextElement={element}
-					deletable
-					on:delete={() => {
-						selectedContext = selectedContext?.filter(
-							(c) => c.type !== element.type || c.title !== element.title
-						)
-					}}
-				/>
-			{/each}
-		</div>
+				{/each}
+			</div>
+		{/if}
 		<ContextTextarea
 			bind:this={contextTextareaComponent}
 			bind:value={instructions}
@@ -133,23 +149,27 @@
 			{placeholder}
 			onAddContext={(contextElement) => addContextToSelection(contextElement)}
 			onSendRequest={() => {
-				sendRequest()
+				if (disabled) {
+					return
+				}
+				onSendRequest ? onSendRequest(instructions) : sendRequest()
 			}}
 			{disabled}
-			onEscape={onEditEnd}
+			{onKeyDown}
 		/>
 	{:else}
-		<div class="relative w-full px-2 scroll-pb-2 pt-2">
+		<div class={twMerge('relative w-full scroll-pb-2 pt-2', className)}>
 			<textarea
 				bind:this={instructionsTextareaComponent}
 				bind:value={instructions}
 				use:autosize
 				onkeydown={(e) => {
+					if (onKeyDown) {
+						onKeyDown(e)
+					}
 					if (e.key === 'Enter' && !e.shiftKey) {
 						e.preventDefault()
 						sendRequest()
-					} else if (e.key === 'Escape') {
-						onEditEnd()
 					}
 				}}
 				rows={3}
@@ -157,6 +177,11 @@
 				class="resize-none"
 				{disabled}
 			></textarea>
+		</div>
+	{/if}
+	{#if bottomRightSnippet}
+		<div class="absolute bottom-2 right-2">
+			{@render bottomRightSnippet()}
 		</div>
 	{/if}
 </div>

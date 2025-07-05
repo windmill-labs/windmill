@@ -147,11 +147,14 @@
 	import { Autocompletor } from './copilot/autocomplete/Autocompletor'
 	import { AIChatEditorHandler } from './copilot/chat/monaco-adapter'
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
+	import AIChatInlineWidget from './copilot/chat/AIChatInlineWidget.svelte'
 	import { writable } from 'svelte/store'
 	import { formatResourceTypes } from './copilot/chat/script/core'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { editorPositionMap } from '$lib/utils'
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
+	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
+	import type { Selection } from 'monaco-editor'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
@@ -632,6 +635,11 @@
 
 	let reviewingChanges = writable(false)
 	let aiChatEditorHandler: AIChatEditorHandler | undefined = undefined
+
+	// Inline ai chat widget
+	let showInlineAIChat = false
+	let inlineAIChatSelection: Selection | null = null
+	let selectedCode = ''
 
 	export function reviewAndApplyCode(code: string) {
 		aiChatEditorHandler?.reviewAndApply(code)
@@ -1288,13 +1296,24 @@
 					(selection.startLineNumber !== selection.endLineNumber ||
 						selection.startColumn !== selection.endColumn)
 				if (hasSelection && selectedLines) {
-					dispatch('addSelectedLinesToAiChat', {
-						lines: selectedLines,
-						startLine: selection.startLineNumber,
-						endLine: selection.endLineNumber
-					})
+					aiChatManager.addSelectedLinesToContext(
+						selectedLines,
+						selection.startLineNumber,
+						selection.endLineNumber
+					)
 				} else {
-					dispatch('toggleAiPanel')
+					aiChatManager.toggleOpen()
+					aiChatManager.focusInput()
+				}
+			})
+
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyK, function () {
+				if ($copilotInfo.enabled) {
+					if (showInlineAIChat) {
+						closeAIInlineWidget()
+					} else {
+						showAIInlineWidget()
+					}
 				}
 			})
 
@@ -1324,6 +1343,7 @@
 			try {
 				closeWebsockets()
 				vimDisposable?.dispose()
+				closeAIInlineWidget()
 				console.log('disposing editor')
 				model?.dispose()
 				editor && editor.dispose()
@@ -1452,6 +1472,26 @@
 		})
 	}
 
+	function showAIInlineWidget() {
+		if (!editor) return
+
+		inlineAIChatSelection = editor.getSelection()
+		if (!inlineAIChatSelection || inlineAIChatSelection.isEmpty()) {
+			return
+		}
+		selectedCode = editor.getModel()?.getValueInRange(inlineAIChatSelection) || ''
+		showInlineAIChat = true
+		aiChatInlineWidget?.focusInput()
+	}
+
+	function closeAIInlineWidget() {
+		showInlineAIChat = false
+		inlineAIChatSelection = null
+		selectedCode = ''
+	}
+
+	let aiChatInlineWidget: AIChatInlineWidget | null = null
+
 	let loadTimeout: NodeJS.Timeout | undefined = undefined
 	onMount(async () => {
 		if (BROWSER) {
@@ -1511,6 +1551,19 @@
 			aiChatEditorHandler?.acceptAll()
 		}}
 		on:rejectAll={() => {
+			aiChatEditorHandler?.rejectAll()
+		}}
+	/>
+{/if}
+
+{#if editor && $copilotInfo.enabled}
+	<AIChatInlineWidget
+		bind:this={aiChatInlineWidget}
+		bind:show={showInlineAIChat}
+		{editor}
+		selection={inlineAIChatSelection}
+		{selectedCode}
+		rejectChanges={() => {
 			aiChatEditorHandler?.rejectAll()
 		}}
 	/>

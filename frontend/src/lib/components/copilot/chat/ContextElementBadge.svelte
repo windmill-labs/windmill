@@ -27,7 +27,7 @@
 	<svelte:fragment slot="trigger">
 		<div
 			class={twMerge(
-				'border rounded-md px-1 py-0.5 flex flex-row items-center gap-1 text-tertiary text-xs cursor-default hover:bg-surface-hover hover:cursor-pointer max-w-48'
+				'border rounded-md px-1 py-0.5 flex flex-row items-center gap-1 text-tertiary text-xs cursor-default hover:bg-surface-hover hover:cursor-pointer max-w-48 bg-surface'
 			)}
 			on:mouseenter={() => (showDelete = true)}
 			on:mouseleave={() => (showDelete = false)}

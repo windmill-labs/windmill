@@ -52,13 +52,21 @@
 		</div>
 	{/if}
 	{#if message.role === 'user' && editingMessageIndex === messageIndex}
-		<AIChatInput
-			{availableContext}
-			bind:selectedContext
-			initialInstructions={message.content}
-			{editingMessageIndex}
-			onEditEnd={() => (editingMessageIndex = null)}
-		/>
+		<div class="px-2">
+			<AIChatInput
+				{availableContext}
+				bind:selectedContext
+				initialInstructions={message.content}
+				{editingMessageIndex}
+				onClickOutside={() => (editingMessageIndex = null)}
+				onKeyDown={(e) => {
+					if (e.key === 'Escape') {
+						editingMessageIndex = null
+					}
+				}}
+				onEditEnd={() => (editingMessageIndex = null)}
+			/>
+		</div>
 	{:else}
 		<div
 			class={twMerge(

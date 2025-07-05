@@ -62,14 +62,6 @@
 		aiChatManager.cancel()
 	}
 
-	export function addSelectedLinesToContext(lines: string, startLine: number, endLine: number) {
-		aiChatManager.contextManager.addSelectedLinesToContext(lines, startLine, endLine)
-	}
-
-	export function focusTextArea() {
-		aiChatDisplay?.focusInput()
-	}
-
 	const historyManager = aiChatManager.historyManager
 	historyManager.init()
 
