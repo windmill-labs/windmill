@@ -41,6 +41,9 @@
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
+	import type { FlowStatusModule, Job } from '$lib/gen'
+	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
+	import { workspaceStore } from '$lib/stores'
 
 	interface Props {
 		selected?: boolean
@@ -76,7 +79,12 @@
 		inputTransform?: Record<string, any> | undefined
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		onEditInput?: (moduleId: string, key: string) => void
+		waitingJob?: Job | undefined
+		isOwner?: boolean
 		enableTestRun?: boolean
+		type?: FlowStatusModule['type'] | undefined
+		darkMode?: boolean
+		skipped?: boolean
 	}
 
 	let {
@@ -108,7 +116,12 @@
 		inputTransform,
 		onUpdateMock,
 		onEditInput,
-		enableTestRun = false
+		waitingJob,
+		isOwner = false,
+		enableTestRun = false,
+		type,
+		darkMode,
+		skipped
 	}: Props = $props()
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
@@ -193,6 +206,10 @@
 	const icon_render = $derived(icon)
 
 	const action = $derived(getAiModuleAction(id))
+
+	const showApproval = $derived(
+		type === 'WaitingForExecutor' || type === 'WaitingForEvents' || type === 'WaitingForPriorSteps'
+	)
 </script>
 
 {#if deletable && id && editId}
@@ -419,6 +436,15 @@
 			{/snippet}
 		</FlowModuleSchemaItemViewer>
 
+		{#if editMode && showApproval}
+			<div
+				class={'fixed top-1/2 -translate-y-1/2 left-full h-fit w-fit rounded-md bg-surface flex items-center justify-center p-2 ml-2 shadow-md'}
+			>
+				{#if waitingJob}
+					<FlowStatusWaitingForEvents job={waitingJob} workspaceId={$workspaceStore!} {isOwner} />
+				{/if}
+			</div>
+		{/if}
 		{#if outputPickerVisible}
 			<OutputPicker
 				bind:this={outputPicker}
@@ -431,6 +457,9 @@
 				bind:bottomBarOpen={outputPickerBarOpen}
 				{loopStatus}
 				{onEditInput}
+				{type}
+				{darkMode}
+				{skipped}
 			>
 				{#snippet children({ allowCopy, isConnecting, selectConnection })}
 					<OutputPickerInner
@@ -468,8 +497,9 @@
 						{#if !testIsLoading}
 							<Button
 								size="sm"
-								color="dark"
+								color="light"
 								title="Run"
+								variant="border"
 								btnClasses="p-1.5"
 								on:click={() => {
 									outputPicker?.toggleOpen(true)

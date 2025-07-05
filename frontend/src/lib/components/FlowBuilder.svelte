@@ -9,7 +9,8 @@
 		type OpenFlow,
 		type InputTransform,
 		type TriggersCount,
-		CaptureService
+		CaptureService,
+		type Job
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history'
 	import {
@@ -45,7 +46,7 @@
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
-	import { cleanInputs } from './flows/utils'
+	import { cleanInputs, type previewContext } from './flows/utils'
 	import {
 		Calendar,
 		Pen,
@@ -83,11 +84,13 @@
 	import { Triggers } from './triggers/triggers.svelte'
 	import { TestSteps } from './flows/testSteps.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
+	import type { GraphModuleState } from './graph'
 	import {
 		setStepHistoryLoaderContext,
 		StepHistoryLoader,
 		type stepState
 	} from './stepHistoryLoader.svelte'
+	import { ModulesTestStates } from './modulesTest.svelte'
 
 	interface Props {
 		initialPath?: string
@@ -174,6 +177,8 @@
 	// AI changes warning modal
 	let aiChangesWarningOpen = $state(false)
 	let aiChangesConfirmCallback = $state<() => void>(() => {})
+
+	let job: Job | undefined = $state(undefined)
 
 	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
 		const { selectedTriggers } = event.detail
@@ -602,6 +607,7 @@
 	}
 
 	let insertButtonOpen = writable<boolean>(false)
+	let modulesTestStates = new ModulesTestStates()
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
@@ -621,7 +627,8 @@
 		customUi,
 		insertButtonOpen,
 		executionCount: writable(0),
-		flowInputEditorState: flowInputEditorStateStore
+		flowInputEditorState: flowInputEditorStateStore,
+		modulesTestStates
 	})
 
 	// Add triggers context store
@@ -879,6 +886,7 @@
 		customUi && untrack(() => onCustomUiChange(customUi, hasAiDiff))
 	})
 
+	let localModuleStates: Writable<Record<string, GraphModuleState>> = $state(writable({}))
 	export async function loadFlowState() {
 		await stepHistoryLoader.loadIndividualStepsStates(
 			flowStore.val as Flow,
@@ -912,6 +920,52 @@
 		stepHistoryLoader.setFlowJobInitial(loadedFromHistoryUrl.flowJobInitial)
 		stepHistoryLoader.stepStates = loadedFromHistoryUrl.stepsState
 	}
+
+	let isOwner = $state(false)
+	let showModuleStatus = $state(false)
+	let isRunning = $state(false)
+	let previewOpen = $state(false)
+	let jobRunning = $state(false)
+
+	function jobObserver(job: Job) {
+		if (isRunning === jobRunning) {
+			return
+		}
+		if (isRunning) {
+			jobRunning = true
+			return
+		}
+		if (!previewOpen) {
+			// Find last module with a job in flow_status
+			const lastModuleWithJob = job.flow_status?.modules
+				?.slice()
+				.reverse()
+				.find((module) => 'job' in module)
+			if (lastModuleWithJob && lastModuleWithJob.id) {
+				outputPickerOpenFns[lastModuleWithJob.id]?.()
+			}
+		}
+		jobRunning = isRunning
+	}
+
+	// Register output open function
+	let outputPickerOpenFns = $state<Record<string, () => void>>({})
+	setContext<Record<string, () => void>>('openOutputPicker', outputPickerOpenFns)
+
+	$effect(() => {
+		job && jobObserver(job)
+	})
+
+	setContext<previewContext>('previewContext', {
+		getJob: () => (showModuleStatus ? job : undefined)
+	})
+
+	// Create a derived store that only shows the module states when showModuleStatus is true
+	// this store can also be updated
+	let derivedModuleStates = writable<Record<string, GraphModuleState>>({})
+	$effect(() => {
+		derivedModuleStates.set(showModuleStatus ? $localModuleStates : {})
+	})
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -1098,6 +1152,7 @@
 						</Button>
 					{/if}
 					<FlowPreviewButtons
+						bind:localModuleStates
 						on:openTriggers={(e) => {
 							select('triggers')
 							handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)
@@ -1106,6 +1161,13 @@
 						}}
 						bind:this={flowPreviewButtons}
 						{loading}
+						bind:job
+						bind:isOwner
+						onRunPreview={() => {
+							showModuleStatus = true
+						}}
+						bind:isRunning
+						bind:previewOpen
 					/>
 					<Button
 						loading={loadingDraft}
@@ -1168,11 +1230,24 @@
 					}}
 					{forceTestTab}
 					{highlightArg}
+					localModuleStates={derivedModuleStates}
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
-					onRunPreview={() => {
-						flowPreviewButtons?.openPreview(true)
+					waitingJob={job}
+					{isOwner}
+					onTestFlow={() => {
+						flowPreviewButtons?.runPreview()
+					}}
+					{isRunning}
+					onCancelTestFlow={() => {
+						flowPreviewButtons?.cancelTest()
+					}}
+					onOpenPreview={() => {
+						flowPreviewButtons?.openPreview()
+					}}
+					onHideJobStatus={() => {
+						showModuleStatus = false
 					}}
 				/>
 			{:else}

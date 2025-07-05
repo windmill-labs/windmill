@@ -13,7 +13,7 @@
 		pickFlow,
 		insertNewPreprocessorModule
 	} from '$lib/components/flows/flowStateUtils.svelte'
-	import type { FlowModule, ScriptLang } from '$lib/gen'
+	import type { FlowModule, Job, ScriptLang } from '$lib/gen'
 	import { emptyFlowModuleState } from '../utils'
 
 	import { dfs } from '../dfs'
@@ -35,6 +35,8 @@
 	import { dfsByModule } from '../previousResults'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import type { GraphModuleState } from '$lib/components/graph'
+	import { writable, type Writable } from 'svelte/store'
 	import FlowStickyNode from './FlowStickyNode.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 
@@ -49,9 +51,17 @@
 		workspace?: string | undefined
 		onTestUpTo?: ((id: string) => void) | undefined
 		onEditInput?: (moduleId: string, key: string) => void
+		localModuleStates?: Writable<Record<string, GraphModuleState>>
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
+		waitingJob?: Job | undefined
+		isOwner?: boolean
+		onTestFlow?: () => void
+		isRunning?: boolean
+		onCancelTestFlow?: () => void
+		onOpenPreview?: () => void
+		onHideJobStatus?: () => void
 	}
 
 	let {
@@ -65,9 +75,17 @@
 		workspace = $workspaceStore,
 		onTestUpTo,
 		onEditInput,
+		localModuleStates = writable({}),
 		aiChatOpen,
 		showFlowAiButton,
-		toggleAiChat
+		toggleAiChat,
+		waitingJob,
+		isOwner,
+		onTestFlow,
+		isRunning,
+		onCancelTestFlow,
+		onOpenPreview,
+		onHideJobStatus
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -77,6 +95,7 @@
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
+
 	export async function insertNewModuleAtIndex(
 		modules: FlowModule[],
 		index: number,
@@ -353,6 +372,9 @@
 			editMode
 			{onTestUpTo}
 			{onEditInput}
+			flowModuleStates={$localModuleStates}
+			{waitingJob}
+			{isOwner}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)
 				const cb = () => {
@@ -547,6 +569,11 @@
 				module.mock = $state.snapshot(detail.mock)
 				refreshStateStore(flowStore)
 			}}
+			{onTestFlow}
+			{isRunning}
+			{onCancelTestFlow}
+			{onOpenPreview}
+			{onHideJobStatus}
 		/>
 	</div>
 </div>

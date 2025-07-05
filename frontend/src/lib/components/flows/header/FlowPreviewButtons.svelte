@@ -15,13 +15,27 @@
 
 	interface Props {
 		loading?: boolean
+		localModuleStates?: Writable<Record<string, GraphModuleState>>
+		job?: Job
+		isOwner?: boolean
+		onRunPreview?: () => void
+		isRunning?: boolean
+		previewOpen?: boolean
 	}
 
-	let { loading = false }: Props = $props()
+	let {
+		loading = false,
+		localModuleStates = $bindable(writable({})),
+		job = $bindable(undefined),
+		isOwner = $bindable(false),
+		onRunPreview = $bindable(undefined),
+		isRunning = $bindable(false),
+		previewOpen = $bindable(false)
+	}: Props = $props()
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
-	let previewOpen = $state(false)
 	let previewMode: 'upTo' | 'whole' = $state('whole')
+	let deferContent = $state(false)
 
 	export async function openPreview(test: boolean = false) {
 		if (!previewOpen) {
@@ -33,11 +47,23 @@
 		flowPreviewContent?.test()
 	}
 
+	export async function runPreview() {
+		if (!previewOpen) {
+			deferContent = true
+			await tick()
+		}
+		flowPreviewContent?.refresh
+		flowPreviewContent?.test()
+	}
+
+	export function cancelTest() {
+		flowPreviewContent?.cancelTest()
+	}
+
 	const dispatch = createEventDispatcher()
 
 	let flowPreviewContent: FlowPreviewContent | undefined = $state(undefined)
 	let jobId: string | undefined = $state(undefined)
-	let job: Job | undefined = $state(undefined)
 	let preventEscape = $state(false)
 	let selectedJobStep: string | undefined = $state(undefined)
 	let selectedJobStepIsTopLevel: boolean | undefined = $state(undefined)
@@ -48,7 +74,6 @@
 	let rightColumnSelect: 'timeline' | 'node_status' | 'node_definition' | 'user_states' =
 		$state('timeline')
 
-	let localModuleStates: Writable<Record<string, GraphModuleState>> = $state(writable({}))
 	let localDurationStatuses: Writable<Record<string, DurationStatus>> = $state(writable({}))
 
 	let upToDisabled = $derived(
@@ -81,7 +106,9 @@
 	export function testUpTo() {
 		if (upToDisabled) return
 		previewMode = 'upTo'
-		previewOpen = true
+		//previewOpen = false
+		flowPreviewContent?.refresh()
+		flowPreviewContent?.test()
 	}
 </script>
 
@@ -110,7 +137,7 @@
 </Button>
 
 {#if !loading}
-	<Drawer bind:open={previewOpen} size="75%" {preventEscape}>
+	<Drawer bind:open={previewOpen} size="75%" {preventEscape} alwaysOpen={deferContent}>
 		<FlowPreviewContent
 			bind:this={flowPreviewContent}
 			bind:localModuleStates
@@ -133,6 +160,10 @@
 				dispatch('openTriggers', e.detail)
 			}}
 			bind:preventEscape
+			bind:isOwner
+			{onRunPreview}
+			bind:isRunning
+			render={previewOpen || deferContent}
 		/>
 	</Drawer>
 {/if}

@@ -1,12 +1,3 @@
-<script lang="ts" module>
-	type testModuleState = {
-		loading: boolean
-		cancel?: () => Promise<void>
-	}
-
-	let testModulesState = $state<Record<string, testModuleState>>({})
-</script>
-
 <script lang="ts">
 	import { ScriptService, type FlowModule, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -32,7 +23,7 @@
 		scriptProgress = $bindable(undefined)
 	}: Props = $props()
 
-	const { flowStore, flowStateStore, pathStore, testSteps, previewArgs } =
+	const { flowStore, flowStateStore, pathStore, testSteps, previewArgs, modulesTestStates } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let testJobLoader: TestJobLoader | undefined = $state(undefined)
@@ -52,9 +43,11 @@
 		// Not defined if JobProgressBar not loaded
 		if (jobProgressReset) jobProgressReset()
 
-		testModulesState[mod.id].cancel = async () => {
-			await testJobLoader?.cancelJob()
-			testJob = undefined
+		if (modulesTestStates.states[mod.id]) {
+			modulesTestStates.states[mod.id].cancel = async () => {
+				await testJobLoader?.cancelJob()
+				testJob = undefined
+			}
 		}
 
 		const val = mod.value
@@ -102,19 +95,20 @@
 	}
 
 	export function cancelJob() {
-		testModulesState[mod.id]?.cancel?.()
+		modulesTestStates.states[mod.id]?.cancel?.()
 	}
 
 	$effect(() => {
-		testIsLoading = testModulesState[mod.id]?.loading ?? false
+		testIsLoading = modulesTestStates.states[mod.id]?.loading ?? false
 	})
 
 	onMount(() => {
 		const modId = mod.id
-		testModulesState[modId] = {
-			...(testModulesState[modId] ?? { loading: false, instances: 0 }),
+		modulesTestStates.states[modId] = {
+			...(modulesTestStates.states[modId] ?? { loading: false }),
 			loading: testIsLoading
 		}
+		console.log('mounting module test', mod.id)
 	})
 </script>
 
@@ -124,12 +118,12 @@
 	bind:scriptProgress
 	bind:this={testJobLoader}
 	bind:isLoading={
-		() => testModulesState[mod.id]?.loading ?? false,
+		() => modulesTestStates.states[mod.id]?.loading ?? false,
 		(v) => {
 			let newLoading = v ?? false
-			if (testModulesState[mod.id]?.loading !== newLoading) {
-				testModulesState[mod.id] = {
-					...(testModulesState[mod.id] ?? {}),
+			if (modulesTestStates.states[mod.id]?.loading !== newLoading) {
+				modulesTestStates.states[mod.id] = {
+					...(modulesTestStates.states[mod.id] ?? {}),
 					loading: newLoading
 				}
 			}

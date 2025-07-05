@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { FlowService, type FlowModule } from '../../gen'
+	import { FlowService, type FlowModule, type Job } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
 	import { getContext, onDestroy, setContext, tick, untrack } from 'svelte'
 
@@ -86,6 +86,9 @@
 		editMode?: boolean
 		allowSimplifiedPoll?: boolean
 		expandedSubflows?: Record<string, FlowModule[]>
+		waitingJob?: Job | undefined
+		isOwner?: boolean
+		isRunning?: boolean
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -108,6 +111,10 @@
 		onTestUpTo?: ((id: string) => void) | undefined
 		onSelectedIteration?: onSelectedIteration
 		onEditInput?: (moduleId: string, key: string) => void
+		onTestFlow?: () => void
+		onCancelTestFlow?: () => void
+		onOpenPreview?: () => void
+		onHideJobStatus?: () => void
 	}
 
 	let {
@@ -146,7 +153,14 @@
 		allowSimplifiedPoll = true,
 		expandedSubflows = $bindable({}),
 		onTestUpTo = undefined,
-		onEditInput = undefined
+		onEditInput = undefined,
+		waitingJob = undefined,
+		isOwner = false,
+		onTestFlow = undefined,
+		isRunning = false,
+		onCancelTestFlow = undefined,
+		onOpenPreview = undefined,
+		onHideJobStatus = undefined
 	}: Props = $props()
 
 	setContext<{
@@ -308,6 +322,18 @@
 		},
 		editInput: (moduleId: string, key: string) => {
 			onEditInput?.(moduleId, key)
+		},
+		testFlow: () => {
+			onTestFlow?.()
+		},
+		cancelTestFlow: () => {
+			onCancelTestFlow?.()
+		},
+		openPreview: () => {
+			onOpenPreview?.()
+		},
+		hideJobStatus: () => {
+			onHideJobStatus?.()
 		}
 	}
 
@@ -401,7 +427,10 @@
 				newFlow,
 				cache,
 				earlyStop,
-				editMode
+				editMode,
+				waitingJob,
+				isOwner,
+				isRunning
 			},
 			failureModule,
 			preprocessorModule,

@@ -11,6 +11,7 @@
 		getAiModuleAction
 	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
+	import FlowGraphPreviewButton from './FlowGraphPreviewButton.svelte'
 
 	interface Props {
 		label?: string | undefined
@@ -32,6 +33,11 @@
 		icon?: import('svelte').Snippet
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		onEditInput?: (moduleId: string, key: string) => void
+		onTestFlow?: () => void
+		isRunning?: boolean
+		onCancelTestFlow?: () => void
+		onOpenPreview?: () => void
+		onHideJobStatus?: () => void
 	}
 
 	let {
@@ -53,7 +59,12 @@
 		editMode = false,
 		icon,
 		onUpdateMock,
-		onEditInput
+		onEditInput,
+		onTestFlow,
+		isRunning,
+		onCancelTestFlow,
+		onOpenPreview,
+		onHideJobStatus
 	}: Props = $props()
 
 	const outputPickerVisible = $derived(
@@ -133,6 +144,27 @@
 				</OutputPicker>
 			{/if}
 		</div>
+
+		{#if alwaysPluggable}
+			<div
+				class="absolute top-1/2 -translate-y-8 -translate-x-[100%] -left-[0] flex py-4 pb-10 justify-end w-fit px-2 min-w-32"
+			>
+				{#if outputPickerVisible}
+					<div transition:fade={{ duration: 100 }}>
+						<FlowGraphPreviewButton
+							{isRunning}
+							{hover}
+							{selected}
+							{onTestFlow}
+							{onCancelTestFlow}
+							{onOpenPreview}
+							{onHideJobStatus}
+						/>
+					</div>
+				{/if}
+			</div>
+		{/if}
+
 		<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
 			{#if cache}
 				<Popover notClickable>

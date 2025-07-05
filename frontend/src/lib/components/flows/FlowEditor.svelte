@@ -7,13 +7,14 @@
 	import { getContext, onDestroy, onMount, setContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
 
-	import { writable } from 'svelte/store'
+	import { writable, type Writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
-	import type { Flow } from '$lib/gen'
+	import type { Flow, Job } from '$lib/gen'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
+	import type { GraphModuleState } from '../graph'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -36,10 +37,17 @@
 		onEditInput?: ((moduleId: string, key: string) => void) | undefined
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
+		localModuleStates?: Writable<Record<string, GraphModuleState>>
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
-		onRunPreview?: () => void
+		waitingJob?: Job | undefined
+		isOwner?: boolean
+		onTestFlow?: () => void
+		isRunning?: boolean
+		onCancelTestFlow?: () => void
+		onOpenPreview?: () => void
+		onHideJobStatus?: () => void
 	}
 
 	let {
@@ -57,10 +65,17 @@
 		onEditInput = undefined,
 		forceTestTab,
 		highlightArg,
+		localModuleStates = writable({}),
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,
-		onRunPreview = () => {}
+		waitingJob,
+		isOwner,
+		onTestFlow,
+		isRunning,
+		onCancelTestFlow,
+		onOpenPreview,
+		onHideJobStatus
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -114,9 +129,17 @@
 						}}
 						{onTestUpTo}
 						{onEditInput}
+						{localModuleStates}
 						{aiChatOpen}
 						{showFlowAiButton}
 						{toggleAiChat}
+						{waitingJob}
+						{isOwner}
+						{onTestFlow}
+						{isRunning}
+						{onCancelTestFlow}
+						{onOpenPreview}
+						{onHideJobStatus}
 					/>
 				{/if}
 			</div>
@@ -139,7 +162,7 @@
 					{onDeployTrigger}
 					{forceTestTab}
 					{highlightArg}
-					{onRunPreview}
+					{onTestFlow}
 				/>
 			{/if}
 		</Pane>

@@ -26,6 +26,7 @@
 	export let localModuleStates: Writable<Record<string, GraphModuleState>> = writable({})
 	export let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
 	export let job: Job | undefined = undefined
+	export let render = false
 
 	let lastJobId: string = jobId
 
@@ -85,4 +86,5 @@
 	{isOwner}
 	{wideResults}
 	bind:rightColumnSelect
+	{render}
 />

@@ -46,10 +46,10 @@
 	interface Props {
 		noEditor: boolean
 		disabled: boolean
-		onRunPreview?: () => void
+		onTestFlow?: () => void
 	}
 
-	let { noEditor, disabled, onRunPreview }: Props = $props()
+	let { noEditor, disabled, onTestFlow }: Props = $props()
 
 	const {
 		flowStore,
@@ -206,7 +206,7 @@
 		if (previewArguments) {
 			previewArgs.val = structuredClone($state.snapshot(previewArguments))
 		}
-		onRunPreview?.()
+		onTestFlow?.()
 	}
 
 	function updatePreviewSchemaAndArgs(payload: any) {

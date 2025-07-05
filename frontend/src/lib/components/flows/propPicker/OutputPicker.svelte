@@ -1,12 +1,14 @@
 <script lang="ts">
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import InputPickerInner from './InputPickerInner.svelte'
 	import { ChevronDown, Plug } from 'lucide-svelte'
 	import { useSvelteFlow } from '@xyflow/svelte'
+	import { getStateColor } from '$lib/components/graph/util'
+	import type { FlowStatusModule } from '$lib/gen'
 
 	interface Props {
 		selected?: boolean
@@ -22,6 +24,9 @@
 		onEditInput?: (moduleId: string, key: string) => void
 		initial?: boolean
 		onResetInitial?: () => void
+		type?: FlowStatusModule['type'] | undefined
+		darkMode?: boolean
+		skipped?: boolean
 	}
 
 	let {
@@ -35,7 +40,10 @@
 		id,
 		bottomBarOpen = $bindable(false),
 		loopStatus,
-		onEditInput
+		onEditInput,
+		type,
+		darkMode,
+		skipped
 	}: Props = $props()
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
@@ -104,6 +112,15 @@
 	$effect(() => {
 		updatePositioning(historyOpen, zoom)
 	})
+
+	onMount(() => {
+		let outputPickerOpenFns = getContext<Record<string, () => void>>('openOutputPicker')
+		if (outputPickerOpenFns) {
+			outputPickerOpenFns[id] = () => {
+				outputOpen = true
+			}
+		}
+	})
 </script>
 
 <div
@@ -127,6 +144,7 @@
 			'h-1 hover:h-[20px]',
 			bottomBarOpen && 'h-[20px]'
 		)}
+		style:background-color={type ? getStateColor(type, !!darkMode, true, skipped) : undefined}
 		data-prop-picker
 	>
 		<div class="flex flex-row items-center justify-center w-full h-full">
