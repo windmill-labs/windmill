@@ -12,9 +12,10 @@
 		selection: Selection | null
 		selectedCode: string
 		show: boolean
+		rejectChanges: () => void
 	}
 
-	let { editor, selection, selectedCode, show = $bindable(false) }: Props = $props()
+	let { editor, selection, selectedCode, show = $bindable(false), rejectChanges }: Props = $props()
 
 	let widget: AIChatWidget | null = $state(null)
 	let widgetElement: HTMLElement | null = $state(null)
@@ -137,6 +138,7 @@
 			onKeyDown={(e) => {
 				if (e.key === 'Escape') {
 					show = false
+					rejectChanges()
 				} else if (e.key === 'ArrowDown' && aiChatManager.pendingNewCode) {
 					// call again to auto apply
 					aiChatManager.scriptEditorApplyCode?.(aiChatManager.pendingNewCode)

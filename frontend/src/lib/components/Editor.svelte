@@ -1563,6 +1563,9 @@
 		{editor}
 		selection={inlineAIChatSelection}
 		{selectedCode}
+		rejectChanges={() => {
+			aiChatEditorHandler?.rejectAll()
+		}}
 	/>
 {/if}
 
