@@ -48,6 +48,7 @@
 				await testJobLoader?.cancelJob()
 				testJob = undefined
 			}
+			modulesTestStates.runTestCb?.(mod.id)
 		}
 
 		const val = mod.value

@@ -90,6 +90,7 @@
 			onHideJobStatus={() => {
 				data.eventHandlers.hideJobStatus()
 			}}
+			individualStepTests={data.individualStepTests}
 		/>
 	{/snippet}
 </NodeWrapper>

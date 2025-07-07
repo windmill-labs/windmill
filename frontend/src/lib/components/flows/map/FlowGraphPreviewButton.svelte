@@ -11,6 +11,7 @@
 		isRunning?: boolean
 		hover?: boolean
 		selected?: boolean
+		individualStepTests?: boolean
 		onTestFlow?: () => void
 		onCancelTestFlow?: () => void
 		onOpenPreview?: () => void
@@ -21,6 +22,7 @@
 		isRunning,
 		hover,
 		selected,
+		individualStepTests,
 		onTestFlow,
 		onCancelTestFlow,
 		onOpenPreview,
@@ -30,7 +32,7 @@
 	const jobContext = getContext<previewContext>('previewContext')
 	const job = $derived(jobContext?.getJob())
 
-	const wide = $derived(hover || selected || job)
+	const wide = $derived(hover || selected || job || individualStepTests)
 </script>
 
 {#if !isRunning}
@@ -54,7 +56,7 @@
 			<span transition:fade={{ duration: 100 }} class="text-xs">Test flow</span>
 		{/if}
 	</Button>
-	{#if job && wide}
+	{#if wide && (job || individualStepTests)}
 		<div
 			class="flex flex-row items-center shadow-sm rounded-md mt-1"
 			in:fade={{ duration: 100, delay: 200 }}
@@ -68,27 +70,31 @@
 					)}
 					onclick={onOpenPreview}
 				>
-					<div
-						class={twMerge(
-							'rounded-full h-2 w-2',
-							'success' in job && job.success ? 'bg-green-400' : 'bg-red-400'
-						)}
-						title={'success' in job && job.success ? 'Success' : 'Failed'}
-					>
-					</div>
-					{#if wide}
-						<span class="text-xs truncate" dir="rtl">
-							{job.id.slice(-5)}
-						</span>
+					{#if job}
+						<div
+							class={twMerge(
+								'rounded-full h-2 w-2',
+								'success' in job && job.success ? 'bg-green-400' : 'bg-red-400'
+							)}
+							title={'success' in job && job.success ? 'Success' : 'Failed'}
+						>
+						</div>
 					{/if}
+					<span class="text-xs truncate" dir="rtl">
+						{!individualStepTests && job ? job.id.slice(-5) : '...'}
+					</span>
 				</button>
 				{#snippet text()}
-					See run details
+					{#if !individualStepTests}
+						See run details
+					{:else}
+						Open preview
+					{/if}
 				{/snippet}
 			</Popover>
 			<button
 				class="h-[24px] px-1.5 bg-surface rounded-md rounded-l-none text-gray-400 hover:bg-red-500 hover:text-white"
-				title="Close preview"
+				title="Hide jobs status"
 				onclick={onHideJobStatus}
 			>
 				<X size={14} />

@@ -38,6 +38,7 @@
 		onCancelTestFlow?: () => void
 		onOpenPreview?: () => void
 		onHideJobStatus?: () => void
+		individualStepTests?: boolean
 	}
 
 	let {
@@ -64,7 +65,8 @@
 		isRunning,
 		onCancelTestFlow,
 		onOpenPreview,
-		onHideJobStatus
+		onHideJobStatus,
+		individualStepTests = false
 	}: Props = $props()
 
 	const outputPickerVisible = $derived(
@@ -159,6 +161,7 @@
 							{onCancelTestFlow}
 							{onOpenPreview}
 							{onHideJobStatus}
+							{individualStepTests}
 						/>
 					</div>
 				{/if}

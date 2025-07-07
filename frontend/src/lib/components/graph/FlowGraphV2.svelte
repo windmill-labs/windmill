@@ -89,6 +89,7 @@
 		waitingJob?: Job | undefined
 		isOwner?: boolean
 		isRunning?: boolean
+		individualStepTests?: boolean
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -160,7 +161,8 @@
 		isRunning = false,
 		onCancelTestFlow = undefined,
 		onOpenPreview = undefined,
-		onHideJobStatus = undefined
+		onHideJobStatus = undefined,
+		individualStepTests = false
 	}: Props = $props()
 
 	setContext<{
@@ -429,7 +431,8 @@
 				editMode,
 				waitingJob,
 				isOwner,
-				isRunning
+				isRunning,
+				individualStepTests
 			},
 			failureModule,
 			preprocessorModule,

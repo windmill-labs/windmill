@@ -8,8 +8,10 @@ type moduleTestState = {
 
 export class ModulesTestStates {
 	states: Record<string, moduleTestState> = $state({})
+	runTestCb?: (moduleId: string) => void
 
-	constructor() {
+	constructor(runTestCb?: (moduleId: string) => void) {
 		this.states = {}
+		this.runTestCb = runTestCb
 	}
 }

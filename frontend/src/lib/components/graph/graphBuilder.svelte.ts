@@ -107,6 +107,7 @@ export type InputN = {
 		earlyStop: boolean
 		editMode: boolean
 		isRunning: boolean
+		individualStepTests: boolean
 	}
 }
 
@@ -293,6 +294,7 @@ export function graphBuilder(
 		waitingJob: Job | undefined
 		isOwner: boolean
 		isRunning: boolean
+		individualStepTests: boolean
 	},
 	failureModule: FlowModule | undefined,
 	preprocessorModule: FlowModule | undefined,
@@ -446,7 +448,8 @@ export function graphBuilder(
 				cache: extra.cache,
 				earlyStop: extra.earlyStop,
 				editMode: extra.editMode,
-				isRunning: extra.isRunning
+				isRunning: extra.isRunning,
+				individualStepTests: extra.individualStepTests
 			}
 		}
 

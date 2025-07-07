@@ -62,6 +62,7 @@
 		onCancelTestFlow?: () => void
 		onOpenPreview?: () => void
 		onHideJobStatus?: () => void
+		individualStepTests?: boolean
 	}
 
 	let {
@@ -85,7 +86,8 @@
 		isRunning,
 		onCancelTestFlow,
 		onOpenPreview,
-		onHideJobStatus
+		onHideJobStatus,
+		individualStepTests = false
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -375,6 +377,7 @@
 			flowModuleStates={$localModuleStates}
 			{waitingJob}
 			{isOwner}
+			{individualStepTests}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)
 				const cb = () => {

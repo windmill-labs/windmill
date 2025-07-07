@@ -179,6 +179,8 @@
 	let aiChangesConfirmCallback = $state<() => void>(() => {})
 
 	let job: Job | undefined = $state(undefined)
+	let showJobStatus = $state(false)
+	const previewJob: Job | undefined = $derived(showJobStatus ? job : undefined)
 
 	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
 		const { selectedTriggers } = event.detail
@@ -607,7 +609,11 @@
 	}
 
 	let insertButtonOpen = writable<boolean>(false)
-	let modulesTestStates = new ModulesTestStates()
+	let testModuleId: string | undefined = $state(undefined)
+	let modulesTestStates = new ModulesTestStates((moduleId) => {
+		testModuleId = moduleId
+		showJobStatus = false
+	})
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
@@ -922,7 +928,6 @@
 	}
 
 	let isOwner = $state(false)
-	let showModuleStatus = $state(false)
 	let isRunning = $state(false)
 	let previewOpen = $state(false)
 	let jobRunning = $state(false)
@@ -957,15 +962,69 @@
 	})
 
 	setContext<previewContext>('previewContext', {
-		getJob: () => (showModuleStatus ? job : undefined)
+		getJob: () => previewJob
 	})
 
 	// Create a derived store that only shows the module states when showModuleStatus is true
 	// this store can also be updated
 	let derivedModuleStates = writable<Record<string, GraphModuleState>>({})
 	$effect(() => {
-		derivedModuleStates.set(showModuleStatus ? $localModuleStates : {})
+		derivedModuleStates.update((currentStates) => {
+			return showJobStatus ? $localModuleStates : currentStates
+		})
 	})
+	$effect(() => {
+		updateDerivedModuleStatesFromTestJobs(testModuleId)
+	})
+
+	/**
+	 * Updates derivedModuleStates based on test job data from modulesTestStates
+	 * Extracts job information and converts it to GraphModuleState format
+	 */
+	function updateDerivedModuleStatesFromTestJobs(moduleId?: string) {
+		if (!moduleId) {
+			return
+		}
+		const newStates: Record<string, GraphModuleState> = {}
+
+		const testState = modulesTestStates.states[moduleId]
+		if (testState) {
+			if (testState.testJob) {
+				const job = testState.testJob
+
+				// Create GraphModuleState from job data, similar to onJobsLoaded in FlowStatusViewerInner
+				const moduleState: GraphModuleState = {
+					args: job.args,
+					type: job.type === 'QueuedJob' ? 'InProgress' : job['success'] ? 'Success' : 'Failure',
+					job_id: job.id,
+					tag: job.tag,
+					duration_ms: job['duration_ms'],
+					started_at: job.started_at ? new Date(job.started_at).getTime() : undefined
+				}
+
+				newStates[moduleId] = moduleState
+			} else if (testState.loading) {
+				// If test is loading, show as InProgress
+				newStates[moduleId] = {
+					type: 'InProgress',
+					args: {}
+				}
+			}
+		}
+
+		// Update the derived store with test job states
+		derivedModuleStates.update((currentStates) => ({
+			...currentStates,
+			...newStates
+		}))
+	}
+
+	function resetModulesStates() {
+		derivedModuleStates.set({})
+		showJobStatus = false
+	}
+
+	const individualStepTests = $derived(!previewJob && Object.keys($derivedModuleStates).length > 0)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -1164,7 +1223,7 @@
 						bind:job
 						bind:isOwner
 						onRunPreview={() => {
-							showModuleStatus = true
+							showJobStatus = true
 						}}
 						bind:isRunning
 						bind:previewOpen
@@ -1246,9 +1305,8 @@
 					onOpenPreview={() => {
 						flowPreviewButtons?.openPreview()
 					}}
-					onHideJobStatus={() => {
-						showModuleStatus = false
-					}}
+					onHideJobStatus={resetModulesStates}
+					{individualStepTests}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>
