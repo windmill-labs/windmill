@@ -1,10 +1,11 @@
 {
 	"name": "windmill-components",
-	"version": "1.501.24",
+	"version": "1.502.2",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
 		"preview": "vite preview",
+		"postinstall": "if [ -f ./scripts/untar_ui_builder.js ]; then node ./scripts/untar_ui_builder.js && node ./scripts/patch_files.js; fi",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --threshold warning",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --ignore-path .gitignore --check --plugin-search-dir=. . && eslint --ignore-path .gitignore .",
@@ -168,6 +169,7 @@
 			"types": "./dist/index.d.ts",
 			"svelte": "./dist/index.js"
 		},
+		"./scripts/untar_ui_builder.js": "./scripts/untar_ui_builder.js",
 		"./assets/app.css": "./package/assets/app.css",
 		"./components/custom_ui": {
 			"types": "./package/components/custom_ui.d.ts",
