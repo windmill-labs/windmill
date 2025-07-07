@@ -1561,6 +1561,7 @@
 		bind:this={aiChatInlineWidget}
 		bind:show={showInlineAIChat}
 		{editor}
+		editorHandler={aiChatEditorHandler}
 		selection={inlineAIChatSelection}
 		{selectedCode}
 		rejectChanges={() => {

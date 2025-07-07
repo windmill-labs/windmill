@@ -6,6 +6,7 @@
 	import LoadingIcon from '$lib/components/apps/svelte-select/lib/LoadingIcon.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { onDestroy } from 'svelte'
+	import type { AIChatEditorHandler } from './monaco-adapter'
 
 	interface Props {
 		editor: monaco.editor.IStandaloneCodeEditor
@@ -13,29 +14,41 @@
 		selectedCode: string
 		show: boolean
 		rejectChanges: () => void
+		editorHandler: AIChatEditorHandler
 	}
 
-	let { editor, selection, selectedCode, show = $bindable(false), rejectChanges }: Props = $props()
+	let {
+		editor,
+		selection,
+		selectedCode,
+		show = $bindable(false),
+		rejectChanges,
+		editorHandler
+	}: Props = $props()
 
 	let widget: AIChatWidget | null = $state(null)
 	let widgetElement: HTMLElement | null = $state(null)
 	let aiChatInput: AIChatInput | null = $state(null)
 	let processing = $state(false)
+	let marginToAdd = $state(0)
 
 	class AIChatWidget implements monaco.editor.IContentWidget {
 		private domNode: HTMLElement
 		public position: monaco.IPosition
-		private editor: monaco.editor.IStandaloneCodeEditor
+		editor: monaco.editor.IStandaloneCodeEditor
 		private originalPadding: number = 0
+		private editorHandler: AIChatEditorHandler
 
 		constructor(
 			lineNumber: number,
 			domNode: HTMLElement,
-			editor: monaco.editor.IStandaloneCodeEditor
+			editor: monaco.editor.IStandaloneCodeEditor,
+			editorHandler: AIChatEditorHandler
 		) {
 			this.domNode = domNode
 			this.position = { lineNumber, column: 0 }
 			this.editor = editor
+			this.editorHandler = editorHandler
 			this.ensureSpaceAbove()
 		}
 
@@ -82,6 +95,24 @@
 			return this.domNode
 		}
 
+		getTotalAddedLines(): number {
+			if (!this.editorHandler || !this.editorHandler.groupChanges) {
+				return 0
+			}
+
+			let totalAddedLines = 0
+			for (const group of this.editorHandler.groupChanges) {
+				for (const change of group.changes) {
+					if (change.type === 'added_block') {
+						// Count newlines in the added content
+						const lines = change.value.split('\n').length - 1
+						totalAddedLines += Math.max(1, lines)
+					}
+				}
+			}
+			return totalAddedLines
+		}
+
 		getPosition(): monaco.editor.IContentWidgetPosition {
 			return {
 				position: this.position,
@@ -115,7 +146,7 @@
 				aiChatManager.changeMode(AIMode.SCRIPT)
 			}
 			const startLine = selection.startLineNumber
-			widget = new AIChatWidget(startLine, widgetElement, editor)
+			widget = new AIChatWidget(startLine, widgetElement, editor, editorHandler)
 			editor.addContentWidget(widget)
 			if (aiChatInput) {
 				aiChatInput.focusInput()
@@ -134,6 +165,21 @@
 			aiChatInput?.focusInput()
 		}, 130)
 	}
+
+	// Reactive effect to update margin when review state changes
+	$effect(() => {
+		const isInReviewMode = aiChatManager.pendingNewCode !== undefined
+
+		if (isInReviewMode && !selectedCode.trim() && widget) {
+			const addedLines = widget.getTotalAddedLines()
+			if (widgetElement) {
+				marginToAdd = addedLines * 25
+				widgetElement.style.marginTop = `-${marginToAdd}px`
+			}
+		} else {
+			marginToAdd = 0
+		}
+	})
 </script>
 
 {#snippet bottomRightSnippet()}
