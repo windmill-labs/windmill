@@ -912,6 +912,19 @@ async fn create_script_internal<'c>(
         );
     }
 
+    clear_asset_usage(&db, &w_id, &script_path, AssetUsageKind::Script).await?;
+    for asset in parse_assets(&ns.content, ns.language)?.iter().flatten() {
+        insert_asset_usage(
+            &db,
+            &w_id,
+            asset,
+            ns.fallback_access_types.as_ref().map(Vec::as_slice),
+            &ns.path,
+            AssetUsageKind::Script,
+        )
+        .await?;
+    }
+
     let permissioned_as = username_to_permissioned_as(&authed.username);
     if needs_lock_gen {
         let tag = if ns.dedicated_worker.is_some_and(|x| x) {
@@ -996,20 +1009,6 @@ async fn create_script_internal<'c>(
                 tracing::error!(%e, "error processing relative imports");
             }
         });
-
-        clear_asset_usage(&db, &w_id, &script_path, AssetUsageKind::Script).await?;
-
-        for asset in parse_assets(&ns.content, language)?.iter().flatten() {
-            insert_asset_usage(
-                &db,
-                &w_id,
-                asset,
-                ns.fallback_access_types.as_ref().map(Vec::as_slice),
-                &ns.path,
-                AssetUsageKind::Script,
-            )
-            .await?;
-        }
 
         handle_deployment_metadata(
             &authed.email,
