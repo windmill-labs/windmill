@@ -54,7 +54,8 @@ use windmill_common::{
     stats_oss::schedule_stats,
     triggers::TriggerKind,
     utils::{
-        create_default_worker_suffix, create_ssh_agent_worker_suffix, worker_name_with_suffix,
+        create_worker_suffix,
+        worker_name_with_suffix,
         Mode, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS,
     },
     worker::{
@@ -347,7 +348,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             "Creating http client for cluster using base internal url {}",
             std::env::var("BASE_INTERNAL_URL").unwrap_or_default()
         );
-        let suffix = create_ssh_agent_worker_suffix(&hostname);
+        let suffix = create_worker_suffix(&hostname);
         (
             Connection::Http(build_agent_http_client(&suffix)),
             Some(suffix),
@@ -687,7 +688,7 @@ Windmill Community Edition {GIT_VERSION}
                         let suffix = if i == 0 && first_suffix.is_some() {
                             first_suffix.as_ref().unwrap().clone()
                         } else {
-                            create_default_worker_suffix(&hostname)
+                            create_worker_suffix(&hostname)
                         };
 
                         let worker_conn = WorkerConn {
