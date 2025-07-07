@@ -176,6 +176,7 @@
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:')}
 					loopStatus={{ type: 'self', flow: mod.value.type }}
 					{onTestUpTo}
+					{type}
 				>
 					{#snippet icon()}
 						<div>
@@ -197,6 +198,7 @@
 					{bgColor}
 					{bgHoverColor}
 					{onTestUpTo}
+					{type}
 				>
 					{#snippet icon()}
 						<div>
@@ -218,6 +220,7 @@
 					{bgColor}
 					{bgHoverColor}
 					{onTestUpTo}
+					{type}
 				>
 					{#snippet icon()}
 						<div>
