@@ -1325,6 +1325,7 @@
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyK, function () {
 				if ($copilotInfo.enabled) {
+					aiChatEditorHandler?.rejectAll()
 					if (showInlineAIChat) {
 						closeAIInlineWidget()
 					} else {
@@ -1559,7 +1560,7 @@
 				closeAIInlineWidget()
 			}
 			aiChatEditorHandler?.rejectAll()
-		} else if (e.key === 'ArrowDown' && aiChatManager.pendingNewCode) {
+		} else if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowDown' && aiChatManager.pendingNewCode) {
 			aiChatManager.scriptEditorApplyCode?.(aiChatManager.pendingNewCode)
 			if (showInlineAIChat) {
 				closeAIInlineWidget()
