@@ -21,6 +21,16 @@
 	import GitDiffPreview from './GitDiffPreview.svelte'
 	import { page } from '$app/stores'
 
+	// Types for git sync result
+	interface GitSyncChange {
+		type: 'added' | 'deleted' | 'modified'
+		path: string
+	}
+
+	interface GitSyncResult {
+		changes: GitSyncChange[]
+	}
+
 	let { gitRepoResourcePath, uiState, onFilterUpdate } = $props<{
 		gitRepoResourcePath: string
 		uiState: {
@@ -126,8 +136,8 @@
 				const deleted: string[] = []
 				const modified: string[] = []
 
-				if (rawResult && rawResult.changes && Array.isArray(rawResult.changes)) {
-					for (const change of rawResult.changes) {
+				if (rawResult && (rawResult as GitSyncResult).changes && Array.isArray((rawResult as GitSyncResult).changes)) {
+					for (const change of (rawResult as GitSyncResult).changes) {
 						if (change.type === 'added') {
 							added.push(change.path)
 						} else if (change.type === 'deleted') {

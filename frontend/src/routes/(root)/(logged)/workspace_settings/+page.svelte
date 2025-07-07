@@ -98,14 +98,12 @@
 		include_type: ObjectType[]
 	}
 
-	type GitSyncRepository = {
-		script_path: string
-		git_repo_resource_path: string
-		use_individual_branch: boolean
-		group_by_folder: boolean
-		collapsed: boolean
-		settings: GitRepositorySettings
-		exclude_types_override?: ObjectType[]
+	// Import the generated backend type
+	import type { GitRepositorySettings as BackendGitRepositorySettings } from '$lib/gen'
+	
+	// Frontend repository format extends backend with guaranteed settings and additional UI state
+	type GitSyncRepository = BackendGitRepositorySettings & {
+		settings: GitRepositorySettings  // Required in frontend after transformation
 		legacyImported?: boolean
 	}
 
@@ -204,17 +202,17 @@
 
 				// Handle array ordering for consistent comparison
 				const settings1 = {
-					include_path: [...initial.settings.include_path].sort(),
-					exclude_path: [...(initial.settings.exclude_path ?? [])].sort(),
-					extra_include_path: [...(initial.settings.extra_include_path ?? [])].sort(),
-					include_type: [...initial.settings.include_type].sort()
+					include_path: [...(initial.settings?.include_path ?? [])].sort(),
+					exclude_path: [...(initial.settings?.exclude_path ?? [])].sort(),
+					extra_include_path: [...(initial.settings?.extra_include_path ?? [])].sort(),
+					include_type: [...(initial.settings?.include_type ?? [])].sort()
 				};
 
 				const settings2 = {
-					include_path: [...repo.settings.include_path].sort(),
-					exclude_path: [...(repo.settings.exclude_path ?? [])].sort(),
-					extra_include_path: [...(repo.settings.extra_include_path ?? [])].sort(),
-					include_type: [...repo.settings.include_type].sort()
+					include_path: [...(repo.settings?.include_path ?? [])].sort(),
+					exclude_path: [...(repo.settings?.exclude_path ?? [])].sort(),
+					extra_include_path: [...(repo.settings?.extra_include_path ?? [])].sort(),
+					include_type: [...(repo.settings?.include_type ?? [])].sort()
 				};
 
 				// Compare all properties in a consistent way
@@ -618,40 +616,34 @@
 			legacyWorkspaceIncludePath = [...workspaceLegacyIncludePath];
 			legacyWorkspaceIncludeType = [...workspaceLegacyIncludeType];
 
-			gitSyncSettings.repositories = (settings.git_sync.repositories ?? []).map((repo) => {
+			gitSyncSettings.repositories = (settings.git_sync.repositories ?? []).map((repo: BackendGitRepositorySettings) => {
 				gitSyncTestJobs.push({
 					jobId: undefined,
 					status: undefined
 				})
 
-				// First grab raw settings (could be undefined or partially filled)
-				const rawSettings = (repo.settings ?? {}) as Partial<GitRepositorySettings>;
+				// Now we have proper nested settings structure from the backend
 				const defaultTypes: ObjectType[] = workspaceLegacyIncludeType.length > 0
 					? [...workspaceLegacyIncludeType]
 					: (['script', 'flow', 'app', 'folder'] as ObjectType[]);
 
-				// Check if this is a legacy repo (no settings field)
+				// Check if this is a legacy repo (no nested settings object)
 				const isRepoLegacy = !repo.settings;
-				const repoExcludeTypesOverride = isRepoLegacy ? ((repo as any).exclude_types_override ?? []) : [];
+				const repoExcludeTypesOverride = repo.exclude_types_override ?? [];
 
 				const repoSettings: GitRepositorySettings = {
-					include_path: rawSettings.include_path ?? [...workspaceLegacyIncludePath],
-					exclude_path: rawSettings.exclude_path ?? [],
-					extra_include_path: rawSettings.extra_include_path ?? [],
-					include_type:
-						(rawSettings.include_type && rawSettings.include_type.length > 0)
-							? (rawSettings.include_type as ObjectType[])
-							: [...defaultTypes]
+					include_path: repo.settings?.include_path ?? [...workspaceLegacyIncludePath],
+					exclude_path: repo.settings?.exclude_path ?? [],
+					extra_include_path: repo.settings?.extra_include_path ?? [],
+					include_type: (repo.settings?.include_type ?? [...defaultTypes]) as ObjectType[]
 				};
 
 				return {
+					...repo,
 					git_repo_resource_path: repo.git_repo_resource_path.replace('$res:', ''),
-					script_path: repo.script_path,
-					use_individual_branch: repo.use_individual_branch ?? false,
-					group_by_folder: repo.group_by_folder ?? false,
-					collapsed: false,
+					collapsed: repo.collapsed ?? false,
 					settings: repoSettings,
-					exclude_types_override: isRepoLegacy ? repoExcludeTypesOverride : [],
+					exclude_types_override: repoExcludeTypesOverride,
 					legacyImported: isRepoLegacy && (legacyWorkspaceIncludePath.length > 0 || legacyWorkspaceIncludeType.length > 0)
 				} satisfies GitSyncRepository
 			})

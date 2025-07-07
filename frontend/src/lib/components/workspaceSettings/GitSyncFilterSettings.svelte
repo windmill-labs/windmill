@@ -51,13 +51,13 @@
 			include_path: string[]
 			exclude_path: string[]
 			extra_include_path: string[]
-			include_type: string[]
+			include_type: ObjectType[]
 		}
 		backend?: {
 			include_path: string[]
 			exclude_path: string[]
 			extra_include_path: string[]
-			include_type: string[]
+			include_type: ObjectType[]
 		}
 	}
 
@@ -167,7 +167,7 @@
 		include_path: string[]
 		exclude_path: string[]
 		extra_include_path: string[]
-		include_type: string[]
+		include_type: ObjectType[]
 	}) {
 		include_path = settings.include_path || []
 		excludes = settings.exclude_path || []

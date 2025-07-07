@@ -18,6 +18,16 @@
 	import hubPaths from '$lib/hubPaths.json'
 	import { JobService } from '$lib/gen'
 	import { tryEvery } from '$lib/utils'
+
+	// Types for git sync result
+	interface GitSyncChange {
+		type: 'added' | 'deleted' | 'modified'
+		path: string
+	}
+
+	interface GitSyncResult {
+		changes: GitSyncChange[]
+	}
 	import GitDiffPreview from './GitDiffPreview.svelte'
 	import { page } from '$app/stores'
 
@@ -121,8 +131,8 @@
 				const deleted: string[] = []
 				const modified: string[] = []
 
-				if (result && result.changes && Array.isArray(result.changes)) {
-					for (const change of result.changes) {
+				if (result && (result as GitSyncResult).changes && Array.isArray((result as GitSyncResult).changes)) {
+					for (const change of (result as GitSyncResult).changes) {
 						if (change.type === 'added') {
 							added.push(change.path)
 						} else if (change.type === 'deleted') {
