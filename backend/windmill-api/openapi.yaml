@@ -16703,6 +16703,8 @@ components:
           type: boolean
         group_by_folder:
           type: boolean
+        collapsed:
+          type: boolean
         settings:
           type: object
           properties:
@@ -16737,6 +16739,25 @@ components:
               type: array
               items:
                 type: string
+        exclude_types_override:
+          type: array
+          items:
+            type: string
+            enum:
+              - script
+              - flow
+              - app
+              - folder
+              - resource
+              - variable
+              - secret
+              - resourcetype
+              - schedule
+              - user
+              - group
+              - trigger
+              - settings
+              - key
       required:
         - script_path
         - git_repo_resource_path
