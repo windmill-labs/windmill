@@ -27,11 +27,11 @@
 	export let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
 	export let job: Job | undefined = undefined
 	export let render = true
+	export let suspendStatus = writable({})
 
 	let lastJobId: string = jobId
 
 	let retryStatus = writable({})
-	let suspendStatus = writable({})
 	setContext<FlowStatusViewerContext>('FlowStatusViewer', {
 		flowStateStore,
 		suspendStatus,

@@ -45,6 +45,7 @@
 		onRunPreview?: () => void
 		isRunning?: boolean
 		render?: boolean
+		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
 	}
 
 	let {
@@ -65,7 +66,8 @@
 		isOwner = $bindable(false),
 		onRunPreview,
 		isRunning = $bindable(false),
-		render = $bindable(false)
+		render = $bindable(false),
+		suspendStatus = $bindable(writable({}))
 	}: Props = $props()
 
 	let restartBranchNames: [number, string][] = []
@@ -518,6 +520,7 @@
 					bind:job
 					bind:localModuleStates
 					bind:localDurationStatuses
+					bind:suspendStatus
 					hideDownloadInGraph={customUi?.downloadLogs === false}
 					wideResults
 					{flowStateStore}

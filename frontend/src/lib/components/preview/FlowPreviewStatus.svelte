@@ -4,12 +4,10 @@
 
 	import JobStatus from '../JobStatus.svelte'
 	import { ExternalLinkIcon } from 'lucide-svelte'
-	import type { FlowStatusViewerContext } from '../graph'
-	import { getContext } from 'svelte'
 	import { truncateRev } from '$lib/utils'
-	export let job: QueuedJob | CompletedJob
 
-	let { hideJobId } = getContext<FlowStatusViewerContext>('FlowStatusViewer')
+	export let job: QueuedJob | CompletedJob
+	export let hideJobId: boolean = false
 </script>
 
 <div class="grid grid-cols-2 gap-4 mb-1 text-tertiary dark:text-gray-400">

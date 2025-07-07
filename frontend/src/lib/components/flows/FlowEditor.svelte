@@ -14,7 +14,7 @@
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
-	import type { GraphModuleState } from '../graph'
+	import type { DurationStatus, GraphModuleState } from '../graph'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -49,6 +49,9 @@
 		onOpenPreview?: () => void
 		onHideJobStatus?: () => void
 		individualStepTests?: boolean
+		job?: Job
+		localDurationStatuses?: Writable<Record<string, DurationStatus>>
+		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
 	}
 
 	let {
@@ -77,7 +80,10 @@
 		onCancelTestFlow,
 		onOpenPreview,
 		onHideJobStatus,
-		individualStepTests = false
+		individualStepTests = false,
+		job,
+		localDurationStatuses,
+		suspendStatus
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -166,6 +172,10 @@
 					{forceTestTab}
 					{highlightArg}
 					{onTestFlow}
+					{job}
+					{isOwner}
+					{localDurationStatuses}
+					{suspendStatus}
 				/>
 			{/if}
 		</Pane>

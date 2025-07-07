@@ -84,7 +84,7 @@
 	import { Triggers } from './triggers/triggers.svelte'
 	import { TestSteps } from './flows/testSteps.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
-	import type { GraphModuleState } from './graph'
+	import type { DurationStatus, GraphModuleState } from './graph'
 	import {
 		setStepHistoryLoaderContext,
 		StepHistoryLoader,
@@ -898,6 +898,9 @@
 	})
 
 	let localModuleStates: Writable<Record<string, GraphModuleState>> = $state(writable({}))
+	let localDurationStatuses: Writable<Record<string, DurationStatus>> = $state(writable({}))
+	let suspendStatus: Writable<Record<string, { job: Job; nb: number }>> = $state(writable({}))
+
 	export async function loadFlowState() {
 		await stepHistoryLoader.loadIndividualStepsStates(
 			flowStore.val as Flow,
@@ -1209,6 +1212,8 @@
 					{/if}
 					<FlowPreviewButtons
 						bind:localModuleStates
+						bind:localDurationStatuses
+						bind:suspendStatus
 						on:openTriggers={(e) => {
 							select('triggers')
 							handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)
@@ -1305,6 +1310,9 @@
 					}}
 					onHideJobStatus={resetModulesStates}
 					{individualStepTests}
+					{job}
+					{localDurationStatuses}
+					{suspendStatus}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

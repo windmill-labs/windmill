@@ -6,13 +6,16 @@
 	import FlowInput from './FlowInput.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
 	import FlowConstants from './FlowConstants.svelte'
-	import type { FlowModule, Flow } from '$lib/gen'
+	import type { FlowModule, Flow, Job } from '$lib/gen'
 	import FlowPreprocessorModule from './FlowPreprocessorModule.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { insertNewPreprocessorModule } from '../flowStateUtils.svelte'
 	import TriggersEditor from '../../triggers/TriggersEditor.svelte'
 	import { handleSelectTriggerFromKind, type Trigger } from '$lib/components/triggers/utils'
 	import { computeMissingInputWarnings } from '../missingInputWarnings'
+	import FlowResult from './FlowResult.svelte'
+	import type { Writable } from 'svelte/store'
+	import type { DurationStatus } from '$lib/components/graph'
 
 	interface Props {
 		noEditor?: boolean
@@ -28,6 +31,10 @@
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
 		onTestFlow?: () => void
+		job?: Job
+		isOwner?: boolean
+		localDurationStatuses?: Writable<Record<string, DurationStatus>>
+		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
 	}
 
 	let {
@@ -39,7 +46,11 @@
 		onDeployTrigger = () => {},
 		forceTestTab,
 		highlightArg,
-		onTestFlow
+		onTestFlow,
+		job,
+		isOwner,
+		localDurationStatuses,
+		suspendStatus
 	}: Props = $props()
 
 	const {
@@ -87,7 +98,7 @@
 		{onTestFlow}
 	/>
 {:else if $selectedId === 'Result'}
-	<p class="p-4 text-secondary">The result of the flow will be the result of the last node.</p>
+	<FlowResult {job} {isOwner} {localDurationStatuses} {suspendStatus} />
 {:else if $selectedId === 'constants'}
 	<FlowConstants {noEditor} />
 {:else if $selectedId === 'failure'}

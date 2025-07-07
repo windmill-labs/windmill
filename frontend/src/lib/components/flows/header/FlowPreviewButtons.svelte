@@ -16,21 +16,25 @@
 	interface Props {
 		loading?: boolean
 		localModuleStates?: Writable<Record<string, GraphModuleState>>
+		localDurationStatuses?: Writable<Record<string, DurationStatus>>
 		job?: Job
 		isOwner?: boolean
 		onRunPreview?: () => void
 		isRunning?: boolean
 		previewOpen?: boolean
+		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
 	}
 
 	let {
 		loading = false,
 		localModuleStates = $bindable(writable({})),
+		localDurationStatuses = $bindable(writable({})),
 		job = $bindable(undefined),
 		isOwner = $bindable(false),
 		onRunPreview,
 		isRunning = $bindable(false),
-		previewOpen = $bindable(false)
+		previewOpen = $bindable(false),
+		suspendStatus = $bindable(writable({}))
 	}: Props = $props()
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -73,8 +77,6 @@
 
 	let rightColumnSelect: 'timeline' | 'node_status' | 'node_definition' | 'user_states' =
 		$state('timeline')
-
-	let localDurationStatuses: Writable<Record<string, DurationStatus>> = $state(writable({}))
 
 	let upToDisabled = $derived(
 		$selectedId == undefined ||
@@ -142,6 +144,7 @@
 			bind:this={flowPreviewContent}
 			bind:localModuleStates
 			bind:localDurationStatuses
+			bind:suspendStatus
 			open={previewOpen}
 			bind:scrollTop
 			bind:previewMode
