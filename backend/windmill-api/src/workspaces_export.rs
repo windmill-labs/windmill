@@ -560,7 +560,10 @@ pub(crate) async fn tarball_workspace(
                     static_asset_config AS "static_asset_config: _", 
                     is_static_website,
                     wrap_body,
-                    raw_string
+                    raw_string,
+                    error_handler_path,
+                    error_handler_args as "error_handler_args: _",
+                    retry as "retry: _"
                 FROM http_trigger
                 WHERE workspace_id = $1
                 "#,

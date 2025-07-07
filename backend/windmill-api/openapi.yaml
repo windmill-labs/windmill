@@ -15040,6 +15040,12 @@ components:
           type: boolean
         raw_string:
           type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
       required:
         - route_path
@@ -15093,6 +15099,12 @@ components:
           type: boolean
         raw_string:
           type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
       required:
         - path
@@ -15146,6 +15158,12 @@ components:
           type: boolean
         raw_string:
           type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
         - path
         - script_path

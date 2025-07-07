@@ -352,7 +352,9 @@ async fn cancel_job_api(
             username: "anonymous".to_string(),
             username_override: None,
             email: "anonymous".to_string(),
-            token_prefix: opt_tokened.token.map(|s| s[0..TOKEN_PREFIX_LEN].to_string()),
+            token_prefix: opt_tokened
+                .token
+                .map(|s| s[0..TOKEN_PREFIX_LEN].to_string()),
         },
     };
     let (mut tx, job_option) = tokio::time::timeout(
@@ -568,7 +570,14 @@ async fn get_flow_job_debug_info(
             }
         }
 
-        log_job_view(&db, opt_authed.as_ref(), tokened_o.token.as_deref(), &w_id, &id).await?;
+        log_job_view(
+            &db,
+            opt_authed.as_ref(),
+            tokened_o.token.as_deref(),
+            &w_id,
+            &id,
+        )
+        .await?;
 
         Ok(Json(jobs).into_response())
     } else {
@@ -648,7 +657,14 @@ async fn get_job(
     let mut job = get.fetch(&db, id, &w_id).await?;
     job.fetch_outstanding_wait_time(&db).await?;
 
-    log_job_view(&db, opt_authed.as_ref(), opt_tokened.token.as_deref(), &w_id, &id).await?;
+    log_job_view(
+        &db,
+        opt_authed.as_ref(),
+        opt_tokened.token.as_deref(),
+        &w_id,
+        &id,
+    )
+    .await?;
 
     Ok(Json(job).into_response())
 }
@@ -1134,7 +1150,14 @@ async fn get_job_logs(
         }
         let logs = record.logs.unwrap_or_default();
 
-        log_job_view(&db, opt_authed.as_ref(), opt_tokened.token.as_deref(), &w_id, &id).await?;
+        log_job_view(
+            &db,
+            opt_authed.as_ref(),
+            opt_tokened.token.as_deref(),
+            &w_id,
+            &id,
+        )
+        .await?;
 
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
         if let Some(r) = get_logs_from_store(record.log_offset, &logs, &record.log_file_index).await
@@ -1171,7 +1194,14 @@ async fn get_job_logs(
         }
         let logs = text.logs.unwrap_or_default();
 
-        log_job_view(&db, opt_authed.as_ref(), opt_tokened.token.as_deref(), &w_id, &id).await?;
+        log_job_view(
+            &db,
+            opt_authed.as_ref(),
+            opt_tokened.token.as_deref(),
+            &w_id,
+            &id,
+        )
+        .await?;
 
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
         if let Some(r) =
@@ -1221,7 +1251,14 @@ async fn get_args(
             ));
         }
 
-        log_job_view(&db, opt_authed.as_ref(), opt_tokened.token.as_deref(), &w_id, &id).await?;
+        log_job_view(
+            &db,
+            opt_authed.as_ref(),
+            opt_tokened.token.as_deref(),
+            &w_id,
+            &id,
+        )
+        .await?;
 
         Ok(Json(record.args.map(|x| x.0).unwrap_or_default()))
     } else {
@@ -1242,7 +1279,14 @@ async fn get_args(
             ));
         }
 
-        log_job_view(&db, opt_authed.as_ref(), opt_tokened.token.as_deref(), &w_id, &id).await?;
+        log_job_view(
+            &db,
+            opt_authed.as_ref(),
+            opt_tokened.token.as_deref(),
+            &w_id,
+            &id,
+        )
+        .await?;
 
         Ok(Json(record.args.map(|x| x.0).unwrap_or_default()))
     }
@@ -2112,7 +2156,9 @@ async fn resume_suspended_job_internal(
             email: approver.clone(),
             username: approver.clone(),
             username_override: None,
-            token_prefix: opt_tokened.token.map(|s| s[0..TOKEN_PREFIX_LEN].to_string()),
+            token_prefix: opt_tokened
+                .token
+                .map(|s| s[0..TOKEN_PREFIX_LEN].to_string()),
         },
     };
     audit_log(
@@ -2289,7 +2335,16 @@ pub async fn cancel_suspended_job(
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
 ) -> error::Result<StatusCode> {
     resume_suspended_job_internal(
-        value, db, w_id, job_id, resume_id, approver, secret, authed, opt_tokened, false,
+        value,
+        db,
+        w_id,
+        job_id,
+        resume_id,
+        approver,
+        secret,
+        authed,
+        opt_tokened,
+        false,
     )
     .await
 }
@@ -2374,7 +2429,14 @@ pub async fn get_suspended_job_flow(
         approvers_from_status
     };
 
-    log_job_view(&db, authed.as_ref(), opt_tokened.token.as_deref(), &w_id, &job).await?;
+    log_job_view(
+        &db,
+        authed.as_ref(),
+        opt_tokened.token.as_deref(),
+        &w_id,
+        &job,
+    )
+    .await?;
 
     Ok(Json(SuspendedJobFlow { job: flow, approvers }).into_response())
 }
@@ -3110,7 +3172,7 @@ pub fn add_raw_string(
     return args;
 }
 
-async fn check_tag_available_for_workspace(
+pub async fn check_tag_available_for_workspace(
     db: &DB,
     w_id: &str,
     tag: &Option<String>,
@@ -4291,7 +4353,7 @@ async fn log_job_view(
                 username: "anonymous".to_string(),
                 username_override: None,
                 email: "anonymous".to_string(),
-                token_prefix: opt_token.map(|t| t[0..TOKEN_PREFIX_LEN].to_string())
+                token_prefix: opt_token.map(|t| t[0..TOKEN_PREFIX_LEN].to_string()),
             },
         };
         if JOB_VIEW_CACHE
@@ -5757,7 +5819,14 @@ async fn get_job_update(
             "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
         ));
     }
-    log_job_view(&db, opt_authed.as_ref(), opt_tokened.token.as_deref(), &w_id, &job_id).await?;
+    log_job_view(
+        &db,
+        opt_authed.as_ref(),
+        opt_tokened.token.as_deref(),
+        &w_id,
+        &job_id,
+    )
+    .await?;
     Ok(Json(JobUpdate {
         running: record.running,
         completed: record.completed,
@@ -6071,7 +6140,14 @@ async fn get_completed_job<'a>(
     // .fetch_optional(db)
     // .await.ok().flatten().flatten();
 
-    log_job_view(&db, opt_authed.as_ref(), opt_tokened.token.as_deref(), &w_id, &id).await?;
+    log_job_view(
+        &db,
+        opt_authed.as_ref(),
+        opt_tokened.token.as_deref(),
+        &w_id,
+        &id,
+    )
+    .await?;
 
     Ok(response)
 }
@@ -6174,7 +6250,14 @@ async fn get_completed_job_result(
         raw_result.result.as_mut(),
     );
 
-    log_job_view(&db, opt_authed.as_ref(), opt_tokened.token.as_deref(), &w_id, &id).await?;
+    log_job_view(
+        &db,
+        opt_authed.as_ref(),
+        opt_tokened.token.as_deref(),
+        &w_id,
+        &id,
+    )
+    .await?;
 
     Ok(Json(raw_result.result).into_response())
 }
@@ -6265,7 +6348,14 @@ async fn get_completed_job_result_maybe(
             ));
         }
 
-        log_job_view(&db, opt_authed.as_ref(), opt_tokened.token.as_deref(), &w_id, &id).await?;
+        log_job_view(
+            &db,
+            opt_authed.as_ref(),
+            opt_tokened.token.as_deref(),
+            &w_id,
+            &id,
+        )
+        .await?;
 
         Ok(Json(CompletedJobResult {
             started: Some(true),

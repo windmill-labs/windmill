@@ -66,16 +66,13 @@
 	let errorHandleritemKind: 'flow' | 'script' = $state('script')
 	let wsErrorHandlerMuted: boolean = $state(false)
 	let errorHandlerPath: string | undefined = $state(undefined)
-	let errorHandlerCustomInitialPath: string | undefined = $state(undefined)
 	let errorHandlerSelected: 'custom' | 'slack' | 'teams' = $state('slack')
 	let errorHandlerExtraArgs: Record<string, any> = $state({})
 	let recoveryHandlerPath: string | undefined = $state(undefined)
-	let recoveryHandlerCustomInitialPath: string | undefined = $state(undefined)
 	let recoveryHandlerSelected: 'custom' | 'slack' | 'teams' = $state('slack')
 	let recoveryHandlerItemKind: 'flow' | 'script' = $state('script')
 	let recoveryHandlerExtraArgs: Record<string, any> = $state({})
 	let successHandlerPath: string | undefined = $state(undefined)
-	let successHandlerCustomInitialPath: string | undefined = $state(undefined)
 	let successHandlerSelected: 'custom' | 'slack' | 'teams' = $state('slack')
 	let successHandlerItemKind: 'flow' | 'script' = $state('script')
 	let successHandlerExtraArgs: Record<string, any> = $state({})
@@ -146,7 +143,6 @@
 				let splitted = s.on_failure.split('/')
 				errorHandleritemKind = splitted[0] as 'flow' | 'script'
 				errorHandlerPath = splitted.slice(1)?.join('/')
-				errorHandlerCustomInitialPath = errorHandlerPath
 				failedTimes = s.on_failure_times ?? 1
 				failedExact = s.on_failure_exact ?? false
 				errorHandlerExtraArgs = s.on_failure_extra_args ?? {}
@@ -154,7 +150,6 @@
 			} else {
 				errorHandlerPath = undefined
 				errorHandleritemKind = 'script'
-				errorHandlerCustomInitialPath = undefined
 				errorHandlerExtraArgs = {}
 				failedExact = false
 				failedTimes = 1
@@ -164,14 +159,12 @@
 				let splitted = s.on_recovery.split('/')
 				recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
 				recoveryHandlerPath = splitted.slice(1)?.join('/')
-				recoveryHandlerCustomInitialPath = recoveryHandlerPath
 				recoveredTimes = s.on_recovery_times ?? 1
 				recoveryHandlerExtraArgs = s.on_recovery_extra_args ?? {}
 				recoveryHandlerSelected = getHandlerType('recovery', recoveryHandlerPath)
 			} else {
 				recoveryHandlerPath = undefined
 				recoveryHandlerItemKind = 'script'
-				recoveryHandlerCustomInitialPath = undefined
 				recoveredTimes = 1
 				recoveryHandlerSelected = 'slack'
 				recoveryHandlerExtraArgs = {}
@@ -180,13 +173,11 @@
 				let splitted = s.on_success.split('/')
 				successHandlerItemKind = splitted[0] as 'flow' | 'script'
 				successHandlerPath = splitted.slice(1)?.join('/')
-				successHandlerCustomInitialPath = successHandlerPath
 				successHandlerExtraArgs = s.on_success_extra_args ?? {}
 				successHandlerSelected = getHandlerType('success', successHandlerPath)
 			} else {
 				successHandlerPath = undefined
 				successHandlerItemKind = 'script'
-				successHandlerCustomInitialPath = undefined
 				successHandlerSelected = 'slack'
 				successHandlerExtraArgs = {}
 			}
@@ -212,7 +203,6 @@
 				errorHandleritemKind = splitted[0] as 'flow' | 'script'
 				errorHandlerPath = splitted.slice(1)?.join('/')
 				errorHandlerExtraArgs = defaultErrorHandlerMaybe['errorHandlerExtraArgs']
-				errorHandlerCustomInitialPath = errorHandlerPath
 				errorHandlerSelected = getHandlerType('error', errorHandlerPath)
 				failedTimes = defaultErrorHandlerMaybe['failedTimes']
 				failedExact = defaultErrorHandlerMaybe['failedExact']
@@ -221,7 +211,6 @@
 				errorHandlerPath = undefined
 				errorHandleritemKind = 'script'
 				errorHandlerExtraArgs = {}
-				errorHandlerCustomInitialPath = undefined
 				errorHandlerSelected = 'slack'
 				failedTimes = 1
 				failedExact = false
@@ -231,14 +220,12 @@
 				recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
 				recoveryHandlerPath = splitted.slice(1)?.join('/')
 				recoveryHandlerExtraArgs = defaultRecoveryHandlerMaybe['recoveryHandlerExtraArgs']
-				recoveryHandlerCustomInitialPath = recoveryHandlerPath
 				recoveryHandlerSelected = getHandlerType('recovery', recoveryHandlerPath)
 				recoveredTimes = defaultRecoveryHandlerMaybe['recoveredTimes']
 			} else {
 				recoveryHandlerPath = undefined
 				recoveryHandlerItemKind = 'script'
 				recoveryHandlerExtraArgs = {}
-				recoveryHandlerCustomInitialPath = undefined
 				recoveryHandlerSelected = 'slack'
 				recoveredTimes = 1
 			}
@@ -247,14 +234,12 @@
 				successHandlerItemKind = splitted[0] as 'flow' | 'script'
 				successHandlerPath = splitted.slice(1)?.join('/')
 				successHandlerExtraArgs = defaultSuccessHandlerMaybe['successHandlerExtraArgs']
-				successHandlerCustomInitialPath = successHandlerPath
 				successHandlerSelected = getHandlerType('success', successHandlerPath)
 				recoveredTimes = defaultSuccessHandlerMaybe['recoveredTimes']
 			} else {
 				successHandlerPath = undefined
 				successHandlerItemKind = 'script'
 				successHandlerExtraArgs = {}
-				successHandlerCustomInitialPath = undefined
 				successHandlerSelected = 'slack'
 			}
 		}
@@ -477,7 +462,6 @@
 			let splitted = cfg.on_failure.split('/')
 			errorHandleritemKind = splitted[0] as 'flow' | 'script'
 			errorHandlerPath = splitted.slice(1)?.join('/')
-			errorHandlerCustomInitialPath = errorHandlerPath
 			failedTimes = cfg.on_failure_times ?? 1
 			failedExact = cfg.on_failure_exact ?? false
 			errorHandlerExtraArgs = cfg.on_failure_extra_args ?? {}
@@ -485,7 +469,6 @@
 		} else {
 			errorHandlerPath = undefined
 			errorHandleritemKind = 'script'
-			errorHandlerCustomInitialPath = undefined
 			errorHandlerExtraArgs = {}
 			failedExact = false
 			failedTimes = 1
@@ -495,14 +478,12 @@
 			let splitted = cfg.on_recovery.split('/')
 			recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
 			recoveryHandlerPath = splitted.slice(1)?.join('/')
-			recoveryHandlerCustomInitialPath = recoveryHandlerPath
 			recoveredTimes = cfg.on_recovery_times ?? 1
 			recoveryHandlerExtraArgs = cfg.on_recovery_extra_args ?? {}
 			recoveryHandlerSelected = getHandlerType('recovery', recoveryHandlerPath ?? '')
 		} else {
 			recoveryHandlerPath = undefined
 			recoveryHandlerItemKind = 'script'
-			recoveryHandlerCustomInitialPath = undefined
 			recoveredTimes = 1
 			recoveryHandlerSelected = 'slack'
 			recoveryHandlerExtraArgs = {}
@@ -511,13 +492,11 @@
 			let splitted = cfg.on_success.split('/')
 			successHandlerItemKind = splitted[0] as 'flow' | 'script'
 			successHandlerPath = splitted.slice(1)?.join('/')
-			successHandlerCustomInitialPath = successHandlerPath
 			successHandlerExtraArgs = cfg.on_success_extra_args ?? {}
 			successHandlerSelected = getHandlerType('success', successHandlerPath ?? '')
 		} else {
 			successHandlerPath = undefined
 			successHandlerItemKind = 'script'
-			successHandlerCustomInitialPath = undefined
 			successHandlerSelected = 'slack'
 			successHandlerExtraArgs = {}
 		}
@@ -954,7 +933,7 @@
 {/snippet}
 
 {#snippet errorHandler()}
-	<div class="flex flex-col gap-2">
+	<div class="flex flex-col gap-2 min-h-96">
 		{#if !loading}
 			<Tabs bind:selected={optionTabSelected}>
 				<Tab value="error_handler">Error Handler</Tab>
@@ -1011,14 +990,12 @@
 						showScriptHelpText={true}
 						bind:handlerSelected={errorHandlerSelected}
 						bind:handlerPath={errorHandlerPath}
-						customInitialScriptPath={errorHandlerCustomInitialPath}
 						toggleText="Alert channel on error"
 						customScriptTemplate="/scripts/add?hub=hub%2F9081%2Fwindmill%2Fschedule_error_handler_template"
 						bind:customHandlerKind={errorHandleritemKind}
 						bind:handlerExtraArgs={errorHandlerExtraArgs}
 					>
-						<!-- @migration-task: migrate this slot by hand, `custom-tab-tooltip` is an invalid identifier -->
-						<svelte:fragment slot="custom-tab-tooltip">
+						{#snippet customTabTooltip()}
 							<Tooltip>
 								<div class="flex gap-20 items-start mt-3">
 									<div class="text-sm"
@@ -1037,7 +1014,7 @@
 									</div>
 								</div>
 							</Tooltip>
-						</svelte:fragment>
+						{/snippet}
 					</ErrorOrRecoveryHandler>
 					<div class="flex flex-row items-center justify-between">
 						<div class="flex flex-row items-center mt-4 font-semibold text-sm gap-2">
@@ -1102,14 +1079,12 @@
 						errorOrRecovery="recovery"
 						bind:handlerSelected={recoveryHandlerSelected}
 						bind:handlerPath={recoveryHandlerPath}
-						customInitialScriptPath={recoveryHandlerCustomInitialPath}
 						toggleText="Alert channel when error recovered"
 						customScriptTemplate="/scripts/add?hub=hub%2F9082%2Fwindmill%2Fschedule_recovery_handler_template"
 						bind:customHandlerKind={recoveryHandlerItemKind}
 						bind:handlerExtraArgs={recoveryHandlerExtraArgs}
 					>
-						<!-- @migration-task: migrate this slot by hand, `custom-tab-tooltip` is an invalid identifier -->
-						<svelte:fragment slot="custom-tab-tooltip">
+						{#snippet customTabTooltip()}
 							<Tooltip>
 								<div class="flex gap-20 items-start mt-3">
 									<div class=" text-sm"
@@ -1134,7 +1109,7 @@
 									</div>
 								</div>
 							</Tooltip>
-						</svelte:fragment>
+						{/snippet}
 					</ErrorOrRecoveryHandler>
 					<div class="flex flex-row items-center justify-between">
 						<div
@@ -1193,14 +1168,12 @@
 						errorOrRecovery="success"
 						bind:handlerSelected={successHandlerSelected}
 						bind:handlerPath={successHandlerPath}
-						customInitialScriptPath={successHandlerCustomInitialPath}
 						toggleText="Alert channel when successful"
 						customScriptTemplate="/scripts/add?hub=hub%2F9071%2Fwindmill%2Fschedule_success_handler_template"
 						bind:customHandlerKind={successHandlerItemKind}
 						bind:handlerExtraArgs={successHandlerExtraArgs}
 					>
-						<!-- @migration-task: migrate this slot by hand, `custom-tab-tooltip` is an invalid identifier -->
-						<svelte:fragment slot="custom-tab-tooltip">
+						{#snippet customTabTooltip()}
 							<Tooltip>
 								<div class="flex gap-20 items-start mt-3">
 									<div class=" text-sm"
@@ -1215,7 +1188,7 @@
 									</div>
 								</div>
 							</Tooltip>
-						</svelte:fragment>
+						{/snippet}
 					</ErrorOrRecoveryHandler>
 				</Section>
 			{:else if optionTabSelected === 'retries'}

@@ -33,30 +33,44 @@
 	const teamsHandlerScriptPath = hubPaths.teamsErrorHandler
 	const teamsSuccessHandler = hubPaths.teamsSuccessHandler
 
-	export let errorOrRecovery: 'error' | 'recovery' | 'success'
-	export let isEditable: boolean
-	export let toggleText: string = 'Enable'
-	export let showScriptHelpText: boolean = false
-	export let handlerSelected: 'custom' | 'slack' | 'teams'
+	interface Props {
+		errorOrRecovery: 'error' | 'recovery' | 'success'
+		isEditable: boolean
+		toggleText?: string
+		showScriptHelpText?: boolean
+		handlerSelected: 'custom' | 'slack' | 'teams'
+		handlerPath: string | undefined
+		handlerExtraArgs: Record<string, any>
+		customScriptTemplate: string
+		customHandlerKind?: 'flow' | 'script'
+		customTabTooltip?: import('svelte').Snippet
+	}
 
-	export let handlerPath: string | undefined
-	export let handlerExtraArgs: Record<string, any>
+	let {
+		errorOrRecovery,
+		isEditable,
+		toggleText = 'Enable',
+		showScriptHelpText = false,
+		handlerSelected = $bindable(),
+		handlerPath = $bindable(),
+		handlerExtraArgs = $bindable(),
+		customScriptTemplate,
+		customHandlerKind = $bindable('script'),
+		customTabTooltip
+	}: Props = $props()
 
-	export let customInitialScriptPath: string | undefined
-	export let customScriptTemplate: string
-	export let customHandlerKind: 'flow' | 'script' = 'script'
+	let customHandlerSchema: Schema | undefined = $state()
+	let slackHandlerSchema: Schema | undefined = $state()
+	let isFetching: boolean = $state(false)
 
-	let customHandlerSchema: Schema | undefined
-	let slackHandlerSchema: Schema | undefined
-	let isFetching: boolean = false
+	let teams_channels: ListAvailableTeamsChannelsResponse = $state([])
+	let teams_team_name: string | undefined = $state(undefined)
 
-	let teams_channels: ListAvailableTeamsChannelsResponse = []
-	let teams_team_name: string | undefined = undefined
+	let workspaceConnectedToSlack: boolean | undefined = $state(undefined)
+	let workspaceConnectedToTeams: boolean | undefined = $state(undefined)
 
-	let workspaceConnectedToSlack: boolean | undefined = undefined
-	let workspaceConnectedToTeams: boolean | undefined = undefined
-
-	let connectionTestJob: { uuid: string; is_success: boolean; in_progress: boolean } | undefined
+	let connectionTestJob: { uuid: string; is_success: boolean; in_progress: boolean } | undefined =
+		$state()
 
 	async function loadSlackResources() {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
@@ -173,7 +187,7 @@
 	}
 
 	function isSlackHandler(scriptPath: string | undefined) {
-		if (scriptPath === undefined) {
+		if (!scriptPath) {
 			return false
 		}
 		if (errorOrRecovery == 'error') {
@@ -191,7 +205,7 @@
 	}
 
 	function isTeamsHandler(scriptPath: string | undefined) {
-		if (scriptPath === undefined) {
+		if (!scriptPath) {
 			return false
 		}
 		if (errorOrRecovery == 'error') {
@@ -208,19 +222,19 @@
 		}
 	}
 
-	$: {
+	$effect(() => {
 		if ($workspaceStore) {
 			loadSlackResources()
 			loadTeamsResources()
 		}
-	}
+	})
 
-	let lastHandlerSelected: 'slack' | 'teams' | 'custom' | undefined = undefined
-	let channelCache = {
+	let lastHandlerSelected: 'slack' | 'teams' | 'custom' | undefined = $state(undefined)
+	let channelCache = $state({
 		slack: undefined as string | undefined,
 		teams: undefined as string | undefined
-	}
-	$: {
+	})
+	$effect(() => {
 		if (lastHandlerSelected !== handlerSelected && lastHandlerSelected !== undefined) {
 			if (lastHandlerSelected === 'teams' || lastHandlerSelected === 'slack') {
 				channelCache[lastHandlerSelected] = handlerExtraArgs['channel']
@@ -234,45 +248,49 @@
 		}
 
 		lastHandlerSelected = handlerSelected
-	}
+	})
 
-	$: handlerPath &&
-		!isSlackHandler(handlerPath) &&
-		!isTeamsHandler(handlerPath) &&
-		loadHandlerScriptArgs(handlerPath, [
-			'path',
-			'workspace_id',
-			'job_id',
-			'is_flow',
-			'schedule_path',
-			'error',
-			'error_started_at',
-			'failed_times',
-			'started_at',
-			'success_times',
-			'success_result',
-			'success_started_at',
-			'email'
-		]).then((schema) => (customHandlerSchema = schema))
+	$effect(() => {
+		handlerPath &&
+			!isSlackHandler(handlerPath) &&
+			!isTeamsHandler(handlerPath) &&
+			loadHandlerScriptArgs(handlerPath, [
+				'path',
+				'workspace_id',
+				'job_id',
+				'is_flow',
+				'schedule_path',
+				'error',
+				'error_started_at',
+				'failed_times',
+				'started_at',
+				'success_times',
+				'success_result',
+				'success_started_at',
+				'email'
+			]).then((schema) => (customHandlerSchema = schema))
+	})
 
-	$: handlerPath &&
-		isSlackHandler(handlerPath) &&
-		loadHandlerScriptArgs(handlerPath, [
-			'path',
-			'workspace_id',
-			'job_id',
-			'is_flow',
-			'schedule_path',
-			'error',
-			'error_started_at',
-			'failed_times',
-			'started_at',
-			'success_times',
-			'success_result',
-			'success_started_at',
-			'email',
-			'slack'
-		]).then((schema) => (slackHandlerSchema = schema))
+	$effect(() => {
+		handlerPath &&
+			isSlackHandler(handlerPath) &&
+			loadHandlerScriptArgs(handlerPath, [
+				'path',
+				'workspace_id',
+				'job_id',
+				'is_flow',
+				'schedule_path',
+				'error',
+				'error_started_at',
+				'failed_times',
+				'started_at',
+				'success_times',
+				'success_result',
+				'success_started_at',
+				'email',
+				'slack'
+			]).then((schema) => (slackHandlerSchema = schema))
+	})
 </script>
 
 <div>
@@ -281,7 +299,7 @@
 		<Tab value="teams" disabled={!isEditable}>Teams</Tab>
 		<Tab value="custom" disabled={!isEditable}>
 			Custom
-			<slot name="custom-tab-tooltip" />
+			{@render customTabTooltip?.()}
 		</Tab>
 	</Tabs>
 </div>
@@ -290,15 +308,15 @@
 	<div class="flex flex-row mb-2">
 		<ScriptPicker
 			disabled={!isEditable || !$enterpriseLicense}
-			initialPath={customInitialScriptPath}
 			kinds={['script', 'failure']}
 			allowFlow={true}
 			bind:scriptPath={handlerPath}
 			bind:itemKind={customHandlerKind}
 			allowRefresh={isEditable}
+			clearable
 		/>
 
-		{#if handlerPath === undefined}
+		{#if !handlerPath}
 			<Button
 				btnClasses="ml-4 mt-2"
 				color="dark"
@@ -464,7 +482,7 @@
 				/>
 				<div class="flex-shrink-0">
 					<button
-						on:click={loadTeamsResources}
+						onclick={loadTeamsResources}
 						class="flex items-center gap-1 p-1.5 rounded hover:bg-surface-hover focus:bg-surface-hover"
 					>
 						<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />

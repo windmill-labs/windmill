@@ -175,7 +175,9 @@ pub async fn push_scheduled_job<'c>(
                 JobPayload::SingleScriptFlow {
                     path: schedule.script_path.clone(),
                     hash: hash,
-                    retry: parsed_retry,
+                    retry: Some(parsed_retry),
+                    error_handler_path: None,
+                    error_handler_args: None,
                     args: static_args,
                     custom_concurrency_key: None,
                     concurrent_limit: None,
@@ -183,6 +185,8 @@ pub async fn push_scheduled_job<'c>(
                     cache_ttl: cache_ttl,
                     priority: priority,
                     tag_override: schedule.tag.clone(),
+                    apply_script_preprocessor: false,
+                    trigger_path: None,
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()

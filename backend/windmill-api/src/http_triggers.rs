@@ -3,13 +3,13 @@ use crate::http_trigger_args::{HttpMethod, RawHttpTriggerArgs};
 #[cfg(feature = "parquet")]
 use crate::job_helpers_oss::get_workspace_s3_resource;
 use crate::resources::try_get_resource_from_db_as;
-use crate::trigger_helpers::{get_runnable_format, RunnableId};
+use crate::trigger_helpers::{get_runnable_format, run_script, RunnableId};
 use crate::utils::{non_empty_str, ExpiringCacheEntry};
 use crate::{
     auth::{AuthCache, OptTokened},
     db::{ApiAuthed, DB},
     jobs::{
-        run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_flow_by_path_internal,
+        run_flow_by_path_inner, run_wait_result_flow_by_path_internal,
         run_wait_result_script_by_path_internal, RunJobQuery,
     },
     users::fetch_api_authed,
@@ -27,6 +27,7 @@ use http::header::IF_NONE_MATCH;
 use http::{HeaderMap, StatusCode};
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::prelude::FromRow;
 use sqlx::PgConnection;
@@ -37,6 +38,7 @@ use tokio::sync::{RwLock, RwLockReadGuard};
 use tower_http::cors::CorsLayer;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::error::{Error, Result as WindmillResult};
+use windmill_common::flows::Retry;
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::build_object_store_client;
 use windmill_common::{
@@ -119,6 +121,9 @@ struct NewTrigger {
     is_static_website: bool,
     wrap_body: Option<bool>,
     raw_string: Option<bool>,
+    error_handler_path: Option<String>,
+    error_handler_args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    retry: Option<sqlx::types::Json<Retry>>,
 }
 
 #[derive(FromRow, Serialize)]
@@ -145,6 +150,11 @@ pub struct HttpTrigger {
     pub workspaced_route: bool,
     pub wrap_body: bool,
     pub raw_string: bool,
+    pub error_handler_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_handler_args: Option<sqlx::types::Json<Box<RawValue>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry: Option<sqlx::types::Json<Box<RawValue>>>,
 }
 
 #[derive(Deserialize)]
@@ -165,6 +175,9 @@ struct EditTrigger {
     is_static_website: bool,
     wrap_body: Option<bool>,
     raw_string: Option<bool>,
+    error_handler_path: Option<String>,
+    error_handler_args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    retry: Option<sqlx::types::Json<Retry>>,
 }
 
 #[derive(Deserialize)]
@@ -208,6 +221,9 @@ async fn list_triggers(
             "static_asset_config",
             "is_static_website",
             "authentication_resource_path",
+            "error_handler_path",
+            "error_handler_args",
+            "retry",
         ])
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))
@@ -265,7 +281,10 @@ async fn get_trigger(
             is_static_website,
             authentication_resource_path,
             wrap_body,
-            raw_string
+            raw_string,
+            error_handler_path,
+            error_handler_args as "error_handler_args: _",
+            retry as "retry: _"
         FROM 
             http_trigger
         WHERE 
@@ -338,10 +357,13 @@ async fn create_trigger_inner(
             edited_by, 
             email, 
             edited_at, 
-            is_static_website
+            is_static_website,
+            error_handler_path,
+            error_handler_args,
+            retry
         ) 
         VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now(), $19
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now(), $19, $20, $21, $22
         )
         "#,
         w_id,
@@ -362,7 +384,10 @@ async fn create_trigger_inner(
         new_http_trigger.static_asset_config as _,
         &authed.username,
         &authed.email,
-        new_http_trigger.is_static_website
+        new_http_trigger.is_static_website,
+        new_http_trigger.error_handler_path,
+        new_http_trigger.error_handler_args as _,
+        new_http_trigger.retry as _,
     )
     .execute(&mut *tx)
     .await?;
@@ -616,10 +641,13 @@ async fn update_trigger(
                 summary = $16,
                 description = $17,
                 edited_at = now(), 
-                is_static_website = $18
+                is_static_website = $18,
+                error_handler_path = $19,
+                error_handler_args = $20,
+                retry = $21
             WHERE 
-                workspace_id = $19 AND 
-                path = $20
+                workspace_id = $22 AND 
+                path = $23
             "#,
             route_path,
             &route_path_key,
@@ -639,6 +667,9 @@ async fn update_trigger(
             ct.summary,
             ct.description,
             ct.is_static_website,
+            ct.error_handler_path,
+            ct.error_handler_args as _,
+            ct.retry as _,
             w_id,
             path,
         )
@@ -665,10 +696,13 @@ async fn update_trigger(
                 is_async = $12, 
                 authentication_method = $13, 
                 edited_at = now(), 
-                is_static_website = $14
+                is_static_website = $14,
+                error_handler_path = $15,
+                error_handler_args = $16,
+                retry = $17
             WHERE 
-                workspace_id = $15 AND 
-                path = $16
+                workspace_id = $18 AND 
+                path = $19
             "#,
             ct.workspaced_route,
             ct.wrap_body,
@@ -684,6 +718,9 @@ async fn update_trigger(
             ct.is_async,
             ct.authentication_method as _,
             ct.is_static_website,
+            ct.error_handler_path,
+            ct.error_handler_args as _,
+            ct.retry as _,
             w_id,
             path,
         )
@@ -893,6 +930,9 @@ pub struct TriggerRoute {
     workspaced_route: bool,
     wrap_body: bool,
     raw_string: bool,
+    error_handler_path: Option<String>,
+    error_handler_args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    retry: Option<sqlx::types::Json<Retry>>,
 }
 
 pub struct RoutersCache {
@@ -979,7 +1019,10 @@ pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, Route
                         wrap_body,
                         raw_string,
                         workspaced_route,
-                        is_static_website
+                        is_static_website,
+                        error_handler_path,
+                        error_handler_args as "error_handler_args: _",
+                        retry as "retry: _"
                     FROM 
                         http_trigger 
                     WHERE 
@@ -1416,17 +1459,45 @@ async fn route_job(
         }
     } else {
         if trigger.is_async {
-            run_script_by_path_inner(
-                authed,
-                db,
+            run_script(
+                &db,
                 user_db,
-                trigger.workspace_id.clone(),
-                StripPath(trigger.script_path.to_owned()),
-                run_query,
+                authed,
+                &trigger.workspace_id,
+                &trigger.script_path,
                 args,
+                trigger.retry.map(|retry| retry.0),
+                trigger.error_handler_path,
+                trigger.error_handler_args.map(|args| args.0),
+                format!("http_trigger/{}", trigger.path),
             )
             .await
             .into_response()
+            // run_retryable_script(
+            //     &db,
+            //     user_db,
+            //     authed,
+            //     &trigger.workspace_id,
+            //     &trigger.script_path,
+            //     args,
+            //     Retry {
+            //         constant: ConstantDelay { attempts: 1, seconds: 5 },
+            //         exponential: Default::default(),
+            //     },
+            // )
+            // .await
+            // .into_response()
+            // run_script_by_path_inner(
+            //     authed,
+            //     db,
+            //     user_db,
+            //     trigger.workspace_id.clone(),
+            //     StripPath(trigger.script_path.to_owned()),
+            //     run_query,
+            //     args,
+            // )
+            // .await
+            // .into_response()
         } else {
             run_wait_result_script_by_path_internal(
                 db,

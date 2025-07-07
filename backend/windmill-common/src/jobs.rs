@@ -350,13 +350,18 @@ pub enum JobPayload {
         path: String,
         hash: ScriptHash,
         args: HashMap<String, Box<serde_json::value::RawValue>>,
-        retry: Retry, // for now only used to retry the script, so retry is necessarily present
+        retry: Option<Retry>, // for now only used to retry the script, so retry is necessarily present
+        error_handler_path: Option<String>,
+        error_handler_args: Option<HashMap<String, Box<RawValue>>>,
         custom_concurrency_key: Option<String>,
         concurrent_limit: Option<i32>,
         concurrency_time_window_s: Option<i32>,
         cache_ttl: Option<i32>,
         priority: Option<i16>,
         tag_override: Option<String>,
+        /// Whether to apply the script preprocessor to the script (not the flow preprocessor)
+        apply_script_preprocessor: bool,
+        trigger_path: Option<String>,
     },
     DeploymentCallback {
         path: String,

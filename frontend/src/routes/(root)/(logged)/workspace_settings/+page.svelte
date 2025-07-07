@@ -101,7 +101,6 @@
 	let webhook: string | undefined = undefined
 	let workspaceToDeployTo: string | undefined = undefined
 	let errorHandlerSelected: 'custom' | 'slack' | 'teams' = 'slack'
-	let errorHandlerInitialScriptPath: string
 	let errorHandlerScriptPath: string
 	let errorHandlerItemKind: 'flow' | 'script' = 'script'
 	let errorHandlerExtraArgs: Record<string, any> = {}
@@ -382,9 +381,10 @@
 		defaultModel = settings.ai_config?.default_model?.model
 		codeCompletionModel = settings.ai_config?.code_completion_model?.model
 
-		errorHandlerItemKind = settings.error_handler?.split('/')[0] as 'flow' | 'script'
+		errorHandlerItemKind = settings.error_handler
+			? (settings.error_handler.split('/')[0] as 'flow' | 'script')
+			: 'script'
 		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
-		errorHandlerInitialScriptPath = errorHandlerScriptPath
 		errorHandlerMutedOnCancel = settings.error_handler_muted_on_cancel
 		criticalAlertUIMuted = settings.mute_critical_alerts
 		initialCriticalAlertUIMuted = settings.mute_critical_alerts
@@ -974,14 +974,13 @@
 				isEditable={true}
 				errorOrRecovery="error"
 				showScriptHelpText={true}
-				customInitialScriptPath={errorHandlerInitialScriptPath}
 				bind:handlerSelected={errorHandlerSelected}
 				bind:handlerPath={errorHandlerScriptPath}
 				customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
 				bind:customHandlerKind={errorHandlerItemKind}
 				bind:handlerExtraArgs={errorHandlerExtraArgs}
 			>
-				<svelte:fragment slot="custom-tab-tooltip">
+				{#snippet customTabTooltip()}
 					<Tooltip>
 						<div class="flex gap-20 items-start mt-3">
 							<div class="text-sm">
@@ -1002,7 +1001,7 @@
 							</div>
 						</div>
 					</Tooltip>
-				</svelte:fragment>
+				{/snippet}
 			</ErrorOrRecoveryHandler>
 
 			<div class="flex flex-col mt-5 gap-5 items-start">

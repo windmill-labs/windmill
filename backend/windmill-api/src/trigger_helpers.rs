@@ -1,23 +1,32 @@
+use http::StatusCode;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use std::collections::HashMap;
 use windmill_common::{
+    db::UserDB,
     error::Result,
-    flows::FlowModuleValue,
+    flows::{FlowModuleValue, Retry},
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
-    jobs::get_has_preprocessor_from_content_and_lang,
+    jobs::{get_has_preprocessor_from_content_and_lang, script_path_to_payload, JobPayload},
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     triggers::{
         HubOrWorkspaceId, RunnableFormat, RunnableFormatVersion, TriggerKind,
         RUNNABLE_FORMAT_VERSION_CACHE,
     },
+    users::username_to_permissioned_as,
     utils::StripPath,
     worker::to_raw_value,
     FlowVersionInfo,
 };
-use windmill_queue::PushArgsOwned;
+use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
 
-use crate::{db::DB, HTTP_CLIENT};
+#[cfg(feature = "enterprise")]
+use crate::jobs::check_license_key_valid;
+use crate::{
+    db::{ApiAuthed, DB},
+    jobs::{check_tag_available_for_workspace, run_script_by_path_inner, RunJobQuery},
+    HTTP_CLIENT,
+};
 
 struct ScriptInfo {
     has_preprocessor: Option<bool>,
@@ -441,4 +450,124 @@ pub trait TriggerJobArgs<T: Clone> {
         let preprocessor_args = Self::build_job_args_v2(true, payload, info);
         (main_args, preprocessor_args)
     }
+}
+
+pub async fn run_script(
+    db: &DB,
+    user_db: UserDB,
+    authed: ApiAuthed,
+    workspace_id: &String,
+    script_path: &String,
+    args: PushArgsOwned,
+    retry: Option<Retry>,
+    error_handler_path: Option<String>,
+    error_handler_args: Option<HashMap<String, Box<RawValue>>>,
+    trigger_path: String,
+) -> Result<(StatusCode, String)> {
+    if retry.is_none() && error_handler_path.is_none() {
+        return run_script_by_path_inner(
+            authed,
+            db.clone(),
+            user_db,
+            workspace_id.clone(),
+            StripPath(script_path.to_string()),
+            RunJobQuery::default(),
+            args,
+        )
+        .await;
+    }
+
+    #[cfg(feature = "enterprise")]
+    check_license_key_valid().await?;
+
+    let (job_payload, tag, _delete_after_use, timeout, on_behalf_of) = {
+        let mut tx = user_db.clone().begin(&authed).await?;
+        script_path_to_payload(script_path, &mut *tx, &workspace_id, Some(false)).await?
+    };
+
+    check_tag_available_for_workspace(&db, &workspace_id, &tag, &authed).await?;
+
+    let (email, permissioned_as, push_authed, tx) =
+        if let Some(on_behalf_of) = on_behalf_of.as_ref() {
+            (
+                on_behalf_of.email.as_str(),
+                on_behalf_of.permissioned_as.clone(),
+                None,
+                PushIsolationLevel::IsolatedRoot(db.clone()),
+            )
+        } else {
+            (
+                authed.email.as_str(),
+                username_to_permissioned_as(&authed.username),
+                Some(authed.clone().into()),
+                PushIsolationLevel::Isolated(user_db, authed.clone().into()),
+            )
+        };
+
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
+
+    let retryable_job_payload = match job_payload {
+        JobPayload::ScriptHash {
+            hash,
+            path,
+            custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            cache_ttl,
+            priority,
+            apply_preprocessor,
+            ..
+        } => JobPayload::SingleScriptFlow {
+            path,
+            hash,
+            args: HashMap::from(&push_args),
+            retry,
+            error_handler_path,
+            error_handler_args,
+            custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            cache_ttl,
+            priority,
+            tag_override: tag.clone(),
+            apply_script_preprocessor: apply_preprocessor,
+            trigger_path: Some(trigger_path),
+        },
+        _ => {
+            return Err(windmill_common::error::Error::internal_err(format!(
+                "Unsupported job payload: {:?}",
+                job_payload
+            )))
+        }
+    };
+
+    let (uuid, tx) = push(
+        &db,
+        tx,
+        &workspace_id,
+        retryable_job_payload,
+        push_args,
+        authed.display_username(),
+        email,
+        permissioned_as,
+        authed.token_prefix.as_deref(),
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        tag,
+        timeout,
+        None,
+        None,
+        push_authed.as_ref(),
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok((StatusCode::CREATED, uuid.to_string()))
 }

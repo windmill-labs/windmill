@@ -252,7 +252,7 @@ pub struct Mock {
     pub return_value: Option<serde_json::Value>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct FlowModule {
     #[serde(default = "default_id")]
     pub id: String,
@@ -284,6 +284,8 @@ pub struct FlowModule {
     pub continue_on_error: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skip_if: Option<SkipIf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub apply_preprocessor: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -710,6 +712,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             delete_after_use: None,
             continue_on_error: None,
             skip_if: None,
+            apply_preprocessor: None,
         });
     }
 }
