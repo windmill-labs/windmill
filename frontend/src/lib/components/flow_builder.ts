@@ -1,3 +1,13 @@
+import type { OpenFlow } from '$lib/gen'
+import type { StateStore } from '$lib/utils'
+import type { Writable } from 'svelte/store'
+import type { FlowState } from './flows/flowState'
+import type { FlowWithDraftAndDraftTriggers, Trigger } from './triggers/utils'
+import type { DiffDrawerI } from './diff_drawer'
+import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
+import type { ScheduleTrigger } from './triggers'
+import type { stepState } from './stepHistoryLoader.svelte'
+
 export type FlowBuilderProps = {
     initialPath?: string
     pathStoreInit?: string | undefined
@@ -8,7 +18,7 @@ export type FlowBuilderProps = {
     flowStore: StateStore<OpenFlow>
     flowStateStore: Writable<FlowState>
     savedFlow?: FlowWithDraftAndDraftTriggers | undefined
-    diffDrawer?: DiffDrawer | undefined
+    diffDrawer?: DiffDrawerI | undefined
     customUi?: FlowBuilderWhitelabelCustomUi
     disableAi?: boolean
     disabledFlowInputs?: boolean
@@ -40,4 +50,3 @@ export type FlowBuilderProps = {
     onDetails?: ({ path }: { path: string }) => void
     onHistoryRestore?: () => void
 }
-    
