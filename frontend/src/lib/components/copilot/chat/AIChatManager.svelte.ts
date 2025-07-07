@@ -16,7 +16,11 @@ import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
-import { prepareScriptSystemMessage, prepareScriptTools } from './script/core'
+import {
+	INLINE_CHAT_SYSTEM_PROMPT,
+	prepareScriptSystemMessage,
+	prepareScriptTools
+} from './script/core'
 import { navigatorTools, prepareNavigatorSystemMessage } from './navigator/core'
 import { loadApiTools } from './navigator/apiTools'
 import { prepareScriptUserMessage } from './script/core'
@@ -31,6 +35,9 @@ import { untrack } from 'svelte'
 import type { DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
+import type { ContextElement } from './context'
+import type { Selection } from 'monaco-editor'
+import type AIChatInput from './AIChatInput.svelte'
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -71,6 +78,7 @@ class AIChatManager {
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	pendingNewCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
+	aiChatInput = $state<AIChatInput | null>(null)
 
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script: this.scriptEditorOptions !== undefined,
@@ -87,6 +95,16 @@ class AIChatManager {
 			if (this.mode === AIMode.NAVIGATOR) {
 				this.tools = [this.changeModeTool, ...navigatorTools, ...this.apiTools]
 			}
+		}
+	}
+
+	setAiChatInput(aiChatInput: AIChatInput | null) {
+		this.aiChatInput = aiChatInput
+	}
+
+	focusInput() {
+		if (this.aiChatInput) {
+			this.aiChatInput.focusInput()
 		}
 	}
 
@@ -245,7 +263,8 @@ class AIChatManager {
 	private chatRequest = async ({
 		messages,
 		abortController,
-		callbacks
+		callbacks,
+		systemMessage: systemMessageOverride
 	}: {
 		messages: ChatCompletionMessageParam[]
 		abortController: AbortController
@@ -253,12 +272,13 @@ class AIChatManager {
 			onNewToken: (token: string) => void
 			onMessageEnd: () => void
 		}
+		systemMessage?: ChatCompletionSystemMessageParam
 	}) => {
 		try {
 			let completion: any = null
 
 			while (true) {
-				const systemMessage = this.systemMessage
+				const systemMessage = systemMessageOverride ?? this.systemMessage
 				const tools = this.tools
 				const helpers = this.helpers
 
@@ -378,6 +398,90 @@ class AIChatManager {
 			if (!abortController.signal.aborted) {
 				throw err
 			}
+		}
+	}
+
+	sendInlineRequest = async (instructions: string, selectedCode: string, selection: Selection) => {
+		// Validate inputs
+		if (!instructions.trim()) {
+			throw new Error('Instructions are required')
+		}
+		this.abortController = new AbortController()
+		const lang = this.scriptEditorOptions?.lang ?? 'bun'
+		const selectedContext: ContextElement[] = [...this.contextManager.getSelectedContext()]
+		const startLine = selection.startLineNumber
+		const endLine = selection.endLineNumber
+		selectedContext.push({
+			type: 'code_piece',
+			lang,
+			title: `L${startLine}-L${endLine}`,
+			startLine,
+			endLine,
+			content: selectedCode
+		})
+
+		const systemMessage: ChatCompletionSystemMessageParam = {
+			role: 'system',
+			content: INLINE_CHAT_SYSTEM_PROMPT
+		}
+
+		let reply = ''
+
+		try {
+			const userMessage = await prepareScriptUserMessage(instructions, lang, selectedContext, {
+				isPreprocessor: false
+			})
+			const messages = [userMessage]
+
+			const params = {
+				messages,
+				abortController: this.abortController,
+				callbacks: {
+					onNewToken: (token: string) => {
+						reply += token
+					},
+					onMessageEnd: () => {},
+					setToolStatus: () => {}
+				},
+				systemMessage
+			}
+
+			await this.chatRequest({ ...params })
+
+			// Validate we received a response
+			if (!reply.trim()) {
+				throw new Error('AI response was empty')
+			}
+
+			// Try to extract new code from response
+			const newCodeMatch = reply.match(/<new_code>([\s\S]*?)<\/new_code>/i)
+			if (newCodeMatch && newCodeMatch[1]) {
+				const code = newCodeMatch[1].trim()
+				if (!code) {
+					throw new Error('AI response contained empty code block')
+				}
+				return code
+			}
+
+			// Fallback: try to take everything after the last <new_code> tag
+			const lastNewCodeMatch = reply.match(/<new_code>([\s\S]*)/i)
+			if (lastNewCodeMatch && lastNewCodeMatch[1]) {
+				const code = lastNewCodeMatch[1].trim().replace(/```/g, '')
+				if (!code) {
+					throw new Error('AI response contained empty code block')
+				}
+				return code
+			}
+
+			// If no code tags found, throw error with helpful message
+			throw new Error('AI response did not contain valid code. Please try rephrasing your request.')
+		} catch (error) {
+			// if abort controller is aborted, don't throw an error
+			if (this.abortController?.signal.aborted) {
+				return
+			}
+			console.error('Unexpected error in sendInlineRequest:', error)
+			throw new Error('An unexpected error occurred. Please try again.')
 		}
 	}
 
@@ -559,6 +663,7 @@ class AIChatManager {
 		}
 		this.changeMode(AIMode.SCRIPT)
 		this.contextManager?.addSelectedLinesToContext(lines, startLine, endLine)
+		this.focusInput()
 	}
 
 	saveAndClear = async () => {
