@@ -23,7 +23,6 @@
 	import {
 		graphBuilder,
 		isTriggerStep,
-		type AssetN,
 		type InlineScript,
 		type InsertKind,
 		type NodeLayout,
@@ -43,7 +42,7 @@
 	import { Expand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
-	import { clone, encodeState, readFieldsRecursively } from '$lib/utils'
+	import { encodeState, readFieldsRecursively } from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
 	import HiddenBaseEdge from './renderers/edges/HiddenBaseEdge.svelte'
@@ -57,7 +56,7 @@
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
 	import { deepEqual } from 'fast-equals'
 	import ViewportResizer from './ViewportResizer.svelte'
-	import AssetNode from './renderers/nodes/AssetNode.svelte'
+	import AssetNode, { computeAssetNodes } from './renderers/nodes/AssetNode.svelte'
 	import type { FlowGraphAssetContext } from '../flows/types'
 	import { getAllModules } from '../flows/flowExplorer'
 	import { inferAssets } from '$lib/infer'
@@ -65,14 +64,6 @@
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
-	import {
-		assetDisplaysAsInputInFlowGraph,
-		assetDisplaysAsOutputInFlowGraph,
-		NODE_WITH_READ_ASSET_Y_OFFSET,
-		NODE_WITH_WRITE_ASSET_Y_OFFSET,
-		READ_ASSET_Y_OFFSET,
-		WRITE_ASSET_Y_OFFSET
-	} from '../flows/utils'
 	import { assetEq } from '../assets/lib'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
@@ -339,149 +330,6 @@
 		return newNodes
 	}
 
-	let computeAssetNodesCache:
-		| [Node[], typeof assetsMap, ReturnType<typeof computeAssetNodes>]
-		| undefined
-	function computeAssetNodes(nodes: Node[], edges: Edge[]): [Node[], Edge[]] {
-		if (nodes === computeAssetNodesCache?.[0] && deepEqual(assetsMap, computeAssetNodesCache?.[1]))
-			return computeAssetNodesCache[2]
-
-		const MAX_ASSET_ROW_WIDTH = 300
-
-		const allAssetNodes: (Node & AssetN)[] = []
-		const allAssetEdges: Edge[] = []
-
-		const yPosMap: Record<number, { r?: true; w?: true }> = {}
-
-		for (const node of nodes) {
-			const assets = assetsMap?.[node.id]
-			let [inputAssetIdx, outputAssetIdx] = [-1, -1]
-			let [inputAssetCount, outputAssetCount] = [
-				assets?.filter(assetDisplaysAsInputInFlowGraph).length ?? 0,
-				assets?.filter(assetDisplaysAsOutputInFlowGraph).length ?? 0
-			]
-
-			if (inputAssetCount || outputAssetCount)
-				yPosMap[node.position.y] = yPosMap[node.position.y] ?? {}
-			if (inputAssetCount) yPosMap[node.position.y].r = true
-			if (outputAssetCount) yPosMap[node.position.y].w = true
-
-			// Each asset can be displayed once (R or W) or twice (RW) per node hence the flatMap
-			const assetNodes: (Node & AssetN)[] | undefined = assets?.flatMap((asset) => {
-				const displayAsInput = assetDisplaysAsInputInFlowGraph(asset)
-				const displayAsOutput = assetDisplaysAsOutputInFlowGraph(asset)
-				if (displayAsInput) inputAssetIdx++
-				if (displayAsOutput) outputAssetIdx++
-
-				let [inputAssetXGap, outputAssetXGap] = [20, 20]
-				let [inputAssetWidth, outputAssetWidth] = [180, 180]
-
-				let totalInputRowWidth = () =>
-					inputAssetWidth * inputAssetCount + inputAssetXGap * (inputAssetCount - 1)
-				if (totalInputRowWidth() > MAX_ASSET_ROW_WIDTH) {
-					const mult = MAX_ASSET_ROW_WIDTH / totalInputRowWidth()
-					inputAssetWidth = inputAssetWidth * mult
-					inputAssetXGap = inputAssetXGap * mult
-				}
-
-				let totalOutputRowWidth = () =>
-					outputAssetWidth * outputAssetCount + outputAssetXGap * (outputAssetCount - 1)
-				if (totalOutputRowWidth() > MAX_ASSET_ROW_WIDTH) {
-					const mult = MAX_ASSET_ROW_WIDTH / totalOutputRowWidth()
-					outputAssetWidth = outputAssetWidth * mult
-					outputAssetXGap = outputAssetXGap * mult
-				}
-
-				const base = { type: 'asset' as const, parentId: node.id }
-				return [
-					...(displayAsInput
-						? [
-								{
-									...base,
-									data: { asset, displayedAs: 'input' as const },
-									id: `${node.id}-asset-in-${asset.kind}-${asset.path}`,
-									width: inputAssetWidth,
-									position: {
-										x:
-											inputAssetCount === 1
-												? (NODE.width - inputAssetWidth) / 2 - 10 // Ensure we see the edge
-												: (inputAssetWidth + inputAssetXGap) *
-														(inputAssetIdx - inputAssetCount / 2) +
-													(NODE.width + inputAssetXGap) / 2,
-										y: READ_ASSET_Y_OFFSET
-									}
-								}
-							]
-						: []),
-					...(displayAsOutput
-						? [
-								{
-									...base,
-									data: { asset, displayedAs: 'output' as const },
-									id: `${node.id}-asset-out-${asset.kind}-${asset.path}`,
-									width: outputAssetWidth,
-									position: {
-										x:
-											outputAssetCount === 1
-												? (NODE.width - outputAssetWidth) / 2 - 10 // Ensure we see the edge
-												: (outputAssetWidth + outputAssetXGap) *
-														(outputAssetIdx - outputAssetCount / 2) +
-													(NODE.width + outputAssetXGap) / 2,
-										y: WRITE_ASSET_Y_OFFSET
-									}
-								}
-							]
-						: [])
-				]
-			})
-
-			const assetEdges = assetNodes?.map((n) => {
-				const source = (n.data.displayedAs === 'output' ? n.parentId : n.id) ?? ''
-				const target = (n.data.displayedAs === 'output' ? n.id : n.parentId) ?? ''
-				return {
-					id: `${n.id}-edge`,
-					source,
-					target,
-					type: 'empty',
-					data: {
-						insertable: false,
-						sourceId: source,
-						targetId: target,
-						moving: moving,
-						eventHandlers: eventHandler,
-						index: 0,
-						enableTrigger: false,
-						disableAi: disableAi,
-						disableMoveIds: []
-					}
-				} satisfies Edge
-			})
-
-			allAssetEdges.push(...(assetEdges ?? []))
-			allAssetNodes.push(...(assetNodes ?? []))
-		}
-
-		// Shift all nodes to make space for the new asset nodes
-		const sortedNewNodes = clone(nodes.sort((a, b) => a.position.y - b.position.y))
-		let currentYOffset = 0
-		let prevYPos = NaN
-		for (const node of sortedNewNodes) {
-			if (node.position.y !== prevYPos) {
-				if (yPosMap[prevYPos]?.w) currentYOffset += NODE_WITH_WRITE_ASSET_Y_OFFSET
-				if (yPosMap[node.position.y]?.r) currentYOffset += NODE_WITH_READ_ASSET_Y_OFFSET
-				prevYPos = node.position.y
-			}
-			node.position.y += currentYOffset
-		}
-
-		let ret: ReturnType<typeof computeAssetNodes> = [
-			[...sortedNewNodes, ...allAssetNodes],
-			[...edges, ...allAssetEdges]
-		]
-		computeAssetNodesCache = [nodes, clone(assetsMap), ret]
-		return ret
-	}
-
 	let eventHandler = {
 		deleteBranch: (detail, label) => {
 			$selectedId = label
@@ -568,7 +416,11 @@
 			return
 		}
 		let newGraph = graph
-		;[nodes, edges] = computeAssetNodes(layoutNodes(newGraph.nodes), newGraph.edges)
+		;[nodes, edges] = computeAssetNodes(layoutNodes(newGraph.nodes), newGraph.edges, assetsMap, {
+			moving,
+			eventHandlers: eventHandler,
+			disableAi
+		})
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
 	}

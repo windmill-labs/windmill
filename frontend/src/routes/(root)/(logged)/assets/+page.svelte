@@ -18,7 +18,7 @@
 	import {
 		assetDisplaysAsInputInFlowGraph,
 		assetDisplaysAsOutputInFlowGraph
-	} from '$lib/components/flows/utils'
+	} from '$lib/components/graph/renderers/nodes/AssetNode.svelte'
 
 	let assets = usePromise(() => AssetService.listAssets({ workspace: $workspaceStore ?? '' }))
 

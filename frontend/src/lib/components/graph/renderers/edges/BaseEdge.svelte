@@ -11,7 +11,7 @@
 	import {
 		assetDisplaysAsOutputInFlowGraph,
 		NODE_WITH_WRITE_ASSET_Y_OFFSET
-	} from '$lib/components/flows/utils'
+	} from '../nodes/AssetNode.svelte'
 
 	const { useDataflow } = getContext<{
 		useDataflow: Writable<boolean | undefined>
