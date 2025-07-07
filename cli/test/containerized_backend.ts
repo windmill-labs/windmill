@@ -945,6 +945,21 @@ export async function main(
   }
 
   /**
+   * List all variables in workspace
+   */
+  async listAllVariables(): Promise<Array<{path: string, description?: string, value: any, is_secret: boolean}>> {
+    const response = await fetch(`${this.config.baseUrl}/api/w/${this.config.workspace}/variables/list`, {
+      headers: { 'Authorization': `Bearer ${this.config.token}` }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to list variables: ${response.status}`);
+    }
+    
+    return await response.json();
+  }
+
+  /**
    * Update git-sync configuration via API
    */
   async updateGitSyncConfig(config: any): Promise<void> {
@@ -969,10 +984,11 @@ export async function main(
   /**
    * Create CLI command with proper authentication
    */
-  createCLICommand(args: string[], workingDir: string): Deno.Command {
+  createCLICommand(args: string[], workingDir: string, workspaceName?: string): Deno.Command {
+    const workspace = workspaceName || this.config.workspace;
     const fullArgs = [
       '--base-url', this.config.baseUrl,
-      '--workspace', this.config.workspace,
+      '--workspace', workspace,
       '--token', this.config.token,
       '--config-dir', this.config.testConfigDir,
       ...args
@@ -994,12 +1010,12 @@ export async function main(
   /**
    * Run CLI command and return result
    */
-  async runCLICommand(args: string[], workingDir: string): Promise<{
+  async runCLICommand(args: string[], workingDir: string, workspaceName?: string): Promise<{
     stdout: string;
     stderr: string;
     code: number;
   }> {
-    const cmd = this.createCLICommand(args, workingDir);
+    const cmd = this.createCLICommand(args, workingDir, workspaceName);
     const result = await cmd.output();
     
     return {

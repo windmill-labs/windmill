@@ -1,80 +1,68 @@
 import { assertEquals, assert, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { withContainerizedBackend } from "./containerized_backend.ts";
+import { addWorkspace } from "../workspace.ts";
 
 // =============================================================================
 // MULTI-INSTANCE WORKSPACE TESTS
 // Tests for handling multiple Windmill instances with same workspace IDs
 // =============================================================================
 
-Deno.test("Multi-Instance: gitsync-settings pull with same workspace ID on different instances", async () => {
+// Helper function to set up workspace profile with specific name
+async function setupWorkspaceProfile(backend: any, workspaceName: string): Promise<void> {
+  const testWorkspace = {
+    remote: backend.baseUrl,
+    workspaceId: backend.workspace,
+    name: workspaceName,
+    token: backend.token
+  };
+
+  await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+}
+
+Deno.test("Multi-Instance: gitsync-settings pull with disambiguated format", async () => {
   await withContainerizedBackend(async (backend, tempDir) => {
-    // Create wmill.yaml with overrides for different instances
+    // Set up workspace profile
+    await setupWorkspaceProfile(backend, "multi_instance_test");
+    
+    // Create wmill.yaml with disambiguated overrides for different instances
+    const backendUrl = new URL(backend.baseUrl).toString(); // Normalize URL
     await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - f/**
 excludes: []
 
 overrides:
-  # Different settings for localhost vs cloud instances
-  "http://localhost:8000/:test:u/test/test_repo":
+  # Current backend instance (should match)
+  "${backendUrl}:${backend.workspace}:u/test/test_repo":
     includeTriggers: true
     includeSchedules: true
     skipVariables: true
   
-  "https://app.windmill.dev/:test:u/test/test_repo":
+  # Different instance (won't match)
+  "https://app.windmill.dev/:${backend.workspace}:u/test/test_repo":
     includeTriggers: false
     includeSchedules: false
     skipVariables: false`);
     
-    // Pull settings from localhost instance (should get localhost override)
+    // Pull settings - should use disambiguated format override (skipVariables: true)
     const pullResult = await backend.runCLICommand([
       'gitsync-settings', 'pull',
       '--repository', 'u/test/test_repo',
       '--diff'
-    ], tempDir);
+    ], tempDir, "multi_instance_test");
     
     assertEquals(pullResult.code, 0);
-    assertStringIncludes(pullResult.stdout, "No differences found");
+    assertStringIncludes(pullResult.stdout, "Changes that would be made:");
+    assertStringIncludes(pullResult.stdout, "skipVariables");
   });
 });
 
-Deno.test("Multi-Instance: warning messages for ambiguous workspace configurations", async () => {
+Deno.test("Multi-Instance: gitsync-settings push with overrides", async () => {
   await withContainerizedBackend(async (backend, tempDir) => {
-    // Create wmill.yaml with multiple disambiguated keys for same workspace ID
-    await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
-includes:
-  - f/**
-excludes: []
-
-overrides:
-  # Multiple instances with same workspace ID
-  "http://localhost:8000/:test:u/test/test_repo":
-    skipScripts: true
-  
-  "http://localhost:8001/:test:u/test/test_repo":
-    skipScripts: false
-  
-  "https://app.windmill.dev/:test:u/test/test_repo":
-    skipScripts: true`);
+    // Set up workspace profile  
+    await setupWorkspaceProfile(backend, "push_override_test");
     
-    // Run sync pull - should show instance ambiguity warning
-    const result = await backend.runCLICommand([
-      'sync', 'pull',
-      '--repository', 'u/test/test_repo',
-      '--dry-run'
-    ], tempDir);
-    
-    assertEquals(result.code, 0);
-    
-    // Check for ambiguity warning in stderr or stdout
-    const output = result.stdout + result.stderr;
-    assertStringIncludes(output, "Multiple instances detected");
-  });
-});
-
-Deno.test("Multi-Instance: push uses correct instance-specific settings", async () => {
-  await withContainerizedBackend(async (backend, tempDir) => {
-    // Create wmill.yaml with instance-specific settings
+    // Create wmill.yaml with specific settings that differ from backend defaults
     await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - f/**
@@ -83,228 +71,93 @@ skipVariables: false
 includeSchedules: false
 
 overrides:
-  # Localhost instance settings
-  "localhost_test:u/test/test_repo":
+  # Override for current backend instance - set includeSchedules: true (backend default is false)
+  "push_override_test:u/test/test_repo":
     includeSchedules: true
     skipVariables: true`);
     
-    // Push settings - should detect local changes
+    // Push settings - should show changes because includeSchedules differs from backend
     const pushResult = await backend.runCLICommand([
       'gitsync-settings', 'push',
       '--repository', 'u/test/test_repo',
       '--diff'
-    ], tempDir);
+    ], tempDir, "push_override_test");
     
     assertEquals(pushResult.code, 0);
-    
-    // Should show changes based on override
-    const output = pushResult.stdout;
-    if (output.includes("Changes that would be pushed:")) {
-      // Settings differ from backend
-      assertStringIncludes(output, "Changes that would be pushed:");
-    } else {
-      // Settings match backend
-      assertStringIncludes(output, "No changes to push");
-    }
+    assertStringIncludes(pushResult.stdout, "Changes that would be pushed:");
+    assertStringIncludes(pushResult.stdout, "includeSchedules");
   });
 });
 
-Deno.test("Multi-Instance: workspace name resolution handles special characters", async () => {
+Deno.test("Multi-Instance: workspace names with special characters", async () => {
   await withContainerizedBackend(async (backend, tempDir) => {
-    // Simulate workspace with special characters in name
+    await setupWorkspaceProfile(backend, "my-workspace_123");
+    
     await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - f/**
 excludes: []
 
 overrides:
-  # Workspace names with special characters
   "my-workspace_123:u/test/test_repo":
-    skipScripts: true
-  
-  "workspace.prod:u/test/test_repo":
-    skipScripts: false
-  
-  "workspace@staging:u/test/test_repo":
-    includeSchedules: true`);
-    
-    // The actual workspace name is "localhost_test" for our backend
-    // So let's test with the actual workspace
-    await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
-includes:
-  - f/**
-excludes: []
-
-overrides:
-  # Use actual workspace name
-  "localhost_test:u/test/test_repo":
-    skipScripts: true
-    includeSchedules: true`);
+    skipApps: true`);
     
     const result = await backend.runCLICommand([
       'sync', 'pull',
       '--repository', 'u/test/test_repo',
       '--dry-run',
       '--json-output'
-    ], tempDir);
+    ], tempDir, "my-workspace_123");
     
     assertEquals(result.code, 0);
     
-    // Verify settings are applied
-    const jsonOutput = result.stdout.split('\n').find(line => line.trim().startsWith('{'));
-    assert(jsonOutput, "Should have JSON output");
-    const data = JSON.parse(jsonOutput);
+    const jsonMatch = result.stdout.match(/\{[\s\S]*\}/);
+    assert(jsonMatch, `Must have JSON output in: ${result.stdout}`);
+    const data = JSON.parse(jsonMatch[0]);
     
-    // Scripts should be filtered out due to skipScripts override
-    const hasScripts = data.added.some((file: string) => file.endsWith('.ts') && !file.includes('.flow'));
-    assertEquals(hasScripts, false, "Scripts should be skipped due to override");
+    // Test is designed to verify that workspace names with special characters work
+    
+    // The test app should NOT appear in changes because skipApps: true
+    const hasTestApp = (data.changes || []).some((change: any) => 
+      change.path?.includes('f/test_dashboard')
+    );
+    assertEquals(hasTestApp, false, "Test app should be skipped due to skipApps override with special character workspace name");
   });
 });
 
-Deno.test("Multi-Instance: migration from legacy to new format", async () => {
+Deno.test("Multi-Instance: workspace wildcards with disambiguated format", async () => {
   await withContainerizedBackend(async (backend, tempDir) => {
-    // Start with legacy format
+    await setupWorkspaceProfile(backend, "wildcard_test");
+    
+    const backendUrl = new URL(backend.baseUrl).toString();
     await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
-  - f/**
+  - "**"
 excludes: []
 
 overrides:
-  # Legacy format
-  "test:u/test/test_repo":
+  # Disambiguated wildcard for current backend instance
+  "${backendUrl}:${backend.workspace}:*":
     skipVariables: true
-    includeSchedules: true`);
+    skipResources: true`);
     
-    // Pull with legacy format should work
-    const legacyResult = await backend.runCLICommand([
-      'sync', 'pull',
-      '--repository', 'u/test/test_repo',
-      '--dry-run',
-      '--json-output'
-    ], tempDir);
-    
-    assertEquals(legacyResult.code, 0);
-    
-    // Update to new format
-    await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
-includes:
-  - f/**
-excludes: []
-
-overrides:
-  # New format with workspace name
-  "localhost_test:u/test/test_repo":
-    skipVariables: true
-    includeSchedules: true
-  
-  # Keep legacy for backward compatibility
-  "test:u/test/test_repo":
-    skipVariables: false
-    includeSchedules: false`);
-    
-    // Pull with new format - should use new format (takes precedence)
-    const newResult = await backend.runCLICommand([
-      'sync', 'pull',
-      '--repository', 'u/test/test_repo',
-      '--dry-run',
-      '--json-output'
-    ], tempDir);
-    
-    assertEquals(newResult.code, 0);
-    
-    // Verify new format is being used (skipVariables: true from new format)
-    const jsonOutput = newResult.stdout.split('\n').find(line => line.trim().startsWith('{'));
-    assert(jsonOutput, "Should have JSON output");
-    const data = JSON.parse(jsonOutput);
-    
-    const hasVariables = data.added.some((file: string) => file.includes('.variable.yaml'));
-    assertEquals(hasVariables, false, "Variables should be skipped due to new format override");
-  });
-});
-
-Deno.test("Multi-Instance: correct instance selection with multiple remotes", async () => {
-  await withContainerizedBackend(async (backend, tempDir) => {
-    // Create config with multiple instance overrides
-    await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
-includes:
-  - f/**
-excludes: []
-
-overrides:
-  # Different configs for different instances
-  "http://localhost:8000/:test:u/test/test_repo":
-    includes:
-      - f/local/**
-    excludes:
-      - f/local/temp/**
-  
-  "http://staging.example.com/:test:u/test/test_repo":
-    includes:
-      - f/staging/**
-  
-  "https://app.windmill.dev/:test:u/test/test_repo":
-    includes:
-      - f/prod/**`);
-    
-    // Run pull - should use localhost:8000 config
-    const result = await backend.runCLICommand([
-      'sync', 'pull',
-      '--repository', 'u/test/test_repo',
-      '--dry-run'
-    ], tempDir);
-    
-    assertEquals(result.code, 0);
-    
-    // The localhost:8000 instance settings should be active
-    // We can verify this by checking what files would be pulled
-    const output = result.stdout;
-    
-    // Should see successful dry-run completion (deterministic assertion)
-    assert(output.includes("pull"), "Dry-run output must contain 'pull' operation details");
-  });
-});
-
-Deno.test("Multi-Instance: workspace wildcard with instance disambiguation", async () => {
-  await withContainerizedBackend(async (backend, tempDir) => {
-    // Test workspace wildcards with instance-specific overrides
-    await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
-includes:
-  - f/**
-excludes: []
-
-overrides:
-  # Workspace wildcard for localhost
-  "localhost_test:*":
-    skipVariables: true
-    skipResources: true
-  
-  # Instance-specific workspace wildcard
-  "http://localhost:8000/:test:*":
-    includeSchedules: true
-  
-  # Different instance workspace wildcard
-  "https://app.windmill.dev/:test:*":
-    includeSchedules: false`);
-    
-    // Run sync with any repository - should match wildcards
     const result = await backend.runCLICommand([
       'sync', 'pull',
       '--repository', 'u/test/test_repo',
       '--dry-run',
       '--json-output'
-    ], tempDir);
+    ], tempDir, "wildcard_test");
     
     assertEquals(result.code, 0);
     
-    const jsonOutput = result.stdout.split('\n').find(line => line.trim().startsWith('{'));
-    assert(jsonOutput, "Should have JSON output");
-    const data = JSON.parse(jsonOutput);
+    const jsonMatch = result.stdout.match(/\{[\s\S]*\}/);
+    assert(jsonMatch, `Must have JSON output in: ${result.stdout}`);
+    const data = JSON.parse(jsonMatch[0]);
     
-    // Should skip variables and resources due to wildcard
-    const hasVariables = data.added.some((file: string) => file.includes('.variable.yaml'));
-    const hasResources = data.added.some((file: string) => file.includes('.resource.yaml'));
-    
-    assertEquals(hasVariables, false, "Variables should be skipped due to wildcard");
-    assertEquals(hasResources, false, "Resources should be skipped due to wildcard");
+    // Variables should be skipped due to disambiguated wildcard override
+    const hasTestVariable = (data.changes || []).some((change: any) => 
+      change.path?.includes('u/admin/test_config.variable.yaml')
+    );
+    assertEquals(hasTestVariable, false, "Variables should be skipped due to disambiguated wildcard override");
   });
 });

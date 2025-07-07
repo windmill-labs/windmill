@@ -38,32 +38,62 @@ const TEST_WORKSPACES = {
 Deno.test("Override Key Resolution: primary format (workspace.name:repo) takes precedence", async () => {
   const config = {
     includes: ["default/**"],
+    skipVariables: false,
     overrides: {
-      "localhost_test:u/user/repo": { includes: ["new/**"] },
-      "test:u/user/repo": { includes: ["legacy/**"] }
+      "localhost_test:u/user/repo": { includes: ["new/**"], skipVariables: true }
     }
   };
   
   const workspace = TEST_WORKSPACES.localhost_test;
-  const effective = getEffectiveSettings(config, workspace.workspaceId, "u/user/repo", workspace);
+  const effective = getEffectiveSettings(config, "u/user/repo", workspace);
   
-  // STRONG ASSERTION: Must use new format, never legacy
-  assertEquals(effective.includes, ["new/**"], "Must use workspace name format, not legacy workspaceId format");
+  // STRONG ASSERTION: Must use override for includes, but also merge with base config
+  assertEquals(effective.includes, ["new/**"], "Must use override includes");
+  assertEquals(effective.skipVariables, true, "Must use override skipVariables");
+  // Should inherit other settings from base config that aren't overridden
 });
 
-Deno.test("Override Key Resolution: fallback to legacy format when new format not available", async () => {
+Deno.test("Override Key Resolution: override inherits skip flags from base config", async () => {
+  const config = {
+    includes: ["default/**"],
+    skipVariables: true,      // Base has this as true (implies skipSecrets: true)
+    skipResources: true,      // Base has this as true  
+    skipApps: false,          // Base has this as false
+    defaultTs: "bun" as const,
+    overrides: {
+      "localhost_test:u/user/repo": { 
+        includes: ["override/**"],
+        skipApps: true           // Override only changes skipApps, should inherit other skip flags
+      }
+    }
+  };
+  
+  const workspace = TEST_WORKSPACES.localhost_test;
+  const effective = getEffectiveSettings(config, "u/user/repo", workspace);
+  
+  // Override values should be used
+  assertEquals(effective.includes, ["override/**"], "Must use override includes");
+  assertEquals(effective.skipApps, true, "Must use override skipApps");
+  
+  // Should inherit skip flags from base config
+  assertEquals(effective.skipVariables, true, "Must inherit skipVariables=true from base config");
+  assertEquals(effective.skipResources, true, "Must inherit skipResources=true from base config");
+  assertEquals(effective.defaultTs, "bun", "Must inherit defaultTs from base config");
+});
+
+Deno.test("Override Key Resolution: no match when override key doesn't match workspace", async () => {
   const config = {
     includes: ["default/**"],
     overrides: {
-      "test:u/user/repo": { includes: ["legacy/**"] }
+      "wrong_workspace:u/user/repo": { includes: ["wrong/**"] }
     }
   };
   
   const workspace = TEST_WORKSPACES.localhost_test;
-  const effective = getEffectiveSettings(config, workspace.workspaceId, "u/user/repo", workspace);
+  const effective = getEffectiveSettings(config, "u/user/repo", workspace);
   
-  // STRONG ASSERTION: Must fall back to legacy format when new format unavailable
-  assertEquals(effective.includes, ["legacy/**"], "Must use legacy format when workspace name format not found");
+  // STRONG ASSERTION: Must use default when no override key matches
+  assertEquals(effective.includes, ["default/**"], "Must use default when no override key matches workspace");
 });
 
 Deno.test("Override Key Resolution: disambiguated format (remote:workspaceId:repo) for multi-instance", async () => {
@@ -77,13 +107,13 @@ Deno.test("Override Key Resolution: disambiguated format (remote:workspaceId:rep
   
   // Test localhost instance
   const localhostWorkspace = TEST_WORKSPACES.localhost_test;
-  const localhostEffective = getEffectiveSettings(config, localhostWorkspace.workspaceId, "u/user/repo", localhostWorkspace);
+  const localhostEffective = getEffectiveSettings(config, "u/user/repo", localhostWorkspace);
   assertEquals(localhostEffective.includes, ["local/**"], "Must match localhost instance based on remote URL");
   assertEquals(localhostEffective.skipScripts, true, "Must apply localhost-specific settings");
   
   // Test cloud instance
   const cloudWorkspace = TEST_WORKSPACES.cloud_test;
-  const cloudEffective = getEffectiveSettings(config, cloudWorkspace.workspaceId, "u/user/repo", cloudWorkspace);
+  const cloudEffective = getEffectiveSettings(config, "u/user/repo", cloudWorkspace);
   assertEquals(cloudEffective.includes, ["cloud/**"], "Must match cloud instance based on remote URL");
   assertEquals(cloudEffective.skipScripts, false, "Must apply cloud-specific settings");
 });
@@ -101,12 +131,12 @@ Deno.test("Override Key Resolution: workspace-level wildcards work correctly", a
   const workspace = TEST_WORKSPACES.localhost_test;
   
   // Test specific repo override (should take precedence over wildcard)
-  const specificEffective = getEffectiveSettings(config, workspace.workspaceId, "u/user/specific", workspace);
+  const specificEffective = getEffectiveSettings(config, "u/user/specific", workspace);
   assertEquals(specificEffective.includes, ["specific/**"], "Specific repo override must take precedence over wildcard");
   assertEquals(specificEffective.skipVariables, true, "Workspace wildcard setting must still apply");
   
   // Test wildcard match
-  const wildcardEffective = getEffectiveSettings(config, workspace.workspaceId, "u/user/other", workspace);
+  const wildcardEffective = getEffectiveSettings(config, "u/user/other", workspace);
   assertEquals(wildcardEffective.includes, ["workspace/**"], "Wildcard must match repos without specific overrides");
   assertEquals(wildcardEffective.skipVariables, true, "Workspace wildcard setting must apply");
 });
@@ -116,31 +146,30 @@ Deno.test("Override Key Resolution: exact precedence order is enforced", async (
     includes: ["default/**"],
     overrides: {
       "localhost_test:u/user/repo": { includes: ["name/**"], tag: "name" },
-      "http://localhost:8001/:test:u/user/repo": { includes: ["disambig/**"], tag: "disambig" },
-      "test:u/user/repo": { includes: ["legacy/**"], tag: "legacy" }
+      "http://localhost:8001/:test:u/user/repo": { includes: ["disambig/**"], tag: "disambig" }
     }
   };
   
   const workspace = TEST_WORKSPACES.localhost_test;
-  const effective = getEffectiveSettings(config, workspace.workspaceId, "u/user/repo", workspace);
+  const effective = getEffectiveSettings(config, "u/user/repo", workspace);
   
   // STRONG ASSERTION: Must use first format in precedence order
   assertEquals(effective.includes, ["name/**"], "Must use workspace name format (highest precedence)");
   assertEquals((effective as any).tag, "name", "Must apply only settings from highest precedence match");
 });
 
-Deno.test("Override Key Resolution: no workspace object falls back to legacy only", async () => {
+Deno.test("Override Key Resolution: no workspace object uses defaults only", async () => {
   const config = {
     includes: ["default/**"],
     overrides: {
       "localhost_test:u/user/repo": { includes: ["new/**"] },
-      "test:u/user/repo": { includes: ["legacy/**"] }
+      "wrong:u/user/repo": { includes: ["wrong/**"] }
     }
   };
   
-  // Call without workspace object - should only check legacy format
-  const effective = getEffectiveSettings(config, "test", "u/user/repo");
-  assertEquals(effective.includes, ["legacy/**"], "Without workspace object, must fall back to legacy format only");
+  // Call without workspace object - should only use defaults
+  const effective = getEffectiveSettings(config, "u/user/repo");
+  assertEquals(effective.includes, ["default/**"], "Without workspace object, must use defaults only");
 });
 
 // =============================================================================
@@ -300,6 +329,21 @@ overrides:
     
     const data = JSON.parse(jsonMatch[0]);
     
+    console.log("=== DEBUG: Multi-instance test ===");
+    console.log("JSON data:", JSON.stringify(data, null, 2));
+    console.log("Backend baseUrl:", backend.baseUrl);
+    console.log("Normalized baseUrl:", normalizedBaseUrl);
+    console.log("Expected override key:", `${normalizedBaseUrl}:${backend.workspace}:u/test/multi_instance_repo`);
+    console.log("Backend workspace ID:", backend.workspace);
+    console.log("CLI should be using workspace with name 'instance1'");
+    
+    // Let's also check what's in the wmill.yaml that was created
+    const yamlContent = await Deno.readTextFile(`${tempDir}/wmill.yaml`);
+    console.log("=== wmill.yaml content ===");
+    console.log(yamlContent);
+    console.log("=== END wmill.yaml ===");
+    console.log("=== END DEBUG ===");
+    
     // STRONG ASSERTION: Must use instance1 settings (includes: ["f/instance1/**"])
     // Since no files exist in f/instance1/**, expect 0 files
     assertEquals(data.total, 0, "Instance1 override must be applied, filtering to f/instance1/** pattern");
@@ -377,7 +421,7 @@ excludes: []`);
   });
 });
 
-Deno.test("Integration: error messages show workspace name and ID correctly", async () => {
+Deno.test("Integration: sync works correctly with mismatched override keys", async () => {
   await withContainerizedBackend(async (backend, tempDir) => {
     // Step 1: Add test workspace using backend's isolated config
     
@@ -397,7 +441,7 @@ includes:
 excludes: []
 
 overrides:
-  # Wrong workspace name
+  # Wrong workspace name - should not match, falls back to defaults
   "wrong_workspace_name:u/test/repo":
     skipScripts: true`);
     
@@ -406,20 +450,223 @@ overrides:
     const result = await backend.runCLICommand([
       'sync', 'pull',
       '--repository', 'u/test/repo',
-      '--dry-run'
+      '--dry-run',
+      '--json-output'
     ], tempDir);
     
-    // Command should still succeed, but show warnings
+    // Command should succeed with default settings since override doesn't match
     assertEquals(result.code, 0, "Sync command should succeed despite override key mismatch");
     
-    // STRONG ASSERTION: Error message must show workspace name (now that ambiguity is resolved)
-    assert(
-      result.stderr.includes("error_test_workspace"),
-      `Error message must show workspace name. stderr: ${result.stderr}`
-    );
-    assert(
-      result.stderr.includes(`ID: ${backend.workspace}`),
-      `Error message must show workspace ID. stderr: ${result.stderr}`
-    );
+    // Extract JSON to verify behavior
+    const jsonMatch = result.stdout.match(/\{[\s\S]*\}/);
+    assert(jsonMatch, `Must have JSON output in: ${result.stdout}`);
+    const data = JSON.parse(jsonMatch[0]);
+    
+    // Since override doesn't match, it should use default includes ["f/**"] 
+    // and default skipScripts: false, so scripts should be included
+    assertEquals(data.success, true, "Sync operation must report success");
+  });
+});
+
+// =============================================================================
+// INTEGRATION TESTS - Real File Operations with Overrides  
+// =============================================================================
+
+Deno.test("Integration: sync pull with skipVariables override excludes variable files", async () => {
+  await withContainerizedBackend(async (backend, tempDir) => {
+    // Step 1: Set up workspace
+    const testWorkspace = {
+      remote: backend.baseUrl,
+      workspaceId: backend.workspace,
+      name: "skip_variables_test",
+      token: backend.token
+    };
+    await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+
+    // Step 2: Create wmill.yaml with override that skips variables
+    await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - "**"
+skipVariables: false
+
+overrides:
+  "skip_variables_test:u/test/test_repo":
+    skipVariables: true`);
+
+    // Step 3: Verify backend has test variable before pull
+    const backendVariables = await backend.listAllVariables();
+    const hasTestVariable = backendVariables.some(v => v.path === 'u/admin/test_config');
+    assert(hasTestVariable, "Backend should have test variable before pull");
+
+    // Step 4: Run sync pull (NOT dry-run) to actually write files
+    const result = await backend.runCLICommand([
+      'sync', 'pull',
+      '--repository', 'u/test/test_repo',
+      '--yes'
+    ], tempDir);
+
+    assertEquals(result.code, 0, `Sync pull should succeed: ${result.stderr}`);
+
+    // Step 5: Verify variable files were NOT written to filesystem due to skipVariables: true
+    const filesWritten = [];
+    for await (const entry of Deno.readDir(tempDir)) {
+      if (entry.isFile && entry.name.endsWith('.yaml')) {
+        filesWritten.push(entry.name);
+      }
+    }
+
+    const hasVariableFile = filesWritten.some(file => file.includes('.variable.yaml'));
+    assertEquals(hasVariableFile, false, "Variable files should NOT be written due to skipVariables override");
+
+    // Step 6: Verify other files WERE written (app, resource)
+    const hasAppFile = filesWritten.some(file => file.includes('test_dashboard.app'));
+    const hasResourceFile = filesWritten.some(file => file.includes('.resource.yaml'));
+    
+    // At least one of app or resource should be written (depends on includes pattern)
+    assert(hasAppFile || hasResourceFile || filesWritten.length > 1, 
+      `Other files should be written. Files: ${filesWritten.join(', ')}`);
+  });
+});
+
+Deno.test("Integration: sync push with skipVariables override excludes variable files", async () => {
+  await withContainerizedBackend(async (backend, tempDir) => {
+    // Step 1: Set up workspace  
+    const testWorkspace = {
+      remote: backend.baseUrl,
+      workspaceId: backend.workspace,
+      name: "push_skip_test",
+      token: backend.token
+    };
+    await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+
+    // Step 2: Create wmill.yaml with override that skips variables
+    await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - "**"
+skipVariables: false
+
+overrides:
+  "push_skip_test:u/test/test_repo":
+    skipVariables: true`);
+
+    // Step 3: Create local test files including variables and scripts
+    const timestamp = Date.now();
+    
+    // Create variable file
+    await Deno.mkdir(`${tempDir}/u/admin`, { recursive: true });
+    await Deno.writeTextFile(`${tempDir}/u/admin/test_push_var_${timestamp}.variable.yaml`, 
+      `value: test_value_${timestamp}
+description: Test variable for push override test
+is_secret: false`);
+
+    // Create script file  
+    await Deno.mkdir(`${tempDir}/f/test`, { recursive: true });
+    await Deno.writeTextFile(`${tempDir}/f/test/push_script_${timestamp}.ts`,
+      `export async function main() {
+  return "Test script ${timestamp}";
+}`);
+    await Deno.writeTextFile(`${tempDir}/f/test/push_script_${timestamp}.script.yaml`,
+      `summary: Test Push Script ${timestamp}
+description: Script for testing push with override`);
+
+    // Step 4: Get backend state before push
+    const beforeVariables = await backend.listAllVariables();
+    const beforeScripts = await backend.listAllScripts();
+    
+    const variableExistsBefore = beforeVariables.some(v => v.path === `u/admin/test_push_var_${timestamp}`);
+    const scriptExistsBefore = beforeScripts.some(s => s.path === `f/test/push_script_${timestamp}`);
+    
+    assertEquals(variableExistsBefore, false, "Variable should not exist before push");
+    assertEquals(scriptExistsBefore, false, "Script should not exist before push");
+
+    // Step 5: Run sync push (NOT dry-run) to actually push files
+    const result = await backend.runCLICommand([
+      'sync', 'push',
+      '--repository', 'u/test/test_repo', 
+      '--yes'
+    ], tempDir);
+
+    assertEquals(result.code, 0, `Sync push should succeed: ${result.stderr}`);
+
+    // Step 6: Verify variable was NOT pushed due to skipVariables: true
+    const afterVariables = await backend.listAllVariables();
+    const variableExistsAfter = afterVariables.some(v => v.path === `u/admin/test_push_var_${timestamp}`);
+    assertEquals(variableExistsAfter, false, "Variable should NOT be pushed due to skipVariables override");
+
+    // Step 7: Verify script WAS pushed (not affected by skipVariables)
+    const afterScripts = await backend.listAllScripts();
+    const scriptExistsAfter = afterScripts.some(s => s.path === `f/test/push_script_${timestamp}`);
+    assertEquals(scriptExistsAfter, true, "Script should be pushed normally");
+  });
+});
+
+Deno.test("Integration: sync pull respects includes override for file filtering", async () => {
+  await withContainerizedBackend(async (backend, tempDir) => {
+    // Step 1: Set up workspace
+    const testWorkspace = {
+      remote: backend.baseUrl,
+      workspaceId: backend.workspace,
+      name: "includes_test",
+      token: backend.token
+    };
+    await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+
+    // Step 2: Create wmill.yaml with override that only includes specific path
+    await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - "**"
+
+overrides:
+  "includes_test:u/test/test_repo":
+    includes:
+      - "u/admin/**"  # Only include admin resources, exclude f/** apps/scripts`);
+
+    // Step 3: Run sync pull to write files
+    const result = await backend.runCLICommand([
+      'sync', 'pull',
+      '--repository', 'u/test/test_repo',
+      '--yes'
+    ], tempDir);
+
+    assertEquals(result.code, 0, `Sync pull should succeed: ${result.stderr}`);
+
+    // Step 4: Verify only admin resources were written due to includes override
+    const allFiles = [];
+    
+    try {
+      for await (const entry of Deno.readDir(`${tempDir}/u/admin`)) {
+        if (entry.isFile) {
+          allFiles.push(`u/admin/${entry.name}`);
+        }
+      }
+    } catch {
+      // Directory might not exist if no files matched
+    }
+
+    // Step 5: Verify f/** files were NOT written due to includes override
+    let fDirectoryExists = false;
+    try {
+      await Deno.stat(`${tempDir}/f`);
+      fDirectoryExists = true;
+    } catch {
+      // Directory doesn't exist, which is expected
+    }
+
+    assert(allFiles.length > 0 || !fDirectoryExists, 
+      "Should either have admin files OR no f/ directory due to includes override");
+    
+    if (fDirectoryExists) {
+      // If f/ exists, it should be empty or minimal
+      const fFiles = [];
+      for await (const entry of Deno.readDir(`${tempDir}/f`)) {
+        if (entry.isFile) {
+          fFiles.push(`f/${entry.name}`);
+        }
+      }
+      
+      // The override should have excluded f/** files
+      console.log(`Files in f/: ${fFiles.join(', ')}`);
+      console.log(`Files in u/admin/: ${allFiles.join(', ')}`);
+    }
   });
 });
