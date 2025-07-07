@@ -108,7 +108,8 @@
 			payloadData: undefined
 		}),
 		currentEditor: writable(undefined),
-		modulesTestStates: new ModulesTestStates()
+		modulesTestStates: new ModulesTestStates(),
+		getPreviewJob: () => undefined
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),

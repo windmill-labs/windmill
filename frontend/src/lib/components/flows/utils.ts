@@ -195,7 +195,3 @@ export function checkIfParentLoop(
 	}
 	return undefined
 }
-
-export type previewContext = {
-	getJob: () => Job | undefined
-}

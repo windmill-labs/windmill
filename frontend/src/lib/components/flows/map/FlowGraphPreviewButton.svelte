@@ -4,7 +4,7 @@
 	import { Loader2, Play, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { getContext } from 'svelte'
-	import type { previewContext } from '../utils'
+	import type { FlowEditorContext } from '../types'
 	import Popover from '$lib/components/Popover.svelte'
 
 	interface Props {
@@ -29,8 +29,8 @@
 		onHideJobStatus
 	}: Props = $props()
 
-	const jobContext = getContext<previewContext>('previewContext')
-	const job = $derived(jobContext?.getJob())
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	const job = $derived(flowEditorContext?.getPreviewJob())
 
 	const wide = $derived(hover || selected || job || individualStepTests)
 </script>

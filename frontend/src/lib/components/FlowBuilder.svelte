@@ -46,7 +46,7 @@
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
-	import { cleanInputs, type previewContext } from './flows/utils'
+	import { cleanInputs } from './flows/utils'
 	import {
 		Calendar,
 		Pen,
@@ -636,7 +636,8 @@
 		insertButtonOpen,
 		executionCount: writable(0),
 		flowInputEditorState: flowInputEditorStateStore,
-		modulesTestStates
+		modulesTestStates,
+		getPreviewJob: () => previewJob
 	})
 
 	// Add triggers context store
@@ -961,10 +962,6 @@
 
 	$effect(() => {
 		job && jobObserver(job)
-	})
-
-	setContext<previewContext>('previewContext', {
-		getJob: () => previewJob
 	})
 
 	// Create a derived store that only shows the module states when showModuleStatus is true
