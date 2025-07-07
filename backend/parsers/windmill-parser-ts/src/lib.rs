@@ -9,7 +9,9 @@
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use swc_ecma_visit::{noop_visit_type, Visit, VisitWith};
-use windmill_parser::{json_to_typ, Arg, MainArgSignature, ObjectProperty, OneOfVariant, Typ};
+use windmill_parser::{
+    json_to_typ, to_snake_case, Arg, MainArgSignature, ObjectProperty, OneOfVariant, Typ,
+};
 
 use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Span, Spanned};
 use swc_ecma_ast::{
@@ -24,6 +26,8 @@ use swc_ecma_parser::{lexer::Lexer, EsSyntax, Parser, StringInput, Syntax, TsSyn
 use regex::Regex;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+
+const WMILL_TYPE_REF_KEY: &'static str = "_wmill_type_ref_hint";
 
 struct ImportsFinder {
     imports: HashSet<String>,
@@ -414,13 +418,13 @@ const DEFAULT_DEPTH_LEVEL: u8 = 10;
 fn resolve_type_ref(type_resolver: &HashMap<String, (Typ, bool)>, typ: &mut Typ, depth_level: u8) {
     match typ {
         Typ::Object(obj) => {
-            for property in obj {
+            for property in obj.iter_mut().filter(|obj| obj.key != WMILL_TYPE_REF_KEY) {
                 resolve_type_ref(type_resolver, &mut property.typ, depth_level);
             }
         }
         Typ::List(list) => match list.as_mut() {
             Typ::Object(obj) => {
-                for property in obj {
+                for property in obj.iter_mut().filter(|obj| obj.key != WMILL_TYPE_REF_KEY) {
                     resolve_type_ref(type_resolver, &mut property.typ, depth_level);
                 }
             }
@@ -495,7 +499,11 @@ fn resolve_ts_interface_and_type_alias(
     type_resolver: &mut HashMap<String, (Typ, bool)>,
     top_level_call: bool,
 ) -> Option<(Typ, bool)> {
-    if let Some(resolved_type) = type_resolver.get(type_name) {
+    let Some(type_declaration) = symbol_table.get(type_name) else {
+        return None;
+    };
+
+    if let Some(resolved_type) = type_resolver.get_mut(type_name) {
         return Some(resolved_type.to_owned());
     }
 
@@ -503,10 +511,6 @@ fn resolve_ts_interface_and_type_alias(
         type_name.to_owned(),
         (Typ::TypeRef(type_name.to_owned()), false),
     );
-
-    let Some(type_declaration) = symbol_table.get(type_name) else {
-        return None;
-    };
 
     let mut resolved_type = match type_declaration {
         TypeDecl::Alias(alias) => {
@@ -517,6 +521,13 @@ fn resolve_ts_interface_and_type_alias(
             false,
         ),
     };
+
+    if let Typ::Object(obj) = &mut resolved_type.0 {
+        obj.push(ObjectProperty {
+            key: WMILL_TYPE_REF_KEY.to_owned(),
+            typ: Box::new(Typ::TypeRef(to_snake_case(type_name))),
+        });
+    }
 
     type_resolver.insert(type_name.to_owned(), resolved_type.clone());
 
@@ -705,7 +716,7 @@ fn tstype_to_typ(
                     type_resolver,
                     top_level_call,
                 )
-                .unwrap_or_else(|| (Typ::Unknown, false)),
+                .unwrap_or_else(|| (Typ::Resource(to_snake_case(symbol)), false)),
             }
         }
         _ => (Typ::Unknown, false),
