@@ -74,6 +74,7 @@
 	)
 
 	let action = $derived(label === 'Input' ? getAiModuleAction(label) : undefined)
+	let hoverButton = $state(false)
 </script>
 
 <VirtualItemWrapper
@@ -147,27 +148,6 @@
 			{/if}
 		</div>
 
-		{#if alwaysPluggable}
-			<div
-				class="absolute top-1/2 -translate-y-8 -translate-x-[100%] -left-[0] flex py-4 pb-10 justify-end w-fit px-2 min-w-32"
-			>
-				{#if outputPickerVisible}
-					<div transition:fade={{ duration: 100 }}>
-						<FlowGraphPreviewButton
-							{isRunning}
-							{hover}
-							{selected}
-							{onTestFlow}
-							{onCancelTestFlow}
-							{onOpenPreview}
-							{onHideJobStatus}
-							{individualStepTests}
-						/>
-					</div>
-				{/if}
-			</div>
-		{/if}
-
 		<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
 			{#if cache}
 				<Popover notClickable>
@@ -196,5 +176,34 @@
 				</Popover>
 			{/if}
 		</div>
+	{/snippet}
+	{#snippet previewButton()}
+		{#if alwaysPluggable}
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				class="absolute top-1/2 -translate-y-[35px] -translate-x-[100%] -left-[0] flex py-4 justify-end w-fit px-2 min-w-32"
+				onmouseenter={() => {
+					hoverButton = true
+				}}
+				onmouseleave={() => {
+					hoverButton = false
+				}}
+			>
+				{#if outputPickerVisible}
+					<div transition:fade={{ duration: 100 }}>
+						<FlowGraphPreviewButton
+							{isRunning}
+							hover={hoverButton}
+							{selected}
+							{onTestFlow}
+							{onCancelTestFlow}
+							{onOpenPreview}
+							{onHideJobStatus}
+							{individualStepTests}
+						/>
+					</div>
+				{/if}
+			</div>
+		{/if}
 	{/snippet}
 </VirtualItemWrapper>
