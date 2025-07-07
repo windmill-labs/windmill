@@ -16,7 +16,7 @@ export function processItems<Item extends { label?: string; value: any }>({
 	let items2 =
 		items?.map((item) => ({
 			...item,
-			label: getLabel(item)
+			label: getLabel(item) ?? ''
 		})) ?? []
 	if (groupBy) {
 		items2 =
@@ -46,12 +46,12 @@ export type ProcessedItem<T> = {
 	subtitle?: string
 }
 
-export function getLabel<T>(item: { label?: string; value: T } | undefined): string {
+export function getLabel<T>(item: { label?: string; value: T } | undefined): string | undefined {
 	if (!item) return ''
 	if (item.label) return item.label
 	if (typeof item.value === 'string') return item.value
 	if (typeof item.value == 'number' || typeof item.value == 'boolean') return item.value.toString()
-
+	if (item.value == null) { return undefined }
 	return JSON.stringify(item.value)
 }
 

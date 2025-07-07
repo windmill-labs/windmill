@@ -104,13 +104,11 @@
 	{initialArgs}
 	bind:this={scriptBuilder}
 	lockedLanguage={templatePath != null || hubPath != null}
-	on:deploy={(e) => {
-		let newHash = e.detail
-		goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
+	onDeploy={(e) => {
+		goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 	}}
-	on:saveInitial={(e) => {
-		let path = e.detail
-		goto(`/scripts/edit/${path}`)
+	onSaveInitial={(e) => {
+		goto(`/scripts/edit/${e.path}`)
 	}}
 	searchParams={$page.url.searchParams}
 	{script}

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, onDestroy, getContext, untrack } from 'svelte'
-	import { getFirstStepSchema } from '$lib/components/flows/flowStore.svelte'
+	import { getFirstStepSchema } from '$lib/components/flows/flowStore'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { twMerge } from 'tailwind-merge'
 	import { Alert } from '$lib/components/common'

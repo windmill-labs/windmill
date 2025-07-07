@@ -524,22 +524,21 @@
 	let workspace = $derived($page.url.searchParams.get('workspace') ?? undefined)
 	let themeDarkRaw = $derived($page.url.searchParams.get('activeColorTheme'))
 	let themeDark = $derived(themeDarkRaw == '2' || themeDarkRaw == '4')
-	$effect(() => {
+	$effect.pre(() => {
 		if (token) {
 			OpenAPI.WITH_CREDENTIALS = true
 			OpenAPI.TOKEN = token
-			untrack(() => loadUser())
 		}
 	})
-	$effect(() => {
+	$effect.pre(() => {
 		if (workspace) {
 			$workspaceStore = workspace
-			untrack(() => setupCopilotInfo())
 		}
 	})
-	$effect(() => {
+	$effect.pre(() => {
 		if (workspace && token) {
 			untrack(() => loadUser())
+			untrack(() => setupCopilotInfo())
 		}
 	})
 	$effect(() => {
