@@ -2,7 +2,7 @@
 	import { ScriptService, type FlowModule, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getScriptByPath } from '$lib/scripts'
-	import { getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
@@ -99,17 +99,20 @@
 	}
 
 	$effect(() => {
+		// Update testIsLoading to read the state from parent components
 		testIsLoading = modulesTestStates.states[mod.id]?.loading ?? false
 	})
 
-	onMount(() => {
-		const modId = mod.id
-		modulesTestStates.states[modId] = {
-			...(modulesTestStates.states[modId] ?? { loading: false }),
-			loading: testIsLoading
-		}
-		console.log('mounting module test', mod.id)
+	$effect(() => {
+		// Update testJob to read the state from parent components
+		testJob = modulesTestStates.states[mod.id]?.testJob
 	})
+
+	modulesTestStates.states[mod.id] = {
+		...(modulesTestStates.states[mod.id] ?? { loading: false }),
+		loading: testIsLoading,
+		testJob: testJob
+	}
 </script>
 
 <TestJobLoader
@@ -129,5 +132,5 @@
 			}
 		}
 	}
-	bind:job={testJob}
+	bind:job={modulesTestStates.states[mod.id].testJob}
 />

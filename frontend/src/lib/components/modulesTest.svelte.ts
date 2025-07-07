@@ -1,6 +1,9 @@
+import type { Job } from '$lib/gen'
+
 type moduleTestState = {
 	loading: boolean
 	cancel?: () => Promise<void>
+	testJob?: Job
 }
 
 export class ModulesTestStates {
