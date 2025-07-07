@@ -8,10 +8,11 @@
 	import { Button } from './common'
 	import { Pen, Plus, RotateCw } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { isDbType } from './apps/components/display/dbtable/utils'
 	import Select from './select/Select.svelte'
 	import DbManagerDrawer from './DBManagerDrawer.svelte'
-	import ExploreAssetButton from '../../routes/(root)/(logged)/assets/ExploreAssetButton.svelte'
+	import ExploreAssetButton, {
+		assetCanBeExplored
+	} from '../../routes/(root)/(logged)/assets/ExploreAssetButton.svelte'
 
 	interface Props {
 		initialValue?: string | undefined
@@ -248,7 +249,7 @@
 			iconOnly
 		/>
 	</div>
-	{#if showSchemaExplorer && isDbType(resourceType) && value}
+	{#if showSchemaExplorer && value && assetCanBeExplored({ kind: 'resource', path: value }, { resource_type: resourceType })}
 		<ExploreAssetButton
 			_resourceMetadata={{ resource_type: resourceType }}
 			asset={{ kind: 'resource', path: value }}

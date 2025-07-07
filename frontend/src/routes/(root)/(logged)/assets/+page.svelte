@@ -14,7 +14,7 @@
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { pluralize, truncate } from '$lib/utils'
 	import { untrack } from 'svelte'
-	import ExploreAssetButton from './ExploreAssetButton.svelte'
+	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
 	import {
 		assetDisplaysAsInputInFlowGraph,
 		assetDisplaysAsOutputInFlowGraph
@@ -69,23 +69,30 @@
 				</tr>
 			</Head>
 			<tbody class="divide-y bg-surface">
+				{#if filteredAssets.length === 0}
+					<tr class="h-14">
+						<Cell colspan="3" class="text-center text-tertiary">No assets found</Cell>
+					</tr>
+				{/if}
 				{#each filteredAssets as asset}
 					{@const assetUri = formatAsset(asset)}
 					<tr class="h-14">
-						<Cell first>{truncate(assetUri, 92)}</Cell>
+						<Cell first class="w-[75%]">{truncate(assetUri, 92)}</Cell>
 						<Cell>
 							<a href={`#${assetUri}`} onclick={() => (viewOccurences = asset)}>
 								{pluralize(asset.usages.length, 'occurrence')}
 							</a>
 						</Cell>
 						<Cell>
-							<ExploreAssetButton
-								{asset}
-								{s3FilePicker}
-								{dbManagerDrawer}
-								_resourceMetadata={{ resource_type: resourceTypesCache[asset.path] }}
-								class="w-24"
-							/>
+							{#if assetCanBeExplored(asset, { resource_type: resourceTypesCache[asset.path] })}
+								<ExploreAssetButton
+									{asset}
+									{s3FilePicker}
+									{dbManagerDrawer}
+									_resourceMetadata={{ resource_type: resourceTypesCache[asset.path] }}
+									class="w-24"
+								/>
+							{/if}
 						</Cell>
 					</tr>
 				{/each}

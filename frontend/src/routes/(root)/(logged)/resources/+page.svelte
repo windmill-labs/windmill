@@ -60,8 +60,7 @@
 	import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
-	import { isDbType } from '$lib/components/apps/components/display/dbtable/utils'
-	import ExploreAssetButton from '../assets/ExploreAssetButton.svelte'
+	import ExploreAssetButton, { assetCanBeExplored } from '../assets/ExploreAssetButton.svelte'
 	import DbManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
@@ -903,9 +902,9 @@
 											</div>
 										</Cell>
 										<Cell class="flex justify-end">
-											{#if path && isDbType(resource_type)}
+											{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type })}
 												<ExploreAssetButton
-													asset={{ kind: 'resource', path: path }}
+													asset={{ kind: 'resource', path }}
 													{dbManagerDrawer}
 													_resourceMetadata={{ resource_type }}
 													class="w-24"
