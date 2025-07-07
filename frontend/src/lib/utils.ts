@@ -1,5 +1,4 @@
 // /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-// import { goto } from '$lib/navigation'
 // import { AppService, type Flow, FlowService, Script, ScriptService, type User } from '$lib/gen'
 // import { toast } from '@zerodevx/svelte-toast'
 // import type { Schema, SupportedLanguage } from './common'
@@ -166,9 +165,9 @@ export function displayDate(
 		}
 		const dateChoices: Intl.DateTimeFormatOptions = displayDate
 			? {
-					day: 'numeric',
-					month: 'numeric'
-				}
+				day: 'numeric',
+				month: 'numeric'
+			}
 			: {}
 		return date.toLocaleString(undefined, {
 			...timeChoices,
@@ -974,7 +973,7 @@ export async function tryEvery({
 		try {
 			await tryCode()
 			break
-		} catch (err) {}
+		} catch (err) { }
 		i++
 	}
 	if (i >= times) {
@@ -1241,7 +1240,7 @@ export function conditionalMelt(node: HTMLElement, meltItem: AnyMeltElement | un
 	if (meltItem) {
 		return meltItem(node)
 	}
-	return { destroy: () => {} }
+	return { destroy: () => { } }
 }
 
 export type Item = {

@@ -28,7 +28,7 @@
 	import { Drawer } from '$lib/components/common'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { getDependeeAndDependentComponents } from '../flowExplorer'
-	import { replaceId } from '../flowStore.svelte'
+	import { replaceId } from '../flowStore'
 	import FlowModuleSchemaItemViewer from './FlowModuleSchemaItemViewer.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'

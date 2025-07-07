@@ -17,11 +17,11 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import GcpTriggerEditorConfigSection from './GcpTriggerEditorConfigSection.svelte'
-	import { base } from '$app/paths'
 	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveGcpTriggerFromCfg } from './utils'
 	import { handleConfigChange, type Trigger } from '../utils'
+	import { base } from '$lib/base'
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let is_flow: boolean = $state(false)

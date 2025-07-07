@@ -1,4 +1,3 @@
-import { page } from '$app/state'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionTool,
@@ -189,7 +188,7 @@ function getTriggerableComponents(): string {
 // Function to get the current page name
 function getCurrentPageName(): string {
 	try {
-		const currentPage = page.url.pathname
+		const currentPage = window.location.pathname
 		switch (currentPage) {
 			case '/':
 				return 'Home Page'

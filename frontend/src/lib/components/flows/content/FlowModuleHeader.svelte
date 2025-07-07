@@ -147,6 +147,8 @@
 		{/if}
 		{#if customUi?.tagEdit != false}
 			<FlowModuleWorkerTagSelect
+				placeholder={customUi?.tagSelectPlaceholder}
+				noLabel={customUi?.tagSelectNoLabel}
 				nullTag={tag}
 				tag={module.value.tag_override}
 				on:change={(e) => dispatch('tagChange', e.detail)}
@@ -192,6 +194,9 @@
 	<div class="px-0.5"></div>
 	{#if module.value.type === 'rawscript'}
 		<FlowModuleWorkerTagSelect
+			placeholder={customUi?.tagSelectPlaceholder}
+			noLabel={customUi?.tagSelectNoLabel}
+			nullTag={tag}
 			tag={module.value.tag}
 			on:change={(e) => dispatch('tagChange', e.detail)}
 		/>

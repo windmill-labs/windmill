@@ -417,7 +417,7 @@
 	}}
 />
 {#if flow}
-	<FlowHistory bind:this={flowHistory} path={flow.path} on:historyRestore={loadFlow} />
+	<FlowHistory bind:this={flowHistory} path={flow.path} onHistoryRestore={loadFlow} />
 {/if}
 
 {#if flow}

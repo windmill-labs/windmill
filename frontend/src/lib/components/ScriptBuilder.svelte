@@ -11,7 +11,8 @@
 		type TriggersCount,
 		PostgresTriggerService,
 		CaptureService,
-		type ScriptLang
+		type ScriptLang,
+		WorkerService
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
@@ -21,6 +22,7 @@
 		enterpriseLicense,
 		usedTriggerKinds,
 		userStore,
+		workerTags,
 		workspaceStore
 	} from '$lib/stores'
 	import {
@@ -65,16 +67,15 @@
 	import ScriptSchema from './ScriptSchema.svelte'
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
-	import type DiffDrawer from './DiffDrawer.svelte'
 	import type Editor from './Editor.svelte'
 	import WorkerTagPicker from './WorkerTagPicker.svelte'
 	import MetadataGen from './copilot/MetadataGen.svelte'
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { createEventDispatcher, onMount, setContext, untrack } from 'svelte'
+	import { onMount, setContext, untrack } from 'svelte'
 	import Summary from './Summary.svelte'
-	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
+
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
 	import type { ScheduleTrigger, TriggerContext } from './triggers'
@@ -86,7 +87,6 @@
 	} from '$lib/script_helpers'
 	import CaptureTable from './triggers/CaptureTable.svelte'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
-	import type { ScriptBuilderFunctionExports } from './scriptBuilder'
 	import DeployButton from './DeployButton.svelte'
 	import {
 		type NewScriptWithDraftAndDraftTriggers,
@@ -97,29 +97,12 @@
 	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
-
-	interface Props {
-		script: NewScript & { draft_triggers?: Trigger[] }
-		fullyLoaded?: boolean
-		initialPath?: string
-		template?: 'docker' | 'bunnative' | 'script'
-		initialArgs?: Record<string, any>
-		lockedLanguage?: boolean
-		showMeta?: boolean
-		neverShowMeta?: boolean
-		diffDrawer?: DiffDrawer | undefined
-		savedScript?: NewScriptWithDraftAndDraftTriggers | undefined
-		searchParams?: URLSearchParams
-		disableHistoryChange?: boolean
-		replaceStateFn?: (url: string) => void
-		customUi?: ScriptBuilderWhitelabelCustomUi
-		savedPrimarySchedule?: ScheduleTrigger | undefined
-		functionExports?: ((exports: ScriptBuilderFunctionExports) => void) | undefined
-		children?: import('svelte').Snippet
-	}
+	import type { ScriptBuilderProps } from './script_builder'
+	import type { DiffDrawerI } from './diff_drawer'
+	import WorkerTagSelect from './WorkerTagSelect.svelte'
 
 	let {
-		script = $bindable(),
+		script,
 		fullyLoaded = true,
 		initialPath = $bindable(''),
 		template = $bindable('script'),
@@ -135,8 +118,15 @@
 		customUi = {},
 		savedPrimarySchedule = undefined,
 		functionExports = undefined,
-		children
-	}: Props = $props()
+		children,
+		onDeploy,
+		onDeployError,
+		onSaveInitial,
+		onSeeDetails,
+		onSaveDraftError,
+		onSaveDraft,
+		disableAi
+	}: ScriptBuilderProps = $props()
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
 		return {
@@ -153,7 +143,7 @@
 		'u/' +
 		($userStore?.username?.includes('@')
 			? $userStore?.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
-			: $userStore?.username!) +
+			: $userStore?.username) +
 		'/' +
 		generateRandomString(12)
 
@@ -209,8 +199,6 @@
 		])
 		loadTriggers()
 	}
-
-	const dispatch = createEventDispatcher()
 
 	onMount(() => {
 		if (functionExports) {
@@ -573,10 +561,10 @@
 				script.parent_hash = newHash
 				sendUserToast('Deployed')
 			} else {
-				dispatch('deploy', newHash)
+				onDeploy?.({ path: script.path, hash: newHash })
 			}
 		} catch (error) {
-			dispatch('deployError', error)
+			onDeployError?.({ path: script.path, error })
 			sendUserToast(`Error while saving the script: ${error.body || error.message}`, true)
 		}
 		loadingSave = false
@@ -629,7 +617,7 @@
 			} catch (error) {
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
-
+			let newHash = ''
 			if (initialPath == '' || savedScript?.draft_only) {
 				if (savedScript?.draft_only) {
 					await ScriptService.deleteScriptByPath({
@@ -649,7 +637,7 @@
 						runnableKind: 'script'
 					})
 				}
-				await ScriptService.createScript({
+				newHash = await ScriptService.createScript({
 					workspace: $workspaceStore!,
 					requestBody: {
 						path: script.path,
@@ -709,9 +697,9 @@
 			if (initialPath == '' || (savedScript?.draft_only && script.path !== initialPath)) {
 				savedAtNewPath = true
 				initialPath = script.path
-				dispatch('saveInitial', script.path)
+				onSaveInitial?.({ path: script.path, hash: newHash })
 			}
-			dispatch('saveDraft', { path: script.path, savedAtNewPath, script })
+			onSaveDraft?.({ path: script.path, savedAtNewPath, script })
 
 			sendUserToast('Saved as draft')
 		} catch (error) {
@@ -719,7 +707,7 @@
 				`Error while saving the script as a draft: ${error.body || error.message}`,
 				true
 			)
-			dispatch('saveDraftError', error)
+			onSaveDraftError?.({ path: script.path, error })
 		}
 		loadingDraft = false
 	}
@@ -727,7 +715,7 @@
 	function computeDropdownItems(
 		initialPath: string,
 		savedScript: NewScriptWithDraftAndDraftTriggers | undefined,
-		diffDrawer: DiffDrawer | undefined
+		diffDrawer: DiffDrawerI | undefined
 	) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
 			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
@@ -777,7 +765,7 @@
 									{
 										label: 'Exit & See details',
 										onClick: () => {
-											dispatch('seeDetails', initialPath)
+											onSeeDetails?.({ path: initialPath })
 										}
 									}
 								]
@@ -945,14 +933,21 @@
 	$effect(() => {
 		!disableHistoryChange && untrack(() => encodeScriptState(script))
 	})
+
+	loadWorkerTags()
+	async function loadWorkerTags() {
+		if (!$workerTags) {
+			$workerTags = await WorkerService.getCustomTags({ workspace: $workspaceStore })
+		}
+	}
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
 {@render children?.()}
 
 <DeployOverrideConfirmationModal
-	bind:deployedBy
-	bind:confirmCallback
+	{deployedBy}
+	{confirmCallback}
 	bind:open
 	{diffDrawer}
 	bind:deployedValue
@@ -1081,7 +1076,7 @@
 													}}
 												/>
 											</Label>
-											{#if script.schema}
+											{#if script.schema && !disableAi && !customUi?.settingsPanel?.metadata?.disableAiFilling}
 												<div class="mt-3">
 													<AIFormSettings
 														bind:prompt={script.schema.prompt_for_ai as string | undefined}
@@ -1091,52 +1086,52 @@
 											{/if}
 										</div>
 									</Section>
-
-									<Section label="Language">
-										{#snippet action()}
-											<DefaultScripts />
-										{/snippet}
-										{#if lockedLanguage}
-											<div class="text-sm text-tertiary italic mb-2">
-												As a forked script, the language '{script.language}' cannot be modified.
-											</div>
-										{/if}
-										<div class=" grid grid-cols-3 gap-2">
-											{#each langs as [label, lang] (lang)}
-												{@const isPicked =
-													(lang == script.language && template == 'script') ||
-													(template == 'bunnative' && lang == 'bunnative') ||
-													(template == 'docker' && lang == 'docker')}
-												<Popover
-													disablePopup={!enterpriseLangs.includes(lang) || !!$enterpriseLicense}
-												>
-													<Button
-														aiId={`create-script-language-button-${lang}`}
-														aiDescription={`Choose ${lang} as the language of the script`}
-														size="sm"
-														variant="border"
-														color={isPicked ? 'blue' : 'light'}
-														btnClasses={isPicked
-															? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
-															: 'm-[1px]'}
-														on:click={() => onScriptLanguageTrigger(lang)}
-														disabled={lockedLanguage ||
-															(enterpriseLangs.includes(lang) && !$enterpriseLicense)}
+									{#if !customUi?.settingsPanel?.metadata?.languages || customUi?.settingsPanel?.metadata?.languages?.length > 1}
+										<Section label="Language">
+											{#snippet action()}
+												<DefaultScripts />
+											{/snippet}
+											{#if lockedLanguage}
+												<div class="text-sm text-tertiary italic mb-2">
+													As a forked script, the language '{script.language}' cannot be modified.
+												</div>
+											{/if}
+											<div class=" grid grid-cols-3 gap-2">
+												{#each langs as [label, lang] (lang)}
+													{@const isPicked =
+														(lang == script.language && template == 'script') ||
+														(template == 'bunnative' && lang == 'bunnative') ||
+														(template == 'docker' && lang == 'docker')}
+													<Popover
+														disablePopup={!enterpriseLangs.includes(lang) || !!$enterpriseLicense}
 													>
-														<LanguageIcon {lang} />
-														<span class="ml-2 py-2 truncate">{label}</span>
-														{#if lang === 'nu'}
-															<span class="text-tertiary !text-xs"> BETA </span>
-														{/if}
-													</Button>
-													{#snippet text()}
-														{label} is only available with an enterprise license
-													{/snippet}
-												</Popover>
-											{/each}
-										</div>
-									</Section>
-
+														<Button
+															aiId={`create-script-language-button-${lang}`}
+															aiDescription={`Choose ${lang} as the language of the script`}
+															size="sm"
+															variant="border"
+															color={isPicked ? 'blue' : 'light'}
+															btnClasses={isPicked
+																? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
+																: 'm-[1px]'}
+															on:click={() => onScriptLanguageTrigger(lang)}
+															disabled={lockedLanguage ||
+																(enterpriseLangs.includes(lang) && !$enterpriseLicense)}
+														>
+															<LanguageIcon {lang} />
+															<span class="ml-2 py-2 truncate">{label}</span>
+															{#if lang === 'nu'}
+																<span class="text-tertiary !text-xs"> BETA </span>
+															{/if}
+														</Button>
+														{#snippet text()}
+															{label} is only available with an enterprise license
+														{/snippet}
+													</Popover>
+												{/each}
+											</div>
+										</Section>
+									{/if}
 									{#if customUi?.settingsPanel?.metadata?.disableScriptKind !== true}
 										<Section label="Script kind">
 											{#snippet header()}
@@ -1170,6 +1165,14 @@
 													{/each}
 												{/snippet}
 											</ToggleButtonGroup>
+										</Section>
+									{/if}
+									{#if customUi?.settingsPanel?.disableRuntime}
+										<Section label="Worker group tag (queue)">
+											<WorkerTagPicker
+												bind:tag={script.tag}
+												placeholder={customUi?.tagSelectPlaceholder}
+											/>
 										</Section>
 									{/if}
 								</div>
@@ -1239,7 +1242,10 @@
 												group tag (queue). For instance, you could setup an "highmem", or "gpu" tag.
 											</Tooltip>
 										{/snippet}
-										<WorkerTagPicker bind:tag={script.tag} />
+										<WorkerTagPicker
+											bind:tag={script.tag}
+											placeholder={customUi?.tagSelectPlaceholder}
+										/>
 									</Section>
 									<Section label="Cache">
 										{#snippet header()}
@@ -1693,6 +1699,18 @@
 				{/if}
 
 				<div class="flex flex-row gap-x-1 lg:gap-x-2">
+					{#if $workerTags}
+						{#if $workerTags?.length ?? 0 > 0}
+							<div class="max-w-[200px] pr-8">
+								<WorkerTagSelect
+									inputClass="text-sm text-secondary !placeholder-secondary"
+									nullTag={script.language}
+									placeholder={customUi?.tagSelectPlaceholder}
+									bind:tag={script.tag}
+								/>
+							</div>
+						{/if}
+					{/if}
 					{#if customUi?.topBar?.settings != false}
 						<Button
 							aiId="script-builder-settings"
@@ -1733,6 +1751,7 @@
 		</div>
 
 		<ScriptEditor
+			{disableAi}
 			bind:selectedTab={selectedInputTab}
 			{customUi}
 			collabMode

@@ -20,7 +20,6 @@
 	import autosize from '$lib/autosize'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import TestTriggerConnection from './triggers/TestTriggerConnection.svelte'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
 
 	interface Props {
@@ -29,7 +28,7 @@
 		path?: string
 		newResource?: boolean
 		hidePath?: boolean
-		watchChanges?: boolean
+		onChange?: (args: { path: string; args: Record<string, any>; description: string }) => void
 		defaultValues?: Record<string, any> | undefined
 	}
 
@@ -39,7 +38,7 @@
 		path = $bindable(''),
 		newResource = false,
 		hidePath = false,
-		watchChanges = false,
+		onChange,
 		defaultValues = undefined
 	}: Props = $props()
 
@@ -62,7 +61,6 @@
 	let viewJsonSchema = $state(false)
 
 	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	let rawCode: string | undefined = $state(undefined)
 
@@ -181,8 +179,8 @@
 	run(() => {
 		canSave = can_write && isValid && jsonError == ''
 	})
-	run(() => {
-		watchChanges && dispatchIfMounted('change', { path, args, description })
+	$effect(() => {
+		onChange && onChange({ path, args, description })
 	})
 	run(() => {
 		rawCode && untrack(() => parseJson())

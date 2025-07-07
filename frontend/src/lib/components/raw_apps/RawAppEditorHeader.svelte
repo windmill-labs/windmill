@@ -659,8 +659,8 @@
 <UnsavedConfirmationModal {diffDrawer} {getInitialAndModifiedValues} />
 
 <DeployOverrideConfirmationModal
-	bind:deployedBy
-	bind:confirmCallback
+	{deployedBy}
+	{confirmCallback}
 	bind:open
 	{diffDrawer}
 	bind:deployedValue

@@ -6,12 +6,22 @@
 	import { WorkerService } from '$lib/gen'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
 
-	export let tag: string | undefined
-	export let popupPlacement: 'bottom-end' | 'top-end' = 'bottom-end'
-	export let disabled = false
+	interface Props {
+		tag: string | undefined
+		popupPlacement?: 'bottom-end' | 'top-end'
+		disabled?: boolean
+		placeholder?: string
+	}
 
-	loadWorkerGroups()
-	async function loadWorkerGroups() {
+	let {
+		tag = $bindable(),
+		popupPlacement = 'bottom-end',
+		disabled = false,
+		placeholder
+	}: Props = $props()
+
+	loadWorkerTags()
+	async function loadWorkerTags() {
 		if (!$workerTags) {
 			$workerTags = await WorkerService.getCustomTags({ workspace: $workspaceStore })
 		}
@@ -22,7 +32,7 @@
 	<div class="max-w-sm grow">
 		{#if $workerTags}
 			{#if $workerTags?.length ?? 0 > 0}
-				<WorkerTagSelect noLabel bind:tag {disabled} />
+				<WorkerTagSelect {placeholder} noLabel bind:tag {disabled} />
 			{:else}
 				<div class="text-sm text-secondary flex flex-row gap-2">
 					No custom worker group tag defined on this instance in "Workers {'->'} Custom tags"
@@ -48,7 +58,7 @@
 		color="light"
 		on:click={() => {
 			$workerTags = undefined
-			loadWorkerGroups()
+			loadWorkerTags()
 		}}
 		startIcon={{ icon: RotateCw }}
 		{disabled}

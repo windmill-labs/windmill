@@ -10,12 +10,18 @@
 		tag = $bindable(),
 		noLabel = false,
 		nullTag = undefined,
-		disabled = false
+		disabled = false,
+		placeholder,
+		inputClass
 	}: {
 		tag: string | undefined
 		noLabel?: boolean
 		nullTag?: string | undefined
 		disabled?: boolean
+		placeholder?: string
+		language?: string
+		class?: string
+		inputClass?: string
 	} = $props()
 
 	loadWorkerGroups()
@@ -35,13 +41,14 @@
 
 <div class="flex gap-1 items-center">
 	{#if !noLabel}
-		<div class="text-tertiary text-2xs">tag</div>
+		<div class="text-tertiary text-2xs">{placeholder ?? 'tag'}</div>
 	{/if}
 	<Select
 		clearable
 		class="w-full"
+		{inputClass}
 		{disabled}
-		placeholder={nullTag ? `default: ${nullTag}` : 'lang default'}
+		placeholder={nullTag ? nullTag : (placeholder ?? 'lang default')}
 		items={safeSelectItems(items)}
 		bind:value={() => tag, (value) => ((tag = value), dispatch('change', value))}
 	/>

@@ -25,9 +25,10 @@
 
 	interface Props {
 		noEditor: boolean
+		enableAi?: boolean
 	}
 
-	let { noEditor }: Props = $props()
+	let { noEditor, enableAi }: Props = $props()
 
 	const { flowStore, initialPathStore, previewArgs, pathStore, customUi } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -125,7 +126,7 @@
 					/>
 				</Label>
 
-				{#if flowStore.val.schema}
+				{#if flowStore.val.schema && enableAi}
 					<AIFormSettings
 						bind:prompt={flowStore.val.schema.prompt_for_ai as string | undefined}
 						type="flow"

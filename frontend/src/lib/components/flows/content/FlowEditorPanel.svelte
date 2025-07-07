@@ -73,7 +73,7 @@
 </script>
 
 {#if $selectedId?.startsWith('settings')}
-	<FlowSettings {noEditor} />
+	<FlowSettings {enableAi} {noEditor} />
 {:else if $selectedId === 'Input'}
 	<FlowInput
 		{noEditor}

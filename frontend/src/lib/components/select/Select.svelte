@@ -108,7 +108,7 @@
 		</div>
 	{:else if clearable && !disabled && value}
 		<div class="absolute z-10 right-2 h-full flex items-center">
-			<CloseButton noBg small on:close={clearValue} />
+			<CloseButton class="text-secondary" noBg small on:close={clearValue} />
 		</div>
 	{:else if RightIcon}
 		<div class="absolute z-10 right-2 h-full flex items-center">
