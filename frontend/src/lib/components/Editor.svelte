@@ -1479,7 +1479,11 @@
 		if (!inlineAIChatSelection) {
 			return
 		}
-		selectedCode = editor.getModel()?.getValueInRange(inlineAIChatSelection) || ''
+		const model = editor.getModel()
+		let selectedCode = ''
+		if (model) {
+			selectedCode = model.getValueInRange(inlineAIChatSelection)
+		}
 		showInlineAIChat = true
 		aiChatInlineWidget?.focusInput()
 	}
@@ -1556,7 +1560,7 @@
 	/>
 {/if}
 
-{#if editor && $copilotInfo.enabled}
+{#if editor && $copilotInfo.enabled && aiChatEditorHandler}
 	<AIChatInlineWidget
 		bind:this={aiChatInlineWidget}
 		bind:show={showInlineAIChat}
