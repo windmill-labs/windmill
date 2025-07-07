@@ -65,7 +65,7 @@ async function selectRepositoryInteractively(
 
   // Check if we're in a non-interactive environment
   const isInteractive = Deno.stdin.isTerminal() && Deno.stdout.isTerminal();
-  
+
   if (!isInteractive) {
     const repoPaths = repositories.map(r => r.git_repo_resource_path.replace(/^\$res:/, ""));
     throw new Error(`Multiple repositories found: ${repoPaths.join(', ')}. Use --repository to specify which one to ${operation}.`);
@@ -136,7 +136,7 @@ async function resolveEffectiveSyncOptions(
   if (!selectedRepository) {
     throw new Error("Repository could not be determined. This should not happen.");
   }
-  return getEffectiveSettings(localConfig, workspace.workspaceId, selectedRepository, undefined);
+  return getEffectiveSettings(localConfig, workspace.name || workspace.workspaceId, selectedRepository, undefined);
 }
 
 // Helper function to find overrides that apply to the current workspace
@@ -149,7 +149,7 @@ function findApplicableOverrides(
   }
 
   const applicableOverrides: Array<{ key: string; repository: string }> = [];
-  
+
   // Generate possible workspace prefixes in order of preference
   const possiblePrefixes = workspace.name ? [
     `${workspace.name}:`,                          // Primary: "localhost_test:"
@@ -1159,7 +1159,7 @@ export async function ignoreF(wmillconf: {
             wmillconf.includes?.some((i) => minimatch(file, i))) &&
           (!wmillconf?.excludes ||
             wmillconf.excludes!.every((i) => !minimatch(file, i))) &&
-          (!wmillconf.extraIncludes ||
+          (!wmillconf.extraIncludes || wmillconf.extraIncludes.length === 0 ||
             wmillconf.extraIncludes.some((i) => minimatch(file, i)))
         );
       },
@@ -1249,11 +1249,11 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
 
   // Resolve effective sync options with repository awareness
   const effectiveOpts = await resolveEffectiveSyncOptions(workspace, opts.repository);
-  
+
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   // Start with effective options from config, then overlay only explicitly provided CLI flags
   const mergedOpts = Object.assign({}, effectiveOpts) as typeof opts;
-  
+
   // Always preserve these operational CLI flags
   if (opts.dryRun !== undefined) mergedOpts.dryRun = opts.dryRun;
   if (opts.yes !== undefined) mergedOpts.yes = opts.yes;
@@ -1266,7 +1266,7 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
   if (opts.parallel !== undefined) mergedOpts.parallel = opts.parallel;
   if (opts.jsonOutput !== undefined) mergedOpts.jsonOutput = opts.jsonOutput;
   if (opts.repository !== undefined) mergedOpts.repository = opts.repository;
-  
+
   opts = mergedOpts;
 
   const codebases = await listSyncCodebases(opts);
@@ -1323,7 +1323,7 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
   log.info(
     `remote (${workspace.name}) -> local: ${changes.length} changes to apply`
   );
-  
+
   // Handle JSON output for dry-run
   if (opts.dryRun && opts.jsonOutput) {
     const result = {
@@ -1338,7 +1338,7 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
     console.log(JSON.stringify(result, null, 2));
     return;
   }
-  
+
   if (changes.length > 0) {
     if (!opts.jsonOutput) {
       prettyChanges(changes);
@@ -1571,11 +1571,11 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
 
   // Resolve effective sync options with repository awareness
   const effectiveOpts = await resolveEffectiveSyncOptions(workspace, opts.repository);
-  
+
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   // Start with effective options from config, then overlay only explicitly provided CLI flags
   const mergedOpts = Object.assign({}, effectiveOpts) as typeof opts;
-  
+
   // Always preserve these operational CLI flags
   if (opts.dryRun !== undefined) mergedOpts.dryRun = opts.dryRun;
   if (opts.yes !== undefined) mergedOpts.yes = opts.yes;
@@ -1588,9 +1588,9 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
   if (opts.parallel !== undefined) mergedOpts.parallel = opts.parallel;
   if (opts.jsonOutput !== undefined) mergedOpts.jsonOutput = opts.jsonOutput;
   if (opts.repository !== undefined) mergedOpts.repository = opts.repository;
-  
+
   opts = mergedOpts;
-  
+
   const codebases = await listSyncCodebases(opts);
   if (opts.raw) {
     log.info("--raw is now the default, you can remove it as a flag");

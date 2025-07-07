@@ -488,25 +488,18 @@ async function pullGitSyncSettings(
                 overrideKey,
             );
 
-            const gitSyncBackend = extractGitSyncFields(
-                normalizeSyncOptions(backendSyncOptions),
-            );
-            const gitSyncCurrent = extractGitSyncFields(
-                normalizeSyncOptions(currentSettings),
-            );
+            const normalizedCurrent = normalizeSyncOptions(currentSettings);
+            const normalizedBackend = normalizeSyncOptions(backendSyncOptions);
+            const gitSyncCurrent = extractGitSyncFields(normalizedCurrent);
+            const gitSyncBackend = extractGitSyncFields(normalizedBackend);
             const hasChanges = !deepEqual(gitSyncBackend, gitSyncCurrent);
 
             if (opts.jsonOutput) {
                 const repoPath = normalizeRepoPath(selectedRepo.git_repo_resource_path);
-                const normalizedCurrent = normalizeSyncOptions(currentSettings);
-                const normalizedBackend = normalizeSyncOptions(backendSyncOptions);
 
-                // Generate structured diff
+                // Generate structured diff using the same normalized objects
                 const structuredDiff = hasChanges
-                    ? generateStructuredDiff(
-                          extractGitSyncFields(normalizedCurrent),
-                          extractGitSyncFields(normalizedBackend),
-                      )
+                    ? generateStructuredDiff(gitSyncCurrent, gitSyncBackend)
                     : {};
 
                 console.log(
@@ -522,8 +515,6 @@ async function pullGitSyncSettings(
             } else {
                 if (hasChanges) {
                     log.info("Changes that would be made:");
-                    const normalizedCurrent = normalizeSyncOptions(currentSettings);
-                    const normalizedBackend = normalizeSyncOptions(backendSyncOptions);
                     const changes = generateChanges(normalizedCurrent, normalizedBackend);
                     
                     if (Object.keys(changes).length === 0) {
@@ -880,30 +871,24 @@ async function pushGitSyncSettings(
                 ...includeTypeToSyncOptions(currentBackend.include_type || []),
             };
 
-            const hasChanges = !deepEqual(
-                normalizeSyncOptions(effectiveSettings),
-                normalizeSyncOptions(currentSyncOptions),
-            );
+            const normalizedCurrent = normalizeSyncOptions(currentSyncOptions);
+            const normalizedEffective = normalizeSyncOptions(effectiveSettings);
+            const gitSyncCurrent = extractGitSyncFields(normalizedCurrent);
+            const gitSyncEffective = extractGitSyncFields(normalizedEffective);
+            const hasChanges = !deepEqual(gitSyncEffective, gitSyncCurrent);
 
             if (opts.jsonOutput) {
-                // Generate structured diff to match pull command format
+                // Generate structured diff using the same normalized objects
                 const structuredDiff = hasChanges
-                    ? generateStructuredDiff(
-                          extractGitSyncFields(
-                              normalizeSyncOptions(currentSyncOptions),
-                          ),
-                          extractGitSyncFields(
-                              normalizeSyncOptions(effectiveSettings),
-                          ),
-                      )
+                    ? generateStructuredDiff(gitSyncCurrent, gitSyncEffective)
                     : {};
 
                 console.log(
                     JSON.stringify({
                         success: true,
                         hasChanges,
-                        local: syncOptionsToBackendFormat(normalizeSyncOptions(effectiveSettings)),
-                        backend: syncOptionsToBackendFormat(normalizeSyncOptions(currentSyncOptions)),
+                        local: syncOptionsToBackendFormat(normalizedEffective),
+                        backend: syncOptionsToBackendFormat(normalizedCurrent),
                         repository: selectedRepo.git_repo_resource_path,
                         diff: structuredDiff,
                     }),
@@ -911,9 +896,7 @@ async function pushGitSyncSettings(
             } else {
                 if (hasChanges) {
                     log.info("Changes that would be pushed:");
-                    const normalizedCurrent = normalizeSyncOptions(currentSyncOptions);
-                    const normalizedNew = normalizeSyncOptions(effectiveSettings);
-                    const changes = generateChanges(normalizedCurrent, normalizedNew);
+                    const changes = generateChanges(normalizedCurrent, normalizedEffective);
                     
                     if (Object.keys(changes).length === 0) {
                         log.info(colors.green("No changes to push"));

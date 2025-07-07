@@ -1497,6 +1497,8 @@
 														gitRepoResourcePath={repo.git_repo_resource_path}
 														uiState={{
 															include_path: repo.settings.include_path,
+															exclude_path: repo.settings.exclude_path || [],
+															extra_include_path: repo.settings.extra_include_path || [],
 															include_type: repo.settings.include_type
 														}}
 													/>
@@ -1504,11 +1506,15 @@
 														gitRepoResourcePath={repo.git_repo_resource_path}
 														uiState={{
 															include_path: repo.settings.include_path,
+															exclude_path: repo.settings.exclude_path || [],
+															extra_include_path: repo.settings.extra_include_path || [],
 															include_type: repo.settings.include_type
 														}}
-														onFilterUpdate={(filters: { include_path: string[], include_type: string[] }) => {
+														onFilterUpdate={(filters: { include_path: string[], exclude_path: string[], extra_include_path: string[], include_type: string[] }) => {
 															// Direct prop update - much simpler!
 															repo.settings.include_path = filters.include_path
+															repo.settings.exclude_path = filters.exclude_path
+															repo.settings.extra_include_path = filters.extra_include_path
 															repo.settings.include_type = filters.include_type as ObjectType[]
 														}}
 													/>

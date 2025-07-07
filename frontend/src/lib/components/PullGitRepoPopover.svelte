@@ -25,9 +25,16 @@
 		gitRepoResourcePath: string
 		uiState: {
 			include_path: string[]
+			exclude_path: string[]
+			extra_include_path: string[]
 			include_type: string[]
 		}
-		onFilterUpdate: (filters: { include_path: string[], include_type: string[] }) => void
+		onFilterUpdate: (filters: {
+			include_path: string[]
+			exclude_path: string[]
+			extra_include_path: string[]
+			include_type: string[]
+		}) => void
 	}>()
 
 	type PreviewResult = {
@@ -111,14 +118,29 @@
 			const success = await handleJobCompletion(jobId, workspace)
 
 			if (success) {
-				const result = await JobService.getCompletedJobResult({ workspace, id: jobId }) as PreviewResult
-				console.log('Preview result:', result)
+				const rawResult = await JobService.getCompletedJobResult({ workspace, id: jobId })
+				console.log('Preview result:', rawResult)
+
+				// Convert new CLI format to expected format
+				const added: string[] = []
+				const deleted: string[] = []
+				const modified: string[] = []
+
+				if (rawResult && rawResult.changes && Array.isArray(rawResult.changes)) {
+					for (const change of rawResult.changes) {
+						if (change.type === 'added') {
+							added.push(change.path)
+						} else if (change.type === 'deleted') {
+							deleted.push(change.path)
+						} else if (change.type === 'modified') {
+							modified.push(change.path)
+						}
+					}
+				}
 
 				// For full sync mode, just use the CLI results directly
 				// The CLI already handles wmill.yaml changes with --include-wmill-yaml flag
-				previewResult = {
-					...result
-				}
+				previewResult = { added, deleted, modified }
 				jobStatus.status = 'success'
 			} else {
 				previewResult = undefined
@@ -169,18 +191,30 @@
 
 			if (success) {
 				// Get the result which should contain the local git repo settings as JSON
-				const result = await JobService.getCompletedJobResult({ workspace, id: jobId }) as any
+				const result = (await JobService.getCompletedJobResult({ workspace, id: jobId })) as any
 				console.log('Pull result:', result)
 
 				// Apply the settings from the sync operation result to the UI
 				if (result?.settings_json) {
 					// Directly update the UI state with the JSON result - no YAML conversion needed!
-					const settingsJson = result.settings_json as { include_path: string[], include_type: string[] }
+					const settingsJson = result.settings_json as {
+						include_path: string[]
+						exclude_path?: string[]
+						extra_include_path?: string[]
+						include_type: string[]
+					}
 					onFilterUpdate({
 						include_path: settingsJson.include_path || ['f/**'],
+						exclude_path: settingsJson.exclude_path || [],
+						extra_include_path: settingsJson.extra_include_path || [],
 						include_type: settingsJson.include_type || ['script', 'flow', 'app', 'folder']
 					})
 					sendUserToast('Successfully pulled workspace content from repository')
+
+					// Reset popover state after successful pull
+					previewResult = undefined
+					jobStatus = { id: null, status: undefined, type: 'preview' }
+					pullGitRepoPopover?.close()
 				} else {
 					console.warn('No settings_json returned from pull operation')
 					sendUserToast('Pull completed but could not update filter settings', true)
@@ -226,9 +260,12 @@
 			<div class="flex flex-col gap-2">
 				<h3 class="text-lg font-semibold">Pull workspace from Git repository</h3>
 				<div class="prose max-w-none text-2xs text-tertiary">
-					This action will pull all workspace objects from your Git repository according to the filters set in the Git repository wmill.yaml file and apply does filter settings to the workspace.
+					This action will pull all workspace objects from your Git repository according to the
+					filters set in the Git repository wmill.yaml file and apply does filter settings to the
+					workspace.
 					<span class="text-orange-600 flex items-center gap-1">
-						<AlertTriangle size={14} /> This will overwrite your current workspace content and Git sync filter settings with the content from the Git repository.
+						<AlertTriangle size={14} /> This will overwrite your current workspace content and Git sync
+						filter settings with the content from the Git repository.
 					</span>
 
 					<!-- Collapsible CLI Info Section -->
@@ -251,10 +288,17 @@
 						{#if isCliInfoExpanded}
 							<div class="p-1 bg-surface-tertiary">
 								<div class="text-2xs mb-2">
-									Not familiar with Windmill CLI? <a href="https://www.windmill.dev/docs/advanced/cli/sync" class="text-blue-500 hover:text-blue-600 underline" target="_blank" rel="noopener noreferrer">Check out the docs</a>
+									Not familiar with Windmill CLI? <a
+										href="https://www.windmill.dev/docs/advanced/cli/sync"
+										class="text-blue-500 hover:text-blue-600 underline"
+										target="_blank"
+										rel="noopener noreferrer">Check out the docs</a
+									>
 								</div>
 								<div class="font-mono text-2xs">
-								<pre class="overflow-auto max-h-60"><code>npm install -g windmill-cli
+									<pre class="overflow-auto max-h-60"
+										><code
+											>npm install -g windmill-cli
 # Clone your git repository
 git clone $REPO_URL
 cd $REPO_NAME
@@ -262,7 +306,9 @@ cd $REPO_NAME
 wmill workspace add {$workspaceStore} {$workspaceStore} {`${$page.url.protocol}//${$page.url.hostname}/`}
 # Push the content to Windmill
 wmill sync push --yes
-# Optional: add --skip-secrets --skip-variables --skip-resources flags as needed</code></pre>
+# Optional: add --skip-secrets --skip-variables --skip-resources flags as needed</code
+										></pre
+									>
 								</div>
 							</div>
 						{/if}
@@ -302,9 +348,9 @@ wmill sync push --yes
 					color="light"
 					size="xs"
 					on:click={() => {
-						previewResult = undefined;
-						jobStatus = { id: null, status: undefined, type: 'preview' };
-						close();
+						previewResult = undefined
+						jobStatus = { id: null, status: undefined, type: 'preview' }
+						close()
 					}}
 					disabled={isPreviewLoading || isPulling}
 				>

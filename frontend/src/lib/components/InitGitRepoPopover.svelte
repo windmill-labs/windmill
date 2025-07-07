@@ -26,6 +26,8 @@
 		branchName?: string
 		uiState: {
 			include_path: string[]
+			exclude_path: string[]
+			extra_include_path: string[]
 			include_type: string[]
 		}
 	}>()
@@ -113,7 +115,25 @@
 					id: jobId
 				})
 				console.log('Preview result:', result)
-				previewResult = result as { added: string[]; deleted: string[]; modified: string[] }
+
+				// Convert new CLI format to expected format
+				const added: string[] = []
+				const deleted: string[] = []
+				const modified: string[] = []
+
+				if (result && result.changes && Array.isArray(result.changes)) {
+					for (const change of result.changes) {
+						if (change.type === 'added') {
+							added.push(change.path)
+						} else if (change.type === 'deleted') {
+							deleted.push(change.path)
+						} else if (change.type === 'modified') {
+							modified.push(change.path)
+						}
+					}
+				}
+
+				previewResult = { added, deleted, modified }
 				previewJobStatus = 'success'
 			} else {
 				previewResult = undefined
@@ -182,6 +202,17 @@
 			initResult = {
 				success: jobSuccess,
 				message: jobSuccess ? undefined : 'Failed to initialize repository.'
+			}
+
+			// Reset popover state after successful push
+			if (jobSuccess) {
+				setTimeout(() => {
+					previewResult = undefined
+					pushJobId = null
+					pushJobStatus = undefined
+					initResult = null
+					initGitRepoPopover?.close()
+				}, 1500) // Small delay to show success state
 			}
 		} catch (error) {
 			console.error('Failed to initialize repo:', error)
