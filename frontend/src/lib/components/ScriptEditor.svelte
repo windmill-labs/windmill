@@ -75,6 +75,7 @@
 		stablePathForCaptures?: string
 		lastSavedCode?: string | undefined
 		lastDeployedCode?: string | undefined
+		disableAi?: boolean
 		editor_bar_right?: import('svelte').Snippet
 	}
 
@@ -104,6 +105,7 @@
 		stablePathForCaptures = '',
 		lastSavedCode = undefined,
 		lastDeployedCode = undefined,
+		disableAi = false,
 		editor_bar_right
 	}: Props = $props()
 
@@ -521,7 +523,7 @@
 							color="marine"
 						/>
 					{/if}
-					{#if !aiChatManager.open}
+					{#if !aiChatManager.open && !disableAi}
 						{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
 							<HideButton
 								hidden={true}

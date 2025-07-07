@@ -238,6 +238,7 @@
 	let opts: uFuzzy.Options = {}
 
 	let uf = new uFuzzy(opts)
+	// let defaultMenuItemLabels = defaultMenuItems.map((item) => item.label)
 	let defaultMenuItemAndHiddenLabels = defaultMenuItemsWithHidden.map((item) => item.label)
 	let switchModeItemLabels = switchModeItems.map((item) => item.label)
 	let askAiButton: AskAiButton | undefined = $state()
