@@ -1480,7 +1480,7 @@
 			return
 		}
 		const model = editor.getModel()
-		let selectedCode = ''
+		selectedCode = ''
 		if (model) {
 			selectedCode = model.getValueInRange(inlineAIChatSelection)
 		}
