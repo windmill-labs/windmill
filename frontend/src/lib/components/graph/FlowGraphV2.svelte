@@ -342,6 +342,7 @@
 			return
 		}
 		let newGraph = graph
+		newGraph.nodes.sort((a, b) => b.id.localeCompare(a.id))
 
 		nodes = layoutNodes(newGraph.nodes)
 		edges = newGraph.edges

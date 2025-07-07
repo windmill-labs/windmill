@@ -20,8 +20,6 @@
 	let { component = $bindable(), children }: Props = $props()
 	let convertToUIEditorCallback: (() => void) | undefined = $state(undefined)
 
-	console.log('FOOBAR', component.type)
-
 	let selected = $state(
 		(component.type === 'plotlycomponentv2' || component.type === 'chartjscomponentv2') &&
 			component.datasets !== undefined
