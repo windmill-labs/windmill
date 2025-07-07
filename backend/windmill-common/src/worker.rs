@@ -105,6 +105,8 @@ lazy_static::lazy_static! {
         dedicated_worker: Default::default(),
         cache_clear: Default::default(),
         init_bash: Default::default(),
+        periodic_init_bash: Default::default(),
+        periodic_init_interval_seconds: Default::default(),
         additional_python_paths: Default::default(),
         pip_local_dependencies: Default::default(),
         env_vars: Default::default(),
@@ -1413,6 +1415,13 @@ pub async fn load_worker_config(
             .init_bash
             .or_else(|| load_init_bash_from_env())
             .and_then(|x| if x.is_empty() { None } else { Some(x) }),
+        periodic_init_bash: config
+            .periodic_init_bash
+            .or_else(|| load_periodic_init_bash_from_env())
+            .and_then(|x| if x.is_empty() { None } else { Some(x) }),
+        periodic_init_interval_seconds: config
+            .periodic_init_interval_seconds
+            .or_else(|| load_periodic_init_interval_from_env()),
         cache_clear: config.cache_clear,
         pip_local_dependencies: config
             .pip_local_dependencies
@@ -1428,6 +1437,18 @@ pub fn load_init_bash_from_env() -> Option<String> {
     std::env::var("INIT_SCRIPT")
         .ok()
         .and_then(|x| if x.is_empty() { None } else { Some(x) })
+}
+
+pub fn load_periodic_init_bash_from_env() -> Option<String> {
+    std::env::var("PERIODIC_INIT_SCRIPT")
+        .ok()
+        .and_then(|x| if x.is_empty() { None } else { Some(x) })
+}
+
+pub fn load_periodic_init_interval_from_env() -> Option<u64> {
+    std::env::var("PERIODIC_INIT_INTERVAL_SECONDS")
+        .ok()
+        .and_then(|x| x.parse::<u64>().ok())
 }
 
 pub fn load_pip_local_dependencies_from_env() -> Option<Vec<String>> {
@@ -1482,6 +1503,8 @@ pub struct WorkerConfigOpt {
     pub priority_tags: Option<HashMap<String, u8>>,
     pub dedicated_worker: Option<String>,
     pub init_bash: Option<String>,
+    pub periodic_init_bash: Option<String>,
+    pub periodic_init_interval_seconds: Option<u64>,
     pub cache_clear: Option<u32>,
     pub additional_python_paths: Option<Vec<String>>,
     pub pip_local_dependencies: Option<Vec<String>>,
@@ -1496,6 +1519,8 @@ impl Default for WorkerConfigOpt {
             priority_tags: Default::default(),
             dedicated_worker: Default::default(),
             init_bash: Default::default(),
+            periodic_init_bash: Default::default(),
+            periodic_init_interval_seconds: Default::default(),
             cache_clear: Default::default(),
             additional_python_paths: Default::default(),
             pip_local_dependencies: Default::default(),
@@ -1511,6 +1536,8 @@ pub struct WorkerConfig {
     pub priority_tags_sorted: Vec<PriorityTags>,
     pub dedicated_worker: Option<WorkspacedPath>,
     pub init_bash: Option<String>,
+    pub periodic_init_bash: Option<String>,
+    pub periodic_init_interval_seconds: Option<u64>,
     pub cache_clear: Option<u32>,
     pub additional_python_paths: Option<Vec<String>>,
     pub pip_local_dependencies: Option<Vec<String>>,
@@ -1519,8 +1546,8 @@ pub struct WorkerConfig {
 
 impl std::fmt::Debug for WorkerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, init_bash: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?} }}",
-        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.init_bash, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "))
+        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, init_bash: {:?}, periodic_init_bash: {:?}, periodic_init_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?} }}",
+        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.init_bash, self.periodic_init_bash, self.periodic_init_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "))
     }
 }
 

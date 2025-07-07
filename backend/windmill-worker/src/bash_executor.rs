@@ -163,7 +163,7 @@ exit $exit_status
         && job
             .runnable_path
             .as_ref()
-            .map(|x| !x.starts_with("init_script_"))
+            .map(|x| !x.starts_with("init_script_") && !x.starts_with("periodic_init_script_"))
             .unwrap_or(true);
     let child = if nsjail {
         let _ = write_file(
@@ -732,7 +732,13 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
     let _ = write_file(job_dir, "result.out", "")?;
     let _ = write_file(job_dir, "result2.out", "")?;
 
-    let child = if !*DISABLE_NSJAIL {
+    let nsjail = !*DISABLE_NSJAIL
+        && job
+            .runnable_path
+            .as_ref()
+            .map(|x| !x.starts_with("init_script_") && !x.starts_with("periodic_init_script_"))
+            .unwrap_or(true);
+    let child = if nsjail {
         let _ = write_file(
             job_dir,
             "run.config.proto",

@@ -449,6 +449,55 @@ pub async fn push_init_job<'c>(
     Ok(uuid)
 }
 
+pub async fn push_periodic_init_job<'c>(
+    db: &Pool<Postgres>,
+    content: String,
+    worker_name: &str,
+) -> error::Result<Uuid> {
+    let tx = PushIsolationLevel::IsolatedRoot(db.clone());
+    let ehm = HashMap::new();
+    let timestamp = chrono::Utc::now().timestamp();
+    let (uuid, inner_tx) = push(
+        &db,
+        tx,
+        "admins",
+        windmill_common::jobs::JobPayload::Code(windmill_common::jobs::RawCode {
+            hash: None,
+            content,
+            path: Some(format!("periodic_init_script_{}_{}", worker_name, timestamp)),
+            language: ScriptLang::Bash,
+            lock: None,
+            custom_concurrency_key: None,
+            concurrent_limit: None,
+            concurrency_time_window_s: None,
+            cache_ttl: None,
+            dedicated_worker: None,
+        }),
+        PushArgs::from(&ehm),
+        worker_name,
+        "worker@windmill.dev",
+        SUPERADMIN_SECRET_EMAIL.to_string(),
+        Some("worker_periodic_init_job"),
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        true,
+        None,
+        true,
+        Some("periodic_init_script".to_string()),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    inner_tx.commit().await?;
+    Ok(uuid)
+}
+
 pub async fn cancel_persistent_script_jobs<'c>(
     username: &str,
     reason: Option<String>,

@@ -45,6 +45,8 @@
 		priority_tags?: Map<string, number>
 		cache_clear?: number
 		init_bash?: string
+		periodic_init_bash?: string
+		periodic_init_interval_seconds?: number
 		env_vars_static?: Map<string, string>
 		env_vars_allowlist?: string[]
 		additional_python_paths?: string[]
@@ -120,6 +122,7 @@
 					pip_local_dependencies?: string[]
 					min_alive_workers_alert_threshold?: number
 					autoscaling?: AutoscalingConfig
+					periodic_init_bash?: string
 			  }
 		activeWorkers: number
 		customTags: string[] | undefined
@@ -156,7 +159,7 @@
 	let vcpus_memory = $derived(computeVCpuAndMemory(workers))
 	let selected = $derived(nconfig?.dedicated_worker != undefined ? 'dedicated' : 'normal')
 	$effect(() => {
-		($superadmin || $devopsRole) && listWorkspaces()
+		;($superadmin || $devopsRole) && listWorkspaces()
 	})
 </script>
 
@@ -210,7 +213,7 @@
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent
 		on:close={() => drawer?.closeDrawer()}
-		title={($superadmin || $devopsRole) ? `Edit worker config '${name}'` : `Worker config '${name}'`}
+		title={$superadmin || $devopsRole ? `Edit worker config '${name}'` : `Worker config '${name}'`}
 	>
 		{#if !$enterpriseLicense}
 			<Alert type="warning" title="Worker management UI is EE only">
@@ -749,6 +752,54 @@
 				</div>
 			</div>
 		</Section>
+
+		<Section
+			label="Periodic init script"
+			tooltip="Bash scripts run periodically on the workers at a configurable interval. Useful for maintenance tasks like cleaning disk space."
+		>
+			<div class="flex gap-4 py-2 pb-6 items-baseline w-full">
+				<div class="border w-full h-40">
+					{#if dirtyCode}
+						<div class="text-red-600 text-sm"
+							>Periodic init script has changed, once applied, the workers will restart to apply it.</div
+						>
+					{/if}
+					<Editor
+						disabled={!($superadmin || $devopsRole)}
+						class="flex flex-1 grow h-full w-full"
+						automaticLayout
+						scriptLang={'bash'}
+						useWebsockets={false}
+						fixedOverflowWidgets={false}
+						code={config?.periodic_init_bash ?? ''}
+						on:change={(e) => {
+							if (config) {
+								dirty = true
+								dirtyCode = true
+								const code = e.detail
+								if (code != '') {
+									nconfig.periodic_init_bash = code?.replace(/\r\n/g, '\n')
+								} else {
+									nconfig.periodic_init_bash = undefined
+								}
+							}
+						}}
+					/>
+				</div>
+			</div>
+			<div class="flex gap-4 py-2 items-center w-full">
+				<Label class="text-sm">Execution interval (seconds):</Label>
+				<input
+					disabled={!($superadmin || $devopsRole)}
+					type="number"
+					min="60"
+					placeholder="3600"
+					class="border border-gray-300 rounded px-2 py-1 text-sm w-32"
+					bind:value={nconfig.periodic_init_interval_seconds}
+				/>
+				<span class="text-xs text-gray-500">Minimum: 60 seconds (1 minute)</span>
+			</div>
+		</Section>
 		{#snippet actions()}
 			<div class="flex gap-4 items-center">
 				<div class="flex gap-2 items-center">
@@ -764,6 +815,14 @@
 								nconfig?.min_alive_workers_alert_threshold < 1
 							) {
 								sendUserToast('Minimum alive workers alert threshold must be at least 1', true)
+								return
+							}
+							if (
+								nconfig?.periodic_init_bash &&
+								(!nconfig?.periodic_init_interval_seconds ||
+									nconfig?.periodic_init_interval_seconds < 60)
+							) {
+								sendUserToast('Periodic init script interval must be at least 60 seconds', true)
 								return
 							}
 							// Remove duplicate env vars by keeping only the last occurrence of each key

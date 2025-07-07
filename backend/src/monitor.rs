@@ -65,7 +65,7 @@ use windmill_common::{
     users::truncate_token,
     utils::{empty_as_none, now_from_db, rd_string, report_critical_error, Mode},
     worker::{
-        load_env_vars, load_init_bash_from_env, load_whitelist_env_vars_from_env,
+        load_env_vars, load_init_bash_from_env, load_periodic_init_bash_from_env, load_periodic_init_interval_from_env, load_whitelist_env_vars_from_env,
         load_worker_config, reload_custom_tags_setting, store_pull_query,
         store_suspended_pull_query, update_min_version, Connection, WorkerConfig,
         DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY,
@@ -213,6 +213,8 @@ pub async fn initial_load(
                     priority_tags_sorted: vec![],
                     dedicated_worker: None,
                     init_bash: load_init_bash_from_env(),
+                    periodic_init_bash: load_periodic_init_bash_from_env(),
+                    periodic_init_interval_seconds: load_periodic_init_interval_from_env(),
                     cache_clear: None,
                     additional_python_paths: None,
                     pip_local_dependencies: None,

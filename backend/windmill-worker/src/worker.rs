@@ -68,8 +68,8 @@ use windmill_common::{
 
 use windmill_queue::{
     append_logs, canceled_job_to_result, empty_result, get_same_worker_job, pull, push_init_job,
-    CanceledBy, JobAndPerms, JobCompleted, MiniPulledJob, PrecomputedAgentInfo, PulledJob,
-    SameWorkerPayload, HTTP_CLIENT,
+    push_periodic_init_job, CanceledBy, JobAndPerms, JobCompleted, MiniPulledJob,
+    PrecomputedAgentInfo, PulledJob, SameWorkerPayload, HTTP_CLIENT,
 };
 
 #[cfg(feature = "prometheus")]
@@ -96,7 +96,7 @@ use tokio::{
 use rand::Rng;
 
 use crate::{
-    agent_workers::queue_init_job,
+    agent_workers::{queue_init_job, queue_periodic_job},
     bash_executor::{handle_bash_job, handle_powershell_job},
     bun_executor::handle_bun_job,
     common::{
@@ -424,6 +424,7 @@ impl std::ops::Deref for NextJob {
 pub const MAX_RESULT_SIZE: usize = 1024 * 1024 * 2; // 2MB
 
 pub const INIT_SCRIPT_TAG: &str = "init_script";
+pub const PERIODIC_INIT_SCRIPT_TAG: &str = "periodic_init_script";
 
 #[derive(Clone)]
 pub struct SameWorkerSender(pub Sender<SameWorkerPayload>, pub Arc<AtomicU16>);
@@ -1316,6 +1317,12 @@ pub async fn run_worker(
     let mut last_suspend_first = Instant::now();
     let mut killed_but_draining_same_worker_jobs = false;
 
+    let mut last_periodic_init = if i_worker == 1 {
+        Some(Instant::now())
+    } else {
+        None
+    };
+
     let mut killpill_rx2 = killpill_rx.resubscribe();
     loop {
         #[cfg(feature = "enterprise")]
@@ -1386,6 +1393,34 @@ pub async fn run_worker(
         if (jobs_executed as u32 + vacuum_shift) % VACUUM_PERIOD == 0 {
             queue_vacuum(&conn, &worker_name, &hostname).await;
             jobs_executed += 1;
+        }
+
+        if let Some(ref mut last_periodic) = last_periodic_init {
+            let config = WORKER_CONFIG.read().await;
+            if let (Some(_), Some(interval_seconds)) = (
+                &config.periodic_init_bash,
+                &config.periodic_init_interval_seconds,
+            ) {
+                let interval_duration = Duration::from_secs(*interval_seconds);
+                if last_periodic.elapsed() >= interval_duration {
+                    tracing::info!(
+                        worker = %worker_name, hostname = %hostname,
+                        "Triggering periodic init script execution (interval: {}s)",
+                        interval_seconds
+                    );
+                    if let Err(e) =
+                        queue_periodic_init_bash_maybe(&conn, same_worker_tx.clone(), &worker_name)
+                            .await
+                    {
+                        tracing::error!(
+                            worker = %worker_name, hostname = %hostname,
+                            "Error queuing periodic init script for worker {worker_name}: {e:#}"
+                        );
+                    } else {
+                        *last_periodic = Instant::now();
+                    }
+                }
+            }
         }
 
         // #[cfg(any(target_os = "linux"))]
@@ -1711,6 +1746,8 @@ pub async fn run_worker(
                     let tag = job.tag.clone();
 
                     let is_init_script: bool = job.tag.as_str() == INIT_SCRIPT_TAG;
+                    let is_periodic_init_script: bool =
+                        job.tag.as_str() == PERIODIC_INIT_SCRIPT_TAG;
                     let is_flow = job.is_flow();
                     let job_id = job.id;
 
@@ -1766,6 +1803,11 @@ pub async fn run_worker(
                                 .await;
                             break;
                         }
+                        Ok(false) if is_periodic_init_script => {
+                            tracing::error!(
+                                "periodic init script job failed, but continuing worker operation"
+                            );
+                        }
                         Err(err) => {
                             handle_all_job_kind_error(
                                 &conn,
@@ -1789,6 +1831,8 @@ pub async fn run_worker(
                                 )
                                 .await;
                                 break;
+                            } else if is_periodic_init_script {
+                                tracing::error!("periodic init script job failed (in handler), but continuing worker operation");
                             }
                         }
                         _ => {}
@@ -1927,6 +1971,33 @@ async fn queue_init_bash_maybe<'c>(
             .await
             .map_err(to_anyhow)?;
         tracing::info!("Creating initial job {uuid} from initial script script: {content}");
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+async fn queue_periodic_init_bash_maybe<'c>(
+    conn: &Connection,
+    same_worker_tx: SameWorkerSender,
+    worker_name: &str,
+) -> anyhow::Result<bool> {
+    let config = WORKER_CONFIG.read().await;
+    let uuid_content = if let Some(content) = config.periodic_init_bash.clone() {
+        let uuid = match conn {
+            Connection::Sql(db) => push_periodic_init_job(db, content.clone(), worker_name).await?,
+            Connection::Http(client) => queue_periodic_job(client, &content).await?,
+        };
+        Some((uuid, content))
+    } else {
+        None
+    };
+    if let Some((uuid, _)) = uuid_content {
+        same_worker_tx
+            .send(SameWorkerPayload { job_id: uuid, recoverable: false })
+            .await
+            .map_err(to_anyhow)?;
+        //tracing::info!("Creating periodic init job {uuid} from periodic init script: {content}");
         Ok(true)
     } else {
         Ok(false)
