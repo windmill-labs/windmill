@@ -4,6 +4,7 @@ use uuid::Uuid;
 use std::str::FromStr;
 use regex::Regex;
 use serde_json::Value;
+use crate::auth::OptTokened;
 use crate::db::{ApiAuthed, DB};
 use crate::jobs::{cancel_suspended_job, resume_suspended_job, QueryApprover, QueryOrBody, ResumeUrls, get_resume_urls_internal};
 use axum::{extract::{Path, Query}, Extension};
@@ -101,6 +102,7 @@ pub fn extract_w_id_from_resume_url(resume_url: &str) -> Result<&str, Error> {
 
 pub async fn handle_resume_action(
     authed: Option<ApiAuthed>,
+    opt_tokened: OptTokened,
     db: DB,
     resume_url: &str,
     form_data: Value,
@@ -135,6 +137,7 @@ pub async fn handle_resume_action(
     let res = if action == "resume" {
         resume_suspended_job(
             authed,
+            opt_tokened,
             Extension(db.clone()),
             Path((
                 w_id.to_string(),
@@ -149,6 +152,7 @@ pub async fn handle_resume_action(
     } else {
         cancel_suspended_job(
             authed,
+            opt_tokened,
             Extension(db.clone()),
             Path((
                 w_id.to_string(),

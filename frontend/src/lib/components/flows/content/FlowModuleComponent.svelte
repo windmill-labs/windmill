@@ -11,7 +11,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils.svelte'
 
-	import type { FlowModule, RawScript } from '$lib/gen'
+	import type { FlowModule, RawScript, ScriptLang } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
@@ -99,7 +99,8 @@
 		highlightArg = undefined
 	}: Props = $props()
 
-	let tag: string | undefined = $state(undefined)
+	let workspaceScriptTag: string | undefined = $state(undefined)
+	let workspaceScriptLang: ScriptLang | undefined = $state(undefined)
 	let diffMode = $state(false)
 
 	let editor: Editor | undefined = $state()
@@ -247,7 +248,7 @@
 				)
 	)
 
-	$effect(() => {
+	$effect.pre(() => {
 		$selectedId && untrack(() => onSelectedIdChange())
 	})
 	$effect(() => {
@@ -311,6 +312,10 @@
 		;[flowModule.value.content, flowModule.value.language]
 		untrack(() => assets.refresh())
 	})
+
+	let rawScriptLang = $derived(
+		flowModule.value.type == 'rawscript' ? flowModule.value.language : undefined
+	)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -333,7 +338,7 @@
 		>
 			{#snippet header()}
 				<FlowModuleHeader
-					{tag}
+					tag={workspaceScriptTag ?? rawScriptLang ?? workspaceScriptLang}
 					module={flowModule}
 					on:tagChange={(e) => {
 						console.log('tagChange', e.detail)
@@ -491,7 +496,8 @@
 									<div class="border-t">
 										{#key forceReload}
 											<FlowModuleScript
-												bind:tag
+												bind:tag={workspaceScriptTag}
+												bind:language={workspaceScriptLang}
 												showAllCode={false}
 												path={flowModule.value.path}
 												hash={flowModule.value.hash}

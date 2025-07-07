@@ -322,7 +322,7 @@ mod suspend_resume {
                 let second = completed.next().await.unwrap();
                 // print_job(second, &db).await;
 
-                let token = windmill_common::auth::create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "", &Uuid::nil(), None).await.unwrap();
+                let token = windmill_common::auth::create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "", &Uuid::nil(), None, None).await.unwrap();
                 let secret = reqwest::get(format!(
                     "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}&approver=ruben"
                 ))
@@ -427,7 +427,7 @@ mod suspend_resume {
                 /* ... and send a request resume it. */
                 let second = completed.next().await.unwrap();
 
-                let token = windmill_common::auth::create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "", &Uuid::nil(), None).await.unwrap();
+                let token = windmill_common::auth::create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "", &Uuid::nil(), None, None).await.unwrap();
                 let secret = reqwest::get(format!(
                     "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}"
                 ))
@@ -935,6 +935,7 @@ impl RunJob {
             /* user */ "test-user",
             /* email  */ "test@windmill.dev",
             /* permissioned_as */ "u/test-user".to_string(),
+            /* token_prefix */ None,
             /* scheduled_for_o */ None,
             /* schedule_path */ None,
             /* parent_job */ None,
@@ -4214,6 +4215,7 @@ async fn test_result_format(db: Pool<Postgres>) {
         100,
         "",
         &Uuid::nil(),
+        None,
         None,
     )
     .await

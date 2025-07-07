@@ -3,28 +3,31 @@
 	import { tick } from 'svelte'
 	import type { ContextElement } from './context'
 	import AvailableContextList from './AvailableContextList.svelte'
-	import { aiChatManager } from './AIChatManager.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 
 	interface Props {
+		value: string
 		availableContext: ContextElement[]
 		selectedContext: ContextElement[]
 		isFirstMessage: boolean
+		placeholder: string
 		disabled: boolean
-		onUpdateInstructions: (value: string) => void
 		onSendRequest: () => void
 		onAddContext: (contextElement: ContextElement) => void
+		onEscape: () => void
 	}
 
-	const {
+	let {
+		value = $bindable(''),
 		availableContext,
 		selectedContext,
 		isFirstMessage,
+		placeholder,
 		disabled,
-		onUpdateInstructions,
 		onSendRequest,
-		onAddContext
+		onAddContext,
+		onEscape
 	}: Props = $props()
 
 	let showContextTooltip = $state(false)
@@ -163,11 +166,10 @@
 	}
 
 	function updateInstructionsWithContext(contextElement: ContextElement) {
-		const index = aiChatManager.instructions.lastIndexOf('@')
+		const index = value.lastIndexOf('@')
 		if (index !== -1) {
-			const newInstructions =
-				aiChatManager.instructions.substring(0, index) + `@${contextElement.title}`
-			onUpdateInstructions(newInstructions)
+			const newInstructions = value.substring(0, index) + `@${contextElement.title}`
+			value = newInstructions
 		}
 	}
 
@@ -252,7 +254,7 @@
 
 	function handleInput(e: Event) {
 		textarea = e.target as HTMLTextAreaElement
-		const words = aiChatManager.instructions.split(/\s+/)
+		const words = value.split(/\s+/)
 		const lastWord = words[words.length - 1]
 
 		if (
@@ -267,7 +269,6 @@
 			contextTooltipWord = ''
 			selectedSuggestionIndex = 0
 		}
-		onUpdateInstructions(aiChatManager.instructions)
 	}
 
 	function handleKeyPress(e: KeyboardEvent) {
@@ -283,10 +284,7 @@
 						(c) => c.title === contextElement.title && c.type === contextElement.type
 					)
 					// If the context element is already in the selected context and the last word in the instructions is the same as the context element title, send request
-					if (
-						isInSelectedContext &&
-						aiChatManager.instructions.split(' ').pop() === '@' + contextElement.title
-					) {
+					if (isInSelectedContext && value.split(' ').pop() === '@' + contextElement.title) {
 						onSendRequest()
 						return
 					}
@@ -301,6 +299,10 @@
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			onEscape()
+		}
+
 		if (!showContextTooltip) return
 
 		const filteredContext = availableContext.filter(
@@ -337,14 +339,14 @@
 <div class="relative w-full px-2 scroll-pb-2">
 	<div class="textarea-input absolute top-0 left-0 pointer-events-none">
 		<span class="break-words">
-			{@html getHighlightedText(aiChatManager.instructions)}
+			{@html getHighlightedText(value)}
 		</span>
 	</div>
 	<textarea
 		bind:this={textarea}
 		onkeypress={handleKeyPress}
 		onkeydown={handleKeyDown}
-		bind:value={aiChatManager.instructions}
+		bind:value
 		use:autosize
 		rows={3}
 		oninput={handleInput}
@@ -353,11 +355,9 @@
 				showContextTooltip = false
 			}, 200)
 		}}
-		placeholder={isFirstMessage ? 'Ask anything' : 'Ask followup'}
+		{placeholder}
 		class="textarea-input resize-none bg-transparent caret-black dark:caret-white"
-		style={aiChatManager.instructions.length > 0
-			? 'color: transparent; -webkit-text-fill-color: transparent;'
-			: ''}
+		style={value.length > 0 ? 'color: transparent; -webkit-text-fill-color: transparent;' : ''}
 		{disabled}
 	></textarea>
 </div>
