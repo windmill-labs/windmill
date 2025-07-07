@@ -10,6 +10,7 @@ use crate::{error, scripts::ScriptLang};
 pub enum AssetKind {
     S3Object,
     Resource,
+    Variable,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
@@ -75,6 +76,7 @@ impl From<windmill_parser::asset_parser::AssetKind> for AssetKind {
         match kind {
             windmill_parser::asset_parser::AssetKind::S3Object => AssetKind::S3Object,
             windmill_parser::asset_parser::AssetKind::Resource => AssetKind::Resource,
+            windmill_parser::asset_parser::AssetKind::Variable => AssetKind::Variable,
         }
     }
 }

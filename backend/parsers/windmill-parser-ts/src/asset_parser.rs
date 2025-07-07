@@ -74,17 +74,25 @@ impl AssetsFinder {
             Some(Expr::Member(MemberExpr { prop: MemberProp::Ident(i), .. })) => i.sym.as_str(),
             _ => return Err(()),
         };
-        let (kind, access_type) = match ident {
-            "getResource" => (AssetKind::Resource, None),
-            "loadS3File" => (AssetKind::S3Object, Some(R)),
-            "writeS3File" => (AssetKind::S3Object, Some(W)),
+        let (kind, access_type, arg_pos) = match ident {
+            "loadS3File" => (AssetKind::S3Object, Some(R), 0),
+            "loadS3FileStream" => (AssetKind::S3Object, Some(R), 0),
+            "writeS3File" => (AssetKind::S3Object, Some(W), 0),
+            "getResource" => (AssetKind::Resource, None, 0),
+            "setResource" => (AssetKind::Resource, Some(W), 1),
+            "databaseUrlFromResource" => (AssetKind::Resource, None, 0),
+            "denoS3LightClientSettings" => (AssetKind::Resource, None, 0),
+            "duckdbConnectionSettings" => (AssetKind::Resource, None, 0),
+            "polarsConnectionSettings" => (AssetKind::Resource, None, 0),
+            "getVariable" => (AssetKind::Variable, Some(R), 0),
+            "setVariable" => (AssetKind::Variable, Some(W), 0),
             _ => return Err(()),
         };
-        if node.args.len() < 1 {
-            return Err(());
-        }
-        match node.args[0].expr.as_ref() {
-            Expr::Lit(Lit::Str(Str { value, .. })) => {
+
+        let arg_value = node.args.get(arg_pos);
+
+        match arg_value.map(|e| e.expr.as_ref()) {
+            Some(Expr::Lit(Lit::Str(Str { value, .. }))) => {
                 let path = parse_asset_syntax(&value).map(|(_, p)| p).unwrap_or(&value);
                 self.assets
                     .push(ParseAssetsResult { kind, path: path.to_string(), access_type });

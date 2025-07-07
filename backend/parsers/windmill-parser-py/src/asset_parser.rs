@@ -53,23 +53,35 @@ impl AssetsFinder {
             .or_else(|| {
                 node.func
                     .as_attribute_expr()
-                    .and_then(|attr| attr.value.as_name_expr().and_then(|o| o.id.parse().ok()))
+                    .and_then(|attr| attr.attr.parse().ok())
             })
             .ok_or(())?;
 
-        let (kind, access_type) = match ident.as_str() {
-            "get_resource" => (AssetKind::Resource, None),
-            "load_s3_file" => (AssetKind::S3Object, Some(R)),
-            "write_s3_file" => (AssetKind::S3Object, Some(W)),
+        let (kind, access_type, arg) = match ident.as_str() {
+            "load_s3_file" => (AssetKind::S3Object, Some(R), Arg::Pos(0)),
+            "load_s3_file_reader" => (AssetKind::S3Object, Some(R), Arg::Pos(0)),
+            "write_s3_file" => (AssetKind::S3Object, Some(W), Arg::Pos(0)),
+            "get_resource" => (AssetKind::Resource, None, Arg::Pos(0)),
+            "set_resource" => (AssetKind::Resource, Some(W), Arg::Named("path")),
+            "get_boto3_connection_settings" => (AssetKind::Resource, None, Arg::Pos(0)),
+            "get_polars_connection_settings" => (AssetKind::Resource, None, Arg::Pos(0)),
+            "get_duckdb_connection_settings" => (AssetKind::Resource, None, Arg::Pos(0)),
+            "get_variable" => (AssetKind::Variable, Some(R), Arg::Pos(0)),
+            "set_variable" => (AssetKind::Variable, Some(W), Arg::Pos(0)),
             _ => return Err(()),
         };
 
-        if node.args.len() < 1 {
-            return Err(());
-        }
+        let arg_val = match arg {
+            Arg::Pos(i) => node.args.get(i),
+            Arg::Named(name) => node
+                .keywords
+                .iter()
+                .find(|kw| kw.arg.as_deref() == Some(name))
+                .map(|kw| &kw.value),
+        };
 
-        match &node.args[0] {
-            Expr::Constant(ExprConstant { value: Constant::Str(value), .. }) => {
+        match arg_val {
+            Some(Expr::Constant(ExprConstant { value: Constant::Str(value), .. })) => {
                 let path = parse_asset_syntax(&value).map(|(_, p)| p).unwrap_or(&value);
                 self.assets
                     .push(ParseAssetsResult { kind, path: path.to_string(), access_type });
@@ -78,4 +90,9 @@ impl AssetsFinder {
         };
         Ok(())
     }
+}
+
+enum Arg {
+    Pos(usize),
+    Named(&'static str),
 }

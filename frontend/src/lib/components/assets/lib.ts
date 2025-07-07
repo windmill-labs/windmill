@@ -12,9 +12,11 @@ export type AssetWithAccessType = Asset & { access_type?: AssetUsageAccessType }
 export function formatAsset(asset: Asset): string {
 	switch (asset.kind) {
 		case 'resource':
-			return `$res:${asset.path}`
+			return `res://${asset.path}`
 		case 's3object':
 			return `s3://${asset.path}`
+		case 'variable':
+			return `var://${asset.path}`
 	}
 }
 
