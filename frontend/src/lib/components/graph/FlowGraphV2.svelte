@@ -346,8 +346,7 @@
 		if (nodes === computeAssetNodesCache?.[0] && deepEqual(assetsMap, computeAssetNodesCache?.[1]))
 			return computeAssetNodesCache[2]
 
-		const ASSET_X_GAP = 20
-		const ASSET_WIDTH = 180
+		const MAX_ASSET_ROW_WIDTH = 300
 
 		const allAssetNodes: (Node & AssetN)[] = []
 		const allAssetEdges: Edge[] = []
@@ -374,7 +373,26 @@
 				if (displayAsInput) inputAssetIdx++
 				if (displayAsOutput) outputAssetIdx++
 
-				const base = { type: 'asset' as const, parentId: node.id, width: ASSET_WIDTH }
+				let [inputAssetXGap, outputAssetXGap] = [20, 20]
+				let [inputAssetWidth, outputAssetWidth] = [180, 180]
+
+				let totalInputRowWidth = () =>
+					inputAssetWidth * inputAssetCount + inputAssetXGap * (inputAssetCount - 1)
+				if (totalInputRowWidth() > MAX_ASSET_ROW_WIDTH) {
+					const mult = MAX_ASSET_ROW_WIDTH / totalInputRowWidth()
+					inputAssetWidth = inputAssetWidth * mult
+					inputAssetXGap = inputAssetXGap * mult
+				}
+
+				let totalOutputRowWidth = () =>
+					outputAssetWidth * outputAssetCount + outputAssetXGap * (outputAssetCount - 1)
+				if (totalOutputRowWidth() > MAX_ASSET_ROW_WIDTH) {
+					const mult = MAX_ASSET_ROW_WIDTH / totalOutputRowWidth()
+					outputAssetWidth = outputAssetWidth * mult
+					outputAssetXGap = outputAssetXGap * mult
+				}
+
+				const base = { type: 'asset' as const, parentId: node.id }
 				return [
 					...(displayAsInput
 						? [
@@ -382,12 +400,14 @@
 									...base,
 									data: { asset, displayedAs: 'input' as const },
 									id: `${node.id}-asset-in-${asset.kind}-${asset.path}`,
+									width: inputAssetWidth,
 									position: {
 										x:
 											inputAssetCount === 1
-												? (NODE.width - ASSET_WIDTH) / 2 - 10 // Ensure we see the edge
-												: (ASSET_WIDTH + ASSET_X_GAP) * (inputAssetIdx - inputAssetCount / 2) +
-													(NODE.width + ASSET_X_GAP) / 2,
+												? (NODE.width - inputAssetWidth) / 2 - 10 // Ensure we see the edge
+												: (inputAssetWidth + inputAssetXGap) *
+														(inputAssetIdx - inputAssetCount / 2) +
+													(NODE.width + inputAssetXGap) / 2,
 										y: READ_ASSET_Y_OFFSET
 									}
 								}
@@ -399,12 +419,14 @@
 									...base,
 									data: { asset, displayedAs: 'output' as const },
 									id: `${node.id}-asset-out-${asset.kind}-${asset.path}`,
+									width: outputAssetWidth,
 									position: {
 										x:
 											outputAssetCount === 1
-												? (NODE.width - ASSET_WIDTH) / 2 - 10 // Ensure we see the edge
-												: (ASSET_WIDTH + ASSET_X_GAP) * (outputAssetIdx - outputAssetCount / 2) +
-													(NODE.width + ASSET_X_GAP) / 2,
+												? (NODE.width - outputAssetWidth) / 2 - 10 // Ensure we see the edge
+												: (outputAssetWidth + outputAssetXGap) *
+														(outputAssetIdx - outputAssetCount / 2) +
+													(NODE.width + outputAssetXGap) / 2,
 										y: WRITE_ASSET_Y_OFFSET
 									}
 								}
