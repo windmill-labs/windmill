@@ -1,7 +1,7 @@
 <script lang="ts">
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { AssetN } from '../../graphBuilder.svelte'
-	import { AlertTriangle, Pyramid } from 'lucide-svelte'
+	import { AlertTriangle } from 'lucide-svelte'
 	import { assetEq } from '$lib/components/assets/lib'
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowGraphAssetContext } from '$lib/components/flows/types'
@@ -11,6 +11,7 @@
 	} from '../../../../../routes/(root)/(logged)/assets/ExploreAssetButton.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
 	import { pluralize } from '$lib/utils'
+	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 
 	interface Props {
 		data: AssetN['data']
@@ -40,7 +41,12 @@
 				onmouseenter={() => (flowGraphAssetsCtx.val.selectedAsset = data.asset)}
 				onmouseleave={() => (flowGraphAssetsCtx.val.selectedAsset = undefined)}
 			>
-				<Pyramid size={16} class="shrink-0 ml-1" />
+				<AssetGenericIcon
+					assetKind={data.asset.kind}
+					fill={''}
+					class="shrink-0 ml-1 fill-tertiary stroke-tertiary"
+					size="16px"
+				/>
 				<span class="text-3xs truncate flex-1">
 					{data.asset.path}
 				</span>
