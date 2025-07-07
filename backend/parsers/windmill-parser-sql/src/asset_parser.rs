@@ -15,6 +15,9 @@ pub fn parse_assets<'a>(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<&st
     let mut remaining = input;
 
     while !remaining.trim().is_empty() {
+        if let Ok((rest, _)) = parse_comment(remaining) {
+            remaining = rest; // skip comment
+        }
         if let Ok((rest, res)) = parse_asset(remaining) {
             assets.push(res);
             remaining = rest;
@@ -109,4 +112,10 @@ fn parse_resource_lit(input: &str) -> IResult<&str, &str> {
     let (input, path) = take_while(|c| c != '\'' && c != '"')(input)?;
     let (input, _) = quote(input)?;
     Ok((input, path))
+}
+
+fn parse_comment(input: &str) -> IResult<&str, &str> {
+    let (input, _) = tag("--").parse(input)?;
+    let (input, comment) = take_while(|c| c != '\n')(input)?;
+    Ok((input, comment))
 }
