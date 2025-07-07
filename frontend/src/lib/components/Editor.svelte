@@ -1273,6 +1273,22 @@
 		editor?.onDidFocusEditorText(() => {
 			dispatch('focus')
 
+			editor?.addCommand(KeyCode.Escape, function () {
+				if (showInlineAIChat) {
+					closeAIInlineWidget()
+				}
+				aiChatEditorHandler?.rejectAll()
+			})
+
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.DownArrow, function () {
+				if (aiChatManager.pendingNewCode) {
+					aiChatManager.scriptEditorApplyCode?.(aiChatManager.pendingNewCode)
+					if (showInlineAIChat) {
+						closeAIInlineWidget()
+					}
+				}
+			})
+
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
 				updateCode()
 				shouldBindKey && format && format()
@@ -1536,8 +1552,23 @@
 		let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
 		return root
 	}
+
+	function onKeyDown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			if (showInlineAIChat) {
+				closeAIInlineWidget()
+			}
+			aiChatEditorHandler?.rejectAll()
+		} else if (e.key === 'ArrowDown' && aiChatManager.pendingNewCode) {
+			aiChatManager.scriptEditorApplyCode?.(aiChatManager.pendingNewCode)
+			if (showInlineAIChat) {
+				closeAIInlineWidget()
+			}
+		}
+	}
 </script>
 
+<svelte:window onkeydown={onKeyDown} />
 <EditorTheme />
 {#if !editor}
 	<div class="inset-0 absolute overflow-clip">
@@ -1551,10 +1582,10 @@
 
 {#if $reviewingChanges}
 	<GlobalReviewButtons
-		on:acceptAll={() => {
+		onAcceptAll={() => {
 			aiChatEditorHandler?.acceptAll()
 		}}
-		on:rejectAll={() => {
+		onRejectAll={() => {
 			aiChatEditorHandler?.rejectAll()
 		}}
 	/>
@@ -1568,9 +1599,6 @@
 		editorHandler={aiChatEditorHandler}
 		selection={inlineAIChatSelection}
 		{selectedCode}
-		rejectChanges={() => {
-			aiChatEditorHandler?.rejectAll()
-		}}
 	/>
 {/if}
 

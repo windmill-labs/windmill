@@ -7,24 +7,17 @@
 	import { sendUserToast } from '$lib/toast'
 	import { onDestroy } from 'svelte'
 	import type { AIChatEditorHandler } from './monaco-adapter'
+	import { getModifierKey } from '$lib/utils'
 
 	interface Props {
 		editor: monaco.editor.IStandaloneCodeEditor
 		selection: Selection | null
 		selectedCode: string
 		show: boolean
-		rejectChanges: () => void
 		editorHandler: AIChatEditorHandler
 	}
 
-	let {
-		editor,
-		selection,
-		selectedCode,
-		show = $bindable(false),
-		rejectChanges,
-		editorHandler
-	}: Props = $props()
+	let { editor, selection, selectedCode, show = $bindable(false), editorHandler }: Props = $props()
 
 	let widget: AIChatWidget | null = $state(null)
 	let widgetElement: HTMLElement | null = $state(null)
@@ -194,7 +187,9 @@
 	{#if processing}
 		<LoadingIcon />
 	{:else if aiChatManager.pendingNewCode}
-		<span class="text-xs text-tertiary pr-1">↓ to apply</span>
+		<span class="text-xs text-tertiary pr-1">
+			{getModifierKey()}↓ to apply
+		</span>
 	{:else}
 		<div></div>
 	{/if}
@@ -233,16 +228,6 @@
 				}
 
 				focusInput()
-			}}
-			onKeyDown={(e) => {
-				if (e.key === 'Escape') {
-					show = false
-					rejectChanges()
-				} else if (e.key === 'ArrowDown' && aiChatManager.pendingNewCode) {
-					// call again to auto apply
-					aiChatManager.scriptEditorApplyCode?.(aiChatManager.pendingNewCode)
-					show = false
-				}
 			}}
 			showContext={false}
 			className="-ml-2"
