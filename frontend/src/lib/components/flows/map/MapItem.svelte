@@ -46,7 +46,7 @@
 			mock: { enabled: boolean; return_value?: unknown }
 		}) => void
 		onEditInput?: (moduleId: string, key: string) => void
-		waitingJob?: Job | undefined
+		flowJob?: Job | undefined
 		isOwner?: boolean
 		type?: FlowStatusModule['type'] | undefined
 		darkMode?: boolean
@@ -70,7 +70,7 @@
 		onTestUpTo,
 		onUpdateMock,
 		onEditInput,
-		waitingJob,
+		flowJob,
 		isOwner = false,
 		type,
 		darkMode,
@@ -262,7 +262,7 @@
 					inputTransform={mod.value.type !== 'identity' ? mod.value.input_transforms : undefined}
 					{onTestUpTo}
 					{onEditInput}
-					{waitingJob}
+					{flowJob}
 					{isOwner}
 					enableTestRun
 					{type}

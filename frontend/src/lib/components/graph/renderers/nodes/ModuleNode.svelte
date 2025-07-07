@@ -104,7 +104,7 @@
 				data.eventHandlers.updateMock(detail)
 			}}
 			onEditInput={data.eventHandlers.editInput}
-			waitingJob={data.waitingJob}
+			flowJob={data.flowJob}
 			isOwner={data.isOwner}
 			{type}
 			{darkMode}

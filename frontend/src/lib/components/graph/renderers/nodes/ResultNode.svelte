@@ -15,6 +15,10 @@
 	const { selectedId } = getContext<{
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
+
+	const type = $derived(
+		data.success == undefined ? undefined : data.success ? 'Success' : 'Failure'
+	)
 </script>
 
 <NodeWrapper enableSourceHandle={false}>
@@ -25,17 +29,16 @@
 			selectable={true}
 			selected={$selectedId === 'Result'}
 			hideId={true}
-			bgColor={getStateColor(
-				data.success == undefined ? undefined : data.success ? 'Success' : 'Failure',
-				darkMode
-			)}
-			bgHoverColor={getStateHoverColor(
-				data.success == undefined ? undefined : data.success ? 'Success' : 'Failure',
-				darkMode
-			)}
+			bgColor={getStateColor(type, darkMode)}
+			bgHoverColor={getStateHoverColor(type, darkMode)}
 			on:select={(e) => {
 				setTimeout(() => data?.eventHandlers?.select(e.detail))
 			}}
+			nodeKind="result"
+			editMode={data.editMode}
+			job={data.job}
+			{type}
+			showJobStatus={data.showJobStatus}
 		/>
 	{/snippet}
 </NodeWrapper>

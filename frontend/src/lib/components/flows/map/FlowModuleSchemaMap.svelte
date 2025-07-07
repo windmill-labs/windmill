@@ -55,7 +55,6 @@
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
-		waitingJob?: Job | undefined
 		isOwner?: boolean
 		onTestFlow?: () => void
 		isRunning?: boolean
@@ -63,6 +62,8 @@
 		onOpenPreview?: () => void
 		onHideJobStatus?: () => void
 		individualStepTests?: boolean
+		flowJob?: Job | undefined
+		showJobStatus?: boolean
 	}
 
 	let {
@@ -80,14 +81,15 @@
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,
-		waitingJob,
 		isOwner,
 		onTestFlow,
 		isRunning,
 		onCancelTestFlow,
 		onOpenPreview,
 		onHideJobStatus,
-		individualStepTests = false
+		individualStepTests = false,
+		flowJob = undefined,
+		showJobStatus = false
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -375,9 +377,10 @@
 			{onTestUpTo}
 			{onEditInput}
 			flowModuleStates={$localModuleStates}
-			{waitingJob}
 			{isOwner}
 			{individualStepTests}
+			{flowJob}
+			{showJobStatus}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)
 				const cb = () => {

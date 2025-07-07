@@ -616,7 +616,7 @@
 		testModuleId = moduleId
 		showJobStatus = false
 	})
-	let outputPickerOpenFns: Record<string, () => void> = {}
+	let outputPickerOpenFns: Record<string, () => void> = $state({})
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
@@ -949,13 +949,17 @@
 			return
 		}
 		if (!previewOpen) {
-			// Find last module with a job in flow_status
-			const lastModuleWithJob = job.flow_status?.modules
-				?.slice()
-				.reverse()
-				.find((module) => 'job' in module)
-			if (lastModuleWithJob && lastModuleWithJob.id) {
-				outputPickerOpenFns[lastModuleWithJob.id]?.()
+			if (job.type === 'CompletedJob' && job.success) {
+				outputPickerOpenFns['Result']?.()
+			} else {
+				// Find last module with a job in flow_status
+				const lastModuleWithJob = job.flow_status?.modules
+					?.slice()
+					.reverse()
+					.find((module) => 'job' in module)
+				if (lastModuleWithJob && lastModuleWithJob.id) {
+					outputPickerOpenFns[lastModuleWithJob.id]?.()
+				}
 			}
 		}
 		jobRunning = isRunning
@@ -1296,7 +1300,6 @@
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
-					waitingJob={job}
 					{isOwner}
 					onTestFlow={() => {
 						flowPreviewButtons?.runPreview()
@@ -1313,6 +1316,7 @@
 					{job}
 					{localDurationStatuses}
 					{suspendStatus}
+					{showJobStatus}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

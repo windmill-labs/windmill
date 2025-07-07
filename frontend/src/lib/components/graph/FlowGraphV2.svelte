@@ -86,10 +86,11 @@
 		editMode?: boolean
 		allowSimplifiedPoll?: boolean
 		expandedSubflows?: Record<string, FlowModule[]>
-		waitingJob?: Job | undefined
 		isOwner?: boolean
 		isRunning?: boolean
 		individualStepTests?: boolean
+		flowJob?: Job | undefined
+		showJobStatus?: boolean
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -155,14 +156,15 @@
 		expandedSubflows = $bindable({}),
 		onTestUpTo = undefined,
 		onEditInput = undefined,
-		waitingJob = undefined,
 		isOwner = false,
 		onTestFlow = undefined,
 		isRunning = false,
 		onCancelTestFlow = undefined,
 		onOpenPreview = undefined,
 		onHideJobStatus = undefined,
-		individualStepTests = false
+		individualStepTests = false,
+		flowJob = undefined,
+		showJobStatus = false
 	}: Props = $props()
 
 	setContext<{
@@ -429,10 +431,11 @@
 				cache,
 				earlyStop,
 				editMode,
-				waitingJob,
 				isOwner,
 				isRunning,
-				individualStepTests
+				individualStepTests,
+				flowJob,
+				showJobStatus
 			},
 			failureModule,
 			preprocessorModule,

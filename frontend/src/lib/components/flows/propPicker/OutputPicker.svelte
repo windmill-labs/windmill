@@ -25,7 +25,7 @@
 		onEditInput?: (moduleId: string, key: string) => void
 		initial?: boolean
 		onResetInitial?: () => void
-		type?: FlowStatusModule['type'] | undefined
+		type: FlowStatusModule['type'] | undefined
 		darkMode?: boolean
 		skipped?: boolean
 	}

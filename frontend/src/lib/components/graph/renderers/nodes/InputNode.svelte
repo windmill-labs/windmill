@@ -72,7 +72,7 @@
 			}}
 			inputJson={topFlowInput}
 			prefix="flow_input"
-			alwaysPluggable
+			nodeKind="input"
 			cache={data.cache}
 			earlyStop={data.earlyStop}
 			editMode={data.editMode}

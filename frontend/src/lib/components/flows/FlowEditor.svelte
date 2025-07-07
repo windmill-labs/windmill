@@ -41,7 +41,6 @@
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
-		waitingJob?: Job | undefined
 		isOwner?: boolean
 		onTestFlow?: () => void
 		isRunning?: boolean
@@ -52,6 +51,7 @@
 		job?: Job
 		localDurationStatuses?: Writable<Record<string, DurationStatus>>
 		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
+		showJobStatus?: boolean
 	}
 
 	let {
@@ -73,7 +73,6 @@
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,
-		waitingJob,
 		isOwner,
 		onTestFlow,
 		isRunning,
@@ -83,7 +82,8 @@
 		individualStepTests = false,
 		job,
 		localDurationStatuses,
-		suspendStatus
+		suspendStatus,
+		showJobStatus
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -141,7 +141,6 @@
 						{aiChatOpen}
 						{showFlowAiButton}
 						{toggleAiChat}
-						{waitingJob}
 						{isOwner}
 						{onTestFlow}
 						{isRunning}
@@ -149,6 +148,8 @@
 						{onOpenPreview}
 						{onHideJobStatus}
 						{individualStepTests}
+						flowJob={job}
+						{showJobStatus}
 					/>
 				{/if}
 			</div>

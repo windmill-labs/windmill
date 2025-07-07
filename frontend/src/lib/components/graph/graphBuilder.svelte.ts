@@ -123,7 +123,7 @@ export type ModuleN = {
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		insertable: boolean
 		editMode: boolean
-		waitingJob: Job | undefined
+		flowJob: Job | undefined
 		isOwner: boolean
 	}
 }
@@ -182,6 +182,9 @@ export type ResultN = {
 	data: {
 		success: boolean | undefined
 		eventHandlers: GraphEventHandlers
+		editMode: boolean
+		job: Job | undefined
+		showJobStatus: boolean
 	}
 }
 
@@ -291,10 +294,11 @@ export function graphBuilder(
 		cache: boolean
 		earlyStop: boolean
 		editMode: boolean
-		waitingJob: Job | undefined
 		isOwner: boolean
 		isRunning: boolean
 		individualStepTests: boolean
+		flowJob: Job | undefined
+		showJobStatus: boolean
 	},
 	failureModule: FlowModule | undefined,
 	preprocessorModule: FlowModule | undefined,
@@ -346,8 +350,8 @@ export function graphBuilder(
 					flowModuleStates: extra.flowModuleStates,
 					insertable: extra.insertable,
 					editMode: extra.editMode,
-					waitingJob: extra.waitingJob,
-					isOwner: extra.isOwner
+					isOwner: extra.isOwner,
+					flowJob: extra.flowJob
 				},
 				type: 'module'
 			})
@@ -483,7 +487,10 @@ export function graphBuilder(
 			id: 'result',
 			data: {
 				eventHandlers: eventHandlers,
-				success: success
+				success: success,
+				editMode: extra.editMode,
+				job: extra.flowJob,
+				showJobStatus: extra.showJobStatus
 			},
 			type: 'result'
 		}

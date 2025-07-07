@@ -79,7 +79,7 @@
 		inputTransform?: Record<string, any> | undefined
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		onEditInput?: (moduleId: string, key: string) => void
-		waitingJob?: Job | undefined
+		flowJob?: Job | undefined
 		isOwner?: boolean
 		enableTestRun?: boolean
 		type?: FlowStatusModule['type'] | undefined
@@ -116,7 +116,7 @@
 		inputTransform,
 		onUpdateMock,
 		onEditInput,
-		waitingJob,
+		flowJob,
 		isOwner = false,
 		enableTestRun = false,
 		type,
@@ -440,8 +440,8 @@
 			<div
 				class={'fixed top-1/2 -translate-y-1/2 left-full h-fit w-fit rounded-md bg-surface flex items-center justify-center p-2 ml-2 shadow-md'}
 			>
-				{#if waitingJob}
-					<FlowStatusWaitingForEvents job={waitingJob} workspaceId={$workspaceStore!} {isOwner} />
+				{#if flowJob}
+					<FlowStatusWaitingForEvents job={flowJob} workspaceId={$workspaceStore!} {isOwner} />
 				{/if}
 			</div>
 		{/if}

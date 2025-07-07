@@ -12,6 +12,7 @@
 	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 	import FlowGraphPreviewButton from './FlowGraphPreviewButton.svelte'
+	import type { Job } from '$lib/gen'
 
 	interface Props {
 		label?: string | undefined
@@ -26,7 +27,6 @@
 		preLabel?: string | undefined
 		inputJson?: Object | undefined
 		prefix?: string
-		alwaysPluggable?: boolean
 		cache?: boolean
 		earlyStop?: boolean
 		editMode?: boolean
@@ -39,6 +39,10 @@
 		onOpenPreview?: () => void
 		onHideJobStatus?: () => void
 		individualStepTests?: boolean
+		nodeKind?: 'input' | 'result'
+		job?: Job
+		type?: string
+		showJobStatus?: boolean
 	}
 
 	let {
@@ -54,7 +58,7 @@
 		preLabel = undefined,
 		inputJson = undefined,
 		prefix = '',
-		alwaysPluggable = false,
+		nodeKind,
 		cache = false,
 		earlyStop = false,
 		editMode = false,
@@ -66,15 +70,29 @@
 		onCancelTestFlow,
 		onOpenPreview,
 		onHideJobStatus,
-		individualStepTests = false
+		individualStepTests = false,
+		job,
+		showJobStatus = false
 	}: Props = $props()
 
 	const outputPickerVisible = $derived(
-		(alwaysPluggable || (inputJson && Object.keys(inputJson).length > 0)) && editMode
+		(nodeKind || (inputJson && Object.keys(inputJson).length > 0)) && editMode
 	)
 
 	let action = $derived(label === 'Input' ? getAiModuleAction(label) : undefined)
 	let hoverButton = $state(false)
+
+	const outputType = $derived(
+		showJobStatus
+			? job?.type === 'QueuedJob'
+				? 'InProgress'
+				: job?.type === 'CompletedJob'
+					? job.success
+						? 'Success'
+						: 'Failure'
+					: undefined
+			: undefined
+	)
 </script>
 
 <VirtualItemWrapper
@@ -126,6 +144,7 @@
 					id={id ?? ''}
 					isConnectingCandidate={true}
 					variant="virtual"
+					type={outputType}
 				>
 					{#snippet children({ allowCopy, isConnecting, selectConnection })}
 						<OutputPickerInner
@@ -135,13 +154,19 @@
 							onSelect={selectConnection}
 							moduleId={''}
 							{onUpdateMock}
-							hideHeaderBar
+							hideHeaderBar={nodeKind !== 'result'}
 							simpleViewer={inputJson}
 							rightMargin
 							historyOffset={{ mainAxis: 12, crossAxis: -9 }}
 							clazz="p-1"
 							{onEditInput}
 							selectionId={id ?? label ?? ''}
+							testJob={job}
+							disableMock
+							disableHistory
+							customEmptyJobMessage={nodeKind === 'result'
+								? 'Test the flow to see results'
+								: undefined}
 						/>
 					{/snippet}
 				</OutputPicker>
@@ -178,7 +203,7 @@
 		</div>
 	{/snippet}
 	{#snippet previewButton()}
-		{#if alwaysPluggable}
+		{#if nodeKind === 'input'}
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class="absolute top-1/2 -translate-y-[35px] -translate-x-[100%] -left-[0] flex py-4 justify-end w-fit px-2 min-w-32"
