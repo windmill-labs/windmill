@@ -611,6 +611,8 @@
 	let insertButtonOpen = writable<boolean>(false)
 	let testModuleId: string | undefined = $state(undefined)
 	let modulesTestStates = new ModulesTestStates((moduleId) => {
+		// Update the derived store with test job states
+		delete $derivedModuleStates[moduleId]
 		testModuleId = moduleId
 		showJobStatus = false
 	})
@@ -1223,6 +1225,7 @@
 						bind:job
 						bind:isOwner
 						onRunPreview={() => {
+							localModuleStates.set({})
 							showJobStatus = true
 						}}
 						bind:isRunning

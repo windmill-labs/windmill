@@ -63,7 +63,7 @@
 		localModuleStates = $bindable(writable({})),
 		localDurationStatuses = $bindable(writable({})),
 		isOwner = $bindable(false),
-		onRunPreview = $bindable(undefined),
+		onRunPreview,
 		isRunning = $bindable(false),
 		render = $bindable(false)
 	}: Props = $props()

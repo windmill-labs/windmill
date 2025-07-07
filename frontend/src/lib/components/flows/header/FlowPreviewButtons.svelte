@@ -28,7 +28,7 @@
 		localModuleStates = $bindable(writable({})),
 		job = $bindable(undefined),
 		isOwner = $bindable(false),
-		onRunPreview = $bindable(undefined),
+		onRunPreview,
 		isRunning = $bindable(false),
 		previewOpen = $bindable(false)
 	}: Props = $props()

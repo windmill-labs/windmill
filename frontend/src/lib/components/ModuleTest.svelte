@@ -46,7 +46,7 @@
 		if (modulesTestStates.states[mod.id]) {
 			modulesTestStates.states[mod.id].cancel = async () => {
 				await testJobLoader?.cancelJob()
-				testJob = undefined
+				modulesTestStates.states[mod.id].testJob = undefined
 			}
 			modulesTestStates.runTestCb?.(mod.id)
 		}
@@ -92,7 +92,7 @@
 			}
 			stepHistoryLoader?.resetInitial(mod.id)
 		}
-		testJob = undefined
+		modulesTestStates.states[mod.id].testJob = undefined
 	}
 
 	export function cancelJob() {
