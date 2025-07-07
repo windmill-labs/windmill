@@ -13,6 +13,7 @@ import {
 	WorkspaceService
 } from './gen'
 import { getLocalSetting } from './utils'
+import { workspaceAIClients } from './components/copilot/lib'
 
 export interface UserExt {
 	email: string
@@ -106,6 +107,17 @@ export const copilotInfo = writable<{
 	aiModels: []
 })
 
+export async function loadCopilot(workspace: string) {
+	workspaceAIClients.init(workspace)
+	try {
+		const info = await WorkspaceService.getCopilotInfo({ workspace })
+		setCopilotInfo(info)
+	} catch (err) {
+		setCopilotInfo({})
+		console.error('Could not get copilot info', err)
+	}
+}
+
 export function setCopilotInfo(aiConfig: AIConfig) {
 	if (Object.keys(aiConfig.providers ?? {}).length > 0) {
 		const aiModels = Object.entries(aiConfig.providers ?? {}).flatMap(
@@ -162,9 +174,9 @@ const sessionProvider = getLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME)
 export const copilotSessionModel = writable<AIProviderModel | undefined>(
 	sessionModel && sessionProvider
 		? {
-				model: sessionModel,
-				provider: sessionProvider as AIProvider
-			}
+			model: sessionModel,
+			provider: sessionProvider as AIProvider
+		}
 		: undefined
 )
 export const usedTriggerKinds = writable<string[]>([])

@@ -1,17 +1,13 @@
 <script lang="ts">
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
+	import AiChatLayout from './copilot/chat/AiChatLayout.svelte'
 	import type { ScriptBuilderProps } from './script_builder'
 
-    let {
-        script: oldScript,
-        ...props
-    }: ScriptBuilderProps = $props()
+	let { script: oldScript, disableAi, ...props }: ScriptBuilderProps = $props()
 
-    let script = $state(oldScript)
+	let script = $state(oldScript)
 </script>
 
-
-<ScriptBuilder
-    {script}
-    {...props}
-/>
+<AiChatLayout noPadding {disableAi}>
+	<ScriptBuilder {script} {disableAi} {...props} />
+</AiChatLayout>

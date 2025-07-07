@@ -69,7 +69,8 @@
 		newPath = undefined,
 		replaceStateFn = (path: string) => window.history.replaceState(null, '', path),
 		gotoFn = (path: string, opt?: Record<string, any>) => window.history.pushState(null, '', path),
-		unsavedConfirmationModal
+		unsavedConfirmationModal,
+		onSavedNewAppPath
 	}: AppEditorProps = $props()
 
 	migrateApp(app)
@@ -846,13 +847,13 @@
 			leftPanelHidden={leftPanelSize === 0}
 			rightPanelHidden={rightPanelSize === 0}
 			bottomPanelHidden={runnablePanelSize === 0}
-			on:savedNewAppPath
-			on:showLeftPanel={() => showLeftPanel()}
-			on:showRightPanel={() => showRightPanel()}
-			on:hideLeftPanel={() => hideLeftPanel()}
-			on:hideRightPanel={() => hideRightPanel()}
-			on:hideBottomPanel={() => hideBottomPanel()}
-			on:showBottomPanel={() => showBottomPanel()}
+			{onSavedNewAppPath}
+			onShowLeftPanel={() => showLeftPanel()}
+			onShowRightPanel={() => showRightPanel()}
+			onShowBottomPanel={() => showBottomPanel()}
+			onHideLeftPanel={() => hideLeftPanel()}
+			onHideRightPanel={() => hideRightPanel()}
+			onHideBottomPanel={() => hideBottomPanel()}
 		>
 			{#snippet unsavedConfirmationModal({
 				diffDrawer,

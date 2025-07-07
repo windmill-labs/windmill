@@ -84,8 +84,6 @@
 	} from './stepHistoryLoader.svelte'
 	import type { FlowBuilderProps } from './flow_builder'
 
-
-
 	let {
 		initialPath = $bindable(''),
 		pathStoreInit = undefined,
@@ -125,7 +123,7 @@
 		'u/' +
 		($userStore?.username?.includes('@')
 			? $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
-			: $userStore!.username!) +
+			: $userStore?.username) +
 		'/' +
 		generateRandomString(12)
 

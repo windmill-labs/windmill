@@ -6,7 +6,7 @@
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
-	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore.svelte'
+	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore'
 	import { FlowService, type Flow } from '$lib/gen'
 	import { initialArgsStore, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'

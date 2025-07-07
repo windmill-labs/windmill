@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.501.14",
+	"version": "1.501.24",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -268,9 +268,9 @@
 			"default": "./package/components/FlowWrapper.svelte"
 		},
 		"./components/AppWrapper.svelte": {
-			"types": "./package/components/apps/editor/AppWrapper.svelte.d.ts",
-			"svelte": "./package/components/apps/editor/AppWrapper.svelte",
-			"default": "./package/components/apps/editor/AppWrapper.svelte"
+			"types": "./package/components/AppWrapper.svelte.d.ts",
+			"svelte": "./package/components/AppWrapper.svelte",
+			"default": "./package/components/AppWrapper.svelte"
 		},
 		"./components/ScriptWrapper.svelte": {
 			"types": "./package/components/ScriptWrapper.svelte.d.ts",
@@ -292,10 +292,10 @@
 			"svelte": "./package/components/SchemaForm.svelte",
 			"default": "./package/components/SchemaForm.svelte"
 		},
-		"./components/EditableSchemaWrapper.svelte": {
-			"types": "./package/components/schema/EditableSchemaWrapper.svelte.d.ts",
-			"svelte": "./package/components/schema/EditableSchemaWrapper.svelte",
-			"default": "./package/components/schema/EditableSchemaWrapper.svelte"
+		"./components/EditableSchemaSdkWrapper.svelte": {
+			"types": "./package/components/schema/EditableSchemaSdkWrapper.svelte.d.ts",
+			"svelte": "./package/components/schema/EditableSchemaSdkWrapper.svelte",
+			"default": "./package/components/schema/EditableSchemaSdkWrapper.svelte"
 		},
 		"./components/ResourceEditor.svelte": {
 			"types": "./package/components/ResourceEditor.svelte.d.ts",
@@ -473,8 +473,8 @@
 			"components/SchemaEditor.svelte": [
 				"./package/components/SchemaEditor.svelte.d.ts"
 			],
-			"components/EditableSchemaWrapper.svelte": [
-				"./package/components/schema/EditableSchemaWrapper.svelte.d.ts"
+			"components/EditableSchemaSdkWrapper.svelte": [
+				"./package/components/schema/EditableSchemaSdkWrapper.svelte.d.ts"
 			],
 			"components/flows/FlowHistoryInner.svelte": [
 				"./package/components/flows/FlowHistoryInner.svelte.d.ts"

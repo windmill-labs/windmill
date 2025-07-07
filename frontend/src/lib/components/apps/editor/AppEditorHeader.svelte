@@ -32,7 +32,7 @@
 		Globe,
 		AlertTriangle
 	} from 'lucide-svelte'
-	import { createEventDispatcher, getContext, untrack } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import {
 		cleanValueProperties,
 		orderedJsonStringify,
@@ -122,6 +122,13 @@
 		newApp: boolean
 		newPath?: string
 		unsavedConfirmationModal?: import('svelte').Snippet<[any]>
+		onSavedNewAppPath?: (path: string) => void
+		onShowRightPanel?: () => void
+		onShowLeftPanel?: () => void
+		onShowBottomPanel?: () => void
+		onHideRightPanel?: () => void
+		onHideLeftPanel?: () => void
+		onHideBottomPanel?: () => void
 	}
 
 	let {
@@ -135,7 +142,14 @@
 		bottomPanelHidden = false,
 		newApp,
 		newPath = '',
-		unsavedConfirmationModal
+		unsavedConfirmationModal,
+		onSavedNewAppPath,
+		onShowLeftPanel,
+		onShowRightPanel,
+		onShowBottomPanel,
+		onHideLeftPanel,
+		onHideRightPanel,
+		onHideBottomPanel
 	}: Props = $props()
 
 	let newEditedPath = $state('')
@@ -406,7 +420,7 @@
 			} catch (e) {
 				console.error('error interacting with local storage', e)
 			}
-			dispatch('savedNewAppPath', path)
+			onSavedNewAppPath?.(path)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
 		}
@@ -509,7 +523,7 @@
 			} catch (e) {
 				console.error('error interacting with local storage', e)
 			}
-			dispatch('savedNewAppPath', npath)
+			onSavedNewAppPath?.(npath)
 		}
 	}
 
@@ -589,7 +603,7 @@
 			}
 
 			draftDrawerOpen = false
-			dispatch('savedNewAppPath', newEditedPath)
+			onSavedNewAppPath?.(newEditedPath)
 		} catch (e) {
 			sendUserToast('Error saving initial draft', e)
 		}
@@ -686,7 +700,7 @@
 			}
 			loading.saveDraft = false
 			if (newApp || savedApp.draft_only) {
-				dispatch('savedNewAppPath', newEditedPath || path)
+				onSavedNewAppPath?.(newEditedPath || path)
 			}
 		} catch (e) {
 			loading.saveDraft = false
@@ -890,8 +904,6 @@
 	export function openTroubleshootPanel() {
 		debugAppDrawerOpen = true
 	}
-
-	const dispatch = createEventDispatcher()
 
 	function setTheme(newDarkMode: boolean | undefined) {
 		let globalDarkMode = window.localStorage.getItem('dark-mode')
@@ -1442,9 +1454,9 @@
 				hidden={leftPanelHidden}
 				on:click={() => {
 					if (leftPanelHidden) {
-						dispatch('showLeftPanel')
+						onShowLeftPanel?.()
 					} else {
-						dispatch('hideLeftPanel')
+						onHideLeftPanel?.()
 					}
 				}}
 			/>
@@ -1453,9 +1465,9 @@
 				direction="bottom"
 				on:click={() => {
 					if (bottomPanelHidden) {
-						dispatch('showBottomPanel')
+						onShowBottomPanel?.()
 					} else {
-						dispatch('hideBottomPanel')
+						onHideBottomPanel?.()
 					}
 				}}
 			/>
@@ -1464,9 +1476,9 @@
 				direction="right"
 				on:click={() => {
 					if (rightPanelHidden) {
-						dispatch('showRightPanel')
+						onShowRightPanel?.()
 					} else {
-						dispatch('hideRightPanel')
+						onHideRightPanel?.()
 					}
 				}}
 			/>

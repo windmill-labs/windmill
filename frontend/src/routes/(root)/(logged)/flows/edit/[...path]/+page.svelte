@@ -11,7 +11,7 @@
 		orderedJsonStringify,
 		type StateStore
 	} from '$lib/utils'
-	import { initFlow } from '$lib/components/flows/flowStore.svelte'
+	import { initFlow } from '$lib/components/flows/flowStore'
 	import { goto } from '$lib/navigation'
 	import { afterNavigate, replaceState } from '$app/navigation'
 	import { writable } from 'svelte/store'

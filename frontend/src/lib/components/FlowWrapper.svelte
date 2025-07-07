@@ -1,13 +1,13 @@
 <script lang="ts">
+	import AiChatLayout from './copilot/chat/AiChatLayout.svelte'
 	import type { FlowBuilderProps } from './flow_builder'
 	import FlowBuilder from './FlowBuilder.svelte'
 
-	let {
-		flowStore: oldFlowStore,
-		...props
-	}: FlowBuilderProps = $props()
+	let { flowStore: oldFlowStore, disableAi, ...props }: FlowBuilderProps = $props()
 
 	let flowStore = $state(oldFlowStore)
 </script>
 
-<FlowBuilder {flowStore} {...props} />
+<AiChatLayout noPadding={true} {disableAi}>
+	<FlowBuilder {flowStore} {disableAi} {...props} />
+</AiChatLayout>

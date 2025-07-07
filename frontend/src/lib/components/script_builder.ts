@@ -1,5 +1,13 @@
-export interface  ScriptBuilderProps {
+import type { NewScript } from '$lib/gen'
+import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
+import type { DiffDrawerI } from './diff_drawer'
+import type { ScriptBuilderFunctionExports } from './scriptBuilder'
+import type { ScheduleTrigger } from './triggers'
+import type { NewScriptWithDraftAndDraftTriggers, Trigger } from './triggers/utils'
+
+export interface ScriptBuilderProps {
     script: NewScript & { draft_triggers?: Trigger[] }
+    disableAi?: boolean
     fullyLoaded?: boolean
     initialPath?: string
     template?: 'docker' | 'bunnative' | 'script'
@@ -7,7 +15,7 @@ export interface  ScriptBuilderProps {
     lockedLanguage?: boolean
     showMeta?: boolean
     neverShowMeta?: boolean
-    diffDrawer?: DiffDrawer | undefined
+    diffDrawer?: DiffDrawerI | undefined
     savedScript?: NewScriptWithDraftAndDraftTriggers | undefined
     searchParams?: URLSearchParams
     disableHistoryChange?: boolean
