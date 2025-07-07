@@ -50,6 +50,10 @@
 			this.editor = editor
 			this.editorHandler = editorHandler
 			this.ensureSpaceAbove()
+
+			this.editor.onDidScrollChange((e) => {
+				this.domNode.style.visibility = 'inherit'
+			})
 		}
 
 		private ensureSpaceAbove() {
@@ -95,22 +99,26 @@
 			return this.domNode
 		}
 
-		getTotalAddedLines(): number {
+		getAddedLines(): number {
 			if (!this.editorHandler || !this.editorHandler.groupChanges) {
 				return 0
 			}
 
 			let totalAddedLines = 0
+			let totalRemovedLines = 0
 			for (const group of this.editorHandler.groupChanges) {
 				for (const change of group.changes) {
 					if (change.type === 'added_block') {
 						// Count newlines in the added content
 						const lines = change.value.split('\n').length - 1
 						totalAddedLines += Math.max(1, lines)
+					} else if (change.type === 'deleted') {
+						const lines = change.range.endLine - change.range.startLine + 1
+						totalRemovedLines += Math.max(1, lines)
 					}
 				}
 			}
-			return totalAddedLines
+			return totalAddedLines - totalRemovedLines
 		}
 
 		getPosition(): monaco.editor.IContentWidgetPosition {
@@ -170,8 +178,8 @@
 	$effect(() => {
 		const isInReviewMode = aiChatManager.pendingNewCode !== undefined
 
-		if (isInReviewMode && !selectedCode.trim() && widget) {
-			const addedLines = widget.getTotalAddedLines()
+		if (isInReviewMode && widget) {
+			const addedLines = widget.getAddedLines()
 			if (widgetElement) {
 				marginToAdd = addedLines * 25
 				widgetElement.style.marginTop = `-${marginToAdd}px`
