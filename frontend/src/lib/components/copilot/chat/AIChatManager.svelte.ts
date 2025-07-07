@@ -406,10 +406,6 @@ class AIChatManager {
 		if (!instructions.trim()) {
 			throw new Error('Instructions are required')
 		}
-		if (!selectedCode.trim()) {
-			throw new Error('Selected code is required')
-		}
-
 		this.abortController = new AbortController()
 		const lang = this.scriptEditorOptions?.lang ?? 'bun'
 		const selectedContext: ContextElement[] = [...this.contextManager.getSelectedContext()]

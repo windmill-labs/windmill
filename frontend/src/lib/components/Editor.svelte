@@ -1476,7 +1476,7 @@
 		if (!editor) return
 
 		inlineAIChatSelection = editor.getSelection()
-		if (!inlineAIChatSelection || inlineAIChatSelection.isEmpty()) {
+		if (!inlineAIChatSelection) {
 			return
 		}
 		selectedCode = editor.getModel()?.getValueInRange(inlineAIChatSelection) || ''

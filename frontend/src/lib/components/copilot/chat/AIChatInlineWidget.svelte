@@ -49,7 +49,7 @@
 				if (editorDom) {
 					const neededPadding = widgetHeight + additionalPadding - linesHeight
 					this.originalPadding = this.editor.getOption(monaco.editor.EditorOption.padding)?.top || 0
-					editor.updateOptions({
+					this.editor.updateOptions({
 						padding: {
 							top: neededPadding
 						}
@@ -64,7 +64,7 @@
 			if (this.position.lineNumber < 10) {
 				const editorDom = this.editor.getDomNode()
 				if (editorDom) {
-					editor.updateOptions({
+					this.editor.updateOptions({
 						padding: {
 							top: this.originalPadding
 						}
@@ -75,7 +75,7 @@
 		}
 
 		getId(): string {
-			return 'simple-ai-widget'
+			return 'ai-inline-chat-widget'
 		}
 
 		getDomNode(): HTMLElement {
