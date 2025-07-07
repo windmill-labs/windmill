@@ -616,6 +616,7 @@
 		testModuleId = moduleId
 		showJobStatus = false
 	})
+	let outputPickerOpenFns: Record<string, () => void> = {}
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
@@ -637,7 +638,8 @@
 		executionCount: writable(0),
 		flowInputEditorState: flowInputEditorStateStore,
 		modulesTestStates,
-		getPreviewJob: () => previewJob
+		getPreviewJob: () => previewJob,
+		outputPickerOpenFns
 	})
 
 	// Add triggers context store
@@ -955,10 +957,6 @@
 		}
 		jobRunning = isRunning
 	}
-
-	// Register output open function
-	let outputPickerOpenFns = $state<Record<string, () => void>>({})
-	setContext<Record<string, () => void>>('openOutputPicker', outputPickerOpenFns)
 
 	$effect(() => {
 		job && jobObserver(job)

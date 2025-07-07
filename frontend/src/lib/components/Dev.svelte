@@ -472,7 +472,8 @@
 		}),
 		currentEditor: writable(undefined),
 		modulesTestStates: new ModulesTestStates(),
-		getPreviewJob: () => undefined
+		getPreviewJob: () => undefined,
+		outputPickerOpenFns: {}
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),

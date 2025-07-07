@@ -81,4 +81,5 @@ export type FlowEditorContext = {
 	executionCount: Writable<number>
 	modulesTestStates: ModulesTestStates
 	getPreviewJob: () => Job | undefined
+	outputPickerOpenFns: Record<string, () => void>
 }

@@ -9,6 +9,7 @@
 	import { useSvelteFlow } from '@xyflow/svelte'
 	import { getStateColor } from '$lib/components/graph/util'
 	import type { FlowStatusModule } from '$lib/gen'
+	import type { FlowEditorContext } from '../types'
 
 	interface Props {
 		selected?: boolean
@@ -114,10 +115,13 @@
 	})
 
 	onMount(() => {
-		let outputPickerOpenFns = getContext<Record<string, () => void>>('openOutputPicker')
+		let { outputPickerOpenFns } = getContext<FlowEditorContext>('FlowEditorContext') || {}
 		if (outputPickerOpenFns) {
 			outputPickerOpenFns[id] = () => {
 				outputOpen = true
+			}
+			return () => {
+				delete outputPickerOpenFns[id]
 			}
 		}
 	})
