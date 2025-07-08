@@ -83,8 +83,8 @@ wmill.runScriptAsync(path: string, args?: Record<string, any>): Promise<string> 
 wmill.waitJob(jobId: string): Promise<any> // Wait for job completion and get result
 
 // S3 file operations (if S3 is configured)
-wmill.loadS3File(s3object: S3Object): Promise<Uint8Array> // Load file content from S3
-wmill.writeS3File(s3object: S3Object, content: string | Blob): Promise<S3Object> // Write file to S3
+wmill.loadS3File(s3object: S3Object | string): Promise<Uint8Array> // Load file content from S3
+wmill.writeS3File(s3object: S3Object | string, content: string | Blob): Promise<S3Object> // Write file to S3
 
 // Flow operations
 wmill.setFlowUserState(key: string, value: any): Promise<void> // Set flow user state
@@ -119,8 +119,8 @@ wmill.run_script_async(path: str, args: dict = None, scheduled_in_secs: int = No
 wmill.wait_job(job_id: str, timeout = None) -> Any  // Wait for job completion and get result
 
 // S3 file operations (if S3 is configured)
-wmill.load_s3_file(s3object: S3Object, s3_resource_path: str = None) -> bytes  // Load file content from S3
-wmill.write_s3_file(s3object: S3Object, file_content: bytes, s3_resource_path: str = None) -> S3Object  // Write file to S3
+wmill.load_s3_file(s3object: S3Object | str, s3_resource_path: str = None) -> bytes  // Load file content from S3
+wmill.write_s3_file(s3object: S3Object | str, file_content: bytes, s3_resource_path: str = None) -> S3Object  // Write file to S3
 
 // Flow operations  
 wmill.run_flow_async(path: str, args: dict = None) -> str  // Run flow asynchronously
