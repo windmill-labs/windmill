@@ -548,7 +548,7 @@ outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration
 		</div>
 	{/if}
 
-	{#if editMode && enableTestRun}
+	{#if editMode && enableTestRun && flowJob?.type !== 'QueuedJob'}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-2 h-9 min-w-14"
