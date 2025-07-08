@@ -904,6 +904,7 @@
 	let isRunning = $state(false)
 	let previewOpen = $state(false)
 	let jobRunning = $state(false)
+	let previewMode: 'upTo' | 'whole' = $state('whole')
 
 	function jobObserver(job: Job) {
 		if (isRunning === jobRunning) {
@@ -914,7 +915,7 @@
 			return
 		}
 		if (!previewOpen) {
-			if (job.type === 'CompletedJob' && job.success) {
+			if (job.type === 'CompletedJob' && job.success && previewMode === 'whole') {
 				outputPickerOpenFns['Result']?.()
 			} else {
 				// Find last module with a job in flow_status
@@ -1199,6 +1200,7 @@
 						}}
 						bind:isRunning
 						bind:previewOpen
+						bind:previewMode
 					/>
 					<Button
 						loading={loadingDraft}

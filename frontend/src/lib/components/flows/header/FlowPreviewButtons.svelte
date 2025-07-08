@@ -23,6 +23,7 @@
 		isRunning?: boolean
 		previewOpen?: boolean
 		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
+		previewMode?: 'upTo' | 'whole'
 	}
 
 	let {
@@ -34,11 +35,11 @@
 		onRunPreview,
 		isRunning = $bindable(false),
 		previewOpen = $bindable(false),
+		previewMode = $bindable('whole'),
 		suspendStatus = $bindable(writable({}))
 	}: Props = $props()
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
-	let previewMode: 'upTo' | 'whole' = $state('whole')
 	let deferContent = $state(false)
 
 	export async function openPreview(test: boolean = false) {
@@ -56,6 +57,7 @@
 			deferContent = true
 			await tick()
 		}
+		previewMode = 'whole'
 		flowPreviewContent?.refresh
 		flowPreviewContent?.test()
 	}
@@ -105,12 +107,19 @@
 			aiChatManager.flowAiChatHelpers?.getModuleAction($selectedId) === 'removed'
 	)
 
-	export function testUpTo() {
+	export async function testUpTo(openPreview: boolean = false) {
 		if (upToDisabled) return
+		if (openPreview) {
+			previewOpen = true
+		} else if (!previewOpen) {
+			deferContent = true
+			await tick()
+		}
 		previewMode = 'upTo'
-		//previewOpen = false
 		flowPreviewContent?.refresh()
-		flowPreviewContent?.test()
+		if (!openPreview) {
+			flowPreviewContent?.test()
+		}
 	}
 </script>
 
@@ -130,7 +139,7 @@
 		? [
 				{
 					label: 'Test up to ' + $selectedId,
-					onClick: testUpTo
+					onClick: () => testUpTo(true)
 				}
 			]
 		: undefined}
