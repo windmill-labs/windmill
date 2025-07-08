@@ -908,7 +908,7 @@
 				job.success &&
 				flowPreviewButtons?.getPreviewMode() === 'whole'
 			) {
-				if (flowEditor?.isNodeVisible('result')) {
+				if (flowEditor?.isNodeVisible('result') && $selectedIdStore !== 'Result') {
 					outputPickerOpenFns['Result']?.()
 				}
 			} else {
@@ -917,10 +917,12 @@
 					?.slice()
 					.reverse()
 					.find((module) => 'job' in module)
-				if (lastModuleWithJob && lastModuleWithJob.id) {
-					if (flowEditor?.isNodeVisible(lastModuleWithJob.id)) {
-						outputPickerOpenFns[lastModuleWithJob.id]?.()
-					}
+				if (
+					lastModuleWithJob &&
+					lastModuleWithJob.id &&
+					flowEditor?.isNodeVisible(lastModuleWithJob.id)
+				) {
+					outputPickerOpenFns[lastModuleWithJob.id]?.()
 				}
 			}
 		}

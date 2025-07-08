@@ -39,6 +39,7 @@
 			flowPreviewContent?.refresh()
 			if (!test) return
 		}
+		previewMode = 'whole'
 		flowPreviewContent?.test()
 	}
 
