@@ -128,7 +128,12 @@
 			</div>
 		{/if}
 		{#if annotation && annotation != ''}
-			<div class="absolute z-10 left-0 -top-5 center-center text-tertiary">
+			<div
+				class={twMerge(
+					'absolute z-10 left-0 -top-5 center-center text-tertiary',
+					editMode ? '-top-4 text-gray-400 dark:text-gray-500 text-xs font-normal' : ''
+				)}
+			>
 				{annotation}
 			</div>
 		{/if}
