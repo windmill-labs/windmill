@@ -12,12 +12,13 @@
 	export let small = false
 	export let loadAsync = false
 
-	$: tooBig = code && code?.length > 1000000
+	$: tooBig = code && code?.length > 100000
 
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function parseJson() {
+		if (tooBig) return
 		try {
 			if (code == '') {
 				value = undefined
@@ -34,26 +35,22 @@
 	$: code != undefined && parseJson()
 </script>
 
-{#if tooBig}
-	<span class="text-tertiary">JSON to edit is too big</span>
-{:else}
-	<div class="flex flex-col w-full">
-		<div class="border w-full">
-			<SimpleEditor
-				{loadAsync}
-				{small}
-				on:focus
-				on:blur
-				bind:this={editor}
-				on:change
-				autoHeight
-				lang="json"
-				bind:code
-				class={$$props.class}
-			/>
-		</div>
-		{#if error != ''}
-			<span class="text-red-600 text-xs">{error}</span>
-		{/if}
+<div class="flex flex-col w-full">
+	<div class="border w-full">
+		<SimpleEditor
+			{loadAsync}
+			{small}
+			on:focus
+			on:blur
+			bind:this={editor}
+			on:change
+			autoHeight
+			lang="json"
+			bind:code={() => (tooBig ? '// JSON is too big to edit' : code), (c) => (code = c)}
+			class={$$props.class}
+		/>
 	</div>
-{/if}
+	{#if error != ''}
+		<span class="text-red-600 text-xs">{error}</span>
+	{/if}
+</div>
