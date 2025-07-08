@@ -475,13 +475,12 @@ const SCRIPT_JOBS: [&'static str; 6] = [
     "jobs/run/preview/",
 ];
 
-const FLOW_JOBS: [&'static str; 6] = [
+const FLOW_JOBS: [&'static str; 5] = [
     "jobs/run/f",
     "jobs/run_wait_result/f",
     "jobs/run/preview_flow",
     "jobs/restart/f",
     "jobs/flow/resume",
-    "jobs/flow/user_states",
 ];
 
 lazy_static::lazy_static! {
