@@ -88,6 +88,10 @@
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
 
+	export function isNodeVisible(nodeId: string): boolean {
+		return flowModuleSchemaMap?.isNodeVisible(nodeId) ?? false
+	}
+
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)

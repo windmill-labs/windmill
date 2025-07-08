@@ -480,6 +480,11 @@
 			}
 		}, 10)
 	})
+
+	let viewportResizer: ViewportResizer | undefined = $state(undefined)
+	export function isNodeVisible(nodeId: string): boolean {
+		return viewportResizer?.isNodeVisible(nodeId) ?? false
+	}
 </script>
 
 {#if insertable}
@@ -502,7 +507,7 @@
 		</div>
 	{:else}
 		<SvelteFlowProvider>
-			<ViewportResizer {width} />
+			<ViewportResizer {height} {width} {nodes} bind:this={viewportResizer} />
 			<SvelteFlow
 				onpaneclick={(e) => {
 					document.dispatchEvent(new Event('focus'))
@@ -524,7 +529,7 @@
 				nodesDraggable={false}
 				--background-color={false}
 			>
-				<div class="absolute inset-0 !bg-surface-secondary"></div>
+				<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
 				<Controls position="top-right" orientation="horizontal" showLock={false}>
 					{#if download}
 						<ControlButton

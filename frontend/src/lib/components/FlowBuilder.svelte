@@ -584,6 +584,7 @@
 		showJobStatus = false
 	})
 	let outputPickerOpenFns: Record<string, () => void> = $state({})
+	let flowEditor: FlowEditor | undefined = $state(undefined)
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
@@ -907,7 +908,9 @@
 				job.success &&
 				flowPreviewButtons?.getPreviewMode() === 'whole'
 			) {
-				outputPickerOpenFns['Result']?.()
+				if (flowEditor?.isNodeVisible('result')) {
+					outputPickerOpenFns['Result']?.()
+				}
 			} else {
 				// Find last module with a job in flow_status
 				const lastModuleWithJob = job.flow_status?.modules
@@ -915,7 +918,9 @@
 					.reverse()
 					.find((module) => 'job' in module)
 				if (lastModuleWithJob && lastModuleWithJob.id) {
-					outputPickerOpenFns[lastModuleWithJob.id]?.()
+					if (flowEditor?.isNodeVisible(lastModuleWithJob.id)) {
+						outputPickerOpenFns[lastModuleWithJob.id]?.()
+					}
 				}
 			}
 		}
@@ -1216,6 +1221,7 @@
 			<!-- metadata -->
 			{#if $flowStateStore}
 				<FlowEditor
+					bind:this={flowEditor}
 					{disabledFlowInputs}
 					disableAi={disableAi || customUi?.stepInputs?.ai == false}
 					disableSettings={customUi?.settingsPanel === false}

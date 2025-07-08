@@ -246,6 +246,11 @@
 	let deleteCallback: (() => void) | undefined = $state(undefined)
 	let dependents: Record<string, string[]> = $state({})
 
+	let graph: FlowGraphV2 | undefined = $state(undefined)
+	export function isNodeVisible(nodeId: string): boolean {
+		return graph?.isNodeVisible(nodeId) ?? false
+	}
+
 	function shouldRunTutorial(tutorialName: string, name: string, index: number) {
 		return (
 			$tutorialsToDo.includes(index) &&
@@ -358,13 +363,14 @@
 
 	<div class="z-10 flex-auto grow bg-surface-secondary" bind:clientHeight={minHeight}>
 		<FlowGraphV2
+			bind:this={graph}
 			earlyStop={flowStore.val.value?.skip_expr !== undefined}
 			cache={flowStore.val.value?.cache_ttl !== undefined}
 			triggerNode={customUi?.triggers != false}
 			path={$pathStore}
 			{newFlow}
 			{disableAi}
-			insertable={flowJob?.type !== 'QueuedJob'}
+			insertable
 			scroll
 			{minHeight}
 			moving={$moving?.id}
