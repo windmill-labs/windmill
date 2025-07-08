@@ -80,7 +80,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<Required<Pick<SyncOptions,
   skipVariables: false,
   skipResources: false,
   skipResourceTypes: false,
-  skipSecrets: false,
+  skipSecrets: true,
   skipScripts: false,
   skipFlows: false,
   skipApps: false,
@@ -100,39 +100,38 @@ export async function mergeConfigWithConfigFile<T>(
   return Object.assign(configFile ?? {}, opts);
 }
 
-// Get effective settings by merging defaults, top-level settings, and overrides
+// Get effective settings by merging top-level settings and overrides
 export function getEffectiveSettings(
   config: SyncOptions,
-  workspace: string,
   repo: string,
   workspaceObj?: Workspace
 ): SyncOptions {
-  // Start with defaults
-  let effective = { ...DEFAULT_SYNC_OPTIONS };
+  // Start with empty object - no defaults
+  let effective = {} as SyncOptions;
   
-  // Merge top-level settings from config
+  // Merge top-level settings from config (which contains user's chosen defaults)
   Object.keys(config).forEach(key => {
     if (key !== 'overrides' && config[key as keyof SyncOptions] !== undefined) {
       (effective as any)[key] = config[key as keyof SyncOptions];
     }
   });
   
-  // Generate possible override keys in order of preference
-  const possibleWorkspaceKeys = workspaceObj ? [
-    `${workspaceObj.name}:*`,                          // Primary: "localhost_test:*"
-    `${workspaceObj.remote}:${workspace}:*`,           // Disambiguated: "http://localhost:8000/:test:*"
-    `${workspace}:*`,                                  // Legacy: "test:*"
-  ] : [
-    `${workspace}:*`,                                  // Legacy only
+  if (!workspaceObj || !config.overrides) {
+    return effective;
+  }
+  
+  // Generate possible override keys in order of preference (NO LEGACY!)
+  const possibleWorkspaceKeys = [
+    `${workspaceObj.name}:*`,                                              // Primary: "localhost_test:*"
+    `${workspaceObj.remote}:${workspaceObj.workspaceId}:*`,               // Disambiguated: "http://localhost:8000/:test:*"
   ];
 
-  const possibleRepoKeys = workspaceObj ? [
-    `${workspaceObj.name}:${repo}`,                    // Primary: "localhost_test:u/user/repo"
-    `${workspaceObj.remote}:${workspace}:${repo}`,     // Disambiguated: "http://localhost:8000/:test:u/user/repo"
-    `${workspace}:${repo}`,                            // Legacy: "test:u/user/repo"
-  ] : [
-    `${workspace}:${repo}`,                            // Legacy only
+  const possibleRepoKeys = [
+    `${workspaceObj.name}:${repo}`,                                       // Primary: "localhost_test:u/user/repo"
+    `${workspaceObj.remote}:${workspaceObj.workspaceId}:${repo}`,         // Disambiguated: "http://localhost:8000/:test:u/user/repo"
   ];
+
+
 
   // Track which keys were found for validation
   let workspaceKeyFound = false;
@@ -142,7 +141,7 @@ export function getEffectiveSettings(
 
   // Apply workspace-level overrides (first match wins)
   for (const key of possibleWorkspaceKeys) {
-    if (config.overrides?.[key]) {
+    if (config.overrides[key]) {
       if (!workspaceKeyFound) {
         Object.assign(effective, config.overrides[key]);
         workspaceKeyFound = true;
@@ -153,7 +152,7 @@ export function getEffectiveSettings(
   
   // Apply repository-specific overrides (first match wins, overrides workspace-level)
   for (const key of possibleRepoKeys) {
-    if (config.overrides?.[key]) {
+    if (config.overrides[key]) {
       if (!repoKeyFound) {
         Object.assign(effective, config.overrides[key]);
         repoKeyFound = true;
@@ -163,27 +162,20 @@ export function getEffectiveSettings(
   }
 
   // Validation and helpful error messages
-  if (config.overrides && Object.keys(config.overrides).length > 0) {
+  if (Object.keys(config.overrides).length > 0) {
     // Check for potential mismatched keys that contain this repo
     if (!repoKeyFound && repo) {
       const existingKeys = Object.keys(config.overrides);
       const repoMatches = existingKeys.filter(key => key.includes(repo));
       const workspaceMatches = existingKeys.filter(key => 
-        workspaceObj ? 
-          (key.includes(workspaceObj.name) || key.includes(workspace)) :
-          key.includes(workspace)
+        key.includes(workspaceObj.name) || key.includes(workspaceObj.workspaceId)
       );
 
       if (repoMatches.length > 0 || workspaceMatches.length > 0) {
         const suggestions = [...new Set([...repoMatches, ...workspaceMatches])];
         console.warn(`⚠️  Override key not found for repository "${repo}".`);
-        if (workspaceObj) {
-          console.warn(`   Current workspace: "${workspaceObj.name}" (ID: ${workspace})`);
-          console.warn(`   Expected key format: "${workspaceObj.name}:${repo}"`);
-        } else {
-          console.warn(`   Current workspace ID: "${workspace}"`);
-          console.warn(`   Expected key format: "${workspace}:${repo}"`);
-        }
+        console.warn(`   Current workspace: "${workspaceObj.name}" (ID: ${workspaceObj.workspaceId})`);
+        console.warn(`   Expected key format: "${workspaceObj.name}:${repo}"`);
         if (suggestions.length > 0) {
           console.warn(`   Found similar keys: ${suggestions.join(', ')}`);
           console.warn(`   Did you mean one of these keys?`);
@@ -199,23 +191,6 @@ export function getEffectiveSettings(
     if (foundRepoKeys.length > 1) {
       console.warn(`⚠️  Multiple repository override keys found: ${foundRepoKeys.join(', ')}`);
       console.warn(`   Using: ${foundRepoKeys[0]}`);
-    }
-
-    // Check for potential instance ambiguity (multiple remote:workspaceId keys)
-    if (workspaceObj && config.overrides) {
-      const disambiguatedKeys = Object.keys(config.overrides).filter(key => 
-        key.includes(':') && key.split(':').length === 3 && key.includes(workspace)
-      );
-      const uniqueRemotes = new Set(
-        disambiguatedKeys.map(key => key.split(':')[0]).filter(remote => remote.startsWith('http'))
-      );
-      
-      if (uniqueRemotes.size > 1) {
-        console.warn(`⚠️  Multiple instances detected with same workspace ID "${workspace}"`);
-        console.warn(`   Found instances: ${Array.from(uniqueRemotes).join(', ')}`);
-        console.warn(`   Current instance: ${workspaceObj.remote}`);
-        console.warn(`   Consider using disambiguated format: "${workspaceObj.remote}:${workspace}:${repo}"`);
-      }
     }
   }
   

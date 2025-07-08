@@ -38,6 +38,7 @@ import {
 import { handleFile } from "./script.ts";
 import { deepEqual, isFileResource } from "./utils.ts";
 import { SyncOptions, mergeConfigWithConfigFile, readConfigFile, getEffectiveSettings } from "./conf.ts";
+import { Workspace } from "./workspace.ts";
 import { removePathPrefix } from "./types.ts";
 import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
 import {
@@ -92,57 +93,60 @@ async function selectRepositoryInteractively(
 
 // Resolve effective sync options with repository awareness
 async function resolveEffectiveSyncOptions(
-  workspace: { workspaceId: string; name?: string; remote?: string },
+  workspace: Workspace,
   repositoryPath?: string
 ): Promise<SyncOptions> {
   const localConfig = await readConfigFile();
 
-  // Check if config has overrides that apply to the current workspace
+  // If we have a specific repository path, use getEffectiveSettings directly
+  // This will handle both repository-specific and workspace-level overrides
+  if (repositoryPath) {
+    return getEffectiveSettings(localConfig, repositoryPath, workspace);
+  }
+
+  // Check if config has repository-specific overrides that apply to the current workspace
   const applicableOverrides = findApplicableOverrides(localConfig, workspace);
 
   if (applicableOverrides.length === 0) {
-    // No applicable overrides - use legacy behavior for backward compatibility
-    return await mergeConfigWithConfigFile({});
+    // No repository-specific overrides found
+    // Still need to call getEffectiveSettings to handle workspace-level overrides
+    // Use empty string as repository to only apply workspace-level overrides
+    return getEffectiveSettings(localConfig, "", workspace);
   }
 
-  // Determine repository from overrides or explicit parameter
-  let selectedRepository = repositoryPath;
+  // Determine repository from overrides
+  let selectedRepository: string;
 
-  if (!selectedRepository) {
-    if (applicableOverrides.length === 1) {
-      // Single applicable override - use its repository
-      selectedRepository = applicableOverrides[0].repository;
-    } else {
-      // Multiple applicable overrides - require explicit selection
-      const repositoryChoices = applicableOverrides.map((override, index) => ({
-        name: `${index + 1}. ${override.repository}`,
-        value: override.repository
-      }));
+  if (applicableOverrides.length === 1) {
+    // Single applicable override - use its repository
+    selectedRepository = applicableOverrides[0].repository;
+  } else {
+    // Multiple applicable overrides - require explicit selection
+    const repositoryChoices = applicableOverrides.map((override, index) => ({
+      name: `${index + 1}. ${override.repository}`,
+      value: override.repository
+    }));
 
-      const isInteractive = Deno.stdin.isTerminal() && Deno.stdout.isTerminal();
-      if (!isInteractive) {
-        const repoList = applicableOverrides.map(o => o.repository).join(', ');
-        throw new Error(`Multiple repository overrides found for workspace "${workspace.name || workspace.workspaceId}": ${repoList}. Use --repository to specify which one to sync.`);
-      }
-
-      selectedRepository = await Select.prompt({
-        message: "Select repository override to use for sync:",
-        options: repositoryChoices
-      });
+    const isInteractive = Deno.stdin.isTerminal() && Deno.stdout.isTerminal();
+    if (!isInteractive) {
+      const repoList = applicableOverrides.map(o => o.repository).join(', ');
+      throw new Error(`Multiple repository overrides found for workspace "${workspace.name || workspace.workspaceId}": ${repoList}. Use --repository to specify which one to sync.`);
     }
+
+    selectedRepository = await Select.prompt({
+      message: "Select repository override to use for sync:",
+      options: repositoryChoices
+    });
   }
 
   // Use hierarchical resolution with workspace + repository
-  if (!selectedRepository) {
-    throw new Error("Repository could not be determined. This should not happen.");
-  }
-  return getEffectiveSettings(localConfig, workspace.name || workspace.workspaceId, selectedRepository, undefined);
+  return getEffectiveSettings(localConfig, selectedRepository, workspace);
 }
 
 // Helper function to find overrides that apply to the current workspace
 function findApplicableOverrides(
   config: SyncOptions,
-  workspace: { workspaceId: string; name?: string; remote?: string }
+  workspace: Workspace
 ): Array<{ key: string; repository: string }> {
   if (!config.overrides) {
     return [];
@@ -824,6 +828,10 @@ export async function elementsToMap(
       continue;
 
     if (skips.skipVariables && path.endsWith(".variable" + ext)) continue;
+    if (skips.skipScripts && (path.endsWith(".script" + ext) || exts.some(e => path.endsWith(e)))) continue;
+    if (skips.skipFlows && (path.endsWith(".flow" + ext) || path.includes(".flow/"))) continue;
+    if (skips.skipApps && (path.endsWith(".app" + ext) || path.includes(".app/"))) continue;
+    if (skips.skipFolders && path.endsWith(".folder" + ext)) continue;
 
     if (skips.skipResources && isFileResource(path)) continue;
 
@@ -878,6 +886,10 @@ export interface Skips {
   skipResources?: boolean | undefined;
   skipResourceTypes?: boolean | undefined;
   skipSecrets?: boolean | undefined;
+  skipScripts?: boolean | undefined;
+  skipFlows?: boolean | undefined;
+  skipApps?: boolean | undefined;
+  skipFolders?: boolean | undefined;
   skipScriptsMetadata?: boolean | undefined;
   includeSchedules?: boolean | undefined;
   includeTriggers?: boolean | undefined;

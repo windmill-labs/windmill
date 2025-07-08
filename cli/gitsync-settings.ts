@@ -846,7 +846,6 @@ async function pushGitSyncSettings(
         const repoPath = normalizeRepoPath(selectedRepo.git_repo_resource_path);
         const effectiveSettings = getEffectiveSettings(
             localConfig,
-            workspace.workspaceId,
             repoPath,
             workspace
         );
