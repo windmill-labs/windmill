@@ -12,7 +12,7 @@
 	export let small = false
 	export let loadAsync = false
 
-	$: tooBig = code && code?.length > 100000
+	$: tooBig = code && code?.length > 1000000
 
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)

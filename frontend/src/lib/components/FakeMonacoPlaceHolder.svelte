@@ -31,11 +31,12 @@
 			: getOS() === 'macOS'
 				? DEFAULT_MAC_FONT_FAMILY
 				: DEFAULT_LINUX_FONT_FAMILY
+	const CHAR_LIMIT = 5000
 
 	// https://github.com/microsoft/vscode/blob/baa2dad3cdacd97ac02eff0604984faf1167ff1e/src/vs/editor/common/config/fontInfo.ts#L14
 	const GOLDEN_LINE_HEIGHT_RATIO = getOS() == 'macOS' ? 1.5 : 1.35
 
-	let lines = $derived(code?.split('\n') ?? [])
+	let lines = $derived(code?.substring(0, CHAR_LIMIT)?.split('\n') ?? [])
 
 	const charWidth = 9 // try to match as closely as possible to monaco editor
 
