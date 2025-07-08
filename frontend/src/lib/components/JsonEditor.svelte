@@ -4,6 +4,7 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import Button from './common/button/Button.svelte'
 
 	export let code: string | undefined
 	export let value: any = undefined
@@ -13,6 +14,7 @@
 	export let loadAsync = false
 
 	$: tooBig = code && code?.length > 1000000
+	let loadTooBigAnyway = false
 
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
@@ -34,8 +36,13 @@
 	$: code != undefined && parseJson()
 </script>
 
-{#if tooBig}
-	<span class="text-tertiary">JSON to edit is too big</span>
+{#if tooBig && !loadTooBigAnyway}
+	<div class="flex-1 text-sm">
+		JSON is too big
+		<Button size="xs2" variant="border" on:click={() => (loadTooBigAnyway = true)}>
+			Load anyway
+		</Button>
+	</div>
 {:else}
 	<div class="flex flex-col w-full">
 		<div class="border w-full">
