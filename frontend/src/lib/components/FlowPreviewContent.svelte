@@ -125,7 +125,6 @@
 		if (stepHistoryLoader?.flowJobInitial) {
 			stepHistoryLoader?.setFlowJobInitial(false)
 		}
-		onRunPreview?.()
 		try {
 			lastPreviewFlow = JSON.stringify(flowStore.val)
 			jobProgressReset()
@@ -136,6 +135,7 @@
 				savedArgs = previewArgs.val
 				inputSelected = undefined
 			}
+			onRunPreview?.()
 		} catch (e) {
 			sendUserToast('Could not run preview', true, undefined, e.toString())
 			isRunning = false
@@ -218,11 +218,6 @@
 		}
 	}
 	run(() => {
-		if (job?.type === 'CompletedJob') {
-			isRunning = false
-		}
-	})
-	run(() => {
 		selectedJobStep !== undefined && onSelectedJobStepChange()
 	})
 	run(() => {
@@ -230,6 +225,7 @@
 	})
 
 	export async function cancelTest() {
+		isRunning = false
 		try {
 			jobId &&
 				(await JobService.cancelQueuedJob({
@@ -285,7 +281,6 @@
 				<Button
 					color="red"
 					on:click={async () => {
-						isRunning = false
 						cancelTest()
 					}}
 					size="sm"
@@ -550,6 +545,7 @@
 					{flowStateStore}
 					{jobId}
 					on:done={() => {
+						isRunning = false
 						$executionCount = $executionCount + 1
 						onJobDone?.()
 					}}
