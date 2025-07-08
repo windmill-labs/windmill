@@ -18,6 +18,7 @@
 		innerModules: FlowStatusModule[]
 		suspendStatus: Writable<Record<string, { job: Job; nb: number }>>
 		hideJobId?: boolean
+		extra?: import('svelte').Snippet
 	}
 
 	let {
@@ -29,11 +30,12 @@
 		localDurationStatuses,
 		innerModules,
 		suspendStatus,
-		hideJobId
+		hideJobId,
+		extra
 	}: Props = $props()
 </script>
 
-<FlowPreviewStatus {job} {hideJobId} />
+<FlowPreviewStatus {job} {hideJobId} {extra} />
 
 {#if !job}
 	<div>

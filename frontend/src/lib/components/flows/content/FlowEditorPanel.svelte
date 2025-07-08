@@ -35,6 +35,7 @@
 		isOwner?: boolean
 		localDurationStatuses?: Writable<Record<string, DurationStatus>>
 		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
+		onOpenDetails?: () => void
 	}
 
 	let {
@@ -50,7 +51,8 @@
 		job,
 		isOwner,
 		localDurationStatuses,
-		suspendStatus
+		suspendStatus,
+		onOpenDetails
 	}: Props = $props()
 
 	const {
@@ -98,7 +100,7 @@
 		{onTestFlow}
 	/>
 {:else if $selectedId === 'Result'}
-	<FlowResult {job} {isOwner} {localDurationStatuses} {suspendStatus} />
+	<FlowResult {noEditor} {job} {isOwner} {localDurationStatuses} {suspendStatus} {onOpenDetails} />
 {:else if $selectedId === 'constants'}
 	<FlowConstants {noEditor} />
 {:else if $selectedId === 'failure'}

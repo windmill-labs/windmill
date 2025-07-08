@@ -177,6 +177,7 @@
 					{isOwner}
 					{localDurationStatuses}
 					{suspendStatus}
+					onOpenDetails={onOpenPreview}
 				/>
 			{/if}
 		</Pane>

@@ -5,12 +5,23 @@
 	import JobStatus from '../JobStatus.svelte'
 	import { ExternalLinkIcon } from 'lucide-svelte'
 	import { truncateRev } from '$lib/utils'
+	import { twMerge } from 'tailwind-merge'
 
-	export let job: QueuedJob | CompletedJob
-	export let hideJobId: boolean = false
+	interface Props {
+		job: QueuedJob | CompletedJob
+		hideJobId?: boolean
+		extra?: import('svelte').Snippet
+	}
+
+	let { job, hideJobId = false, extra }: Props = $props()
 </script>
 
-<div class="grid grid-cols-2 gap-4 mb-1 text-tertiary dark:text-gray-400">
+<div
+	class={twMerge(
+		'grid grid-cols-2 gap-4 mb-1 text-tertiary dark:text-gray-400',
+		extra && job && !hideJobId ? 'grid-cols-3' : 'grid-cols-2'
+	)}
+>
 	<JobStatus {job} />
 	{#if job && !hideJobId}
 		<div>
@@ -27,4 +38,5 @@
 			</div>
 		</div>
 	{/if}
+	{@render extra?.()}
 </div>
