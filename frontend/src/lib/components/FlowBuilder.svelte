@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import {
 		FlowService,
 		type Flow,
@@ -27,7 +25,6 @@
 		orderedJsonStringify,
 		readFieldsRecursively,
 		replaceFalseWithUndefined,
-		type StateStore,
 		type Value
 	} from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
@@ -41,7 +38,6 @@
 	import { Badge, Button, UndoRedo } from './common'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
-	import type { FlowState } from './flows/flowState'
 	import { dfs as dfsApply } from './flows/dfs'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
@@ -57,7 +53,6 @@
 		type Icon,
 		Settings
 	} from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import { type FlowCopilotContext } from './copilot/flow'
@@ -66,7 +61,6 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import FlowTutorials from './FlowTutorials.svelte'
 	import { ignoredTutorials } from './tutorials/ignoredTutorials'
-	import type DiffDrawer from './DiffDrawer.svelte'
 	import FlowHistory from './flows/FlowHistory.svelte'
 	import Summary from './Summary.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
@@ -90,44 +84,8 @@
 		StepHistoryLoader,
 		type stepState
 	} from './stepHistoryLoader.svelte'
+	import type { FlowBuilderProps } from './flow_builder'
 	import { ModulesTestStates } from './modulesTest.svelte'
-
-	interface Props {
-		initialPath?: string
-		pathStoreInit?: string | undefined
-		newFlow: boolean
-		selectedId: string | undefined
-		initialArgs?: Record<string, any>
-		loading?: boolean
-		flowStore: StateStore<OpenFlow>
-		flowStateStore: Writable<FlowState>
-		savedFlow?: FlowWithDraftAndDraftTriggers | undefined
-		diffDrawer?: DiffDrawer | undefined
-		customUi?: FlowBuilderWhitelabelCustomUi
-		disableAi?: boolean
-		disabledFlowInputs?: boolean
-		savedPrimarySchedule?: ScheduleTrigger | undefined // used to set the primary schedule in the legacy primaryScheduleStore
-		version?: number | undefined
-		setSavedraftCb?: ((cb: () => void) => void) | undefined
-		draftTriggersFromUrl?: Trigger[] | undefined
-		selectedTriggerIndexFromUrl?: number | undefined
-		children?: import('svelte').Snippet
-		loadedFromHistoryFromUrl?: {
-			flowJobInitial: boolean | undefined
-			stepsState: Record<string, stepState>
-		}
-		noInitial?: boolean
-		onSaveInitial?: ({ path, id }: { path: string; id: string }) => void
-		onSaveDraft?: ({
-			path,
-			savedAtNewPath,
-			newFlow
-		}: {
-			path: string
-			savedAtNewPath: boolean
-			newFlow: boolean
-		}) => void
-	}
 
 	let {
 		initialPath = $bindable(''),
@@ -150,8 +108,16 @@
 		selectedTriggerIndexFromUrl = undefined,
 		children,
 		loadedFromHistoryFromUrl,
-		noInitial = false
-	}: Props = $props()
+		noInitial = false,
+		onSaveInitial,
+		onSaveDraft,
+		onDeploy,
+		onDeployError,
+		onDetails,
+		onSaveDraftError,
+		onSaveDraftOnlyAtNewPath,
+		onHistoryRestore
+	}: FlowBuilderProps = $props()
 
 	let initialPathStore = writable(initialPath)
 
@@ -160,7 +126,7 @@
 		'u/' +
 		($userStore?.username?.includes('@')
 			? $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
-			: $userStore!.username!) +
+			: $userStore?.username) +
 		'/' +
 		generateRandomString(12)
 
@@ -235,8 +201,6 @@
 			onLatest = true
 		}
 	}
-
-	const dispatch = createEventDispatcher()
 
 	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule) // kept for legacy reasons
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
@@ -368,18 +332,18 @@
 
 			let savedAtNewPath = false
 			if (newFlow) {
-				dispatch('saveInitial', $pathStore)
+				onSaveInitial?.({ path: $pathStore, id: getSelectedId() })
 			} else if (savedFlow?.draft_only && $pathStore !== initialPath) {
 				savedAtNewPath = true
 				initialPath = $pathStore
+				onSaveDraftOnlyAtNewPath?.({ path: $pathStore, selectedId: getSelectedId() })
 				// this is so we can use the flow builder outside of sveltekit
-				dispatch('saveDraftOnlyAtNewPath', { path: $pathStore, selectedId: getSelectedId() })
 			}
-			dispatch('saveDraft', { path: $pathStore, savedAtNewPath, newFlow })
+			onSaveDraft?.({ path: $pathStore, savedAtNewPath, newFlow })
 			sendUserToast('Saved as draft')
 		} catch (error) {
 			sendUserToast(`Error while saving the flow as a draft: ${error.body || error.message}`, true)
-			dispatch('saveDraftError', error)
+			onSaveDraftError?.({ error })
 		}
 		loadingDraft = false
 	}
@@ -549,9 +513,10 @@
 			} as Flow
 			setDraftTriggers([])
 			loadingSave = false
-			dispatch('deploy', $pathStore)
+			onDeploy?.({ path: $pathStore })
 		} catch (err) {
-			dispatch('deployError', err)
+			onDeployError?.({ error: err })
+			// this is so we can use the flow builder outside of sveltekit
 			sendUserToast(`The flow could not be saved: ${err.body ?? err}`, true)
 			loadingSave = false
 		}
@@ -756,7 +721,7 @@
 		if (savedFlow?.draft_only === false || savedFlow?.draft_only === undefined) {
 			dropdownItems.push({
 				label: 'Exit & see details',
-				onClick: () => dispatch('details', $pathStore)
+				onClick: () => onDetails?.({ path: $pathStore })
 			})
 		}
 
@@ -871,28 +836,28 @@
 	let forceTestTab: Record<string, boolean> = $state({})
 	let highlightArg: Record<string, string | undefined> = $state({})
 
-	run(() => {
+	$effect.pre(() => {
 		initialPathStore.set(initialPath)
 	})
-	run(() => {
+	$effect.pre(() => {
 		setContext('customUi', customUi)
 	})
-	run(() => {
+	$effect.pre(() => {
 		if (flowStore.val || $selectedIdStore) {
 			readFieldsRecursively(flowStore.val)
 			untrack(() => saveSessionDraft())
 		}
 	})
-	run(() => {
+	$effect.pre(() => {
 		initialPath && ($pathStore = initialPath)
 	})
-	run(() => {
+	$effect.pre(() => {
 		selectedId && untrack(() => select(selectedId))
 	})
-	run(() => {
+	$effect.pre(() => {
 		initialPath && initialPath != '' && $workspaceStore && untrack(() => loadTriggers())
 	})
-	run(() => {
+	$effect.pre(() => {
 		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasDiff() ?? false
 		customUi && untrack(() => onCustomUiChange(customUi, hasAiDiff))
 	})
@@ -1036,8 +1001,8 @@
 {@render children?.()}
 
 <DeployOverrideConfirmationModal
-	bind:deployedBy
-	bind:confirmCallback
+	{deployedBy}
+	{confirmCallback}
 	bind:open
 	{diffDrawer}
 	bind:deployedValue
@@ -1059,7 +1024,7 @@
 {#key renderCount}
 	{#if !$userStore?.operator}
 		{#if $pathStore}
-			<FlowHistory bind:this={flowHistory} path={$pathStore} on:historyRestore />
+			<FlowHistory bind:this={flowHistory} path={$pathStore} {onHistoryRestore} />
 		{/if}
 		<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 		<FlowImportExportMenu bind:drawer={jsonViewerDrawer} />

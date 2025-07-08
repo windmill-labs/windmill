@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.502.2
+  version: 1.503.0
   title: Windmill API
 
   contact:
@@ -14304,6 +14304,8 @@ components:
           type: string
         parameters:
           type: object
+        span:
+          type: string
       required:
         - id
         - timestamp
