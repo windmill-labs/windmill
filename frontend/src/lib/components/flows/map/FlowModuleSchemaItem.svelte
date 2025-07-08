@@ -562,8 +562,7 @@ outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration
 								}
 							]}
 							dropdownBtnClasses="!w-4 px-1"
-							on:dropdownOpen={() => (testRunDropdownOpen = true)}
-							on:dropdownClose={() => (testRunDropdownOpen = false)}
+							bind:dropdownOpen={testRunDropdownOpen}
 						>
 							{#if testIsLoading}
 								<Loader2 size={12} class="animate-spin" />
