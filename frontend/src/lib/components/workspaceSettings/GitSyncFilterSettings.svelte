@@ -47,6 +47,8 @@
 	type PreviewResult = {
 		diff?: { [key: string]: { from: any; to: any } }
 		hasChanges?: boolean
+		isInitialSetup?: boolean
+		message?: string
 		local?: {
 			include_path: string[]
 			exclude_path: string[]
@@ -88,6 +90,7 @@
 	let isPreviewLoading = $state(false)
 	let isPushing = $state(false)
 	let previewError = $state('')
+	let previewSettingsSnapshot = $state<string | null>(null)
 
 	// Compute effective include types (include_type minus exclude_types_override for legacy repos only)
 	const effectiveIncludeTypes = $derived(
@@ -310,6 +313,14 @@ codebases: []`
 		previewJobId = null
 		previewJobStatus = undefined
 
+		// Take a snapshot of current settings
+		previewSettingsSnapshot = JSON.stringify({
+			include_path,
+			excludes,
+			extraIncludes,
+			include_type
+		})
+
 		try {
 			const workspace = $workspaceStore
 			if (!workspace) return
@@ -483,6 +494,26 @@ codebases: []`
 			isPreviewLoading = false
 			isPushing = false
 			previewError = ''
+		}
+	})
+
+	// Reset preview state when settings change (making preview stale)
+	$effect(() => {
+		// Track all the settings that affect the preview
+		const currentSettings = JSON.stringify({
+			include_path,
+			excludes,
+			extraIncludes,
+			include_type
+		})
+
+		// If we have an existing preview result and settings have changed from snapshot, clear it
+		if (previewResult !== null && previewSettingsSnapshot !== null && currentSettings !== previewSettingsSnapshot) {
+			previewResult = null
+			previewJobId = null
+			previewJobStatus = undefined
+			previewError = ''
+			previewSettingsSnapshot = null
 		}
 	})
 </script>
@@ -760,7 +791,7 @@ codebases: []`
 					>
 						{isPreviewLoading ? 'Previewing...' : 'Preview'}
 					</Button>
-					{#if previewResult?.hasChanges && previewResult?.diff && Object.keys(previewResult.diff).length > 0}
+					{#if previewResult?.hasChanges && (previewResult?.isInitialSetup || (previewResult?.diff && Object.keys(previewResult.diff).length > 0))}
 						<Button
 							size="sm"
 							on:click={pushFiltersToGitRepo}
@@ -806,7 +837,11 @@ codebases: []`
 						class="border rounded p-2 text-xs max-h-40 overflow-y-auto bg-surface-secondary mt-2"
 					>
 						<div class="font-semibold text-[11px] mb-1 text-tertiary">Preview of changes:</div>
-						{#if previewResult.hasChanges && previewResult.diff && Object.keys(previewResult.diff).length > 0}
+						{#if previewResult.isInitialSetup}
+							<div class="mt-2 text-green-600">
+								{previewResult.message || 'wmill.yaml will be created with repository settings'}
+							</div>
+						{:else if previewResult.hasChanges && previewResult.diff && Object.keys(previewResult.diff).length > 0}
 							<div class="mt-2 space-y-1">
 								{#each Object.entries(previewResult.diff) as [field, change]}
 									<div class="flex items-start gap-2 text-2xs">
