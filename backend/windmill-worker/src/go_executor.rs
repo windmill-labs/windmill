@@ -31,6 +31,48 @@ use windmill_common::client::AuthedClient;
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
 
+#[cfg(windows)]
+fn get_windows_tmp_dir() -> String {
+    std::env::var("TMP")
+        .or_else(|_| std::env::var("TEMP"))
+        .unwrap_or_else(|_| {
+            let system_drive = std::env::var("SYSTEMDRIVE").unwrap_or_else(|_| "C:".to_string());
+            format!("{}\\tmp", system_drive)
+        })
+}
+
+#[cfg(windows)]
+fn get_windows_program_files() -> String {
+    std::env::var("ProgramFiles").unwrap_or_else(|_| {
+        let system_drive = std::env::var("SYSTEMDRIVE").unwrap_or_else(|_| "C:".to_string());
+        format!("{}\\Program Files", system_drive)
+    })
+}
+
+#[cfg(windows)]
+fn windows_gopath() -> String {
+    let tmp_dir = get_windows_tmp_dir();
+    GO_CACHE_DIR.replace("/tmp", &tmp_dir).replace("/", r"\\")
+}
+
+#[cfg(windows)]
+fn set_windows_env_vars(cmd: &mut Command) {
+    cmd.env("SystemRoot", SYSTEM_ROOT.as_str())
+        .env("TMP", get_windows_tmp_dir())
+        .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+        .env(
+            "APPDATA",
+            std::env::var("APPDATA")
+                .unwrap_or_else(|_| format!("{}\\AppData\\Roaming", HOME_ENV.as_str())),
+        )
+        .env("ProgramFiles", get_windows_program_files())
+        .env(
+            "LOCALAPPDATA",
+            std::env::var("LOCALAPPDATA")
+                .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
+        );
+}
+
 const GO_REQ_SPLITTER: &str = "//go.sum\n";
 const NSJAIL_CONFIG_RUN_GO_CONTENT: &str = include_str!("../nsjail/run.go.config.proto");
 
@@ -205,7 +247,7 @@ func Run(req Req) (interface{{}}, error){{
                 }
                 #[cfg(windows)]
                 {
-                    GO_CACHE_DIR.replace("/tmp", r"C:\tmp").replace("/", r"\")
+                    windows_gopath()
                 }
             })
             .env("HOME", HOME_ENV.as_str())
@@ -215,27 +257,7 @@ func Run(req Req) (interface{{}}, error){{
             .stderr(Stdio::piped());
 
         #[cfg(windows)]
-        build_go_cmd
-            .env("SystemRoot", SYSTEM_ROOT.as_str())
-            .env(
-                "TMP",
-                std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
-            )
-            .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
-            .env(
-                "APPDATA",
-                std::env::var("APPDATA")
-                    .unwrap_or_else(|_| format!("{}\\AppData\\Roaming", HOME_ENV.as_str())),
-            )
-            .env(
-                "ProgramFiles",
-                std::env::var("ProgramFiles").unwrap_or_else(|_| String::from("C:\\Program Files")),
-            )
-            .env(
-                "LOCALAPPDATA",
-                std::env::var("LOCALAPPDATA")
-                    .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
-            );
+        set_windows_env_vars(&mut build_go_cmd);
 
         let build_go_process = start_child_process(build_go_cmd, GO_PATH.as_str()).await?;
         handle_child(
@@ -368,7 +390,7 @@ func Run(req Req) (interface{{}}, error){{
                 }
                 #[cfg(windows)]
                 {
-                    GO_CACHE_DIR.replace("/tmp", r"C:\\tmp").replace("/", r"\\")
+                    windows_gopath()
                 }
             })
             .env("HOME", HOME_ENV.as_str());
@@ -381,27 +403,7 @@ func Run(req Req) (interface{{}}, error){{
         }
 
         #[cfg(windows)]
-        run_go
-            .env("SystemRoot", SYSTEM_ROOT.as_str())
-            .env(
-                "TMP",
-                std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
-            )
-            .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
-            .env(
-                "APPDATA",
-                std::env::var("APPDATA")
-                    .unwrap_or_else(|_| format!("{}\\AppData\\Roaming", HOME_ENV.as_str())),
-            )
-            .env(
-                "ProgramFiles",
-                std::env::var("ProgramFiles").unwrap_or_else(|_| String::from("C:\\Program Files")),
-            )
-            .env(
-                "LOCALAPPDATA",
-                std::env::var("LOCALAPPDATA")
-                    .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
-            );
+        set_windows_env_vars(&mut run_go);
 
         run_go.stdout(Stdio::piped()).stderr(Stdio::piped());
         start_child_process(run_go, &compiled_executable_name).await?
@@ -476,33 +478,18 @@ pub async fn install_go_dependencies(
         let mut child_cmd = Command::new(GO_PATH.as_str());
         child_cmd
             .current_dir(job_dir)
+            .env_clear()
             .args(vec!["mod", "init", "mymod"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
         #[cfg(windows)]
-        child_cmd
-            .env("GOPATH", GO_CACHE_DIR.replace("/tmp", r"C:\\tmp").replace("/", r"\\"))
-            .env("SystemRoot", SYSTEM_ROOT.as_str())
-            .env(
-                "TMP",
-                std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
-            )
-            .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
-            .env(
-                "APPDATA",
-                std::env::var("APPDATA")
-                    .unwrap_or_else(|_| format!("{}\\AppData\\Roaming", HOME_ENV.as_str())),
-            )
-            .env(
-                "ProgramFiles",
-                std::env::var("ProgramFiles").unwrap_or_else(|_| String::from("C:\\Program Files")),
-            )
-            .env(
-                "LOCALAPPDATA",
-                std::env::var("LOCALAPPDATA")
-                    .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
-            );
+        child_cmd.env("GOPATH", windows_gopath());
+        #[cfg(unix)]
+        child_cmd.env("GOPATH", GO_CACHE_DIR);
+
+        #[cfg(windows)]
+        set_windows_env_vars(&mut child_cmd);
         let child_process = start_child_process(child_cmd, GO_PATH.as_str()).await?;
 
         handle_child(
@@ -578,34 +565,23 @@ pub async fn install_go_dependencies(
     let mut child_cmd = Command::new(GO_PATH.as_str());
     child_cmd
         .current_dir(job_dir)
-        .env("GOPATH", GO_CACHE_DIR)
+        .env_clear()
+        .env("GOPATH", {
+            #[cfg(unix)]
+            {
+                GO_CACHE_DIR
+            }
+            #[cfg(windows)]
+            {
+                windows_gopath()
+            }
+        })
         .args(vec!["mod", mod_command])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
     #[cfg(windows)]
-    child_cmd
-        .env("GOPATH", GO_CACHE_DIR.replace("/tmp", r"C:\\tmp").replace("/", r"\\"))
-        .env("SystemRoot", SYSTEM_ROOT.as_str())
-        .env(
-            "TMP",
-            std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
-        )
-        .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
-        .env(
-            "APPDATA",
-            std::env::var("APPDATA")
-                .unwrap_or_else(|_| format!("{}\\AppData\\Roaming", HOME_ENV.as_str())),
-        )
-        .env(
-            "ProgramFiles",
-            std::env::var("ProgramFiles").unwrap_or_else(|_| String::from("C:\\Program Files")),
-        )
-        .env(
-            "LOCALAPPDATA",
-            std::env::var("LOCALAPPDATA")
-                .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
-        );
+    set_windows_env_vars(&mut child_cmd);
     let child_process = start_child_process(child_cmd, GO_PATH.as_str()).await?;
 
     handle_child(
