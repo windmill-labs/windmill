@@ -22,15 +22,22 @@ async fn list_assets(
 ) -> JsonResult<Vec<Value>> {
     let assets = sqlx::query_scalar!(
         r#"SELECT
-            jsonb_build_object(
+            jsonb_strip_nulls(jsonb_build_object(
                 'path', path,
                 'kind', kind,
                 'usages', ARRAY_AGG(jsonb_build_object(
                     'path', usage_path,
                     'kind', usage_kind,
                     'access_type', usage_access_type
-                ))
-            ) as "list!: _"
+                )),
+                'metadata', (CASE
+                  WHEN kind = 'resource' THEN
+                    (SELECT jsonb_build_object('resource_type', resource_type) FROM resource WHERE resource.path = asset.path AND resource.workspace_id = $1)
+                  ELSE
+                    NULL
+                  END
+                )
+            )) as "list!: _"
         FROM asset
         WHERE workspace_id = $1
         GROUP BY path, kind

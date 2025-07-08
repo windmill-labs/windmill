@@ -12983,6 +12983,11 @@ paths:
                             $ref: "#/components/schemas/AssetUsageKind"
                           access_type:
                             $ref: "#/components/schemas/AssetUsageAccessType"
+                    metadata:
+                      type: object
+                      properties:
+                        resource_type:
+                          type: string
 
   /w/{workspace}/assets/list_by_usages:
     post:

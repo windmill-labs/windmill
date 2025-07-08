@@ -84,7 +84,7 @@
 							</a>
 						</Cell>
 						<Cell>
-							{#if assetCanBeExplored(asset, { resource_type: resourceTypesCache[asset.path] })}
+							{#if assetCanBeExplored(asset, asset.metadata)}
 								<ExploreAssetButton
 									{asset}
 									{s3FilePicker}
