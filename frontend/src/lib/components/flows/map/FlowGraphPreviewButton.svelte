@@ -81,7 +81,7 @@
 						</div>
 					{/if}
 					<span class="text-xs truncate" dir="rtl">
-						{!individualStepTests && job ? job.id.slice(-5) : '...'}
+						{!individualStepTests && job ? job.id.slice(-5) : '~'}
 					</span>
 				</button>
 				{#snippet text()}
