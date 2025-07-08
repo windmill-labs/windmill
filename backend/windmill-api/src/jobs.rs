@@ -4243,7 +4243,7 @@ pub async fn run_wait_result(
     }
 }
 
-async fn delete_job_metadata_after_use(db: &DB, job_uuid: Uuid) -> Result<(), Error> {
+pub async fn delete_job_metadata_after_use(db: &DB, job_uuid: Uuid) -> Result<(), Error> {
     sqlx::query!(
         "UPDATE v2_job SET args = '{}'::jsonb WHERE id = $1",
         job_uuid,

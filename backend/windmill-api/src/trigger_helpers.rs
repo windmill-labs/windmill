@@ -1,3 +1,4 @@
+use axum::response::IntoResponse;
 use http::StatusCode;
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -24,7 +25,10 @@ use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
 use crate::jobs::check_license_key_valid;
 use crate::{
     db::{ApiAuthed, DB},
-    jobs::{check_tag_available_for_workspace, run_script_by_path_inner, RunJobQuery},
+    jobs::{
+        check_tag_available_for_workspace, delete_job_metadata_after_use, run_script_by_path_inner,
+        run_wait_result, run_wait_result_script_by_path_internal, RunJobQuery,
+    },
     HTTP_CLIENT,
 };
 
@@ -463,24 +467,42 @@ pub async fn run_script(
     error_handler_path: Option<String>,
     error_handler_args: Option<HashMap<String, Box<RawValue>>>,
     trigger_path: String,
-) -> Result<(StatusCode, String)> {
+    await_result: bool,
+) -> Result<axum::response::Response> {
     if retry.is_none() && error_handler_path.is_none() {
-        return run_script_by_path_inner(
-            authed,
-            db.clone(),
-            user_db,
-            workspace_id.clone(),
-            StripPath(script_path.to_string()),
-            RunJobQuery::default(),
-            args,
-        )
-        .await;
+        let run_query = RunJobQuery::default();
+        let path = StripPath(script_path.to_string());
+        if await_result {
+            return run_wait_result_script_by_path_internal(
+                db.clone(),
+                run_query,
+                path,
+                authed,
+                user_db,
+                workspace_id.clone(),
+                args,
+            )
+            .await
+            .map(|r| r.into_response());
+        } else {
+            return run_script_by_path_inner(
+                authed,
+                db.clone(),
+                user_db,
+                workspace_id.clone(),
+                path,
+                run_query,
+                args,
+            )
+            .await
+            .map(|r| r.into_response());
+        }
     }
 
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let (job_payload, tag, _delete_after_use, timeout, on_behalf_of) = {
+    let (job_payload, tag, delete_after_use, timeout, on_behalf_of) = {
         let mut tx = user_db.clone().begin(&authed).await?;
         script_path_to_payload(script_path, &mut *tx, &workspace_id, Some(false)).await?
     };
@@ -569,5 +591,14 @@ pub async fn run_script(
     .await?;
     tx.commit().await?;
 
-    Ok((StatusCode::CREATED, uuid.to_string()))
+    if await_result {
+        let wait_result =
+            run_wait_result(&db, uuid, workspace_id.clone(), None, &authed.username).await;
+        if delete_after_use.unwrap_or(false) {
+            delete_job_metadata_after_use(&db, uuid).await?;
+        }
+        wait_result
+    } else {
+        Ok((StatusCode::CREATED, uuid.to_string()).into_response())
+    }
 }

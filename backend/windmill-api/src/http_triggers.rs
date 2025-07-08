@@ -1458,59 +1458,21 @@ async fn route_job(
             .into_response()
         }
     } else {
-        if trigger.is_async {
-            run_script(
-                &db,
-                user_db,
-                authed,
-                &trigger.workspace_id,
-                &trigger.script_path,
-                args,
-                trigger.retry.map(|retry| retry.0),
-                trigger.error_handler_path,
-                trigger.error_handler_args.map(|args| args.0),
-                format!("http_trigger/{}", trigger.path),
-            )
-            .await
-            .into_response()
-            // run_retryable_script(
-            //     &db,
-            //     user_db,
-            //     authed,
-            //     &trigger.workspace_id,
-            //     &trigger.script_path,
-            //     args,
-            //     Retry {
-            //         constant: ConstantDelay { attempts: 1, seconds: 5 },
-            //         exponential: Default::default(),
-            //     },
-            // )
-            // .await
-            // .into_response()
-            // run_script_by_path_inner(
-            //     authed,
-            //     db,
-            //     user_db,
-            //     trigger.workspace_id.clone(),
-            //     StripPath(trigger.script_path.to_owned()),
-            //     run_query,
-            //     args,
-            // )
-            // .await
-            // .into_response()
-        } else {
-            run_wait_result_script_by_path_internal(
-                db,
-                run_query,
-                StripPath(trigger.script_path.to_owned()),
-                authed,
-                user_db,
-                trigger.workspace_id.clone(),
-                args,
-            )
-            .await
-            .into_response()
-        }
+        run_script(
+            &db,
+            user_db,
+            authed,
+            &trigger.workspace_id,
+            &trigger.script_path,
+            args,
+            trigger.retry.map(|retry| retry.0),
+            trigger.error_handler_path,
+            trigger.error_handler_args.map(|args| args.0),
+            format!("http_trigger/{}", trigger.path),
+            !trigger.is_async,
+        )
+        .await
+        .into_response()
     };
 
     Ok(response)
