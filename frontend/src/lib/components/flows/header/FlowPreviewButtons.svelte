@@ -92,6 +92,7 @@
 	})
 
 	export async function testUpTo(id: string | undefined, openPreview: boolean = false) {
+		upToId = id
 		if (upToDisabled) return
 		if (openPreview) {
 			previewOpen = true
@@ -99,7 +100,6 @@
 			deferContent = true
 			await tick()
 		}
-		upToId = id
 		previewMode = 'upTo'
 		flowPreviewContent?.refresh()
 		if (!openPreview) {
