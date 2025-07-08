@@ -241,7 +241,7 @@
 		) {
 			return randomHash()
 		} else {
-			console.log('path', path)
+			// console.log('path', path)
 			return path as string
 		}
 	}
