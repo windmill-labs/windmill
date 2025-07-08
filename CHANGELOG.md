@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.503.1](https://github.com/windmill-labs/windmill/compare/v1.503.0...v1.503.1) (2025-07-08)
+
+
+### Bug Fixes
+
+* correct paths and no symlink for windows (go) ([#6139](https://github.com/windmill-labs/windmill/issues/6139)) ([4482e9d](https://github.com/windmill-labs/windmill/commit/4482e9d86aeeacfe929eb19f0bb96a6339dabd62))
+* fix isValid state when schema is empty ([227c1f1](https://github.com/windmill-labs/windmill/commit/227c1f114120812fb6b8a9609d4d27375fa18be8))
+
 ## [1.503.0](https://github.com/windmill-labs/windmill/compare/v1.502.2...v1.503.0) (2025-07-07)
 
 
