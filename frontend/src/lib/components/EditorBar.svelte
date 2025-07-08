@@ -655,8 +655,14 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			if (s3obj.detail?.s3.endsWith('.parquet')) s = `read_parquet(${s})`
 			editor?.insertAtCursor(s)
 		} else if (lang === 'python3') {
+			if (!editor?.getCode().includes('import wmill')) {
+				editor?.insertAtBeginning('import wmill\n')
+			}
 			editor?.insertAtCursor(`wmill.load_s3_file(${s})`)
 		} else if (['javascript', 'typescript'].includes(scriptLangToEditorLang(lang))) {
+			if (!editor?.getCode().includes('import * as wmill from')) {
+				editor?.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
+			}
 			editor?.insertAtCursor(`wmill.loadS3File(${s})`)
 		}
 	}}
