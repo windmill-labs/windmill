@@ -315,8 +315,7 @@
 	let moduleCounter = $state(0)
 	function onModulesChange2(modules) {
 		if (!deepEqual(modules, lastModules)) {
-			console.log('modules changed', modules)
-			lastModules = structuredClone($state.snapshot(modules))
+			lastModules = $state.snapshot(modules)
 			moduleCounter++
 		}
 	}
@@ -343,6 +342,7 @@
 			return
 		}
 		let newGraph = graph
+		newGraph.nodes.sort((a, b) => b.id.localeCompare(a.id))
 
 		nodes = layoutNodes(newGraph.nodes)
 		edges = newGraph.edges

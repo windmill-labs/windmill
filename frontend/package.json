@@ -1,11 +1,11 @@
 {
 	"name": "windmill-components",
-	"version": "1.502.2",
+	"version": "1.503.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
 		"preview": "vite preview",
-		"postinstall": "node scripts/untar_ui_builder.js && node scripts/patch_files.js",
+		"postinstall": "if [ -f ./scripts/untar_ui_builder.js ]; then node ./scripts/untar_ui_builder.js && node ./scripts/patch_files.js; fi",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --threshold warning",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --ignore-path .gitignore --check --plugin-search-dir=. . && eslint --ignore-path .gitignore .",
@@ -161,7 +161,7 @@
 		"zod-to-json-schema": "^3.24.5"
 	},
 	"peerDependencies": {
-		"svelte": "^4.0.0"
+		"svelte": "^5.0.0"
 	},
 	"exports": {
 		"./package.json": "./package.json",
@@ -169,7 +169,16 @@
 			"types": "./dist/index.d.ts",
 			"svelte": "./dist/index.js"
 		},
+		"./scripts/untar_ui_builder.js": "./scripts/untar_ui_builder.js",
 		"./assets/app.css": "./package/assets/app.css",
+		"./components/custom_ui": {
+			"types": "./package/components/custom_ui.d.ts",
+			"default": "./package/components/custom_ui.js"
+		},
+		"./components/scriptBuilder": {
+			"types": "./package/components/scriptBuilder.d.ts",
+			"default": "./package/components/scriptBuilder.js"
+		},
 		"./components/TestJobLoader.svelte": {
 			"types": "./package/components/TestJobLoader.svelte.d.ts",
 			"svelte": "./package/components/TestJobLoader.svelte",
@@ -255,20 +264,20 @@
 			"svelte": "./package/components/FlowStatusViewer.svelte",
 			"default": "./package/components/FlowStatusViewer.svelte"
 		},
-		"./components/FlowBuilder.svelte": {
-			"types": "./package/components/FlowBuilder.svelte.d.ts",
-			"svelte": "./package/components/FlowBuilder.svelte",
-			"default": "./package/components/FlowBuilder.svelte"
+		"./components/FlowWrapper.svelte": {
+			"types": "./package/components/FlowWrapper.svelte.d.ts",
+			"svelte": "./package/components/FlowWrapper.svelte",
+			"default": "./package/components/FlowWrapper.svelte"
 		},
-		"./components/AppEditor.svelte": {
-			"types": "./package/components/apps/editor/AppEditor.svelte.d.ts",
-			"svelte": "./package/components/apps/editor/AppEditor.svelte",
-			"default": "./package/components/apps/editor/AppEditor.svelte"
+		"./components/AppWrapper.svelte": {
+			"types": "./package/components/AppWrapper.svelte.d.ts",
+			"svelte": "./package/components/AppWrapper.svelte",
+			"default": "./package/components/AppWrapper.svelte"
 		},
-		"./components/ScriptBuilder.svelte": {
-			"types": "./package/components/ScriptBuilder.svelte.d.ts",
-			"svelte": "./package/components/ScriptBuilder.svelte",
-			"default": "./package/components/ScriptBuilder.svelte"
+		"./components/ScriptWrapper.svelte": {
+			"types": "./package/components/ScriptWrapper.svelte.d.ts",
+			"svelte": "./package/components/ScriptWrapper.svelte",
+			"default": "./package/components/ScriptWrapper.svelte"
 		},
 		"./components/FlowEditor.svelte": {
 			"types": "./package/components/flows/FlowEditor.svelte.d.ts",
@@ -285,10 +294,10 @@
 			"svelte": "./package/components/SchemaForm.svelte",
 			"default": "./package/components/SchemaForm.svelte"
 		},
-		"./components/EditableSchemaWrapper.svelte": {
-			"types": "./package/components/schema/EditableSchemaWrapper.svelte.d.ts",
-			"svelte": "./package/components/schema/EditableSchemaWrapper.svelte",
-			"default": "./package/components/schema/EditableSchemaWrapper.svelte"
+		"./components/EditableSchemaSdkWrapper.svelte": {
+			"types": "./package/components/schema/EditableSchemaSdkWrapper.svelte.d.ts",
+			"svelte": "./package/components/schema/EditableSchemaSdkWrapper.svelte",
+			"default": "./package/components/schema/EditableSchemaSdkWrapper.svelte"
 		},
 		"./components/ResourceEditor.svelte": {
 			"types": "./package/components/ResourceEditor.svelte.d.ts",
@@ -451,14 +460,14 @@
 			"components/FlowBuilder.svelte": [
 				"./package/components/FlowBuilder.svelte.d.ts"
 			],
-			"components/AppEditor.svelte": [
-				"./package/components/apps/editor/AppEditor.svelte.d.ts"
+			"components/AppWrapper.svelte": [
+				"./package/components/AppWrapper.svelte.d.ts"
 			],
-			"components/ScriptBuilder.svelte": [
-				"./package/components/ScriptBuilder.svelte.d.ts"
+			"components/ScriptWrapper.svelte": [
+				"./package/components/ScriptWrapper.svelte.d.ts"
 			],
-			"components/FlowEditor.svelte": [
-				"./package/components/flows/FlowEditor.svelte.d.ts"
+			"components/FlowWrapper.svelte": [
+				"./package/components/FlowWrapper.svelte.d.ts"
 			],
 			"components/SchemaViewer.svelte": [
 				"./package/components/SchemaViewer.svelte.d.ts"
@@ -466,8 +475,8 @@
 			"components/SchemaEditor.svelte": [
 				"./package/components/SchemaEditor.svelte.d.ts"
 			],
-			"components/EditableSchemaWrapper.svelte": [
-				"./package/components/schema/EditableSchemaWrapper.svelte.d.ts"
+			"components/EditableSchemaSdkWrapper.svelte": [
+				"./package/components/schema/EditableSchemaSdkWrapper.svelte.d.ts"
 			],
 			"components/flows/FlowHistoryInner.svelte": [
 				"./package/components/flows/FlowHistoryInner.svelte.d.ts"
@@ -519,6 +528,12 @@
 			],
 			"tailwindUtils": [
 				"./package/components/apps/editor/componentsPanel/tailwindUtils.d.ts"
+			],
+			"components/scriptBuilder": [
+				"./package/components/scriptBuilder.d.ts"
+			],
+			"components/custom_ui": [
+				"./package/components/custom_ui.d.ts"
 			]
 		}
 	},

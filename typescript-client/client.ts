@@ -717,7 +717,7 @@ export async function loadS3FileStream(
   const queryParams = new URLSearchParams(params);
 
   // We use raw fetch here b/c OpenAPI generated client doesn't handle Blobs nicely
-  const fileContentBlob = await fetch(
+  const response = await fetch(
     `${
       OpenAPI.BASE
     }/w/${getWorkspace()}/job_helpers/download_s3_file?${queryParams}`,
@@ -728,7 +728,16 @@ export async function loadS3FileStream(
       },
     }
   );
-  return fileContentBlob.blob();
+
+  // Check if the response was successful
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `Failed to load S3 file: ${response.status} ${response.statusText} - ${errorText}`
+    );
+  }
+
+  return response.blob();
 }
 
 /**

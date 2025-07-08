@@ -20,14 +20,6 @@ use {
     },
 };
 
-#[derive(Clone)]
-#[cfg(not(feature = "private"))]
-pub struct AuditAuthor {
-    pub username: String,
-    pub email: String,
-    pub username_override: Option<String>,
-}
-
 #[cfg(not(feature = "private"))]
 impl AuditAuthorable for AuditAuthor {
     fn email(&self) -> &str {
@@ -41,6 +33,10 @@ impl AuditAuthorable for AuditAuthor {
     fn username_override(&self) -> Option<&str> {
         self.username_override.as_deref()
     }
+
+    fn token_prefix(&self) -> Option<&str> {
+        self.token_prefix.as_deref()
+    }
 }
 
 #[cfg(not(feature = "private"))]
@@ -48,6 +44,18 @@ pub trait AuditAuthorable {
     fn username(&self) -> &str;
     fn email(&self) -> &str;
     fn username_override(&self) -> Option<&str>;
+    fn token_prefix(&self) -> Option<&str> {
+        None
+    }
+}
+
+#[derive(Clone)]
+#[cfg(not(feature = "private"))]
+pub struct AuditAuthor {
+    pub username: String,
+    pub email: String,
+    pub username_override: Option<String>,
+    pub token_prefix: Option<String>,
 }
 
 #[cfg(not(feature = "private"))]
