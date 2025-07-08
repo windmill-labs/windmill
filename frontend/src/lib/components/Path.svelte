@@ -337,11 +337,11 @@
 		'openSearchWithPrefilledText'
 	)
 
-	$effect(() => {
+	$effect.pre(() => {
 		;[meta?.name, meta?.owner, meta?.ownerKind]
 		meta && untrack(() => onMetaChange())
 	})
-	$effect(() => {
+	$effect.pre(() => {
 		if ($workspaceStore && $userStore) {
 			untrack(() => {
 				loadFolders()
