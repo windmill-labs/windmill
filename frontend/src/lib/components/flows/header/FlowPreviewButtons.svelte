@@ -13,9 +13,10 @@
 	interface Props {
 		loading?: boolean
 		onRunPreview?: () => void
+		onJobDone?: () => void
 	}
 
-	let { loading = false, onRunPreview }: Props = $props()
+	let { loading = false, onRunPreview, onJobDone }: Props = $props()
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -180,6 +181,7 @@
 			bind:preventEscape
 			{onRunPreview}
 			render={previewOpen || deferContent}
+			{onJobDone}
 		/>
 	</Drawer>
 {/if}

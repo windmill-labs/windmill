@@ -896,15 +896,11 @@
 		stepHistoryLoader.stepStates = loadedFromHistoryUrl.stepsState
 	}
 
-	let jobRunning = $state(false)
-	function jobObserver(job: Job) {
-		if (flowPreviewButtons?.getIsRunning() === jobRunning) {
+	function onJobDone() {
+		if (!job) {
 			return
 		}
-		if (flowPreviewButtons?.getIsRunning()) {
-			jobRunning = true
-			return
-		}
+		// job was running and is now stopped
 		if (!flowPreviewButtons?.getPreviewOpen()) {
 			if (
 				job.type === 'CompletedJob' &&
@@ -923,12 +919,7 @@
 				}
 			}
 		}
-		jobRunning = flowPreviewButtons?.getIsRunning() ?? false
 	}
-
-	$effect(() => {
-		job && jobObserver(job)
-	})
 
 	const localModuleStates: Writable<Record<string, GraphModuleState>> = $derived(
 		flowPreviewButtons?.getLocalModuleStates() ?? writable({})
@@ -1192,6 +1183,7 @@
 							captureOn.set(true)
 							showCaptureHint.set(true)
 						}}
+						{onJobDone}
 						bind:this={flowPreviewButtons}
 						{loading}
 						onRunPreview={() => {

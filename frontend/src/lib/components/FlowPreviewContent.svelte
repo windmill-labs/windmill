@@ -43,6 +43,7 @@
 		localDurationStatuses?: Writable<Record<string, DurationStatus>>
 		onRunPreview?: () => void
 		render?: boolean
+		onJobDone?: () => void
 	}
 
 	let {
@@ -61,7 +62,8 @@
 		localModuleStates = $bindable(writable({})),
 		localDurationStatuses = $bindable(writable({})),
 		onRunPreview,
-		render = false
+		render = false,
+		onJobDone
 	}: Props = $props()
 
 	let restartBranchNames: [number, string][] = []
@@ -547,6 +549,7 @@
 					{jobId}
 					on:done={() => {
 						$executionCount = $executionCount + 1
+						onJobDone?.()
 					}}
 					bind:selectedJobStep
 					bind:rightColumnSelect
