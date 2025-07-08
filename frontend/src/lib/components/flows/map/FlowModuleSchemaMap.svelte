@@ -364,7 +364,7 @@
 			path={$pathStore}
 			{newFlow}
 			{disableAi}
-			insertable
+			insertable={flowJob?.type !== 'QueuedJob'}
 			scroll
 			{minHeight}
 			moving={$moving?.id}
