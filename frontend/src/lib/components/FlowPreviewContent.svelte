@@ -44,6 +44,7 @@
 		onRunPreview?: () => void
 		render?: boolean
 		onJobDone?: () => void
+		upToId?: string | undefined
 	}
 
 	let {
@@ -63,7 +64,8 @@
 		localDurationStatuses = $bindable(writable({})),
 		onRunPreview,
 		render = false,
-		onJobDone
+		onJobDone,
+		upToId = undefined
 	}: Props = $props()
 
 	let restartBranchNames: [number, string][] = []
@@ -106,7 +108,7 @@
 		} else {
 			const flow = previewFlow ?? stateSnapshot(flowStore).val
 			const idOrders = dfs(flow.value.modules, (x) => x.id)
-			let upToIndex = idOrders.indexOf($selectedId)
+			let upToIndex = idOrders.indexOf(upToId ?? $selectedId)
 
 			if (upToIndex != -1) {
 				flow.value.modules = sliceModules(flow.value.modules, upToIndex, idOrders)

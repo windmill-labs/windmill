@@ -28,6 +28,7 @@
 	let branchOrIterationN: number = $state(0)
 	let scrollTop: number = $state(0)
 	let previewMode: 'upTo' | 'whole' = $state('whole')
+	let upToId: string | undefined = $state(undefined)
 	let previewOpen = $state(false)
 	let deferContent = $state(false)
 
@@ -60,8 +61,10 @@
 	let rightColumnSelect: 'timeline' | 'node_status' | 'node_definition' | 'user_states' =
 		$state('timeline')
 
-	let upToDisabled = $derived(
-		$selectedId == undefined ||
+	let upToDisabled = $derived.by(() => {
+		const upToSelected = upToId ?? $selectedId
+		return (
+			upToSelected == undefined ||
 			[
 				'settings',
 				'settings-metadata',
@@ -82,12 +85,13 @@
 				'Result',
 				'Input',
 				'triggers'
-			].includes($selectedId) ||
-			$selectedId?.includes('branch') ||
-			aiChatManager.flowAiChatHelpers?.getModuleAction($selectedId) === 'removed'
-	)
+			].includes(upToSelected) ||
+			upToSelected?.includes('branch') ||
+			aiChatManager.flowAiChatHelpers?.getModuleAction(upToSelected) === 'removed'
+		)
+	})
 
-	export async function testUpTo(openPreview: boolean = false) {
+	export async function testUpTo(id: string | undefined, openPreview: boolean = false) {
 		if (upToDisabled) return
 		if (openPreview) {
 			previewOpen = true
@@ -95,6 +99,7 @@
 			deferContent = true
 			await tick()
 		}
+		upToId = id
 		previewMode = 'upTo'
 		flowPreviewContent?.refresh()
 		if (!openPreview) {
@@ -151,7 +156,7 @@
 		? [
 				{
 					label: 'Test up to ' + $selectedId,
-					onClick: () => testUpTo(true)
+					onClick: () => testUpTo($selectedId, true)
 				}
 			]
 		: undefined}
@@ -182,6 +187,7 @@
 			{onRunPreview}
 			render={previewOpen || deferContent}
 			{onJobDone}
+			{upToId}
 		/>
 	</Drawer>
 {/if}
