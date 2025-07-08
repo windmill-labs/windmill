@@ -492,7 +492,7 @@ where
     }
 }
 
-fn transform_old_scope_to_new_scope(scopes: Option<&mut Vec<String>>) -> WindmillResult<()> {
+pub fn transform_old_scope_to_new_scope(scopes: Option<&mut Vec<String>>) -> WindmillResult<()> {
     if let Some(scopes) = scopes {
         for scope in scopes.iter_mut() {
             if scope.starts_with("run:") {

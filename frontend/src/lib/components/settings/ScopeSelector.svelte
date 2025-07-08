@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { type ScopeDomain, type ScopeDefinition, TokenService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { Loader2, ChevronDown, ChevronRight, Pen } from 'lucide-svelte'
+	import { Loader2, Plus, X } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import Popover from '../meltComponents/Popover.svelte'
 
@@ -66,6 +66,25 @@
 		return undefined
 	}
 
+	function isScopeDisabled(scope: ScopeDefinition, domain: ScopeDomain): boolean {
+		const domainState = getDomainState(domain.name)
+		if (!domainState) return false
+
+		if (domainState.hasFullAccess && scope.value.endsWith(':read')) {
+			return true
+		}
+
+		if (scope.value.endsWith(':read')) {
+			const writeScope = scope.value.replace(':read', ':write')
+			const writeScopeState = domainState.scopes[writeScope]
+			if (writeScopeState?.isSelected) {
+				return true
+			}
+		}
+
+		return false
+	}
+
 	function getDomainState(domainName: string): DomainState | undefined {
 		return componentState.domains[domainName]
 	}
@@ -93,7 +112,7 @@
 
 		for (const domain of scopeDomains) {
 			const domainState = createDomainState(domain)
-			
+
 			// Check if domain has full access
 			const writeScopeValue = getWriteScopeForDomain(domain)
 			const hasWriteSelected =
@@ -101,18 +120,24 @@
 				selectedScopes.some(
 					(scope) => scope === writeScopeValue || scope.startsWith(writeScopeValue + ':')
 				)
-			
-			const runScopes = domain.scopes.filter(scope => scope.value.includes(':run:'))
-			const hasRunScopesSelected = runScopes.length > 0 && runScopes.every(runScope => 
-				selectedScopes.some(scope => scope === runScope.value || scope.startsWith(runScope.value + ':'))
+
+			const runScopes = domain.scopes.filter((scope) => scope.value.includes(':run:'))
+			const hasRunScopesSelected =
+				runScopes.length > 0 &&
+				runScopes.every((runScope) =>
+					selectedScopes.some(
+						(scope) => scope === runScope.value || scope.startsWith(runScope.value + ':')
+					)
+				)
+
+			domainState.hasFullAccess = Boolean(
+				hasWriteSelected && (runScopes.length === 0 || hasRunScopesSelected)
 			)
-			
-			domainState.hasFullAccess = Boolean(hasWriteSelected && (runScopes.length === 0 || hasRunScopesSelected))
 
 			// Initialize individual scope states
 			for (const scope of domain.scopes) {
 				const scopeState = domainState.scopes[scope.value]
-				
+
 				const isSelected = selectedScopes.some((selected) => {
 					if (scope.requires_resource_path && selected.startsWith(scope.value + ':')) {
 						const resourcePath = selected.substring(scope.value.length + 1)
@@ -122,13 +147,13 @@
 					}
 					return selected === scope.value
 				})
-				
+
 				scopeState.isSelected = isSelected
 			}
-			
+
 			newDomains[domain.name] = domainState
 		}
-		
+
 		componentState = { domains: newDomains }
 	}
 
@@ -163,13 +188,29 @@
 					)
 			)
 
-			// Always add the write scope
-			selectedScopes = [...selectedScopes, writeScopeValue]
-			
-			// Also add any run scopes for this domain
-			const runScopes = domain.scopes.filter(scope => scope.value.includes(':run:'))
+			const writeScope = domain.scopes.find((s) => s.value === writeScopeValue)
+			if (writeScope?.requires_resource_path) {
+				selectedScopes = [...selectedScopes, `${writeScopeValue}:*`]
+			} else {
+				selectedScopes = [...selectedScopes, writeScopeValue]
+			}
+
+			const runScopes = domain.scopes.filter((scope) => scope.value.includes(':run:'))
 			for (const runScope of runScopes) {
-				selectedScopes = [...selectedScopes, runScope.value]
+				if (runScope.requires_resource_path) {
+					selectedScopes = [...selectedScopes, `${runScope.value}:*`]
+				} else {
+					selectedScopes = [...selectedScopes, runScope.value]
+				}
+			}
+
+			for (const scope of domain.scopes) {
+				const scopeState = domainState.scopes[scope.value]
+				if (scopeState) {
+					if (scope.value === writeScopeValue || runScopes.some((rs) => rs.value === scope.value)) {
+						scopeState.isSelected = true
+					}
+				}
 			}
 		} else {
 			// Remove all scopes for this domain
@@ -228,12 +269,13 @@
 		const writeScope = getWriteScopeForDomain(domain)
 		const hasWriteSelected = writeScope && domainState.scopes[writeScope]?.isSelected
 
-		const runScopes = domain.scopes.filter(scope => scope.value.includes(':run:'))
-		const hasRunScopesSelected = runScopes.length > 0 && runScopes.every(runScope => 
-			domainState.scopes[runScope.value]?.isSelected
-		)
+		const runScopes = domain.scopes.filter((scope) => scope.value.includes(':run:'))
+		const hasRunScopesSelected =
+			runScopes.length > 0 &&
+			runScopes.every((runScope) => domainState.scopes[runScope.value]?.isSelected)
 
-		const isDomainFullySelected = hasWriteSelected && (runScopes.length === 0 || hasRunScopesSelected)
+		const isDomainFullySelected =
+			hasWriteSelected && (runScopes.length === 0 || hasRunScopesSelected)
 		domainState.hasFullAccess = Boolean(isDomainFullySelected)
 	}
 
@@ -246,9 +288,7 @@
 			.map((scope) => {
 				const scopeState = domainState.scopes[scope.value]
 				const resourcePaths = scopeState?.resourcePaths || []
-				return resourcePaths.length > 0
-					? `${scope.value}:${resourcePaths.join(',')}`
-					: scope.value
+				return resourcePaths.length > 0 ? `${scope.value}:${resourcePaths.join(',')}` : scope.value
 			})
 	}
 
@@ -379,20 +419,26 @@
 				selectedScopes.some(
 					(scope) => scope === writeScopeValue || scope.startsWith(writeScopeValue + ':')
 				)
-			
-			const runScopes = domain.scopes.filter(scope => scope.value.includes(':run:'))
-			const hasRunScopesSelected = runScopes.length > 0 && runScopes.every(runScope => 
-				selectedScopes.some(scope => scope === runScope.value || scope.startsWith(runScope.value + ':'))
+
+			const runScopes = domain.scopes.filter((scope) => scope.value.includes(':run:'))
+			const hasRunScopesSelected =
+				runScopes.length > 0 &&
+				runScopes.every((runScope) =>
+					selectedScopes.some(
+						(scope) => scope === runScope.value || scope.startsWith(runScope.value + ':')
+					)
+				)
+
+			domainState.hasFullAccess = Boolean(
+				hasWriteSelected && (runScopes.length === 0 || hasRunScopesSelected)
 			)
-			
-			domainState.hasFullAccess = Boolean(hasWriteSelected && (runScopes.length === 0 || hasRunScopesSelected))
 
 			for (const scope of domain.scopes) {
 				const scopeState = domainState.scopes[scope.value]
 				if (!scopeState) continue
 
 				scopeState.resourcePaths = []
-				
+
 				const isSelected = selectedScopes.some((selected) => {
 					if (scope.requires_resource_path && selected.startsWith(scope.value + ':')) {
 						const resourcePath = selected.substring(scope.value.length + 1)
@@ -402,7 +448,7 @@
 					}
 					return selected === scope.value
 				})
-				
+
 				scopeState.isSelected = isSelected
 			}
 		}
@@ -411,7 +457,7 @@
 	fetchScopeDomains()
 </script>
 
-<div class="w-full {className}">
+<div class="w-full {className} border p-2">
 	{#if loading}
 		<div class="flex items-center justify-center py-12">
 			<Loader2 size={32} class="animate-spin text-primary" />
@@ -443,14 +489,14 @@
 				<div class="flex flex-wrap gap-2">
 					{#each selectedScopes.slice(0, 10) as scope}
 						<span
-							class="inline-flex items-center px-2.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded-full font-mono"
+							class="inline-flex items-center px-2.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded font-mono"
 						>
 							{scope}
 						</span>
 					{/each}
 					{#if selectedScopes.length > 10}
 						<span
-							class="inline-flex items-center px-2.5 py-0.5 text-xs font-medium bg-surface text-secondary rounded-full"
+							class="inline-flex items-center px-2.5 py-0.5 text-xs font-medium bg-surface text-secondary rounded"
 						>
 							+{selectedScopes.length - 10} more
 						</span>
@@ -467,7 +513,12 @@
 				{@const selectedScopes = getSelectedScopesForDomain(domain)}
 
 				<div class="border rounded-lg bg-surface overflow-hidden">
-					<div class="p-4 bg-surface-secondary border-b">
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						class="p-4 bg-surface-secondary border-b cursor-pointer hover:bg-surface-tertiary transition-colors"
+						onclick={() => toggleDomainExpansion(domain.name)}
+					>
 						<div class="flex items-center gap-3">
 							<div class="flex-shrink-0">
 								<input
@@ -476,21 +527,24 @@
 									checked={isDomainSelected}
 									{disabled}
 									onchange={(e) => handleDomainCheckboxChange(domain, e.currentTarget.checked)}
-									class="w-4 h-4 text-blue-600 bg-surface border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+									onclick={(e) => e.stopPropagation()}
+									class="!w-4 !h-4 cursor-pointer"
 								/>
 							</div>
 
 							<div class="flex-1 min-w-0">
 								<div class="flex items-center gap-2 flex-wrap">
+									<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 									<label
 										for={`domain-${domain.name}`}
 										class="text-sm font-semibold text-primary cursor-pointer"
+										onclick={(e) => e.stopPropagation()}
 									>
 										{domain.name}
 									</label>
 									{#each selectedScopes as scope}
 										<span
-											class="inline-flex items-center px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded-full font-mono"
+											class="inline-flex items-center px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded font-mono"
 										>
 											{scope}
 										</span>
@@ -500,19 +554,6 @@
 									<p class="text-xs text-tertiary mt-0.5">{domain.description}</p>
 								{/if}
 							</div>
-
-							<Button
-								onclick={() => toggleDomainExpansion(domain.name)}
-								{disabled}
-								size="sm"
-								class="p-1"
-							>
-								{#if isExpanded}
-									<ChevronDown size={16} />
-								{:else}
-									<ChevronRight size={16} />
-								{/if}
-							</Button>
 						</div>
 					</div>
 
@@ -525,104 +566,121 @@
 									{@const resourcePathArray = scopeState?.resourcePaths || []}
 									{@const currentInput = scopeState?.currentInputValue || ''}
 									{@const pathError = scopeState?.pathError}
+									{@const isDisabled = disabled || isScopeDisabled(scope, domain)}
 
 									<div
-										class="flex justify-between p-3 border rounded-lg bg-surface-secondary min-h-16 w-full"
+										class="p-3 border rounded-lg w-full {isDisabled
+											? 'bg-surface opacity-60'
+											: 'bg-surface-secondary'}"
 									>
-										<div class="flex items-center gap-2 flex-1 min-w-0">
-											<input
-												type="checkbox"
-												id={`scope-${scope.value}`}
-												checked={isSelected}
-												{disabled}
-												onchange={(e) =>
-													handleIndividualScopeChange(scope, e.currentTarget.checked)}
-												class="!w-4 !h-4 flex-shrink-0"
-											/>
+										<div class="flex justify-between items-center mb-2">
+											<div class="flex items-center gap-2 flex-1 min-w-0">
+												<input
+													type="checkbox"
+													id={`scope-${scope.value}`}
+													checked={isSelected}
+													disabled={isDisabled}
+													onchange={(e) =>
+														handleIndividualScopeChange(scope, e.currentTarget.checked)}
+													class="!w-4 !h-4 flex-shrink-0 {isDisabled
+														? 'cursor-not-allowed'
+														: 'cursor-pointer'}"
+												/>
 
-											<p class="font-medium text-xs truncate">
-												{scope.label}
-											</p>
-										</div>
-										{#if scope.requires_resource_path && isSelected}
-											<Popover closeOnOtherPopoverOpen contentClasses="p-3">
-												{#snippet trigger()}
-													<Button size="xs" variant="border" class="flex-shrink-0">
-														<Pen size={14} />
-													</Button>
-												{/snippet}
-												{#snippet content({ close })}
-													<div class="w-80">
-														<p class="block text-xs font-medium text-secondary mb-2"> Paths </p>
-
-														<div class="mb-3">
-															<input
-																type="text"
-																value={currentInput}
-																placeholder="e.g., u/username/*, f/folder/script.py"
-																{disabled}
-																oninput={(e) => {
-																	if (scopeState) {
-																		scopeState.currentInputValue = e.currentTarget.value
-																		scopeState.pathError = undefined
-																	}
-																}}
-																onkeydown={(e) => {
-																	if (e.key === 'Enter' && currentInput.trim()) {
-																		e.preventDefault()
-																		addResourcePath(scope.value, currentInput)
-																	}
-																}}
-																class="w-full text-sm px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-surface"
-															/>
-															<p class="text-xs text-tertiary mt-1">
-																Press Enter to add • Formats: u/user/*, f/folder/*, u/user/file,
-																f/folder/file, *
+												<p class="font-medium text-xs truncate {isDisabled ? 'text-tertiary' : ''}">
+													{scope.label}
+												</p>
+											</div>
+											{#if scope.requires_resource_path && isSelected}
+												<Popover closeOnOtherPopoverOpen contentClasses="p-3">
+													{#snippet trigger()}
+														<Button size="sm" variant="border">
+															<Plus size={16} />
+														</Button>
+													{/snippet}
+													{#snippet content({ close })}
+														<div class="w-80">
+															<p class="block text-xs font-medium text-secondary mb-2">
+																Add Path
 															</p>
-															{#if pathError}
-																<p class="text-xs text-red-600 mt-1">{pathError}</p>
-															{/if}
-														</div>
 
-														{#if resourcePathArray.length > 0}
-															<div class="space-y-2 mb-3 max-h-32 overflow-y-auto">
-																{#each resourcePathArray as path}
-																	<div
-																		class="flex items-center justify-between bg-blue-50 px-2 py-1 rounded text-xs"
+															<div class="mb-3">
+																<div class="flex gap-2">
+																	<input
+																		type="text"
+																		value={currentInput}
+																		placeholder="e.g., u/username/*, f/folder/script.py"
+																		{disabled}
+																		oninput={(e) => {
+																			if (scopeState) {
+																				scopeState.currentInputValue = e.currentTarget.value
+																				scopeState.pathError = undefined
+																			}
+																		}}
+																		onkeydown={(e) => {
+																			if (e.key === 'Enter' && currentInput.trim()) {
+																				e.preventDefault()
+																				addResourcePath(scope.value, currentInput)
+																			}
+																		}}
+																		class="flex-1 text-sm px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-surface"
+																	/>
+																	<Button
+																		onclick={() => {
+																			addResourcePath(scope.value, currentInput)
+																		}}
+																		size="xs"
+																		disabled={!currentInput.trim()}
 																	>
-																		<span class="font-mono text-blue-800 flex-1 truncate"
-																			>{path}</span
-																		>
-
-																		<button
-																			type="button"
-																			onclick={() => removeResourcePath(scope.value, path)}
-																			class="text-red-600 hover:text-red-800 p-0.5"
-																			title="Remove path"
-																		>
-																			×
-																		</button>
-																	</div>
-																{/each}
+																		Add
+																	</Button>
+																</div>
+																<p class="text-xs text-tertiary mt-1">
+																	Press Enter or click Add • Formats: u/user/*, f/folder/*,
+																	u/user/file, f/folder/file, *
+																</p>
+																{#if pathError}
+																	<p class="text-xs text-red-600 mt-1">{pathError}</p>
+																{/if}
 															</div>
-														{/if}
 
-														<div class="flex gap-2 mt-3">
-															<Button
-																onclick={() => {
-																	addResourcePath(scope.value, '*')
-																}}
-																size="xs"
-																variant="border"
-																disabled={resourcePathArray.includes('*')}
-															>
-																Add All (*)
-															</Button>
-															<Button onclick={close} size="xs">Done</Button>
+															<div class="flex gap-2 mt-3">
+																<Button
+																	onclick={() => {
+																		addResourcePath(scope.value, '*')
+																	}}
+																	size="xs"
+																	variant="border"
+																	disabled={resourcePathArray.includes('*')}
+																>
+																	Add All (*)
+																</Button>
+																<Button onclick={close} size="xs" variant="border">Cancel</Button>
+															</div>
 														</div>
-													</div>
-												{/snippet}
-											</Popover>
+													{/snippet}
+												</Popover>
+											{/if}
+										</div>
+
+										{#if scope.requires_resource_path && isSelected && resourcePathArray.length > 0}
+											<div class="flex flex-wrap gap-1 mt-2">
+												{#each resourcePathArray as path}
+													<span
+														class="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded font-mono"
+													>
+														{path}
+														<button
+															type="button"
+															onclick={() => removeResourcePath(scope.value, path)}
+															class="text-blue-600 hover:text-blue-800 flex-shrink-0"
+															title="Remove path"
+														>
+															<X size={10} />
+														</button>
+													</span>
+												{/each}
+											</div>
 										{/if}
 									</div>
 								{/each}

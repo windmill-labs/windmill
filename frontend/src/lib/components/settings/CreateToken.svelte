@@ -180,26 +180,25 @@
 			</div>
 		{/if}
 
-		<div class="flex flex-col gap-4">
-			{#if !mcpCreationMode}
-				<div>
-					<div class="flex items-center gap-2 mb-2">
-						<span class="block">Custom Scopes</span>
-						<Toggle
-							checked={showCustomScopes}
-							on:change={(e) => {
-								showCustomScopes = e.detail
-							}}
-							options={{ right: 'Use custom scopes' }}
-							size="xs"
-						/>
-					</div>
-					{#if showCustomScopes}
-						<ScopeSelector bind:selectedScopes={customScopes} />
-					{/if}
-				</div>
-			{/if}
-		</div>
+		{#if !mcpCreationMode && (!scopes || scopes.length === 0)}
+			<div class="flex flex-col gap-2">
+				<Toggle
+					checked={showCustomScopes}
+					on:change={(e) => {
+						showCustomScopes = e.detail
+					}}
+					options={{
+						right: 'Limit token permissions',
+						rightTooltip:
+							'By default, tokens have full API access. Enable this to restrict the token to specific scopes.'
+					}}
+					size="xs"
+				/>
+				{#if showCustomScopes}
+					<ScopeSelector bind:selectedScopes={customScopes} />
+				{/if}
+			</div>
+		{/if}
 
 		<div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
 			{#if mcpCreationMode}
