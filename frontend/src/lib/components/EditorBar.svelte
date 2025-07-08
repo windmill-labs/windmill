@@ -171,7 +171,10 @@
 		].includes(lang ?? '')
 	)
 
-	let showS3Picker = $derived(['duckdb'].includes(lang ?? ''))
+	let showS3Picker = $derived(
+		['duckdb', 'python3'].includes(lang ?? '') ||
+			['typescript', 'javascript'].includes(scriptLangToEditorLang(lang))
+	)
 
 	let showResourceTypePicker = $derived(
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
@@ -645,12 +648,16 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 	bind:this={s3FilePicker}
 	readOnlyMode={false}
 	on:selectAndClose={(s3obj) => {
+		let s = `'${formatS3Object(s3obj.detail)}'`
 		if (lang === 'duckdb') {
-			let s = `'${formatS3Object(s3obj.detail)}'`
 			if (s3obj.detail?.s3.endsWith('.json')) s = `read_json(${s})`
 			if (s3obj.detail?.s3.endsWith('.csv')) s = `read_csv(${s})`
 			if (s3obj.detail?.s3.endsWith('.parquet')) s = `read_parquet(${s})`
 			editor?.insertAtCursor(s)
+		} else if (lang === 'python3') {
+			editor?.insertAtCursor(`wmill.load_s3_file(${s})`)
+		} else if (['javascript', 'typescript'].includes(scriptLangToEditorLang(lang))) {
+			editor?.insertAtCursor(`wmill.loadS3File(${s})`)
 		}
 	}}
 />
