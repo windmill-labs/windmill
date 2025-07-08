@@ -20,16 +20,9 @@ export async function withTestConfig<T>(callback: (testConfigDir: string) => Pro
 }
 
 /**
- * Get test workspace remotes file path using test config directory
- */
-export async function getTestRemotesFile(testConfigDir: string): Promise<string> {
-  return (await getRootStore(testConfigDir)) + "remotes.ndjson";
-}
-
-/**
  * Clear the remotes file in test config directory
  */
 export async function clearTestRemotes(testConfigDir: string): Promise<void> {
-  const remoteFile = await getTestRemotesFile(testConfigDir);
+  const remoteFile = (await getRootStore(testConfigDir)) + "remotes.ndjson";
   await Deno.writeTextFile(remoteFile, "");
 }
