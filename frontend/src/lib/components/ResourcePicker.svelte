@@ -127,6 +127,7 @@
 
 	$effect(() => {
 		$workspaceStore && resourceType
+		value = undefined
 		untrack(() => loadResources(resourceType))
 	})
 
