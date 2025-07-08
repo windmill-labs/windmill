@@ -41,11 +41,8 @@
 		scrollTop?: number
 		localModuleStates?: Writable<Record<string, GraphModuleState>>
 		localDurationStatuses?: Writable<Record<string, DurationStatus>>
-		isOwner?: boolean
 		onRunPreview?: () => void
-		isRunning?: boolean
 		render?: boolean
-		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
 	}
 
 	let {
@@ -63,20 +60,19 @@
 		scrollTop = $bindable(0),
 		localModuleStates = $bindable(writable({})),
 		localDurationStatuses = $bindable(writable({})),
-		isOwner = $bindable(false),
 		onRunPreview,
-		isRunning = $bindable(false),
-		render = $bindable(false),
-		suspendStatus = $bindable(writable({}))
+		render = false
 	}: Props = $props()
 
 	let restartBranchNames: [number, string][] = []
-
+	let isRunning: boolean = $state(false)
 	let jobProgressReset: () => void = $state(() => {})
 	let jsonView: boolean = $state(false)
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
 	let schemaHeight = $state(0)
 	let isValid: boolean = $state(true)
+	let suspendStatus: Writable<Record<string, { job: Job; nb: number }>> = $state(writable({}))
+	let isOwner: boolean = $state(false)
 
 	export function test() {
 		renderCount++
@@ -238,6 +234,30 @@
 					requestBody: {}
 				}))
 		} catch {}
+	}
+
+	export function getLocalModuleStates() {
+		return localModuleStates
+	}
+
+	export function getLocalDurationStatuses() {
+		return localDurationStatuses
+	}
+
+	export function getSuspendStatus() {
+		return suspendStatus
+	}
+
+	export function getIsRunning() {
+		return isRunning
+	}
+
+	export function getIsOwner() {
+		return isOwner
+	}
+
+	export function getJob() {
+		return job
 	}
 </script>
 

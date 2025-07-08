@@ -144,7 +144,9 @@
 	let aiChangesWarningOpen = $state(false)
 	let aiChangesConfirmCallback = $state<() => void>(() => {})
 
-	let job: Job | undefined = $state(undefined)
+	// Flow preview
+	let flowPreviewButtons: FlowPreviewButtons | undefined = $state()
+	const job: Job | undefined = $derived(flowPreviewButtons?.getJob())
 	let showJobStatus = $state(false)
 	const previewJob: Job | undefined = $derived(showJobStatus ? job : undefined)
 
@@ -831,8 +833,6 @@
 		}
 	}
 
-	let flowPreviewButtons: FlowPreviewButtons | undefined = $state()
-
 	let forceTestTab: Record<string, boolean> = $state({})
 	let highlightArg: Record<string, string | undefined> = $state({})
 
@@ -861,10 +861,6 @@
 		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasDiff() ?? false
 		customUi && untrack(() => onCustomUiChange(customUi, hasAiDiff))
 	})
-
-	let localModuleStates: Writable<Record<string, GraphModuleState>> = $state(writable({}))
-	let localDurationStatuses: Writable<Record<string, DurationStatus>> = $state(writable({}))
-	let suspendStatus: Writable<Record<string, { job: Job; nb: number }>> = $state(writable({}))
 
 	export async function loadFlowState() {
 		await stepHistoryLoader.loadIndividualStepsStates(
@@ -900,22 +896,21 @@
 		stepHistoryLoader.stepStates = loadedFromHistoryUrl.stepsState
 	}
 
-	let isOwner = $state(false)
-	let isRunning = $state(false)
-	let previewOpen = $state(false)
 	let jobRunning = $state(false)
-	let previewMode: 'upTo' | 'whole' = $state('whole')
-
 	function jobObserver(job: Job) {
-		if (isRunning === jobRunning) {
+		if (flowPreviewButtons?.getIsRunning() === jobRunning) {
 			return
 		}
-		if (isRunning) {
+		if (flowPreviewButtons?.getIsRunning()) {
 			jobRunning = true
 			return
 		}
-		if (!previewOpen) {
-			if (job.type === 'CompletedJob' && job.success && previewMode === 'whole') {
+		if (!flowPreviewButtons?.getPreviewOpen()) {
+			if (
+				job.type === 'CompletedJob' &&
+				job.success &&
+				flowPreviewButtons?.getPreviewMode() === 'whole'
+			) {
 				outputPickerOpenFns['Result']?.()
 			} else {
 				// Find last module with a job in flow_status
@@ -928,12 +923,22 @@
 				}
 			}
 		}
-		jobRunning = isRunning
+		jobRunning = flowPreviewButtons?.getIsRunning() ?? false
 	}
 
 	$effect(() => {
 		job && jobObserver(job)
 	})
+
+	const localModuleStates: Writable<Record<string, GraphModuleState>> = $derived(
+		flowPreviewButtons?.getLocalModuleStates() ?? writable({})
+	)
+	const localDurationStatuses: Writable<Record<string, DurationStatus>> = $derived(
+		flowPreviewButtons?.getLocalDurationStatuses() ?? writable({})
+	)
+	const suspendStatus: Writable<Record<string, { job: Job; nb: number }>> = $derived(
+		flowPreviewButtons?.getSuspendStatus() ?? writable({})
+	)
 
 	// Create a derived store that only shows the module states when showModuleStatus is true
 	// this store can also be updated
@@ -1181,9 +1186,6 @@
 						</Button>
 					{/if}
 					<FlowPreviewButtons
-						bind:localModuleStates
-						bind:localDurationStatuses
-						bind:suspendStatus
 						on:openTriggers={(e) => {
 							select('triggers')
 							handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)
@@ -1192,15 +1194,10 @@
 						}}
 						bind:this={flowPreviewButtons}
 						{loading}
-						bind:job
-						bind:isOwner
 						onRunPreview={() => {
 							localModuleStates.set({})
 							showJobStatus = true
 						}}
-						bind:isRunning
-						bind:previewOpen
-						bind:previewMode
 					/>
 					<Button
 						loading={loadingDraft}
@@ -1267,11 +1264,11 @@
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
-					{isOwner}
+					isOwner={flowPreviewButtons?.getIsOwner()}
 					onTestFlow={() => {
 						flowPreviewButtons?.runPreview()
 					}}
-					{isRunning}
+					isRunning={flowPreviewButtons?.getIsRunning()}
 					onCancelTestFlow={() => {
 						flowPreviewButtons?.cancelTest()
 					}}

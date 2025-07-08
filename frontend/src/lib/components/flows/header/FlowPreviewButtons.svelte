@@ -3,43 +3,31 @@
 
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
-	import type { Job } from '$lib/gen'
 	import { createEventDispatcher, tick } from 'svelte'
 
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { Play } from 'lucide-svelte'
-	import { writable, type Writable } from 'svelte/store'
-	import type { DurationStatus, GraphModuleState } from '$lib/components/graph'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
 	interface Props {
 		loading?: boolean
-		localModuleStates?: Writable<Record<string, GraphModuleState>>
-		localDurationStatuses?: Writable<Record<string, DurationStatus>>
-		job?: Job
-		isOwner?: boolean
 		onRunPreview?: () => void
-		isRunning?: boolean
-		previewOpen?: boolean
-		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
-		previewMode?: 'upTo' | 'whole'
 	}
 
-	let {
-		loading = false,
-		localModuleStates = $bindable(writable({})),
-		localDurationStatuses = $bindable(writable({})),
-		job = $bindable(undefined),
-		isOwner = $bindable(false),
-		onRunPreview,
-		isRunning = $bindable(false),
-		previewOpen = $bindable(false),
-		previewMode = $bindable('whole'),
-		suspendStatus = $bindable(writable({}))
-	}: Props = $props()
+	let { loading = false, onRunPreview }: Props = $props()
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+
+	let flowPreviewContent: FlowPreviewContent | undefined = $state(undefined)
+	let preventEscape = $state(false)
+	let selectedJobStep: string | undefined = $state(undefined)
+	let selectedJobStepIsTopLevel: boolean | undefined = $state(undefined)
+	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = $state('single')
+	let branchOrIterationN: number = $state(0)
+	let scrollTop: number = $state(0)
+	let previewMode: 'upTo' | 'whole' = $state('whole')
+	let previewOpen = $state(false)
 	let deferContent = $state(false)
 
 	export async function openPreview(test: boolean = false) {
@@ -67,15 +55,6 @@
 	}
 
 	const dispatch = createEventDispatcher()
-
-	let flowPreviewContent: FlowPreviewContent | undefined = $state(undefined)
-	let jobId: string | undefined = $state(undefined)
-	let preventEscape = $state(false)
-	let selectedJobStep: string | undefined = $state(undefined)
-	let selectedJobStepIsTopLevel: boolean | undefined = $state(undefined)
-	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = $state('single')
-	let branchOrIterationN: number = $state(0)
-	let scrollTop: number = $state(0)
 
 	let rightColumnSelect: 'timeline' | 'node_status' | 'node_definition' | 'user_states' =
 		$state('timeline')
@@ -121,6 +100,38 @@
 			flowPreviewContent?.test()
 		}
 	}
+
+	export function getPreviewMode() {
+		return previewMode
+	}
+
+	export function getPreviewOpen() {
+		return previewOpen
+	}
+
+	export function getIsRunning() {
+		return flowPreviewContent?.getIsRunning()
+	}
+
+	export function getJob() {
+		return flowPreviewContent?.getJob()
+	}
+
+	export function getIsOwner() {
+		return flowPreviewContent?.getIsOwner()
+	}
+
+	export function getLocalModuleStates() {
+		return flowPreviewContent?.getLocalModuleStates()
+	}
+
+	export function getLocalDurationStatuses() {
+		return flowPreviewContent?.getLocalDurationStatuses()
+	}
+
+	export function getSuspendStatus() {
+		return flowPreviewContent?.getSuspendStatus()
+	}
 </script>
 
 <Button
@@ -151,14 +162,9 @@
 	<Drawer bind:open={previewOpen} size="75%" {preventEscape} alwaysOpen={deferContent}>
 		<FlowPreviewContent
 			bind:this={flowPreviewContent}
-			bind:localModuleStates
-			bind:localDurationStatuses
-			bind:suspendStatus
 			open={previewOpen}
 			bind:scrollTop
 			bind:previewMode
-			bind:job
-			bind:jobId
 			bind:selectedJobStep
 			bind:selectedJobStepIsTopLevel
 			bind:selectedJobStepType
@@ -172,9 +178,7 @@
 				dispatch('openTriggers', e.detail)
 			}}
 			bind:preventEscape
-			bind:isOwner
 			{onRunPreview}
-			bind:isRunning
 			render={previewOpen || deferContent}
 		/>
 	</Drawer>
