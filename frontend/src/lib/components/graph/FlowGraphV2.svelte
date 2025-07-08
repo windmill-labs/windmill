@@ -64,7 +64,7 @@
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
-	import { assetEq } from '../assets/lib'
+	import { assetEq, type AssetWithAccessType } from '../assets/lib'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -101,6 +101,7 @@
 		editMode?: boolean
 		allowSimplifiedPoll?: boolean
 		expandedSubflows?: Record<string, FlowModule[]>
+		inputAssets?: AssetWithAccessType[]
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -160,6 +161,7 @@
 		editMode = false,
 		allowSimplifiedPoll = true,
 		expandedSubflows = $bindable({}),
+		inputAssets,
 		onTestUpTo = undefined,
 		onEditInput = undefined
 	}: Props = $props()
@@ -180,7 +182,7 @@
 
 	const flowGraphAssetsCtx: FlowGraphAssetContext = $state({
 		val: {
-			assetsMap: {},
+			assetsMap: inputAssets ? ({ Input: inputAssets } as any) : {},
 			selectedAsset: undefined,
 			dbManagerDrawer: undefined,
 			s3FilePicker: undefined,
@@ -190,6 +192,9 @@
 	})
 	setContext<FlowGraphAssetContext>('FlowGraphAssetContext', flowGraphAssetsCtx)
 	const assetsMap = $derived(flowGraphAssetsCtx.val.assetsMap)
+	$effect(() => {
+		if (inputAssets) flowGraphAssetsCtx.val.assetsMap.Input = inputAssets
+	})
 
 	// Fetch resource metadata for the ExploreAssetButton
 	const resMetadataCache = $derived(flowGraphAssetsCtx.val.resourceMetadataCache)
@@ -232,7 +237,7 @@
 	$effect(() => {
 		const allModules = new Set(getAllModules(modules).map((mod) => mod.id))
 		for (const modId in assetsMap) {
-			if (!allModules.has(modId)) delete assetsMap[modId]
+			if (modId !== 'Input' && !allModules.has(modId)) delete assetsMap[modId]
 		}
 	})
 

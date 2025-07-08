@@ -32,3 +32,16 @@ export function assetEq(a: Asset | undefined, b: Asset | undefined): boolean {
 	if (!a || !b) return a === b
 	return a.kind === b.kind && a.path === b.path
 }
+
+export function parseAssetFromString(s: string): Asset | undefined {
+	if (s.startsWith('res://')) {
+		return { kind: 'resource', path: s.slice(6) }
+	} else if (s.startsWith('$res:')) {
+		return { kind: 'resource', path: s.slice(5) }
+	} else if (s.startsWith('s3://')) {
+		return { kind: 's3object', path: s.slice(5) }
+	} else if (s.startsWith('var://')) {
+		return { kind: 'variable', path: s.slice(6) }
+	}
+	return undefined
+}
