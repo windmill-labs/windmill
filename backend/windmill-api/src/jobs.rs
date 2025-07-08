@@ -35,12 +35,12 @@ use windmill_common::variables::get_workspace_key;
 use crate::{
     add_webhook_allowed_origin,
     args::{self, RawWebhookArgs},
+    auth::{OptTokened, Tokened},
     concurrency_groups::join_concurrency_key,
     db::{ApiAuthed, DB},
     trigger_helpers::RunnableId,
     users::{get_scope_tags, require_owner_of_path, OptAuthed},
     utils::{check_scopes, content_plain, require_super_admin},
-    auth::{Tokened, OptTokened}
 };
 use anyhow::Context;
 use axum::{
@@ -348,7 +348,9 @@ async fn cancel_job_api(
             username: "anonymous".to_string(),
             username_override: None,
             email: "anonymous".to_string(),
-            token_prefix: opt_tokened.token.map(|s| s[0..TOKEN_PREFIX_LEN].to_string()),
+            token_prefix: opt_tokened
+                .token
+                .map(|s| s[0..TOKEN_PREFIX_LEN].to_string()),
         },
     };
     let (mut tx, job_option) = tokio::time::timeout(
@@ -564,7 +566,14 @@ async fn get_flow_job_debug_info(
             }
         }
 
-        log_job_view(&db, opt_authed.as_ref(), tokened_o.token.as_deref(), &w_id, &id).await?;
+        log_job_view(
+            &db,
+            opt_authed.as_ref(),
+            tokened_o.token.as_deref(),
+            &w_id,
+            &id,
+        )
+        .await?;
 
         Ok(Json(jobs).into_response())
     } else {
@@ -644,7 +653,14 @@ async fn get_job(
     let mut job = get.fetch(&db, id, &w_id).await?;
     job.fetch_outstanding_wait_time(&db).await?;
 
-    log_job_view(&db, opt_authed.as_ref(), opt_tokened.token.as_deref(), &w_id, &id).await?;
+    log_job_view(
+        &db,
+        opt_authed.as_ref(),
+        opt_tokened.token.as_deref(),
+        &w_id,
+        &id,
+    )
+    .await?;
 
     Ok(Json(job).into_response())
 }
@@ -1130,7 +1146,14 @@ async fn get_job_logs(
         }
         let logs = record.logs.unwrap_or_default();
 
-        log_job_view(&db, opt_authed.as_ref(), opt_tokened.token.as_deref(), &w_id, &id).await?;
+        log_job_view(
+            &db,
+            opt_authed.as_ref(),
+            opt_tokened.token.as_deref(),
+            &w_id,
+            &id,
+        )
+        .await?;
 
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
         if let Some(r) = get_logs_from_store(record.log_offset, &logs, &record.log_file_index).await
@@ -1167,7 +1190,14 @@ async fn get_job_logs(
         }
         let logs = text.logs.unwrap_or_default();
 
-        log_job_view(&db, opt_authed.as_ref(), opt_tokened.token.as_deref(), &w_id, &id).await?;
+        log_job_view(
+            &db,
+            opt_authed.as_ref(),
+            opt_tokened.token.as_deref(),
+            &w_id,
+            &id,
+        )
+        .await?;
 
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
         if let Some(r) =
@@ -1217,7 +1247,14 @@ async fn get_args(
             ));
         }
 
-        log_job_view(&db, opt_authed.as_ref(), opt_tokened.token.as_deref(), &w_id, &id).await?;
+        log_job_view(
+            &db,
+            opt_authed.as_ref(),
+            opt_tokened.token.as_deref(),
+            &w_id,
+            &id,
+        )
+        .await?;
 
         Ok(Json(record.args.map(|x| x.0).unwrap_or_default()))
     } else {
@@ -1238,7 +1275,14 @@ async fn get_args(
             ));
         }
 
-        log_job_view(&db, opt_authed.as_ref(), opt_tokened.token.as_deref(), &w_id, &id).await?;
+        log_job_view(
+            &db,
+            opt_authed.as_ref(),
+            opt_tokened.token.as_deref(),
+            &w_id,
+            &id,
+        )
+        .await?;
 
         Ok(Json(record.args.map(|x| x.0).unwrap_or_default()))
     }
@@ -1966,15 +2010,15 @@ pub async fn resume_suspended_flow_as_owner(
     Path((_w_id, flow_id)): Path<(String, Uuid)>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
 ) -> error::Result<StatusCode> {
-    let value = value.unwrap_or(serde_json::Value::Null);
     let mut tx = db.begin().await?;
 
     let (flow, job_id) = get_suspended_flow_info(flow_id, &mut tx).await?;
 
-    require_owner_of_path(
-        &authed,
-        &flow.script_path.clone().unwrap_or_else(|| String::new()),
-    )?;
+    let flow_path = flow.script_path.as_deref().unwrap_or_else(|| "");
+    require_owner_of_path(&authed, flow_path)?;
+    check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
+    
+    let value = value.unwrap_or(serde_json::Value::Null);
 
     insert_resume_job(
         0,
@@ -2104,7 +2148,9 @@ async fn resume_suspended_job_internal(
             email: approver.clone(),
             username: approver.clone(),
             username_override: None,
-            token_prefix: opt_tokened.token.map(|s| s[0..TOKEN_PREFIX_LEN].to_string()),
+            token_prefix: opt_tokened
+                .token
+                .map(|s| s[0..TOKEN_PREFIX_LEN].to_string()),
         },
     };
     audit_log(
@@ -2281,7 +2327,16 @@ pub async fn cancel_suspended_job(
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
 ) -> error::Result<StatusCode> {
     resume_suspended_job_internal(
-        value, db, w_id, job_id, resume_id, approver, secret, authed, opt_tokened, false,
+        value,
+        db,
+        w_id,
+        job_id,
+        resume_id,
+        approver,
+        secret,
+        authed,
+        opt_tokened,
+        false,
     )
     .await
 }
@@ -2366,7 +2421,14 @@ pub async fn get_suspended_job_flow(
         approvers_from_status
     };
 
-    log_job_view(&db, authed.as_ref(), opt_tokened.token.as_deref(), &w_id, &job).await?;
+    log_job_view(
+        &db,
+        authed.as_ref(),
+        opt_tokened.token.as_deref(),
+        &w_id,
+        &job,
+    )
+    .await?;
 
     Ok(Json(SuspendedJobFlow { job: flow, approvers }).into_response())
 }
@@ -3253,17 +3315,18 @@ async fn batch_rerun_jobs(
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(body): Json<BatchReRunJobsBodyArgs>,
-) -> Response {
+) -> error::Result<Response> {
+    check_scopes(&authed, || format!("jobs:run"))?;
     let stream = batch_rerun_jobs_inner(authed, db, user_db, w_id, body);
 
     let body = axum::body::Body::from_stream(stream.map(Result::<_, std::convert::Infallible>::Ok));
 
-    Response::builder()
+    Ok(Response::builder()
         .status(201)
         .header("Content-Type", "text/event-stream")
         .header("Cache-Control", "no-cache")
         .body(body)
-        .unwrap()
+        .unwrap())
 }
 
 fn batch_rerun_jobs_inner(
@@ -3745,16 +3808,17 @@ pub async fn run_workflow_as_code(
     Query(wkflow_query): Query<WorkflowAsCodeQuery>,
     Json(task): Json<WorkflowTask>,
 ) -> error::Result<(StatusCode, String)> {
+    #[cfg(feature = "enterprise")]
+    check_license_key_valid().await?;
+    check_tag_available_for_workspace(&db, &w_id, &run_query.tag, &authed).await?;
+    check_scopes(&authed, || format!("jobs:run"))?;
+
     let mut i = 1;
 
     if *CLOUD_HOSTED {
         tracing::info!("workflow_as_code_tracing id {i} ");
         i += 1;
     }
-
-    #[cfg(feature = "enterprise")]
-    check_license_key_valid().await?;
-    check_tag_available_for_workspace(&db, &w_id, &run_query.tag, &authed).await?;
 
     if *CLOUD_HOSTED {
         tracing::info!("workflow_as_code_tracing id {i} ");
@@ -4283,7 +4347,7 @@ async fn log_job_view(
                 username: "anonymous".to_string(),
                 username_override: None,
                 email: "anonymous".to_string(),
-                token_prefix: opt_token.map(|t| t[0..TOKEN_PREFIX_LEN].to_string())
+                token_prefix: opt_token.map(|t| t[0..TOKEN_PREFIX_LEN].to_string()),
             },
         };
         if JOB_VIEW_CACHE
@@ -5030,6 +5094,7 @@ async fn run_dependencies_job(
     Path(w_id): Path<String>,
     Json(req): Json<RunDependenciesRequest>,
 ) -> error::Result<Response> {
+    check_scopes(&authed, || format!("jobs:run"))?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run dependencies jobs for security reasons".to_string(),
@@ -5118,12 +5183,12 @@ async fn run_flow_dependencies_job(
     Path(w_id): Path<String>,
     Json(req): Json<RunFlowDependenciesRequest>,
 ) -> error::Result<Response> {
+    check_scopes(&authed, || format!("jobs:run"))?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run dependencies jobs for security reasons".to_string(),
         ));
     }
-
     let (uuid, tx) = push(
         &db,
         PushIsolationLevel::IsolatedRoot(db.clone()),
@@ -5747,7 +5812,14 @@ async fn get_job_update(
             "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
         ));
     }
-    log_job_view(&db, opt_authed.as_ref(), opt_tokened.token.as_deref(), &w_id, &job_id).await?;
+    log_job_view(
+        &db,
+        opt_authed.as_ref(),
+        opt_tokened.token.as_deref(),
+        &w_id,
+        &job_id,
+    )
+    .await?;
     Ok(Json(JobUpdate {
         running: record.running,
         completed: record.completed,
@@ -6059,7 +6131,14 @@ async fn get_completed_job<'a>(
     // .fetch_optional(db)
     // .await.ok().flatten().flatten();
 
-    log_job_view(&db, opt_authed.as_ref(), opt_tokened.token.as_deref(), &w_id, &id).await?;
+    log_job_view(
+        &db,
+        opt_authed.as_ref(),
+        opt_tokened.token.as_deref(),
+        &w_id,
+        &id,
+    )
+    .await?;
 
     Ok(response)
 }
@@ -6162,7 +6241,14 @@ async fn get_completed_job_result(
         raw_result.result.as_mut(),
     );
 
-    log_job_view(&db, opt_authed.as_ref(), opt_tokened.token.as_deref(), &w_id, &id).await?;
+    log_job_view(
+        &db,
+        opt_authed.as_ref(),
+        opt_tokened.token.as_deref(),
+        &w_id,
+        &id,
+    )
+    .await?;
 
     Ok(Json(raw_result.result).into_response())
 }
@@ -6253,7 +6339,14 @@ async fn get_completed_job_result_maybe(
             ));
         }
 
-        log_job_view(&db, opt_authed.as_ref(), opt_tokened.token.as_deref(), &w_id, &id).await?;
+        log_job_view(
+            &db,
+            opt_authed.as_ref(),
+            opt_tokened.token.as_deref(),
+            &w_id,
+            &id,
+        )
+        .await?;
 
         Ok(Json(CompletedJobResult {
             started: Some(true),

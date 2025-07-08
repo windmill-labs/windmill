@@ -129,21 +129,21 @@ impl ScopeDefinition {
                         return false;
                     }
                 }
-                (None, _) => {
-                    return true;
-                }
                 (Some(_), None) => {
                     return false;
+                }
+                (None, _) => {
+                    return true;
                 }
             }
         }
 
         match (&self.resource, &other.resource) {
-            (None, _) => true,
-            (Some(_), None) => false,
             (Some(self_resources), Some(other_resources)) => {
                 resources_match(self_resources, other_resources)
             }
+            (Some(_), None) => false,
+            (None, _) => true,
         }
     }
 }
@@ -472,7 +472,7 @@ const SCRIPT_JOBS: [&'static str; 6] = [
     "jobs/run_wait_result/p",
     "jobs/run_wait_result/h",
     "jobs/run/preview_bundle",
-    "jobs/run/preview/",
+    "jobs/run/preview",
 ];
 
 const FLOW_JOBS: [&'static str; 5] = [
@@ -485,7 +485,7 @@ const FLOW_JOBS: [&'static str; 5] = [
 
 lazy_static::lazy_static! {
     static ref RUN_PATH_ACTIONS: Vec<&'static str> = {
-        let mut v = vec!["jobs/resume/"];
+        let mut v = vec!["jobs/resume/", "jobs/run/batch_rerun_jobs", "jobs/run/workflow_as_code", "jobs/run/dependencies","jobs/run/flow_dependencies",];
 
         v.extend(SCRIPT_JOBS);
         v.extend(FLOW_JOBS);
@@ -508,12 +508,20 @@ fn map_http_method_to_action(method: &str, route_path: &str) -> ScopeAction {
     }
 }
 
-fn extract_kind_from_route(route_path: &str) -> Option<String> {
+
+/// Checks the route path to determine the runnable kind (either "flows" or "scripts").
+///
+/// The order of checks is important:
+/// - Flow-related paths are checked first to avoid false positives, as some flow paths
+///   (e.g., `/run_preview_flow`) share prefixes with script paths (e.g., `/run_preview`).
+///
+/// Returns `"flows"` or `"scripts"` based on the match, or `None` if no match is found.
+fn determine_kind_from_route(route_path: &str) -> Option<String> {
     if route_path.starts_with("jobs") {
-        if SCRIPT_JOBS.iter().any(|path| route_path.starts_with(path)) {
-            return Some("scripts".to_string());
-        } else if FLOW_JOBS.iter().any(|path| route_path.starts_with(path)) {
+        if FLOW_JOBS.iter().any(|path| route_path.starts_with(path)) {
             return Some("flows".to_string());
+        } else if SCRIPT_JOBS.iter().any(|path| route_path.starts_with(path)) {
+            return Some("scripts".to_string());
         }
     }
     None
@@ -532,11 +540,7 @@ fn extract_domain_from_route(route_path: &str) -> Result<(ScopeDomain, Option<St
 
         let domain = ScopeDomain::from_str(domain_part);
 
-        let kind = if domain_part == "jobs" {
-            extract_kind_from_route(route_suffix)
-        } else {
-            None
-        };
+        let kind = determine_kind_from_route(route_suffix);
 
         (domain, kind)
     } else if parts.len() >= 3 && parts[1] == "api" {
