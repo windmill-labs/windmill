@@ -1360,7 +1360,7 @@ def parse_resource_syntax(s: str) -> Optional[str]:
 
 def parse_s3_object(s3_object: S3Object | str) -> S3Object:
     """Parse S3 object from string or S3Object format."""
-    if isinstance(a, str):
+    if isinstance(s3_object, str):
         match = re.match(r'^s3://([^/]*)/(.*)$', s3_object)
         if match:
             return S3Object(s3=match.group(2) or "", storage=match.group(1) or None)
