@@ -19,12 +19,12 @@ async function setupWorkspaceProfile(backend: any, workspaceName: string): Promi
   await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
 }
 
-Deno.test("Multi-Instance: gitsync-settings pull with disambiguated format", async () => {
+Deno.test("Multi-Instance: gitsync-settings pull with new format", async () => {
   await withContainerizedBackend(async (backend, tempDir) => {
     // Set up workspace profile
     await setupWorkspaceProfile(backend, "multi_instance_test");
     
-    // Create wmill.yaml with disambiguated overrides for different instances
+    // Create wmill.yaml with new format overrides for different instances
     const backendUrl = new URL(backend.baseUrl).toString(); // Normalize URL
     await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
@@ -44,7 +44,7 @@ overrides:
     includeSchedules: false
     skipVariables: false`);
     
-    // Pull settings - should use disambiguated format override (skipVariables: true)
+    // Pull settings - should use the matching instance override (skipVariables: true)
     const pullResult = await backend.runCLICommand([
       'gitsync-settings', 'pull',
       '--repository', 'u/test/test_repo',
@@ -53,7 +53,8 @@ overrides:
     
     assertEquals(pullResult.code, 0);
     assertStringIncludes(pullResult.stdout, "Changes that would be made:");
-    assertStringIncludes(pullResult.stdout, "skipVariables");
+    // includeSchedules should show as a change since backend default is false
+    assertStringIncludes(pullResult.stdout, "includeSchedules");
   });
 });
 
@@ -63,6 +64,7 @@ Deno.test("Multi-Instance: gitsync-settings push with overrides", async () => {
     await setupWorkspaceProfile(backend, "push_override_test");
     
     // Create wmill.yaml with specific settings that differ from backend defaults
+    const backendUrl = new URL(backend.baseUrl).toString();
     await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - f/**
@@ -72,7 +74,7 @@ includeSchedules: false
 
 overrides:
   # Override for current backend instance - set includeSchedules: true (backend default is false)
-  "push_override_test:u/test/test_repo":
+  "${backendUrl}:${backend.workspace}:u/test/test_repo":
     includeSchedules: true
     skipVariables: true`);
     
@@ -89,17 +91,18 @@ overrides:
   });
 });
 
-Deno.test("Multi-Instance: workspace names with special characters", async () => {
+Deno.test("Multi-Instance: sync with repository-specific overrides", async () => {
   await withContainerizedBackend(async (backend, tempDir) => {
     await setupWorkspaceProfile(backend, "my-workspace_123");
     
+    const backendUrl = new URL(backend.baseUrl).toString();
     await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes:
   - f/**
 excludes: []
 
 overrides:
-  "my-workspace_123:u/test/test_repo":
+  "${backendUrl}:${backend.workspace}:u/test/test_repo":
     skipApps: true`);
     
     const result = await backend.runCLICommand([
@@ -115,17 +118,55 @@ overrides:
     assert(jsonMatch, `Must have JSON output in: ${result.stdout}`);
     const data = JSON.parse(jsonMatch[0]);
     
-    // Test is designed to verify that workspace names with special characters work
+    // Test is designed to verify that the new format works correctly
     
     // The test app should NOT appear in changes because skipApps: true
     const hasTestApp = (data.changes || []).some((change: any) => 
       change.path?.includes('f/test_dashboard')
     );
-    assertEquals(hasTestApp, false, "Test app should be skipped due to skipApps override with special character workspace name");
+    assertEquals(hasTestApp, false, "Test app should be skipped due to skipApps override");
   });
 });
 
-Deno.test("Multi-Instance: workspace wildcards with disambiguated format", async () => {
+Deno.test("Multi-Instance: auto-detection of single repository override", async () => {
+  await withContainerizedBackend(async (backend, tempDir) => {
+    await setupWorkspaceProfile(backend, "auto_detect_test");
+    
+    const backendUrl = new URL(backend.baseUrl).toString();
+    await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - f/**
+excludes: []
+
+overrides:
+  # Single repository override - should be auto-detected
+  "${backendUrl}:${backend.workspace}:u/test/test_repo":
+    skipApps: true
+    includeSchedules: true`);
+    
+    // Don't specify --repository, it should auto-detect
+    const result = await backend.runCLICommand([
+      'sync', 'pull',
+      '--dry-run',
+      '--json-output'
+    ], tempDir, "auto_detect_test");
+    
+    assertEquals(result.code, 0);
+    assertStringIncludes(result.stdout, "Auto-selected repository: u/test/test_repo");
+    
+    const jsonMatch = result.stdout.match(/\{[\s\S]*\}/);
+    assert(jsonMatch, `Must have JSON output in: ${result.stdout}`);
+    const data = JSON.parse(jsonMatch[0]);
+    
+    // The test app should NOT appear because of auto-detected skipApps: true
+    const hasTestApp = (data.changes || []).some((change: any) => 
+      change.path?.includes('f/test_dashboard')
+    );
+    assertEquals(hasTestApp, false, "Test app should be skipped due to auto-detected override");
+  });
+});
+
+Deno.test("Multi-Instance: workspace wildcards with new format", async () => {
   await withContainerizedBackend(async (backend, tempDir) => {
     await setupWorkspaceProfile(backend, "wildcard_test");
     
@@ -136,7 +177,7 @@ includes:
 excludes: []
 
 overrides:
-  # Disambiguated wildcard for current backend instance
+  # Wildcard for current backend instance
   "${backendUrl}:${backend.workspace}:*":
     skipVariables: true
     skipResources: true`);
@@ -154,10 +195,10 @@ overrides:
     assert(jsonMatch, `Must have JSON output in: ${result.stdout}`);
     const data = JSON.parse(jsonMatch[0]);
     
-    // Variables should be skipped due to disambiguated wildcard override
+    // Variables should be skipped due to wildcard override
     const hasTestVariable = (data.changes || []).some((change: any) => 
       change.path?.includes('u/admin/test_config.variable.yaml')
     );
-    assertEquals(hasTestVariable, false, "Variables should be skipped due to disambiguated wildcard override");
+    assertEquals(hasTestVariable, false, "Variables should be skipped due to wildcard override");
   });
 });

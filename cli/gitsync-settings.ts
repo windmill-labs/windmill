@@ -36,28 +36,12 @@ function normalizeRepoPath(path: string): string {
     return path.replace(/^\$res:/, "");
 }
 
-// Generate override key using enhanced format (workspace.name:repo)
-function generateOverrideKey(workspace: { name: string, workspaceId: string, remote: string }, repoPath: string, workspaceLevel = false): string {
+// Construct override key using the single format: baseUrl:workspaceId:repo
+function constructOverrideKey(baseUrl: string, workspaceId: string, repoPath: string, workspaceLevel = false): string {
     if (workspaceLevel) {
-        return `${workspace.name}:*`;
+        return `${baseUrl}:${workspaceId}:*`;
     }
-    return `${workspace.name}:${repoPath}`;
-}
-
-// Generate disambiguated override key for multi-instance scenarios (remote:workspaceId:repo)
-function generateDisambiguatedOverrideKey(workspace: { name: string, workspaceId: string, remote: string }, repoPath: string, workspaceLevel = false): string {
-    if (workspaceLevel) {
-        return `${workspace.remote}:${workspace.workspaceId}:*`;
-    }
-    return `${workspace.remote}:${workspace.workspaceId}:${repoPath}`;
-}
-
-// Generate legacy override key for backward compatibility (workspaceId:repo)
-function generateLegacyOverrideKey(workspace: { name: string, workspaceId: string, remote: string }, repoPath: string, workspaceLevel = false): string {
-    if (workspaceLevel) {
-        return `${workspace.workspaceId}:*`;
-    }
-    return `${workspace.workspaceId}:${repoPath}`;
+    return `${baseUrl}:${workspaceId}:${repoPath}`;
 }
 
 // Helper to safely compare arrays without mutating originals
@@ -448,10 +432,10 @@ async function pullGitSyncSettings(
         } else if (opts.override || opts.workspaceLevel) {
             writeMode = "override";
             if (opts.workspaceLevel) {
-                overrideKey = generateOverrideKey(workspace, "", true);
+                overrideKey = constructOverrideKey(workspace.remote, workspace.workspaceId, "", true);
             } else {
                 const repoPath = normalizeRepoPath(selectedRepo.git_repo_resource_path);
-                overrideKey = generateOverrideKey(workspace, repoPath);
+                overrideKey = constructOverrideKey(workspace.remote, workspace.workspaceId, repoPath);
             }
         } else {
             // Default behavior for existing files with no explicit flags
@@ -474,7 +458,7 @@ async function pullGitSyncSettings(
                 // For diff mode, show what override would look like
                 writeMode = "override";
                 const repoPath = normalizeRepoPath(selectedRepo.git_repo_resource_path);
-                overrideKey = generateOverrideKey(workspace, repoPath);
+                overrideKey = constructOverrideKey(workspace.remote, workspace.workspaceId, repoPath);
             } else {
                 writeMode = "flat";
             }
@@ -580,7 +564,7 @@ async function pullGitSyncSettings(
                 writeMode = choice as "replace" | "override";
                 if (writeMode === "override") {
                     const repoPath = normalizeRepoPath(selectedRepo.git_repo_resource_path);
-                    overrideKey = generateOverrideKey(workspace, repoPath);
+                    overrideKey = constructOverrideKey(workspace.remote, workspace.workspaceId, repoPath);
                 }
             } else if (hasConflict) {
                 // Non-interactive mode with conflicts - show message and exit
@@ -846,8 +830,9 @@ async function pushGitSyncSettings(
         const repoPath = normalizeRepoPath(selectedRepo.git_repo_resource_path);
         const effectiveSettings = getEffectiveSettings(
             localConfig,
-            repoPath,
-            workspace
+            workspace.remote,
+            workspace.workspaceId,
+            repoPath
         );
 
         // Convert to backend format

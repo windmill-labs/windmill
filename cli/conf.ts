@@ -1,5 +1,4 @@
 import { log, yamlParseFile } from "./deps.ts";
-import { Workspace } from "./workspace.ts";
 
 export interface SyncOptions {
   stateful?: boolean;
@@ -103,8 +102,9 @@ export async function mergeConfigWithConfigFile<T>(
 // Get effective settings by merging top-level settings and overrides
 export function getEffectiveSettings(
   config: SyncOptions,
-  repo: string,
-  workspaceObj?: Workspace
+  baseUrl: string,
+  workspaceId: string,
+  repo: string
 ): SyncOptions {
   // Start with empty object - no defaults
   let effective = {} as SyncOptions;
@@ -116,82 +116,22 @@ export function getEffectiveSettings(
     }
   });
   
-  if (!workspaceObj || !config.overrides) {
+  if (!config.overrides) {
     return effective;
   }
   
-  // Generate possible override keys in order of preference (NO LEGACY!)
-  const possibleWorkspaceKeys = [
-    `${workspaceObj.name}:*`,                                              // Primary: "localhost_test:*"
-    `${workspaceObj.remote}:${workspaceObj.workspaceId}:*`,               // Disambiguated: "http://localhost:8000/:test:*"
-  ];
-
-  const possibleRepoKeys = [
-    `${workspaceObj.name}:${repo}`,                                       // Primary: "localhost_test:u/user/repo"
-    `${workspaceObj.remote}:${workspaceObj.workspaceId}:${repo}`,         // Disambiguated: "http://localhost:8000/:test:u/user/repo"
-  ];
-
-
-
-  // Track which keys were found for validation
-  let workspaceKeyFound = false;
-  let repoKeyFound = false;
-  const foundWorkspaceKeys: string[] = [];
-  const foundRepoKeys: string[] = [];
-
-  // Apply workspace-level overrides (first match wins)
-  for (const key of possibleWorkspaceKeys) {
-    if (config.overrides[key]) {
-      if (!workspaceKeyFound) {
-        Object.assign(effective, config.overrides[key]);
-        workspaceKeyFound = true;
-      }
-      foundWorkspaceKeys.push(key);
-    }
+  // Construct override keys using the single format
+  const workspaceKey = `${baseUrl}:${workspaceId}:*`;
+  const repoKey = `${baseUrl}:${workspaceId}:${repo}`;
+  
+  // Apply workspace-level overrides
+  if (config.overrides[workspaceKey]) {
+    Object.assign(effective, config.overrides[workspaceKey]);
   }
   
-  // Apply repository-specific overrides (first match wins, overrides workspace-level)
-  for (const key of possibleRepoKeys) {
-    if (config.overrides[key]) {
-      if (!repoKeyFound) {
-        Object.assign(effective, config.overrides[key]);
-        repoKeyFound = true;
-      }
-      foundRepoKeys.push(key);
-    }
-  }
-
-  // Validation and helpful error messages
-  if (Object.keys(config.overrides).length > 0) {
-    // Check for potential mismatched keys that contain this repo
-    if (!repoKeyFound && repo) {
-      const existingKeys = Object.keys(config.overrides);
-      const repoMatches = existingKeys.filter(key => key.includes(repo));
-      const workspaceMatches = existingKeys.filter(key => 
-        key.includes(workspaceObj.name) || key.includes(workspaceObj.workspaceId)
-      );
-
-      if (repoMatches.length > 0 || workspaceMatches.length > 0) {
-        const suggestions = [...new Set([...repoMatches, ...workspaceMatches])];
-        console.warn(`⚠️  Override key not found for repository "${repo}".`);
-        console.warn(`   Current workspace: "${workspaceObj.name}" (ID: ${workspaceObj.workspaceId})`);
-        console.warn(`   Expected key format: "${workspaceObj.name}:${repo}"`);
-        if (suggestions.length > 0) {
-          console.warn(`   Found similar keys: ${suggestions.join(', ')}`);
-          console.warn(`   Did you mean one of these keys?`);
-        }
-      }
-    }
-
-    // Warn about multiple matching keys
-    if (foundWorkspaceKeys.length > 1) {
-      console.warn(`⚠️  Multiple workspace-level override keys found: ${foundWorkspaceKeys.join(', ')}`);
-      console.warn(`   Using: ${foundWorkspaceKeys[0]}`);
-    }
-    if (foundRepoKeys.length > 1) {
-      console.warn(`⚠️  Multiple repository override keys found: ${foundRepoKeys.join(', ')}`);
-      console.warn(`   Using: ${foundRepoKeys[0]}`);
-    }
+  // Apply repository-specific overrides (overrides workspace-level)
+  if (config.overrides[repoKey]) {
+    Object.assign(effective, config.overrides[repoKey]);
   }
   
   return effective;

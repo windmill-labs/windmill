@@ -91,108 +91,87 @@ async function selectRepositoryInteractively(
   return selectedRepo;
 }
 
-// Resolve effective sync options with repository awareness
+// Resolve effective sync options with smart repository detection
 async function resolveEffectiveSyncOptions(
   workspace: Workspace,
   repositoryPath?: string
 ): Promise<SyncOptions> {
   const localConfig = await readConfigFile();
 
-  // If we have a specific repository path, use getEffectiveSettings directly
-  // This will handle both repository-specific and workspace-level overrides
+  // If repository path is already specified, use it directly
   if (repositoryPath) {
-    return getEffectiveSettings(localConfig, repositoryPath, workspace);
+    return getEffectiveSettings(
+      localConfig, 
+      workspace.remote,
+      workspace.workspaceId,
+      repositoryPath
+    );
   }
 
-  // Check if config has repository-specific overrides that apply to the current workspace
-  const applicableOverrides = findApplicableOverrides(localConfig, workspace);
+  // Auto-detect repository from overrides if not specified
+  if (localConfig.overrides) {
+    const prefix = `${workspace.remote}:${workspace.workspaceId}:`;
+    const applicableRepos: string[] = [];
 
-  if (applicableOverrides.length === 0) {
-    // No repository-specific overrides found
-    // Still need to call getEffectiveSettings to handle workspace-level overrides
-    // Use empty string as repository to only apply workspace-level overrides
-    return getEffectiveSettings(localConfig, "", workspace);
-  }
-
-  // Determine repository from overrides
-  let selectedRepository: string;
-
-  if (applicableOverrides.length === 1) {
-    // Single applicable override - use its repository
-    selectedRepository = applicableOverrides[0].repository;
-  } else {
-    // Multiple applicable overrides - require explicit selection
-    const repositoryChoices = applicableOverrides.map((override, index) => ({
-      name: `${index + 1}. ${override.repository}`,
-      value: override.repository
-    }));
-
-    const isInteractive = Deno.stdin.isTerminal() && Deno.stdout.isTerminal();
-    if (!isInteractive) {
-      const repoList = applicableOverrides.map(o => o.repository).join(', ');
-      throw new Error(`Multiple repository overrides found for workspace "${workspace.name || workspace.workspaceId}": ${repoList}. Use --repository to specify which one to sync.`);
-    }
-
-    selectedRepository = await Select.prompt({
-      message: "Select repository override to use for sync:",
-      options: repositoryChoices
-    });
-  }
-
-  // Use hierarchical resolution with workspace + repository
-  return getEffectiveSettings(localConfig, selectedRepository, workspace);
-}
-
-// Helper function to find overrides that apply to the current workspace
-function findApplicableOverrides(
-  config: SyncOptions,
-  workspace: Workspace
-): Array<{ key: string; repository: string }> {
-  if (!config.overrides) {
-    return [];
-  }
-
-  const applicableOverrides: Array<{ key: string; repository: string }> = [];
-
-  // Generate possible workspace prefixes in order of preference
-  const possiblePrefixes = workspace.name ? [
-    `${workspace.name}:`,                          // Primary: "localhost_test:"
-    `${workspace.remote}:${workspace.workspaceId}:`, // Disambiguated: "http://localhost:8000/:test:"
-    `${workspace.workspaceId}:`,                   // Legacy: "test:"
-  ] : [
-    `${workspace.workspaceId}:`,                   // Legacy only
-  ];
-
-  // Find all override keys that match current workspace
-  for (const [key, value] of Object.entries(config.overrides)) {
-    // Skip workspace-level overrides (ending with :*)
-    if (key.endsWith(':*')) {
-      continue;
-    }
-
-    // Check if this override key applies to the current workspace
-    for (const prefix of possiblePrefixes) {
-      if (key.startsWith(prefix)) {
-        const repository = key.substring(prefix.length);
-        if (repository && repository.length > 0) {
-          applicableOverrides.push({ key, repository });
-          break; // Found match, no need to check other prefixes
+    // Find all repository-specific overrides for this workspace
+    for (const key of Object.keys(localConfig.overrides)) {
+      if (key.startsWith(prefix) && !key.endsWith(':*')) {
+        const repo = key.substring(prefix.length);
+        if (repo) {
+          applicableRepos.push(repo);
         }
+      }
+    }
+
+    if (applicableRepos.length === 1) {
+      // Single repository found - auto-select it
+      log.info(`Auto-selected repository: ${applicableRepos[0]}`);
+      return getEffectiveSettings(
+        localConfig,
+        workspace.remote,
+        workspace.workspaceId,
+        applicableRepos[0]
+      );
+    } else if (applicableRepos.length > 1) {
+      // Multiple repositories found - prompt for selection
+      const isInteractive = Deno.stdin.isTerminal() && Deno.stdout.isTerminal();
+      
+      if (isInteractive) {
+        const choices = [
+          { name: "Use top-level settings (no repository-specific override)", value: "" },
+          ...applicableRepos.map(repo => ({ name: repo, value: repo }))
+        ];
+
+        const selectedRepo = await Select.prompt({
+          message: "Multiple repository overrides found. Select which to use:",
+          options: choices
+        });
+
+        if (selectedRepo) {
+          log.info(`Selected repository: ${selectedRepo}`);
+        }
+        
+        return getEffectiveSettings(
+          localConfig,
+          workspace.remote,
+          workspace.workspaceId,
+          selectedRepo
+        );
+      } else {
+        // Non-interactive mode - list options and use top-level
+        log.warn(`Multiple repository overrides found: ${applicableRepos.join(', ')}`);
+        log.warn(`Use --repository flag to specify which one to use. Using top-level settings.`);
       }
     }
   }
 
-  // Remove duplicates based on repository (prefer earlier prefixes)
-  const uniqueOverrides = [];
-  const seenRepositories = new Set();
-  for (const override of applicableOverrides) {
-    if (!seenRepositories.has(override.repository)) {
-      seenRepositories.add(override.repository);
-      uniqueOverrides.push(override);
-    }
-  }
-
-  return uniqueOverrides;
+  // No repository overrides found or selected - use top-level settings
+  return getEffectiveSettings(
+    localConfig, 
+    workspace.remote,
+    workspace.workspaceId,
+    ""
+  );
 }
 
 type DynFSElement = {
