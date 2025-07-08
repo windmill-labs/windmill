@@ -21,7 +21,7 @@
 </script>
 
 <FlowCard {noEditor} title="Flow result">
-	{#if job && isOwner && localDurationStatuses && suspendStatus}
+	{#if job && isOwner !== undefined && localDurationStatuses && suspendStatus}
 		<div class="px-4 py-2">
 			<FlowPreviewResult
 				{job}
