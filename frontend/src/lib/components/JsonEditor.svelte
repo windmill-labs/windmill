@@ -4,6 +4,7 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import Button from './common/button/Button.svelte'
 
 	export let code: string | undefined
 	export let value: any = undefined
@@ -13,12 +14,12 @@
 	export let loadAsync = false
 
 	$: tooBig = code && code?.length > 1000000
+	let loadTooBigAnyway = false
 
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function parseJson() {
-		if (tooBig) return
 		try {
 			if (code == '') {
 				value = undefined
@@ -35,22 +36,31 @@
 	$: code != undefined && parseJson()
 </script>
 
-<div class="flex flex-col w-full">
-	<div class="border w-full">
-		<SimpleEditor
-			{loadAsync}
-			{small}
-			on:focus
-			on:blur
-			bind:this={editor}
-			on:change
-			autoHeight
-			lang="json"
-			bind:code={() => (tooBig ? '// JSON is too big to edit' : code), (c) => (code = c)}
-			class={$$props.class}
-		/>
+{#if tooBig && !loadTooBigAnyway}
+	<div class="flex-1 text-sm">
+		JSON is too big
+		<Button size="xs2" variant="border" on:click={() => (loadTooBigAnyway = true)}>
+			Load anyway
+		</Button>
 	</div>
-	{#if error != ''}
-		<span class="text-red-600 text-xs">{error}</span>
-	{/if}
-</div>
+{:else}
+	<div class="flex flex-col w-full">
+		<div class="border w-full">
+			<SimpleEditor
+				{loadAsync}
+				{small}
+				on:focus
+				on:blur
+				bind:this={editor}
+				on:change
+				autoHeight
+				lang="json"
+				bind:code
+				class={$$props.class}
+			/>
+		</div>
+		{#if error != ''}
+			<span class="text-red-600 text-xs">{error}</span>
+		{/if}
+	</div>
+{/if}
