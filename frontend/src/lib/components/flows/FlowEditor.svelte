@@ -37,10 +37,10 @@
 		onEditInput?: ((moduleId: string, key: string) => void) | undefined
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
-		localModuleStates?: Writable<Record<string, GraphModuleState>>
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
+		localModuleStates?: Writable<Record<string, GraphModuleState>>
 		isOwner?: boolean
 		onTestFlow?: () => void
 		isRunning?: boolean

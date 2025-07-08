@@ -1260,21 +1260,15 @@
 					}}
 					{forceTestTab}
 					{highlightArg}
-					localModuleStates={derivedModuleStates}
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
+					onOpenPreview={flowPreviewButtons?.openPreview}
+					localModuleStates={derivedModuleStates}
 					isOwner={flowPreviewButtons?.getIsOwner()}
-					onTestFlow={() => {
-						flowPreviewButtons?.runPreview()
-					}}
+					onTestFlow={flowPreviewButtons?.runPreview}
 					isRunning={flowPreviewButtons?.getIsRunning()}
-					onCancelTestFlow={() => {
-						flowPreviewButtons?.cancelTest()
-					}}
-					onOpenPreview={() => {
-						flowPreviewButtons?.openPreview()
-					}}
+					onCancelTestFlow={flowPreviewButtons?.cancelTest}
 					onHideJobStatus={resetModulesStates}
 					{individualStepTests}
 					{job}
