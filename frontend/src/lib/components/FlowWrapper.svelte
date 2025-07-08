@@ -17,7 +17,7 @@
 	if (light) {
 		setTimeout(() => {
 			trialRender = false
-		}, 5)
+		}, 1000 * 300)
 	}
 </script>
 
