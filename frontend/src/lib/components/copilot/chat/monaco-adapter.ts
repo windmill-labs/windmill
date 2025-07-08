@@ -47,8 +47,8 @@ export class AIChatEditorHandler {
 			this.readOnlyDisposable.dispose()
 		}
 		this.readOnlyDisposable = this.editor.onKeyDown((e) => {
-			if ((e.ctrlKey || e.metaKey) && e.keyCode === KeyCode.KeyZ) {
-				// allow undo/redo
+			if ((e.ctrlKey || e.metaKey) && (e.keyCode === KeyCode.KeyZ || e.keyCode === KeyCode.KeyK)) {
+				// allow undo/redo and cmd k
 				return
 			}
 			e.preventDefault()

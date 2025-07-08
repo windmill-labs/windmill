@@ -3,7 +3,6 @@ import { writable, type Writable } from 'svelte/store'
 import { initFlowState, type FlowState } from './flowState'
 import { sendUserToast } from '$lib/toast'
 import type { StateStore } from '$lib/utils'
-import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 
 export type FlowMode = 'push' | 'pull'
 
@@ -18,39 +17,37 @@ export async function initFlow(
 	flowStore.val = flow
 }
 
-export async function copyFirstStepSchema(flowState: FlowState, flowStore: Writable<OpenFlow>) {
-	flowStore.update((flow) => {
-		const firstModuleId = flow.value.modules[0]?.id
+export async function copyFirstStepSchema(
+	flowState: FlowState,
+	flowStore: StateStore<OpenFlow>
+): Promise<void> {
+	const firstModuleId = flowStore.val.value.modules[0]?.id
 
-		if (flowState[firstModuleId] && firstModuleId) {
-			flow.schema = structuredClone(stateSnapshot(flowState[firstModuleId].schema))
-			const v = flow.value.modules[0].value
-			if (v.type == 'rawscript' || v.type == 'script') {
-				Object.keys(v.input_transforms ?? {}).forEach((key) => {
-					v.input_transforms[key] = {
-						type: 'javascript',
-						expr: `flow_input.${key}`
-					}
-				})
-				return flow
-			}
-			sendUserToast('Only scripts can be used as a input schema', true)
-			return flow
+	if (flowState[firstModuleId] && firstModuleId) {
+		flowStore.val.schema = structuredClone($state.snapshot(flowState[firstModuleId].schema))
+		const v = flowStore.val.value.modules[0].value
+		if (v.type == 'rawscript' || v.type == 'script') {
+			Object.keys(v.input_transforms ?? {}).forEach((key) => {
+				v.input_transforms[key] = {
+					type: 'javascript',
+					expr: `flow_input.${key}`
+				}
+			})
+			return
 		}
-		sendUserToast('No first step found', true)
-		return flow
-	})
+		return sendUserToast('Only scripts can be used as a input schema', true)
+	}
+	return sendUserToast('No first step found', true)
 }
 
-export async function getFirstStepSchema(flowState: FlowState, flowStore: StateStore<OpenFlow>) {
-	const flow = flowStore.val
+export async function getFirstStepSchema(flowState: FlowState, flow: OpenFlow) {
 	const firstModuleId = flow.value.modules[0]?.id
 
 	if (!firstModuleId || !flowState[firstModuleId]) {
 		throw new Error('no first step found')
 	}
 
-	const schema = structuredClone(stateSnapshot(flowState[firstModuleId].schema))
+	const schema = structuredClone(flowState[firstModuleId].schema)
 	const v = flow.value.modules[0].value
 
 	if (v.type !== 'rawscript' && v.type !== 'script') {
