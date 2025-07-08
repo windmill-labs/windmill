@@ -36,7 +36,7 @@ import {
 } from "./script.ts";
 
 import { handleFile } from "./script.ts";
-import { deepEqual, isFileResource } from "./utils.ts";
+import { deepEqual, isFileResource, Repository, selectRepository } from "./utils.ts";
 import { SyncOptions, mergeConfigWithConfigFile, readConfigFile, getEffectiveSettings } from "./conf.ts";
 import { Workspace } from "./workspace.ts";
 import { removePathPrefix } from "./types.ts";
@@ -49,47 +49,6 @@ import {
 import { FlowModule, OpenFlow, RawScript } from "./gen/types.gen.ts";
 import { pushResource } from "./resource.ts";
 
-// Repository selection helper (similar to gitsync-settings)
-async function selectRepositoryInteractively(
-  repositories: Array<{ git_repo_resource_path: string }>,
-  operation: string
-): Promise<string> {
-  if (repositories.length === 0) {
-    throw new Error("No git-sync repositories configured in workspace");
-  }
-
-  if (repositories.length === 1) {
-    const repoPath = repositories[0].git_repo_resource_path.replace(/^\$res:/, "");
-    log.info(colors.gray(`Using repository: ${repoPath}`));
-    return repoPath;
-  }
-
-  // Check if we're in a non-interactive environment
-  const isInteractive = Deno.stdin.isTerminal() && Deno.stdout.isTerminal();
-
-  if (!isInteractive) {
-    const repoPaths = repositories.map(r => r.git_repo_resource_path.replace(/^\$res:/, ""));
-    throw new Error(`Multiple repositories found: ${repoPaths.join(', ')}. Use --repository to specify which one to ${operation}.`);
-  }
-
-  // Import Select dynamically to avoid dependency issues
-  const { Select } = await import("./deps.ts");
-
-  console.log(`\nMultiple repositories found. Please select which repository to ${operation}:\n`);
-
-  const selectedRepo = await Select.prompt({
-    message: `Select repository for ${operation}:`,
-    options: repositories.map((repo, index) => {
-      const displayPath = repo.git_repo_resource_path.replace(/^\$res:/, "");
-      return {
-        name: `${index + 1}. ${displayPath}`,
-        value: displayPath
-      };
-    })
-  });
-
-  return selectedRepo;
-}
 
 // Resolve effective sync options with smart repository detection
 async function resolveEffectiveSyncOptions(

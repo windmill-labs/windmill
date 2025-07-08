@@ -8,7 +8,7 @@ import {
     getEffectiveSettings,
     DEFAULT_SYNC_OPTIONS,
 } from "./conf.ts";
-import { deepEqual } from "./utils.ts";
+import { deepEqual, Repository, selectRepository } from "./utils.ts";
 
 // Constants for git-sync fields to avoid duplication
 const GIT_SYNC_FIELDS = [
@@ -31,9 +31,15 @@ const GIT_SYNC_FIELDS = [
     "includeKey",
 ] as const;
 
+
 // Helper to normalize repository path by removing $res: prefix
 function normalizeRepoPath(path: string): string {
     return path.replace(/^\$res:/, "");
+}
+
+// Helper to get typed field value from SyncOptions
+function getFieldValue(opts: SyncOptions, field: string): any {
+    return (opts as any)[field];
 }
 
 // Construct override key using the single format: baseUrl:workspaceId:repo
@@ -52,10 +58,6 @@ function arraysEqual(arr1: any[], arr2: any[]): boolean {
     return JSON.stringify([...arr1].sort()) === JSON.stringify([...arr2].sort());
 }
 
-// Helper to get typed field value from SyncOptions
-function getFieldValue(opts: SyncOptions, field: string): any {
-    return (opts as any)[field];
-}
 
 // Normalize SyncOptions for semantic comparison - treat undefined arrays as empty arrays
 function normalizeSyncOptions(opts: SyncOptions): SyncOptions {
@@ -112,8 +114,7 @@ function getCurrentSettings(
 }
 
 // Interface for git-sync repository settings from backend
-interface GitSyncRepository {
-    git_repo_resource_path: string;
+interface GitSyncRepository extends Repository {
     settings: {
         include_path: string[];
         include_type: string[];
@@ -257,35 +258,6 @@ function displayChanges(changes: { [key: string]: { from: any; to: any } }): voi
     }
 }
 
-async function selectRepository(
-    repositories: GitSyncRepository[],
-): Promise<GitSyncRepository> {
-    if (repositories.length === 0) {
-        throw new Error("No git-sync repositories configured in workspace");
-    }
-
-    if (repositories.length === 1) {
-        log.info(
-            colors.gray(
-                `Using repository: ${repositories[0].git_repo_resource_path}`,
-            ),
-        );
-        return repositories[0];
-    }
-
-    // Import Select dynamically
-    const { Select } = await import("./deps.ts");
-
-    const selected = await Select.prompt({
-        message: "Select repository:",
-        options: repositories.map((repo, index) => ({
-            name: `${index + 1}. ${repo.git_repo_resource_path}`,
-            value: repo.git_repo_resource_path,
-        })),
-    });
-
-    return repositories.find((r) => r.git_repo_resource_path === selected)!;
-}
 
 async function pullGitSyncSettings(
     opts: GlobalOptions & {
