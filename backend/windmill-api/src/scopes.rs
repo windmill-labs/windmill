@@ -19,8 +19,6 @@ use windmill_common::error::{Error, Result};
 /// - "scripts:write:f/folder/*" - Write access to scripts in a folder
 /// - "*" - Full access (superuser)
 
-const RUN_KEYWORD: [&'static str; 4] = ["/run", "/execute", "/restart", "/resume"];
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScopeDefinition {
     pub domain: String,
@@ -211,7 +209,7 @@ fn resource_matches_pattern(scope_resource: &str, accepted_resource: &str) -> bo
         }
 
         let prefix = &pattern[..pattern.len() - 2];
-        
+
         if !resource.starts_with(prefix) {
             return false;
         }
@@ -468,29 +466,6 @@ pub fn check_route_access(
     )))
 }
 
-fn map_http_method_to_action(method: &str, route_path: &str) -> ScopeAction {
-    if route_path.contains("/resume/") || route_path.contains("/cancel/") {
-        return ScopeAction::Run;
-    }
-
-    match method.to_uppercase().as_str() {
-        "GET" | "HEAD" | "OPTIONS" => ScopeAction::Read,
-        "POST" => {
-            // POST can be create (write) or run depending on the endpoint
-            if RUN_KEYWORD
-                .iter()
-                .any(|sub_path| route_path.contains(sub_path))
-            {
-                ScopeAction::Run
-            } else {
-                ScopeAction::Write
-            }
-        }
-        "PUT" | "PATCH" | "DELETE" => ScopeAction::Write,
-        _ => ScopeAction::Read,
-    }
-}
-
 const SCRIPT_JOBS: [&'static str; 6] = [
     "jobs/run/p",
     "jobs/run/h",
@@ -508,6 +483,31 @@ const FLOW_JOBS: [&'static str; 6] = [
     "jobs/flow/resume",
     "jobs/flow/user_states",
 ];
+
+lazy_static::lazy_static! {
+    static ref RUN_PATH_ACTIONS: Vec<&'static str> = {
+        let mut v = vec!["jobs/resume/"];
+
+        v.extend(SCRIPT_JOBS);
+        v.extend(FLOW_JOBS);
+        v
+    };
+}
+
+fn map_http_method_to_action(method: &str, route_path: &str) -> ScopeAction {
+    if RUN_PATH_ACTIONS
+        .iter()
+        .any(|run_path| route_path.contains(run_path))
+    {
+        return ScopeAction::Run;
+    }
+
+    match method.to_uppercase().as_str() {
+        "GET" | "HEAD" | "OPTIONS" => ScopeAction::Read,
+        "POST" | "PUT" | "PATCH" | "DELETE" => ScopeAction::Write,
+        _ => ScopeAction::Read,
+    }
+}
 
 fn extract_kind_from_route(route_path: &str) -> Option<String> {
     if route_path.starts_with("jobs") {
