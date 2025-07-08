@@ -361,11 +361,11 @@
 		<div class="flex justify-start">
 			<ToggleButtonGroup
 				bind:selected={itemKind}
-				on:selected={() => {
+				onSelected={(v) => {
 					if (itemKind != 'all') {
-						subtab = itemKind
+						subtab = v
 					}
-					setQuery($page.url, 'kind', itemKind)
+					setQuery($page.url, 'kind', v)
 				}}
 				class="h-10"
 			>
