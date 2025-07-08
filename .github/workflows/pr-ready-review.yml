@@ -39,5 +39,5 @@ jobs:
             Provide constructive feedback with specific suggestions for improvement.
             Use inline comments to highlight specific areas of concern.
 
-            At the end of your review, add complete instructions to reproduce the added changes through the app interface. It should be a short descriptive text (not a step by step or a list) on how to navigate the app to see the changes.
+            At the end of your review, add complete instructions to reproduce the added changes through the app interface. These instructions will be given to a tester so he can verify the changes. It should be a short descriptive text (not a step by step or a list) on how to navigate the app (what page, what action, what input, etc) to see the changes.
           allowed_tools: "mcp__github__create_pending_pull_request_review,mcp__github__add_pull_request_review_comment_to_pending_review,mcp__github__submit_pending_pull_request_review,mcp__github__get_pull_request_diff"
