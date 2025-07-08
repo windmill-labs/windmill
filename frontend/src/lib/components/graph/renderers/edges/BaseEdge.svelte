@@ -1,12 +1,16 @@
 <script lang="ts">
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 	import { getBezierPath, BaseEdge, type EdgeProps, EdgeLabel } from '@xyflow/svelte'
-	import { ClipboardCopy } from 'lucide-svelte'
+	import { ClipboardCopy, Hourglass } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import type { GraphEventHandlers } from '../../graphBuilder.svelte'
 	import { getStraightLinePath } from '../utils'
 	import { twMerge } from 'tailwind-merge'
+	import { workspaceStore } from '$lib/stores'
+	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
+	import type { Job } from '$lib/gen'
+	import type { GraphModuleState } from '../../model'
 
 	const { useDataflow } = getContext<{
 		useDataflow: Writable<boolean | undefined>
@@ -35,6 +39,9 @@
 			enableTrigger: boolean
 			disableAi: boolean
 			disableMoveIds: string[]
+			flowModuleStates: Record<string, GraphModuleState> | undefined
+			isOwner: boolean
+			flowJob: Job | undefined
 		}
 	} = $props()
 
@@ -54,6 +61,13 @@
 		targetY - sourceY > 100
 			? `${edgePath} ${getStraightLinePath({ sourceX, sourceY, targetY })}`
 			: edgePath
+	)
+
+	// TODO: this is a hack to show the waiting for events indicator on the edge a proper way would be to have a edge state
+	// and handle the edge state in the graph builder
+	const waitingForEvents = $derived(
+		data?.flowModuleStates?.[data.targetId]?.type === 'WaitingForEvents' ||
+			data?.flowModuleStates?.[`${data.sourceId}-v`]?.type === 'WaitingForEvents'
 	)
 </script>
 
@@ -128,6 +142,31 @@
 			{/if}
 		</div>
 	{/if}
+
+	{#if waitingForEvents && data.flowJob && data.flowJob.type === 'QueuedJob'}
+		<div
+			class="px-2 py-0.5 rounded-md bg-surface shadow-md text-violet-700 dark:text-violet-400 text-xs flex items-center gap-1"
+		>
+			<Hourglass size={12} />
+			<div class="flex">
+				<span class="dot">.</span>
+				<span class="dot">.</span>
+				<span class="dot">.</span>
+			</div>
+		</div>
+		<div
+			class={'fixed top-1/2 -translate-y-1/2 left-[170px] h-fit w-fit rounded-md bg-surface flex items-center justify-center p-2 ml-2 shadow-md'}
+		>
+			{#if data?.flowJob}
+				<FlowStatusWaitingForEvents
+					job={data.flowJob}
+					workspaceId={$workspaceStore!}
+					isOwner={data.isOwner}
+					light
+				/>
+			{/if}
+		</div>
+	{/if}
 </EdgeLabel>
 
 <BaseEdge path={completeEdge} {markerEnd} class={$useDataflow ? 'hidden' : ''} />
@@ -139,5 +178,29 @@
 		/* everything inside EdgeLabelRenderer has no pointer events by default */
 		/* if you have an interactive element, set pointer-events: all */
 		pointer-events: all;
+	}
+
+	.dot {
+		opacity: 0;
+		animation: dotFade 1.5s infinite;
+		letter-spacing: 1px;
+	}
+
+	.dot:nth-child(2) {
+		animation-delay: 0.5s;
+	}
+
+	.dot:nth-child(3) {
+		animation-delay: 1s;
+	}
+
+	@keyframes dotFade {
+		0%,
+		100% {
+			opacity: 0;
+		}
+		50% {
+			opacity: 1;
+		}
 	}
 </style>

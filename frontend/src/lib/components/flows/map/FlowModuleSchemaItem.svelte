@@ -42,8 +42,6 @@
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 	import type { FlowStatusModule, Job } from '$lib/gen'
-	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
-	import { workspaceStore } from '$lib/stores'
 
 	interface Props {
 		selected?: boolean
@@ -117,7 +115,6 @@
 		onUpdateMock,
 		onEditInput,
 		flowJob,
-		isOwner = false,
 		enableTestRun = false,
 		type,
 		darkMode,
@@ -206,10 +203,6 @@
 	const icon_render = $derived(icon)
 
 	const action = $derived(getAiModuleAction(id))
-
-	const showApproval = $derived(
-		type === 'WaitingForExecutor' || type === 'WaitingForEvents' || type === 'WaitingForPriorSteps'
-	)
 
 	let testRunDropdownOpen = $state(false)
 </script>
@@ -537,16 +530,6 @@ outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration
 			{/if}
 		{/if}
 	</div>
-
-	{#if editMode && showApproval}
-		<div
-			class={'fixed top-1/2 -translate-y-1/2 left-full h-fit w-fit rounded-md bg-surface flex items-center justify-center p-2 ml-2 shadow-md'}
-		>
-			{#if flowJob}
-				<FlowStatusWaitingForEvents job={flowJob} workspaceId={$workspaceStore!} {isOwner} />
-			{/if}
-		</div>
-	{/if}
 
 	{#if editMode && enableTestRun && flowJob?.type !== 'QueuedJob'}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->

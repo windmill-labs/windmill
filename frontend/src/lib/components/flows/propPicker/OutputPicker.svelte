@@ -148,7 +148,9 @@
 			'h-1 hover:h-[20px]',
 			bottomBarOpen && 'h-[20px]'
 		)}
-		style:background-color={type ? getStateColor(type, !!darkMode, true, skipped) : undefined}
+		style:background-color={type && type !== 'WaitingForEvents' && type !== 'WaitingForExecutor'
+			? getStateColor(type, !!darkMode, true, skipped)
+			: undefined}
 		data-prop-picker
 	>
 		<div class="flex flex-row items-center justify-center w-full h-full">
