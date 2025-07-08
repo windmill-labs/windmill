@@ -61,10 +61,13 @@ export function triggerableByAI(element: HTMLElement, options: TriggerableByAIOp
 		// register the triggerable
 		const currentData = { description, onTrigger: handleTrigger }
 		triggerablesByAi[id] = currentData
+		element.setAttribute('ai-description', description)
 	}
 
 	function unregister() {
 		if (isDisabled || !id) return
+
+		element.removeAttribute('ai-description')
 
 		// unregister the triggerable
 		if (triggerablesByAi[id]) {
@@ -77,7 +80,7 @@ export function triggerableByAI(element: HTMLElement, options: TriggerableByAIOp
 
 	return {
 		update(newOptions: TriggerableByAIOptions) {
-			; ({ id, description, callback, showAnimation = true } = newOptions)
+			;({ id, description, callback, showAnimation = true } = newOptions)
 			register()
 		},
 		destroy() {
