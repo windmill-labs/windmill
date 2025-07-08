@@ -43,6 +43,7 @@
 		job?: Job
 		type?: string
 		showJobStatus?: boolean
+		darkMode?: boolean
 	}
 
 	let {
@@ -72,7 +73,8 @@
 		onHideJobStatus,
 		individualStepTests = false,
 		job,
-		showJobStatus = false
+		showJobStatus = false,
+		darkMode = false
 	}: Props = $props()
 
 	const outputPickerVisible = $derived(
@@ -145,6 +147,7 @@
 					isConnectingCandidate={true}
 					variant="virtual"
 					type={outputType}
+					{darkMode}
 				>
 					{#snippet children({ allowCopy, isConnecting, selectConnection })}
 						<OutputPickerInner

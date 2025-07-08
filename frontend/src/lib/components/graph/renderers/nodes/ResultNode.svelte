@@ -39,6 +39,7 @@
 			job={data.job}
 			{type}
 			showJobStatus={data.showJobStatus}
+			{darkMode}
 		/>
 	{/snippet}
 </NodeWrapper>
