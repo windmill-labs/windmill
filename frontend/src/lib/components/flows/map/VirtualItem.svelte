@@ -44,6 +44,7 @@
 		type?: string
 		showJobStatus?: boolean
 		darkMode?: boolean
+		flowHasChanged?: boolean
 	}
 
 	let {
@@ -74,7 +75,8 @@
 		individualStepTests = false,
 		job,
 		showJobStatus = false,
-		darkMode = false
+		darkMode = false,
+		flowHasChanged = false
 	}: Props = $props()
 
 	const outputPickerVisible = $derived(
@@ -230,6 +232,7 @@
 							{individualStepTests}
 							{job}
 							{showJobStatus}
+							{flowHasChanged}
 						/>
 					</div>
 				{/if}

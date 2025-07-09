@@ -259,6 +259,10 @@
 	export function getJob() {
 		return job
 	}
+
+	export function flowHasChanged() {
+		return !!lastPreviewFlow && JSON.stringify(flowStore.val) != lastPreviewFlow
+	}
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -414,7 +418,7 @@
 		</div>
 
 		<div class="w-full flex flex-col gap-y-1">
-			{#if lastPreviewFlow && JSON.stringify(flowStore.val) != lastPreviewFlow}
+			{#if flowHasChanged()}
 				<div class="pt-1">
 					<div
 						class="bg-orange-200 text-orange-600 border border-orange-600 p-2 flex items-center gap-2 rounded"

@@ -116,28 +116,8 @@
 		return previewOpen
 	}
 
-	export function getIsRunning() {
-		return flowPreviewContent?.getIsRunning()
-	}
-
-	export function getJob() {
-		return flowPreviewContent?.getJob()
-	}
-
-	export function getIsOwner() {
-		return flowPreviewContent?.getIsOwner()
-	}
-
-	export function getLocalModuleStates() {
-		return flowPreviewContent?.getLocalModuleStates()
-	}
-
-	export function getLocalDurationStatuses() {
-		return flowPreviewContent?.getLocalDurationStatuses()
-	}
-
-	export function getSuspendStatus() {
-		return flowPreviewContent?.getSuspendStatus()
+	export function getFlowPreviewContent() {
+		return flowPreviewContent
 	}
 </script>
 

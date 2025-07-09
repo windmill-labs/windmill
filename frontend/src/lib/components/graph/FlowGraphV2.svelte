@@ -118,6 +118,7 @@
 		onCancelTestFlow?: () => void
 		onOpenPreview?: () => void
 		onHideJobStatus?: () => void
+		flowHasChanged?: boolean
 	}
 
 	let {
@@ -166,7 +167,8 @@
 		individualStepTests = false,
 		flowJob = undefined,
 		showJobStatus = false,
-		suspendStatus = writable({})
+		suspendStatus = writable({}),
+		flowHasChanged = false
 	}: Props = $props()
 
 	setContext<{
@@ -438,7 +440,8 @@
 				individualStepTests,
 				flowJob,
 				showJobStatus,
-				suspendStatus
+				suspendStatus,
+				flowHasChanged
 			},
 			failureModule,
 			preprocessorModule,

@@ -111,6 +111,7 @@ export type InputN = {
 		individualStepTests: boolean
 		flowJob: Job | undefined
 		showJobStatus: boolean
+		flowHasChanged: boolean
 	}
 }
 
@@ -303,6 +304,7 @@ export function graphBuilder(
 		flowJob: Job | undefined
 		showJobStatus: boolean
 		suspendStatus: Writable<Record<string, { job: Job; nb: number }>>
+		flowHasChanged: boolean
 	},
 	failureModule: FlowModule | undefined,
 	preprocessorModule: FlowModule | undefined,
@@ -459,7 +461,8 @@ export function graphBuilder(
 				isRunning: extra.isRunning,
 				individualStepTests: extra.individualStepTests,
 				flowJob: extra.flowJob,
-				showJobStatus: extra.showJobStatus
+				showJobStatus: extra.showJobStatus,
+				flowHasChanged: extra.flowHasChanged
 			}
 		}
 

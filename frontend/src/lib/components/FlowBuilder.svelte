@@ -146,7 +146,8 @@
 
 	// Flow preview
 	let flowPreviewButtons: FlowPreviewButtons | undefined = $state()
-	const job: Job | undefined = $derived(flowPreviewButtons?.getJob())
+	const flowPreviewContent = $derived(flowPreviewButtons?.getFlowPreviewContent())
+	const job: Job | undefined = $derived(flowPreviewContent?.getJob())
 	let showJobStatus = $state(false)
 
 	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
@@ -927,13 +928,13 @@
 	}
 
 	const localModuleStates: Writable<Record<string, GraphModuleState>> = $derived(
-		flowPreviewButtons?.getLocalModuleStates() ?? writable({})
+		flowPreviewContent?.getLocalModuleStates() ?? writable({})
 	)
 	const localDurationStatuses: Writable<Record<string, DurationStatus>> = $derived(
-		flowPreviewButtons?.getLocalDurationStatuses() ?? writable({})
+		flowPreviewContent?.getLocalDurationStatuses() ?? writable({})
 	)
 	const suspendStatus: Writable<Record<string, { job: Job; nb: number }>> = $derived(
-		flowPreviewButtons?.getSuspendStatus() ?? writable({})
+		flowPreviewContent?.getSuspendStatus() ?? writable({})
 	)
 
 	// Create a derived store that only shows the module states when showModuleStatus is true
@@ -956,6 +957,8 @@
 	const individualStepTests = $derived(
 		!(showJobStatus && job) && Object.keys($derivedModuleStates).length > 0
 	)
+
+	const flowHasChanged = $derived(flowPreviewContent?.flowHasChanged())
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -1223,10 +1226,10 @@
 					toggleAiChat={() => aiChatManager.toggleOpen()}
 					onOpenPreview={flowPreviewButtons?.openPreview}
 					localModuleStates={derivedModuleStates}
-					isOwner={flowPreviewButtons?.getIsOwner()}
+					isOwner={flowPreviewContent?.getIsOwner()}
 					onTestFlow={flowPreviewButtons?.runPreview}
-					isRunning={flowPreviewButtons?.getIsRunning()}
-					onCancelTestFlow={flowPreviewButtons?.cancelTest}
+					isRunning={flowPreviewContent?.getIsRunning()}
+					onCancelTestFlow={flowPreviewContent?.cancelTest}
 					onHideJobStatus={resetModulesStates}
 					{individualStepTests}
 					{job}
@@ -1236,6 +1239,7 @@
 					onDelete={(id) => {
 						delete $derivedModuleStates[id]
 					}}
+					{flowHasChanged}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

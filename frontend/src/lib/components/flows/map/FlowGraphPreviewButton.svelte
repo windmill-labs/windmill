@@ -13,6 +13,7 @@
 		individualStepTests?: boolean
 		showJobStatus?: boolean
 		job?: Job
+		flowHasChanged?: boolean
 		onTestFlow?: () => void
 		onCancelTestFlow?: () => void
 		onOpenPreview?: () => void
@@ -26,6 +27,7 @@
 		individualStepTests,
 		job,
 		showJobStatus,
+		flowHasChanged,
 		onTestFlow,
 		onCancelTestFlow,
 		onOpenPreview,
@@ -71,7 +73,7 @@
 					)}
 					onclick={onOpenPreview}
 				>
-					{#if flowPreviewJob}
+					{#if flowPreviewJob && !flowHasChanged}
 						<div
 							class={twMerge(
 								'rounded-full h-2 w-2',
@@ -83,12 +85,14 @@
 						>
 						</div>
 					{/if}
-					<span class="text-xs truncate" dir="rtl">
-						{!individualStepTests && flowPreviewJob ? flowPreviewJob.id.slice(-5) : '~'}
+					<span class={twMerge('text-xs truncate', flowHasChanged && 'text-orange-600')} dir="rtl">
+						{!individualStepTests && !flowHasChanged && flowPreviewJob
+							? flowPreviewJob.id.slice(-5)
+							: '~'}
 					</span>
 				</button>
 				{#snippet text()}
-					{#if !individualStepTests}
+					{#if !individualStepTests && !flowHasChanged}
 						See run details
 					{:else}
 						Open preview

@@ -53,6 +53,7 @@
 		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
 		showJobStatus?: boolean
 		onDelete?: (id: string) => void
+		flowHasChanged?: boolean
 	}
 
 	let {
@@ -85,7 +86,8 @@
 		localDurationStatuses,
 		suspendStatus,
 		showJobStatus,
-		onDelete
+		onDelete,
+		flowHasChanged
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -158,6 +160,7 @@
 						{showJobStatus}
 						{suspendStatus}
 						{onDelete}
+						{flowHasChanged}
 					/>
 				{/if}
 			</div>
