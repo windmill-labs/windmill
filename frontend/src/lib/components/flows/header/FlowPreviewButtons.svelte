@@ -49,7 +49,7 @@
 			await tick()
 		}
 		previewMode = 'whole'
-		flowPreviewContent?.refresh
+		flowPreviewContent?.refresh()
 		flowPreviewContent?.test()
 	}
 
