@@ -93,6 +93,7 @@
 			individualStepTests={data.individualStepTests}
 			job={data.flowJob}
 			showJobStatus={data.showJobStatus}
+			{darkMode}
 		/>
 	{/snippet}
 </NodeWrapper>

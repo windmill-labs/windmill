@@ -182,6 +182,7 @@
 					loopStatus={{ type: 'self', flow: mod.value.type }}
 					{onTestUpTo}
 					{type}
+					{darkMode}
 				>
 					{#snippet icon()}
 						<div>
@@ -204,6 +205,7 @@
 					{bgHoverColor}
 					{onTestUpTo}
 					{type}
+					{darkMode}
 				>
 					{#snippet icon()}
 						<div>
@@ -226,6 +228,7 @@
 					{bgHoverColor}
 					{onTestUpTo}
 					{type}
+					{darkMode}
 				>
 					{#snippet icon()}
 						<div>
