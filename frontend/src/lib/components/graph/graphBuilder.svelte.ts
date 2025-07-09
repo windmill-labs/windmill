@@ -4,6 +4,7 @@ import { getDependeeAndDependentComponents } from '../flows/flowExplorer'
 import { dfsByModule } from '../flows/previousResults'
 import { defaultIfEmptyString } from '$lib/utils'
 import type { GraphModuleState } from './model'
+import type { Writable } from 'svelte/store'
 
 export type InsertKind =
 	| 'script'
@@ -299,6 +300,7 @@ export function graphBuilder(
 		individualStepTests: boolean
 		flowJob: Job | undefined
 		showJobStatus: boolean
+		suspendStatus: Writable<Record<string, { job: Job; nb: number }>>
 	},
 	failureModule: FlowModule | undefined,
 	preprocessorModule: FlowModule | undefined,

@@ -91,6 +91,7 @@
 		individualStepTests?: boolean
 		flowJob?: Job | undefined
 		showJobStatus?: boolean
+		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -164,7 +165,8 @@
 		onHideJobStatus = undefined,
 		individualStepTests = false,
 		flowJob = undefined,
-		showJobStatus = false
+		showJobStatus = false,
+		suspendStatus = writable({})
 	}: Props = $props()
 
 	setContext<{
@@ -435,7 +437,8 @@
 				isRunning,
 				individualStepTests,
 				flowJob,
-				showJobStatus
+				showJobStatus,
+				suspendStatus
 			},
 			failureModule,
 			preprocessorModule,

@@ -42,6 +42,7 @@
 			flowModuleStates: Record<string, GraphModuleState> | undefined
 			isOwner: boolean
 			flowJob: Job | undefined
+			suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
 		}
 	} = $props()
 
@@ -68,6 +69,10 @@
 	const waitingForEvents = $derived(
 		data?.flowModuleStates?.[data.targetId]?.type === 'WaitingForEvents' ||
 			data?.flowModuleStates?.[`${data.sourceId}-v`]?.type === 'WaitingForEvents'
+	)
+
+	const suspendStatus: Writable<Record<string, { job: Job; nb: number }>> | undefined = $derived(
+		data?.suspendStatus
 	)
 </script>
 
@@ -157,13 +162,24 @@
 		<div
 			class={'fixed top-1/2 -translate-y-1/2 left-[170px] h-fit w-fit rounded-md bg-surface flex items-center justify-center p-2 ml-2 shadow-md'}
 		>
-			{#if data?.flowJob}
+			{#if data?.flowJob && data.flowJob.flow_status?.modules?.[data.flowJob.flow_status?.step]?.type === 'WaitingForEvents'}
 				<FlowStatusWaitingForEvents
 					job={data.flowJob}
 					workspaceId={$workspaceStore!}
 					isOwner={data.isOwner}
 					light
 				/>
+			{:else if $suspendStatus && Object.keys($suspendStatus).length > 0}
+				<div class="flex gap-2 flex-col">
+					{#each Object.values($suspendStatus) as suspendCount (suspendCount.job.id)}
+						<FlowStatusWaitingForEvents
+							job={suspendCount.job}
+							workspaceId={$workspaceStore!}
+							isOwner={data.isOwner}
+							light
+						/>
+					{/each}
+				</div>
 			{/if}
 		</div>
 	{/if}

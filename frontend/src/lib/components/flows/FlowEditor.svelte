@@ -154,6 +154,7 @@
 						{individualStepTests}
 						flowJob={job}
 						{showJobStatus}
+						{suspendStatus}
 					/>
 				{/if}
 			</div>

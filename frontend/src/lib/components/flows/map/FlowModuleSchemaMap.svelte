@@ -64,6 +64,7 @@
 		individualStepTests?: boolean
 		flowJob?: Job | undefined
 		showJobStatus?: boolean
+		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
 	}
 
 	let {
@@ -89,7 +90,8 @@
 		onHideJobStatus,
 		individualStepTests = false,
 		flowJob = undefined,
-		showJobStatus = false
+		showJobStatus = false,
+		suspendStatus = writable({})
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -387,6 +389,7 @@
 			{individualStepTests}
 			{flowJob}
 			{showJobStatus}
+			{suspendStatus}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)
 				const cb = () => {
