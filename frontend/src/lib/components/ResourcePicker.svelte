@@ -69,7 +69,9 @@
 		if (value === undefined) {
 			if (initialValue) {
 				console.log('initialValue', initialValue)
-				value = initialValue
+				if (initialValue != value) {
+					value = initialValue
+				}
 			} else {
 				console.log('no value')
 			}
@@ -127,7 +129,6 @@
 
 	$effect(() => {
 		$workspaceStore && resourceType
-		value = undefined
 		untrack(() => loadResources(resourceType))
 	})
 
