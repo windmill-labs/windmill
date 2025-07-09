@@ -7,13 +7,14 @@
 	import { getContext, onDestroy, onMount, setContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
 
-	import { writable } from 'svelte/store'
+	import { writable, type Writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
-	import type { Flow } from '$lib/gen'
+	import type { Flow, Job } from '$lib/gen'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
+	import type { DurationStatus, GraphModuleState } from '../graph'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -39,7 +40,20 @@
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
-		onRunPreview?: () => void
+		localModuleStates?: Writable<Record<string, GraphModuleState>>
+		isOwner?: boolean
+		onTestFlow?: () => void
+		isRunning?: boolean
+		onCancelTestFlow?: () => void
+		onOpenPreview?: () => void
+		onHideJobStatus?: () => void
+		individualStepTests?: boolean
+		job?: Job
+		localDurationStatuses?: Writable<Record<string, DurationStatus>>
+		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
+		showJobStatus?: boolean
+		onDelete?: (id: string) => void
+		flowHasChanged?: boolean
 	}
 
 	let {
@@ -57,13 +71,30 @@
 		onEditInput = undefined,
 		forceTestTab,
 		highlightArg,
+		localModuleStates = writable({}),
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,
-		onRunPreview = () => {}
+		isOwner,
+		onTestFlow,
+		isRunning,
+		onCancelTestFlow,
+		onOpenPreview,
+		onHideJobStatus,
+		individualStepTests = false,
+		job,
+		localDurationStatuses,
+		suspendStatus,
+		showJobStatus,
+		onDelete,
+		flowHasChanged
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
+
+	export function isNodeVisible(nodeId: string): boolean {
+		return flowModuleSchemaMap?.isNodeVisible(nodeId) ?? false
+	}
 
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
@@ -114,9 +145,22 @@
 						}}
 						{onTestUpTo}
 						{onEditInput}
+						{localModuleStates}
 						{aiChatOpen}
 						{showFlowAiButton}
 						{toggleAiChat}
+						{isOwner}
+						{onTestFlow}
+						{isRunning}
+						{onCancelTestFlow}
+						{onOpenPreview}
+						{onHideJobStatus}
+						{individualStepTests}
+						flowJob={job}
+						{showJobStatus}
+						{suspendStatus}
+						{onDelete}
+						{flowHasChanged}
 					/>
 				{/if}
 			</div>
@@ -139,7 +183,12 @@
 					{onDeployTrigger}
 					{forceTestTab}
 					{highlightArg}
-					{onRunPreview}
+					{onTestFlow}
+					{job}
+					{isOwner}
+					{localDurationStatuses}
+					{suspendStatus}
+					onOpenDetails={onOpenPreview}
 				/>
 			{/if}
 		</Pane>

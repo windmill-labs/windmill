@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { FlowService, type FlowModule } from '../../gen'
+	import { FlowService, type FlowModule, type Job } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
 	import { getContext, onDestroy, setContext, tick, untrack } from 'svelte'
 
@@ -86,6 +86,12 @@
 		editMode?: boolean
 		allowSimplifiedPoll?: boolean
 		expandedSubflows?: Record<string, FlowModule[]>
+		isOwner?: boolean
+		isRunning?: boolean
+		individualStepTests?: boolean
+		flowJob?: Job | undefined
+		showJobStatus?: boolean
+		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -108,6 +114,11 @@
 		onTestUpTo?: ((id: string) => void) | undefined
 		onSelectedIteration?: onSelectedIteration
 		onEditInput?: (moduleId: string, key: string) => void
+		onTestFlow?: () => void
+		onCancelTestFlow?: () => void
+		onOpenPreview?: () => void
+		onHideJobStatus?: () => void
+		flowHasChanged?: boolean
 	}
 
 	let {
@@ -146,7 +157,18 @@
 		allowSimplifiedPoll = true,
 		expandedSubflows = $bindable({}),
 		onTestUpTo = undefined,
-		onEditInput = undefined
+		onEditInput = undefined,
+		isOwner = false,
+		onTestFlow = undefined,
+		isRunning = false,
+		onCancelTestFlow = undefined,
+		onOpenPreview = undefined,
+		onHideJobStatus = undefined,
+		individualStepTests = false,
+		flowJob = undefined,
+		showJobStatus = false,
+		suspendStatus = writable({}),
+		flowHasChanged = false
 	}: Props = $props()
 
 	setContext<{
@@ -308,6 +330,18 @@
 		},
 		editInput: (moduleId: string, key: string) => {
 			onEditInput?.(moduleId, key)
+		},
+		testFlow: () => {
+			onTestFlow?.()
+		},
+		cancelTestFlow: () => {
+			onCancelTestFlow?.()
+		},
+		openPreview: () => {
+			onOpenPreview?.()
+		},
+		hideJobStatus: () => {
+			onHideJobStatus?.()
 		}
 	}
 
@@ -400,7 +434,14 @@
 				newFlow,
 				cache,
 				earlyStop,
-				editMode
+				editMode,
+				isOwner,
+				isRunning,
+				individualStepTests,
+				flowJob,
+				showJobStatus,
+				suspendStatus,
+				flowHasChanged
 			},
 			failureModule,
 			preprocessorModule,
@@ -445,6 +486,11 @@
 			}
 		}, 10)
 	})
+
+	let viewportResizer: ViewportResizer | undefined = $state(undefined)
+	export function isNodeVisible(nodeId: string): boolean {
+		return viewportResizer?.isNodeVisible(nodeId) ?? false
+	}
 </script>
 
 {#if insertable}
@@ -467,7 +513,7 @@
 		</div>
 	{:else}
 		<SvelteFlowProvider>
-			<ViewportResizer {width} />
+			<ViewportResizer {height} {width} {nodes} bind:this={viewportResizer} />
 			<SvelteFlow
 				onpaneclick={(e) => {
 					document.dispatchEvent(new Event('focus'))
@@ -489,7 +535,7 @@
 				nodesDraggable={false}
 				--background-color={false}
 			>
-				<div class="absolute inset-0 !bg-surface-secondary"></div>
+				<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
 				<Controls position="top-right" orientation="horizontal" showLock={false}>
 					{#if download}
 						<ControlButton
