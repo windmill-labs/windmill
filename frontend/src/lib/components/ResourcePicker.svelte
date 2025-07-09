@@ -130,18 +130,13 @@
 	let previousResourceType = resourceType
 
 	$effect(() => {
-		resourceType
+		$workspaceStore && resourceType
 		untrack(() => {
 			if (previousResourceType != resourceType) {
 				previousResourceType = resourceType
 				value = undefined
-				untrack(() => loadResources(resourceType))
 			}
 		})
-	})
-
-	$effect(() => {
-		$workspaceStore && resourceType
 		untrack(() => loadResources(resourceType))
 	})
 
