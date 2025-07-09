@@ -41,7 +41,6 @@
 <!-- <ScriptWrapper {script} neverShowMeta={true} {customUi} /> -->
 
 <FlowWrapper
-	light
 	disableAi
 	pathStoreInit="u/foo/bar"
 	{customUi}
