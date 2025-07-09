@@ -3012,7 +3012,7 @@ struct CancelJob {
     reason: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum PreviewKind {
     Code,
@@ -3023,7 +3023,7 @@ enum PreviewKind {
     ScriptHash,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct Preview {
     content: Option<String>,
     kind: Option<PreviewKind>,
