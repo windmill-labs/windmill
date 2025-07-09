@@ -1,6 +1,7 @@
 import { assertEquals, assert, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { withContainerizedBackend } from "./containerized_backend.ts";
 import { addWorkspace } from "../workspace.ts";
+import { parseJsonFromCLIOutput } from "./test_config_helpers.ts";
 
 // =============================================================================
 // MULTI-INSTANCE WORKSPACE TESTS
@@ -114,9 +115,7 @@ overrides:
     
     assertEquals(result.code, 0);
     
-    const jsonMatch = result.stdout.match(/\{[\s\S]*\}/);
-    assert(jsonMatch, `Must have JSON output in: ${result.stdout}`);
-    const data = JSON.parse(jsonMatch[0]);
+    const data = parseJsonFromCLIOutput(result.stdout);
     
     // Test is designed to verify that the new format works correctly
     
@@ -154,9 +153,7 @@ overrides:
     assertEquals(result.code, 0);
     assertStringIncludes(result.stdout, "Auto-selected repository: u/test/test_repo");
     
-    const jsonMatch = result.stdout.match(/\{[\s\S]*\}/);
-    assert(jsonMatch, `Must have JSON output in: ${result.stdout}`);
-    const data = JSON.parse(jsonMatch[0]);
+    const data = parseJsonFromCLIOutput(result.stdout);
     
     // The test app should NOT appear because of auto-detected skipApps: true
     const hasTestApp = (data.changes || []).some((change: any) => 
@@ -191,9 +188,7 @@ overrides:
     
     assertEquals(result.code, 0);
     
-    const jsonMatch = result.stdout.match(/\{[\s\S]*\}/);
-    assert(jsonMatch, `Must have JSON output in: ${result.stdout}`);
-    const data = JSON.parse(jsonMatch[0]);
+    const data = parseJsonFromCLIOutput(result.stdout);
     
     // Variables should be skipped due to wildcard override
     const hasTestVariable = (data.changes || []).some((change: any) => 

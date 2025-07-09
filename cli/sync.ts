@@ -1256,6 +1256,12 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
   if (opts.includeKey !== undefined) mergedOpts.includeKey = opts.includeKey;
   if (opts.includeSchedules !== undefined) mergedOpts.includeSchedules = opts.includeSchedules;
   if (opts.includeTriggers !== undefined) mergedOpts.includeTriggers = opts.includeTriggers;
+  
+  // Always preserve CLI skip flags (they should override config file settings)
+  if (opts.skipScripts !== undefined) mergedOpts.skipScripts = opts.skipScripts;
+  if (opts.skipFlows !== undefined) mergedOpts.skipFlows = opts.skipFlows;
+  if (opts.skipApps !== undefined) mergedOpts.skipApps = opts.skipApps;
+  if (opts.skipFolders !== undefined) mergedOpts.skipFolders = opts.skipFolders;
 
   opts = mergedOpts;
 
@@ -1586,6 +1592,12 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
   if (opts.includeKey !== undefined) mergedOpts.includeKey = opts.includeKey;
   if (opts.includeSchedules !== undefined) mergedOpts.includeSchedules = opts.includeSchedules;
   if (opts.includeTriggers !== undefined) mergedOpts.includeTriggers = opts.includeTriggers;
+  
+  // Always preserve CLI skip flags (they should override config file settings)
+  if (opts.skipScripts !== undefined) mergedOpts.skipScripts = opts.skipScripts;
+  if (opts.skipFlows !== undefined) mergedOpts.skipFlows = opts.skipFlows;
+  if (opts.skipApps !== undefined) mergedOpts.skipApps = opts.skipApps;
+  if (opts.skipFolders !== undefined) mergedOpts.skipFolders = opts.skipFolders;
 
   opts = mergedOpts;
 
@@ -2143,6 +2155,10 @@ const command = new Command()
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
   .option("--skip-resource-types", "Skip syncing  resource types")
+  .option("--skip-scripts", "Skip syncing scripts")
+  .option("--skip-flows", "Skip syncing flows")
+  .option("--skip-apps", "Skip syncing apps")
+  .option("--skip-folders", "Skip syncing folders")
   // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing  schedules")
   .option("--include-triggers", "Include syncing triggers")
@@ -2182,7 +2198,10 @@ const command = new Command()
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
   .option("--skip-resource-types", "Skip syncing  resource types")
-
+  .option("--skip-scripts", "Skip syncing scripts")
+  .option("--skip-flows", "Skip syncing flows")
+  .option("--skip-apps", "Skip syncing apps")
+  .option("--skip-folders", "Skip syncing folders")
   // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing schedules")
   .option("--include-triggers", "Include syncing triggers")

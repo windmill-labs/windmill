@@ -26,3 +26,14 @@ export async function clearTestRemotes(testConfigDir: string): Promise<void> {
   const remoteFile = (await getRootStore(testConfigDir)) + "remotes.ndjson";
   await Deno.writeTextFile(remoteFile, "");
 }
+
+/**
+ * Parse JSON output from CLI command, handling log messages that appear before JSON
+ */
+export function parseJsonFromCLIOutput(stdout: string): any {
+  const jsonMatch = stdout.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error(`No JSON found in CLI output: ${stdout}`);
+  }
+  return JSON.parse(jsonMatch[0]);
+}

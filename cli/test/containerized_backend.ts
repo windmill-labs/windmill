@@ -474,6 +474,7 @@ export class ContainerizedBackend {
     await this.createTestApp();
     await this.createTestResources();
     await this.createTestVariables();
+    await this.createTestGroups();
     console.log('✅ Test data created');
   }
 
@@ -854,6 +855,34 @@ export async function main(
     } else {
       await response.text(); // Consume response to avoid leak
       console.log('  ✅ Created test variable: u/admin/test_config');
+    }
+  }
+
+  /**
+   * Create test groups for sync testing
+   */
+  private async createTestGroups(): Promise<void> {
+    // Create a test group for sync testing
+    const testGroup = {
+      name: 'test_group',
+      summary: 'Test group for CLI sync operations'
+    };
+
+    const response = await fetch(`${this.config.baseUrl}/api/w/${this.config.workspace}/groups/create`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.config.token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(testGroup)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.warn(`Failed to create test group: ${response.status} - ${errorText}`);
+    } else {
+      await response.text(); // Consume response to avoid leak
+      console.log('  ✅ Created test group: test_group');
     }
   }
 

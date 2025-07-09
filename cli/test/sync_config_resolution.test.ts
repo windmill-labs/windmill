@@ -2,6 +2,7 @@ import { assertEquals, assertStringIncludes, assert } from "https://deno.land/st
 import { readConfigFile, getEffectiveSettings } from "../conf.ts";
 import { withContainerizedBackend } from "./containerized_backend.ts";
 import { addWorkspace } from "../workspace.ts";
+import { parseJsonFromCLIOutput } from "./test_config_helpers.ts";
 
 // =============================================================================
 // SYNC CONFIGURATION RESOLUTION TESTS
@@ -54,10 +55,7 @@ includeTriggers: true`);
     assertEquals(yamlResult.code, 0);
     
     // Extract JSON from CLI output (skip log messages)
-    const jsonStart = yamlResult.stdout.indexOf('{');
-    assert(jsonStart >= 0, "Should have JSON output");
-    const jsonOutput = yamlResult.stdout.substring(jsonStart);
-    const yamlData = JSON.parse(jsonOutput);
+    const yamlData = parseJsonFromCLIOutput(yamlResult.stdout);
     
     // Should include settings.yaml due to includeSettings: true
     const hasSettings = (yamlData.changes || []).some((change: any) => 
@@ -92,10 +90,7 @@ includeSettings: true`);
     assertEquals(includeResult.code, 0);
     
     // Extract JSON from CLI output (skip log messages)
-    const includeJsonStart = includeResult.stdout.indexOf('{');
-    assert(includeJsonStart >= 0, "Should have JSON output");
-    const includeJsonOutput = includeResult.stdout.substring(includeJsonStart);
-    const includeData = JSON.parse(includeJsonOutput);
+    const includeData = parseJsonFromCLIOutput(includeResult.stdout);
     const hasSettingsInclude = (includeData.changes || []).some((change: any) => 
       change.type === 'added' && change.path === 'settings.yaml'
     );
@@ -111,10 +106,7 @@ includeSettings: false`);
     assertEquals(excludeResult.code, 0);
     
     // Extract JSON from CLI output (skip log messages)
-    const excludeJsonStart = excludeResult.stdout.indexOf('{');
-    assert(excludeJsonStart >= 0, "Should have JSON output");
-    const excludeJsonOutput = excludeResult.stdout.substring(excludeJsonStart);
-    const excludeData = JSON.parse(excludeJsonOutput);
+    const excludeData = parseJsonFromCLIOutput(excludeResult.stdout);
     const hasSettingsExclude = (excludeData.changes || []).some((change: any) => 
       change.type === 'added' && change.path === 'settings.yaml'
     );
@@ -138,10 +130,7 @@ skipVariables: false`);
     assertEquals(result.code, 0);
     
     // Extract JSON from CLI output (skip log messages)
-    const jsonStart = result.stdout.indexOf('{');
-    assert(jsonStart >= 0, "Should have JSON output");
-    const jsonOutput = result.stdout.substring(jsonStart);
-    const data = JSON.parse(jsonOutput);
+    const data = parseJsonFromCLIOutput(result.stdout);
     
     // Should NOT include resources
     const hasResources = (data.changes || []).some((change: any) => 
