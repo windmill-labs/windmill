@@ -765,11 +765,17 @@ export async function elementsToMap(
     if (skips.skipResourceTypes && path.endsWith(".resource-type" + ext))
       continue;
 
-    if (skips.skipVariables && path.endsWith(".variable" + ext)) continue;
-    if (skips.skipScripts && (path.endsWith(".script" + ext) || exts.some(e => path.endsWith(e)))) continue;
-    if (skips.skipFlows && (path.endsWith(".flow" + ext) || path.includes(".flow/"))) continue;
-    if (skips.skipApps && (path.endsWith(".app" + ext) || path.includes(".app/"))) continue;
-    if (skips.skipFolders && path.endsWith(".folder" + ext)) continue;
+    // Use getTypeStrFromPath for consistent type detection
+    try {
+      const fileType = getTypeStrFromPath(path);
+      if (skips.skipVariables && fileType === "variable") continue;
+      if (skips.skipScripts && fileType === "script") continue;
+      if (skips.skipFlows && fileType === "flow") continue;
+      if (skips.skipApps && fileType === "app") continue;
+      if (skips.skipFolders && fileType === "folder") continue;
+    } catch {
+      // If getTypeStrFromPath can't determine the type, continue processing the file
+    }
 
     if (skips.skipResources && isFileResource(path)) continue;
 
@@ -1095,6 +1101,10 @@ export async function ignoreF(wmillconf: {
   extraIncludes?: string[];
   skipResourceTypes?: boolean;
   json?: boolean;
+  includeUsers?: boolean;
+  includeGroups?: boolean;
+  includeSettings?: boolean;
+  includeKey?: boolean;
 }): Promise<(p: string, isDirectory: boolean) => boolean> {
   let whitelist: { approve(file: string): boolean } | undefined = undefined;
 
@@ -1130,6 +1140,28 @@ export async function ignoreF(wmillconf: {
     if (!isDirectory && p.endsWith(".resource-type" + ext)) {
       return wmillconf.skipResourceTypes ?? false;
     }
+    
+    // Special files should bypass path-based filtering when their include flags are set
+    if (!isDirectory) {
+      try {
+        const fileType = getTypeStrFromPath(p);
+        if (wmillconf.includeUsers && fileType === "user") {
+          return false; // Don't ignore, always include
+        }
+        if (wmillconf.includeGroups && fileType === "group") {
+          return false; // Don't ignore, always include
+        }
+        if (wmillconf.includeSettings && fileType === "settings") {
+          return false; // Don't ignore, always include
+        }
+        if (wmillconf.includeKey && fileType === "encryption_key") {
+          return false; // Don't ignore, always include
+        }
+      } catch {
+        // If getTypeStrFromPath can't determine the type, fall through to normal logic
+      }
+    }
+    
     return (
       !isWhitelisted(p) &&
       (isNotWmillFile(p, isDirectory) ||
@@ -1216,6 +1248,14 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
   if (opts.parallel !== undefined) mergedOpts.parallel = opts.parallel;
   if (opts.jsonOutput !== undefined) mergedOpts.jsonOutput = opts.jsonOutput;
   if (opts.repository !== undefined) mergedOpts.repository = opts.repository;
+  
+  // Always preserve CLI include flags (they should override config file settings)
+  if (opts.includeUsers !== undefined) mergedOpts.includeUsers = opts.includeUsers;
+  if (opts.includeGroups !== undefined) mergedOpts.includeGroups = opts.includeGroups;
+  if (opts.includeSettings !== undefined) mergedOpts.includeSettings = opts.includeSettings;
+  if (opts.includeKey !== undefined) mergedOpts.includeKey = opts.includeKey;
+  if (opts.includeSchedules !== undefined) mergedOpts.includeSchedules = opts.includeSchedules;
+  if (opts.includeTriggers !== undefined) mergedOpts.includeTriggers = opts.includeTriggers;
 
   opts = mergedOpts;
 
@@ -1538,6 +1578,14 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
   if (opts.parallel !== undefined) mergedOpts.parallel = opts.parallel;
   if (opts.jsonOutput !== undefined) mergedOpts.jsonOutput = opts.jsonOutput;
   if (opts.repository !== undefined) mergedOpts.repository = opts.repository;
+  
+  // Always preserve CLI include flags (they should override config file settings)
+  if (opts.includeUsers !== undefined) mergedOpts.includeUsers = opts.includeUsers;
+  if (opts.includeGroups !== undefined) mergedOpts.includeGroups = opts.includeGroups;
+  if (opts.includeSettings !== undefined) mergedOpts.includeSettings = opts.includeSettings;
+  if (opts.includeKey !== undefined) mergedOpts.includeKey = opts.includeKey;
+  if (opts.includeSchedules !== undefined) mergedOpts.includeSchedules = opts.includeSchedules;
+  if (opts.includeTriggers !== undefined) mergedOpts.includeTriggers = opts.includeTriggers;
 
   opts = mergedOpts;
 
