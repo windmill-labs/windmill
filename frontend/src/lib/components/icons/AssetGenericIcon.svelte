@@ -22,5 +22,5 @@
 {:else if assetKind == 'variable'}
 	<AssetVarIcon {fill} width={size} height={size} class={className} />
 {:else}
-	<Pyramid {fill} {size} class={'fill-none ' + className} />
+	<Pyramid {size} color={fill} class={'!fill-none ' + className} />
 {/if}
