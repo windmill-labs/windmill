@@ -16,6 +16,7 @@
 	import AssetsUsageDropdown from '$lib/components/assets/AssetsUsageDropdown.svelte'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
+	import { AlertTriangle } from 'lucide-svelte'
 
 	let assets = usePromise(() => AssetService.listAssets({ workspace: $workspaceStore ?? '' }))
 
@@ -83,7 +84,7 @@
 									fill=""
 									class="!fill-secondary !stroke-secondary"
 								/>
-								<svelte:fragment slot="text">{formatAssetKind(asset.kind)}</svelte:fragment>
+								<svelte:fragment slot="text">{formatAssetKind(asset)}</svelte:fragment>
 							</Tooltip>
 						</Cell>
 						<Cell class="w-[75%]">{truncate(asset.path, 92)}</Cell>
@@ -101,6 +102,12 @@
 									_resourceMetadata={{ resource_type: resourceTypesCache[asset.path] }}
 									class="w-24"
 								/>
+							{/if}
+							{#if asset.kind === 'resource' && asset.metadata === undefined}
+								<Tooltip class={'w-24 flex items-center justify-center'}>
+									<AlertTriangle size={20} class="text-orange-600 dark:text-orange-500" />
+									<svelte:fragment slot="text">Could not fetch resource</svelte:fragment>
+								</Tooltip>
 							{/if}
 						</Cell>
 					</tr>

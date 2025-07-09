@@ -149,7 +149,7 @@
 						{/if}
 						{#if asset.kind === 'resource' && resourceDataCache[asset.path] === undefined}
 							<Tooltip class="mr-2.5">
-								<AlertTriangle size={16} class="text-orange-500" />
+								<AlertTriangle size={16} class="text-orange-600 dark:text-orange-500" />
 								<svelte:fragment slot="text">Could not fetch resource</svelte:fragment>
 							</Tooltip>
 						{/if}

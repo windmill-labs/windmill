@@ -4,6 +4,7 @@ import type {
 	ListAssetsResponse,
 	AssetUsageAccessType
 } from '$lib/gen'
+import { capitalize } from '$lib/utils'
 
 export type Asset = _Asset
 export type AssetKind = _AssetKind
@@ -46,10 +47,20 @@ export function parseAssetFromString(s: string): Asset | undefined {
 	return undefined
 }
 
-export function formatAssetKind(kind: AssetKind): string {
-	switch (kind) {
+export function formatAssetKind(asset: {
+	kind: AssetKind
+	metadata?: { resource_type?: string }
+}): string {
+	switch (asset.kind) {
 		case 'resource':
-			return 'Resource'
+			if (asset.metadata?.resource_type) {
+				if (asset.metadata.resource_type === 'state') return 'State'
+				if (asset.metadata.resource_type === 'cache') return 'Cache'
+				if (asset.metadata.resource_type === 'cache') return 'App Theme'
+				return `${capitalize(asset.metadata.resource_type)} resource`
+			} else {
+				return 'Invalid resource'
+			}
 		case 's3object':
 			return 'S3 Object'
 		case 'variable':
