@@ -122,7 +122,7 @@ pub struct ListableResource {
     pub is_expired: Option<bool>,
     pub refresh_error: Option<String>,
     pub account: Option<i32>,
-    pub usages: Option<Vec<serde_json::Value>>, // AssetUsage[] | null
+    pub usages: Option<Vec<Value>>, // AssetUsage[] | null
 }
 
 #[derive(Deserialize)]
