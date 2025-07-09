@@ -219,7 +219,9 @@ impl AuthCache {
                                             folders,
                                             scopes: None,
                                             username_override,
-                                            token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                                            token_prefix: Some(
+                                                token[0..TOKEN_PREFIX_LEN].to_string(),
+                                            ),
                                         })
                                     } else {
                                         let groups = vec![name.to_string()];
@@ -241,7 +243,9 @@ impl AuthCache {
                                             folders,
                                             scopes: None,
                                             username_override,
-                                            token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                                            token_prefix: Some(
+                                                token[0..TOKEN_PREFIX_LEN].to_string(),
+                                            ),
                                         })
                                     }
                                 } else {
@@ -304,7 +308,9 @@ impl AuthCache {
                                                 folders,
                                                 scopes,
                                                 username_override,
-                                                token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                                                token_prefix: Some(
+                                                    token[0..TOKEN_PREFIX_LEN].to_string(),
+                                                ),
                                             })
                                         }
                                         None if super_admin => Some(ApiAuthed {
@@ -316,7 +322,9 @@ impl AuthCache {
                                             folders: vec![],
                                             scopes,
                                             username_override,
-                                            token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                                            token_prefix: Some(
+                                                token[0..TOKEN_PREFIX_LEN].to_string(),
+                                            ),
                                         }),
                                         None => None,
                                     }
@@ -492,7 +500,7 @@ where
     }
 }
 
-pub fn transform_old_scope_to_new_scope(scopes: Option<&mut Vec<String>>) -> WindmillResult<()> {
+pub fn transform_old_scope_to_new_scope(scopes: Option<&mut Vec<String>>) {
     if let Some(scopes) = scopes {
         for scope in scopes.iter_mut() {
             if scope.starts_with("run:") {
@@ -517,8 +525,6 @@ pub fn transform_old_scope_to_new_scope(scopes: Option<&mut Vec<String>>) -> Win
             }
         }
     }
-
-    Ok(())
 }
 
 fn maybe_get_workspace_id_from_path(path_vec: &[&str]) -> Option<String> {
@@ -582,7 +588,7 @@ where
 
                 if let Some(mut authed) = cache.get_authed(workspace_id.clone(), &token).await {
                     if authed.scopes.is_some() {
-                        transform_old_scope_to_new_scope(authed.scopes.as_mut())?;
+                        transform_old_scope_to_new_scope(authed.scopes.as_mut());
 
                         let path = original_uri.path();
                         let method = parts.method.as_str();
