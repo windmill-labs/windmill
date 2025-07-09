@@ -742,8 +742,7 @@ fn parse_one_of_type(
                 symbol
                     if ["Resource", "Date", "Base64", "Email", "Sql"]
                         .iter()
-                        .find(|s| **s == symbol)
-                        .is_some()
+                        .any(|s| *s == symbol)
                         || symbol.starts_with("DynSelect_") =>
                 {
                     return None
@@ -755,7 +754,7 @@ fn parse_one_of_type(
                         type_resolver,
                         top_level_call,
                     )
-                    .unwrap_or_else(|| (Typ::Unknown, false))
+                    .unwrap_or_else(|| (Typ::Resource(to_snake_case(symbol)), false))
                     .0
                     else {
                         return None;
