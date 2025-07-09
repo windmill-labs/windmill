@@ -4,9 +4,7 @@
 	import { DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
-	import DbManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { type AssetUsageAccessType, type AssetUsageKind } from '$lib/gen'
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import {
@@ -29,9 +27,6 @@
 				}[]
 		  }
 		| undefined = $state()
-	let s3FilePicker: S3FilePicker | undefined = $state()
-	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
-
 	let selectedTab: 'resources' | 'variables' | 's3objects' = $state('resources')
 
 	let resourceListPage: ResourceListPage | undefined = $state()
@@ -103,7 +98,10 @@
 				onOpenUsages={(usages) => (usagesDrawerData = { usages })}
 			/>
 		{:else if selectedTab === 'variables'}
-			<VariablesListPage bind:this={variablesListPage} />
+			<VariablesListPage
+				bind:this={variablesListPage}
+				onOpenUsages={(usages) => (usagesDrawerData = { usages })}
+			/>
 		{:else if selectedTab === 's3objects'}
 			<S3ObjectsListPage />
 		{/if}
@@ -143,6 +141,3 @@
 		</ul>
 	</DrawerContent>
 </Drawer>
-
-<S3FilePicker bind:this={s3FilePicker} readOnlyMode />
-<DbManagerDrawer bind:this={dbManagerDrawer} />

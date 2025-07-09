@@ -17,11 +17,16 @@
 	import TableSimple from '$lib/components/TableSimple.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
-	import type { ContextualVariable, ListableVariable, WorkspaceDeployUISettings } from '$lib/gen'
+	import type {
+		AssetUsage,
+		ContextualVariable,
+		ListableVariable,
+		WorkspaceDeployUISettings
+	} from '$lib/gen'
 	import { OauthService, VariableService, WorkspaceService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { canWrite, isOwner, truncate } from '$lib/utils'
+	import { canWrite, isOwner, pluralize, truncate } from '$lib/utils'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 	import {
 		Plus,
@@ -37,6 +42,13 @@
 		Circle
 	} from 'lucide-svelte'
 	import { untrack } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
+
+	type Props = {
+		onOpenUsages: (usages: AssetUsage[]) => void
+	}
+
+	let { onOpenUsages }: Props = $props()
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
 
@@ -76,7 +88,9 @@
 
 	// If relative, the dropdown is positioned relative to its button
 	async function loadVariables(): Promise<void> {
-		variables = (await VariableService.listVariable({ workspace: $workspaceStore! })).map((x) => {
+		variables = (
+			await VariableService.listVariable({ workspace: $workspaceStore!, getUsages: true })
+		).map((x) => {
 			return {
 				canWrite: canWrite(x.path, x.extra_perms!, $userStore) && x.workspace_id == $workspaceStore,
 				...x
@@ -226,7 +240,7 @@
 						</tr>
 					</Head>
 					<tbody class="divide-y">
-						{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, marked }}
+						{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, marked, usages }}
 							<Row>
 								<Cell class="!px-0 text-center w-12" first>
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -268,9 +282,20 @@
 									<span class="text-xs text-tertiary">{truncate(description ?? '', 50)} </span>
 								</Cell>
 
-								<Cell class="text-center">
+								<Cell class="">
 									<div class="flex flex-row items-center gap-4">
-										<a href={undefined} class="cursor-pointer min-w-20"> 0 usages </a>
+										<a
+											href={undefined}
+											class={twMerge(
+												'min-w-16',
+												usages?.length ? 'cursor-pointer' : 'text-tertiary/80'
+											)}
+											onclick={() => {
+												if (usages?.length) onOpenUsages(usages)
+											}}
+										>
+											{pluralize(usages?.length ?? 0, 'usage')}
+										</a>
 										{#if is_linked}
 											<Popover notClickable>
 												<Link size={16} />

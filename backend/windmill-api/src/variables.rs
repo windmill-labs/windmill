@@ -7,7 +7,9 @@
  */
 
 use crate::{
-    db::{ApiAuthed, DB}, users::{maybe_refresh_folders, require_owner_of_path}, webhook_util::{WebhookMessage, WebhookShared}
+    db::{ApiAuthed, DB},
+    users::{maybe_refresh_folders, require_owner_of_path},
+    webhook_util::{WebhookMessage, WebhookShared},
 };
 
 use axum::{
@@ -21,7 +23,10 @@ use serde_json::Value;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
-    db::UserDB, error::{Error, JsonResult, Result}, utils::{not_found_if_none, paginate, Pagination, StripPath}, variables::{
+    db::UserDB,
+    error::{Error, JsonResult, Result},
+    utils::{not_found_if_none, paginate, Pagination, StripPath},
+    variables::{
         build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
     },
     worker::CLOUD_HOSTED,
@@ -80,6 +85,7 @@ async fn list_contextual_variables(
 #[derive(Deserialize)]
 struct ListVariableQuery {
     path_start: Option<String>,
+    get_usages: Option<bool>,
 }
 
 async fn list_variables(
@@ -99,7 +105,13 @@ async fn list_variables(
          account.refresh_error,
          resource.path IS NOT NULL as is_linked,
          account.refresh_token != '' as is_refreshed,
-         variable.expires_at
+         variable.expires_at,
+         CASE WHEN $6 IS TRUE THEN
+            (SELECT ARRAY_AGG(jsonb_build_object(
+                'access_type', asset.usage_access_type, 'path', asset.usage_path, 'kind', asset.usage_kind))
+             FROM asset
+             WHERE asset.path = variable.path AND asset.workspace_id = $1 AND asset.kind = 'variable')
+         ELSE NULL END as usages
          from variable
          LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $1
          LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = $1
@@ -114,6 +126,7 @@ async fn list_variables(
     .bind(&lq.path_start.unwrap_or_default())
     .bind(per_page as i32)
     .bind(offset as i32)
+    .bind(lq.get_usages.unwrap_or(false))
     .fetch_all(&mut *tx)
     .await?;
 

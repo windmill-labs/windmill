@@ -43,6 +43,7 @@ pub struct ListableVariable {
     pub refresh_error: Option<String>,
     pub is_linked: Option<bool>,
     pub expires_at: Option<chrono::DateTime<Utc>>,
+    pub usages: Option<Vec<serde_json::Value>>, // AssetUsage[] | null
 }
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]

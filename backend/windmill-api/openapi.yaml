@@ -3070,6 +3070,10 @@ paths:
           in: query
           schema:
             type: string
+        - name: get_usages
+          in: query
+          schema:
+            type: boolean
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
       responses:
@@ -14261,6 +14265,10 @@ components:
         expires_at:
           type: string
           format: date-time
+        usages:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssetUsage"
       required:
         - workspace_id
         - path

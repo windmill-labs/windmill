@@ -39,7 +39,7 @@ pub struct Asset {
 pub struct AssetUsage {
     pub path: String,
     pub kind: AssetUsageKind,
-    pub access_type: AssetUsageAccessType,
+    pub access_type: Option<AssetUsageAccessType>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash)]

@@ -811,11 +811,11 @@
 									</Cell>
 
 									<Cell>
-										<div class="flex w-full flex-row gap-3 items-center text-center">
+										<div class="flex w-full flex-row gap-3 items-center">
 											<a
 												href={undefined}
 												class={twMerge(
-													'min-w-20 select-none',
+													'min-w-16',
 													usages?.length ? 'cursor-pointer' : 'text-tertiary/80'
 												)}
 												onclick={() => {
