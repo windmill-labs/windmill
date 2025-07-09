@@ -11,6 +11,7 @@
 
 use anyhow::anyhow;
 use futures::TryFutureExt;
+use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
@@ -1483,7 +1484,7 @@ pub async fn run_worker(
                             last_suspend_first = Instant::now();
                         }
 
-                        let job = pull(
+                        let job = match timeout(Duration::from_secs(10), pull(
                             &db,
                             suspend_first,
                             &worker_name,
@@ -1491,7 +1492,14 @@ pub async fn run_worker(
                             #[cfg(feature = "benchmark")]
                             &mut bench,
                         )
-                        .await;
+                        .warn_after_seconds(2))
+                        .await {
+                            Ok(job) => job,
+                            Err(e) => {
+                                tracing::error!(worker = %worker_name, hostname = %hostname, "pull timed out: {e:?}");
+                                continue;
+                            }
+                        };
 
                         add_time!(bench, "job pulled from DB");
                         let duration_pull_s = pull_time.elapsed().as_secs_f64();
