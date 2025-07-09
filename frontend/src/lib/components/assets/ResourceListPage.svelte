@@ -25,7 +25,7 @@
 	import Row from '$lib/components/table/Row.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import type { ResourceType, WorkspaceDeployUISettings } from '$lib/gen'
+	import type { AssetUsage, ResourceType, WorkspaceDeployUISettings } from '$lib/gen'
 	import { OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -33,6 +33,7 @@
 		canWrite,
 		classNames,
 		emptySchema,
+		pluralize,
 		removeMarkdown,
 		truncate,
 		validateFileExtension
@@ -62,9 +63,16 @@
 	import ExploreAssetButton, {
 		assetCanBeExplored
 	} from '../../../routes/(root)/(logged)/assets/ExploreAssetButton.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
+
+	type Props = {
+		onOpenUsages: (usages: AssetUsage[]) => void
+	}
+
+	let { onOpenUsages }: Props = $props()
 
 	let cacheResources: ResourceW[] | undefined = $state()
 	let stateResources: ResourceW[] | undefined = $state()
@@ -137,7 +145,8 @@
 			await ResourceService.listResource({
 				workspace: $workspaceStore!,
 				resourceTypeExclude,
-				resourceType
+				resourceType,
+				getUsages: true
 			})
 		).map((x) => {
 			return {
@@ -753,7 +762,7 @@
 					</Head>
 					<tbody class="divide-y bg-surface">
 						{#if filteredItems}
-							{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed }}
+							{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, usages }}
 								<Row>
 									<Cell first class="w-0 pr-3 relative">
 										<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -803,7 +812,18 @@
 
 									<Cell>
 										<div class="flex w-full flex-row gap-3 items-center text-center">
-											<a href={undefined} class="cursor-pointer min-w-20"> 0 usages </a>
+											<a
+												href={undefined}
+												class={twMerge(
+													'min-w-20 select-none',
+													usages?.length ? 'cursor-pointer' : 'text-tertiary/80'
+												)}
+												onclick={() => {
+													if (usages?.length) onOpenUsages(usages)
+												}}
+											>
+												{pluralize(usages?.length ?? 0, 'usage')}
+											</a>
 											{#if is_linked}
 												<Popover class="cursor-default">
 													<Link size={16} />

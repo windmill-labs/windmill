@@ -35,6 +35,7 @@ pub struct Asset {
     pub kind: AssetKind,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, sqlx::Type)]
 pub struct AssetUsage {
     pub path: String,
     pub kind: AssetUsageKind,

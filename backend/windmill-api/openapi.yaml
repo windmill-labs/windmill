@@ -3774,6 +3774,10 @@ paths:
           in: query
           schema:
             type: string
+        - name: get_usages
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: resource list
@@ -12974,15 +12978,7 @@ paths:
                     usages:
                       type: array
                       items:
-                        type: object
-                        required: [path, kind]
-                        properties:
-                          path:
-                            type: string
-                          kind:
-                            $ref: "#/components/schemas/AssetUsageKind"
-                          access_type:
-                            $ref: "#/components/schemas/AssetUsageAccessType"
+                        $ref: "#/components/schemas/AssetUsage"
                     metadata:
                       type: object
                       properties:
@@ -13760,11 +13756,9 @@ components:
               path:
                 type: string
               kind:
-                type: string
-                enum: [s3object, resource]
+                $ref: "#/components/schemas/AssetKind"
               access_type:
-                type: string
-                enum: [r, w, rw]
+                $ref: "#/components/schemas/AssetUsageAccessType"
 
       required:
         - path
@@ -14732,6 +14726,10 @@ components:
         edited_at:
           type: string
           format: date-time
+        usages:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssetUsage"
       required:
         - path
         - resource_type
@@ -17333,3 +17331,13 @@ components:
         kind:
           $ref: "#/components/schemas/AssetKind"
       required: [path, kind]
+    AssetUsage:
+      type: object
+      required: [path, kind]
+      properties:
+        path:
+          type: string
+        kind:
+          $ref: "#/components/schemas/AssetUsageKind"
+        access_type:
+          $ref: "#/components/schemas/AssetUsageAccessType"
