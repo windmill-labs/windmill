@@ -66,7 +66,7 @@
 
 	// TODO: this is a hack to show the waiting for events indicator on the edge a proper way would be to have a edge state
 	// and handle the edge state in the graph builder
-	const waitingForEvents = $derived(
+	let waitingForEvents = $derived(
 		data?.flowModuleStates?.[data.targetId]?.type === 'WaitingForEvents' ||
 			data?.flowModuleStates?.[`${data.sourceId}-v`]?.type === 'WaitingForEvents'
 	)
@@ -77,7 +77,7 @@
 </script>
 
 <EdgeLabel x={sourceX} y={sourceY + 28} class="base-edge" style="">
-	{#if data?.insertable && !$useDataflow && !data?.moving}
+	{#if data?.insertable && !$useDataflow && !data?.moving && !waitingForEvents}
 		<div
 			class={twMerge('edgeButtonContainer nodrag nopan top-0')}
 			style:transform="translate(-50%, -50%)"
