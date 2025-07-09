@@ -41,7 +41,7 @@
 		size="sm"
 		color="dark"
 		btnClasses={twMerge(
-			'relative p-1.5 h-[34px] transition-all duration-200',
+			'relative p-1.5 h-[36px] transition-all duration-200',
 			wide ? 'w-[120px]' : 'w-[44.5px]'
 		)}
 		on:click={() => {
