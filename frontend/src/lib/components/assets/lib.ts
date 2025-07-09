@@ -45,3 +45,14 @@ export function parseAssetFromString(s: string): Asset | undefined {
 	}
 	return undefined
 }
+
+export function formatAssetKind(kind: AssetKind): string {
+	switch (kind) {
+		case 'resource':
+			return 'Resource'
+		case 's3object':
+			return 'S3 Object'
+		case 'variable':
+			return 'Variable'
+	}
+}

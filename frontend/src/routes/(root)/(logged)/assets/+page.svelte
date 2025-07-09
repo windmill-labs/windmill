@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { formatAsset } from '$lib/components/assets/lib'
+	import { formatAsset, formatAssetKind } from '$lib/components/assets/lib'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { ClearableInput } from '$lib/components/common'
 	import DbManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
@@ -15,6 +15,7 @@
 	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
 	import AssetsUsageDropdown from '$lib/components/assets/AssetsUsageDropdown.svelte'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
+	import { Tooltip } from '$lib/components/meltComponents'
 
 	let assets = usePromise(() => AssetService.listAssets({ workspace: $workspaceStore ?? '' }))
 
@@ -75,17 +76,20 @@
 					{@const assetUri = formatAsset(asset)}
 					<tr class="h-14">
 						<Cell first>
-							<AssetGenericIcon
-								assetKind={asset.kind}
-								size="24px"
-								fill=""
-								class="!fill-secondary !stroke-secondary"
-							/>
+							<Tooltip>
+								<AssetGenericIcon
+									assetKind={asset.kind}
+									size="24px"
+									fill=""
+									class="!fill-secondary !stroke-secondary"
+								/>
+								<svelte:fragment slot="text">{formatAssetKind(asset.kind)}</svelte:fragment>
+							</Tooltip>
 						</Cell>
 						<Cell class="w-[75%]">{truncate(asset.path, 92)}</Cell>
 						<Cell>
 							<a href={`#${assetUri}`} onclick={() => assetsUsageDropdown?.open(asset)}>
-								{pluralize(asset.usages.length, 'occurrence')}
+								{pluralize(asset.usages.length, 'usage')}
 							</a>
 						</Cell>
 						<Cell>
