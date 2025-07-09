@@ -69,7 +69,9 @@
 		if (value === undefined) {
 			if (initialValue) {
 				console.log('initialValue', initialValue)
-				value = initialValue
+				if (initialValue != value) {
+					value = initialValue
+				}
 			} else {
 				console.log('no value')
 			}
@@ -113,7 +115,7 @@
 				nc.push({ value: value ?? initialValue!, label: value ?? initialValue!, type: '' })
 			}
 			collection = nc
-			if (collection.length == 1 && selectFirst && value == undefined) {
+			if (collection.length == 1 && selectFirst && (value == undefined || value == '')) {
 				console.log('selectFirst', collection[0].value)
 				value = collection[0].value
 				valueType = collection[0].type
@@ -125,9 +127,16 @@
 		loading = false
 	}
 
+	let previousResourceType = resourceType
+
 	$effect(() => {
 		$workspaceStore && resourceType
-		value = undefined
+		untrack(() => {
+			if (previousResourceType != resourceType) {
+				previousResourceType = resourceType
+				value = undefined
+			}
+		})
 		untrack(() => loadResources(resourceType))
 	})
 

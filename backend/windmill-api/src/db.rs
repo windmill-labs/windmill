@@ -815,7 +815,7 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
 
     run_windmill_migration!("audit_recent_login_activities", db, |tx| {
         sqlx::query!(
-            "CREATE INDEX CONCURRENTLY idx_audit_recent_login_activities 
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_recent_login_activities 
 ON audit (timestamp, username) 
 WHERE operation IN ('users.login', 'oauth.login', 'users.token.refresh');"
         )
