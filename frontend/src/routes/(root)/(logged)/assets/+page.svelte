@@ -98,10 +98,7 @@
 			</Tab>
 		</Tabs>
 		{#if selectedTab === 'resources'}
-			<ResourceListPage
-				bind:this={resourceListPage}
-				onOpenUsages={(usages) => (usagesDrawerData = { usages })}
-			/>
+			<ResourceListPage bind:this={resourceListPage} />
 		{:else if selectedTab === 'variables'}
 			<VariablesListPage bind:this={variablesListPage} />
 		{:else if selectedTab === 's3objects'}

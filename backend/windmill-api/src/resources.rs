@@ -122,7 +122,6 @@ pub struct ListableResource {
     pub is_expired: Option<bool>,
     pub refresh_error: Option<String>,
     pub account: Option<i32>,
-    pub usages: Option<Vec<Value>>, // AssetUsage[] | null
 }
 
 #[derive(Deserialize)]
@@ -144,7 +143,6 @@ pub struct ListResourceQuery {
     resource_type: Option<String>,
     resource_type_exclude: Option<String>,
     path_start: Option<String>,
-    get_usages: Option<bool>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -229,11 +227,7 @@ async fn list_resources(
             "resource.created_by",
             "resource.edited_at",
         ])
-        .clone();
-    if lq.get_usages.unwrap_or(false) {
-        sqlb.field(ASSET_USAGE_SUBQUERY);
-    }
-    sqlb.left()
+        .left()
         .join("variable")
         .on("variable.path = resource.path AND variable.workspace_id = resource.workspace_id")
         .left()
@@ -242,7 +236,8 @@ async fn list_resources(
         .order_by("path", true)
         .and_where("resource.workspace_id = ?".bind(&w_id))
         .offset(offset)
-        .limit(per_page);
+        .limit(per_page)
+        .clone();
 
     if let Some(rt) = &lq.resource_type {
         let resource_type_filters = rt.split(',').collect::<Vec<&str>>();
@@ -293,8 +288,7 @@ async fn get_resource(
         account.refresh_error,
         variable.path IS NOT NULL as is_linked,
         variable.is_oauth as \"is_oauth?\",
-        variable.account,
-        NULL as \"usages: _\"
+        variable.account
         FROM resource
         LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = $2
         LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2
@@ -1273,15 +1267,3 @@ where
 
     Ok(resource)
 }
-
-const ASSET_USAGE_SUBQUERY: &str = concat!(
-    "(SELECT ARRAY_AGG(jsonb_build_object(",
-    "'access_type', asset.usage_access_type, ",
-    "'path', asset.usage_path, ",
-    "'kind', asset.usage_kind)",
-    ") FROM asset ",
-    "WHERE asset.path = resource.path ",
-    "AND asset.workspace_id = resource.workspace_id ",
-    "AND asset.kind = 'resource'",
-    ") as usages"
-);
