@@ -22,7 +22,7 @@ use tokio::sync::RwLock;
 
 use windmill_common::{
     auth::{get_folders_for_user, get_groups_for_user, JWTAuthClaims, TOKEN_PREFIX_LEN},
-    error::{Error, Result as WindmillResult},
+    error::Error,
     jwt,
     users::{COOKIE_NAME, SUPERADMIN_SECRET_EMAIL},
 };
