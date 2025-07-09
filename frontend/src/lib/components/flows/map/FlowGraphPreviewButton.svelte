@@ -29,8 +29,11 @@
 		onHideJobStatus
 	}: Props = $props()
 
-	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
-	const job = $derived(flowEditorContext?.getPreviewJob())
+	const { getPreviewJobState } = getContext<FlowEditorContext>('FlowEditorContext') || {
+		getPreviewJobState: () => undefined
+	}
+	const previewJobState = $derived.by(getPreviewJobState)
+	const job = $derived(previewJobState?.job)
 
 	const wide = $derived(hover || selected || job || individualStepTests)
 </script>

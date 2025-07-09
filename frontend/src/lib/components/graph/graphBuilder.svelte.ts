@@ -124,7 +124,6 @@ export type ModuleN = {
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		insertable: boolean
 		editMode: boolean
-		flowJob: Job | undefined
 		isOwner: boolean
 	}
 }
@@ -184,8 +183,6 @@ export type ResultN = {
 		success: boolean | undefined
 		eventHandlers: GraphEventHandlers
 		editMode: boolean
-		job: Job | undefined
-		showJobStatus: boolean
 	}
 }
 
@@ -298,8 +295,6 @@ export function graphBuilder(
 		isOwner: boolean
 		isRunning: boolean
 		individualStepTests: boolean
-		flowJob: Job | undefined
-		showJobStatus: boolean
 		suspendStatus: Writable<Record<string, { job: Job; nb: number }>>
 	},
 	failureModule: FlowModule | undefined,
@@ -352,8 +347,7 @@ export function graphBuilder(
 					flowModuleStates: extra.flowModuleStates,
 					insertable: extra.insertable,
 					editMode: extra.editMode,
-					isOwner: extra.isOwner,
-					flowJob: extra.flowJob
+					isOwner: extra.isOwner
 				},
 				type: 'module'
 			})
@@ -490,9 +484,7 @@ export function graphBuilder(
 			data: {
 				eventHandlers: eventHandlers,
 				success: success,
-				editMode: extra.editMode,
-				job: extra.flowJob,
-				showJobStatus: extra.showJobStatus
+				editMode: extra.editMode
 			},
 			type: 'result'
 		}

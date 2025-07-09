@@ -62,8 +62,6 @@
 		onOpenPreview?: () => void
 		onHideJobStatus?: () => void
 		individualStepTests?: boolean
-		flowJob?: Job | undefined
-		showJobStatus?: boolean
 		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
 	}
 
@@ -89,8 +87,6 @@
 		onOpenPreview,
 		onHideJobStatus,
 		individualStepTests = false,
-		flowJob = undefined,
-		showJobStatus = false,
 		suspendStatus = writable({})
 	}: Props = $props()
 
@@ -387,8 +383,6 @@
 			flowModuleStates={$localModuleStates}
 			{isOwner}
 			{individualStepTests}
-			{flowJob}
-			{showJobStatus}
 			{suspendStatus}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)
