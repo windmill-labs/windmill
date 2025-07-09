@@ -1,16 +1,32 @@
 <script lang="ts">
+	import { getAssetUsagePageUri } from '$lib/components/assets/lib'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Tab, Tabs } from '$lib/components/common'
+	import { DrawerContent, Tab, Tabs } from '$lib/components/common'
+	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
+	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
+	import { type AssetUsageAccessType, type AssetUsageKind } from '$lib/gen'
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
+	import {
+		assetDisplaysAsInputInFlowGraph,
+		assetDisplaysAsOutputInFlowGraph
+	} from '$lib/components/graph/renderers/nodes/AssetNode.svelte'
 	import { Boxes, DollarSign } from 'lucide-svelte'
 	import S3Icon from '$lib/components/icons/S3Icon.svelte'
 	import ResourceListPage from '$lib/components/assets/ResourceListPage.svelte'
 	import VariablesListPage from '$lib/components/assets/VariablesListPage.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import S3ObjectsListPage from '$lib/components/assets/S3ObjectsListPage.svelte'
-	import AssetsUsageDropdown from '$lib/components/assets/AssetsUsageDropdown.svelte'
 
+	let usagesDrawerData:
+		| {
+				usages: {
+					path: string
+					kind: AssetUsageKind
+					access_type?: AssetUsageAccessType
+				}[]
+		  }
+		| undefined = $state()
 	let selectedTab: 'resources' | 'variables' | 's3objects' = $state('resources')
 
 	let resourceListPage: ResourceListPage | undefined = $state()
@@ -25,7 +41,6 @@
 				return undefined
 		}
 	})
-	let assetsUsageDropdown: AssetsUsageDropdown | undefined = $state()
 </script>
 
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.resources}
@@ -80,12 +95,12 @@
 		{#if selectedTab === 'resources'}
 			<ResourceListPage
 				bind:this={resourceListPage}
-				onOpenUsages={(usages) => assetsUsageDropdown?.open({ usages })}
+				onOpenUsages={(usages) => (usagesDrawerData = { usages })}
 			/>
 		{:else if selectedTab === 'variables'}
 			<VariablesListPage
 				bind:this={variablesListPage}
-				onOpenUsages={(usages) => assetsUsageDropdown?.open({ usages })}
+				onOpenUsages={(usages) => (usagesDrawerData = { usages })}
 			/>
 		{:else if selectedTab === 's3objects'}
 			<S3ObjectsListPage />
@@ -93,4 +108,36 @@
 	</CenteredPage>
 {/if}
 
-<AssetsUsageDropdown bind:this={assetsUsageDropdown} />
+<Drawer
+	open={usagesDrawerData !== undefined}
+	size="900px"
+	on:close={() => (usagesDrawerData = undefined)}
+>
+	<DrawerContent title="Asset occurrences" on:close={() => (usagesDrawerData = undefined)}>
+		<ul class="flex flex-col border rounded-md divide-y">
+			{#each usagesDrawerData?.usages ?? [] as u}
+				<li>
+					<a
+						href={getAssetUsagePageUri(u)}
+						aria-label={`${u.kind}/${u.path}`}
+						class="text-sm text-primary flex items-center py-3 px-4 gap-3 hover:bg-surface-hover cursor-pointer"
+					>
+						<RowIcon kind={u.kind} />
+						<div class="flex flex-col justify-center flex-1">
+							<span class="font-semibold">{u.path}</span>
+							<span class="text-xs text-tertiary">{u.kind}</span>
+						</div>
+						<div class="flex gap-2">
+							{#if assetDisplaysAsInputInFlowGraph(u)}
+								<div class="text-xs border text-tertiary max-w-fit p-1 rounded-md">Read</div>
+							{/if}
+							{#if assetDisplaysAsOutputInFlowGraph(u)}
+								<div class="text-xs border text-tertiary max-w-fit p-1 rounded-md">Write</div>
+							{/if}
+						</div>
+					</a>
+				</li>
+			{/each}
+		</ul>
+	</DrawerContent>
+</Drawer>
