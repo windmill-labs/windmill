@@ -509,7 +509,6 @@
 					<FlowHistoryJobPicker
 						selectInitial={jobId == undefined}
 						on:select={(e) => {
-							console.log('dbg on:select', e.detail)
 							if (!currentJobId) {
 								currentJobId = jobId
 							}

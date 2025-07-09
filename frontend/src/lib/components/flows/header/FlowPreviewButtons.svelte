@@ -178,6 +178,8 @@
 			bind:branchOrIterationN
 			bind:rightColumnSelect
 			on:close={() => {
+				// keep the data in the preview content
+				deferContent = true
 				previewOpen = false
 			}}
 			on:openTriggers={(e) => {
