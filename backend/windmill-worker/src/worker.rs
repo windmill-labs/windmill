@@ -1496,7 +1496,8 @@ pub async fn run_worker(
                         .await {
                             Ok(job) => job,
                             Err(e) => {
-                                tracing::error!(worker = %worker_name, hostname = %hostname, "pull timed out: {e:?}");
+                                tracing::error!(worker = %worker_name, hostname = %hostname, "pull timed out after 10s, sleeping for 30s: {e:?}");
+                                tokio::time::sleep(Duration::from_secs(30)).await;
                                 continue;
                             }
                         };
