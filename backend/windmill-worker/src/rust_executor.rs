@@ -162,6 +162,7 @@ pub async fn generate_cargo_lockfile(
     gen_cargo_crate(code, job_dir)?;
 
     let mut gen_lockfile_cmd = Command::new(CARGO_PATH.as_str());
+    gen_lockfile_cmd.kill_on_drop(true);
     gen_lockfile_cmd
         .current_dir(job_dir)
         .args(vec!["generate-lockfile"])
@@ -252,6 +253,7 @@ async fn get_build_dir(
     if run_sweep {
         // Also run sweep to make sure target isn't using too much disk
         let mut sweep_cmd = Command::new(CARGO_PATH.as_str());
+        sweep_cmd.kill_on_drop(true);
         sweep_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -342,6 +344,7 @@ pub async fn build_rust_crate(
                 .replace("{BUILD}", &build_dir),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd.kill_on_drop(true);
         nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -368,6 +371,7 @@ pub async fn build_rust_crate(
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
         let mut build_rust_cmd = Command::new(CARGO_PATH.as_str());
+        build_rust_cmd.kill_on_drop(true);
         build_rust_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -549,6 +553,7 @@ pub async fn handle_rust_job(
                 .replace("{SHARED_MOUNT}", shared_mount),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd.kill_on_drop(true);
         nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -564,6 +569,7 @@ pub async fn handle_rust_job(
     } else {
         let compiled_executable_name = "./main";
         let mut run_rust = Command::new(compiled_executable_name);
+        run_rust.kill_on_drop(true);
         run_rust
             .current_dir(job_dir)
             .env_clear()

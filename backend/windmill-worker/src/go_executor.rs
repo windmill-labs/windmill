@@ -235,6 +235,7 @@ func Run(req Req) (interface{{}}, error){{
         }
 
         let mut build_go_cmd = Command::new(GO_PATH.as_str());
+        build_go_cmd.kill_on_drop(true);
         build_go_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -352,6 +353,7 @@ func Run(req Req) (interface{{}}, error){{
                 .replace("{SHARED_MOUNT}", shared_mount),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd.kill_on_drop(true);
         nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -372,8 +374,10 @@ func Run(req Req) (interface{{}}, error){{
 
         #[cfg(unix)]
         let mut run_go = Command::new(&compiled_executable_name);
+        run_go.kill_on_drop(true);
         #[cfg(windows)]
         let mut run_go = Command::new(&compiled_executable_name);
+        run_go.kill_on_drop(true);
 
         run_go
             .current_dir(job_dir)
@@ -476,6 +480,7 @@ pub async fn install_go_dependencies(
     if !raw_deps && !skip_go_mod {
         gen_go_mymod(code, job_dir).await?;
         let mut child_cmd = Command::new(GO_PATH.as_str());
+        child_cmd.kill_on_drop(true);
         child_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -563,6 +568,7 @@ pub async fn install_go_dependencies(
         "tidy"
     };
     let mut child_cmd = Command::new(GO_PATH.as_str());
+    child_cmd.kill_on_drop(true);
     child_cmd
         .current_dir(job_dir)
         .env_clear()

@@ -254,6 +254,7 @@ async fn run<'a>(
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd.kill_on_drop(true);
         nsjail_cmd
             .env_clear()
             .current_dir(job_dir)
@@ -291,6 +292,7 @@ async fn run<'a>(
         } else {
             NU_PATH.as_str()
         });
+        cmd.kill_on_drop(true);
         cmd.env_clear()
             .current_dir(job_dir.to_owned())
             .env("PATH", PATH_ENV.as_str())

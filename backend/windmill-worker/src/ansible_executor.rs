@@ -78,6 +78,7 @@ async fn clone_repo(
     clone_cmd.arg(&repo.url);
     clone_cmd.arg(&target_path);
 
+    clone_cmd.kill_on_drop(true);
     let clone_cmd_child = start_child_process(clone_cmd, GIT_PATH.as_str()).await?;
     handle_child(
         job_id,
@@ -99,6 +100,7 @@ async fn clone_repo(
     // Checkout specific commit if provided
     if let Some(commit) = &repo.commit {
         let mut checkout_cmd = Command::new(GIT_PATH.as_str());
+        checkout_cmd.kill_on_drop(true);
         checkout_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -132,6 +134,7 @@ async fn clone_repo(
     }
 
     let mut rev_parse_cmd = Command::new(GIT_PATH.as_str());
+    rev_parse_cmd.kill_on_drop(true);
 
     let commit_hash_output = rev_parse_cmd
         .current_dir(job_dir)
@@ -202,6 +205,7 @@ async fn clone_repo_without_history(
     create_empty_dir(&target_path)?;
 
     let mut init_cmd = Command::new(GIT_PATH.as_str());
+    init_cmd.kill_on_drop(true);
     init_cmd
         .current_dir(job_dir)
         .env_clear()
@@ -236,6 +240,7 @@ async fn clone_repo_without_history(
     .await?;
 
     let mut add_remote_cmd = Command::new(GIT_PATH.as_str());
+    add_remote_cmd.kill_on_drop(true);
     add_remote_cmd
         .current_dir(job_dir)
         .env_clear()
@@ -268,6 +273,7 @@ async fn clone_repo_without_history(
     .await?;
 
     let mut fetch_cmd = Command::new(GIT_PATH.as_str());
+    fetch_cmd.kill_on_drop(true);
     fetch_cmd
         .current_dir(job_dir)
         .env_clear()
@@ -300,6 +306,7 @@ async fn clone_repo_without_history(
     .await?;
 
     let mut checkout_cmd = Command::new(GIT_PATH.as_str());
+    checkout_cmd.kill_on_drop(true);
     checkout_cmd
         .current_dir(job_dir)
         .env_clear()
@@ -429,6 +436,7 @@ pub async fn install_galaxy_collections(
     .await;
 
     let mut galaxy_roles_cmd = Command::new(ANSIBLE_GALAXY_PATH.as_str());
+    galaxy_roles_cmd.kill_on_drop(true);
     galaxy_roles_cmd
         .current_dir(job_dir)
         .env_clear()
@@ -466,6 +474,7 @@ pub async fn install_galaxy_collections(
     .await?;
 
     let mut galaxy_collections_cmd = Command::new(ANSIBLE_GALAXY_PATH.as_str());
+    galaxy_collections_cmd.kill_on_drop(true);
     galaxy_collections_cmd
         .current_dir(job_dir)
         .env_clear()
@@ -519,6 +528,7 @@ pub async fn get_collection_locks(
     job_dir: &str,
 ) -> anyhow::Result<(HashMap<String, String>, String)> {
     let mut ansible_cmd = Command::new(ANSIBLE_GALAXY_PATH.as_str());
+    ansible_cmd.kill_on_drop(true);
 
     ansible_cmd
         .current_dir(job_dir)
@@ -563,6 +573,7 @@ pub async fn get_collection_locks(
 
 pub async fn get_role_locks(job_dir: &str) -> anyhow::Result<(HashMap<String, String>, String)> {
     let mut ansible_cmd = Command::new(ANSIBLE_GALAXY_PATH.as_str());
+    ansible_cmd.kill_on_drop(true);
 
     ansible_cmd
         .current_dir(job_dir)
@@ -610,6 +621,7 @@ pub async fn get_git_repo_full_head_commit_hash(
     git_ssh_cmd: &str,
 ) -> anyhow::Result<String> {
     let mut git_cmd = Command::new(GIT_PATH.as_str());
+    git_cmd.kill_on_drop(true);
 
     git_cmd
         .env("GIT_SSH_COMMAND", git_ssh_cmd)
@@ -1073,6 +1085,7 @@ fi
         file.metadata()?.permissions().set_mode(0o777);
         // let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd.kill_on_drop(true);
         nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -1099,6 +1112,7 @@ fi
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
         let mut ansible_cmd = Command::new(ANSIBLE_PLAYBOOK_PATH.as_str());
+        ansible_cmd.kill_on_drop(true);
         ansible_cmd
             .current_dir(job_dir)
             .env_clear()

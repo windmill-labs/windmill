@@ -83,6 +83,7 @@ pub async fn generate_nuget_lockfile(
     gen_cs_proj(code, job_dir, reqs, lines_to_remove)?;
 
     let mut gen_lockfile_cmd = Command::new(DOTNET_PATH.as_str());
+    gen_lockfile_cmd.kill_on_drop(true);
     gen_lockfile_cmd
         .current_dir(job_dir)
         .args(vec!["restore", "--use-lock-file"])
@@ -323,6 +324,7 @@ async fn build_cs_proj(
     }
 
     let mut build_cs_cmd = Command::new(DOTNET_PATH.as_str());
+    build_cs_cmd.kill_on_drop(true);
     build_cs_cmd
         .current_dir(job_dir)
         .env_clear()
@@ -555,6 +557,7 @@ pub async fn handle_csharp_job(
                 .replace("{SHARED_MOUNT}", shared_mount),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd.kill_on_drop(true);
         nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -584,6 +587,7 @@ pub async fn handle_csharp_job(
             format!("{job_dir}/Main.exe")
         };
         let mut run_csharp = Command::new(&compiled_executable_name);
+        run_csharp.kill_on_drop(true);
         run_csharp
             .current_dir(job_dir)
             .env_clear()

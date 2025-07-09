@@ -179,6 +179,7 @@ pub async fn resolve<'a>(
         } else {
             JAVA_PATH.as_str()
         });
+        cmd.kill_on_drop(true);
         cmd.env_clear()
             .current_dir(job_dir.to_owned())
             .env("PATH", PATH_ENV.as_str())
@@ -320,6 +321,7 @@ async fn install<'a>(
             } else {
                 JAVA_PATH.as_str()
             });
+            cmd.kill_on_drop(true);
             let artifacts = dependencies
                 .into_iter()
                 .map(|e| {
@@ -491,6 +493,7 @@ async fn compile<'a>(
             } else {
                 JAVAC_PATH.as_str()
             });
+            cmd.kill_on_drop(true);
             cmd.env_clear()
                 .current_dir(job_dir.to_owned())
                 .env("PATH", PATH_ENV.as_str())
@@ -601,6 +604,7 @@ async fn run<'a>(
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
         )?;
         let mut cmd = Command::new(NSJAIL_PATH.as_str());
+        cmd.kill_on_drop(true);
         cmd.env_clear()
             .current_dir(job_dir)
             .env("PATH", PATH_ENV.as_str())
@@ -657,6 +661,7 @@ async fn run<'a>(
         } else {
             JAVA_PATH.as_str()
         });
+        cmd.kill_on_drop(true);
         cmd.env_clear()
             .current_dir(job_dir.to_owned())
             .env("PATH", PATH_ENV.as_str())

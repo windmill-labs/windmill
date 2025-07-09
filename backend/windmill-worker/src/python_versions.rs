@@ -356,7 +356,11 @@ impl PyV {
             #[cfg(unix)]
             let uv_cmd = UV_PATH.as_str();
 
-            Command::new(uv_cmd)
+            {
+                let mut cmd = Command::new(uv_cmd);
+                cmd.kill_on_drop(true);
+                cmd
+            }
                 .env_clear()
                 .envs(WIN_ENVS.to_vec())
                 .args([
@@ -612,6 +616,7 @@ impl PyV {
         let uv_cmd = UV_PATH.as_str();
 
         let mut child_cmd = Command::new(uv_cmd);
+        child_cmd.kill_on_drop(true);
         child_cmd
             .env_clear()
             .env("HOME", HOME_ENV.to_string())
@@ -667,6 +672,7 @@ impl PyV {
         let uv_cmd = UV_PATH.as_str();
 
         let mut child_cmd = Command::new(uv_cmd);
+        child_cmd.kill_on_drop(true);
 
         child_cmd.env_clear();
 

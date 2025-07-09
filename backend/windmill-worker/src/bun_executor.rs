@@ -140,6 +140,7 @@ pub async fn gen_bun_lockfile(
         gen_bunfig(job_dir).await?;
 
         let mut child_cmd = Command::new(&*BUN_PATH);
+        child_cmd.kill_on_drop(true);
         child_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -293,6 +294,7 @@ pub async fn install_bun_lockfile(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> Result<()> {
     let mut child_cmd = Command::new(if npm_mode { &*NPM_PATH } else { &*BUN_PATH });
+    child_cmd.kill_on_drop(true);
     child_cmd
         .current_dir(job_dir)
         .env_clear()
@@ -508,6 +510,7 @@ pub async fn generate_wrapper_mjs(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> Result<()> {
     let mut child = Command::new(&*BUN_PATH);
+    child.kill_on_drop(true);
     child
         .current_dir(job_dir)
         .env_clear()
@@ -558,6 +561,7 @@ pub async fn generate_bun_bundle(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> Result<()> {
     let mut child = Command::new(&*BUN_PATH);
+    child.kill_on_drop(true);
     child
         .current_dir(job_dir)
         .env_clear()
@@ -1335,6 +1339,7 @@ try {{
         )?;
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd.kill_on_drop(true);
         let args = if annotation.nodejs {
             vec![
                 "--config",
@@ -1383,6 +1388,7 @@ try {{
             let script_path = format!("{job_dir}/wrapper.mjs");
 
             let mut bun_cmd = Command::new(&*NODE_BIN_PATH);
+            bun_cmd.kill_on_drop(true);
             bun_cmd
                 .current_dir(job_dir)
                 .env_clear()
@@ -1401,6 +1407,7 @@ try {{
             let script_path = format!("{job_dir}/wrapper.mjs");
 
             let mut bun_cmd = Command::new(&*BUN_PATH);
+            bun_cmd.kill_on_drop(true);
             let args = if codebase.is_some() || has_bundle_cache {
                 vec!["run", &script_path]
             } else {

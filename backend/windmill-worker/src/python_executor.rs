@@ -308,6 +308,7 @@ pub async fn uv_pip_compile(
         let uv_cmd = UV_PATH.as_str();
 
         let mut child_cmd = Command::new(uv_cmd);
+        child_cmd.kill_on_drop(true);
         child_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -795,6 +796,7 @@ mount {{
 
     let child = if !*DISABLE_NSJAIL {
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd.kill_on_drop(true);
         nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -819,6 +821,7 @@ mount {{
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
         let mut python_cmd = Command::new(&python_path);
+        python_cmd.kill_on_drop(true);
 
         let args = vec!["-u", "-m", "wrapper"];
         python_cmd
@@ -1339,6 +1342,7 @@ async fn spawn_uv_install(
         )?;
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd.kill_on_drop(true);
         nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -1424,6 +1428,7 @@ async fn spawn_uv_install(
         #[cfg(unix)]
         {
             let mut cmd = Command::new(command_args[0]);
+            cmd.kill_on_drop(true);
             cmd.env_clear()
                 .envs(PROXY_ENVS.clone())
                 .envs(envs)
@@ -1436,6 +1441,7 @@ async fn spawn_uv_install(
         #[cfg(windows)]
         {
             let mut cmd: Command = Command::new("uv");
+            cmd.kill_on_drop(true);
             cmd.env_clear()
                 .envs(envs)
                 .envs(PROXY_ENVS.clone())

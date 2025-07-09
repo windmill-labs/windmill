@@ -183,6 +183,7 @@ exit $exit_status
         ];
         cmd_args.extend(args);
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd.kill_on_drop(true);
         nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -198,6 +199,7 @@ exit $exit_status
         let mut cmd_args = vec!["wrapper.sh"];
         cmd_args.extend(&args);
         let mut bash_cmd = Command::new(BIN_BASH.as_str());
+        bash_cmd.kill_on_drop(true);
         bash_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -618,7 +620,9 @@ pub async fn handle_powershell_job(
                     .collect::<Vec<_>>()
                     .join(", "),
             );
-        let child = Command::new(POWERSHELL_PATH.as_str())
+        let mut child_cmd = Command::new(POWERSHELL_PATH.as_str());
+        child_cmd.kill_on_drop(true);
+        let child = child_cmd
             .args(&["-Command", &install_string])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -750,7 +754,11 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
             "wrapper.sh",
         ];
         cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
-        Command::new(NSJAIL_PATH.as_str())
+        {
+            let mut cmd = Command::new(NSJAIL_PATH.as_str());
+            cmd.kill_on_drop(true);
+            cmd
+        }
             .current_dir(job_dir)
             .env_clear()
             .envs(PROXY_ENVS.clone())
@@ -771,6 +779,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
             cmd_args = vec!["wrapper.sh"];
             cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
             cmd = Command::new(BIN_BASH.as_str());
+            cmd.kill_on_drop(true);
         }
 
         #[cfg(windows)]
@@ -778,6 +787,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
             cmd_args = vec![r".\wrapper.ps1".to_string()];
             cmd_args.extend(pwsh_args.iter().map(|x| x.replace("--", "-")));
             cmd = Command::new(POWERSHELL_PATH.as_str());
+            cmd.kill_on_drop(true);
         }
 
         cmd.current_dir(job_dir)

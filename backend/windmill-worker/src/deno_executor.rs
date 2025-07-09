@@ -123,6 +123,7 @@ pub async fn generate_deno_lock(
     let deno_envs = get_common_deno_proc_envs("", base_internal_url).await;
 
     let mut child_cmd = Command::new(DENO_PATH.as_str());
+    child_cmd.kill_on_drop(true);
     child_cmd
         .current_dir(job_dir)
         .args(vec![
@@ -394,6 +395,7 @@ try {{
         }
         args.push(&script_path);
         let mut deno_cmd = Command::new(DENO_PATH.as_str());
+        deno_cmd.kill_on_drop(true);
         deno_cmd
             .current_dir(job_dir)
             .env_clear()

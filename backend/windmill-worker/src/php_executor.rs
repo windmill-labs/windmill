@@ -84,6 +84,7 @@ pub async fn composer_install(
     }
 
     let mut child_cmd = Command::new(&*COMPOSER_PATH);
+    child_cmd.kill_on_drop(true);
     let args = vec!["install", "--no-dev", "--no-progress"];
     child_cmd
         .current_dir(job_dir)
@@ -290,6 +291,7 @@ try {{
         )?;
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd.kill_on_drop(true);
         let args = vec![
             "--config",
             "run.config.proto",
@@ -313,6 +315,7 @@ try {{
             let script_path = format!("{job_dir}/wrapper.php");
 
             let mut php_cmd = Command::new(&*PHP_PATH);
+            php_cmd.kill_on_drop(true);
             let args = vec![&script_path];
             php_cmd
                 .current_dir(job_dir)
