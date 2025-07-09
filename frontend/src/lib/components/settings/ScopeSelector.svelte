@@ -179,7 +179,6 @@
 		domainState.hasFullAccess = checked
 
 		if (checked) {
-			// Remove any existing scopes for this domain
 			selectedScopes = selectedScopes.filter(
 				(scope) =>
 					!domain.scopes.some(
@@ -190,7 +189,7 @@
 
 			const writeScope = domain.scopes.find((s) => s.value === writeScopeValue)
 			if (writeScope?.requires_resource_path) {
-				selectedScopes = [...selectedScopes, `${writeScopeValue}:*`]
+				selectedScopes = [...selectedScopes, `${writeScopeValue}`]
 			} else {
 				selectedScopes = [...selectedScopes, writeScopeValue]
 			}
@@ -198,7 +197,7 @@
 			const runScopes = domain.scopes.filter((scope) => scope.value.includes(':run:'))
 			for (const runScope of runScopes) {
 				if (runScope.requires_resource_path) {
-					selectedScopes = [...selectedScopes, `${runScope.value}:*`]
+					selectedScopes = [...selectedScopes, `${runScope.value}`]
 				} else {
 					selectedScopes = [...selectedScopes, runScope.value]
 				}
@@ -231,26 +230,16 @@
 		scopeState.isSelected = checked
 
 		if (scope.requires_resource_path) {
-			if (checked) {
-				// Initialize with default wildcard if no paths exist
-				if (scopeState.resourcePaths.length === 0) {
-					scopeState.resourcePaths = ['*']
-					updateSelectedScopesForResourcePaths(scope.value, ['*'])
-				}
-			} else {
+			if (!checked) {
 				scopeState.resourcePaths = []
 				updateSelectedScopesForResourcePaths(scope.value, [])
 			}
 		} else {
+			selectedScopes = selectedScopes.filter(
+				(s) => !s.startsWith(scope.value + ':') && s !== scope.value
+			)
 			if (checked) {
-				selectedScopes = selectedScopes.filter(
-					(s) => !s.startsWith(scope.value + ':') && s !== scope.value
-				)
 				selectedScopes = [...selectedScopes, scope.value]
-			} else {
-				selectedScopes = selectedScopes.filter(
-					(s) => !s.startsWith(scope.value + ':') && s !== scope.value
-				)
 			}
 		}
 
@@ -294,7 +283,6 @@
 
 	function clearAllScopes() {
 		selectedScopes = []
-		// Reset all domain states
 		for (const domainState of Object.values(componentState.domains)) {
 			domainState.hasFullAccess = false
 			domainState.isExpanded = false
@@ -383,10 +371,14 @@
 		scopeState.resourcePaths = newPaths
 		scopeState.pathError = undefined
 
-		updateSelectedScopesForResourcePaths(scopeValue, newPaths)
+		updateSelectedScopesForResourcePaths(scopeValue, newPaths, false)
 	}
 
-	function updateSelectedScopesForResourcePaths(scopeValue: string, paths: string[]) {
+	function updateSelectedScopesForResourcePaths(
+		scopeValue: string,
+		paths: string[],
+		removeScope = true
+	) {
 		selectedScopes = selectedScopes.filter(
 			(s) => !s.startsWith(scopeValue + ':') && s !== scopeValue
 		)
@@ -394,9 +386,11 @@
 		const scopeState = getScopeState(scopeValue)
 		if (!scopeState) return
 
-		if (paths.length > 0) {
-			const scopeString = `${scopeValue}:${paths.join(',')}`
-			selectedScopes = [...selectedScopes, scopeString]
+		if (paths.length > 0 || !removeScope) {
+			selectedScopes = [
+				...selectedScopes,
+				paths.length > 0 ? `${scopeValue}:${paths.join(',')}` : scopeValue
+			]
 			scopeState.isSelected = true
 		} else {
 			scopeState.isSelected = false
@@ -412,7 +406,6 @@
 			const domainState = getDomainState(domain.name)
 			if (!domainState) continue
 
-			// Check if domain has full access
 			const writeScopeValue = getWriteScopeForDomain(domain)
 			const hasWriteSelected =
 				writeScopeValue &&
