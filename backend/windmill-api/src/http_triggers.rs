@@ -2,9 +2,6 @@
 use crate::http_trigger_args::{HttpMethod, RawHttpTriggerArgs};
 #[cfg(feature = "parquet")]
 use crate::job_helpers_oss::get_workspace_s3_resource;
-use crate::resources::try_get_resource_from_db_as;
-use crate::trigger_helpers::{get_runnable_format, RunnableId};
-use crate::utils::{non_empty_str, ExpiringCacheEntry};
 use crate::{
     auth::{AuthCache, OptTokened},
     db::{ApiAuthed, DB},
@@ -13,7 +10,11 @@ use crate::{
         run_wait_result_script_by_path_internal, RunJobQuery,
     },
     users::fetch_api_authed,
+    trigger_helpers::{get_runnable_format, RunnableId},
+    resources::try_get_resource_from_db_as,
+    utils::{non_empty_str, ExpiringCacheEntry, check_scopes}
 };
+
 use anyhow::anyhow;
 use axum::response::Response;
 use axum::{
@@ -239,8 +240,9 @@ async fn get_trigger(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> error::JsonResult<HttpTrigger> {
-    let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
+    check_scopes(&authed, || format!("http_triggers:read:{}", path))?;
+    let mut tx = user_db.begin(&authed).await?;
     let trigger = sqlx::query_as!(
         HttpTrigger,
         r#"
@@ -316,6 +318,10 @@ async fn create_trigger_inner(
     new_http_trigger: &NewTrigger,
     route_path_key: &str,
 ) -> WindmillResult<()> {
+    check_scopes(&authed, || {
+        format!("http_triggers:write:{}", &new_http_trigger.path)
+    })?;
+
     sqlx::query!(
         r#"
         INSERT INTO http_trigger (
@@ -554,6 +560,7 @@ async fn update_trigger(
     Json(ct): Json<EditTrigger>,
 ) -> WindmillResult<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("http_triggers:write:{}", path))?;
 
     if *CLOUD_HOSTED && (ct.is_static_website || ct.static_asset_config.is_some()) {
         return Err(error::Error::BadRequest(
@@ -726,8 +733,9 @@ async fn delete_trigger(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> WindmillResult<String> {
-    require_admin(authed.is_admin, &authed.username)?;
     let path = path.to_path();
+    check_scopes(&authed, || format!("http_triggers:write:{}", path))?;
+    require_admin(authed.is_admin, &authed.username)?;
     let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
         "DELETE FROM http_trigger 
