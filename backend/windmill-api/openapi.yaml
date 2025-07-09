@@ -3099,6 +3099,24 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ContextualVariable"
+  
+  /w/{workspace}/workspaces/get_secondary_storage_names:
+    get:
+      summary: get secondary storage names
+      operationId: getSecondaryStorageNames
+      tags:
+        - setting
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
 
   /w/{workspace}/workspaces/critical_alerts:
     get:

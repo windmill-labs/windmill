@@ -14,7 +14,7 @@
 		MoveRight
 	} from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { HelpersService } from '$lib/gen'
+	import { HelpersService, SettingService } from '$lib/gen'
 	import { base } from '$lib/base'
 	import {
 		displayDate,
@@ -33,6 +33,8 @@
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import FileUploadModal from './common/fileUpload/FileUploadModal.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import Select from './select/Select.svelte'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
 
 	let deletionModalOpen = $state(false)
 	let fileDeletionInProgress = $state(false)
@@ -124,6 +126,10 @@
 
 	let timeout: NodeJS.Timeout | undefined = undefined
 	let firstLoad = true
+
+	let secondaryStorageNames = usePromise(() =>
+		SettingService.getSecondaryStorageNames({ workspace: $workspaceStore! })
+	)
 
 	function onFilterChange() {
 		if (!firstLoad) {
@@ -803,6 +809,24 @@
 
 		{#snippet actions()}
 			<div class="flex gap-1">
+				{#if secondaryStorageNames.value?.length}
+					<Select
+						inputClass="h-10 min-w-44 !placeholder-primary"
+						items={[
+							{ value: undefined, label: 'Default storage' },
+							...secondaryStorageNames.value.map((value) => ({ value }))
+						]}
+						placeholder="Default storage"
+						bind:value={
+							() => storage,
+							(v) => {
+								if (v === storage) return
+								storage = v
+								reloadContent()
+							}
+						}
+					/>
+				{/if}
 				{#if !readOnlyMode}
 					<Button
 						variant="border"
