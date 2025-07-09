@@ -60,11 +60,6 @@ export type CurrentEditor =
 	  })
 	| undefined
 
-type PreviewJobState = {
-	job: Job | undefined
-	showJobStatus: boolean
-}
-
 export type FlowEditorContext = {
 	selectedId: Writable<string>
 	currentEditor: Writable<CurrentEditor>
@@ -85,6 +80,6 @@ export type FlowEditorContext = {
 	insertButtonOpen: Writable<boolean>
 	executionCount: Writable<number>
 	modulesTestStates: ModulesTestStates
-	getPreviewJobState: () => PreviewJobState | undefined
+	getPreviewJob: () => Job | undefined
 	outputPickerOpenFns: Record<string, () => void>
 }

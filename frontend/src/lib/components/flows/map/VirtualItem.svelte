@@ -12,8 +12,7 @@
 	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 	import FlowGraphPreviewButton from './FlowGraphPreviewButton.svelte'
-	import type { FlowEditorContext } from '../types'
-	import { getContext } from 'svelte'
+	import type { Job } from '$lib/gen'
 
 	interface Props {
 		label?: string | undefined
@@ -41,7 +40,9 @@
 		onHideJobStatus?: () => void
 		individualStepTests?: boolean
 		nodeKind?: 'input' | 'result'
+		job?: Job
 		type?: string
+		showJobStatus?: boolean
 		darkMode?: boolean
 	}
 
@@ -71,6 +72,8 @@
 		onOpenPreview,
 		onHideJobStatus,
 		individualStepTests = false,
+		job,
+		showJobStatus = false,
 		darkMode = false
 	}: Props = $props()
 
@@ -81,23 +84,17 @@
 	let action = $derived(label === 'Input' ? getAiModuleAction(label) : undefined)
 	let hoverButton = $state(false)
 
-	const { getPreviewJobState } = getContext<FlowEditorContext>('FlowEditorContext') || {
-		getPreviewJobState: () => undefined
-	}
-	const previewJobState = $derived.by(getPreviewJobState)
-	const outputType = $derived.by(() => {
-		const { job, showJobStatus } = previewJobState ?? {}
-		if (!job || !showJobStatus) {
-			return undefined
-		}
-		return job?.type === 'QueuedJob'
-			? 'InProgress'
-			: job?.type === 'CompletedJob'
-				? job.success
-					? 'Success'
-					: 'Failure'
-				: undefined
-	})
+	const outputType = $derived(
+		showJobStatus
+			? job?.type === 'QueuedJob'
+				? 'InProgress'
+				: job?.type === 'CompletedJob'
+					? job.success
+						? 'Success'
+						: 'Failure'
+					: undefined
+			: undefined
+	)
 </script>
 
 <VirtualItemWrapper
@@ -167,7 +164,7 @@
 							clazz="p-1"
 							{onEditInput}
 							selectionId={id ?? label ?? ''}
-							testJob={previewJobState?.job}
+							testJob={job}
 							disableMock
 							disableHistory
 							customEmptyJobMessage={nodeKind === 'result'

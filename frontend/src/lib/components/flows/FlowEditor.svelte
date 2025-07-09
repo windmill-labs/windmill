@@ -48,8 +48,10 @@
 		onOpenPreview?: () => void
 		onHideJobStatus?: () => void
 		individualStepTests?: boolean
+		job?: Job
 		localDurationStatuses?: Writable<Record<string, DurationStatus>>
 		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
+		showJobStatus?: boolean
 	}
 
 	let {
@@ -78,8 +80,10 @@
 		onOpenPreview,
 		onHideJobStatus,
 		individualStepTests = false,
+		job,
 		localDurationStatuses,
-		suspendStatus
+		suspendStatus,
+		showJobStatus
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -148,6 +152,8 @@
 						{onOpenPreview}
 						{onHideJobStatus}
 						{individualStepTests}
+						flowJob={job}
+						{showJobStatus}
 						{suspendStatus}
 					/>
 				{/if}
@@ -172,6 +178,7 @@
 					{forceTestTab}
 					{highlightArg}
 					{onTestFlow}
+					{job}
 					{isOwner}
 					{localDurationStatuses}
 					{suspendStatus}

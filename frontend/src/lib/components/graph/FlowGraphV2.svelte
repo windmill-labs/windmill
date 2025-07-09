@@ -89,6 +89,8 @@
 		isOwner?: boolean
 		isRunning?: boolean
 		individualStepTests?: boolean
+		flowJob?: Job | undefined
+		showJobStatus?: boolean
 		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
@@ -162,6 +164,8 @@
 		onOpenPreview = undefined,
 		onHideJobStatus = undefined,
 		individualStepTests = false,
+		flowJob = undefined,
+		showJobStatus = false,
 		suspendStatus = writable({})
 	}: Props = $props()
 
@@ -432,6 +436,8 @@
 				isOwner,
 				isRunning,
 				individualStepTests,
+				flowJob,
+				showJobStatus,
 				suspendStatus
 			},
 			failureModule,

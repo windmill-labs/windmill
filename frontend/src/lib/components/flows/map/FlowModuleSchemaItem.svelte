@@ -41,7 +41,7 @@
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
-	import type { FlowStatusModule } from '$lib/gen'
+	import type { FlowStatusModule, Job } from '$lib/gen'
 
 	interface Props {
 		selected?: boolean
@@ -77,6 +77,7 @@
 		inputTransform?: Record<string, any> | undefined
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		onEditInput?: (moduleId: string, key: string) => void
+		flowJob?: Job | undefined
 		isOwner?: boolean
 		enableTestRun?: boolean
 		type?: FlowStatusModule['type'] | undefined
@@ -113,6 +114,7 @@
 		inputTransform,
 		onUpdateMock,
 		onEditInput,
+		flowJob,
 		enableTestRun = false,
 		type,
 		darkMode,
@@ -203,11 +205,6 @@
 	const action = $derived(getAiModuleAction(id))
 
 	let testRunDropdownOpen = $state(false)
-
-	const { getPreviewJobState } = getContext<FlowEditorContext>('FlowEditorContext') || {
-		getPreviewJobState: () => undefined
-	}
-	const previewJobState = $derived.by(getPreviewJobState)
 </script>
 
 {#if deletable && id && editId}
@@ -534,7 +531,7 @@ outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration
 		{/if}
 	</div>
 
-	{#if editMode && enableTestRun && previewJobState?.job?.type !== 'QueuedJob'}
+	{#if editMode && enableTestRun && flowJob?.type !== 'QueuedJob'}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-2 h-9 min-w-14"

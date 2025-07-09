@@ -148,6 +148,7 @@
 	let flowPreviewButtons: FlowPreviewButtons | undefined = $state()
 	const job: Job | undefined = $derived(flowPreviewButtons?.getJob())
 	let showJobStatus = $state(false)
+	const previewJob: Job | undefined = $derived(showJobStatus ? job : undefined)
 
 	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
 		const { selectedTriggers } = event.detail
@@ -567,10 +568,6 @@
 		editPanelSize: 0,
 		payloadData: undefined
 	})
-	const getPreviewJobState = () => ({
-		job,
-		showJobStatus
-	})
 
 	const testSteps = new TestSteps()
 
@@ -609,7 +606,7 @@
 		executionCount: writable(0),
 		flowInputEditorState: flowInputEditorStateStore,
 		modulesTestStates,
-		getPreviewJobState,
+		getPreviewJob: () => previewJob,
 		outputPickerOpenFns
 	})
 
@@ -958,9 +955,7 @@
 		showJobStatus = false
 	}
 
-	const individualStepTests = $derived(
-		!showJobStatus && Object.keys($derivedModuleStates).length > 0
-	)
+	const individualStepTests = $derived(!previewJob && Object.keys($derivedModuleStates).length > 0)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -1234,8 +1229,10 @@
 					onCancelTestFlow={flowPreviewButtons?.cancelTest}
 					onHideJobStatus={resetModulesStates}
 					{individualStepTests}
+					{job}
 					{localDurationStatuses}
 					{suspendStatus}
+					{showJobStatus}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

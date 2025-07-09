@@ -115,6 +115,7 @@
 	let flowPreviewButtons: FlowPreviewButtons | undefined = $state()
 	const job: Job | undefined = $derived(flowPreviewButtons?.getJob())
 	let showJobStatus = $state(false)
+	const previewJob: Job | undefined = $derived(showJobStatus ? job : undefined)
 	let testModuleId: string | undefined = $state(undefined)
 
 	type LastEditScript = {
@@ -486,10 +487,7 @@
 		}),
 		currentEditor: writable(undefined),
 		modulesTestStates,
-		getPreviewJobState: () => ({
-			job,
-			showJobStatus
-		}),
+		getPreviewJob: () => previewJob,
 		outputPickerOpenFns
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
@@ -634,9 +632,7 @@
 		showJobStatus = false
 	}
 
-	const individualStepTests = $derived(
-		!showJobStatus && Object.keys($derivedModuleStates).length > 0
-	)
+	const individualStepTests = $derived(!previewJob && Object.keys($derivedModuleStates).length > 0)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -803,6 +799,8 @@
 								onOpenPreview={flowPreviewButtons?.openPreview}
 								onHideJobStatus={resetModulesStates}
 								{individualStepTests}
+								flowJob={job}
+								{showJobStatus}
 							/>
 						{:else}
 							<div class="text-red-400 mt-20">Missing flow modules</div>

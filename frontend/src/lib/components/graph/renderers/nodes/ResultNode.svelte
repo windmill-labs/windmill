@@ -36,7 +36,9 @@
 			}}
 			nodeKind="result"
 			editMode={data.editMode}
+			job={data.job}
 			{type}
+			showJobStatus={data.showJobStatus}
 			{darkMode}
 		/>
 	{/snippet}

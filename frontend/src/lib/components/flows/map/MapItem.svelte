@@ -2,7 +2,7 @@
 	import { Button } from '$lib/components/common'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
-	import type { FlowModule, FlowStatusModule } from '$lib/gen'
+	import type { FlowModule, FlowStatusModule, Job } from '$lib/gen'
 	import { Building, Repeat, Square, ArrowDown, GitBranch } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
@@ -46,6 +46,7 @@
 			mock: { enabled: boolean; return_value?: unknown }
 		}) => void
 		onEditInput?: (moduleId: string, key: string) => void
+		flowJob?: Job | undefined
 		isOwner?: boolean
 		type?: FlowStatusModule['type'] | undefined
 		darkMode?: boolean
@@ -69,6 +70,7 @@
 		onTestUpTo,
 		onUpdateMock,
 		onEditInput,
+		flowJob,
 		isOwner = false,
 		type,
 		darkMode,
@@ -268,6 +270,7 @@
 					inputTransform={mod.value.type !== 'identity' ? mod.value.input_transforms : undefined}
 					{onTestUpTo}
 					{onEditInput}
+					{flowJob}
 					{isOwner}
 					enableTestRun
 					{type}
