@@ -12,6 +12,7 @@
 	export let isOwner: boolean
 	export let workspaceId: string | undefined
 	export let job: Job
+	export let light: boolean = false
 
 	let default_payload: object = {}
 	let resumeUrl: string | undefined = undefined
@@ -115,9 +116,11 @@
 </script>
 
 <div class="w-full h-full mt-2 text-sm text-tertiary">
-	<p>Waiting to be resumed</p>
+	{#if !light}
+		<p>Waiting to be resumed</p>
+	{/if}
 	{#if description != undefined}
-		<DisplayResult {workspaceId} noControls result={description} language={job?.language}/>
+		<DisplayResult {workspaceId} noControls result={description} language={job?.language} />
 	{/if}
 	<div>
 		{#if isOwner || resumeUrl}

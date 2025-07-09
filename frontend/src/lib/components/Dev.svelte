@@ -27,7 +27,7 @@
 	import FlowModuleSchemaMap from './flows/map/FlowModuleSchemaMap.svelte'
 	import FlowEditorPanel from './flows/content/FlowEditorPanel.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { writable } from 'svelte/store'
+	import { writable, type Writable } from 'svelte/store'
 	import type { FlowState } from './flows/flowState'
 	import { initHistory } from '$lib/history'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
@@ -49,6 +49,9 @@
 	import type { PickableProperties } from './flows/previousResults'
 	import { Triggers } from './triggers/triggers.svelte'
 	import { TestSteps } from './flows/testSteps.svelte'
+	import { ModulesTestStates } from './modulesTest.svelte'
+	import type { DurationStatus, GraphModuleState } from './graph'
+	import { updateDerivedModuleStatesFromTestJobs } from './flows/utils'
 
 	let flowCopilotContext: FlowCopilotContext = {
 		shouldUpdatePropertyType: writable<{
@@ -107,6 +110,12 @@
 	let testJob: Job | undefined = $state()
 	let pastPreviews: CompletedJob[] = $state([])
 	let validCode = $state(true)
+
+	// Flow preview
+	let flowPreviewButtons: FlowPreviewButtons | undefined = $state()
+	const job: Job | undefined = $derived(flowPreviewButtons?.getJob())
+	let showJobStatus = $state(false)
+	let testModuleId: string | undefined = $state(undefined)
 
 	type LastEditScript = {
 		content: string
@@ -436,11 +445,17 @@
 	const scriptEditorDrawer = writable(undefined)
 	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory(flowStore.val)
-
 	const testSteps = new TestSteps()
 	const selectedIdStore = writable('settings-metadata')
-
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
+	const modulesTestStates = new ModulesTestStates((moduleId) => {
+		// Update the derived store with test job states
+		delete $derivedModuleStates[moduleId]
+		testModuleId = moduleId
+		showJobStatus = false
+	})
+	const outputPickerOpenFns: Record<string, () => void> = $state({})
+
 	setContext<TriggerContext>('TriggerContext', {
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),
@@ -469,7 +484,9 @@
 			editPanelSize: undefined,
 			payloadData: undefined
 		}),
-		currentEditor: writable(undefined)
+		currentEditor: writable(undefined),
+		modulesTestStates,
+		outputPickerOpenFns
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
@@ -487,7 +504,6 @@
 		}
 	}
 
-	let flowPreviewButtons: FlowPreviewButtons | undefined = $state()
 	let reload = $state(0)
 
 	async function inferModuleArgs(selectedIdStore: string) {
@@ -554,6 +570,69 @@
 	$effect(() => {
 		$selectedIdStore && untrack(() => inferModuleArgs($selectedIdStore))
 	})
+
+	const localModuleStates: Writable<Record<string, GraphModuleState>> = $derived(
+		flowPreviewButtons?.getLocalModuleStates() ?? writable({})
+	)
+	const localDurationStatuses: Writable<Record<string, DurationStatus>> = $derived(
+		flowPreviewButtons?.getLocalDurationStatuses() ?? writable({})
+	)
+	const suspendStatus: Writable<Record<string, { job: Job; nb: number }>> = $derived(
+		flowPreviewButtons?.getSuspendStatus() ?? writable({})
+	)
+
+	// Create a derived store that only shows the module states when showModuleStatus is true
+	// this store can also be updated
+	let derivedModuleStates = writable<Record<string, GraphModuleState>>({})
+	$effect(() => {
+		derivedModuleStates.update((currentStates) => {
+			return showJobStatus ? $localModuleStates : currentStates
+		})
+	})
+	$effect(() => {
+		updateDerivedModuleStatesFromTestJobs(testModuleId, modulesTestStates, derivedModuleStates)
+	})
+
+	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
+	function onJobDone() {
+		if (!job) {
+			return
+		}
+		// job was running and is now stopped
+		if (!flowPreviewButtons?.getPreviewOpen()) {
+			if (
+				job.type === 'CompletedJob' &&
+				job.success &&
+				flowPreviewButtons?.getPreviewMode() === 'whole'
+			) {
+				if (flowModuleSchemaMap?.isNodeVisible('result') && $selectedIdStore !== 'Result') {
+					outputPickerOpenFns['Result']?.()
+				}
+			} else {
+				// Find last module with a job in flow_status
+				const lastModuleWithJob = job.flow_status?.modules
+					?.slice()
+					.reverse()
+					.find((module) => 'job' in module)
+				if (
+					lastModuleWithJob &&
+					lastModuleWithJob.id &&
+					flowModuleSchemaMap?.isNodeVisible(lastModuleWithJob.id)
+				) {
+					outputPickerOpenFns[lastModuleWithJob.id]?.()
+				}
+			}
+		}
+	}
+
+	function resetModulesStates() {
+		derivedModuleStates.set({})
+		showJobStatus = false
+	}
+
+	const individualStepTests = $derived(
+		!(showJobStatus && job) && Object.keys($derivedModuleStates).length > 0
+	)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -691,18 +770,40 @@
 					{/if}
 				</div>
 
-				<div class="flex justify-center pt-1 z-50 absolute right-2 top-2 gap-2">
-					<FlowPreviewButtons bind:this={flowPreviewButtons} />
+				<div class="flex justify-center pt-1 z-50 absolute -translate-x-[100%] right-2 top-2 gap-2">
+					<FlowPreviewButtons
+						bind:this={flowPreviewButtons}
+						{onJobDone}
+						onRunPreview={() => {
+							localModuleStates.set({})
+							showJobStatus = true
+						}}
+					/>
 				</div>
 				<Splitpanes horizontal class="h-full max-h-screen grow">
 					<Pane size={67}>
 						{#if flowStore.val?.value?.modules}
 							<div id="flow-editor"></div>
 							<FlowModuleSchemaMap
+								bind:this={flowModuleSchemaMap}
 								disableAi
 								disableTutorials
 								smallErrorHandler={true}
 								disableStaticInputs
+								localModuleStates={derivedModuleStates}
+								onTestUpTo={flowPreviewButtons?.testUpTo}
+								isOwner={flowPreviewButtons?.getIsOwner()}
+								onTestFlow={flowPreviewButtons?.runPreview}
+								isRunning={flowPreviewButtons?.getIsRunning()}
+								onCancelTestFlow={flowPreviewButtons?.cancelTest}
+								onOpenPreview={flowPreviewButtons?.openPreview}
+								onHideJobStatus={resetModulesStates}
+								{individualStepTests}
+								flowJob={job}
+								{showJobStatus}
+								onDelete={(id) => {
+									delete $derivedModuleStates[id]
+								}}
 							/>
 						{:else}
 							<div class="text-red-400 mt-20">Missing flow modules</div>
@@ -722,6 +823,12 @@
 										flowPreviewButtons?.openPreview()
 									}
 								}}
+								onTestFlow={flowPreviewButtons?.runPreview}
+								{job}
+								isOwner={flowPreviewButtons?.getIsOwner()}
+								{localDurationStatuses}
+								{suspendStatus}
+								onOpenDetails={flowPreviewButtons?.openPreview}
 							/>
 						{/key}
 					</Pane>

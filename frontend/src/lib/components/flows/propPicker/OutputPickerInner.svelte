@@ -68,6 +68,7 @@
 		selectionId?: string
 		initial?: boolean
 		onResetInitial?: () => void
+		customEmptyJobMessage?: string
 	}
 
 	let {
@@ -101,7 +102,8 @@
 		onUpdateMock,
 		onEditInput,
 		selectionId,
-		initial
+		initial,
+		customEmptyJobMessage
 	}: Props = $props()
 
 	type SelectedJob =
@@ -701,7 +703,7 @@
 			{:else if !job}
 				<div class="flex flex-col items-center justify-center h-full">
 					<p class="text-xs text-secondary">
-						Test this step to see results{#if !disableMock}
+						{customEmptyJobMessage ?? 'Test this step to see results'}{#if !disableMock}
 							{' or'}
 							<button
 								class="text-blue-500 hover:text-blue-700 underline"

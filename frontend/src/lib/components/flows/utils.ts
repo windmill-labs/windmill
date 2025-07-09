@@ -9,12 +9,14 @@ import {
 } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { cleanExpr, emptySchema } from '$lib/utils'
-import { get } from 'svelte/store'
+import { get, type Writable } from 'svelte/store'
 import type { FlowModuleState } from './flowState'
 import { type PickableProperties, dfs } from './previousResults'
 import { NEVER_TESTED_THIS_FAR } from './models'
 import { sendUserToast } from '$lib/toast'
 import type { ExtendedOpenFlow } from './types'
+import type { GraphModuleState } from '../graph'
+import type { ModulesTestStates } from '../modulesTest.svelte'
 
 function create_context_function_template(eval_string: string, context: Record<string, any>) {
 	return `
@@ -194,4 +196,51 @@ export function checkIfParentLoop(
 		}
 	}
 	return undefined
+}
+
+/**
+ * Updates moduleStates based on test job data from modulesTestStates
+ * Extracts job information and converts it to GraphModuleState format
+ * for graph rendering
+ */
+export function updateDerivedModuleStatesFromTestJobs(
+	moduleId: string | undefined,
+	moduleTestStates: ModulesTestStates | undefined,
+	moduleStates: Writable<Record<string, GraphModuleState>> | undefined
+) {
+	if (!moduleId || !moduleTestStates || !moduleStates) {
+		return
+	}
+	const newStates: Record<string, GraphModuleState> = {}
+
+	const testState = moduleTestStates?.states[moduleId]
+	if (testState) {
+		if (testState.testJob) {
+			const job = testState.testJob
+
+			// Create GraphModuleState from job data
+			const moduleState: GraphModuleState = {
+				args: job.args,
+				type: job.type === 'QueuedJob' ? 'InProgress' : job['success'] ? 'Success' : 'Failure',
+				job_id: job.id,
+				tag: job.tag,
+				duration_ms: job['duration_ms'],
+				started_at: job.started_at ? new Date(job.started_at).getTime() : undefined
+			}
+
+			newStates[moduleId] = moduleState
+		} else if (testState.loading) {
+			// If test is loading, show as InProgress
+			newStates[moduleId] = {
+				type: 'InProgress',
+				args: {}
+			}
+		}
+	}
+
+	// Update the store with test job states
+	moduleStates.update((currentStates) => ({
+		...currentStates,
+		...newStates
+	}))
 }

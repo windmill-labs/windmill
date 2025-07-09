@@ -379,6 +379,7 @@ export function pointerDownOutside(
 					event.stopPropagation()
 				}
 				node.dispatchEvent(new CustomEvent<PointerEvent>('pointerdown_outside', { detail: event }))
+				if (typeof options === 'object') options.onClickOutside?.(event)
 				return false
 			}
 		}

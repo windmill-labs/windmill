@@ -1,9 +1,10 @@
-import type { FlowModule, RawScript, Script } from '$lib/gen'
+import type { FlowModule, Job, RawScript, Script } from '$lib/gen'
 import { type Edge } from '@xyflow/svelte'
 import { getDependeeAndDependentComponents } from '../flows/flowExplorer'
 import { dfsByModule } from '../flows/previousResults'
 import { defaultIfEmptyString } from '$lib/utils'
 import type { GraphModuleState } from './model'
+import type { Writable } from 'svelte/store'
 
 export type InsertKind =
 	| 'script'
@@ -54,6 +55,10 @@ export type GraphEventHandlers = {
 	updateMock: (detail: { mock: FlowModule['mock']; id: string }) => void
 	testUpTo: (id: string) => void
 	editInput: (moduleId: string, key: string) => void
+	testFlow: () => void
+	cancelTestFlow: () => void
+	openPreview: () => void
+	hideJobStatus: () => void
 }
 
 export type SimplifiableFlow = { simplifiedFlow: boolean }
@@ -102,6 +107,11 @@ export type InputN = {
 		cache: boolean
 		earlyStop: boolean
 		editMode: boolean
+		isRunning: boolean
+		individualStepTests: boolean
+		flowJob: Job | undefined
+		showJobStatus: boolean
+		flowHasChanged: boolean
 	}
 }
 
@@ -117,6 +127,8 @@ export type ModuleN = {
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		insertable: boolean
 		editMode: boolean
+		flowJob: Job | undefined
+		isOwner: boolean
 	}
 }
 
@@ -174,6 +186,9 @@ export type ResultN = {
 	data: {
 		success: boolean | undefined
 		eventHandlers: GraphEventHandlers
+		editMode: boolean
+		job: Job | undefined
+		showJobStatus: boolean
 	}
 }
 
@@ -283,6 +298,13 @@ export function graphBuilder(
 		cache: boolean
 		earlyStop: boolean
 		editMode: boolean
+		isOwner: boolean
+		isRunning: boolean
+		individualStepTests: boolean
+		flowJob: Job | undefined
+		showJobStatus: boolean
+		suspendStatus: Writable<Record<string, { job: Job; nb: number }>>
+		flowHasChanged: boolean
 	},
 	failureModule: FlowModule | undefined,
 	preprocessorModule: FlowModule | undefined,
@@ -333,7 +355,9 @@ export function graphBuilder(
 					moving: moving,
 					flowModuleStates: extra.flowModuleStates,
 					insertable: extra.insertable,
-					editMode: extra.editMode
+					editMode: extra.editMode,
+					isOwner: extra.isOwner,
+					flowJob: extra.flowJob
 				},
 				type: 'module'
 			})
@@ -433,7 +457,12 @@ export function graphBuilder(
 				disableAi: extra.disableAi,
 				cache: extra.cache,
 				earlyStop: extra.earlyStop,
-				editMode: extra.editMode
+				editMode: extra.editMode,
+				isRunning: extra.isRunning,
+				individualStepTests: extra.individualStepTests,
+				flowJob: extra.flowJob,
+				showJobStatus: extra.showJobStatus,
+				flowHasChanged: extra.flowHasChanged
 			}
 		}
 
@@ -467,7 +496,10 @@ export function graphBuilder(
 			id: 'result',
 			data: {
 				eventHandlers: eventHandlers,
-				success: success
+				success: success,
+				editMode: extra.editMode,
+				job: extra.flowJob,
+				showJobStatus: extra.showJobStatus
 			},
 			type: 'result'
 		}
