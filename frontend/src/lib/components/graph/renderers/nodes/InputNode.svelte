@@ -91,6 +91,8 @@
 				data.eventHandlers.hideJobStatus()
 			}}
 			individualStepTests={data.individualStepTests}
+			job={data.flowJob}
+			showJobStatus={data.showJobStatus}
 		/>
 	{/snippet}
 </NodeWrapper>

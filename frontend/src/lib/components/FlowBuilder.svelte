@@ -148,7 +148,6 @@
 	let flowPreviewButtons: FlowPreviewButtons | undefined = $state()
 	const job: Job | undefined = $derived(flowPreviewButtons?.getJob())
 	let showJobStatus = $state(false)
-	const previewJob: Job | undefined = $derived(showJobStatus ? job : undefined)
 
 	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
 		const { selectedTriggers } = event.detail
@@ -606,7 +605,6 @@
 		executionCount: writable(0),
 		flowInputEditorState: flowInputEditorStateStore,
 		modulesTestStates,
-		getPreviewJob: () => previewJob,
 		outputPickerOpenFns
 	})
 
@@ -955,7 +953,9 @@
 		showJobStatus = false
 	}
 
-	const individualStepTests = $derived(!previewJob && Object.keys($derivedModuleStates).length > 0)
+	const individualStepTests = $derived(
+		!(showJobStatus && job) && Object.keys($derivedModuleStates).length > 0
+	)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />

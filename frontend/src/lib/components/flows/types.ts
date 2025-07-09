@@ -1,4 +1,4 @@
-import type { Job, OpenFlow } from '$lib/gen'
+import type { OpenFlow } from '$lib/gen'
 import type { History } from '$lib/history'
 import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
@@ -80,6 +80,5 @@ export type FlowEditorContext = {
 	insertButtonOpen: Writable<boolean>
 	executionCount: Writable<number>
 	modulesTestStates: ModulesTestStates
-	getPreviewJob: () => Job | undefined
 	outputPickerOpenFns: Record<string, () => void>
 }

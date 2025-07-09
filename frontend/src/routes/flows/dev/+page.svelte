@@ -109,7 +109,6 @@
 		}),
 		currentEditor: writable(undefined),
 		modulesTestStates: new ModulesTestStates(),
-		getPreviewJob: () => undefined,
 		outputPickerOpenFns: {}
 	})
 	setContext<PropPickerContext>('PropPickerContext', {

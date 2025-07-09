@@ -3,15 +3,16 @@
 	import { fade } from 'svelte/transition'
 	import { Loader2, Play, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { getContext } from 'svelte'
-	import type { FlowEditorContext } from '../types'
 	import Popover from '$lib/components/Popover.svelte'
+	import type { Job } from '$lib/gen'
 
 	interface Props {
 		isRunning?: boolean
 		hover?: boolean
 		selected?: boolean
 		individualStepTests?: boolean
+		showJobStatus?: boolean
+		job?: Job
 		onTestFlow?: () => void
 		onCancelTestFlow?: () => void
 		onOpenPreview?: () => void
@@ -23,16 +24,16 @@
 		hover,
 		selected,
 		individualStepTests,
+		job,
+		showJobStatus,
 		onTestFlow,
 		onCancelTestFlow,
 		onOpenPreview,
 		onHideJobStatus
 	}: Props = $props()
 
-	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
-	const job = $derived(flowEditorContext?.getPreviewJob())
-
-	const wide = $derived(hover || selected || job || individualStepTests)
+	const flowPreviewJob = $derived(showJobStatus ? job : undefined)
+	const wide = $derived(hover || selected || flowPreviewJob || individualStepTests)
 </script>
 
 {#if !isRunning}
@@ -56,7 +57,7 @@
 			<span transition:fade={{ duration: 100 }} class="text-xs">Test flow</span>
 		{/if}
 	</Button>
-	{#if wide && (job || individualStepTests)}
+	{#if wide && (flowPreviewJob || individualStepTests)}
 		<div
 			class="flex flex-row items-center shadow-sm rounded-md mt-1"
 			in:fade={{ duration: 100, delay: 200 }}
@@ -70,18 +71,20 @@
 					)}
 					onclick={onOpenPreview}
 				>
-					{#if job}
+					{#if flowPreviewJob}
 						<div
 							class={twMerge(
 								'rounded-full h-2 w-2',
-								'success' in job && job.success ? 'bg-green-400' : 'bg-red-400'
+								'success' in flowPreviewJob && flowPreviewJob.success
+									? 'bg-green-400'
+									: 'bg-red-400'
 							)}
-							title={'success' in job && job.success ? 'Success' : 'Failed'}
+							title={'success' in flowPreviewJob && flowPreviewJob.success ? 'Success' : 'Failed'}
 						>
 						</div>
 					{/if}
 					<span class="text-xs truncate" dir="rtl">
-						{!individualStepTests && job ? job.id.slice(-5) : '~'}
+						{!individualStepTests && flowPreviewJob ? flowPreviewJob.id.slice(-5) : '~'}
 					</span>
 				</button>
 				{#snippet text()}

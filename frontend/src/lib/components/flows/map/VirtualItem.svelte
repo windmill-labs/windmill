@@ -228,6 +228,8 @@
 							{onOpenPreview}
 							{onHideJobStatus}
 							{individualStepTests}
+							{job}
+							{showJobStatus}
 						/>
 					</div>
 				{/if}
