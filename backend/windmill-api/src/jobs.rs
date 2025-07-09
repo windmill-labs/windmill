@@ -3468,8 +3468,8 @@ async fn batch_rerun_handle_job(
                 PushArgsOwned { extra: None, args },
             )
             .await;
-            if let Ok((_, uuid)) = result {
-                return Ok(uuid);
+            if let Ok(uuid) = result {
+                return Ok(uuid.to_string());
             }
         }
         JobKind::Script => {
@@ -3496,8 +3496,8 @@ async fn batch_rerun_handle_job(
                 )
                 .await
             };
-            if let Ok((_, uuid)) = result {
-                return Ok(uuid);
+            if let Ok((uuid, _)) = result {
+                return Ok(uuid.to_string());
             }
         }
         _ => {}
@@ -3525,7 +3525,10 @@ pub async fn run_flow_by_path(
         )
         .await?;
 
-    run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args).await
+    let uuid =
+        run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args).await?;
+
+    Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
 pub async fn run_flow_by_path_inner(
@@ -3536,7 +3539,7 @@ pub async fn run_flow_by_path_inner(
     flow_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-) -> error::Result<(StatusCode, String)> {
+) -> error::Result<Uuid> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
     let flow_path = flow_path.to_path();
@@ -3611,7 +3614,7 @@ pub async fn run_flow_by_path_inner(
     )
     .await?;
     tx.commit().await?;
-    Ok((StatusCode::CREATED, uuid.to_string()))
+    Ok(uuid)
 }
 
 #[cfg(not(feature = "enterprise"))]
@@ -3726,7 +3729,10 @@ pub async fn run_script_by_path(
         )
         .await?;
 
-    run_script_by_path_inner(authed, db, user_db, w_id, script_path, run_query, args).await
+    let (uuid, _) =
+        run_script_by_path_inner(authed, db, user_db, w_id, script_path, run_query, args).await?;
+
+    Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
 pub async fn run_script_by_path_inner(
@@ -3737,7 +3743,7 @@ pub async fn run_script_by_path_inner(
     script_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-) -> error::Result<(StatusCode, String)> {
+) -> error::Result<(Uuid, Option<bool>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
@@ -3746,7 +3752,7 @@ pub async fn run_script_by_path_inner(
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
-    let (job_payload, tag, _delete_after_use, timeout, on_behalf_of) =
+    let (job_payload, tag, delete_after_use, timeout, on_behalf_of) =
         script_path_to_payload(script_path, &mut *tx, &w_id, run_query.skip_preprocessor).await?;
     drop(tx);
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
@@ -3798,7 +3804,8 @@ pub async fn run_script_by_path_inner(
     )
     .await?;
     tx.commit().await?;
-    Ok((StatusCode::CREATED, uuid.to_string()))
+
+    Ok((uuid, delete_after_use))
 }
 
 #[derive(Deserialize)]
@@ -4145,16 +4152,7 @@ pub async fn run_wait_result_internal(
     }
 }
 
-pub async fn run_wait_result(
-    db: &DB,
-    uuid: Uuid,
-    w_id: String,
-    node_id_for_empty_return: Option<String>,
-    username: &str,
-) -> error::Result<Response> {
-    let (result, success) =
-        run_wait_result_internal(db, uuid, w_id, node_id_for_empty_return, username).await?;
-
+pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result<Response> {
     let composite_result = serde_json::from_str::<WindmillCompositeResult>(result.get());
     match composite_result {
         Ok(WindmillCompositeResult {
@@ -4241,6 +4239,19 @@ pub async fn run_wait_result(
         )
             .into_response()),
     }
+}
+
+pub async fn run_wait_result(
+    db: &DB,
+    uuid: Uuid,
+    w_id: String,
+    node_id_for_empty_return: Option<String>,
+    username: &str,
+) -> error::Result<Response> {
+    let (result, success) =
+        run_wait_result_internal(db, uuid, w_id, node_id_for_empty_return, username).await?;
+
+    result_to_response(result, success)
 }
 
 pub async fn delete_job_metadata_after_use(db: &DB, job_uuid: Uuid) -> Result<(), Error> {
@@ -5589,7 +5600,10 @@ pub async fn run_job_by_hash(
         )
         .await?;
 
-    run_job_by_hash_inner(authed, db, user_db, w_id, script_hash, run_query, args).await
+    let (uuid, _) =
+        run_job_by_hash_inner(authed, db, user_db, w_id, script_hash, run_query, args).await?;
+
+    Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
 pub async fn run_job_by_hash_inner(
@@ -5600,7 +5614,7 @@ pub async fn run_job_by_hash_inner(
     script_hash: ScriptHash,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-) -> error::Result<(StatusCode, String)> {
+) -> error::Result<(Uuid, Option<bool>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
@@ -5620,7 +5634,8 @@ pub async fn run_job_by_hash_inner(
         has_preprocessor,
         on_behalf_of_email,
         created_by,
-        .. // delete_after_use not taken into account in async endpoints
+        delete_after_use,
+        ..
     } = get_script_info_for_hash(&mut *tx, &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
@@ -5688,7 +5703,7 @@ pub async fn run_job_by_hash_inner(
     .await?;
     tx.commit().await?;
 
-    Ok((StatusCode::CREATED, uuid.to_string()))
+    Ok((uuid, delete_after_use))
 }
 
 #[derive(Deserialize)]

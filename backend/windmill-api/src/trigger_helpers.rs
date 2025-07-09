@@ -1,8 +1,10 @@
+use anyhow::Context;
 use axum::response::IntoResponse;
 use http::StatusCode;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use std::collections::HashMap;
+use uuid::Uuid;
 use windmill_common::{
     db::UserDB,
     error::Result,
@@ -26,8 +28,8 @@ use crate::jobs::check_license_key_valid;
 use crate::{
     db::{ApiAuthed, DB},
     jobs::{
-        check_tag_available_for_workspace, delete_job_metadata_after_use, run_script_by_path_inner,
-        run_wait_result, run_wait_result_script_by_path_internal, RunJobQuery,
+        check_tag_available_for_workspace, delete_job_metadata_after_use, result_to_response,
+        run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_internal, RunJobQuery,
     },
     HTTP_CLIENT,
 };
@@ -456,48 +458,250 @@ pub trait TriggerJobArgs<T: Clone> {
     }
 }
 
-pub async fn run_script(
+async fn trigger_runnable_inner(
+    db: &DB,
+    user_db: Option<UserDB>,
+    authed: ApiAuthed,
+    workspace_id: &str,
+    runnable_path: &str,
+    is_flow: bool,
+    args: PushArgsOwned,
+    retry: Option<&sqlx::types::Json<Retry>>,
+    error_handler_path: Option<&str>,
+    error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    trigger_path: String,
+) -> Result<(Uuid, Option<bool>)> {
+    let user_db = user_db.unwrap_or_else(|| UserDB::new(db.clone()));
+    let (uuid, delete_after_use) = if is_flow {
+        let run_query = RunJobQuery::default();
+        let path = StripPath(runnable_path.to_string());
+        let uuid = run_flow_by_path_inner(
+            authed,
+            db.clone(),
+            user_db,
+            workspace_id.to_string(),
+            path,
+            run_query,
+            args,
+        )
+        .await?;
+        (uuid, None)
+    } else {
+        trigger_script_internal(
+            db,
+            user_db,
+            authed,
+            workspace_id,
+            runnable_path,
+            args,
+            retry,
+            error_handler_path,
+            error_handler_args,
+            trigger_path,
+        )
+        .await?
+    };
+
+    Ok((uuid, delete_after_use))
+}
+
+pub async fn trigger_runnable(
+    db: &DB,
+    user_db: Option<UserDB>,
+    authed: ApiAuthed,
+    workspace_id: &str,
+    runnable_path: &str,
+    is_flow: bool,
+    args: PushArgsOwned,
+    retry: Option<&sqlx::types::Json<Retry>>,
+    error_handler_path: Option<&str>,
+    error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    trigger_path: String,
+) -> Result<axum::response::Response> {
+    let (uuid, _) = trigger_runnable_inner(
+        db,
+        user_db,
+        authed,
+        workspace_id,
+        runnable_path,
+        is_flow,
+        args,
+        retry,
+        error_handler_path,
+        error_handler_args,
+        trigger_path,
+    )
+    .await?;
+    Ok((StatusCode::CREATED, uuid.to_string()).into_response())
+}
+
+pub async fn trigger_runnable_and_wait_for_result(
+    db: &DB,
+    user_db: Option<UserDB>,
+    authed: ApiAuthed,
+    workspace_id: &str,
+    runnable_path: &str,
+    is_flow: bool,
+    args: PushArgsOwned,
+    retry: Option<&sqlx::types::Json<Retry>>,
+    error_handler_path: Option<&str>,
+    error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    trigger_path: String,
+) -> Result<axum::response::Response> {
+    let username = authed.username.clone();
+    let (uuid, delete_after_use) = trigger_runnable_inner(
+        db,
+        user_db,
+        authed,
+        workspace_id,
+        runnable_path,
+        is_flow,
+        args,
+        retry,
+        error_handler_path,
+        error_handler_args,
+        trigger_path,
+    )
+    .await?;
+    let (result, success) =
+        run_wait_result_internal(db, uuid, workspace_id.to_string(), None, &username).await?;
+
+    if delete_after_use.unwrap_or(false) {
+        delete_job_metadata_after_use(&db, uuid).await?;
+    }
+
+    result_to_response(result, success)
+}
+
+pub async fn trigger_runnable_and_wait_for_raw_result(
+    db: &DB,
+    user_db: Option<UserDB>,
+    authed: ApiAuthed,
+    workspace_id: &str,
+    runnable_path: &str,
+    is_flow: bool,
+    args: PushArgsOwned,
+    retry: Option<&sqlx::types::Json<Retry>>,
+    error_handler_path: Option<&str>,
+    error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    trigger_path: String,
+) -> Result<Box<RawValue>> {
+    let username = authed.username.clone();
+    let (uuid, delete_after_use) = trigger_runnable_inner(
+        db,
+        user_db,
+        authed,
+        workspace_id,
+        runnable_path,
+        is_flow,
+        args,
+        retry,
+        error_handler_path,
+        error_handler_args,
+        trigger_path,
+    )
+    .await?;
+
+    let early_return = if is_flow {
+        sqlx::query_scalar!(
+            r#"SELECT flow_version.value->>'early_return' as early_return
+            FROM flow 
+            LEFT JOIN flow_version
+                ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+            WHERE flow.path = $1 and flow.workspace_id = $2"#,
+            runnable_path,
+            workspace_id,
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+    } else {
+        None
+    };
+
+    let (result, success) =
+        run_wait_result_internal(db, uuid, workspace_id.to_string(), early_return, &username)
+            .await
+            .with_context(|| {
+                format!(
+                    "Error fetching job result for {} {}",
+                    if is_flow { "flow" } else { "script" },
+                    runnable_path
+                )
+            })?;
+
+    if delete_after_use.unwrap_or(false) {
+        delete_job_metadata_after_use(&db, uuid).await?;
+    }
+
+    if !success {
+        Err(windmill_common::error::Error::internal_err(format!(
+            "{} {runnable_path} failed: {:?}",
+            if is_flow { "Flow" } else { "Script" },
+            result
+        )))
+    } else {
+        Ok(result)
+    }
+}
+
+async fn trigger_script_internal(
     db: &DB,
     user_db: UserDB,
     authed: ApiAuthed,
-    workspace_id: &String,
-    script_path: &String,
+    workspace_id: &str,
+    script_path: &str,
     args: PushArgsOwned,
-    retry: Option<Retry>,
-    error_handler_path: Option<String>,
-    error_handler_args: Option<HashMap<String, Box<RawValue>>>,
+    retry: Option<&sqlx::types::Json<Retry>>,
+    error_handler_path: Option<&str>,
+    error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     trigger_path: String,
-    await_result: bool,
-) -> Result<axum::response::Response> {
+) -> Result<(Uuid, Option<bool>)> {
     if retry.is_none() && error_handler_path.is_none() {
         let run_query = RunJobQuery::default();
         let path = StripPath(script_path.to_string());
-        if await_result {
-            return run_wait_result_script_by_path_internal(
-                db.clone(),
-                run_query,
-                path,
-                authed,
-                user_db,
-                workspace_id.clone(),
-                args,
-            )
-            .await
-            .map(|r| r.into_response());
-        } else {
-            return run_script_by_path_inner(
-                authed,
-                db.clone(),
-                user_db,
-                workspace_id.clone(),
-                path,
-                run_query,
-                args,
-            )
-            .await
-            .map(|r| r.into_response());
-        }
+        run_script_by_path_inner(
+            authed,
+            db.clone(),
+            user_db,
+            workspace_id.to_string(),
+            path,
+            run_query,
+            args,
+        )
+        .await
+    } else {
+        trigger_script_with_retry_and_error_handler(
+            db,
+            user_db,
+            authed,
+            workspace_id,
+            script_path,
+            args,
+            retry,
+            error_handler_path,
+            error_handler_args,
+            trigger_path,
+        )
+        .await
     }
+}
+
+async fn trigger_script_with_retry_and_error_handler(
+    db: &DB,
+    user_db: UserDB,
+    authed: ApiAuthed,
+    workspace_id: &str,
+    script_path: &str,
+    args: PushArgsOwned,
+    retry: Option<&sqlx::types::Json<Retry>>,
+    error_handler_path: Option<&str>,
+    error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    trigger_path: String,
+) -> Result<(Uuid, Option<bool>)> {
+    let retry = retry.map(|r| r.0.clone());
+    let error_handler_path = error_handler_path.map(|p| p.to_string());
+    let error_handler_args = error_handler_args.map(|args| args.0.clone());
 
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -591,14 +795,5 @@ pub async fn run_script(
     .await?;
     tx.commit().await?;
 
-    if await_result {
-        let wait_result =
-            run_wait_result(&db, uuid, workspace_id.clone(), None, &authed.username).await;
-        if delete_after_use.unwrap_or(false) {
-            delete_job_metadata_after_use(&db, uuid).await?;
-        }
-        wait_result
-    } else {
-        Ok((StatusCode::CREATED, uuid.to_string()).into_response())
-    }
+    Ok((uuid, delete_after_use))
 }

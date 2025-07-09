@@ -3,15 +3,13 @@ use crate::http_trigger_args::{HttpMethod, RawHttpTriggerArgs};
 #[cfg(feature = "parquet")]
 use crate::job_helpers_oss::get_workspace_s3_resource;
 use crate::resources::try_get_resource_from_db_as;
-use crate::trigger_helpers::{get_runnable_format, run_script, RunnableId};
+use crate::trigger_helpers::{
+    get_runnable_format, trigger_runnable, trigger_runnable_and_wait_for_result, RunnableId,
+};
 use crate::utils::{non_empty_str, ExpiringCacheEntry};
 use crate::{
     auth::{AuthCache, OptTokened},
     db::{ApiAuthed, DB},
-    jobs::{
-        run_flow_by_path_inner, run_wait_result_flow_by_path_internal,
-        run_wait_result_script_by_path_internal, RunJobQuery,
-    },
     users::fetch_api_authed,
 };
 use anyhow::anyhow;
@@ -1429,51 +1427,37 @@ async fn route_job(
         )
         .map_err(|e| e.into_response())?;
 
-    let run_query = RunJobQuery::default();
-
-    let response = if trigger.is_flow {
-        if trigger.is_async {
-            run_flow_by_path_inner(
-                authed,
-                db,
-                user_db,
-                trigger.workspace_id.clone(),
-                StripPath(trigger.script_path.to_owned()),
-                run_query,
-                args,
-            )
-            .await
-            .into_response()
-        } else {
-            run_wait_result_flow_by_path_internal(
-                db,
-                run_query,
-                StripPath(trigger.script_path.to_owned()),
-                authed,
-                user_db,
-                args,
-                trigger.workspace_id.clone(),
-            )
-            .await
-            .into_response()
-        }
-    } else {
-        run_script(
+    if trigger.is_async {
+        trigger_runnable(
             &db,
-            user_db,
+            Some(user_db),
             authed,
             &trigger.workspace_id,
             &trigger.script_path,
+            trigger.is_flow,
             args,
-            trigger.retry.map(|retry| retry.0),
-            trigger.error_handler_path,
-            trigger.error_handler_args.map(|args| args.0),
+            trigger.retry.as_ref(),
+            trigger.error_handler_path.as_deref(),
+            trigger.error_handler_args.as_ref(),
             format!("http_trigger/{}", trigger.path),
-            !trigger.is_async,
         )
         .await
-        .into_response()
-    };
-
-    Ok(response)
+        .map_err(|e| e.into_response())
+    } else {
+        trigger_runnable_and_wait_for_result(
+            &db,
+            Some(user_db),
+            authed,
+            &trigger.workspace_id,
+            &trigger.script_path,
+            trigger.is_flow,
+            args,
+            trigger.retry.as_ref(),
+            trigger.error_handler_path.as_deref(),
+            trigger.error_handler_args.as_ref(),
+            format!("http_trigger/{}", trigger.path),
+        )
+        .await
+        .map_err(|e| e.into_response())
+    }
 }
