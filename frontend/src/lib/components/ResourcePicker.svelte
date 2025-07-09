@@ -125,9 +125,13 @@
 		loading = false
 	}
 
+	let oldResourceType = resourceType
 	$effect(() => {
 		$workspaceStore && resourceType
-		value = undefined
+		if (resourceType != oldResourceType) {
+			oldResourceType = resourceType
+			value = undefined
+		}
 		untrack(() => loadResources(resourceType))
 	})
 
