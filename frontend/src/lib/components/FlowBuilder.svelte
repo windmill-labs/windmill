@@ -42,7 +42,7 @@
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
-	import { cleanInputs } from './flows/utils'
+	import { cleanInputs, updateDerivedModuleStatesFromTestJobs } from './flows/utils'
 	import {
 		Calendar,
 		Pen,
@@ -947,50 +947,8 @@
 		})
 	})
 	$effect(() => {
-		updateDerivedModuleStatesFromTestJobs(testModuleId)
+		updateDerivedModuleStatesFromTestJobs(testModuleId, modulesTestStates, derivedModuleStates)
 	})
-
-	/**
-	 * Updates derivedModuleStates based on test job data from modulesTestStates
-	 * Extracts job information and converts it to GraphModuleState format
-	 */
-	function updateDerivedModuleStatesFromTestJobs(moduleId?: string) {
-		if (!moduleId) {
-			return
-		}
-		const newStates: Record<string, GraphModuleState> = {}
-
-		const testState = modulesTestStates.states[moduleId]
-		if (testState) {
-			if (testState.testJob) {
-				const job = testState.testJob
-
-				// Create GraphModuleState from job data, similar to onJobsLoaded in FlowStatusViewerInner
-				const moduleState: GraphModuleState = {
-					args: job.args,
-					type: job.type === 'QueuedJob' ? 'InProgress' : job['success'] ? 'Success' : 'Failure',
-					job_id: job.id,
-					tag: job.tag,
-					duration_ms: job['duration_ms'],
-					started_at: job.started_at ? new Date(job.started_at).getTime() : undefined
-				}
-
-				newStates[moduleId] = moduleState
-			} else if (testState.loading) {
-				// If test is loading, show as InProgress
-				newStates[moduleId] = {
-					type: 'InProgress',
-					args: {}
-				}
-			}
-		}
-
-		// Update the derived store with test job states
-		derivedModuleStates.update((currentStates) => ({
-			...currentStates,
-			...newStates
-		}))
-	}
 
 	function resetModulesStates() {
 		derivedModuleStates.set({})
