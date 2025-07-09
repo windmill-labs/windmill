@@ -14,6 +14,7 @@
 	import { untrack } from 'svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
 	import AssetsUsageDropdown from '$lib/components/assets/AssetsUsageDropdown.svelte'
+	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 
 	let assets = usePromise(() => AssetService.listAssets({ workspace: $workspaceStore ?? '' }))
 
@@ -58,7 +59,8 @@
 		<DataTable>
 			<Head>
 				<tr>
-					<Cell head first>Asset name</Cell>
+					<Cell head first></Cell>
+					<Cell head>Asset name</Cell>
 					<Cell head></Cell>
 					<Cell head></Cell>
 				</tr>
@@ -72,7 +74,15 @@
 				{#each filteredAssets as asset}
 					{@const assetUri = formatAsset(asset)}
 					<tr class="h-14">
-						<Cell first class="w-[75%]">{truncate(assetUri, 92)}</Cell>
+						<Cell first>
+							<AssetGenericIcon
+								assetKind={asset.kind}
+								size="24px"
+								fill=""
+								class="!fill-secondary !stroke-secondary"
+							/>
+						</Cell>
+						<Cell class="w-[75%]">{truncate(asset.path, 92)}</Cell>
 						<Cell>
 							<a href={`#${assetUri}`} onclick={() => assetsUsageDropdown?.open(asset)}>
 								{pluralize(asset.usages.length, 'occurrence')}
