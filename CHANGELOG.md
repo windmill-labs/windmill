@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.503.2](https://github.com/windmill-labs/windmill/compare/v1.503.1...v1.503.2) (2025-07-09)
+
+
+### Bug Fixes
+
+* fix resource select loop ([ebb1b32](https://github.com/windmill-labs/windmill/commit/ebb1b329841c135eb97dc47d3d962a970838143a))
+
 ## [1.503.1](https://github.com/windmill-labs/windmill/compare/v1.503.0...v1.503.1) (2025-07-08)
 
 
