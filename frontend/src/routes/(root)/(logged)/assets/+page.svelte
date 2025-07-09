@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { formatAsset, getAssetUsagePageUri } from '$lib/components/assets/lib'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { ClearableInput, DrawerContent, Tab, Tabs } from '$lib/components/common'
+	import { ClearableInput, DrawerContent } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import DbManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
@@ -19,9 +19,6 @@
 		assetDisplaysAsInputInFlowGraph,
 		assetDisplaysAsOutputInFlowGraph
 	} from '$lib/components/graph/renderers/nodes/AssetNode.svelte'
-	import { Boxes, DollarSign, Pyramid } from 'lucide-svelte'
-	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
-	import S3Icon from '$lib/components/icons/S3Icon.svelte'
 
 	let assets = usePromise(() => AssetService.listAssets({ workspace: $workspaceStore ?? '' }))
 
@@ -48,8 +45,6 @@
 	let viewOccurences: ListAssetsResponse[number] | undefined = $state()
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
-
-	let selectedTab: 'workspace' | 'resources' | 'variables' | 's3objects' = $state('workspace')
 </script>
 
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.resources}
@@ -61,41 +56,14 @@
 	<CenteredPage>
 		<PageHeader
 			title="Assets"
-			tooltip="Manage your assets and see where they are used in the workspace."
+			tooltip="Assets show up here whenever you use them in Windmill."
 			documentationLink="https://www.windmill.dev/docs/core_concepts/assets"
 		/>
-		<Tabs bind:selected={selectedTab}>
-			<Tab size="md" value="workspace">
-				<div class="flex gap-2 items-center my-1">
-					<Pyramid size={18} />
-					All assets
-				</div>
-			</Tab>
-			<Tab size="md" value="resources">
-				<div class="flex gap-2 items-center my-1">
-					<Boxes size={18} />
-					Resources
-				</div>
-			</Tab>
-			<Tab size="md" value="variables">
-				<div class="flex gap-2 items-center my-1">
-					<DollarSign size={18} />
-					Variables
-				</div>
-			</Tab>
-			<Tab size="md" value="s3objects">
-				<div class="flex gap-2 items-center my-1">
-					<S3Icon />
-					S3 Objects
-				</div>
-			</Tab>
-		</Tabs>
-		<ClearableInput bind:value={filterText} placeholder="Search assets" class="my-4" />
+		<ClearableInput bind:value={filterText} placeholder="Search assets" class="mb-4" />
 		<DataTable>
 			<Head>
 				<tr>
-					<Cell head first></Cell>
-					<Cell head>Asset name</Cell>
+					<Cell head first>Asset name</Cell>
 					<Cell head></Cell>
 					<Cell head></Cell>
 				</tr>
@@ -109,14 +77,7 @@
 				{#each filteredAssets as asset}
 					{@const assetUri = formatAsset(asset)}
 					<tr class="h-14">
-						<Cell first>
-							<AssetGenericIcon
-								assetKind={asset.kind}
-								fill=""
-								class="fill-secondary stroke-secondary"
-							/>
-						</Cell>
-						<Cell class="w-[75%]">{truncate(asset.path, 92)}</Cell>
+						<Cell first class="w-[75%]">{truncate(assetUri, 92)}</Cell>
 						<Cell>
 							<a href={`#${assetUri}`} onclick={() => (viewOccurences = asset)}>
 								{pluralize(asset.usages.length, 'occurrence')}
