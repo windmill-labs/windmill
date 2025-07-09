@@ -1,51 +1,55 @@
 <script lang="ts">
-	import { getAssetUsagePageUri } from '$lib/components/assets/lib'
+	import { formatAsset, getAssetUsagePageUri } from '$lib/components/assets/lib'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { DrawerContent, Tab, Tabs } from '$lib/components/common'
+	import { ClearableInput, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import DbManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
-	import { type AssetUsageAccessType, type AssetUsageKind } from '$lib/gen'
+	import { Cell, DataTable } from '$lib/components/table'
+	import Head from '$lib/components/table/Head.svelte'
+	import { AssetService, ResourceService, type ListAssetsResponse } from '$lib/gen'
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
+	import { pluralize, truncate } from '$lib/utils'
+	import { untrack } from 'svelte'
+	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
 	import {
 		assetDisplaysAsInputInFlowGraph,
 		assetDisplaysAsOutputInFlowGraph
 	} from '$lib/components/graph/renderers/nodes/AssetNode.svelte'
-	import { Boxes, DollarSign } from 'lucide-svelte'
+	import { Boxes, DollarSign, Pyramid } from 'lucide-svelte'
+	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import S3Icon from '$lib/components/icons/S3Icon.svelte'
-	import ResourceListPage from '$lib/components/assets/ResourceListPage.svelte'
-	import VariablesListPage from '$lib/components/assets/VariablesListPage.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
-	import S3ObjectsListPage from '$lib/components/assets/S3ObjectsListPage.svelte'
 
-	let usagesDrawerData:
-		| {
-				usages: {
-					path: string
-					kind: AssetUsageKind
-					access_type?: AssetUsageAccessType
-				}[]
-		  }
-		| undefined = $state()
+	let assets = usePromise(() => AssetService.listAssets({ workspace: $workspaceStore ?? '' }))
+
+	let filterText: string = $state('')
+	let filteredAssets = $derived(
+		assets.value?.filter((asset) =>
+			formatAsset(asset).toLowerCase().includes(filterText.toLowerCase())
+		) ?? []
+	)
+
+	let resourceTypesCache: Record<string, string | undefined> = $state({})
+	$effect(() => {
+		if (!assets.value) return
+		untrack(() => {
+			for (const asset of assets.value) {
+				if (asset.kind !== 'resource' || asset.path in resourceTypesCache) continue
+				ResourceService.getResource({ path: asset.path, workspace: $workspaceStore! })
+					.then((resource) => (resourceTypesCache[asset.path] = resource.resource_type))
+					.catch((err) => (resourceTypesCache[asset.path] = undefined))
+			}
+		})
+	})
+
+	let viewOccurences: ListAssetsResponse[number] | undefined = $state()
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
 
-	let selectedTab: 'resources' | 'variables' | 's3objects' = $state('resources')
-
-	let resourceListPage: ResourceListPage | undefined = $state()
-	let variablesListPage: VariablesListPage | undefined = $state()
-	let HeaderButtons = $derived.by(() => {
-		switch (selectedTab) {
-			case 'resources':
-				return resourceListPage?.getHeaderButtons()
-			case 'variables':
-				return variablesListPage?.getHeaderButtons()
-			case 's3objects':
-				return undefined
-		}
-	})
+	let selectedTab: 'workspace' | 'resources' | 'variables' | 's3objects' = $state('workspace')
 </script>
 
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.resources}
@@ -59,62 +63,91 @@
 			title="Assets"
 			tooltip="Manage your assets and see where they are used in the workspace."
 			documentationLink="https://www.windmill.dev/docs/core_concepts/assets"
-		>
-			<div class="flex flex-row justify-end gap-4 min-h-10">
-				{@render HeaderButtons?.()}
-			</div>
-		</PageHeader>
-		<Tabs bind:selected={selectedTab} class="mb-6">
+		/>
+		<Tabs bind:selected={selectedTab}>
+			<Tab size="md" value="workspace">
+				<div class="flex gap-2 items-center my-1">
+					<Pyramid size={18} />
+					All assets
+				</div>
+			</Tab>
 			<Tab size="md" value="resources">
-				<div class="flex gap-2 items-center my-1 text-primary">
+				<div class="flex gap-2 items-center my-1">
 					<Boxes size={18} />
 					Resources
-					<Tooltip
-						documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
-					>
-						Save and permission rich objects (JSON) including credentials obtained through OAuth.
-					</Tooltip>
 				</div>
 			</Tab>
 			<Tab size="md" value="variables">
-				<div class="flex gap-2 items-center my-1 text-primary">
+				<div class="flex gap-2 items-center my-1">
 					<DollarSign size={18} />
 					Variables
-					<Tooltip
-						documentationLink="https://www.windmill.dev/docs/https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
-					>
-						Save and permission strings to be reused in Scripts and Flows.
-					</Tooltip>
 				</div>
 			</Tab>
 			<Tab size="md" value="s3objects">
-				<div class="flex gap-2 items-center my-1 text-primary">
+				<div class="flex gap-2 items-center my-1">
 					<S3Icon />
 					S3 Objects
-					<Tooltip>
-						Windmill auto-detects when you reference an S3 object in your scripts and flows.
-					</Tooltip>
 				</div>
 			</Tab>
 		</Tabs>
-		{#if selectedTab === 'resources'}
-			<ResourceListPage bind:this={resourceListPage} />
-		{:else if selectedTab === 'variables'}
-			<VariablesListPage bind:this={variablesListPage} />
-		{:else if selectedTab === 's3objects'}
-			<S3ObjectsListPage />
-		{/if}
+		<ClearableInput bind:value={filterText} placeholder="Search assets" class="my-4" />
+		<DataTable>
+			<Head>
+				<tr>
+					<Cell head first></Cell>
+					<Cell head>Asset name</Cell>
+					<Cell head></Cell>
+					<Cell head></Cell>
+				</tr>
+			</Head>
+			<tbody class="divide-y bg-surface">
+				{#if filteredAssets.length === 0}
+					<tr class="h-14">
+						<Cell colspan="3" class="text-center text-tertiary">No assets found</Cell>
+					</tr>
+				{/if}
+				{#each filteredAssets as asset}
+					{@const assetUri = formatAsset(asset)}
+					<tr class="h-14">
+						<Cell first>
+							<AssetGenericIcon
+								assetKind={asset.kind}
+								fill=""
+								class="fill-secondary stroke-secondary"
+							/>
+						</Cell>
+						<Cell class="w-[75%]">{truncate(asset.path, 92)}</Cell>
+						<Cell>
+							<a href={`#${assetUri}`} onclick={() => (viewOccurences = asset)}>
+								{pluralize(asset.usages.length, 'occurrence')}
+							</a>
+						</Cell>
+						<Cell>
+							{#if assetCanBeExplored(asset, asset.metadata)}
+								<ExploreAssetButton
+									{asset}
+									{s3FilePicker}
+									{dbManagerDrawer}
+									_resourceMetadata={{ resource_type: resourceTypesCache[asset.path] }}
+									class="w-24"
+								/>
+							{/if}
+						</Cell>
+					</tr>
+				{/each}
+			</tbody>
+		</DataTable>
 	</CenteredPage>
 {/if}
 
 <Drawer
-	open={usagesDrawerData !== undefined}
+	open={viewOccurences !== undefined}
 	size="900px"
-	on:close={() => (usagesDrawerData = undefined)}
+	on:close={() => (viewOccurences = undefined)}
 >
-	<DrawerContent title="Asset occurrences" on:close={() => (usagesDrawerData = undefined)}>
+	<DrawerContent title="Asset occurrences" on:close={() => (viewOccurences = undefined)}>
 		<ul class="flex flex-col border rounded-md divide-y">
-			{#each usagesDrawerData?.usages ?? [] as u}
+			{#each viewOccurences?.usages ?? [] as u}
 				<li>
 					<a
 						href={getAssetUsagePageUri(u)}
@@ -140,6 +173,5 @@
 		</ul>
 	</DrawerContent>
 </Drawer>
-
 <S3FilePicker bind:this={s3FilePicker} readOnlyMode />
 <DbManagerDrawer bind:this={dbManagerDrawer} />
