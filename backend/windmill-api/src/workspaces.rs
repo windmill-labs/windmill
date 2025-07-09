@@ -99,6 +99,10 @@ pub fn workspaced_service() -> Router {
         .route("/edit_webhook", post(edit_webhook))
         .route("/edit_auto_invite", post(edit_auto_invite))
         .route("/edit_deploy_to", post(edit_deploy_to))
+        .route(
+            "/get_secondary_storage_names",
+            get(get_secondary_storage_names),
+        )
         .route("/tarball", get(crate::workspaces_export::tarball_workspace))
         .route("/is_premium", get(is_premium))
         .route("/edit_copilot_config", post(edit_copilot_config))
@@ -578,6 +582,21 @@ async fn run_slack_message_test_job(
     Ok(Json(RunSlackMessageTestJobResponse {
         job_uuid: uuid.to_string(),
     }))
+}
+
+async fn get_secondary_storage_names(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<String>> {
+    let result: Vec<String> = sqlx::query_scalar!(
+        "SELECT jsonb_object_keys(large_file_storage->'secondary_storage') AS \"secondary_storage_name!: _\"
+        FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(Json(result))
 }
 
 #[cfg(feature = "enterprise")]
