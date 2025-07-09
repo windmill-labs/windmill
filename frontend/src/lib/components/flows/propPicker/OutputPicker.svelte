@@ -148,7 +148,7 @@
 			'h-1 hover:h-[20px]',
 			bottomBarOpen && 'h-[20px]'
 		)}
-		style:background-color={type && type !== 'WaitingForEvents' && type !== 'WaitingForExecutor'
+		style:background-color={type && type !== 'WaitingForEvents'
 			? getStateColor(type, !!darkMode, true, skipped)
 			: undefined}
 		data-prop-picker
