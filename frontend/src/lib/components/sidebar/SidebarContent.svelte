@@ -13,9 +13,7 @@
 	import {
 		BookOpen,
 		Bot,
-		Boxes,
 		Calendar,
-		DollarSign,
 		Eye,
 		Logs,
 		FolderCog,
@@ -163,22 +161,6 @@
 			icon: Play,
 			aiId: 'sidebar-menu-link-runs',
 			aiDescription: 'Button to navigate to runs'
-		},
-		{
-			label: 'Variables',
-			href: `${base}/variables`,
-			icon: DollarSign,
-			disabled: $userStore?.operator,
-			aiId: 'sidebar-menu-link-variables',
-			aiDescription: 'Button to navigate to variables'
-		},
-		{
-			label: 'Resources',
-			href: `${base}/resources`,
-			icon: Boxes,
-			disabled: $userStore?.operator,
-			aiId: 'sidebar-menu-link-resources',
-			aiDescription: 'Button to navigate to resources'
 		},
 		{
 			label: 'Assets',
