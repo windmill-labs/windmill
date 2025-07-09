@@ -186,7 +186,7 @@
 			}}
 			bind:preventEscape
 			{onRunPreview}
-			render={previewOpen || deferContent}
+			render={previewOpen}
 			{onJobDone}
 			{upToId}
 		/>
