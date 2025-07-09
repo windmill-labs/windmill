@@ -1233,6 +1233,9 @@
 					{localDurationStatuses}
 					{suspendStatus}
 					{showJobStatus}
+					onDelete={(id) => {
+						delete $derivedModuleStates[id]
+					}}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

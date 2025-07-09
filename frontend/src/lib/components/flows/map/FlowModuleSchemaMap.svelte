@@ -65,6 +65,7 @@
 		flowJob?: Job | undefined
 		showJobStatus?: boolean
 		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
+		onDelete?: (id: string) => void
 	}
 
 	let {
@@ -91,7 +92,8 @@
 		individualStepTests = false,
 		flowJob = undefined,
 		showJobStatus = false,
-		suspendStatus = writable({})
+		suspendStatus = writable({}),
+		onDelete
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -402,6 +404,7 @@
 						removeAtId(flowStore.val.value.modules, id)
 					}
 					refreshStateStore(flowStore)
+					onDelete?.(id)
 				}
 
 				if (Object.keys(dependents).length > 0) {

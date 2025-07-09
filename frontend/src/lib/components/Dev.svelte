@@ -801,6 +801,9 @@
 								{individualStepTests}
 								flowJob={job}
 								{showJobStatus}
+								onDelete={(id) => {
+									delete $derivedModuleStates[id]
+								}}
 							/>
 						{:else}
 							<div class="text-red-400 mt-20">Missing flow modules</div>
