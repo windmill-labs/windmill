@@ -1122,6 +1122,18 @@ async fn lock_modules<'c>(
             continue;
         };
 
+        for asset in parse_assets(&content, language)?.iter().flatten() {
+            insert_asset_usage(
+                &mut *tx,
+                &job.workspace_id,
+                asset,
+                asset_fallback_access_types.as_ref().map(Vec::as_slice),
+                job_path,
+                AssetUsageKind::Flow,
+            )
+            .await?;
+        }
+
         if let Some(locks_to_reload) = locks_to_reload {
             if !locks_to_reload.contains(&e.id) {
                 new_flow_modules.push(e);
@@ -1217,18 +1229,6 @@ async fn lock_modules<'c>(
                 None
             }
         };
-
-        for asset in parse_assets(&content, language)?.iter().flatten() {
-            insert_asset_usage(
-                &mut *tx,
-                &job.workspace_id,
-                asset,
-                asset_fallback_access_types.as_ref().map(Vec::as_slice),
-                job_path,
-                AssetUsageKind::Flow,
-            )
-            .await?;
-        }
 
         e.value = windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
             lock,
