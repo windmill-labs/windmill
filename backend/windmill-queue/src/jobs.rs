@@ -1482,7 +1482,7 @@ pub async fn handle_maybe_scheduled_job<'c>(
         .when(|err| !matches!(err, Error::QuotaExceeded(_)))
         .notify(|err, dur| {
             tracing::error!(
-                "Could not push next scheduled job, retrying in {dur:#?}, err: {err:#?}"
+                "Could not push next scheduled job for schedule {}, retrying in {dur:#?}, err: {err:#?}", schedule.path
             );
         })
         .sleep(tokio::time::sleep);

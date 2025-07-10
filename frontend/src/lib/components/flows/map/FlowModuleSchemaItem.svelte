@@ -28,7 +28,7 @@
 	import { Drawer } from '$lib/components/common'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { getDependeeAndDependentComponents } from '../flowExplorer'
-	import { replaceId } from '../flowStore.svelte'
+	import { replaceId } from '../flowStore'
 	import FlowModuleSchemaItemViewer from './FlowModuleSchemaItemViewer.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
@@ -41,6 +41,7 @@
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
+	import type { FlowStatusModule, Job } from '$lib/gen'
 
 	interface Props {
 		selected?: boolean
@@ -76,7 +77,12 @@
 		inputTransform?: Record<string, any> | undefined
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		onEditInput?: (moduleId: string, key: string) => void
+		flowJob?: Job | undefined
+		isOwner?: boolean
 		enableTestRun?: boolean
+		type?: FlowStatusModule['type'] | undefined
+		darkMode?: boolean
+		skipped?: boolean
 	}
 
 	let {
@@ -108,7 +114,11 @@
 		inputTransform,
 		onUpdateMock,
 		onEditInput,
-		enableTestRun = false
+		flowJob,
+		enableTestRun = false,
+		type,
+		darkMode,
+		skipped
 	}: Props = $props()
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
@@ -193,6 +203,8 @@
 	const icon_render = $derived(icon)
 
 	const action = $derived(getAiModuleAction(id))
+
+	let testRunDropdownOpen = $state(false)
 </script>
 
 {#if deletable && id && editId}
@@ -261,310 +273,320 @@
 	{/if}
 {/if}
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-	class={classNames(
-		'w-full module flex rounded-sm cursor-pointer max-w-full ',
-		'flex relative',
-		deletable ? aiModuleActionToBgColor(action) : ''
-	)}
-	style="width: 275px; height: 34px; background-color: {hover && bgHoverColor
-		? bgHoverColor
-		: bgColor};"
-	onmouseenter={() => (hover = true)}
-	onmouseleave={() => (hover = false)}
-	onpointerdown={stopPropagation(preventDefault(() => dispatch('pointerdown')))}
->
-	{#if deletable}
-		<ModuleAcceptReject {action} {id} />
-	{/if}
+<div class="relative">
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class={classNames(
-			'absolute rounded-sm outline-offset-0 outline-slate-500 dark:outline-gray-400',
-			selected ? 'outline outline-2' : 'active:outline active:outline-2'
+			'w-full module flex rounded-sm cursor-pointer max-w-full',
+			deletable ? aiModuleActionToBgColor(action) : ''
 		)}
-		style={`width: 275px; height: ${outputPickerVisible ? '51px' : '34px'};`}
-	></div>
-	<div
-		class="absolute text-sm right-2 flex flex-row gap-1 z-10 transition-all duration-100"
-		style={`bottom: ${outputPickerBarOpen ? '-38px' : '-12px'}`}
+		style="width: 275px; height: 34px; background-color: {hover && bgHoverColor
+			? bgHoverColor
+			: bgColor};"
+		onmouseenter={() => (hover = true)}
+		onmouseleave={() => (hover = false)}
+		onpointerdown={stopPropagation(preventDefault(() => dispatch('pointerdown')))}
 	>
-		{#if retry}
-			<Popover notClickable>
-				<div
-					transition:fade|local={{ duration: 200 }}
-					class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
-				>
-					{#if retries}<span class="text-red-400 mr-2">{retries}</span>{/if}
-					<Repeat size={12} />
-				</div>
-				{#snippet text()}
-					Retries
-				{/snippet}
-			</Popover>
+		{#if deletable}
+			<ModuleAcceptReject {action} {id} />
 		{/if}
-
-		{#if concurrency}
-			<Popover notClickable>
-				<div
-					transition:fade|local={{ duration: 200 }}
-					class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
-				>
-					<Gauge size={12} />
-				</div>
-				{#snippet text()}
-					Concurrency Limits
-				{/snippet}
-			</Popover>
-		{/if}
-		{#if cache}
-			<Popover notClickable>
-				<div
-					transition:fade|local={{ duration: 200 }}
-					class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
-				>
-					<Database size={12} />
-				</div>
-				{#snippet text()}
-					Cached
-				{/snippet}
-			</Popover>
-		{/if}
-		{#if earlyStop}
-			<Popover notClickable>
-				<div
-					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-				>
-					<Square size={12} />
-				</div>
-				{#snippet text()}
-					{isTrigger ? 'Stop early if there are no new events' : 'Early stop/break'}
-				{/snippet}
-			</Popover>
-		{/if}
-		{#if skip}
-			<Popover notClickable>
-				<div
-					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-				>
-					<SkipForward size={12} />
-				</div>
-				{#snippet text()}
-					Skip
-				{/snippet}
-			</Popover>
-		{/if}
-		{#if suspend}
-			<Popover notClickable>
-				<div
-					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-				>
-					<PhoneIncoming size={12} />
-				</div>
-				{#snippet text()}
-					Suspend
-				{/snippet}
-			</Popover>
-		{/if}
-		{#if sleep}
-			<Popover notClickable>
-				<div
-					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-				>
-					<Bed size={12} />
-				</div>
-				{#snippet text()}
-					Sleep
-				{/snippet}
-			</Popover>
-		{/if}
-		{#if mock?.enabled}
-			<Popover notClickable>
-				<button
-					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-					onclick={() => {
-						outputPicker?.toggleOpen()
-					}}
-					data-popover
-				>
-					<Pin size={12} />
-				</button>
-				{#snippet text()}
-					Pinned
-				{/snippet}
-			</Popover>
-		{/if}
-	</div>
-
-	<div
-		class={twMerge('flex flex-col w-full', deletable && action === 'removed' ? 'opacity-50' : '')}
-	>
-		<FlowModuleSchemaItemViewer
-			{label}
-			{path}
-			{id}
-			deletable={deletable && !action}
-			{bold}
-			bind:editId
-			{hover}
+		<div
+			class={classNames(
+				'absolute rounded-sm outline-offset-0 outline-slate-500 dark:outline-gray-400',
+				selected ? 'outline outline-2' : 'active:outline active:outline-2'
+			)}
+			style={`width: 275px; height: ${outputPickerVisible ? '51px' : '34px'};`}
+		></div>
+		<div
+			class="absolute text-sm right-2 flex flex-row gap-1 z-10 transition-all duration-100"
+			style={`bottom: ${outputPickerBarOpen ? '-38px' : '-12px'}`}
 		>
-			{#snippet icon()}
-				{@render icon_render?.()}
-			{/snippet}
-		</FlowModuleSchemaItemViewer>
-
-		{#if outputPickerVisible}
-			<OutputPicker
-				bind:this={outputPicker}
-				{selected}
-				{hover}
-				{isConnectingCandidate}
-				{historyOpen}
-				{inputTransform}
-				id={id ?? ''}
-				bind:bottomBarOpen={outputPickerBarOpen}
-				{loopStatus}
-				{onEditInput}
-			>
-				{#snippet children({ allowCopy, isConnecting, selectConnection })}
-					<OutputPickerInner
-						{allowCopy}
-						prefix={'results'}
-						connectingData={isConnecting ? connectingData : undefined}
-						{mock}
-						{lastJob}
-						{testJob}
-						moduleId={id}
-						onSelect={selectConnection}
-						{onUpdateMock}
-						{path}
-						{loopStatus}
-						rightMargin
-						bind:derivedHistoryOpen={historyOpen}
-						historyOffset={{ mainAxis: 12, crossAxis: -9 }}
-						clazz="p-1"
-						isLoading={testIsLoading ||
-							(id ? stepHistoryLoader?.stepStates[id]?.loadingJobs : false)}
-						initial={id ? stepHistoryLoader?.stepStates[id]?.initial : undefined}
-					/>
-				{/snippet}
-			</OutputPicker>
-		{/if}
-	</div>
-
-	{#if deletable && !action}
-		{#if enableTestRun}
-			<div
-				class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-2 h-9 min-w-14"
-			>
-				{#if (hover || selected) && outputPickerVisible}
-					<div transition:fade={{ duration: 100 }}>
-						{#if !testIsLoading}
-							<Button
-								size="sm"
-								color="dark"
-								title="Run"
-								btnClasses="p-1.5"
-								on:click={() => {
-									outputPicker?.toggleOpen(true)
-									moduleTest?.loadArgsAndRunTest()
-								}}
-								dropdownItems={[
-									{
-										label: 'Test up to here',
-										onClick: () => {
-											if (id) {
-												onTestUpTo?.(id)
-											}
-										}
-									}
-								]}
-								dropdownBtnClasses="!w-4 px-1"
-							>
-								{#if testIsLoading}
-									<Loader2 size={12} class="animate-spin" />
-								{:else}
-									<Play size={12} />
-								{/if}
-							</Button>
-						{:else}
-							<Button
-								size="xs"
-								color="red"
-								variant="contained"
-								btnClasses="!h-[25.5px] !w-[44.5px] !p-1.5 gap-0.5"
-								on:click={async () => {
-									moduleTest?.cancelJob()
-								}}
-							>
-								<Loader2 size={10} class="animate-spin mr-0.5" />
-								<X size={14} />
-							</Button>
-						{/if}
+			{#if retry}
+				<Popover notClickable>
+					<div
+						transition:fade|local={{ duration: 200 }}
+						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
+					>
+						{#if retries}<span class="text-red-400 mr-2">{retries}</span>{/if}
+						<Repeat size={12} />
 					</div>
-				{/if}
-			</div>
-		{/if}
-		<button
-			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
+					{#snippet text()}
+						Retries
+					{/snippet}
+				</Popover>
+			{/if}
+
+			{#if concurrency}
+				<Popover notClickable>
+					<div
+						transition:fade|local={{ duration: 200 }}
+						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
+					>
+						<Gauge size={12} />
+					</div>
+					{#snippet text()}
+						Concurrency Limits
+					{/snippet}
+				</Popover>
+			{/if}
+			{#if cache}
+				<Popover notClickable>
+					<div
+						transition:fade|local={{ duration: 200 }}
+						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
+					>
+						<Database size={12} />
+					</div>
+					{#snippet text()}
+						Cached
+					{/snippet}
+				</Popover>
+			{/if}
+			{#if earlyStop}
+				<Popover notClickable>
+					<div
+						transition:fade|local={{ duration: 200 }}
+						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+					>
+						<Square size={12} />
+					</div>
+					{#snippet text()}
+						{isTrigger ? 'Stop early if there are no new events' : 'Early stop/break'}
+					{/snippet}
+				</Popover>
+			{/if}
+			{#if skip}
+				<Popover notClickable>
+					<div
+						transition:fade|local={{ duration: 200 }}
+						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+					>
+						<SkipForward size={12} />
+					</div>
+					{#snippet text()}
+						Skip
+					{/snippet}
+				</Popover>
+			{/if}
+			{#if suspend}
+				<Popover notClickable>
+					<div
+						transition:fade|local={{ duration: 200 }}
+						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+					>
+						<PhoneIncoming size={12} />
+					</div>
+					{#snippet text()}
+						Suspend
+					{/snippet}
+				</Popover>
+			{/if}
+			{#if sleep}
+				<Popover notClickable>
+					<div
+						transition:fade|local={{ duration: 200 }}
+						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+					>
+						<Bed size={12} />
+					</div>
+					{#snippet text()}
+						Sleep
+					{/snippet}
+				</Popover>
+			{/if}
+			{#if mock?.enabled}
+				<Popover notClickable>
+					<button
+						transition:fade|local={{ duration: 200 }}
+						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+						onclick={() => {
+							outputPicker?.toggleOpen()
+						}}
+						data-popover
+					>
+						<Pin size={12} />
+					</button>
+					{#snippet text()}
+						Pinned
+					{/snippet}
+				</Popover>
+			{/if}
+		</div>
+
+		<div
+			class={twMerge('flex flex-col w-full', deletable && action === 'removed' ? 'opacity-50' : '')}
+		>
+			<FlowModuleSchemaItemViewer
+				{label}
+				{path}
+				{id}
+				deletable={deletable && !action}
+				{bold}
+				bind:editId
+				{hover}
+			>
+				{#snippet icon()}
+					{@render icon_render?.()}
+				{/snippet}
+			</FlowModuleSchemaItemViewer>
+
+			{#if outputPickerVisible}
+				<OutputPicker
+					bind:this={outputPicker}
+					{selected}
+					{hover}
+					{isConnectingCandidate}
+					{historyOpen}
+					{inputTransform}
+					id={id ?? ''}
+					bind:bottomBarOpen={outputPickerBarOpen}
+					{loopStatus}
+					{onEditInput}
+					{type}
+					{darkMode}
+					{skipped}
+				>
+					{#snippet children({ allowCopy, isConnecting, selectConnection })}
+						<OutputPickerInner
+							{allowCopy}
+							prefix={'results'}
+							connectingData={isConnecting ? connectingData : undefined}
+							{mock}
+							{lastJob}
+							{testJob}
+							moduleId={id}
+							onSelect={selectConnection}
+							{onUpdateMock}
+							{path}
+							{loopStatus}
+							rightMargin
+							bind:derivedHistoryOpen={historyOpen}
+							historyOffset={{ mainAxis: 12, crossAxis: -9 }}
+							clazz="p-1"
+							isLoading={testIsLoading ||
+								(id ? stepHistoryLoader?.stepStates[id]?.loadingJobs : false)}
+							initial={id ? stepHistoryLoader?.stepStates[id]?.initial : undefined}
+						/>
+					{/snippet}
+				</OutputPicker>
+			{/if}
+		</div>
+
+		{#if deletable && !action}
+			<button
+				class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
 outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-red-400 hover:text-white
  {hover || selected ? '' : '!hidden'}"
-			title="Delete"
-			onclick={stopPropagation(
-				preventDefault((event) => dispatch('delete', { id, type: modType }))
-			)}
-		>
-			<X class="mx-[3px]" size={12} strokeWidth={2} />
-		</button>
+				title="Delete"
+				onclick={stopPropagation(
+					preventDefault((event) => dispatch('delete', { id, type: modType }))
+				)}
+			>
+				<X class="mx-[3px]" size={12} strokeWidth={2} />
+			</button>
 
-		{#if id !== 'preprocessor'}
-			<button
-				class="absolute -top-[10px] right-[60px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
+			{#if id !== 'preprocessor'}
+				<button
+					class="absolute -top-[10px] right-[60px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
 outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-blue-400 hover:text-white
  {hover ? '' : '!hidden'}"
-				onclick={stopPropagation(preventDefault((event) => dispatch('move')))}
-				title="Move"
-			>
-				<Move class="mx-[3px]" size={12} strokeWidth={2} />
-			</button>
-		{/if}
+					onclick={stopPropagation(preventDefault((event) => dispatch('move')))}
+					title="Move"
+				>
+					<Move class="mx-[3px]" size={12} strokeWidth={2} />
+				</button>
+			{/if}
 
-		{#if (id && Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}).length > 0) || Boolean(warningMessage)}
-			<div class="absolute -top-[10px] -left-[10px]">
-				<Popover>
-					{#snippet text()}
-						<ul class="list-disc px-2">
-							{#if id}
-								{#each Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}) as m}
-									<li>
-										{m.message}
-									</li>
-								{/each}
-							{/if}
-						</ul>
-					{/snippet}
-					<div
-						class={twMerge(
-							'flex items-center justify-center h-full w-full rounded-md p-0.5 border  duration-0 ',
-							id &&
-								Object.values($flowInputsStore?.[id]?.flowStepWarnings || {})?.some(
-									(x) => x.type === 'error'
-								)
-								? 'border-red-600 text-red-600 bg-red-100 hover:bg-red-300'
-								: 'border-yellow-600 text-yellow-600 bg-yellow-100 hover:bg-yellow-300'
-						)}
-					>
-						<AlertTriangle size={14} strokeWidth={2} />
-					</div>
-				</Popover>
-			</div>
+			{#if (id && Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}).length > 0) || Boolean(warningMessage)}
+				<div class="absolute -top-[10px] -left-[10px]">
+					<Popover>
+						{#snippet text()}
+							<ul class="list-disc px-2">
+								{#if id}
+									{#each Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}) as m}
+										<li>
+											{m.message}
+										</li>
+									{/each}
+								{/if}
+							</ul>
+						{/snippet}
+						<div
+							class={twMerge(
+								'flex items-center justify-center h-full w-full rounded-md p-0.5 border  duration-0 ',
+								id &&
+									Object.values($flowInputsStore?.[id]?.flowStepWarnings || {})?.some(
+										(x) => x.type === 'error'
+									)
+									? 'border-red-600 text-red-600 bg-red-100 hover:bg-red-300'
+									: 'border-yellow-600 text-yellow-600 bg-yellow-100 hover:bg-yellow-300'
+							)}
+						>
+							<AlertTriangle size={14} strokeWidth={2} />
+						</div>
+					</Popover>
+				</div>
+			{/if}
 		{/if}
+	</div>
+
+	{#if editMode && enableTestRun && flowJob?.type !== 'QueuedJob'}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-2 h-9 min-w-14"
+			onmouseenter={() => (hover = true)}
+			onmouseleave={() => (hover = false)}
+		>
+			{#if (hover || selected || testRunDropdownOpen) && outputPickerVisible}
+				<div transition:fade={{ duration: 100 }}>
+					{#if !testIsLoading}
+						<Button
+							size="sm"
+							color="light"
+							title="Run"
+							variant="border"
+							btnClasses="p-1.5"
+							on:click={() => {
+								outputPicker?.toggleOpen(true)
+								moduleTest?.loadArgsAndRunTest()
+							}}
+							dropdownItems={[
+								{
+									label: 'Test up to here',
+									onClick: () => {
+										if (id) {
+											onTestUpTo?.(id)
+										}
+									}
+								}
+							]}
+							dropdownBtnClasses="!w-4 px-1"
+							bind:dropdownOpen={testRunDropdownOpen}
+						>
+							{#if testIsLoading}
+								<Loader2 size={12} class="animate-spin" />
+							{:else}
+								<Play size={12} />
+							{/if}
+						</Button>
+					{:else}
+						<Button
+							size="xs"
+							color="red"
+							variant="contained"
+							btnClasses="!h-[25.5px] !w-[44.5px] !p-1.5 gap-0.5"
+							on:click={async () => {
+								moduleTest?.cancelJob()
+							}}
+						>
+							<Loader2 size={10} class="animate-spin mr-0.5" />
+							<X size={14} />
+						</Button>
+					{/if}
+				</div>
+			{/if}
+		</div>
 	{/if}
 </div>
 

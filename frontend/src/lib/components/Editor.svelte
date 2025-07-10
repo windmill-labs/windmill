@@ -147,11 +147,14 @@
 	import { Autocompletor } from './copilot/autocomplete/Autocompletor'
 	import { AIChatEditorHandler } from './copilot/chat/monaco-adapter'
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
+	import AIChatInlineWidget from './copilot/chat/AIChatInlineWidget.svelte'
 	import { writable } from 'svelte/store'
 	import { formatResourceTypes } from './copilot/chat/script/core'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { editorPositionMap } from '$lib/utils'
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
+	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
+	import type { Selection } from 'monaco-editor'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
@@ -238,7 +241,7 @@
 		) {
 			return randomHash()
 		} else {
-			console.log('path', path)
+			// console.log('path', path)
 			return path as string
 		}
 	}
@@ -632,6 +635,11 @@
 
 	let reviewingChanges = writable(false)
 	let aiChatEditorHandler: AIChatEditorHandler | undefined = undefined
+
+	// Inline ai chat widget
+	let showInlineAIChat = false
+	let inlineAIChatSelection: Selection | null = null
+	let selectedCode = ''
 
 	export function reviewAndApplyCode(code: string) {
 		aiChatEditorHandler?.reviewAndApply(code)
@@ -1265,6 +1273,22 @@
 		editor?.onDidFocusEditorText(() => {
 			dispatch('focus')
 
+			editor?.addCommand(KeyCode.Escape, function () {
+				if (showInlineAIChat) {
+					closeAIInlineWidget()
+				}
+				aiChatEditorHandler?.rejectAll()
+			})
+
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.DownArrow, function () {
+				if (aiChatManager.pendingNewCode) {
+					aiChatManager.scriptEditorApplyCode?.(aiChatManager.pendingNewCode)
+					if (showInlineAIChat) {
+						closeAIInlineWidget()
+					}
+				}
+			})
+
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
 				updateCode()
 				shouldBindKey && format && format()
@@ -1288,13 +1312,25 @@
 					(selection.startLineNumber !== selection.endLineNumber ||
 						selection.startColumn !== selection.endColumn)
 				if (hasSelection && selectedLines) {
-					dispatch('addSelectedLinesToAiChat', {
-						lines: selectedLines,
-						startLine: selection.startLineNumber,
-						endLine: selection.endLineNumber
-					})
+					aiChatManager.addSelectedLinesToContext(
+						selectedLines,
+						selection.startLineNumber,
+						selection.endLineNumber
+					)
 				} else {
-					dispatch('toggleAiPanel')
+					aiChatManager.toggleOpen()
+					aiChatManager.focusInput()
+				}
+			})
+
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyK, function () {
+				if ($copilotInfo.enabled) {
+					aiChatEditorHandler?.rejectAll()
+					if (showInlineAIChat) {
+						closeAIInlineWidget()
+					} else {
+						showAIInlineWidget()
+					}
 				}
 			})
 
@@ -1324,6 +1360,7 @@
 			try {
 				closeWebsockets()
 				vimDisposable?.dispose()
+				closeAIInlineWidget()
 				console.log('disposing editor')
 				model?.dispose()
 				editor && editor.dispose()
@@ -1452,6 +1489,30 @@
 		})
 	}
 
+	function showAIInlineWidget() {
+		if (!editor) return
+
+		inlineAIChatSelection = editor.getSelection()
+		if (!inlineAIChatSelection) {
+			return
+		}
+		const model = editor.getModel()
+		selectedCode = ''
+		if (model) {
+			selectedCode = model.getValueInRange(inlineAIChatSelection)
+		}
+		showInlineAIChat = true
+		aiChatInlineWidget?.focusInput()
+	}
+
+	function closeAIInlineWidget() {
+		showInlineAIChat = false
+		inlineAIChatSelection = null
+		selectedCode = ''
+	}
+
+	let aiChatInlineWidget: AIChatInlineWidget | null = null
+
 	let loadTimeout: NodeJS.Timeout | undefined = undefined
 	onMount(async () => {
 		if (BROWSER) {
@@ -1492,8 +1553,23 @@
 		let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
 		return root
 	}
+
+	function onKeyDown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			if (showInlineAIChat) {
+				closeAIInlineWidget()
+			}
+			aiChatEditorHandler?.rejectAll()
+		} else if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowDown' && aiChatManager.pendingNewCode) {
+			aiChatManager.scriptEditorApplyCode?.(aiChatManager.pendingNewCode)
+			if (showInlineAIChat) {
+				closeAIInlineWidget()
+			}
+		}
+	}
 </script>
 
+<svelte:window onkeydown={onKeyDown} />
 <EditorTheme />
 {#if !editor}
 	<div class="inset-0 absolute overflow-clip">
@@ -1507,12 +1583,23 @@
 
 {#if $reviewingChanges}
 	<GlobalReviewButtons
-		on:acceptAll={() => {
+		onAcceptAll={() => {
 			aiChatEditorHandler?.acceptAll()
 		}}
-		on:rejectAll={() => {
+		onRejectAll={() => {
 			aiChatEditorHandler?.rejectAll()
 		}}
+	/>
+{/if}
+
+{#if editor && $copilotInfo.enabled && aiChatEditorHandler}
+	<AIChatInlineWidget
+		bind:this={aiChatInlineWidget}
+		bind:show={showInlineAIChat}
+		{editor}
+		editorHandler={aiChatEditorHandler}
+		selection={inlineAIChatSelection}
+		{selectedCode}
 	/>
 {/if}
 
