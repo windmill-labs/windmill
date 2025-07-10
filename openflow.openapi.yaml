@@ -277,7 +277,6 @@ components:
             required:
               - path
               - kind
-              - access_type
             properties:
               path:
                 type: string

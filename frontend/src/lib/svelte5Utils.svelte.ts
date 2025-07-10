@@ -1,6 +1,5 @@
 // https://github.com/sveltejs/svelte/issues/14600
 
-import { untrack } from 'svelte'
 import type { StateStore } from './utils'
 
 export function withProps<Component, Props>(component: Component, props: Props) {
@@ -61,35 +60,4 @@ export function usePromise<T>(
 	if (loadInit) ret.refresh()
 
 	return ret
-}
-
-export type UsePaginatedResult<T> = {
-	items: T[]
-	status: 'loading' | 'error' | 'ok'
-	currentPage: number
-	loadMore: () => void
-}
-
-export function usePaginated<T>(query: (page: number) => Promise<{ items: T[] }>) {
-	let s: UsePaginatedResult<T> = $state({
-		items: [],
-		status: 'loading',
-		currentPage: 1,
-		loadMore: () => {
-			s.currentPage++
-			s.status = 'loading'
-			promise.refresh()
-		}
-	})
-
-	const promise = usePromise(() => query(s.currentPage))
-	$effect(() => {
-		if (promise.status === 'ok') {
-			untrack(() => {
-				s.status = promise.status
-				s.items = [...s.items, ...promise.value.items]
-			})
-		}
-	})
-	return s
 }
