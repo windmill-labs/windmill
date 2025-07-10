@@ -119,13 +119,7 @@
 					target,
 					type: 'empty',
 					data: {
-						insertable: false,
-						sourceId: source,
-						targetId: target,
-						index: 0,
-						enableTrigger: false,
-						disableMoveIds: [],
-						...extraData
+						class: '!opacity-35'
 					}
 				} satisfies Edge
 			})
