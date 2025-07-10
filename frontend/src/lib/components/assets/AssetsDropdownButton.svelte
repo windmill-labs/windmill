@@ -8,7 +8,7 @@
 	import ExploreAssetButton, {
 		assetCanBeExplored
 	} from '../../../routes/(root)/(logged)/assets/ExploreAssetButton.svelte'
-	import { assetEq, type Asset, type AssetWithAccessType } from './lib'
+	import { assetEq, formatAssetKind, type Asset, type AssetWithAccessType } from './lib'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import { tick, untrack } from 'svelte'
 	import { ResourceService } from '$lib/gen'
@@ -132,7 +132,11 @@
 							</svelte:fragment>
 						</Tooltip>
 						<span class="text-xs text-tertiary select-none">
-							{liSubtitle?.(asset)}
+							{liSubtitle?.(asset) ??
+								formatAssetKind({
+									...asset,
+									metadata: { resource_type: resourceDataCache[asset.path] }
+								})}
 						</span>
 					</div>
 

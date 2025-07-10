@@ -13,7 +13,7 @@
 	import { pluralize, truncate } from '$lib/utils'
 	import { untrack } from 'svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
-	import AssetsUsageDropdown from '$lib/components/assets/AssetsUsageDropdown.svelte'
+	import AssetsUsageDrawer from '$lib/components/assets/AssetsUsageDrawer.svelte'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
 	import { AlertTriangle } from 'lucide-svelte'
@@ -42,7 +42,7 @@
 
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
-	let assetsUsageDropdown: AssetsUsageDropdown | undefined = $state()
+	let assetsUsageDropdown: AssetsUsageDrawer | undefined = $state()
 </script>
 
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.resources}
@@ -117,6 +117,6 @@
 	</CenteredPage>
 {/if}
 
-<AssetsUsageDropdown bind:this={assetsUsageDropdown} />
+<AssetsUsageDrawer bind:this={assetsUsageDropdown} />
 <S3FilePicker bind:this={s3FilePicker} readOnlyMode />
 <DbManagerDrawer bind:this={dbManagerDrawer} />

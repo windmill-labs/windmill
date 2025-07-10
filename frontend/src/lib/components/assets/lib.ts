@@ -59,7 +59,7 @@ export function formatAssetKind(asset: {
 				if (asset.metadata.resource_type === 'cache') return 'App Theme'
 				return `${capitalize(asset.metadata.resource_type)} resource`
 			} else {
-				return 'Invalid resource'
+				return 'metadata' in asset ? 'Invalid resource' : 'Resource'
 			}
 		case 's3object':
 			return 'S3 Object'

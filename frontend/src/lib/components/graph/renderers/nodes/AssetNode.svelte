@@ -206,7 +206,7 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { AssetN, AssetsOverflowedN } from '../../graphBuilder.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
-	import { assetEq, type AssetWithAccessType } from '$lib/components/assets/lib'
+	import { assetEq, formatAssetKind, type AssetWithAccessType } from '$lib/components/assets/lib'
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowGraphAssetContext } from '$lib/components/flows/types'
 	import { getContext } from 'svelte'
@@ -236,6 +236,9 @@
 
 	let { data }: Props = $props()
 	const isSelected = $derived(assetEq(flowGraphAssetsCtx.val.selectedAsset, data.asset))
+	const cachedResourceMetadata = $derived(
+		flowGraphAssetsCtx.val.resourceMetadataCache[data.asset.path]
+	)
 </script>
 
 <NodeWrapper>
@@ -259,12 +262,12 @@
 				<span class="text-3xs truncate flex-1">
 					{data.asset.path}
 				</span>
-				{#if data.asset.kind === 'resource' && flowGraphAssetsCtx.val.resourceMetadataCache[data.asset.path] === undefined}
+				{#if data.asset.kind === 'resource' && cachedResourceMetadata === undefined}
 					<Tooltip class={'pr-1 flex items-center justify-center'}>
 						<AlertTriangle size={16} class="text-orange-500" />
 						<svelte:fragment slot="text">Could not find resource</svelte:fragment>
 					</Tooltip>
-				{:else if isSelected && assetCanBeExplored(data.asset, flowGraphAssetsCtx.val.resourceMetadataCache[data.asset.path])}
+				{:else if isSelected && assetCanBeExplored(data.asset, cachedResourceMetadata)}
 					<ExploreAssetButton
 						btnClasses="rounded-none"
 						asset={data.asset}
@@ -272,7 +275,7 @@
 						buttonVariant="contained"
 						s3FilePicker={flowGraphAssetsCtx.val.s3FilePicker}
 						dbManagerDrawer={flowGraphAssetsCtx.val.dbManagerDrawer}
-						_resourceMetadata={flowGraphAssetsCtx.val.resourceMetadataCache[data.asset.path]}
+						_resourceMetadata={cachedResourceMetadata}
 					/>
 				{/if}
 			</div>
@@ -293,7 +296,9 @@
 				>
 					{data.asset.path}
 				</a><br />
-				<span class="dark:text-tertiary text-tertiary-inverse text-xs">{data.asset.kind}</span>
+				<span class="dark:text-tertiary text-tertiary-inverse text-xs"
+					>{formatAssetKind({ ...data.asset, metadata: cachedResourceMetadata })}</span
+				>
 			</svelte:fragment>
 		</Tooltip>
 	{/snippet}
