@@ -56,7 +56,7 @@ export function formatAssetKind(asset: {
 			if (asset.metadata?.resource_type) {
 				if (asset.metadata.resource_type === 'state') return 'State'
 				if (asset.metadata.resource_type === 'cache') return 'Cache'
-				if (asset.metadata.resource_type === 'cache') return 'App Theme'
+				if (asset.metadata.resource_type === 'app_theme') return 'App Theme'
 				return `${capitalize(asset.metadata.resource_type)} resource`
 			} else {
 				return 'metadata' in asset ? 'Invalid resource' : 'Resource'
