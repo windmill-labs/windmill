@@ -248,7 +248,7 @@
 			<div
 				class={twMerge(
 					'bg-surface h-6 flex items-center gap-1.5 rounded-sm text-tertiary border overflow-clip',
-					isSelected ? 'bg-surface-secondary border-surface-inverse' : 'border-transparent'
+					isSelected ? 'bg-surface-secondary !border-surface-inverse' : 'border-transparent'
 				)}
 				onmouseenter={() => (flowGraphAssetsCtx.val.selectedAsset = data.asset)}
 				onmouseleave={() => (flowGraphAssetsCtx.val.selectedAsset = undefined)}

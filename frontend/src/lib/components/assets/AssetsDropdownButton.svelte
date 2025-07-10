@@ -170,7 +170,7 @@
 
 						<ToggleButtonGroup
 							disabled={!!asset.access_type}
-							tabListClass={hasWarning ? 'bg-red-200' : ''}
+							tabListClass={hasWarning ? 'bg-red-200 dark:bg-red-300' : ''}
 							bind:selected={
 								() => asset.access_type ?? fallbackAccessType,
 								async (access_type) => {
@@ -185,7 +185,9 @@
 							{#snippet children({ item })}
 								{#each ['r', 'w', 'rw'] as v}
 									<ToggleButton
-										class={hasWarning ? 'bg-transparent hover:bg-red-100' : ''}
+										class={hasWarning
+											? 'bg-transparent hover:bg-red-100 dark:text-primary-inverse'
+											: ''}
 										value={v}
 										label={v}
 										{item}
