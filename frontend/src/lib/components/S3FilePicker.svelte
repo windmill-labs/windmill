@@ -127,9 +127,13 @@
 	let timeout: NodeJS.Timeout | undefined = undefined
 	let firstLoad = true
 
-	let secondaryStorageNames = usePromise(() =>
-		SettingService.getSecondaryStorageNames({ workspace: $workspaceStore! })
+	let secondaryStorageNames = usePromise(
+		() => SettingService.getSecondaryStorageNames({ workspace: $workspaceStore! }),
+		{ loadInit: false }
 	)
+	$effect(() => {
+		$workspaceStore && untrack(() => secondaryStorageNames.refresh())
+	})
 
 	function onFilterChange() {
 		if (!firstLoad) {
