@@ -92,6 +92,7 @@ export type FlowNode =
 	| NoBranchN
 	| TriggerN
 	| AssetN
+	| AssetsOverflowedN
 
 export type InputN = {
 	type: 'input2'
@@ -262,7 +263,13 @@ export type AssetN = {
 	type: 'asset'
 	data: {
 		asset: AssetWithAccessType
-		displayedAs: 'input' | 'output'
+	}
+}
+
+export type AssetsOverflowedN = {
+	type: 'assetsOverflowed'
+	data: {
+		overflowedAssets: AssetWithAccessType[]
 	}
 }
 

@@ -22,8 +22,8 @@
 			return computeAssetNodesCache[2]
 
 		const MAX_ASSET_ROW_WIDTH = 300
-
-		const allAssetNodes: (Node & AssetN)[] = []
+		const ASSETS_OVERFLOWED_NODE_WIDTH = 25
+		const allAssetNodes: Node[] = []
 		const allAssetEdges: Edge[] = []
 
 		const yPosMap: Record<number, { r?: true; w?: true }> = {}
@@ -36,6 +36,12 @@
 			const inputAssets = assets.filter(assetDisplaysAsInputInFlowGraph)
 			const outputAssets = assets.filter(assetDisplaysAsOutputInFlowGraph)
 
+			const displayedInputAssets = inputAssets.slice(0, 3)
+			const displayedOutputAssets = outputAssets.slice(0, 3)
+
+			const overflowedInputAssets = inputAssets.slice(3)
+			const overflowedOutputAssets = outputAssets.slice(3)
+
 			// This allows calculating which nodes to offset on the y axis to
 			// make space for the asset nodes
 			if (inputAssets.length || outputAssets.length)
@@ -43,76 +49,135 @@
 			if (inputAssets.length) yPosMap[node.position.y].r = true
 			if (outputAssets.length) yPosMap[node.position.y].w = true
 
-			const inputAssetNodes: (Node & AssetN)[] = inputAssets.map((asset, i) => {
-				let inputAssetXGap = 20
-				let inputAssetWidth = 180
+			// All asset nodes displayed on top
+			const inputAssetNodes: (Node & AssetN)[] = displayedInputAssets.map((asset, i) => {
+				let inputAssetXGap = 12
+				let inputAssetWidth = 150
+
+				const targetRowW =
+					MAX_ASSET_ROW_WIDTH -
+					(overflowedInputAssets.length ? ASSETS_OVERFLOWED_NODE_WIDTH + inputAssetXGap / 2 : 0)
 				let totalInputRowWidth = () =>
-					inputAssetWidth * inputAssets.length + inputAssetXGap * (inputAssets.length - 1)
+					inputAssetWidth * displayedInputAssets.length +
+					inputAssetXGap * (displayedInputAssets.length - 1)
 				if (totalInputRowWidth() > MAX_ASSET_ROW_WIDTH) {
-					const mult = MAX_ASSET_ROW_WIDTH / totalInputRowWidth()
+					const mult = targetRowW / totalInputRowWidth()
 					inputAssetWidth = inputAssetWidth * mult
 					inputAssetXGap = inputAssetXGap * mult
 				}
 				return {
 					type: 'asset' as const,
 					parentId: node.id,
-					data: { asset, displayedAs: 'input' as const },
+					data: { asset },
 					id: `${node.id}-asset-in-${asset.kind}-${asset.path}`,
 					width: inputAssetWidth,
 					position: {
 						x:
-							inputAssets.length === 1
+							displayedInputAssets.length === 1
 								? (NODE.width - inputAssetWidth) / 2 - 10 // Ensure we see the edge
-								: (inputAssetWidth + inputAssetXGap) * (i - inputAssets.length / 2) +
-									(NODE.width + inputAssetXGap) / 2,
+								: (inputAssetWidth + inputAssetXGap) * (i - displayedInputAssets.length / 2) +
+									(NODE.width + inputAssetXGap) / 2 +
+									(overflowedInputAssets.length
+										? (-ASSETS_OVERFLOWED_NODE_WIDTH - inputAssetXGap) / 2
+										: 0),
 						y: READ_ASSET_Y_OFFSET
 					}
 				}
 			})
 
-			const outputAssetNodes: (Node & AssetN)[] = outputAssets.map((asset, i) => {
-				let outputAssetXGap = 20
-				let outputAssetWidth = 180
+			// All asset nodes displayed on the bottom
+			const outputAssetNodes: (Node & AssetN)[] = displayedOutputAssets.map((asset, i) => {
+				let outputAssetXGap = 12
+				let outputAssetWidth = 150
+
+				const targetRowW =
+					MAX_ASSET_ROW_WIDTH -
+					(overflowedOutputAssets.length ? ASSETS_OVERFLOWED_NODE_WIDTH + outputAssetXGap / 2 : 0)
 				let totalOutputRowWidth = () =>
-					outputAssetWidth * outputAssets.length + outputAssetXGap * (outputAssets.length - 1)
+					outputAssetWidth * displayedOutputAssets.length +
+					outputAssetXGap * (displayedOutputAssets.length - 1)
 				if (totalOutputRowWidth() > MAX_ASSET_ROW_WIDTH) {
-					const mult = MAX_ASSET_ROW_WIDTH / totalOutputRowWidth()
+					const mult = targetRowW / totalOutputRowWidth()
 					outputAssetWidth = outputAssetWidth * mult
 					outputAssetXGap = outputAssetXGap * mult
 				}
 				return {
 					type: 'asset' as const,
 					parentId: node.id,
-					data: { asset, displayedAs: 'output' as const },
+					data: { asset },
 					id: `${node.id}-asset-out-${asset.kind}-${asset.path}`,
 					width: outputAssetWidth,
 					position: {
 						x:
-							outputAssets.length === 1
+							displayedOutputAssets.length === 1
 								? (NODE.width - outputAssetWidth) / 2 - 10 // Ensure we see the edge
-								: (outputAssetWidth + outputAssetXGap) * (i - outputAssets.length / 2) +
-									(NODE.width + outputAssetXGap) / 2,
+								: (outputAssetWidth + outputAssetXGap) * (i - displayedOutputAssets.length / 2) +
+									(NODE.width + outputAssetXGap) / 2 +
+									(overflowedOutputAssets.length
+										? (-ASSETS_OVERFLOWED_NODE_WIDTH - outputAssetXGap) / 2
+										: 0),
 						y: WRITE_ASSET_Y_OFFSET
 					}
 				}
 			})
 
-			const assetNodes = [...inputAssetNodes, ...outputAssetNodes]
+			const inputAssetEdges: Edge[] = inputAssetNodes?.map((n) => ({
+				id: `${n.id}-edge`,
+				source: n.id ?? '',
+				target: n.parentId ?? '',
+				type: 'empty',
+				data: { class: '!opacity-35 dark:!opacity-20' }
+			}))
+			const outputAssetEdges: Edge[] = outputAssetNodes?.map((n) => ({
+				id: `${n.id}-edge`,
+				source: n.parentId ?? '',
+				target: n.id ?? '',
+				type: 'empty',
+				data: { class: '!opacity-35 dark:!opacity-20' }
+			}))
 
-			const assetEdges = assetNodes?.map((n) => {
-				const source = (n.data.displayedAs === 'output' ? n.parentId : n.id) ?? ''
-				const target = (n.data.displayedAs === 'output' ? n.id : n.parentId) ?? ''
-				return {
-					id: `${n.id}-edge`,
-					source,
-					target,
-					type: 'empty',
-					data: { class: '!opacity-35' }
-				} satisfies Edge
+			allAssetEdges.push(...(outputAssetEdges ?? []), ...(inputAssetEdges ?? []))
+			allAssetNodes.push(...(inputAssetNodes ?? []), ...(outputAssetNodes ?? []))
+
+			// If there are more than 3 assets, we create an overflow node
+			if (overflowedInputAssets.length)
+				allAssetNodes.push({
+					type: 'assetsOverflowed',
+					data: { overflowedAssets: overflowedInputAssets },
+					id: `${node.id}-assets-overflowed-in`,
+					parentId: node.id,
+					width: ASSETS_OVERFLOWED_NODE_WIDTH,
+					position: {
+						x: MAX_ASSET_ROW_WIDTH - ASSETS_OVERFLOWED_NODE_WIDTH - 14,
+						y: READ_ASSET_Y_OFFSET
+					}
+				} satisfies Node & AssetsOverflowedN)
+			allAssetEdges.push({
+				id: `${node.id}-assets-overflowed-in-edge`,
+				source: `${node.id}-assets-overflowed-in`,
+				target: node.id,
+				type: 'empty',
+				data: { class: '!opacity-35 dark:!opacity-20' }
 			})
-
-			allAssetEdges.push(...(assetEdges ?? []))
-			allAssetNodes.push(...(assetNodes ?? []))
+			if (overflowedOutputAssets.length)
+				allAssetNodes.push({
+					type: 'assetsOverflowed',
+					data: { overflowedAssets: overflowedOutputAssets },
+					id: `${node.id}-assets-overflowed-out`,
+					parentId: node.id,
+					width: ASSETS_OVERFLOWED_NODE_WIDTH,
+					position: {
+						x: MAX_ASSET_ROW_WIDTH - ASSETS_OVERFLOWED_NODE_WIDTH - 14,
+						y: WRITE_ASSET_Y_OFFSET
+					}
+				} satisfies Node & AssetsOverflowedN)
+			allAssetEdges.push({
+				id: `${node.id}-assets-overflowed-out-edge`,
+				source: node.id,
+				target: `${node.id}-assets-overflowed-out`,
+				type: 'empty',
+				data: { class: '!opacity-35 dark:!opacity-25' }
+			})
 		}
 
 		// Shift all nodes to make space for the new asset nodes
@@ -139,7 +204,7 @@
 
 <script lang="ts">
 	import NodeWrapper from './NodeWrapper.svelte'
-	import type { AssetN } from '../../graphBuilder.svelte'
+	import type { AssetN, AssetsOverflowedN } from '../../graphBuilder.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
 	import { assetEq, type AssetWithAccessType } from '$lib/components/assets/lib'
 	import { twMerge } from 'tailwind-merge'

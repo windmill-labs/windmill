@@ -65,6 +65,7 @@
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import { assetEq, type AssetWithAccessType } from '../assets/lib'
+	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -445,7 +446,8 @@
 		subflowBound: SubflowBound,
 		noBranch: NoBranchNode,
 		trigger: TriggersNode,
-		asset: AssetNode
+		asset: AssetNode,
+		assetsOverflowed: AssetsOverflowedNode
 	} as any
 
 	const edgeTypes = {
