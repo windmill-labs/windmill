@@ -12,6 +12,7 @@ import type { Asset, AssetWithAccessType } from '../assets/lib'
 import type S3FilePicker from '../S3FilePicker.svelte'
 import type DbManagerDrawer from '../DBManagerDrawer.svelte'
 import type ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
+import type { ModulesTestStates } from '../modulesTest.svelte'
 
 export type FlowInput = Record<
 	string,
@@ -82,6 +83,8 @@ export type FlowEditorContext = {
 	customUi: FlowBuilderWhitelabelCustomUi
 	insertButtonOpen: Writable<boolean>
 	executionCount: Writable<number>
+	modulesTestStates: ModulesTestStates
+	outputPickerOpenFns: Record<string, () => void>
 }
 
 export type FlowGraphAssetContext = StateStore<{

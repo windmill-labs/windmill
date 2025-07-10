@@ -71,7 +71,9 @@
 		if (value === undefined) {
 			if (initialValue) {
 				console.log('initialValue', initialValue)
-				value = initialValue
+				if (initialValue != value) {
+					value = initialValue
+				}
 			} else {
 				console.log('no value')
 			}
@@ -87,11 +89,7 @@
 	}
 
 	let loading = $state(true)
-	async function loadResources(
-		resourceType: string | undefined,
-		initialValue: string | undefined,
-		value: string | undefined
-	) {
+	async function loadResources(resourceType: string | undefined) {
 		loading = true
 		try {
 			const resourceTypesToQuery =
@@ -119,7 +117,7 @@
 				nc.push({ value: value ?? initialValue!, label: value ?? initialValue!, type: '' })
 			}
 			collection = nc
-			if (collection.length == 1 && selectFirst && value == undefined) {
+			if (collection.length == 1 && selectFirst && (value == undefined || value == '')) {
 				console.log('selectFirst', collection[0].value)
 				value = collection[0].value
 				valueType = collection[0].type
@@ -131,13 +129,17 @@
 		loading = false
 	}
 
+	let previousResourceType = resourceType
+
 	$effect(() => {
-		$workspaceStore &&
-			loadResources(
-				resourceType,
-				untrack(() => initialValue),
-				untrack(() => value)
-			)
+		$workspaceStore && resourceType
+		untrack(() => {
+			if (previousResourceType != resourceType) {
+				previousResourceType = resourceType
+				value = undefined
+			}
+		})
+		untrack(() => loadResources(resourceType))
 	})
 
 	let appConnect: AppConnect | undefined = $state()
@@ -147,7 +149,7 @@
 
 <AppConnect
 	on:refresh={async (e) => {
-		await loadResources(resourceType, initialValue, value)
+		await loadResources(resourceType)
 		value = e.detail
 		valueType = collection.find((x) => x?.value == value)?.type
 	}}
@@ -157,7 +159,7 @@
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
 	on:refresh={async (e) => {
-		await loadResources(resourceType, initialValue, value)
+		await loadResources(resourceType)
 		if (e.detail) {
 			value = e.detail
 			valueType = collection.find((x) => x?.value == value)?.type
@@ -243,7 +245,7 @@
 			btnClasses="w-8 px-0.5 py-1.5"
 			size="sm"
 			on:click={() => {
-				loadResources(resourceType, initialValue, value)
+				loadResources(resourceType)
 			}}
 			startIcon={{ icon: RotateCw }}
 			iconOnly
