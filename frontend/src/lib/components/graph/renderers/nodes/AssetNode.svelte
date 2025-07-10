@@ -29,86 +29,75 @@
 		const yPosMap: Record<number, { r?: true; w?: true }> = {}
 
 		for (const node of nodes) {
-			const assets = assetsMap?.[node.id]
-			let [inputAssetIdx, outputAssetIdx] = [-1, -1]
-			let [inputAssetCount, outputAssetCount] = [
-				assets?.filter(assetDisplaysAsInputInFlowGraph).length ?? 0,
-				assets?.filter(assetDisplaysAsOutputInFlowGraph).length ?? 0
-			]
+			const assets = assetsMap?.[node.id] ?? []
 
-			if (inputAssetCount || outputAssetCount)
+			// Each asset can be displayed at the top and bottom
+			// i.e once (R or W) or twice (RW)
+			const inputAssets = assets.filter(assetDisplaysAsInputInFlowGraph)
+			const outputAssets = assets.filter(assetDisplaysAsOutputInFlowGraph)
+
+			// This allows calculating which nodes to offset on the y axis to
+			// make space for the asset nodes
+			if (inputAssets.length || outputAssets.length)
 				yPosMap[node.position.y] = yPosMap[node.position.y] ?? {}
-			if (inputAssetCount) yPosMap[node.position.y].r = true
-			if (outputAssetCount) yPosMap[node.position.y].w = true
+			if (inputAssets.length) yPosMap[node.position.y].r = true
+			if (outputAssets.length) yPosMap[node.position.y].w = true
 
-			// Each asset can be displayed once (R or W) or twice (RW) per node hence the flatMap
-			const assetNodes: (Node & AssetN)[] | undefined = assets?.flatMap((asset) => {
-				const displayAsInput = assetDisplaysAsInputInFlowGraph(asset)
-				const displayAsOutput = assetDisplaysAsOutputInFlowGraph(asset)
-				if (displayAsInput) inputAssetIdx++
-				if (displayAsOutput) outputAssetIdx++
-
-				let [inputAssetXGap, outputAssetXGap] = [20, 20]
-				let [inputAssetWidth, outputAssetWidth] = [180, 180]
-
+			const inputAssetNodes: (Node & AssetN)[] = inputAssets.map((asset, i) => {
+				let inputAssetXGap = 20
+				let inputAssetWidth = 180
 				let totalInputRowWidth = () =>
-					inputAssetWidth * inputAssetCount + inputAssetXGap * (inputAssetCount - 1)
+					inputAssetWidth * inputAssets.length + inputAssetXGap * (inputAssets.length - 1)
 				if (totalInputRowWidth() > MAX_ASSET_ROW_WIDTH) {
 					const mult = MAX_ASSET_ROW_WIDTH / totalInputRowWidth()
 					inputAssetWidth = inputAssetWidth * mult
 					inputAssetXGap = inputAssetXGap * mult
 				}
+				return {
+					type: 'asset' as const,
+					parentId: node.id,
+					data: { asset, displayedAs: 'input' as const },
+					id: `${node.id}-asset-in-${asset.kind}-${asset.path}`,
+					width: inputAssetWidth,
+					position: {
+						x:
+							inputAssets.length === 1
+								? (NODE.width - inputAssetWidth) / 2 - 10 // Ensure we see the edge
+								: (inputAssetWidth + inputAssetXGap) * (i - inputAssets.length / 2) +
+									(NODE.width + inputAssetXGap) / 2,
+						y: READ_ASSET_Y_OFFSET
+					}
+				}
+			})
 
+			const outputAssetNodes: (Node & AssetN)[] = outputAssets.map((asset, i) => {
+				let outputAssetXGap = 20
+				let outputAssetWidth = 180
 				let totalOutputRowWidth = () =>
-					outputAssetWidth * outputAssetCount + outputAssetXGap * (outputAssetCount - 1)
+					outputAssetWidth * outputAssets.length + outputAssetXGap * (outputAssets.length - 1)
 				if (totalOutputRowWidth() > MAX_ASSET_ROW_WIDTH) {
 					const mult = MAX_ASSET_ROW_WIDTH / totalOutputRowWidth()
 					outputAssetWidth = outputAssetWidth * mult
 					outputAssetXGap = outputAssetXGap * mult
 				}
-
-				const base = { type: 'asset' as const, parentId: node.id }
-				return [
-					...(displayAsInput
-						? [
-								{
-									...base,
-									data: { asset, displayedAs: 'input' as const },
-									id: `${node.id}-asset-in-${asset.kind}-${asset.path}`,
-									width: inputAssetWidth,
-									position: {
-										x:
-											inputAssetCount === 1
-												? (NODE.width - inputAssetWidth) / 2 - 10 // Ensure we see the edge
-												: (inputAssetWidth + inputAssetXGap) *
-														(inputAssetIdx - inputAssetCount / 2) +
-													(NODE.width + inputAssetXGap) / 2,
-										y: READ_ASSET_Y_OFFSET
-									}
-								}
-							]
-						: []),
-					...(displayAsOutput
-						? [
-								{
-									...base,
-									data: { asset, displayedAs: 'output' as const },
-									id: `${node.id}-asset-out-${asset.kind}-${asset.path}`,
-									width: outputAssetWidth,
-									position: {
-										x:
-											outputAssetCount === 1
-												? (NODE.width - outputAssetWidth) / 2 - 10 // Ensure we see the edge
-												: (outputAssetWidth + outputAssetXGap) *
-														(outputAssetIdx - outputAssetCount / 2) +
-													(NODE.width + outputAssetXGap) / 2,
-										y: WRITE_ASSET_Y_OFFSET
-									}
-								}
-							]
-						: [])
-				]
+				return {
+					type: 'asset' as const,
+					parentId: node.id,
+					data: { asset, displayedAs: 'output' as const },
+					id: `${node.id}-asset-out-${asset.kind}-${asset.path}`,
+					width: outputAssetWidth,
+					position: {
+						x:
+							outputAssets.length === 1
+								? (NODE.width - outputAssetWidth) / 2 - 10 // Ensure we see the edge
+								: (outputAssetWidth + outputAssetXGap) * (i - outputAssets.length / 2) +
+									(NODE.width + outputAssetXGap) / 2,
+						y: WRITE_ASSET_Y_OFFSET
+					}
+				}
 			})
+
+			const assetNodes = [...inputAssetNodes, ...outputAssetNodes]
 
 			const assetEdges = assetNodes?.map((n) => {
 				const source = (n.data.displayedAs === 'output' ? n.parentId : n.id) ?? ''
@@ -118,9 +107,7 @@
 					source,
 					target,
 					type: 'empty',
-					data: {
-						class: '!opacity-35'
-					}
+					data: { class: '!opacity-35' }
 				} satisfies Edge
 			})
 
