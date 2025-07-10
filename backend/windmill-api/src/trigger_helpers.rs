@@ -649,7 +649,6 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     }
 }
 
-#[allow(dead_code)]
 async fn trigger_script_internal(
     db: &DB,
     user_db: UserDB,
@@ -692,7 +691,6 @@ async fn trigger_script_internal(
     }
 }
 
-#[allow(dead_code)]
 async fn trigger_script_with_retry_and_error_handler(
     db: &DB,
     user_db: UserDB,
