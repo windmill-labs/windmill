@@ -17169,6 +17169,7 @@ components:
         - runs
         - schedules
         - resources
+        - assets
         - variables
         - triggers
         - audit_logs
@@ -17188,6 +17189,9 @@ components:
         variables:
           type: boolean
           description: Whether operators can view variables
+        assets:
+          type: boolean
+          description: Whether operators can view assets
         audit_logs:
           type: boolean
           description: Whether operators can view audit logs
