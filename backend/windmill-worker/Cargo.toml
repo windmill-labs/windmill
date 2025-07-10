@@ -120,6 +120,7 @@ yaml-rust.workspace = true
 backon.workspace = true
 winapi = { workspace = true, optional = true }
 pep440_rs.workspace = true
+process-wrap.workspace = true
 
 opentelemetry = { workspace = true, optional = true }
 bollard = { workspace = true, optional = true }

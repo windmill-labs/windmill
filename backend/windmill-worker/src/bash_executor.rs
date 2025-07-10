@@ -618,11 +618,12 @@ pub async fn handle_powershell_job(
                     .collect::<Vec<_>>()
                     .join(", "),
             );
-        let child = Command::new(POWERSHELL_PATH.as_str())
-            .args(&["-Command", &install_string])
+        let mut cmd = Command::new(POWERSHELL_PATH.as_str());
+        cmd.args(&["-Command", &install_string])
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+            .stderr(Stdio::piped());
+
+        let child = start_child_process(cmd, POWERSHELL_PATH.as_str()).await?;
 
         handle_child(
             &job.id,
@@ -750,8 +751,8 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
             "wrapper.sh",
         ];
         cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
-        Command::new(NSJAIL_PATH.as_str())
-            .current_dir(job_dir)
+        let mut cmd = Command::new(NSJAIL_PATH.as_str());
+        cmd.current_dir(job_dir)
             .env_clear()
             .envs(PROXY_ENVS.clone())
             .envs(reserved_variables)
@@ -760,8 +761,9 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(cmd_args)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
+            .stderr(Stdio::piped());
+
+        start_child_process(cmd, NSJAIL_PATH.as_str()).await?
     } else {
         let mut cmd;
         let mut cmd_args;
@@ -833,7 +835,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
                 .env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         }
 
-        cmd.spawn()?
+        start_child_process(cmd, POWERSHELL_PATH.as_str()).await?
     };
 
     handle_child(

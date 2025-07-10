@@ -164,7 +164,7 @@ pub async fn generate_deno_lock(
         )
         .await?;
     } else {
-        child_process.wait().await?;
+        Box::into_pin(child_process.wait()).await?;
     }
 
     let path_lock = format!("{job_dir}/lock.json");
