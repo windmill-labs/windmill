@@ -185,8 +185,8 @@ pub async fn push_scheduled_job<'c>(
                     cache_ttl: cache_ttl,
                     priority: priority,
                     tag_override: schedule.tag.clone(),
-                    apply_script_preprocessor: false,
                     trigger_path: None,
+                    apply_preprocessor: false,
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()

@@ -88,7 +88,8 @@ async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<Pipt
 
     while let Some(task) = rx.recv().await {
         if let Some(os) = get_object_store().await {
-            match build_tar_and_push(os, task.venv_path.clone(), task.cache_dir, None, false).await {
+            match build_tar_and_push(os, task.venv_path.clone(), task.cache_dir, None, false).await
+            {
                 Ok(()) => {
                     tracing::info!("Successfully uploaded piptar for {}", task.venv_path);
                 }
@@ -97,7 +98,10 @@ async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<Pipt
                 }
             }
         } else {
-            tracing::warn!("S3 object store not available for piptar upload: {}", task.venv_path);
+            tracing::warn!(
+                "S3 object store not available for piptar upload: {}",
+                task.venv_path
+            );
         }
     }
 }
@@ -336,26 +340,30 @@ pub async fn uv_pip_compile(
                 )
                 .env(
                     "APPDATA",
-                    std::env::var("APPDATA")
-                        .unwrap_or_else(|_| format!("{}\\AppData\\Roaming", crate::USERPROFILE_ENV.as_str())),
+                    std::env::var("APPDATA").unwrap_or_else(|_| {
+                        format!("{}\\AppData\\Roaming", crate::USERPROFILE_ENV.as_str())
+                    }),
                 )
                 .env(
                     "ComSpec",
-                    std::env::var("ComSpec").unwrap_or_else(|_| String::from("C:\\Windows\\System32\\cmd.exe")),
+                    std::env::var("ComSpec")
+                        .unwrap_or_else(|_| String::from("C:\\Windows\\System32\\cmd.exe")),
                 )
                 .env(
                     "PATHEXT",
-                    std::env::var("PATHEXT").unwrap_or_else(|_|
+                    std::env::var("PATHEXT").unwrap_or_else(|_| {
                         String::from(".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL")
-                    ),
+                    }),
                 )
                 .env(
                     "ProgramData",
-                    std::env::var("ProgramData").unwrap_or_else(|_| String::from("C:\\ProgramData")),
+                    std::env::var("ProgramData")
+                        .unwrap_or_else(|_| String::from("C:\\ProgramData")),
                 )
                 .env(
                     "ProgramFiles",
-                    std::env::var("ProgramFiles").unwrap_or_else(|_| String::from("C:\\Program Files")),
+                    std::env::var("ProgramFiles")
+                        .unwrap_or_else(|_| String::from("C:\\Program Files")),
                 );
         }
 
@@ -600,7 +608,6 @@ pub async fn handle_python_job(
         pre_spread,
     ) = prepare_wrapper(
         job_dir,
-        job.is_flow_step(),
         job.preprocessed,
         job.script_entrypoint_override.as_deref(),
         inner_content,
@@ -887,7 +894,6 @@ mount {{
 
 async fn prepare_wrapper(
     job_dir: &str,
-    job_is_flow_step: bool,
     job_preprocessed: Option<bool>,
     job_script_entrypoint_override: Option<&str>,
     inner_content: &str,
@@ -905,7 +911,7 @@ async fn prepare_wrapper(
     Option<String>,
 )> {
     let main_override = job_script_entrypoint_override.as_deref();
-    let apply_preprocessor = !job_is_flow_step && job_preprocessed == Some(false);
+    let apply_preprocessor = job_preprocessed == Some(false);
 
     let relative_imports = RELATIVE_IMPORT_REGEX.is_match(&inner_content);
 
@@ -1453,26 +1459,30 @@ async fn spawn_uv_install(
                 )
                 .env(
                     "APPDATA",
-                    std::env::var("APPDATA")
-                        .unwrap_or_else(|_| format!("{}\\AppData\\Roaming", crate::USERPROFILE_ENV.as_str())),
+                    std::env::var("APPDATA").unwrap_or_else(|_| {
+                        format!("{}\\AppData\\Roaming", crate::USERPROFILE_ENV.as_str())
+                    }),
                 )
                 .env(
                     "ComSpec",
-                    std::env::var("ComSpec").unwrap_or_else(|_| String::from("C:\\Windows\\System32\\cmd.exe")),
+                    std::env::var("ComSpec")
+                        .unwrap_or_else(|_| String::from("C:\\Windows\\System32\\cmd.exe")),
                 )
                 .env(
                     "PATHEXT",
-                    std::env::var("PATHEXT").unwrap_or_else(|_|
+                    std::env::var("PATHEXT").unwrap_or_else(|_| {
                         String::from(".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL")
-                    ),
+                    }),
                 )
                 .env(
                     "ProgramData",
-                    std::env::var("ProgramData").unwrap_or_else(|_| String::from("C:\\ProgramData")),
+                    std::env::var("ProgramData")
+                        .unwrap_or_else(|_| String::from("C:\\ProgramData")),
                 )
                 .env(
                     "ProgramFiles",
-                    std::env::var("ProgramFiles").unwrap_or_else(|_| String::from("C:\\Program Files")),
+                    std::env::var("ProgramFiles")
+                        .unwrap_or_else(|_| String::from("C:\\Program Files")),
                 )
                 .args(&command_args[1..])
                 .stdout(Stdio::piped())
@@ -2160,7 +2170,7 @@ pub async fn start_worker(
         spread,
         _,
         _,
-    ) = prepare_wrapper(job_dir, false, None, None, inner_content, script_path).await?;
+    ) = prepare_wrapper(job_dir, None, None, inner_content, script_path).await?;
 
     {
         let postprocessor = get_result_postprocessor(annotations.skip_result_postprocessing);
@@ -2294,4 +2304,3 @@ for line in sys.stdin:
     )
     .await
 }
-

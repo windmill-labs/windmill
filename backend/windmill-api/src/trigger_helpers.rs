@@ -756,7 +756,7 @@ async fn trigger_script_with_retry_and_error_handler(
             cache_ttl,
             priority,
             tag_override: tag.clone(),
-            apply_script_preprocessor: apply_preprocessor,
+            apply_preprocessor,
             trigger_path: Some(trigger_path),
         },
         _ => {

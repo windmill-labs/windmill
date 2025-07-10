@@ -529,6 +529,9 @@ pub async fn list_postgres_triggers(
             "postgres_resource_path",
             "replication_slot_name",
             "publication_name",
+            "error_handler_path",
+            "error_handler_args",
+            "retry",
         ])
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))

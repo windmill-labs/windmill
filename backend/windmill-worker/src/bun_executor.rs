@@ -894,7 +894,7 @@ pub async fn handle_bun_job(
         annotation.nodejs = true
     }
     let main_override = job.script_entrypoint_override.as_deref();
-    let apply_preprocessor = !job.is_flow_step() && job.preprocessed == Some(false);
+    let apply_preprocessor = job.preprocessed == Some(false);
 
     if has_bundle_cache {
         let target;

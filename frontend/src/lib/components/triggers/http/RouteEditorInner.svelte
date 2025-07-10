@@ -13,7 +13,7 @@
 		type NewHttpTrigger,
 		type Retry
 	} from '$lib/gen'
-	import { enterpriseLicense, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Pipette, Plus } from 'lucide-svelte'
@@ -38,13 +38,12 @@
 	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
-	import { handleConfigChange } from '../utils'
+	import { getHandlerType, handleConfigChange } from '../utils'
 	import autosize from '$lib/autosize'
 	import { untrack } from 'svelte'
-	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
-	import FlowRetries from '$lib/components/flows/content/FlowRetries.svelte'
+	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 
 	let {
 		useDrawer = true,
@@ -205,19 +204,6 @@
 			drawerLoading = false
 			showLoader = false
 		}
-	}
-
-	function getHandlerType(scriptPath: string): 'custom' | 'slack' | 'teams' {
-		const handlerMap = {
-			teams: '/workspace-or-schedule-error-handler-teams',
-			slack: '/workspace-or-schedule-error-handler-slack'
-		}
-		for (const [type, suffix] of Object.entries(handlerMap)) {
-			if (scriptPath.startsWith('hub/') && scriptPath.endsWith(suffix)) {
-				return type as 'slack' | 'teams'
-			}
-		}
-		return 'custom'
 	}
 
 	export async function openNew(
@@ -622,9 +608,7 @@
 							<Tabs bind:selected={optionTabSelected}>
 								<Tab value="request_options">Request Options</Tab>
 								<Tab value="error_handler">Error Handler</Tab>
-								{#if itemKind === 'script'}
-									<Tab value="retries">Retries</Tab>
-								{/if}
+								<Tab value="retries">Retries</Tab>
 							</Tabs>
 							<div class="mt-4">
 								{#if optionTabSelected === 'request_options'}
@@ -802,21 +786,16 @@
 											{testingBadge}
 										/>
 									</div>
-								{:else if optionTabSelected === 'error_handler'}
-									<ErrorOrRecoveryHandler
-										isEditable={can_write}
-										errorOrRecovery="error"
-										showScriptHelpText={true}
-										bind:handlerSelected={errorHandlerSelected}
-										bind:handlerPath={error_handler_path}
-										toggleText="Alert channel on error"
-										customScriptTemplate="/scripts/add?hub=hub%2F9081%2Fwindmill%2Fschedule_error_handler_template"
-										customHandlerKind="script"
-										bind:handlerExtraArgs={error_handler_args}
-									></ErrorOrRecoveryHandler>
-								{:else if optionTabSelected === 'retries'}
-									{@const disabled = !can_write || emptyString($enterpriseLicense)}
-									<FlowRetries bind:flowModuleRetry={retry} {disabled} />
+								{:else}
+									<TriggerRetriesAndErrorHandler
+										{optionTabSelected}
+										{itemKind}
+										{can_write}
+										bind:errorHandlerSelected
+										bind:error_handler_path
+										bind:error_handler_args
+										bind:retry
+									/>
 								{/if}
 							</div>
 						</div>

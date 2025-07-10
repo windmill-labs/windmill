@@ -6,14 +6,12 @@
 	import { Plus, X } from 'lucide-svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import type { MqttClientVersion, MqttV3Config, MqttV5Config, MqttSubscribeTopic } from '$lib/gen'
+	import type { MqttClientVersion, MqttSubscribeTopic } from '$lib/gen'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { fade } from 'svelte/transition'
 
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import { emptyStringTrimmed } from '$lib/utils'
-	import { DEFAULT_V3_CONFIG, DEFAULT_V5_CONFIG } from './constant'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -24,8 +22,6 @@
 		headless?: boolean
 		mqtt_resource_path?: string
 		subscribe_topics?: MqttSubscribeTopic[]
-		v3_config?: MqttV3Config
-		v5_config?: MqttV5Config
 		client_version?: MqttClientVersion
 		isValid?: boolean
 		client_id?: string
@@ -37,18 +33,11 @@
 		headless = false,
 		mqtt_resource_path = $bindable(''),
 		subscribe_topics = $bindable([]),
-		v3_config = $bindable(DEFAULT_V3_CONFIG),
-		v5_config = $bindable(DEFAULT_V5_CONFIG),
 		client_version = $bindable('v5'),
 		isValid = $bindable(false),
 		client_id = $bindable(''),
 		showTestingBadge = false
 	}: Props = $props()
-
-	const activateV5Options = $state({
-		topic_alias: Boolean(v5_config.topic_alias),
-		session_expiry_interval: Boolean(v5_config.session_expiry_interval)
-	})
 
 	const isValidSubscribeTopics = (subscribe_topics: MqttSubscribeTopic[]): boolean => {
 		if (
@@ -65,14 +54,14 @@
 	})
 </script>
 
-<div>
+<div class="flex flex-col gap-12">
 	<Section label="MQTT" {headless}>
 		{#snippet header()}
 			{#if showTestingBadge}
 				<TestingBadge />
 			{/if}
 		{/snippet}
-		<div class="flex flex-col w-full gap-4">
+		<div class="flex flex-col w-full gap-12">
 			<Subsection label="Connection setup">
 				<ResourcePicker resourceType="mqtt" disabled={!can_write} bind:value={mqtt_resource_path} />
 				{#if !emptyStringTrimmed(mqtt_resource_path)}
@@ -194,128 +183,6 @@
 							Add topic
 						</Button>
 					</div>
-				</div>
-			</Subsection>
-
-			<Subsection label="Advanced" collapsable={true}>
-				<div class="flex p-2 flex-col gap-2 mt-3">
-					<ToggleButtonGroup bind:selected={client_version}>
-						{#snippet children({ item })}
-							<ToggleButton value="v5" label="Version 5" {item} />
-							<ToggleButton value="v3" label="Version 3" {item} />
-						{/snippet}
-					</ToggleButtonGroup>
-
-					<input
-						type="text"
-						bind:value={client_id}
-						disabled={!can_write}
-						placeholder="Client id"
-						autocomplete="off"
-					/>
-
-					{#if client_version === 'v5'}
-						<Toggle
-							textClass="font-normal text-sm"
-							color="nord"
-							size="xs"
-							checked={v5_config.clean_start}
-							on:change={() => {
-								v5_config.clean_start = !v5_config.clean_start
-							}}
-							options={{
-								right: 'Clean start',
-								rightTooltip:
-									'Start a new session without any stored messages or subscriptions if enabled. Otherwise, resume the previous session with stored subscriptions and undelivered messages. The default setting is 0.',
-								rightDocumentationLink:
-									'https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901039'
-							}}
-							class="py-1"
-						/>
-
-						<div class="flex flex-col gap-2">
-							<Toggle
-								textClass="font-normal text-sm"
-								color="nord"
-								size="xs"
-								checked={activateV5Options.session_expiry_interval}
-								on:change={() => {
-									activateV5Options.session_expiry_interval =
-										!activateV5Options.session_expiry_interval
-									if (!activateV5Options.session_expiry_interval) {
-										v5_config.session_expiry_interval = undefined
-									}
-								}}
-								options={{
-									right: 'Session expiry interval',
-									rightTooltip:
-										'Defines the time in seconds that the broker will retain the session after disconnection. If set to 0, the session ends immediately. If set to 4,294,967,295, the session will be retained indefinitely. Otherwise, subscriptions and undelivered messages are stored until the interval expires.',
-									rightDocumentationLink: ''
-								}}
-								class="py-1"
-							/>
-
-							{#if activateV5Options.session_expiry_interval}
-								<input
-									type="number"
-									bind:value={v5_config.session_expiry_interval}
-									disabled={!can_write}
-									placeholder="Session expiry interval"
-									autocomplete="off"
-								/>
-							{/if}
-						</div>
-
-						<div class="flex flex-col gap-2">
-							<Toggle
-								textClass="font-normal text-sm"
-								color="nord"
-								size="xs"
-								checked={activateV5Options.topic_alias}
-								on:change={() => {
-									activateV5Options.topic_alias = !activateV5Options.topic_alias
-									if (!activateV5Options.topic_alias) {
-										v5_config.topic_alias = undefined
-									}
-								}}
-								options={{
-									right: 'Topic alias maximum',
-									rightTooltip:
-										'Defines the maximum topic alias value the client will accept from the broker. A value of 0 indicates that topic aliases are not supported. The default value is 65536, which is the maximum allowed topic alias.',
-									rightDocumentationLink:
-										'https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901051'
-								}}
-								class="py-1"
-							/>
-
-							{#if activateV5Options.topic_alias}
-								<input
-									type="number"
-									bind:value={v5_config.topic_alias}
-									disabled={!can_write}
-									placeholder="Topic alias"
-									autocomplete="off"
-								/>
-							{/if}
-						</div>
-					{:else if client_version === 'v3'}
-						<Toggle
-							textClass="font-normal text-sm"
-							color="nord"
-							size="xs"
-							checked={v3_config.clean_session}
-							on:change={() => {
-								v3_config.clean_session = !v3_config.clean_session
-							}}
-							options={{
-								right: 'Clean session',
-								rightTooltip:
-									'Starts a new session without any stored messages or subscriptions if enabled. Otherwise, it resumes the previous session with stored subscriptions and undelivered messages. The default value is 0',
-								rightDocumentationLink: ''
-							}}
-							class="py-1"
-						/>
-					{/if}
 				</div>
 			</Subsection>
 		</div>

@@ -267,7 +267,8 @@
 				'success_times',
 				'success_result',
 				'success_started_at',
-				'email'
+				'email',
+				'trigger_path'
 			]).then((schema) => (customHandlerSchema = schema))
 	})
 

@@ -3830,8 +3830,8 @@ pub async fn push<'c, 'd>(
             cache_ttl,
             priority,
             tag_override,
-            apply_script_preprocessor,
-            trigger_path
+            trigger_path,
+            apply_preprocessor,
         } => {
             let mut input_transforms = HashMap::<String, InputTransform>::new();
             for (arg_name, arg_value) in args {
@@ -3843,6 +3843,11 @@ pub async fn push<'c, 'd>(
                 input_transforms.insert("path".to_string(), InputTransform::Static { value: to_raw_value(&path) });
                 input_transforms.insert("is_flow".to_string(), InputTransform::Static { value: to_raw_value(&false) });
                 input_transforms.insert("trigger_path".to_string(), InputTransform::Static { value: to_raw_value(&trigger_path) });
+                input_transforms.insert("workspace_id".to_string(), InputTransform::Static { value: to_raw_value(&workspace_id) });
+                input_transforms.insert("email".to_string(), InputTransform::Static { value: to_raw_value(&email) });
+                // for the below transforms to work, make sure that flow_job_id and started_at are added to the eval context when pusing the error handler job
+                input_transforms.insert("job_id".to_string(), InputTransform::Javascript { expr: "flow_job_id".to_string() });
+                input_transforms.insert("started_at".to_string(), InputTransform::Javascript { expr: "started_at".to_string() });
 
                 if let Some(error_handler_args) = error_handler_args {
                     for (arg_name, arg_value) in error_handler_args {
@@ -3876,7 +3881,7 @@ pub async fn push<'c, 'd>(
                         is_trigger: None,
                     }),
                     retry,
-                    apply_preprocessor: Some(apply_script_preprocessor),
+                    apply_preprocessor: Some(apply_preprocessor),
                     ..Default::default()
                 }],
                 failure_module,

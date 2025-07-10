@@ -199,7 +199,7 @@ pub async fn handle_deno_job(
     append_logs(&job.id, &job.workspace_id, logs1, conn).await;
 
     let main_override = job.script_entrypoint_override.as_deref();
-    let apply_preprocessor = !job.is_flow_step() && job.preprocessed == Some(false);
+    let apply_preprocessor = job.preprocessed == Some(false);
 
     write_file(job_dir, "main.ts", inner_content)?;
 

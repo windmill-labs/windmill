@@ -359,9 +359,8 @@ pub enum JobPayload {
         cache_ttl: Option<i32>,
         priority: Option<i16>,
         tag_override: Option<String>,
-        /// Whether to apply the script preprocessor to the script (not the flow preprocessor)
-        apply_script_preprocessor: bool,
         trigger_path: Option<String>,
+        apply_preprocessor: bool,
     },
     DeploymentCallback {
         path: String,

@@ -15240,6 +15240,12 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
       required:
         - url
@@ -15279,6 +15285,12 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
       required:
         - path
@@ -15318,6 +15330,12 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
       required:
         - path
@@ -15367,7 +15385,7 @@ components:
       properties:
         clean_start:
           type: boolean
-        topic_alias:
+        topic_alias_maximum:
           type: number
         session_expiry_interval:
           type: number
@@ -15415,6 +15433,12 @@ components:
           type: string
         enabled:
           type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
       required:
         - enabled
@@ -15446,6 +15470,12 @@ components:
           type: boolean
         enabled:
           type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
         - path
         - script_path
@@ -15478,6 +15508,12 @@ components:
           type: boolean
         enabled:
           type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
         - path
         - script_path
@@ -15529,6 +15565,12 @@ components:
           type: string
         enabled:
           type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
         - gcp_resource_path
         - topic_id
@@ -15571,6 +15613,12 @@ components:
           type: boolean
         enabled:
           type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
         - path
         - script_path
@@ -15626,6 +15674,12 @@ components:
           type: string
         enabled:
           type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
       required:
         - queue_url
@@ -15654,6 +15708,12 @@ components:
           type: boolean
         enabled:
           type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
         - queue_url
         - aws_resource_path
@@ -15683,6 +15743,12 @@ components:
           type: boolean
         enabled:
           type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
         - queue_url
         - aws_resource_path
@@ -15788,6 +15854,12 @@ components:
         last_server_ping:
           type: string
           format: date-time
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
         - enabled
         - postgres_resource_path
@@ -15813,6 +15885,12 @@ components:
           type: string
         publication:
           $ref: "#/components/schemas/PublicationData"
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
         - path
         - script_path
@@ -15839,6 +15917,12 @@ components:
           type: string
         publication:
           $ref: "#/components/schemas/PublicationData"
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
         - path
         - script_path
@@ -15870,6 +15954,12 @@ components:
           type: string
         enabled:
           type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
       required:
         - kafka_resource_path
@@ -15896,6 +15986,12 @@ components:
             type: string
         enabled:
           type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
       required:
         - path
@@ -15922,6 +16018,12 @@ components:
           type: string
         is_flow:
           type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
       required:
         - path
@@ -15957,6 +16059,12 @@ components:
           type: string
         enabled:
           type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
       required:
         - nats_resource_path
@@ -15987,6 +16095,12 @@ components:
             type: string
         enabled:
           type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
       required:
         - path
@@ -16017,6 +16131,12 @@ components:
           type: string
         is_flow:
           type: boolean
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
 
       required:
         - path
