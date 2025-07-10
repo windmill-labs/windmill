@@ -735,7 +735,7 @@ fn child_joined_output_stream(
     let stderr = child
         .stderr()
         .take()
-        .expect("child did not have a handle to stdout");
+        .expect("child did not have a handle to stderr");
 
     let stdout = child
         .stdout()
