@@ -16,6 +16,7 @@
 	import { Button, ButtonType } from '$lib/components/common'
 	import DbManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
+	import { userStore } from '$lib/stores'
 	import { isS3Uri } from '$lib/utils'
 	import { Database, File } from 'lucide-svelte'
 
@@ -44,6 +45,7 @@
 </script>
 
 <Button
+	disabled={$userStore?.operator}
 	size="xs"
 	variant={buttonVariant}
 	spacingSize="xs2"
@@ -57,7 +59,6 @@
 		}
 		onClick?.()
 	}}
-	c
 >
 	{#if asset.kind === 's3object'}
 		<span class:hidden={noText}>Explore</span> <File size={18} />

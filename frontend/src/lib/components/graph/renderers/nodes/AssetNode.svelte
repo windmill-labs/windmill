@@ -221,6 +221,7 @@
 
 	import { NODE } from '../../util'
 	import type { AssetUsageAccessType } from '$lib/gen'
+	import { userStore } from '$lib/stores'
 
 	interface Props {
 		data: AssetN['data']
@@ -267,7 +268,7 @@
 						<AlertTriangle size={16} class="text-orange-500" />
 						<svelte:fragment slot="text">Could not find resource</svelte:fragment>
 					</Tooltip>
-				{:else if isSelected && assetCanBeExplored(data.asset, cachedResourceMetadata)}
+				{:else if isSelected && assetCanBeExplored(data.asset, cachedResourceMetadata) && !$userStore?.operator}
 					<ExploreAssetButton
 						btnClasses="rounded-none"
 						asset={data.asset}

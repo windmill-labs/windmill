@@ -80,7 +80,7 @@
 				{#each filteredAssets as asset}
 					{@const assetUri = formatAsset(asset)}
 					<tr class="h-14">
-						<Cell first>
+						<Cell first class="w-16">
 							<Tooltip>
 								<AssetGenericIcon
 									assetKind={asset.kind}
@@ -98,7 +98,7 @@
 							</a>
 						</Cell>
 						<Cell>
-							{#if assetCanBeExplored(asset, asset.metadata)}
+							{#if assetCanBeExplored(asset, asset.metadata) && !$userStore?.operator}
 								<ExploreAssetButton
 									{asset}
 									{s3FilePicker}

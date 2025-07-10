@@ -902,7 +902,7 @@
 											</div>
 										</Cell>
 										<Cell class="flex justify-end">
-											{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type })}
+											{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type }) && !$userStore?.operator}
 												<ExploreAssetButton
 													asset={{ kind: 'resource', path }}
 													{dbManagerDrawer}
