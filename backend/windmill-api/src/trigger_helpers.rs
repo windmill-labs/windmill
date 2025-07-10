@@ -458,6 +458,7 @@ pub trait TriggerJobArgs<T: Clone> {
     }
 }
 
+#[allow(dead_code)]
 async fn trigger_runnable_inner(
     db: &DB,
     user_db: Option<UserDB>,
@@ -505,6 +506,7 @@ async fn trigger_runnable_inner(
     Ok((uuid, delete_after_use))
 }
 
+#[allow(dead_code)]
 pub async fn trigger_runnable(
     db: &DB,
     user_db: Option<UserDB>,
@@ -535,6 +537,7 @@ pub async fn trigger_runnable(
     Ok((StatusCode::CREATED, uuid.to_string()).into_response())
 }
 
+#[allow(dead_code)]
 pub async fn trigger_runnable_and_wait_for_result(
     db: &DB,
     user_db: Option<UserDB>,
@@ -573,6 +576,7 @@ pub async fn trigger_runnable_and_wait_for_result(
     result_to_response(result, success)
 }
 
+#[allow(dead_code)]
 pub async fn trigger_runnable_and_wait_for_raw_result(
     db: &DB,
     user_db: Option<UserDB>,
@@ -645,6 +649,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     }
 }
 
+#[allow(dead_code)]
 async fn trigger_script_internal(
     db: &DB,
     user_db: UserDB,
@@ -687,6 +692,7 @@ async fn trigger_script_internal(
     }
 }
 
+#[allow(dead_code)]
 async fn trigger_script_with_retry_and_error_handler(
     db: &DB,
     user_db: UserDB,
