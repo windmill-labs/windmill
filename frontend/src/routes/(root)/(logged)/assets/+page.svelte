@@ -16,8 +16,14 @@
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
 	import { AlertTriangle } from 'lucide-svelte'
+	import { untrack } from 'svelte'
 
-	let assets = usePromise(() => AssetService.listAssets({ workspace: $workspaceStore ?? '' }))
+	let assets = usePromise(() => AssetService.listAssets({ workspace: $workspaceStore ?? '' }), {
+		loadInit: false
+	})
+	$effect(() => {
+		$workspaceStore && untrack(() => assets.refresh())
+	})
 
 	let filterText: string = $state('')
 	let filteredAssets = $derived(
@@ -58,7 +64,7 @@
 				</tr>
 			</Head>
 			<tbody class="divide-y bg-surface">
-				{#if filteredAssets.length === 0}
+				{#if assets.status == 'ok' && filteredAssets.length === 0}
 					<tr class="h-14">
 						<Cell colspan="3" class="text-center text-tertiary">No assets found</Cell>
 					</tr>
