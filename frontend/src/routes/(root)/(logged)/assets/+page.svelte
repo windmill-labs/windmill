@@ -91,7 +91,10 @@
 								<svelte:fragment slot="text">{formatAssetKind(asset)}</svelte:fragment>
 							</Tooltip>
 						</Cell>
-						<Cell class="w-[75%]">{truncate(asset.path, 92)}</Cell>
+						<Cell class="w-[75%] flex flex-col">
+							<span>{truncate(asset.path, 92)}</span>
+							<span class="text-2xs text-tertiary">{formatAssetKind(asset)}</span>
+						</Cell>
 						<Cell>
 							<a href={`#${assetUri}`} onclick={() => assetsUsageDropdown?.open(asset)}>
 								{pluralize(asset.usages.length, 'usage')}
