@@ -304,7 +304,7 @@
 			flowModule.value.type === 'rawscript'
 				? await inferAssets(flowModule.value.language, flowModule.value.content)
 				: undefined,
-		{ clearValueOnRefresh: false }
+		{ clearValueOnRefresh: false, loadInit: false }
 	)
 	$effect(() => {
 		if (flowModule.value.type !== 'rawscript') return
