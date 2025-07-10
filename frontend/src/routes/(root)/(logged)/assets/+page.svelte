@@ -50,8 +50,8 @@
 			documentationLink="https://www.windmill.dev/docs/core_concepts/assets"
 		/>
 		<Alert title="Assets may be missing from this page" type="info" class="mb-4">
-			Assets are not detected for scripts and flows that were deployed before assets were
-			introduced. Re-deploy them to detect them
+			Assets are not detected for old scripts and flows that were deployed before the assets feature
+			was introduced. Re-deploy them to trigger asset detection.
 		</Alert>
 		<ClearableInput bind:value={filterText} placeholder="Search assets" class="mb-4" />
 		<DataTable>
