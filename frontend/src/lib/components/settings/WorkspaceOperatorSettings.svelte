@@ -74,22 +74,12 @@
 		isChanged = JSON.stringify(operatorWorkspaceSettings) !== JSON.stringify(originalSettings)
 	})
 
-	let enableAllState = $derived(
-		(() => {
-			const values = Object.values(operatorWorkspaceSettings)
-			if (values.every((v) => v === true)) return 'true'
-			if (values.every((v) => v === false)) return 'false'
-			return undefined
-		})()
+	const allDisabled = $derived(
+		Object.values(operatorWorkspaceSettings).every((value) => value === false)
 	)
-
-	function toggleAllSettings(event) {
-		const newValue = event.detail === true
-		Object.keys(operatorWorkspaceSettings).forEach((key) => {
-			operatorWorkspaceSettings[key] = newValue
-		})
-		operatorWorkspaceSettings = { ...operatorWorkspaceSettings }
-	}
+	const allEnabled = $derived(
+		Object.values(operatorWorkspaceSettings).every((value) => value === true)
+	)
 </script>
 
 <div class="mt-6">
@@ -118,7 +108,17 @@
 						<Cell head first>Section</Cell>
 						<Cell head>Description</Cell>
 						<Cell head last>
-							<ToggleButtonGroup bind:selected={enableAllState} on:selected={toggleAllSettings}>
+							<ToggleButtonGroup
+								bind:selected={
+									() => (allDisabled ? 'false' : allEnabled ? 'true' : ''),
+									(v) => {
+										Object.keys(operatorWorkspaceSettings).forEach((key) => {
+											if (v === 'true') operatorWorkspaceSettings[key] = true
+											if (v === 'false') operatorWorkspaceSettings[key] = false
+										})
+									}
+								}
+							>
 								{#snippet children({ item })}
 									<ToggleButton
 										icon={EyeIcon}
