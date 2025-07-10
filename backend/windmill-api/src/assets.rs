@@ -23,25 +23,29 @@ async fn list_assets(
     let assets = sqlx::query_scalar!(
         r#"SELECT
             jsonb_strip_nulls(jsonb_build_object(
-                'path', path,
-                'kind', kind,
+                'path', asset.path,
+                'kind', asset.kind,
                 'usages', ARRAY_AGG(jsonb_build_object(
-                    'path', usage_path,
-                    'kind', usage_kind,
-                    'access_type', usage_access_type
+                    'path', asset.usage_path,
+                    'kind', asset.usage_kind,
+                    'access_type', asset.usage_access_type
                 )),
                 'metadata', (CASE
-                  WHEN kind = 'resource' THEN
-                    (SELECT jsonb_build_object('resource_type', resource_type) FROM resource WHERE resource.path = asset.path AND resource.workspace_id = $1)
+                  WHEN asset.kind = 'resource' THEN
+                    jsonb_build_object('resource_type', resource.resource_type)
                   ELSE
                     NULL
                   END
                 )
             )) as "list!: _"
         FROM asset
-        WHERE workspace_id = $1
-        GROUP BY path, kind
-        ORDER BY path, kind"#,
+        LEFT JOIN resource ON asset.kind = 'resource' AND asset.path = resource.path AND resource.workspace_id = $1
+        WHERE asset.workspace_id = $1
+          AND (asset.kind <> 'resource' OR resource.path IS NOT NULL)
+          AND (asset.usage_kind <> 'flow' OR asset.usage_path = ANY(SELECT path FROM flow WHERE workspace_id = $1))
+          AND (asset.usage_kind <> 'script' OR asset.usage_path = ANY(SELECT path FROM script WHERE workspace_id = $1))
+          GROUP BY asset.path, asset.kind, resource.resource_type
+        ORDER BY asset.path, asset.kind"#,
         w_id,
     )
     .fetch_all(&mut *user_db.begin(&authed).await?)
