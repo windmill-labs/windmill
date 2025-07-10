@@ -82,12 +82,11 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			error: 'Base url must start with http:// or https:// and not end with / or a space',
 			isValid: (value: string | undefined) =>
-				value
-					? value?.startsWith('http') &&
+				value == undefined
+					|| value?.startsWith('http') &&
 						value.includes('://') &&
 						!value?.endsWith('/') &&
 						!value?.endsWith(' ')
-					: false
 		},
 		{
 			label: 'Email domain',
