@@ -401,6 +401,13 @@ pub async fn append_logs(
     }
 }
 
+pub const PERIODIC_SCRIPT_TAG: &str = "periodic_bash_script";
+pub const INIT_SCRIPT_TAG: &str = "init_script";
+pub const INIT_SCRIPT_PATH_PREFIX: &str = "init_script_";
+pub const PERIODIC_SCRIPT_PATH_PREFIX: &str = "periodic_script_";
+
+
+
 pub async fn push_init_job<'c>(
     db: &Pool<Postgres>,
     content: String,
@@ -415,7 +422,7 @@ pub async fn push_init_job<'c>(
         windmill_common::jobs::JobPayload::Code(windmill_common::jobs::RawCode {
             hash: None,
             content,
-            path: Some(format!("init_script_{worker_name}")),
+            path: Some(format!("{INIT_SCRIPT_PATH_PREFIX}{worker_name}")),
             language: ScriptLang::Bash,
             lock: None,
             custom_concurrency_key: None,
@@ -438,7 +445,7 @@ pub async fn push_init_job<'c>(
         true,
         None,
         true,
-        Some("init_script".to_string()),
+        Some(INIT_SCRIPT_TAG.to_string()),
         None,
         None,
         None,
@@ -449,7 +456,7 @@ pub async fn push_init_job<'c>(
     Ok(uuid)
 }
 
-pub async fn push_periodic_init_job<'c>(
+pub async fn push_periodic_bash_job<'c>(
     db: &Pool<Postgres>,
     content: String,
     worker_name: &str,
@@ -464,7 +471,7 @@ pub async fn push_periodic_init_job<'c>(
         windmill_common::jobs::JobPayload::Code(windmill_common::jobs::RawCode {
             hash: None,
             content,
-            path: Some(format!("periodic_init_script_{}_{}", worker_name, timestamp)),
+            path: Some(format!("{PERIODIC_SCRIPT_PATH_PREFIX}{}_{}", worker_name, timestamp)),
             language: ScriptLang::Bash,
             lock: None,
             custom_concurrency_key: None,
@@ -477,7 +484,7 @@ pub async fn push_periodic_init_job<'c>(
         worker_name,
         "worker@windmill.dev",
         SUPERADMIN_SECRET_EMAIL.to_string(),
-        Some("worker_periodic_init_job"),
+        Some("worker_periodic_script_job"),
         None,
         None,
         None,
@@ -487,7 +494,7 @@ pub async fn push_periodic_init_job<'c>(
         true,
         None,
         true,
-        Some("periodic_init_script".to_string()),
+        Some(PERIODIC_SCRIPT_TAG.to_string()),
         None,
         None,
         None,

@@ -21,7 +21,9 @@ use windmill_common::{
 #[cfg(feature = "dind")]
 use windmill_common::error::to_anyhow;
 
-use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
+use windmill_queue::{
+    append_logs, CanceledBy, MiniPulledJob, INIT_SCRIPT_PATH_PREFIX, PERIODIC_SCRIPT_PATH_PREFIX,
+};
 
 lazy_static::lazy_static! {
     pub static ref BIN_BASH: String = std::env::var("BASH_PATH").unwrap_or_else(|_| "/bin/bash".to_string());
@@ -163,7 +165,10 @@ exit $exit_status
         && job
             .runnable_path
             .as_ref()
-            .map(|x| !x.starts_with("init_script_") && !x.starts_with("periodic_init_script_"))
+            .map(|x| {
+                !x.starts_with(INIT_SCRIPT_PATH_PREFIX)
+                    && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX)
+            })
             .unwrap_or(true);
     let child = if nsjail {
         let _ = write_file(
@@ -737,7 +742,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         && job
             .runnable_path
             .as_ref()
-            .map(|x| !x.starts_with("init_script_") && !x.starts_with("periodic_init_script_"))
+            .map(|x| !x.starts_with(INIT_SCRIPT_PATH_PREFIX) && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX))
             .unwrap_or(true);
     let child = if nsjail {
         let _ = write_file(
