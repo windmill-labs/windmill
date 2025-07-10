@@ -3279,6 +3279,7 @@ pub async fn push<'c, 'd>(
     _priority_override: Option<i16>,
     authed: Option<&Authed>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
+    dbg!(&args);
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
         let premium_workspace =
@@ -3662,7 +3663,9 @@ pub async fn push<'c, 'd>(
             None,
             None,
         ),
-        JobPayload::RawFlowDependencies { path, flow_value } => (
+        JobPayload::RawFlowDependencies { path, flow_value, use_local_lockfiles: _, raw_deps: _ } => {
+            // raw_deps is now passed via args parameter from the API layer
+            (
             None,
             Some(path),
             None,
@@ -3676,7 +3679,7 @@ pub async fn push<'c, 'd>(
             None,
             None,
             None,
-        ),
+        )},
         JobPayload::FlowDependencies { path, dedicated_worker, version } => {
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.
