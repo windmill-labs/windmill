@@ -11,3 +11,6 @@ CREATE TABLE asset (
   usage_kind ASSET_USAGE_KIND NOT NULL,
   PRIMARY KEY (workspace_id, path, kind, usage_path, usage_kind)
 );
+
+CREATE INDEX idx_asset_usage ON asset (workspace_id, usage_path, usage_kind);
+CREATE INDEX idx_asset_kind_path ON asset (workspace_id, kind, path);
