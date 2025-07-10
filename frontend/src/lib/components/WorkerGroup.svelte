@@ -153,7 +153,6 @@
 		dispatch('reload')
 	}
 	let dirty = $state(false)
-	let dedicatedWorkerChanged = $state(false)
 	let openDelete = $state(false)
 	let openClean = $state(false)
 
@@ -438,7 +437,6 @@
 							placeholder="<workspace>:<script path>"
 							type="text"
 							onchange={() => {
-								dedicatedWorkerChanged = true
 								dirty = true
 							}}
 							bind:value={nconfig.dedicated_worker}
