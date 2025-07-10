@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.504.0](https://github.com/windmill-labs/windmill/compare/v1.503.3...v1.504.0) (2025-07-10)
+
+
+### Features
+
+* **frontend:** run test flow from graph ([#6122](https://github.com/windmill-labs/windmill/issues/6122)) ([6c17a69](https://github.com/windmill-labs/windmill/commit/6c17a6963e100492bb03eb5494d2375f27dbbb9f))
+* storage selector in S3 File Picker ([#6154](https://github.com/windmill-labs/windmill/issues/6154)) ([f924a73](https://github.com/windmill-labs/windmill/commit/f924a73c32887a5d67aa4d31b5b25f6046a57134))
+* use process groups to improve zombie job handling ([#6157](https://github.com/windmill-labs/windmill/issues/6157)) ([b83aca3](https://github.com/windmill-labs/windmill/commit/b83aca30d23473228e19b10dc8fbecaf1fecc12f))
+
+
+### Bug Fixes
+
+* improve index migration failure handling ([c7fb066](https://github.com/windmill-labs/windmill/commit/c7fb06630181c9cdd8547139739ef408b4cc4235))
+
 ## [1.503.3](https://github.com/windmill-labs/windmill/compare/v1.503.2...v1.503.3) (2025-07-09)
 
 
