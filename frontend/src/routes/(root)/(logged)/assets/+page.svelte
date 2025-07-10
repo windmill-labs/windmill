@@ -106,7 +106,7 @@
 							{#if asset.kind === 'resource' && asset.metadata === undefined}
 								<Tooltip class={'w-24 flex items-center justify-center'}>
 									<AlertTriangle size={20} class="text-orange-600 dark:text-orange-500" />
-									<svelte:fragment slot="text">Could not fetch resource</svelte:fragment>
+									<svelte:fragment slot="text">Could not find resource</svelte:fragment>
 								</Tooltip>
 							{/if}
 						</Cell>

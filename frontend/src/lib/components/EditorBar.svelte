@@ -707,6 +707,22 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				</Button>
 			{/if}
 
+			{#if showS3Picker && customUi?.s3object != false}
+				<Button
+					aiId="editor-bar-add-s3-object"
+					aiDescription="Add S3 Object"
+					title="Add S3 object"
+					color="light"
+					on:click={() => s3FilePicker?.open()}
+					size="xs"
+					btnClasses="!font-medium text-tertiary"
+					spacingSize="md"
+					startIcon={{ icon: File }}
+					{iconOnly}
+					>+S3 Object
+				</Button>
+			{/if}
+
 			{#if showResourcePicker && customUi?.resource != false}
 				<Button
 					aiId="editor-bar-add-resource"
@@ -721,22 +737,6 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					startIcon={{ icon: Package }}
 				>
 					+Resource
-				</Button>
-			{/if}
-
-			{#if showS3Picker && customUi?.s3object != false}
-				<Button
-					aiId="editor-bar-add-s3-object"
-					aiDescription="Add S3 Object"
-					title="Add S3 object"
-					color="light"
-					on:click={() => s3FilePicker?.open()}
-					size="xs"
-					btnClasses="!font-medium text-tertiary"
-					spacingSize="md"
-					startIcon={{ icon: File }}
-					{iconOnly}
-					>+S3 Object
 				</Button>
 			{/if}
 

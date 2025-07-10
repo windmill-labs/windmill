@@ -262,7 +262,7 @@
 				{#if data.asset.kind === 'resource' && flowGraphAssetsCtx.val.resourceMetadataCache[data.asset.path] === undefined}
 					<Tooltip class={'pr-1 flex items-center justify-center'}>
 						<AlertTriangle size={16} class="text-orange-500" />
-						<svelte:fragment slot="text">Could not fetch resource</svelte:fragment>
+						<svelte:fragment slot="text">Could not find resource</svelte:fragment>
 					</Tooltip>
 				{:else if isSelected && assetCanBeExplored(data.asset, flowGraphAssetsCtx.val.resourceMetadataCache[data.asset.path])}
 					<ExploreAssetButton
