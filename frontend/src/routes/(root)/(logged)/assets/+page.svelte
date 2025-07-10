@@ -7,11 +7,10 @@
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { Cell, DataTable } from '$lib/components/table'
 	import Head from '$lib/components/table/Head.svelte'
-	import { AssetService, ResourceService } from '$lib/gen'
+	import { AssetService } from '$lib/gen'
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { pluralize, truncate } from '$lib/utils'
-	import { untrack } from 'svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
 	import AssetsUsageDrawer from '$lib/components/assets/AssetsUsageDrawer.svelte'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
@@ -26,19 +25,6 @@
 			formatAsset(asset).toLowerCase().includes(filterText.toLowerCase())
 		) ?? []
 	)
-
-	let resourceTypesCache: Record<string, string | undefined> = $state({})
-	$effect(() => {
-		if (!assets.value) return
-		untrack(() => {
-			for (const asset of assets.value) {
-				if (asset.kind !== 'resource' || asset.path in resourceTypesCache) continue
-				ResourceService.getResource({ path: asset.path, workspace: $workspaceStore! })
-					.then((resource) => (resourceTypesCache[asset.path] = resource.resource_type))
-					.catch((err) => (resourceTypesCache[asset.path] = undefined))
-			}
-		})
-	})
 
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
@@ -106,7 +92,7 @@
 									{asset}
 									{s3FilePicker}
 									{dbManagerDrawer}
-									_resourceMetadata={{ resource_type: resourceTypesCache[asset.path] }}
+									_resourceMetadata={asset.metadata}
 									class="w-24"
 								/>
 							{/if}
