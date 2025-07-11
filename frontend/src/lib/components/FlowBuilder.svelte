@@ -1010,9 +1010,9 @@
 						redoProps={{ disabled: $history.index === $history.history.length - 1 }}
 						on:undo={() => {
 							const currentModules = flowStore.val?.value?.modules
-							console.log('undo before', flowStore.val, JSON.stringify(flowStore.val, null, 2))
+							// console.log('undo before', flowStore.val, JSON.stringify(flowStore.val, null, 2))
 							flowStore.val = undo(history, flowStore.val)
-							console.log('undo after', flowStore.val, JSON.stringify(flowStore.val, null, 2))
+							// console.log('undo after', flowStore.val, JSON.stringify(flowStore.val, null, 2))
 
 							const newModules = flowStore.val?.value?.modules
 							const restoredModules = newModules?.filter(
