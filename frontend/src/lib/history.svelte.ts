@@ -11,7 +11,10 @@ export function undo<T>(history: History<T> | undefined, now: T): T {
 	if (history) {
 		let chistory = get(history)
 		if (chistory.index == 0) return now
-		if (!deepEqual(chistory.history[chistory.index], now)) {
+		if (
+			chistory.index == chistory.history.length - 1 &&
+			!deepEqual(chistory.history[chistory.index], now)
+		) {
 			push(history, now, true)
 		} else {
 			history.update((history) => {
@@ -22,9 +25,12 @@ export function undo<T>(history: History<T> | undefined, now: T): T {
 		let nhistory = get(history)
 		let r = nhistory.history[nhistory.index]
 		if (!r) {
+			console.log('c')
 			console.log('undo failed', nhistory, now)
 			return now
 		} else {
+			console.log('d')
+
 			return r
 		}
 	} else {
@@ -52,9 +58,11 @@ export function push<T>(history: History<T> | undefined, value: T, noSetIndex: b
 		history.history = structuredClone(history.history.slice(0, history.index + 1))
 		const toPush = $state.snapshot(value)
 		history.history.push(toPush as T)
+
 		if (!noSetIndex) {
 			history.index = history.history.length - 1
 		}
+
 		if (history.history.length > 20) {
 			history.history = history.history.slice(history.history.length - 20)
 			history.index -= 1

@@ -1005,7 +1005,6 @@
 						disabled={customUi?.topBar?.editableSummary == false}
 						bind:value={flowStore.val.summary}
 					/>
-
 					<UndoRedo
 						undoProps={{ disabled: $history.index === 0 }}
 						redoProps={{ disabled: $history.index === $history.history.length - 1 }}
