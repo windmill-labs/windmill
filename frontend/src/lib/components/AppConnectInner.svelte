@@ -28,6 +28,7 @@
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import { apiTokenApps, forceSecretValue, linkedSecretValue } from './app_connect'
 	import type { SchemaProperty } from '$lib/common'
+	import Tooltip from './Tooltip.svelte'
 
 	interface Props {
 		step?: number
@@ -94,6 +95,21 @@
 	let path: string = $state('')
 	let description = $state('')
 
+	/**
+	 * Client credentials OAuth flow support
+	 * @description Determines if the selected OAuth provider supports client_credentials grant type
+	 * alongside the traditional authorization_code flow
+	 */
+	let supportsClientCredentials = $state(false)
+
+	/**
+	 * OAuth flow selection
+	 * @description Controls which OAuth flow to use:
+	 * - false: authorization_code flow (interactive, requires user consent)
+	 * - true: client_credentials flow (server-to-server, no user interaction)
+	 */
+	let useClientCredentials = $state(false)
+
 	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
 
 	let pathError = $state('')
@@ -107,6 +123,11 @@
 		description = ''
 		resourceType = rt ?? ''
 		valueToken = undefined
+
+		// Reset client credentials state
+		supportsClientCredentials = false
+		useClientCredentials = false
+
 		await loadConnects()
 		manual = !connects?.includes(resourceType)
 		if (manual && express) {
@@ -151,13 +172,15 @@
 		disabled =
 			(step == 1 && resourceType == '') ||
 			(step == 2 &&
-				value == '' &&
-				args &&
-				args['token'] == '' &&
-				args['password'] == '' &&
-				args['api_key'] == '' &&
-				args['key'] == '' &&
-				linkedSecret != undefined) ||
+				(manual
+					? value == '' &&
+						args &&
+						args['token'] == '' &&
+						args['password'] == '' &&
+						args['api_key'] == '' &&
+						args['key'] == '' &&
+						linkedSecret != undefined
+					: false)) ||
 			step == 3 ||
 			(step == 4 && pathError != '') ||
 			!isValid
@@ -259,6 +282,12 @@
 		const connect = await OauthService.getOauthConnect({ client: resourceType })
 		scopes = connect.scopes ?? []
 		extra_params = Object.entries(connect.extra_params ?? {}) as [string, string][]
+
+		/**
+		 * Check if the OAuth provider supports client_credentials grant type
+		 * This determines whether to show the OAuth flow selection UI
+		 */
+		supportsClientCredentials = connect.grant_types?.includes('client_credentials') ?? false
 	}
 
 	async function getResourceTypeInfo() {
@@ -287,21 +316,53 @@
 			}
 			step += 1
 		} else if (step == 2 && !manual) {
-			const url = new URL(`/api/oauth/connect/${resourceType}`, window.location.origin)
-			url.searchParams.append('scopes', scopes.join('+'))
-			if (extra_params.length > 0) {
-				extra_params.forEach(([key, value]) => url.searchParams.append(key, value))
-			}
-			// if (!newPageOAuth) {
-			// 	window.location.href = url.toString()
-			// } else {
-			window.addEventListener('message', popupListener)
-			window.addEventListener('storage', handleStorageEvent)
-			window.open(url.toString(), '_blank', 'popup=true')
-			step += 1
+			if (useClientCredentials) {
+				/**
+				 * Client credentials flow: Direct API call to backend
+				 * No popup window or user interaction required
+				 * Uses instance-level OAuth credentials for server-to-server auth
+				 */
+				try {
+					const tokenResponse = await OauthService.connectClientCredentials({
+						client: resourceType,
+						requestBody: {
+							scopes: scopes
+						}
+					})
 
-			// 	dispatch('close')
-			// }
+					// Process the token response like in popup flow
+					value = tokenResponse.access_token!
+					valueToken = {
+						...tokenResponse,
+						grant_type: 'client_credentials' // Mark this token as client_credentials
+					}
+					step = 4
+					if (express) {
+						path = `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
+						next()
+					}
+				} catch (error) {
+					sendUserToast(
+						`Failed to connect with client credentials: ${error.body || error.message}`,
+						true
+					)
+				}
+			} else {
+				/**
+				 * Authorization code flow: Traditional OAuth popup window
+				 * Requires user interaction and consent
+				 * Opens popup for user to authenticate with OAuth provider
+				 */
+				const url = new URL(`/api/oauth/connect/${resourceType}`, window.location.origin)
+				url.searchParams.append('scopes', scopes.join('+'))
+				if (extra_params.length > 0) {
+					extra_params.forEach(([key, value]) => url.searchParams.append(key, value))
+				}
+				window.addEventListener('message', popupListener)
+				window.addEventListener('storage', handleStorageEvent)
+				window.open(url.toString(), '_blank', 'popup=true')
+				step += 1
+			}
 		} else {
 			if (!path) {
 				throw Error('Path is not set')
@@ -337,7 +398,8 @@
 						requestBody: {
 							refresh_token: valueToken.refresh_token ?? '',
 							expires_in: valueToken.expires_in,
-							client: resourceType
+							client: resourceType,
+							grant_type: valueToken.grant_type || 'authorization_code'
 						}
 					})
 				)
@@ -604,14 +666,33 @@
 		{#if manual == false && resourceType != ''}
 			<h1 class="mb-4">{resourceType}</h1>
 			<div class="my-4 text-secondary"
-				>Click connect to create a resource backed by an oauth connection, whose token is fetched
-				from the external services and refreshed automatically if needed before expiration (using
-				its refresh token)</div
+				>Create a resource backed by an OAuth connection, whose token is fetched from the external
+				services and refreshed automatically if needed before expiration.</div
 			>
 			<h4 class="mb-2">Description</h4>
 			<div class="text-sm mb-8">
 				<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
 			</div>
+
+			{#if supportsClientCredentials}
+				<div style="margin-bottom: 16px;">
+					<h3 class="mb-4">Authentication Method</h3>
+					<div style="display: flex; align-items: center; gap: 8px;">
+						<input
+							type="checkbox"
+							style="width: 16px; height: 16px; margin: 0;"
+							bind:checked={useClientCredentials}
+						/>
+						<span style="font-size: 14px; font-weight: 600;">Use Client Credentials Flow</span>
+						<Tooltip>
+							Server-to-server authentication without user interaction.
+							<br /><br />
+							Uses instance-level OAuth credentials for automated scripts and background jobs.
+						</Tooltip>
+					</div>
+				</div>
+			{/if}
+
 			<h3 class="mb-4 flex gap-4"
 				>Scopes <button
 					onclick={() => {
@@ -631,7 +712,11 @@
 			{/if}
 		{/if}
 	{:else if step == 3 && !manual && !express}
-		Finish connection in popup window
+		{#if useClientCredentials}
+			Connecting with client credentials...
+		{:else}
+			Finish connection in popup window
+		{/if}
 	{:else}
 		<Path
 			initialPath=""
