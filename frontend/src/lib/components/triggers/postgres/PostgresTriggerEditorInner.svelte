@@ -5,7 +5,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { PostgresTriggerService, type Language, type Relations } from '$lib/gen'
+	import { PostgresTriggerService, type Language, type Relations, type Retry } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
@@ -27,7 +27,8 @@
 	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import TestingBadge from '../testingBadge.svelte'
-	import { handleConfigChange, type Trigger } from '../utils'
+	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
+	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import { fade } from 'svelte/transition'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
@@ -104,6 +105,11 @@
 	let creatingSlot: boolean = $state(false)
 	let creatingPublication: boolean = $state(false)
 	let pg14: boolean = $derived(postgresVersion.startsWith('14'))
+	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
+	let errorHandlerSelected: 'slack' | 'teams' | 'custom' = $state('slack')
+	let error_handler_path: string | undefined = $state()
+	let error_handler_args: Record<string, any> = $state({})
+	let retry: Retry | undefined = $state()
 
 	const errorMessage = $derived.by(() => {
 		if (relations && relations.length > 0) {
@@ -258,6 +264,10 @@
 					table_to_track: []
 				}
 			]
+			error_handler_path = defaultValues?.error_handler_path ?? undefined
+			error_handler_args = defaultValues?.error_handler_args ?? {}
+			retry = defaultValues?.retry ?? undefined
+			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -280,7 +290,10 @@
 							transaction_to_track: transaction_to_track,
 							table_to_track: relations
 						}
-					: undefined
+					: undefined,
+			error_handler_path,
+			error_handler_args,
+			retry
 		}
 		return cfg
 	}
@@ -297,6 +310,10 @@
 		can_write = canWrite(path, cfg?.extra_perms, $userStore)
 		transaction_to_track = [...cfg?.publication?.transaction_to_track]
 		relations = cfg?.publication?.table_to_track ?? []
+		error_handler_path = cfg?.error_handler_path
+		error_handler_args = cfg?.error_handler_args ?? {}
+		retry = cfg?.retry
+		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 	}
 
 	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
@@ -778,6 +795,28 @@
 							</Tabs>
 						</Label>
 					{/if}
+				</div>
+			</Section>
+
+			<Section label="Advanced" collapsable>
+				<div class="flex flex-col gap-4">
+					<div class="min-h-96">
+						<Tabs bind:selected={optionTabSelected}>
+							<Tab value="error_handler">Error Handler</Tab>
+							<Tab value="retries">Retries</Tab>
+						</Tabs>
+						<div class="mt-4">
+							<TriggerRetriesAndErrorHandler
+								{optionTabSelected}
+								{itemKind}
+								{can_write}
+								bind:errorHandlerSelected
+								bind:error_handler_path
+								bind:error_handler_args
+								bind:retry
+							/>
+						</div>
+					</div>
 				</div>
 			</Section>
 		</div>

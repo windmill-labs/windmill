@@ -19,7 +19,6 @@ use sqlx::types::Json as SqlxJson;
 use std::{collections::HashMap, fmt};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
-use uuid::Uuid;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
@@ -35,10 +34,7 @@ use windmill_queue::PushArgsOwned;
 use crate::{
     capture::{insert_capture_payload, WebsocketTriggerConfig},
     db::{ApiAuthed, DB},
-    jobs::{
-        run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_internal, RunJobQuery,
-    },
-    trigger_helpers::TriggerJobArgs,
+    trigger_helpers::{trigger_runnable, trigger_runnable_and_wait_for_raw_result, TriggerJobArgs},
     users::fetch_api_authed,
 };
 
@@ -67,6 +63,9 @@ struct NewWebsocketTrigger {
     initial_messages: Option<Vec<Box<RawValue>>>,
     url_runnable_args: Option<Box<RawValue>>,
     can_return_message: bool,
+    error_handler_path: Option<String>,
+    error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
+    retry: Option<SqlxJson<windmill_common::flows::Retry>>,
 }
 
 #[derive(Deserialize)]
@@ -112,6 +111,12 @@ pub struct WebsocketTrigger {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url_runnable_args: Option<SqlxJson<Box<RawValue>>>,
     pub can_return_message: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_handler_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry: Option<SqlxJson<windmill_common::flows::Retry>>,
 }
 
 #[derive(Deserialize)]
@@ -124,6 +129,9 @@ struct EditWebsocketTrigger {
     initial_messages: Option<Vec<Box<RawValue>>>,
     url_runnable_args: Option<Box<RawValue>>,
     can_return_message: bool,
+    error_handler_path: Option<String>,
+    error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
+    retry: Option<SqlxJson<windmill_common::flows::Retry>>,
 }
 
 #[derive(Deserialize)]
@@ -215,22 +223,47 @@ async fn create_websocket_trigger(
         .into_iter()
         .map(SqlxJson)
         .collect_vec();
-    sqlx::query_as::<_, WebsocketTrigger>(
-      "INSERT INTO websocket_trigger (workspace_id, path, url, script_path, is_flow, enabled, filters, initial_messages, url_runnable_args, edited_by, can_return_message, email, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now()) RETURNING *",
+    sqlx::query!(
+        r#"
+        INSERT INTO websocket_trigger (
+            workspace_id,
+            path,
+            url,
+            script_path,
+            is_flow,
+            enabled,
+            filters,
+            initial_messages,
+            url_runnable_args,
+            edited_by,
+            can_return_message,
+            email,
+            edited_at,
+            error_handler_path,
+            error_handler_args,
+            retry
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13, $14, $15
+        )
+        "#,
+        w_id,
+        ct.path,
+        ct.url,
+        ct.script_path,
+        ct.is_flow,
+        ct.enabled.unwrap_or(true),
+        &filters as _,
+        &initial_messages as _,
+        ct.url_runnable_args.map(SqlxJson) as _,
+        authed.username,
+        ct.can_return_message,
+        authed.email,
+        ct.error_handler_path,
+        ct.error_handler_args as _,
+        ct.retry as _
     )
-    .bind(&w_id)
-    .bind(&ct.path)
-    .bind(ct.url)
-    .bind(ct.script_path)
-    .bind(ct.is_flow)
-    .bind(ct.enabled.unwrap_or(true))
-    .bind(filters.as_slice())
-    .bind(initial_messages.as_slice())
-    .bind(ct.url_runnable_args.map(SqlxJson))
-    .bind(&authed.username)
-    .bind(ct.can_return_message)
-    .bind(&authed.email)
-    .fetch_one(&mut *tx).await?;
+    .execute(&mut *tx)
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -279,7 +312,7 @@ async fn update_websocket_trigger(
 
     // important to update server_id to NULL to stop current websocket listener
     sqlx::query!(
-        "UPDATE websocket_trigger SET url = $1, script_path = $2, path = $3, is_flow = $4, filters = $5, initial_messages = $6, url_runnable_args = $7, edited_by = $8, email = $9, can_return_message = $10, edited_at = now(), server_id = NULL, error = NULL
+        "UPDATE websocket_trigger SET url = $1, script_path = $2, path = $3, is_flow = $4, filters = $5, initial_messages = $6, url_runnable_args = $7, edited_by = $8, email = $9, can_return_message = $10, edited_at = now(), server_id = NULL, error = NULL, error_handler_path = $13, error_handler_args = $14, retry = $15
             WHERE workspace_id = $11 AND path = $12",
         ct.url,
         ct.script_path,
@@ -293,6 +326,9 @@ async fn update_websocket_trigger(
         ct.can_return_message,
         w_id,
         path,
+        ct.error_handler_path,
+        ct.error_handler_args as _,
+        ct.retry as _,
     )
     .execute(&mut *tx).await?;
 
@@ -636,87 +672,6 @@ fn raw_value_to_args_hashmap(
     Ok(args)
 }
 
-async fn wait_runnable_result(
-    path: String,
-    is_flow: bool,
-    args: PushArgsOwned,
-    authed: ApiAuthed,
-    db: &DB,
-    workspace_id: &str,
-) -> error::Result<String> {
-    let user_db = UserDB::new(db.clone());
-
-    let username = authed.display_username().to_owned();
-
-    let (job_id, early_return) = if is_flow {
-        let (_, job_id) = run_flow_by_path_inner(
-            authed,
-            db.clone(),
-            user_db,
-            workspace_id.to_string(),
-            StripPath(path.clone()),
-            RunJobQuery::default(),
-            args,
-        )
-        .await?;
-
-        let early_return = sqlx::query_scalar!(
-            r#"SELECT flow_version.value->>'early_return' as early_return
-            FROM flow 
-            LEFT JOIN flow_version
-                ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-            WHERE flow.path = $1 and flow.workspace_id = $2"#,
-            path,
-            workspace_id,
-        )
-        .fetch_optional(db)
-        .await?
-        .flatten();
-
-        (job_id, early_return)
-    } else {
-        let (_, job_id) = run_script_by_path_inner(
-            authed,
-            db.clone(),
-            user_db,
-            workspace_id.to_string(),
-            StripPath(path.clone()),
-            RunJobQuery::default(),
-            args,
-        )
-        .await?;
-
-        (job_id, None)
-    };
-
-    let (result, success) = run_wait_result_internal(
-        db,
-        Uuid::parse_str(&job_id).unwrap(),
-        workspace_id.to_string(),
-        early_return,
-        &username,
-    )
-    .await
-    .with_context(|| {
-        format!(
-            "Error fetching job result for {} {}",
-            if is_flow { "flow" } else { "script" },
-            path
-        )
-    })?;
-
-    if !success {
-        Err(anyhow::anyhow!(
-            "{} {path} failed: {:?}",
-            if is_flow { "Flow" } else { "Script" },
-            result
-        )
-        .into())
-    } else {
-        Ok(result.get().to_owned())
-    }
-}
-
 async fn loop_ping(db: &DB, ws: &WebsocketEnum, error: Option<&str>) -> () {
     loop {
         if let None = ws.update_ping(db, error).await {
@@ -742,17 +697,22 @@ async fn get_url_from_runnable(
 
     let args = raw_value_to_args_hashmap(args)?;
 
-    let result = wait_runnable_result(
-        path.to_string(),
+    let result = trigger_runnable_and_wait_for_raw_result(
+        db,
+        None,
+        authed,
+        workspace_id,
+        path,
         is_flow,
         PushArgsOwned { args, extra: None },
-        authed,
-        db,
-        workspace_id,
+        None,
+        None,
+        None,
+        "".to_string(), // doesn't matter as no retry/error handler
     )
     .await?;
 
-    serde_json::from_str::<String>(result.as_str()).map_err(|_| {
+    serde_json::from_str::<String>(result.get()).map_err(|_| {
         error::Error::BadConfig(format!(
             "{} {} did not return a string",
             if is_flow { "Flow" } else { "Script" },
@@ -866,6 +826,7 @@ impl WebsocketTrigger {
             .filter_map(|m| serde_json::from_str(m.get()).ok())
             .collect_vec();
 
+        let mut authed_o = None;
         for start_message in initial_messages {
             match start_message {
                 InitialMessage::RawMessage(msg) => {
@@ -895,15 +856,26 @@ impl WebsocketTrigger {
 
                     let args = raw_value_to_args_hashmap(Some(&args))?;
 
-                    let result = wait_runnable_result(
-                        path.clone(),
+                    if authed_o.is_none() {
+                        authed_o = Some(self.fetch_authed(db).await?);
+                    }
+                    let authed = authed_o.clone().unwrap();
+
+                    let result = trigger_runnable_and_wait_for_raw_result(
+                        db,
+                        None,
+                        authed.clone(),
+                        &self.workspace_id,
+                        &path,
                         is_flow,
                         PushArgsOwned { args, extra: None },
-                        self.fetch_authed(db).await?,
-                        db,
-                        &self.workspace_id,
+                        None,
+                        None,
+                        None,
+                        "".to_string(), // doesn't matter as no retry/error handler
                     )
-                    .await?;
+                    .await
+                    .map(|r| r.get().to_owned())?;
 
                     tracing::info!(
                         "Sending {} {} result to WebSocket {}",
@@ -1398,20 +1370,29 @@ async fn run_job(
         let script_path = trigger.script_path.clone();
         let is_flow = trigger.is_flow;
         let w_id = trigger.workspace_id.clone();
+        let retry = trigger.retry.clone();
+        let error_handler_path = trigger.error_handler_path.clone();
+        let error_handler_args = trigger.error_handler_args.clone();
+        let trigger_path = trigger.path.clone();
         let handle_response_f = async move {
             tokio::select! {
                 _ = killpill_rx.recv() => {
                     return;
                 },
-                result = wait_runnable_result(
-                    script_path,
+                result = trigger_runnable_and_wait_for_raw_result(
+                    &db_,
+                    None,
+                    authed,
+                    &w_id,
+                    &script_path,
                     is_flow,
                     args,
-                    authed,
-                    &db_,
-                    &w_id,
+                    retry.as_ref(),
+                    error_handler_path.as_deref(),
+                    error_handler_args.as_ref(),
+                    format!("websocket_trigger/{}", trigger_path),
                 ) => {
-                    if let Ok(result) = result  {
+                    if let Ok(result) = result.map(|r| r.get().to_owned()) {
                         // only send the result if it's not null
                         if result != "null" {
                             tracing::info!("Sending job result to WebSocket {}", url);
@@ -1429,32 +1410,20 @@ async fn run_job(
 
         tokio::spawn(handle_response_f);
     } else {
-        let user_db = UserDB::new(db.clone());
-        let run_query = RunJobQuery::default();
-        let runnable_path = StripPath(trigger.script_path.to_owned());
-        if trigger.is_flow {
-            run_flow_by_path_inner(
-                authed,
-                db.clone(),
-                user_db,
-                trigger.workspace_id.clone(),
-                runnable_path,
-                run_query,
-                args,
-            )
-            .await?;
-        } else {
-            run_script_by_path_inner(
-                authed,
-                db.clone(),
-                user_db,
-                trigger.workspace_id.clone(),
-                runnable_path,
-                run_query,
-                args,
-            )
-            .await?;
-        }
+        trigger_runnable(
+            db,
+            None,
+            authed,
+            &trigger.workspace_id,
+            &trigger.script_path,
+            trigger.is_flow,
+            args,
+            trigger.retry.as_ref(),
+            trigger.error_handler_path.as_deref(),
+            trigger.error_handler_args.as_ref(),
+            format!("websocket_trigger/{}", trigger.path),
+        )
+        .await?;
     }
 
     Ok(())

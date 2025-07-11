@@ -1,4 +1,4 @@
-import { SqsTriggerService } from '$lib/gen'
+import { SqsTriggerService, type EditSqsTrigger } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { get, type Writable } from 'svelte/store'
 
@@ -9,7 +9,14 @@ export async function saveSqsTriggerFromCfg(
 	workspace: string,
 	usedTriggerKinds: Writable<string[]>
 ): Promise<boolean> {
-	const requestBody = {
+	const errorHandlerAndRetries = !cfg.is_flow
+		? {
+				error_handler_path: cfg.error_handler_path,
+				error_handler_args: cfg.error_handler_path ? cfg.error_handler_args : undefined,
+				retry: cfg.retry
+			}
+		: {}
+	const requestBody: EditSqsTrigger = {
 		path: cfg.path,
 		script_path: cfg.script_path,
 		is_flow: cfg.is_flow,
@@ -17,7 +24,8 @@ export async function saveSqsTriggerFromCfg(
 		queue_url: cfg.queue_url,
 		message_attributes: cfg.message_attributes,
 		aws_auth_resource_type: cfg.aws_auth_resource_type,
-		enabled: cfg.enabled
+		enabled: cfg.enabled,
+		...errorHandlerAndRetries
 	}
 	try {
 		if (edit) {
