@@ -28,9 +28,9 @@
 
 {#if ['error_handler', 'retries'].includes(optionTabSelected) && itemKind !== 'script'}
 	<Alert type="info" title="Only available for scripts" class="mb-2">
-		Error Handler and Retries are only available for scripts. For flows, use built-in <a
+		Error Handler and Retries are only available for scripts. For flows, use the built-in <a
 			href="https://www.windmill.dev/docs/flows/flow_error_handler"
-			target="_blank">error handling</a
+			target="_blank">error handler</a
 		>
 		and <a href="https://www.windmill.dev/docs/flows/retries" target="_blank">retries</a>.
 	</Alert>

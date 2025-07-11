@@ -52,7 +52,6 @@
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
 		$state('error_handler')
-	let is_flow: boolean = $state(false)
 	let initialPath = $state('')
 	let edit = $state(true)
 	let schedule: string = $state('0 0 12 * *')
@@ -63,6 +62,7 @@
 	let timezone: string = $state(Intl.DateTimeFormat().resolvedOptions().timeZone)
 	let paused_until: string | undefined = $state(undefined)
 	let itemKind: 'flow' | 'script' = $state('script')
+	let is_flow: boolean = $derived.by(() => itemKind === 'flow')
 	let errorHandleritemKind: 'flow' | 'script' = $state('script')
 	let wsErrorHandlerMuted: boolean = $state(false)
 	let errorHandlerPath: string | undefined = $state(undefined)
@@ -121,9 +121,8 @@
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
-			is_flow = isFlow
 			initialPath = ePath
-			itemKind = is_flow ? 'flow' : 'script'
+			itemKind = isFlow ? 'flow' : 'script'
 			path = defaultCfg?.path ?? ePath
 			await loadSchedule(defaultCfg)
 			edit = true
@@ -268,9 +267,8 @@
 			}
 			drawer?.openDrawer()
 			runnable = undefined
-			is_flow = s?.is_flow ?? nis_flow
 			edit = false
-			itemKind = is_flow ? 'flow' : 'script'
+			itemKind = (s?.is_flow ?? nis_flow) ? 'flow' : 'script'
 			initialScriptPath = initial_script_path ?? ''
 			path = initNewPath
 				? ''
@@ -303,16 +301,6 @@
 			showLoading = false
 		}
 	}
-
-	async function resetRetries() {
-		if (itemKind === 'flow') {
-			retry = undefined
-		}
-	}
-
-	$effect(() => {
-		;(is_flow = itemKind == 'flow') && resetRetries()
-	})
 
 	// set isValid to true when a script/flow without any properties is selected
 	$effect(() => {
@@ -459,7 +447,7 @@
 		script_path = cfg.script_path ?? ''
 		await loadScript(script_path)
 
-		is_flow = cfg.is_flow
+		itemKind = cfg.is_flow ? 'flow' : 'script'
 		no_flow_overlap = cfg.no_flow_overlap ?? false
 		wsErrorHandlerMuted = cfg.ws_error_handler_muted ?? false
 		retry = cfg.retry
@@ -577,7 +565,6 @@
 	}
 
 	function getScheduleCfg(): Record<string, any> {
-		console.log('errorHandlerExtraArgs', errorHandlerExtraArgs)
 		return {
 			path: path,
 			schedule: formatCron(schedule),
@@ -911,8 +898,8 @@
 				<Tab value="error_handler">Error Handler</Tab>
 				<Tab value="recovery_handler">Recovery Handler</Tab>
 				<Tab value="success_handler">Success Handler</Tab>
+				<Tab value="retries">Retries</Tab>
 				{#if itemKind === 'script'}
-					<Tab value="retries">Retries</Tab>
 					<Tab value="tag">Custom tag</Tab>
 				{/if}
 			</Tabs>
@@ -1182,7 +1169,20 @@
 							step in the flow editor.
 						</Tooltip>
 					{/snippet}
-					<FlowRetries bind:flowModuleRetry={retry} disabled={itemKind !== 'script' || disabled} />
+					{#if itemKind !== 'script'}
+						<Alert type="info" title="Only available for scripts" class="mb-2">
+							Error Handler and Retries are only available for scripts. For flows, use the built-in <a
+								href="https://www.windmill.dev/docs/flows/flow_error_handler"
+								target="_blank">error handler</a
+							>
+							and <a href="https://www.windmill.dev/docs/flows/retries" target="_blank">retries</a>.
+						</Alert>
+					{:else}
+						<FlowRetries
+							bind:flowModuleRetry={retry}
+							disabled={itemKind !== 'script' || disabled}
+						/>
+					{/if}
 				</Section>
 			{:else if optionTabSelected === 'tag'}
 				<Section
