@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_runtime r SET\n                        ping = now()\n                    FROM v2_job_queue q\n                    WHERE r.id = $1 AND q.id = r.id\n                        AND q.workspace_id = $2\n                        AND canceled_by IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7d07a717533bfcaf581f6655bc387095542490fbb4aae30ec7fa75c2dae98ec8"
+}
