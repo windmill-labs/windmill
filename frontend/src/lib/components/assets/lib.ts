@@ -2,7 +2,8 @@ import type {
 	AssetKind as _AssetKind,
 	Asset as _Asset,
 	ListAssetsResponse,
-	AssetUsageAccessType
+	AssetUsageAccessType,
+	FlowModuleValue
 } from '$lib/gen'
 import { capitalize } from '$lib/utils'
 
@@ -66,4 +67,11 @@ export function formatAssetKind(asset: {
 		case 'variable':
 			return 'Variable'
 	}
+}
+
+export function getFlowModuleValueAssets(
+	flowModuleValue: FlowModuleValue
+): AssetWithAccessType[] | undefined {
+	if (flowModuleValue.type === 'rawscript') return flowModuleValue.assets
+	return undefined
 }

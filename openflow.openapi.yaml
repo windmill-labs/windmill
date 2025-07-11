@@ -270,6 +270,28 @@ components:
           type: string
         is_trigger:
           type: boolean
+        assets:
+          type: array
+          items:
+            type: object
+            required:
+              - path
+              - kind
+            properties:
+              path:
+                type: string
+              kind:
+                type: string
+                enum:
+                  - s3object
+                  - resource
+                  - variable
+              access_type:
+                type: string
+                enum:
+                  - r
+                  - w
+                  - rw
         asset_fallback_access_types:
           type: array
           items:
@@ -285,6 +307,7 @@ components:
                 enum:
                   - s3object
                   - resource
+                  - variable
               access_type:
                 type: string
                 enum:

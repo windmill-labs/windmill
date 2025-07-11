@@ -9,27 +9,25 @@
 		a.access_type === 'w' || a.access_type === 'rw'
 
 	let computeAssetNodesCache:
-		| [Node[], Record<string, AssetWithAccessType[]>, ReturnType<typeof computeAssetNodes>]
+		| [(Node & NodeLayout)[], ReturnType<typeof computeAssetNodes>]
 		| undefined
 
 	export function computeAssetNodes(
-		nodes: Node[],
-		edges: Edge[],
-		assetsMap: Record<string, AssetWithAccessType[]>,
-		extraData: any
-	): [Node[], Edge[]] {
-		if (nodes === computeAssetNodesCache?.[0] && deepEqual(assetsMap, computeAssetNodesCache?.[1]))
-			return computeAssetNodesCache[2]
+		nodes: (Node & NodeLayout)[],
+		edges: Edge[]
+	): [(Node & NodeLayout)[], Edge[]] {
+		if (nodes === computeAssetNodesCache?.[0]) return computeAssetNodesCache[1]
 
 		const MAX_ASSET_ROW_WIDTH = 300
 		const ASSETS_OVERFLOWED_NODE_WIDTH = 25
-		const allAssetNodes: Node[] = []
+		const allAssetNodes: (Node & NodeLayout)[] = []
 		const allAssetEdges: Edge[] = []
 
 		const yPosMap: Record<number, { r?: true; w?: true }> = {}
 
 		for (const node of nodes) {
-			const assets = assetsMap?.[node.id] ?? []
+			if (node.type !== 'module') continue
+			const assets = node.data.assets ?? []
 
 			// Each asset can be displayed at the top and bottom
 			// i.e once (R or W) or twice (RW)
@@ -197,16 +195,16 @@
 			[...sortedNewNodes, ...allAssetNodes],
 			[...edges, ...allAssetEdges]
 		]
-		computeAssetNodesCache = [nodes, clone(assetsMap), ret]
+		computeAssetNodesCache = [nodes, ret]
 		return ret
 	}
 </script>
 
 <script lang="ts">
 	import NodeWrapper from './NodeWrapper.svelte'
-	import type { AssetN, AssetsOverflowedN } from '../../graphBuilder.svelte'
+	import type { AssetN, AssetsOverflowedN, NodeLayout } from '../../graphBuilder.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
-	import { assetEq, formatAssetKind, type AssetWithAccessType } from '$lib/components/assets/lib'
+	import { assetEq, formatAssetKind } from '$lib/components/assets/lib'
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowGraphAssetContext } from '$lib/components/flows/types'
 	import { getContext } from 'svelte'
@@ -217,7 +215,6 @@
 	import { clone, pluralize } from '$lib/utils'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import type { Edge, Node } from '@xyflow/svelte'
-	import { deepEqual } from 'fast-equals'
 
 	import { NODE } from '../../util'
 	import type { AssetUsageAccessType } from '$lib/gen'
@@ -229,13 +226,8 @@
 
 	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext>('FlowGraphAssetContext')
 
-	const usageCount = $derived(
-		Object.values(flowGraphAssetsCtx.val.assetsMap ?? {})
-			.flat()
-			.filter((asset) => assetEq(asset, data.asset)).length
-	)
-
 	let { data }: Props = $props()
+
 	const isSelected = $derived(assetEq(flowGraphAssetsCtx.val.selectedAsset, data.asset))
 	const cachedResourceMetadata = $derived(
 		flowGraphAssetsCtx.val.resourceMetadataCache[data.asset.path]
@@ -281,7 +273,7 @@
 				{/if}
 			</div>
 			<svelte:fragment slot="text">
-				Used in {pluralize(usageCount, 'step')}<br />
+				Used in {pluralize(flowGraphAssetsCtx.val.computeAssetsCount(data.asset), 'step')}<br />
 				<a
 					href={undefined}
 					class={twMerge(

@@ -1,11 +1,12 @@
 import type { FlowModule, Job, RawScript, Script } from '$lib/gen'
 import { type Edge } from '@xyflow/svelte'
-import { getDependeeAndDependentComponents } from '../flows/flowExplorer'
+import { getAllModules, getDependeeAndDependentComponents } from '../flows/flowExplorer'
 import { dfsByModule } from '../flows/previousResults'
 import { defaultIfEmptyString } from '$lib/utils'
 import type { GraphModuleState } from './model'
-import type { AssetWithAccessType } from '../assets/lib'
+import { getFlowModuleValueAssets, type AssetWithAccessType } from '../assets/lib'
 import type { Writable } from 'svelte/store'
+import { assetDisplaysAsOutputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
 
 export type InsertKind =
 	| 'script'
@@ -132,6 +133,7 @@ export type ModuleN = {
 		editMode: boolean
 		flowJob: Job | undefined
 		isOwner: boolean
+		assets: AssetWithAccessType[] | undefined
 	}
 }
 
@@ -374,13 +376,21 @@ export function graphBuilder(
 					insertable: extra.insertable,
 					editMode: extra.editMode,
 					isOwner: extra.isOwner,
-					flowJob: extra.flowJob
+					flowJob: extra.flowJob,
+					assets: getFlowModuleValueAssets(module.value)
 				},
 				type: 'module'
 			})
 
 			return module.id
 		}
+
+		// TODO : Do better than this
+		const nodeIdsWithOutputAssets = new Set(
+			getAllModules(modules)
+				.filter((m) => getFlowModuleValueAssets(m.value)?.some(assetDisplaysAsOutputInFlowGraph))
+				.map((m) => m.id)
+		)
 
 		const parents: { [key: string]: string[] } = {}
 
@@ -458,7 +468,8 @@ export function graphBuilder(
 					// If the index is -1, it means that the target module is not in the modules array, so we set it to the length of the array
 					index: index >= 0 ? index : (mods?.length ?? 0),
 					...extra,
-					insertable: extra.insertable && !options?.disableInsert && prefix == undefined
+					insertable: extra.insertable && !options?.disableInsert && prefix == undefined,
+					shouldOffsetInsertBtnDueToAssetNode: nodeIdsWithOutputAssets.has(sourceId)
 				}
 			})
 		}

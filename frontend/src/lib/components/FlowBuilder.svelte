@@ -610,7 +610,10 @@
 		outputPickerOpenFns
 	})
 
-	setContext('FlowGraphAssetContext', initFlowGraphAssetsCtx())
+	setContext(
+		'FlowGraphAssetContext',
+		initFlowGraphAssetsCtx({ getModules: () => flowStore.val.value.modules })
+	)
 
 	// Add triggers context store
 	const triggersState = $state(

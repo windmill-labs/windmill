@@ -36,7 +36,7 @@
 	import { Expand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
-	import { encodeState, readFieldsRecursively } from '$lib/utils'
+	import { encodeState } from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
 	import HiddenBaseEdge from './renderers/edges/HiddenBaseEdge.svelte'
@@ -52,7 +52,6 @@
 	import ViewportResizer from './ViewportResizer.svelte'
 	import AssetNode, { computeAssetNodes } from './renderers/nodes/AssetNode.svelte'
 	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
-	import type { FlowGraphAssetContext } from '../flows/types'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -174,9 +173,6 @@
 		flowHasChanged = false
 	}: Props = $props()
 
-	let flowGraphAssetsCtx: FlowGraphAssetContext | undefined = getContext('FlowGraphAssetContext')
-	let assetsMap = $derived(flowGraphAssetsCtx?.val?.assetsMap)
-
 	setContext<{
 		selectedId: Writable<string | undefined>
 		useDataflow: Writable<boolean | undefined>
@@ -209,8 +205,8 @@
 		)
 	}
 
-	let lastNodes: [NodeLayout[], Node[]] | undefined = undefined
-	function layoutNodes(nodes: NodeLayout[]): Node[] {
+	let lastNodes: [NodeLayout[], (Node & NodeLayout)[]] | undefined = undefined
+	function layoutNodes(nodes: NodeLayout[]): (Node & NodeLayout)[] {
 		let lastResult = lastNodes?.[1]
 		if (lastResult && nodes === lastNodes?.[0]) {
 			return lastResult
@@ -383,12 +379,7 @@
 		}
 		let newGraph = graph
 		newGraph.nodes.sort((a, b) => b.id.localeCompare(a.id))
-		nodes = layoutNodes(newGraph.nodes)
-		;[nodes, edges] = computeAssetNodes(nodes, newGraph.edges, assetsMap ?? {}, {
-			moving,
-			eventHandlers: eventHandler,
-			disableAi
-		})
+		;[nodes, edges] = computeAssetNodes(layoutNodes(newGraph.nodes), newGraph.edges)
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
 	}
@@ -468,7 +459,6 @@
 	})
 	$effect(() => {
 		;[graph, allowSimplifiedPoll]
-		readFieldsRecursively(assetsMap)
 		untrack(() => updateStores())
 	})
 
