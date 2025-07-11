@@ -38,6 +38,8 @@ use windmill_common::variables::get_secret_value_as_admin;
 use std::env::var;
 use windmill_queue::{append_logs, CanceledBy, PrecomputedAgentInfo};
 
+use process_wrap::tokio::TokioChildWrapper;
+
 lazy_static::lazy_static! {
     pub(crate) static ref PYTHON_PATH: Option<String> = var("PYTHON_PATH").ok().map(|v| {
         tracing::warn!("PYTHON_PATH is set to {} and thus python will not be managed by uv and stay static regardless of annotation and instance settings. NOT RECOMMENDED", v);
@@ -1296,7 +1298,7 @@ async fn spawn_uv_install(
     // If none, it is system python
     py_path: Option<String>,
     worker_dir: &str,
-) -> Result<tokio::process::Child, Error> {
+) -> Result<Box<dyn TokioChildWrapper>, Error> {
     if !*DISABLE_NSJAIL {
         tracing::info!(
             workspace_id = %w_id,
@@ -1911,7 +1913,7 @@ pub async fn handle_python_reqs(
 
             let mut stderr_buf = String::new();
             let mut stderr_pipe = uv_install_proccess
-                .stderr
+                .stderr()
                 .take()
                 .ok_or(anyhow!("Cannot take stderr from uv_install_proccess"))?;
             let stderr_future = stderr_pipe.read_to_string(&mut stderr_buf);
@@ -1928,14 +1930,14 @@ pub async fn handle_python_reqs(
             tokio::select! {
                 // Canceled
                 _ = kill_rx.recv() => {
-                    uv_install_proccess.kill().await?;
+                    Box::into_pin(uv_install_proccess.kill()).await?;
                     pids.lock().await.get_mut(i).and_then(|e| e.take());
                     return Err(anyhow::anyhow!("uv pip install was canceled"));
                 },
                 (_, exitstatus) = async {
                     // See tokio::process::Child::wait_with_output() for more context
                     // Sometimes uv_install_proccess.wait() is not exiting if stderr is not awaited before it :/
-                    (stderr_future.await, uv_install_proccess.wait().await)
+                    (stderr_future.await, Box::into_pin(uv_install_proccess.wait()).await)
                 } => match exitstatus {
                     Ok(status) => if !status.success() {
                         tracing::warn!(

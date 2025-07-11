@@ -9,7 +9,7 @@
 	type Item = Record<string, any>
 
 	interface Props {
-		pickCallback: (path: string, f: string) => void
+		pickCallback: (path: string, extraField: string, extraField2: string) => void
 		loadItems: () => Promise<Item[] | undefined>
 		extraField?: string
 		extraField2?: string | undefined
@@ -132,7 +132,7 @@
 										if (closeOnClick) {
 											drawer?.closeDrawer()
 										}
-										pickCallback(obj['path'], obj[extraField])
+										pickCallback(obj['path'], obj[extraField], extraField2 ? obj[extraField2] : '')
 									}}
 								>
 									{#if `app` in obj}

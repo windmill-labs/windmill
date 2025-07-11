@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.503.0
+  version: 1.504.0
   title: Windmill API
 
   contact:
@@ -3099,6 +3099,24 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ContextualVariable"
+  
+  /w/{workspace}/workspaces/get_secondary_storage_names:
+    get:
+      summary: get secondary storage names
+      operationId: getSecondaryStorageNames
+      tags:
+        - setting
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
 
   /w/{workspace}/workspaces/critical_alerts:
     get:
@@ -4953,7 +4971,8 @@ paths:
 
   /scripts_u/tokened_raw/{workspace}/{token}/{path}:
     get:
-      summary: raw script by path with a token (mostly used by lsp to be used with
+      summary:
+        raw script by path with a token (mostly used by lsp to be used with
         import maps to resolve scripts)
       operationId: rawScriptByPathTokened
       tags:
@@ -6754,7 +6773,8 @@ paths:
           schema:
             type: string
         - name: branch_or_iteration_n
-          description: for branchall or loop, the iteration at which the flow should
+          description:
+            for branchall or loop, the iteration at which the flow should
             restart
           required: true
           in: path
@@ -8472,7 +8492,7 @@ paths:
             text/plain:
               schema:
                 type: string
-    
+
   /w/{workspace}/openapi/download:
     post:
       summary: Download the OpenAPI v3.1 spec as a file
@@ -9827,7 +9847,6 @@ paths:
               schema:
                 type: string
 
-
   /w/{workspace}/gcp_triggers/subscriptions/delete/{path}:
     delete:
       summary: delete gcp trigger
@@ -9913,7 +9932,7 @@ paths:
             application/json:
               schema:
                 type: string
-  
+
   /w/{workspace}/postgres_triggers/is_valid_postgres_configuration/{path}:
     get:
       summary: check if postgres configuration is set to logical
@@ -11365,7 +11384,7 @@ paths:
                 postgres_trigger,
                 mqtt_trigger,
                 gcp_trigger,
-                sqs_trigger
+                sqs_trigger,
               ]
       responses:
         "200":
@@ -11409,7 +11428,7 @@ paths:
                 postgres_trigger,
                 mqtt_trigger,
                 gcp_trigger,
-                sqs_trigger
+                sqs_trigger,
               ]
       requestBody:
         description: acl to add
@@ -11464,7 +11483,7 @@ paths:
                 postgres_trigger,
                 mqtt_trigger,
                 gcp_trigger,
-                sqs_trigger
+                sqs_trigger,
               ]
       requestBody:
         description: acl to add
@@ -11843,7 +11862,8 @@ paths:
 
   /w/{workspace}/job_helpers/duckdb_connection_settings:
     post:
-      summary: Converts an S3 resource to the set of instructions necessary to connect
+      summary:
+        Converts an S3 resource to the set of instructions necessary to connect
         DuckDB to an S3 bucket
       operationId: duckdbConnectionSettings
       tags:
@@ -11872,7 +11892,8 @@ paths:
                     type: string
   /w/{workspace}/job_helpers/v2/duckdb_connection_settings:
     post:
-      summary: Converts an S3 resource to the set of instructions necessary to connect
+      summary:
+        Converts an S3 resource to the set of instructions necessary to connect
         DuckDB to an S3 bucket
       operationId: duckdbConnectionSettingsV2
       tags:
@@ -11908,7 +11929,8 @@ paths:
 
   /w/{workspace}/job_helpers/polars_connection_settings:
     post:
-      summary: Converts an S3 resource to the set of arguments necessary to connect
+      summary:
+        Converts an S3 resource to the set of arguments necessary to connect
         Polars to an S3 bucket
       operationId: polarsConnectionSettings
       tags:
@@ -11952,7 +11974,8 @@ paths:
                   - client_kwargs
   /w/{workspace}/job_helpers/v2/polars_connection_settings:
     post:
-      summary: Converts an S3 resource to the set of arguments necessary to connect
+      summary:
+        Converts an S3 resource to the set of arguments necessary to connect
         Polars to an S3 bucket
       operationId: polarsConnectionSettingsV2
       tags:
@@ -12029,7 +12052,8 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
-        description: S3 resource path to use. If empty, the S3 resource defined in the
+        description:
+          S3 resource path to use. If empty, the S3 resource defined in the
           workspace settings will be used
         required: true
         content:
@@ -12942,6 +12966,94 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/assets/list:
+    get:
+      summary: List all assets in the workspace
+      operationId: listAssets
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: all assets in the workspace
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [path, kind, usages]
+                  properties:
+                    path:
+                      type: string
+                    kind:
+                      $ref: "#/components/schemas/AssetKind"
+                    usages:
+                      type: array
+                      items:
+                        type: object
+                        required: [path, kind]
+                        properties:
+                          path:
+                            type: string
+                          kind:
+                            $ref: "#/components/schemas/AssetUsageKind"
+                          access_type:
+                            $ref: "#/components/schemas/AssetUsageAccessType"
+                    metadata:
+                      type: object
+                      properties:
+                        resource_type:
+                          type: string
+
+  /w/{workspace}/assets/list_by_usages:
+    post:
+      summary: List all assets used by given usages paths
+      operationId: listAssetsByUsage
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: list assets by usages
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [usages]
+              properties:
+                usages:
+                  type: array
+                  items:
+                    type: object
+                    required: [path, kind]
+                    properties:
+                      path:
+                        type: string
+                      kind:
+                        $ref: "#/components/schemas/AssetUsageKind"
+      responses:
+        "200":
+          description: all assets used by the given usage paths, in the same order
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required: [path, kind]
+                    properties:
+                      path:
+                        type: string
+                      kind:
+                        $ref: "#/components/schemas/AssetKind"
+                      access_type:
+                        $ref: "#/components/schemas/AssetUsageAccessType"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -13088,7 +13200,8 @@ components:
         type: string
     ParentJob:
       name: parent_job
-      description: The parent job that is at the origin and responsible for the execution
+      description:
+        The parent job that is at the origin and responsible for the execution
         of this script if any
       in: query
       schema:
@@ -13108,7 +13221,8 @@ components:
         type: string
     NewJobId:
       name: job_id
-      description: The job id to assign to the created job. if missing, job is chosen
+      description:
+        The job id to assign to the created job. if missing, job is chosen
         randomly using the ULID scheme. If a job id already exists in the queue
         or as a completed job, the request to create one will fail (Bad Request)
       in: query
@@ -13199,7 +13313,8 @@ components:
         format: date-time
     CreatedOrStartedAfter:
       name: created_or_started_after
-      description: filter on created_at for non non started job and started_at otherwise
+      description:
+        filter on created_at for non non started job and started_at otherwise
         after (exclusive) timestamp
       in: query
       schema:
@@ -13207,7 +13322,8 @@ components:
         format: date-time
     CreatedOrStartedAfterCompletedJob:
       name: created_or_started_after_completed_jobs
-      description: filter on created_at for non non started job and started_at otherwise
+      description:
+        filter on created_at for non non started job and started_at otherwise
         after (exclusive) timestamp but only for the completed jobs
       in: query
       schema:
@@ -13215,7 +13331,8 @@ components:
         format: date-time
     CreatedOrStartedBefore:
       name: created_or_started_before
-      description: filter on created_at for non non started job and started_at otherwise
+      description:
+        filter on created_at for non non started job and started_at otherwise
         before (inclusive) timestamp
       in: query
       schema:
@@ -13303,7 +13420,8 @@ components:
         enum: [Create, Update, Delete, Execute]
     JobKinds:
       name: job_kinds
-      description: filter on job kind (values 'preview', 'script', 'dependencies', 'flow')
+      description:
+        filter on job kind (values 'preview', 'script', 'dependencies', 'flow')
         separated by,
       in: query
       schema:
@@ -13398,7 +13516,19 @@ components:
 
     AIProvider:
       type: string
-      enum: [openai, azure_openai, anthropic, mistral, deepseek, googleai, groq, openrouter, togetherai, customai]
+      enum:
+        [
+          openai,
+          azure_openai,
+          anthropic,
+          mistral,
+          deepseek,
+          googleai,
+          groq,
+          openrouter,
+          togetherai,
+          customai,
+        ]
 
     AIProviderModel:
       type: object
@@ -13465,7 +13595,7 @@ components:
         alerts:
           type: array
           items:
-            $ref: '#/components/schemas/Alert'
+            $ref: "#/components/schemas/Alert"
 
     Script:
       type: object
@@ -13639,6 +13769,21 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
+        fallback_access_types:
+          type: array
+          items:
+            type: object
+            required: [path, kind, access_type]
+            properties:
+              path:
+                type: string
+              kind:
+                type: string
+                enum: [s3object, resource]
+              access_type:
+                type: string
+                enum: [r, w, rw]
+
       required:
         - path
         - summary
@@ -13786,7 +13931,7 @@ components:
               "singlescriptflow",
               "flowscript",
               "flownode",
-              "appscript"
+              "appscript",
             ]
         schedule_path:
           type: string
@@ -13893,7 +14038,7 @@ components:
               "singlescriptflow",
               "flowscript",
               "flownode",
-              "appscript"
+              "appscript",
             ]
         schedule_path:
           type: string
@@ -14345,7 +14490,7 @@ components:
                         "bytes",
                         "dict",
                         "datetime",
-                        "sql"
+                        "sql",
                       ]
                   - type: object
                     properties:
@@ -14385,7 +14530,7 @@ components:
                                       "bytes",
                                       "dict",
                                       "datetime",
-                                      "sql"
+                                      "sql",
                                     ]
                                 - type: object
                                   properties:
@@ -14411,7 +14556,7 @@ components:
                                 "bytes",
                                 "dict",
                                 "datetime",
-                                "sql"
+                                "sql",
                               ]
                           - type: object
                             properties:
@@ -14464,7 +14609,7 @@ components:
           csharp,
           nu,
           java,
-          duckdb
+          duckdb,
           # for related places search: ADD_NEW_LANG
         ]
 
@@ -14939,7 +15084,7 @@ components:
         - user_or_folder_regex_value
         - path
         - runnable_kind
-    
+
     OpenapiV3Info:
       type: object
       properties:
@@ -15579,14 +15724,12 @@ components:
         - delivery_type
         - subscription_mode
 
-
     SubscriptionMode:
       type: string
       enum:
         - existing
         - create_update
       description: "The mode of subscription. 'existing' means using an existing GCP subscription, while 'create_update' involves creating or updating a new subscription."
-
 
     GcpTriggerData:
       type: object
@@ -15634,7 +15777,6 @@ components:
           type: string
       required:
         - topic_id
-
 
     DeleteGcpSubscription:
       type: object
@@ -16703,7 +16845,14 @@ components:
       properties:
         type:
           type: string
-          enum: ["S3Storage", "AzureBlobStorage", "AzureWorkloadIdentity", "S3AwsOidc", "GoogleCloudStorage"]
+          enum:
+            [
+              "S3Storage",
+              "AzureBlobStorage",
+              "AzureWorkloadIdentity",
+              "S3AwsOidc",
+              "GoogleCloudStorage",
+            ]
         s3_resource_path:
           type: string
         azure_blob_resource_path:
@@ -16720,7 +16869,13 @@ components:
               type:
                 type: string
                 enum:
-                  ["S3Storage", "AzureBlobStorage", "AzureWorkloadIdentity", "S3AwsOidc", "GoogleCloudStorage"]
+                  [
+                    "S3Storage",
+                    "AzureBlobStorage",
+                    "AzureWorkloadIdentity",
+                    "S3AwsOidc",
+                    "GoogleCloudStorage",
+                  ]
               s3_resource_path:
                 type: string
               azure_blob_resource_path:
@@ -17110,7 +17265,8 @@ components:
 
     CaptureTriggerKind:
       type: string
-      enum: [webhook, http, websocket, kafka, email, nats, postgres, sqs, mqtt, gcp]
+      enum:
+        [webhook, http, websocket, kafka, email, nats, postgres, sqs, mqtt, gcp]
 
     Capture:
       type: object
@@ -17151,6 +17307,7 @@ components:
         - runs
         - schedules
         - resources
+        - assets
         - variables
         - triggers
         - audit_logs
@@ -17170,6 +17327,9 @@ components:
         variables:
           type: boolean
           description: Whether operators can view variables
+        assets:
+          type: boolean
+          description: Whether operators can view assets
         audit_logs:
           type: boolean
           description: Whether operators can view audit logs
@@ -17308,3 +17468,28 @@ components:
           type: string
           description: Microsoft Teams channel name
           minLength: 1
+    AssetUsageKind:
+      type: string
+      enum:
+        - script
+        - flow
+    AssetUsageAccessType:
+      type: string
+      enum:
+        - r
+        - w
+        - rw
+    AssetKind:
+      type: string
+      enum:
+        - s3object
+        - resource
+        - variable
+    Asset:
+      type: object
+      properties:
+        path:
+          type: string
+        kind:
+          $ref: "#/components/schemas/AssetKind"
+      required: [path, kind]

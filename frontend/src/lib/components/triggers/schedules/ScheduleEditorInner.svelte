@@ -320,7 +320,12 @@
 	})
 
 	function setDefaultValid(schema: Record<string, any> | undefined) {
-		isValid = schema?.properties && Object.keys(schema.properties).length === 0
+		if (!isValid) {
+			let isEmpty = schema?.properties == undefined || Object.keys(schema.properties).length === 0
+			if (isEmpty) {
+				isValid = true
+			}
+		}
 	}
 
 	async function loadScript(p: string | undefined): Promise<void> {
@@ -659,6 +664,7 @@
 	})
 </script>
 
+<!-- {JSON.stringify({ allowSchedule, path: script_path, validCRON, isValid })} -->
 {#snippet saveButton()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar

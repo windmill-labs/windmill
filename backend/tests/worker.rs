@@ -1147,6 +1147,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
                         is_trigger: None,
+                        asset_fallback_access_types: None,
                     }
                     .into(),
                     stop_after_if: Default::default(),
@@ -1190,6 +1191,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                                 concurrent_limit: None,
                                 concurrency_time_window_s: None,
                                 is_trigger: None,
+                                asset_fallback_access_types: None,
                             }
                             .into(),
                             stop_after_if: Default::default(),
@@ -1319,6 +1321,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
                         is_trigger: None,
+                        asset_fallback_access_types: None,
 
                     }.into(),
                     stop_after_if: Default::default(),
@@ -1373,6 +1376,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                     concurrent_limit: None,
                                     concurrency_time_window_s: None,
                                     is_trigger: None,
+                                    asset_fallback_access_types: None,
                                 }.into(),
                                 stop_after_if: Default::default(),
                                 stop_after_all_iters_if: Default::default(),
@@ -1412,6 +1416,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                     concurrent_limit: None,
                                     concurrency_time_window_s: None,
                                     is_trigger: None,
+                                    asset_fallback_access_types: None,
 
                                 }.into(),
                                 stop_after_if: Default::default(),
@@ -1477,6 +1482,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
                         is_trigger: None,
+                        asset_fallback_access_types: None,
                     }.into(),
                     stop_after_if: Default::default(),
                     stop_after_all_iters_if: Default::default(),

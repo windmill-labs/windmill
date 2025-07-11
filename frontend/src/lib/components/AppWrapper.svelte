@@ -5,6 +5,10 @@
 	let { app: oldApp, ...props }: AppEditorProps = $props()
 
 	let app = $state(oldApp)
+
+	$effect(() => {
+		app = oldApp
+	})
 </script>
 
 <AppEditor {app} {...props} />

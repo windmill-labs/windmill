@@ -8,6 +8,10 @@
 	}: EditableSchemaWrapperProps = $props()
 
 	let schema = $state(oldSchema)
+
+	$effect(() => {
+		schema = oldSchema
+	})
 </script>
 
 <EditableSchemaWrapper {schema} {...props} />

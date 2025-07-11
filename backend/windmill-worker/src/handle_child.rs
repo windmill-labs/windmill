@@ -4,6 +4,7 @@ use futures::Future;
 use nix::sys::signal::{self, Signal};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use nix::unistd::Pid;
+use process_wrap::tokio::TokioChildWrapper;
 use windmill_common::agent_workers::PingJobStatusResponse;
 use windmill_common::jobs::LARGE_LOG_THRESHOLD_SIZE;
 
@@ -41,7 +42,6 @@ use windmill_common::job_metrics;
 use tokio::io::AsyncWriteExt;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
-    process::Child,
     sync::{broadcast, watch},
     time::{interval, sleep, Instant, MissedTickBehavior},
 };
@@ -99,7 +99,7 @@ pub async fn handle_child(
     conn: &Connection,
     mem_peak: &mut i32,
     canceled_by_ref: &mut Option<CanceledBy>,
-    mut child: Child,
+    mut child: Box<dyn TokioChildWrapper>,
     nsjail: bool,
     worker: &str,
     w_id: &str,
@@ -197,7 +197,7 @@ pub async fn handle_child(
     let wait_on_child = async {
         let kill_reason = tokio::select! {
             biased;
-            result = child.wait() => return result.map(Ok),
+            result = Box::into_pin(child.wait()) => return result.map(Ok),
             Ok(()) = too_many_logs.changed() => KillReason::TooManyLogs,
             _ = sleep(timeout_duration) => KillReason::Timeout { is_job_specific },
             ex = update_job, if job_id != Uuid::nil() => match ex {
@@ -291,7 +291,7 @@ pub async fn handle_child(
         #[cfg(unix)]
         {
             /* send SIGKILL and reap child process */
-            let (_, kill) = future::join(set_reason, child.kill()).await;
+            let (_, kill) = future::join(set_reason, Box::into_pin(child.kill())).await;
             kill.map(|()| Err(kill_reason))
         }
     };
@@ -728,17 +728,17 @@ where
 ///
 /// builds a stream joining both stdout and stderr each read line by line
 fn child_joined_output_stream(
-    child: &mut Child,
+    child: &mut Box<dyn TokioChildWrapper>,
     job_id: Uuid,
     w_id: String,
 ) -> impl stream::FusedStream<Item = io::Result<String>> {
     let stderr = child
-        .stderr
+        .stderr()
         .take()
-        .expect("child did not have a handle to stdout");
+        .expect("child did not have a handle to stderr");
 
     let stdout = child
-        .stdout
+        .stdout()
         .take()
         .expect("child did not have a handle to stdout");
 

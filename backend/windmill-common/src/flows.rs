@@ -18,6 +18,7 @@ use sqlx::types::Json;
 use sqlx::types::JsonRawValue;
 
 use crate::{
+    assets::AssetWithAccessType,
     cache,
     error::Error,
     more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
@@ -504,6 +505,8 @@ pub enum FlowModuleValue {
         concurrency_time_window_s: Option<i32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        asset_fallback_access_types: Option<Vec<AssetWithAccessType>>,
     },
     Identity,
     // Internal only, never exposed to the frontend.
@@ -557,6 +560,7 @@ struct UntaggedFlowModuleValue {
     id: Option<FlowNodeId>,
     default_node: Option<FlowNodeId>,
     modules_node: Option<FlowNodeId>,
+    asset_fallback_access_types: Option<Vec<AssetWithAccessType>>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -631,6 +635,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 concurrent_limit: untagged.concurrent_limit,
                 concurrency_time_window_s: untagged.concurrency_time_window_s,
                 is_trigger: untagged.is_trigger,
+                asset_fallback_access_types: untagged.asset_fallback_access_types,
             }),
             "flowscript" => Ok(FlowModuleValue::FlowScript {
                 input_transforms: untagged.input_transforms.unwrap_or_default(),
@@ -803,6 +808,7 @@ pub async fn resolve_module(
                 concurrent_limit,
                 concurrency_time_window_s,
                 is_trigger,
+                asset_fallback_access_types: None,
             };
         }
         ForloopFlow { modules, modules_node, .. } | WhileloopFlow { modules, modules_node, .. } => {
