@@ -25,12 +25,9 @@ export function undo<T>(history: History<T> | undefined, now: T): T {
 		let nhistory = get(history)
 		let r = nhistory.history[nhistory.index]
 		if (!r) {
-			console.log('c')
 			console.log('undo failed', nhistory, now)
 			return now
 		} else {
-			console.log('d')
-
 			return r
 		}
 	} else {
