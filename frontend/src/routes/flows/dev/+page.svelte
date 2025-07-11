@@ -11,7 +11,7 @@
 	} from '$lib/components/flows/types'
 	import { writable } from 'svelte/store'
 	import { OpenAPI, type OpenFlow, type TriggersCount } from '$lib/gen'
-	import { initHistory } from '$lib/history'
+	import { initHistory } from '$lib/history.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
 	import FlowEditorPanel from '$lib/components/flows/content/FlowEditorPanel.svelte'

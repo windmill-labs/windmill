@@ -6,10 +6,6 @@
 	let { script: oldScript, disableAi, ...props }: ScriptBuilderProps = $props()
 
 	let script = $state(oldScript)
-
-	$effect(() => {
-		script = oldScript
-	})
 </script>
 
 <AiChatLayout noPadding {disableAi}>

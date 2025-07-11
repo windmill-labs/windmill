@@ -17,7 +17,7 @@
 		insertNewGridItem,
 		setUpTopBarComponentContent
 	} from '../appUtils'
-	import { push } from '$lib/history'
+	import { push } from '$lib/history.svelte'
 	import { ClearableInput, Drawer, DrawerContent } from '../../../common'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { getGroup, listGroups } from './groupUtils'
