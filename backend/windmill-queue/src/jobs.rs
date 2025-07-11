@@ -4693,7 +4693,7 @@ async fn restarted_flows_resolution(
 }
 
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SameWorkerPayload {
     pub job_id: Uuid,
     pub recoverable: bool,

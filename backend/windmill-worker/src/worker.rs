@@ -1993,10 +1993,22 @@ fn spawn_periodic_script_task(
     tokio::spawn(async move {
         let config = WORKER_CONFIG.read().await;
 
-        if let (Some(content), Some(interval_seconds)) = (
-            &config.periodic_script_bash,
-            &config.periodic_script_interval_seconds,
-        ) {
+        match (&config.periodic_script_bash, &config.periodic_script_interval_seconds) {
+            (Some(_), None) => {
+                tracing::error!(
+                    worker = %worker_name,
+                    "periodic_script_bash is set but periodic_script_interval_seconds is not set. Both must be configured together."
+                );
+                return;
+            }
+            (None, Some(_)) => {
+                tracing::error!(
+                    worker = %worker_name,
+                    "periodic_script_interval_seconds is set but periodic_script_bash is not set. Both must be configured together."
+                );
+                return;
+            }
+            (Some(content), Some(interval_seconds)) => {
             let interval_seconds = *interval_seconds;
             if interval_seconds < MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS {
                 tracing::error!(
@@ -2054,11 +2066,13 @@ fn spawn_periodic_script_task(
                     }
                 }
             }
-        } else {
-            tracing::debug!(
-                worker = %worker_name,
-                "No periodic script configured"
-            );
+            }
+            (None, None) => {
+                tracing::debug!(
+                    worker = %worker_name,
+                    "No periodic script configured"
+                );
+            }
         }
     });
 }
