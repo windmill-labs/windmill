@@ -31,7 +31,10 @@ class WindmillFinder(MetaPathFinder):
             import urllib.parse
             import urllib.request
 
-            headers = {"Authorization": f"Bearer {os.environ.get('WM_TOKEN')}"}
+            headers = {
+                "Authorization": f"Bearer {os.environ.get('WM_TOKEN')}",
+                "User-Agent": "windmill/beta"
+            }
             url = f"{os.environ.get('BASE_INTERNAL_URL')}/api/w/{os.environ.get('WM_WORKSPACE')}/scripts/raw/p/{script_path}.py"
 
             req = urllib.request.Request(url, None, headers)
