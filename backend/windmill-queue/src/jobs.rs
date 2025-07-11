@@ -1977,27 +1977,6 @@ pub enum JobTriggerKind {
     Gcp
 }
 
-impl JobTriggerKind {
-
-    
-    pub fn table_name(&self) -> Option<&str> {
-        let table_name = match self {
-            JobTriggerKind::Http => "http_trigger",
-            JobTriggerKind::Websocket => "websocket_trigger",
-            JobTriggerKind::Kafka => "kafka_trigger",
-            JobTriggerKind::Email => "email_trigger",
-            JobTriggerKind::Nats => "nats_trigger",
-            JobTriggerKind::Mqtt => "mqtt_trigger",
-            JobTriggerKind::Sqs => "sqs_trigger",
-            JobTriggerKind::Postgres => "postgres_trigger",
-            _ => return None,
-        };
-
-        Some(table_name)
-    }
-}
-
-
 
 #[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize)]
 pub struct MiniPulledJob {

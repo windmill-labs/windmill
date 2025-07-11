@@ -19,7 +19,6 @@
 
 	interface Props {
 		can_write?: boolean
-		headless?: boolean
 		mqtt_resource_path?: string
 		subscribe_topics?: MqttSubscribeTopic[]
 		client_version?: MqttClientVersion
@@ -30,7 +29,6 @@
 
 	let {
 		can_write = false,
-		headless = false,
 		mqtt_resource_path = $bindable(''),
 		subscribe_topics = $bindable([]),
 		client_version = $bindable('v5'),
@@ -55,7 +53,7 @@
 </script>
 
 <div class="flex flex-col gap-12">
-	<Section label="MQTT" {headless}>
+	<Section label="MQTT">
 		{#snippet header()}
 			{#if showTestingBadge}
 				<TestingBadge />

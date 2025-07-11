@@ -229,6 +229,14 @@
 		}
 	})
 
+	$effect(() => {
+		if (handlerSelected === 'slack' && isSlackHandler(handlerPath)) {
+			handlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
+		} else {
+			handlerExtraArgs['slack'] = undefined
+		}
+	})
+
 	let lastHandlerSelected: 'slack' | 'teams' | 'custom' | undefined = $state(undefined)
 	let channelCache = $state({
 		slack: undefined as string | undefined,
@@ -242,6 +250,7 @@
 
 			if (handlerSelected === 'custom') {
 				handlerExtraArgs['channel'] = ''
+				handlerPath = undefined
 			} else {
 				handlerExtraArgs['channel'] = channelCache[handlerSelected] ?? ''
 			}
@@ -289,6 +298,7 @@
 				'success_result',
 				'success_started_at',
 				'email',
+				'trigger_path',
 				'slack'
 			]).then((schema) => (slackHandlerSchema = schema))
 	})

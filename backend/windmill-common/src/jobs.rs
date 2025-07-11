@@ -351,7 +351,7 @@ pub enum JobPayload {
         path: String,
         hash: ScriptHash,
         args: HashMap<String, Box<serde_json::value::RawValue>>,
-        retry: Option<Retry>, // for now only used to retry the script, so retry is necessarily present
+        retry: Option<Retry>,
         error_handler_path: Option<String>,
         error_handler_args: Option<HashMap<String, Box<RawValue>>>,
         custom_concurrency_key: Option<String>,

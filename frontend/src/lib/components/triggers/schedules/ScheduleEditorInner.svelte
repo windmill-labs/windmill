@@ -551,21 +551,6 @@
 		return 'custom'
 	}
 
-	function isSlackHandler(isSlackHandler: 'error' | 'recovery' | 'success', scriptPath: string) {
-		if (isSlackHandler == 'error') {
-			return (
-				scriptPath.startsWith('hub/') &&
-				scriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
-			)
-		} else if (isSlackHandler == 'recovery') {
-			return (
-				scriptPath.startsWith('hub/') && scriptPath.endsWith('/schedule-recovery-handler-slack')
-			)
-		} else {
-			return scriptPath.startsWith('hub/') && scriptPath.endsWith('/schedule-success-handler-slack')
-		}
-	}
-
 	let drawer: Drawer | undefined = $state()
 
 	let pathC: Path | undefined = $state()
@@ -592,26 +577,7 @@
 	}
 
 	function getScheduleCfg(): Record<string, any> {
-		let errorHadlerExtraArgsDerived = structuredClone($state.snapshot(errorHandlerExtraArgs))
-		if (errorHandlerPath !== undefined && isSlackHandler('error', errorHandlerPath)) {
-			errorHadlerExtraArgsDerived['slack'] = '$res:f/slack_bot/bot_token'
-		} else {
-			errorHadlerExtraArgsDerived['slack'] = undefined
-		}
-
-		let recoveryHandlerExtraArgsDerived = structuredClone($state.snapshot(recoveryHandlerExtraArgs))
-		if (recoveryHandlerPath !== undefined && isSlackHandler('recovery', recoveryHandlerPath)) {
-			recoveryHandlerExtraArgsDerived['slack'] = '$res:f/slack_bot/bot_token'
-		} else {
-			recoveryHandlerExtraArgsDerived['slack'] = undefined
-		}
-
-		let successHandlerExtraArgsDerived = structuredClone($state.snapshot(successHandlerExtraArgs))
-		if (successHandlerPath !== undefined && isSlackHandler('success', successHandlerPath)) {
-			successHandlerExtraArgsDerived['slack'] = '$res:f/slack_bot/bot_token'
-		} else {
-			successHandlerExtraArgsDerived['slack'] = undefined
-		}
+		console.log('errorHandlerExtraArgs', errorHandlerExtraArgs)
 		return {
 			path: path,
 			schedule: formatCron(schedule),
@@ -623,16 +589,16 @@
 			on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
 			on_failure_times: failedTimes,
 			on_failure_exact: failedExact,
-			on_failure_extra_args: errorHandlerPath ? errorHadlerExtraArgsDerived : undefined,
+			on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : undefined,
 			on_recovery: recoveryHandlerPath
 				? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
 				: undefined,
 			on_recovery_times: recoveredTimes,
-			on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgsDerived : {},
+			on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
 			on_success: successHandlerPath
 				? `${successHandlerItemKind}/${successHandlerPath}`
 				: undefined,
-			on_success_extra_args: successHandlerPath ? successHandlerExtraArgsDerived : {},
+			on_success_extra_args: successHandlerPath ? successHandlerExtraArgs : {},
 			ws_error_handler_muted: wsErrorHandlerMuted,
 			retry: retry,
 			summary: summary != '' ? summary : undefined,
@@ -997,7 +963,7 @@
 						bind:handlerSelected={errorHandlerSelected}
 						bind:handlerPath={errorHandlerPath}
 						toggleText="Alert channel on error"
-						customScriptTemplate="/scripts/add?hub=hub%2F9081%2Fwindmill%2Fschedule_error_handler_template"
+						customScriptTemplate="/scripts/add?hub=hub%2F19743%2Fwindmill%2Fschedule_error_handler_template"
 						bind:customHandlerKind={errorHandleritemKind}
 						bind:handlerExtraArgs={errorHandlerExtraArgs}
 					>
@@ -1007,6 +973,10 @@
 									<div class="text-sm"
 										>The following args will be passed to the error handler:
 										<ul class="mt-1 ml-2">
+											<li
+												><b>workspace_id</b>: The ID of the workspace that the schedule belongs to.</li
+											>
+											<li><b>job_id</b>: The UUID of the job that errored.</li>
 											<li><b>path</b>: The path of the script or flow that failed.</li>
 											<li><b>is_flow</b>: Whether the runnable is a flow.</li>
 											<li><b>schedule_path</b>: The path of the schedule.</li>

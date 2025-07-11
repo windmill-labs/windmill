@@ -423,7 +423,6 @@
 				bind:client_version
 				bind:isValid
 				bind:client_id
-				headless={true}
 				showTestingBadge={isEditor}
 			/>
 
