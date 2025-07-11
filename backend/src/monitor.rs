@@ -65,10 +65,11 @@ use windmill_common::{
     users::truncate_token,
     utils::{empty_as_none, now_from_db, rd_string, report_critical_error, Mode},
     worker::{
-        load_env_vars, load_init_bash_from_env, load_periodic_bash_script_from_env, load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
+        load_env_vars, load_init_bash_from_env, load_periodic_bash_script_from_env,
+        load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
         load_worker_config, reload_custom_tags_setting, store_pull_query,
         store_suspended_pull_query, update_min_version, Connection, WorkerConfig,
-        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, SCRIPT_TOKEN_EXPIRY,
+        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY,
         SMTP_CONFIG, TMP_DIR, WORKER_CONFIG, WORKER_GROUP,
     },
     KillpillSender, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE, CRITICAL_ALERT_MUTE_UI_ENABLED,
