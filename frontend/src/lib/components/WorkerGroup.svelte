@@ -125,6 +125,7 @@
 					min_alive_workers_alert_threshold?: number
 					autoscaling?: AutoscalingConfig
 					periodic_script_bash?: string
+					periodic_script_interval_seconds?: number
 			  }
 		activeWorkers: number
 		customTags: string[] | undefined

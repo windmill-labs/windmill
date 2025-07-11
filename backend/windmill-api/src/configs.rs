@@ -22,7 +22,7 @@ use windmill_common::{
     DB,
 };
 
-use crate::{db::ApiAuthed, utils::{require_devops_role}};
+use crate::{db::ApiAuthed, utils::require_devops_role};
 
 pub fn global_service() -> Router {
     Router::new()
@@ -131,29 +131,46 @@ async fn update_config(
     }
 
     if name.starts_with("worker__") {
-        if let Some(periodic_script_bash) = config.get("periodic_script_bash") {
-            if !periodic_script_bash.is_null() && periodic_script_bash.as_str().map_or(false, |s| !s.is_empty()) {
-                if let Some(interval_value) = config.get("periodic_script_interval_seconds") {
-                    if let Some(interval) = interval_value.as_u64() {
-                        if interval < MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS {
-                            return Err(error::Error::BadRequest(
-                                format!(
-                                    "Periodic script interval must be at least {} seconds, got {} seconds",
-                                    MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS,
-                                    interval
-                                )
-                            ));
-                        }
-                    } else {
-                        return Err(error::Error::BadRequest(
-                            "Periodic script interval must be a valid number".to_string(),
-                        ));
+        let periodic_script_bash = config
+            .get("periodic_script_bash")
+            .filter(|v| !v.is_null())
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty());
+
+        let periodic_script_interval = config
+            .get("periodic_script_interval_seconds")
+            .filter(|v| !v.is_null());
+
+        match (periodic_script_bash, periodic_script_interval) {
+            (Some(_), Some(interval_value)) => {
+                if let Some(interval) = interval_value.as_u64() {
+                    if interval < MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS {
+                        return Err(error::Error::BadRequest(format!(
+                            "Periodic script interval must be at least {} seconds, got {} seconds",
+                            MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, interval
+                        )));
                     }
                 } else {
                     return Err(error::Error::BadRequest(
-                        "Periodic script interval must be specified when periodic script is configured".to_string(),
+                        "Periodic script interval must be a valid number".to_string(),
                     ));
                 }
+            }
+            (Some(_), None) => {
+                // Script is set but interval is not
+                return Err(error::Error::BadRequest(
+                    "Periodic script interval must be specified when periodic script is configured"
+                        .to_string(),
+                ));
+            }
+            (None, Some(_)) => {
+                // Interval is set but script is not
+                return Err(error::Error::BadRequest(
+                    "Periodic script must be specified when interval is configured".to_string(),
+                ));
+            }
+            (None, None) => {
+                // Neither is set - this is valid
             }
         }
     }
