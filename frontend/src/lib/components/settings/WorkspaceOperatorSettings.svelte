@@ -17,6 +17,7 @@
 		schedules: true,
 		resources: true,
 		variables: true,
+		assets: false,
 		triggers: true,
 		audit_logs: true,
 		groups: true,
@@ -29,6 +30,7 @@
 	let currentWorkspace: string | null = $state(null)
 
 	async function saveSettings() {
+		console.log('Saving operator settings:', operatorWorkspaceSettings)
 		try {
 			await WorkspaceService.updateOperatorSettings({
 				workspace: $workspaceStore!,
@@ -48,6 +50,7 @@
 		schedules: { title: 'Schedules', description: 'View schedules' },
 		resources: { title: 'Resources', description: 'View resources' },
 		variables: { title: 'Variables', description: 'View variables' },
+		assets: { title: 'Assets', description: 'View assets' },
 		triggers: { title: 'Triggers', description: 'View all triggers (HTTP, Websocket, Kafka)' },
 		audit_logs: { title: 'Audit Logs', description: 'View audit logs' },
 		groups: { title: 'Groups', description: 'View groups and group members' },
@@ -63,7 +66,10 @@
 					workspace: $workspaceStore
 				})
 				if (settings.operator_settings !== null) {
-					operatorWorkspaceSettings = settings.operator_settings ?? operatorWorkspaceSettings
+					operatorWorkspaceSettings = {
+						...operatorWorkspaceSettings,
+						...(settings.operator_settings ?? {})
+					}
 					originalSettings = { ...operatorWorkspaceSettings }
 				}
 			})()

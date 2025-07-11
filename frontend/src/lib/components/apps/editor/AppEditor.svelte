@@ -35,7 +35,7 @@
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import { VariableService } from '$lib/gen'
-	import { initHistory } from '$lib/history'
+	import { initHistory } from '$lib/history.svelte'
 	import { Component, Minus, Paintbrush, Plus, Smartphone, Scan, Hand, Grab } from 'lucide-svelte'
 	import { animateTo, findGridItem, findGridItemParentGrid } from './appUtils'
 	import ComponentNavigation from './component/ComponentNavigation.svelte'

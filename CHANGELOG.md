@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.505.0](https://github.com/windmill-labs/windmill/compare/v1.504.0...v1.505.0) (2025-07-11)
+
+
+### Features
+
+* assets as a primary concept ([#6125](https://github.com/windmill-labs/windmill/issues/6125)) ([433341b](https://github.com/windmill-labs/windmill/commit/433341b2958e86fe8c202d6651cd28a93ce4d9ba))
+* triggers error handler and retry ([#6138](https://github.com/windmill-labs/windmill/issues/6138)) ([328ef60](https://github.com/windmill-labs/windmill/commit/328ef605adf9ba2687989b74cdd9beb94448d327))
+
+
+### Bug Fixes
+
+* audit log truncation fix ([bfb2277](https://github.com/windmill-labs/windmill/commit/bfb2277ff140705e9358a487b4416e25aa46e20b))
+
 ## [1.504.0](https://github.com/windmill-labs/windmill/compare/v1.503.3...v1.504.0) (2025-07-10)
 
 

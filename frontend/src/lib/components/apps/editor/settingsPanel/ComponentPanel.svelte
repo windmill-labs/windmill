@@ -20,7 +20,7 @@
 	import { deleteGridItem, isTableAction } from '../appUtils'
 	import GridPane from './GridPane.svelte'
 	import { slide } from 'svelte/transition'
-	import { push } from '$lib/history'
+	import { push } from '$lib/history.svelte'
 	import StylePanel from './StylePanel.svelte'
 	import { ChevronLeft, ArrowBigUp, ArrowLeft } from 'lucide-svelte'
 	import GridCondition from './GridCondition.svelte'

@@ -6,11 +6,11 @@
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 
 	import { Button } from './common'
-	import DBManagerDrawerButton from './DBManagerDrawerButton.svelte'
 	import { Pen, Plus, RotateCw } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { isDbType } from './apps/components/display/dbtable/utils'
 	import Select from './select/Select.svelte'
+	import DbManagerDrawer from './DBManagerDrawer.svelte'
+	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
 
 	interface Props {
 		initialValue?: string | undefined
@@ -142,6 +142,7 @@
 
 	let appConnect: AppConnect | undefined = $state()
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
+	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
 </script>
 
 <AppConnect
@@ -248,7 +249,13 @@
 			iconOnly
 		/>
 	</div>
-	{#if showSchemaExplorer && isDbType(resourceType) && value}
-		<DBManagerDrawerButton {resourceType} resourcePath={value} />
+	{#if showSchemaExplorer && value && assetCanBeExplored({ kind: 'resource', path: value }, { resource_type: resourceType })}
+		<ExploreAssetButton
+			_resourceMetadata={{ resource_type: resourceType }}
+			asset={{ kind: 'resource', path: value }}
+			{dbManagerDrawer}
+		/>
 	{/if}
 </div>
+
+<DbManagerDrawer bind:this={dbManagerDrawer} />

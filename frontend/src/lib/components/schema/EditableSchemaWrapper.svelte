@@ -16,7 +16,8 @@
 		noPreview = false,
 		fullHeight = true,
 		formatExtension = $bindable(undefined),
-		onSchemaChange
+		onSchemaChange,
+		customUi
 	}: EditableSchemaWrapperProps = $props()
 
 	let resourceIsTextFile: boolean = $state(false)
@@ -77,6 +78,7 @@
 	>
 		{#if noPreview}
 			<AddPropertyV2
+				noPopover={customUi?.noAddPopover}
 				bind:schema
 				bind:this={addPropertyComponent}
 				on:change={() => onSchemaChange?.({ schema: $state.snapshot(schema) })}
@@ -112,6 +114,7 @@
 			{#snippet addProperty()}
 				{#if !noPreview}
 					<AddPropertyV2
+						noPopover={customUi?.noAddPopover}
 						bind:schema
 						bind:this={addPropertyComponent}
 						on:change={() => onSchemaChange?.({ schema })}
