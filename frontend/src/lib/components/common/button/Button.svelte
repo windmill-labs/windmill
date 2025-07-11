@@ -62,6 +62,7 @@
 		children?: import('svelte').Snippet
 		tooltip?: import('svelte').Snippet
 		[key: string]: any
+		dropdownOpen?: boolean
 	}
 
 	let {
@@ -97,6 +98,7 @@
 		hideDropdown = false,
 		children,
 		tooltip,
+		dropdownOpen = $bindable(false),
 		...rest
 	}: Props = $props()
 
@@ -343,6 +345,7 @@
 			usePointerDownOutside
 			on:open={() => dispatch('dropdownOpen', true)}
 			on:close={() => dispatch('dropdownOpen', false)}
+			bind:open={dropdownOpen}
 		>
 			{#snippet buttonReplacement()}
 				<div

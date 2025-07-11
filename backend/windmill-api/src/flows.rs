@@ -1168,6 +1168,14 @@ async fn archive_flow_by_path(
     .execute(&mut *tx)
     .await?;
 
+    sqlx::query!(
+        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'flow' AND usage_path = $2",
+        &w_id,
+        path
+    )
+    .execute(&mut *tx)
+    .await?;
+
     audit_log(
         &mut *tx,
         &authed,
@@ -1356,6 +1364,7 @@ mod tests {
                     delete_after_use: None,
                     continue_on_error: None,
                     skip_if: None,
+                    apply_preprocessor: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -1370,6 +1379,7 @@ mod tests {
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
                         is_trigger: None,
+                        asset_fallback_access_types: None,
                     }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "foo = 'bar'".to_string(),
@@ -1387,6 +1397,7 @@ mod tests {
                     delete_after_use: None,
                     continue_on_error: None,
                     skip_if: None,
+                    apply_preprocessor: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -1416,6 +1427,7 @@ mod tests {
                     delete_after_use: None,
                     continue_on_error: None,
                     skip_if: None,
+                    apply_preprocessor: None,
                 },
             ],
             failure_module: Some(Box::new(FlowModule {
@@ -1444,6 +1456,7 @@ mod tests {
                 delete_after_use: None,
                 continue_on_error: None,
                 skip_if: None,
+                apply_preprocessor: None,
             })),
             preprocessor_module: None,
             same_worker: false,

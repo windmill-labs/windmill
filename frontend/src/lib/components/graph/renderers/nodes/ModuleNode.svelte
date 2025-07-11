@@ -65,8 +65,18 @@
 					'/' +
 					(moduleState?.iteration_total ?? '?')
 				: ''}
-			bgColor={getStateColor(type, darkMode, true, moduleState?.skipped)}
-			bgHoverColor={getStateHoverColor(type, darkMode, true, moduleState?.skipped)}
+			bgColor={getStateColor(
+				data.editMode ? undefined : type,
+				darkMode,
+				true,
+				moduleState?.skipped
+			)}
+			bgHoverColor={getStateHoverColor(
+				data.editMode ? undefined : type,
+				darkMode,
+				true,
+				moduleState?.skipped
+			)}
 			moving={data.moving}
 			duration_ms={moduleState?.duration_ms}
 			retries={moduleState?.retries}
@@ -94,6 +104,11 @@
 				data.eventHandlers.updateMock(detail)
 			}}
 			onEditInput={data.eventHandlers.editInput}
+			flowJob={data.flowJob}
+			isOwner={data.isOwner}
+			{type}
+			{darkMode}
+			skipped={moduleState?.skipped}
 		/>
 
 		<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10">

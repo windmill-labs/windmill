@@ -226,8 +226,8 @@
 	})
 
 	$effect.pre(() => {
-		schema.order
-		Object.keys(schema.properties ?? {})
+		schema?.order
+		Object.keys(schema?.properties ?? {})
 		schema && (untrack(() => reorder()), (hidden = {}))
 	})
 	$effect.pre(() => {
@@ -236,7 +236,7 @@
 		if (args && typeof args == 'object') {
 			let oneShowExpr = false
 			for (const key of fields) {
-				if (schema.properties?.[key.value]?.showExpr) {
+				if (schema?.properties?.[key.value]?.showExpr) {
 					oneShowExpr = true
 				}
 			}

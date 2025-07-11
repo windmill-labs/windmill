@@ -5,12 +5,12 @@
 		JobService,
 		type FlowStatus,
 		type FlowModuleValue,
-		type FlowModule
+		type FlowModule,
+		type ScriptArgs
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import FlowJobResult from './FlowJobResult.svelte'
-	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
 	import DisplayResult from './DisplayResult.svelte'
 
 	import { createEventDispatcher, getContext, tick } from 'svelte'
@@ -19,10 +19,9 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { type DurationStatus, type FlowStatusViewerContext, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
-	import { emptyString, isScriptPreview, msToSec, truncateRev } from '$lib/utils'
+	import { isScriptPreview, msToSec, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
-	import { ChevronDown, Hourglass, Loader2 } from 'lucide-svelte'
-	import FlowStatusWaitingForEvents from './FlowStatusWaitingForEvents.svelte'
+	import { ChevronDown, Hourglass } from 'lucide-svelte'
 	import { deepEqual } from 'fast-equals'
 	import FlowTimeline from './FlowTimeline.svelte'
 	import { dfs } from './flows/dfs'
@@ -31,6 +30,8 @@
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { buildPrefix } from './graph/graphBuilder.svelte'
+	import { parseAssetFromString, type AssetWithAccessType } from './assets/lib'
+	import FlowPreviewResult from './FlowPreviewResult.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -41,7 +42,8 @@
 		hideDownloadInGraph,
 		hideTimeline,
 		hideNodeDefinition,
-		hideDownloadLogs
+		hideDownloadLogs,
+		hideJobId
 	} = getContext<FlowStatusViewerContext>('FlowStatusViewer')
 
 	export let jobId: string
@@ -88,6 +90,23 @@
 	export let localModuleStates: Writable<Record<string, GraphModuleState>> = writable({})
 	export let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
 	let recursiveRefresh: Record<string, (clear, root) => Promise<void>> = {}
+
+	$: inputAssets = parseInputAssets(job?.args ?? {})
+
+	function parseInputAssets(args: ScriptArgs): AssetWithAccessType[] {
+		const arr: AssetWithAccessType[] = []
+		for (const v of Object.values(args)) {
+			if (typeof v === 'string') {
+				const asset = parseAssetFromString(v)
+				if (asset) arr.push(asset)
+			} else if (v && typeof v === 'object' && typeof v['s3'] === 'string') {
+				const s3 = v['s3']
+				const storage = typeof v['storage'] == 'string' ? v['storage'] : undefined
+				arr.push({ kind: 's3object', path: `${storage ?? ''}/${s3}` })
+			}
+		}
+		return arr
+	}
 
 	let jobResults: any[] =
 		flowJobIds?.flowJobs?.map((x, id) => `iter #${id + 1} not loaded by frontend yet`) ?? []
@@ -916,71 +935,17 @@
 			{/if}
 		{:else if render}
 			<div class={'border rounded-md shadow p-2'}>
-				<FlowPreviewStatus {job} />
-				{#if !job}
-					<div>
-						<Loader2 class="animate-spin" />
-					</div>
-				{:else if `result` in job}
-					{#if !hideFlowResult}
-						<div class="w-full h-full">
-							<FlowJobResult
-								workspaceId={job?.workspace_id}
-								jobId={job?.id}
-								tag={job?.tag}
-								loading={job['running'] == true}
-								result={job.result}
-								logs={job.logs}
-								durationStates={localDurationStatuses}
-								downloadLogs={!hideDownloadLogs}
-							/>
-						</div>
-					{/if}
-				{:else if job.flow_status?.modules?.[job?.flow_status?.step]?.type === 'WaitingForEvents'}
-					<FlowStatusWaitingForEvents {workspaceId} {job} {isOwner} />
-				{:else if $suspendStatus && Object.keys($suspendStatus).length > 0}
-					<div class="flex gap-2 flex-col">
-						{#each Object.values($suspendStatus) as suspendCount (suspendCount.job.id)}
-							<div>
-								<div class="text-sm">
-									Flow suspended, waiting for {suspendCount.nb} events
-								</div>
-								<FlowStatusWaitingForEvents job={suspendCount.job} {workspaceId} {isOwner} />
-							</div>
-						{/each}
-					</div>
-				{:else if job.logs}
-					<div
-						class="text-xs p-4 bg-surface-secondary overflow-auto max-h-80 border border-tertiary-inverse"
-					>
-						<pre class="w-full">{job.logs}</pre>
-					</div>
-				{:else if innerModules?.length > 0}
-					<div class="flex flex-col gap-1">
-						{#each innerModules as mod, i (mod.id)}
-							{#if mod.type == 'InProgress'}
-								{@const rawMod = job.raw_flow?.modules[i]}
-
-								<div
-									><span class="inline-flex gap-1"
-										><Badge color="indigo">{mod.id}</Badge>
-										<span class="font-medium text-primary">
-											{#if !emptyString(rawMod?.summary)}
-												{rawMod?.summary ?? ''}
-											{:else if rawMod?.value.type == 'script'}
-												{rawMod.value.path ?? ''}
-											{:else if rawMod?.value.type}
-												{rawMod?.value.type}
-											{/if}
-										</span>
-
-										<Loader2 class="animate-spin" /></span
-									></div
-								>
-							{/if}
-						{/each}
-					</div>
-				{/if}
+				<FlowPreviewResult
+					{job}
+					{workspaceId}
+					{isOwner}
+					{hideFlowResult}
+					{hideDownloadLogs}
+					{localDurationStatuses}
+					{innerModules}
+					{suspendStatus}
+					{hideJobId}
+				/>
 			</div>
 		{/if}
 		{#if render}
@@ -1247,6 +1212,7 @@
 						</div>
 
 						<FlowGraphV2
+							{inputAssets}
 							{selectedId}
 							triggerNode={true}
 							download={!hideDownloadInGraph}
