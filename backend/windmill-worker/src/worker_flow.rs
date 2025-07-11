@@ -4083,7 +4083,6 @@ async fn script_to_payload(
     } else {
         tag_override
     };
-    tracing::info!("before apply_preprocessor: {:?}", apply_preprocessor);
     let (payload, tag, delete_after_use, script_timeout, on_behalf_of) = if script_hash.is_none() {
         let (jp, tag, delete_after_use, script_timeout, on_behalf_of) =
             script_path_to_payload(&script_path, db, &flow_job.workspace_id, Some(true)).await?;
@@ -4095,7 +4094,6 @@ async fn script_to_payload(
             on_behalf_of,
         )
     } else {
-        tracing::info!("apply_preprocessor: {:?}", apply_preprocessor);
         let hash = script_hash.unwrap();
         let mut tx: sqlx::Transaction<'_, sqlx::Postgres> = db.begin().await?;
         let ScriptHashInfo {

@@ -457,10 +457,7 @@
 											textClass="font-normal text-sm"
 											color="nord"
 											size="xs"
-											checked={v5_config.clean_start}
-											on:change={() => {
-												v5_config.clean_start = !v5_config.clean_start
-											}}
+											bind:checked={v5_config.clean_start}
 											options={{
 												right: 'Clean start',
 												rightTooltip:
