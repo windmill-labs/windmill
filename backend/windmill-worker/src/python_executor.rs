@@ -610,7 +610,7 @@ pub async fn handle_python_job(
         pre_spread,
     ) = prepare_wrapper(
         job_dir,
-        job.is_flow_step(),
+        job.flow_step_id.as_deref(),
         job.preprocessed,
         job.script_entrypoint_override.as_deref(),
         inner_content,
@@ -897,7 +897,7 @@ mount {{
 
 async fn prepare_wrapper(
     job_dir: &str,
-    job_is_flow_step: bool,
+    job_flow_step_id: Option<&str>,
     job_preprocessed: Option<bool>,
     job_script_entrypoint_override: Option<&str>,
     inner_content: &str,
@@ -915,7 +915,8 @@ async fn prepare_wrapper(
     Option<String>,
 )> {
     let main_override = job_script_entrypoint_override.as_deref();
-    let apply_preprocessor = !job_is_flow_step && job_preprocessed == Some(false);
+    let apply_preprocessor =
+        job_flow_step_id != Some("preprocessor") && job_preprocessed == Some(false);
 
     let relative_imports = RELATIVE_IMPORT_REGEX.is_match(&inner_content);
 
@@ -2174,7 +2175,7 @@ pub async fn start_worker(
         spread,
         _,
         _,
-    ) = prepare_wrapper(job_dir, false, None, None, inner_content, script_path).await?;
+    ) = prepare_wrapper(job_dir, None, None, None, inner_content, script_path).await?;
 
     {
         let postprocessor = get_result_postprocessor(annotations.skip_result_postprocessing);

@@ -60,6 +60,7 @@
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
 	import AISettings from '$lib/components/workspaceSettings/AISettings.svelte'
 	import StorageSettings from '$lib/components/workspaceSettings/StorageSettings.svelte'
+	import { untrack } from 'svelte'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -88,36 +89,54 @@
 		| 'user'
 		| 'group'
 		| 'trigger'
-	let slackInitialPath: string
-	let slackScriptPath: string
-	let teamsInitialPath: string
-	let teamsScriptPath: string
-	let slack_team_name: string | undefined
-	let teams_team_id: string | undefined
-	let teams_team_name: string | undefined
-	let itemKind: 'flow' | 'script' = 'flow'
-	let plan: string | undefined = undefined
-	let customer_id: string | undefined = undefined
-	let webhook: string | undefined = undefined
-	let workspaceToDeployTo: string | undefined = undefined
-	let errorHandlerSelected: 'custom' | 'slack' | 'teams' = 'slack'
-	let errorHandlerInitialScriptPath: string
-	let errorHandlerScriptPath: string
-	let errorHandlerItemKind: 'flow' | 'script' = 'script'
-	let errorHandlerExtraArgs: Record<string, any> = {}
-	let errorHandlerMutedOnCancel: boolean | undefined = undefined
-	let criticalAlertUIMuted: boolean | undefined = undefined
-	let initialCriticalAlertUIMuted: boolean | undefined = undefined
+	let slackInitialPath: string = $state('')
+	let slackScriptPath: string = $state('')
+	let teamsInitialPath: string = $state('')
+	let teamsScriptPath: string = $state('')
+	let slack_team_name: string | undefined = $state()
+	let teams_team_id: string | undefined = $state()
+	let teams_team_name: string | undefined = $state()
+	let itemKind: 'flow' | 'script' = $state('flow')
+	let plan: string | undefined = $state(undefined)
+	let customer_id: string | undefined = $state(undefined)
+	let webhook: string | undefined = $state(undefined)
+	let workspaceToDeployTo: string | undefined = $state(undefined)
+	let errorHandlerSelected: 'custom' | 'slack' | 'teams' = $state('slack')
+	let errorHandlerScriptPath: string | undefined = $state(undefined)
+	let errorHandlerItemKind: 'flow' | 'script' = $state('script')
+	let errorHandlerExtraArgs: Record<string, any> = $state({})
+	let errorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
+	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
+	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
 
-	let aiProviders: Exclude<AIConfig['providers'], undefined> = {}
-	let codeCompletionModel: string | undefined = undefined
-	let defaultModel: string | undefined = undefined
+	let aiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
+	let codeCompletionModel: string | undefined = $state(undefined)
+	let defaultModel: string | undefined = $state(undefined)
 
-	let s3ResourceSettings: S3ResourceSettings = {
+	let s3ResourceSettings: S3ResourceSettings = $state({
 		resourceType: 's3',
 		resourcePath: undefined,
 		publicResource: undefined,
 		secondaryStorage: undefined
+	})
+
+	const DEFAULT_GIT_SYNC_SETTINGS = {
+		include_path: ['f/**'],
+		repositories: [],
+		include_type: {
+			scripts: true,
+			flows: true,
+			apps: true,
+			folders: true,
+			resourceTypes: false,
+			resources: false,
+			variables: false,
+			secrets: false,
+			schedules: false,
+			users: false,
+			groups: false,
+			triggers: false
+		}
 	}
 	let gitSyncSettings: {
 		include_path: string[]
@@ -129,18 +148,18 @@
 			group_by_folder: boolean
 		}[]
 		include_type: GitSyncTypeMap
-	}
+	} = $state(DEFAULT_GIT_SYNC_SETTINGS)
 	let gitSyncTestJobs: {
 		jobId: string | undefined
 		status: 'running' | 'success' | 'failure' | undefined
-	}[]
-	let workspaceDefaultAppPath: string | undefined = undefined
-	let workspaceEncryptionKey: string | undefined = undefined
-	let editedWorkspaceEncryptionKey: string | undefined = undefined
-	let workspaceReencryptionInProgress: boolean = false
+	}[] = $state([])
+	let workspaceDefaultAppPath: string | undefined = $state(undefined)
+	let workspaceEncryptionKey: string | undefined = $state(undefined)
+	let editedWorkspaceEncryptionKey: string | undefined = $state(undefined)
+	let workspaceReencryptionInProgress: boolean = $state(false)
 	let encryptionKeyRegex = /^[a-zA-Z0-9]{64}$/
-	let slack_tabs: 'slack_commands' | 'teams_commands' = 'slack_commands'
-	let tab =
+	let slack_tabs: 'slack_commands' | 'teams_commands' = $state('slack_commands')
+	let tab = $state(
 		($page.url.searchParams.get('tab') as
 			| 'users'
 			| 'slack'
@@ -149,7 +168,8 @@
 			| 'webhook'
 			| 'deploy_to'
 			| 'error_handler') ?? 'users'
-	let usingOpenaiClientCredentialsOauth = false
+	)
+	let usingOpenaiClientCredentialsOauth = $state(false)
 
 	const latestGitSyncHubScript = hubPaths.gitSync
 
@@ -357,7 +377,7 @@
 		)
 	}
 
-	let loadedSettings = false
+	let loadedSettings = $state(false)
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		slack_team_name = settings.slack_name
@@ -382,9 +402,10 @@
 		defaultModel = settings.ai_config?.default_model?.model
 		codeCompletionModel = settings.ai_config?.code_completion_model?.model
 
-		errorHandlerItemKind = settings.error_handler?.split('/')[0] as 'flow' | 'script'
+		errorHandlerItemKind = settings.error_handler
+			? (settings.error_handler.split('/')[0] as 'flow' | 'script')
+			: 'script'
 		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
-		errorHandlerInitialScriptPath = errorHandlerScriptPath
 		errorHandlerMutedOnCancel = settings.error_handler_muted_on_cancel
 		criticalAlertUIMuted = settings.mute_critical_alerts
 		initialCriticalAlertUIMuted = settings.mute_critical_alerts
@@ -454,24 +475,7 @@
 				}
 			}
 		} else {
-			gitSyncSettings = {
-				include_path: ['f/**'],
-				repositories: [],
-				include_type: {
-					scripts: true,
-					flows: true,
-					apps: true,
-					folders: true,
-					resourceTypes: false,
-					resources: false,
-					variables: false,
-					secrets: false,
-					schedules: false,
-					users: false,
-					groups: false,
-					triggers: false
-				}
-			}
+			gitSyncSettings = DEFAULT_GIT_SYNC_SETTINGS
 			gitSyncTestJobs = []
 		}
 		if (settings.deploy_ui != undefined && settings.deploy_ui != null) {
@@ -501,28 +505,27 @@
 		loadedSettings = true
 	}
 
-	let deployUiSettings: {
-		include_path: string[]
-		include_type: {
-			scripts: boolean
-			flows: boolean
-			apps: boolean
-			resources: boolean
-			variables: boolean
-			secrets: boolean
-			triggers: boolean
-		}
-	}
+	let deployUiSettings:
+		| {
+				include_path: string[]
+				include_type: {
+					scripts: boolean
+					flows: boolean
+					apps: boolean
+					resources: boolean
+					variables: boolean
+					secrets: boolean
+					triggers: boolean
+				}
+		  }
+		| undefined = $state()
 
-	$: $workspaceStore && loadSettings()
+	$effect(() => {
+		$workspaceStore && untrack(() => loadSettings())
+	})
 
 	async function editErrorHandler() {
 		if (errorHandlerScriptPath) {
-			if (errorHandlerScriptPath !== undefined && isSlackHandler(errorHandlerScriptPath)) {
-				errorHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
-			} else {
-				errorHandlerExtraArgs['slack'] = undefined
-			}
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -543,13 +546,6 @@
 			})
 			sendUserToast(`workspace error handler removed`)
 		}
-	}
-
-	function isSlackHandler(scriptPath: string) {
-		return (
-			scriptPath.startsWith('hub/') &&
-			scriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
-		)
 	}
 
 	async function runGitSyncTestJob(settingsIdx: number) {
@@ -611,13 +607,18 @@
 		}, 3000)
 	}
 
-	function updateFromSearchTab(searchTab: string | null) {
-		if (searchTab && searchTab !== tab) {
+	function updateFromSearchTab(searchTab: string | null, currentTab: string) {
+		if (searchTab && searchTab !== currentTab) {
 			tab = searchTab as typeof tab
 		}
 	}
 
-	$: updateFromSearchTab($page.url.searchParams.get('tab'))
+	$effect(() => {
+		updateFromSearchTab(
+			$page.url.searchParams.get('tab'),
+			untrack(() => tab)
+		)
+	})
 </script>
 
 <CenteredPage>
@@ -974,14 +975,13 @@
 				isEditable={true}
 				errorOrRecovery="error"
 				showScriptHelpText={true}
-				customInitialScriptPath={errorHandlerInitialScriptPath}
 				bind:handlerSelected={errorHandlerSelected}
 				bind:handlerPath={errorHandlerScriptPath}
 				customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
 				bind:customHandlerKind={errorHandlerItemKind}
 				bind:handlerExtraArgs={errorHandlerExtraArgs}
 			>
-				<svelte:fragment slot="custom-tab-tooltip">
+				{#snippet customTabTooltip()}
 					<Tooltip>
 						<div class="flex gap-20 items-start mt-3">
 							<div class="text-sm">
@@ -1002,7 +1002,7 @@
 							</div>
 						</div>
 					</Tooltip>
-				</svelte:fragment>
+				{/snippet}
 			</ErrorOrRecoveryHandler>
 
 			<div class="flex flex-col mt-5 gap-5 items-start">
@@ -1117,14 +1117,18 @@
 									<br />By default everything in folders will be synced.
 								</Tooltip></h4
 							>
-							{#each gitSyncSettings.include_path ?? [] as gitSyncRegexpPath, idx}
+							{#each gitSyncSettings.include_path ?? [] as _, idx}
 								<div class="flex mt-1 items-center">
-									<input type="text" bind:value={gitSyncRegexpPath} id="arg-input-array" />
+									<input
+										type="text"
+										bind:value={gitSyncSettings.include_path[idx]}
+										id="arg-input-array"
+									/>
 									<button
 										transition:fade|local={{ duration: 100 }}
 										class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
 										aria-label="Clear"
-										on:click={() => {
+										onclick={() => {
 											gitSyncSettings.include_path.splice(idx, 1)
 											gitSyncSettings.include_path = [...gitSyncSettings.include_path]
 										}}
@@ -1252,7 +1256,7 @@
 								transition:fade|local={{ duration: 100 }}
 								class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
 								aria-label="Clear"
-								on:click={() => {
+								onclick={() => {
 									gitSyncSettings.repositories.splice(idx, 1)
 									gitSyncSettings.repositories = [...gitSyncSettings.repositories]
 								}}

@@ -16,6 +16,7 @@ use windmill_common::db::Authed;
 use windmill_common::ee_oss::LICENSE_KEY_VALID;
 use windmill_common::flows::Retry;
 use windmill_common::get_latest_flow_version_info_for_path;
+use windmill_common::jobs::check_tag_available_for_workspace_internal;
 use windmill_common::jobs::JobPayload;
 use windmill_common::schedule::schedule_to_user;
 use windmill_common::FlowVersionInfo;
@@ -175,7 +176,9 @@ pub async fn push_scheduled_job<'c>(
                 JobPayload::SingleScriptFlow {
                     path: schedule.script_path.clone(),
                     hash: hash,
-                    retry: parsed_retry,
+                    retry: Some(parsed_retry),
+                    error_handler_path: None,
+                    error_handler_args: None,
                     args: static_args,
                     custom_concurrency_key: None,
                     concurrent_limit: None,
@@ -183,6 +186,8 @@ pub async fn push_scheduled_job<'c>(
                     cache_ttl: cache_ttl,
                     priority: priority,
                     tag_override: schedule.tag.clone(),
+                    trigger_path: None,
+                    apply_preprocessor: false,
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()
@@ -260,6 +265,17 @@ pub async fn push_scheduled_job<'c>(
             false,
         )
     };
+
+    if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
+        check_tag_available_for_workspace_internal(
+            &db,
+            &schedule.workspace_id,
+            &tag,
+            email,
+            None, // no token for schedules so no scopes so no scope_tags
+        )
+        .await?;
+    }
 
     let tx = PushIsolationLevel::Transaction(tx);
     let (_, mut tx) = push(

@@ -357,7 +357,7 @@
 											<Circle class="text-green-600 relative inline-flex fill-current" size={12} />
 										</span>
 										{#snippet text()}
-											<div> Connected to sqs{!server_id ? ' (shutting down...)' : ''}</div>
+											<div> Connected to SQS{!server_id ? ' (shutting down...)' : ''}</div>
 										{/snippet}
 									</Popover>
 								{/if}

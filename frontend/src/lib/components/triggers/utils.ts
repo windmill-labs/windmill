@@ -542,3 +542,16 @@ export function filterDraftTriggers(
 
 	return newSavedValue
 }
+
+export function getHandlerType(scriptPath: string): 'custom' | 'slack' | 'teams' {
+	const handlerMap = {
+		teams: '/workspace-or-schedule-error-handler-teams',
+		slack: '/workspace-or-schedule-error-handler-slack'
+	}
+	for (const [type, suffix] of Object.entries(handlerMap)) {
+		if (scriptPath.startsWith('hub/') && scriptPath.endsWith(suffix)) {
+			return type as 'slack' | 'teams'
+		}
+	}
+	return 'custom'
+}

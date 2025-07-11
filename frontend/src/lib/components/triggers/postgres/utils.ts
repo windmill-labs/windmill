@@ -1,4 +1,4 @@
-import { PostgresTriggerService, type Relations } from '$lib/gen'
+import { PostgresTriggerService, type EditPostgresTrigger, type Relations } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { emptyString } from '$lib/utils'
 import type { Writable } from 'svelte/store'
@@ -110,7 +110,14 @@ export async function savePostgresTriggerFromCfg(
 	usedTriggerKinds: Writable<string[]>
 ): Promise<boolean> {
 	try {
-		const requestBody = {
+		const errorHandlerAndRetries = !config.is_flow
+			? {
+					error_handler_path: config.error_handler_path,
+					error_handler_args: config.error_handler_path ? config.error_handler_args : undefined,
+					retry: config.retry
+				}
+			: {}
+		const requestBody: EditPostgresTrigger = {
 			path: config.path,
 			script_path: config.script_path,
 			is_flow: config.is_flow,
@@ -118,7 +125,8 @@ export async function savePostgresTriggerFromCfg(
 			replication_slot_name: config.replication_slot_name,
 			publication_name: config.publication_name,
 			publication: config.publication,
-			enabled: config.enabled
+			enabled: config.enabled,
+			...errorHandlerAndRetries
 		}
 		if (edit) {
 			await PostgresTriggerService.updatePostgresTrigger({

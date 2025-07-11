@@ -51,4 +51,10 @@ pub struct KafkaTrigger {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_handler_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_handler_args: Option<sqlx::types::Json<std::collections::HashMap<String, Box<serde_json::value::RawValue>>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry: Option<sqlx::types::Json<windmill_common::flows::Retry>>,
 }

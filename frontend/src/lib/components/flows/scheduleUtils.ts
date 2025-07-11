@@ -163,7 +163,7 @@ export async function saveScheduleFromCfg(
 		on_success: scheduleCfg.on_success,
 		on_success_extra_args: scheduleCfg.on_success_extra_args,
 		ws_error_handler_muted: scheduleCfg.ws_error_handler_muted,
-		retry: scheduleCfg.retry,
+		retry: !scheduleCfg.is_flow ? scheduleCfg.retry : undefined,
 		summary: scheduleCfg.summary,
 		description: scheduleCfg.description,
 		no_flow_overlap: scheduleCfg.no_flow_overlap,

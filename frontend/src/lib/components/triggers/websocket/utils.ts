@@ -1,4 +1,4 @@
-import { WebsocketTriggerService } from '$lib/gen'
+import { WebsocketTriggerService, type EditWebsocketTrigger } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import type { Writable } from 'svelte/store'
 import { get } from 'svelte/store'
@@ -10,7 +10,16 @@ export async function saveWebsocketTriggerFromCfg(
 	workspace: string,
 	usedTriggerKinds: Writable<string[]>
 ): Promise<boolean> {
-	const requestBody = {
+	const errorHandlerAndRetries = !triggerCfg.is_flow
+		? {
+				error_handler_path: triggerCfg.error_handler_path,
+				error_handler_args: triggerCfg.error_handler_path
+					? triggerCfg.error_handler_args
+					: undefined,
+				retry: triggerCfg.retry
+			}
+		: {}
+	const requestBody: EditWebsocketTrigger = {
 		path: triggerCfg.path,
 		script_path: triggerCfg.script_path,
 		is_flow: triggerCfg.is_flow,
@@ -18,7 +27,8 @@ export async function saveWebsocketTriggerFromCfg(
 		filters: triggerCfg.filters,
 		initial_messages: triggerCfg.initial_messages,
 		url_runnable_args: triggerCfg.url_runnable_args,
-		can_return_message: triggerCfg.can_return_message
+		can_return_message: triggerCfg.can_return_message,
+		...errorHandlerAndRetries
 	}
 	try {
 		if (edit) {

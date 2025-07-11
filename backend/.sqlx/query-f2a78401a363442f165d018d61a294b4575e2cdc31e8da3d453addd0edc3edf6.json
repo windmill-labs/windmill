@@ -1,0 +1,63 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE \n                http_trigger \n            SET \n                route_path = $1, \n                route_path_key = $2, \n                workspaced_route = $3,\n                wrap_body = $4,\n                raw_string = $5,\n                authentication_resource_path = $6,\n                script_path = $7, \n                path = $8, \n                is_flow = $9, \n                http_method = $10, \n                static_asset_config = $11, \n                edited_by = $12, \n                email = $13, \n                is_async = $14, \n                authentication_method = $15, \n                summary = $16,\n                description = $17,\n                edited_at = now(), \n                is_static_website = $18,\n                error_handler_path = $19,\n                error_handler_args = $20,\n                retry = $21\n            WHERE \n                workspace_id = $22 AND \n                path = $23\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Bool",
+        "Bool",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        {
+          "Custom": {
+            "name": "http_method",
+            "kind": {
+              "Enum": [
+                "get",
+                "post",
+                "put",
+                "delete",
+                "patch"
+              ]
+            }
+          }
+        },
+        "Jsonb",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        {
+          "Custom": {
+            "name": "authentication_method",
+            "kind": {
+              "Enum": [
+                "none",
+                "windmill",
+                "api_key",
+                "basic_http",
+                "custom_script",
+                "signature"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Text",
+        "Bool",
+        "Varchar",
+        "Jsonb",
+        "Jsonb",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f2a78401a363442f165d018d61a294b4575e2cdc31e8da3d453addd0edc3edf6"
+}

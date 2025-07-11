@@ -913,7 +913,10 @@ async fn listen_to_unlistened_database_events(
                 extra_perms,
                 error,
                 enabled,
-                postgres_resource_path
+                postgres_resource_path,
+                error_handler_path,
+                error_handler_args as "error_handler_args: _",
+                retry as "retry: _"
             FROM
                 postgres_trigger
             WHERE

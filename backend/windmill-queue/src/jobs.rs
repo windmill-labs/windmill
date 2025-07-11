@@ -3233,6 +3233,17 @@ impl<'c> Serialize for PushArgs<'c> {
     }
 }
 
+impl<'c> From<&PushArgs<'c>> for HashMap<String, Box<RawValue>> {
+    fn from(args: &PushArgs<'c>) -> Self {
+        let mut map = HashMap::new();
+        map.extend(args.args.clone().into_iter());
+        if let Some(ref extra) = args.extra {
+            map.extend(extra.clone().into_iter());
+        }
+        map
+    }
+}
+
 impl PushArgsOwned {
     pub fn empty() -> Self {
         PushArgsOwned { extra: None, args: HashMap::new() }
@@ -3789,6 +3800,8 @@ pub async fn push<'c, 'd>(
             path,
             hash,
             retry,
+            error_handler_path,
+            error_handler_args,
             args,
             custom_concurrency_key,
             concurrent_limit,
@@ -3796,11 +3809,46 @@ pub async fn push<'c, 'd>(
             cache_ttl,
             priority,
             tag_override,
+            trigger_path,
+            apply_preprocessor,
         } => {
             let mut input_transforms = HashMap::<String, InputTransform>::new();
             for (arg_name, arg_value) in args {
                 input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
             }
+            let failure_module = if let Some(error_handler_path) = error_handler_path {
+                let mut input_transforms = HashMap::<String, InputTransform>::new();
+                input_transforms.insert("error".to_string(), InputTransform::Javascript { expr: "error".to_string() });
+                input_transforms.insert("path".to_string(), InputTransform::Static { value: to_raw_value(&path) });
+                input_transforms.insert("is_flow".to_string(), InputTransform::Static { value: to_raw_value(&false) });
+                input_transforms.insert("trigger_path".to_string(), InputTransform::Static { value: to_raw_value(&trigger_path) });
+                input_transforms.insert("workspace_id".to_string(), InputTransform::Static { value: to_raw_value(&workspace_id) });
+                input_transforms.insert("email".to_string(), InputTransform::Static { value: to_raw_value(&email) });
+                // for the below transforms to work, make sure that flow_job_id and started_at are added to the eval context when pusing the error handler job
+                input_transforms.insert("job_id".to_string(), InputTransform::Javascript { expr: "flow_job_id".to_string() });
+                input_transforms.insert("started_at".to_string(), InputTransform::Javascript { expr: "started_at".to_string() });
+
+                if let Some(error_handler_args) = error_handler_args {
+                    for (arg_name, arg_value) in error_handler_args {
+                        input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
+                    }
+                }
+
+                Some(Box::new(FlowModule {
+                    id: "failure".to_string(),
+                    value: to_raw_value(&FlowModuleValue::Script {
+                        input_transforms,
+                        path: error_handler_path,
+                        hash: None,
+                        tag_override: None,
+                        is_trigger: None,
+                    }),
+                    ..Default::default()
+                }))
+            } else {
+                None
+            };
+            
             let flow_value = FlowValue {
                 modules: vec![FlowModule {
                     id: "a".to_string(),
@@ -3811,29 +3859,19 @@ pub async fn push<'c, 'd>(
                         tag_override,
                         is_trigger: None,
                     }),
-                    stop_after_if: None,
-                    stop_after_all_iters_if: None,
-                    summary: None,
-                    suspend: None,
-                    mock: None,
-                    retry: Some(retry),
-                    sleep: None,
-                    cache_ttl: None,
-                    timeout: None,
-                    priority: None,
-                    delete_after_use: None,
-                    continue_on_error: None,
-                    skip_if: None,
+                    retry,
+                    apply_preprocessor: Some(apply_preprocessor),
+                    ..Default::default()
                 }],
-                same_worker: false,
-                failure_module: None,
+                failure_module,
                 concurrency_time_window_s,
                 concurrent_limit,
-                skip_expr: None,
-                cache_ttl: cache_ttl.map(|val| val as u32),
-                early_return: None,
-                concurrency_key: custom_concurrency_key.clone(),
                 priority,
+                cache_ttl: cache_ttl.map(|val| val as u32),
+                concurrency_key: custom_concurrency_key.clone(),
+                same_worker: false,
+                early_return: None,
+                skip_expr: None,
                 preprocessor_module: None,
             };
             // this is a new flow being pushed, flow_status is set to flow_value:

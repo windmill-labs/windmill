@@ -1,4 +1,4 @@
-<script module>
+<script module lang="ts">
 	export const getAiModuleAction = (id: string | undefined) => {
 		if (!id) return undefined
 		return aiChatManager.flowAiChatHelpers?.getModuleAction(id)
