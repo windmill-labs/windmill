@@ -14,6 +14,7 @@ pub const LARGE_LOG_THRESHOLD_SIZE: usize = 9000;
 
 use crate::{
     apps::AppScriptId,
+    auth::is_super_admin_email,
     error::{self, to_anyhow, Error},
     flow_status::{FlowStatus, RestartedFrom},
     flows::{FlowNodeId, FlowValue, Retry},
@@ -21,7 +22,7 @@ use crate::{
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
     utils::{StripPath, HTTP_CLIENT},
-    worker::{to_raw_value, TMP_DIR},
+    worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, TMP_DIR},
     FlowVersionInfo, ScriptHashInfo,
 };
 
@@ -640,4 +641,56 @@ pub async fn get_logs_from_store(
         }
     }
     return None;
+}
+
+pub async fn check_tag_available_for_workspace_internal(
+    db: &DB,
+    w_id: &str,
+    tag: &str,
+    email: &str,
+    scope_tags: Option<Vec<&str>>,
+) -> error::Result<()> {
+    let mut is_tag_in_scope_tags = None;
+    let mut is_tag_in_workspace_custom_tags = false;
+
+    if let Some(scope_tags) = scope_tags.as_ref() {
+        is_tag_in_scope_tags = Some(scope_tags.contains(&tag));
+    }
+
+    let custom_tags_per_w = CUSTOM_TAGS_PER_WORKSPACE.read().await;
+    if custom_tags_per_w.0.contains(&tag.to_string()) {
+        is_tag_in_workspace_custom_tags = true;
+    } else if custom_tags_per_w.1.contains_key(tag)
+        && custom_tags_per_w
+            .1
+            .get(tag)
+            .unwrap()
+            .contains(&w_id.to_string())
+    {
+        is_tag_in_workspace_custom_tags = true;
+    }
+
+    match is_tag_in_scope_tags {
+        Some(true) | None => {
+            if is_tag_in_workspace_custom_tags {
+                return Ok(());
+            }
+        }
+        _ => {}
+    }
+
+    if !is_super_admin_email(db, email).await? {
+        if scope_tags.is_some() && is_tag_in_scope_tags.is_some() {
+            return Err(Error::BadRequest(format!(
+                "Tag {tag} is not available in your scope"
+            )));
+        }
+
+        return Err(error::Error::BadRequest(format!(
+            "Only super admins are allowed to use tags that are not included in the allowed CUSTOM_TAGS: {:?}",
+            custom_tags_per_w
+        )));
+    }
+
+    return Ok(());
 }

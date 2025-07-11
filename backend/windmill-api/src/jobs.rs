@@ -22,10 +22,13 @@ use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 use tokio::io::AsyncReadExt;
 use tower::ServiceBuilder;
-use windmill_common::auth::{is_super_admin_email, TOKEN_PREFIX_LEN};
+use windmill_common::auth::TOKEN_PREFIX_LEN;
 use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
-use windmill_common::jobs::{format_completed_job_result, format_result, ENTRYPOINT_OVERRIDE};
+use windmill_common::jobs::{
+    check_tag_available_for_workspace_internal, format_completed_job_result, format_result,
+    ENTRYPOINT_OVERRIDE,
+};
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
 
@@ -65,7 +68,7 @@ use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
 use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
-use windmill_common::worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE};
+use windmill_common::worker::to_raw_value;
 use windmill_common::{
     cache,
     db::UserDB,
@@ -3178,56 +3181,12 @@ pub async fn check_tag_available_for_workspace(
     tag: &Option<String>,
     authed: &ApiAuthed,
 ) -> error::Result<()> {
-    if let Some(tag) = tag {
-        if tag.is_empty() {
-            return Ok(());
-        }
-
+    if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
         let tags = get_scope_tags(authed);
-        let mut is_tag_available_in_workspace = None;
-        let mut is_tag_in_workspace_custom_tags = false;
-
-        if let Some(tags) = tags.as_ref() {
-            is_tag_available_in_workspace = Some(tags.contains(&tag.as_str()));
-        }
-
-        let custom_tags_per_w = CUSTOM_TAGS_PER_WORKSPACE.read().await;
-        if custom_tags_per_w.0.contains(&tag.to_string()) {
-            is_tag_in_workspace_custom_tags = true;
-        } else if custom_tags_per_w.1.contains_key(tag)
-            && custom_tags_per_w
-                .1
-                .get(tag)
-                .unwrap()
-                .contains(&w_id.to_string())
-        {
-            is_tag_in_workspace_custom_tags = true;
-        }
-
-        match is_tag_available_in_workspace {
-            Some(true) | None => {
-                if is_tag_in_workspace_custom_tags {
-                    return Ok(());
-                }
-            }
-            _ => {}
-        }
-
-        if !is_super_admin_email(db, &authed.email).await? {
-            if tags.is_some() && is_tag_available_in_workspace.is_some() {
-                return Err(Error::BadRequest(format!(
-                    "Tag {tag} is not available in your scope"
-                )));
-            }
-
-            return Err(error::Error::BadRequest(format!(
-                "Only super admins are allowed to use tags that are not included in the allowed CUSTOM_TAGS: {:?}",
-                custom_tags_per_w
-            )));
-        }
+        check_tag_available_for_workspace_internal(&db, w_id, tag, &authed.email, tags).await
+    } else {
+        Ok(())
     }
-
-    return Ok(());
 }
 
 #[cfg(feature = "enterprise")]
