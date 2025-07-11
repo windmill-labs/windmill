@@ -157,21 +157,12 @@ async fn update_config(
                 }
             }
             (Some(_), None) => {
-                // Script is set but interval is not
                 return Err(error::Error::BadRequest(
                     "Periodic script interval must be specified when periodic script is configured"
                         .to_string(),
                 ));
             }
-            (None, Some(_)) => {
-                // Interval is set but script is not
-                return Err(error::Error::BadRequest(
-                    "Periodic script must be specified when interval is configured".to_string(),
-                ));
-            }
-            (None, None) => {
-                // Neither is set - this is valid
-            }
+            _ => {}
         }
     }
 
