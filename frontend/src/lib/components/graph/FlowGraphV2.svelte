@@ -425,7 +425,7 @@
 		}
 	}
 
-	let lastModules = structuredClone($state.snapshot(modules))
+	let lastModules = $state.snapshot(modules)
 	let moduleCounter = $state(0)
 	function onModulesChange2(modules) {
 		if (!deepEqual(modules, lastModules)) {

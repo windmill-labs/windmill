@@ -1,0 +1,93 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH uuid_table as (\n            select gen_random_uuid() as uuid from generate_series(1, $16)\n        )\n        INSERT INTO v2_job\n            (id, workspace_id, raw_code, raw_lock, raw_flow, tag, runnable_id, runnable_path, kind,\n             script_lang, created_by, permissioned_as, permissioned_as_email, concurrent_limit,\n             concurrency_time_window_s, timeout, args)\n            (SELECT uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,\n             ('{ \"uuid\": \"' || uuid || '\" }')::jsonb FROM uuid_table)\n        RETURNING id AS \"id!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Varchar",
+        "Int8",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "job_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "preview",
+                "flow",
+                "dependencies",
+                "flowpreview",
+                "script_hub",
+                "identity",
+                "flowdependencies",
+                "http",
+                "graphql",
+                "postgresql",
+                "noop",
+                "appdependencies",
+                "deploymentcallback",
+                "singlescriptflow",
+                "flowscript",
+                "flownode",
+                "appscript"
+              ]
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "488dd591096b2b47787afdc3a1d73917ed13269f2ee20b86df79fca2c8efe672"
+}

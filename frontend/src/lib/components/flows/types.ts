@@ -1,5 +1,5 @@
 import type { OpenFlow } from '$lib/gen'
-import type { History } from '$lib/history'
+import type { History } from '$lib/history.svelte'
 import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
 import type { FlowState } from './flowState'

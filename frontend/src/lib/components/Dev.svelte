@@ -29,7 +29,7 @@
 	import { deepEqual } from 'fast-equals'
 	import { writable, type Writable } from 'svelte/store'
 	import type { FlowState } from './flows/flowState'
-	import { initHistory } from '$lib/history'
+	import { initHistory } from '$lib/history.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
 	import { dfs } from './flows/dfs'
 	import { loadSchemaFromModule } from './flows/flowInfers'

@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE((SELECT MIN(started_at) as min_started_at\n            FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id\n            WHERE v2_job.runnable_path = $1 AND v2_job.kind != 'dependencies'  AND v2_job_queue.running = true AND v2_job_queue.workspace_id = $2 AND v2_job_queue.canceled_by IS NULL AND v2_job.concurrent_limit > 0), $3) as min_started_at, now() AS now",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "min_started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "now",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "6b6f8f7b4a6b6e7e41a9da8b6dfdbcae842ff252cc355bd91aeeb5e26dcc74f3"
+}
