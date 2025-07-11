@@ -22,7 +22,7 @@ use windmill_common::{
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
     utils::{create_directory_async, WarnAfterExt},
     worker::{
-        make_pull_query, write_file, Connection, HttpClient, MAX_TIMEOUT, ROOT_CACHE_DIR,
+        make_pull_query, write_file, Connection, HttpClient, MAX_TIMEOUT, MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, ROOT_CACHE_DIR,
         ROOT_CACHE_NOMOUNT_DIR, TMP_DIR,
     },
     KillpillSender,
@@ -1996,8 +1996,19 @@ fn spawn_periodic_script_task(
             &config.periodic_script_bash,
             &config.periodic_script_interval_seconds,
         ) {
+            let interval_seconds = *interval_seconds;
+            if interval_seconds < MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS {
+                tracing::error!(
+                    worker = %worker_name,
+                    "Periodic script interval {} seconds is below minimum of {} seconds. Periodic script task will not start.",
+                    interval_seconds,
+                    MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS
+                );
+                return;
+            }
+
             let content = content.clone();
-            let interval_duration = Duration::from_secs(*interval_seconds);
+            let interval_duration = Duration::from_secs(interval_seconds);
 
             tracing::info!(
                 worker = %worker_name,

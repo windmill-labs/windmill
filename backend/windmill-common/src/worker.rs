@@ -35,6 +35,7 @@ use crate::{
 
 pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
 pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
+pub const MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS: u64 = 60;
 lazy_static::lazy_static! {
     pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| {
         #[cfg(not(feature = "enterprise"))]
@@ -1417,10 +1418,11 @@ pub async fn load_worker_config(
 
     if periodic_script_bash.is_some() {
         if let Some(interval) = periodic_script_interval_seconds {
-            if interval < 60 {
+            if interval < MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS {
                 killpill_tx.send();
                 return Err(anyhow::anyhow!(
-                    "Periodic script interval must be at least 60 seconds, got {} seconds",
+                    "Periodic script interval must be at least {} seconds, got {} seconds",
+                    MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS,
                     interval
                 ).into());
             }
