@@ -1,0 +1,136 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT \n                    workspace_id,\n                    path,\n                    url,\n                    script_path,\n                    is_flow,\n                    edited_by,\n                    email,\n                    edited_at,\n                    server_id,\n                    last_server_ping,\n                    extra_perms,\n                    error,\n                    enabled,\n                    filters AS \"filters: _\",\n                    initial_messages AS \"initial_messages: _\",\n                    url_runnable_args AS \"url_runnable_args: _\",\n                    can_return_message,\n                    error_handler_path,\n                    error_handler_args as \"error_handler_args: _\",\n                    retry as \"retry: _\"\n                FROM \n                    websocket_trigger\n                WHERE \n                    workspace_id = $1\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "url",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_flow",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "edited_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "edited_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "server_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "last_server_ping",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "extra_perms",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
+        "name": "filters: _",
+        "type_info": "JsonbArray"
+      },
+      {
+        "ordinal": 14,
+        "name": "initial_messages: _",
+        "type_info": "JsonbArray"
+      },
+      {
+        "ordinal": 15,
+        "name": "url_runnable_args: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 16,
+        "name": "can_return_message",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 17,
+        "name": "error_handler_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 18,
+        "name": "error_handler_args: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 19,
+        "name": "retry: _",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "c287f025c77c34e4d521204e7a787e794b461a7a965912bcb598619451eced31"
+}
