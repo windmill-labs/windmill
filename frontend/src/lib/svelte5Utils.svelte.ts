@@ -27,11 +27,12 @@ export type UsePromiseResult<T> = (
 
 export type UsePromiseOptions = {
 	loadInit?: boolean
+	clearValueOnRefresh?: boolean
 }
 
 export function usePromise<T>(
 	createPromise: () => Promise<T>,
-	{ loadInit = true }: UsePromiseOptions = {}
+	{ loadInit = true, clearValueOnRefresh = true }: UsePromiseOptions = {}
 ): UsePromiseResult<T> {
 	const ret: any = $state({
 		status: 'loading',
@@ -40,7 +41,7 @@ export function usePromise<T>(
 			let promise = createPromise()
 			ret.__promise = promise
 			ret.status = 'loading'
-			ret.value = undefined
+			if (clearValueOnRefresh) ret.value = undefined
 			ret.error = undefined
 
 			promise

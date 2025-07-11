@@ -20,6 +20,9 @@ use rustpython_parser::{
     Parse,
 };
 
+pub mod asset_parser;
+pub use asset_parser::parse_assets;
+
 const FUNCTION_CALL: &str = "<function call>";
 
 fn filter_non_main(code: &str, main_name: &str) -> String {

@@ -431,14 +431,14 @@ struct ParsedAttachDbResource<'a> {
 }
 fn parse_attach_db_resource<'a>(query: &'a str) -> Option<ParsedAttachDbResource<'a>> {
     lazy_static::lazy_static! {
-        static ref RE: regex::Regex = regex::Regex::new(r"ATTACH '\$res:([^']+)' AS (\S+) \(TYPE (\w+)(.*)\)").unwrap();
+        static ref RE: regex::Regex = regex::Regex::new(r"ATTACH '(\$res:|res://)([^']+)' AS (\S+) \(TYPE (\w+)(.*)\)").unwrap();
     }
 
     for cap in RE.captures_iter(query) {
         if let (Some(resource_path), Some(name), Some(db_type)) =
-            (cap.get(1), cap.get(2), cap.get(3))
+            (cap.get(2), cap.get(3), cap.get(4))
         {
-            let extra_args = cap.get(4).map(|m| query[m.start()..m.end()].trim());
+            let extra_args = cap.get(5).map(|m| query[m.start()..m.end()].trim());
             return Some(ParsedAttachDbResource {
                 resource_path: query[resource_path.start()..resource_path.end()].trim(),
                 name: query[name.start()..name.end()].trim(),

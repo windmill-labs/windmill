@@ -1280,10 +1280,7 @@ async fn join_workspace<'c>(
     Ok((tx, username))
 }
 
-async fn leave_instance(
-    Extension(db): Extension<DB>,
-    authed: ApiAuthed,
-) -> Result<String> {
+async fn leave_instance(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
     let mut tx = db.begin().await?;
     sqlx::query!("DELETE FROM password WHERE email = $1", &authed.email)
         .execute(&mut *tx)
@@ -2641,6 +2638,15 @@ async fn update_username_in_workpsace<'c>(
         old_username,
         w_id
     ).execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"UPDATE asset SET usage_path = REGEXP_REPLACE(usage_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE usage_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
     .await?;
 
     sqlx::query!(

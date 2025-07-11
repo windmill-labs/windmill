@@ -10,6 +10,8 @@ use convert_case::{Boundary, Case, Casing};
 use serde::Serialize;
 use serde_json::Value;
 
+pub mod asset_parser;
+
 #[derive(Serialize, Debug, PartialEq, Default)]
 pub struct MainArgSignature {
     pub star_args: bool,

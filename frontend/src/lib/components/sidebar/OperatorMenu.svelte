@@ -70,6 +70,11 @@
 				href: `${base}/variables`
 			},
 			{
+				label: 'Assets',
+				id: 'assets',
+				href: `${base}/assets`
+			},
+			{
 				label: 'Custom HTTP routes',
 				id: 'triggers',
 				href: `${base}/routes`

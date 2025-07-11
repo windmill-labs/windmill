@@ -51,8 +51,10 @@
 	import { workspaceStore } from '$lib/stores'
 	import { checkIfParentLoop } from '../utils'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
-	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import { refreshStateStore, usePromise } from '$lib/svelte5Utils.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
+	import AssetsDropdownButton from '$lib/components/assets/AssetsDropdownButton.svelte'
+	import { inferAssets } from '$lib/infer'
 
 	const {
 		selectedId,
@@ -297,6 +299,19 @@
 		}
 	})
 
+	let assets = usePromise(
+		async () =>
+			flowModule.value.type === 'rawscript'
+				? await inferAssets(flowModule.value.language, flowModule.value.content)
+				: undefined,
+		{ clearValueOnRefresh: false, loadInit: false }
+	)
+	$effect(() => {
+		if (flowModule.value.type !== 'rawscript') return
+		;[flowModule.value.content, flowModule.value.language]
+		untrack(() => assets.refresh())
+	})
+
 	let rawScriptLang = $derived(
 		flowModule.value.type == 'rawscript' ? flowModule.value.language : undefined
 	)
@@ -406,6 +421,14 @@
 							{#if flowModule.value.type === 'rawscript'}
 								{#if !noEditor}
 									{#key flowModule.id}
+										<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
+											{#if assets.value?.length}
+												<AssetsDropdownButton
+													assets={assets.value}
+													bind:fallbackAccessTypes={flowModule.value.asset_fallback_access_types}
+												/>
+											{/if}
+										</div>
 										<Editor
 											loadAsync
 											folding

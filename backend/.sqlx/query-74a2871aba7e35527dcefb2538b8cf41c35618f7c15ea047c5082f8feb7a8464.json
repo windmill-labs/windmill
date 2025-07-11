@@ -1,0 +1,51 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind)\n                VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "asset_kind",
+            "kind": {
+              "Enum": [
+                "s3object",
+                "resource",
+                "variable"
+              ]
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "asset_access_type",
+            "kind": {
+              "Enum": [
+                "r",
+                "w",
+                "rw"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        {
+          "Custom": {
+            "name": "asset_usage_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "flow"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "74a2871aba7e35527dcefb2538b8cf41c35618f7c15ea047c5082f8feb7a8464"
+}

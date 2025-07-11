@@ -4,6 +4,7 @@ import { getDependeeAndDependentComponents } from '../flows/flowExplorer'
 import { dfsByModule } from '../flows/previousResults'
 import { defaultIfEmptyString } from '$lib/utils'
 import type { GraphModuleState } from './model'
+import type { AssetWithAccessType } from '../assets/lib'
 import type { Writable } from 'svelte/store'
 
 export type InsertKind =
@@ -95,6 +96,8 @@ export type FlowNode =
 	| SubflowBoundN
 	| NoBranchN
 	| TriggerN
+	| AssetN
+	| AssetsOverflowedN
 
 export type InputN = {
 	type: 'input2'
@@ -268,6 +271,20 @@ export type TriggerN = {
 		isEditor: boolean
 		eventHandlers: GraphEventHandlers
 		disableAi: boolean
+	}
+}
+
+export type AssetN = {
+	type: 'asset'
+	data: {
+		asset: AssetWithAccessType
+	}
+}
+
+export type AssetsOverflowedN = {
+	type: 'assetsOverflowed'
+	data: {
+		overflowedAssets: AssetWithAccessType[]
 	}
 }
 

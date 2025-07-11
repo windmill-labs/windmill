@@ -19,3 +19,5 @@ windmill-parser.workspace = true
 anyhow.workspace = true
 lazy_static.workspace = true
 serde_json.workspace = true
+serde.workspace = true
+nom = "8.0.0"

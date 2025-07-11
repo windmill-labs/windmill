@@ -2195,6 +2195,7 @@ struct ChangeOperatorSettings {
     schedules: bool,
     resources: bool,
     variables: bool,
+    assets: bool,
     triggers: bool,
     audit_logs: bool,
     groups: bool,
