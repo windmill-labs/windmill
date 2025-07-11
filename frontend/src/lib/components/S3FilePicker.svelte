@@ -16,7 +16,14 @@
 	import { workspaceStore } from '$lib/stores'
 	import { HelpersService, SettingService } from '$lib/gen'
 	import { base } from '$lib/base'
-	import { displayDate, displaySize, emptyString, sendUserToast } from '$lib/utils'
+	import {
+		displayDate,
+		displaySize,
+		emptyString,
+		parseS3Object,
+		sendUserToast,
+		type S3Object
+	} from '$lib/utils'
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Section from './Section.svelte'
@@ -66,6 +73,7 @@
 
 	let dispatch = createEventDispatcher<{
 		close: { s3: string; storage: string | undefined } | undefined
+		selectAndClose: { s3: string; storage: string | undefined }
 	}>()
 
 	let drawer: Drawer | undefined = $state()
@@ -119,9 +127,13 @@
 	let timeout: NodeJS.Timeout | undefined = undefined
 	let firstLoad = true
 
-	let secondaryStorageNames = usePromise(() =>
-		SettingService.getSecondaryStorageNames({ workspace: $workspaceStore! })
+	let secondaryStorageNames = usePromise(
+		() => SettingService.getSecondaryStorageNames({ workspace: $workspaceStore! }),
+		{ loadInit: false }
 	)
+	$effect(() => {
+		$workspaceStore && untrack(() => secondaryStorageNames.refresh())
+	})
 
 	function onFilterChange() {
 		if (!firstLoad) {
@@ -382,9 +394,8 @@
 	}
 
 	let storage: string | undefined = $state(undefined)
-	export async function open(
-		preSelectedFileKey: { s3: string; storage?: string } | undefined = undefined
-	) {
+	export async function open(_preSelectedFileKey: S3Object | undefined = undefined) {
+		const preSelectedFileKey = _preSelectedFileKey && parseS3Object(_preSelectedFileKey)
 		storage = preSelectedFileKey?.storage
 		if (preSelectedFileKey !== undefined) {
 			initialFileKey = { ...preSelectedFileKey }
@@ -422,6 +433,9 @@
 	}
 
 	async function selectAndClose() {
+		if (selectedFileKey?.s3) {
+			dispatch('selectAndClose', { s3: selectedFileKey.s3, storage })
+		}
 		drawer?.closeDrawer?.()
 	}
 

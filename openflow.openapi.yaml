@@ -100,7 +100,7 @@ components:
           type: string
       required:
         - expr
-  
+
     FlowModule:
       type: object
       properties:
@@ -270,6 +270,27 @@ components:
           type: string
         is_trigger:
           type: boolean
+        asset_fallback_access_types:
+          type: array
+          items:
+            type: object
+            required:
+              - path
+              - kind
+            properties:
+              path:
+                type: string
+              kind:
+                type: string
+                enum:
+                  - s3object
+                  - resource
+              access_type:
+                type: string
+                enum:
+                  - r
+                  - w
+                  - rw
       required:
         - type
         - content

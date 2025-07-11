@@ -75,6 +75,7 @@ windmill-macros.workspace = true
 windmill-parser-sql.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-py.workspace = true
+windmill-parser.workspace = true
 jsonwebtoken.workspace = true
 backon.workspace = true
 openidconnect = { workspace = true, optional = true }

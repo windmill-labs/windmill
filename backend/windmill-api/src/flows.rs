@@ -1168,6 +1168,14 @@ async fn archive_flow_by_path(
     .execute(&mut *tx)
     .await?;
 
+    sqlx::query!(
+        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'flow' AND usage_path = $2",
+        &w_id,
+        path
+    )
+    .execute(&mut *tx)
+    .await?;
+
     audit_log(
         &mut *tx,
         &authed,
@@ -1370,6 +1378,7 @@ mod tests {
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
                         is_trigger: None,
+                        asset_fallback_access_types: None,
                     }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "foo = 'bar'".to_string(),
