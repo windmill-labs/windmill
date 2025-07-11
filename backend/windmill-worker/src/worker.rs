@@ -1948,6 +1948,7 @@ pub async fn run_worker(
             tracing::error!("error in awaiting send_result process: {e:?}")
         }
     }
+    tracing::info!(worker = %worker_name, hostname = %hostname, "waiting for interactive_shell to finish");
     if let Some(interactive_shell) = interactive_shell {
         if let Err(e) = interactive_shell.await {
             tracing::error!("error in awaiting interactive_shell process: {e:?}")
