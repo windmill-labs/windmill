@@ -12,10 +12,6 @@
 
 	let flowStore = $state(oldFlowStore)
 
-	$effect(() => {
-		flowStore = oldFlowStore
-	})
-	
 	let trialRender = $state(true)
 
 	if (light) {

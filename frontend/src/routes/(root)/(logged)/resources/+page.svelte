@@ -60,7 +60,9 @@
 	import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
-	import ExploreAssetButton, { assetCanBeExplored } from '../assets/ExploreAssetButton.svelte'
+	import ExploreAssetButton, {
+		assetCanBeExplored
+	} from '../../../../lib/components/ExploreAssetButton.svelte'
 	import DbManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }

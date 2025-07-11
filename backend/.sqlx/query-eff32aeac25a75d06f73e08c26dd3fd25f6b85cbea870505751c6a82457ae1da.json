@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at, scopes, email FROM token WHERE workspace_id = $1 AND scopes @> ARRAY['run:flow/' || $2]::text[]",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "label",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "token_prefix",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "expiration",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "last_used_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "scopes",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 6,
+        "name": "email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      null,
+      true,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "eff32aeac25a75d06f73e08c26dd3fd25f6b85cbea870505751c6a82457ae1da"
+}

@@ -10,9 +10,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import Select from './select/Select.svelte'
 	import DbManagerDrawer from './DBManagerDrawer.svelte'
-	import ExploreAssetButton, {
-		assetCanBeExplored
-	} from '../../routes/(root)/(logged)/assets/ExploreAssetButton.svelte'
+	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
 
 	interface Props {
 		initialValue?: string | undefined

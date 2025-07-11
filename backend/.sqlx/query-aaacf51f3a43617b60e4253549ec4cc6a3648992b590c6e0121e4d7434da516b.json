@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "aaacf51f3a43617b60e4253549ec4cc6a3648992b590c6e0121e4d7434da516b"
+}

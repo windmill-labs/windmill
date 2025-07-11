@@ -6,7 +6,7 @@
 
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import Component from './component/Component.svelte'
-	import { push } from '$lib/history'
+	import { push } from '$lib/history.svelte'
 	import {
 		dfs,
 		expandGriditem,

@@ -210,9 +210,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowGraphAssetContext } from '$lib/components/flows/types'
 	import { getContext } from 'svelte'
-	import ExploreAssetButton, {
-		assetCanBeExplored
-	} from '../../../../../routes/(root)/(logged)/assets/ExploreAssetButton.svelte'
+	import ExploreAssetButton, { assetCanBeExplored } from '../../../ExploreAssetButton.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
 	import { clone, pluralize } from '$lib/utils'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'

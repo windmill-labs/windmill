@@ -2,7 +2,7 @@
 	import { insertNewGridItem, appComponentFromType } from '$lib/components/apps/editor/appUtils'
 	import type { AppComponent } from '$lib/components/apps/editor/component'
 	import type { AppViewerContext, AppEditorContext } from '$lib/components/apps/types'
-	import { push } from '$lib/history'
+	import { push } from '$lib/history.svelte'
 	import { getContext } from 'svelte'
 	import Tutorial from '../Tutorial.svelte'
 	import { clickButtonBySelector } from '../utils'

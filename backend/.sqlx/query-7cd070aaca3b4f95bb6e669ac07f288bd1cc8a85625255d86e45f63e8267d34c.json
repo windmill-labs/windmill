@@ -1,0 +1,199 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE schedule SET\n            enabled = $1,\n            email = $2\n        WHERE path = $3 AND workspace_id = $4\n        RETURNING\n            workspace_id,\n            path,\n            edited_by,\n            edited_at,\n            schedule,\n            timezone,\n            enabled,\n            script_path,\n            is_flow,\n            args AS \"args: _\",\n            extra_perms,\n            email,\n            error,\n            on_failure,\n            on_failure_times,\n            on_failure_exact,\n            on_failure_extra_args AS \"on_failure_extra_args: _\",\n            on_recovery,\n            on_recovery_times,\n            on_recovery_extra_args AS \"on_recovery_extra_args: _\",\n            on_success,\n            on_success_extra_args AS \"on_success_extra_args: _\",\n            ws_error_handler_muted,\n            retry,\n            no_flow_overlap,\n            summary,\n            description,\n            tag,\n            paused_until,\n            cron_version\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "edited_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "edited_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "schedule",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "timezone",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_flow",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "args: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
+        "name": "extra_perms",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 12,
+        "name": "error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "on_failure",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 14,
+        "name": "on_failure_times",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 15,
+        "name": "on_failure_exact",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 16,
+        "name": "on_failure_extra_args: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 17,
+        "name": "on_recovery",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 18,
+        "name": "on_recovery_times",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 19,
+        "name": "on_recovery_extra_args: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 20,
+        "name": "on_success",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 21,
+        "name": "on_success_extra_args: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 22,
+        "name": "ws_error_handler_muted",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 23,
+        "name": "retry",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 24,
+        "name": "no_flow_overlap",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 25,
+        "name": "summary",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 26,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 27,
+        "name": "tag",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 28,
+        "name": "paused_until",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 29,
+        "name": "cron_version",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "7cd070aaca3b4f95bb6e669ac07f288bd1cc8a85625255d86e45f63e8267d34c"
+}

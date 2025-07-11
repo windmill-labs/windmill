@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE schedule SET on_success = NULL, on_success_extra_args = NULL WHERE workspace_id = $1 RETURNING path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "051acd49542618e3be5654dce94567a02e87be23a4c0863e3b2d53b5c2cb6749"
+}

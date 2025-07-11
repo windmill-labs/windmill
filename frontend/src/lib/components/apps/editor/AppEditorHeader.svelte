@@ -8,7 +8,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AppService, DraftService, type Policy } from '$lib/gen'
-	import { redo, undo } from '$lib/history'
+	import { redo, undo } from '$lib/history.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import {
 		AlignHorizontalSpaceAround,

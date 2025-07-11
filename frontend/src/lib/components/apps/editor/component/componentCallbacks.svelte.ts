@@ -7,7 +7,7 @@ import {
 	insertNewGridItem
 } from '../appUtils'
 import type { AppEditorContext, AppViewerContext, GridItem } from '../../types'
-import { push } from '$lib/history'
+import { push } from '$lib/history.svelte'
 import { sendUserToast } from '$lib/toast'
 import { gridColumns } from '../../gridUtils'
 import { copyToClipboard } from '$lib/utils'

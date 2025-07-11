@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO app\n            (workspace_id, path, summary, policy, versions, draft_only, custom_path)\n            VALUES ($1, $2, $3, $4, '{}', $5, $6) RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6b53f7c4bb73177316d6134698f3979f51b53dcd4d8ec50d312c9e7fe31ad5f5"
+}

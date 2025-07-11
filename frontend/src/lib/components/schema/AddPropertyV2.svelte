@@ -11,9 +11,10 @@
 	interface Props {
 		schema?: Schema | any
 		trigger?: import('svelte').Snippet
+		noPopover?: boolean
 	}
 
-	let { schema = $bindable(emptySchema()), trigger }: Props = $props()
+	let { schema = $bindable(emptySchema()), trigger, noPopover }: Props = $props()
 
 	export const DEFAULT_PROPERTY: ModalSchemaProperty = {
 		selectedType: 'string',
@@ -159,6 +160,7 @@
 </script>
 
 <AddPropertyFormV2
+	{noPopover}
 	on:add={(e) => {
 		try {
 			handleAddOrEditArgument({

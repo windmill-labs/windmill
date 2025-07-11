@@ -5,9 +5,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { Popover } from '../meltComponents'
 	import S3FilePicker from '../S3FilePicker.svelte'
-	import ExploreAssetButton, {
-		assetCanBeExplored
-	} from '../../../routes/(root)/(logged)/assets/ExploreAssetButton.svelte'
+	import ExploreAssetButton, { assetCanBeExplored } from '../ExploreAssetButton.svelte'
 	import { assetEq, formatAssetKind, type Asset, type AssetWithAccessType } from './lib'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import { tick, untrack } from 'svelte'

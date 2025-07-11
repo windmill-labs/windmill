@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { stopPropagation } from 'svelte/legacy'
 
-	import { push } from '$lib/history'
+	import { push } from '$lib/history.svelte'
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
 	import { twMerge } from 'tailwind-merge'

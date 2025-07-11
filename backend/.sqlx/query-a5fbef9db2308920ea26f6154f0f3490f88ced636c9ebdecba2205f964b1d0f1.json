@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    UPDATE \n                        sqs_trigger \n                    SET\n                        last_server_ping = NULL \n                    WHERE \n                        workspace_id = $1 \n                        AND path = $2 \n                        AND server_id IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a5fbef9db2308920ea26f6154f0f3490f88ced636c9ebdecba2205f964b1d0f1"
+}

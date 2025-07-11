@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE \n                    capture_config \n                SET \n                    error = $1, \n                    server_id = NULL, \n                    last_server_ping = NULL \n                WHERE \n                    workspace_id = $2 AND \n                    path = $3 AND \n                    is_flow = $4 AND \n                    trigger_kind = 'gcp'\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "43c8cd9f8560412bb06d9966ccfa2524943ba277c5f9a37c06bd5ee14fd46bda"
+}

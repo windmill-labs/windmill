@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT created_by AS \"created_by!\", CONCAT(coalesce(v2_as_completed_job.logs, ''), coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index\n        FROM v2_as_completed_job \n        LEFT JOIN job_logs ON job_logs.job_id = v2_as_completed_job.id \n        WHERE v2_as_completed_job.id = $1 AND v2_as_completed_job.workspace_id = $2 AND ($3::text[] IS NULL OR v2_as_completed_job.tag = ANY($3))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_by!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "logs",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "log_offset",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "log_file_index",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      true,
+      null,
+      false,
+      true
+    ]
+  },
+  "hash": "2c5a1b1ebd872ce8a03a1b7e5246c876750c85075cfda816c025c805d4c3cd4c"
+}
