@@ -91,9 +91,9 @@
 	export let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
 	let recursiveRefresh: Record<string, (clear, root) => Promise<void>> = {}
 
-	$: inputAssets = parseInputAssets(job?.args ?? {})
+	$: inputArgsAssets = parseInputArgsAssets(job?.args ?? {})
 
-	function parseInputAssets(args: ScriptArgs): AssetWithAccessType[] {
+	function parseInputArgsAssets(args: ScriptArgs): AssetWithAccessType[] {
 		const arr: AssetWithAccessType[] = []
 		for (const v of Object.values(args)) {
 			if (typeof v === 'string') {
@@ -1212,7 +1212,6 @@
 						</div>
 
 						<FlowGraphV2
-							{inputAssets}
 							{selectedId}
 							triggerNode={true}
 							download={!hideDownloadInGraph}

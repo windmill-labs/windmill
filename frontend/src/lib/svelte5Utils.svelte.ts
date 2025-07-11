@@ -10,6 +10,11 @@ export function withProps<Component, Props>(component: Component, props: Props) 
 	return ret
 }
 
+export function createState<T>(initialValue: T): T {
+	let s = $state(initialValue)
+	return s
+}
+
 export function stateSnapshot<T>(state: T) {
 	return $state.snapshot(state)
 }
