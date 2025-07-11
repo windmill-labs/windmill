@@ -27,9 +27,9 @@
 	import { assetEq, getFlowModuleValueAssets, type AssetWithAccessType } from '../assets/lib'
 	import OnChange from '../common/OnChange.svelte'
 	import { getAllModules } from './flowExplorer'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { FlowGraphAssetContext } from './types'
-	import { ResourceService, type FlowModule } from '$lib/gen'
+	import { ResourceService, type FlowModule, type RawScript } from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
 	import { workspaceStore } from '$lib/stores'
 	import S3FilePicker from '../S3FilePicker.svelte'
@@ -84,6 +84,28 @@
 	// 		})
 	// 	}
 	// })
+
+	async function parseAndUpdateRawScriptModule(v: RawScript) {
+		try {
+			let assets = await inferAssets(v.language, v.content)
+			if (!deepEqual(v.assets, assets)) v.assets = assets
+		} catch (e) {}
+	}
+
+	// Check for raw script modules whose assets were not parsed. Useful for flows created
+	// before the assets feature was introduced.
+	$effect(() => {
+		untrack(() => {
+			setTimeout(() => {
+				for (const mod of allModules) {
+					if (mod.value.type === 'rawscript' && mod.value.assets === undefined) {
+						console.log('RawScript module', mod.id, 'without assets field, parsing')
+						parseAndUpdateRawScriptModule(mod.value)
+					}
+				}
+			}, 500) // ensure modules are loaded
+		})
+	})
 </script>
 
 {#each allModules as mod (mod.id)}
@@ -91,13 +113,7 @@
 		{@const v = mod.value}
 		<OnChange
 			key={[v.content, v.asset_fallback_access_types]}
-			runFirstEffect
-			onChange={() =>
-				inferAssets(v.language, v.content)
-					.then((assets) => {
-						if (!deepEqual(v.assets, assets)) v.assets = assets
-					})
-					.catch((e) => {})}
+			onChange={() => parseAndUpdateRawScriptModule(v)}
 		/>
 	{/if}
 {/each}
