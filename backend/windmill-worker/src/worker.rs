@@ -82,7 +82,7 @@ use serde_json::value::RawValue;
 use tokio::fs::symlink;
 
 #[cfg(target_os = "windows")]
-use tokio::fs::symlink_file as symlink;
+use tokio::fs::symlink_dir;
 
 use tokio::{
     sync::{
@@ -1714,9 +1714,30 @@ pub async fn run_worker(
                             let parent_flow = job.parent_job.unwrap();
                             let parent_shared_dir = format!("{worker_dir}/{parent_flow}/shared");
                             create_directory_async(&parent_shared_dir).await;
-                            symlink(&parent_shared_dir, target)
-                                .await
-                                .expect("could not symlink target");
+
+                            #[cfg(windows)]
+                            {
+                                // On Windows, try symlink_dir
+                                let windows_target = target.replace("/", "\\");
+                                let windows_parent = parent_shared_dir.replace("/", "\\");
+
+                                match symlink_dir(&windows_parent, &windows_target).await {
+                                    Ok(_) => {
+                                        tracing::info!("Successfully created directory symlink on Windows");
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!("Failed to create symlink_dir on Windows (likely needs admin privileges or Developer Mode): {}", e);
+                                        create_directory_async(&target).await;
+                                    }
+                                }
+                            }
+
+                            #[cfg(not(windows))]
+                            {
+                                symlink(&parent_shared_dir, &target)
+                                    .await
+                                    .expect("could not symlink target");
+                            }
                         }
                     } else {
                         create_directory_async(target).await;
