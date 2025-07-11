@@ -540,13 +540,6 @@
 		}
 	}
 
-	function isSlackHandler(scriptPath: string) {
-		return (
-			scriptPath.startsWith('hub/') &&
-			scriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
-		)
-	}
-
 	async function runGitSyncTestJob(settingsIdx: number) {
 		let gitSyncRepository = gitSyncSettings.repositories[settingsIdx]
 		if (emptyString(gitSyncRepository.script_path)) {
