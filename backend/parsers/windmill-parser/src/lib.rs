@@ -28,6 +28,12 @@ pub struct ObjectProperty {
     pub typ: Box<Typ>,
 }
 
+impl ObjectProperty {
+    pub fn new(key: String, typ: Box<Typ>) -> ObjectProperty {
+        ObjectProperty { key, typ }
+    }
+}
+
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all(serialize = "lowercase"))]
 pub struct OneOfVariant {
@@ -51,6 +57,7 @@ pub enum Typ {
     DynSelect(String),
     Object(Vec<ObjectProperty>),
     OneOf(Vec<OneOfVariant>),
+    TypeRef(String),
     Unknown,
 }
 

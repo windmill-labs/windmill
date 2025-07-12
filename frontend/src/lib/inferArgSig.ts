@@ -1,5 +1,7 @@
 import type { SchemaProperty } from './common'
 
+export const WMILL_TYPE_REF_KEY = '_wmill_type_ref_hint'
+
 export function argSigToJsonSchemaType(
 	t:
 		| string
@@ -72,6 +74,10 @@ export function argSigToJsonSchemaType(
 		if (t.object) {
 			const properties: Record<string, any> = {}
 			for (const prop of t.object) {
+				if (prop.key === WMILL_TYPE_REF_KEY) {
+					newS.format = `resource-${prop.typ.typeref}`
+					continue
+				}
 				if (oldS.properties && prop.key in oldS.properties) {
 					properties[prop.key] = oldS.properties[prop.key]
 				} else {
@@ -132,7 +138,7 @@ export function argSigToJsonSchemaType(
 
 				argSigToJsonSchemaType(prop.typ, properties[prop.key])
 			}
-
+			delete properties[WMILL_TYPE_REF_KEY]
 			newS.items = { type: 'object', properties: properties }
 			newS.originalType = 'record[]'
 		} else {

@@ -252,6 +252,67 @@
 	$effect.pre(() => {
 		isValid = allTrue(inputCheck ?? {})
 	})
+
+	let lastSchemaSnapshot: any = $state({})
+	$effect(() => {
+		if (!schema?.properties || !args) return
+
+		untrack(() => {
+			let hasChanges = false
+			const newArgs = { ...args }
+
+			for (const key of Object.keys(schema.properties)) {
+				const currentProp = schema.properties[key]
+				const lastProp = lastSchemaSnapshot[key]
+
+				if (lastProp && args && args[key] !== undefined) {
+					const typeChanged = currentProp.type !== lastProp.type
+					const originalTypeChanged = currentProp.originalType !== lastProp.originalType
+					const formatChanged = currentProp.format !== lastProp.format
+
+					if (typeChanged || originalTypeChanged || formatChanged) {
+						const currentValue = args[key]
+						const shouldReset = shouldResetValue(currentValue, currentProp, lastProp)
+
+						if (shouldReset) {
+							newArgs[key] = currentProp.default ?? undefined
+							hasChanges = true
+						}
+					}
+				}
+			}
+
+			if (hasChanges) {
+				args = newArgs
+			}
+
+			lastSchemaSnapshot = structuredClone($state.snapshot(schema.properties))
+		})
+	})
+
+	function shouldResetValue(value: any, currentProp: any, lastProp: any): boolean {
+		if (currentProp.type === 'array' && lastProp.type === 'object') {
+			return !Array.isArray(value)
+		}
+		if (currentProp.type === 'object' && lastProp.type === 'array') {
+			return Array.isArray(value)
+		}
+		if (currentProp.originalType === 'resource[]' && lastProp.originalType !== 'resource[]') {
+			return !Array.isArray(value)
+		}
+		if (currentProp.originalType !== 'resource[]' && lastProp.originalType === 'resource[]') {
+			return Array.isArray(value)
+		}
+		if (currentProp.format?.startsWith('resource-') && !lastProp.format?.startsWith('resource-')) {
+			return Array.isArray(value) || typeof value !== 'object' || value === null
+		}
+		if (!currentProp.format?.startsWith('resource-') && lastProp.format?.startsWith('resource-')) {
+			return currentProp.type !== 'object'
+		}
+
+		return false
+	}
+
 	const actions_render = $derived(actions)
 </script>
 
