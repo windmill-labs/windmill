@@ -64,7 +64,7 @@ use windmill_common::{
 };
 
 #[cfg(feature = "enterprise")]
-use windmill_common::ee_oss::CLOUD_HOSTED;
+use windmill_common::worker::CLOUD_HOSTED;
 
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
 use monitor::monitor_mem;
