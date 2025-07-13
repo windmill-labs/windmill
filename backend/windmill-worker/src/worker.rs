@@ -493,7 +493,10 @@ impl JobCompletedSender {
                 } else {
                     unbounded_sender
                 }
-                .send_async(SendResult::JobCompleted(jc))
+                .send_async(SendResult::JobCompleted(TimedJobCompleted {
+                    job_completed: jc,
+                    queued_at: std::time::Instant::now(),
+                }))
                 .await
                 .map_err(|_e| {
                     anyhow::anyhow!("Failed to send job completed to background processor")
@@ -1196,6 +1199,7 @@ pub async fn run_worker(
     let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());
     let job_completed_processor_is_done =
         Arc::new(AtomicBool::new(matches!(conn, Connection::Http(_))));
+    let background_processor_is_draining = Arc::new(AtomicBool::new(false));
 
     let send_result = match (conn, job_completed_rx) {
         (Connection::Sql(db), Some(job_completed_receiver)) => Some(start_background_processor(
@@ -1203,6 +1207,7 @@ pub async fn run_worker(
             job_completed_tx.clone(),
             same_worker_queue_size.clone(),
             job_completed_processor_is_done.clone(),
+            background_processor_is_draining.clone(),
             base_internal_url.to_string(),
             db.clone(),
             worker_dir.clone(),
@@ -1486,6 +1491,13 @@ pub async fn run_worker(
             } else {
                 match &conn {
                     Connection::Sql(db) => {
+                        // Check if background processor is draining and wait if so
+                        if background_processor_is_draining.load(Ordering::SeqCst) {
+                            tracing::info!(worker = %worker_name, hostname = %hostname, "Background processor is draining, waiting before pulling jobs");
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                            continue;
+                        }
+
                         let pull_time = Instant::now();
                         let likelihood_of_suspend = last_30jobs_suspended as f64 / 30.0;
                         let suspend_first = suspend_first_success
@@ -1987,10 +1999,23 @@ async fn queue_init_bash_maybe<'c>(
 }
 
 pub enum SendResult {
-    JobCompleted(JobCompleted),
-    UpdateFlow(UpdateFlow),
+    JobCompleted(TimedJobCompleted),
+    UpdateFlow(TimedUpdateFlow),
 }
 
+#[derive(Debug)]
+pub struct TimedJobCompleted {
+    pub job_completed: JobCompleted,
+    pub queued_at: std::time::Instant,
+}
+
+#[derive(Debug)]
+pub struct TimedUpdateFlow {
+    pub update_flow: UpdateFlow,
+    pub queued_at: std::time::Instant,
+}
+
+#[derive(Debug)]
 pub struct UpdateFlow {
     pub flow: Uuid,
     pub w_id: String,
