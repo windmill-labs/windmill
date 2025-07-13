@@ -1341,6 +1341,10 @@ pub async fn run_worker(
                         continue;
                     }
                     _ = killpill_rx.recv() => {
+                        job_completed_tx
+                            .kill()
+                            .await
+                            .expect("send kill to job completed tx");
                         tracing::info!(worker = %worker_name, hostname = %hostname, "killpill received while waiting for valid key, exiting");
                         break;
                     }
@@ -1909,6 +1913,16 @@ pub async fn run_worker(
     }
 
     tracing::info!(worker = %worker_name, hostname = %hostname, "worker {} exiting", worker_name);
+
+    #[cfg(feature = "enterprise")]
+    {
+        let valid_key = *LICENSE_KEY_VALID.read().await;
+
+        if !valid_key {
+            tracing::info!(worker = %worker_name, hostname = %hostname, "Invalid license key, exiting immediately");
+            return;
+        }
+    }
 
     #[cfg(feature = "benchmark")]
     {
