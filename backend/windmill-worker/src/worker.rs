@@ -850,26 +850,26 @@ pub fn start_interactive_worker_shell(
                     }
                     Ok(None) => {
                         let now = Instant::now();
-                        match last_executed_job {
+                        let nap_time = match last_executed_job {
                             Some(last)
                                 if now.duration_since(last).as_secs()
                                     > TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION =>
                             {
-                                tokio::time::sleep(Duration::from_secs(
+                                Duration::from_secs(
                                     WORKER_SHELL_NAP_TIME_DURATION,
-                                ))
-                                .await;
+                                )
                             }
                             _ => {
-                                tokio::select! {
-                                    _ = tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE * 10)) => {
-                                    }
-                                    _ = killpill_rx.recv() => {
-                                        break;
-                                    }
-                                }
+                                Duration::from_millis(*SLEEP_QUEUE * 10)
                             }
-                        }
+                        };
+                        tokio::select! {
+                            _ = tokio::time::sleep(nap_time) => {
+                            }
+                            _ = killpill_rx.recv() => {
+                                break;
+                            }
+                        }   
                     }
 
                     Err(err) => {

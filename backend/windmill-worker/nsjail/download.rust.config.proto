@@ -10,6 +10,7 @@ cwd: "/tmp"
 
 clone_newnet: false
 
+skip_setsid: true
 keep_caps: false
 keep_env: true
 mount_proc: true
