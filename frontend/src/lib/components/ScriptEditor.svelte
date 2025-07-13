@@ -575,6 +575,9 @@
 								}}
 								btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface"
 								on:click={() => {
+									if (!aiChatManager.open) {
+										aiChatManager.changeMode(AIMode.SCRIPT)
+									}
 									aiChatManager.toggleOpen()
 								}}
 							>
