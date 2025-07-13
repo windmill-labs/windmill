@@ -15,7 +15,7 @@ use crate::common::{cached_result_path, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
-    JobCompletedSender, PreviousResult, SameWorkerSender, SendResult, UpdateFlow, KEEP_JOB_DIR,
+    JobCompletedSender, PreviousResult, SameWorkerSender, SendResultPayload, UpdateFlow, KEEP_JOB_DIR
 };
 
 use anyhow::Context;
@@ -1679,7 +1679,7 @@ pub async fn handle_flow(
                         update_flow.success
                     );
                     job_completed_tx
-                        .send(SendResult::UpdateFlow(update_flow), false)
+                        .send(SendResultPayload::UpdateFlow(update_flow), false)
                         .warn_after_seconds(3)
                         .await
                         .map_err(|e| {
