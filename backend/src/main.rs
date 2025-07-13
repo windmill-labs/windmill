@@ -58,10 +58,13 @@ use windmill_common::{
         Mode, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS,
     },
     worker::{
-        reload_custom_tags_setting, Connection, CLOUD_HOSTED, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP
+        reload_custom_tags_setting, Connection, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
     },
     KillpillSender, METRICS_ENABLED,
 };
+
+#[cfg(feature = "enterprise")]
+use windmill_common::ee_oss::CLOUD_HOSTED;
 
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
 use monitor::monitor_mem;
