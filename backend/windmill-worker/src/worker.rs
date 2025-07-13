@@ -1337,7 +1337,6 @@ pub async fn run_worker(
                 );
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_secs(10)) => {
-                        tracing::info!(worker = %worker_name, hostname = %hostname, "sleeping for 10s waiting for valid key to be set");
                         continue;
                     }
                     _ = killpill_rx.recv() => {
