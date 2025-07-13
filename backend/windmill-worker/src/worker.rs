@@ -1324,19 +1324,10 @@ pub async fn run_worker(
     let mut killed_but_draining_same_worker_jobs = false;
 
     let mut killpill_rx2 = killpill_rx.resubscribe();
+    
     loop {
         #[cfg(feature = "enterprise")]
         {
-            if let Ok(_) = killpill_rx.try_recv() {
-                tracing::info!(worker = %worker_name, hostname = %hostname, "killpill received on worker waiting for valid key");
-                if send_result.is_some() {
-                    job_completed_tx
-                        .kill()
-                        .await
-                        .expect("send kill to job completed tx");
-                }
-                break;
-            }
             let valid_key = *LICENSE_KEY_VALID.read().await;
 
             if !valid_key {
@@ -1344,8 +1335,16 @@ pub async fn run_worker(
                     worker = %worker_name, hostname = %hostname,
                     "Invalid license key, workers require a valid license key, sleeping for 10s waiting for valid key to be set"
                 );
-                tokio::time::sleep(Duration::from_secs(10)).await;
-                continue;
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                        tracing::info!(worker = %worker_name, hostname = %hostname, "sleeping for 10s waiting for valid key to be set");
+                        continue;
+                    }
+                    _ = killpill_rx.recv() => {
+                        tracing::info!(worker = %worker_name, hostname = %hostname, "killpill received while waiting for valid key, exiting");
+                        break;
+                    }
+                }
             }
         }
 
@@ -1459,9 +1458,13 @@ pub async fn run_worker(
                         .map_err(|e| error::Error::InternalErr(e.to_string()))
                         .map(|x: Option<JobAndPerms>| x.map(|y| NextJob::Http(y))),
                 }
-            } else if let Ok(_) = killpill_rx.try_recv() {
+            } else if match killpill_rx.try_recv() {
+                Ok(_) | Err(broadcast::error::TryRecvError::Closed) => true,
+                _ => false,
+            } {
                 if !killed_but_draining_same_worker_jobs {
                     killed_but_draining_same_worker_jobs = true;
+                    tracing::info!(worker = %worker_name, hostname = %hostname, "killpill received in worker main loop, sending killpill job");
                     job_completed_tx
                         .kill()
                         .await
