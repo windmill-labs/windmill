@@ -8,7 +8,7 @@ use std::{
     sync::{
         atomic::{AtomicBool, AtomicU16, Ordering},
         Arc,
-    }, time::Duration,
+    }
 };
 use tracing::{field, Instrument};
 #[cfg(not(feature = "otel"))]
