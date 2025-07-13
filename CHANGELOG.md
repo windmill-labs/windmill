@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.505.2](https://github.com/windmill-labs/windmill/compare/v1.505.1...v1.505.2) (2025-07-13)
+
+
+### Bug Fixes
+
+* make usage stats on jobs on last 48h to reduce db load ([9d9cdc7](https://github.com/windmill-labs/windmill/commit/9d9cdc75a99b2590df9541476e7e7002b4317962))
+* throttle job pull when bg processor takes too long ([daeab70](https://github.com/windmill-labs/windmill/commit/daeab7077a2dfa0c753474b58496b82428988979))
+
 ## [1.505.1](https://github.com/windmill-labs/windmill/compare/v1.505.0...v1.505.1) (2025-07-13)
 
 
