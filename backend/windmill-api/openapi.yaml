@@ -7591,6 +7591,36 @@ paths:
                   flow_status:
                     $ref: "#/components/schemas/WorkflowStatusRecord"
 
+  /w/{workspace}/jobs_u/getupdate_sse/{id}:
+    get:
+      summary: get job updates via server-sent events
+      operationId: getJobUpdatesSSE
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: running
+          in: query
+          schema:
+            type: boolean
+        - name: log_offset
+          in: query
+          schema:
+            type: integer
+        - name: get_progress
+          in: query
+          schema:
+            type: boolean
+
+      responses:
+        "200":
+          description: server-sent events stream of job updates
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
   /w/{workspace}/jobs_u/get_log_file/{path}:
     get:
       summary: get log file from object store

@@ -272,6 +272,7 @@ pub fn workspace_unauthed_service() -> Router {
             get(get_completed_job_result_maybe),
         )
         .route("/getupdate/:id", get(get_job_update))
+        .route("/getupdate_sse/:id", get(get_job_update_sse))
         .route("/get_log_file/*file_path", get(get_log_file))
         .route("/queue/cancel/:id", post(cancel_job_api))
         .route(
@@ -5812,6 +5813,214 @@ async fn get_job_update(
             .flow_status
             .map(|x: sqlx::types::Json<Box<RawValue>>| x.0),
     }))
+}
+
+async fn get_job_update_sse(
+    OptAuthed(opt_authed): OptAuthed,
+    opt_tokened: OptTokened,
+    Extension(db): Extension<DB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+    Query(JobUpdateQuery { log_offset, get_progress, running }): Query<JobUpdateQuery>,
+) -> Response {
+    let stream = get_job_update_sse_stream(
+        opt_authed,
+        opt_tokened,
+        db,
+        w_id,
+        job_id,
+        log_offset,
+        get_progress,
+        running,
+    );
+
+    let body = axum::body::Body::from_stream(stream.map(Result::<_, std::convert::Infallible>::Ok));
+
+    Response::builder()
+        .status(200)
+        .header("Content-Type", "text/event-stream")
+        .header("Cache-Control", "no-cache")
+        .header("Connection", "keep-alive")
+        .body(body)
+        .unwrap()
+}
+
+fn get_job_update_sse_stream(
+    opt_authed: Option<ApiAuthed>,
+    opt_tokened: OptTokened,
+    db: DB,
+    w_id: String,
+    job_id: Uuid,
+    initial_log_offset: i32,
+    get_progress: Option<bool>,
+    running: bool,
+) -> impl futures::Stream<Item = String> {
+    let (tx, rx) = tokio::sync::mpsc::channel(32);
+
+    tokio::spawn(async move {
+        let mut log_offset = initial_log_offset;
+        let mut last_update: Option<String> = None;
+        let mut completion_sent = false;
+
+        // Send initial update immediately
+        if let Ok(update) = get_job_update_data(
+            &opt_authed,
+            &opt_tokened,
+            &db,
+            &w_id,
+            &job_id,
+            log_offset,
+            get_progress,
+            running,
+        ).await {
+            if let Ok(serialized) = serde_json::to_string(&update) {
+                let event_data = format!("data: {}\n\n", serialized);
+                if tx.send(event_data.clone()).await.is_err() {
+                    return;
+                }
+                last_update = Some(serialized);
+                if let Some(new_offset) = update.log_offset {
+                    log_offset = new_offset;
+                }
+                completion_sent = update.completed.unwrap_or(false);
+            }
+        }
+
+        // If job is already completed, no need to poll
+        if completion_sent {
+            return;
+        }
+
+        // Poll for updates every 1 second
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+        loop {
+            interval.tick().await;
+
+            match get_job_update_data(
+                &opt_authed,
+                &opt_tokened,
+                &db,
+                &w_id,
+                &job_id,
+                log_offset,
+                get_progress,
+                running,
+            ).await {
+                Ok(update) => {
+                    if let Ok(serialized) = serde_json::to_string(&update) {
+                        // Only send if the update has changed
+                        if last_update.as_ref() != Some(&serialized) {
+                            let event_data = format!("data: {}\n\n", serialized);
+                            if tx.send(event_data).await.is_err() {
+                                break;
+                            }
+                            last_update = Some(serialized);
+                            
+                            // Update log offset if available
+                            if let Some(new_offset) = update.log_offset {
+                                log_offset = new_offset;
+                            }
+                            
+                            // Check if job is completed
+                            if update.completed.unwrap_or(false) {
+                                break;
+                            }
+                        }
+                    }
+                }
+                Err(_) => {
+                    // Job might have been deleted or access denied, break the loop
+                    break;
+                }
+            }
+        }
+    });
+
+    tokio_stream::wrappers::ReceiverStream::new(rx)
+}
+
+async fn get_job_update_data(
+    opt_authed: &Option<ApiAuthed>,
+    opt_tokened: &OptTokened,
+    db: &DB,
+    w_id: &str,
+    job_id: &Uuid,
+    log_offset: i32,
+    get_progress: Option<bool>,
+    running: bool,
+) -> Result<JobUpdate, Error> {
+    let record = sqlx::query!(
+        "SELECT
+            c.id IS NOT NULL AS completed,
+            CASE 
+                WHEN q.id IS NOT NULL THEN (CASE WHEN NOT $5 AND q.running THEN true ELSE null END)
+                ELSE false
+            END AS running,
+            SUBSTR(logs, GREATEST($1 - log_offset, 0)) AS logs,
+            COALESCE(r.memory_peak, c.memory_peak) AS mem_peak,
+            CASE
+                -- flow step:
+                WHEN flow_step_id IS NOT NULL THEN NULL
+                -- completed:
+                WHEN c.id IS NOT NULL THEN COALESCE(
+                    c.workflow_as_code_status || c.flow_status,
+                    c.workflow_as_code_status,
+                    c.flow_status
+                )
+                -- not completed:
+                ELSE COALESCE(
+                    f.workflow_as_code_status || f.flow_status,
+                    f.workflow_as_code_status,
+                    f.flow_status
+                )
+            END AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",
+            job_logs.log_offset + CHAR_LENGTH(job_logs.logs) + 1 AS log_offset,
+            created_by AS \"created_by!\",
+            CASE WHEN $4::BOOLEAN THEN (
+                SELECT scalar_int FROM job_stats WHERE job_id = $3 AND metric_id = 'progress_perc'
+            ) END AS progress
+        FROM v2_job j
+            LEFT JOIN v2_job_queue q USING (id)
+            LEFT JOIN v2_job_runtime r USING (id)
+            LEFT JOIN v2_job_status f USING (id)
+            LEFT JOIN v2_job_completed c USING (id)
+            LEFT JOIN job_logs ON job_logs.job_id =  $3
+        WHERE j.workspace_id = $2 AND j.id = $3",
+        log_offset,
+        w_id,
+        job_id,
+        get_progress.unwrap_or(false),
+        running,
+    )
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
+
+    if opt_authed.is_none() && record.created_by != "anonymous" {
+        return Err(Error::BadRequest(
+            "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+        ));
+    }
+
+    log_job_view(
+        db,
+        opt_authed.as_ref(),
+        opt_tokened.token.as_deref(),
+        w_id,
+        job_id,
+    )
+    .await?;
+
+    Ok(JobUpdate {
+        running: record.running,
+        completed: record.completed,
+        log_offset: record.log_offset,
+        new_logs: record.logs,
+        mem_peak: record.mem_peak,
+        progress: record.progress,
+        flow_status: record
+            .flow_status
+            .map(|x: sqlx::types::Json<Box<RawValue>>| x.0),
+    })
 }
 
 pub fn filter_list_completed_query(

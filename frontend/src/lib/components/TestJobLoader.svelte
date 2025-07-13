@@ -177,6 +177,9 @@
 		if (id) {
 			dispatch('cancel', id)
 			currentId = undefined
+			// Clean up SSE connection
+			currentEventSource?.close()
+			currentEventSource = undefined
 			try {
 				await JobService.cancelQueuedJob({
 					workspace: $workspaceStore ?? '',
@@ -202,8 +205,15 @@
 		errorIteration = 0
 		currentId = testId
 		job = undefined
-		const isCompleted = await loadTestJob(testId)
-		if (!isCompleted) {
+		
+		// Clean up any existing SSE connection
+		currentEventSource?.close()
+		currentEventSource = undefined
+		
+		// Try SSE first, fall back to polling if needed
+		const isCompleted = await loadTestJobWithSSE(testId)
+		if (!isCompleted && !currentEventSource) {
+			// If SSE didn't start (job might not be running yet), use polling
 			setTimeout(() => {
 				syncer(testId)
 			}, 50)
@@ -306,6 +316,158 @@
 		}
 	}
 
+	let currentEventSource: EventSource | undefined = undefined
+
+	async function loadTestJobWithSSE(id: string): Promise<boolean> {
+		let isCompleted = false
+		if (currentId === id) {
+			try {
+				// First load the job to get initial state
+				if (!job) {
+					job = await JobService.getJob({ workspace: workspace!, id, noLogs: lazyLogs })
+				}
+				
+				// If job is already completed, don't start SSE
+				if (job?.type === 'CompletedJob') {
+					isCompleted = true
+					if (currentId === id) {
+						await tick()
+						dispatch('done', job)
+						currentId = undefined
+					}
+					return isCompleted
+				}
+
+				// Only start SSE if job is running and we haven't started it yet
+				if (job && `running` in job && !currentEventSource) {
+					let getProgress: boolean | undefined = undefined
+					
+					// Check if we should get progress updates
+					if (job.job_kind == 'script' || isScriptPreview(job.job_kind)) {
+						if (lastTimeCheckedProgress) {
+							const lastTimeCheckedMs = Date.now() - lastTimeCheckedProgress
+							if (
+								lastTimeCheckedMs > getProgressRetryRate ||
+								(scriptProgress != undefined && lastTimeCheckedMs > getProgressRate)
+							) {
+								lastTimeCheckedProgress = Date.now()
+								getProgress = true
+							}
+						} else {
+							lastTimeCheckedProgress = Date.now()
+						}
+					}
+
+					const offset = logOffset == 0 ? (job.logs?.length ? job.logs?.length + 1 : 0) : logOffset
+					
+					// Build SSE URL with query parameters
+					const params = new URLSearchParams({
+						running: job.running.toString(),
+						log_offset: offset.toString()
+					})
+					if (getProgress !== undefined) {
+						params.set('get_progress', getProgress.toString())
+					}
+					
+					const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${id}?${params.toString()}`
+					
+					currentEventSource = new EventSource(sseUrl)
+					
+					currentEventSource.onmessage = async (event) => {
+						if (currentId !== id) {
+							currentEventSource?.close()
+							currentEventSource = undefined
+							return
+						}
+						
+						try {
+							const previewJobUpdates = JSON.parse(event.data)
+							jobUpdateLastFetch = new Date()
+							
+							// Clamp number between two values with the following line:
+							const clamp = (num, min, max) => Math.min(Math.max(num, min), max)
+
+							if (previewJobUpdates.progress) {
+								// Progress cannot go back and cannot be set to 100
+								scriptProgress = clamp(previewJobUpdates.progress, scriptProgress ?? 0, 99)
+							}
+
+							if (previewJobUpdates.new_logs && job) {
+								if (offset == 0) {
+									job.logs = previewJobUpdates.new_logs ?? ''
+								} else {
+									job.logs = (job?.logs ?? '').concat(previewJobUpdates.new_logs)
+								}
+							}
+
+							if (previewJobUpdates.log_offset) {
+								logOffset = previewJobUpdates.log_offset ?? 0
+							}
+
+							if (previewJobUpdates.flow_status && job) {
+								job.flow_status = previewJobUpdates.flow_status as FlowStatus
+							}
+							if (previewJobUpdates.mem_peak && job) {
+								job.mem_peak = previewJobUpdates.mem_peak
+							}
+							
+							// Check if job is completed
+							if (previewJobUpdates.completed) {
+								job = await JobService.getJob({ workspace: workspace!, id })
+								currentEventSource?.close()
+								currentEventSource = undefined
+								
+								if (job?.type === 'CompletedJob') {
+									isCompleted = true
+									if (currentId === id) {
+										await tick()
+										dispatch('done', job)
+										currentId = undefined
+									}
+								}
+							} else if ((previewJobUpdates.running ?? false)) {
+								job = await JobService.getJob({ workspace: workspace!, id })
+							}
+						} catch (parseErr) {
+							console.warn('Failed to parse SSE data:', parseErr)
+						}
+					}
+					
+					currentEventSource.onerror = (error) => {
+						console.warn('SSE error:', error)
+						currentEventSource?.close()
+						currentEventSource = undefined
+						// Fall back to polling on error
+						setTimeout(() => syncer(id), 1000)
+					}
+					
+					currentEventSource.onopen = () => {
+						console.log('SSE connection opened for job:', id)
+					}
+				}
+				
+				notfound = false
+			} catch (err) {
+				errorIteration += 1
+				if (errorIteration == 5) {
+					notfound = true
+					job = undefined
+				}
+				console.warn(err)
+				// Fall back to polling on error
+				currentEventSource?.close()
+				currentEventSource = undefined
+				setTimeout(() => syncer(id), 1000)
+			}
+			return isCompleted
+		} else {
+			// Clean up SSE connection if current ID changed
+			currentEventSource?.close()
+			currentEventSource = undefined
+			return true
+		}
+	}
+
 	async function syncer(id: string): Promise<void> {
 		if (currentId != id) {
 			dispatch('cancel', id)
@@ -326,6 +488,8 @@
 
 	onDestroy(async () => {
 		currentId = undefined
+		currentEventSource?.close()
+		currentEventSource = undefined
 	})
 </script>
 
