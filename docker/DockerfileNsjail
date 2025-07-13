@@ -72,7 +72,6 @@ RUN /usr/bin/java -jar /usr/bin/coursier about
 
 # iptables
 RUN apt-get install -y iptables
-RUN iptables -A OUTPUT -d 169.254.169.254 -j DROP && iptables -A FORWARD -d 169.254.169.254 -j DROP
 
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 

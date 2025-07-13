@@ -58,7 +58,7 @@ use windmill_common::{
         Mode, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS,
     },
     worker::{
-        reload_custom_tags_setting, Connection, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
+        reload_custom_tags_setting, Connection, CLOUD_HOSTED, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP
     },
     KillpillSender, METRICS_ENABLED,
 };
@@ -266,6 +266,21 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     if let Err(_e) = rustls::crypto::ring::default_provider().install_default() {
         tracing::error!("Failed to install rustls crypto provider");
+    }
+
+    #[cfg(feature = "enterprise")]
+    if *CLOUD_HOSTED {
+        // Block access to AWS/GCP metadata endpoints for security in cloud-hosted mode.
+        // This is a best-effort attempt; if it fails, just warn and continue.
+        if let Err(e) = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("iptables -A OUTPUT -d 169.254.169.254 -j DROP && iptables -A FORWARD -d 169.254.169.254 -j DROP")
+            .status()
+        {
+            tracing::warn!("Failed to run iptables to block metadata endpoint: {e}");
+        } else {
+            tracing::info!("Successfully blocked metadata endpoint using iptables");
+        }
     }
 
     let hostname = HOSTNAME.to_owned();
