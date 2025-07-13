@@ -1328,9 +1328,9 @@ pub async fn run_worker(
     let mut killpill_rx2 = killpill_rx.resubscribe();
     
     loop {
-        let last_processing_duration_secs = last_processing_duration.load(Ordering::SeqCst) as f64;
-        if last_processing_duration_secs > 5.0 {
-            let sleep_duration = if last_processing_duration_secs > 10.0 { 10 } else { 5 };
+        let last_processing_duration_secs = last_processing_duration.load(Ordering::SeqCst);
+        if last_processing_duration_secs > 5 {
+            let sleep_duration = if last_processing_duration_secs > 10 { 10 } else { 5 };
             tracing::warn!(worker = %worker_name, hostname = %hostname, "last bg processor processing duration > {sleep_duration}s: {last_processing_duration_secs}s, throttling next job pull by {sleep_duration}s");
             last_processing_duration.store(0, Ordering::SeqCst);
             tokio::time::sleep(Duration::from_secs(sleep_duration)).await;
