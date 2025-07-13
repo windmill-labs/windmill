@@ -142,6 +142,9 @@ pub fn start_background_processor(
 
         //if we have been killed, we want to drain the queue of jobs
         while let Some(sr) = {
+            if has_been_killed {
+                tracing::info!("bg processor is killed, draining. same_worker_queue_size: {}, unbounded_rx: {}, bounded_rx: {}", same_worker_queue_size.load(Ordering::SeqCst), unbounded_rx.len(), bounded_rx.len())
+            }
             if has_been_killed && same_worker_queue_size.load(Ordering::SeqCst) == 0 {
                 unbounded_rx
                     .try_recv()
@@ -157,8 +160,8 @@ pub fn start_background_processor(
                     result = bounded_rx.recv_async() => {
                         result.ok().map(JobCompletedRx::JobCompleted)
                     }
-
                     _ = killpill_rx.recv() => {
+                        tracing::info!("bg processor received killpill signal, queuing killpill job");
                         Some(JobCompletedRx::Killpill)
                     }
                 }
@@ -251,6 +254,7 @@ pub fn start_background_processor(
                     }
                 }
                 JobCompletedRx::Killpill => {
+                    tracing::info!("killpill job received, processing only same worker jobs");
                     has_been_killed = true;
                 }
             }
