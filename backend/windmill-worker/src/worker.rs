@@ -493,7 +493,7 @@ impl JobCompletedSender {
                 } else {
                     unbounded_sender
                 }
-                .send_async(SendResult::JobCompleted(jc))
+                .send_async(SendResult { result: SendResultPayload::JobCompleted(jc), time: Instant::now() })
                 .await
                 .map_err(|_e| {
                     anyhow::anyhow!("Failed to send job completed to background processor")
@@ -514,15 +514,15 @@ impl JobCompletedSender {
 
     pub async fn send(
         &self,
-        send_result: SendResult,
+        send_result: SendResultPayload,
         wait_for_capacity: bool,
     ) -> Result<(), flume::SendError<SendResult>> {
         match self {
             Self::Sql(SqlJobCompletedSender { sender, unbounded_sender, .. }) => {
                 if wait_for_capacity {
-                    sender.send_async(send_result).await
+                    sender.send_async(SendResult { result: send_result, time: Instant::now() }).await
                 } else {
-                    unbounded_sender.send_async(send_result).await
+                    unbounded_sender.send_async(SendResult { result: send_result, time: Instant::now() }).await
                 }
             }
             Self::Http(_) => {
@@ -1194,6 +1194,7 @@ pub async fn run_worker(
 
     let same_worker_queue_size = Arc::new(AtomicU16::new(0));
     let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());
+    let last_processing_duration = Arc::new(AtomicU16::new(0));
     let job_completed_processor_is_done =
         Arc::new(AtomicBool::new(matches!(conn, Connection::Http(_))));
 
@@ -1203,6 +1204,7 @@ pub async fn run_worker(
             job_completed_tx.clone(),
             same_worker_queue_size.clone(),
             job_completed_processor_is_done.clone(),
+            last_processing_duration.clone(),
             base_internal_url.to_string(),
             db.clone(),
             worker_dir.clone(),
@@ -1326,6 +1328,14 @@ pub async fn run_worker(
     let mut killpill_rx2 = killpill_rx.resubscribe();
     
     loop {
+        let last_processing_duration_secs = last_processing_duration.load(Ordering::SeqCst) as f64;
+        if last_processing_duration_secs > 5.0 {
+            let sleep_duration = if last_processing_duration_secs > 10.0 { 10 } else { 5 };
+            tracing::warn!(worker = %worker_name, hostname = %hostname, "last bg processor processing duration > {sleep_duration}s: {last_processing_duration_secs}s, throttling next job pull by {sleep_duration}s");
+            last_processing_duration.store(0, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_secs(sleep_duration)).await;
+            continue;
+        }
         #[cfg(feature = "enterprise")]
         {
             let valid_key = *LICENSE_KEY_VALID.read().await;
@@ -1986,7 +1996,11 @@ async fn queue_init_bash_maybe<'c>(
     }
 }
 
-pub enum SendResult {
+pub struct SendResult {
+    pub result: SendResultPayload,
+    pub time: Instant,
+}
+pub enum SendResultPayload {
     JobCompleted(JobCompleted),
     UpdateFlow(UpdateFlow),
 }
