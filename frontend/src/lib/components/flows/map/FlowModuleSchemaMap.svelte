@@ -13,11 +13,11 @@
 		pickFlow,
 		insertNewPreprocessorModule
 	} from '$lib/components/flows/flowStateUtils.svelte'
-	import type { FlowModule, ScriptLang } from '$lib/gen'
+	import type { FlowModule, Job, ScriptLang } from '$lib/gen'
 	import { emptyFlowModuleState } from '../utils'
 
 	import { dfs } from '../dfs'
-	import { push } from '$lib/history'
+	import { push } from '$lib/history.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
@@ -35,6 +35,8 @@
 	import { dfsByModule } from '../previousResults'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import type { GraphModuleState } from '$lib/components/graph'
+	import { writable, type Writable } from 'svelte/store'
 	import FlowStickyNode from './FlowStickyNode.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 
@@ -49,9 +51,22 @@
 		workspace?: string | undefined
 		onTestUpTo?: ((id: string) => void) | undefined
 		onEditInput?: (moduleId: string, key: string) => void
+		localModuleStates?: Writable<Record<string, GraphModuleState>>
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
+		isOwner?: boolean
+		onTestFlow?: () => void
+		isRunning?: boolean
+		onCancelTestFlow?: () => void
+		onOpenPreview?: () => void
+		onHideJobStatus?: () => void
+		individualStepTests?: boolean
+		flowJob?: Job | undefined
+		showJobStatus?: boolean
+		suspendStatus?: Writable<Record<string, { job: Job; nb: number }>>
+		onDelete?: (id: string) => void
+		flowHasChanged?: boolean
 	}
 
 	let {
@@ -65,9 +80,22 @@
 		workspace = $workspaceStore,
 		onTestUpTo,
 		onEditInput,
+		localModuleStates = writable({}),
 		aiChatOpen,
 		showFlowAiButton,
-		toggleAiChat
+		toggleAiChat,
+		isOwner,
+		onTestFlow,
+		isRunning,
+		onCancelTestFlow,
+		onOpenPreview,
+		onHideJobStatus,
+		individualStepTests = false,
+		flowJob = undefined,
+		showJobStatus = false,
+		suspendStatus = writable({}),
+		onDelete,
+		flowHasChanged
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -77,6 +105,7 @@
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
+
 	export async function insertNewModuleAtIndex(
 		modules: FlowModule[],
 		index: number,
@@ -223,6 +252,11 @@
 	let deleteCallback: (() => void) | undefined = $state(undefined)
 	let dependents: Record<string, string[]> = $state({})
 
+	let graph: FlowGraphV2 | undefined = $state(undefined)
+	export function isNodeVisible(nodeId: string): boolean {
+		return graph?.isNodeVisible(nodeId) ?? false
+	}
+
 	function shouldRunTutorial(tutorialName: string, name: string, index: number) {
 		return (
 			$tutorialsToDo.includes(index) &&
@@ -335,6 +369,7 @@
 
 	<div class="z-10 flex-auto grow bg-surface-secondary" bind:clientHeight={minHeight}>
 		<FlowGraphV2
+			bind:this={graph}
 			earlyStop={flowStore.val.value?.skip_expr !== undefined}
 			cache={flowStore.val.value?.cache_ttl !== undefined}
 			triggerNode={customUi?.triggers != false}
@@ -353,6 +388,13 @@
 			editMode
 			{onTestUpTo}
 			{onEditInput}
+			flowModuleStates={$localModuleStates}
+			{isOwner}
+			{individualStepTests}
+			{flowJob}
+			{showJobStatus}
+			{suspendStatus}
+			{flowHasChanged}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)
 				const cb = () => {
@@ -365,6 +407,7 @@
 						removeAtId(flowStore.val.value.modules, id)
 					}
 					refreshStateStore(flowStore)
+					onDelete?.(id)
 				}
 
 				if (Object.keys(dependents).length > 0) {
@@ -547,6 +590,11 @@
 				module.mock = $state.snapshot(detail.mock)
 				refreshStateStore(flowStore)
 			}}
+			{onTestFlow}
+			{isRunning}
+			{onCancelTestFlow}
+			{onOpenPreview}
+			{onHideJobStatus}
 		/>
 	</div>
 </div>

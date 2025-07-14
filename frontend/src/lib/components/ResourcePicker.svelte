@@ -6,11 +6,11 @@
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 
 	import { Button } from './common'
-	import DBManagerDrawerButton from './DBManagerDrawerButton.svelte'
 	import { Pen, Plus, RotateCw } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { isDbType } from './apps/components/display/dbtable/utils'
 	import Select from './select/Select.svelte'
+	import DbManagerDrawer from './DBManagerDrawer.svelte'
+	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
 
 	interface Props {
 		initialValue?: string | undefined
@@ -69,7 +69,9 @@
 		if (value === undefined) {
 			if (initialValue) {
 				console.log('initialValue', initialValue)
-				value = initialValue
+				if (initialValue != value) {
+					value = initialValue
+				}
 			} else {
 				console.log('no value')
 			}
@@ -85,11 +87,7 @@
 	}
 
 	let loading = $state(true)
-	async function loadResources(
-		resourceType: string | undefined,
-		initialValue: string | undefined,
-		value: string | undefined
-	) {
+	async function loadResources(resourceType: string | undefined) {
 		loading = true
 		try {
 			const resourceTypesToQuery =
@@ -117,7 +115,7 @@
 				nc.push({ value: value ?? initialValue!, label: value ?? initialValue!, type: '' })
 			}
 			collection = nc
-			if (collection.length == 1 && selectFirst && value == undefined) {
+			if (collection.length == 1 && selectFirst && (value == undefined || value == '')) {
 				console.log('selectFirst', collection[0].value)
 				value = collection[0].value
 				valueType = collection[0].type
@@ -129,22 +127,27 @@
 		loading = false
 	}
 
+	let previousResourceType = resourceType
+
 	$effect(() => {
-		$workspaceStore &&
-			loadResources(
-				resourceType,
-				untrack(() => initialValue),
-				untrack(() => value)
-			)
+		$workspaceStore && resourceType
+		untrack(() => {
+			if (previousResourceType != resourceType) {
+				previousResourceType = resourceType
+				value = undefined
+			}
+		})
+		untrack(() => loadResources(resourceType))
 	})
 
 	let appConnect: AppConnect | undefined = $state()
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
+	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
 </script>
 
 <AppConnect
 	on:refresh={async (e) => {
-		await loadResources(resourceType, initialValue, value)
+		await loadResources(resourceType)
 		value = e.detail
 		valueType = collection.find((x) => x?.value == value)?.type
 	}}
@@ -154,7 +157,7 @@
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
 	on:refresh={async (e) => {
-		await loadResources(resourceType, initialValue, value)
+		await loadResources(resourceType)
 		if (e.detail) {
 			value = e.detail
 			valueType = collection.find((x) => x?.value == value)?.type
@@ -240,13 +243,19 @@
 			btnClasses="w-8 px-0.5 py-1.5"
 			size="sm"
 			on:click={() => {
-				loadResources(resourceType, initialValue, value)
+				loadResources(resourceType)
 			}}
 			startIcon={{ icon: RotateCw }}
 			iconOnly
 		/>
 	</div>
-	{#if showSchemaExplorer && isDbType(resourceType) && value}
-		<DBManagerDrawerButton {resourceType} resourcePath={value} />
+	{#if showSchemaExplorer && value && assetCanBeExplored({ kind: 'resource', path: value }, { resource_type: resourceType })}
+		<ExploreAssetButton
+			_resourceMetadata={{ resource_type: resourceType }}
+			asset={{ kind: 'resource', path: value }}
+			{dbManagerDrawer}
+		/>
 	{/if}
 </div>
+
+<DbManagerDrawer bind:this={dbManagerDrawer} />

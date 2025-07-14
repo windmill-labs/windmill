@@ -38,6 +38,8 @@ use windmill_common::variables::get_secret_value_as_admin;
 use std::env::var;
 use windmill_queue::{append_logs, CanceledBy, PrecomputedAgentInfo};
 
+use process_wrap::tokio::TokioChildWrapper;
+
 lazy_static::lazy_static! {
     pub(crate) static ref PYTHON_PATH: Option<String> = var("PYTHON_PATH").ok().map(|v| {
         tracing::warn!("PYTHON_PATH is set to {} and thus python will not be managed by uv and stay static regardless of annotation and instance settings. NOT RECOMMENDED", v);
@@ -88,7 +90,8 @@ async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<Pipt
 
     while let Some(task) = rx.recv().await {
         if let Some(os) = get_object_store().await {
-            match build_tar_and_push(os, task.venv_path.clone(), task.cache_dir, None, false).await {
+            match build_tar_and_push(os, task.venv_path.clone(), task.cache_dir, None, false).await
+            {
                 Ok(()) => {
                     tracing::info!("Successfully uploaded piptar for {}", task.venv_path);
                 }
@@ -97,7 +100,10 @@ async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<Pipt
                 }
             }
         } else {
-            tracing::warn!("S3 object store not available for piptar upload: {}", task.venv_path);
+            tracing::warn!(
+                "S3 object store not available for piptar upload: {}",
+                task.venv_path
+            );
         }
     }
 }
@@ -336,26 +342,30 @@ pub async fn uv_pip_compile(
                 )
                 .env(
                     "APPDATA",
-                    std::env::var("APPDATA")
-                        .unwrap_or_else(|_| format!("{}\\AppData\\Roaming", crate::USERPROFILE_ENV.as_str())),
+                    std::env::var("APPDATA").unwrap_or_else(|_| {
+                        format!("{}\\AppData\\Roaming", crate::USERPROFILE_ENV.as_str())
+                    }),
                 )
                 .env(
                     "ComSpec",
-                    std::env::var("ComSpec").unwrap_or_else(|_| String::from("C:\\Windows\\System32\\cmd.exe")),
+                    std::env::var("ComSpec")
+                        .unwrap_or_else(|_| String::from("C:\\Windows\\System32\\cmd.exe")),
                 )
                 .env(
                     "PATHEXT",
-                    std::env::var("PATHEXT").unwrap_or_else(|_|
+                    std::env::var("PATHEXT").unwrap_or_else(|_| {
                         String::from(".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL")
-                    ),
+                    }),
                 )
                 .env(
                     "ProgramData",
-                    std::env::var("ProgramData").unwrap_or_else(|_| String::from("C:\\ProgramData")),
+                    std::env::var("ProgramData")
+                        .unwrap_or_else(|_| String::from("C:\\ProgramData")),
                 )
                 .env(
                     "ProgramFiles",
-                    std::env::var("ProgramFiles").unwrap_or_else(|_| String::from("C:\\Program Files")),
+                    std::env::var("ProgramFiles")
+                        .unwrap_or_else(|_| String::from("C:\\Program Files")),
                 );
         }
 
@@ -600,7 +610,7 @@ pub async fn handle_python_job(
         pre_spread,
     ) = prepare_wrapper(
         job_dir,
-        job.is_flow_step(),
+        job.flow_step_id.as_deref(),
         job.preprocessed,
         job.script_entrypoint_override.as_deref(),
         inner_content,
@@ -887,7 +897,7 @@ mount {{
 
 async fn prepare_wrapper(
     job_dir: &str,
-    job_is_flow_step: bool,
+    job_flow_step_id: Option<&str>,
     job_preprocessed: Option<bool>,
     job_script_entrypoint_override: Option<&str>,
     inner_content: &str,
@@ -905,7 +915,8 @@ async fn prepare_wrapper(
     Option<String>,
 )> {
     let main_override = job_script_entrypoint_override.as_deref();
-    let apply_preprocessor = !job_is_flow_step && job_preprocessed == Some(false);
+    let apply_preprocessor =
+        job_flow_step_id != Some("preprocessor") && job_preprocessed == Some(false);
 
     let relative_imports = RELATIVE_IMPORT_REGEX.is_match(&inner_content);
 
@@ -1290,7 +1301,7 @@ async fn spawn_uv_install(
     // If none, it is system python
     py_path: Option<String>,
     worker_dir: &str,
-) -> Result<tokio::process::Child, Error> {
+) -> Result<Box<dyn TokioChildWrapper>, Error> {
     if !*DISABLE_NSJAIL {
         tracing::info!(
             workspace_id = %w_id,
@@ -1453,26 +1464,30 @@ async fn spawn_uv_install(
                 )
                 .env(
                     "APPDATA",
-                    std::env::var("APPDATA")
-                        .unwrap_or_else(|_| format!("{}\\AppData\\Roaming", crate::USERPROFILE_ENV.as_str())),
+                    std::env::var("APPDATA").unwrap_or_else(|_| {
+                        format!("{}\\AppData\\Roaming", crate::USERPROFILE_ENV.as_str())
+                    }),
                 )
                 .env(
                     "ComSpec",
-                    std::env::var("ComSpec").unwrap_or_else(|_| String::from("C:\\Windows\\System32\\cmd.exe")),
+                    std::env::var("ComSpec")
+                        .unwrap_or_else(|_| String::from("C:\\Windows\\System32\\cmd.exe")),
                 )
                 .env(
                     "PATHEXT",
-                    std::env::var("PATHEXT").unwrap_or_else(|_|
+                    std::env::var("PATHEXT").unwrap_or_else(|_| {
                         String::from(".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL")
-                    ),
+                    }),
                 )
                 .env(
                     "ProgramData",
-                    std::env::var("ProgramData").unwrap_or_else(|_| String::from("C:\\ProgramData")),
+                    std::env::var("ProgramData")
+                        .unwrap_or_else(|_| String::from("C:\\ProgramData")),
                 )
                 .env(
                     "ProgramFiles",
-                    std::env::var("ProgramFiles").unwrap_or_else(|_| String::from("C:\\Program Files")),
+                    std::env::var("ProgramFiles")
+                        .unwrap_or_else(|_| String::from("C:\\Program Files")),
                 )
                 .args(&command_args[1..])
                 .stdout(Stdio::piped())
@@ -1901,7 +1916,7 @@ pub async fn handle_python_reqs(
 
             let mut stderr_buf = String::new();
             let mut stderr_pipe = uv_install_proccess
-                .stderr
+                .stderr()
                 .take()
                 .ok_or(anyhow!("Cannot take stderr from uv_install_proccess"))?;
             let stderr_future = stderr_pipe.read_to_string(&mut stderr_buf);
@@ -1918,14 +1933,14 @@ pub async fn handle_python_reqs(
             tokio::select! {
                 // Canceled
                 _ = kill_rx.recv() => {
-                    uv_install_proccess.kill().await?;
+                    Box::into_pin(uv_install_proccess.kill()).await?;
                     pids.lock().await.get_mut(i).and_then(|e| e.take());
                     return Err(anyhow::anyhow!("uv pip install was canceled"));
                 },
                 (_, exitstatus) = async {
                     // See tokio::process::Child::wait_with_output() for more context
                     // Sometimes uv_install_proccess.wait() is not exiting if stderr is not awaited before it :/
-                    (stderr_future.await, uv_install_proccess.wait().await)
+                    (stderr_future.await, Box::into_pin(uv_install_proccess.wait()).await)
                 } => match exitstatus {
                     Ok(status) => if !status.success() {
                         tracing::warn!(
@@ -2160,7 +2175,7 @@ pub async fn start_worker(
         spread,
         _,
         _,
-    ) = prepare_wrapper(job_dir, false, None, None, inner_content, script_path).await?;
+    ) = prepare_wrapper(job_dir, None, None, None, inner_content, script_path).await?;
 
     {
         let postprocessor = get_result_postprocessor(annotations.skip_result_postprocessing);
@@ -2294,4 +2309,3 @@ for line in sys.stdin:
     )
     .await
 }
-

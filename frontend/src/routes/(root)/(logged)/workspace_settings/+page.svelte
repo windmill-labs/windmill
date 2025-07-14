@@ -65,6 +65,7 @@
 	import InitGitRepoPopover from '$lib/components/InitGitRepoPopover.svelte'
 	import PullGitRepoPopover from '$lib/components/PullGitRepoPopover.svelte'
 	import GitSyncFilterSettings from '$lib/components/workspaceSettings/GitSyncFilterSettings.svelte'
+	import { untrack } from 'svelte'
 
 	// Shared defaults for new Git-Sync repositories
 	const DEFAULT_INCLUDE_PATH = ['f/**'] as const;
@@ -100,7 +101,7 @@
 
 	// Import the generated backend type
 	import type { GitRepositorySettings as BackendGitRepositorySettings } from '$lib/gen'
-	
+
 	// Frontend repository format extends backend with guaranteed settings and additional UI state
 	type GitSyncRepository = BackendGitRepositorySettings & {
 		settings: GitRepositorySettings  // Required in frontend after transformation
@@ -111,32 +112,31 @@
 	let legacyWorkspaceIncludePath = $state<string[]>([])
 	let legacyWorkspaceIncludeType = $state<ObjectType[]>([])
 
-	let slackInitialPath = $state('')
-	let slackScriptPath = $state('')
-	let teamsInitialPath = $state('')
-	let teamsScriptPath = $state('')
-	let slack_team_name = $state<string | undefined>(undefined)
-	let teams_team_id = $state<string | undefined>(undefined)
-	let teams_team_name = $state<string | undefined>(undefined)
-	let itemKind = $state<'flow' | 'script'>('flow')
-	let plan = $state<string | undefined>(undefined)
-	let customer_id = $state<string | undefined>(undefined)
-	let webhook = $state<string | undefined>(undefined)
-	let workspaceToDeployTo = $state<string | undefined>(undefined)
-	let errorHandlerSelected = $state<'custom' | 'slack' | 'teams'>('slack')
-	let errorHandlerInitialScriptPath = $state('')
-	let errorHandlerScriptPath = $state('')
-	let errorHandlerItemKind = $state<'flow' | 'script'>('script')
-	let errorHandlerExtraArgs = $state<Record<string, any>>({})
-	let errorHandlerMutedOnCancel = $state<boolean | undefined>(undefined)
-	let criticalAlertUIMuted = $state<boolean | undefined>(undefined)
-	let initialCriticalAlertUIMuted = $state<boolean | undefined>(undefined)
+	let slackInitialPath: string = $state('')
+	let slackScriptPath: string = $state('')
+	let teamsInitialPath: string = $state('')
+	let teamsScriptPath: string = $state('')
+	let slack_team_name: string | undefined = $state()
+	let teams_team_id: string | undefined = $state()
+	let teams_team_name: string | undefined = $state()
+	let itemKind: 'flow' | 'script' = $state('flow')
+	let plan: string | undefined = $state(undefined)
+	let customer_id: string | undefined = $state(undefined)
+	let webhook: string | undefined = $state(undefined)
+	let workspaceToDeployTo: string | undefined = $state(undefined)
+	let errorHandlerSelected: 'custom' | 'slack' | 'teams' = $state('slack')
+	let errorHandlerScriptPath: string | undefined = $state(undefined)
+	let errorHandlerItemKind: 'flow' | 'script' = $state('script')
+	let errorHandlerExtraArgs: Record<string, any> = $state({})
+	let errorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
+	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
+	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
 
-	let aiProviders = $state<Exclude<AIConfig['providers'], undefined>>({})
-	let codeCompletionModel = $state<string | undefined>(undefined)
-	let defaultModel = $state<string | undefined>(undefined)
+	let aiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
+	let codeCompletionModel: string | undefined = $state(undefined)
+	let defaultModel: string | undefined = $state(undefined)
 
-	let s3ResourceSettings = $state<S3ResourceSettings>({
+	let s3ResourceSettings: S3ResourceSettings = $state({
 		resourceType: 's3',
 		resourcePath: undefined,
 		publicResource: undefined,
@@ -154,15 +154,22 @@
 		}[]
 	>([])
 
-	let workspaceDefaultAppPath = $state<string | undefined>(undefined)
-	let workspaceEncryptionKey = $state<string | undefined>(undefined)
-	let editedWorkspaceEncryptionKey = $state<string | undefined>(undefined)
-	let workspaceReencryptionInProgress = $state(false)
+	let workspaceDefaultAppPath: string | undefined = $state(undefined)
+	let workspaceEncryptionKey: string | undefined = $state(undefined)
+	let editedWorkspaceEncryptionKey: string | undefined = $state(undefined)
+	let workspaceReencryptionInProgress: boolean = $state(false)
 	let encryptionKeyRegex = /^[a-zA-Z0-9]{64}$/
-	let slack_tabs = $state<'slack_commands' | 'teams_commands'>('slack_commands')
-	let tab = $state<
-		'users' | 'slack' | 'premium' | 'general' | 'webhook' | 'deploy_to' | 'error_handler'
-	>(($page.url.searchParams.get('tab') as any) ?? 'users')
+	let slack_tabs: 'slack_commands' | 'teams_commands' = $state('slack_commands')
+	let tab = $state(
+		($page.url.searchParams.get('tab') as
+			| 'users'
+			| 'slack'
+			| 'premium'
+			| 'general'
+			| 'webhook'
+			| 'deploy_to'
+			| 'error_handler') ?? 'users'
+	)
 	let usingOpenaiClientCredentialsOauth = $state(false)
 
 	let yamlText = $state('')
@@ -582,9 +589,10 @@
 		defaultModel = settings.ai_config?.default_model?.model
 		codeCompletionModel = settings.ai_config?.code_completion_model?.model
 
-		errorHandlerItemKind = settings.error_handler?.split('/')[0] as 'flow' | 'script'
+		errorHandlerItemKind = settings.error_handler
+			? (settings.error_handler.split('/')[0] as 'flow' | 'script')
+			: 'script'
 		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
-		errorHandlerInitialScriptPath = errorHandlerScriptPath
 		errorHandlerMutedOnCancel = settings.error_handler_muted_on_cancel
 		criticalAlertUIMuted = settings.mute_critical_alerts
 		initialCriticalAlertUIMuted = settings.mute_critical_alerts
@@ -681,50 +689,27 @@
 		loadedSettings = true
 	}
 
-	let deployUiSettings = $state<{
-		include_path: string[]
-		include_type: {
-			scripts: boolean
-			flows: boolean
-			apps: boolean
-			resources: boolean
-			variables: boolean
-			secrets: boolean
-			triggers: boolean
-		}
-	}>({
-		include_path: [],
-		include_type: {
-			scripts: false,
-			flows: false,
-			apps: false,
-			resources: false,
-			variables: false,
-			secrets: false,
-			triggers: false
-		}
-	})
+	let deployUiSettings:
+		| {
+				include_path: string[]
+				include_type: {
+					scripts: boolean
+					flows: boolean
+					apps: boolean
+					resources: boolean
+					variables: boolean
+					secrets: boolean
+					triggers: boolean
+				}
+		  }
+		| undefined = $state()
 
 	$effect(() => {
-		if ($workspaceStore) {
-			loadSettings()
-		}
-	})
-
-	$effect(() => {
-		const searchTab = $page.url.searchParams.get('tab')
-		if (searchTab && searchTab !== tab) {
-			tab = searchTab as typeof tab
-		}
+		$workspaceStore && untrack(() => loadSettings())
 	})
 
 	async function editErrorHandler() {
 		if (errorHandlerScriptPath) {
-			if (errorHandlerScriptPath !== undefined && isSlackHandler(errorHandlerScriptPath)) {
-				errorHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
-			} else {
-				errorHandlerExtraArgs['slack'] = undefined
-			}
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -745,13 +730,6 @@
 			})
 			sendUserToast(`workspace error handler removed`)
 		}
-	}
-
-	function isSlackHandler(scriptPath: string) {
-		return (
-			scriptPath.startsWith('hub/') &&
-			scriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
-		)
 	}
 
 	async function runGitSyncTestJob(settingsIdx: number) {
@@ -817,6 +795,19 @@
 			window.location.reload()
 		}, 3000)
 	}
+
+	function updateFromSearchTab(searchTab: string | null, currentTab: string) {
+		if (searchTab && searchTab !== currentTab) {
+			tab = searchTab as typeof tab
+		}
+	}
+
+	$effect(() => {
+		updateFromSearchTab(
+			$page.url.searchParams.get('tab'),
+			untrack(() => tab)
+		)
+	})
 </script>
 
 <CenteredPage>
@@ -1173,14 +1164,13 @@
 				isEditable={true}
 				errorOrRecovery="error"
 				showScriptHelpText={true}
-				customInitialScriptPath={errorHandlerInitialScriptPath}
 				bind:handlerSelected={errorHandlerSelected}
 				bind:handlerPath={errorHandlerScriptPath}
 				customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
 				bind:customHandlerKind={errorHandlerItemKind}
 				bind:handlerExtraArgs={errorHandlerExtraArgs}
 			>
-				<svelte:fragment slot="custom-tab-tooltip">
+				{#snippet customTabTooltip()}
 					<Tooltip>
 						<div class="flex gap-20 items-start mt-3">
 							<div class="text-sm">
@@ -1201,7 +1191,7 @@
 							</div>
 						</div>
 					</Tooltip>
-				</svelte:fragment>
+				{/snippet}
 			</ErrorOrRecoveryHandler>
 
 			<div class="flex flex-col mt-5 gap-5 items-start">

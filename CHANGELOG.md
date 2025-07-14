@@ -1,5 +1,71 @@
 # Changelog
 
+## [1.505.2](https://github.com/windmill-labs/windmill/compare/v1.505.1...v1.505.2) (2025-07-13)
+
+
+### Bug Fixes
+
+* make usage stats on jobs on last 48h to reduce db load ([9d9cdc7](https://github.com/windmill-labs/windmill/commit/9d9cdc75a99b2590df9541476e7e7002b4317962))
+* throttle job pull when bg processor takes too long ([daeab70](https://github.com/windmill-labs/windmill/commit/daeab7077a2dfa0c753474b58496b82428988979))
+
+## [1.505.1](https://github.com/windmill-labs/windmill/compare/v1.505.0...v1.505.1) (2025-07-13)
+
+
+### Bug Fixes
+
+* prevent workers from being stuck on kill signal ([e630170](https://github.com/windmill-labs/windmill/commit/e6301702f5b48d642ff0ce087242d1e6b184d03c))
+* set urllib user-agent header in loader.py (cloudflare block) ([#6169](https://github.com/windmill-labs/windmill/issues/6169)) ([d93ef6a](https://github.com/windmill-labs/windmill/commit/d93ef6acfaf39138e023f77b9fd5d744382f48e0))
+* worker symlink dir + path fixes + npm postinstall on windows ([#6167](https://github.com/windmill-labs/windmill/issues/6167)) ([9a8bed1](https://github.com/windmill-labs/windmill/commit/9a8bed128f21c31648cbb48a74892c2de59e4b24))
+
+## [1.505.0](https://github.com/windmill-labs/windmill/compare/v1.504.0...v1.505.0) (2025-07-11)
+
+
+### Features
+
+* assets as a primary concept ([#6125](https://github.com/windmill-labs/windmill/issues/6125)) ([433341b](https://github.com/windmill-labs/windmill/commit/433341b2958e86fe8c202d6651cd28a93ce4d9ba))
+* triggers error handler and retry ([#6138](https://github.com/windmill-labs/windmill/issues/6138)) ([328ef60](https://github.com/windmill-labs/windmill/commit/328ef605adf9ba2687989b74cdd9beb94448d327))
+
+
+### Bug Fixes
+
+* audit log truncation fix ([bfb2277](https://github.com/windmill-labs/windmill/commit/bfb2277ff140705e9358a487b4416e25aa46e20b))
+
+## [1.504.0](https://github.com/windmill-labs/windmill/compare/v1.503.3...v1.504.0) (2025-07-10)
+
+
+### Features
+
+* **frontend:** run test flow from graph ([#6122](https://github.com/windmill-labs/windmill/issues/6122)) ([6c17a69](https://github.com/windmill-labs/windmill/commit/6c17a6963e100492bb03eb5494d2375f27dbbb9f))
+* storage selector in S3 File Picker ([#6154](https://github.com/windmill-labs/windmill/issues/6154)) ([f924a73](https://github.com/windmill-labs/windmill/commit/f924a73c32887a5d67aa4d31b5b25f6046a57134))
+* use process groups to improve zombie job handling ([#6157](https://github.com/windmill-labs/windmill/issues/6157)) ([b83aca3](https://github.com/windmill-labs/windmill/commit/b83aca30d23473228e19b10dc8fbecaf1fecc12f))
+
+
+### Bug Fixes
+
+* improve index migration failure handling ([c7fb066](https://github.com/windmill-labs/windmill/commit/c7fb06630181c9cdd8547139739ef408b4cc4235))
+
+## [1.503.3](https://github.com/windmill-labs/windmill/compare/v1.503.2...v1.503.3) (2025-07-09)
+
+
+### Bug Fixes
+
+* prevent kafka metadata fetching from blocking windmill ([#6151](https://github.com/windmill-labs/windmill/issues/6151)) ([e5f9e39](https://github.com/windmill-labs/windmill/commit/e5f9e395d312d2dee098c23d3af9cdbf6d452f5c))
+
+## [1.503.2](https://github.com/windmill-labs/windmill/compare/v1.503.1...v1.503.2) (2025-07-09)
+
+
+### Bug Fixes
+
+* fix resource select loop ([ebb1b32](https://github.com/windmill-labs/windmill/commit/ebb1b329841c135eb97dc47d3d962a970838143a))
+
+## [1.503.1](https://github.com/windmill-labs/windmill/compare/v1.503.0...v1.503.1) (2025-07-08)
+
+
+### Bug Fixes
+
+* correct paths and no symlink for windows (go) ([#6139](https://github.com/windmill-labs/windmill/issues/6139)) ([4482e9d](https://github.com/windmill-labs/windmill/commit/4482e9d86aeeacfe929eb19f0bb96a6339dabd62))
+* fix isValid state when schema is empty ([227c1f1](https://github.com/windmill-labs/windmill/commit/227c1f114120812fb6b8a9609d4d27375fa18be8))
+
 ## [1.503.0](https://github.com/windmill-labs/windmill/compare/v1.502.2...v1.503.0) (2025-07-07)
 
 

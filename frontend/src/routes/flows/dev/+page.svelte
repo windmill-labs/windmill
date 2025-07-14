@@ -11,7 +11,7 @@
 	} from '$lib/components/flows/types'
 	import { writable } from 'svelte/store'
 	import { OpenAPI, type OpenFlow, type TriggersCount } from '$lib/gen'
-	import { initHistory } from '$lib/history'
+	import { initHistory } from '$lib/history.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
 	import FlowEditorPanel from '$lib/components/flows/content/FlowEditorPanel.svelte'
@@ -25,6 +25,7 @@
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
 	import { TestSteps } from '$lib/components/flows/testSteps.svelte'
+	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
 
 	let token = $page.url.searchParams.get('wm_token') ?? undefined
 	let workspace = $page.url.searchParams.get('workspace') ?? undefined
@@ -106,7 +107,9 @@
 			editPanelSize: undefined,
 			payloadData: undefined
 		}),
-		currentEditor: writable(undefined)
+		currentEditor: writable(undefined),
+		modulesTestStates: new ModulesTestStates(),
+		outputPickerOpenFns: {}
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
