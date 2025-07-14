@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
 /*
  * Author: Ruben Fiszel
@@ -104,7 +104,7 @@ pub fn workspaced_service() -> Router {
             "/list_paths_from_workspace_runnable/:runnable_kind/*path",
             get(list_paths_from_workspace_runnable),
         )
-        .route("/custom_path_exists/*custom_path", get(custom_path_exists))
+        .route("/custom_path_exists/*custom_path", post(custom_path_exists))
         .route("/sign_s3_objects", post(sign_s3_objects))
 }
 
@@ -170,6 +170,8 @@ pub struct AppWithLastVersion {
     pub extra_perms: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_path: Option<String>,
+    #[serde(skip_serializing_if = "is_false")]
+    pub workspaced_route: bool,
 }
 
 #[derive(Serialize, FromRow)]
@@ -276,6 +278,7 @@ pub struct CreateApp {
     pub draft_only: Option<bool>,
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
+    pub workspaced_route: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -286,6 +289,7 @@ pub struct EditApp {
     pub policy: Option<Policy>,
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
+    pub workspaced_route: Option<bool>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -449,7 +453,7 @@ async fn get_app(
     let app_o = if query.with_starred_info.unwrap_or(false) {
         sqlx::query_as::<_, AppWithLastVersionAndStarred>(
             "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-            app.extra_perms, app_version.value, 
+            app.workspaced_route, app.extra_perms, app_version.value, 
             app_version.created_at, app_version.created_by, favorite.path IS NOT NULL as starred
             FROM app
             JOIN app_version
@@ -469,7 +473,7 @@ async fn get_app(
     } else {
         sqlx::query_as::<_, AppWithLastVersionAndStarred>(
             "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-            app.extra_perms, app_version.value, 
+            app.workspaced_route, app.extra_perms, app_version.value, 
             app_version.created_at, app_version.created_by, NULL as starred
             FROM app, app_version
             WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
@@ -495,7 +499,7 @@ async fn get_app_lite(
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-        app.extra_perms, coalesce(app_version_lite.value::json, app_version.value) as value, 
+        app.workspaced_route, app.extra_perms, coalesce(app_version_lite.value::json, app_version.value) as value, 
         app_version.created_at, app_version.created_by, NULL as starred
         FROM app, app_version
         LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
@@ -522,7 +526,7 @@ async fn get_app_w_draft(
 
     let app_o = sqlx::query_as::<_, AppWithLastVersionAndDraft>(
         r#"SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-        app.extra_perms, app_version.value,
+        app.workspaced_route, app.extra_perms, app_version.value,
         app_version.created_at, app_version.created_by,
         app.draft_only, draft.value as "draft"
         from app
@@ -629,18 +633,67 @@ async fn update_app_history(
     return Ok(());
 }
 
+#[derive(Deserialize)]
+struct CustomPathExistsRequest {
+    workspaced_route: Option<bool>,
+}
+
+async fn custom_path_exists_inner(
+    db: &DB,
+    custom_path: &str,
+    w_id: &str,
+    workspaced_route: Option<bool>,
+) -> Result<bool> {
+    let exists = if *CLOUD_HOSTED {
+        sqlx::query_scalar!(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 
+                FROM app 
+                WHERE 
+                    custom_path = $1
+                    AND workspace_id = $2 
+            )
+            "#,
+            w_id,
+            custom_path
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(false)
+    } else {
+        let custom_path = match workspaced_route {
+            Some(true) => Cow::Owned(format!("{}/{}", w_id, custom_path.trim_matches('/'))),
+            _ => Cow::Borrowed(custom_path),
+        };
+        sqlx::query_scalar!(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 
+                FROM app 
+                WHERE 
+                    ((workspaced_route IS TRUE AND workspace_id = $1 AND custom_path = $2) 
+                    OR (workspaced_route IS FALSE AND custom_path = $2))
+            )
+            "#,
+            w_id,
+            custom_path.as_ref(),
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(false)
+    };
+
+    Ok(exists)
+}
+
 async fn custom_path_exists(
     Extension(db): Extension<DB>,
     Path((w_id, custom_path)): Path<(String, String)>,
+    Json(payload): Json<CustomPathExistsRequest>,
 ) -> JsonResult<bool> {
     let exists =
-        sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
-            custom_path,
-            if *CLOUD_HOSTED { Some(&w_id) } else { None }
-        )
-        .fetch_one(&db)
-        .await?.unwrap_or(false);
+        custom_path_exists_inner(&db, &custom_path, &w_id, payload.workspaced_route).await?;
     Ok(Json(exists))
 }
 
@@ -653,7 +706,7 @@ async fn get_app_by_id(
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-        app.extra_perms, app_version.value, 
+        app.workspaced_route, app.extra_perms, app_version.value, 
         app_version.created_at, app_version.created_by from app, app_version 
         WHERE app_version.id = $1 AND app.id = app_version.app_id AND app.workspace_id = $2",
     )
@@ -960,13 +1013,8 @@ async fn create_app_internal<'a>(
     if let Some(custom_path) = &app.custom_path {
         require_admin(authed.is_admin, &authed.username)?;
 
-        let exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
-            custom_path,
-            if *CLOUD_HOSTED { Some(w_id) } else { None }
-        )
-        .fetch_one(&mut *tx)
-        .await?.unwrap_or(false);
+        let exists =
+            custom_path_exists_inner(&db, &custom_path, &w_id, app.workspaced_route).await?;
 
         if exists {
             return Err(Error::BadRequest(format!(
@@ -984,8 +1032,8 @@ async fn create_app_internal<'a>(
     .await?;
     let id = sqlx::query_scalar!(
         "INSERT INTO app
-            (workspace_id, path, summary, policy, versions, draft_only, custom_path)
-            VALUES ($1, $2, $3, $4, '{}', $5, $6) RETURNING id",
+            (workspace_id, path, summary, policy, versions, draft_only, custom_path, workspaced_route)
+            VALUES ($1, $2, $3, $4, '{}', $5, $6, $7) RETURNING id",
         w_id,
         app.path,
         app.summary,
@@ -994,7 +1042,8 @@ async fn create_app_internal<'a>(
         app.custom_path
             .as_ref()
             .map(|s| if s.is_empty() { None } else { Some(s) })
-            .flatten()
+            .flatten(),
+        app.workspaced_route.unwrap_or(false)
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -1256,6 +1305,7 @@ async fn update_app_internal<'a>(
         || ns.path.is_some()
         || ns.summary.is_some()
         || ns.custom_path.is_some()
+        || ns.workspaced_route.is_some()
     {
         let mut sqlb = SqlBuilder::update_table("app");
         sqlb.and_where_eq("path", "?".bind(&path));
@@ -1295,15 +1345,8 @@ async fn update_app_internal<'a>(
             if ncustom_path.is_empty() {
                 sqlb.set("custom_path", "NULL");
             } else {
-                let exists = sqlx::query_scalar!(
-                    "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2) AND NOT (path = $3 AND workspace_id = $4))",
-                    ncustom_path,
-                    if *CLOUD_HOSTED { Some(w_id) } else { None },
-                    path,
-                    w_id
-                )
-                .fetch_one(&mut *tx)
-                .await?.unwrap_or(false);
+                let exists =
+                    custom_path_exists_inner(&db, ncustom_path, w_id, ns.workspaced_route).await?;
 
                 if exists {
                     return Err(Error::BadRequest(format!(
@@ -1313,6 +1356,10 @@ async fn update_app_internal<'a>(
                 }
                 sqlb.set_str("custom_path", ncustom_path);
             }
+        }
+
+        if let Some(workspaced_route) = ns.workspaced_route {
+            sqlb.set("workspaced_route", workspaced_route);
         }
 
         if let Some(mut npolicy) = ns.policy {

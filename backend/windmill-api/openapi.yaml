@@ -5995,6 +5995,8 @@ paths:
                   type: string
                 custom_path:
                   type: string
+                workspaced_route:
+                  type: boolean
               required:
                 - path
                 - value
@@ -6040,6 +6042,8 @@ paths:
                       type: string
                     custom_path:
                       type: string
+                    workspaced_route:
+                      type: boolean
                   required:
                     - path
                     - value
@@ -6406,6 +6410,8 @@ paths:
                   type: string
                 custom_path:
                   type: string
+                workspaced_route:
+                  type: boolean
       responses:
         "200":
           description: app updated
@@ -6445,6 +6451,8 @@ paths:
                       type: string
                     custom_path:
                       type: string
+                    workspaced_route:
+                      type: boolean
                 js:
                   type: string
                 css:
@@ -6458,7 +6466,7 @@ paths:
                 type: string
 
   /w/{workspace}/apps/custom_path_exists/{custom_path}:
-    get:
+    post:
       summary: check if custom path exists
       operationId: customPathExists
       tags:
@@ -6466,6 +6474,15 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/CustomPath"
+      requestBody:
+        description: check custom path existence with workspace prefix option
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                workspaced_route:
+                  type: boolean
       responses:
         "200":
           description: custom path exists
@@ -16674,6 +16691,8 @@ components:
           enum: [viewer, publisher, anonymous]
         raw_app:
           type: boolean
+        workspaced_route:
+          type: boolean
       required:
         - id
         - workspace_id
@@ -16745,6 +16764,8 @@ components:
             type: boolean
         custom_path:
           type: string
+        workspaced_route:
+          type: boolean
       required:
         - id
         - workspace_id
