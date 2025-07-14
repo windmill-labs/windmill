@@ -234,6 +234,9 @@
 			if (!checked) {
 				scopeState.resourcePaths = []
 				updateSelectedScopesForResourcePaths(scope.value, [])
+			} else {
+				const currentPaths = scopeState.resourcePaths || []
+				updateSelectedScopesForResourcePaths(scope.value, currentPaths, false)
 			}
 		} else {
 			selectedScopes = selectedScopes.filter(
