@@ -280,6 +280,29 @@
 						return 'markdown'
 					} else if (isTableCol(result, keys)) {
 						return 'table-col'
+					} else if (keys.length < 1000 && keys.includes('wm_renderer')) {
+						const renderer = result['wm_renderer']
+						if (typeof renderer === 'string') {
+							if (
+								[
+									'json',
+									'html',
+									'png',
+									'file',
+									'jpeg',
+									'gif',
+									'svg',
+									'filename',
+									's3object',
+									'plain',
+									'markdown',
+									'map',
+									'pdf'
+								].includes(renderer)
+							) {
+								return renderer
+							}
+						}
 					}
 				}
 			} catch (err) {}
