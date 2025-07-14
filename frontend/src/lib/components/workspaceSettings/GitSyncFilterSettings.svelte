@@ -508,7 +508,11 @@ codebases: []`
 		})
 
 		// If we have an existing preview result and settings have changed from snapshot, clear it
-		if (previewResult !== null && previewSettingsSnapshot !== null && currentSettings !== previewSettingsSnapshot) {
+		if (
+			previewResult !== null &&
+			previewSettingsSnapshot !== null &&
+			currentSettings !== previewSettingsSnapshot
+		) {
 			previewResult = null
 			previewJobId = null
 			previewJobStatus = undefined

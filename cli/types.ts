@@ -226,12 +226,13 @@ export function getTypeStrFromPath(
     parsed.ext == ".sql" ||
     parsed.ext == ".gql" ||
     parsed.ext == ".ps1" ||
+    parsed.ext == ".js" ||
     parsed.ext == ".php" ||
     parsed.ext == ".rs" ||
     parsed.ext == ".cs" ||
     parsed.ext == ".nu" ||
     parsed.ext == ".java" ||
-    // for related places search: ADD_NEW_LANG 
+    // for related places search: ADD_NEW_LANG
     (parsed.ext == ".yml" && parsed.name.split(".").pop() == "playbook")
   ) {
     return "script";

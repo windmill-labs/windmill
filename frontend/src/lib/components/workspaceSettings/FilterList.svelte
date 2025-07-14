@@ -5,7 +5,7 @@
 		title = '',
 		tooltip = undefined,
 		items = $bindable([] as string[]),
-		placeholder = 'Add filter (e.g. f/**)',
+		placeholder = 'Add filter (e.g. f/**)'
 	} = $props()
 
 	let newItem = $state('')
@@ -37,7 +37,11 @@
 		{#each items as item, idx (item)}
 			<span class="flex items-center bg-gray-100 rounded-full px-3 py-1 text-xs text-gray-700">
 				{item}
-				<button class="ml-2 text-gray-400 hover:text-red-500 focus:outline-none" onclick={() => removeItem(idx)} aria-label="Remove filter">
+				<button
+					class="ml-2 text-gray-400 hover:text-red-500 focus:outline-none"
+					onclick={() => removeItem(idx)}
+					aria-label="Remove filter"
+				>
 					<X size={14} />
 				</button>
 			</span>
@@ -46,12 +50,16 @@
 		<input
 			bind:this={inputRef}
 			class="border border-gray-300 rounded-full px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-primary"
-			placeholder={placeholder}
+			{placeholder}
 			value={newItem}
 			oninput={(e) => (newItem = e.currentTarget.value)}
 			onkeydown={(e) => e.key === 'Enter' && (addItem(), e.preventDefault())}
 		/>
-		<button class="ml-1 text-primary hover:bg-primary/10 rounded-full p-1" onclick={addItem} aria-label="Add filter">
+		<button
+			class="ml-1 text-primary hover:bg-primary/10 rounded-full p-1"
+			onclick={addItem}
+			aria-label="Add filter"
+		>
 			<Plus size={14} />
 		</button>
 	</div>

@@ -50,6 +50,44 @@ import { FlowModule, OpenFlow, RawScript } from "./gen/types.gen.ts";
 import { pushResource } from "./resource.ts";
 
 
+// Merge CLI options with effective settings, preserving CLI flags as overrides
+function mergeCliWithEffectiveOptions<T extends GlobalOptions & SyncOptions & { repository?: string }>(
+  cliOpts: T,
+  effectiveOpts: SyncOptions
+): T {
+  // Start with effective options from config, then overlay only explicitly provided CLI flags
+  const mergedOpts = Object.assign({}, effectiveOpts) as T;
+
+  // Always preserve these operational CLI flags
+  if (cliOpts.dryRun !== undefined) mergedOpts.dryRun = cliOpts.dryRun;
+  if (cliOpts.yes !== undefined) mergedOpts.yes = cliOpts.yes;
+  if (cliOpts.stateful !== undefined) mergedOpts.stateful = cliOpts.stateful;
+  if (cliOpts.skipPull !== undefined) mergedOpts.skipPull = cliOpts.skipPull;
+  if (cliOpts.failConflicts !== undefined) mergedOpts.failConflicts = cliOpts.failConflicts;
+  if (cliOpts.plainSecrets !== undefined) mergedOpts.plainSecrets = cliOpts.plainSecrets;
+  if (cliOpts.json !== undefined) mergedOpts.json = cliOpts.json;
+  if (cliOpts.message !== undefined) mergedOpts.message = cliOpts.message;
+  if (cliOpts.parallel !== undefined) mergedOpts.parallel = cliOpts.parallel;
+  if (cliOpts.jsonOutput !== undefined) mergedOpts.jsonOutput = cliOpts.jsonOutput;
+  if (cliOpts.repository !== undefined) mergedOpts.repository = cliOpts.repository;
+
+  // Always preserve CLI include flags (they should override config file settings)
+  if (cliOpts.includeUsers !== undefined) mergedOpts.includeUsers = cliOpts.includeUsers;
+  if (cliOpts.includeGroups !== undefined) mergedOpts.includeGroups = cliOpts.includeGroups;
+  if (cliOpts.includeSettings !== undefined) mergedOpts.includeSettings = cliOpts.includeSettings;
+  if (cliOpts.includeKey !== undefined) mergedOpts.includeKey = cliOpts.includeKey;
+  if (cliOpts.includeSchedules !== undefined) mergedOpts.includeSchedules = cliOpts.includeSchedules;
+  if (cliOpts.includeTriggers !== undefined) mergedOpts.includeTriggers = cliOpts.includeTriggers;
+
+  // Always preserve CLI skip flags (they should override config file settings)
+  if (cliOpts.skipScripts !== undefined) mergedOpts.skipScripts = cliOpts.skipScripts;
+  if (cliOpts.skipFlows !== undefined) mergedOpts.skipFlows = cliOpts.skipFlows;
+  if (cliOpts.skipApps !== undefined) mergedOpts.skipApps = cliOpts.skipApps;
+  if (cliOpts.skipFolders !== undefined) mergedOpts.skipFolders = cliOpts.skipFolders;
+
+  return mergedOpts;
+}
+
 // Resolve effective sync options with smart repository detection
 async function resolveEffectiveSyncOptions(
   workspace: Workspace,
@@ -60,7 +98,7 @@ async function resolveEffectiveSyncOptions(
   // If repository path is already specified, use it directly
   if (repositoryPath) {
     return getEffectiveSettings(
-      localConfig, 
+      localConfig,
       workspace.remote,
       workspace.workspaceId,
       repositoryPath
@@ -94,7 +132,7 @@ async function resolveEffectiveSyncOptions(
     } else if (applicableRepos.length > 1) {
       // Multiple repositories found - prompt for selection
       const isInteractive = Deno.stdin.isTerminal() && Deno.stdout.isTerminal();
-      
+
       if (isInteractive) {
         const choices = [
           { name: "Use top-level settings (no repository-specific override)", value: "" },
@@ -109,7 +147,7 @@ async function resolveEffectiveSyncOptions(
         if (selectedRepo) {
           log.info(`Selected repository: ${selectedRepo}`);
         }
-        
+
         return getEffectiveSettings(
           localConfig,
           workspace.remote,
@@ -126,7 +164,7 @@ async function resolveEffectiveSyncOptions(
 
   // No repository overrides found or selected - use top-level settings
   return getEffectiveSettings(
-    localConfig, 
+    localConfig,
     workspace.remote,
     workspace.workspaceId,
     ""
@@ -1140,7 +1178,7 @@ export async function ignoreF(wmillconf: {
     if (!isDirectory && p.endsWith(".resource-type" + ext)) {
       return wmillconf.skipResourceTypes ?? false;
     }
-    
+
     // Special files should bypass path-based filtering when their include flags are set
     if (!isDirectory) {
       try {
@@ -1161,7 +1199,7 @@ export async function ignoreF(wmillconf: {
         // If getTypeStrFromPath can't determine the type, fall through to normal logic
       }
     }
-    
+
     return (
       !isWhitelisted(p) &&
       (isNotWmillFile(p, isDirectory) ||
@@ -1233,37 +1271,7 @@ export async function pull(opts: GlobalOptions & SyncOptions & { repository?: st
   const effectiveOpts = await resolveEffectiveSyncOptions(workspace, opts.repository);
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
-  // Start with effective options from config, then overlay only explicitly provided CLI flags
-  const mergedOpts = Object.assign({}, effectiveOpts) as typeof opts;
-
-  // Always preserve these operational CLI flags
-  if (opts.dryRun !== undefined) mergedOpts.dryRun = opts.dryRun;
-  if (opts.yes !== undefined) mergedOpts.yes = opts.yes;
-  if (opts.stateful !== undefined) mergedOpts.stateful = opts.stateful;
-  if (opts.skipPull !== undefined) mergedOpts.skipPull = opts.skipPull;
-  if (opts.failConflicts !== undefined) mergedOpts.failConflicts = opts.failConflicts;
-  if (opts.plainSecrets !== undefined) mergedOpts.plainSecrets = opts.plainSecrets;
-  if (opts.json !== undefined) mergedOpts.json = opts.json;
-  if (opts.message !== undefined) mergedOpts.message = opts.message;
-  if (opts.parallel !== undefined) mergedOpts.parallel = opts.parallel;
-  if (opts.jsonOutput !== undefined) mergedOpts.jsonOutput = opts.jsonOutput;
-  if (opts.repository !== undefined) mergedOpts.repository = opts.repository;
-  
-  // Always preserve CLI include flags (they should override config file settings)
-  if (opts.includeUsers !== undefined) mergedOpts.includeUsers = opts.includeUsers;
-  if (opts.includeGroups !== undefined) mergedOpts.includeGroups = opts.includeGroups;
-  if (opts.includeSettings !== undefined) mergedOpts.includeSettings = opts.includeSettings;
-  if (opts.includeKey !== undefined) mergedOpts.includeKey = opts.includeKey;
-  if (opts.includeSchedules !== undefined) mergedOpts.includeSchedules = opts.includeSchedules;
-  if (opts.includeTriggers !== undefined) mergedOpts.includeTriggers = opts.includeTriggers;
-  
-  // Always preserve CLI skip flags (they should override config file settings)
-  if (opts.skipScripts !== undefined) mergedOpts.skipScripts = opts.skipScripts;
-  if (opts.skipFlows !== undefined) mergedOpts.skipFlows = opts.skipFlows;
-  if (opts.skipApps !== undefined) mergedOpts.skipApps = opts.skipApps;
-  if (opts.skipFolders !== undefined) mergedOpts.skipFolders = opts.skipFolders;
-
-  opts = mergedOpts;
+  opts = mergeCliWithEffectiveOptions(opts, effectiveOpts);
 
   const codebases = await listSyncCodebases(opts);
 
@@ -1569,37 +1577,7 @@ export async function push(opts: GlobalOptions & SyncOptions & { repository?: st
   const effectiveOpts = await resolveEffectiveSyncOptions(workspace, opts.repository);
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
-  // Start with effective options from config, then overlay only explicitly provided CLI flags
-  const mergedOpts = Object.assign({}, effectiveOpts) as typeof opts;
-
-  // Always preserve these operational CLI flags
-  if (opts.dryRun !== undefined) mergedOpts.dryRun = opts.dryRun;
-  if (opts.yes !== undefined) mergedOpts.yes = opts.yes;
-  if (opts.stateful !== undefined) mergedOpts.stateful = opts.stateful;
-  if (opts.skipPull !== undefined) mergedOpts.skipPull = opts.skipPull;
-  if (opts.failConflicts !== undefined) mergedOpts.failConflicts = opts.failConflicts;
-  if (opts.plainSecrets !== undefined) mergedOpts.plainSecrets = opts.plainSecrets;
-  if (opts.json !== undefined) mergedOpts.json = opts.json;
-  if (opts.message !== undefined) mergedOpts.message = opts.message;
-  if (opts.parallel !== undefined) mergedOpts.parallel = opts.parallel;
-  if (opts.jsonOutput !== undefined) mergedOpts.jsonOutput = opts.jsonOutput;
-  if (opts.repository !== undefined) mergedOpts.repository = opts.repository;
-  
-  // Always preserve CLI include flags (they should override config file settings)
-  if (opts.includeUsers !== undefined) mergedOpts.includeUsers = opts.includeUsers;
-  if (opts.includeGroups !== undefined) mergedOpts.includeGroups = opts.includeGroups;
-  if (opts.includeSettings !== undefined) mergedOpts.includeSettings = opts.includeSettings;
-  if (opts.includeKey !== undefined) mergedOpts.includeKey = opts.includeKey;
-  if (opts.includeSchedules !== undefined) mergedOpts.includeSchedules = opts.includeSchedules;
-  if (opts.includeTriggers !== undefined) mergedOpts.includeTriggers = opts.includeTriggers;
-  
-  // Always preserve CLI skip flags (they should override config file settings)
-  if (opts.skipScripts !== undefined) mergedOpts.skipScripts = opts.skipScripts;
-  if (opts.skipFlows !== undefined) mergedOpts.skipFlows = opts.skipFlows;
-  if (opts.skipApps !== undefined) mergedOpts.skipApps = opts.skipApps;
-  if (opts.skipFolders !== undefined) mergedOpts.skipFolders = opts.skipFolders;
-
-  opts = mergedOpts;
+  opts = mergeCliWithEffectiveOptions(opts, effectiveOpts);
 
   const codebases = await listSyncCodebases(opts);
   if (opts.raw) {

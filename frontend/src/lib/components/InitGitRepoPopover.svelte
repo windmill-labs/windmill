@@ -131,7 +131,11 @@
 				const deleted: string[] = []
 				const modified: string[] = []
 
-				if (result && (result as GitSyncResult).changes && Array.isArray((result as GitSyncResult).changes)) {
+				if (
+					result &&
+					(result as GitSyncResult).changes &&
+					Array.isArray((result as GitSyncResult).changes)
+				) {
 					for (const change of (result as GitSyncResult).changes) {
 						if (change.type === 'added') {
 							added.push(change.path)

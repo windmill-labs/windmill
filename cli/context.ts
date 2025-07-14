@@ -59,7 +59,7 @@ export async function resolveWorkspace(
     if (opts.workspace && opts.token) {
       const normalizedBaseUrl = new URL(opts.baseUrl).toString(); // add trailing slash if not present
       
-      // First try to find existing workspace profile by name, then by workspaceId + remote
+      // Try to find existing workspace profile by name, then by workspaceId + remote
       if (opts.workspace) {
         // Try by workspace name first
         let existingWorkspace = await getWorkspaceByName(opts.workspace, opts.configDir);
@@ -72,18 +72,9 @@ export async function resolveWorkspace(
             w => w.workspaceId === opts.workspace && w.remote === normalizedBaseUrl
           );
           
+          // Due to uniqueness constraint, there can only be 0 or 1 match
           if (matchingWorkspaces.length === 1) {
-            // Exactly one match - use it
             existingWorkspace = matchingWorkspaces[0];
-          } else if (matchingWorkspaces.length > 1) {
-            // Multiple matches - show error with workspace names
-            const workspaceNames = matchingWorkspaces.map(w => w.name).join(", ");
-            log.info(
-              colors.red(
-                `Ambiguous workspace: Multiple workspace profiles found for workspaceId "${opts.workspace}" and baseUrl "${normalizedBaseUrl}": ${workspaceNames}. Please specify a workspace name instead of workspaceId.`
-              )
-            );
-            return Deno.exit(-1);
           }
         }
         
