@@ -510,9 +510,7 @@
 					<!-- svelte-ignore a11y_click_events_have_key_events -->
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="p-4 bg-surface-secondary cursor-pointer hover:bg-surface-tertiary transition-colors {isExpanded
-							? 'border-b'
-							: ''}"
+						class="p-4 bg-surface-secondary cursor-pointer hover:bg-surface-tertiary transition-colors"
 						onclick={() => toggleDomainExpansion(domain.name)}
 					>
 						<div class="flex items-center gap-3">
@@ -603,7 +601,11 @@
 											</div>
 											<div class="flex-shrink-0">
 												{#if scope.requires_resource_path}
-													<Popover disabled={isDisabled} closeOnOtherPopoverOpen contentClasses="p-3">
+													<Popover
+														disabled={isDisabled}
+														closeOnOtherPopoverOpen
+														contentClasses="p-3"
+													>
 														{#snippet trigger()}
 															<Button
 																size="xs"
