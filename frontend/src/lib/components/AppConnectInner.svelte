@@ -331,9 +331,16 @@
 				 * Uses instance-level OAuth credentials for server-to-server auth
 				 */
 				try {
+					// Trim whitespace from credentials to avoid false negatives
+					const trimmedClientId = clientId.trim()
+					const trimmedClientSecret = clientSecret.trim()
+
 					// Validate required fields
-					if (!clientId || !clientSecret) {
-						sendUserToast('Client ID and Client Secret are required for client credentials flow', true)
+					if (!trimmedClientId || !trimmedClientSecret) {
+						sendUserToast(
+							'Client ID and Client Secret are required for client credentials flow',
+							true
+						)
 						return
 					}
 
@@ -341,8 +348,8 @@
 						client: resourceType,
 						requestBody: {
 							scopes: scopes,
-							cc_client_id: clientId,
-							cc_client_secret: clientSecret
+							cc_client_id: trimmedClientId,
+							cc_client_secret: trimmedClientSecret
 						}
 					})
 
@@ -417,8 +424,8 @@
 
 				// Add client credentials if using client_credentials flow
 				if (useClientCredentials) {
-					accountData.cc_client_id = clientId
-					accountData.cc_client_secret = clientSecret
+					accountData.cc_client_id = clientId.trim()
+					accountData.cc_client_secret = clientSecret.trim()
 				}
 
 				account = Number(
