@@ -17,7 +17,7 @@
 	import AppTimeline from './AppTimeline.svelte'
 
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
+	import JobLoader from '$lib/components/JobLoader.svelte'
 	import type { Job } from '$lib/gen'
 	import type { JobById } from '../types'
 	import { createEventDispatcher, untrack } from 'svelte'
@@ -44,7 +44,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	let testJobLoader: TestJobLoader | undefined = $state()
+	let jobLoader: JobLoader | undefined = $state()
 	let job: Job | undefined = $state(undefined)
 	let testIsLoading = $state(false)
 
@@ -53,7 +53,7 @@
 	$effect(() => {
 		selectedJobId &&
 			!selectedJobId?.includes('Frontend') &&
-			untrack(() => selectedJobId && testJobLoader?.watchJob(selectedJobId))
+			untrack(() => selectedJobId && jobLoader?.watchJob(selectedJobId))
 	})
 
 	$effect(() => {
@@ -63,7 +63,7 @@
 	})
 </script>
 
-<TestJobLoader noCode={true} bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
+<JobLoader noCode={true} bind:this={jobLoader} bind:isLoading={testIsLoading} bind:job />
 
 <Drawer bind:open size="900px">
 	<DrawerContent
@@ -180,7 +180,7 @@
 												<Button
 													color="red"
 													variant="border"
-													on:click={() => testJobLoader?.cancelJob()}
+													on:click={() => jobLoader?.cancelJob()}
 												>
 													<Loader2 size={14} class="animate-spin mr-2" />
 

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { base } from '$lib/base'
 	import { ConcurrencyGroupsService, type Job, type WorkflowStatus } from '../../gen'
-	import TestJobLoader from '../TestJobLoader.svelte'
+	import JobLoader from '../JobLoader.svelte'
 	import DisplayResult from '../DisplayResult.svelte'
 	import JobArgs from '../JobArgs.svelte'
 	import LogViewer from '../LogViewer.svelte'
@@ -56,23 +56,23 @@
 		}
 	})
 	$effect(() => {
-		id && testJobLoader && untrack(() => testJobLoader?.watchJob(id))
+		id && jobLoader && untrack(() => jobLoader?.watchJob(id))
 	})
 	$effect(() => {
-		job?.logs == undefined && job && viewTab == 'logs' && untrack(() => testJobLoader?.getLogs())
+		job?.logs == undefined && job && viewTab == 'logs' && untrack(() => jobLoader?.getLogs())
 	})
 	$effect(() => {
 		job?.id && lastJobId !== job.id && untrack(() => job && getConcurrencyKey(job))
 	})
 
-	let testJobLoader: TestJobLoader | undefined = $state(undefined)
+	let jobLoader: JobLoader | undefined = $state(undefined)
 </script>
 
-<TestJobLoader
+<JobLoader
 	lazyLogs
 	workspaceOverride={workspace}
 	bind:job={currentJob}
-	bind:this={testJobLoader}
+	bind:this={jobLoader}
 	on:done={onDone}
 />
 

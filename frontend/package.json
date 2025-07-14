@@ -180,10 +180,10 @@
 			"types": "./package/components/scriptBuilder.d.ts",
 			"default": "./package/components/scriptBuilder.js"
 		},
-		"./components/TestJobLoader.svelte": {
-			"types": "./package/components/TestJobLoader.svelte.d.ts",
-			"svelte": "./package/components/TestJobLoader.svelte",
-			"default": "./package/components/TestJobLoader.svelte"
+		"./components/JobLoader.svelte": {
+			"types": "./package/components/JobLoader.svelte.d.ts",
+			"svelte": "./package/components/JobLoader.svelte",
+			"default": "./package/components/JobLoader.svelte"
 		},
 		"./components/common/kbd/Kbd.svelte": {
 			"types": "./package/components/common/kbd/Kbd.svelte.d.ts",
@@ -404,8 +404,8 @@
 			"components/IconedResourceType.svelte": [
 				"./package/components/IconedResourceType.svelte.d.ts"
 			],
-			"components/TestJobLoader.svelte": [
-				"./package/components/TestJobLoader.svelte.d.ts"
+			"components/JobLoader.svelte": [
+				"./package/components/JobLoader.svelte.d.ts"
 			],
 			"components/SchemaForm.svelte": [
 				"./package/components/SchemaForm.svelte.d.ts"

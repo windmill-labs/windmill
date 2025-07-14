@@ -1,6 +1,6 @@
 <script lang="ts">
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
+	import JobLoader from '$lib/components/JobLoader.svelte'
 	import { Button } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
 	import LogPanel from '$lib/components/scriptEditor/LogPanel.svelte'
@@ -98,7 +98,7 @@
 		darkModeToggle?.toggle()
 	}
 
-	let testJobLoader: TestJobLoader | undefined = $state()
+	let jobLoader: JobLoader | undefined = $state()
 	let socket: WebSocket | undefined = undefined
 
 	// Test args input
@@ -160,7 +160,7 @@
 			}
 		} else if (event.data.type == 'testPreviewBundle') {
 			if (event.data.id == lastCommandId && currentScript) {
-				testJobLoader?.runPreview(
+				jobLoader?.runPreview(
 					currentScript.path,
 					event.data.file,
 					currentScript.language,
@@ -221,7 +221,7 @@
 	})
 
 	async function testBundle(file: string, isTar: boolean) {
-		testJobLoader?.abstractRun(async () => {
+		jobLoader?.abstractRun(async () => {
 			try {
 				const form = new FormData()
 				form.append(
@@ -338,7 +338,7 @@
 					)
 				} else {
 					//@ts-ignore
-					testJobLoader.runPreview(
+					jobLoader.runPreview(
 						currentScript.path,
 						currentScript.content,
 						currentScript.language,
@@ -637,10 +637,10 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
-<TestJobLoader
+<JobLoader
 	noCode={true}
 	on:done={loadPastTests}
-	bind:this={testJobLoader}
+	bind:this={jobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
 />
@@ -704,7 +704,7 @@
 			{/if}
 			<div class="flex justify-center pt-1">
 				{#if testIsLoading}
-					<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
+					<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
 						<WindmillIcon
 							white={true}
 							class="mr-2 text-white"

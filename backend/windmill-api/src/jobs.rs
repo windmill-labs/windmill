@@ -5845,7 +5845,7 @@ fn get_job_update_sse_stream(
         let mut i = 0;
         loop {
             i += 1;
-            let ms_duration = if i > 10 { 1000 } else if i > 50 { 5000 } else { 100 };
+            let ms_duration = if i > 10 { 500 } else if i > 100 { 3000 } else { 100 };
             tokio::time::sleep(std::time::Duration::from_millis(ms_duration)).await;
 
             match get_job_update_data(

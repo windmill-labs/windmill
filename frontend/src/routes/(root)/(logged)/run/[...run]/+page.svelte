@@ -60,7 +60,7 @@
 	} from '$lib/stores'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
+	import JobLoader from '$lib/components/JobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { ActionRow, Button, Skeleton, Tab, Alert, DrawerContent } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -108,7 +108,7 @@
 	let restartBranchNames: [number, string][] = []
 
 	let testIsLoading = $state(false)
-	let testJobLoader: TestJobLoader | undefined = $state(undefined)
+	let jobLoader: JobLoader | undefined = $state(undefined)
 
 	let persistentScriptDrawer: PersistentScriptDrawer | undefined = $state(undefined)
 
@@ -171,7 +171,7 @@
 	}
 
 	async function getJob() {
-		await testJobLoader?.watchJob($page.params.run)
+		await jobLoader?.watchJob($page.params.run)
 		initView()
 	}
 
@@ -355,7 +355,7 @@
 			job &&
 			viewTab == 'logs' &&
 			isNotFlow(job?.job_kind) &&
-			testJobLoader?.getLogs()
+			jobLoader?.getLogs()
 	})
 	$effect(() => {
 		job?.id && lastJobId !== job.id && untrack(() => getConcurrencyKey(job))
@@ -364,10 +364,7 @@
 		$workspaceStore && $page.params.run && untrack(() => onRunsPageChange())
 	})
 	$effect(() => {
-		$workspaceStore &&
-			$page.params.run &&
-			testJobLoader &&
-			untrack(() => onRunsPageChangeWithLoader())
+		$workspaceStore && $page.params.run && jobLoader && untrack(() => onRunsPageChangeWithLoader())
 	})
 	$effect(() => {
 		selectedJobStep !== undefined && untrack(() => onSelectedJobStepChange())
@@ -413,11 +410,11 @@
 	</Drawer>
 {/if}
 {#if !job || (job?.job_kind != 'flow' && job?.job_kind != 'flownode' && job?.job_kind != 'flowpreview')}
-	<TestJobLoader
+	<JobLoader
 		lazyLogs
 		bind:scriptProgress
 		on:done={() => job?.['result'] != undefined && (viewTab = 'result')}
-		bind:this={testJobLoader}
+		bind:this={jobLoader}
 		bind:isLoading={testIsLoading}
 		bind:job
 		bind:jobUpdateLastFetch

@@ -214,7 +214,6 @@
 
 		// Try SSE first, fall back to polling if needed
 		const isCompleted = await loadTestJobWithSSE(testId)
-		console.log('isCompleted', isCompleted)
 		if (!isCompleted && !currentEventSource) {
 			// If SSE didn't start (job might not be running yet), use polling
 			setTimeout(() => {

@@ -11,7 +11,7 @@
 	import SplitPanesWrapper from '../splitPanes/SplitPanesWrapper.svelte'
 	import SchemaForm from '../SchemaForm.svelte'
 	import RunnableJobPanelInner from '../apps/editor/RunnableJobPanelInner.svelte'
-	import TestJobLoader from '../TestJobLoader.svelte'
+	import JobLoader from '../JobLoader.svelte'
 	import type { Job } from '$lib/gen'
 
 	interface Props {
@@ -52,7 +52,7 @@
 		return {}
 	}
 
-	let testJobLoader: TestJobLoader | undefined = $state()
+	let jobLoader: JobLoader | undefined = $state()
 	let testJob: Job | undefined = $state()
 	let testIsLoading = $state(false)
 	let scriptProgress = $state(0)
@@ -71,7 +71,7 @@
 	async function testPreview() {
 		selectedTab = 'test'
 		if (runnable?.type == 'runnableByName' && runnable.inlineScript?.language != 'frontend') {
-			await testJobLoader?.runPreview(
+			await jobLoader?.runPreview(
 				appPath + '/' + id,
 				runnable.inlineScript?.content ?? '',
 				runnable.inlineScript?.language,
@@ -79,11 +79,11 @@
 				undefined
 			)
 		} else if (runnable?.type == 'runnableByPath') {
-			if (testJobLoader && runnable?.type == 'runnableByPath') {
+			if (jobLoader && runnable?.type == 'runnableByPath') {
 				if (runnable.runType == 'flow') {
-					await testJobLoader.runFlowByPath(runnable.path, args)
+					await jobLoader.runFlowByPath(runnable.path, args)
 				} else if (runnable.runType == 'script' || runnable.runType == 'hubscript') {
-					await testJobLoader.runScriptByPath(runnable.path, args)
+					await jobLoader.runScriptByPath(runnable.path, args)
 				}
 			}
 		}
@@ -94,10 +94,10 @@
 	})
 </script>
 
-<TestJobLoader
+<JobLoader
 	noCode={true}
 	bind:scriptProgress
-	bind:this={testJobLoader}
+	bind:this={jobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
 />
@@ -118,8 +118,8 @@
 						isLoading={testIsLoading}
 						onRun={testPreview}
 						onCancel={async () => {
-							if (testJobLoader) {
-								await testJobLoader.cancelJob()
+							if (jobLoader) {
+								await jobLoader.cancelJob()
 							}
 						}}
 						on:delete
@@ -137,8 +137,8 @@
 					isLoading={testIsLoading}
 					onRun={testPreview}
 					onCancel={async () => {
-						if (testJobLoader) {
-							await testJobLoader.cancelJob()
+						if (jobLoader) {
+							await jobLoader.cancelJob()
 						}
 					}}
 				/>
