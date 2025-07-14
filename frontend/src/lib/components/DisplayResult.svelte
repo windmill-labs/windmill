@@ -45,7 +45,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	let resultKind:
+	type ResultKind =
 		| 'json'
 		| 'table-col'
 		| 'table-row'
@@ -66,7 +66,8 @@
 		| 'map'
 		| 'nondisplayable'
 		| 'pdf'
-		| undefined = $state()
+		| undefined
+	let resultKind: ResultKind = $state()
 
 	let hasBigInt = $state(false)
 
@@ -300,7 +301,7 @@
 									'pdf'
 								].includes(renderer)
 							) {
-								return renderer
+								return renderer as ResultKind
 							}
 						}
 					}
