@@ -5742,77 +5742,16 @@ async fn get_job_update(
     Path((w_id, job_id)): Path<(String, Uuid)>,
     Query(JobUpdateQuery { log_offset, get_progress, running }): Query<JobUpdateQuery>,
 ) -> JsonResult<JobUpdate> {
-    let record = sqlx::query!(
-        "SELECT
-            c.id IS NOT NULL AS completed,
-            CASE 
-                WHEN q.id IS NOT NULL THEN (CASE WHEN NOT $5 AND q.running THEN true ELSE null END)
-                ELSE false
-            END AS running,
-            SUBSTR(logs, GREATEST($1 - log_offset, 0)) AS logs,
-            COALESCE(r.memory_peak, c.memory_peak) AS mem_peak,
-            CASE
-                -- flow step:
-                WHEN flow_step_id IS NOT NULL THEN NULL
-                -- completed:
-                WHEN c.id IS NOT NULL THEN COALESCE(
-                    c.workflow_as_code_status || c.flow_status,
-                    c.workflow_as_code_status,
-                    c.flow_status
-                )
-                -- not completed:
-                ELSE COALESCE(
-                    f.workflow_as_code_status || f.flow_status,
-                    f.workflow_as_code_status,
-                    f.flow_status
-                )
-            END AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",
-            job_logs.log_offset + CHAR_LENGTH(job_logs.logs) + 1 AS log_offset,
-            created_by AS \"created_by!\",
-            CASE WHEN $4::BOOLEAN THEN (
-                SELECT scalar_int FROM job_stats WHERE job_id = $3 AND metric_id = 'progress_perc'
-            ) END AS progress
-        FROM v2_job j
-            LEFT JOIN v2_job_queue q USING (id)
-            LEFT JOIN v2_job_runtime r USING (id)
-            LEFT JOIN v2_job_status f USING (id)
-            LEFT JOIN v2_job_completed c USING (id)
-            LEFT JOIN job_logs ON job_logs.job_id =  $3
-        WHERE j.workspace_id = $2 AND j.id = $3",
-        log_offset,
-        &w_id,
-        job_id,
-        get_progress.unwrap_or(false),
-        running,
-    )
-    .fetch_optional(&db)
-    .await?
-    .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
-
-    if opt_authed.is_none() && record.created_by != "anonymous" {
-        return Err(Error::BadRequest(
-            "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-        ));
-    }
-    log_job_view(
+    Ok(Json(get_job_update_data(
+        &opt_authed,
+        &opt_tokened,
         &db,
-        opt_authed.as_ref(),
-        opt_tokened.token.as_deref(),
         &w_id,
         &job_id,
-    )
-    .await?;
-    Ok(Json(JobUpdate {
-        running: record.running,
-        completed: record.completed,
-        log_offset: record.log_offset,
-        new_logs: record.logs,
-        mem_peak: record.mem_peak,
-        progress: record.progress,
-        flow_status: record
-            .flow_status
-            .map(|x: sqlx::types::Json<Box<RawValue>>| x.0),
-    }))
+        log_offset,
+        get_progress,
+        running,
+    ).await?))
 }
 
 async fn get_job_update_sse(
@@ -5947,7 +5886,7 @@ async fn get_job_update_data(
     log_offset: i32,
     get_progress: Option<bool>,
     running: bool,
-) -> Result<JobUpdate, Error> {
+) -> error::Result<JobUpdate> {
     let record = sqlx::query!(
         "SELECT
             c.id IS NOT NULL AS completed,

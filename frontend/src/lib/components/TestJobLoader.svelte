@@ -205,13 +205,14 @@
 		errorIteration = 0
 		currentId = testId
 		job = undefined
-		
+
 		// Clean up any existing SSE connection
 		currentEventSource?.close()
 		currentEventSource = undefined
-		
+
 		// Try SSE first, fall back to polling if needed
 		const isCompleted = await loadTestJobWithSSE(testId)
+		console.log('isCompleted', isCompleted)
 		if (!isCompleted && !currentEventSource) {
 			// If SSE didn't start (job might not be running yet), use polling
 			setTimeout(() => {
@@ -326,7 +327,7 @@
 				if (!job) {
 					job = await JobService.getJob({ workspace: workspace!, id, noLogs: lazyLogs })
 				}
-				
+
 				// If job is already completed, don't start SSE
 				if (job?.type === 'CompletedJob') {
 					isCompleted = true
@@ -341,7 +342,7 @@
 				// Only start SSE if job is running and we haven't started it yet
 				if (job && `running` in job && !currentEventSource) {
 					let getProgress: boolean | undefined = undefined
-					
+
 					// Check if we should get progress updates
 					if (job.job_kind == 'script' || isScriptPreview(job.job_kind)) {
 						if (lastTimeCheckedProgress) {
@@ -359,7 +360,7 @@
 					}
 
 					const offset = logOffset == 0 ? (job.logs?.length ? job.logs?.length + 1 : 0) : logOffset
-					
+
 					// Build SSE URL with query parameters
 					const params = new URLSearchParams({
 						running: job.running.toString(),
@@ -368,22 +369,22 @@
 					if (getProgress !== undefined) {
 						params.set('get_progress', getProgress.toString())
 					}
-					
+
 					const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${id}?${params.toString()}`
-					
+
 					currentEventSource = new EventSource(sseUrl)
-					
+
 					currentEventSource.onmessage = async (event) => {
 						if (currentId !== id) {
 							currentEventSource?.close()
 							currentEventSource = undefined
 							return
 						}
-						
+
 						try {
 							const previewJobUpdates = JSON.parse(event.data)
 							jobUpdateLastFetch = new Date()
-							
+
 							// Clamp number between two values with the following line:
 							const clamp = (num, min, max) => Math.min(Math.max(num, min), max)
 
@@ -410,13 +411,13 @@
 							if (previewJobUpdates.mem_peak && job) {
 								job.mem_peak = previewJobUpdates.mem_peak
 							}
-							
+
 							// Check if job is completed
 							if (previewJobUpdates.completed) {
 								job = await JobService.getJob({ workspace: workspace!, id })
 								currentEventSource?.close()
 								currentEventSource = undefined
-								
+
 								if (job?.type === 'CompletedJob') {
 									isCompleted = true
 									if (currentId === id) {
@@ -425,14 +426,14 @@
 										currentId = undefined
 									}
 								}
-							} else if ((previewJobUpdates.running ?? false)) {
+							} else if (previewJobUpdates.running ?? false) {
 								job = await JobService.getJob({ workspace: workspace!, id })
 							}
 						} catch (parseErr) {
 							console.warn('Failed to parse SSE data:', parseErr)
 						}
 					}
-					
+
 					currentEventSource.onerror = (error) => {
 						console.warn('SSE error:', error)
 						currentEventSource?.close()
@@ -440,12 +441,12 @@
 						// Fall back to polling on error
 						setTimeout(() => syncer(id), 1000)
 					}
-					
+
 					currentEventSource.onopen = () => {
 						console.log('SSE connection opened for job:', id)
 					}
 				}
-				
+
 				notfound = false
 			} catch (err) {
 				errorIteration += 1
