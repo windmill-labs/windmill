@@ -1203,8 +1203,8 @@ pub async fn update_postgres_trigger(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(postgres_trigger): Json<EditPostgresTrigger>,
 ) -> Result<String> {
-    let path = path.to_path();
-    check_scopes(&authed, || format!("postgres_triggers:write:{}", path))?;
+    let workspace_path = path.to_path();
+    check_scopes(&authed, || format!("postgres_triggers:write:{}", workspace_path))?;
 
     let EditPostgresTrigger {
         replication_slot_name,
@@ -1327,7 +1327,7 @@ pub async fn update_postgres_trigger(
     )
     .await?;
 
-    Ok(path.to_string())
+    Ok(workspace_path.to_string())
 }
 
 pub async fn delete_postgres_trigger(

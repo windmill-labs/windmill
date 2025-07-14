@@ -759,8 +759,8 @@ pub async fn update_mqtt_trigger(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(mqtt_trigger): Json<EditMqttTrigger>,
 ) -> error::Result<String> {
-    let path = path.to_path();
-    check_scopes(&authed, || format!("mqtt_triggers:write:{}", path))?;
+    let workspace_path = path.to_path();
+    check_scopes(&authed, || format!("mqtt_triggers:write:{}", workspace_path))?;
 
     let EditMqttTrigger {
         mqtt_resource_path,
