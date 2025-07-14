@@ -5861,6 +5861,17 @@ fn get_job_update_sse_stream(
                             
                             // Check if job is completed
                             if update.completed.unwrap_or(false) {
+                                // let full_job = get_job_by_id(db, &job_id).await?;
+
+                                let mut get = GetQuery::new()
+                                    .with_auth(&opt_authed)
+                                    .without_logs();
+
+                                let full_job = get.fetch(&db, job_id, &w_id).await?;
+
+                                tx.send(
+                                    format!("data: {{'completed': true, 'job': {}}}\n\n", 
+                                    serde_json::to_string(&full_job).unwrap())).await.unwrap();
                                 break;
                             }
                         }
