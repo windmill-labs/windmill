@@ -283,6 +283,34 @@
 			})
 	}
 
+	function removeSelectedScope(scopeToRemove: string) {
+		selectedScopes = selectedScopes.filter(scope => scope !== scopeToRemove)
+		
+		const baseScopeValue = scopeToRemove.includes(':') && scopeToRemove.split(':').length > 2 
+			? scopeToRemove.split(':').slice(0, 2).join(':')
+			: scopeToRemove
+		
+		const scopeState = getScopeState(baseScopeValue)
+		if (scopeState) {
+			if (scopeToRemove.includes(':') && scopeToRemove.split(':').length > 2) {
+				const pathPart = scopeToRemove.substring(baseScopeValue.length + 1)
+				const pathsToRemove = pathPart.split(',').map(p => p.trim())
+				scopeState.resourcePaths = scopeState.resourcePaths.filter(
+					path => !pathsToRemove.includes(path)
+				)
+				
+				if (scopeState.resourcePaths.length === 0) {
+					scopeState.isSelected = false
+				}
+			} else {
+				scopeState.isSelected = false
+				scopeState.resourcePaths = []
+			}
+			
+			updateDomainCheckboxState({ value: baseScopeValue } as ScopeDefinition)
+		}
+	}
+
 	function clearAllScopes() {
 		selectedScopes = []
 		for (const domainState of Object.values(componentState.domains)) {
@@ -483,9 +511,18 @@
 				<div class="flex flex-wrap gap-2">
 					{#each selectedScopes.slice(0, 10) as scope}
 						<span
-							class="inline-flex items-center px-2.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded font-mono"
+							class="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded font-mono"
 						>
 							{scope}
+							<button
+								type="button"
+								onclick={() => removeSelectedScope(scope)}
+								class="text-blue-600 hover:text-blue-800 flex-shrink-0"
+								title="Remove scope"
+								disabled={disabled}
+							>
+								<X size={10} />
+							</button>
 						</span>
 					{/each}
 					{#if selectedScopes.length > 10}
