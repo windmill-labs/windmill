@@ -15,6 +15,7 @@
 		allowEmpty?: boolean
 		class?: string
 		children?: import('svelte').Snippet<[any]>
+		onSelected?: (value: any) => void
 	}
 
 	let {
@@ -25,6 +26,7 @@
 		tabListClass = '',
 		allowEmpty = false,
 		class: className = '',
+		onSelected,
 		children
 	}: Props = $props()
 
@@ -40,6 +42,7 @@
 			}
 			if (curr !== next && curr !== undefined) {
 				dispatch('selected', next)
+				onSelected?.(next)
 			}
 			return next
 		}

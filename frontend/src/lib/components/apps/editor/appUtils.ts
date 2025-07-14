@@ -39,14 +39,14 @@ import gridHelp from '../svelte-grid/utils/helper'
 
 type GridItemLocation =
 	| {
-		type: 'grid'
-		gridItemIndex: number
-	}
+			type: 'grid'
+			gridItemIndex: number
+	  }
 	| {
-		type: 'subgrid'
-		subgridItemIndex: number
-		subgridKey: string
-	}
+			type: 'subgrid'
+			subgridItemIndex: number
+			subgridKey: string
+	  }
 interface GridItemWithLocation {
 	location: GridItemLocation
 	item: GridItem
@@ -187,7 +187,7 @@ export function selectId(
 	selectedComponent: Writable<string[] | undefined>,
 	app: App
 ) {
-	; (document?.activeElement as HTMLElement)?.blur()
+	;(document?.activeElement as HTMLElement)?.blur()
 	if (e.shiftKey) {
 		selectedComponent.update((old) => {
 			if (old && old?.[0]) {
@@ -492,11 +492,11 @@ export function appComponentFromType<T extends keyof typeof components>(
 			xData:
 				type === 'plotlycomponentv2' || type === 'chartjscomponentv2'
 					? {
-						type: 'evalv2',
-						fieldType: 'array',
-						expr: '[1, 2, 3, 4]',
-						connections: []
-					}
+							type: 'evalv2',
+							fieldType: 'array',
+							expr: '[1, 2, 3, 4]',
+							connections: []
+						}
 					: undefined,
 			...(extra ?? {})
 		}
@@ -903,33 +903,33 @@ export type InitConfig<
 		| EvalAppInput
 		| EvalV2AppInput
 		| {
-			type: 'oneOf'
-			selected: string
-			configuration: Record<
-				string,
-				Record<string, StaticAppInput | EvalAppInput | EvalV2AppInput>
-			>
-		}
+				type: 'oneOf'
+				selected: string
+				configuration: Record<
+					string,
+					Record<string, StaticAppInput | EvalAppInput | EvalV2AppInput>
+				>
+		  }
 	>
 > = {
-		[Property in keyof T]: T[Property] extends StaticAppInput
+	[Property in keyof T]: T[Property] extends StaticAppInput
 		? T[Property]['value'] | undefined
 		: T[Property] extends { type: 'oneOf' }
-		? {
-			type: 'oneOf'
-			selected: keyof T[Property]['configuration']
-			configuration: {
-				[Choice in keyof T[Property]['configuration']]: {
-					[IT in keyof T[Property]['configuration'][Choice]]: T[Property]['configuration'][Choice][IT] extends StaticAppInput
-					? T[Property]['configuration'][Choice][IT] extends StaticAppInputOnDemand
-					? () => Promise<T[Property]['configuration'][Choice][IT]['value'] | undefined>
-					: T[Property]['configuration'][Choice][IT]['value'] | undefined
-					: undefined
+			? {
+					type: 'oneOf'
+					selected: keyof T[Property]['configuration']
+					configuration: {
+						[Choice in keyof T[Property]['configuration']]: {
+							[IT in keyof T[Property]['configuration'][Choice]]: T[Property]['configuration'][Choice][IT] extends StaticAppInput
+								? T[Property]['configuration'][Choice][IT] extends StaticAppInputOnDemand
+									? () => Promise<T[Property]['configuration'][Choice][IT]['value'] | undefined>
+									: T[Property]['configuration'][Choice][IT]['value'] | undefined
+								: undefined
+						}
+					}
 				}
-			}
-		}
-		: undefined
-	}
+			: undefined
+}
 
 export function initConfig<
 	T extends Record<
@@ -938,13 +938,13 @@ export function initConfig<
 		| EvalAppInput
 		| EvalV2AppInput
 		| {
-			type: 'oneOf'
-			selected: string
-			configuration: Record<
-				string,
-				Record<string, StaticAppInput | EvalAppInput | EvalV2AppInput>
-			>
-		}
+				type: 'oneOf'
+				selected: string
+				configuration: Record<
+					string,
+					Record<string, StaticAppInput | EvalAppInput | EvalV2AppInput>
+				>
+		  }
 	>
 >(
 	r: T,
@@ -952,13 +952,13 @@ export function initConfig<
 		string,
 		| StaticAppInput
 		| {
-			type: 'oneOf'
-			selected: string
-			configuration: Record<
-				string,
-				Record<string, StaticAppInput | EvalAppInput | EvalV2AppInput | boolean>
-			>
-		}
+				type: 'oneOf'
+				selected: string
+				configuration: Record<
+					string,
+					Record<string, StaticAppInput | EvalAppInput | EvalV2AppInput | boolean>
+				>
+		  }
 		| any
 	>
 ): InitConfig<T> {
@@ -968,31 +968,31 @@ export function initConfig<
 				Object.entries(r).map(([key, value]) =>
 					value.type == 'static'
 						? [
-							key,
-							configuration?.[key]?.type == 'static' ? configuration?.[key]?.['value'] : undefined
-						]
+								key,
+								configuration?.[key]?.type == 'static' ? configuration?.[key]?.['value'] : undefined
+							]
 						: value.type == 'oneOf'
 							? [
-								key,
-								{
-									selected: value.selected,
-									type: 'oneOf',
-									configuration: Object.fromEntries(
-										Object.entries(value.configuration).map(([choice, config]) => {
-											const conf = initConfig(
-												config,
-												configuration?.[key]?.configuration?.[choice]
-											)
-											Object.entries(config).forEach(([innerKey, innerValue]) => {
-												if (innerValue.type === 'static' && !(innerKey in conf)) {
-													conf[innerKey] = innerValue.value
-												}
+									key,
+									{
+										selected: value.selected,
+										type: 'oneOf',
+										configuration: Object.fromEntries(
+											Object.entries(value.configuration).map(([choice, config]) => {
+												const conf = initConfig(
+													config,
+													configuration?.[key]?.configuration?.[choice]
+												)
+												Object.entries(config).forEach(([innerKey, innerValue]) => {
+													if (innerValue.type === 'static' && !(innerKey in conf)) {
+														conf[innerKey] = innerValue.value
+													}
+												})
+												return [choice, conf]
 											})
-											return [choice, conf]
-										})
-									)
-								}
-							]
+										)
+									}
+								]
 							: [key, undefined]
 				)
 			) as any
@@ -1319,6 +1319,7 @@ export function isContainer(type: string): boolean {
 		type === 'horizontalsplitpanescomponent' ||
 		type === 'steppercomponent' ||
 		type === 'listcomponent' ||
+		type === 'carousellistcomponent' ||
 		type === 'decisiontreecomponent'
 	)
 }
@@ -1335,6 +1336,9 @@ export function subGridIndexKey(type: string | undefined, id: string, world: Wor
 		}
 		case 'steppercomponent': {
 			return (world?.outputsById?.[id]?.currentStepIndex?.peak() as number) ?? 0
+		}
+		case 'carousellistcomponent': {
+			return (world?.outputsById?.[id]?.currentIndex?.peak() as number) ?? 0
 		}
 		case 'decisiontreecomponent': {
 			return (world?.outputsById?.[id]?.currentNodeIndex?.peak() as number) ?? 0

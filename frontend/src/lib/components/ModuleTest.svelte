@@ -1,17 +1,8 @@
-<script lang="ts" module>
-	type testModuleState = {
-		loading: boolean
-		cancel?: () => void
-	}
-
-	let testModulesState = $state<Record<string, testModuleState>>({})
-</script>
-
 <script lang="ts">
 	import { ScriptService, type FlowModule, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getScriptByPath } from '$lib/scripts'
-	import { getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
@@ -32,7 +23,7 @@
 		scriptProgress = $bindable(undefined)
 	}: Props = $props()
 
-	const { flowStore, flowStateStore, pathStore, testSteps, previewArgs } =
+	const { flowStore, flowStateStore, pathStore, testSteps, previewArgs, modulesTestStates } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let testJobLoader: TestJobLoader | undefined = $state(undefined)
@@ -52,7 +43,13 @@
 		// Not defined if JobProgressBar not loaded
 		if (jobProgressReset) jobProgressReset()
 
-		testModulesState[mod.id].cancel = testJobLoader?.cancelJob
+		if (modulesTestStates.states[mod.id]) {
+			modulesTestStates.states[mod.id].cancel = async () => {
+				await testJobLoader?.cancelJob()
+				modulesTestStates.states[mod.id].testJob = undefined
+			}
+			modulesTestStates.runTestCb?.(mod.id)
+		}
 
 		const val = mod.value
 		// let jobId: string | undefined = undefined
@@ -95,24 +92,28 @@
 			}
 			stepHistoryLoader?.resetInitial(mod.id)
 		}
-		testJob = undefined
+		modulesTestStates.states[mod.id].testJob = undefined
 	}
 
 	export function cancelJob() {
-		testModulesState[mod.id]?.cancel?.()
+		modulesTestStates.states[mod.id]?.cancel?.()
 	}
 
 	$effect(() => {
-		testIsLoading = testModulesState[mod.id]?.loading ?? false
+		// Update testIsLoading to read the state from parent components
+		testIsLoading = modulesTestStates.states[mod.id]?.loading ?? false
 	})
 
-	onMount(() => {
-		const modId = mod.id
-		testModulesState[modId] = {
-			...(testModulesState[modId] ?? { loading: false, instances: 0 }),
-			loading: testIsLoading
-		}
+	$effect(() => {
+		// Update testJob to read the state from parent components
+		testJob = modulesTestStates.states[mod.id]?.testJob
 	})
+
+	modulesTestStates.states[mod.id] = {
+		...(modulesTestStates.states[mod.id] ?? { loading: false }),
+		loading: testIsLoading,
+		testJob: testJob
+	}
 </script>
 
 <TestJobLoader
@@ -121,16 +122,16 @@
 	bind:scriptProgress
 	bind:this={testJobLoader}
 	bind:isLoading={
-		() => testModulesState[mod.id]?.loading ?? false,
+		() => modulesTestStates.states[mod.id]?.loading ?? false,
 		(v) => {
 			let newLoading = v ?? false
-			if (testModulesState[mod.id]?.loading !== newLoading) {
-				testModulesState[mod.id] = {
-					...(testModulesState[mod.id] ?? {}),
+			if (modulesTestStates.states[mod.id]?.loading !== newLoading) {
+				modulesTestStates.states[mod.id] = {
+					...(modulesTestStates.states[mod.id] ?? {}),
 					loading: newLoading
 				}
 			}
 		}
 	}
-	bind:job={testJob}
+	bind:job={modulesTestStates.states[mod.id].testJob}
 />

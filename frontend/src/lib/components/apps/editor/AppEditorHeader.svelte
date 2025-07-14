@@ -8,7 +8,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AppService, DraftService, type Policy } from '$lib/gen'
-	import { redo, undo } from '$lib/history'
+	import { redo, undo } from '$lib/history.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import {
 		AlignHorizontalSpaceAround,
@@ -32,7 +32,7 @@
 		Globe,
 		AlertTriangle
 	} from 'lucide-svelte'
-	import { createEventDispatcher, getContext, untrack } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import {
 		cleanValueProperties,
 		orderedJsonStringify,
@@ -57,7 +57,6 @@
 	import { secondaryMenuLeftStore, secondaryMenuRightStore } from './settingsPanel/secondaryMenu'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import AppEditorTutorial from './AppEditorTutorial.svelte'
-	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import AppReportsDrawer from './AppReportsDrawer.svelte'
 	import { type ColumnDef, getPrimaryKeys } from '../components/display/dbtable/utils'
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
@@ -82,6 +81,7 @@
 	import { collectStaticFields, type TriggerableV2 } from './commonAppUtils'
 	import LazyModePanel from './contextPanel/LazyModePanel.svelte'
 	import { Sha256 } from '@aws-crypto/sha256-js'
+	import type { DiffDrawerI } from '$lib/components/diff_drawer'
 
 	async function hash(message) {
 		try {
@@ -103,7 +103,7 @@
 	interface Props {
 		policy: Policy
 		fromHub?: boolean
-		diffDrawer?: DiffDrawer | undefined
+		diffDrawer?: DiffDrawerI | undefined
 		savedApp?:
 			| {
 					value: App
@@ -122,6 +122,13 @@
 		newApp: boolean
 		newPath?: string
 		unsavedConfirmationModal?: import('svelte').Snippet<[any]>
+		onSavedNewAppPath?: (path: string) => void
+		onShowRightPanel?: () => void
+		onShowLeftPanel?: () => void
+		onShowBottomPanel?: () => void
+		onHideRightPanel?: () => void
+		onHideLeftPanel?: () => void
+		onHideBottomPanel?: () => void
 	}
 
 	let {
@@ -135,7 +142,14 @@
 		bottomPanelHidden = false,
 		newApp,
 		newPath = '',
-		unsavedConfirmationModal
+		unsavedConfirmationModal,
+		onSavedNewAppPath,
+		onShowLeftPanel,
+		onShowRightPanel,
+		onShowBottomPanel,
+		onHideLeftPanel,
+		onHideRightPanel,
+		onHideBottomPanel
 	}: Props = $props()
 
 	let newEditedPath = $state('')
@@ -406,7 +420,7 @@
 			} catch (e) {
 				console.error('error interacting with local storage', e)
 			}
-			dispatch('savedNewAppPath', path)
+			onSavedNewAppPath?.(path)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
 		}
@@ -509,7 +523,7 @@
 			} catch (e) {
 				console.error('error interacting with local storage', e)
 			}
-			dispatch('savedNewAppPath', npath)
+			onSavedNewAppPath?.(npath)
 		}
 	}
 
@@ -589,7 +603,7 @@
 			}
 
 			draftDrawerOpen = false
-			dispatch('savedNewAppPath', newEditedPath)
+			onSavedNewAppPath?.(newEditedPath)
 		} catch (e) {
 			sendUserToast('Error saving initial draft', e)
 		}
@@ -686,7 +700,7 @@
 			}
 			loading.saveDraft = false
 			if (newApp || savedApp.draft_only) {
-				dispatch('savedNewAppPath', newEditedPath || path)
+				onSavedNewAppPath?.(newEditedPath || path)
 			}
 		} catch (e) {
 			loading.saveDraft = false
@@ -891,8 +905,6 @@
 		debugAppDrawerOpen = true
 	}
 
-	const dispatch = createEventDispatcher()
-
 	function setTheme(newDarkMode: boolean | undefined) {
 		let globalDarkMode = window.localStorage.getItem('dark-mode')
 			? window.localStorage.getItem('dark-mode') === 'dark'
@@ -981,8 +993,8 @@
 	})}
 {/if}
 <DeployOverrideConfirmationModal
-	bind:deployedBy
-	bind:confirmCallback
+	{deployedBy}
+	{confirmCallback}
 	bind:open
 	{diffDrawer}
 	bind:deployedValue
@@ -1442,9 +1454,9 @@
 				hidden={leftPanelHidden}
 				on:click={() => {
 					if (leftPanelHidden) {
-						dispatch('showLeftPanel')
+						onShowLeftPanel?.()
 					} else {
-						dispatch('hideLeftPanel')
+						onHideLeftPanel?.()
 					}
 				}}
 			/>
@@ -1453,9 +1465,9 @@
 				direction="bottom"
 				on:click={() => {
 					if (bottomPanelHidden) {
-						dispatch('showBottomPanel')
+						onShowBottomPanel?.()
 					} else {
-						dispatch('hideBottomPanel')
+						onHideBottomPanel?.()
 					}
 				}}
 			/>
@@ -1464,9 +1476,9 @@
 				direction="right"
 				on:click={() => {
 					if (rightPanelHidden) {
-						dispatch('showRightPanel')
+						onShowRightPanel?.()
 					} else {
-						dispatch('hideRightPanel')
+						onHideRightPanel?.()
 					}
 				}}
 			/>

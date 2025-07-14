@@ -1,4 +1,4 @@
-import { NatsTriggerService } from '$lib/gen'
+import { NatsTriggerService, type EditNatsTrigger } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { get, type Writable } from 'svelte/store'
 
@@ -9,7 +9,14 @@ export async function saveNatsTriggerFromCfg(
 	workspace: string,
 	usedTriggerKinds: Writable<string[]>
 ): Promise<boolean> {
-	const requestBody = {
+	const errorHandlerAndRetries = !cfg.is_flow
+		? {
+				error_handler_path: cfg.error_handler_path,
+				error_handler_args: cfg.error_handler_path ? cfg.error_handler_args : undefined,
+				retry: cfg.retry
+			}
+		: {}
+	const requestBody: EditNatsTrigger = {
 		path: cfg.path,
 		script_path: cfg.script_path,
 		is_flow: cfg.is_flow,
@@ -17,7 +24,8 @@ export async function saveNatsTriggerFromCfg(
 		stream_name: cfg.stream_name,
 		consumer_name: cfg.consumer_name,
 		subjects: cfg.subjects,
-		use_jetstream: cfg.use_jetstream
+		use_jetstream: cfg.use_jetstream,
+		...errorHandlerAndRetries
 	}
 	try {
 		if (edit) {

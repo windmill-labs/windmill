@@ -2,6 +2,7 @@ use async_recursion::async_recursion;
 
 use itertools::Itertools;
 use lazy_static::lazy_static;
+use process_wrap::tokio::TokioChildWrapper;
 use regex::Regex;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -41,7 +42,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use uuid::Uuid;
 use windmill_common::{variables, DB};
 
-use tokio::{io::AsyncWriteExt, process::Child, time::Instant};
+use tokio::{io::AsyncWriteExt, time::Instant};
 
 use crate::agent_workers::UPDATE_PING_URL;
 use crate::{DISABLE_NSJAIL, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE, MAX_TIMEOUT_DURATION, PATH_ENV};
@@ -611,7 +612,22 @@ impl OccupancyMetrics {
     }
 }
 
-pub async fn start_child_process(mut cmd: Command, executable: &str) -> Result<Child, Error> {
+pub async fn start_child_process(
+    cmd: Command,
+    executable: &str,
+) -> Result<Box<dyn TokioChildWrapper>, Error> {
+    use process_wrap::tokio::*;
+    let mut cmd = TokioCommandWrap::from(cmd);
+    #[cfg(unix)]
+    {
+        use process_wrap::tokio::ProcessGroup;
+
+        cmd.wrap(ProcessGroup::leader());
+    }
+    #[cfg(windows)]
+    {
+        cmd.wrap(JobObject);
+    }
     return cmd
         .spawn()
         .map_err(|err| tentatively_improve_error(err.into(), executable));

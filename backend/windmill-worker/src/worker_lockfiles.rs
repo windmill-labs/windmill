@@ -11,6 +11,9 @@ use serde_json::{json, Value};
 use sha2::Digest;
 use sqlx::types::Json;
 use uuid::Uuid;
+use windmill_common::assets::{
+    clear_asset_usage, insert_asset_usage, parse_assets, AssetUsageKind,
+};
 use windmill_common::error::Error;
 use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
@@ -608,6 +611,7 @@ async fn trigger_dependents_to_recompute_dependencies(
             &created_by,
             email,
             permissioned_as.to_string(),
+            Some("trigger.dependents.to.recompute.dependencies"),
             None,
             None,
             None,
@@ -717,6 +721,8 @@ pub async fn handle_flow_dependency_job(
         .execute(&mut *tx)
         .await?;
     }
+    clear_asset_usage(&mut *tx, &job.workspace_id, &job_path, AssetUsageKind::Flow).await?;
+
     let modified_ids;
     let errors;
     (flow.modules, tx, modified_ids, errors) = lock_modules(
@@ -928,6 +934,7 @@ async fn lock_modules<'c>(
             concurrent_limit,
             concurrency_time_window_s,
             is_trigger,
+            asset_fallback_access_types,
         } = e.get_value()?
         else {
             match e.get_value()? {
@@ -1115,6 +1122,18 @@ async fn lock_modules<'c>(
             continue;
         };
 
+        for asset in parse_assets(&content, language)?.iter().flatten() {
+            insert_asset_usage(
+                &mut *tx,
+                &job.workspace_id,
+                asset,
+                asset_fallback_access_types.as_ref().map(Vec::as_slice),
+                job_path,
+                AssetUsageKind::Flow,
+            )
+            .await?;
+        }
+
         if let Some(locks_to_reload) = locks_to_reload {
             if !locks_to_reload.contains(&e.id) {
                 new_flow_modules.push(e);
@@ -1210,6 +1229,7 @@ async fn lock_modules<'c>(
                 None
             }
         };
+
         e.value = windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
             lock,
             path,
@@ -1221,8 +1241,10 @@ async fn lock_modules<'c>(
             concurrent_limit,
             concurrency_time_window_s,
             is_trigger,
+            asset_fallback_access_types,
         });
         new_flow_modules.push(e);
+
         continue;
     }
 

@@ -24,7 +24,7 @@
 		disableMock?: boolean
 		disableHistory?: boolean
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
-		loadingHistory?: boolean
+		loadingJob?: boolean
 	}
 
 	let {
@@ -40,25 +40,14 @@
 		disableMock = false,
 		disableHistory = false,
 		onUpdateMock,
-		loadingHistory = false
+		loadingJob = false
 	}: Props = $props()
 
 	const { testSteps } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let selectedJob: Job | undefined = $state(undefined)
-	let fetchingLastJob = false
 	let preview: 'mock' | 'job' | undefined = $state(undefined)
 	let jobProgressReset: () => void = $state(() => {})
-
-	let nlastJob = $derived.by(() => {
-		if (testJob && testJob.type === 'CompletedJob') {
-			return { ...testJob, preview: true }
-		}
-		if (lastJob) {
-			return { ...lastJob, preview: false }
-		}
-		return undefined
-	})
 
 	let forceJson = $state(false)
 
@@ -77,7 +66,8 @@
 		{/if}
 
 		<OutputPickerInner
-			lastJob={nlastJob}
+			{lastJob}
+			{testJob}
 			fullResult
 			moduleId={mod.id}
 			closeOnOutsideClick={true}
@@ -86,7 +76,7 @@
 			mock={mod.mock}
 			bind:forceJson
 			bind:selectedJob
-			isLoading={(testIsLoading && !scriptProgress) || fetchingLastJob || loadingHistory}
+			isLoading={testIsLoading || loadingJob}
 			bind:preview
 			path={`path` in mod.value ? mod.value.path : ''}
 			{loopStatus}
@@ -116,9 +106,7 @@
 				duration={logJob?.['duration_ms']}
 				mem={logJob?.['mem_peak']}
 				content={logJob?.logs}
-				isLoading={(testIsLoading && logJob?.['running'] == false) ||
-					fetchingLastJob ||
-					loadingHistory}
+				isLoading={(testIsLoading && logJob?.['running'] == false) || loadingJob}
 				tag={logJob?.tag}
 			/>
 		{/if}
