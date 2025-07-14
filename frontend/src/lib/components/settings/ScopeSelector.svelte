@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { type ScopeDomain, type ScopeDefinition, TokenService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { Loader2, Plus, X } from 'lucide-svelte'
+	import { ChevronRight, Loader2, Plus, X } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import Popover from '../meltComponents/Popover.svelte'
 
@@ -513,6 +513,13 @@
 						onclick={() => toggleDomainExpansion(domain.name)}
 					>
 						<div class="flex items-center gap-3">
+							<div class="flex-shrink-0">
+								<ChevronRight 
+									size={16} 
+									class="text-secondary transition-transform duration-200 {isExpanded ? 'rotate-90' : ''}"
+								/>
+							</div>
+
 							<div class="flex-shrink-0">
 								<input
 									type="checkbox"
