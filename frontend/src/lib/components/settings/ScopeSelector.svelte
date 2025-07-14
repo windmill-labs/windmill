@@ -584,9 +584,21 @@
 									</label>
 									{#each selectedScopes as scope}
 										<span
-											class="inline-flex items-center px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded font-mono"
+											class="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded font-mono"
 										>
 											{scope}
+											<button
+												type="button"
+												onclick={(e) => {
+													e.stopPropagation()
+													removeSelectedScope(scope)
+												}}
+												class="text-blue-600 hover:text-blue-800 flex-shrink-0"
+												title="Remove scope"
+												disabled={disabled}
+											>
+												<X size={10} />
+											</button>
 										</span>
 									{/each}
 								</div>
