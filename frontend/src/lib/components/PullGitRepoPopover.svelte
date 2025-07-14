@@ -275,7 +275,7 @@
 				<h3 class="text-lg font-semibold">Pull workspace from Git repository</h3>
 				<div class="prose max-w-none text-2xs text-tertiary">
 					This action will pull all workspace objects from your Git repository according to the
-					filters set in the Git repository wmill.yaml file and apply does filter settings to the
+					filters set in the Git repository wmill.yaml file and apply those filter settings to the
 					workspace.
 					<span class="text-orange-600 flex items-center gap-1">
 						<AlertTriangle size={14} /> This will overwrite your current workspace content and Git sync
