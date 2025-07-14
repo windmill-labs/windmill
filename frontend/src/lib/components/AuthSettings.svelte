@@ -234,36 +234,49 @@
 									<span class="text-primary font-semibold text-sm">Client Secret</span>
 									<input type="text" placeholder="Client Secret" bind:value={oauths[k]['secret']} />
 								</label>
-								<div style="margin-bottom: 8px;">
-									<div style="display: flex; align-items: center; gap: 8px;">
-										<input 
-											type="checkbox" 
-											style="width: 16px; height: 16px; margin: 0;"
-											checked={oauths?.[k]?.['grant_types']?.includes('client_credentials') ?? false}
-											onchange={(e) => {
-												const target = e.target as HTMLInputElement;
-												if (oauths && oauths[k]) {
-													if (!oauths[k]['grant_types']) {
-														oauths[k]['grant_types'] = ['authorization_code']
-													}
-													if (target.checked) {
-														if (!oauths[k]['grant_types'].includes('client_credentials')) {
-															oauths[k]['grant_types'] = [...oauths[k]['grant_types'], 'client_credentials']
+								{#if k === 'visma' || !windmillBuiltins.includes(k)}
+									<div style="margin-bottom: 8px;">
+										<div style="display: flex; align-items: center; gap: 8px;">
+											<input
+												type="checkbox"
+												style="width: 16px; height: 16px; margin: 0;"
+												checked={oauths?.[k]?.['grant_types']?.includes('client_credentials') ??
+													false}
+												onchange={(e) => {
+													const target = e.target as HTMLInputElement
+													if (oauths && oauths[k]) {
+														if (!oauths[k]['grant_types']) {
+															oauths[k]['grant_types'] = ['authorization_code']
 														}
-													} else {
-														oauths[k]['grant_types'] = oauths[k]['grant_types'].filter(gt => gt !== 'client_credentials')
+														if (target.checked) {
+															if (!oauths[k]['grant_types'].includes('client_credentials')) {
+																oauths[k]['grant_types'] = [
+																	...oauths[k]['grant_types'],
+																	'client_credentials'
+																]
+															}
+														} else {
+															oauths[k]['grant_types'] = oauths[k]['grant_types'].filter(
+																(gt) => gt !== 'client_credentials'
+															)
+														}
 													}
-												}
-											}}
-										/>
-										<span style="font-size: 14px; font-weight: 600;">Support Client Credentials Flow</span>
-										<Tooltip>
-											Enables server-to-server authentication without user interaction. Use for automated scripts and background jobs.
-											<br><br>
-											When enabled, users can provide their own client credentials at the resource level. The Client ID and Secret configured above are only used for the traditional OAuth flow (popup window).
-										</Tooltip>
+												}}
+											/>
+											<span style="font-size: 14px; font-weight: 600;"
+												>Support Client Credentials Flow</span
+											>
+											<Tooltip>
+												Enables server-to-server authentication without user interaction. Use for
+												automated scripts and background jobs.
+												<br /><br />
+												When enabled, users can provide their own client credentials at the resource
+												level. The Client ID and Secret configured above are only used for the traditional
+												OAuth flow (popup window).
+											</Tooltip>
+										</div>
 									</div>
-								</div>
+								{/if}
 								{#if k === 'azure_oauth'}
 									<AzureOauthSettings bind:connect_config={oauths[k]['connect_config']} />
 								{:else if !windmillBuiltins.includes(k) && k != 'slack'}
