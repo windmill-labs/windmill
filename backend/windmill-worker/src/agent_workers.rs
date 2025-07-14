@@ -14,6 +14,17 @@ pub async fn queue_init_job(client: &HttpClient, content: &str) -> anyhow::Resul
         .and_then(|x: String| Uuid::parse_str(&x).map_err(|e| anyhow::anyhow!(e)))
 }
 
+pub async fn queue_periodic_job(client: &HttpClient, content: &str) -> anyhow::Result<Uuid> {
+    client
+        .post(
+            "/api/agent_workers/queue_periodic_job",
+            None,
+            &QueueInitJob { content: content.to_string() },
+        )
+        .await
+        .and_then(|x: String| Uuid::parse_str(&x).map_err(|e| anyhow::anyhow!(e)))
+}
+
 pub async fn pull_job(
     client: &HttpClient,
     headers: Option<HeaderMap>,
