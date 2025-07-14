@@ -114,7 +114,6 @@
 		for (const domain of scopeDomains) {
 			const domainState = createDomainState(domain)
 
-			// Check if domain has full access
 			const writeScopeValue = getWriteScopeForDomain(domain)
 			const hasWriteSelected =
 				writeScopeValue &&
@@ -123,17 +122,16 @@
 				)
 
 			const runScopes = domain.scopes.filter((scope) => scope.value.includes(':run:'))
+
 			const hasRunScopesSelected =
-				runScopes.length > 0 &&
+				runScopes.length === 0 ||
 				runScopes.every((runScope) =>
 					selectedScopes.some(
 						(scope) => scope === runScope.value || scope.startsWith(runScope.value + ':')
 					)
 				)
 
-			domainState.hasFullAccess = Boolean(
-				hasWriteSelected && (runScopes.length === 0 || hasRunScopesSelected)
-			)
+			domainState.hasFullAccess = Boolean(hasWriteSelected && hasRunScopesSelected)
 
 			// Initialize individual scope states
 			for (const scope of domain.scopes) {
@@ -263,12 +261,12 @@
 		const hasWriteSelected = writeScope && domainState.scopes[writeScope]?.isSelected
 
 		const runScopes = domain.scopes.filter((scope) => scope.value.includes(':run:'))
+
 		const hasRunScopesSelected =
-			runScopes.length > 0 &&
+			runScopes.length === 0 ||
 			runScopes.every((runScope) => domainState.scopes[runScope.value]?.isSelected)
 
-		const isDomainFullySelected =
-			hasWriteSelected && (runScopes.length === 0 || hasRunScopesSelected)
+		const isDomainFullySelected = hasWriteSelected && hasRunScopesSelected
 		domainState.hasFullAccess = Boolean(isDomainFullySelected)
 	}
 
@@ -418,17 +416,16 @@
 				)
 
 			const runScopes = domain.scopes.filter((scope) => scope.value.includes(':run:'))
+
 			const hasRunScopesSelected =
-				runScopes.length > 0 &&
+				runScopes.length === 0 ||
 				runScopes.every((runScope) =>
 					selectedScopes.some(
 						(scope) => scope === runScope.value || scope.startsWith(runScope.value + ':')
 					)
 				)
 
-			domainState.hasFullAccess = Boolean(
-				hasWriteSelected && (runScopes.length === 0 || hasRunScopesSelected)
-			)
+			domainState.hasFullAccess = Boolean(hasWriteSelected && hasRunScopesSelected)
 
 			for (const scope of domain.scopes) {
 				const scopeState = domainState.scopes[scope.value]
