@@ -4,6 +4,7 @@
 	import { ChevronRight, Loader2, Plus, X } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import Popover from '../meltComponents/Popover.svelte'
+	import Tooltip from '../Tooltip.svelte'
 
 	interface Props {
 		selectedScopes?: string[]
@@ -450,7 +451,7 @@
 	fetchScopeDomains()
 </script>
 
-<div class="w-full {className} border p-2">
+<div class="w-full {className} p-2">
 	{#if loading}
 		<div class="flex items-center justify-center py-12">
 			<Loader2 size={32} class="animate-spin text-primary" />
@@ -498,7 +499,7 @@
 			{/if}
 		</div>
 
-		<div class="space-y-3 max-h-96 overflow-y-auto">
+		<div class="space-y-3 max-h-96 overflow-y-auto border rounded-lg p-4">
 			{#each scopeDomains as domain}
 				{@const domainState = getDomainState(domain.name)}
 				{@const isExpanded = domainState?.isExpanded || false}
@@ -509,14 +510,18 @@
 					<!-- svelte-ignore a11y_click_events_have_key_events -->
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="p-4 bg-surface-secondary cursor-pointer hover:bg-surface-tertiary transition-colors {isExpanded ? 'border-b' : ''}"
+						class="p-4 bg-surface-secondary cursor-pointer hover:bg-surface-tertiary transition-colors {isExpanded
+							? 'border-b'
+							: ''}"
 						onclick={() => toggleDomainExpansion(domain.name)}
 					>
 						<div class="flex items-center gap-3">
 							<div class="flex-shrink-0">
-								<ChevronRight 
-									size={16} 
-									class="text-secondary transition-transform duration-200 {isExpanded ? 'rotate-90' : ''}"
+								<ChevronRight
+									size={16}
+									class="text-secondary transition-transform duration-200 {isExpanded
+										? 'rotate-90'
+										: ''}"
 								/>
 							</div>
 
@@ -587,83 +592,99 @@
 														: 'cursor-pointer'}"
 												/>
 
-												<p class="font-medium text-xs truncate {isDisabled ? 'text-tertiary' : ''}">
+												<label
+													for={`scope-${scope.value}`}
+													class="font-medium text-xs truncate cursor-pointer {isDisabled
+														? 'text-tertiary cursor-not-allowed'
+														: ''}"
+												>
 													{scope.label}
-												</p>
+												</label>
 											</div>
-											{#if scope.requires_resource_path && isSelected}
-												<Popover closeOnOtherPopoverOpen contentClasses="p-3">
-													{#snippet trigger()}
-														<Button size="sm" variant="border">
-															<Plus size={16} />
-														</Button>
-													{/snippet}
-													{#snippet content({ close })}
-														<div class="w-80">
-															<p class="block text-xs font-medium text-secondary mb-2">
-																Add Path
-															</p>
-
-															<div class="mb-3">
-																<div class="flex gap-2">
-																	<input
-																		type="text"
-																		value={currentInput}
-																		placeholder="e.g., u/username/*, f/folder/script.py"
-																		{disabled}
-																		oninput={(e) => {
-																			if (scopeState) {
-																				scopeState.currentInputValue = e.currentTarget.value
-																				scopeState.pathError = undefined
-																			}
-																		}}
-																		onkeydown={(e) => {
-																			if (e.key === 'Enter' && currentInput.trim()) {
-																				e.preventDefault()
+											<div class="flex-shrink-0">
+												{#if scope.requires_resource_path}
+													<Popover disabled={isDisabled} closeOnOtherPopoverOpen contentClasses="p-3">
+														{#snippet trigger()}
+															<Button
+																size="xs"
+																variant="border"
+																startIcon={{ icon: Plus }}
+																tooltipPopover={{ placement: 'top' }}
+																disabled={isDisabled}
+															>
+																Resource paths
+																<Tooltip>
+																	<div
+																		class="bg-surface-secondary border rounded-lg p-2 text-xs max-w-xs"
+																	>
+																		Add specific resource paths to limit this scope to certain
+																		files/folders (e.g., u/username/*, f/folder/script.py)
+																	</div>
+																</Tooltip>
+															</Button>
+														{/snippet}
+														{#snippet content({ close })}
+															<div class="w-80">
+																<div class="mb-3">
+																	<div class="flex gap-2">
+																		<input
+																			type="text"
+																			value={currentInput}
+																			{disabled}
+																			oninput={(e) => {
+																				if (scopeState) {
+																					scopeState.currentInputValue = e.currentTarget.value
+																					scopeState.pathError = undefined
+																				}
+																			}}
+																			onkeydown={(e) => {
+																				if (e.key === 'Enter' && currentInput.trim()) {
+																					e.preventDefault()
+																					addResourcePath(scope.value, currentInput)
+																				}
+																			}}
+																			class="flex-1 text-sm px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-surface"
+																		/>
+																		<Button
+																			onclick={() => {
 																				addResourcePath(scope.value, currentInput)
-																			}
-																		}}
-																		class="flex-1 text-sm px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-surface"
-																	/>
+																			}}
+																			size="xs"
+																			disabled={!currentInput.trim()}
+																		>
+																			Add
+																		</Button>
+																	</div>
+																	<p class="text-xs text-tertiary mt-1">
+																		Press Enter or click Add • Formats: u/user/*, f/folder/*,
+																		u/user/file, f/folder/file, *
+																	</p>
+																	{#if pathError}
+																		<p class="text-xs text-red-600 mt-1">{pathError}</p>
+																	{/if}
+																</div>
+
+																<div class="flex gap-2 mt-3">
 																	<Button
 																		onclick={() => {
-																			addResourcePath(scope.value, currentInput)
+																			addResourcePath(scope.value, '*')
 																		}}
 																		size="xs"
-																		disabled={!currentInput.trim()}
+																		variant="border"
+																		disabled={resourcePathArray.includes('*')}
 																	>
-																		Add
+																		Add All (*)
 																	</Button>
+																	<Button onclick={close} size="xs" variant="border">Cancel</Button>
 																</div>
-																<p class="text-xs text-tertiary mt-1">
-																	Press Enter or click Add • Formats: u/user/*, f/folder/*,
-																	u/user/file, f/folder/file, *
-																</p>
-																{#if pathError}
-																	<p class="text-xs text-red-600 mt-1">{pathError}</p>
-																{/if}
 															</div>
-
-															<div class="flex gap-2 mt-3">
-																<Button
-																	onclick={() => {
-																		addResourcePath(scope.value, '*')
-																	}}
-																	size="xs"
-																	variant="border"
-																	disabled={resourcePathArray.includes('*')}
-																>
-																	Add All (*)
-																</Button>
-																<Button onclick={close} size="xs" variant="border">Cancel</Button>
-															</div>
-														</div>
-													{/snippet}
-												</Popover>
-											{/if}
+														{/snippet}
+													</Popover>
+												{/if}
+											</div>
 										</div>
 
-										{#if scope.requires_resource_path && isSelected && resourcePathArray.length > 0}
+										{#if scope.requires_resource_path && resourcePathArray.length > 0}
 											<div class="flex flex-wrap gap-1 mt-2">
 												{#each resourcePathArray as path}
 													<span
