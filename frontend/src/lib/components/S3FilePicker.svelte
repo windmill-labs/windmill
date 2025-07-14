@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run, createBubbler, stopPropagation } from 'svelte/legacy'
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
 
 	const bubble = createBubbler()
 	import {
@@ -131,8 +131,11 @@
 		() => SettingService.getSecondaryStorageNames({ workspace: $workspaceStore! }),
 		{ loadInit: false }
 	)
+
+	let wasOpen = $state(false)
+
 	$effect(() => {
-		$workspaceStore && untrack(() => secondaryStorageNames.refresh())
+		wasOpen && $workspaceStore && untrack(() => secondaryStorageNames.refresh())
 	})
 
 	function onFilterChange() {
@@ -395,6 +398,7 @@
 
 	let storage: string | undefined = $state(undefined)
 	export async function open(_preSelectedFileKey: S3Object | undefined = undefined) {
+		wasOpen = true
 		const preSelectedFileKey = _preSelectedFileKey && parseS3Object(_preSelectedFileKey)
 		storage = preSelectedFileKey?.storage
 		if (preSelectedFileKey !== undefined) {
@@ -494,7 +498,7 @@
 			loadFileMetadataPlusPreviewAsync(selectedFileKey.s3)
 		}
 	}
-	run(() => {
+	$effect.pre(() => {
 		filter != undefined && untrack(() => onFilterChange())
 	})
 </script>
