@@ -1,9 +1,8 @@
 use crate::{
     capture::{insert_capture_payload, MqttTriggerConfig},
     db::{ApiAuthed, DB},
-    jobs::{run_flow_by_path_inner, run_script_by_path_inner, RunJobQuery},
     resources::try_get_resource_from_db_as,
-    trigger_helpers::TriggerJobArgs,
+    trigger_helpers::{trigger_runnable, TriggerJobArgs},
     users::fetch_api_authed,
     utils::check_scopes,
 };
@@ -107,33 +106,20 @@ async fn run_job(
     )
     .await?;
 
-    let user_db = UserDB::new(db.clone());
-
-    let run_query = RunJobQuery::default();
-
-    if trigger.is_flow {
-        run_flow_by_path_inner(
-            authed,
-            db.clone(),
-            user_db,
-            trigger.workspace_id.clone(),
-            StripPath(trigger.script_path.to_owned()),
-            run_query,
-            args,
-        )
-        .await?;
-    } else {
-        run_script_by_path_inner(
-            authed,
-            db.clone(),
-            user_db,
-            trigger.workspace_id.clone(),
-            StripPath(trigger.script_path.to_owned()),
-            run_query,
-            args,
-        )
-        .await?;
-    }
+    trigger_runnable(
+        db,
+        None,
+        authed,
+        &trigger.workspace_id,
+        &trigger.script_path,
+        trigger.is_flow,
+        args,
+        trigger.retry.as_ref(),
+        trigger.error_handler_path.as_deref(),
+        trigger.error_handler_args.as_ref(),
+        format!("mqtt_trigger/{}", trigger.path),
+    )
+    .await?;
 
     Ok(())
 }
@@ -228,6 +214,9 @@ pub struct NewMqttTrigger {
     script_path: String,
     is_flow: bool,
     enabled: bool,
+    error_handler_path: Option<String>,
+    error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
+    retry: Option<SqlxJson<windmill_common::flows::Retry>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -242,6 +231,9 @@ pub struct EditMqttTrigger {
     path: String,
     script_path: String,
     is_flow: bool,
+    error_handler_path: Option<String>,
+    error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
+    retry: Option<SqlxJson<windmill_common::flows::Retry>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -265,6 +257,12 @@ pub struct MqttTrigger {
     pub server_id: Option<String>,
     pub last_server_ping: Option<chrono::DateTime<chrono::Utc>>,
     pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_handler_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_handler_args: Option<SqlxJson<HashMap<String, Box<RawValue>>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry: Option<SqlxJson<windmill_common::flows::Retry>>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -542,6 +540,9 @@ pub async fn create_mqtt_trigger(
         v5_config,
         client_version,
         client_id,
+        error_handler_path,
+        error_handler_args,
+        retry,
     } = new_mqtt_trigger;
 
     let mut tx = user_db.begin(&authed).await?;
@@ -565,7 +566,10 @@ pub async fn create_mqtt_trigger(
             is_flow, 
             email, 
             enabled, 
-            edited_by
+            edited_by,
+            error_handler_path,
+            error_handler_args,
+            retry
         ) 
         VALUES (
             $1, 
@@ -580,7 +584,10 @@ pub async fn create_mqtt_trigger(
             $10,
             $11,
             $12,
-            $13
+            $13,
+            $14,
+            $15,
+            $16
         )"#,
         mqtt_resource_path,
         subscribe_topics.as_slice() as &[SqlxJson<SubscribeTopic>],
@@ -594,7 +601,10 @@ pub async fn create_mqtt_trigger(
         is_flow,
         &authed.email,
         enabled,
-        &authed.username
+        &authed.username,
+        error_handler_path,
+        error_handler_args as _,
+        retry as _
     )
     .execute(&mut *tx)
     .await?;
@@ -654,6 +664,9 @@ pub async fn list_mqtt_triggers(
             "extra_perms",
             "error",
             "enabled",
+            "error_handler_path",
+            "error_handler_args",
+            "retry",
         ])
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))
@@ -717,7 +730,10 @@ pub async fn get_mqtt_trigger(
             last_server_ping,
             extra_perms,
             error,
-            enabled
+            enabled,
+            error_handler_path,
+            error_handler_args as "error_handler_args: _",
+            retry as "retry: _"
         FROM 
             mqtt_trigger
         WHERE 
@@ -756,6 +772,9 @@ pub async fn update_mqtt_trigger(
         v5_config,
         client_version,
         client_id,
+        error_handler_path,
+        error_handler_args,
+        retry,
     } = mqtt_trigger;
 
     let mut tx = user_db.begin(&authed).await?;
@@ -783,7 +802,10 @@ pub async fn update_mqtt_trigger(
                 path = $11,
                 edited_at = now(), 
                 error = NULL,
-                server_id = NULL
+                server_id = NULL,
+                error_handler_path = $14,
+                error_handler_args = $15,
+                retry = $16
             WHERE 
                 workspace_id = $12 AND 
                 path = $13
@@ -800,7 +822,10 @@ pub async fn update_mqtt_trigger(
         script_path,
         path,
         w_id,
-        path,
+        workspace_path,
+        error_handler_path,
+        error_handler_args as _,
+        retry as _
     )
     .execute(&mut *tx)
     .await?;
@@ -1798,7 +1823,10 @@ async fn listen_to_unlistened_mqtt_events(
                 last_server_ping,
                 extra_perms,
                 error,
-                enabled
+                enabled,
+                error_handler_path,
+                error_handler_args as "error_handler_args: _",
+                retry as "retry: _"
             FROM
                 mqtt_trigger
             WHERE

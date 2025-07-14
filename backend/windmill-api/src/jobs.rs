@@ -22,10 +22,13 @@ use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 use tokio::io::AsyncReadExt;
 use tower::ServiceBuilder;
-use windmill_common::auth::{is_super_admin_email, TOKEN_PREFIX_LEN};
+use windmill_common::auth::TOKEN_PREFIX_LEN;
 use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
-use windmill_common::jobs::{format_completed_job_result, format_result, ENTRYPOINT_OVERRIDE};
+use windmill_common::jobs::{
+    check_tag_available_for_workspace_internal, format_completed_job_result, format_result,
+    ENTRYPOINT_OVERRIDE,
+};
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
 
@@ -61,7 +64,7 @@ use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
 use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
-use windmill_common::worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE};
+use windmill_common::worker::to_raw_value;
 use windmill_common::{
     cache,
     db::UserDB,
@@ -3164,62 +3167,18 @@ pub fn add_raw_string(
     return args;
 }
 
-async fn check_tag_available_for_workspace(
+pub async fn check_tag_available_for_workspace(
     db: &DB,
     w_id: &str,
     tag: &Option<String>,
     authed: &ApiAuthed,
 ) -> error::Result<()> {
-    if let Some(tag) = tag {
-        if tag.is_empty() {
-            return Ok(());
-        }
-
+    if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
         let tags = get_scope_tags(authed);
-        let mut is_tag_available_in_workspace = None;
-        let mut is_tag_in_workspace_custom_tags = false;
-
-        if let Some(tags) = tags.as_ref() {
-            is_tag_available_in_workspace = Some(tags.contains(&tag.as_str()));
-        }
-
-        let custom_tags_per_w = CUSTOM_TAGS_PER_WORKSPACE.read().await;
-        if custom_tags_per_w.0.contains(&tag.to_string()) {
-            is_tag_in_workspace_custom_tags = true;
-        } else if custom_tags_per_w.1.contains_key(tag)
-            && custom_tags_per_w
-                .1
-                .get(tag)
-                .unwrap()
-                .contains(&w_id.to_string())
-        {
-            is_tag_in_workspace_custom_tags = true;
-        }
-
-        match is_tag_available_in_workspace {
-            Some(true) | None => {
-                if is_tag_in_workspace_custom_tags {
-                    return Ok(());
-                }
-            }
-            _ => {}
-        }
-
-        if !is_super_admin_email(db, &authed.email).await? {
-            if tags.is_some() && is_tag_available_in_workspace.is_some() {
-                return Err(Error::BadRequest(format!(
-                    "Tag {tag} is not available in your scope"
-                )));
-            }
-
-            return Err(error::Error::BadRequest(format!(
-                "Only super admins are allowed to use tags that are not included in the allowed CUSTOM_TAGS: {:?}",
-                custom_tags_per_w
-            )));
-        }
+        check_tag_available_for_workspace_internal(&db, w_id, tag, &authed.email, tags).await
+    } else {
+        Ok(())
     }
-
-    return Ok(());
 }
 
 #[cfg(feature = "enterprise")]
@@ -3461,8 +3420,8 @@ async fn batch_rerun_handle_job(
                 PushArgsOwned { extra: None, args },
             )
             .await;
-            if let Ok((_, uuid)) = result {
-                return Ok(uuid);
+            if let Ok(uuid) = result {
+                return Ok(uuid.to_string());
             }
         }
         JobKind::Script => {
@@ -3489,8 +3448,8 @@ async fn batch_rerun_handle_job(
                 )
                 .await
             };
-            if let Ok((_, uuid)) = result {
-                return Ok(uuid);
+            if let Ok((uuid, _)) = result {
+                return Ok(uuid.to_string());
             }
         }
         _ => {}
@@ -3518,7 +3477,10 @@ pub async fn run_flow_by_path(
         )
         .await?;
 
-    run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args).await
+    let uuid =
+        run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args).await?;
+
+    Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
 pub async fn run_flow_by_path_inner(
@@ -3529,7 +3491,7 @@ pub async fn run_flow_by_path_inner(
     flow_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-) -> error::Result<(StatusCode, String)> {
+) -> error::Result<Uuid> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
@@ -3605,7 +3567,7 @@ pub async fn run_flow_by_path_inner(
     )
     .await?;
     tx.commit().await?;
-    Ok((StatusCode::CREATED, uuid.to_string()))
+    Ok(uuid)
 }
 
 #[cfg(not(feature = "enterprise"))]
@@ -3720,7 +3682,10 @@ pub async fn run_script_by_path(
         )
         .await?;
 
-    run_script_by_path_inner(authed, db, user_db, w_id, script_path, run_query, args).await
+    let (uuid, _) =
+        run_script_by_path_inner(authed, db, user_db, w_id, script_path, run_query, args).await?;
+
+    Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
 pub async fn run_script_by_path_inner(
@@ -3731,7 +3696,7 @@ pub async fn run_script_by_path_inner(
     script_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-) -> error::Result<(StatusCode, String)> {
+) -> error::Result<(Uuid, Option<bool>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
@@ -3739,7 +3704,7 @@ pub async fn run_script_by_path_inner(
     check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
-    let (job_payload, tag, _delete_after_use, timeout, on_behalf_of) =
+    let (job_payload, tag, delete_after_use, timeout, on_behalf_of) =
         script_path_to_payload(script_path, &mut *tx, &w_id, run_query.skip_preprocessor).await?;
     drop(tx);
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
@@ -3791,7 +3756,8 @@ pub async fn run_script_by_path_inner(
     )
     .await?;
     tx.commit().await?;
-    Ok((StatusCode::CREATED, uuid.to_string()))
+
+    Ok((uuid, delete_after_use))
 }
 
 #[derive(Deserialize)]
@@ -4139,16 +4105,7 @@ pub async fn run_wait_result_internal(
     }
 }
 
-pub async fn run_wait_result(
-    db: &DB,
-    uuid: Uuid,
-    w_id: String,
-    node_id_for_empty_return: Option<String>,
-    username: &str,
-) -> error::Result<Response> {
-    let (result, success) =
-        run_wait_result_internal(db, uuid, w_id, node_id_for_empty_return, username).await?;
-
+pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result<Response> {
     let composite_result = serde_json::from_str::<WindmillCompositeResult>(result.get());
     match composite_result {
         Ok(WindmillCompositeResult {
@@ -4237,7 +4194,20 @@ pub async fn run_wait_result(
     }
 }
 
-async fn delete_job_metadata_after_use(db: &DB, job_uuid: Uuid) -> Result<(), Error> {
+pub async fn run_wait_result(
+    db: &DB,
+    uuid: Uuid,
+    w_id: String,
+    node_id_for_empty_return: Option<String>,
+    username: &str,
+) -> error::Result<Response> {
+    let (result, success) =
+        run_wait_result_internal(db, uuid, w_id, node_id_for_empty_return, username).await?;
+
+    result_to_response(result, success)
+}
+
+pub async fn delete_job_metadata_after_use(db: &DB, job_uuid: Uuid) -> Result<(), Error> {
     sqlx::query!(
         "UPDATE v2_job SET args = '{}'::jsonb WHERE id = $1",
         job_uuid,
@@ -5581,7 +5551,10 @@ pub async fn run_job_by_hash(
         )
         .await?;
 
-    run_job_by_hash_inner(authed, db, user_db, w_id, script_hash, run_query, args).await
+    let (uuid, _) =
+        run_job_by_hash_inner(authed, db, user_db, w_id, script_hash, run_query, args).await?;
+
+    Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
 pub async fn run_job_by_hash_inner(
@@ -5592,7 +5565,7 @@ pub async fn run_job_by_hash_inner(
     script_hash: ScriptHash,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-) -> error::Result<(StatusCode, String)> {
+) -> error::Result<(Uuid, Option<bool>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
@@ -5612,7 +5585,8 @@ pub async fn run_job_by_hash_inner(
         has_preprocessor,
         on_behalf_of_email,
         created_by,
-        .. // delete_after_use not taken into account in async endpoints
+        delete_after_use,
+        ..
     } = get_script_info_for_hash(&mut *tx, &w_id, hash).await?;
 
     check_scopes(&authed, || format!("jobs:run:scripts:{path}"))?;
@@ -5681,7 +5655,7 @@ pub async fn run_job_by_hash_inner(
     .await?;
     tx.commit().await?;
 
-    Ok((StatusCode::CREATED, uuid.to_string()))
+    Ok((uuid, delete_after_use))
 }
 
 #[derive(Deserialize)]

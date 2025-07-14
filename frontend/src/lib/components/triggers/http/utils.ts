@@ -42,13 +42,13 @@ export async function saveHttpRouteFromCfg(
 	isAdmin: boolean,
 	usedTriggerKinds: Writable<string[]>
 ): Promise<boolean> {
-	const requestBody = {
+	const requestBody: NewHttpTrigger = {
 		path: routeCfg.path,
 		script_path: routeCfg.script_path,
 		is_flow: routeCfg.is_flow,
 		is_async: routeCfg.is_async,
 		authentication_method: routeCfg.authentication_method,
-		route_path: isAdmin || !edit ? routeCfg.route_path : undefined,
+		route_path: routeCfg.route_path,
 		http_method: routeCfg.http_method,
 		is_static_website: routeCfg.is_static_website,
 		static_asset_config: routeCfg.static_asset_config,
@@ -57,14 +57,20 @@ export async function saveHttpRouteFromCfg(
 		wrap_body: routeCfg.wrap_body,
 		raw_string: routeCfg.raw_string,
 		description: routeCfg.description,
-		summary: routeCfg.summary
+		summary: routeCfg.summary,
+		error_handler_path: routeCfg.error_handler_path,
+		error_handler_args: routeCfg.error_handler_path ? routeCfg.error_handler_args : undefined,
+		retry: routeCfg.retry
 	}
 	try {
 		if (edit) {
 			await HttpTriggerService.updateHttpTrigger({
 				workspace: workspace,
 				path: initialPath,
-				requestBody: requestBody
+				requestBody: {
+					...requestBody,
+					route_path: isAdmin || !edit ? routeCfg.route_path : undefined
+				}
 			})
 			sendUserToast(`Route ${routeCfg.path} updated`)
 		} else {

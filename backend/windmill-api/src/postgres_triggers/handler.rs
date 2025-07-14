@@ -18,6 +18,7 @@ use pg_escape::{quote_identifier, quote_literal};
 use quick_cache::sync::Cache;
 use rust_postgres::{types::Type, Client};
 use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::value::RawValue;
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::FromRow;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
@@ -98,6 +99,9 @@ pub struct EditPostgresTrigger {
     is_flow: bool,
     postgres_resource_path: String,
     publication: Option<PublicationData>,
+    error_handler_path: Option<String>,
+    error_handler_args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    retry: Option<sqlx::types::Json<windmill_common::flows::Retry>>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -110,6 +114,9 @@ pub struct NewPostgresTrigger {
     replication_slot_name: Option<String>,
     publication_name: Option<String>,
     publication: Option<PublicationData>,
+    error_handler_path: Option<String>,
+    error_handler_args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    retry: Option<sqlx::types::Json<windmill_common::flows::Retry>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -237,6 +244,12 @@ pub struct PostgresTrigger {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_server_ping: Option<chrono::DateTime<chrono::Utc>>,
     pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_handler_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_handler_args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry: Option<sqlx::types::Json<windmill_common::flows::Retry>>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -378,6 +391,9 @@ pub async fn create_postgres_trigger(
         publication_name,
         replication_slot_name,
         publication,
+        error_handler_path,
+        error_handler_args,
+        retry,
     } = new_postgres_trigger;
 
     if publication_name.is_none() && publication.is_none() {
@@ -427,7 +443,10 @@ pub async fn create_postgres_trigger(
             email, 
             enabled, 
             postgres_resource_path, 
-            edited_by
+            edited_by,
+            error_handler_path,
+            error_handler_args,
+            retry
         ) 
         VALUES (
             $1, 
@@ -439,7 +458,10 @@ pub async fn create_postgres_trigger(
             $7, 
             $8, 
             $9, 
-            $10
+            $10,
+            $11,
+            $12,
+            $13
         )"#,
         pub_name,
         slot_name,
@@ -450,7 +472,10 @@ pub async fn create_postgres_trigger(
         &authed.email,
         enabled,
         postgres_resource_path,
-        &authed.username
+        &authed.username,
+        error_handler_path,
+        error_handler_args as _,
+        retry as _
     )
     .execute(&mut *tx)
     .await?;
@@ -507,6 +532,9 @@ pub async fn list_postgres_triggers(
             "postgres_resource_path",
             "replication_slot_name",
             "publication_name",
+            "error_handler_path",
+            "error_handler_args",
+            "retry",
         ])
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))
@@ -1146,7 +1174,10 @@ pub async fn get_postgres_trigger(
             enabled,
             replication_slot_name,
             publication_name,
-            postgres_resource_path
+            postgres_resource_path,
+            error_handler_path,
+            error_handler_args as "error_handler_args: _",
+            retry as "retry: _"
         FROM 
             postgres_trigger
         WHERE 
@@ -1183,6 +1214,9 @@ pub async fn update_postgres_trigger(
         is_flow,
         postgres_resource_path,
         publication,
+        error_handler_path,
+        error_handler_args,
+        retry,
     } = postgres_trigger;
 
     let mut pg_connection = get_default_pg_connection(
@@ -1244,7 +1278,10 @@ pub async fn update_postgres_trigger(
                 publication_name = $8,
                 edited_at = now(), 
                 error = NULL,
-                server_id = NULL
+                server_id = NULL,
+                error_handler_path = $11,
+                error_handler_args = $12,
+                retry = $13
             WHERE 
                 workspace_id = $9 AND 
                 path = $10
@@ -1258,7 +1295,10 @@ pub async fn update_postgres_trigger(
         replication_slot_name,
         publication_name,
         w_id,
-        path,
+        workspace_path,
+        error_handler_path,
+        error_handler_args as _,
+        retry as _,
     )
     .execute(&mut *tx)
     .await?;
