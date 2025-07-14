@@ -44,8 +44,8 @@ use crate::{
     common::{error_to_value, read_result, save_in_cache},
     otel_oss::add_root_flow_job_to_otlp,
     worker_flow::update_flow_status_after_job_completion,
-    JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult, UpdateFlow,
-    SAME_WORKER_REQUIREMENTS,
+    JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult, SendResultPayload,
+    UpdateFlow, SAME_WORKER_REQUIREMENTS,
 };
 use windmill_common::client::AuthedClient;
 
@@ -130,6 +130,7 @@ pub fn start_background_processor(
     job_completed_sender: JobCompletedSender,
     same_worker_queue_size: Arc<AtomicU16>,
     job_completed_processor_is_done: Arc<AtomicBool>,
+    last_processing_duration: Arc<AtomicU16>,
     base_internal_url: String,
     db: DB,
     worker_dir: String,
@@ -148,6 +149,9 @@ pub fn start_background_processor(
 
         //if we have been killed, we want to drain the queue of jobs
         while let Some(sr) = {
+            if has_been_killed {
+                tracing::info!("bg processor is killed, draining. same_worker_queue_size: {}, unbounded_rx: {}, bounded_rx: {}", same_worker_queue_size.load(Ordering::SeqCst), unbounded_rx.len(), bounded_rx.len())
+            }
             if has_been_killed && same_worker_queue_size.load(Ordering::SeqCst) == 0 {
                 unbounded_rx
                     .try_recv()
@@ -157,14 +161,14 @@ pub fn start_background_processor(
             } else {
                 tokio::select! {
                     biased;
-                    result = unbounded_rx.recv_async() => {
+                    result = unbounded_rx.recv_async()  => {
                         result.ok().map(JobCompletedRx::JobCompleted)
                     }
                     result = bounded_rx.recv_async() => {
                         result.ok().map(JobCompletedRx::JobCompleted)
                     }
-
                     _ = killpill_rx.recv() => {
+                        tracing::info!("bg processor received killpill signal, queuing killpill job");
                         Some(JobCompletedRx::Killpill)
                     }
                 }
@@ -174,7 +178,10 @@ pub fn start_background_processor(
             let mut bench = BenchmarkIter::new();
 
             match sr {
-                JobCompletedRx::JobCompleted(SendResult::JobCompleted(jc)) => {
+                JobCompletedRx::JobCompleted(SendResult {
+                    result: SendResultPayload::JobCompleted(jc),
+                    time,
+                }) => {
                     let is_init_script_and_failure =
                         !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
                     let is_dependency_job = matches!(
@@ -217,16 +224,22 @@ pub fn start_background_processor(
                     {
                         infos.add_iter(bench, true);
                     }
+                    last_processing_duration
+                        .store(time.elapsed().as_secs() as u16, Ordering::SeqCst);
                 }
-                JobCompletedRx::JobCompleted(SendResult::UpdateFlow(UpdateFlow {
-                    flow,
-                    w_id,
-                    success,
-                    result,
-                    worker_dir,
-                    stop_early_override,
-                    token,
-                })) => {
+                JobCompletedRx::JobCompleted(SendResult {
+                    result:
+                        SendResultPayload::UpdateFlow(UpdateFlow {
+                            flow,
+                            w_id,
+                            success,
+                            result,
+                            worker_dir,
+                            stop_early_override,
+                            token,
+                        }),
+                    time,
+                }) => {
                     // let r;
                     tracing::info!(parent_flow = %flow, "updating flow status");
                     if let Err(e) = update_flow_status_after_job_completion(
@@ -255,8 +268,11 @@ pub fn start_background_processor(
                     {
                         tracing::error!("Error updating flow status after job completion for {flow} on {worker_name}: {e:#}");
                     }
+                    last_processing_duration
+                        .store(time.elapsed().as_secs() as u16, Ordering::SeqCst);
                 }
                 JobCompletedRx::Killpill => {
+                    tracing::info!("killpill job received, processing only same worker jobs");
                     has_been_killed = true;
                 }
             }

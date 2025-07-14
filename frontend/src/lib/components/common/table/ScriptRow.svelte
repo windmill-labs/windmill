@@ -137,7 +137,9 @@
 			<NoMainFuncBadge />
 		{/if}
 		{#if script.kind !== 'script'}
-			<Badge color="blue" baseClass="border">{capitalize(script.kind)}</Badge>
+			<Badge color="blue" baseClass="border"
+				>{script.kind === 'failure' ? 'Error handler' : capitalize(script.kind)}</Badge
+			>
 		{/if}
 		<SharedBadge canWrite={script.canWrite} extraPerms={script.extra_perms} />
 		<DraftBadge has_draft={script.has_draft} draft_only={script.draft_only} />
