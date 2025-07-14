@@ -260,7 +260,7 @@
 										<Tooltip>
 											Enables server-to-server authentication without user interaction. Use for automated scripts and background jobs.
 											<br><br>
-											When enabled, resources can be created using client credentials instead of requiring user authentication.
+											When enabled, users can provide their own client credentials at the resource level. The Client ID and Secret configured above are only used for the traditional OAuth flow (popup window).
 										</Tooltip>
 									</div>
 								</div>

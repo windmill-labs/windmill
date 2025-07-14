@@ -110,6 +110,12 @@
 	 */
 	let useClientCredentials = $state(false)
 
+	/**
+	 * Client credentials for resource-level OAuth
+	 */
+	let clientId = $state('')
+	let clientSecret = $state('')
+
 	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
 
 	let pathError = $state('')
@@ -127,6 +133,8 @@
 		// Reset client credentials state
 		supportsClientCredentials = false
 		useClientCredentials = false
+		clientId = ''
+		clientSecret = ''
 
 		await loadConnects()
 		manual = !connects?.includes(resourceType)
@@ -323,10 +331,18 @@
 				 * Uses instance-level OAuth credentials for server-to-server auth
 				 */
 				try {
+					// Validate required fields
+					if (!clientId || !clientSecret) {
+						sendUserToast('Client ID and Client Secret are required for client credentials flow', true)
+						return
+					}
+
 					const tokenResponse = await OauthService.connectClientCredentials({
 						client: resourceType,
 						requestBody: {
-							scopes: scopes
+							scopes: scopes,
+							cc_client_id: clientId,
+							cc_client_secret: clientSecret
 						}
 					})
 
@@ -392,15 +408,23 @@
 
 			let account: number | undefined = undefined
 			if (valueToken?.expires_in != undefined) {
+				const accountData: any = {
+					refresh_token: valueToken.refresh_token ?? '',
+					expires_in: valueToken.expires_in,
+					client: resourceType,
+					grant_type: valueToken.grant_type || 'authorization_code'
+				}
+
+				// Add client credentials if using client_credentials flow
+				if (useClientCredentials) {
+					accountData.cc_client_id = clientId
+					accountData.cc_client_secret = clientSecret
+				}
+
 				account = Number(
 					await OauthService.createAccount({
 						workspace: $workspaceStore!,
-						requestBody: {
-							refresh_token: valueToken.refresh_token ?? '',
-							expires_in: valueToken.expires_in,
-							client: resourceType,
-							grant_type: valueToken.grant_type || 'authorization_code'
-						}
+						requestBody: accountData
 					})
 				)
 			}
@@ -687,9 +711,34 @@
 						<Tooltip>
 							Server-to-server authentication without user interaction.
 							<br /><br />
-							Uses instance-level OAuth credentials for automated scripts and background jobs.
+							Provide your own OAuth client credentials for this resource.
 						</Tooltip>
 					</div>
+
+					{#if useClientCredentials}
+						<div style="margin-top: 16px;">
+							<label style="display: block; margin-bottom: 8px;">
+								<span style="font-weight: 600;">Client ID</span>
+								<input
+									type="text"
+									bind:value={clientId}
+									placeholder="Enter OAuth client ID"
+									class="w-full p-2 border border-gray-300 rounded mt-1"
+									required
+								/>
+							</label>
+							<label style="display: block;">
+								<span style="font-weight: 600;">Client Secret</span>
+								<input
+									type="password"
+									bind:value={clientSecret}
+									placeholder="Enter OAuth client secret"
+									class="w-full p-2 border border-gray-300 rounded mt-1"
+									required
+								/>
+							</label>
+						</div>
+					{/if}
 				</div>
 			{/if}
 

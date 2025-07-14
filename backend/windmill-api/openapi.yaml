@@ -3391,6 +3391,12 @@ paths:
                 grant_type:
                   type: string
                   default: "authorization_code"
+                cc_client_id:
+                  type: string
+                  description: "OAuth client ID for resource-level credentials (client_credentials flow only)"
+                cc_client_secret:
+                  type: string
+                  description: "OAuth client secret for resource-level credentials (client_credentials flow only)"
               required:
                 - expires_in
                 - client
@@ -3427,6 +3433,15 @@ paths:
                   type: array
                   items:
                     type: string
+                cc_client_id:
+                  type: string
+                  description: "OAuth client ID for resource-level authentication"
+                cc_client_secret:
+                  type: string
+                  description: "OAuth client secret for resource-level authentication"
+              required:
+                - cc_client_id
+                - cc_client_secret
       responses:
         "200":
           description: OAuth token response
