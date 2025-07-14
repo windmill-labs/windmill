@@ -1,4 +1,4 @@
-import { GcpTriggerService } from '$lib/gen'
+import { GcpTriggerService, type GcpTriggerData } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { get, type Writable } from 'svelte/store'
 
@@ -10,7 +10,15 @@ export async function saveGcpTriggerFromCfg(
 	usedTriggerKinds: Writable<string[]>
 ): Promise<boolean> {
 	try {
-		const requestBody = {
+		const errorHandlerAndRetries = !cfg.is_flow
+			? {
+					error_handler_path: cfg.error_handler_path,
+					error_handler_args: cfg.error_handler_path ? cfg.error_handler_args : undefined,
+					retry: cfg.retry
+				}
+			: {}
+
+		const requestBody: GcpTriggerData = {
 			gcp_resource_path: cfg.gcp_resource_path,
 			subscription_mode: cfg.subscription_mode,
 			subscription_id: cfg.subscription_id,
@@ -21,7 +29,8 @@ export async function saveGcpTriggerFromCfg(
 			path: cfg.path,
 			script_path: cfg.script_path,
 			enabled: cfg.enabled,
-			is_flow: cfg.is_flow
+			is_flow: cfg.is_flow,
+			...errorHandlerAndRetries
 		}
 		if (edit) {
 			await GcpTriggerService.updateGcpTrigger({

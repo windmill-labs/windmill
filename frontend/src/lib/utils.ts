@@ -1,5 +1,4 @@
 // /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-// import { goto } from '$lib/navigation'
 // import { AppService, type Flow, FlowService, Script, ScriptService, type User } from '$lib/gen'
 // import { toast } from '@zerodevx/svelte-toast'
 // import type { Schema, SupportedLanguage } from './common'
@@ -380,6 +379,7 @@ export function pointerDownOutside(
 					event.stopPropagation()
 				}
 				node.dispatchEvent(new CustomEvent<PointerEvent>('pointerdown_outside', { detail: event }))
+				if (typeof options === 'object') options.onClickOutside?.(event)
 				return false
 			}
 		}
@@ -1433,4 +1433,35 @@ export function scroll_into_view_if_needed_polyfill(elem: Element, centerIfNeede
 	return observer // return for testing
 }
 
+// Structured clone raises an error on $state values
+// $state.snapshot clones everything but prints warnings for some values (e.g. functions)
+import _clone from 'clone'
+export function clone<T>(t: T): T {
+	return _clone(t)
+}
+
 export const editorPositionMap: Record<string, IPosition> = {}
+
+export type S3Uri = `s3://${string}/${string}`
+export type S3Object =
+	| S3Uri
+	| {
+			s3: string
+			storage?: string
+	  }
+
+export function parseS3Object(s3Object: S3Object): { s3: string; storage?: string } {
+	if (typeof s3Object === 'object') return s3Object
+	const match = s3Object.match(/^s3:\/\/([^/]*)\/(.*)$/)
+	return { storage: match?.[1] || undefined, s3: match?.[2] ?? '' }
+}
+
+export function formatS3Object(s3Object: S3Object): S3Uri {
+	if (typeof s3Object === 'object') return `s3://${s3Object.storage ?? ''}/${s3Object.s3}`
+	return s3Object
+}
+
+export function isS3Uri(uri: string): uri is S3Uri {
+	const match = uri.match(/^s3:\/\/([^/]*)\/(.*)$/)
+	return !!match && match.length === 3
+}

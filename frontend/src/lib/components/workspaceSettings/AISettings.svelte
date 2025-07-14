@@ -197,9 +197,8 @@
 					{#if aiProviders[provider]}
 						<div class="mb-4 flex flex-col gap-2">
 							<div class="flex flex-row gap-1">
-								<!-- this can be removed once the parent component moves to runes -->
-								<!-- svelte-ignore binding_property_non_reactive -->
 								<ResourcePicker
+									selectFirst
 									resourceType={provider === 'openai' && usingOpenaiClientCredentialsOauth
 										? 'openai_client_credentials_oauth'
 										: provider}
