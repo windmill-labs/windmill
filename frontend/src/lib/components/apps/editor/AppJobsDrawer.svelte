@@ -63,7 +63,7 @@
 	})
 </script>
 
-<TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
+<TestJobLoader noCode={true} bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
 
 <Drawer bind:open size="900px">
 	<DrawerContent

@@ -638,6 +638,7 @@
 <svelte:window onkeydown={onKeyDown} />
 
 <TestJobLoader
+	noCode={true}
 	on:done={loadPastTests}
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}

@@ -87,6 +87,7 @@
 {/each}
 
 <TestJobLoader
+	noCode={true}
 	workspaceOverride={workspace}
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}

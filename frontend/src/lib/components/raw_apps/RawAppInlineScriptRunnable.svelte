@@ -95,6 +95,7 @@
 </script>
 
 <TestJobLoader
+	noCode={true}
 	bind:scriptProgress
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}

@@ -117,6 +117,7 @@
 </script>
 
 <TestJobLoader
+	noCode={true}
 	toastError={noEditor}
 	on:done={() => jobDone()}
 	bind:scriptProgress

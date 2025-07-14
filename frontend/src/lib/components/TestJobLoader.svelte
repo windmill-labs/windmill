@@ -12,6 +12,7 @@
 	interface Props {
 		isLoading?: boolean
 		job?: Job | undefined
+		noCode?: boolean
 		workspaceOverride?: string | undefined
 		notfound?: boolean
 		jobUpdateLastFetch?: Date | undefined
@@ -25,6 +26,7 @@
 	let {
 		isLoading = $bindable(false),
 		job = $bindable(undefined),
+		noCode = false,
 		workspaceOverride = undefined,
 		notfound = $bindable(false),
 		jobUpdateLastFetch = $bindable(undefined),
@@ -286,10 +288,10 @@
 						job.mem_peak = previewJobUpdates.mem_peak
 					}
 					if ((previewJobUpdates.running ?? false) || (previewJobUpdates.completed ?? false)) {
-						job = await JobService.getJob({ workspace: workspace!, id })
+						job = await JobService.getJob({ workspace: workspace!, id, noCode })
 					}
 				} else {
-					job = await JobService.getJob({ workspace: workspace!, id, noLogs: lazyLogs })
+					job = await JobService.getJob({ workspace: workspace!, id, noLogs: lazyLogs, noCode })
 				}
 				jobUpdateLastFetch = new Date()
 
@@ -325,7 +327,7 @@
 			try {
 				// First load the job to get initial state
 				if (!job) {
-					job = await JobService.getJob({ workspace: workspace!, id, noLogs: lazyLogs })
+					job = await JobService.getJob({ workspace: workspace!, id, noLogs: lazyLogs, noCode })
 				}
 
 				// If job is already completed, don't start SSE
@@ -393,6 +395,8 @@
 								scriptProgress = clamp(previewJobUpdates.progress, scriptProgress ?? 0, 99)
 							}
 
+							console.log('previewJobUpdates', previewJobUpdates.log_offset)
+
 							if (previewJobUpdates.new_logs && job) {
 								if (offset == 0) {
 									job.logs = previewJobUpdates.new_logs ?? ''
@@ -414,7 +418,9 @@
 
 							// Check if job is completed
 							if (previewJobUpdates.completed) {
-								job = await JobService.getJob({ workspace: workspace!, id })
+								const njob = previewJobUpdates.job as Job
+								njob.logs = job?.logs ?? ''
+								job = njob
 								currentEventSource?.close()
 								currentEventSource = undefined
 
@@ -426,8 +432,6 @@
 										currentId = undefined
 									}
 								}
-							} else if (previewJobUpdates.running ?? false) {
-								job = await JobService.getJob({ workspace: workspace!, id })
 							}
 						} catch (parseErr) {
 							console.warn('Failed to parse SSE data:', parseErr)

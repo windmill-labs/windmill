@@ -3099,7 +3099,7 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ContextualVariable"
-  
+
   /w/{workspace}/workspaces/get_secondary_storage_names:
     get:
       summary: get secondary storage names
@@ -7485,6 +7485,10 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
         - name: no_logs
+          in: query
+          schema:
+            type: boolean
+        - name: no_code
           in: query
           schema:
             type: boolean

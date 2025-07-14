@@ -445,6 +445,7 @@
 </script>
 
 <TestJobLoader
+	noCode={true}
 	on:done={loadPastTests}
 	bind:scriptProgress
 	bind:this={testJobLoader}

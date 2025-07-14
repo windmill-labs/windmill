@@ -527,7 +527,7 @@ async fn get_flow_job_debug_info(
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
     let job = GetQuery::new()
-        .fetch_queued((&db).into(), id, &w_id)
+        .fetch_queued((&db).into(), &id, &w_id)
         .await?;
     if let Some(job) = job {
         let is_flow = job.is_flow();
@@ -567,7 +567,7 @@ async fn get_flow_job_debug_info(
         for job_id in job_ids {
             let job = GetQuery::new()
                 .with_auth(&opt_authed)
-                .fetch(&db, job_id, &w_id)
+                .fetch(&db, &job_id, &w_id)
                 .await;
             if let Ok(job) = job {
                 jobs.insert(job.id().to_string(), job);
@@ -637,6 +637,7 @@ async fn list_selected_job_groups(
 #[derive(Deserialize)]
 struct GetJobQuery {
     pub no_logs: Option<bool>,
+    pub no_code: Option<bool>,
 }
 
 async fn get_job(
@@ -644,7 +645,7 @@ async fn get_job(
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
-    Query(GetJobQuery { no_logs }): Query<GetJobQuery>,
+    Query(GetJobQuery { no_logs, no_code }): Query<GetJobQuery>,
 ) -> error::Result<Response> {
     let tags = opt_authed
         .as_ref()
@@ -655,10 +656,14 @@ async fn get_job(
         .with_auth(&opt_authed)
         .with_in_tags(tags.as_ref());
 
+    if no_code.unwrap_or(false) {
+        get = get.without_code();
+    }
+
     if no_logs.unwrap_or(false) {
         get = get.without_logs();
     }
-    let mut job = get.fetch(&db, id, &w_id).await?;
+    let mut job = get.fetch(&db, &id, &w_id).await?;
     job.fetch_outstanding_wait_time(&db).await?;
 
     log_job_view(
@@ -938,7 +943,7 @@ impl<'a> GetQuery<'a> {
     async fn fetch_queued(
         self,
         db: &DB,
-        job_id: Uuid,
+        job_id: &Uuid,
         workspace_id: &str,
     ) -> error::Result<Option<JobExtended<QueuedJob>>> {
         let query = get_job_query!("v2_job_queue",
@@ -970,7 +975,7 @@ impl<'a> GetQuery<'a> {
     async fn fetch_completed(
         self,
         db: &DB,
-        job_id: Uuid,
+        job_id: &Uuid,
         workspace_id: &str,
     ) -> error::Result<Option<JobExtended<CompletedJob>>> {
         let query = get_job_query!("v2_job_completed",
@@ -1007,7 +1012,7 @@ impl<'a> GetQuery<'a> {
         Ok(cjob)
     }
 
-    async fn fetch(self, db: &DB, job_id: Uuid, workspace_id: &str) -> error::Result<Job> {
+    async fn fetch(self, db: &DB, job_id: &Uuid, workspace_id: &str) -> error::Result<Job> {
         let cjob = self
             .fetch_completed(db.into(), job_id, workspace_id)
             .await?
@@ -2092,7 +2097,7 @@ async fn resume_suspended_job_internal(
         .without_logs()
         .without_code()
         .without_flow()
-        .fetch(&db, parent_flow_info.id, &w_id)
+        .fetch(&db, &parent_flow_info.id, &w_id)
         .await?;
     let flow_status = parent_flow
         .flow_status()
@@ -2390,7 +2395,7 @@ pub async fn get_suspended_job_flow(
     let flow = GetQuery::new()
         .without_logs()
         .without_code()
-        .fetch(&db, flow_id, &w_id)
+        .fetch(&db, &flow_id, &w_id)
         .await?;
 
     let flow_status = flow
@@ -3800,7 +3805,7 @@ pub async fn run_workflow_as_code(
 
     let job = GetQuery::new()
         .without_logs()
-        .fetch_queued(&db, job_id, &w_id)
+        .fetch_queued(&db, &job_id, &w_id)
         .await?;
 
     if *CLOUD_HOSTED {
@@ -5682,6 +5687,7 @@ pub struct JobUpdate {
     pub mem_peak: Option<i32>,
     pub progress: Option<i32>,
     pub flow_status: Option<Box<serde_json::value::RawValue>>,
+    pub job: Option<Job>,
 }
 
 async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {
@@ -5751,6 +5757,7 @@ async fn get_job_update(
         log_offset,
         get_progress,
         running,
+        false,
     ).await?))
 }
 
@@ -5810,10 +5817,15 @@ fn get_job_update_sse_stream(
             log_offset,
             get_progress,
             running,
+            true
         ).await {
+            if update.completed.unwrap_or(false) {
+                return;
+            }
             if let Ok(serialized) = serde_json::to_string(&update) {
                 let event_data = format!("data: {}\n\n", serialized);
                 if tx.send(event_data.clone()).await.is_err() {
+                    tracing::warn!("Failed to send initial job update for job {job_id}");
                     return;
                 }
                 last_update = Some(serialized);
@@ -5830,9 +5842,11 @@ fn get_job_update_sse_stream(
         }
 
         // Poll for updates every 1 second
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+        let mut i = 0;
         loop {
-            interval.tick().await;
+            i += 1;
+            let ms_duration = if i > 10 { 1000 } else if i > 50 { 5000 } else { 100 };
+            tokio::time::sleep(std::time::Duration::from_millis(ms_duration)).await;
 
             match get_job_update_data(
                 &opt_authed,
@@ -5843,6 +5857,7 @@ fn get_job_update_sse_stream(
                 log_offset,
                 get_progress,
                 running,
+                true,
             ).await {
                 Ok(update) => {
                     if let Ok(serialized) = serde_json::to_string(&update) {
@@ -5852,6 +5867,9 @@ fn get_job_update_sse_stream(
                             if tx.send(event_data).await.is_err() {
                                 break;
                             }
+                            if update.completed.unwrap_or(false) {
+                                break;
+                            }
                             last_update = Some(serialized);
                             
                             // Update log offset if available
@@ -5859,21 +5877,6 @@ fn get_job_update_sse_stream(
                                 log_offset = new_offset;
                             }
                             
-                            // Check if job is completed
-                            if update.completed.unwrap_or(false) {
-                                // let full_job = get_job_by_id(db, &job_id).await?;
-
-                                let mut get = GetQuery::new()
-                                    .with_auth(&opt_authed)
-                                    .without_logs();
-
-                                let full_job = get.fetch(&db, job_id, &w_id).await?;
-
-                                tx.send(
-                                    format!("data: {{'completed': true, 'job': {}}}\n\n", 
-                                    serde_json::to_string(&full_job).unwrap())).await.unwrap();
-                                break;
-                            }
                         }
                     }
                 }
@@ -5897,6 +5900,7 @@ async fn get_job_update_data(
     log_offset: i32,
     get_progress: Option<bool>,
     running: bool,
+    get_full_job_on_completion: bool,
 ) -> error::Result<JobUpdate> {
     let record = sqlx::query!(
         "SELECT
@@ -5960,6 +5964,15 @@ async fn get_job_update_data(
     )
     .await?;
 
+    let job = if record.completed.unwrap_or(false) && get_full_job_on_completion {
+        let get = GetQuery::new()
+            .with_auth(&opt_authed)
+            .without_logs();
+        Some(get.fetch(&db, job_id, &w_id).await?)
+    } else {
+        None
+    };
+
     Ok(JobUpdate {
         running: record.running,
         completed: record.completed,
@@ -5967,6 +5980,7 @@ async fn get_job_update_data(
         new_logs: record.logs,
         mem_peak: record.mem_peak,
         progress: record.progress,
+        job,
         flow_status: record
             .flow_status
             .map(|x: sqlx::types::Json<Box<RawValue>>| x.0),
@@ -6259,7 +6273,7 @@ async fn get_completed_job<'a>(
     let job_o = GetQuery::new()
         .with_auth(&opt_authed)
         .with_in_tags(tags.as_ref())
-        .fetch_completed(&db, id, &w_id)
+        .fetch_completed(&db, &id, &w_id)
         .await?;
 
     let cj = not_found_if_none(job_o, "Completed Job", id.to_string())?;
