@@ -118,8 +118,9 @@ impl ScopeDefinition {
             return false;
         }
 
-        if self.action != other.action {
-            return false;
+        match (self.action.as_str(), other.action.as_str()) {
+            (a, b) if (a == "write" && b == "read") || (a == b) => {}
+            _ => return false,
         }
 
         if self.domain == "jobs" && self.action == "run" {
@@ -507,7 +508,6 @@ fn map_http_method_to_action(method: &str, route_path: &str) -> ScopeAction {
         _ => ScopeAction::Read,
     }
 }
-
 
 /// Checks the route path to determine the runnable kind (either "flows" or "scripts").
 ///
