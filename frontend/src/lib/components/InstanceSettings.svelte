@@ -227,9 +227,17 @@
 		oauths['snowflake_oauth'].connect_config = connect_config
 	}
 
+	let sendingStats = $state(false)
 	async function sendStats() {
-		await SettingService.sendStats()
-		sendUserToast('Usage sent')
+		try {
+			sendingStats = true
+			await SettingService.sendStats()
+			sendUserToast('Usage sent')
+		} catch (err) {
+			throw err
+		} finally {
+			sendingStats = false
+		}
 	}
 
 	function isValidTeamsChannel(value: any): value is TeamsChannel {
@@ -332,8 +340,11 @@
 								color="light"
 								btnClasses="w-auto"
 								wrapperClasses="mb-4"
-								size="xs">Send usage</Button
+								loading={sendingStats}
+								size="xs"
 							>
+								Send usage
+							</Button>
 						{/if}
 					{:else if category == 'Auth/OAuth/SAML'}
 						<AuthSettings
