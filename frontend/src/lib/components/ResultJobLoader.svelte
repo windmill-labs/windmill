@@ -196,6 +196,7 @@
 		errorIteration = 0
 		currentId = testId
 		job = undefined
+
 		const isCompleted = await loadTestJob(testId, callbacks)
 		if (!isCompleted) {
 			setTimeout(() => {

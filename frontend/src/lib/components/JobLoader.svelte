@@ -9,6 +9,8 @@
 
 	// Will be set to number if job is not a flow
 
+	type Callbacks = { done: (x: any) => void; cancel: () => void; error: (err: Error) => void }
+
 	interface Props {
 		isLoading?: boolean
 		job?: Job | undefined
@@ -53,6 +55,7 @@
 	let errorIteration = 0
 
 	let logOffset = 0
+	let lastCallbacks: Callbacks | undefined = undefined
 
 	let ITERATIONS_BEFORE_SLOW_REFRESH = 10
 	let ITERATIONS_BEFORE_SUPER_SLOW_REFRESH = 100
@@ -69,10 +72,11 @@
 		})
 	})
 
-	export async function abstractRun(fn: () => Promise<string>) {
+	export async function abstractRun(fn: () => Promise<string>, callbacks?: Callbacks) {
 		try {
 			isLoading = true
 			clearCurrentJob()
+			lastCallbacks = callbacks
 			const startedAt = Date.now()
 			const testId = await fn()
 
@@ -80,7 +84,7 @@
 				lastStartedAt = startedAt
 				if (testId) {
 					try {
-						await watchJob(testId)
+						await watchJob(testId, callbacks)
 					} catch {
 						if (currentId === testId) {
 							currentId = undefined
@@ -102,30 +106,53 @@
 	}
 
 	export async function runScriptByPath(
-		path: string | undefined,
-		args: Record<string, any>
+		path: string,
+		args: Record<string, any>,
+		callbacks?: Callbacks
 	): Promise<string> {
-		return abstractRun(() =>
-			JobService.runScriptByPath({
-				workspace: $workspaceStore!,
-				path: path ?? '',
-				requestBody: args,
-				skipPreprocessor: true
-			})
+		return abstractRun(
+			() =>
+				JobService.runScriptByPath({
+					workspace: $workspaceStore!,
+					path: path ?? '',
+					requestBody: args,
+					skipPreprocessor: true
+				}),
+			callbacks
+		)
+	}
+
+	export async function runScriptByHash(
+		hash: string,
+		args: Record<string, any>,
+		callbacks?: Callbacks
+	): Promise<string> {
+		return abstractRun(
+			() =>
+				JobService.runScriptByHash({
+					workspace: $workspaceStore!,
+					hash: hash ?? '',
+					requestBody: args,
+					skipPreprocessor: true
+				}),
+			callbacks
 		)
 	}
 
 	export async function runFlowByPath(
-		path: string | undefined,
-		args: Record<string, any>
+		path: string,
+		args: Record<string, any>,
+		callbacks?: Callbacks
 	): Promise<string> {
-		return abstractRun(() =>
-			JobService.runFlowByPath({
-				workspace: $workspaceStore!,
-				path: path ?? '',
-				requestBody: args,
-				skipPreprocessor: true
-			})
+		return abstractRun(
+			() =>
+				JobService.runFlowByPath({
+					workspace: $workspaceStore!,
+					path: path ?? '',
+					requestBody: args,
+					skipPreprocessor: true
+				}),
+			callbacks
 		)
 	}
 
@@ -152,7 +179,8 @@
 		args: Record<string, any>,
 		tag: string | undefined,
 		lock?: string,
-		hash?: string
+		hash?: string,
+		callbacks?: Callbacks
 	): Promise<string> {
 		// Reset in case we rerun job without reloading
 		scriptProgress = undefined
@@ -178,6 +206,8 @@
 		const id = currentId
 		if (id) {
 			dispatch('cancel', id)
+			lastCallbacks?.cancel()
+			lastCallbacks = undefined
 			currentId = undefined
 			// Clean up SSE connection
 			currentEventSource?.close()
@@ -201,7 +231,7 @@
 		}
 	}
 
-	export async function watchJob(testId: string) {
+	export async function watchJob(testId: string, callbacks?: Callbacks) {
 		logOffset = 0
 		syncIteration = 0
 		errorIteration = 0
@@ -213,11 +243,11 @@
 		currentEventSource = undefined
 
 		// Try SSE first, fall back to polling if needed
-		const isCompleted = await loadTestJobWithSSE(testId)
+		const isCompleted = await loadTestJobWithSSE(testId, callbacks)
 		if (!isCompleted && !currentEventSource) {
 			// If SSE didn't start (job might not be running yet), use polling
 			setTimeout(() => {
-				syncer(testId)
+				syncer(testId, callbacks)
 			}, 50)
 		}
 	}
@@ -320,7 +350,7 @@
 
 	let currentEventSource: EventSource | undefined = undefined
 
-	async function loadTestJobWithSSE(id: string): Promise<boolean> {
+	async function loadTestJobWithSSE(id: string, callbacks?: Callbacks): Promise<boolean> {
 		let isCompleted = false
 		if (currentId === id) {
 			try {
@@ -335,6 +365,7 @@
 					if (currentId === id) {
 						await tick()
 						dispatch('done', job)
+						callbacks?.done(job)
 						currentId = undefined
 					}
 					return isCompleted
@@ -394,8 +425,6 @@
 								scriptProgress = clamp(previewJobUpdates.progress, scriptProgress ?? 0, 99)
 							}
 
-							console.log('previewJobUpdates', previewJobUpdates.log_offset)
-
 							if (previewJobUpdates.new_logs && job) {
 								if (offset == 0) {
 									job.logs = previewJobUpdates.new_logs ?? ''
@@ -428,6 +457,7 @@
 									if (currentId === id) {
 										await tick()
 										dispatch('done', job)
+										callbacks?.done(job)
 										currentId = undefined
 									}
 								}
@@ -472,9 +502,10 @@
 		}
 	}
 
-	async function syncer(id: string): Promise<void> {
+	async function syncer(id: string, callbacks?: Callbacks): Promise<void> {
 		if (currentId != id) {
 			dispatch('cancel', id)
+			callbacks?.cancel()
 			return
 		}
 		syncIteration++
@@ -487,7 +518,7 @@
 		} else if (syncIteration > ITERATIONS_BEFORE_SUPER_SLOW_REFRESH) {
 			nextIteration = 2000
 		}
-		setTimeout(() => syncer(id), nextIteration)
+		setTimeout(() => syncer(id, callbacks), nextIteration)
 	}
 
 	onDestroy(async () => {
