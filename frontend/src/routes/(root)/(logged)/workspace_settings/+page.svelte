@@ -1263,7 +1263,7 @@
 					</Description>
 				</div>
 				<Alert type="info" title="Only new updates trigger git sync">
-					Only new changes matching the filters will trigger a git sync. You still need to initalize
+					Only new changes matching the filters will trigger a git sync. You still need to initialize
 					the repo to the desired state first.
 				</Alert>
 			</div>
