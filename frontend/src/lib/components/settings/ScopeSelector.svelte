@@ -509,7 +509,7 @@
 					<!-- svelte-ignore a11y_click_events_have_key_events -->
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="p-4 bg-surface-secondary border-b cursor-pointer hover:bg-surface-tertiary transition-colors"
+						class="p-4 bg-surface-secondary cursor-pointer hover:bg-surface-tertiary transition-colors {isExpanded ? 'border-b' : ''}"
 						onclick={() => toggleDomainExpansion(domain.name)}
 					>
 						<div class="flex items-center gap-3">
