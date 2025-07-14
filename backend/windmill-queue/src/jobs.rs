@@ -3656,8 +3656,7 @@ pub async fn push<'c, 'd>(
             None,
             None,
         ),
-        JobPayload::RawFlowDependencies { path, flow_value, use_local_lockfiles: _, raw_deps: _ } => {
-            // raw_deps is now passed via args parameter from the API layer
+        JobPayload::RawFlowDependencies { path, flow_value } => {
             (
             None,
             Some(path),

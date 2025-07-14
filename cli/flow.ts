@@ -7,7 +7,7 @@ import * as wmill from "./gen/services.gen.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { resolve, track_job } from "./script.ts";
 import { defaultFlowDefinition } from "./bootstrap/flow_bootstrap.ts";
-import { generateFlowLockInternal } from "./metadata.ts";
+import { blueColor, generateFlowLockInternal } from "./metadata.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "./sync.ts";
 import { readInlinePathSync } from "./utils.ts";
@@ -237,7 +237,9 @@ async function generateLocks(
   folder: string | undefined
 ) {
   // Check for environment variable USE_LOCAL_LOCKFILE
-  const useLocalLockfiles = opts["use-local-lockfiles"] || Deno.env.get("USE_LOCAL_LOCKFILE") === "true";
+  const useLocalLockfiles = opts["useLocalLockfiles"] || Deno.env.get("USE_LOCAL_LOCKFILE") === "true";
+
+
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   opts = await mergeConfigWithConfigFile(opts);
@@ -347,7 +349,7 @@ const command = new Command()
   .option("--yes", "Skip confirmation prompt")
   .option(
     "--use-local-lockfiles",
-    "Use local lockfiles (requirements.txt, go.mod, package.json) instead of generating them on the server (can also be set with USE_LOCAL_LOCKFILE=true environment variable)"
+    "Use local lockfiles (requirements.txt, go.mod, package.json, etc) instead of generating them on the server (can also be set with USE_LOCAL_LOCKFILE=true environment variable)"
   )
   .option(
     "-i --includes <patterns:file[]>",

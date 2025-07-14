@@ -37,7 +37,7 @@ export class LockfileGenerationError extends Error {
   }
 }
 
-export async function generateAllMetadata() {}
+export async function generateAllMetadata() { }
 
 function findClosestRawReqs(
   lang: "bun" | "python3" | "php" | "go" | undefined,
@@ -87,15 +87,20 @@ function findClosestRawReqs(
 }
 
 const TOP_HASH = "__flow_hash";
-async function generateFlowHash(folder: string) {
+async function generateFlowHash(
+  rawDeps: Record<string, string> | undefined,
+  folder: string
+) {
   const elems = await FSFSElement(path.join(Deno.cwd(), folder), [], true);
+  console.log("EXPECT")
   const hashes: Record<string, string> = {};
   for await (const f of elems.getChildren()) {
+    console.log(f);
     if (exts.some((e) => f.path.endsWith(e))) {
       hashes[f.path] = await generateHash(await f.getContentText());
     }
   }
-  return { ...hashes, [TOP_HASH]: await generateHash(JSON.stringify(hashes)) };
+  return { ...hashes, [TOP_HASH]: await generateHash((rawDeps ?? "") + JSON.stringify(hashes)) };
 }
 export async function generateFlowLockInternal(
   folder: string,
@@ -115,19 +120,55 @@ export async function generateFlowLockInternal(
     log.info(`Generating lock for flow ${folder} at ${remote_path}`);
   }
 
-  let hashes = await generateFlowHash(folder);
+  let rawDeps: Record<string, string> | undefined;
+  if (useLocalLockfiles) {
+
+    // Find all dependency files in the workspace
+    const globalDeps = await findGlobalDeps();
+
+    // Find closest dependency files for this flow
+    const pythonReqs = findClosestRawReqs("python3", folder, globalDeps);
+    const nodeDeps = findClosestRawReqs("bun", folder, globalDeps);
+    const goDeps = findClosestRawReqs("go", folder, globalDeps);
+    const phpDeps = findClosestRawReqs("php", folder, globalDeps);
+
+    rawDeps = {};
+
+    console.log(pythonReqs);
+    // Collect all found dependencies
+    if (pythonReqs)
+      rawDeps.python3 = pythonReqs;
+    if (nodeDeps)
+      rawDeps.nodejs = nodeDeps;
+    if (goDeps)
+      rawDeps.go = goDeps;
+    if (phpDeps)
+      rawDeps.php = phpDeps;
+  } else
+    rawDeps = undefined;
+
+  let hashes = await generateFlowHash(rawDeps, folder);
 
   const conf = await readLockfile();
-  // if (await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH)) {
-  //   if (!noStaleMessage) {
-  //     log.info(
-  //       colors.green(`Flow ${remote_path} metadata is up-to-date, skipping`)
-  //     );
-  //   }
-  //   return;
-  // } else if (dryRun) {
-  //   return remote_path;
-  // }
+  if (await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH)) {
+    if (!noStaleMessage) {
+      log.info(
+        colors.green(`Flow ${remote_path} metadata is up-to-date, skipping`)
+      );
+    }
+    return;
+  } else if (dryRun) {
+    return remote_path;
+  }
+
+  if (useLocalLockfiles) {
+    log.warn("If using local lockfiles, following redeployments from Web App will inevitably override generated lockfiles by CLI. To maintain your script's lockfiles you will need to redeploy only from CLI. (Behavior is subject to change)")
+    log.info(
+      (await blueColor())(
+        `Found raw requirements (package.json/requirements.txt/composer.json/go.mod) for ${folder}, using it`,
+      ),
+    );
+  }
 
   const flowValue = (await yamlParseFile(
     folder! + SEP + "flow.yaml",
@@ -183,7 +224,7 @@ export async function generateFlowLockInternal(
 }
 
 // on windows, when using powershell, blue is not readable
-async function blueColor(): Promise<(x: string) => void> {
+export async function blueColor(): Promise<(x: string) => void> {
   const isWin = await getIsWin();
   return isWin ? colors.black : colors.blue;
 }
@@ -397,7 +438,7 @@ async function updateScriptLock(
         if (await Deno.stat(lockPath)) {
           await Deno.remove(lockPath);
         }
-      } catch {}
+      } catch { }
       metadataContent.lock = "";
     }
   } catch (e) {
@@ -414,47 +455,16 @@ export async function updateFlow(
   workspace: Workspace,
   flow_value: FlowValue,
   remotePath: string,
-  useLocalLockfiles?: boolean,
+  rawDeps?: Record<string, string>
+  // useLocalLockfiles?: boolean,
 ): Promise<FlowValue | undefined> {
   let rawResponse;
+  console.log(remotePath);
 
   // If useLocalLockfiles is true, look for local lockfiles and use them
-  if (true) {
+  if (rawDeps != undefined) {
     log.info(colors.blue("Using local lockfiles for flow dependencies"));
 
-    // Find all dependency files in the workspace
-    const globalDeps = await findGlobalDeps();
-
-    // Find closest dependency files for this flow
-    const pythonReqs = findClosestRawReqs("python3", remotePath, globalDeps);
-    const nodeDeps = findClosestRawReqs("bun", remotePath, globalDeps);
-    const goDeps = findClosestRawReqs("go", remotePath, globalDeps);
-    const phpDeps = findClosestRawReqs("php", remotePath, globalDeps);
-
-    console.log(pythonReqs);
-
-    // Collect all found dependencies
-    const rawDeps: Record<string, string> = {};
-
-    if (pythonReqs) {
-      log.info(colors.blue(`Found Python requirements.txt for ${remotePath}`));
-      rawDeps.python3 = pythonReqs;
-    }
-
-    if (nodeDeps) {
-      log.info(colors.blue(`Found package.json for ${remotePath}`));
-      rawDeps.nodejs = nodeDeps;
-    }
-
-    if (goDeps) {
-      log.info(colors.blue(`Found go.mod for ${remotePath}`));
-      rawDeps.go = goDeps;
-    }
-
-    if (phpDeps) {
-      log.info(colors.blue(`Found composer.json for ${remotePath}`));
-      rawDeps.php = phpDeps;
-    }
 
     // generate the script lock running a dependency job in Windmill and update it inplace
     rawResponse = await fetch(
@@ -512,7 +522,7 @@ export async function updateFlow(
   } catch (e) {
     try {
       responseText = await rawResponse.text();
-    } catch {}
+    } catch { }
     throw new Error(
       `Failed to generate lockfile. Status was: ${rawResponse.statusText}, ${responseText}, ${e}`,
     );
@@ -715,23 +725,23 @@ export function argSigToJsonSchemaType(
     | string
     | { resource: string | null }
     | {
-        list:
-          | (string | { object: { key: string; typ: any }[] })
-          | { str: any }
-          | { object: { key: string; typ: any }[] }
-          | null;
-      }
+      list:
+      | (string | { object: { key: string; typ: any }[] })
+      | { str: any }
+      | { object: { key: string; typ: any }[] }
+      | null;
+    }
     | { dynselect: string }
     | { str: string[] | null }
     | { object: { key: string; typ: any }[] }
     | {
-        oneof: [
-          {
-            label: string;
-            properties: { key: string; typ: any }[];
-          },
-        ];
-      },
+      oneof: [
+        {
+          label: string;
+          properties: { key: string; typ: any }[];
+        },
+      ];
+    },
   oldS: SchemaProperty,
 ): void {
   const newS: SchemaProperty = { type: "" };
@@ -936,10 +946,10 @@ export async function parseMetadataFile(
   scriptPath: string,
   generateMetadataIfMissing:
     | (GlobalOptions & {
-        path: string;
-        workspaceRemote: Workspace;
-        schemaOnly?: boolean;
-      })
+      path: string;
+      workspaceRemote: Workspace;
+      schemaOnly?: boolean;
+    })
     | undefined,
   globalDeps: GlobalDeps,
   codebases: SyncCodebase[],
@@ -1049,8 +1059,11 @@ export async function checkifMetadataUptodate(
   conf: Lock | undefined,
   subpath?: string,
 ) {
+  console.log(conf);
   if (!conf) {
+    console.log("READING")
     conf = await readLockfile();
+    console.log(conf)
   }
   if (!conf.locks) {
     return false;

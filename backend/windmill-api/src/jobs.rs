@@ -5043,11 +5043,7 @@ async fn run_dependencies_job(
         &db,
         PushIsolationLevel::IsolatedRoot(db.clone()),
         &w_id,
-        JobPayload::RawScriptDependencies {
-            script_path: script_path,
-            content: raw_code,
-            language: language,
-        },
+        JobPayload::RawScriptDependencies { script_path, content: raw_code, language },
         args,
         authed.display_username(),
         &authed.email,
@@ -5078,7 +5074,6 @@ async fn run_dependencies_job(
 pub struct RunFlowDependenciesRequest {
     pub path: String,
     pub flow_value: FlowValue,
-    pub use_local_lockfiles: bool,
     pub raw_deps: Option<HashMap<String, String>>,
 }
 
@@ -5102,28 +5097,18 @@ async fn run_flow_dependencies_job(
     }
 
     // Create args HashMap with skip_flow_update and raw_deps if present
-    let mut args_map = HashMap::from([
-        ("skip_flow_update".to_string(), to_raw_value(&true)),
-    ]);
-    
+    let mut args_map = HashMap::from([("skip_flow_update".to_string(), to_raw_value(&true))]);
+
     // Add raw_deps to args if present
     if let Some(ref raw_deps) = req.raw_deps {
-        args_map.insert(
-            "raw_deps".to_string(),
-            to_raw_value(raw_deps),
-        );
+        args_map.insert("raw_deps".to_string(), to_raw_value(raw_deps));
     }
 
     let (uuid, tx) = push(
         &db,
         PushIsolationLevel::IsolatedRoot(db.clone()),
         &w_id,
-        JobPayload::RawFlowDependencies {
-            path: req.path,
-            flow_value: req.flow_value,
-            use_local_lockfiles: req.use_local_lockfiles,
-            raw_deps: req.raw_deps,
-        },
+        JobPayload::RawFlowDependencies { path: req.path, flow_value: req.flow_value },
         PushArgs::from(&args_map),
         authed.display_username(),
         &authed.email,

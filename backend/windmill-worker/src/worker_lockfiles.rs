@@ -916,7 +916,7 @@ async fn lock_modules<'c>(
     locks_to_reload: &Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
     skip_flow_update: bool,
-    raw_deps: Option<HashMap<String, String>>,
+    local_lockfiles: Option<HashMap<String, String>>,
     // (modules to replace old seq (even unmmodified ones), new transaction, modified ids) )
 ) -> Result<(
     Vec<FlowModule>,
@@ -924,6 +924,7 @@ async fn lock_modules<'c>(
     Vec<String>,
     Vec<LockModuleError>,
 )> {
+    dbg!(&locks_to_reload);
     let mut new_flow_modules = Vec::new();
     let mut modified_ids = Vec::new();
     let mut errors = Vec::new();
@@ -969,7 +970,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
-                        raw_deps.clone(),
+                        local_lockfiles.clone(),
                     ))
                     .await?;
                     e.value = FlowModuleValue::ForloopFlow {
@@ -1005,7 +1006,7 @@ async fn lock_modules<'c>(
                             locks_to_reload,
                             occupancy_metrics,
                             skip_flow_update,
-                            raw_deps.clone(),
+                            local_lockfiles.clone(),
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -1033,7 +1034,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
-                        raw_deps.clone(),
+                        local_lockfiles.clone(),
                     ))
                     .await?;
                     e.value = FlowModuleValue::WhileloopFlow {
@@ -1066,7 +1067,7 @@ async fn lock_modules<'c>(
                             locks_to_reload,
                             occupancy_metrics,
                             skip_flow_update,
-                            raw_deps.clone(),
+                            local_lockfiles.clone(),
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -1092,7 +1093,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
-                        raw_deps.clone(),
+                        local_lockfiles.clone(),
                     ))
                     .await?;
                     errors.extend(ninner_errors);
@@ -1133,27 +1134,27 @@ async fn lock_modules<'c>(
             continue;
         };
 
-        // Check if we have a predefined lockfile in raw_deps for this language
-        if let Some(ref deps) = raw_deps {
-            if let Some(lockfile) = deps.get(dbg!(language.as_str())) {
-                dbg!("YAY!");
-                // Use the predefined lockfile for this language
-                e.value = windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
-                    lock: Some(lockfile.clone()),
-                    path,
-                    input_transforms,
-                    content,
-                    language,
-                    tag,
-                    custom_concurrency_key,
-                    concurrent_limit,
-                    concurrency_time_window_s,
-                    is_trigger,
-                });
-                new_flow_modules.push(e);
-                continue;
-            }
-        }
+        // // Check if we have a predefined lockfile in raw_deps for this language
+        // if let Some(ref deps) = raw_deps {
+        //     if let Some(lockfile) = deps.get(dbg!(language.as_str())) {
+        //         dbg!("YAY!");
+        //         // Use the predefined lockfile for this language
+        //         e.value = windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
+        //             lock: Some(lockfile.clone()),
+        //             path,
+        //             input_transforms,
+        //             content,
+        //             language,
+        //             tag,
+        //             custom_concurrency_key,
+        //             concurrent_limit,
+        //             concurrency_time_window_s,
+        //             is_trigger,
+        //         });
+        //         new_flow_modules.push(e);
+        //         continue;
+        //     }
+        // }
 
         if let Some(locks_to_reload) = locks_to_reload {
             if !locks_to_reload.contains(&e.id) {
@@ -1178,6 +1179,14 @@ async fn lock_modules<'c>(
         create_dir_all(job_dir).map_err(|e| {
             Error::ExecutionErr(format!("Error creating job dir for flow step lock: {e}"))
         })?;
+
+        // If we have local lockfiles (and they are enabled) we will replace script content with lockfile and tell hander that it is raw_deps job
+        let (content, raw_deps) = local_lockfiles
+            .as_ref()
+            .and_then(|rd| rd.get(language.as_str()))
+            .map(|lock| (lock.to_owned(), true))
+            .unwrap_or((content, false));
+
         let new_lock = capture_dependency_job(
             &job.id,
             &language,
@@ -1195,7 +1204,7 @@ async fn lock_modules<'c>(
                 "{}/flow",
                 &path.clone().unwrap_or_else(|| job_path.to_string())
             ),
-            false,
+            raw_deps,
             None,
             occupancy_metrics,
         )

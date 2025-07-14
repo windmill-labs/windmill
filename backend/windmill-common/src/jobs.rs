@@ -324,8 +324,6 @@ pub enum JobPayload {
     RawFlowDependencies {
         path: String,
         flow_value: FlowValue,
-        use_local_lockfiles: bool,
-        raw_deps: Option<HashMap<String, String>>,
     },
     RawScriptDependencies {
         script_path: String,
