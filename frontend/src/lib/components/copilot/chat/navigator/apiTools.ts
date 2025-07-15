@@ -264,7 +264,8 @@ export async function loadApiTools(): Promise<Tool<{}>[]> {
 			'resources',
 			'variables',
 			'schedules',
-			'workers'
+			'workers',
+			'srch'
 		]
 
 		const { tools: apiTools, endpointMap } = buildToolsFromOpenApi(openApiSpec, {
