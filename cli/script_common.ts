@@ -27,6 +27,7 @@ export type ScriptLanguage =
 // 2. Modify backend to allow raw deps
 export type LanguageWithRawReqsSupport =
   | { language: "bun", rrFilename /** (raw requirements filename) */: "package.json" }
+  // TODO: Add `requirements.in` - more intuitive and reflects better what actually happens
   | { language: "python3", rrFilename: "requirements.txt" }
   | { language: "php", rrFilename: "composer.json" }
   | { language: "go", rrFilename: "go.mod" };

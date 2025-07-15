@@ -49,8 +49,6 @@ function findClosestRawReqs(
     Object.entries(globalDeps.get(lang) ?? {}).forEach(([k, v]) => {
       if (
         remotePath.startsWith(k) &&
-        // BUG: It looks like /f/a/b will be in less priority than /f/abcde
-        // TODO: Test if it is the case
         k.length >= (bestCandidate?.k ?? "").length
       ) {
         bestCandidate = { k, v };
@@ -74,11 +72,11 @@ async function generateFlowHash(
       let reqs: string | undefined;
       if (rawReqs) {
         // Get language name from path
-        // TODO: Distinguish Bun and Node and Deno extensions
         const lang = inferContentTypeFromFilePath(f.path, defaultTs);
         // Get lock for that language
         [, reqs] = Object.entries(rawReqs ?? {}).find(([lang2, _]) => lang == lang2) ?? [];
       }
+
       // NOTE: We embed lock into hash
       hashes[f.path] = await generateHash(await f.getContentText() + (reqs ?? ""));
     }
@@ -357,11 +355,8 @@ async function updateScriptLock(
 ): Promise<void> {
   if (
     !(
-      language == "bun" ||
-      language == "python3" ||
-      language == "go" ||
+      languagesWithRawReqsSupport.some((l) => l.language == language) ||
       language == "deno" ||
-      language == "php" ||
       language == "rust" ||
       language == "ansible"
     )
