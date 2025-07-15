@@ -113,7 +113,8 @@
 
 	// Flow preview
 	let flowPreviewButtons: FlowPreviewButtons | undefined = $state()
-	const job: Job | undefined = $derived(flowPreviewButtons?.getJob())
+	const flowPreviewContent = $derived(flowPreviewButtons?.getFlowPreviewContent())
+	const job: Job | undefined = $derived(flowPreviewContent?.getJob())
 	let showJobStatus = $state(false)
 	let testModuleId: string | undefined = $state(undefined)
 
@@ -572,13 +573,13 @@
 	})
 
 	const localModuleStates: Writable<Record<string, GraphModuleState>> = $derived(
-		flowPreviewButtons?.getLocalModuleStates() ?? writable({})
+		flowPreviewContent?.getLocalModuleStates() ?? writable({})
 	)
 	const localDurationStatuses: Writable<Record<string, DurationStatus>> = $derived(
-		flowPreviewButtons?.getLocalDurationStatuses() ?? writable({})
+		flowPreviewContent?.getLocalDurationStatuses() ?? writable({})
 	)
 	const suspendStatus: Writable<Record<string, { job: Job; nb: number }>> = $derived(
-		flowPreviewButtons?.getSuspendStatus() ?? writable({})
+		flowPreviewContent?.getSuspendStatus() ?? writable({})
 	)
 
 	// Create a derived store that only shows the module states when showModuleStatus is true
@@ -792,10 +793,10 @@
 								disableStaticInputs
 								localModuleStates={derivedModuleStates}
 								onTestUpTo={flowPreviewButtons?.testUpTo}
-								isOwner={flowPreviewButtons?.getIsOwner()}
+								isOwner={flowPreviewContent?.getIsOwner?.()}
 								onTestFlow={flowPreviewButtons?.runPreview}
-								isRunning={flowPreviewButtons?.getIsRunning()}
-								onCancelTestFlow={flowPreviewButtons?.cancelTest}
+								isRunning={flowPreviewContent?.getIsRunning?.()}
+								onCancelTestFlow={flowPreviewContent?.cancelTest}
 								onOpenPreview={flowPreviewButtons?.openPreview}
 								onHideJobStatus={resetModulesStates}
 								{individualStepTests}
@@ -825,7 +826,7 @@
 								}}
 								onTestFlow={flowPreviewButtons?.runPreview}
 								{job}
-								isOwner={flowPreviewButtons?.getIsOwner()}
+								isOwner={flowPreviewContent?.getIsOwner()}
 								{localDurationStatuses}
 								{suspendStatus}
 								onOpenDetails={flowPreviewButtons?.openPreview}
