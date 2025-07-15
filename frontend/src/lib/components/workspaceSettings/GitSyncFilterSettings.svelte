@@ -118,7 +118,7 @@
 	})
 
 	// Tab selection for filter kinds
-	let filtersTab = $state<'includes' | 'excludes' | 'extra'>('includes')
+	let filtersTab = $state<'includes' | 'excludes'>('includes')
 
 	function updateIncludeType(key: keyof GitSyncTypeMap, value: boolean) {
 		const newTypes = new Set(include_type)
@@ -252,7 +252,6 @@
 
 			// Basic YAML structure - let the CLI handle the proper normalization
 			let config: any = {
-				defaultTs: 'bun',
 				includes: validIncludePath,
 				excludes: validExcludePath,
 				extraIncludes: validExtraInclude,
@@ -283,8 +282,7 @@
 		} catch (e) {
 			console.warn('Failed to generate YAML:', e)
 			yamlError = e.message || 'Failed to generate YAML'
-			return `defaultTs: bun
-includes:
+			return `includes:
   - f/**
 excludes: []
 extraIncludes: []
@@ -596,7 +594,6 @@ codebases: []`
 						<Tabs bind:selected={filtersTab}>
 							<Tab value="includes">Includes</Tab>
 							<Tab value="excludes">Excludes</Tab>
-							<Tab value="extra">Extra include</Tab>
 						</Tabs>
 
 						{#if filtersTab === 'includes'}
@@ -625,19 +622,6 @@ codebases: []`
 									<Tooltip>
 										After the include / extra include checks, if a file matches any of these
 										patterns it will be skipped.
-									</Tooltip>
-								{/snippet}
-							</FilterList>
-						{:else}
-							<FilterList
-								title="Extra include filters"
-								bind:items={extraIncludes}
-								placeholder="Add filter (e.g. f/**)"
-							>
-								{#snippet tooltip()}
-									<Tooltip>
-										Secondary allow-list applied after include/exclude. File must match at least one
-										of these in addition to the main includes list if provided.
 									</Tooltip>
 								{/snippet}
 							</FilterList>
