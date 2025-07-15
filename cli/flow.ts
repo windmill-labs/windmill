@@ -236,7 +236,7 @@ async function generateLocks(
   } & SyncOptions,
   folder: string | undefined
 ) {
-  // Check for environment variable USE_LOCAL_LOCKFILE
+  // TODO: deno does not like this
   const useLocalLockfiles = opts["useLocalLockfiles"] || Deno.env.get("USE_LOCAL_LOCKFILE") === "true";
 
 

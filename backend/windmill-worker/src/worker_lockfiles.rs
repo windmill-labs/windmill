@@ -269,6 +269,16 @@ pub async fn handle_dependency_job(
         None
     };
 
+    let local_lockfiles = job
+        .args
+        .as_ref()
+        .map(|x| {
+            x.get("local_lockfiles")
+                .map(|v| serde_json::from_str::<HashMap<String, String>>(v.get()).ok())
+                .flatten()
+        })
+        .flatten();
+
     // `JobKind::Dependencies` job store either:
     // - A saved script `hash` in the `script_hash` column.
     // - Preview raw lock and code in the `queue` or `job` table.
@@ -304,6 +314,22 @@ pub async fn handle_dependency_job(
         },
     };
 
+    // Check if we have a local lockfile for this language
+    let (content_to_use, raw_deps_to_use) = if let Some(local_lockfiles) = local_lockfiles.as_ref()
+    {
+        if let Some(language) = job.script_lang.as_ref() {
+            if let Some(local_lockfile) = local_lockfiles.get(language.as_str()) {
+                (local_lockfile.clone(), true)
+            } else {
+                (script_data.code.clone(), raw_deps)
+            }
+        } else {
+            (script_data.code.clone(), raw_deps)
+        }
+    } else {
+        (script_data.code.clone(), raw_deps)
+    };
+
     let content = capture_dependency_job(
         &job.id,
         job.script_lang.as_ref().map(|v| Ok(v)).unwrap_or_else(|| {
@@ -311,7 +337,7 @@ pub async fn handle_dependency_job(
                 "Job Language required for dependency jobs".to_owned(),
             ))
         })?,
-        &script_data.code,
+        &content_to_use,
         mem_peak,
         canceled_by,
         job_dir,
@@ -322,7 +348,7 @@ pub async fn handle_dependency_job(
         base_internal_url,
         token,
         script_path,
-        raw_deps,
+        raw_deps_to_use,
         npm_mode,
         occupancy_metrics,
     )
@@ -695,24 +721,27 @@ pub async fn handle_flow_dependency_job(
         })
         .flatten();
 
-    let raw_deps = job
+    dbg!(&nodes_to_relock);
+
+    let local_lockfiles = job
         .args
         .as_ref()
+        // TODO: Refactor
         .map(|x| {
-            x.get("raw_deps")
+            x.get("local_lockfiles")
                 .map(|v| serde_json::from_str::<HashMap<String, String>>(v.get()).ok())
                 .flatten()
         })
         .flatten();
 
-    dbg!(&raw_deps);
+    dbg!(&local_lockfiles);
     // `JobKind::FlowDependencies` job store either:
     // - A saved flow version `id` in the `script_hash` column.
     // - Preview raw flow in the `queue` or `job` table.
     let mut flow = match job.runnable_id {
         Some(ScriptHash(id)) => cache::flow::fetch_version(db, id).await?,
         _ => match preview_data {
-            Some(RawData::Flow(data)) => data.clone(),
+            Some(RawData::Flow(data)) => dbg!(data.clone()),
             _ => return Err(Error::internal_err("expected script hash")),
         },
     }
@@ -752,7 +781,7 @@ pub async fn handle_flow_dependency_job(
         &nodes_to_relock,
         occupancy_metrics,
         skip_flow_update,
-        raw_deps,
+        local_lockfiles,
     )
     .await?;
     if !errors.is_empty() {
@@ -930,11 +959,12 @@ async fn lock_modules<'c>(
     Vec<String>,
     Vec<LockModuleError>,
 )> {
-    dbg!(&locks_to_reload);
+    // dbg!(&locks_to_reload);
     let mut new_flow_modules = Vec::new();
     let mut modified_ids = Vec::new();
     let mut errors = Vec::new();
     for mut e in modules.into_iter() {
+        // dbg!(&e);
         let id = e.id.clone();
         let mut nmodified_ids = Vec::new();
         let FlowModuleValue::RawScript {
@@ -949,7 +979,7 @@ async fn lock_modules<'c>(
             concurrency_time_window_s,
             is_trigger,
             asset_fallback_access_types,
-        } = e.get_value()?
+        } = dbg!(e.get_value()?)
         else {
             match e.get_value()? {
                 FlowModuleValue::ForloopFlow {
@@ -1153,7 +1183,10 @@ async fn lock_modules<'c>(
             .await?;
         }
 
-        if let Some(locks_to_reload) = locks_to_reload {
+        dbg!(&language);
+        dbg!(&language);
+        dbg!(&language);
+        if let Some(locks_to_reload) = dbg!(locks_to_reload) {
             if !locks_to_reload.contains(&e.id) {
                 new_flow_modules.push(e);
                 continue;
@@ -1161,7 +1194,7 @@ async fn lock_modules<'c>(
         } else {
             if lock.as_ref().is_some_and(|x| !x.trim().is_empty()) {
                 let skip_creating_new_lock = skip_creating_new_lock(&language, &content);
-                if skip_creating_new_lock {
+                if dbg!(skip_creating_new_lock) {
                     new_flow_modules.push(e);
                     continue;
                 }
@@ -1180,10 +1213,14 @@ async fn lock_modules<'c>(
         // If we have local lockfiles (and they are enabled) we will replace script content with lockfile and tell hander that it is raw_deps job
         let (content, raw_deps) = local_lockfiles
             .as_ref()
-            .and_then(|rd| rd.get(language.as_str()))
+            .and_then(|llfs| llfs.get(dbg!(language.as_str())))
             .map(|lock| (lock.to_owned(), true))
             .unwrap_or((content, false));
 
+        dbg!(format!(
+            "capture job for: {:?}, content: {:?}",
+            &language, &content
+        ));
         let new_lock = capture_dependency_job(
             &job.id,
             &language,
@@ -2242,6 +2279,7 @@ async fn capture_dependency_job(
             }
         }
         ScriptLang::Go => {
+            // dbg!(
             install_go_dependencies(
                 job_id,
                 job_raw_code,
@@ -2258,6 +2296,7 @@ async fn capture_dependency_job(
                 occupancy_metrics,
             )
             .await
+            // )
         }
         ScriptLang::Deno => {
             if raw_deps {

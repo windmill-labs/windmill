@@ -14,7 +14,7 @@ import {
 } from "./bootstrap/script_bootstrap.ts";
 import { Workspace } from "./workspace.ts";
 import { SchemaProperty } from "./bootstrap/common.ts";
-import { ScriptLanguage } from "./script_common.ts";
+import { languagesWithLocalLockfileSupport, LanguageWithLocalLockfileSupport, ScriptLanguage } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { GlobalDeps, exts, findGlobalDeps } from "./script.ts";
 import {
@@ -40,13 +40,13 @@ export class LockfileGenerationError extends Error {
 export async function generateAllMetadata() { }
 
 function findClosestRawReqs(
-  lang: "bun" | "python3" | "php" | "go" | undefined,
+  lang: LanguageWithLocalLockfileSupport | undefined,
   remotePath: string,
   globalDeps: GlobalDeps,
 ): string | undefined {
   let bestCandidate: { k: string; v: string } | undefined = undefined;
-  if (lang == "bun") {
-    Object.entries(globalDeps.pkgs).forEach(([k, v]) => {
+  if (lang) {
+    Object.entries(globalDeps.get(lang) ?? {}).forEach(([k, v]) => {
       if (
         remotePath.startsWith(k) &&
         k.length >= (bestCandidate?.k ?? "").length
@@ -54,53 +54,88 @@ function findClosestRawReqs(
         bestCandidate = { k, v };
       }
     });
-  } else if (lang == "python3") {
-    Object.entries(globalDeps.reqs).forEach(([k, v]) => {
-      if (
-        remotePath.startsWith(k) &&
-        k.length >= (bestCandidate?.k ?? "").length
-      ) {
-        bestCandidate = { k, v };
-      }
-    });
-  } else if (lang == "php") {
-    Object.entries(globalDeps.composers).forEach(([k, v]) => {
-      if (
-        remotePath.startsWith(k) &&
-        k.length >= (bestCandidate?.k ?? "").length
-      ) {
-        bestCandidate = { k, v };
-      }
-    });
-  } else if (lang == "go") {
-    Object.entries(globalDeps.goMods).forEach(([k, v]) => {
-      if (
-        remotePath.startsWith(k) &&
-        k.length >= (bestCandidate?.k ?? "").length
-      ) {
-        bestCandidate = { k, v };
-      }
-    });
+
   }
+  // if (lang?.language == "bun") {
+  // } else if (lang == "python3") {
+  //   Object.entries(globalDeps.reqs).forEach(([k, v]) => {
+  //     if (
+  //       remotePath.startsWith(k) &&
+  //       k.length >= (bestCandidate?.k ?? "").length
+  //     ) {
+  //       bestCandidate = { k, v };
+  //     }
+  //   });
+  // } else if (lang == "php") {
+  //   Object.entries(globalDeps.composers).forEach(([k, v]) => {
+  //     if (
+  //       remotePath.startsWith(k) &&
+  //       k.length >= (bestCandidate?.k ?? "").length
+  //     ) {
+  //       bestCandidate = { k, v };
+  //     }
+  //   });
+  // } else if (lang == "go") {
+  //   Object.entries(globalDeps.goMods).forEach(([k, v]) => {
+  //     if (
+  //       remotePath.startsWith(k) &&
+  //       k.length >= (bestCandidate?.k ?? "").length
+  //     ) {
+  //       bestCandidate = { k, v };
+  //     }
+  //   });
+  // }
   // @ts-ignore
   return bestCandidate?.v;
 }
 
 const TOP_HASH = "__flow_hash";
 async function generateFlowHash(
-  rawDeps: Record<string, string> | undefined,
-  folder: string
+  folder: string,
+  localLockfiles: Record<string, string> | undefined
 ) {
   const elems = await FSFSElement(path.join(Deno.cwd(), folder), [], true);
-  console.log("EXPECT")
-  const hashes: Record<string, string> = {};
+  const hashes: Record<string, string | undefined> = {};
   for await (const f of elems.getChildren()) {
-    console.log(f);
-    if (exts.some((e) => f.path.endsWith(e))) {
-      hashes[f.path] = await generateHash(await f.getContentText());
+    const ext = (exts.find((e) => f.path.endsWith(e)));
+
+    if (ext) {
+      // console.log("EXT: " + ext);
+      // hashes[f.path] = await generateHash(await f.getContentText());
+      if (exts.some((e) => f.path.endsWith(e))) {
+        let lock: string | undefined;
+        if (localLockfiles) {
+          // Get language name from path
+          // TODO: Distinguish Bun and Node and Deno extensions
+          const lang = inferContentTypeFromFilePath(f.path, undefined);
+          // Get lock for that language
+          const [_, tmpLock] = Object.entries(localLockfiles ?? {}).find(([lang2, _]) => lang == lang2) ?? [];
+          lock = tmpLock;
+        }
+        hashes[f.path] = await generateHash(await f.getContentText() + (lock ?? ""));
+      }
+      // if (localLockfiles) {
+      // TODO: Check whether the language is actually used in flow.
+      // TODO: Make sure only works for Bun and not Deno nor Node?
+      // hashes["local_lockfile_" + lang] = (lock) ? await generateHash(lock) : undefined;
+      // for (const [lang, lock] of Object.entries(localLockfiles)) {
+      //   hashes["local_lockfile_" + lang] = await generateHash(lock);
+      // }
+
+      // }
     }
+
+    // if (!localLockfiles) {
+    //   // Fill all possible lockfile hashes with undefined so they get unset from the wmill-lock.yaml by the caller.
+    //   languagesWithLocalLockfileSupport.map((l) => hashes["local_lockfile_" + l.language] = undefined);
+    // //   for (const [lang, lock] of Object.entries(localLockfiles)) {
+    // //     // TODO: Check whether the language is actually used in flow.
+    // //     hashes["local_lockfile_" + lang] = await generateHash(lock);
+    // //   }
+
+    // } 
   }
-  return { ...hashes, [TOP_HASH]: await generateHash((rawDeps ?? "") + JSON.stringify(hashes)) };
+  return { ...hashes, [TOP_HASH]: await generateHash(JSON.stringify(hashes)) };
 }
 export async function generateFlowLockInternal(
   folder: string,
@@ -120,34 +155,27 @@ export async function generateFlowLockInternal(
     log.info(`Generating lock for flow ${folder} at ${remote_path}`);
   }
 
-  let rawDeps: Record<string, string> | undefined;
+  // let rawDeps: Record<string, string> | undefined;
+  let localLockfiles: Record<string, string> | undefined;
   if (useLocalLockfiles) {
 
     // Find all dependency files in the workspace
     const globalDeps = await findGlobalDeps();
 
     // Find closest dependency files for this flow
-    const pythonReqs = findClosestRawReqs("python3", folder, globalDeps);
-    const nodeDeps = findClosestRawReqs("bun", folder, globalDeps);
-    const goDeps = findClosestRawReqs("go", folder, globalDeps);
-    const phpDeps = findClosestRawReqs("php", folder, globalDeps);
+    localLockfiles = {};
 
-    rawDeps = {};
-
-    console.log(pythonReqs);
-    // Collect all found dependencies
-    if (pythonReqs)
-      rawDeps.python3 = pythonReqs;
-    if (nodeDeps)
-      rawDeps.nodejs = nodeDeps;
-    if (goDeps)
-      rawDeps.go = goDeps;
-    if (phpDeps)
-      rawDeps.php = phpDeps;
+    languagesWithLocalLockfileSupport.map((lang) => {
+      const dep = findClosestRawReqs(lang, folder, globalDeps);
+      if (dep) {
+        // @ts-ignore
+        localLockfiles[lang.language] = dep;
+      }
+    });
   } else
-    rawDeps = undefined;
+    localLockfiles = undefined;
 
-  let hashes = await generateFlowHash(rawDeps, folder);
+  let hashes = await generateFlowHash(folder, localLockfiles);
 
   const conf = await readLockfile();
   if (await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH)) {
@@ -186,6 +214,8 @@ export async function generateFlowLockInternal(
       }
     }
 
+    console.log("Locks to remove: " + changedScripts);
+
     log.info(`Recomputing locks of ${changedScripts.join(", ")} in ${folder}`);
     replaceInlineScripts(
       flowValue.value.modules,
@@ -193,12 +223,14 @@ export async function generateFlowLockInternal(
       changedScripts,
     );
 
+    // console.log("Substituted modules: " + JSON.stringify(flowValue.value.modules));
+
     //removeChangedLocks
     flowValue.value = await updateFlow(
       workspace,
       flowValue.value,
       remote_path,
-      useLocalLockfiles,
+      localLockfiles,
     );
 
     const inlineScripts = extractInlineScriptsForFlows(
@@ -215,7 +247,7 @@ export async function generateFlowLockInternal(
       });
   }
 
-  hashes = await generateFlowHash(folder);
+  hashes = await generateFlowHash(folder, localLockfiles);
 
   for (const [path, hash] of Object.entries(hashes)) {
     await updateMetadataGlobalLock(folder, hash, path);
@@ -249,8 +281,9 @@ export async function generateScriptMetadataInternal(
 
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
 
+
   const rawReqs = findClosestRawReqs(
-    language as "bun" | "python3" | "php" | "go" | undefined,
+    languagesWithLocalLockfileSupport.find((l) => language == l.language),
     scriptPath,
     globalDeps,
   );
@@ -455,14 +488,14 @@ export async function updateFlow(
   workspace: Workspace,
   flow_value: FlowValue,
   remotePath: string,
-  rawDeps?: Record<string, string>
+  localLockfiles?: Record<string, string>
   // useLocalLockfiles?: boolean,
 ): Promise<FlowValue | undefined> {
   let rawResponse;
-  console.log(remotePath);
+
 
   // If useLocalLockfiles is true, look for local lockfiles and use them
-  if (rawDeps != undefined) {
+  if (localLockfiles != undefined) {
     log.info(colors.blue("Using local lockfiles for flow dependencies"));
 
 
@@ -479,7 +512,7 @@ export async function updateFlow(
           flow_value,
           path: remotePath,
           use_local_lockfiles: true,
-          raw_deps: rawDeps,
+          local_lockfiles: localLockfiles,
         }),
       },
     );

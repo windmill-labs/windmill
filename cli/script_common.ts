@@ -22,6 +22,19 @@ export type ScriptLanguage =
   | "java";
 // for related places search: ADD_NEW_LANG
 
+export type LanguageWithLocalLockfileSupport =
+  | { language: "bun", lockfile: "package.json" }
+  | { language: "python3", lockfile: "requirements.txt" }
+  | { language: "php", lockfile: "composer.json" }
+  | { language: "go", lockfile: "go.mod" };
+
+export const languagesWithLocalLockfileSupport = [
+  { language: "bun", lockfile: "package.json" },
+  { language: "python3", lockfile: "requirements.txt" },
+  { language: "php", lockfile: "composer.json" },
+  { language: "go", lockfile: "go.mod" },
+] as const;
+
 export function inferContentTypeFromFilePath(
   contentPath: string,
   defaultTs: "bun" | "deno" | undefined
