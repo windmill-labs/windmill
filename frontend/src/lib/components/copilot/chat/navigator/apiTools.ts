@@ -2,7 +2,6 @@ import type { ChatCompletionTool } from 'openai/resources/index.mjs'
 import type { Tool } from '../shared'
 import { get } from 'svelte/store'
 import { workspaceStore } from '$lib/stores'
-import { parse } from 'yaml'
 
 // OpenAPI type definitions
 interface OpenAPIParameter {
@@ -55,6 +54,88 @@ interface OpenAPISpec {
 	paths: {
 		[path: string]: OpenAPIPathItem
 	}
+	components?: {
+		parameters?: {
+			[name: string]: OpenAPIParameter
+		}
+		schemas?: {
+			[name: string]: any
+		}
+	}
+}
+
+interface OpenAPIParameterWithRef {
+	$ref?: string
+	name?: string
+	in?: string
+	description?: string
+	required?: boolean
+	schema?: {
+		type?: string
+		format?: string
+	}
+}
+
+/**
+ * Dereferences parameter $ref references in an OpenAPI spec
+ * Only resolves parameter references, not schemas or other components
+ */
+function dereferenceParameters(spec: OpenAPISpec): OpenAPISpec {
+	if (!spec.components?.parameters) {
+		return spec
+	}
+
+	const resolveParameterRef = (paramRef: OpenAPIParameterWithRef): OpenAPIParameter => {
+		if (paramRef.$ref) {
+			// Extract parameter name from $ref (e.g., "#/components/parameters/WorkspaceId" -> "WorkspaceId")
+			const refPath = paramRef.$ref.split('/')
+			if (refPath.length >= 4 && refPath[1] === 'components' && refPath[2] === 'parameters') {
+				const paramName = refPath[3]
+				const resolvedParam = spec.components?.parameters?.[paramName]
+				if (resolvedParam) {
+					return resolvedParam
+				}
+			}
+			console.warn(`Could not resolve parameter reference: ${paramRef.$ref}`)
+			return paramRef as OpenAPIParameter
+		}
+		return paramRef as OpenAPIParameter
+	}
+
+	const processParameters = (parameters: OpenAPIParameterWithRef[]): OpenAPIParameter[] => {
+		return parameters.map(resolveParameterRef)
+	}
+
+	const dereferencedSpec: OpenAPISpec = {
+		...spec,
+		paths: {}
+	}
+
+	// Process each path
+	for (const [pathKey, pathItem] of Object.entries(spec.paths)) {
+		const newPathItem: OpenAPIPathItem = { ...pathItem }
+
+		// Dereference path-level parameters
+		if (pathItem.parameters) {
+			newPathItem.parameters = processParameters(pathItem.parameters as OpenAPIParameterWithRef[])
+		}
+
+		// Dereference operation-level parameters
+		const methods = ['get', 'post', 'put', 'delete', 'patch', 'options'] as const
+		for (const method of methods) {
+			const operation = pathItem[method]
+			if (operation?.parameters) {
+				newPathItem[method] = {
+					...operation,
+					parameters: processParameters(operation.parameters as OpenAPIParameterWithRef[])
+				}
+			}
+		}
+
+		dereferencedSpec.paths[pathKey] = newPathItem
+	}
+
+	return dereferencedSpec
 }
 
 const buildApiCallTools = (
@@ -242,8 +323,6 @@ export function createApiTools(
 					})
 					const data = await response.json()
 
-					// For now, return a placeholder response
-					// In a real implementation, we would make the actual API call here
 					toolCallbacks.setToolStatus(toolId, `API call to ${url} completed`)
 					return JSON.stringify({
 						success: true,
@@ -261,9 +340,13 @@ export function createApiTools(
 
 export async function loadApiTools(): Promise<Tool<{}>[]> {
 	try {
-		const response = await fetch('/api/openapi.yaml')
-		const yaml = await response.text()
-		const openApiSpec = parse(yaml, { maxAliasCount: Infinity }) as OpenAPISpec
+		const response = await fetch('/api/openapi.json')
+		const jsonText = await response.text()
+		const rawOpenApiSpec = JSON.parse(jsonText) as OpenAPISpec
+
+		// Dereference parameter references
+		const openApiSpec = dereferenceParameters(rawOpenApiSpec)
+
 		const pathsToInclude = [
 			'jobs',
 			'jobs_u',
