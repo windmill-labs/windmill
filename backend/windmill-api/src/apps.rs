@@ -157,7 +157,7 @@ pub struct AppVersion {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(Serialize, Deserialize, FromRow)]
+#[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct AppWithLastVersion {
     pub id: i64,
     pub path: String,
@@ -170,8 +170,8 @@ pub struct AppWithLastVersion {
     pub extra_perms: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_path: Option<String>,
-    #[serde(skip_serializing_if = "is_false")]
-    pub workspaced_route: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspaced_route: Option<bool>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -184,7 +184,7 @@ pub struct AppWithLastVersionAndStarred {
 }
 
 #[cfg(feature = "enterprise")]
-#[derive(Serialize, FromRow)]
+#[derive(Debug, Serialize, FromRow)]
 pub struct AppWithLastVersionAndWorkspace {
     #[sqlx(flatten)]
     #[serde(flatten)]
@@ -201,6 +201,8 @@ pub struct AppWithLastVersionAndDraft {
     pub draft: Option<sqlx::types::Json<Box<RawValue>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspaced_route: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -525,21 +527,37 @@ async fn get_app_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let app_o = sqlx::query_as::<_, AppWithLastVersionAndDraft>(
-        r#"SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-        app.workspaced_route, app.extra_perms, app_version.value,
-        app_version.created_at, app_version.created_by,
-        app.draft_only, draft.value as "draft"
-        from app
-        INNER JOIN app_version ON
-        app_version.id = app.versions[array_upper(app.versions, 1)]
-        LEFT JOIN draft ON 
-        app.path = draft.path AND draft.workspace_id = $2 AND draft.typ = 'app' 
-        WHERE app.path = $1 AND app.workspace_id = $2"#,
+        r#"
+        SELECT 
+            app.id, 
+            app.path, 
+            app.summary, 
+            app.versions, 
+            app.policy, 
+            app.custom_path,
+            app.workspaced_route, 
+            app.extra_perms, 
+            app_version.value,
+            app_version.created_at, 
+            app_version.created_by,
+            app.draft_only,
+            draft.value AS "draft"
+        FROM app
+        INNER JOIN app_version 
+            ON app_version.id = app.versions[array_upper(app.versions, 1)]
+        LEFT JOIN draft 
+            ON app.path = draft.path 
+        AND draft.workspace_id = $2 
+        AND draft.typ = 'app'
+        WHERE app.path = $1 
+        AND app.workspace_id = $2
+    "#,
     )
     .bind(path.to_owned())
     .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await?;
+
     tx.commit().await?;
 
     let app = not_found_if_none(app_o, "App", path)?;
@@ -662,7 +680,7 @@ async fn custom_path_exists_inner(
         .await?
         .unwrap_or(false)
     } else {
-        let custom_path = match workspaced_route {
+        let full_custom_path = match workspaced_route {
             Some(true) => Cow::Owned(format!("{}/{}", w_id, custom_path.trim_matches('/'))),
             _ => Cow::Borrowed(custom_path),
         };
@@ -672,12 +690,12 @@ async fn custom_path_exists_inner(
                 SELECT 1 
                 FROM app 
                 WHERE 
-                    ((workspaced_route IS TRUE AND workspace_id = $1 AND custom_path = $2) 
+                    ((workspaced_route IS TRUE AND workspace_id = $1 AND workspace_id || '/' || custom_path = $2) 
                     OR (workspaced_route IS FALSE AND custom_path = $2))
             )
             "#,
             w_id,
-            custom_path.as_ref(),
+            full_custom_path.as_ref(),
         )
         .fetch_one(db)
         .await?
@@ -737,7 +755,7 @@ async fn get_public_app_by_secret(
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-        null as extra_perms, coalesce(app_version_lite.value::json, app_version.value::json) as value,
+        app.workspaced_route, null as extra_perms, coalesce(app_version_lite.value::json, app_version.value::json) as value,
         app_version.created_at, app_version.created_by from app, app_version 
         LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
         WHERE app.id = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]")

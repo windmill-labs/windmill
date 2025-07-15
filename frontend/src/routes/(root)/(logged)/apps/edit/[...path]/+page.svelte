@@ -30,6 +30,7 @@
 				policy: any
 				draft_only?: boolean
 				custom_path?: string
+				workspaced_route?: boolean
 		  }
 		| undefined = $state(undefined)
 	let redraw = $state(0)
@@ -72,7 +73,8 @@
 								custom_path: app_w_draft_.custom_path
 							}
 						: undefined,
-			custom_path: app_w_draft_.custom_path
+			custom_path: app_w_draft_.custom_path,
+			workspaced_route: app_w_draft_.workspaced_route
 		}
 
 		if (stateLoadedFromLocalStorage) {

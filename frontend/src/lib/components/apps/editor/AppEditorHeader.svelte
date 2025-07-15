@@ -113,6 +113,7 @@
 					policy: any
 					draft_only?: boolean
 					custom_path?: string
+					workspaced_route?: boolean
 			  }
 			| undefined
 		version?: number | undefined
@@ -1282,44 +1283,47 @@
 				/>
 
 				{#if customPath !== undefined}
-					{#if !isCloudHosted()}
-						<div class="mt-2">
-							<Toggle
-								size="sm"
-								checked={workspaced_route}
-								disabled={!($userStore?.is_admin || $userStore?.is_super_admin)}
-								on:change={() => {
-									workspaced_route = !workspaced_route
-								}}
-								options={{
-									right: 'Prefix with workspace',
-									rightTooltip: 'Prefixes the custom path with the workspace ID (e.g., /a/{workspace_id}/{custom_path}). Note: deploying the app to another workspace updates the URL workspace prefix accordingly.'
-								}}
-							/>
+					<div class="flex flex-col gap-2">
+						{#if !isCloudHosted()}
+							<div class="mt-2">
+								<Toggle
+									size="sm"
+									checked={workspaced_route}
+									disabled={!($userStore?.is_admin || $userStore?.is_super_admin)}
+									on:change={() => {
+										workspaced_route = !workspaced_route
+									}}
+									options={{
+										right: 'Prefix with workspace',
+										rightTooltip:
+											'Prefixes the custom path with the workspace ID (e.g., /a/{workspace_id}/{custom_path}). Note: deploying the app to another workspace updates the URL workspace prefix accordingly.'
+									}}
+								/>
+							</div>
+						{/if}
+						<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
+							<div>Custom path</div>
 						</div>
-					{/if}
-					<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
-						<div>Custom path</div>
-					</div>
-					<input
-						disabled={!($userStore?.is_admin || $userStore?.is_super_admin)}
-						type="text"
-						autocomplete="off"
-						bind:value={customPath}
-						class={customPathError === ''
-							? ''
-							: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
-						oninput={() => {
-							dirtyCustomPath = true
-						}}
-					/>
-					<div class="text-secondary text-sm flex items-center gap-1 mt-2 w-full justify-between">
-						<div>Custom public URL</div>
-					</div>
-					<ClipboardPanel content={fullCustomUrl} size="md" />
+						<input
+							disabled={!($userStore?.is_admin || $userStore?.is_super_admin)}
+							type="text"
+							autocomplete="off"
+							bind:value={customPath}
+							class={customPathError === ''
+								? ''
+								: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
+							oninput={() => {
+								dirtyCustomPath = true
+							}}
+						/>
+						<div class="text-secondary text-sm flex items-center gap-1 mt-2 w-full justify-between">
+							<div>Custom public URL</div>
+						</div>
+						<ClipboardPanel content={fullCustomUrl} size="md" />
 
-					<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
-						>{dirtyCustomPath ? customPathError : ''}
+						<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
+							>{dirtyCustomPath ? customPathError : ''}
+						</div>
 					</div>
 				{/if}
 			</div>
