@@ -2,6 +2,7 @@ import type { ChatCompletionTool } from 'openai/resources/index.mjs'
 import type { Tool } from '../shared'
 import { get } from 'svelte/store'
 import { workspaceStore } from '$lib/stores'
+import { parse } from 'yaml'
 
 // OpenAPI type definitions
 interface OpenAPIParameter {
@@ -124,6 +125,10 @@ export function buildToolsFromOpenApi(
 
 			// Add path parameters
 			for (const param of pathParams) {
+				if (param.name === 'workspace') {
+					continue
+				}
+
 				parameters.properties[param.name] = {
 					type: param.schema?.type || 'string',
 					description: param.description || `Path parameter: ${param.name}`
@@ -167,13 +172,13 @@ export function buildToolsFromOpenApi(
 			}
 
 			const tool = buildApiCallTools(
-				'api_' + op.operationId,
+				'api_' + op.operationId.replace(/\s+/g, ''),
 				op.summary || op.description || `${method.toUpperCase()} ${path}`,
 				parameters
 			)
 
 			// Store the endpoint path in the map
-			endpointMap['api_' + op.operationId] = `${method.toUpperCase()} ${path}`
+			endpointMap['api_' + op.operationId.replace(/\s+/g, '')] = `${method.toUpperCase()} ${path}`
 
 			tools.push(tool)
 		}
@@ -193,7 +198,6 @@ export function createApiTools(
 				const toolName = chatTool.function.name
 				let endpoint = endpointMap[toolName] || ''
 				endpoint = endpoint.replace('{workspace}', get(workspaceStore) as string)
-				toolCallbacks.setToolStatus(toolId, `Calling API endpoint (${endpoint})...`)
 
 				try {
 					// Extract method and path from endpoint
@@ -212,8 +216,8 @@ export function createApiTools(
 						if (key === 'body') continue // Body is handled separately
 
 						// Check if this is a path parameter
-						if (url.includes(`:${key}`)) {
-							url = url.replace(`:${key}`, encodeURIComponent(String(value)))
+						if (url.includes(`{${key}}`)) {
+							url = url.replace(`{${key}}`, encodeURIComponent(String(value)))
 						} else {
 							// Assume it's a query parameter
 							queryParams[key] = String(value)
@@ -231,6 +235,8 @@ export function createApiTools(
 					// Log the constructed URL
 					console.log(`Calling API: ${method} ${url} with args: ${JSON.stringify(args)}`)
 
+					toolCallbacks.setToolStatus(toolId, `Calling API endpoint (${url})...`)
+
 					const response = await fetch(url, {
 						method: method
 					})
@@ -238,7 +244,7 @@ export function createApiTools(
 
 					// For now, return a placeholder response
 					// In a real implementation, we would make the actual API call here
-					toolCallbacks.setToolStatus(toolId, `API call to ${endpoint} completed`)
+					toolCallbacks.setToolStatus(toolId, `API call to ${url} completed`)
 					return JSON.stringify({
 						success: true,
 						data: data
@@ -255,17 +261,19 @@ export function createApiTools(
 
 export async function loadApiTools(): Promise<Tool<{}>[]> {
 	try {
-		const response = await fetch('/api/openapi.json')
-		const openApiSpec = (await response.json()) as OpenAPISpec
+		const response = await fetch('/api/openapi.yaml')
+		const yaml = await response.text()
+		const openApiSpec = parse(yaml, { maxAliasCount: Infinity }) as OpenAPISpec
 		const pathsToInclude = [
 			'jobs',
+			'jobs_u',
 			'scripts',
 			'flows',
 			'resources',
 			'variables',
 			'schedules',
 			'workers',
-			'srch'
+			'srch/w' // job search
 		]
 
 		const { tools: apiTools, endpointMap } = buildToolsFromOpenApi(openApiSpec, {
