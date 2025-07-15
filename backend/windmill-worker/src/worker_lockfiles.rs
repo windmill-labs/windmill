@@ -723,18 +723,17 @@ pub async fn handle_flow_dependency_job(
 
     dbg!(&nodes_to_relock);
 
-    let local_lockfiles = job
+    let raw_deps = job
         .args
         .as_ref()
         // TODO: Refactor
         .map(|x| {
-            x.get("local_lockfiles")
+            x.get("raw_deps")
                 .map(|v| serde_json::from_str::<HashMap<String, String>>(v.get()).ok())
                 .flatten()
         })
         .flatten();
 
-    dbg!(&local_lockfiles);
     // `JobKind::FlowDependencies` job store either:
     // - A saved flow version `id` in the `script_hash` column.
     // - Preview raw flow in the `queue` or `job` table.
@@ -781,7 +780,7 @@ pub async fn handle_flow_dependency_job(
         &nodes_to_relock,
         occupancy_metrics,
         skip_flow_update,
-        local_lockfiles,
+        raw_deps,
     )
     .await?;
     if !errors.is_empty() {
@@ -951,7 +950,7 @@ async fn lock_modules<'c>(
     locks_to_reload: &Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
     skip_flow_update: bool,
-    local_lockfiles: Option<HashMap<String, String>>,
+    raw_deps: Option<HashMap<String, String>>,
     // (modules to replace old seq (even unmmodified ones), new transaction, modified ids) )
 ) -> Result<(
     Vec<FlowModule>,
@@ -1007,7 +1006,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
-                        local_lockfiles.clone(),
+                        raw_deps.clone(),
                     ))
                     .await?;
                     e.value = FlowModuleValue::ForloopFlow {
@@ -1043,7 +1042,7 @@ async fn lock_modules<'c>(
                             locks_to_reload,
                             occupancy_metrics,
                             skip_flow_update,
-                            local_lockfiles.clone(),
+                            raw_deps.clone(),
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -1071,7 +1070,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
-                        local_lockfiles.clone(),
+                        raw_deps.clone(),
                     ))
                     .await?;
                     e.value = FlowModuleValue::WhileloopFlow {
@@ -1104,7 +1103,7 @@ async fn lock_modules<'c>(
                             locks_to_reload,
                             occupancy_metrics,
                             skip_flow_update,
-                            local_lockfiles.clone(),
+                            raw_deps.clone(),
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -1130,7 +1129,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
-                        local_lockfiles.clone(),
+                        raw_deps.clone(),
                     ))
                     .await?;
                     errors.extend(ninner_errors);
@@ -1211,7 +1210,7 @@ async fn lock_modules<'c>(
         })?;
 
         // If we have local lockfiles (and they are enabled) we will replace script content with lockfile and tell hander that it is raw_deps job
-        let (content, raw_deps) = local_lockfiles
+        let (content, raw_deps) = raw_deps
             .as_ref()
             .and_then(|llfs| llfs.get(dbg!(language.as_str())))
             .map(|lock| (lock.to_owned(), true))

@@ -91,23 +91,23 @@ function findClosestRawReqs(
 
 const TOP_HASH = "__flow_hash";
 async function generateFlowHash(
+  rawReqs: Record<string, string> | undefined,
   folder: string,
-  localLockfiles: Record<string, string> | undefined
 ) {
   const elems = await FSFSElement(path.join(Deno.cwd(), folder), [], true);
   const hashes: Record<string, string | undefined> = {};
   for await (const f of elems.getChildren()) {
     if (exts.some((e) => f.path.endsWith(e))) {
-      let rawLock: string | undefined;
-      if (localLockfiles) {
+      let reqs: string | undefined;
+      if (rawReqs) {
         // Get language name from path
         // TODO: Distinguish Bun and Node and Deno extensions
         const lang = inferContentTypeFromFilePath(f.path, undefined);
         // Get lock for that language
-        [, rawLock] = Object.entries(localLockfiles ?? {}).find(([lang2, _]) => lang == lang2) ?? [];
+        [, reqs] = Object.entries(rawReqs ?? {}).find(([lang2, _]) => lang == lang2) ?? [];
       }
       // NOTE: We embed lock into hash
-      hashes[f.path] = await generateHash(await f.getContentText() + (rawLock ?? ""));
+      hashes[f.path] = await generateHash(await f.getContentText() + (reqs ?? ""));
     }
   }
   return { ...hashes, [TOP_HASH]: await generateHash(JSON.stringify(hashes)) };
@@ -121,7 +121,7 @@ export async function generateFlowLockInternal(
   },
   justUpdateMetadataLock?: boolean,
   noStaleMessage?: boolean,
-  useLocalLockfiles?: boolean,
+  useRawReqs?: boolean,
 ): Promise<string | void> {
   if (folder.endsWith(SEP)) {
     folder = folder.substring(0, folder.length - 1);
@@ -134,24 +134,24 @@ export async function generateFlowLockInternal(
   }
 
   // let rawDeps: Record<string, string> | undefined;
-  let localLockfiles: Record<string, string> | undefined = undefined;
-  if (useLocalLockfiles) {
+  let rawReqs: Record<string, string> | undefined = undefined;
+  if (useRawReqs) {
 
     // Find all dependency files in the workspace
     const globalDeps = await findGlobalDeps();
 
     // Find closest dependency files for this flow
-    localLockfiles = {};
+    rawReqs = {};
 
     languagesWithLocalLockfileSupport.map((lang) => {
       const dep = findClosestRawReqs(lang, folder, globalDeps);
       if (dep) {
         // @ts-ignore
-        localLockfiles[lang.language] = dep;
+        rawReqs[lang.language] = dep;
       }
     });
   } 
-  let hashes = await generateFlowHash(folder, localLockfiles);
+  let hashes = await generateFlowHash(rawReqs, folder);
 
   const conf = await readLockfile();
   if (await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH)) {
@@ -165,7 +165,7 @@ export async function generateFlowLockInternal(
     return remote_path;
   }
 
-  if (useLocalLockfiles) {
+  if (useRawReqs) {
     log.warn("If using local lockfiles, following redeployments from Web App will inevitably override generated lockfiles by CLI. To maintain your script's lockfiles you will need to redeploy only from CLI. (Behavior is subject to change)")
     log.info(
       (await blueColor())(
@@ -206,7 +206,7 @@ export async function generateFlowLockInternal(
       workspace,
       flowValue.value,
       remote_path,
-      localLockfiles,
+      rawReqs,
     );
 
     const inlineScripts = extractInlineScriptsForFlows(
@@ -223,7 +223,7 @@ export async function generateFlowLockInternal(
       });
   }
 
-  hashes = await generateFlowHash(folder, localLockfiles);
+  hashes = await generateFlowHash( rawReqs, folder);
 
   for (const [path, hash] of Object.entries(hashes)) {
     await updateMetadataGlobalLock(folder, hash, path);
@@ -464,16 +464,12 @@ export async function updateFlow(
   workspace: Workspace,
   flow_value: FlowValue,
   remotePath: string,
-  localLockfiles?: Record<string, string>
-  // useLocalLockfiles?: boolean,
+  rawDeps?: Record<string, string>
 ): Promise<FlowValue | undefined> {
   let rawResponse;
 
-
-  // If useLocalLockfiles is true, look for local lockfiles and use them
-  if (localLockfiles != undefined) {
-    log.info(colors.blue("Using local lockfiles for flow dependencies"));
-
+  if (rawDeps != undefined) {
+    log.info(colors.blue("Using raw requirements for flow dependencies"));
 
     // generate the script lock running a dependency job in Windmill and update it inplace
     rawResponse = await fetch(
@@ -488,7 +484,7 @@ export async function updateFlow(
           flow_value,
           path: remotePath,
           use_local_lockfiles: true,
-          local_lockfiles: localLockfiles,
+          raw_deps: rawDeps,
         }),
       },
     );

@@ -5143,7 +5143,7 @@ async fn run_dependencies_job(
 pub struct RunFlowDependenciesRequest {
     pub path: String,
     pub flow_value: FlowValue,
-    pub local_lockfiles: Option<HashMap<String, String>>,
+    pub raw_deps: Option<HashMap<String, String>>,
 }
 
 #[derive(Serialize)]
@@ -5169,8 +5169,8 @@ async fn run_flow_dependencies_job(
     let mut args_map = HashMap::from([("skip_flow_update".to_string(), to_raw_value(&true))]);
 
     // Add raw_deps to args if present
-    if let Some(ref raw_deps) = req.local_lockfiles {
-        args_map.insert("local_lockfiles".to_string(), to_raw_value(raw_deps));
+    if let Some(ref raw_deps) = req.raw_deps {
+        args_map.insert("raw_deps".to_string(), to_raw_value(raw_deps));
     }
 
     let (uuid, tx) = push(

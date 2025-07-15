@@ -232,12 +232,12 @@ async function run(
 async function generateLocks(
   opts: GlobalOptions & {
     yes?: boolean;
-    "use-local-lockfiles"?: boolean;
+    "use-raw-requirements"?: boolean;
   } & SyncOptions,
   folder: string | undefined
 ) {
   // TODO: deno does not like this
-  const useLocalLockfiles = opts["useLocalLockfiles"] || Deno.env.get("USE_LOCAL_LOCKFILE") === "true";
+  const useLocalLockfiles = opts["useRawRequirements"] || Deno.env.get("USE_RAW_REQUIREMENTS") === "true";
 
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -347,8 +347,8 @@ const command = new Command()
   .arguments("[flow:file]")
   .option("--yes", "Skip confirmation prompt")
   .option(
-    "--use-local-lockfiles",
-    "Use local lockfiles (requirements.txt, go.mod, package.json, etc) instead of generating them on the server (can also be set with USE_LOCAL_LOCKFILE=true environment variable)"
+    "-r --use-raw-requirements",
+    "Use raw requirements (requirements.txt, go.mod, package.json, etc) instead of generating them on the server (can also be set with USE_RAW_REQUIREMENTS=true environment variable)"
   )
   .option(
     "-i --includes <patterns:file[]>",
