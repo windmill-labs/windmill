@@ -90,8 +90,11 @@
 	import CustomPopover from '$lib/components/CustomPopover.svelte'
 	import { isWindmillTooBigObject } from '$lib/components/job_args'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
-	import { untrack } from 'svelte'
+	import { setContext, untrack } from 'svelte'
 	import WorkerHostname from '$lib/components/WorkerHostname.svelte'
+	import FlowAssetsHandler, {
+		initFlowGraphAssetsCtx
+	} from '$lib/components/flows/FlowAssetsHandler.svelte'
 
 	let job: Job | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
@@ -118,6 +121,12 @@
 
 	let lastJobId: string | undefined = $state(undefined)
 	let concurrencyKey: string | undefined = $state(undefined)
+
+	setContext(
+		'FlowGraphAssetContext',
+		initFlowGraphAssetsCtx({ getModules: () => job?.raw_flow?.modules ?? [] })
+	)
+
 	async function getConcurrencyKey(job: Job | undefined) {
 		if (!job) return
 		lastJobId = job.id
@@ -1001,3 +1010,5 @@
 		{/if}
 	</div>
 {/if}
+
+<FlowAssetsHandler modules={job?.raw_flow?.modules ?? []} enableDbExplore />
