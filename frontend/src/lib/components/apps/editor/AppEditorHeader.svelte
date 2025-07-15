@@ -113,6 +113,7 @@
 					policy: any
 					draft_only?: boolean
 					custom_path?: string
+					workspaced_route?: boolean
 			  }
 			| undefined
 		version?: number | undefined
@@ -403,7 +404,8 @@
 					summary: $summary,
 					policy,
 					deployment_message: deploymentMsg,
-					custom_path: customPath
+					custom_path: customPath,
+					workspaced_route: workspaced_route
 				}
 			})
 			savedApp = {
@@ -411,7 +413,8 @@
 				value: structuredClone($state.snapshot($app)),
 				path: path,
 				policy: policy,
-				custom_path: customPath
+				custom_path: customPath,
+				workspaced_route: workspaced_route
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
@@ -499,7 +502,8 @@
 				// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
 				// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
 				custom_path:
-					$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined
+					$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined,
+				workspaced_route: workspaced_route
 			}
 		})
 		savedApp = {
@@ -507,7 +511,8 @@
 			value: structuredClone($state.snapshot($app)),
 			path: npath,
 			policy,
-			custom_path: customPath
+			custom_path: customPath,
+			workspaced_route: workspaced_route
 		}
 		const appHistory = await AppService.getAppHistoryByPath({
 			workspace: $workspaceStore!,
@@ -569,7 +574,8 @@
 					summary: $summary,
 					policy,
 					draft_only: true,
-					custom_path: customPath
+					custom_path: customPath,
+					workspaced_route: workspaced_route
 				}
 			})
 			await DraftService.createDraft({
@@ -582,7 +588,8 @@
 						path: newEditedPath,
 						summary: $summary,
 						policy,
-						custom_path: customPath
+						custom_path: customPath,
+						workspaced_route: workspaced_route
 					}
 				}
 			})
@@ -597,9 +604,11 @@
 					value: structuredClone($state.snapshot($app)),
 					path: newEditedPath,
 					policy,
-					custom_path: customPath
+					custom_path: customPath,
+					workspaced_route: workspaced_route
 				},
-				custom_path: customPath
+				custom_path: customPath,
+				workspaced_route: workspaced_route
 			}
 
 			draftDrawerOpen = false
@@ -654,7 +663,8 @@
 						policy,
 						path: newEditedPath || path,
 						draft_only: true,
-						custom_path: customPath
+						custom_path: customPath,
+						workspaced_route: workspaced_route
 					}
 				})
 			}
@@ -667,7 +677,9 @@
 						value: $app!,
 						summary: $summary,
 						policy,
-						path: newEditedPath || path
+						path: newEditedPath || path,
+						custom_path: customPath,
+						workspaced_route: workspaced_route
 					}
 				}
 			})
@@ -680,7 +692,8 @@
 							path: savedApp.draft_only ? newEditedPath || path : path,
 							policy,
 							draft_only: true,
-							custom_path: customPath
+							custom_path: customPath,
+							workspaced_route: workspaced_route
 						}
 					: savedApp),
 				draft: {
@@ -688,7 +701,8 @@
 					value: structuredClone($state.snapshot($app)),
 					path: newEditedPath || path,
 					policy,
-					custom_path: customPath
+					custom_path: customPath,
+					workspaced_route: workspaced_route
 				}
 			}
 
@@ -923,10 +937,14 @@
 	let customPath = $state(savedApp?.custom_path)
 	let dirtyCustomPath = $state(false)
 	let customPathError = $state('')
+	let workspaced_route = $state(savedApp?.workspaced_route ?? false)
 	async function appExists(customPath: string) {
 		return await AppService.customPathExists({
 			workspace: $workspaceStore!,
-			customPath
+			customPath,
+			requestBody: {
+				workspaced_route: workspaced_route
+			}
 		})
 	}
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
@@ -963,7 +981,7 @@
 	let hasErrors = $derived(Object.keys($errorByComponent).length > 0)
 	let fullCustomUrl = $derived(
 		`${window.location.origin}${base}/a/${
-			isCloudHosted() ? $workspaceStore + '/' : ''
+			isCloudHosted() || workspaced_route ? $workspaceStore + '/' : ''
 		}${customPath}`
 	)
 	$effect(() => {
@@ -1265,28 +1283,47 @@
 				/>
 
 				{#if customPath !== undefined}
-					<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
-						<div>Custom path</div>
-					</div>
-					<input
-						disabled={!($userStore?.is_admin || $userStore?.is_super_admin)}
-						type="text"
-						autocomplete="off"
-						bind:value={customPath}
-						class={customPathError === ''
-							? ''
-							: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
-						oninput={() => {
-							dirtyCustomPath = true
-						}}
-					/>
-					<div class="text-secondary text-sm flex items-center gap-1 mt-2 w-full justify-between">
-						<div>Custom public URL</div>
-					</div>
-					<ClipboardPanel content={fullCustomUrl} size="md" />
+					<div class="flex flex-col gap-2">
+						{#if !isCloudHosted()}
+							<div class="mt-2">
+								<Toggle
+									size="sm"
+									checked={workspaced_route}
+									disabled={!($userStore?.is_admin || $userStore?.is_super_admin)}
+									on:change={() => {
+										workspaced_route = !workspaced_route
+									}}
+									options={{
+										right: 'Prefix with workspace',
+										rightTooltip:
+											'Prefixes the custom path with the workspace ID (e.g., /a/{workspace_id}/{custom_path}). Note: deploying the app to another workspace updates the URL workspace prefix accordingly.'
+									}}
+								/>
+							</div>
+						{/if}
+						<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
+							<div>Custom path</div>
+						</div>
+						<input
+							disabled={!($userStore?.is_admin || $userStore?.is_super_admin)}
+							type="text"
+							autocomplete="off"
+							bind:value={customPath}
+							class={customPathError === ''
+								? ''
+								: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
+							oninput={() => {
+								dirtyCustomPath = true
+							}}
+						/>
+						<div class="text-secondary text-sm flex items-center gap-1 mt-2 w-full justify-between">
+							<div>Custom public URL</div>
+						</div>
+						<ClipboardPanel content={fullCustomUrl} size="md" />
 
-					<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
-						>{dirtyCustomPath ? customPathError : ''}
+						<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
+							>{dirtyCustomPath ? customPathError : ''}
+						</div>
 					</div>
 				{/if}
 			</div>
