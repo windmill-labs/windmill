@@ -5059,7 +5059,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ce92ff622d6dadf7349484f42c93271a0d49b7cc4d466a936405bacbe10aa78"
 dependencies = [
  "cfg-if",
- "rustix 1.0.7",
+ "rustix 1.0.8",
  "windows-sys 0.59.0",
 ]
 
@@ -10721,15 +10721,15 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.0.7"
+version = "1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c71e83d6afe7ff64890ec6b71d6a69bb8a610ab78ce364b3352876bb4c801266"
+checksum = "11181fbabf243db407ef8df94a6ce0b2f9a733bd8be4ad02b4eda9602296cac8"
 dependencies = [
  "bitflags 2.9.1",
  "errno",
  "libc",
  "linux-raw-sys 0.9.4",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -12906,7 +12906,7 @@ dependencies = [
  "fastrand",
  "getrandom 0.3.3",
  "once_cell",
- "rustix 1.0.7",
+ "rustix 1.0.8",
  "windows-sys 0.59.0",
 ]
 
@@ -12925,7 +12925,7 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "45c6481c4829e4cc63825e62c49186a34538b7b2750b73b266581ffb612fb5ed"
 dependencies = [
- "rustix 1.0.7",
+ "rustix 1.0.8",
  "windows-sys 0.59.0",
 ]
 
@@ -14676,7 +14676,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -14728,7 +14728,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -14839,7 +14839,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -14854,7 +14854,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "chrono",
  "serde",
@@ -14867,7 +14867,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-autoscaling"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -14881,7 +14881,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -14959,7 +14959,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "regex",
  "serde",
@@ -14973,7 +14973,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -14996,7 +14996,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-macros"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "itertools 0.14.0",
  "lazy_static",
@@ -15008,7 +15008,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "convert_case 0.6.0",
  "serde",
@@ -15017,7 +15017,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15029,7 +15029,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-csharp"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -15041,7 +15041,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -15053,7 +15053,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15065,7 +15065,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-java"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -15077,7 +15077,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-nu"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "nu-parser",
@@ -15088,7 +15088,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -15099,7 +15099,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -15111,7 +15111,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15134,7 +15134,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -15151,7 +15151,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15165,7 +15165,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15183,7 +15183,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.16",
@@ -15207,7 +15207,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -15217,7 +15217,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15250,7 +15250,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -15260,7 +15260,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.506.0"
+version = "1.507.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15902,7 +15902,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af3a19837351dc82ba89f8a125e22a3c475f05aba604acc023d62b2739ae2909"
 dependencies = [
  "libc",
- "rustix 1.0.7",
+ "rustix 1.0.8",
 ]
 
 [[package]]
