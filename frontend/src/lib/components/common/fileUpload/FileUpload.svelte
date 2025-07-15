@@ -589,33 +589,33 @@
 					</div>
 				{/each}
 			</div>
-			{#if allowMultiple}
-				<div class="flex flex-row gap-1 items-center justify-end p-1">
+			<div class="flex flex-row gap-1 items-center justify-end p-1">
+				{#if !forceDisplayUploads && (allowMultiple || folderOnly) && !$fileUploads.every((fileUpload) => fileUpload.progress === 100 || fileUpload.cancelled || fileUpload.fromBucket)}
+					<Button
+						size="xs2"
+						color="light"
+						on:click={() => {
+							$fileUploads = $fileUploads.map((fileUpload) => {
+								if (fileUpload.progress === 100 || fileUpload.cancelled) {
+									return fileUpload
+								}
+
+								fileUpload.cancelled = true
+								fileUpload.progress = 0
+								return fileUpload
+							})
+						}}
+						startIcon={{
+							icon: Ban
+						}}
+					>
+						Cancel all uploads
+					</Button>
+				{/if}
+				{#if allowMultiple}
 					{#if forceDisplayUploads}
 						{@render fileInput()}
 					{:else}
-						{#if !$fileUploads.every((fileUpload) => fileUpload.progress === 100 || fileUpload.cancelled || fileUpload.fromBucket)}
-							<Button
-								size="xs2"
-								color="light"
-								on:click={() => {
-									$fileUploads = $fileUploads.map((fileUpload) => {
-										if (fileUpload.progress === 100 || fileUpload.cancelled) {
-											return fileUpload
-										}
-
-										fileUpload.cancelled = true
-										fileUpload.progress = 0
-										return fileUpload
-									})
-								}}
-								startIcon={{
-									icon: Ban
-								}}
-							>
-								Cancel all uploads
-							</Button>
-						{/if}
 						<Button
 							size="xs2"
 							color="light"
@@ -633,8 +633,8 @@
 							Upload more files
 						</Button>
 					{/if}
-				</div>
-			{/if}
+				{/if}
+			</div>
 		</div>
 	{:else}
 		{@render fileInput()}
