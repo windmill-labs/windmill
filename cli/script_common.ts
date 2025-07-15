@@ -28,7 +28,7 @@ export type LanguageWithLocalLockfileSupport =
   | { language: "php", lockfile: "composer.json" }
   | { language: "go", lockfile: "go.mod" };
 
-export const languagesWithLocalLockfileSupport = [
+export const languagesWithLocalLockfileSupport: LanguageWithLocalLockfileSupport[] = [
   { language: "bun", lockfile: "package.json" },
   { language: "python3", lockfile: "requirements.txt" },
   { language: "php", lockfile: "composer.json" },

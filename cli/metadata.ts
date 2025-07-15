@@ -97,43 +97,18 @@ async function generateFlowHash(
   const elems = await FSFSElement(path.join(Deno.cwd(), folder), [], true);
   const hashes: Record<string, string | undefined> = {};
   for await (const f of elems.getChildren()) {
-    const ext = (exts.find((e) => f.path.endsWith(e)));
-
-    if (ext) {
-      // console.log("EXT: " + ext);
-      // hashes[f.path] = await generateHash(await f.getContentText());
-      if (exts.some((e) => f.path.endsWith(e))) {
-        let lock: string | undefined;
-        if (localLockfiles) {
-          // Get language name from path
-          // TODO: Distinguish Bun and Node and Deno extensions
-          const lang = inferContentTypeFromFilePath(f.path, undefined);
-          // Get lock for that language
-          const [_, tmpLock] = Object.entries(localLockfiles ?? {}).find(([lang2, _]) => lang == lang2) ?? [];
-          lock = tmpLock;
-        }
-        hashes[f.path] = await generateHash(await f.getContentText() + (lock ?? ""));
+    if (exts.some((e) => f.path.endsWith(e))) {
+      let rawLock: string | undefined;
+      if (localLockfiles) {
+        // Get language name from path
+        // TODO: Distinguish Bun and Node and Deno extensions
+        const lang = inferContentTypeFromFilePath(f.path, undefined);
+        // Get lock for that language
+        [, rawLock] = Object.entries(localLockfiles ?? {}).find(([lang2, _]) => lang == lang2) ?? [];
       }
-      // if (localLockfiles) {
-      // TODO: Check whether the language is actually used in flow.
-      // TODO: Make sure only works for Bun and not Deno nor Node?
-      // hashes["local_lockfile_" + lang] = (lock) ? await generateHash(lock) : undefined;
-      // for (const [lang, lock] of Object.entries(localLockfiles)) {
-      //   hashes["local_lockfile_" + lang] = await generateHash(lock);
-      // }
-
-      // }
+      // NOTE: We embed lock into hash
+      hashes[f.path] = await generateHash(await f.getContentText() + (rawLock ?? ""));
     }
-
-    // if (!localLockfiles) {
-    //   // Fill all possible lockfile hashes with undefined so they get unset from the wmill-lock.yaml by the caller.
-    //   languagesWithLocalLockfileSupport.map((l) => hashes["local_lockfile_" + l.language] = undefined);
-    // //   for (const [lang, lock] of Object.entries(localLockfiles)) {
-    // //     // TODO: Check whether the language is actually used in flow.
-    // //     hashes["local_lockfile_" + lang] = await generateHash(lock);
-    // //   }
-
-    // } 
   }
   return { ...hashes, [TOP_HASH]: await generateHash(JSON.stringify(hashes)) };
 }
@@ -141,6 +116,9 @@ export async function generateFlowLockInternal(
   folder: string,
   dryRun: boolean,
   workspace: Workspace,
+  opts: GlobalOptions & {
+    defaultTs?: "bun" | "deno";
+  },
   justUpdateMetadataLock?: boolean,
   noStaleMessage?: boolean,
   useLocalLockfiles?: boolean,
@@ -156,7 +134,7 @@ export async function generateFlowLockInternal(
   }
 
   // let rawDeps: Record<string, string> | undefined;
-  let localLockfiles: Record<string, string> | undefined;
+  let localLockfiles: Record<string, string> | undefined = undefined;
   if (useLocalLockfiles) {
 
     // Find all dependency files in the workspace
@@ -172,9 +150,7 @@ export async function generateFlowLockInternal(
         localLockfiles[lang.language] = dep;
       }
     });
-  } else
-    localLockfiles = undefined;
-
+  } 
   let hashes = await generateFlowHash(folder, localLockfiles);
 
   const conf = await readLockfile();

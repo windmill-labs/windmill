@@ -1298,7 +1298,7 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
     }
     for (const change of tracker.flows) {
       log.info(`Updating lock for flow ${change}`);
-      await generateFlowLockInternal(change, false, workspace, true);
+      await generateFlowLockInternal(change, false, workspace, opts, true);
     }
     if (tracker.apps.length > 0) {
       log.info(
@@ -1472,6 +1472,7 @@ export async function push(opts: GlobalOptions & SyncOptions) {
       change,
       true,
       workspace,
+      opts,
       false,
       true
     );

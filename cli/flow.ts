@@ -239,13 +239,12 @@ async function generateLocks(
   // TODO: deno does not like this
   const useLocalLockfiles = opts["useLocalLockfiles"] || Deno.env.get("USE_LOCAL_LOCKFILE") === "true";
 
-
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   opts = await mergeConfigWithConfigFile(opts);
   if (folder) {
     // read script metadata file
-    await generateFlowLockInternal(folder, false, workspace, undefined, undefined, useLocalLockfiles);
+    await generateFlowLockInternal(folder, false, workspace, opts, undefined, undefined, useLocalLockfiles);
   } else {
     const ignore = await ignoreF(opts);
     const elems = Object.keys(
@@ -266,7 +265,7 @@ async function generateLocks(
     let hasAny = false;
 
     for (const folder of elems) {
-      const candidate = await generateFlowLockInternal(folder, true, workspace, undefined, undefined, useLocalLockfiles);
+      const candidate = await generateFlowLockInternal(folder, true, workspace, opts, undefined, undefined, useLocalLockfiles);
       if (candidate) {
         hasAny = true;
         log.info(colors.green(`+ ${candidate}`));
@@ -288,7 +287,7 @@ async function generateLocks(
       return;
     }
     for (const folder of elems) {
-      await generateFlowLockInternal(folder, false, workspace, undefined, undefined, useLocalLockfiles);
+      await generateFlowLockInternal(folder, false, workspace, opts,undefined, undefined, useLocalLockfiles);
     }
   }
 }
