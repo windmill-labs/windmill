@@ -634,6 +634,8 @@
 	const individualStepTests = $derived(
 		!(showJobStatus && job) && Object.keys($derivedModuleStates).length > 0
 	)
+
+	const flowHasChanged = $derived(flowPreviewContent?.flowHasChanged())
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -805,6 +807,7 @@
 								onDelete={(id) => {
 									delete $derivedModuleStates[id]
 								}}
+								{flowHasChanged}
 							/>
 						{:else}
 							<div class="text-red-400 mt-20">Missing flow modules</div>
