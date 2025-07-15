@@ -150,3 +150,50 @@ export function printSync(input: string | Uint8Array, to = Deno.stdout) {
     bytesWritten += to.writeSync(bytes.subarray(bytesWritten))
   }
 }
+
+// Repository interface for shared selection logic
+export interface Repository {
+  git_repo_resource_path: string;
+}
+
+// Shared repository selection logic
+export async function selectRepository<T extends Repository>(
+  repositories: T[],
+  operation?: string
+): Promise<T> {
+  if (repositories.length === 0) {
+    throw new Error("No git-sync repositories configured in workspace");
+  }
+
+  if (repositories.length === 1) {
+    const repoPath = repositories[0].git_repo_resource_path.replace(/^\$res:/, "");
+    log.info(`Using repository: ${repoPath}`);
+    return repositories[0];
+  }
+
+  // Check if we're in a non-interactive environment
+  const isInteractive = Deno.stdin.isTerminal() && Deno.stdout.isTerminal();
+
+  if (!isInteractive) {
+    const repoPaths = repositories.map(r => r.git_repo_resource_path.replace(/^\$res:/, ""));
+    throw new Error(`Multiple repositories found: ${repoPaths.join(', ')}. Use --repository to specify which one to ${operation || 'use'}.`);
+  }
+
+  // Import Select dynamically to avoid dependency issues
+  const { Select } = await import("./deps.ts");
+
+  console.log(`\nMultiple repositories found. Please select which repository to ${operation || 'use'}:\n`);
+
+  const selectedRepo = await Select.prompt({
+    message: `Select repository for ${operation || 'operation'}:`,
+    options: repositories.map((repo, index) => {
+      const displayPath = repo.git_repo_resource_path.replace(/^\$res:/, "");
+      return {
+        name: `${index + 1}. ${displayPath}`,
+        value: repo.git_repo_resource_path
+      };
+    })
+  });
+
+  return repositories.find((r) => r.git_repo_resource_path === selectedRepo)!;
+}

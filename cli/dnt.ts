@@ -13,7 +13,8 @@ await build({
     },
   ],
   outDir: "./npm",
-    shims: {
+  test: false, // Disable all tests in npm build since they use Deno-specific APIs
+  shims: {
     // see JS docs for overview and more options
     deno: true,
     // shims to only use in the tests

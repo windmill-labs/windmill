@@ -13,15 +13,20 @@ function hash_string(str: string): number {
   return hash;
 }
 
-export async function getRootStore(): Promise<string> {
-  const store = (config_dir() ?? tmp_dir() ?? "/tmp/") + "/windmill/";
+export async function getRootStore(configDirOverride?: string): Promise<string> {
+  const baseDir = configDirOverride ?? 
+                  Deno.env.get("WMILL_CONFIG_DIR") ?? 
+                  config_dir() ?? 
+                  tmp_dir() ?? 
+                  "/tmp/";
+  const store = baseDir + "/windmill/";
   await ensureDir(store);
   return store;
 }
 
-export async function getStore(baseUrl: string): Promise<string> {
+export async function getStore(baseUrl: string, configDirOverride?: string): Promise<string> {
   const baseHash = Math.abs(hash_string(baseUrl)).toString(16);
-  const baseStore = (await getRootStore()) + baseHash + "/";
+  const baseStore = (await getRootStore(configDirOverride)) + baseHash + "/";
   await ensureDir(baseStore);
   return baseStore;
 }
