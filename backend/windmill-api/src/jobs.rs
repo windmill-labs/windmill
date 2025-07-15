@@ -5676,6 +5676,7 @@ pub struct JobUpdateQuery {
     pub running: bool,
     pub log_offset: i32,
     pub get_progress: Option<bool>,
+    pub only_result: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -5688,6 +5689,7 @@ pub struct JobUpdate {
     pub progress: Option<i32>,
     pub flow_status: Option<Box<serde_json::value::RawValue>>,
     pub job: Option<Job>,
+    pub only_result: Option<Box<serde_json::value::RawValue>>,
 }
 
 async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {
@@ -5746,7 +5748,7 @@ async fn get_job_update(
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
-    Query(JobUpdateQuery { log_offset, get_progress, running }): Query<JobUpdateQuery>,
+    Query(JobUpdateQuery { log_offset, get_progress, running, only_result }): Query<JobUpdateQuery>,
 ) -> JsonResult<JobUpdate> {
     Ok(Json(get_job_update_data(
         &opt_authed,
@@ -5758,6 +5760,8 @@ async fn get_job_update(
         get_progress,
         running,
         false,
+        only_result
+
     ).await?))
 }
 
@@ -5766,7 +5770,7 @@ async fn get_job_update_sse(
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
-    Query(JobUpdateQuery { log_offset, get_progress, running }): Query<JobUpdateQuery>,
+    Query(JobUpdateQuery { log_offset, get_progress, running, only_result }): Query<JobUpdateQuery>,
 ) -> Response {
     let stream = get_job_update_sse_stream(
         opt_authed,
@@ -5777,6 +5781,7 @@ async fn get_job_update_sse(
         log_offset,
         get_progress,
         running,
+        only_result
     );
 
     let body = axum::body::Body::from_stream(stream.map(Result::<_, std::convert::Infallible>::Ok));
@@ -5799,6 +5804,7 @@ fn get_job_update_sse_stream(
     initial_log_offset: i32,
     get_progress: Option<bool>,
     running: bool,
+    only_result: Option<bool>,
 ) -> impl futures::Stream<Item = String> {
     let (tx, rx) = tokio::sync::mpsc::channel(32);
 
@@ -5817,7 +5823,8 @@ fn get_job_update_sse_stream(
             log_offset,
             get_progress,
             running,
-            true
+            true,
+            only_result
         ).await {
             if update.completed.unwrap_or(false) {
                 return;
@@ -5901,6 +5908,7 @@ async fn get_job_update_data(
     get_progress: Option<bool>,
     running: bool,
     get_full_job_on_completion: bool,
+    only_result: Option<bool>,
 ) -> error::Result<JobUpdate> {
     let record = sqlx::query!(
         "SELECT

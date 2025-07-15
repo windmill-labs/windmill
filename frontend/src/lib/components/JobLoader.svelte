@@ -33,6 +33,7 @@
 		jobUpdateLastFetch?: Date | undefined
 		toastError?: boolean
 		lazyLogs?: boolean
+		onlyResult?: boolean
 		// If you want to find out progress of subjobs of a flow, check job.flow_status.progress
 		scriptProgress?: number | undefined
 		children?: import('svelte').Snippet<[any]>
@@ -48,6 +49,7 @@
 		jobUpdateLastFetch = $bindable(undefined),
 		toastError = false,
 		lazyLogs = false,
+		onlyResult = false,
 		scriptProgress = $bindable(undefined),
 		children
 	}: Props = $props()
