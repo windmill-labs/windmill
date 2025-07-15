@@ -45,7 +45,7 @@ pub struct AssetUsage {
 pub struct AssetWithAccessType {
     pub path: String,
     pub kind: AssetKind,
-    pub access_type: AssetUsageAccessType,
+    pub access_type: Option<AssetUsageAccessType>,
 }
 
 pub fn parse_assets(
@@ -89,35 +89,42 @@ impl From<windmill_parser::asset_parser::AssetUsageAccessType> for AssetUsageAcc
         }
     }
 }
+impl<S> From<windmill_parser::asset_parser::ParseAssetsResult<S>> for AssetWithAccessType
+where
+    S: AsRef<str> + Into<String>,
+{
+    fn from(asset: windmill_parser::asset_parser::ParseAssetsResult<S>) -> Self {
+        AssetWithAccessType {
+            access_type: asset.access_type.map(Into::into),
+            kind: asset.kind.into(),
+            path: asset.path.into(),
+        }
+    }
+}
 
 pub async fn insert_asset_usage<'e>(
     executor: impl PgExecutor<'e>,
     workspace_id: &str,
-    parsed_asset: &ParseAssetsResult<String>,
+    asset: &AssetWithAccessType,
     fallback_access_types: Option<&[AssetWithAccessType]>,
     usage_path: &str,
     usage_kind: AssetUsageKind,
 ) -> error::Result<()> {
-    let kind: AssetKind = parsed_asset.kind.into();
+    let kind: AssetKind = asset.kind;
     let asset_alternative_access_type = || {
         fallback_access_types
             .as_ref()
-            .and_then(|v| {
-                v.iter()
-                    .find(|a| a.kind == kind && a.path == parsed_asset.path)
-            })
-            .map(|a| a.access_type)
+            .and_then(|v| v.iter().find(|a| a.kind == kind && a.path == asset.path))
+            .and_then(|a| a.access_type)
     };
-    let access_type: Option<AssetUsageAccessType> = parsed_asset
-        .access_type
-        .map(Into::into)
-        .or_else(asset_alternative_access_type);
+    let access_type: Option<AssetUsageAccessType> =
+        asset.access_type.or_else(asset_alternative_access_type);
 
     sqlx::query!(
         r#"INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind)
                 VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING"#,
         workspace_id,
-        parsed_asset.path,
+        asset.path,
         kind as AssetKind,
         access_type as Option<AssetUsageAccessType>,
         usage_path,

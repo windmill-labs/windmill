@@ -922,11 +922,14 @@ async fn create_script_internal<'c>(
     }
 
     clear_asset_usage(&mut *tx, &w_id, &script_path, AssetUsageKind::Script).await?;
-    for asset in parse_assets(&ns.content, ns.language)?.iter().flatten() {
+    for asset in parse_assets(&ns.content, ns.language)?
+        .into_iter()
+        .flatten()
+    {
         insert_asset_usage(
             &mut *tx,
             &w_id,
-            asset,
+            &asset.into(),
             ns.fallback_access_types.as_ref().map(Vec::as_slice),
             &ns.path,
             AssetUsageKind::Script,
