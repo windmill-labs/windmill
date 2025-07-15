@@ -1648,8 +1648,8 @@ export const components = {
 							backgroundColor: ['#FF6384', '#4BC0C0', '#FFCE56']
 						}
 					]
-				},
-			},
+				}
+			}
 		}
 	},
 	chartjscomponentv2: {
@@ -1687,9 +1687,8 @@ export const components = {
 							backgroundColor: ['#FF6384', '#4BC0C0', '#FFCE56']
 						}
 					]
-				},
-
-			},
+				}
+			}
 		}
 	},
 	barchartcomponent: {
@@ -1859,8 +1858,7 @@ This is a paragraph.
 							width: 2.5
 						}
 					}
-				},
-
+				}
 			},
 			configuration: {
 				layout: {
@@ -1893,7 +1891,7 @@ This is a paragraph.
 							width: 2.5
 						}
 					}
-				},
+				}
 			},
 			configuration: {
 				layout: {
@@ -1904,8 +1902,7 @@ This is a paragraph.
 						'Layout options for the plot. See https://plotly.com/javascript/reference/layout/ for more information'
 				}
 			}
-		},
-
+		}
 	},
 	timeseriescomponent: {
 		name: 'Timeseries',
@@ -2431,6 +2428,12 @@ This is a paragraph.
 					allowTypeChange: false,
 					value: []
 				} as StaticAppInput,
+				defaultValue: {
+					type: 'static',
+					fieldType: 'text',
+					value: undefined,
+					tooltip: 'Format: $res:path/to/resource'
+				},
 				placeholder: {
 					type: 'static',
 					fieldType: 'text',
@@ -2467,6 +2470,12 @@ This is a paragraph.
 					type: 'static',
 					fieldType: 'text',
 					value: 'postgresql'
+				},
+				defaultValue: {
+					type: 'static',
+					fieldType: 'text',
+					value: undefined,
+					tooltip: 'Format: $res:path/to/resource'
 				},
 				expressOauthSetup: {
 					type: 'static',
