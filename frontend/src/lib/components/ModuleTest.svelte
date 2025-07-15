@@ -53,13 +53,21 @@
 
 		const val = mod.value
 		// let jobId: string | undefined = undefined
+		let callbacks = {
+			done(x) {
+				jobDone()
+			}
+		}
 		if (val.type == 'rawscript') {
 			await jobLoader?.runPreview(
 				val.path ?? ($pathStore ?? '') + '/' + mod.id,
 				val.content,
 				val.language,
 				mod.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args } : args,
-				flowStore?.val?.tag ?? val.tag
+				flowStore?.val?.tag ?? val.tag,
+				undefined,
+				undefined,
+				callbacks
 			)
 		} else if (val.type == 'script') {
 			const script = val.hash
@@ -72,10 +80,11 @@
 				mod.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args } : args,
 				flowStore?.val?.tag ?? (val.tag_override ? val.tag_override : script.tag),
 				script.lock,
-				val.hash ?? script.hash
+				val.hash ?? script.hash,
+				callbacks
 			)
 		} else if (val.type == 'flow') {
-			await jobLoader?.runFlowByPath(val.path, args)
+			await jobLoader?.runFlowByPath(val.path, args, callbacks)
 		} else {
 			throw Error('Not supported module type')
 		}
@@ -119,7 +128,6 @@
 <JobLoader
 	noCode={true}
 	toastError={noEditor}
-	on:done={() => jobDone()}
 	bind:scriptProgress
 	bind:this={jobLoader}
 	bind:isLoading={

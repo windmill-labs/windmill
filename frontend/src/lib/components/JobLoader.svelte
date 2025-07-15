@@ -1,15 +1,27 @@
 <script lang="ts">
-	import { type Job, JobService, type FlowStatus, type Preview } from '$lib/gen'
+	import {
+		type Job,
+		JobService,
+		type FlowStatus,
+		type Preview,
+		type GetJobUpdatesResponse
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { onDestroy, tick, untrack } from 'svelte'
-	import { createEventDispatcher } from 'svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import { isScriptPreview } from '$lib/utils'
 
 	// Will be set to number if job is not a flow
 
-	type Callbacks = { done: (x: any) => void; cancel: () => void; error: (err: Error) => void }
+	type Callbacks = {
+		done?: (x: Job & { result?: any }) => void
+		doneError?: (x: { id: string; error: Error }) => void
+		cancel?: () => void
+		error?: (err: Error) => void
+		started?: (id: string) => void
+		running?: (id: string) => void
+	}
 
 	interface Props {
 		isLoading?: boolean
@@ -17,6 +29,7 @@
 		noCode?: boolean
 		workspaceOverride?: string | undefined
 		notfound?: boolean
+		allowConcurentRequests?: boolean
 		jobUpdateLastFetch?: Date | undefined
 		toastError?: boolean
 		lazyLogs?: boolean
@@ -29,6 +42,7 @@
 		isLoading = $bindable(false),
 		job = $bindable(undefined),
 		noCode = false,
+		allowConcurentRequests = false,
 		workspaceOverride = undefined,
 		notfound = $bindable(false),
 		jobUpdateLastFetch = $bindable(undefined),
@@ -47,8 +61,6 @@
 	/// How often loader poll progress
 	const getProgressRate: number = 1000
 
-	const dispatch = createEventDispatcher()
-
 	let workspace = $derived(workspaceOverride ?? $workspaceStore)
 
 	let syncIteration: number = 0
@@ -57,6 +69,7 @@
 	let logOffset = 0
 	let lastCallbacks: Callbacks | undefined = undefined
 
+	let finished: string[] = []
 	let ITERATIONS_BEFORE_SLOW_REFRESH = 10
 	let ITERATIONS_BEFORE_SUPER_SLOW_REFRESH = 100
 
@@ -80,9 +93,10 @@
 			const startedAt = Date.now()
 			const testId = await fn()
 
-			if (lastStartedAt < startedAt) {
+			if (lastStartedAt < startedAt || allowConcurentRequests) {
 				lastStartedAt = startedAt
 				if (testId) {
+					callbacks?.started?.(testId)
 					try {
 						await watchJob(testId, callbacks)
 					} catch {
@@ -97,6 +111,7 @@
 			if (toastError) {
 				sendUserToast(err.body, true)
 			}
+			callbacks?.error?.(err)
 			// if error happens on submitting the job, reset UI state so the user can try again
 			isLoading = false
 			currentId = undefined
@@ -186,27 +201,28 @@
 		scriptProgress = undefined
 		lastTimeCheckedProgress = undefined
 
-		return abstractRun(() =>
-			JobService.runScriptPreview({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path,
-					content: code,
-					args,
-					language: lang as Preview['language'],
-					tag,
-					lock,
-					script_hash: hash
-				}
-			})
+		return abstractRun(
+			() =>
+				JobService.runScriptPreview({
+					workspace: $workspaceStore!,
+					requestBody: {
+						path,
+						content: code,
+						args,
+						language: lang as Preview['language'],
+						tag,
+						lock,
+						script_hash: hash
+					}
+				}),
+			callbacks
 		)
 	}
 
 	export async function cancelJob() {
 		const id = currentId
 		if (id) {
-			dispatch('cancel', id)
-			lastCallbacks?.cancel()
+			lastCallbacks?.cancel?.()
 			lastCallbacks = undefined
 			currentId = undefined
 			// Clean up SSE connection
@@ -225,8 +241,10 @@
 	}
 
 	export async function clearCurrentJob() {
-		if (currentId) {
+		if (currentId && !allowConcurentRequests) {
 			job = undefined
+			lastCallbacks?.cancel?.()
+			lastCallbacks = undefined
 			await cancelJob()
 		}
 	}
@@ -243,42 +261,76 @@
 		currentEventSource = undefined
 
 		// Try SSE first, fall back to polling if needed
-		const isCompleted = await loadTestJobWithSSE(testId, callbacks)
-		if (!isCompleted && !currentEventSource) {
-			// If SSE didn't start (job might not be running yet), use polling
-			setTimeout(() => {
-				syncer(testId, callbacks)
-			}, 50)
-		}
+		await loadTestJobWithSSE(testId, 0, callbacks)
 	}
 
-	async function loadTestJob(id: string): Promise<boolean> {
+	function setJobProgress(job: Job) {
+		let getProgress: boolean | undefined = undefined
+
+		// We only pull individual job progress this way
+		// Flow's progress we are getting from FlowStatusModule of flow job
+		if (job.job_kind == 'script' || isScriptPreview(job.job_kind)) {
+			// First time, before running job, lastTimeCheckedProgress is always undefined
+			if (lastTimeCheckedProgress) {
+				const lastTimeCheckedMs = Date.now() - lastTimeCheckedProgress
+				// Ask for progress if the last time we asked is >5s OR the progress was once not undefined
+				if (
+					lastTimeCheckedMs > getProgressRetryRate ||
+					(scriptProgress != undefined && lastTimeCheckedMs > getProgressRate)
+				) {
+					lastTimeCheckedProgress = Date.now()
+					getProgress = true
+				}
+			} else {
+				// Make it think we asked for progress, but in reality we didnt. First 5s we want to wait without putting extra work on db
+				// 99.99% of the jobs won't have progress be set so we have to do a balance between having low-latency for jobs that use it and job that don't
+				// we would usually not care to have progress the first 5s and jobs that are less than 5s
+				lastTimeCheckedProgress = Date.now()
+			}
+		}
+		return getProgress
+	}
+
+	const clamp = (num: number, min: number, max: number) => Math.min(Math.max(num, min), max)
+
+	function updateJobFromProgress(
+		previewJobUpdates: GetJobUpdatesResponse,
+		offset: number,
+		job: Job
+	) {
+		// Clamp number between two values with the following line:
+
+		if (previewJobUpdates.progress) {
+			// Progress cannot go back and cannot be set to 100
+			scriptProgress = clamp(previewJobUpdates.progress, scriptProgress ?? 0, 99)
+		}
+
+		if (previewJobUpdates.new_logs) {
+			if (offset == 0) {
+				job.logs = previewJobUpdates.new_logs ?? ''
+			} else {
+				job.logs = (job?.logs ?? '').concat(previewJobUpdates.new_logs)
+			}
+		}
+
+		if (previewJobUpdates.log_offset) {
+			logOffset = previewJobUpdates.log_offset ?? 0
+		}
+
+		if (previewJobUpdates.flow_status) {
+			job.flow_status = previewJobUpdates.flow_status as FlowStatus
+		}
+		if (previewJobUpdates.mem_peak && job) {
+			job.mem_peak = previewJobUpdates.mem_peak
+		}
+	}
+	async function loadTestJob(id: string, callbacks?: Callbacks): Promise<boolean> {
 		let isCompleted = false
-		if (currentId === id) {
+		if (currentId === id || allowConcurentRequests) {
 			try {
 				if (job && `running` in job) {
-					let getProgress: boolean | undefined = undefined
-					// We only pull individual job progress this way
-					// Flow's progress we are getting from FlowStatusModule of flow job
-					if (job.job_kind == 'script' || isScriptPreview(job.job_kind)) {
-						// First time, before running job, lastTimeCheckedProgress is always undefined
-						if (lastTimeCheckedProgress) {
-							const lastTimeCheckedMs = Date.now() - lastTimeCheckedProgress
-							// Ask for progress if the last time we asked is >5s OR the progress was once not undefined
-							if (
-								lastTimeCheckedMs > getProgressRetryRate ||
-								(scriptProgress != undefined && lastTimeCheckedMs > getProgressRate)
-							) {
-								lastTimeCheckedProgress = Date.now()
-								getProgress = true
-							}
-						} else {
-							// Make it think we asked for progress, but in reality we didnt. First 5s we want to wait without putting extra work on db
-							// 99.99% of the jobs won't have progress be set so we have to do a balance between having low-latency for jobs that use it and job that don't
-							// we would usually not care to have progress the first 5s and jobs that are less than 5s
-							lastTimeCheckedProgress = Date.now()
-						}
-					}
+					callbacks?.running?.(id)
+					let getProgress: boolean | undefined = setJobProgress(job)
 
 					const offset = logOffset == 0 ? (job.logs?.length ? job.logs?.length + 1 : 0) : logOffset
 
@@ -290,35 +342,11 @@
 						getProgress: getProgress
 					})
 
-					// Clamp number between two values with the following line:
-					const clamp = (num, min, max) => Math.min(Math.max(num, min), max)
-
-					if (previewJobUpdates.progress) {
-						// Progress cannot go back and cannot be set to 100
-						scriptProgress = clamp(previewJobUpdates.progress, scriptProgress ?? 0, 99)
-					}
-
-					if (previewJobUpdates.new_logs) {
-						if (offset == 0) {
-							job.logs = previewJobUpdates.new_logs ?? ''
-						} else {
-							job.logs = (job?.logs ?? '').concat(previewJobUpdates.new_logs)
-						}
-					}
-
-					if (previewJobUpdates.log_offset) {
-						logOffset = previewJobUpdates.log_offset ?? 0
-					}
-
-					if (previewJobUpdates.flow_status) {
-						job.flow_status = previewJobUpdates.flow_status as FlowStatus
-					}
-					if (previewJobUpdates.mem_peak && job) {
-						job.mem_peak = previewJobUpdates.mem_peak
-					}
 					if ((previewJobUpdates.running ?? false) || (previewJobUpdates.completed ?? false)) {
 						job = await JobService.getJob({ workspace: workspace!, id, noCode })
 					}
+
+					updateJobFromProgress(previewJobUpdates, offset, job)
 				} else {
 					job = await JobService.getJob({ workspace: workspace!, id, noLogs: lazyLogs, noCode })
 				}
@@ -327,11 +355,7 @@
 				if (job?.type === 'CompletedJob') {
 					//only CompletedJob has success property
 					isCompleted = true
-					if (currentId === id) {
-						await tick()
-						dispatch('done', job)
-						currentId = undefined
-					}
+					onJobCompleted(id, job, callbacks)
 				}
 				notfound = false
 			} catch (err) {
@@ -350,7 +374,40 @@
 
 	let currentEventSource: EventSource | undefined = undefined
 
-	async function loadTestJobWithSSE(id: string, callbacks?: Callbacks): Promise<boolean> {
+	async function onJobCompleted(
+		id: string,
+		job: Job & { result?: any; success?: boolean },
+		callbacks?: Callbacks
+	) {
+		if (currentId === id || allowConcurentRequests) {
+			await tick()
+			if (
+				(callbacks?.error || callbacks?.doneError) &&
+				!job?.success &&
+				typeof job?.result == 'object' &&
+				'error' in (job?.result ?? {})
+			) {
+				callbacks?.error?.(job.result.error)
+				callbacks?.doneError?.({
+					id,
+					error: job.result.error
+				})
+			} else {
+				callbacks?.done?.(job)
+			}
+
+			if (!allowConcurentRequests) {
+				currentId = undefined
+			} else {
+				finished.push(id)
+			}
+		}
+	}
+	async function loadTestJobWithSSE(
+		id: string,
+		attempt: number,
+		callbacks?: Callbacks
+	): Promise<boolean> {
 		let isCompleted = false
 		if (currentId === id) {
 			try {
@@ -364,8 +421,7 @@
 					isCompleted = true
 					if (currentId === id) {
 						await tick()
-						dispatch('done', job)
-						callbacks?.done(job)
+						callbacks?.done?.(job)
 						currentId = undefined
 					}
 					return isCompleted
@@ -373,23 +429,9 @@
 
 				// Only start SSE if job is running and we haven't started it yet
 				if (job && `running` in job && !currentEventSource) {
-					let getProgress: boolean | undefined = undefined
+					callbacks?.running?.(id)
 
-					// Check if we should get progress updates
-					if (job.job_kind == 'script' || isScriptPreview(job.job_kind)) {
-						if (lastTimeCheckedProgress) {
-							const lastTimeCheckedMs = Date.now() - lastTimeCheckedProgress
-							if (
-								lastTimeCheckedMs > getProgressRetryRate ||
-								(scriptProgress != undefined && lastTimeCheckedMs > getProgressRate)
-							) {
-								lastTimeCheckedProgress = Date.now()
-								getProgress = true
-							}
-						} else {
-							lastTimeCheckedProgress = Date.now()
-						}
-					}
+					let getProgress: boolean | undefined = setJobProgress(job)
 
 					const offset = logOffset == 0 ? (job.logs?.length ? job.logs?.length + 1 : 0) : logOffset
 
@@ -417,31 +459,8 @@
 							const previewJobUpdates = JSON.parse(event.data)
 							jobUpdateLastFetch = new Date()
 
-							// Clamp number between two values with the following line:
-							const clamp = (num, min, max) => Math.min(Math.max(num, min), max)
-
-							if (previewJobUpdates.progress) {
-								// Progress cannot go back and cannot be set to 100
-								scriptProgress = clamp(previewJobUpdates.progress, scriptProgress ?? 0, 99)
-							}
-
-							if (previewJobUpdates.new_logs && job) {
-								if (offset == 0) {
-									job.logs = previewJobUpdates.new_logs ?? ''
-								} else {
-									job.logs = (job?.logs ?? '').concat(previewJobUpdates.new_logs)
-								}
-							}
-
-							if (previewJobUpdates.log_offset) {
-								logOffset = previewJobUpdates.log_offset ?? 0
-							}
-
-							if (previewJobUpdates.flow_status && job) {
-								job.flow_status = previewJobUpdates.flow_status as FlowStatus
-							}
-							if (previewJobUpdates.mem_peak && job) {
-								job.mem_peak = previewJobUpdates.mem_peak
+							if (job) {
+								updateJobFromProgress(previewJobUpdates, offset, job)
 							}
 
 							// Check if job is completed
@@ -452,15 +471,8 @@
 								currentEventSource?.close()
 								currentEventSource = undefined
 
-								if (job?.type === 'CompletedJob') {
-									isCompleted = true
-									if (currentId === id) {
-										await tick()
-										dispatch('done', job)
-										callbacks?.done(job)
-										currentId = undefined
-									}
-								}
+								isCompleted = true
+								onJobCompleted(id, job, callbacks)
 							}
 						} catch (parseErr) {
 							console.warn('Failed to parse SSE data:', parseErr)
@@ -471,8 +483,14 @@
 						console.warn('SSE error:', error)
 						currentEventSource?.close()
 						currentEventSource = undefined
-						// Fall back to polling on error
-						setTimeout(() => syncer(id), 1000)
+						if (attempt < 3) {
+							console.log(`SSE error )1), retrying ...  attempt: ${attempt}/3`)
+							attempt++
+							setTimeout(() => loadTestJobWithSSE(id, attempt, callbacks), 1000)
+						} else {
+							// Fall back to polling on error
+							setTimeout(() => syncer(id), 1000)
+						}
 					}
 
 					currentEventSource.onopen = () => {
@@ -491,7 +509,15 @@
 				// Fall back to polling on error
 				currentEventSource?.close()
 				currentEventSource = undefined
-				setTimeout(() => syncer(id), 1000)
+
+				if (attempt < 3) {
+					console.log(`SSE error (2), retrying ... attempt: ${attempt}/3`)
+					attempt++
+					loadTestJobWithSSE(id, attempt, callbacks)
+				} else {
+					// Fall back to polling on error
+					setTimeout(() => syncer(id), 1000)
+				}
 			}
 			return isCompleted
 		} else {
@@ -503,13 +529,12 @@
 	}
 
 	async function syncer(id: string, callbacks?: Callbacks): Promise<void> {
-		if (currentId != id) {
-			dispatch('cancel', id)
-			callbacks?.cancel()
+		if ((currentId != id && !allowConcurentRequests) || finished.includes(id)) {
+			callbacks?.cancel?.()
 			return
 		}
 		syncIteration++
-		if (await loadTestJob(id)) {
+		if (await loadTestJob(id, callbacks)) {
 			return
 		}
 		let nextIteration = 50

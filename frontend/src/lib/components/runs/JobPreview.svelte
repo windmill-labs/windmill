@@ -30,8 +30,7 @@
 
 	let result: any = $state()
 
-	function onDone(event: { detail: Job }) {
-		job = event.detail
+	function onDone(job: Job) {
 		result = job['result']
 	}
 
@@ -56,7 +55,15 @@
 		}
 	})
 	$effect(() => {
-		id && jobLoader && untrack(() => jobLoader?.watchJob(id))
+		id &&
+			jobLoader &&
+			untrack(() =>
+				jobLoader?.watchJob(id, {
+					done(x) {
+						onDone(x)
+					}
+				})
+			)
 	})
 	$effect(() => {
 		job?.logs == undefined && job && viewTab == 'logs' && untrack(() => jobLoader?.getLogs())
@@ -68,13 +75,7 @@
 	let jobLoader: JobLoader | undefined = $state(undefined)
 </script>
 
-<JobLoader
-	lazyLogs
-	workspaceOverride={workspace}
-	bind:job={currentJob}
-	bind:this={jobLoader}
-	on:done={onDone}
-/>
+<JobLoader lazyLogs workspaceOverride={workspace} bind:job={currentJob} bind:this={jobLoader} />
 
 <div class="p-4 flex flex-col gap-2 items-start h-full">
 	{#if job}

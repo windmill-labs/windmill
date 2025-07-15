@@ -44,7 +44,7 @@
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
 		loading: false,
-		jobId: undefined
+		jobId: undefined as string | undefined
 	})
 
 	initializing = false
@@ -61,13 +61,24 @@
 				outputs.loading.set(true)
 				const jobId = resolvedConfig?.['jobId']
 				if (jobId) {
-					jobLoader?.watchJob(jobId)
+					jobLoader?.watchJob(jobId, {
+						done(x) {
+							onDone(x)
+						}
+					})
 				}
 			})
 		}
 	})
 
 	let result: any = $state(undefined)
+
+	function onDone(job: Job & { result?: any }) {
+		outputs.loading.set(false)
+		outputs.jobId.set(job.id)
+		outputs.result.set(job.result)
+		result = job.result
+	}
 </script>
 
 {#each Object.keys(components['jobiddisplaycomponent'].initialData.configuration) as key (key)}
@@ -95,12 +106,6 @@
 	bind:this={jobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
-	on:done={(e) => {
-		outputs.loading.set(false)
-		outputs.jobId.set(e.detail.id)
-		outputs.result.set(e.detail.result)
-		result = e.detail.result
-	}}
 />
 
 <InitializeComponent {id} />

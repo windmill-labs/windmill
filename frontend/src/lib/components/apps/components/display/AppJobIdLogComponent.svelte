@@ -60,7 +60,14 @@
 				outputs.loading.set(true)
 				const jobId = resolvedConfig?.['jobId']
 				if (jobId) {
-					jobLoader?.watchJob(jobId)
+					let callbacks = {
+						done(x) {
+							outputs.loading.set(false)
+							outputs.jobId.set(x.id)
+							outputs.result.set(x.result)
+						}
+					}
+					jobLoader?.watchJob(jobId, callbacks)
 				}
 			})
 		}
@@ -92,11 +99,6 @@
 	bind:this={jobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
-	on:done={(e) => {
-		outputs.loading.set(false)
-		outputs.jobId.set(e.detail.id)
-		outputs.result.set(e.detail.result)
-	}}
 />
 
 <InitializeComponent {id} />

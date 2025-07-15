@@ -166,7 +166,13 @@
 					currentScript.language,
 					args,
 					currentScript.tag,
-					useLock ? currentScript.lock : undefined
+					useLock ? currentScript.lock : undefined,
+					undefined,
+					{
+						done(x) {
+							loadPastTests()
+						}
+					}
 				)
 			} else {
 				sendUserToast(`Bundle received ${lastCommandId} was obsolete, ignoring`, true)
@@ -221,56 +227,63 @@
 	})
 
 	async function testBundle(file: string, isTar: boolean) {
-		jobLoader?.abstractRun(async () => {
-			try {
-				const form = new FormData()
-				form.append(
-					'preview',
-					JSON.stringify({
-						content: currentScript?.content,
-						kind: isTar ? 'tarbundle' : 'bundle',
-						path: currentScript?.path,
-						args,
-						language: currentScript?.language,
-						tag: currentScript?.tag
-					})
-				)
-				// sendUserToast(JSON.stringify(file))
-				if (isTar) {
-					var array: number[] = []
-					file = atob(file)
-					for (var i = 0; i < file.length; i++) {
-						array.push(file.charCodeAt(i))
-					}
-					let blob = new Blob([new Uint8Array(array)], { type: 'application/octet-stream' })
-
-					form.append('file', blob)
-				} else {
-					form.append('file', file)
-				}
-
-				const url = '/api/w/' + workspace + '/jobs/run/preview_bundle'
-
-				const req = await fetch(url, {
-					method: 'POST',
-					body: form,
-					headers: {
-						Authorization: 'Bearer ' + token
-					}
-				})
-				if (req.status != 201) {
-					throw Error(
-						`Script snapshot creation was not successful: ${req.status} - ${
-							req.statusText
-						} - ${await req.text()}`
+		jobLoader?.abstractRun(
+			async () => {
+				try {
+					const form = new FormData()
+					form.append(
+						'preview',
+						JSON.stringify({
+							content: currentScript?.content,
+							kind: isTar ? 'tarbundle' : 'bundle',
+							path: currentScript?.path,
+							args,
+							language: currentScript?.language,
+							tag: currentScript?.tag
+						})
 					)
+					// sendUserToast(JSON.stringify(file))
+					if (isTar) {
+						var array: number[] = []
+						file = atob(file)
+						for (var i = 0; i < file.length; i++) {
+							array.push(file.charCodeAt(i))
+						}
+						let blob = new Blob([new Uint8Array(array)], { type: 'application/octet-stream' })
+
+						form.append('file', blob)
+					} else {
+						form.append('file', file)
+					}
+
+					const url = '/api/w/' + workspace + '/jobs/run/preview_bundle'
+
+					const req = await fetch(url, {
+						method: 'POST',
+						body: form,
+						headers: {
+							Authorization: 'Bearer ' + token
+						}
+					})
+					if (req.status != 201) {
+						throw Error(
+							`Script snapshot creation was not successful: ${req.status} - ${
+								req.statusText
+							} - ${await req.text()}`
+						)
+					}
+					return await req.text()
+				} catch (e) {
+					sendUserToast(`Failed to send bundle ${e}`, true)
+					throw Error(e)
 				}
-				return await req.text()
-			} catch (e) {
-				sendUserToast(`Failed to send bundle ${e}`, true)
-				throw Error(e)
+			},
+			{
+				done(x) {
+					loadPastTests()
+				}
 			}
-		})
+		)
 		loadingCodebaseButton = false
 	}
 	onDestroy(() => {
@@ -637,13 +650,7 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
-<JobLoader
-	noCode={true}
-	on:done={loadPastTests}
-	bind:this={jobLoader}
-	bind:isLoading={testIsLoading}
-	bind:job={testJob}
-/>
+<JobLoader noCode={true} bind:this={jobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
 
 <main class="h-screen w-full">
 	{#if mode == 'script'}

@@ -224,7 +224,14 @@
 			selectedTab === 'preprocessor' || kind === 'preprocessor'
 				? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...(args ?? {}) }
 				: (args ?? {}),
-			tag
+			tag,
+			undefined,
+			undefined,
+			{
+				done(_x) {
+					loadPastTests()
+				}
+			}
 		)
 		logPanel?.setFocusToLogs()
 		return job
@@ -446,7 +453,6 @@
 
 <JobLoader
 	noCode={true}
-	on:done={loadPastTests}
 	bind:scriptProgress
 	bind:this={jobLoader}
 	bind:isLoading={testIsLoading}
