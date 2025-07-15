@@ -236,14 +236,14 @@ async function generateLocks(
   } & SyncOptions,
   folder: string | undefined
 ) {
-  const useLocalLockfiles = opts["useRawRequirements"] || Deno.env.get("USE_RAW_REQUIREMENTS") === "true";
+  const useRawReqs = opts["useRawRequirements"] || Deno.env.get("USE_RAW_REQUIREMENTS") === "true";
 
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   opts = await mergeConfigWithConfigFile(opts);
   if (folder) {
     // read script metadata file
-    await generateFlowLockInternal(folder, false, workspace, opts, undefined, undefined, useLocalLockfiles);
+    await generateFlowLockInternal(folder, false, workspace, opts, undefined, undefined, useRawReqs);
   } else {
     const ignore = await ignoreF(opts);
     const elems = Object.keys(
@@ -264,7 +264,7 @@ async function generateLocks(
     let hasAny = false;
 
     for (const folder of elems) {
-      const candidate = await generateFlowLockInternal(folder, true, workspace, opts, undefined, undefined, useLocalLockfiles);
+      const candidate = await generateFlowLockInternal(folder, true, workspace, opts, undefined, undefined, useRawReqs);
       if (candidate) {
         hasAny = true;
         log.info(colors.green(`+ ${candidate}`));
@@ -286,7 +286,7 @@ async function generateLocks(
       return;
     }
     for (const folder of elems) {
-      await generateFlowLockInternal(folder, false, workspace, opts,undefined, undefined, useLocalLockfiles);
+      await generateFlowLockInternal(folder, false, workspace, opts,undefined, undefined, useRawReqs);
     }
   }
 }
