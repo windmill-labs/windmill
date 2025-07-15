@@ -2317,6 +2317,9 @@ pub async fn pull(
             tracing::warn!("Pull job loop count: {}", pull_loop_count);
             tokio::task::yield_now().await;
         }
+        if pull_loop_count > 1000 {
+            return Ok(PulledJobResult { job: None, suspended: false });
+        }
         if let Some((query_suspended, query_no_suspend)) = query_o {
             let njob = {
                 let job = if query_suspended.is_empty() {
@@ -2522,6 +2525,10 @@ pub async fn pull(
             if i % 50 == 0 {
                 tracing::warn!("Window finding job loop count: {}", pull_loop_count);
                 tokio::task::yield_now().await;
+            }
+            if i > 1000000000 {
+                tracing::error!("Window finding job loop count exceeded 1000000000, breaking");
+                break;
             }
         }
 
