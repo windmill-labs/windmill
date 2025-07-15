@@ -88,6 +88,8 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
+          git config pull.rebase true
+          git pull origin ${{ env.BRANCH_NAME }}
           git add backend/.sqlx
           git commit -m "Update SQLx metadata"
           git push origin ${{ env.BRANCH_NAME }}
@@ -158,6 +160,8 @@ jobs:
           git checkout $BRANCH_NAME
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
+          git config pull.rebase true
+          git pull origin $BRANCH_NAME
           git add backend/ee-repo-ref.txt
           git commit -m "Update ee-repo-ref.txt" || echo "No changes to commit"
           git push origin $BRANCH_NAME
