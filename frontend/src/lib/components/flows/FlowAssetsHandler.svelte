@@ -111,10 +111,7 @@
 {#each allModules as mod (mod.id)}
 	{#if mod.value.type === 'rawscript'}
 		{@const v = mod.value}
-		<OnChange
-			key={[v.content, v.asset_fallback_access_types]}
-			onChange={() => parseAndUpdateRawScriptModule(v)}
-		/>
+		<OnChange key={v.content} onChange={() => parseAndUpdateRawScriptModule(v)} />
 	{/if}
 {/each}
 

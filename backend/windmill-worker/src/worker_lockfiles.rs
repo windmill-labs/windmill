@@ -932,7 +932,6 @@ async fn lock_modules<'c>(
             concurrent_limit,
             concurrency_time_window_s,
             is_trigger,
-            asset_fallback_access_types,
             assets,
         } = e.get_value()?
         else {
@@ -1126,7 +1125,6 @@ async fn lock_modules<'c>(
                 &mut *tx,
                 &job.workspace_id,
                 asset,
-                asset_fallback_access_types.as_ref().map(Vec::as_slice),
                 job_path,
                 AssetUsageKind::Flow,
             )
@@ -1240,7 +1238,6 @@ async fn lock_modules<'c>(
             concurrent_limit,
             concurrency_time_window_s,
             is_trigger,
-            asset_fallback_access_types,
             assets,
         });
         new_flow_modules.push(e);

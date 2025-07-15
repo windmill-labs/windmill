@@ -2,14 +2,7 @@
 	import { BROWSER } from 'esm-env'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import {
-		AssetService,
-		type CompletedJob,
-		type Job,
-		JobService,
-		type Preview,
-		type ScriptLang
-	} from '$lib/gen'
+	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
 	import { copilotInfo, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
@@ -55,7 +48,6 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
-	import { assetEq, type AssetWithAccessType } from './assets/lib'
 
 	interface Props {
 		// Exported
@@ -87,7 +79,6 @@
 		lastDeployedCode?: string | undefined
 		disableAi?: boolean
 		editor_bar_right?: import('svelte').Snippet
-		fallbackAccessTypes?: AssetWithAccessType[]
 	}
 
 	let {
@@ -117,8 +108,7 @@
 		lastSavedCode = undefined,
 		lastDeployedCode = undefined,
 		disableAi = false,
-		editor_bar_right,
-		fallbackAccessTypes = $bindable()
+		editor_bar_right
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -151,24 +141,6 @@
 	$effect(() => {
 		untrack(() => parsedAssets.refresh()), [lang, code]
 	})
-
-	// Load initial fallbackAccessTypes
-	if (edit && path) {
-		AssetService.listAssetsByUsage({
-			workspace: $workspaceStore!,
-			requestBody: { usages: [{ path, kind: 'script' }] }
-		}).then((arr) => {
-			const v = arr[0]
-			setTimeout(() => {
-				for (const a of parsedAssets.value ?? []) {
-					const fallback = v.find((a2) => assetEq(a2, a))?.access_type
-					if (!a.access_type && fallback) {
-						fallbackAccessTypes = [...(fallbackAccessTypes ?? []), { ...a, access_type: fallback }]
-					}
-				}
-			}, 200)
-		})
-	}
 
 	let width = $state(1200)
 
@@ -542,7 +514,7 @@
 			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
 				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
 					{#if parsedAssets.value?.length}
-						<AssetsDropdownButton assets={parsedAssets.value} bind:fallbackAccessTypes />
+						<AssetsDropdownButton assets={parsedAssets.value} />
 					{/if}
 					{#if testPanelSize === 0}
 						<HideButton

@@ -506,8 +506,6 @@ pub enum FlowModuleValue {
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        asset_fallback_access_types: Option<Vec<AssetWithAccessType>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         assets: Option<Vec<AssetWithAccessType>>,
     },
     Identity,
@@ -562,7 +560,6 @@ struct UntaggedFlowModuleValue {
     id: Option<FlowNodeId>,
     default_node: Option<FlowNodeId>,
     modules_node: Option<FlowNodeId>,
-    asset_fallback_access_types: Option<Vec<AssetWithAccessType>>,
     assets: Option<Vec<AssetWithAccessType>>,
 }
 
@@ -638,7 +635,6 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 concurrent_limit: untagged.concurrent_limit,
                 concurrency_time_window_s: untagged.concurrency_time_window_s,
                 is_trigger: untagged.is_trigger,
-                asset_fallback_access_types: untagged.asset_fallback_access_types,
                 assets: untagged.assets,
             }),
             "flowscript" => Ok(FlowModuleValue::FlowScript {
@@ -812,7 +808,6 @@ pub async fn resolve_module(
                 concurrent_limit,
                 concurrency_time_window_s,
                 is_trigger,
-                asset_fallback_access_types: None,
                 assets: None,
             };
         }

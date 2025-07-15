@@ -6,17 +6,15 @@
 	import { Popover } from '../meltComponents'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from '../ExploreAssetButton.svelte'
-	import { assetEq, formatAssetKind, type Asset, type AssetWithAccessType } from './lib'
+	import { formatAssetKind, type Asset } from './lib'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
-	import { tick, untrack } from 'svelte'
+	import { untrack } from 'svelte'
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import Button from '../common/button/Button.svelte'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import type { Placement } from '@floating-ui/core'
-	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 
 	let {
 		assets,
@@ -25,17 +23,15 @@
 		noBtnText = false,
 		popoverPlacement = 'bottom-end',
 		disableLiTooltip = false,
-		fallbackAccessTypes = $bindable(),
 		onHoverLi,
 		liSubtitle
 	}: {
-		assets: AssetWithAccessType[]
+		assets: Asset[]
 		enableChangeAnimation?: boolean
 		size?: 'xs' | '3xs'
 		noBtnText?: boolean
 		popoverPlacement?: Placement
 		disableLiTooltip?: boolean
-		fallbackAccessTypes?: AssetWithAccessType[]
 		onHoverLi?: (asset: Asset, eventType: 'enter' | 'leave') => void
 		liSubtitle?: (asset: Asset) => string
 	} = $props()
@@ -113,10 +109,6 @@
 	<svelte:fragment slot="content">
 		<ul class="divide-y rounded-md">
 			{#each assets as asset}
-				{@const fallbackAccessType = fallbackAccessTypes?.find((a) =>
-					assetEq(a, asset)
-				)?.access_type}
-				{@const hasWarning = !asset.access_type && !fallbackAccessType}
 				<li
 					class="text-sm px-4 h-12 flex gap-4 items-center justify-between hover:bg-surface-hover"
 					onmouseenter={() => onHoverLi?.(asset, 'enter')}
@@ -165,35 +157,6 @@
 								_resourceMetadata={{ resource_type: resourceDataCache[asset.path] }}
 							/>
 						{/if}
-
-						<ToggleButtonGroup
-							disabled={!!asset.access_type}
-							tabListClass={hasWarning ? 'bg-red-200 dark:bg-red-300' : ''}
-							bind:selected={
-								() => asset.access_type ?? fallbackAccessType,
-								async (access_type) => {
-									fallbackAccessTypes ??= []
-									await tick()
-									let val = fallbackAccessTypes?.filter((a) => !assetEq(a, asset))
-									val.push({ ...asset, access_type })
-									fallbackAccessTypes = val
-								}
-							}
-						>
-							{#snippet children({ item })}
-								{#each ['r', 'w', 'rw'] as v}
-									<ToggleButton
-										class={hasWarning
-											? 'bg-transparent hover:bg-red-100 dark:text-primary-inverse'
-											: ''}
-										value={v}
-										label={v}
-										{item}
-										tooltip={'Could not infer access type from code, please select manually'}
-									/>
-								{/each}
-							{/snippet}
-						</ToggleButtonGroup>
 					</div>
 				</li>
 			{/each}

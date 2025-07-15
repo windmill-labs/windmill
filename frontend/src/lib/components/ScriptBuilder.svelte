@@ -524,8 +524,7 @@
 					no_main_func: script.no_main_func,
 					has_preprocessor: script.has_preprocessor,
 					deployment_message: deploymentMsg || undefined,
-					on_behalf_of_email: script.on_behalf_of_email,
-					fallback_access_types: script.fallback_access_types
+					on_behalf_of_email: script.on_behalf_of_email
 				}
 			})
 
@@ -1776,7 +1775,6 @@
 			kind={script.kind}
 			{template}
 			tag={script.tag}
-			bind:fallbackAccessTypes={script.fallback_access_types}
 			lastSavedCode={savedScript?.draft?.content}
 			lastDeployedCode={savedScript?.draft_only ? undefined : savedScript?.content}
 			bind:args

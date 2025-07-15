@@ -423,10 +423,7 @@
 									{#key flowModule.id}
 										<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
 											{#if assets.value?.length}
-												<AssetsDropdownButton
-													assets={assets.value}
-													bind:fallbackAccessTypes={flowModule.value.asset_fallback_access_types}
-												/>
+												<AssetsDropdownButton assets={assets.value} />
 											{/if}
 										</div>
 										<Editor
