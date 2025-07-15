@@ -5157,8 +5157,6 @@ async fn run_flow_dependencies_job(
     Path(w_id): Path<String>,
     Json(req): Json<RunFlowDependenciesRequest>,
 ) -> error::Result<Response> {
-    dbg!("START");
-    dbg!(&req);
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run dependencies jobs for security reasons".to_string(),

@@ -3290,7 +3290,6 @@ pub async fn push<'c, 'd>(
     _priority_override: Option<i16>,
     authed: Option<&Authed>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
-    dbg!(&args);
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
         let premium_workspace =

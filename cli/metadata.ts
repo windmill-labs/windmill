@@ -14,7 +14,7 @@ import {
 } from "./bootstrap/script_bootstrap.ts";
 import { Workspace } from "./workspace.ts";
 import { SchemaProperty } from "./bootstrap/common.ts";
-import { languagesWithLocalLockfileSupport, LanguageWithLocalLockfileSupport, ScriptLanguage } from "./script_common.ts";
+import { languagesWithRawReqsSupport, LanguageWithRawReqsSupport, ScriptLanguage } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { GlobalDeps, exts, findGlobalDeps } from "./script.ts";
 import {
@@ -40,7 +40,7 @@ export class LockfileGenerationError extends Error {
 export async function generateAllMetadata() { }
 
 function findClosestRawReqs(
-  lang: LanguageWithLocalLockfileSupport | undefined,
+  lang: LanguageWithRawReqsSupport | undefined,
   remotePath: string,
   globalDeps: GlobalDeps,
 ): string | undefined {
@@ -49,42 +49,14 @@ function findClosestRawReqs(
     Object.entries(globalDeps.get(lang) ?? {}).forEach(([k, v]) => {
       if (
         remotePath.startsWith(k) &&
+        // BUG: It looks like /f/a/b will be in less priority than /f/abcde
+        // TODO: Test if it is the case
         k.length >= (bestCandidate?.k ?? "").length
       ) {
         bestCandidate = { k, v };
       }
     });
-
   }
-  // if (lang?.language == "bun") {
-  // } else if (lang == "python3") {
-  //   Object.entries(globalDeps.reqs).forEach(([k, v]) => {
-  //     if (
-  //       remotePath.startsWith(k) &&
-  //       k.length >= (bestCandidate?.k ?? "").length
-  //     ) {
-  //       bestCandidate = { k, v };
-  //     }
-  //   });
-  // } else if (lang == "php") {
-  //   Object.entries(globalDeps.composers).forEach(([k, v]) => {
-  //     if (
-  //       remotePath.startsWith(k) &&
-  //       k.length >= (bestCandidate?.k ?? "").length
-  //     ) {
-  //       bestCandidate = { k, v };
-  //     }
-  //   });
-  // } else if (lang == "go") {
-  //   Object.entries(globalDeps.goMods).forEach(([k, v]) => {
-  //     if (
-  //       remotePath.startsWith(k) &&
-  //       k.length >= (bestCandidate?.k ?? "").length
-  //     ) {
-  //       bestCandidate = { k, v };
-  //     }
-  //   });
-  // }
   // @ts-ignore
   return bestCandidate?.v;
 }
@@ -93,6 +65,7 @@ const TOP_HASH = "__flow_hash";
 async function generateFlowHash(
   rawReqs: Record<string, string> | undefined,
   folder: string,
+  defaultTs: "bun" | "deno" | undefined
 ) {
   const elems = await FSFSElement(path.join(Deno.cwd(), folder), [], true);
   const hashes: Record<string, string | undefined> = {};
@@ -102,7 +75,7 @@ async function generateFlowHash(
       if (rawReqs) {
         // Get language name from path
         // TODO: Distinguish Bun and Node and Deno extensions
-        const lang = inferContentTypeFromFilePath(f.path, undefined);
+        const lang = inferContentTypeFromFilePath(f.path, defaultTs);
         // Get lock for that language
         [, reqs] = Object.entries(rawReqs ?? {}).find(([lang2, _]) => lang == lang2) ?? [];
       }
@@ -136,22 +109,22 @@ export async function generateFlowLockInternal(
   // let rawDeps: Record<string, string> | undefined;
   let rawReqs: Record<string, string> | undefined = undefined;
   if (useRawReqs) {
-
     // Find all dependency files in the workspace
     const globalDeps = await findGlobalDeps();
 
     // Find closest dependency files for this flow
     rawReqs = {};
 
-    languagesWithLocalLockfileSupport.map((lang) => {
+    // TODO: Only include raw reqs for the languages that are in the flow
+    languagesWithRawReqsSupport.map((lang) => {
       const dep = findClosestRawReqs(lang, folder, globalDeps);
       if (dep) {
         // @ts-ignore
         rawReqs[lang.language] = dep;
       }
     });
-  } 
-  let hashes = await generateFlowHash(rawReqs, folder);
+  }
+  let hashes = await generateFlowHash(rawReqs, folder, opts.defaultTs);
 
   const conf = await readLockfile();
   if (await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH)) {
@@ -169,7 +142,7 @@ export async function generateFlowLockInternal(
     log.warn("If using local lockfiles, following redeployments from Web App will inevitably override generated lockfiles by CLI. To maintain your script's lockfiles you will need to redeploy only from CLI. (Behavior is subject to change)")
     log.info(
       (await blueColor())(
-        `Found raw requirements (package.json/requirements.txt/composer.json/go.mod) for ${folder}, using it`,
+        `Found raw requirements (${languagesWithRawReqsSupport.map((l) => l.rrFilename).join("/")}) for ${folder}, using it`,
       ),
     );
   }
@@ -190,16 +163,12 @@ export async function generateFlowLockInternal(
       }
     }
 
-    console.log("Locks to remove: " + changedScripts);
-
     log.info(`Recomputing locks of ${changedScripts.join(", ")} in ${folder}`);
     replaceInlineScripts(
       flowValue.value.modules,
       folder + SEP!,
       changedScripts,
     );
-
-    // console.log("Substituted modules: " + JSON.stringify(flowValue.value.modules));
 
     //removeChangedLocks
     flowValue.value = await updateFlow(
@@ -223,7 +192,7 @@ export async function generateFlowLockInternal(
       });
   }
 
-  hashes = await generateFlowHash( rawReqs, folder);
+  hashes = await generateFlowHash(rawReqs, folder);
 
   for (const [path, hash] of Object.entries(hashes)) {
     await updateMetadataGlobalLock(folder, hash, path);
@@ -259,14 +228,15 @@ export async function generateScriptMetadataInternal(
 
 
   const rawReqs = findClosestRawReqs(
-    languagesWithLocalLockfileSupport.find((l) => language == l.language),
+    languagesWithRawReqsSupport.find((l) => language == l.language),
     scriptPath,
     globalDeps,
   );
+
   if (rawReqs) {
     log.info(
       (await blueColor())(
-        `Found raw requirements (package.json/requirements.txt/composer.json/go.mod) for ${scriptPath}, using it`,
+        `Found raw requirements (${languagesWithRawReqsSupport.map((l) => l.rrFilename).join("/")}) for ${scriptPath}, using it`,
       ),
     );
   }
@@ -1064,11 +1034,8 @@ export async function checkifMetadataUptodate(
   conf: Lock | undefined,
   subpath?: string,
 ) {
-  console.log(conf);
   if (!conf) {
-    console.log("READING")
     conf = await readLockfile();
-    console.log(conf)
   }
   if (!conf.locks) {
     return false;

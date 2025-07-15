@@ -26,10 +26,10 @@ import {
   parseMetadataFile,
 } from "./metadata.ts";
 import {
-    LanguageWithLocalLockfileSupport,
+    LanguageWithRawReqsSupport,
   ScriptLanguage,
   inferContentTypeFromFilePath,
-  languagesWithLocalLockfileSupport,
+  languagesWithRawReqsSupport,
 } from "./script_common.ts";
 import {
   elementsToMap,
@@ -867,25 +867,9 @@ async function bootstrap(
   );
 }
 
-// export type GlobalDeps = {
-//   "pkgs": Record<string, string>;
-//   "reqs": Record<string, string>;
-//   "composers": Record<string, string>;
-//   "goMods": Record<string, string>;
-// };
-
-// export type GlobalDeps = Record<string, Record<string, string>>;
-export type GlobalDeps = Map<LanguageWithLocalLockfileSupport, Record<string, string>>;
-// export type GlobalDeps = {
-//   language: LanguageWithLocalLockfileSupport;
-//   lockfiles: Record<string, string>;
-// }[];
+export type GlobalDeps = Map<LanguageWithRawReqsSupport, Record<string, string>>;
 
 export async function findGlobalDeps(): Promise<GlobalDeps> {
-  // const pkgs: { [key: string]: string } = {};
-  // const reqs: { [key: string]: string } = {};
-  // const composers: { [key: string]: string } = {};
-  // const goMods: { [key: string]: string } = {};
   var globalDeps: GlobalDeps = new Map();
   const els = await FSFSElement(Deno.cwd(), [], false);
   for await (const entry of readDirRecursiveWithIgnore((p, isDir) => {
@@ -893,13 +877,9 @@ export async function findGlobalDeps(): Promise<GlobalDeps> {
     return (
       !isDir &&
       // Skip if the filename is not one of lockfile names
-      !(languagesWithLocalLockfileSupport.some(
+      !(languagesWithRawReqsSupport.some(
         lockfile =>
-        p.endsWith(SEP + lockfile.lockfile))
-        // p.endsWith(SEP + "package.json") ||
-        // p.endsWith(SEP + "requirements.txt") ||
-        // p.endsWith(SEP + "composer.json") ||
-        // p.endsWith(SEP + "go.mod")
+        p.endsWith(SEP + lockfile.rrFilename))
       )
     );
   }, els)) {
@@ -907,10 +887,10 @@ export async function findGlobalDeps(): Promise<GlobalDeps> {
     const content = await entry.getContentText();
 
     // Iterate over availible languages to find which lockfile
-    languagesWithLocalLockfileSupport.map((lock) => {
-      if (entry.path.endsWith(lock.lockfile)){
+    languagesWithRawReqsSupport.map((lock) => {
+      if (entry.path.endsWith(lock.rrFilename)){
         const current = globalDeps.get(lock) ?? {};
-        current[entry.path.substring(0, entry.path.length - lock.lockfile.length)] = content;
+        current[entry.path.substring(0, entry.path.length - lock.rrFilename.length)] = content;
         globalDeps.set(lock, current);
       }
     });

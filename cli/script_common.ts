@@ -22,17 +22,20 @@ export type ScriptLanguage =
   | "java";
 // for related places search: ADD_NEW_LANG
 
-export type LanguageWithLocalLockfileSupport =
-  | { language: "bun", lockfile: "package.json" }
-  | { language: "python3", lockfile: "requirements.txt" }
-  | { language: "php", lockfile: "composer.json" }
-  | { language: "go", lockfile: "go.mod" };
+// To make language support raw requirements:
+// 1. Add value here
+// 2. Modify backend to allow raw deps
+export type LanguageWithRawReqsSupport =
+  | { language: "bun", rrFilename /** (raw requirements filename) */: "package.json" }
+  | { language: "python3", rrFilename: "requirements.txt" }
+  | { language: "php", rrFilename: "composer.json" }
+  | { language: "go", rrFilename: "go.mod" };
 
-export const languagesWithLocalLockfileSupport: LanguageWithLocalLockfileSupport[] = [
-  { language: "bun", lockfile: "package.json" },
-  { language: "python3", lockfile: "requirements.txt" },
-  { language: "php", lockfile: "composer.json" },
-  { language: "go", lockfile: "go.mod" },
+export const languagesWithRawReqsSupport: LanguageWithRawReqsSupport[] = [
+  { language: "bun", rrFilename: "package.json" },
+  { language: "python3", rrFilename: "requirements.txt" },
+  { language: "php", rrFilename: "composer.json" },
+  { language: "go", rrFilename: "go.mod" },
 ] as const;
 
 export function inferContentTypeFromFilePath(
