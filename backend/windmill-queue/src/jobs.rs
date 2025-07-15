@@ -2318,6 +2318,7 @@ pub async fn pull(
             tokio::task::yield_now().await;
         }
         if pull_loop_count > 1000 {
+            tracing::error!("Pull job loop count exceeded 1000, breaking");
             return Ok(PulledJobResult { job: None, suspended: false });
         }
         if let Some((query_suspended, query_no_suspend)) = query_o {
