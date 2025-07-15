@@ -106,7 +106,6 @@ export async function generateFlowLockInternal(
     log.info(`Generating lock for flow ${folder} at ${remote_path}`);
   }
 
-  // let rawDeps: Record<string, string> | undefined;
   let rawReqs: Record<string, string> | undefined = undefined;
   if (useRawReqs) {
     // Find all dependency files in the workspace
@@ -192,7 +191,7 @@ export async function generateFlowLockInternal(
       });
   }
 
-  hashes = await generateFlowHash(rawReqs, folder);
+  hashes = await generateFlowHash(rawReqs, folder, opts.defaultTs);
 
   for (const [path, hash] of Object.entries(hashes)) {
     await updateMetadataGlobalLock(folder, hash, path);

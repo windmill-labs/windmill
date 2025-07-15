@@ -232,11 +232,10 @@ async function run(
 async function generateLocks(
   opts: GlobalOptions & {
     yes?: boolean;
-    "use-raw-requirements"?: boolean;
+    "useRawRequirements"?: boolean;
   } & SyncOptions,
   folder: string | undefined
 ) {
-  // TODO: deno does not like this
   const useLocalLockfiles = opts["useRawRequirements"] || Deno.env.get("USE_RAW_REQUIREMENTS") === "true";
 
   const workspace = await resolveWorkspace(opts);
