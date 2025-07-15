@@ -156,8 +156,8 @@
 	<div class="h-screen">
 		{#key value}
 			<AppEditor
-				on:savedNewAppPath={(event) => {
-					goto(`/apps/edit/${event.detail}`)
+				onSavedNewAppPath={(path) => {
+					goto(`/apps/edit/${path}`)
 				}}
 				{summary}
 				app={value}
