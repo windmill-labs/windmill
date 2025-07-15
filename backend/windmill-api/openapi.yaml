@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.505.3
+  version: 1.506.0
   title: Windmill API
 
   contact:
@@ -3388,6 +3388,15 @@ paths:
                   type: integer
                 client:
                   type: string
+                grant_type:
+                  type: string
+                  default: "authorization_code"
+                cc_client_id:
+                  type: string
+                  description: "OAuth client ID for resource-level credentials (client_credentials flow only)"
+                cc_client_secret:
+                  type: string
+                  description: "OAuth client secret for resource-level credentials (client_credentials flow only)"
               required:
                 - expires_in
                 - client
@@ -3398,6 +3407,48 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /oauth/connect_client_credentials/{client}:
+    post:
+      summary: connect OAuth using client credentials
+      operationId: connectClientCredentials
+      tags:
+        - oauth
+      parameters:
+        - name: client
+          in: path
+          description: OAuth client name
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: client credentials flow parameters
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                cc_client_id:
+                  type: string
+                  description: "OAuth client ID for resource-level authentication"
+                cc_client_secret:
+                  type: string
+                  description: "OAuth client secret for resource-level authentication"
+              required:
+                - cc_client_id
+                - cc_client_secret
+      responses:
+        "200":
+          description: OAuth token response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
 
   /w/{workspace}/oauth/refresh_token/{id}:
     post:
@@ -3547,6 +3598,10 @@ paths:
                   extra_params:
                     type: object
                   scopes:
+                    type: array
+                    items:
+                      type: string
+                  grant_types:
                     type: array
                     items:
                       type: string
@@ -16824,6 +16879,8 @@ components:
           type: array
           items:
             type: string
+        grant_type:
+          type: string
 
       required:
         - access_token
