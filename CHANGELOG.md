@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.506.0](https://github.com/windmill-labs/windmill/compare/v1.505.4...v1.506.0) (2025-07-15)
+
+
+### Features
+
+* add oauth client_credentials support ([#6110](https://github.com/windmill-labs/windmill/issues/6110)) ([d562625](https://github.com/windmill-labs/windmill/commit/d562625474260d16699329884dd6c3b890f808ad))
+* **frontend:** app static and user resource picker default values ([#6179](https://github.com/windmill-labs/windmill/issues/6179)) ([b58c46a](https://github.com/windmill-labs/windmill/commit/b58c46a50452bce098695f52220946f87d62f840))
+
+## [1.505.4](https://github.com/windmill-labs/windmill/compare/v1.505.3...v1.505.4) (2025-07-14)
+
+
+### Bug Fixes
+
+* retry telemetry and renewal ([#6175](https://github.com/windmill-labs/windmill/issues/6175)) ([00ab0e8](https://github.com/windmill-labs/windmill/commit/00ab0e8f3883d2ef884438a957b8d26a4672836d))
+
+## [1.505.3](https://github.com/windmill-labs/windmill/compare/v1.505.2...v1.505.3) (2025-07-14)
+
+
+### Bug Fixes
+
+* add grants to asset table ([#6176](https://github.com/windmill-labs/windmill/issues/6176)) ([03a024d](https://github.com/windmill-labs/windmill/commit/03a024d42ef5f11aed9c08926d2757160e20bb26))
+
 ## [1.505.2](https://github.com/windmill-labs/windmill/compare/v1.505.1...v1.505.2) (2025-07-13)
 
 
