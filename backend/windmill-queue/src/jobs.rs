@@ -2310,7 +2310,13 @@ pub async fn pull(
     query_o: Option<&(String, String)>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<PulledJobResult> {
+    let mut pull_loop_count = 0;
     loop {
+        pull_loop_count += 1;
+        if pull_loop_count % 10 == 0 {
+            tracing::warn!("Pull job loop count: {}", pull_loop_count);
+            tokio::task::yield_now().await;
+        }
         if let Some((query_suspended, query_no_suspend)) = query_o {
             let njob = {
                 let job = if query_suspended.is_empty() {
@@ -2512,6 +2518,10 @@ pub async fn pull(
             } else {
                 i += 1;
                 estimated_next_schedule_timestamp = estimated_next_schedule_timestamp + inc;
+            }
+            if i % 50 == 0 {
+                tracing::warn!("Window finding job loop count: {}", pull_loop_count);
+                tokio::task::yield_now().await;
             }
         }
 
