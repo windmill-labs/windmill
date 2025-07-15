@@ -1390,6 +1390,7 @@ async fn reduce_flow<'c>(
                     concurrent_limit,
                     concurrency_time_window_s,
                     is_trigger,
+                    assets,
                     ..
                 } = std::mem::replace(&mut val, Identity)
                 else {
@@ -1408,6 +1409,7 @@ async fn reduce_flow<'c>(
                     concurrent_limit,
                     concurrency_time_window_s,
                     is_trigger,
+                    assets,
                 };
             }
             ForloopFlow { modules, modules_node, .. }

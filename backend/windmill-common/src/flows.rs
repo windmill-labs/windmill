@@ -526,6 +526,8 @@ pub enum FlowModuleValue {
         concurrency_time_window_s: Option<i32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        assets: Option<Vec<AssetWithAccessType>>,
     },
 }
 
@@ -650,6 +652,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 concurrent_limit: untagged.concurrent_limit,
                 concurrency_time_window_s: untagged.concurrency_time_window_s,
                 is_trigger: untagged.is_trigger,
+                assets: untagged.assets,
             }),
             "identity" => Ok(FlowModuleValue::Identity),
             other => Err(serde::de::Error::unknown_variant(
@@ -785,6 +788,7 @@ pub async fn resolve_module(
                 concurrent_limit,
                 concurrency_time_window_s,
                 is_trigger,
+                assets,
             } = std::mem::replace(&mut val, Identity)
             else {
                 unreachable!()
@@ -808,7 +812,7 @@ pub async fn resolve_module(
                 concurrent_limit,
                 concurrency_time_window_s,
                 is_trigger,
-                assets: None,
+                assets,
             };
         }
         ForloopFlow { modules, modules_node, .. } | WhileloopFlow { modules, modules_node, .. } => {

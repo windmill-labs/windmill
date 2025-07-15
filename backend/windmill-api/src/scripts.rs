@@ -930,7 +930,6 @@ async fn create_script_internal<'c>(
             &mut *tx,
             &w_id,
             &asset.into(),
-            ns.fallback_access_types.as_ref().map(Vec::as_slice),
             &ns.path,
             AssetUsageKind::Script,
         )
