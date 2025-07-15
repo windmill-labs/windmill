@@ -60,6 +60,9 @@
 	import { setContext } from 'svelte'
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
+	import FlowAssetsHandler, {
+		initFlowGraphAssetsCtx
+	} from '$lib/components/flows/FlowAssetsHandler.svelte'
 
 	let flow: Flow | undefined = $state()
 	let can_write = false
@@ -90,6 +93,11 @@
 		showCaptureHint: writable(undefined),
 		triggersState
 	})
+
+	setContext(
+		'FlowGraphAssetContext',
+		initFlowGraphAssetsCtx({ getModules: () => flow?.value.modules ?? [] })
+	)
 
 	let previousPath: string | undefined = $state(undefined)
 
@@ -648,3 +656,5 @@
 		{/snippet}
 	</DetailPageLayout>
 {/if}
+
+<FlowAssetsHandler modules={flow?.value.modules ?? []} enableDbExplore />

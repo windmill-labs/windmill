@@ -446,11 +446,12 @@
 		) {
 			return initialJob
 		} else {
-			return await JobService.getJob({
+			let r = await JobService.getJob({
 				workspace: workspaceId ?? $workspaceStore ?? '',
 				id: jobId ?? '',
 				noLogs: true
 			})
+			return r
 		}
 	}
 

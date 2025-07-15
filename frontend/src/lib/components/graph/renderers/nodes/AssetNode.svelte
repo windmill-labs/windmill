@@ -222,13 +222,13 @@
 		data: AssetN['data']
 	}
 
-	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext>('FlowGraphAssetContext')
+	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
 
 	let { data }: Props = $props()
 
-	const isSelected = $derived(assetEq(flowGraphAssetsCtx.val.selectedAsset, data.asset))
+	const isSelected = $derived(assetEq(flowGraphAssetsCtx?.val.selectedAsset, data.asset))
 	const cachedResourceMetadata = $derived(
-		flowGraphAssetsCtx.val.resourceMetadataCache[data.asset.path]
+		flowGraphAssetsCtx?.val.resourceMetadataCache[data.asset.path]
 	)
 </script>
 
@@ -241,8 +241,10 @@
 					'bg-surface h-6 flex items-center gap-1.5 rounded-sm text-tertiary border overflow-clip',
 					isSelected ? 'bg-surface-secondary !border-surface-inverse' : 'border-transparent'
 				)}
-				onmouseenter={() => (flowGraphAssetsCtx.val.selectedAsset = data.asset)}
-				onmouseleave={() => (flowGraphAssetsCtx.val.selectedAsset = undefined)}
+				onmouseenter={() =>
+					flowGraphAssetsCtx && (flowGraphAssetsCtx.val.selectedAsset = data.asset)}
+				onmouseleave={() =>
+					flowGraphAssetsCtx && (flowGraphAssetsCtx.val.selectedAsset = undefined)}
 			>
 				<AssetGenericIcon
 					assetKind={data.asset.kind}
@@ -264,14 +266,17 @@
 						asset={data.asset}
 						noText
 						buttonVariant="contained"
-						s3FilePicker={flowGraphAssetsCtx.val.s3FilePicker}
-						dbManagerDrawer={flowGraphAssetsCtx.val.dbManagerDrawer}
+						s3FilePicker={flowGraphAssetsCtx?.val.s3FilePicker}
+						dbManagerDrawer={flowGraphAssetsCtx?.val.dbManagerDrawer}
 						_resourceMetadata={cachedResourceMetadata}
 					/>
 				{/if}
 			</div>
 			<svelte:fragment slot="text">
-				Used in {pluralize(flowGraphAssetsCtx.val.computeAssetsCount(data.asset), 'step')}<br />
+				Used in {pluralize(
+					flowGraphAssetsCtx?.val.computeAssetsCount?.(data.asset) ?? -1,
+					'step'
+				)}<br />
 				<a
 					href={undefined}
 					class={twMerge(
@@ -282,7 +287,7 @@
 					)}
 					onclick={() => {
 						if (data.asset.kind === 'resource')
-							flowGraphAssetsCtx.val.resourceEditorDrawer?.initEdit(data.asset.path)
+							flowGraphAssetsCtx?.val.resourceEditorDrawer?.initEdit(data.asset.path)
 					}}
 				>
 					{data.asset.path}

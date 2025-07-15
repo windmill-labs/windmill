@@ -37,18 +37,23 @@
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 
 	let {
-		modules
+		modules,
+		enableParser = false,
+		enableDbExplore = false
 	}: {
 		modules: FlowModule[]
+		enableParser?: boolean
+		enableDbExplore?: boolean
 	} = $props()
 
-	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext>('FlowGraphAssetContext')
+	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
 
 	let allModules = $derived(getAllModules(modules))
 
 	// Fetch resource metadata for the ExploreAssetButton
-	const resMetadataCache = $derived(flowGraphAssetsCtx.val.resourceMetadataCache)
+	const resMetadataCache = $derived(flowGraphAssetsCtx?.val.resourceMetadataCache)
 	$effect(() => {
+		if (!resMetadataCache || !enableDbExplore) return
 		const assets: AssetWithAccessType[] =
 			allModules.flatMap((m) => getFlowModuleValueAssets(m.value) ?? []) ?? []
 		for (const asset of assets) {
@@ -95,6 +100,7 @@
 	// Check for raw script modules whose assets were not parsed. Useful for flows created
 	// before the assets feature was introduced.
 	$effect(() => {
+		if (!enableParser) return
 		untrack(() => {
 			setTimeout(() => {
 				for (const mod of allModules) {
@@ -108,13 +114,17 @@
 	})
 </script>
 
-{#each allModules as mod (mod.id)}
-	{#if mod.value.type === 'rawscript'}
-		{@const v = mod.value}
-		<OnChange key={v.content} onChange={() => parseAndUpdateRawScriptModule(v)} />
-	{/if}
-{/each}
+{#if enableParser}
+	{#each allModules as mod (mod.id)}
+		{#if mod.value.type === 'rawscript'}
+			{@const v = mod.value}
+			<OnChange key={v.content} onChange={() => parseAndUpdateRawScriptModule(v)} />
+		{/if}
+	{/each}
+{/if}
 
-<S3FilePicker bind:this={flowGraphAssetsCtx.val.s3FilePicker} readOnlyMode />
-<DbManagerDrawer bind:this={flowGraphAssetsCtx.val.dbManagerDrawer} />
-<ResourceEditorDrawer bind:this={flowGraphAssetsCtx.val.resourceEditorDrawer} />
+{#if flowGraphAssetsCtx}
+	<S3FilePicker bind:this={flowGraphAssetsCtx.val.s3FilePicker} readOnlyMode />
+	<DbManagerDrawer bind:this={flowGraphAssetsCtx.val.dbManagerDrawer} />
+	<ResourceEditorDrawer bind:this={flowGraphAssetsCtx.val.resourceEditorDrawer} />
+{/if}

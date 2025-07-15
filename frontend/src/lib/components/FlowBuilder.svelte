@@ -1263,4 +1263,4 @@
 	}}
 />
 
-<FlowAssetsHandler modules={flowStore.val.value.modules} />
+<FlowAssetsHandler modules={flowStore.val.value.modules} enableParser enableDbExplore />
