@@ -171,7 +171,6 @@
 											outputs?.result.set({
 												latestButtonClicked: actionButton.id
 											})
-											menu?.close()
 										}}
 									>
 										<AppButton
@@ -185,6 +184,9 @@
 											componentInput={actionButton.componentInput}
 											noWFull={false}
 											isMenuItem={true}
+											onDone={() => {
+												menu?.close()
+											}}
 										/>
 									</div>
 								{/if}
