@@ -11,7 +11,9 @@
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { pluralize, truncate } from '$lib/utils'
-	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
+	import ExploreAssetButton, {
+		assetCanBeExplored
+	} from '../../../../lib/components/ExploreAssetButton.svelte'
 	import AssetsUsageDrawer from '$lib/components/assets/AssetsUsageDrawer.svelte'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
@@ -57,7 +59,7 @@
 		<DataTable>
 			<Head>
 				<tr>
-					<Cell head first></Cell>
+					<Cell head first class="w-16"></Cell>
 					<Cell head>Asset name</Cell>
 					<Cell head></Cell>
 					<Cell head></Cell>
@@ -66,7 +68,7 @@
 			<tbody class="divide-y bg-surface">
 				{#if assets.status == 'ok' && filteredAssets.length === 0}
 					<tr class="h-14">
-						<Cell colspan="3" class="text-center text-tertiary">No assets found</Cell>
+						<Cell colspan="4" class="text-center text-tertiary">No assets found</Cell>
 					</tr>
 				{/if}
 				{#each filteredAssets as asset}
