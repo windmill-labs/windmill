@@ -9,6 +9,7 @@
 	import { JobService } from '$lib/gen'
 	import type { GraphModuleState } from './graph'
 	import type { Writable } from 'svelte/store'
+	import FlowLogViewer from './FlowLogViewer.svelte'
 
 	interface Props {
 		innerModules: FlowStatusModule[]
@@ -16,15 +17,28 @@
 		localModuleStates: Writable<Record<string, GraphModuleState>>
 		workspaceId: string | undefined
 		render: boolean
+		prefix?: string
+		level?: number
 	}
 
-	let { innerModules, job, localModuleStates, workspaceId, render }: Props = $props()
+	let {
+		innerModules,
+		job,
+		localModuleStates,
+		workspaceId,
+		render,
+		prefix,
+		level = 0
+	}: Props = $props()
 
 	// State for tracking expanded rows
 	let expandedRows: Set<string> = $state(new Set())
 
 	// Cache for fetched logs per job ID
 	let jobLogs: Map<string, string> = $state(new Map())
+
+	// Cache for fetched subflow jobs
+	let subflowJobs: Map<string, Job> = $state(new Map())
 
 	function toggleExpanded(stepId: string) {
 		if (expandedRows.has(stepId)) {
@@ -52,6 +66,24 @@
 			}
 		} catch (error) {
 			console.error('Failed to fetch logs for job:', jobId, error)
+		}
+	}
+
+	// Fetch subflow job data
+	async function fetchSubflowJob(jobId: string) {
+		if (!jobId || subflowJobs.has(jobId)) return
+
+		try {
+			const jobData = await JobService.getJob({
+				workspace: workspaceId ?? $workspaceStore ?? '',
+				id: jobId,
+				noLogs: true
+			})
+
+			subflowJobs.set(jobId, jobData)
+			subflowJobs = new Map(subflowJobs)
+		} catch (error) {
+			console.error('Failed to fetch subflow job:', jobId, error)
 		}
 	}
 
@@ -93,6 +125,10 @@
 				const module = innerModules.find((m) => m.id === stepId)
 				if (module?.job) {
 					fetchJobLogs(module.job)
+					// If this is a subflow, fetch the subflow job data
+					if (module.flow_jobs && module.flow_jobs.length > 0) {
+						fetchSubflowJob(module.job)
+					}
 				}
 			}
 		}
@@ -218,33 +254,62 @@
 												</div>
 											{/if}
 
-											<!-- Show logs -->
-											{#if entry.logs}
-												<div class="mb-4">
-													<h4 class="text-sm font-medium mb-2">Logs:</h4>
-													<div class="bg-surface-secondary rounded">
-														<LogViewer
-															content={entry.logs}
-															jobId={entry.jobId}
-															isLoading={entry.status === 'in_progress'}
-															small={true}
-															download={false}
-															noAutoScroll={true}
-															tag={undefined}
-														/>
+											<!-- Show subflow content or logs -->
+											{#if entry.module.flow_jobs && entry.module.flow_jobs.length > 0}
+												<!-- This is a subflow, show the subflow content -->
+												{#if subflowJobs.has(entry.jobId)}
+													<div class="mb-4">
+														<h4 class="text-sm font-medium mb-2">Subflow Steps:</h4>
+														<div class="bg-surface-secondary rounded p-2">
+															<FlowLogViewer
+																innerModules={subflowJobs.get(entry.jobId)?.flow_status?.modules ||
+																	[]}
+																job={subflowJobs.get(entry.jobId) || job}
+																{localModuleStates}
+																{workspaceId}
+																{render}
+																prefix={`${prefix || ''}${entry.stepId}.`}
+																level={(level || 0) + 1}
+															/>
+														</div>
 													</div>
-												</div>
-											{:else if entry.jobId}
-												<div class="mb-4">
-													<h4 class="text-sm font-medium mb-2">Logs:</h4>
-													<div class="bg-surface-secondary rounded p-2 text-sm text-tertiary">
-														{#if jobLogs.has(entry.jobId)}
-															No logs available
-														{:else}
-															Loading logs...
-														{/if}
+												{:else if entry.jobId}
+													<div class="mb-4">
+														<h4 class="text-sm font-medium mb-2">Subflow Steps:</h4>
+														<div class="bg-surface-secondary rounded p-2 text-sm text-tertiary">
+															Loading subflow...
+														</div>
 													</div>
-												</div>
+												{/if}
+											{:else}
+												<!-- Regular step, show logs -->
+												{#if entry.logs}
+													<div class="mb-4">
+														<h4 class="text-sm font-medium mb-2">Logs:</h4>
+														<div class="bg-surface-secondary rounded">
+															<LogViewer
+																content={entry.logs}
+																jobId={entry.jobId}
+																isLoading={entry.status === 'in_progress'}
+																small={true}
+																download={false}
+																noAutoScroll={true}
+																tag={undefined}
+															/>
+														</div>
+													</div>
+												{:else if entry.jobId}
+													<div class="mb-4">
+														<h4 class="text-sm font-medium mb-2">Logs:</h4>
+														<div class="bg-surface-secondary rounded p-2 text-sm text-tertiary">
+															{#if jobLogs.has(entry.jobId)}
+																No logs available
+															{:else}
+																Loading logs...
+															{/if}
+														</div>
+													</div>
+												{/if}
 											{/if}
 										{:else if entry.type === 'end'}
 											<!-- Show result -->
