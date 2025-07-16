@@ -6,6 +6,7 @@
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import LogViewer from './LogViewer.svelte'
 	import type { FlowStatusModule, Job } from '$lib/gen'
+	import { JobService } from '$lib/gen'
 	import type { GraphModuleState } from './graph'
 	import type { Writable } from 'svelte/store'
 
@@ -22,6 +23,9 @@
 	// State for tracking expanded rows
 	let expandedRows: Set<string> = $state(new Set())
 
+	// Cache for fetched logs per job ID
+	let jobLogs: Map<string, string> = $state(new Map())
+
 	function toggleExpanded(stepId: string) {
 		if (expandedRows.has(stepId)) {
 			expandedRows.delete(stepId)
@@ -29,6 +33,26 @@
 			expandedRows.add(stepId)
 		}
 		expandedRows = new Set(expandedRows)
+	}
+
+	// Fetch logs for a specific job
+	async function fetchJobLogs(jobId: string) {
+		if (!jobId || jobLogs.has(jobId)) return
+
+		try {
+			const jobData = await JobService.getJob({
+				workspace: workspaceId ?? $workspaceStore ?? '',
+				id: jobId,
+				noLogs: false
+			})
+
+			if (jobData.logs) {
+				jobLogs.set(jobId, jobData.logs)
+				jobLogs = new Map(jobLogs)
+			}
+		} catch (error) {
+			console.error('Failed to fetch logs for job:', jobId, error)
+		}
 	}
 
 	function getStepStatus(
@@ -61,6 +85,19 @@
 
 	let logEntries = $derived(createLogEntries(innerModules, $localModuleStates))
 
+	// Effect to fetch logs when rows are expanded
+	$effect(() => {
+		for (const expandedRowId of expandedRows) {
+			if (expandedRowId.startsWith('start-')) {
+				const stepId = expandedRowId.replace('start-', '')
+				const module = innerModules.find((m) => m.id === stepId)
+				if (module?.job) {
+					fetchJobLogs(module.job)
+				}
+			}
+		}
+	})
+
 	function createLogEntries(
 		modules: FlowStatusModule[],
 		moduleStates: Record<string, GraphModuleState>
@@ -85,7 +122,7 @@
 				status,
 				module,
 				args: state?.args || {},
-				logs: state?.logs || '',
+				logs: state?.logs || jobLogs.get(module.job || '') || '',
 				summary
 			})
 
@@ -195,6 +232,17 @@
 															noAutoScroll={true}
 															tag={undefined}
 														/>
+													</div>
+												</div>
+											{:else if entry.jobId}
+												<div class="mb-4">
+													<h4 class="text-sm font-medium mb-2">Logs:</h4>
+													<div class="bg-surface-secondary rounded p-2 text-sm text-tertiary">
+														{#if jobLogs.has(entry.jobId)}
+															No logs available
+														{:else}
+															Loading logs...
+														{/if}
 													</div>
 												</div>
 											{/if}
