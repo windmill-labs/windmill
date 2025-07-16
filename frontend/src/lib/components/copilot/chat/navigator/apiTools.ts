@@ -321,13 +321,27 @@ export function createApiTools(
 					const response = await fetch(url, {
 						method: method
 					})
-					const data = await response.json()
 
-					toolCallbacks.setToolStatus(toolId, `API call to ${url} completed`)
-					return JSON.stringify({
-						success: true,
-						data: data
-					})
+					if (response.ok) {
+						let result = ''
+						try {
+							result = await response.json()
+						} catch (error) {
+							result = await response.text()
+						}
+						toolCallbacks.setToolStatus(toolId, `API call to ${url} completed`)
+						return JSON.stringify({
+							success: true,
+							data: result
+						})
+					} else {
+						const text = await response.text()
+						toolCallbacks.setToolStatus(toolId, `API call to ${url} failed`)
+						return JSON.stringify({
+							success: false,
+							data: text
+						})
+					}
 				} catch (error) {
 					toolCallbacks.setToolStatus(toolId, `API call to ${endpoint} failed`)
 					console.error(`Error calling API to ${endpoint}:`, error)
@@ -358,7 +372,11 @@ export async function loadApiTools(): Promise<Tool<{}>[]> {
 			'workers'
 		]
 
-		if (get(enterpriseLicense)) {
+		// call srch endpoint to check if it's available
+		const srchResponse = await fetch(
+			`/api/srch/w/${get(workspaceStore)}/index/search/job?search_query=test`
+		)
+		if (srchResponse.ok) {
 			pathsToInclude.push('srch/w') // job search
 		}
 
