@@ -40,6 +40,14 @@
 	// Cache for fetched subflow jobs
 	let subflowJobs: Map<string, Job> = $state(new Map())
 
+	// State for tracking selected iteration for forloop/whileloop steps
+	let selectedIterations: Record<string, number> = $state({})
+
+	// Reactive function to get selected iteration for a step
+	function getSelectedIteration(stepId: string): number {
+		return selectedIterations[stepId] ?? 0
+	}
+
 	function toggleExpanded(stepId: string) {
 		if (expandedRows.has(stepId)) {
 			expandedRows.delete(stepId)
@@ -115,7 +123,7 @@
 		summary?: string
 	}
 
-	let logEntries = $derived(createLogEntries(innerModules, $localModuleStates))
+	let logEntries = $derived(createLogEntries(innerModules, $localModuleStates, selectedIterations, subflowJobs))
 
 	// Effect to fetch logs when rows are expanded
 	$effect(() => {
@@ -125,9 +133,33 @@
 				const module = innerModules.find((m) => m.id === stepId)
 				if (module?.job) {
 					fetchJobLogs(module.job)
-					// If this is a subflow, fetch the subflow job data
+					// If this is a forloop/whileloop, fetch the first iteration by default
 					if (module.flow_jobs && module.flow_jobs.length > 0) {
-						fetchSubflowJob(module.job)
+						const selectedIndex = getSelectedIteration(stepId)
+						const jobId = module.flow_jobs?.[selectedIndex]
+						if (jobId && !subflowJobs.has(jobId)) {
+							fetchSubflowJob(jobId)
+						}
+					}
+				}
+			}
+		}
+	})
+
+	// Effect to fetch subflow jobs when selected iterations change
+	$effect(() => {
+		// Access the selectedIterations object to ensure this effect runs when it changes
+		selectedIterations
+
+		for (const expandedRowId of expandedRows) {
+			if (expandedRowId.startsWith('start-')) {
+				const stepId = expandedRowId.replace('start-', '')
+				const module = innerModules.find((m) => m.id === stepId)
+				if (module?.flow_jobs && module.flow_jobs.length > 0) {
+					const selectedIndex = getSelectedIteration(stepId)
+					const jobId = module.flow_jobs?.[selectedIndex]
+					if (jobId && !subflowJobs.has(jobId)) {
+						fetchSubflowJob(jobId)
 					}
 				}
 			}
@@ -136,7 +168,9 @@
 
 	function createLogEntries(
 		modules: FlowStatusModule[],
-		moduleStates: Record<string, GraphModuleState>
+		moduleStates: Record<string, GraphModuleState>,
+		selectedIterations: Record<string, number>,
+		subflowJobs: Map<string, Job>
 	): LogEntry[] {
 		const entries: LogEntry[] = []
 
@@ -147,6 +181,17 @@
 			const status = getStepStatus(module)
 			const state = moduleStates[module.id]
 			const summary = job.raw_flow?.modules?.[index]?.summary
+			const isForloop = module.flow_jobs && module.flow_jobs.length > 0
+
+			// For forloop steps, get the input for the selected iteration
+			let iterationArgs = {}
+			if (isForloop) {
+				const selectedIndex = selectedIterations[module.id] ?? 0
+				const selectedJobId = module.flow_jobs?.[selectedIndex]
+				if (selectedJobId && subflowJobs.has(selectedJobId)) {
+					iterationArgs = subflowJobs.get(selectedJobId)?.args || {}
+				}
+			}
 
 			// Add start entry
 			entries.push({
@@ -154,11 +199,11 @@
 				type: 'start',
 				stepId: module.id,
 				stepNumber,
-				jobId: module.job || '',
+				jobId: isForloop ? '' : module.job || '', // No single job ID for forloop steps
 				status,
 				module,
-				args: state?.args || {},
-				logs: state?.logs || jobLogs.get(module.job || '') || '',
+				args: isForloop ? iterationArgs : state?.args || {}, // Show selected iteration input for forloop steps
+				logs: isForloop ? '' : state?.logs || jobLogs.get(module.job || '') || '',
 				summary
 			})
 
@@ -169,10 +214,10 @@
 					type: 'end',
 					stepId: module.id,
 					stepNumber,
-					jobId: module.job || '',
+					jobId: isForloop ? '' : module.job || '', // No single job ID for forloop steps
 					status,
 					module,
-					result: state?.result,
+					result: isForloop ? state?.flow_jobs_results || [] : state?.result, // Use concatenated results for forloop
 					summary
 				})
 			}
@@ -208,7 +253,19 @@
 										<div class="flex items-center gap-2">
 											{#if entry.type === 'start'}
 												<span class="text-sm font-medium">
-													Starting step {entry.stepNumber}
+													Starting
+													{#if entry.module.flow_jobs && entry.module.flow_jobs.length > 0}
+														{#if job.raw_flow?.modules?.[entry.stepNumber - 1]?.value?.type === 'forloopflow'}
+															forloop
+														{:else if job.raw_flow?.modules?.[entry.stepNumber - 1]?.value?.type === 'whileloopflow'}
+															whileloop
+														{:else}
+															step
+														{/if}
+													{:else}
+														step
+													{/if}
+													{entry.stepNumber}
 													{#if entry.summary}
 														: {entry.summary}
 													{/if}
@@ -254,33 +311,74 @@
 												</div>
 											{/if}
 
-											<!-- Show subflow content or logs -->
+											<!-- Show iteration picker for forloop/whileloop or regular logs -->
 											{#if entry.module.flow_jobs && entry.module.flow_jobs.length > 0}
-												<!-- This is a subflow, show the subflow content -->
-												{#if subflowJobs.has(entry.jobId)}
-													<div class="mb-4">
-														<h4 class="text-sm font-medium mb-2">Subflow Steps:</h4>
-														<div class="bg-surface-secondary rounded p-2">
-															<FlowLogViewer
-																innerModules={subflowJobs.get(entry.jobId)?.flow_status?.modules ||
-																	[]}
-																job={subflowJobs.get(entry.jobId) || job}
-																{localModuleStates}
-																{workspaceId}
-																{render}
-																prefix={`${prefix || ''}${entry.stepId}.`}
-																level={(level || 0) + 1}
-															/>
+												<!-- This is a forloop/whileloop, show iteration picker -->
+												<div class="mb-4">
+													<div class="flex items-center gap-2 mb-2">
+														<h4 class="text-sm font-medium">
+															{#if job.raw_flow?.modules?.[entry.stepNumber - 1]?.value?.type === 'forloopflow'}
+																Forloop iterations
+															{:else if job.raw_flow?.modules?.[entry.stepNumber - 1]?.value?.type === 'whileloopflow'}
+																Whileloop iterations
+															{:else}
+																Subflow iterations
+															{/if}
+															({entry.module.flow_jobs?.length || 0}):
+														</h4>
+														<div class="w-48">
+															{#each [''] as _}
+																{@const iterationOptions =
+																	entry.module.flow_jobs?.map((jobId, index) => ({
+																		label: `#${index + 1}: ${truncateRev(jobId, 8)}`,
+																		value: index
+																	})) || []}
+																{@const currentSelectedIndex = getSelectedIteration(entry.stepId)}
+																<select
+																	value={currentSelectedIndex}
+																	onchange={(e) => {
+																		const target = e.target as HTMLSelectElement
+																		const selectedIndex = Number(target.value)
+																		selectedIterations[entry.stepId] = selectedIndex
+																		const jobId = entry.module.flow_jobs?.[selectedIndex]
+																		if (jobId && !subflowJobs.has(jobId)) {
+																			fetchSubflowJob(jobId)
+																		}
+																	}}
+																	class="w-full px-2 py-1 text-sm border rounded bg-surface"
+																>
+																	{#each iterationOptions as option}
+																		<option value={option.value}>{option.label}</option>
+																	{/each}
+																</select>
+															{/each}
 														</div>
 													</div>
-												{:else if entry.jobId}
-													<div class="mb-4">
-														<h4 class="text-sm font-medium mb-2">Subflow Steps:</h4>
-														<div class="bg-surface-secondary rounded p-2 text-sm text-tertiary">
-															Loading subflow...
-														</div>
-													</div>
-												{/if}
+
+													{#each [''] as _}
+														{@const selectedIndex = getSelectedIteration(entry.stepId)}
+														{@const selectedJobId = entry.module.flow_jobs?.[selectedIndex]}
+
+														{#if selectedJobId && subflowJobs.has(selectedJobId)}
+															<div class="border p-4 bg-surface-secondary rounded">
+																<FlowLogViewer
+																	innerModules={subflowJobs.get(selectedJobId)?.flow_status
+																		?.modules || []}
+																	job={subflowJobs.get(selectedJobId) || job}
+																	{localModuleStates}
+																	{workspaceId}
+																	{render}
+																	prefix={`${prefix || ''}${entry.stepId}.${selectedIndex + 1}.`}
+																	level={(level || 0) + 1}
+																/>
+															</div>
+														{:else if selectedJobId}
+															<div class="border p-4 bg-surface-secondary rounded">
+																<div class="text-sm text-tertiary">Loading iteration...</div>
+															</div>
+														{/if}
+													{/each}
+												</div>
 											{:else}
 												<!-- Regular step, show logs -->
 												{#if entry.logs}
