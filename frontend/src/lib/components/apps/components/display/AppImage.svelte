@@ -15,7 +15,6 @@
 	import { defaultIfEmptyString } from '$lib/utils'
 	import { userStore } from '$lib/stores'
 	import { computeS3ImageViewerPolicy, isPartialS3Object } from '../../editor/appUtilsS3'
-	import Alert from '$lib/components/common/alert/Alert.svelte'
 
 	interface Props {
 		id: string
