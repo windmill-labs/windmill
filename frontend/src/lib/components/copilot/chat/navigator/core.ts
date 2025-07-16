@@ -158,6 +158,62 @@ const GET_AVAILABLE_RESOURCES_TOOL: ChatCompletionTool = {
 	}
 }
 
+const SEARCH_EXTERNAL_INTEGRATION_RESOURCES_TOOL: ChatCompletionTool = {
+	type: 'function',
+	function: {
+		name: 'search_external_integration_resources',
+		description: 'Search for external integration packages and documentation',
+		parameters: {
+			type: 'object',
+			properties: {
+				query: {
+					type: 'string',
+					description: 'The query to search for'
+				}
+			},
+			required: ['query']
+		}
+	}
+}
+
+async function searchExternalIntegrationResources(args: { query: string }): Promise<string> {
+	try {
+		const SCORE_THRESHOLD = 0.75
+		const result = await fetch(
+			`https://api.npms.io/v2/search?q=${args.query}+not:deprecated,insecure`
+		)
+		const data = await result.json()
+		const filtered = data.results.filter((r: any) => r.score.final >= SCORE_THRESHOLD)
+		let results = await Promise.all(
+			filtered.map(async (r: any) => {
+				let documentation = ''
+				if (r.package.links.repository) {
+					// get raw readme from the repository
+					const repoUrl = r.package.links.repository.replace(
+						'github.com',
+						'raw.githubusercontent.com'
+					)
+					const docUrl = repoUrl + '/refs/heads/main/README.md'
+					let docResponse = await fetch(docUrl)
+					if (!docResponse.ok) {
+						docResponse = await fetch(docUrl.replace('/main/', '/master/'))
+					}
+					const docText = await docResponse.text()
+					documentation = docText.slice(0, 10000)
+				}
+				return {
+					package: r.package,
+					documentation: documentation
+				}
+			})
+		)
+		return JSON.stringify(results)
+	} catch (error) {
+		console.error('Error searching external integration resources:', error)
+		return 'Error searching external integration resources: ' + error.message
+	}
+}
+
 function getTriggerableComponents(): string {
 	try {
 		// Get components registered in the triggerablesByAi store
@@ -347,12 +403,23 @@ const getAvailableResourcesTool: Tool<{}> = {
 	}
 }
 
+const searchExternalIntegrationResourcesTool: Tool<{}> = {
+	def: SEARCH_EXTERNAL_INTEGRATION_RESOURCES_TOOL,
+	fn: async ({ args, toolId, toolCallbacks }) => {
+		toolCallbacks.setToolStatus(toolId, 'Searching for relevant packages...')
+		const result = await searchExternalIntegrationResources(args)
+		toolCallbacks.setToolStatus(toolId, 'Retrieved relevant packages')
+		return result
+	}
+}
+
 export const navigatorTools: Tool<{}>[] = [
 	getTriggerableComponentsTool,
 	triggerComponentTool,
 	getDocumentationTool,
 	getCurrentPageNameTool,
-	getAvailableResourcesTool
+	getAvailableResourcesTool,
+	searchExternalIntegrationResourcesTool
 ]
 
 export function prepareNavigatorSystemMessage(): ChatCompletionSystemMessageParam {
