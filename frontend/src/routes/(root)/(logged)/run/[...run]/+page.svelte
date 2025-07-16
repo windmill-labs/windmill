@@ -95,6 +95,7 @@
 	import FlowAssetsHandler, {
 		initFlowGraphAssetsCtx
 	} from '$lib/components/flows/FlowAssetsHandler.svelte'
+	import JobAssetsViewer from '$lib/components/assets/JobAssetsViewer.svelte'
 
 	let job: Job | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
@@ -102,7 +103,7 @@
 	let scriptProgress: number | undefined = $state(undefined)
 	let currentJobIsLongRunning: boolean = $state(false)
 
-	let viewTab: 'result' | 'logs' | 'code' | 'stats' = $state('result')
+	let viewTab: 'result' | 'logs' | 'code' | 'stats' | 'assets' = $state('result')
 	let selectedJobStep: string | undefined = $state(undefined)
 	let branchOrIterationN: number = $state(0)
 
@@ -934,6 +935,7 @@
 						<Tab value="result">Result</Tab>
 						<Tab value="logs">Logs</Tab>
 						<Tab value="stats">Metrics</Tab>
+						<Tab value="assets">Assets</Tab>
 						{#if isScriptPreview(job?.job_kind)}
 							<Tab value="code">Code</Tab>
 						{/if}
@@ -952,6 +954,10 @@
 										content={job?.logs}
 										tag={job?.tag}
 									/>
+								</div>
+							{:else if viewTab == 'assets'}
+								<div class="w-full">
+									<JobAssetsViewer {job} />
 								</div>
 							{:else if viewTab == 'code'}
 								{#if job && 'raw_code' in job && job.raw_code}
