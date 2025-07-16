@@ -15,6 +15,7 @@
 	import { defaultIfEmptyString } from '$lib/utils'
 	import { userStore } from '$lib/stores'
 	import { computeS3ImageViewerPolicy, isPartialS3Object } from '../../editor/appUtilsS3'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 
 	interface Props {
 		id: string
@@ -137,6 +138,14 @@
 					'wm-image'
 				)}
 			/>
+		{/if}
+		{#if imageUrl && !$userStore && imageUrl.startsWith(`/api/w/${workspace}/apps_u/download_s3_file`) && !(isPartialS3Object(resolvedConfig.source) && resolvedConfig.source.presigned)}
+			<Alert type="warning" title="Public access to S3 images" class="mt-2">
+				For public access to S3 images, you should use <a
+					href="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#s3-object-access-in-public-apps"
+					target="_blank">signed s3 objects</a
+				>.
+			</Alert>
 		{/if}
 	</Loader>
 {/if}
