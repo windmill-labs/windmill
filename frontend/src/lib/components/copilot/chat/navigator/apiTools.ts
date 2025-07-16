@@ -324,9 +324,9 @@ export function createApiTools(
 
 					if (response.ok) {
 						let result = ''
-						try {
+						if (response.headers.get('content-type')?.includes('application/json')) {
 							result = await response.json()
-						} catch (error) {
+						} else {
 							result = await response.text()
 						}
 						toolCallbacks.setToolStatus(toolId, `API call to ${url} completed`)
@@ -355,8 +355,7 @@ export function createApiTools(
 export async function loadApiTools(): Promise<Tool<{}>[]> {
 	try {
 		const response = await fetch('/api/openapi.json')
-		const jsonText = await response.text()
-		const rawOpenApiSpec = JSON.parse(jsonText) as OpenAPISpec
+		const rawOpenApiSpec = (await response.json()) as OpenAPISpec
 
 		// Dereference parameter references
 		const openApiSpec = dereferenceParameters(rawOpenApiSpec)
