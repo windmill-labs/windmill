@@ -163,12 +163,14 @@ async function resolveEffectiveSyncOptions(
       } else {
         // Non-interactive mode - list options and use top-level
         log.warn(`Multiple repository overrides found: ${applicableRepos.join(', ')}`);
-        log.warn(`Use --repository flag to specify which one to use. Using top-level settings.`);
+        log.warn(`Running in non-interactive mode. Use --repository flag to specify which one to use.`);
+        log.info(`Falling back to top-level settings (no repository-specific overrides applied)`);
       }
     }
   }
 
   // No repository overrides found or selected - use top-level settings
+  log.info(`No repository overrides found, using top-level settings`);
   return getEffectiveSettings(
     localConfig,
     workspace.remote,
