@@ -31,8 +31,18 @@
 		level = 0
 	}: Props = $props()
 
-	// State for tracking expanded rows
+	// State for tracking expanded rows - root steps expanded by default
 	let expandedRows: Set<string> = $state(new Set())
+
+	// Initialize expanded rows with root steps when level is 0 (root level)
+	$effect(() => {
+		if ((level || 0) === 0 && innerModules.length > 0) {
+			const rootStepIds = innerModules
+				.filter((module) => module.id)
+				.map((module) => `start-${module.id}`)
+			expandedRows = new Set(rootStepIds)
+		}
+	})
 
 	// Cache for fetched logs per job ID
 	let jobLogs: Map<string, string> = $state(new Map())
