@@ -10,7 +10,8 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use swc_ecma_visit::{noop_visit_type, Visit, VisitWith};
 use windmill_parser::{
-    json_to_typ, to_snake_case, Arg, MainArgSignature, ObjectProperty, OneOfVariant, Typ,
+    json_to_typ, to_snake_case, Arg, MainArgSignature, ObjectProperty, ObjectType, OneOfVariant,
+    Typ,
 };
 
 use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Span, Spanned};
@@ -26,8 +27,6 @@ use swc_ecma_parser::{lexer::Lexer, EsSyntax, Parser, StringInput, Syntax, TsSyn
 use regex::Regex;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
-
-const WMILL_TYPE_REF_KEY: &'static str = "_wmill_type_ref_hint";
 
 struct ImportsFinder {
     imports: HashSet<String>,
@@ -219,12 +218,18 @@ pub fn parse_deno_signature(
                         interface.body.body.append(&mut iface.body.body);
                     }
                     None => {
-                        symbol_table.insert(iface.id.sym.to_string(), TypeDecl::Interface(*iface));
+                        symbol_table.insert(
+                            to_snake_case(iface.id.sym.as_str()),
+                            TypeDecl::Interface(*iface),
+                        );
                     }
                     _ => {}
                 },
                 Decl::TsTypeAlias(alias) => {
-                    symbol_table.insert(alias.id.sym.to_string(), TypeDecl::Alias(*alias));
+                    symbol_table.insert(
+                        to_snake_case(alias.id.sym.as_str()),
+                        TypeDecl::Alias(*alias),
+                    );
                 }
                 Decl::Fn(fn_decl) => {
                     let name = fn_decl.ident.sym.to_string();
@@ -415,36 +420,31 @@ pub fn remove_pinned_imports(code: &str) -> anyhow::Result<String> {
     Ok(content)
 }
 
-const DEFAULT_DEPTH_LEVEL: u8 = 10;
-
-fn resolve_type_ref(type_resolver: &HashMap<String, (Typ, bool)>, typ: &mut Typ, depth_level: u8) {
+fn resolve_type_ref(type_resolver: &HashMap<String, (Typ, bool)>, typ: &mut Typ) {
     match typ {
-        Typ::Object(obj) => {
-            for property in obj.iter_mut().filter(|obj| obj.key != WMILL_TYPE_REF_KEY) {
-                resolve_type_ref(type_resolver, &mut property.typ, depth_level);
+        Typ::Object(ObjectType { props: Some(obj), .. }) => {
+            for property in obj.iter_mut() {
+                resolve_type_ref(type_resolver, &mut property.typ);
             }
         }
         Typ::List(list) => match list.as_mut() {
-            Typ::Object(obj) => {
-                for property in obj.iter_mut().filter(|obj| obj.key != WMILL_TYPE_REF_KEY) {
-                    resolve_type_ref(type_resolver, &mut property.typ, depth_level);
+            Typ::Object(ObjectType { props: Some(obj), .. }) => {
+                for property in obj.iter_mut() {
+                    resolve_type_ref(type_resolver, &mut property.typ);
                 }
             }
             Typ::List(list) => {
-                resolve_type_ref(type_resolver, list, depth_level);
+                resolve_type_ref(type_resolver, list);
             }
             _ => {}
         },
-        Typ::TypeRef(type_name) => {
-            if depth_level > 0 {
-                let maybe_resolved_type = type_resolver
-                    .get(type_name)
-                    .map(|rs_typ| rs_typ.0.clone())
-                    .unwrap_or(Typ::Unknown);
+        Typ::Object(ObjectType { name: Some(name), props: None }) => {
+            let maybe_resolved_type = type_resolver
+                .get(name)
+                .map(|rs_typ| rs_typ.0.clone())
+                .unwrap_or(Typ::Object(ObjectType::new(Some(name.to_owned()), None)));
 
-                *typ = maybe_resolved_type;
-                resolve_type_ref(type_resolver, typ, depth_level - 1);
-            }
+            *typ = maybe_resolved_type;
         }
         _ => {}
     }
@@ -511,7 +511,10 @@ fn resolve_ts_interface_and_type_alias(
 
     type_resolver.insert(
         type_name.to_owned(),
-        (Typ::TypeRef(type_name.to_owned()), false),
+        (
+            Typ::Object(ObjectType::new(Some(type_name.to_owned()), None)),
+            false,
+        ),
     );
 
     let mut resolved_type = match type_declaration {
@@ -519,16 +522,18 @@ fn resolve_ts_interface_and_type_alias(
             resolve_type_alias(alias, symbol_table, type_resolver, top_level_call)
         }
         TypeDecl::Interface(iface) => (
-            Typ::Object(resolve_interface(iface, symbol_table, type_resolver)),
+            Typ::Object(ObjectType::new(
+                Some(to_snake_case(&type_name)),
+                Some(resolve_interface(iface, symbol_table, type_resolver)),
+            )),
             false,
         ),
     };
 
     if let Typ::Object(obj) = &mut resolved_type.0 {
-        obj.push(ObjectProperty {
-            key: WMILL_TYPE_REF_KEY.to_owned(),
-            typ: Box::new(Typ::TypeRef(to_snake_case(type_name))),
-        });
+        if obj.name.is_none() {
+            obj.name = Some(type_name.to_owned());
+        }
     }
 
     type_resolver.insert(type_name.to_owned(), resolved_type.clone());
@@ -539,7 +544,7 @@ fn resolve_ts_interface_and_type_alias(
     // - Type references within object properties (e.g., nested interfaces) are recursively resolved
     //   up to a default depth to inline and fully materialize their structure.
     if top_level_call {
-        resolve_type_ref(type_resolver, &mut resolved_type.0, DEFAULT_DEPTH_LEVEL);
+        resolve_type_ref(type_resolver, &mut resolved_type.0);
     }
 
     Some(resolved_type)
@@ -554,7 +559,9 @@ fn tstype_to_typ(
     match ts_type {
         TsType::TsKeywordType(t) => (
             match t.kind {
-                TsKeywordTypeKind::TsObjectKeyword => Typ::Object(vec![]),
+                TsKeywordTypeKind::TsObjectKeyword => {
+                    Typ::Object(ObjectType::new(None, Some(vec![])))
+                }
                 TsKeywordTypeKind::TsBooleanKeyword => Typ::Bool,
                 TsKeywordTypeKind::TsBigIntKeyword => Typ::Int,
                 TsKeywordTypeKind::TsNumberKeyword => Typ::Float,
@@ -594,7 +601,7 @@ fn tstype_to_typ(
                     _ => None,
                 })
                 .collect();
-            (Typ::Object(properties), false)
+            (Typ::Object(ObjectType::new(None, Some(properties))), false)
         }
         TsType::TsParenthesizedType(TsParenthesizedType { type_ann, .. }) => {
             tstype_to_typ(symbol_table, type_resolver, type_ann, top_level_call)
@@ -712,13 +719,17 @@ fn tstype_to_typ(
                     Typ::DynSelect(symbol.strip_prefix("DynSelect_").unwrap().to_string()),
                     false,
                 ),
-                symbol @ _ => resolve_ts_interface_and_type_alias(
-                    symbol,
-                    symbol_table,
-                    type_resolver,
-                    top_level_call,
-                )
-                .unwrap_or_else(|| (Typ::Resource(to_snake_case(symbol)), false)),
+                symbol @ _ => {
+                    let symbol = to_snake_case(symbol);
+
+                    resolve_ts_interface_and_type_alias(
+                        &symbol,
+                        symbol_table,
+                        type_resolver,
+                        top_level_call,
+                    )
+                    .unwrap_or_else(|| (Typ::Resource(symbol), false))
+                }
             }
         }
         _ => (Typ::Unknown, false),
@@ -750,14 +761,15 @@ fn parse_one_of_type(
                     return None
                 }
                 symbol @ _ => {
-                    let Typ::Object(properties) = resolve_ts_interface_and_type_alias(
-                        symbol,
-                        symbol_table,
-                        type_resolver,
-                        top_level_call,
-                    )
-                    .unwrap_or_else(|| (Typ::Resource(to_snake_case(symbol)), false))
-                    .0
+                    let Typ::Object(ObjectType { props: Some(properties), .. }) =
+                        resolve_ts_interface_and_type_alias(
+                            symbol,
+                            symbol_table,
+                            type_resolver,
+                            top_level_call,
+                        )
+                        .unwrap_or_else(|| (Typ::Resource(to_snake_case(symbol)), false))
+                        .0
                     else {
                         return None;
                     };

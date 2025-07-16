@@ -724,10 +724,10 @@
 														enum_={itemsType?.enum ?? []}
 														enumLabels={extra['enumLabels']}
 													/>
-												{:else if itemsType?.type == 'resource' && itemsType?.resourceType && resourceTypes?.includes(itemsType.resourceType)}
+												{:else if format?.startsWith('resource-') && resourceTypes?.includes(format.split('-')[1])}
 													<ObjectResourceInput
 														bind:value={value[i]}
-														format={'resource-' + itemsType?.resourceType}
+														format={format.split('-')[1]}
 														defaultValue={undefined}
 													/>
 												{:else if itemsType?.type == 'resource'}
@@ -794,11 +794,11 @@
 									if (itemsType?.type == 'number') {
 										value = value.concat(0)
 									} else if (
-										itemsType?.type == 'object' ||
-										(itemsType?.type == 'resource' &&
-											!(
-												itemsType?.resourceType && resourceTypes?.includes(itemsType?.resourceType)
-											))
+										itemsType?.type == 'object' &&
+										!(
+											format?.startsWith('resource-') &&
+											resourceTypes?.includes(format.split('-')[1])
+										)
 									) {
 										value = value.concat({})
 									} else {

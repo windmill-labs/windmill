@@ -46,11 +46,13 @@ fn make_rules_for_arg_typ(typ: &Typ) -> Vec<SchemaValidationRule> {
         Typ::Sql => {
             rules.push(SchemaValidationRule::IsString);
         }
-        Typ::Object(props) => {
+        Typ::Object(object_type) => {
             let mut obj_rules = vec![];
 
-            for prop in props {
-                obj_rules.push((prop.key.to_string(), make_rules_for_arg_typ(&prop.typ)));
+            if let Some(props) = &object_type.props {
+                for prop in props {
+                    obj_rules.push((prop.key.to_string(), make_rules_for_arg_typ(&prop.typ)));
+                }
             }
 
             rules.push(SchemaValidationRule::IsObject(obj_rules))
@@ -72,7 +74,6 @@ fn make_rules_for_arg_typ(typ: &Typ) -> Vec<SchemaValidationRule> {
         Typ::Resource(_) => (),
         Typ::DynSelect(_) => (),
         Typ::Unknown => (),
-        Typ::TypeRef(_) => ()
     }
 
     rules

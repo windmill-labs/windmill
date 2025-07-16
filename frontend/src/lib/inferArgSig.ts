@@ -1,21 +1,19 @@
 import type { SchemaProperty } from './common'
 
-export const WMILL_TYPE_REF_KEY = '_wmill_type_ref_hint'
-
 export function argSigToJsonSchemaType(
 	t:
 		| string
 		| { resource: string | null }
 		| {
 				list:
-					| (string | { object: { key: string; typ: any }[] })
+					| (string | { name?: string; props?: { key: string; typ: any }[] })
 					| { str: any }
-					| { object: { key: string; typ: any }[] }
+					| { object: { name?: string; props?: { key: string; typ: any }[] } }
 					| null
 		  }
 		| { dynselect: string }
 		| { str: string[] | null }
-		| { object: { key: string; typ: any }[] }
+		| { object: { name?: string; props?: { key: string; typ: any }[] } }
 		| {
 				oneof: {
 					label: string
@@ -25,6 +23,7 @@ export function argSigToJsonSchemaType(
 	oldS: SchemaProperty
 ): void {
 	const newS: SchemaProperty = { type: '' }
+	let keepFormat = false
 	if (t === 'int') {
 		newS.type = 'integer'
 	} else if (t === 'float') {
@@ -71,13 +70,12 @@ export function argSigToJsonSchemaType(
 		}
 	} else if (typeof t !== 'string' && `object` in t) {
 		newS.type = 'object'
-		if (t.object) {
+		if (t.object.name) {
+			newS.format = `resource-${t.object.name}`
+		}
+		if (t.object.props) {
 			const properties: Record<string, any> = {}
-			for (const prop of t.object) {
-				if (prop.key === WMILL_TYPE_REF_KEY) {
-					newS.format = `resource-${prop.typ.typeref}`
-					continue
-				}
+			for (const prop of t.object.props) {
 				if (oldS.properties && prop.key in oldS.properties) {
 					properties[prop.key] = oldS.properties[prop.key]
 				} else {
@@ -120,26 +118,24 @@ export function argSigToJsonSchemaType(
 			newS.items = { type: 'string', enum: oldS.items?.enum }
 			newS.originalType = 'string[]'
 		} else if (t.list && typeof t.list == 'object' && 'resource' in t.list && t.list.resource) {
-			newS.items = {
-				type: 'resource',
-				resourceType: t.list.resource as string
-			}
+			keepFormat = true
+			newS.format = `resource-${t.list.resource}`
 			newS.originalType = 'resource[]'
-		} else if (
-			t.list &&
-			typeof t.list == 'object' &&
-			'object' in t.list &&
-			t.list.object &&
-			t.list.object.length > 0
-		) {
-			const properties: Record<string, any> = {}
-			for (const prop of t.list.object) {
-				properties[prop.key] = { description: '', type: '' }
-
-				argSigToJsonSchemaType(prop.typ, properties[prop.key])
+		} else if (t.list && typeof t.list == 'object' && 'object' in t.list && t.list.object) {
+			if (t.list.object.name) {
+				keepFormat = true
+				newS.format = `resource-${t.list.object.name}`
 			}
-			delete properties[WMILL_TYPE_REF_KEY]
-			newS.items = { type: 'object', properties: properties }
+			if (t.list.object.props) {
+				const properties: Record<string, any> = {}
+				for (const prop of t.list.object.props) {
+					properties[prop.key] = { description: '', type: '' }
+					argSigToJsonSchemaType(prop.typ, properties[prop.key])
+				}
+				newS.items = { type: 'object', properties: properties }
+			} else {
+				newS.items = { type: 'object' }
+			}
 			newS.originalType = 'record[]'
 		} else {
 			newS.items = { type: 'object' }
@@ -191,13 +187,12 @@ export function argSigToJsonSchemaType(
 	}
 
 	Object.assign(oldS, newS)
-
 	// if (sameItems && savedItems != undefined && savedItems.enum != undefined) {
 	// 	sendUserToast(JSON.stringify(savedItems))
 	// 	oldS.items = savedItems
 	// }
 
-	if (oldS.format?.startsWith('resource-') && newS.type != 'object') {
+	if (oldS.format?.startsWith('resource-') && newS.type != 'object' && !keepFormat) {
 		oldS.format = undefined
 	}
 }
