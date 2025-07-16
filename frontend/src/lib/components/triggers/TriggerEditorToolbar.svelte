@@ -85,7 +85,7 @@
 				/>
 			</div>
 		{/if}
-		{#if trigger?.isDraft}
+		{#if trigger?.isDraft || permissions === 'create'}
 			<DeleteTriggerButton {onDelete} {trigger} />
 		{:else if !trigger?.isDraft && trigger?.draftConfig}
 			<Button
