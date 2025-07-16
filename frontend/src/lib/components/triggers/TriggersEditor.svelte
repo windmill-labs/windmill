@@ -31,6 +31,7 @@
 		GcpTriggerService,
 		SqsTriggerService
 	} from '$lib/gen'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		noEditor: boolean
@@ -88,6 +89,7 @@
 		triggersState.selectedTriggerIndex = triggerIndex
 	}
 
+	let deletingTrigger = $state<number | undefined>(undefined)
 	async function deleteDeployedTrigger(triggerIndex: number) {
 		const { type: triggerType, path: triggerPath } = triggersState.triggers[triggerIndex]
 		if (!triggerPath) {
@@ -107,11 +109,19 @@
 		}
 
 		const deleteHandler = deleteHandlers[triggerType as keyof typeof deleteHandlers]
-		if (deleteHandler) {
-			await deleteHandler()({
-				workspace: $workspaceStore ?? '',
-				path: triggerPath ?? ''
-			})
+		if (deleteHandler && deletingTrigger !== triggerIndex) {
+			deletingTrigger = triggerIndex
+			try {
+				await deleteHandler()({
+					workspace: $workspaceStore ?? '',
+					path: triggerPath ?? ''
+				})
+				sendUserToast(`Successfully deleted ${triggerType} trigger: ${triggerPath}`)
+			} catch (error) {
+				sendUserToast(error.body || error.message, true)
+			} finally {
+				deletingTrigger = undefined
+			}
 		}
 	}
 
