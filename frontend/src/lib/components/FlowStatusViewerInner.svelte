@@ -13,13 +13,13 @@
 	import FlowJobResult from './FlowJobResult.svelte'
 	import DisplayResult from './DisplayResult.svelte'
 
-	import { createEventDispatcher, getContext, tick } from 'svelte'
+	import { createEventDispatcher, getContext, setContext, tick } from 'svelte'
 	import { onDestroy } from 'svelte'
 	import { Badge, Button, Skeleton, Tab } from './common'
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { type DurationStatus, type FlowStatusViewerContext, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
-	import { isScriptPreview, msToSec, truncateRev } from '$lib/utils'
+	import { clone, isScriptPreview, msToSec, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
 	import { ChevronDown, Hourglass } from 'lucide-svelte'
 	import { deepEqual } from 'fast-equals'
@@ -32,6 +32,8 @@
 	import { buildPrefix } from './graph/graphBuilder.svelte'
 	import { parseAssetFromString, type AssetWithAccessType } from './assets/lib'
 	import FlowPreviewResult from './FlowPreviewResult.svelte'
+	import type { FlowGraphAssetContext } from './flows/types'
+	import { createState } from '$lib/svelte5Utils.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -91,7 +93,15 @@
 	export let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
 	let recursiveRefresh: Record<string, (clear, root) => Promise<void>> = {}
 
-	$: inputArgsAssets = parseInputArgsAssets(job?.args ?? {})
+	const _flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
+	let extendedFlowGraphAssetsCtx = createState(clone(_flowGraphAssetsCtx))
+	setContext('FlowGraphAssetContext', extendedFlowGraphAssetsCtx)
+	$: {
+		if (extendedFlowGraphAssetsCtx) {
+			const inputAssets = parseInputArgsAssets(job?.args ?? {})
+			extendedFlowGraphAssetsCtx.val.additionalAssetsMap['Input'] = inputAssets
+		}
+	}
 
 	function parseInputArgsAssets(args: ScriptArgs): AssetWithAccessType[] {
 		const arr: AssetWithAccessType[] = []

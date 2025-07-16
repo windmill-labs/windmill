@@ -116,6 +116,7 @@ export type InputN = {
 		flowJob: Job | undefined
 		showJobStatus: boolean
 		flowHasChanged: boolean
+		assets?: AssetWithAccessType[] | undefined
 	}
 }
 
@@ -477,6 +478,7 @@ export function graphBuilder(
 			})
 		}
 
+		const inputAssets = extra.additionalAssetsMap?.['Input']
 		const inputNode: NodeLayout = {
 			id: 'Input',
 			type: 'input2',
@@ -493,7 +495,8 @@ export function graphBuilder(
 				individualStepTests: extra.individualStepTests,
 				flowJob: extra.flowJob,
 				showJobStatus: extra.showJobStatus,
-				flowHasChanged: extra.flowHasChanged
+				flowHasChanged: extra.flowHasChanged,
+				...(inputAssets ? { assets: inputAssets } : {})
 			}
 		}
 

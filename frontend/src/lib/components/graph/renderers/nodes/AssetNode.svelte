@@ -26,7 +26,7 @@
 		const yPosMap: Record<number, { r?: true; w?: true }> = {}
 
 		for (const node of nodes) {
-			if (node.type !== 'module') continue
+			if (node.type !== 'module' && node.type !== 'input2') continue
 			const assets = node.data.assets ?? []
 
 			// Each asset can be displayed at the top and bottom
