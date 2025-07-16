@@ -64,6 +64,11 @@
 
 	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $workspaceStore))
 	const mcpBaseUrl = $derived(`${window.location.origin}/api/mcp/w/${newTokenWorkspace}/sse?token=`)
+	const cursorMcpUrl = $derived(
+		`cursor://anysphere.cursor-deeplink/mcp/install?name=windmill&config=${encodeURIComponent(
+			btoa(JSON.stringify({ url: `${mcpBaseUrl}${newMcpToken}` }))
+		)}`
+	)
 	const dispatch = createEventDispatcher()
 
 	$effect(() => {
@@ -222,13 +227,22 @@
 
 	{#if newMcpToken}
 		<div
-			class="border rounded-md mb-6 px-2 py-2 bg-green-50 dark:bg-green-200 dark:text-green-800 flex flex-row flex-wrap"
+			class="border rounded-md mb-6 px-2 py-2 bg-green-50 dark:bg-green-200 dark:text-green-800 flex flex-col"
 		>
 			<p class="text-sm mb-2">New MCP URL:</p>
 			<ClipboardPanel content={`${mcpBaseUrl}${newMcpToken}`} />
 			<p class="pt-1 text-xs">
 				Make sure to copy this URL now. You won't be able to see it again!
 			</p>
+			<div class="flex flex-row justify-end gap-2 items-center">
+				<a href={cursorMcpUrl} class="pt-2"
+					><img
+						src="https://cursor.com/deeplink/mcp-install-dark.svg"
+						alt="Add windmill MCP server to Cursor"
+						height="32"
+					/></a
+				>
+			</div>
 		</div>
 	{/if}
 
