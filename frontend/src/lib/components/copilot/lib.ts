@@ -539,6 +539,7 @@ const mistralFimResponseSchema = z.object({
 })
 
 export const FIM_MAX_TOKENS = 256
+const FIM_MAX_LINES = 8
 export async function getFimCompletion(
 	prompt: string,
 	suffix: string,
@@ -578,15 +579,21 @@ export async function getFimCompletion(
 
 	const choice = parsedBody.choices[0]
 
-	if (choice) {
-		if (choice.finish_reason === 'length' && choice.message.content) {
-			// take all the lines before the last
-			const lines = choice.message.content.split('\n')
-			const joined = lines.slice(0, -1).join('\n')
-			return joined
-		} else {
-			return choice.message.content || ''
+	if (choice && choice.message.content !== undefined) {
+		let lines = choice.message.content.split('\n')
+
+		// If finish_reason is 'length', remove the last line
+		if (choice.finish_reason === 'length') {
+			if (lines.length > 1) {
+				lines = lines.slice(0, -1)
+			} else {
+				lines = []
+			}
 		}
+
+		lines = lines.slice(0, FIM_MAX_LINES)
+
+		return lines.join('\n')
 	} else {
 		return undefined
 	}

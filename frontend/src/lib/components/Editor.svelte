@@ -1273,11 +1273,14 @@
 		editor?.onDidFocusEditorText(() => {
 			dispatch('focus')
 
-			editor?.addCommand(KeyCode.Escape, function () {
-				if (showInlineAIChat) {
-					closeAIInlineWidget()
+			// for escape we use onkeydown instead of addCommand because addCommand on escape specifically prevents default behavior (like autocomplete cancellation)
+			editor?.onKeyDown((e) => {
+				if (e.keyCode === KeyCode.Escape) {
+					if (showInlineAIChat) {
+						closeAIInlineWidget()
+					}
+					aiChatEditorHandler?.rejectAll()
 				}
-				aiChatEditorHandler?.rejectAll()
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.DownArrow, function () {

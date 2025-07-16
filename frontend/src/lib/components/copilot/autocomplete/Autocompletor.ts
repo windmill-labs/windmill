@@ -11,14 +11,27 @@ type CacheCompletion = {
 	column: number
 }
 
-function filterCompletion(completion: string, suffix: string): string | undefined {
+function filterCompletion(
+	completion: string,
+	suffix: string,
+	shouldReturnMultiline: boolean
+): string | undefined {
 	const trimmedCompletion = completion.replaceAll('\n', '')
 	const trimmedSuffix = suffix.slice(0, FIM_MAX_TOKENS).replaceAll('\n', '')
 
 	if (trimmedSuffix.startsWith(trimmedCompletion)) {
-		console.log('suffix starts with completion', suffix, completion)
 		return
 	}
+
+	if (!shouldReturnMultiline) {
+		if (completion.startsWith('\n')) {
+			// TODO improve cache for this case so that we can use cache when accepting the first line of a multiline completion which starts with \n
+			return completion.split('\n').slice(0, 2).join('\n')
+		} else {
+			return completion.split('\n').slice(0, 1).join('\n')
+		}
+	}
+
 	return completion
 }
 
@@ -48,10 +61,17 @@ export class Autocompletor {
 					) {
 						return { items: [] }
 					}
+
+					const shouldReturnMultiline = this.#shouldReturnMultiline(model, position)
+
 					const result = await this.#autocomplete(model, position)
 
 					if (result) {
-						const completion = filterCompletion(result.completion, result.suffix)
+						const completion = filterCompletion(
+							result.completion,
+							result.suffix,
+							shouldReturnMultiline
+						)
 
 						if (!completion) {
 							return { items: [] }
@@ -112,6 +132,19 @@ export class Autocompletor {
 		this.#cursorDisposable.dispose()
 	}
 
+	#shouldReturnMultiline(model: meditor.ITextModel, position: Position) {
+		if (position.column === model.getLineMaxColumn(position.lineNumber)) {
+			const cachedCompletion = this.#cache.get(position.lineNumber)
+			if (cachedCompletion) {
+				const firstCachedLine =
+					cachedCompletion.linePrefix + cachedCompletion.completion.split('\n')[0]
+				const lineContent = model.getLineContent(position.lineNumber)
+				return firstCachedLine === lineContent
+			}
+		}
+		return false
+	}
+
 	async #autocomplete(
 		model: meditor.ITextModel,
 		position: Position
@@ -155,14 +188,12 @@ export class Autocompletor {
 					const modifiedCompletion = cachedCompletion.completion.slice(
 						position.column - cachedCompletion.column
 					)
-					console.debug('autocomplete partial cache hit', modifiedCompletion)
 					return { completion: modifiedCompletion, suffix }
 				}
 			} else if (
 				position.column === cachedCompletion.column &&
 				cachedCompletion.linePrefix === linePrefix
 			) {
-				console.debug('autocomplete exact cache hit', cachedCompletion.completion)
 				return { completion: cachedCompletion.completion, suffix }
 			}
 		}
