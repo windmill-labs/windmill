@@ -5865,6 +5865,7 @@ fn get_job_update_sse_stream(
                 get_progress,
                 running,
                 true,
+                only_result
             ).await {
                 Ok(update) => {
                     if let Ok(serialized) = serde_json::to_string(&update) {
@@ -5910,6 +5911,9 @@ async fn get_job_update_data(
     get_full_job_on_completion: bool,
     only_result: Option<bool>,
 ) -> error::Result<JobUpdate> {
+    if only_result.unwrap_or(false) {
+        todo!()
+    } else {
     let record = sqlx::query!(
         "SELECT
             c.id IS NOT NULL AS completed,
@@ -5981,6 +5985,8 @@ async fn get_job_update_data(
         None
     };
 
+
+    
     Ok(JobUpdate {
         running: record.running,
         completed: record.completed,
@@ -5992,7 +5998,9 @@ async fn get_job_update_data(
         flow_status: record
             .flow_status
             .map(|x: sqlx::types::Json<Box<RawValue>>| x.0),
+        only_result: None,
     })
+    }
 }
 
 pub fn filter_list_completed_query(
