@@ -5,8 +5,7 @@
 		JobService,
 		type FlowStatus,
 		type FlowModuleValue,
-		type FlowModule,
-		type ScriptArgs
+		type FlowModule
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
@@ -30,7 +29,7 @@
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { buildPrefix } from './graph/graphBuilder.svelte'
-	import { parseAssetFromString, type AssetWithAccessType } from './assets/lib'
+	import { parseInputArgsAssets } from './assets/lib'
 	import FlowPreviewResult from './FlowPreviewResult.svelte'
 	import type { FlowGraphAssetContext } from './flows/types'
 	import { createState } from '$lib/svelte5Utils.svelte'
@@ -101,21 +100,6 @@
 			const inputAssets = parseInputArgsAssets(job?.args ?? {})
 			extendedFlowGraphAssetsCtx.val.additionalAssetsMap['Input'] = inputAssets
 		}
-	}
-
-	function parseInputArgsAssets(args: ScriptArgs): AssetWithAccessType[] {
-		const arr: AssetWithAccessType[] = []
-		for (const v of Object.values(args)) {
-			if (typeof v === 'string') {
-				const asset = parseAssetFromString(v)
-				if (asset) arr.push(asset)
-			} else if (v && typeof v === 'object' && typeof v['s3'] === 'string') {
-				const s3 = v['s3']
-				const storage = typeof v['storage'] == 'string' ? v['storage'] : undefined
-				arr.push({ kind: 's3object', path: `${storage ?? ''}/${s3}` })
-			}
-		}
-		return arr
 	}
 
 	let jobResults: any[] =

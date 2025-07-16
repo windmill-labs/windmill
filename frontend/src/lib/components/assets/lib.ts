@@ -3,7 +3,8 @@ import type {
 	Asset as _Asset,
 	ListAssetsResponse,
 	AssetUsageAccessType,
-	FlowModule
+	FlowModule,
+	ScriptArgs
 } from '$lib/gen'
 import { capitalize } from '$lib/utils'
 import { getContext } from 'svelte'
@@ -81,4 +82,19 @@ export function getFlowModuleAssets(
 		if (additionalAssets) return additionalAssets
 	}
 	return undefined
+}
+
+export function parseInputArgsAssets(args: ScriptArgs): AssetWithAccessType[] {
+	const arr: AssetWithAccessType[] = []
+	for (const v of Object.values(args)) {
+		if (typeof v === 'string') {
+			const asset = parseAssetFromString(v)
+			if (asset) arr.push(asset)
+		} else if (v && typeof v === 'object' && typeof v['s3'] === 'string') {
+			const s3 = v['s3']
+			const storage = typeof v['storage'] == 'string' ? v['storage'] : undefined
+			arr.push({ kind: 's3object', path: `${storage ?? ''}/${s3}` })
+		}
+	}
+	return arr
 }
