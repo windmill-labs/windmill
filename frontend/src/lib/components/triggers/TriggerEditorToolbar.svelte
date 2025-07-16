@@ -85,7 +85,7 @@
 				/>
 			</div>
 		{/if}
-		{#if trigger?.isDraft}
+		{#if trigger?.isDraft || permissions === 'create'}
 			<DeleteTriggerButton {onDelete} {trigger} />
 		{:else if !trigger?.isDraft && trigger?.draftConfig}
 			<Button
@@ -99,12 +99,12 @@
 				Reset changes
 			</Button>
 		{/if}
-		{#if canSave && trigger?.draftConfig}
+		{#if canSave}
 			<Tooltip placement="bottom-end" disablePopup={!saveDisabled && !cloudDisabled && isDeployed}>
 				<Button
 					size="xs"
 					startIcon={{ icon: Save }}
-					disabled={saveDisabled || cloudDisabled || !isDeployed}
+					disabled={saveDisabled || cloudDisabled || !isDeployed || !trigger?.draftConfig}
 					on:click={() => {
 						onUpdate?.()
 					}}

@@ -20,6 +20,17 @@
 		type Trigger
 	} from './utils'
 	import { isCloudHosted } from '$lib/cloud'
+	import {
+		ScheduleService,
+		WebsocketTriggerService,
+		PostgresTriggerService,
+		KafkaTriggerService,
+		NatsTriggerService,
+		MqttTriggerService,
+		HttpTriggerService,
+		GcpTriggerService,
+		SqsTriggerService
+	} from '$lib/gen'
 
 	interface Props {
 		noEditor: boolean
@@ -77,10 +88,45 @@
 		triggersState.selectedTriggerIndex = triggerIndex
 	}
 
-	function deleteDraftTrigger(triggerIndex: number | undefined) {
+	async function deleteDeployedTrigger(triggerIndex: number) {
+		const { type: triggerType, path: triggerPath } = triggersState.triggers[triggerIndex]
+		if (!triggerPath) {
+			return
+		}
+
+		const deleteHandlers = {
+			schedule: () => ScheduleService.deleteSchedule,
+			websocket: () => WebsocketTriggerService.deleteWebsocketTrigger,
+			postgres: () => PostgresTriggerService.deletePostgresTrigger,
+			kafka: () => KafkaTriggerService.deleteKafkaTrigger,
+			nats: () => NatsTriggerService.deleteNatsTrigger,
+			gcp: () => GcpTriggerService.deleteGcpTrigger,
+			sqs: () => SqsTriggerService.deleteSqsTrigger,
+			mqtt: () => MqttTriggerService.deleteMqttTrigger,
+			http: () => HttpTriggerService.deleteHttpTrigger
+		}
+
+		const deleteHandler = deleteHandlers[triggerType as keyof typeof deleteHandlers]
+		if (deleteHandler) {
+			await deleteHandler()({
+				workspace: $workspaceStore ?? '',
+				path: triggerPath ?? ''
+			})
+		}
+	}
+
+	async function deleteTrigger(triggerIndex: number | undefined) {
 		if (triggerIndex === undefined) {
 			return
 		}
+		// If the trigger is deployed, delete the trigger from the db
+		if (
+			!triggersState.triggers[triggerIndex].isDraft &&
+			triggersState.triggers[triggerIndex].path
+		) {
+			await deleteDeployedTrigger(triggerIndex)
+		}
+
 		triggersState.deleteTrigger(triggersCount, triggerIndex)
 		triggersState.selectedTriggerIndex = triggersState.triggers.length - 1
 	}
@@ -226,7 +272,7 @@
 								triggers={triggersState.triggers}
 								{isEditor}
 								onAddDraftTrigger={handleAddTrigger}
-								onDeleteDraft={deleteDraftTrigger}
+								onDeleteDraft={deleteTrigger}
 								onReset={handleResetDraft}
 								webhookToken={$triggersCount?.webhook_count}
 								emailToken={$triggersCount?.email_count}
@@ -286,7 +332,7 @@
 										{schema}
 										{isEditor}
 										onDelete={() => {
-											deleteDraftTrigger(triggersState.selectedTriggerIndex)
+											deleteTrigger(triggersState.selectedTriggerIndex)
 										}}
 										onUpdate={(path) => {
 											handleUpdate(triggersState.selectedTriggerIndex, path)
