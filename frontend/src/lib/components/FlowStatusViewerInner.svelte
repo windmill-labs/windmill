@@ -7,7 +7,8 @@
 		JobService,
 		type FlowStatus,
 		type FlowModuleValue,
-		type FlowModule
+		type FlowModule,
+		ResourceService
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
@@ -117,9 +118,33 @@
 	}: Props = $props()
 	let recursiveRefresh: Record<string, (clear, root) => Promise<void>> = $state({})
 
+	// Add support for the input args assets shown as an asset node
 	const _flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
 	let extendedFlowGraphAssetsCtx = $state(createState(clone(_flowGraphAssetsCtx)))
 	setContext('FlowGraphAssetContext', extendedFlowGraphAssetsCtx)
+	$effect(() => {
+		readFieldsRecursively(_flowGraphAssetsCtx)
+		job?.args
+		untrack(() => {
+			if (extendedFlowGraphAssetsCtx && _flowGraphAssetsCtx) {
+				const inputAssets = parseInputArgsAssets(job?.args ?? {})
+				const resourceMetadataCache = _flowGraphAssetsCtx.val.resourceMetadataCache
+				for (const asset of inputAssets) {
+					if (asset.kind === 'resource' && !(asset.path in resourceMetadataCache)) {
+						resourceMetadataCache[asset.path] = undefined
+						ResourceService.getResource({
+							workspace: workspace ?? $workspaceStore!,
+							path: asset.path
+						})
+							.then((r) => (resourceMetadataCache[asset.path] = r))
+							.catch((err) => {})
+					}
+				}
+				extendedFlowGraphAssetsCtx.val = clone(_flowGraphAssetsCtx?.val)
+				extendedFlowGraphAssetsCtx.val.additionalAssetsMap['Input'] = inputAssets
+			}
+		})
+	})
 
 	let jobResults: any[] = $state(
 		flowJobIds?.flowJobs?.map((x, id) => `iter #${id + 1} not loaded by frontend yet`) ?? []
@@ -888,18 +913,7 @@
 	}
 
 	let subflowsSize = $state(500)
-	$effect(() => {
-		if (extendedFlowGraphAssetsCtx) {
-			const inputAssets = parseInputArgsAssets(job?.args ?? {})
-			extendedFlowGraphAssetsCtx.val.additionalAssetsMap['Input'] = inputAssets
-		}
-	})
-	$effect(() => {
-		readFieldsRecursively(_flowGraphAssetsCtx)
-		if (extendedFlowGraphAssetsCtx && _flowGraphAssetsCtx) {
-			extendedFlowGraphAssetsCtx.val = clone(_flowGraphAssetsCtx?.val)
-		}
-	})
+
 	$effect(() => {
 		flowJobIds?.moduleId && untrack(() => onFlowModuleId())
 	})
