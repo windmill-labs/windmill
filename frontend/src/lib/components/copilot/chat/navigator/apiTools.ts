@@ -1,7 +1,7 @@
 import type { ChatCompletionTool } from 'openai/resources/index.mjs'
 import type { Tool } from '../shared'
 import { get } from 'svelte/store'
-import { workspaceStore } from '$lib/stores'
+import { workspaceStore, enterpriseLicense } from '$lib/stores'
 
 // OpenAPI type definitions
 interface OpenAPIParameter {
@@ -355,9 +355,12 @@ export async function loadApiTools(): Promise<Tool<{}>[]> {
 			'resources',
 			'variables',
 			'schedules',
-			'workers',
-			'srch/w' // job search
+			'workers'
 		]
+
+		if (get(enterpriseLicense)) {
+			pathsToInclude.push('srch/w') // job search
+		}
 
 		const { tools: apiTools, endpointMap } = buildToolsFromOpenApi(openApiSpec, {
 			pathFilter: (path) => pathsToInclude.some((p) => path.includes(`/${p}/`)),
