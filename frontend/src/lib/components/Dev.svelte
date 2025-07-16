@@ -17,7 +17,7 @@
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { setCopilotInfo, userStore, workspaceStore } from '$lib/stores'
-	import { emptySchema, sendUserToast } from '$lib/utils'
+	import { emptySchema, readFieldsRecursively, sendUserToast } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount, setContext, untrack } from 'svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
@@ -513,8 +513,8 @@
 			return
 		}
 		if (!deepEqual(flow, lastSent)) {
-			lastSent = JSON.parse(JSON.stringify(flow))
-			window?.parent.postMessage({ type: 'flow', flow, uriPath: lastUriPath }, '*')
+			lastSent = $state.snapshot(flow)
+			window?.parent.postMessage({ type: 'flow', flow: lastSent, uriPath: lastUriPath }, '*')
 		}
 	}
 
@@ -525,7 +525,7 @@
 			return
 		}
 		//@ts-ignore
-		dfs(flowStore.value.modules, async (mod) => {
+		dfs(flowStore.val.value.modules, async (mod) => {
 			if (mod.id == selectedIdStore) {
 				if (
 					mod.value.type == 'rawscript' ||
@@ -579,6 +579,7 @@
 			untrack(() => initializeMode())
 	})
 	$effect(() => {
+		readFieldsRecursively(flowStore.val)
 		flowStore.val && untrack(() => updateFlow(flowStore.val))
 	})
 	$effect(() => {
