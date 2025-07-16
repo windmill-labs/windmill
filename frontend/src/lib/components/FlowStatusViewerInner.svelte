@@ -32,6 +32,7 @@
 	import { buildPrefix } from './graph/graphBuilder.svelte'
 	import { parseAssetFromString, type AssetWithAccessType } from './assets/lib'
 	import FlowPreviewResult from './FlowPreviewResult.svelte'
+	import FlowSequenceViewer from './FlowSequenceViewer.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -882,8 +883,6 @@
 
 		return rec(ids, undefined)
 	}
-
-	let subflowsSize = 500
 </script>
 
 {#if notAnonynmous}
@@ -961,85 +960,28 @@
 		<div class="{selected != 'sequence' ? 'hidden' : ''} max-w-7xl mx-auto">
 			{#if isListJob}
 				{@const sliceFrom = $localDurationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0}
-				<h3 class="text-md leading-6 font-bold text-tertiary border-b mb-4">
-					Subflows ({flowJobIds?.flowJobs.length})
-				</h3>
-				<div class="overflow-auto max-h-1/2">
-					{#each flowJobIds?.flowJobs ?? [] as loopJobId, j (loopJobId)}
-						{#if render && j + subflowsSize + 1 == (flowJobIds?.flowJobs.length ?? 0)}
-							<Button variant="border" color="light" on:click={() => (subflowsSize += 500)}
-								>Load 500 more...</Button
-							>
-						{/if}
-						{#if render && (j + subflowsSize + 1 > (flowJobIds?.flowJobs.length ?? 0) || forloop_selected == loopJobId)}
-							<Button
-								variant={forloop_selected === loopJobId ? 'contained' : 'border'}
-								color={flowJobIds?.flowJobsSuccess?.[j] === false
-									? 'red'
-									: forloop_selected === loopJobId
-										? 'dark'
-										: 'light'}
-								btnClasses="w-full flex justify-start"
-								on:click={async () => {
-									let storedJob = storedListJobs[j]
-									if (!storedJob) {
-										storedJob = await JobService.getJob({
-											workspace: workspaceId ?? $workspaceStore ?? '',
-											id: loopJobId,
-											noLogs: true
-										})
-										storedListJobs[j] = storedJob
-									}
-									innerJobLoaded(storedJob, j, true, false)
-								}}
-								endIcon={{
-									icon: ChevronDown,
-									classes: forloop_selected == loopJobId ? '!rotate-180' : ''
-								}}
-							>
-								<span class="truncate font-mono">
-									#{j + 1}: {loopJobId}
-								</span>
-							</Button>
-						{/if}
-						{#if j >= sliceFrom || forloop_selected == loopJobId}
-							{@const forloopIsSelected =
-								forloop_selected == loopJobId ||
-								(innerModule?.type != 'forloopflow' && innerModule?.type != 'whileloopflow')}
-							<!-- <LogId id={loopJobId} /> -->
-							<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
-								<svelte:self
-									{globalRefreshes}
-									parentRecursiveRefresh={recursiveRefresh}
-									{childFlow}
-									job={storedListJobs[j]}
-									initialJob={storedListJobs[j]}
-									globalModuleStates={forloopIsSelected
-										? [localModuleStates, ...globalModuleStates]
-										: []}
-									globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
-									{prefix}
-									subflowParentsGlobalModuleStates={forloopIsSelected
-										? subflowParentsGlobalModuleStates
-										: []}
-									{subflowParentsDurationStatuses}
-									render={forloop_selected == loopJobId && selected == 'sequence' && render}
-									isForloopSelected={forloop_selected == loopJobId &&
-										(innerModule?.type == 'forloopflow' || innerModule?.type == 'whileloopflow')}
-									reducedPolling={reducedPolling ||
-										(flowJobIds?.flowJobs.length && flowJobIds?.flowJobs.length > 20)}
-									{workspaceId}
-									jobId={loopJobId}
-									on:jobsLoaded={(e) => {
-										let { job, force } = e.detail
-										storedListJobs[j] = job
-										innerJobLoaded(job, j, false, force)
-									}}
-								/>
-							</div>
-						{/if}
-					{/each}
-				</div>
+				<FlowSequenceViewer
+					{flowJobIds}
+					{render}
+					{forloop_selected}
+					{sliceFrom}
+					bind:storedListJobs
+					{workspaceId}
+					{globalRefreshes}
+					{recursiveRefresh}
+					{childFlow}
+					{localModuleStates}
+					{globalModuleStates}
+					{localDurationStatuses}
+					{globalDurationStatuses}
+					{prefix}
+					{subflowParentsGlobalModuleStates}
+					{subflowParentsDurationStatuses}
+					{selected}
+					{innerModule}
+					{reducedPolling}
+					{innerJobLoaded}
+				/>
 			{:else if innerModules.length > 0 && (job.raw_flow?.modules.length ?? 0) > 0}
 				{@const hasPreprocessor = innerModules[0]?.id == 'preprocessor' ? 1 : 0}
 				<ul class="w-full">
