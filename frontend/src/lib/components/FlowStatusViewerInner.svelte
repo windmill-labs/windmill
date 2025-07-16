@@ -33,7 +33,7 @@
 	import { parseAssetFromString, type AssetWithAccessType } from './assets/lib'
 	import FlowPreviewResult from './FlowPreviewResult.svelte'
 	import FlowSequenceViewer from './FlowSequenceViewer.svelte'
-	import FlowLogViewer from './FlowLogViewer.svelte'
+	import FlowLogViewerWrapper from './FlowLogViewerWrapper.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -1132,8 +1132,8 @@
 				<div class="p-2 text-tertiary text-sm italic">Empty flow</div>
 			{/if}
 		</div>
-		<div class="{selected != 'logs' ? 'hidden' : ''} max-w-7xl mx-auto">
-			<FlowLogViewer {innerModules} {job} {localModuleStates} {workspaceId} {render} />
+		<div class="{selected != 'logs' ? 'hidden' : ''}  mx-auto h-[800px]">
+			<FlowLogViewerWrapper {innerModules} {job} {localModuleStates} {workspaceId} {render} />
 		</div>
 	</div>
 	{#if render}

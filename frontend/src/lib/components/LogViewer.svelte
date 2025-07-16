@@ -16,6 +16,7 @@
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
 	import { JobService } from '$lib/gen'
 	import Tooltip from './Tooltip.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let content: string | undefined
 	export let isLoading: boolean
@@ -30,6 +31,7 @@
 	export let noAutoScroll = false
 	export let download = true
 	export let customEmptyMessage = 'No logs are available yet'
+	export let noPadding = false
 
 	// @ts-ignore
 	const ansi_up = new AnsiUp()
@@ -246,7 +248,12 @@
 					: 'top-2'}  left-36">mem peak: {(mem / 1024).toPrecision(4)}MB</span
 			>
 		{/if}
-		<pre class="whitespace-pre break-words {small ? '!text-2xs' : '!text-xs'} w-full p-2"
+		<pre
+			class={twMerge(
+				'whitespace-pre break-words w-full',
+				small ? '!text-2xs' : '!text-xs',
+				noPadding ? '' : 'p-2'
+			)}
 			>{#if content}{@const len =
 					(content?.length ?? 0) +
 					(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button on:click={getStoreLogs}
