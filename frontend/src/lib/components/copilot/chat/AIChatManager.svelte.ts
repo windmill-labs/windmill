@@ -100,7 +100,6 @@ class AIChatManager {
 			this.apiTools = []
 		}
 	}
-	}
 
 	setAiChatInput(aiChatInput: AIChatInput | null) {
 		this.aiChatInput = aiChatInput
