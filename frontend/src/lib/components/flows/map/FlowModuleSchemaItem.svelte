@@ -482,6 +482,7 @@ outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration
 				onclick={stopPropagation(
 					preventDefault((event) => dispatch('delete', { id, type: modType }))
 				)}
+				onpointerdown={stopPropagation(preventDefault(() => {}))}
 			>
 				<X class="mx-[3px]" size={12} strokeWidth={2} />
 			</button>
