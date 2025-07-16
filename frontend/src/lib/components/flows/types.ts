@@ -8,7 +8,7 @@ import type Editor from '../Editor.svelte'
 import type SimpleEditor from '../SimpleEditor.svelte'
 import type { StateStore } from '$lib/utils'
 import type { TestSteps } from './testSteps.svelte'
-import type { Asset } from '../assets/lib'
+import type { Asset, AssetWithAccessType } from '../assets/lib'
 import type S3FilePicker from '../S3FilePicker.svelte'
 import type DbManagerDrawer from '../DBManagerDrawer.svelte'
 import type ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
@@ -94,5 +94,6 @@ export type FlowGraphAssetContext = StateStore<{
 	resourceEditorDrawer: ResourceEditorDrawer | undefined
 	// Maps resource paths to their metadata. undefined is for error
 	resourceMetadataCache: Record<string, { resource_type?: string } | undefined>
+	additionalAssetsMap: Record<string, AssetWithAccessType[]>
 	computeAssetsCount: (asset: Asset) => number
 }>

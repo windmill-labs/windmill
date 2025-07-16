@@ -11,9 +11,10 @@
 				s3FilePicker: undefined,
 				resourceEditorDrawer: undefined,
 				resourceMetadataCache: {},
+				additionalAssetsMap: {},
 				computeAssetsCount: (asset) => {
 					return getAllModules(getModules())
-						.flatMap((m) => getFlowModuleValueAssets(m.value) ?? [])
+						.flatMap((m) => getFlowModuleAssets(m, s.val.additionalAssetsMap) ?? [])
 						.filter((a) => assetEq(asset, a)).length
 				}
 			}
@@ -24,12 +25,18 @@
 
 <script lang="ts">
 	import { inferAssets } from '$lib/infer'
-	import { assetEq, getFlowModuleValueAssets, type AssetWithAccessType } from '../assets/lib'
+	import { assetEq, getFlowModuleAssets, type AssetWithAccessType } from '../assets/lib'
 	import OnChange from '../common/OnChange.svelte'
 	import { getAllModules } from './flowExplorer'
 	import { getContext, untrack } from 'svelte'
 	import type { FlowGraphAssetContext } from './types'
-	import { ResourceService, type FlowModule, type RawScript } from '$lib/gen'
+	import {
+		AssetService,
+		ResourceService,
+		type AssetUsageKind,
+		type FlowModule,
+		type RawScript
+	} from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
 	import { workspaceStore } from '$lib/stores'
 	import S3FilePicker from '../S3FilePicker.svelte'
@@ -55,7 +62,9 @@
 	$effect(() => {
 		if (!resMetadataCache || !enableDbExplore) return
 		const assets: AssetWithAccessType[] =
-			allModules.flatMap((m) => getFlowModuleValueAssets(m.value) ?? []) ?? []
+			allModules.flatMap(
+				(m) => getFlowModuleAssets(m, flowGraphAssetsCtx?.val.additionalAssetsMap) ?? []
+			) ?? []
 		for (const asset of assets) {
 			if (asset.kind !== 'resource' || asset.path in resMetadataCache) continue
 			resMetadataCache[asset.path] = undefined // avoid fetching multiple times because of async
@@ -66,29 +75,39 @@
 	})
 
 	// Fetch transitive assets (path scripts and flows)
-	// $effect(() => {
-	// 	if (!$workspaceStore) return
-	// 	let usages: { path: string; kind: AssetUsageKind }[] = []
-	// 	let modIds: string[] = []
-	// 	for (const mod of allModules) {
-	// 		if (mod.id in assetsMap) continue
-	// 		assetsMap[mod.id] = [] // avoid fetching multiple times because of async
-	// 		if (mod.value.type === 'flow' || mod.value.type === 'script') {
-	// 			usages.push({ path: mod.value.path, kind: mod.value.type })
-	// 			modIds.push(mod.id)
-	// 		}
-	// 	}
-	// 	if (usages.length) {
-	// 		AssetService.listAssetsByUsage({
-	// 			workspace: $workspaceStore,
-	// 			requestBody: { usages }
-	// 		}).then((result) => {
-	// 			result.forEach((assets, idx) => {
-	// 				assetsMap[modIds[idx]] = assets
-	// 			})
-	// 		})
-	// 	}
-	// })
+	$effect(() => {
+		if (!$workspaceStore || !flowGraphAssetsCtx) return
+		let usages: { path: string; kind: AssetUsageKind }[] = []
+		let modIds: string[] = []
+		for (const mod of allModules) {
+			if (mod.id in flowGraphAssetsCtx.val.additionalAssetsMap) continue
+			flowGraphAssetsCtx.val.additionalAssetsMap[mod.id] = [] // avoid fetching multiple times because of async
+			if (mod.value.type === 'flow' || mod.value.type === 'script') {
+				usages.push({ path: mod.value.path, kind: mod.value.type })
+				modIds.push(mod.id)
+			}
+		}
+		if (usages.length) {
+			AssetService.listAssetsByUsage({
+				workspace: $workspaceStore,
+				requestBody: { usages }
+			}).then((result) => {
+				result.forEach((assets, idx) => {
+					flowGraphAssetsCtx.val.additionalAssetsMap[modIds[idx]] = assets
+				})
+			})
+		}
+	})
+	// Prune all additionalAssetsMap entries from deleted modules
+	$effect(() => {
+		if (!flowGraphAssetsCtx) return
+		const modulesSet = new Set(allModules.map((m) => m.id))
+		for (const key of Object.keys(flowGraphAssetsCtx.val.additionalAssetsMap)) {
+			if (!modulesSet.has(key)) {
+				delete flowGraphAssetsCtx.val.additionalAssetsMap[key]
+			}
+		}
+	})
 
 	async function parseAndUpdateRawScriptModule(v: RawScript) {
 		try {

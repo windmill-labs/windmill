@@ -3,9 +3,11 @@ import type {
 	Asset as _Asset,
 	ListAssetsResponse,
 	AssetUsageAccessType,
-	FlowModuleValue
+	FlowModule
 } from '$lib/gen'
 import { capitalize } from '$lib/utils'
+import { getContext } from 'svelte'
+import type { FlowGraphAssetContext } from '../flows/types'
 
 export type Asset = _Asset
 export type AssetKind = _AssetKind
@@ -69,9 +71,14 @@ export function formatAssetKind(asset: {
 	}
 }
 
-export function getFlowModuleValueAssets(
-	flowModuleValue: FlowModuleValue
+export function getFlowModuleAssets(
+	flowModuleValue: FlowModule,
+	additionalAssetsMap?: Record<string, AssetWithAccessType[]>
 ): AssetWithAccessType[] | undefined {
-	if (flowModuleValue.type === 'rawscript') return flowModuleValue.assets
+	if (flowModuleValue.value.type === 'rawscript') return flowModuleValue.value.assets
+	if (flowModuleValue.value.type === 'script' || flowModuleValue.value.type === 'flow') {
+		const additionalAssets = additionalAssetsMap?.[flowModuleValue.id]
+		if (additionalAssets) return additionalAssets
+	}
 	return undefined
 }

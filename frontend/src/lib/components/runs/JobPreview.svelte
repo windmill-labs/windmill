@@ -15,8 +15,9 @@
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 	import Popover from '../Popover.svelte'
 	import { isFlowPreview, isScriptPreview, truncateRev } from '$lib/utils'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { createEventDispatcher, setContext, untrack } from 'svelte'
 	import { ListFilter } from 'lucide-svelte'
+	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from '../flows/FlowAssetsHandler.svelte'
 
 	interface Props {
 		id: string
@@ -45,6 +46,11 @@
 	}
 
 	let viewTab = $state('result')
+
+	setContext(
+		'FlowGraphAssetContext',
+		initFlowGraphAssetsCtx({ getModules: () => job?.raw_flow?.modules ?? [] })
+	)
 
 	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
 		return x as Record<string, WorkflowStatus>
@@ -263,3 +269,4 @@
 		</div>
 	{/if}
 </div>
+<FlowAssetsHandler modules={job?.raw_flow?.modules ?? []} enableDbExplore />

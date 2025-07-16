@@ -52,6 +52,7 @@
 	import ViewportResizer from './ViewportResizer.svelte'
 	import AssetNode, { computeAssetNodes } from './renderers/nodes/AssetNode.svelte'
 	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
+	import type { FlowGraphAssetContext } from '../flows/types'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -417,6 +418,8 @@
 	// })
 	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
 
+	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
+
 	$effect(() => {
 		allowSimplifiedPoll && modules && untrack(() => onModulesChange(modules ?? []))
 	})
@@ -443,7 +446,8 @@
 				flowJob,
 				showJobStatus,
 				suspendStatus,
-				flowHasChanged
+				flowHasChanged,
+				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap
 			},
 			failureModule,
 			preprocessorModule,

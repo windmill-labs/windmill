@@ -4,7 +4,7 @@ import { getAllModules, getDependeeAndDependentComponents } from '../flows/flowE
 import { dfsByModule } from '../flows/previousResults'
 import { defaultIfEmptyString } from '$lib/utils'
 import type { GraphModuleState } from './model'
-import { getFlowModuleValueAssets, type AssetWithAccessType } from '../assets/lib'
+import { getFlowModuleAssets, type AssetWithAccessType } from '../assets/lib'
 import type { Writable } from 'svelte/store'
 import { assetDisplaysAsOutputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
 
@@ -324,6 +324,7 @@ export function graphBuilder(
 		showJobStatus: boolean
 		suspendStatus: Writable<Record<string, { job: Job; nb: number }>>
 		flowHasChanged: boolean
+		additionalAssetsMap?: Record<string, AssetWithAccessType[]>
 	},
 	failureModule: FlowModule | undefined,
 	preprocessorModule: FlowModule | undefined,
@@ -377,7 +378,7 @@ export function graphBuilder(
 					editMode: extra.editMode,
 					isOwner: extra.isOwner,
 					flowJob: extra.flowJob,
-					assets: getFlowModuleValueAssets(module.value)
+					assets: getFlowModuleAssets(module, extra.additionalAssetsMap)
 				},
 				type: 'module'
 			})
@@ -388,7 +389,9 @@ export function graphBuilder(
 		// TODO : Do better than this
 		const nodeIdsWithOutputAssets = new Set(
 			getAllModules(modules)
-				.filter((m) => getFlowModuleValueAssets(m.value)?.some(assetDisplaysAsOutputInFlowGraph))
+				.filter((m) =>
+					getFlowModuleAssets(m, extra.additionalAssetsMap)?.some(assetDisplaysAsOutputInFlowGraph)
+				)
 				.map((m) => m.id)
 		)
 
