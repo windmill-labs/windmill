@@ -70,9 +70,11 @@
 		for (const asset of assets) {
 			if (asset.kind !== 'resource' || asset.path in resMetadataCache) continue
 			resMetadataCache[asset.path] = undefined // avoid fetching multiple times because of async
-			ResourceService.getResource({ path: asset.path, workspace: $workspaceStore! }).then(
-				(r) => (resMetadataCache[asset.path] = { resource_type: r.resource_type })
-			)
+			ResourceService.getResource({ path: asset.path, workspace: $workspaceStore! })
+				.then((r) => (resMetadataCache[asset.path] = { resource_type: r.resource_type }))
+				.catch((err) => {
+					console.error("Couldn't fetch resource", asset.path, err)
+				})
 		}
 	})
 
