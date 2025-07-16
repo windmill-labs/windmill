@@ -1,7 +1,8 @@
 import type { ChatCompletionTool } from 'openai/resources/index.mjs'
 import type { Tool } from '../shared'
 import { get } from 'svelte/store'
-import { workspaceStore, enterpriseLicense } from '$lib/stores'
+import { workspaceStore } from '$lib/stores'
+import { aiChatManager } from '../AIChatManager.svelte'
 
 // OpenAPI type definitions
 interface OpenAPIParameter {
@@ -321,13 +322,26 @@ export function createApiTools(
 					const response = await fetch(url, {
 						method: method
 					})
-					const data = await response.json()
 
-					toolCallbacks.setToolStatus(toolId, `API call to ${url} completed`)
-					return JSON.stringify({
-						success: true,
-						data: data
-					})
+					if (!response.ok && toolName.includes('searchJobsIndex')) {
+						aiChatManager.filterOutApiTools(['searchJobsIndex'])
+					}
+
+					if (response.ok) {
+						const data = await response.json()
+						toolCallbacks.setToolStatus(toolId, `API call to ${url} completed`)
+						return JSON.stringify({
+							success: true,
+							data: data
+						})
+					} else {
+						const text = await response.text()
+						toolCallbacks.setToolStatus(toolId, `API call to ${url} failed`)
+						return JSON.stringify({
+							success: false,
+							data: text
+						})
+					}
 				} catch (error) {
 					toolCallbacks.setToolStatus(toolId, `API call to ${endpoint} failed`)
 					console.error(`Error calling API to ${endpoint}:`, error)
@@ -355,12 +369,9 @@ export async function loadApiTools(): Promise<Tool<{}>[]> {
 			'resources',
 			'variables',
 			'schedules',
-			'workers'
+			'workers',
+			'srch/w'
 		]
-
-		if (get(enterpriseLicense)) {
-			pathsToInclude.push('srch/w') // job search
-		}
 
 		const { tools: apiTools, endpointMap } = buildToolsFromOpenApi(openApiSpec, {
 			pathFilter: (path) => pathsToInclude.some((p) => path.includes(`/${p}/`)),
@@ -368,6 +379,7 @@ export async function loadApiTools(): Promise<Tool<{}>[]> {
 		})
 
 		const executableApiTools = createApiTools(apiTools, endpointMap)
+
 		return executableApiTools
 	} catch (error) {
 		console.error('Failed to load API tools:', error)
