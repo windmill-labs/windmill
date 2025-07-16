@@ -12,6 +12,7 @@
 	import Markdown from 'svelte-exmarkdown'
 	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import AIChatInput from './AIChatInput.svelte'
+	import { getModifierKey } from '$lib/utils'
 
 	let {
 		messages,
@@ -160,6 +161,13 @@
 			{@render headerRight?.()}
 		</div>
 	</div>
+	{#if messages.length === 0}
+		<span class="text-2xs text-gray-500 dark:text-gray-400 text-center px-2 my-2"
+			>You can use {getModifierKey()}L to open or close this chat, and {getModifierKey()}K in the
+			script editor to modify selected lines.</span
+		>
+	{/if}
+
 	{#if messages.length > 0}
 		<div
 			class="h-full overflow-y-scroll pt-2 pb-12"
