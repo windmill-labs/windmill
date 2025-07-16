@@ -814,15 +814,6 @@
 								{/if}
 							{/if}
 						</div>
-
-						{#if result?.s3 && !$userStore && !result.presigned}
-							<Alert type="warning" title="Public access to S3 images" class="mt-2">
-								For public access to S3 images, you should use <a
-									href="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#s3-object-access-in-public-apps"
-									target="_blank">signed s3 objects</a
-								>.
-							</Alert>
-						{/if}
 						{#if typeof result?.s3 === 'string'}
 							{#if !appPath && (result?.s3?.endsWith('.parquet') || result?.s3?.endsWith('.csv'))}
 								{#key result.s3}
