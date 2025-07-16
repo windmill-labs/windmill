@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT result  as \"result: Json<HashMap<String, Box<RawValue>>>\"\n                 FROM v2_job_completed \n                 WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "result: Json<HashMap<String, Box<RawValue>>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "91f23fcc27777c279c79e2682fc15c026e55f9ec3799be65a2e8920fe6174a17"
+}

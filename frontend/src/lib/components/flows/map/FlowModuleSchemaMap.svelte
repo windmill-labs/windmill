@@ -17,7 +17,7 @@
 	import { emptyFlowModuleState } from '../utils'
 
 	import { dfs } from '../dfs'
-	import { push } from '$lib/history'
+	import { push } from '$lib/history.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 

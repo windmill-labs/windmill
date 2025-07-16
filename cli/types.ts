@@ -49,6 +49,7 @@ export type GlobalOptions = {
   baseUrl: string | undefined;
   workspace: string | undefined;
   token: string | undefined;
+  configDir: string | undefined;
 };
 
 export function isSuperset(
@@ -231,12 +232,11 @@ export function getTypeStrFromPath(
     parsed.ext == ".cs" ||
     parsed.ext == ".nu" ||
     parsed.ext == ".java" ||
-		// for related places search: ADD_NEW_LANG 
+    // for related places search: ADD_NEW_LANG
     (parsed.ext == ".yml" && parsed.name.split(".").pop() == "playbook")
   ) {
     return "script";
   }
-
   if (parsed.name === "folder.meta") {
     return "folder";
   }

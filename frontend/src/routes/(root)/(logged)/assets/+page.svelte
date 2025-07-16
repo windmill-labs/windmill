@@ -11,7 +11,9 @@
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { pluralize, truncate } from '$lib/utils'
-	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
+	import ExploreAssetButton, {
+		assetCanBeExplored
+	} from '../../../../lib/components/ExploreAssetButton.svelte'
 	import AssetsUsageDrawer from '$lib/components/assets/AssetsUsageDrawer.svelte'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'

@@ -45,7 +45,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	let resultKind:
+	type ResultKind =
 		| 'json'
 		| 'table-col'
 		| 'table-row'
@@ -66,7 +66,8 @@
 		| 'map'
 		| 'nondisplayable'
 		| 'pdf'
-		| undefined = $state()
+		| undefined
+	let resultKind: ResultKind = $state()
 
 	let hasBigInt = $state(false)
 
@@ -280,6 +281,29 @@
 						return 'markdown'
 					} else if (isTableCol(result, keys)) {
 						return 'table-col'
+					} else if (keys.length < 1000 && keys.includes('wm_renderer')) {
+						const renderer = result['wm_renderer']
+						if (typeof renderer === 'string') {
+							if (
+								[
+									'json',
+									'html',
+									'png',
+									'file',
+									'jpeg',
+									'gif',
+									'svg',
+									'filename',
+									's3object',
+									'plain',
+									'markdown',
+									'map',
+									'pdf'
+								].includes(renderer)
+							) {
+								return renderer as ResultKind
+							}
+						}
 					}
 				}
 			} catch (err) {}

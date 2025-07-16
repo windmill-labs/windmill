@@ -27,7 +27,13 @@ export function replaceInlineScripts(
   localPath: string,
   removeLocks: string[] | undefined
 ) {
-  modules.forEach((m) => {
+  modules.forEach((m, i) => {
+    if (!m.value) {
+      throw Error(
+        `Module value is undefined for flow module ${i} in ${localPath}`
+      );
+      return;
+    }
     if (m.value.type == "rawscript") {
       if (m.value.content.startsWith("!inline")) {
         const path = m.value.content.split(" ")[1];

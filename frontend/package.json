@@ -1,11 +1,11 @@
 {
 	"name": "windmill-components",
-	"version": "1.504.0",
+	"version": "1.507.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
 		"preview": "vite preview",
-		"postinstall": "if [ -f ./scripts/untar_ui_builder.js ]; then node ./scripts/untar_ui_builder.js && node ./scripts/patch_files.js; fi",
+		"postinstall": "node -e \"if (require('fs').existsSync('./scripts/untar_ui_builder.js')) { require('child_process').execSync('node ./scripts/untar_ui_builder.js && node ./scripts/patch_files.js', {stdio: 'inherit'}) }\"",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --threshold warning",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --ignore-path .gitignore --check --plugin-search-dir=. . && eslint --ignore-path .gitignore .",

@@ -1,6 +1,6 @@
 import type { Schema } from '$lib/common'
 import type { Policy, Preview } from '$lib/gen'
-import type { History } from '$lib/history'
+import type { History } from '$lib/history.svelte'
 
 import type { Writable } from 'svelte/store'
 import type {
@@ -141,15 +141,15 @@ export type HiddenRunnable = {
 
 export type AppTheme =
 	| {
-		type: 'path'
-		path: string
-	}
+			type: 'path'
+			path: string
+	  }
 	| {
-		type: 'inlined'
-		css: string
-	}
+			type: 'inlined'
+			css: string
+	  }
 
-import type { DiffDrawerI } from "$lib/components/diff_drawer"
+import type { DiffDrawerI } from '$lib/components/diff_drawer'
 
 export interface AppEditorProps {
 	app: App
@@ -159,16 +159,16 @@ export interface AppEditorProps {
 	fromHub?: boolean
 	diffDrawer?: DiffDrawerI | undefined
 	savedApp?:
-	| {
-		value: App
-		draft?: any
-		path: string
-		summary: string
-		policy: any
-		draft_only?: boolean
-		custom_path?: string
-	}
-	| undefined
+		| {
+				value: App
+				draft?: any
+				path: string
+				summary: string
+				policy: any
+				draft_only?: boolean
+				custom_path?: string
+		  }
+		| undefined
 	version?: number | undefined
 	newApp?: boolean
 	newPath?: string | undefined

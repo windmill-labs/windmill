@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (flow_status->'step')::integer as step, jsonb_array_length(flow_status->'modules') as len\n        FROM v2_job_status WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "step",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "len",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "0c9b5b01f7599ad2590a2be01e35da5f5e318582d0bb8ebca6bff5a87c587111"
+}
