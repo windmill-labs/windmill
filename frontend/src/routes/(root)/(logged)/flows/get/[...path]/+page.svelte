@@ -657,4 +657,8 @@
 	</DetailPageLayout>
 {/if}
 
-<FlowAssetsHandler modules={flow?.value.modules ?? []} enableDbExplore />
+<FlowAssetsHandler
+	modules={flow?.value.modules ?? []}
+	enableDbExplore
+	enablePathScriptAndFlowAssets
+/>

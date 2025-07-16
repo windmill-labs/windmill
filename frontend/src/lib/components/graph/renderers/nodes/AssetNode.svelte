@@ -295,6 +295,8 @@
 				<span class="dark:text-tertiary text-tertiary-inverse text-xs"
 					>{formatAssetKind({ ...data.asset, metadata: cachedResourceMetadata })}</span
 				>
+				<br />
+				fdsfs
 			</svelte:fragment>
 		</Tooltip>
 	{/snippet}

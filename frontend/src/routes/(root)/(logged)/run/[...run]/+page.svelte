@@ -1011,4 +1011,8 @@
 	</div>
 {/if}
 
-<FlowAssetsHandler modules={job?.raw_flow?.modules ?? []} enableDbExplore />
+<FlowAssetsHandler
+	modules={job?.raw_flow?.modules ?? []}
+	enableDbExplore
+	enablePathScriptAndFlowAssets
+/>

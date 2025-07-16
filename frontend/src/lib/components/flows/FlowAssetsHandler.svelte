@@ -46,11 +46,13 @@
 	let {
 		modules,
 		enableParser = false,
-		enableDbExplore = false
+		enableDbExplore = false,
+		enablePathScriptAndFlowAssets = false
 	}: {
 		modules: FlowModule[]
 		enableParser?: boolean
 		enableDbExplore?: boolean
+		enablePathScriptAndFlowAssets?: boolean
 	} = $props()
 
 	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
@@ -76,7 +78,7 @@
 
 	// Fetch transitive assets (path scripts and flows)
 	$effect(() => {
-		if (!$workspaceStore || !flowGraphAssetsCtx) return
+		if (!$workspaceStore || !flowGraphAssetsCtx || !enablePathScriptAndFlowAssets) return
 		let usages: { path: string; kind: AssetUsageKind }[] = []
 		let modIds: string[] = []
 		for (const mod of allModules) {
