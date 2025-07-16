@@ -15,6 +15,7 @@
 	import Tooltip from '../meltComponents/Tooltip.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import type { Placement } from '@floating-ui/core'
+	import VariableEditor from '../VariableEditor.svelte'
 
 	let {
 		assets,
@@ -42,6 +43,7 @@
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
 	let resourceEditorDrawer: ResourceEditorDrawer | undefined = $state()
+	let variableEditor: VariableEditor | undefined = $state()
 	let isOpen = $state(false)
 	let resourceDataCache: Record<string, string | undefined> = $state({})
 
@@ -110,7 +112,7 @@
 		<ul class="divide-y rounded-md">
 			{#each assets as asset}
 				<li
-					class="text-sm px-4 h-12 flex gap-4 items-center justify-between hover:bg-surface-hover"
+					class="text-sm px-4 h-12 flex gap-4 items-center justify-between hover:bg-surface-hover/25"
 					onmouseenter={() => onHoverLi?.(asset, 'enter')}
 					onmouseleave={() => onHoverLi?.(asset, 'leave')}
 				>
@@ -141,6 +143,16 @@
 								on:click={() => (resourceEditorDrawer?.initEdit(asset.path), (isOpen = false))}
 							/>
 						{/if}
+						{#if asset.kind === 'variable'}
+							<Button
+								startIcon={{ icon: Edit2 }}
+								size="xs"
+								variant="border"
+								spacingSize="xs2"
+								iconOnly
+								on:click={() => (variableEditor?.editVariable(asset.path), (isOpen = false))}
+							/>
+						{/if}
 						{#if asset.kind === 'resource' && resourceDataCache[asset.path] === undefined}
 							<Tooltip class="mr-2.5">
 								<AlertTriangle size={16} class="text-orange-600 dark:text-orange-500" />
@@ -166,3 +178,4 @@
 <S3FilePicker bind:this={s3FilePicker} readOnlyMode />
 <DbManagerDrawer bind:this={dbManagerDrawer} />
 <ResourceEditorDrawer bind:this={resourceEditorDrawer} />
+<VariableEditor bind:this={variableEditor} />
