@@ -373,9 +373,7 @@ export async function loadApiTools(): Promise<Tool<{}>[]> {
 
 		// call srch endpoint to check if it's available
 		if (get(enterpriseLicense)) {
-			const srchResponse = await fetch(
-				`/api/srch/w/${get(workspaceStore)}/index/search/job/enabled`
-			)
+			const srchResponse = await fetch(`/api/srch/index/search/enabled`)
 			if (srchResponse.ok) {
 				pathsToInclude.push('srch/w') // job search
 			}
