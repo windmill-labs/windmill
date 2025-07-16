@@ -90,10 +90,16 @@ class AIChatManager {
 	open = $derived(chatState.size > 0)
 
 	loadApiTools = async () => {
-		this.apiTools = await loadApiTools()
-		if (this.mode === AIMode.NAVIGATOR) {
-			this.tools = [this.changeModeTool, ...navigatorTools, ...this.apiTools]
+		try {
+			this.apiTools = await loadApiTools()
+			if (this.mode === AIMode.NAVIGATOR) {
+				this.tools = [this.changeModeTool, ...navigatorTools, ...this.apiTools]
+			}
+		} catch (err) {
+			console.error('Error loading api tools', err)
+			this.apiTools = []
 		}
+	}
 	}
 
 	setAiChatInput(aiChatInput: AIChatInput | null) {
