@@ -89,12 +89,6 @@ class AIChatManager {
 
 	open = $derived(chatState.size > 0)
 
-	filterOutApiTools = (filter: string[]) => {
-		this.apiTools = this.apiTools.filter(
-			(t) => !filter.some((f) => t.def.function.name.includes(f))
-		)
-	}
-
 	loadApiTools = async () => {
 		this.apiTools = await loadApiTools()
 		if (this.mode === AIMode.NAVIGATOR) {
