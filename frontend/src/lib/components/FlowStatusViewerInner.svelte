@@ -1133,7 +1133,7 @@
 			{/if}
 		</div>
 		<div class="{selected != 'logs' ? 'hidden' : ''} max-w-7xl mx-auto">
-			<FlowLogViewer />
+			<FlowLogViewer {innerModules} {job} {localModuleStates} {workspaceId} {render} />
 		</div>
 	</div>
 	{#if render}
