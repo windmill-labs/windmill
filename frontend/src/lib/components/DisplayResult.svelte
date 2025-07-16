@@ -38,6 +38,7 @@
 	import type { DisplayResultUi } from './custom_ui'
 	import { getContext, hasContext, createEventDispatcher, onDestroy } from 'svelte'
 	import { toJsonStr } from '$lib/utils'
+	import { userStore } from '$lib/stores'
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -779,34 +780,38 @@
 									language={json}
 									code={toJsonStr(result).replace(/\\n/g, '\n')}
 								/>
-								<button
-									class="text-secondary underline text-2xs whitespace-nowrap"
-									onclick={() => {
-										s3FileViewer?.open?.(result)
-									}}
-									><span class="flex items-center gap-1"
-										><PanelRightOpen size={12} />object store explorer<Tooltip
-											>Require admin privilege or "S3 resource details and content can be accessed
-											by all users of this workspace" of S3 Storage to be set in the workspace
-											settings</Tooltip
-										></span
-									>
-								</button>
+								{#if $userStore}
+									<button
+										class="text-secondary underline text-2xs whitespace-nowrap"
+										onclick={() => {
+											s3FileViewer?.open?.(result)
+										}}
+										><span class="flex items-center gap-1"
+											><PanelRightOpen size={12} />object store explorer<Tooltip
+												>Require admin privilege or "S3 resource details and content can be accessed
+												by all users of this workspace" of S3 Storage to be set in the workspace
+												settings</Tooltip
+											></span
+										>
+									</button>
+								{/if}
 							{:else if !result?.disable_download}
 								<FileDownload {workspaceId} s3object={result} {appPath} />
-								<button
-									class="text-secondary underline text-2xs whitespace-nowrap"
-									onclick={() => {
-										s3FileViewer?.open?.(result)
-									}}
-									><span class="flex items-center gap-1"
-										><PanelRightOpen size={12} />object store explorer<Tooltip
-											>Require admin privilege or "S3 resource details and content can be accessed
-											by all users of this workspace" of S3 Storage to be set in the workspace
-											settings</Tooltip
-										></span
-									>
-								</button>
+								{#if $userStore}
+									<button
+										class="text-secondary underline text-2xs whitespace-nowrap"
+										onclick={() => {
+											s3FileViewer?.open?.(result)
+										}}
+										><span class="flex items-center gap-1"
+											><PanelRightOpen size={12} />object store explorer<Tooltip
+												>Require admin privilege or "S3 resource details and content can be accessed
+												by all users of this workspace" of S3 Storage to be set in the workspace
+												settings</Tooltip
+											></span
+										>
+									</button>
+								{/if}
 							{/if}
 						</div>
 						{#if typeof result?.s3 === 'string'}
