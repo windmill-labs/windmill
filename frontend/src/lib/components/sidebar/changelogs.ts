@@ -6,6 +6,12 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Generate OpenAPI specification from HTTP routes and webhooks',
+		href: 'https://www.windmill.dev/changelog/http-webhook-to-openapi-generation',
+		date: '2025-06-18'
+	},
+
+	{
 		label: 'MQTT triggers',
 		href: 'https://www.windmill.dev/changelog/mqtt-triggers',
 		date: '2025-03-11'
