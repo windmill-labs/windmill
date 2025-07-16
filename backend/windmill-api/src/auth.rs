@@ -218,7 +218,9 @@ impl AuthCache {
                                             folders,
                                             scopes: None,
                                             username_override,
-                                            token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                                            token_prefix: Some(
+                                                token[0..TOKEN_PREFIX_LEN].to_string(),
+                                            ),
                                         })
                                     } else {
                                         let groups = vec![name.to_string()];
@@ -240,7 +242,9 @@ impl AuthCache {
                                             folders,
                                             scopes: None,
                                             username_override,
-                                            token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                                            token_prefix: Some(
+                                                token[0..TOKEN_PREFIX_LEN].to_string(),
+                                            ),
                                         })
                                     }
                                 } else {
@@ -303,7 +307,9 @@ impl AuthCache {
                                                 folders,
                                                 scopes,
                                                 username_override,
-                                                token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                                                token_prefix: Some(
+                                                    token[0..TOKEN_PREFIX_LEN].to_string(),
+                                                ),
                                             })
                                         }
                                         None if super_admin => Some(ApiAuthed {
@@ -315,7 +321,9 @@ impl AuthCache {
                                             folders: vec![],
                                             scopes,
                                             username_override,
-                                            token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                                            token_prefix: Some(
+                                                token[0..TOKEN_PREFIX_LEN].to_string(),
+                                            ),
                                         }),
                                         None => None,
                                     }
