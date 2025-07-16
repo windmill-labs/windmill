@@ -143,6 +143,7 @@ const command = new Command()
                     skipFolders: DEFAULT_SYNC_OPTIONS.skipFolders,
                     includeSchedules: DEFAULT_SYNC_OPTIONS.includeSchedules,
                     includeTriggers: DEFAULT_SYNC_OPTIONS.includeTriggers,
+                    overrides: {},
                 };
 
                 await Deno.writeTextFile(

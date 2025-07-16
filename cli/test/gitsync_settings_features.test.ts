@@ -115,8 +115,8 @@ skipVariables: false`);
     assertStringIncludes(updatedConfig, "excludes:\n  - '*.test.ts'");
     assertStringIncludes(updatedConfig, "extraIncludes:\n  - g/**");
 
-    // Should NOT have overrides section
-    assertEquals(updatedConfig.includes("overrides:"), false, "Default mode should not create overrides");
+    // Should have empty overrides section for consistency
+    assertStringIncludes(updatedConfig, "overrides: {}", "Should have empty overrides section for consistency");
   });
 });
 
