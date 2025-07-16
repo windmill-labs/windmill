@@ -33,6 +33,7 @@
 	import { parseAssetFromString, type AssetWithAccessType } from './assets/lib'
 	import FlowPreviewResult from './FlowPreviewResult.svelte'
 	import FlowSequenceViewer from './FlowSequenceViewer.svelte'
+	import FlowLogViewer from './FlowLogViewer.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -952,6 +953,7 @@
 				<Tabs class="mx-auto {wideResults ? '' : 'max-w-7xl'}" bind:selected>
 					<Tab value="graph"><span class="font-semibold text-md">Graph</span></Tab>
 					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
+					<Tab value="logs"><span class="font-semibold">Logs</span></Tab>
 				</Tabs>
 			{:else}
 				<div class="h-[30px]"></div>
@@ -1129,6 +1131,9 @@
 			{:else}
 				<div class="p-2 text-tertiary text-sm italic">Empty flow</div>
 			{/if}
+		</div>
+		<div class="{selected != 'logs' ? 'hidden' : ''} max-w-7xl mx-auto">
+			<FlowLogViewer />
 		</div>
 	</div>
 	{#if render}
