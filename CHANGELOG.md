@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.507.0](https://github.com/windmill-labs/windmill/compare/v1.506.0...v1.507.0) (2025-07-15)
+
+
+### Features
+
+* git sync improvements ([#6182](https://github.com/windmill-labs/windmill/issues/6182)) ([aa37f64](https://github.com/windmill-labs/windmill/commit/aa37f643e78cae09be6246e0a2e84776b60afa49))
+* multi s3 arg input ([#6187](https://github.com/windmill-labs/windmill/issues/6187)) ([9053a93](https://github.com/windmill-labs/windmill/commit/9053a931ce4d075eddd8063de73ea95c3a346937))
+
+
+### Bug Fixes
+
+* **frontend:** fix dev graph not loading ([#6190](https://github.com/windmill-labs/windmill/issues/6190)) ([885f711](https://github.com/windmill-labs/windmill/commit/885f711e03e4430d3fc4ab9756c94f0182b20bcc))
+* only close app dropdown when action is done ([cca8e74](https://github.com/windmill-labs/windmill/commit/cca8e748aa68d41da5f1f8196a02d72d8ca84547))
+* prevent worker not exiting if special case of same worker job ([2e1b6c1](https://github.com/windmill-labs/windmill/commit/2e1b6c1947e5e7f66061c5b380ce0483342df706))
+
+## [1.506.0](https://github.com/windmill-labs/windmill/compare/v1.505.4...v1.506.0) (2025-07-15)
+
+
+### Features
+
+* add oauth client_credentials support ([#6110](https://github.com/windmill-labs/windmill/issues/6110)) ([d562625](https://github.com/windmill-labs/windmill/commit/d562625474260d16699329884dd6c3b890f808ad))
+* **frontend:** app static and user resource picker default values ([#6179](https://github.com/windmill-labs/windmill/issues/6179)) ([b58c46a](https://github.com/windmill-labs/windmill/commit/b58c46a50452bce098695f52220946f87d62f840))
+
+## [1.505.4](https://github.com/windmill-labs/windmill/compare/v1.505.3...v1.505.4) (2025-07-14)
+
+
+### Bug Fixes
+
+* retry telemetry and renewal ([#6175](https://github.com/windmill-labs/windmill/issues/6175)) ([00ab0e8](https://github.com/windmill-labs/windmill/commit/00ab0e8f3883d2ef884438a957b8d26a4672836d))
+
 ## [1.505.3](https://github.com/windmill-labs/windmill/compare/v1.505.2...v1.505.3) (2025-07-14)
 
 

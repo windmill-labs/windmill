@@ -40,6 +40,7 @@
 		noInitialize?: boolean
 		replaceCallback?: boolean
 		controls?: { left: () => boolean; right: () => boolean | string } | undefined
+		onDone?: () => void
 	}
 
 	let {
@@ -59,7 +60,8 @@
 		isMenuItem = false,
 		noInitialize = false,
 		replaceCallback = false,
-		controls = undefined
+		controls = undefined,
+		onDone = undefined
 	}: Props = $props()
 
 	const { worldStore, app, componentControl, selectedComponent } =
@@ -239,6 +241,12 @@
 		if (iterContext && listInputs) {
 			listInputs.set(id, inputOutput)
 		}
+	}}
+	on:done={() => {
+		onDone?.()
+	}}
+	on:doneError={() => {
+		onDone?.()
 	}}
 	refreshOnStart={resolvedConfig.triggerOnAppLoad}
 	{replaceCallback}
