@@ -81,9 +81,15 @@ function mergeCliWithEffectiveOptions<T extends GlobalOptions & SyncOptions & { 
 
   // Always preserve CLI skip flags (they should override config file settings)
   if (cliOpts.skipScripts !== undefined) mergedOpts.skipScripts = cliOpts.skipScripts;
+  if (cliOpts.skipFolders !== undefined) mergedOpts.skipFolders = cliOpts.skipFolders;
+  if (cliOpts.skipVariables !== undefined) mergedOpts.skipVariables = cliOpts.skipVariables;
+  if (cliOpts.skipResources !== undefined) mergedOpts.skipResources = cliOpts.skipResources;
+  if (cliOpts.skipResourceTypes !== undefined) mergedOpts.skipResourceTypes = cliOpts.skipResourceTypes;
+  if (cliOpts.skipSecrets !== undefined) mergedOpts.skipSecrets = cliOpts.skipSecrets;
   if (cliOpts.skipFlows !== undefined) mergedOpts.skipFlows = cliOpts.skipFlows;
   if (cliOpts.skipApps !== undefined) mergedOpts.skipApps = cliOpts.skipApps;
-  if (cliOpts.skipFolders !== undefined) mergedOpts.skipFolders = cliOpts.skipFolders;
+
+
 
   return mergedOpts;
 }
