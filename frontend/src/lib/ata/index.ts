@@ -34,8 +34,6 @@ export interface ATABootstrapConfig {
 	depsParser: (code: string) => string[]
 	/** If you need a custom logger instead of the console global */
 	logger?: Logger
-	/** Maximum depth for dependency resolution. Default is 3. Set to 0 for direct dependencies only. */
-	maxDepth?: number
 }
 
 type ModuleMeta = { state: 'loading' }
@@ -95,9 +93,7 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 		while (todo.length && nb < 200 && new Date().getTime() - time < 1000 * 15) {
 			const current = todo.shift()!
 			nb += 1
-			console.log('i', i)
 			const deps = await resolveDeps(current, i, resLimit)
-			console.log('deps', deps.length)
 			if (i <= 0) {
 				next.push(...deps)
 			}

@@ -19,8 +19,7 @@ import type {
 import {
 	INLINE_CHAT_SYSTEM_PROMPT,
 	prepareScriptSystemMessage,
-	prepareScriptTools,
-	searchExternalIntegrationResources
+	prepareScriptTools
 } from './script/core'
 import { navigatorTools, prepareNavigatorSystemMessage } from './navigator/core'
 import { loadApiTools } from './navigator/apiTools'

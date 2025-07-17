@@ -765,10 +765,9 @@ export async function fetchNpmPackageTypes(
 	try {
 		const typeDefinitions = new Map<string, string>()
 
-		// Create a minimal ATA config for collecting types
 		const ata = setupTypeAcquisition({
 			projectName: 'NPM-Package-Types',
-			depsParser: () => [], // Not used for single package
+			depsParser: () => [],
 			root: '',
 			delegate: {
 				receivedFile: (code: string, path: string) => {
@@ -776,12 +775,10 @@ export async function fetchNpmPackageTypes(
 						typeDefinitions.set(path, code)
 					}
 				},
-				localFile: () => {} // Not used for single package
+				localFile: () => {}
 			}
-			// maxDepth: 1
 		})
 
-		// Create dependency object for the specific package
 		const depsToGet: DepsToGet = [
 			{
 				raw: packageName,
@@ -803,8 +800,6 @@ export async function fetchNpmPackageTypes(
 		const formattedTypes = Array.from(typeDefinitions.entries())
 			.map(([path, content]) => `// ${path}\n${content}`)
 			.join('\n\n')
-
-		console.log('formattedTypes', formattedTypes.length)
 
 		return {
 			success: true,
