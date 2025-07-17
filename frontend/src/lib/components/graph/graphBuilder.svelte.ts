@@ -4,7 +4,7 @@ import { getAllModules, getDependeeAndDependentComponents } from '../flows/flowE
 import { dfsByModule } from '../flows/previousResults'
 import { defaultIfEmptyString } from '$lib/utils'
 import type { GraphModuleState } from './model'
-import { getFlowModuleAssets, type AssetWithAccessType } from '../assets/lib'
+import { getFlowModuleAssets, type AssetWithAltAccessType } from '../assets/lib'
 import type { Writable } from 'svelte/store'
 import { assetDisplaysAsOutputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
 
@@ -116,7 +116,7 @@ export type InputN = {
 		flowJob: Job | undefined
 		showJobStatus: boolean
 		flowHasChanged: boolean
-		assets?: AssetWithAccessType[] | undefined
+		assets?: AssetWithAltAccessType[] | undefined
 	}
 }
 
@@ -134,7 +134,7 @@ export type ModuleN = {
 		editMode: boolean
 		flowJob: Job | undefined
 		isOwner: boolean
-		assets: AssetWithAccessType[] | undefined
+		assets: AssetWithAltAccessType[] | undefined
 	}
 }
 
@@ -280,14 +280,14 @@ export type TriggerN = {
 export type AssetN = {
 	type: 'asset'
 	data: {
-		asset: AssetWithAccessType
+		asset: AssetWithAltAccessType
 	}
 }
 
 export type AssetsOverflowedN = {
 	type: 'assetsOverflowed'
 	data: {
-		overflowedAssets: AssetWithAccessType[]
+		overflowedAssets: AssetWithAltAccessType[]
 	}
 }
 
@@ -325,7 +325,7 @@ export function graphBuilder(
 		showJobStatus: boolean
 		suspendStatus: Writable<Record<string, { job: Job; nb: number }>>
 		flowHasChanged: boolean
-		additionalAssetsMap?: Record<string, AssetWithAccessType[]>
+		additionalAssetsMap?: Record<string, AssetWithAltAccessType[]>
 	},
 	failureModule: FlowModule | undefined,
 	preprocessorModule: FlowModule | undefined,

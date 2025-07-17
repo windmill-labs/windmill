@@ -36,7 +36,7 @@
 	import { Expand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
-	import { encodeState } from '$lib/utils'
+	import { encodeState, readFieldsRecursively } from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
 	import HiddenBaseEdge from './renderers/edges/HiddenBaseEdge.svelte'
@@ -380,6 +380,7 @@
 		}
 		let newGraph = graph
 		newGraph.nodes.sort((a, b) => b.id.localeCompare(a.id))
+		console.log('compute')
 		;[nodes, edges] = computeAssetNodes(layoutNodes(newGraph.nodes), newGraph.edges)
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
@@ -424,7 +425,8 @@
 		allowSimplifiedPoll && modules && untrack(() => onModulesChange(modules ?? []))
 	})
 	$effect(() => {
-		modules && untrack(() => onModulesChange2(modules))
+		readFieldsRecursively(modules)
+		untrack(() => onModulesChange2(modules))
 	})
 	let graph = $derived.by(() => {
 		moduleCounter
