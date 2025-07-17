@@ -48,60 +48,6 @@ pub struct AssetWithAltAccessType {
     pub alt_access_type: Option<AssetUsageAccessType>,
 }
 
-pub fn parse_assets(
-    input: &str,
-    lang: ScriptLang,
-) -> anyhow::Result<Option<Vec<ParseAssetsResult<String>>>> {
-    let r = match lang {
-        ScriptLang::Python3 => windmill_parser_py::parse_assets(input),
-        ScriptLang::DuckDb => windmill_parser_sql::parse_assets(input).map(|a| {
-            a.iter()
-                .map(|a| ParseAssetsResult {
-                    path: a.path.to_string(),
-                    access_type: a.access_type,
-                    kind: a.kind,
-                })
-                .collect()
-        }),
-        ScriptLang::Deno | ScriptLang::Bun | ScriptLang::Nativets => {
-            windmill_parser_ts::parse_assets(input)
-        }
-        _ => return Ok(None),
-    };
-    return r.map(Some);
-}
-
-impl From<windmill_parser::asset_parser::AssetKind> for AssetKind {
-    fn from(kind: windmill_parser::asset_parser::AssetKind) -> Self {
-        match kind {
-            windmill_parser::asset_parser::AssetKind::S3Object => AssetKind::S3Object,
-            windmill_parser::asset_parser::AssetKind::Resource => AssetKind::Resource,
-        }
-    }
-}
-impl From<windmill_parser::asset_parser::AssetUsageAccessType> for AssetUsageAccessType {
-    fn from(access_type: windmill_parser::asset_parser::AssetUsageAccessType) -> Self {
-        match access_type {
-            windmill_parser::asset_parser::AssetUsageAccessType::R => AssetUsageAccessType::R,
-            windmill_parser::asset_parser::AssetUsageAccessType::W => AssetUsageAccessType::W,
-            windmill_parser::asset_parser::AssetUsageAccessType::RW => AssetUsageAccessType::RW,
-        }
-    }
-}
-impl<S> From<windmill_parser::asset_parser::ParseAssetsResult<S>> for AssetWithAltAccessType
-where
-    S: AsRef<str> + Into<String>,
-{
-    fn from(asset: windmill_parser::asset_parser::ParseAssetsResult<S>) -> Self {
-        AssetWithAltAccessType {
-            access_type: asset.access_type.map(Into::into),
-            kind: asset.kind.into(),
-            path: asset.path.into(),
-            alt_access_type: None,
-        }
-    }
-}
-
 pub async fn insert_asset_usage<'e>(
     executor: impl PgExecutor<'e>,
     workspace_id: &str,

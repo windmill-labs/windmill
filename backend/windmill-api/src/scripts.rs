@@ -43,9 +43,7 @@ use windmill_audit::ActionKind;
 use windmill_worker::process_relative_imports;
 
 use windmill_common::{
-    assets::{
-        clear_asset_usage, insert_asset_usage, parse_assets, AssetUsageKind, AssetWithAltAccessType,
-    },
+    assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType},
     error::to_anyhow,
     worker::CLOUD_HOSTED,
 };
@@ -813,7 +811,7 @@ async fn create_script_internal<'c>(
             None
         },
         validate_schema,
-        ns.assets.and_then(|a| serde_json::to_value(a).ok())
+        ns.assets.as_ref().and_then(|a| serde_json::to_value(a).ok())
     )
     .execute(&mut *tx)
     .await?;
@@ -928,18 +926,8 @@ async fn create_script_internal<'c>(
     }
 
     clear_asset_usage(&mut *tx, &w_id, &script_path, AssetUsageKind::Script).await?;
-    for asset in parse_assets(&ns.content, ns.language)?
-        .into_iter()
-        .flatten()
-    {
-        insert_asset_usage(
-            &mut *tx,
-            &w_id,
-            &asset.into(),
-            &ns.path,
-            AssetUsageKind::Script,
-        )
-        .await?;
+    for asset in ns.assets.as_ref().into_iter().flatten() {
+        insert_asset_usage(&mut *tx, &w_id, &asset, &ns.path, AssetUsageKind::Script).await?;
     }
 
     let permissioned_as = username_to_permissioned_as(&authed.username);
