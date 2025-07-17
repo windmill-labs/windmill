@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::PgExecutor;
-use windmill_parser::asset_parser::ParseAssetsResult;
 
-use crate::{error, scripts::ScriptLang};
+use crate::error;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
 #[sqlx(type_name = "ASSET_KIND", rename_all = "lowercase")]
@@ -61,7 +60,7 @@ pub async fn insert_asset_usage<'e>(
         workspace_id,
         asset.path,
         asset.kind as AssetKind,
-        asset.access_type as Option<AssetUsageAccessType>,
+        (asset.access_type.or(asset.alt_access_type)) as Option<AssetUsageAccessType>,
         usage_path,
         usage_kind as AssetUsageKind
     )
