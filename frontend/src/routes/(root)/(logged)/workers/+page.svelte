@@ -585,7 +585,8 @@
 									<tr class="border-t">
 										<Cell
 											first
-											colspan={(!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)
+											colspan={(!config || config?.dedicated_worker == undefined) &&
+											($superadmin || $devopsRole)
 												? 12
 												: 9}
 											scope="colgroup"
@@ -708,13 +709,10 @@
 																}
 																if (worker.startsWith(AGENT_WORKER_NAME_PREFIX)) {
 																	if (!sshWorker) {
-																		sendUserToast(
-																			'Unexpected error could not find agent worker handling repl feature',
-																			true
-																		)
-																		return
+																		tag = hostname
+																	} else {
+																		tag = sshWorker
 																	}
-																	tag = sshWorker
 																} else {
 																	tag = hostname
 																}

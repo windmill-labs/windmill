@@ -797,7 +797,7 @@ pub fn start_interactive_worker_shell(
                     }
                     Connection::Http(client) => {
                         let body = serde_json::json!({
-                            "hostname": hostname.clone()
+                            "tags": vec![hostname.clone()]
                         });
 
                         crate::agent_workers::pull_job(&client, None, Some(body))
@@ -1602,8 +1602,8 @@ pub async fn run_worker(
                     }
                     Connection::Http(client) => {
                         crate::agent_workers::pull_job::<()>(&client, None, None)
-                            .await
-                            .map_err(|e| error::Error::InternalErr(e.to_string()))
+                        .await
+                        .map_err(|e| error::Error::InternalErr(e.to_string()))
                             .map(|x| x.map(|y| NextJob::Http(y)))
                     }
                 }
