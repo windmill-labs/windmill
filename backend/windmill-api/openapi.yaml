@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.505.4
+  version: 1.508.0
   title: Windmill API
 
   contact:
@@ -581,7 +581,7 @@ paths:
       summary: get connected repositories
       operationId: getGlobalConnectedRepositories
       tags:
-        - git_sync
+        - Git Sync
       responses:
         "200":
           description: connected repositories
@@ -3404,6 +3404,15 @@ paths:
                   type: integer
                 client:
                   type: string
+                grant_type:
+                  type: string
+                  default: "authorization_code"
+                cc_client_id:
+                  type: string
+                  description: "OAuth client ID for resource-level credentials (client_credentials flow only)"
+                cc_client_secret:
+                  type: string
+                  description: "OAuth client secret for resource-level credentials (client_credentials flow only)"
               required:
                 - expires_in
                 - client
@@ -3414,6 +3423,48 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /oauth/connect_client_credentials/{client}:
+    post:
+      summary: connect OAuth using client credentials
+      operationId: connectClientCredentials
+      tags:
+        - oauth
+      parameters:
+        - name: client
+          in: path
+          description: OAuth client name
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: client credentials flow parameters
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                cc_client_id:
+                  type: string
+                  description: "OAuth client ID for resource-level authentication"
+                cc_client_secret:
+                  type: string
+                  description: "OAuth client secret for resource-level authentication"
+              required:
+                - cc_client_id
+                - cc_client_secret
+      responses:
+        "200":
+          description: OAuth token response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
 
   /w/{workspace}/oauth/refresh_token/{id}:
     post:
@@ -3563,6 +3614,10 @@ paths:
                   extra_params:
                     type: object
                   scopes:
+                    type: array
+                    items:
+                      type: string
+                  grant_types:
                     type: array
                     items:
                       type: string
@@ -12265,8 +12320,7 @@ paths:
         "200":
           description: Parquet Preview
           content:
-            application/json:
-              schema: {}
+            application/json: {}
 
   /w/{workspace}/job_helpers/load_table_count/{path}:
     get:
@@ -12345,8 +12399,7 @@ paths:
         "200":
           description: Csv Preview
           content:
-            application/json:
-              schema: {}
+            application/json: {}
 
   /w/{workspace}/job_helpers/delete_s3_file:
     delete:
@@ -16874,6 +16927,8 @@ components:
           type: array
           items:
             type: string
+        grant_type:
+          type: string
 
       required:
         - access_token
@@ -16999,27 +17054,6 @@ components:
     WorkspaceGitSyncSettings:
       type: object
       properties:
-        include_path:
-          type: array
-          items:
-            type: string
-        include_type:
-          type: array
-          items:
-            type: string
-            enum:
-              - script
-              - flow
-              - app
-              - folder
-              - resource
-              - variable
-              - secret
-              - resourcetype
-              - schedule
-              - user
-              - group
-              - trigger
         repositories:
           type: array
           items:
@@ -17071,6 +17105,42 @@ components:
           type: boolean
         group_by_folder:
           type: boolean
+        collapsed:
+          type: boolean
+        settings:
+          type: object
+          properties:
+            include_path:
+              type: array
+              items:
+                type: string
+            include_type:
+              type: array
+              items:
+                type: string
+                enum:
+                  - script
+                  - flow
+                  - app
+                  - folder
+                  - resource
+                  - variable
+                  - secret
+                  - resourcetype
+                  - schedule
+                  - user
+                  - group
+                  - trigger
+                  - settings
+                  - key
+            exclude_path:
+              type: array
+              items:
+                type: string
+            extra_include_path:
+              type: array
+              items:
+                type: string
         exclude_types_override:
           type: array
           items:
@@ -17088,6 +17158,8 @@ components:
               - user
               - group
               - trigger
+              - settings
+              - key
       required:
         - script_path
         - git_repo_resource_path

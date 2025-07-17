@@ -7,7 +7,7 @@ import * as wmill from "./gen/services.gen.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { resolve, track_job } from "./script.ts";
 import { defaultFlowDefinition } from "./bootstrap/flow_bootstrap.ts";
-import { generateFlowLockInternal } from "./metadata.ts";
+import { blueColor, generateFlowLockInternal } from "./metadata.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "./sync.ts";
 import { readInlinePathSync } from "./utils.ts";
@@ -27,7 +27,13 @@ export function replaceInlineScripts(
   localPath: string,
   removeLocks: string[] | undefined
 ) {
-  modules.forEach((m) => {
+  modules.forEach((m, i) => {
+    if (!m.value) {
+      throw Error(
+        `Module value is undefined for flow module ${i} in ${localPath}`
+      );
+      return;
+    }
     if (m.value.type == "rawscript") {
       if (m.value.content.startsWith("!inline")) {
         const path = m.value.content.split(" ")[1];
@@ -232,15 +238,18 @@ async function run(
 async function generateLocks(
   opts: GlobalOptions & {
     yes?: boolean;
+    useRawRequirements?: boolean;
   } & SyncOptions,
   folder: string | undefined
 ) {
+  const useRawReqs = opts.useRawRequirements || Deno.env.get("USE_RAW_REQUIREMENTS") === "true";
+
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   opts = await mergeConfigWithConfigFile(opts);
   if (folder) {
     // read script metadata file
-    await generateFlowLockInternal(folder, false, workspace);
+    await generateFlowLockInternal(folder, false, workspace, opts, undefined, undefined, useRawReqs);
   } else {
     const ignore = await ignoreF(opts);
     const elems = Object.keys(
@@ -261,7 +270,7 @@ async function generateLocks(
     let hasAny = false;
 
     for (const folder of elems) {
-      const candidate = await generateFlowLockInternal(folder, true, workspace);
+      const candidate = await generateFlowLockInternal(folder, true, workspace, opts, undefined, undefined, useRawReqs);
       if (candidate) {
         hasAny = true;
         log.info(colors.green(`+ ${candidate}`));
@@ -283,7 +292,7 @@ async function generateLocks(
       return;
     }
     for (const folder of elems) {
-      await generateFlowLockInternal(folder, false, workspace);
+      await generateFlowLockInternal(folder, false, workspace, opts,undefined, undefined, useRawReqs);
     }
   }
 }
@@ -342,6 +351,10 @@ const command = new Command()
   )
   .arguments("[flow:file]")
   .option("--yes", "Skip confirmation prompt")
+  .option(
+    "-r --use-raw-requirements",
+    "Use raw requirements (requirements.txt, go.mod, package.json, etc) instead of generating them on the server (can also be set with USE_RAW_REQUIREMENTS=true environment variable)"
+  )
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"

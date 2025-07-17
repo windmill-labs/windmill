@@ -712,7 +712,7 @@ macro_rules! get_job_query {
             "SELECT \
             {table}.id, {table}.workspace_id, parent_job, v2_job.created_by, v2_job.created_at, started_at, v2_job.runnable_id as script_hash, v2_job.runnable_path as script_path, \
             CASE WHEN args is null THEN NULL
-            WHEN pg_column_size(args) < 90000 THEN 
+            WHEN pg_column_size(args) < 90000 THEN
                 CASE WHEN jsonb_typeof(args) = 'object' THEN args
                 ELSE jsonb_build_object('value', args)
                 END
@@ -722,7 +722,7 @@ macro_rules! get_job_query {
             {flow} as raw_flow, flow_step_id IS NOT NULL AS is_flow_step, script_lang as language, \
             {lock} as raw_lock, permissioned_as_email as email, visible_to_owner, memory_peak as mem_peak, v2_job.tag, v2_job.priority, preprocessed, worker,\
             {additional_fields} \
-            FROM {table} 
+            FROM {table}
             INNER JOIN v2_job ON v2_job.id = {table}.id \
             {additional_joins} \
             LEFT JOIN job_logs ON {table}.id = job_id \
@@ -1131,8 +1131,8 @@ async fn get_job_logs(
 
     let record = sqlx::query!(
         "SELECT created_by AS \"created_by!\", CONCAT(coalesce(v2_as_completed_job.logs, ''), coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
-        FROM v2_as_completed_job 
-        LEFT JOIN job_logs ON job_logs.job_id = v2_as_completed_job.id 
+        FROM v2_as_completed_job
+        LEFT JOIN job_logs ON job_logs.job_id = v2_as_completed_job.id
         WHERE v2_as_completed_job.id = $1 AND v2_as_completed_job.workspace_id = $2 AND ($3::text[] IS NULL OR v2_as_completed_job.tag = ANY($3))",
         id,
         w_id,
@@ -1175,8 +1175,8 @@ async fn get_job_logs(
     } else {
         let text = sqlx::query!(
             "SELECT created_by AS \"created_by!\", CONCAT(coalesce(v2_as_queue.logs, ''), coalesce(job_logs.logs, '')) as logs, coalesce(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index
-            FROM v2_as_queue 
-            LEFT JOIN job_logs ON job_logs.job_id = v2_as_queue.id 
+            FROM v2_as_queue
+            LEFT JOIN job_logs ON job_logs.job_id = v2_as_queue.id
             WHERE v2_as_queue.id = $1 AND v2_as_queue.workspace_id = $2 AND ($3::text[] IS NULL OR v2_as_queue.tag = ANY($3))",
             id,
             w_id,
@@ -1234,7 +1234,7 @@ async fn get_args(
         .flatten();
     let record = sqlx::query!(
         "SELECT created_by AS \"created_by!\", args as \"args: sqlx::types::Json<Box<RawValue>>\"
-        FROM v2_as_completed_job 
+        FROM v2_as_completed_job
         WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
         id,
         &w_id,
@@ -3299,7 +3299,7 @@ fn batch_rerun_jobs_inner(
     tokio::spawn(async move {
         let mut job_stream = sqlx::query_as!(
             BatchReRunQueryReturnType,
-            r#"SELECT 
+            r#"SELECT
                     j.id,
                     j.kind AS "kind: _",
                     COALESCE(s.path, f.path) AS "script_path!",
@@ -3915,7 +3915,7 @@ pub async fn run_workflow_as_code(
             VALUES ($1, JSONB_SET('{}'::JSONB, array[$2], $3))
             ON CONFLICT (id) DO UPDATE SET
                 workflow_as_code_status = JSONB_SET(
-                    COALESCE(v2_job_status.workflow_as_code_status, '{}'::JSONB), 
+                    COALESCE(v2_job_status.workflow_as_code_status, '{}'::JSONB),
                     array[$2],
                     $3
                 )",
@@ -5104,11 +5104,7 @@ async fn run_dependencies_job(
         &db,
         PushIsolationLevel::IsolatedRoot(db.clone()),
         &w_id,
-        JobPayload::RawScriptDependencies {
-            script_path: script_path,
-            content: raw_code,
-            language: language,
-        },
+        JobPayload::RawScriptDependencies { script_path, content: raw_code, language },
         args,
         authed.display_username(),
         &authed.email,
@@ -5140,6 +5136,7 @@ async fn run_dependencies_job(
 pub struct RunFlowDependenciesRequest {
     pub path: String,
     pub flow_value: FlowValue,
+    pub raw_deps: Option<HashMap<String, String>>,
 }
 
 #[derive(Serialize)]
@@ -5159,15 +5156,21 @@ async fn run_flow_dependencies_job(
             "Operators cannot run dependencies jobs for security reasons".to_string(),
         ));
     }
+
+    // Create args HashMap with skip_flow_update and raw_deps if present
+    let mut args_map = HashMap::from([("skip_flow_update".to_string(), to_raw_value(&true))]);
+
+    // Add raw_deps to args if present
+    if let Some(ref raw_deps) = req.raw_deps {
+        args_map.insert("raw_deps".to_string(), to_raw_value(raw_deps));
+    }
+
     let (uuid, tx) = push(
         &db,
         PushIsolationLevel::IsolatedRoot(db.clone()),
         &w_id,
         JobPayload::RawFlowDependencies { path: req.path, flow_value: req.flow_value },
-        PushArgs::from(&HashMap::from([(
-            "skip_flow_update".to_string(),
-            to_raw_value(&true),
-        )])),
+        PushArgs::from(&args_map),
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -5298,10 +5301,10 @@ async fn add_batch_jobs(
             } else if let Some(path) = batch_info.path {
                 let mut tx = user_db.clone().begin(&authed).await?;
                 let value_json = sqlx::query!(
-                    "SELECT coalesce(flow_version_lite.value, flow_version.value) as \"value!: sqlx::types::Json<Box<RawValue>>\" FROM flow 
+                    "SELECT coalesce(flow_version_lite.value, flow_version.value) as \"value!: sqlx::types::Json<Box<RawValue>>\" FROM flow
                     LEFT JOIN flow_version
                         ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-                    LEFT JOIN flow_version_lite 
+                    LEFT JOIN flow_version_lite
                         ON flow_version_lite.id = flow_version.id
                     WHERE flow.path = $1 AND flow.workspace_id = $2 LIMIT 1",
                     &path, &w_id
@@ -5415,7 +5418,7 @@ async fn add_batch_jobs(
         )
         INSERT INTO v2_job_queue
             (id, workspace_id, scheduled_for, tag)
-            (SELECT uuid, $1, $2, $3 FROM uuid_table) 
+            (SELECT uuid, $1, $2, $3 FROM uuid_table)
         RETURNING id"#,
         w_id,
         Utc::now(),
@@ -5433,7 +5436,7 @@ async fn add_batch_jobs(
     .await?;
 
     sqlx::query!(
-        "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id) 
+        "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id)
         SELECT unnest($1::uuid[]), $2, $3, $4, $5, $6, $7, $8",
         &uuids,
         authed.email,
@@ -5460,7 +5463,7 @@ async fn add_batch_jobs(
 
     if let Some(custom_concurrency_key) = custom_concurrency_key {
         sqlx::query!(
-            "INSERT INTO concurrency_counter(concurrency_id, job_uuids) 
+            "INSERT INTO concurrency_counter(concurrency_id, job_uuids)
              VALUES ($1, '{}'::jsonb)",
             &custom_concurrency_key
         )
@@ -5737,7 +5740,7 @@ async fn get_job_update(
     let record = sqlx::query!(
         "SELECT
             c.id IS NOT NULL AS completed,
-            CASE 
+            CASE
                 WHEN q.id IS NOT NULL THEN (CASE WHEN NOT $5 AND q.running THEN true ELSE null END)
                 ELSE false
             END AS running,
