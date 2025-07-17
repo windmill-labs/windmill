@@ -42,10 +42,11 @@ pub struct AssetUsage {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash)]
-pub struct AssetWithAccessType {
+pub struct AssetWithAltAccessType {
     pub path: String,
     pub kind: AssetKind,
     pub access_type: Option<AssetUsageAccessType>,
+    pub alt_access_type: Option<AssetUsageAccessType>,
 }
 
 pub fn parse_assets(
@@ -89,15 +90,16 @@ impl From<windmill_parser::asset_parser::AssetUsageAccessType> for AssetUsageAcc
         }
     }
 }
-impl<S> From<windmill_parser::asset_parser::ParseAssetsResult<S>> for AssetWithAccessType
+impl<S> From<windmill_parser::asset_parser::ParseAssetsResult<S>> for AssetWithAltAccessType
 where
     S: AsRef<str> + Into<String>,
 {
     fn from(asset: windmill_parser::asset_parser::ParseAssetsResult<S>) -> Self {
-        AssetWithAccessType {
+        AssetWithAltAccessType {
             access_type: asset.access_type.map(Into::into),
             kind: asset.kind.into(),
             path: asset.path.into(),
+            alt_access_type: None,
         }
     }
 }
@@ -105,7 +107,7 @@ where
 pub async fn insert_asset_usage<'e>(
     executor: impl PgExecutor<'e>,
     workspace_id: &str,
-    asset: &AssetWithAccessType,
+    asset: &AssetWithAltAccessType,
     usage_path: &str,
     usage_kind: AssetUsageKind,
 ) -> error::Result<()> {

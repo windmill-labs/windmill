@@ -13,7 +13,6 @@ use std::{
 };
 
 use crate::{
-    assets::AssetWithAccessType,
     error::{to_anyhow, Error},
     utils::http_get_from_hub,
     DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,

@@ -18,7 +18,7 @@ use sqlx::types::Json;
 use sqlx::types::JsonRawValue;
 
 use crate::{
-    assets::AssetWithAccessType,
+    assets::AssetWithAltAccessType,
     cache,
     error::Error,
     more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
@@ -506,7 +506,7 @@ pub enum FlowModuleValue {
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        assets: Option<Vec<AssetWithAccessType>>,
+        assets: Option<Vec<AssetWithAltAccessType>>,
     },
     Identity,
     // Internal only, never exposed to the frontend.
@@ -527,7 +527,7 @@ pub enum FlowModuleValue {
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        assets: Option<Vec<AssetWithAccessType>>,
+        assets: Option<Vec<AssetWithAltAccessType>>,
     },
 }
 
@@ -562,7 +562,7 @@ struct UntaggedFlowModuleValue {
     id: Option<FlowNodeId>,
     default_node: Option<FlowNodeId>,
     modules_node: Option<FlowNodeId>,
-    assets: Option<Vec<AssetWithAccessType>>,
+    assets: Option<Vec<AssetWithAltAccessType>>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
