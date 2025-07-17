@@ -12,7 +12,8 @@ import {
 } from "./deps.ts";
 import { getTypeStrFromPath, GlobalOptions } from "./types.ts";
 import { ignoreF } from "./sync.ts";
-import { requireLogin, resolveWorkspace } from "./context.ts";
+import { requireLogin } from "./auth.ts";
+import { resolveWorkspace } from "./context.ts";
 import {
   SyncOptions,
   mergeConfigWithConfigFile,

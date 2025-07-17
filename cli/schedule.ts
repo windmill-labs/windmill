@@ -1,6 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { colors, Command, log, SEP, Table } from "./deps.ts";
-import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
+import { requireLogin } from "./auth.ts";
+import { resolveWorkspace, validatePath } from "./context.ts";
 import * as wmill from "./gen/services.gen.ts";
 
 import {

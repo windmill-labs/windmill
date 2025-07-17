@@ -1,4 +1,5 @@
-import { fetchVersion, requireLogin, resolveWorkspace } from "./context.ts";
+import { requireLogin } from "./auth.ts";
+import { fetchVersion, resolveWorkspace } from "./context.ts";
 import {
   colors,
   Command,

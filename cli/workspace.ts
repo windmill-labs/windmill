@@ -3,9 +3,9 @@ import { GlobalOptions } from "./types.ts";
 import { getRootStore } from "./store.ts";
 import { loginInteractive, tryGetLoginInfo } from "./login.ts";
 import { colors, Command, Confirm, Input, log, setClient, Table } from "./deps.ts";
+import { requireLogin } from "./auth.ts";
 
 import * as wmill from "./gen/services.gen.ts";
-import { requireLogin } from "./context.ts";
 
 export interface Workspace {
   remote: string;
@@ -258,11 +258,11 @@ export async function add(
 
 export async function addWorkspace(workspace: Workspace, opts: any) {
   workspace.remote = new URL(workspace.remote).toString(); // add trailing slash in all cases!
-  
+
   // Check for conflicts before adding
   const existingWorkspaces = await allWorkspaces(opts.configDir);
   const isInteractive = Deno.stdin.isTerminal() && Deno.stdout.isTerminal() && !opts.force;
-  
+
   // Check 1: Workspace name already exists
   const nameConflict = existingWorkspaces.find(w => w.name === workspace.name);
   if (nameConflict) {
@@ -274,7 +274,7 @@ export async function addWorkspace(workspace: Workspace, opts: any) {
       log.info(colors.red.bold(`❌ Workspace name "${workspace.name}" already exists!`));
       log.info(`   Existing: ${nameConflict.workspaceId} on ${nameConflict.remote}`);
       log.info(`   New:      ${workspace.workspaceId} on ${workspace.remote}`);
-      
+
       if (!isInteractive) {
         // In non-interactive mode (tests, scripts), auto-overwrite with force flag
         if (opts.force) {
@@ -287,7 +287,7 @@ export async function addWorkspace(workspace: Workspace, opts: any) {
           message: "Do you want to overwrite the existing workspace?",
           default: false,
         });
-        
+
         if (!overwrite) {
           log.info(colors.yellow("Operation cancelled."));
           return;
@@ -295,20 +295,20 @@ export async function addWorkspace(workspace: Workspace, opts: any) {
       }
     }
   }
-  
+
   // Check 2: Same (remote, workspaceId) tuple already exists under different name
-  const tupleConflict = existingWorkspaces.find(w => 
-    w.remote === workspace.remote && 
-    w.workspaceId === workspace.workspaceId && 
+  const tupleConflict = existingWorkspaces.find(w =>
+    w.remote === workspace.remote &&
+    w.workspaceId === workspace.workspaceId &&
     w.name !== workspace.name
   );
-  
+
   if (tupleConflict) {
     log.info(colors.red.bold(`❌ Workspace ${workspace.workspaceId} on ${workspace.remote} already exists!`));
     log.info(`   Existing name: "${tupleConflict.name}"`);
     log.info(`   New name:      "${workspace.name}"`);
     log.info(colors.yellow(`\nNote: Backend constraint prevents duplicate (remote, workspaceId) combinations.`));
-    
+
     if (!isInteractive) {
       // In non-interactive mode (tests, scripts), auto-overwrite with force flag
       if (opts.force) {
@@ -321,20 +321,20 @@ export async function addWorkspace(workspace: Workspace, opts: any) {
         message: `Do you want to overwrite the existing workspace "${tupleConflict.name}"?`,
         default: false,
       });
-      
+
       if (!overwrite) {
         log.info(colors.yellow("Operation cancelled."));
         return;
       }
     }
-    
+
     // Remove the conflicting workspace
     await removeWorkspace(tupleConflict.name, true, opts);
   }
-  
+
   // Remove existing workspace with same name (if updating)
   await removeWorkspace(workspace.name, true, opts);
-  
+
   // Add the new workspace
   const file = await Deno.open((await getRootStore(opts.configDir)) + "remotes.ndjson", {
     append: true,

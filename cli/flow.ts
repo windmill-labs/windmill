@@ -4,7 +4,8 @@ import { Confirm, SEP, log, yamlStringify } from "./deps.ts";
 import { colors, Command, Table, yamlParseFile } from "./deps.ts";
 import * as wmill from "./gen/services.gen.ts";
 
-import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
+import { requireLogin } from "./auth.ts";
+import { resolveWorkspace, validatePath } from "./context.ts";
 import { resolve, track_job } from "./script.ts";
 import { defaultFlowDefinition } from "./bootstrap/flow_bootstrap.ts";
 import { blueColor, generateFlowLockInternal } from "./metadata.ts";
