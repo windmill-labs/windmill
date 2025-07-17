@@ -6,14 +6,12 @@
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
-	import VariableEditor from '../VariableEditor.svelte'
 	import type { Asset } from '$lib/gen'
 
 	type Props = {
 		s3FilePicker?: S3FilePicker | undefined
 		dbManagerDrawer?: DbManagerDrawer | undefined
 		resourceEditorDrawer?: ResourceEditorDrawer | undefined
-		variableEditor?: VariableEditor | undefined
 		resourceDataCache: Record<string, string | undefined>
 		asset: Asset
 		onClick?: () => void
@@ -22,7 +20,6 @@
 		s3FilePicker,
 		dbManagerDrawer,
 		resourceEditorDrawer,
-		variableEditor,
 		resourceDataCache,
 		asset,
 		onClick
@@ -38,16 +35,6 @@
 			spacingSize="xs2"
 			iconOnly
 			on:click={() => (resourceEditorDrawer?.initEdit(asset.path), onClick?.())}
-		/>
-	{/if}
-	{#if asset.kind === 'variable'}
-		<Button
-			startIcon={{ icon: Edit2 }}
-			size="xs"
-			variant="border"
-			spacingSize="xs2"
-			iconOnly
-			on:click={() => (variableEditor?.editVariable(asset.path), onClick?.())}
 		/>
 	{/if}
 	{#if asset.kind === 'resource' && resourceDataCache[asset.path] === undefined}

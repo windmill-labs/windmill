@@ -7,7 +7,6 @@
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
-	import VariableEditor from '../VariableEditor.svelte'
 	import AssetButtons from './AssetButtons.svelte'
 	import {
 		formatAssetKind,
@@ -64,7 +63,6 @@
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
 	let resourceEditorDrawer: ResourceEditorDrawer | undefined = $state()
-	let variableEditor: VariableEditor | undefined = $state()
 </script>
 
 <ul class="flex flex-col divide-y mt-1">
@@ -87,7 +85,6 @@
 				{dbManagerDrawer}
 				{resourceEditorDrawer}
 				{s3FilePicker}
-				{variableEditor}
 			/>
 		</li>
 	{/each}
@@ -96,4 +93,3 @@
 <S3FilePicker bind:this={s3FilePicker} readOnlyMode />
 <DbManagerDrawer bind:this={dbManagerDrawer} />
 <ResourceEditorDrawer bind:this={resourceEditorDrawer} />
-<VariableEditor bind:this={variableEditor} />

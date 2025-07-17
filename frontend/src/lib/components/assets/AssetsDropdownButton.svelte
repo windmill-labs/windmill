@@ -19,7 +19,6 @@
 	import Tooltip from '../meltComponents/Tooltip.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import type { Placement } from '@floating-ui/core'
-	import VariableEditor from '../VariableEditor.svelte'
 	import AssetButtons from './AssetButtons.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
@@ -50,7 +49,6 @@
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
 	let resourceEditorDrawer: ResourceEditorDrawer | undefined = $state()
-	let variableEditor: VariableEditor | undefined = $state()
 	let isOpen = $state(false)
 	let resourceDataCache: Record<string, string | undefined> = $state({})
 
@@ -181,7 +179,6 @@
 						{dbManagerDrawer}
 						{resourceEditorDrawer}
 						{s3FilePicker}
-						{variableEditor}
 					/>
 				</li>
 			{/each}
@@ -191,4 +188,3 @@
 <S3FilePicker bind:this={s3FilePicker} readOnlyMode />
 <DbManagerDrawer bind:this={dbManagerDrawer} />
 <ResourceEditorDrawer bind:this={resourceEditorDrawer} />
-<VariableEditor bind:this={variableEditor} />
