@@ -238,11 +238,11 @@ async function run(
 async function generateLocks(
   opts: GlobalOptions & {
     yes?: boolean;
-    "useRawRequirements"?: boolean;
+    useRawRequirements?: boolean;
   } & SyncOptions,
   folder: string | undefined
 ) {
-  const useRawReqs = opts["useRawRequirements"] || Deno.env.get("USE_RAW_REQUIREMENTS") === "true";
+  const useRawReqs = opts.useRawRequirements || Deno.env.get("USE_RAW_REQUIREMENTS") === "true";
 
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
