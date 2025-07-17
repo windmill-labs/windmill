@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { type ScopeDomain, type ScopeDefinition, TokenService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { ChevronRight, Loader2, Plus, X } from 'lucide-svelte'
+	import { ChevronRight, Loader2, X } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import Popover from '../meltComponents/Popover.svelte'
 	import Tooltip from '../Tooltip.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		selectedScopes?: string[]
@@ -284,21 +285,22 @@
 	}
 
 	function removeSelectedScope(scopeToRemove: string) {
-		selectedScopes = selectedScopes.filter(scope => scope !== scopeToRemove)
-		
-		const baseScopeValue = scopeToRemove.includes(':') && scopeToRemove.split(':').length > 2 
-			? scopeToRemove.split(':').slice(0, 2).join(':')
-			: scopeToRemove
-		
+		selectedScopes = selectedScopes.filter((scope) => scope !== scopeToRemove)
+
+		const baseScopeValue =
+			scopeToRemove.includes(':') && scopeToRemove.split(':').length > 2
+				? scopeToRemove.split(':').slice(0, 2).join(':')
+				: scopeToRemove
+
 		const scopeState = getScopeState(baseScopeValue)
 		if (scopeState) {
 			if (scopeToRemove.includes(':') && scopeToRemove.split(':').length > 2) {
 				const pathPart = scopeToRemove.substring(baseScopeValue.length + 1)
-				const pathsToRemove = pathPart.split(',').map(p => p.trim())
+				const pathsToRemove = pathPart.split(',').map((p) => p.trim())
 				scopeState.resourcePaths = scopeState.resourcePaths.filter(
-					path => !pathsToRemove.includes(path)
+					(path) => !pathsToRemove.includes(path)
 				)
-				
+
 				if (scopeState.resourcePaths.length === 0) {
 					scopeState.isSelected = false
 				}
@@ -306,7 +308,7 @@
 				scopeState.isSelected = false
 				scopeState.resourcePaths = []
 			}
-			
+
 			updateDomainCheckboxState({ value: baseScopeValue } as ScopeDefinition)
 		}
 	}
@@ -497,9 +499,7 @@
 				<h4 class="text-sm font-semibold text-primary">
 					Selected Scopes ({selectedScopes.length})
 				</h4>
-				<Button onclick={clearAllScopes} {disabled} variant="border" size="sm" color="red">
-					Clear All
-				</Button>
+				<Button onclick={clearAllScopes} {disabled} size="xs" color="light">Clear All</Button>
 			</div>
 
 			{#if selectedScopes.length === 0}
@@ -519,7 +519,7 @@
 								onclick={() => removeSelectedScope(scope)}
 								class="text-blue-600 hover:text-blue-800 flex-shrink-0"
 								title="Remove scope"
-								disabled={disabled}
+								{disabled}
 							>
 								<X size={10} />
 							</button>
@@ -595,7 +595,7 @@
 												}}
 												class="text-blue-600 hover:text-blue-800 flex-shrink-0"
 												title="Remove scope"
-												disabled={disabled}
+												{disabled}
 											>
 												<X size={10} />
 											</button>
@@ -626,28 +626,30 @@
 											: 'bg-surface-secondary'}"
 									>
 										<div class="flex justify-between items-center mb-2">
-											<div class="flex items-center gap-2 flex-1 min-w-0">
+											<label
+												class={twMerge(
+													'flex items-center gap-2 flex-1 min-w-0',
+													isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
+												)}
+											>
 												<input
 													type="checkbox"
-													id={`scope-${scope.value}`}
 													checked={isSelected}
 													disabled={isDisabled}
 													onchange={(e) =>
 														handleIndividualScopeChange(scope, e.currentTarget.checked)}
-													class="!w-4 !h-4 flex-shrink-0 {isDisabled
-														? 'cursor-not-allowed'
-														: 'cursor-pointer'}"
+													class="!w-4 !h-4 flex-shrink-0"
 												/>
 
-												<label
-													for={`scope-${scope.value}`}
-													class="font-medium text-xs truncate cursor-pointer {isDisabled
-														? 'text-tertiary cursor-not-allowed'
-														: ''}"
+												<span
+													class={twMerge(
+														'font-medium text-xs truncate cursor-pointer',
+														isDisabled ? 'text-tertiary' : ''
+													)}
 												>
 													{scope.label}
-												</label>
-											</div>
+												</span>
+											</label>
 											<div class="flex-shrink-0">
 												{#if scope.requires_resource_path}
 													<Popover
@@ -656,78 +658,49 @@
 														contentClasses="p-3"
 													>
 														{#snippet trigger()}
-															<Button
-																size="xs"
-																variant="border"
-																startIcon={{ icon: Plus }}
-																tooltipPopover={{ placement: 'top' }}
-																disabled={isDisabled}
-															>
-																Resource paths
-																<Tooltip>
-																	<div
-																		class="bg-surface-secondary border rounded-lg p-2 text-xs max-w-xs"
-																	>
-																		Add specific resource paths to limit this scope to certain
-																		files/folders (e.g., u/username/*, f/folder/script.py)
-																	</div>
+															<Button size="xs" disabled={isDisabled} color="dark">
+																Restrict paths
+																<Tooltip light>
+																	Restrict this scope to specific resource paths. If no paths are
+																	specified, the scope gives full access.
 																</Tooltip>
 															</Button>
 														{/snippet}
-														{#snippet content({ close })}
+														{#snippet content()}
 															<div class="w-80">
-																<div class="mb-3">
-																	<div class="flex gap-2">
-																		<input
-																			type="text"
-																			value={currentInput}
-																			{disabled}
-																			oninput={(e) => {
-																				if (scopeState) {
-																					scopeState.currentInputValue = e.currentTarget.value
-																					scopeState.pathError = undefined
-																				}
-																			}}
-																			onkeydown={(e) => {
-																				if (e.key === 'Enter' && currentInput.trim()) {
-																					e.preventDefault()
-																					addResourcePath(scope.value, currentInput)
-																				}
-																			}}
-																			class="flex-1 text-sm px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-surface"
-																		/>
-																		<Button
-																			onclick={() => {
+																<div class="flex gap-2">
+																	<input
+																		type="text"
+																		value={currentInput}
+																		{disabled}
+																		oninput={(e) => {
+																			if (scopeState) {
+																				scopeState.currentInputValue = e.currentTarget.value
+																				scopeState.pathError = undefined
+																			}
+																		}}
+																		placeholder="e.g. f/folder/*, u/user/path"
+																		onkeydown={(e) => {
+																			if (e.key === 'Enter' && currentInput.trim()) {
+																				e.preventDefault()
 																				addResourcePath(scope.value, currentInput)
-																			}}
-																			size="xs"
-																			disabled={!currentInput.trim()}
-																		>
-																			Add
-																		</Button>
-																	</div>
-																	<p class="text-xs text-tertiary mt-1">
-																		Press Enter or click Add • Formats: u/user/*, f/folder/*,
-																		u/user/file, f/folder/file, *
-																	</p>
-																	{#if pathError}
-																		<p class="text-xs text-red-600 mt-1">{pathError}</p>
-																	{/if}
-																</div>
-
-																<div class="flex gap-2 mt-3">
+																			}
+																		}}
+																		class="flex-1 text-sm px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-surface"
+																	/>
 																	<Button
 																		onclick={() => {
-																			addResourcePath(scope.value, '*')
+																			addResourcePath(scope.value, currentInput)
 																		}}
 																		size="xs"
-																		variant="border"
-																		disabled={resourcePathArray.includes('*')}
+																		disabled={!currentInput.trim()}
 																	>
-																		Add All (*)
+																		Add
 																	</Button>
-																	<Button onclick={close} size="xs" variant="border">Cancel</Button>
 																</div>
+																{#if pathError}
+																	<p class="text-xs text-red-600 mt-1">{pathError}</p>
+																{/if}
 															</div>
 														{/snippet}
 													</Popover>
