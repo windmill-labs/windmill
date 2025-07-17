@@ -25,7 +25,12 @@
 
 <script lang="ts">
 	import { inferAssets } from '$lib/infer'
-	import { assetEq, getFlowModuleAssets, type AssetWithAccessType } from '../assets/lib'
+	import {
+		assetEq,
+		getFlowModuleAssets,
+		type AssetWithAccessType,
+		type AssetWithAltAccessType
+	} from '../assets/lib'
 	import OnChange from '../common/OnChange.svelte'
 	import { getAllModules } from './flowExplorer'
 	import { getContext, untrack } from 'svelte'
@@ -115,8 +120,12 @@
 
 	async function parseAndUpdateRawScriptModule(v: RawScript) {
 		try {
-			let assets = await inferAssets(v.language, v.content)
-			if (!deepEqual(v.assets, assets)) v.assets = assets
+			let parsedAssets: AssetWithAltAccessType[] = await inferAssets(v.language, v.content)
+			for (const asset of parsedAssets) {
+				const old = v.assets?.find((a) => assetEq(a, asset))
+				if (old?.alt_access_type) asset.alt_access_type = old.alt_access_type
+			}
+			if (!deepEqual(v.assets, parsedAssets)) v.assets = parsedAssets
 		} catch (e) {}
 	}
 

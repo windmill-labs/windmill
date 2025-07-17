@@ -288,10 +288,10 @@ components:
                   - variable
               access_type:
                 type: string
-                enum:
-                  - r
-                  - w
-                  - rw
+                enum: [r, w, rw]
+              alt_access_type:
+                type: string
+                enum: [r, w, rw]
       required:
         - type
         - content
