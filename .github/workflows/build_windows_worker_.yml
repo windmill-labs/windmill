@@ -33,7 +33,7 @@ jobs:
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.85.0
+          toolchain: 1.88.0
           override: true
 
       - name: Substitute EE code
