@@ -8,6 +8,7 @@
 		assetsEq,
 		formatAssetAccessType,
 		formatAssetKind,
+		getAccessType,
 		type Asset,
 		type AssetWithAltAccessType
 	} from './lib'
@@ -136,7 +137,7 @@
 									!asset.access_type ? 'hover:bg-surface active:opacity-80' : ''
 								)}
 							>
-								{formatAssetAccessType(asset)}
+								{formatAssetAccessType(getAccessType(asset))}
 							</div>
 						</svelte:fragment>
 						<svelte:fragment slot="content">

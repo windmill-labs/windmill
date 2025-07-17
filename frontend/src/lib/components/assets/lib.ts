@@ -71,8 +71,8 @@ export function formatAssetKind(asset: {
 	}
 }
 
-export function formatAssetAccessType(asset: AssetWithAltAccessType) {
-	switch (getAccessType(asset)) {
+export function formatAssetAccessType(accessType: AssetUsageAccessType | undefined) {
+	switch (accessType) {
 		case 'r':
 			return 'Read'
 		case 'w':

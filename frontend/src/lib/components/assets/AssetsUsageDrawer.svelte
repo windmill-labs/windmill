@@ -1,12 +1,9 @@
 <script lang="ts">
 	import type { AssetUsageAccessType, AssetUsageKind } from '$lib/gen'
+	import { twMerge } from 'tailwind-merge'
 	import { Drawer, DrawerContent } from '../common'
 	import RowIcon from '../common/table/RowIcon.svelte'
-	import {
-		assetDisplaysAsInputInFlowGraph,
-		assetDisplaysAsOutputInFlowGraph
-	} from '../graph/renderers/nodes/AssetNode.svelte'
-	import { getAssetUsagePageUri } from './lib'
+	import { formatAssetAccessType, getAssetUsagePageUri } from './lib'
 
 	let usagesDrawerData:
 		| {
@@ -42,13 +39,13 @@
 							<span class="font-semibold">{u.path}</span>
 							<span class="text-xs text-tertiary">{u.kind}</span>
 						</div>
-						<div class="flex gap-2">
-							{#if assetDisplaysAsInputInFlowGraph(u)}
-								<div class="text-xs border text-tertiary max-w-fit p-1 rounded-md">Read</div>
-							{/if}
-							{#if assetDisplaysAsOutputInFlowGraph(u)}
-								<div class="text-xs border text-tertiary max-w-fit p-1 rounded-md">Write</div>
-							{/if}
+						<div
+							class={twMerge(
+								'text-xs font-normal border text-tertiary w-10 p-1 text-center rounded-md',
+								!u.access_type ? 'hover:bg-surface active:opacity-80' : ''
+							)}
+						>
+							{formatAssetAccessType(u.access_type)}
 						</div>
 					</a>
 				</li>
