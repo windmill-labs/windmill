@@ -9,6 +9,8 @@ use crate::error;
 pub enum AssetKind {
     S3Object,
     Resource,
+    // Avoid unnexpected crashes when deserializing old assets
+    Variable, // Deprecated
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
