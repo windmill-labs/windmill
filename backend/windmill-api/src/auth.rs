@@ -22,6 +22,7 @@ use tokio::sync::RwLock;
 
 use windmill_common::{
     auth::{get_folders_for_user, get_groups_for_user, JWTAuthClaims, TOKEN_PREFIX_LEN},
+    error::Error,
     jwt,
     users::{COOKIE_NAME, SUPERADMIN_SECRET_EMAIL},
 };
@@ -499,6 +500,33 @@ where
     }
 }
 
+pub fn transform_old_scope_to_new_scope(scopes: Option<&mut Vec<String>>) {
+    if let Some(scopes) = scopes {
+        for scope in scopes.iter_mut() {
+            if scope.starts_with("run:") {
+                let (_, part_scope) = scope.split_once(":").unwrap();
+
+                if let Some((kind, path)) = part_scope.split_once("/") {
+                    //appending a 's' as runnable kind is singular while new scope format expect it to be plural
+                    *scope = format!("jobs:run:{}s:{}", kind, path);
+                }
+            } else if scope.starts_with("jobs:") {
+                // Map old jobs scopes to new format
+                let new_scope = match scope.as_str() {
+                    "jobs:listjobs" => "jobs:read",
+                    "jobs:runscript" => "jobs:run:scripts",
+                    "jobs:runflow" => "jobs:run:flows",
+                    "jobs:resumeflow" => "jobs:run:flows",
+                    "jobs:deletejob" => "jobs:write",
+                    _ => continue,
+                };
+
+                *scope = new_scope.to_string();
+            }
+        }
+    }
+}
+
 fn maybe_get_workspace_id_from_path(path_vec: &[&str]) -> Option<String> {
     let workspace_id = if path_vec.len() >= 4 && path_vec[0] == "" && path_vec[2] == "w" {
         Some(path_vec[3].to_owned())
@@ -525,7 +553,7 @@ impl<S> FromRequestParts<S> for ApiAuthed
 where
     S: Send + Sync,
 {
-    type Rejection = (StatusCode, String);
+    type Rejection = Error;
 
     async fn from_request_parts(
         parts: &mut Parts,
@@ -546,7 +574,6 @@ where
         } else {
             extract_token(parts, state).await
         };
-
         if let Some(token) = token_o {
             if let Ok(Extension(cache)) =
                 Extension::<Arc<AuthCache>>::from_request_parts(parts, state).await
@@ -559,21 +586,22 @@ where
                 let path_vec: Vec<&str> = original_uri.path().split("/").collect();
                 let workspace_id = maybe_get_workspace_id_from_path(&path_vec);
 
-                if let Some(authed) = cache.get_authed(workspace_id.clone(), &token).await {
-                    if authed.scopes.as_ref().is_some_and(|scopes| {
-                        scopes
-                            .iter()
-                            .any(|s| s.starts_with("jobs:") || s.starts_with("run:"))
-                    }) && (path_vec.len() < 3
-                        || (path_vec[4] != "jobs" && path_vec[4] != "jobs_u"))
-                    {
-                        BRUTE_FORCE_COUNTER.increment().await;
-                        return Err((
-                            StatusCode::UNAUTHORIZED,
-                            format!("Unauthorized scoped token: {:?}", authed.scopes),
-                        ));
-                    }
+                if let Some(mut authed) = cache.get_authed(workspace_id.clone(), &token).await {
+                    if authed.scopes.is_some() {
+                        transform_old_scope_to_new_scope(authed.scopes.as_mut());
 
+                        let path = original_uri.path();
+                        let method = parts.method.as_str();
+
+                        if let Err(err) = crate::scopes::check_scopes_for_route(
+                            authed.scopes.as_deref(),
+                            path,
+                            method,
+                        ) {
+                            BRUTE_FORCE_COUNTER.increment().await;
+                            return Err(err);
+                        }
+                    }
                     parts.extensions.insert(authed.clone());
 
                     Span::current().record("username", &authed.username.as_str());
@@ -587,7 +615,7 @@ where
             }
         }
         BRUTE_FORCE_COUNTER.increment().await;
-        Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
+        Err(Error::NotAuthorized("Unauthorized".to_string()))
     }
 }
 

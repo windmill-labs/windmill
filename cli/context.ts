@@ -58,12 +58,12 @@ export async function resolveWorkspace(
   if (opts.baseUrl) {
     if (opts.workspace && opts.token) {
       const normalizedBaseUrl = new URL(opts.baseUrl).toString(); // add trailing slash if not present
-      
+
       // Try to find existing workspace profile by name, then by workspaceId + remote
       if (opts.workspace) {
         // Try by workspace name first
         let existingWorkspace = await getWorkspaceByName(opts.workspace, opts.configDir);
-        
+
         // If not found by name, try to find by workspaceId + remote match
         if (!existingWorkspace) {
           const { allWorkspaces } = await import("./workspace.ts");
@@ -71,13 +71,13 @@ export async function resolveWorkspace(
           const matchingWorkspaces = workspaces.filter(
             w => w.workspaceId === opts.workspace && w.remote === normalizedBaseUrl
           );
-          
+
           // Due to uniqueness constraint, there can only be 0 or 1 match
           if (matchingWorkspaces.length === 1) {
             existingWorkspace = matchingWorkspaces[0];
           }
         }
-        
+
         if (existingWorkspace) {
           // Validate that the base URL matches the profile's remote
           if (existingWorkspace.remote !== normalizedBaseUrl) {
@@ -95,7 +95,7 @@ export async function resolveWorkspace(
           };
         }
       }
-      
+
       // No existing profile found, create temporary workspace
       return {
         remote: normalizedBaseUrl,
@@ -121,45 +121,6 @@ export async function resolveWorkspace(
   }
 }
 
-export async function requireLogin(
-  opts: GlobalOptions
-): Promise<GlobalUserInfo> {
-  const workspace = await resolveWorkspace(opts);
-  let token = await tryGetLoginInfo(opts);
-
-  if (!token) {
-    token = workspace.token;
-  }
-
-  setClient(token, workspace.remote.substring(0, workspace.remote.length - 1));
-
-  try {
-    return await wmill.globalWhoami();
-  } catch (error) {
-    // Check for network errors and provide clearer messages
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    if (errorMsg.includes('fetch') || errorMsg.includes('connection') || errorMsg.includes('ECONNREFUSED') || errorMsg.includes('refused')) {
-      throw new Error(`Network error: Could not connect to Windmill server at ${workspace.remote}`);
-    }
-    
-    log.info(
-      "! Could not reach API given existing credentials. Attempting to reauth..."
-    );
-    const newToken = await loginInteractive(workspace.remote);
-    if (!newToken) {
-      throw new Error("Unauthorized: Could not authenticate with the provided credentials");
-    }
-    removeWorkspace(workspace.name, false, opts);
-    workspace.token = newToken;
-    addWorkspace(workspace, opts);
-
-    setClient(
-      newToken,
-      workspace.remote.substring(0, workspace.remote.length - 1)
-    );
-    return await wmill.globalWhoami();
-  }
-}
 
 export async function fetchVersion(baseUrl: string): Promise<string> {
   const requestHeaders = new Headers();
@@ -176,13 +137,13 @@ export async function fetchVersion(baseUrl: string): Promise<string> {
     new URL(new URL(baseUrl).origin + "/api/version"),
     { headers: requestHeaders, method: "GET" }
   );
-  
+
   if (!response.ok) {
     // Consume response body even on error to avoid resource leak
     await response.text();
     throw new Error(`Failed to fetch version: ${response.status} ${response.statusText}`);
   }
-  
+
   return await response.text();
 }
 export async function tryResolveVersion(

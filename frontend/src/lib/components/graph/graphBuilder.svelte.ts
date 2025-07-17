@@ -1,11 +1,12 @@
 import type { FlowModule, Job, RawScript, Script } from '$lib/gen'
 import { type Edge } from '@xyflow/svelte'
-import { getDependeeAndDependentComponents } from '../flows/flowExplorer'
+import { getAllModules, getDependeeAndDependentComponents } from '../flows/flowExplorer'
 import { dfsByModule } from '../flows/previousResults'
 import { defaultIfEmptyString } from '$lib/utils'
 import type { GraphModuleState } from './model'
-import type { AssetWithAccessType } from '../assets/lib'
+import { getFlowModuleAssets, type AssetWithAltAccessType } from '../assets/lib'
 import type { Writable } from 'svelte/store'
+import { assetDisplaysAsOutputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
 
 export type InsertKind =
 	| 'script'
@@ -115,6 +116,7 @@ export type InputN = {
 		flowJob: Job | undefined
 		showJobStatus: boolean
 		flowHasChanged: boolean
+		assets?: AssetWithAltAccessType[] | undefined
 	}
 }
 
@@ -132,6 +134,7 @@ export type ModuleN = {
 		editMode: boolean
 		flowJob: Job | undefined
 		isOwner: boolean
+		assets: AssetWithAltAccessType[] | undefined
 	}
 }
 
@@ -277,14 +280,14 @@ export type TriggerN = {
 export type AssetN = {
 	type: 'asset'
 	data: {
-		asset: AssetWithAccessType
+		asset: AssetWithAltAccessType
 	}
 }
 
 export type AssetsOverflowedN = {
 	type: 'assetsOverflowed'
 	data: {
-		overflowedAssets: AssetWithAccessType[]
+		overflowedAssets: AssetWithAltAccessType[]
 	}
 }
 
@@ -322,6 +325,7 @@ export function graphBuilder(
 		showJobStatus: boolean
 		suspendStatus: Writable<Record<string, { job: Job; nb: number }>>
 		flowHasChanged: boolean
+		additionalAssetsMap?: Record<string, AssetWithAltAccessType[]>
 	},
 	failureModule: FlowModule | undefined,
 	preprocessorModule: FlowModule | undefined,
@@ -374,13 +378,23 @@ export function graphBuilder(
 					insertable: extra.insertable,
 					editMode: extra.editMode,
 					isOwner: extra.isOwner,
-					flowJob: extra.flowJob
+					flowJob: extra.flowJob,
+					assets: getFlowModuleAssets(module, extra.additionalAssetsMap)
 				},
 				type: 'module'
 			})
 
 			return module.id
 		}
+
+		// TODO : Do better than this
+		const nodeIdsWithOutputAssets = new Set(
+			getAllModules(modules)
+				.filter((m) =>
+					getFlowModuleAssets(m, extra.additionalAssetsMap)?.some(assetDisplaysAsOutputInFlowGraph)
+				)
+				.map((m) => m.id)
+		)
 
 		const parents: { [key: string]: string[] } = {}
 
@@ -458,11 +472,13 @@ export function graphBuilder(
 					// If the index is -1, it means that the target module is not in the modules array, so we set it to the length of the array
 					index: index >= 0 ? index : (mods?.length ?? 0),
 					...extra,
-					insertable: extra.insertable && !options?.disableInsert && prefix == undefined
+					insertable: extra.insertable && !options?.disableInsert && prefix == undefined,
+					shouldOffsetInsertBtnDueToAssetNode: nodeIdsWithOutputAssets.has(sourceId)
 				}
 			})
 		}
 
+		const inputAssets = extra.additionalAssetsMap?.['Input']
 		const inputNode: NodeLayout = {
 			id: 'Input',
 			type: 'input2',
@@ -479,7 +495,8 @@ export function graphBuilder(
 				individualStepTests: extra.individualStepTests,
 				flowJob: extra.flowJob,
 				showJobStatus: extra.showJobStatus,
-				flowHasChanged: extra.flowHasChanged
+				flowHasChanged: extra.flowHasChanged,
+				...(inputAssets ? { assets: inputAssets } : {})
 			}
 		}
 

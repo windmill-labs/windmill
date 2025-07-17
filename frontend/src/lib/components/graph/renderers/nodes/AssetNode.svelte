@@ -3,33 +3,31 @@
 	export const NODE_WITH_WRITE_ASSET_Y_OFFSET = 45
 	export const READ_ASSET_Y_OFFSET = -45
 	export const WRITE_ASSET_Y_OFFSET = 64
-	export const assetDisplaysAsInputInFlowGraph = (a: { access_type?: AssetUsageAccessType }) =>
-		!a.access_type || a.access_type === 'r' || a.access_type === 'rw'
-	export const assetDisplaysAsOutputInFlowGraph = (a: { access_type?: AssetUsageAccessType }) =>
-		a.access_type === 'w' || a.access_type === 'rw'
+	export const assetDisplaysAsInputInFlowGraph = (a: AssetWithAltAccessType) =>
+		!getAccessType(a) || getAccessType(a) === 'r' || getAccessType(a) === 'rw'
+	export const assetDisplaysAsOutputInFlowGraph = (a: AssetWithAltAccessType) =>
+		getAccessType(a) === 'w' || getAccessType(a) === 'rw'
 
 	let computeAssetNodesCache:
-		| [Node[], Record<string, AssetWithAccessType[]>, ReturnType<typeof computeAssetNodes>]
+		| [(Node & NodeLayout)[], ReturnType<typeof computeAssetNodes>]
 		| undefined
 
 	export function computeAssetNodes(
-		nodes: Node[],
-		edges: Edge[],
-		assetsMap: Record<string, AssetWithAccessType[]>,
-		extraData: any
-	): [Node[], Edge[]] {
-		if (nodes === computeAssetNodesCache?.[0] && deepEqual(assetsMap, computeAssetNodesCache?.[1]))
-			return computeAssetNodesCache[2]
+		nodes: (Node & NodeLayout)[],
+		edges: Edge[]
+	): [(Node & NodeLayout)[], Edge[]] {
+		if (nodes === computeAssetNodesCache?.[0]) return computeAssetNodesCache[1]
 
 		const MAX_ASSET_ROW_WIDTH = 300
 		const ASSETS_OVERFLOWED_NODE_WIDTH = 25
-		const allAssetNodes: Node[] = []
+		const allAssetNodes: (Node & NodeLayout)[] = []
 		const allAssetEdges: Edge[] = []
 
 		const yPosMap: Record<number, { r?: true; w?: true }> = {}
 
 		for (const node of nodes) {
-			const assets = assetsMap?.[node.id] ?? []
+			if (node.type !== 'module' && node.type !== 'input2') continue
+			const assets = node.data.assets ?? []
 
 			// Each asset can be displayed at the top and bottom
 			// i.e once (R or W) or twice (RW)
@@ -197,16 +195,21 @@
 			[...sortedNewNodes, ...allAssetNodes],
 			[...edges, ...allAssetEdges]
 		]
-		computeAssetNodesCache = [nodes, clone(assetsMap), ret]
+		computeAssetNodesCache = [nodes, ret]
 		return ret
 	}
 </script>
 
 <script lang="ts">
 	import NodeWrapper from './NodeWrapper.svelte'
-	import type { AssetN, AssetsOverflowedN } from '../../graphBuilder.svelte'
+	import type { AssetN, AssetsOverflowedN, NodeLayout } from '../../graphBuilder.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
-	import { assetEq, formatAssetKind, type AssetWithAccessType } from '$lib/components/assets/lib'
+	import {
+		assetEq,
+		formatAssetKind,
+		getAccessType,
+		type AssetWithAltAccessType
+	} from '$lib/components/assets/lib'
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowGraphAssetContext } from '$lib/components/flows/types'
 	import { getContext } from 'svelte'
@@ -215,28 +218,21 @@
 	import { clone, pluralize } from '$lib/utils'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import type { Edge, Node } from '@xyflow/svelte'
-	import { deepEqual } from 'fast-equals'
 
 	import { NODE } from '../../util'
-	import type { AssetUsageAccessType } from '$lib/gen'
 	import { userStore } from '$lib/stores'
 
 	interface Props {
 		data: AssetN['data']
 	}
 
-	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext>('FlowGraphAssetContext')
-
-	const usageCount = $derived(
-		Object.values(flowGraphAssetsCtx.val.assetsMap ?? {})
-			.flat()
-			.filter((asset) => assetEq(asset, data.asset)).length
-	)
+	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
 
 	let { data }: Props = $props()
-	const isSelected = $derived(assetEq(flowGraphAssetsCtx.val.selectedAsset, data.asset))
+
+	const isSelected = $derived(assetEq(flowGraphAssetsCtx?.val.selectedAsset, data.asset))
 	const cachedResourceMetadata = $derived(
-		flowGraphAssetsCtx.val.resourceMetadataCache[data.asset.path]
+		flowGraphAssetsCtx?.val.resourceMetadataCache[data.asset.path]
 	)
 </script>
 
@@ -249,8 +245,10 @@
 					'bg-surface h-6 flex items-center gap-1.5 rounded-sm text-tertiary border overflow-clip',
 					isSelected ? 'bg-surface-secondary !border-surface-inverse' : 'border-transparent'
 				)}
-				onmouseenter={() => (flowGraphAssetsCtx.val.selectedAsset = data.asset)}
-				onmouseleave={() => (flowGraphAssetsCtx.val.selectedAsset = undefined)}
+				onmouseenter={() =>
+					flowGraphAssetsCtx && (flowGraphAssetsCtx.val.selectedAsset = data.asset)}
+				onmouseleave={() =>
+					flowGraphAssetsCtx && (flowGraphAssetsCtx.val.selectedAsset = undefined)}
 			>
 				<AssetGenericIcon
 					assetKind={data.asset.kind}
@@ -272,14 +270,17 @@
 						asset={data.asset}
 						noText
 						buttonVariant="contained"
-						s3FilePicker={flowGraphAssetsCtx.val.s3FilePicker}
-						dbManagerDrawer={flowGraphAssetsCtx.val.dbManagerDrawer}
+						s3FilePicker={flowGraphAssetsCtx?.val.s3FilePicker}
+						dbManagerDrawer={flowGraphAssetsCtx?.val.dbManagerDrawer}
 						_resourceMetadata={cachedResourceMetadata}
 					/>
 				{/if}
 			</div>
 			<svelte:fragment slot="text">
-				Used in {pluralize(usageCount, 'step')}<br />
+				Used in {pluralize(
+					flowGraphAssetsCtx?.val.computeAssetsCount?.(data.asset) ?? -1,
+					'step'
+				)}<br />
 				<a
 					href={undefined}
 					class={twMerge(
@@ -290,7 +291,7 @@
 					)}
 					onclick={() => {
 						if (data.asset.kind === 'resource')
-							flowGraphAssetsCtx.val.resourceEditorDrawer?.initEdit(data.asset.path)
+							flowGraphAssetsCtx?.val.resourceEditorDrawer?.initEdit(data.asset.path)
 					}}
 				>
 					{data.asset.path}
@@ -298,6 +299,8 @@
 				<span class="dark:text-tertiary text-tertiary-inverse text-xs"
 					>{formatAssetKind({ ...data.asset, metadata: cachedResourceMetadata })}</span
 				>
+				<br />
+				fdsfs
 			</svelte:fragment>
 		</Tooltip>
 	{/snippet}

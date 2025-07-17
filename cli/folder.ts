@@ -2,7 +2,8 @@
 import { colors, Command, log, SEP, Table } from "./deps.ts";
 import * as wmill from "./gen/services.gen.ts";
 
-import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
+import { requireLogin } from "./auth.ts";
+import { resolveWorkspace, validatePath } from "./context.ts";
 import { GlobalOptions, isSuperset, parseFromFile } from "./types.ts";
 import { Folder } from "./gen/types.gen.ts";
 
