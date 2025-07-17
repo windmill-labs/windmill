@@ -648,6 +648,16 @@
 								reorderable
 							/>
 						</div>
+					{:else if enum_ && (Array.isArray(value) || value == undefined)}
+						<div class="items-start">
+							<MultiSelect
+								{disabled}
+								bind:value
+								items={safeSelectItems(enum_)}
+								onOpen={() => dispatch('focus')}
+								reorderable
+							/>
+						</div>
 					{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && (Array.isArray(value) || value == undefined)}
 						<div class="items-start">
 							<MultiSelect
